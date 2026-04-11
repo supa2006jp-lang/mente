@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工場保全管理 Next | Maintenance Next</title>
+    <!-- Google Fonts: Inter & Noto Sans JP -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <style id="auth-guard">
+        #app-container { visibility: hidden !important; }
+    </style>
+    <style>
+        .calendar-day-memo {
+            position: relative;
+            margin-top: 4px;
+            padding: 6px 28px 6px 10px; /* Right padding for X */
+            background: #fffbeb; /* Amber-50 */
+            border: 1px solid #fde68a; /* Amber-200 */
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: #92400e; /* Amber-800 */
+            line-height: 1.4;
+            word-break: break-all;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            white-space: normal;
+            text-align: left;
+        }
+        .calendar-day-memo-delete {
+            position: absolute;
+            top: 6px;
+            right: 8px;
+            color: #92400e;
+            opacity: 0.5;
+            cursor: pointer;
+            transition: opacity 0.2s, color 0.2s;
+            font-size: 0.85rem;
+        }
+        .calendar-day-memo-delete:hover {
+            opacity: 1;
+            color: #dc2626; /* Red on hover */
+        }
+    </style>
+</head>
+<body style="margin: 0;">
+    <!-- Login Overlay -->
+    <div class="login-overlay" id="login-overlay">
+        <div class="login-card-container">
+            <div class="login-card">
+                <div class="login-decoration"></div>
+                <div class="logo-box-large">
+                    <i class="fa-solid fa-industry"></i>
+                </div>
+                <h2 class="login-title">工場保全管理 Next</h2>
+                <div class="login-subtitle">
+                    <p>MAINTENANCE MANAGEMENT SYSTEM</p>
+                    <span>アクセスパスを入力してください</span>
+                </div>
+                <div class="login-field-group">
+                    <i class="fa-solid fa-lock field-icon"></i>
+                    <input type="password" id="login-pass" class="login-input" placeholder="Password PIN">
+                </div>
+                <button id="btn-login" class="login-btn-premium">
+                    <span>ログイン</span>
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                </button>
+                <div id="login-error" class="login-error"></div>
+                <div class="login-footer">
+                    Copyright &copy; 2026 Maintainance Next Pro.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auth Protection Script -->
+    <script>
+        (function() {
+            // "kita2030" の SHA-256 ハッシュ値 (ブラウザが対応している環境用)
+            const TARGET_HASH = "94c3de4864e2e28318e8c894bd8a658510f229411603565eb604b78680d287a1";
+
+            const sha256 = async (message) => {
+                try {
+                    const msgBuffer = new TextEncoder().encode(message);
+                    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+                    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+                } catch(e) { return null; }
+            };
+            
+            const initAuth = () => {
+                const overlay = document.getElementById('login-overlay');
+                const passInput = document.getElementById('login-pass');
+                const loginBtn = document.getElementById('btn-login');
+                const errorMsg = document.getElementById('login-error');
+                const guard = document.getElementById('auth-guard');
+
+                const attemptLogin = async () => {
+                    let val = passInput.value.trim();
+                    if (!val) return;
+                    
+                    // 全角を半角に変換（入力ミスの防止）
+                    val = val.replace(/[！-～]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+
+                    let success = false;
+                    try {
+                        // Chromeのローカル実行(file://)等の非セキュア環境ではCryptoAPIが制限されるため、環境に応じてフォールバック
+                        if (window.crypto && crypto.subtle && (window.isSecureContext || location.protocol === 'file:')) {
+                            const hashedInput = await sha256(val);
+                            if (hashedInput === TARGET_HASH) success = true;
+                        }
+                    } catch (e) {}
+
+                    // CryptoAPIが失敗した、または非セキュア環境の場合のフォールバック (単なるkita2030比較を避けて隠蔽)
+                    if (!success) {
+                        // "kita2030" を逆順にしてBase64化したものと照合
+                        if (btoa(val.split('').reverse().join('')) === "MDMwMmF0aWs=") success = true;
+                    }
+
+                    if (success) {
+                        overlay.style.opacity = '0';
+                        setTimeout(() => {
+                            overlay.style.display = 'none';
+                            if (guard) guard.remove();
+                        }, 300);
+                        sessionStorage.setItem('is_authorized', 'true');
+                    } else {
+                        errorMsg.textContent = 'パスワードが正しくありません';
+                        passInput.value = '';
+                        passInput.focus();
+                        passInput.classList.add('shake');
+                        setTimeout(() => passInput.classList.remove('shake'), 400);
+                    }
+                };
+
+                if (sessionStorage.getItem('is_authorized') === 'true') {
+                    overlay.style.display = 'none';
+                    if (guard) guard.remove();
+                    return;
+                }
+
+                loginBtn.addEventListener('click', attemptLogin);
+                passInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') attemptLogin();
+                });
+                
+                passInput.focus();
+            };
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initAuth);
+            } else {
+                initAuth();
+            }
+        })();
+    </script>
+
+    <div id="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header" id="sidebar-home" style="cursor: pointer;">
+                <div class="logo-box">
+                    <i class="fa-solid fa-industry"></i>
+                </div>
+                <div class="logo-text">
+                    <h1>メンテ管理帳</h1>
+                </div>
+            </div>
+
+            <!-- Stats in Sidebar (Toggleable Status Summary) -->
+            <div class="nav-divider" onclick="app.toggleSidebarStats()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition: var(--transition); user-select: none;">
+                <span>状況サマリー</span>
+                <i id="sidebar-stats-chevron" class="fa-solid fa-chevron-down" style="transition: transform 0.3s ease;"></i>
+            </div>
+            <div id="sidebar-stats-container" class="sidebar-stats-container">
+                <div class="stat-widget danger">
+                    <div class="stat-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <div class="stat-info">
+                        <span class="label">定期メンテ 残り</span>
+                        <span class="value" id="cal-stat-remaining">0</span>
+                    </div>
+                </div>
+                <div class="stat-widget success">
+                    <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+                    <div class="stat-info">
+                        <span class="label">定期メンテ 完了</span>
+                        <span class="value" id="cal-stat-done">0</span>
+                    </div>
+                </div>
+                <div class="stat-widget sudden">
+                    <div class="stat-icon"><i class="fa-solid fa-bolt-lightning"></i></div>
+                    <div class="stat-info">
+                        <span class="label">突発対応 件数</span>
+                        <span class="value" id="cal-stat-sudden-count">0</span>
+                    </div>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat-widget dokatei-main">
+                    <div class="stat-icon"><i class="fa-solid fa-bolt"></i></div>
+                    <div class="stat-info">
+                        <span class="label">ドカ停 総計</span>
+                        <div class="value-row">
+                            <span class="value" id="cal-stat-dokatei-count">0</span>
+                            <span class="unit">件</span>
+                            <span class="sep">/</span>
+                            <span class="value" id="cal-stat-dokatei-time">0</span>
+                            <span class="unit">分</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-view="calendar">
+                    <i class="fa-regular fa-calendar-days"></i> <span>カレンダー</span>
+                </button>
+                <button class="nav-btn" data-view="machines">
+                    <i class="fa-solid fa-cogs"></i> <span>メンテ・周期設定</span>
+                </button>
+                <button class="nav-btn" data-view="history">
+                    <i class="fa-solid fa-clock-rotate-left"></i> <span>メンテナンス履歴</span>
+                </button>
+                <button class="nav-btn" data-view="guides">
+                    <i class="fa-solid fa-book-open"></i> <span>手順書・ナレッジDB</span>
+                </button>
+                <div class="nav-divider">分析</div>
+                <button class="nav-btn" data-view="analysis">
+                    <i class="fa-solid fa-box-open"></i> <span>部品消費・コスト</span>
+                </button>
+                <button class="nav-btn" data-view="dashboard">
+                    <i class="fa-solid fa-chart-line"></i> <span>ダッシュボード</span>
+                </button>
+                <button class="nav-btn" data-view="worktime">
+                    <i class="fa-solid fa-business-time"></i> <span>作業時間集計</span>
+                </button>
+                <button class="nav-btn" data-view="ranking">
+                    <i class="fa-solid fa-ranking-star"></i> <span>異常頻度ランク</span>
+                </button>
+                <div class="nav-divider">管理</div>
+                <button class="nav-btn" data-view="workers">
+                    <i class="fa-solid fa-users"></i> <span>スキルマップ</span>
+                </button>
+                <button class="nav-btn" onclick="app.openWorkerMaintenance()" style="color:var(--secondary);">
+                    <i class="fa-solid fa-user-lock"></i> <span>管理画面</span>
+                </button>
+                <div class="nav-divider" onclick="app.toggleSidebarBottom()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition: var(--transition); user-select: none;">
+                    <span>部署設定・管理</span>
+                    <i id="sidebar-bottom-chevron" class="fa-solid fa-chevron-down" style="transition: transform 0.3s ease;"></i>
+                </div>
+            </nav>
+
+            <div id="sidebar-bottom-container">
+                <div style="padding: 0 12px; margin-top: 4px;">
+                    <button class="nav-btn" id="btn-switch-dept" style="background:var(--primary-light); color:var(--primary); border:1px solid var(--primary); margin-bottom: 8px;">
+                        <i class="fa-solid fa-building"></i> <span id="current-dept-display">初期部署</span>
+                    </button>
+                </div>
+
+
+            <div class="sidebar-footer">
+                <div class="file-status">
+                    <span class="label">FILE:</span>
+                    <span id="current-filename">latest.json</span>
+                </div>
+                <div class="sync-btns">
+                    <button id="btn-export" title="全データを出力"><i class="fa-solid fa-download"></i> 出力</button>
+                    <button id="btn-import-trigger" title="全データを取込"><i class="fa-solid fa-upload"></i> 取込</button>
+                    <input type="file" id="btn-import" hidden accept=".json,.txt">
+                </div>
+                <div class="sync-btns" style="margin-top: 8px;">
+                    <button id="btn-export-dept" title="現在の部署のみ出力" style="background:#f0f9ff; color:#0369a1; border:1px solid #bae6fd;">
+                        <i class="fa-solid fa-file-export"></i> 部署出力
+                    </button>
+                    <button id="btn-import-dept-trigger" title="選択中の部署に取込" style="background:#f0f9ff; color:#0369a1; border:1px solid #bae6fd;">
+                        <i class="fa-solid fa-file-import"></i> 部署取込
+                    </button>
+                    <input type="file" id="btn-import-dept" hidden accept=".json">
+                </div>
+                <!-- Photo Purge Button -->
+                <button id="btn-photo-purge" style="width:100%; margin-top:8px; padding:6px; font-size:0.75rem; background:#fef2f2; border:1px solid #fecaca; color:#dc2626; border-radius:4px; cursor:pointer; font-weight:700;">
+                    <i class="fa-solid fa-broom"></i> 画像パージ
+                </button>
+                <div style="font-size: 0.6rem; color: #dc2626; margin-top: 4px; line-height: 1.3;">
+                    削除された写真は復元できません。実行前に、左下の「出力」ボタンで一度バックアップ（latest.jsonなど）を保存しておくことをお勧めします。
+                </div>
+                <div style="font-size: 0.65rem; color: var(--text-light); margin-top: 10px; line-height: 1.4; border-top: 1px solid var(--border); padding-top: 8px;">
+                    ※「出力」で日時付きのバックアップ用と、共有用の「latest.json」の2つが同時に保存されます。他のPCへ最新データを渡す際は「latest.json」を読み込んでください。
+                </div>
+            </div>
+        </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <button id="sidebar-toggle" class="icon-btn"><i class="fa-solid fa-bars"></i></button>
+                    <h2 id="view-title">カレンダー</h2>
+                    <div class="search-bar">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="global-search" placeholder="機械・履歴を検索...">
+                        <i class="fa-solid fa-circle-xmark" id="search-clear" style="cursor:pointer; color:var(--text-light); opacity:0.6; transition:var(--transition);" title="クリア"></i>
+                    </div>
+                </div>
+                <div class="header-right"></div>
+            </header>
+
+            <div id="content-viewport" class="viewport">
+                <!-- Views will be rendered here -->
+                <section id="view-calendar" class="view active">
+                    <div class="calendar-header" style="display:flex; align-items:center; justify-content:space-between;">
+                        <div class="month-selector">
+                            <button class="icon-btn" id="cal-prev"><i class="fa-solid fa-chevron-left"></i></button>
+                            <h3 id="current-month-display">2026年 3月</h3>
+                            <button class="icon-btn" id="cal-next"><i class="fa-solid fa-chevron-right"></i></button>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <label style="font-size:0.75rem; color:var(--text-light); font-weight:700; white-space:nowrap;"><i class="fa-solid fa-filter"></i> ライン絞込:</label>
+                            <select id="cal-filter-line" style="font-size:0.8rem; padding:6px 14px; border-radius:99px; border:1.5px solid var(--border); background:white; font-weight:700; cursor:pointer;" onchange="app.calLineFilter=this.value; app.renderCalendar();">
+                                <option value="all">全ライン</option>
+                            </select>
+                        </div>
+                        <div id="cal-telop-container" class="telop-container">
+                            <div id="cal-telop-text" class="telop-text"></div>
+                        </div>
+                    </div>
+                    <div style="font-size:0.75rem; color:#0369a1; background:#f0f9ff; padding:6px 16px; border-radius:18px; margin-bottom:12px; border:1px solid #bae6fd; display:inline-flex; align-items:center; gap:8px;">
+                        <i class="fa-solid fa-circle-info"></i> 定期メンテはドラッグして予定をずらすことも出来ます。
+                    </div>
+                    <div class="calendar-grid-container">
+                        <div class="calendar-weekdays">
+                            <div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div>
+                        </div>
+                        <div id="calendar-days" class="calendar-days"></div>
+                    </div>
+                </section>
+
+                <section id="view-machines" class="view">
+                    <div class="view-header" style="justify-content: space-between; gap: 20px;">
+                        <div style="display:flex; align-items:center; gap:20px;">
+                            <div class="title-group">
+                                <p class="subtitle">メンテ項目と周期の設定</p>
+                            </div>
+                            <div style="background:var(--secondary-light); color:var(--secondary); padding:8px 16px; border-radius:8px; font-size:0.8rem; border:1px solid var(--secondary); font-weight:800; display:flex; align-items:center; gap:8px;">
+                                <i class="fa-solid fa-circle-info"></i> メンテ・周期設定でカードの内容にライン情報と装置区分を入れるとカレンダーのメンテ登録時に該当の型式を選ぶことで自動でその2点の情報が選択されます。
+                            </div>
+                            <button class="primary-btn" id="btn-add-machine">
+                                <i class="fa-solid fa-plus"></i> 新規機械登録
+                            </button>
+                        </div>
+                        <div class="filter-bar" style="margin:0; padding:0; background:none;">
+                            <select id="machine-sort-select" onchange="app.machineSort = this.value; app.renderMachines();" style="font-size:0.75rem; padding:6px 12px;">
+                                <option value="rank">不具合頻度順 (重要度)</option>
+                                <option value="name">名称順 (五十音順)</option>
+                                <option value="newest">登録が新しい順</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="machines-list" class="grid-list"></div>
+                </section>
+                
+                <section id="view-history" class="view">
+                    <div class="view-header">
+                        <div class="title-group">
+                            <p class="subtitle">全期間のメンテナンス実施履歴</p>
+                        </div>
+                    </div>
+                    <div class="filter-bar" style="display:flex; gap:12px; margin-bottom:16px;">
+                        <select id="hist-filter-period" onchange="app.onPeriodChange(this, () => app.renderHistory())">
+                            <option value="today">今日</option>
+                            <option value="yesterday">昨日</option>
+                            <option value="yesterday_today">昨日と今日</option>
+                            <option value="this_month">今月分</option>
+                            <option value="all" selected>累計 (全ての記録)</option>
+                        </select>
+                        <select id="hist-filter-machine">
+                            <option value="">全機械</option>
+                        </select>
+                        <select id="hist-filter-line" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;">
+                            <option value="all">全ライン</option>
+                        </select>
+                        <select id="hist-filter-type">
+                            <option value="">全タイプ</option>
+                            <option value="periodic">定期のみ</option>
+                            <option value="sudden">突発のみ</option>
+                            <option value="dokatei">ドカ停のみ</option>
+                        </select>
+                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem; margin-left: auto;" onclick="app.openHistoryImportModal()">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> 一括取込 (CSV)
+                        </button>
+                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.exportHistoryAsCSV()">
+                            <i class="fa-solid fa-file-csv"></i> 履歴をCSV出力
+                        </button>
+                    </div>
+                    
+                    <div id="hist-active-filters"></div>
+
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 70px;">日付</th>
+                                <th style="width: 25%; min-width: 150px;">機械</th>
+                                <th style="width: 35%; min-width: 220px;">内容</th>
+                                <th style="width: 70px;">写真</th>
+                                <th style="width: 60px; text-align: center;">区分</th>
+                                <th style="width: 45px;">時間</th>
+                                <th style="width: 110px;">交換部品</th>
+                                <th style="width: 70px; text-align: center;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-list-body"></tbody>
+                    </table>
+                </section>
+
+                <section id="view-guides" class="view">
+                    <div class="view-header" style="justify-content:space-between; align-items:center;">
+                        <div class="title-group">
+                            <h3 style="font-size:1.15rem; font-weight:900;"><i class="fa-solid fa-book-open" style="margin-right:8px; color:var(--primary);"></i> 手順書・ナレッジDB</h3>
+                            <p class="subtitle">過去のトラブル対応や定期メンテナンスの手順・ノウハウ</p>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <label style="font-size:0.75rem; color:var(--text-light); font-weight:700; white-space:nowrap;"><i class="fa-solid fa-filter"></i> ライン絞込:</label>
+                            <select id="guides-filter-line" style="font-size:0.8rem; padding:6px 14px; border-radius:99px; border:1.5px solid var(--border); background:white; font-weight:700; cursor:pointer;" onchange="app.renderGuides();">
+                                <option value="all">全ライン</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="card" style="padding:16px; margin-bottom:20px; background:var(--background-alt); border:1px solid var(--border);">
+                        <div style="font-size:0.75rem; font-weight:800; color:var(--text-light); margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+                            <i class="fa-solid fa-tags"></i> タグで絞り込み
+                        </div>
+                        <div id="guides-tag-cloud" style="display:flex; flex-wrap:wrap; gap:8px;">
+                            <!-- Tags will be injected here -->
+                        </div>
+                    </div>
+
+                    <div id="guides-container" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap:20px;">
+                        <!-- Cards will be injected here -->
+                    </div>
+                </section>
+
+                <section id="view-analysis" class="view">
+                    <div class="view-header" style="justify-content: space-between;">
+                        <div class="title-group">
+                            <p class="subtitle" id="analysis-subtitle">交換部品の消費ペースと年間コスト予測</p>
+                        </div>
+                        <div class="filter-bar" style="margin-top:0;">
+                            <div class="btn-group">
+                                <button class="secondary-btn active" id="btn-analysis-parts" onclick="app.setAnalysisMode('parts')" style="padding:6px 14px; font-size:0.75rem;">部品別</button>
+                                <button class="secondary-btn" id="btn-analysis-machines" onclick="app.setAnalysisMode('machines')" style="padding:6px 14px; font-size:0.75rem;">装置別コスト</button>
+                            </div>
+                            <div id="cost-labor-rate-box" style="display:none; align-items:center; gap:8px; background:white; padding:4px 12px; border-radius:99px; border:1px solid var(--border);">
+                                <label style="font-size:0.7rem; color:var(--text-light); font-weight:800; white-space:nowrap;">人件費単価:</label>
+                                <input type="number" id="analysis-labor-rate" value="3500" step="100" style="width:70px; border:none; font-weight:800; color:var(--primary); outline:none;" oninput="app.laborRate = parseFloat(this.value)||0; app.renderAnalysis();">
+                                <span style="font-size:0.7rem; color:var(--text-light);">円/h</span>
+                            </div>
+                            <!-- Cost Pattern Toggle -->
+                            <div id="cost-category-filter" style="display:none; background:var(--background); padding:2px; border-radius:99px; border:1px solid var(--border); overflow:hidden;">
+                                <button class="secondary-btn active" id="btn-cost-all" onclick="app.setCostFilter('all')" style="border-radius:99px 0 0 99px; padding:4px 12px; font-size:0.7rem; min-width:60px; border:none;">全部</button>
+                                <button class="secondary-btn" id="btn-cost-periodic" onclick="app.setCostFilter('periodic')" style="border-radius:0; padding:4px 12px; font-size:0.7rem; min-width:60px; border:none; border-left:1px solid var(--border);">定期</button>
+                                <button class="secondary-btn" id="btn-cost-sudden" onclick="app.setCostFilter('sudden')" style="border-radius:0 99px 99px 0; padding:4px 12px; font-size:0.7rem; min-width:60px; border:none; border-left:1px solid var(--border);">突発</button>
+                            </div>
+                            <button class="primary-btn" style="padding: 8px 16px; font-size:0.8rem;" onclick="app.openPartMasterModal('', '')">
+                                <i class="fa-solid fa-plus"></i> 新規部品登録
+                            </button>
+                            <select id="analysis-filter-line" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.renderAnalysis()">
+                                <option value="all">全ライン</option>
+                            </select>
+                            <select id="analysis-filter-period" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.onPeriodChange(this, () => app.renderAnalysis())">
+                                <option value="today">今日</option>
+                                <option value="yesterday">昨日</option>
+                                <option value="yesterday_today">昨日と今日</option>
+                                <option value="this_month">今月分</option>
+                                <option value="all" selected>累計 (全ての記録)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="analysis-container" class="analysis-grid"></div>
+                </section>
+
+                <section id="view-dashboard" class="view">
+                    <div class="view-header" style="justify-content: space-between;">
+                        <div class="title-group">
+                            <p class="subtitle">故障トレンドと異常頻度のワースト分析</p>
+                        </div>
+                        <div class="filter-bar" style="margin-top:0;">
+                        </div>
+                    </div>
+                    <div id="dashboard-widgets" class="dashboard-grid"></div>
+                </section>
+
+                <section id="view-ranking" class="view">
+                    <div class="view-header" style="justify-content: space-between;">
+                        <div class="title-group">
+                            <h2 style="font-size:1.4rem; font-weight:800; color:var(--text-main); margin-bottom:4px;">不具合頻度ランキング</h2>
+                            <p class="subtitle">故障箇所・原因のワースト分析</p>
+                        </div>
+                        <div class="filter-bar" style="margin-top:0;">
+                            <select id="ranking-filter-line" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.renderRanking()">
+                                <option value="all">全ライン</option>
+                            </select>
+                            <select id="ranking-filter-period" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.onPeriodChange(this, () => app.renderRanking())">
+                                <option value="today">今日</option>
+                                <option value="yesterday">昨日</option>
+                                <option value="yesterday_today">昨日と今日</option>
+                                <option value="this_month">今月分</option>
+                                <option value="all" selected>累計 (全ての記録)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="ranking-container" class="analysis-grid"></div>
+                </section>
+
+                <section id="view-workers" class="view">
+                    <div class="view-header" style="justify-content:space-between; align-items:center;">
+                        <div class="title-group">
+                            <h2 style="font-size:1.4rem; font-weight:800; color:var(--text-main); margin-bottom:4px;">作業員スキルマップ</h2>
+                            <p class="subtitle">各担当者の習熟度とスキル評価の記録</p>
+                        </div>
+                        <div class="filter-bar" style="margin-top:0; display:flex; gap:8px; flex-wrap:wrap;">
+                            <input type="text" id="skill-search" placeholder="スキル・機械・型式で検索..." style="font-size:0.8rem; padding:6px 14px; border-radius:99px; width:200px;" oninput="app.onSkillSearch(this.value)">
+                            <button class="secondary-btn" id="btn-risk-filter" style="padding: 6px 12px; font-size:0.75rem; border-radius:99px;" onclick="app.toggleSkillRiskFilter()">
+                                <i class="fa-solid fa-triangle-exclamation"></i> リスク項目(○なし)
+                            </button>
+                            <button class="secondary-btn" id="btn-solo-filter" style="padding: 6px 12px; font-size:0.75rem; border-radius:99px;" onclick="app.toggleSkillSoloFilter()">
+                                <i class="fa-solid fa-user-shield"></i> 属人化(○が1人)
+                            </button>
+                            <button class="secondary-btn" id="btn-skill-fit" style="padding: 6px 12px; font-size:0.75rem; border-radius:99px;" onclick="app.toggleSkillFit()">
+                                <i class="fa-solid fa-arrows-left-right-to-line"></i> 全員表示
+                            </button>
+                            <select id="skill-sort-mode" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.skillSortMode=this.value; app.renderWorkers();">
+                                <option value="count">実施回数順</option>
+                                <option value="model">型式順</option>
+                            </select>
+                            <button class="primary-btn" style="padding: 8px 16px; font-size:0.8rem;" onclick="app.openAddManualSkillModal()">
+                                <i class="fa-solid fa-plus"></i> 強制登録
+                            </button>
+                            <button class="secondary-btn" style="padding: 8px 16px; font-size:0.8rem;" onclick="app.exportSkillMapAsCSV()">
+                                <i class="fa-solid fa-file-csv"></i> CSV出力
+                            </button>
+                            <button class="secondary-btn" style="padding: 8px 16px; font-size:0.8rem;" onclick="app.openWorkerMaintenance()">
+                                <i class="fa-solid fa-user-lock"></i> 管理画面
+                            </button>
+                            <button class="secondary-btn" id="btn-toggle-skill-stats" style="padding: 8px 16px; font-size:0.8rem; background:var(--primary-light); color:var(--primary); border-color:var(--primary);" onclick="app.toggleSkillStats()">
+                                <i class="fa-solid fa-chart-pie"></i> <span id="btn-text-skill-stats">集計レポート表示/非表示</span>
+                            </button>
+                            <button class="secondary-btn" style="padding: 8px 16px; font-size:0.8rem; background:white; color:var(--primary); border-color:var(--primary);" onclick="app.renderSkillTrendGraph()">
+                                <i class="fa-solid fa-chart-line"></i> 成長推移分析
+                            </button>
+                        </div>
+                    </div>
+                    <div id="workers-container" class="analysis-grid"></div>
+                    <div id="skill-stats-container" style="margin-top:40px; display:none;"></div>
+                </section>
+
+                <section id="view-worktime" class="view">
+                    <div class="view-header" style="justify-content: flex-start; align-items: center; gap: 16px;">
+                        <div class="title-group">
+                            <p class="subtitle">担当者ごとの作業負荷と習熟度の集計分析</p>
+                        </div>
+                        <div class="filter-bar" style="margin-top:0; display:flex; gap:8px; align-items:center;">
+                            <div class="btn-group" style="margin-right:12px; display: flex; flex-shrink: 0;">
+                                <button class="secondary-btn active" id="btn-worktime-worker" onclick="app.setWorkTimeGroup('worker')" style="border-radius:99px 0 0 99px; padding:6px 16px; font-size:0.75rem; white-space:nowrap;">作業者別</button>
+                                <button class="secondary-btn" id="btn-worktime-category" onclick="app.setWorkTimeGroup('category')" style="border-radius:0 99px 99px 0; padding:6px 16px; font-size:0.75rem; white-space:nowrap;">装置区分別</button>
+                            </div>
+                            <select id="worktime-filter-period" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.onPeriodChange(this, () => app.renderWorkTime())">
+                                <option value="today">今日</option>
+                                <option value="yesterday">昨日</option>
+                                <option value="yesterday_today">昨日と今日</option>
+                                <option value="this_month" selected>今月分</option>
+                                <option value="all">累計 (全ての記録)</option>
+                            </select>
+                            <select id="worktime-filter-line" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.renderWorkTime()">
+                                <option value="all">全ライン</option>
+                            </select>
+                            <input type="text" id="worktime-search" placeholder="作業員を検索..." style="font-size:0.8rem; padding:6px 14px; border-radius:99px; width:180px;" oninput="app.onWorkTimeSearch(this.value)">
+                            <div style="display: flex; flex-direction: column; align-items: center;">
+                                <button class="primary-btn" style="padding: 0; width: 90px; height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 0.75rem; line-height: 1.2;" onclick="app.openWorkTimeGraph()">
+                                    <i class="fa-solid fa-chart-pie" style="font-size: 1.2rem; margin-bottom: 2px;"></i>
+                                    <span>グラフ化</span>
+                                </button>
+                                <p style="font-size:0.55rem; color:var(--text-light); margin-top:4px; max-width: 100px; text-align: center; line-height: 1.2;">人名フィルタ時はその人のみ集計</p>
+                            </div>
+                            <button class="secondary-btn" style="padding: 0; width: 110px; height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 0.75rem; line-height: 1.2; border-color:var(--primary); color:var(--primary); background:white;" onclick="app.openTroubleComparisonModal()">
+                                <i class="fa-solid fa-scale-unbalanced" style="font-size: 1.2rem; margin-bottom: 2px;"></i>
+                                <span style="text-align:center;">トラブル<br>増減比較</span>
+                            </button>
+                            <button class="secondary-btn" style="padding: 0; width: 80px; height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 0.75rem; line-height: 1.2;" onclick="app.exportWorkTimeAsCSV()">
+                                <i class="fa-solid fa-file-csv" style="font-size: 1.2rem; margin-bottom: 2px;"></i>
+                                <span>CSV出力</span>
+                            </button>
+
+                            <div class="memo-area-group" style="display:flex; align-items:flex-start; gap:8px;">
+                                <label style="font-size:0.7rem; color:var(--text-light); font-weight:800; white-space:nowrap; margin-top:6px;">メモ:</label>
+                                <textarea id="worktime-memo" placeholder="例: 前回会議 2024/03/25" style="border:1.5px solid var(--border); border-radius:8px; padding:6px 10px; font-size:0.75rem; width:440px; height:80px; resize:vertical; overflow-y:auto; outline:none; transition:var(--transition); background:white;" onfocus="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 3px var(--primary-light)';" onblur="this.style.borderColor='var(--border)'; this.style.boxShadow='none';"></textarea>
+                            </div>
+                        </div>
+                        <button class="secondary-btn" style="padding: 6px 12px; font-size:0.75rem; margin-left:auto;" onclick="app.openWorkerMaintenance()">
+                            <i class="fa-solid fa-user-lock"></i> 作業員管理
+                        </button>
+                    </div>
+
+                    <div id="worktime-trend-card" class="card" style="margin-bottom:24px; padding:20px; min-height:300px; display:none;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                            <div style="display:flex; align-items:center; gap:16px;">
+                                <h3 id="worktime-trend-title" style="font-size:0.95rem; font-weight:900; color:var(--text-main); margin:0;"><i class="fa-solid fa-chart-line" style="margin-right:8px; color:var(--primary);"></i> 月別作業時間の推移 (過去12ヶ月)</h3>
+                                <div style="display:flex; align-items:center; gap:10px; background:white; padding:4px 16px; border-radius:99px; border:2px solid var(--primary); box-shadow:0 0 10px var(--primary-light);">
+                                    <label style="font-size:0.75rem; color:var(--primary); font-weight:950; white-space:nowrap; display:flex; align-items:center; gap:4px;"><i class="fa-solid fa-arrows-up-down"></i> 縦幅(表示高):</label>
+                                    <input type="range" id="trend-chart-height-range" min="150" max="800" step="10" value="250" oninput="app.updateTrendChartHeight(this.value)" style="width:120px; height:6px; accent-color:var(--primary); cursor:pointer;">
+                                    <span id="trend-chart-height-label" style="font-size:0.8rem; color:var(--primary); font-weight:950; width:50px; text-align:right;">250px</span>
+                                </div>
+                            </div>
+                            <p style="font-size:0.7rem; color:var(--text-light); margin:0;">各カテゴリの合計作業時間 (分)</p>
+                        </div>
+                        <div id="trend-chart-container" style="height:250px; width:100%; position:relative;">
+                            <canvas id="worktime-trend-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <div id="worktime-container" style="background:var(--surface); border-radius:12px; padding:12px; border:1px solid var(--border);"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div id="modal-container" class="modal-container">
+            <!-- Modal content will be injected by JS -->
+        </div>
+    </div>
+
+    <!-- Toasts / Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Global Image Preview (Popping out of everything) -->
+    <div id="global-image-preview" class="global-preview-container hidden">
+        <img id="global-image-target" src="" alt="preview">
+    </div>
+
+    <!-- Suggestions / Datalists -->
+    <datalist id="list-part-names"></datalist>
+    <datalist id="list-part-models"></datalist>
+    <datalist id="list-workers"></datalist>
+    <datalist id="list-contents"></datalist>
+    <datalist id="list-causes"></datalist>
+    <datalist id="list-m-names"></datalist>
+    <datalist id="list-m-models"></datalist>
+    <datalist id="list-machine-categories"></datalist>
+
+    <!-- Skill Stats Drawer -->
+    <div class="drawer-overlay" id="skill-drawer-overlay" onclick="app.toggleSkillStats(false)"></div>
+    <div class="drawer-panel" id="skill-drawer-panel">
+        <div class="drawer-header">
+            <div class="title-group">
+                <h3 style="font-size:1.1rem; font-weight:900; color:var(--text-main);"><i class="fa-solid fa-chart-bar" style="margin-right:8px; color:var(--primary);"></i> 習熟度・カバー率 統計レポート</h3>
+                <p class="subtitle" style="font-size:0.75rem;">チーム全体のスキル保有状況と機械別の詳細</p>
+            </div>
+            <button class="drawer-close-btn" onclick="app.toggleSkillStats(false)">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="drawer-content" id="skill-stats-drawer-content">
+            <!-- Content rendered by app._renderSkillStatsPanel() -->
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="store.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
