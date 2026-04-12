@@ -7,6 +7,10 @@
     --accent-color: #3b82f6;
     --accent-hover: #2563eb;
     --danger-color: #ef4444;
+    --success-color: #10b981;
+    --step-inactive: rgba(148, 163, 184, 0.2);
+    --step-active: #3b82f6;
+    --step-completed: #10b981;
 }
 
 * {
@@ -70,6 +74,171 @@ header p {
     margin-bottom: 2rem;
     align-items: center;
     justify-content: center;
+}
+
+/* Stepper Styles */
+.stepper-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 800px;
+    margin: 0 auto 2rem auto;
+    position: relative;
+    padding: 0 1rem;
+}
+
+.stepper-container::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 10%;
+    right: 10%;
+    height: 2px;
+    background: var(--step-inactive);
+    z-index: 0;
+    transform: translateY(-50%);
+}
+
+.step-item {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.step-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--panel-bg);
+    border: 2px solid var(--step-inactive);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: var(--text-secondary);
+    transition: all 0.3s ease;
+    backdrop-filter: blur(4px);
+}
+
+.step-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.step-item.active .step-circle {
+    border-color: var(--step-active);
+    color: var(--text-primary);
+    background: var(--step-active);
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+}
+
+.step-item.active .step-label {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.step-item.completed .step-circle {
+    border-color: var(--step-completed);
+    color: white;
+    background: var(--step-completed);
+}
+
+.step-item.completed .step-label {
+    color: var(--step-completed);
+}
+
+/* Toolbar Steps */
+.toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    align-items: stretch;
+    min-height: 200px;
+}
+
+.toolbar-step {
+    display: none;
+    animation: fadeIn 0.4s ease-out;
+    width: 100%;
+}
+
+.toolbar-step.active {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.step-navigation {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 1rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--panel-border);
+}
+
+.nav-btn {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid var(--panel-border);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.nav-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
+}
+
+.nav-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.nav-btn.primary {
+    background: var(--accent-color);
+    border: none;
+}
+
+.nav-btn.primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.secondary-btn {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    border: 1px solid var(--panel-border);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.secondary-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .control-group {

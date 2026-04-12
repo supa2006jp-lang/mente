@@ -39,6 +39,75 @@ document.addEventListener('DOMContentLoaded', () => {
     const generateSvgBtn = document.getElementById('generateSvgBtn');
     const downloadSvgBtn = document.getElementById('downloadSvgBtn');
 
+    let currentImageData = null;
+    let currentStep = 1;
+
+    // --- Stepper UI Logic ---
+    const prevStepBtn = document.getElementById('prevStepBtn');
+    const nextStepBtn = document.getElementById('nextStepBtn');
+    const stepContents = [
+        document.getElementById('stepContent1'),
+        document.getElementById('stepContent2'),
+        document.getElementById('stepContent3'),
+        document.getElementById('stepContent4')
+    ];
+    const stepIndicators = [
+        document.getElementById('stepIndicator1'),
+        document.getElementById('stepIndicator2'),
+        document.getElementById('stepIndicator3'),
+        document.getElementById('stepIndicator4')
+    ];
+
+    function updateStep(step) {
+        currentStep = step;
+        stepContents.forEach((content, i) => {
+            if (i === step - 1) {
+                content.classList.add('active');
+            } else {
+                content.classList.remove('active');
+            }
+        });
+
+        stepIndicators.forEach((indicator, i) => {
+            if (i === step - 1) {
+                indicator.classList.add('active');
+                indicator.classList.remove('completed');
+            } else if (i < step - 1) {
+                indicator.classList.remove('active');
+                indicator.classList.add('completed');
+            } else {
+                indicator.classList.remove('active');
+                indicator.classList.remove('completed');
+            }
+        });
+
+        prevStepBtn.disabled = (step === 1);
+        
+        if (step === 4) {
+            nextStepBtn.style.display = 'none';
+        } else {
+            nextStepBtn.style.display = 'flex';
+            nextStepBtn.innerHTML = `次へ <span>→</span>`;
+            // Disable "Next" in step 1 if no image is uploaded
+            if (step === 1 && !currentImageData) {
+                nextStepBtn.disabled = true;
+            } else {
+                nextStepBtn.disabled = false;
+            }
+        }
+    }
+
+    prevStepBtn.addEventListener('click', () => {
+        if (currentStep > 1) updateStep(currentStep - 1);
+    });
+
+    nextStepBtn.addEventListener('click', () => {
+        if (currentStep < 4) updateStep(currentStep + 1);
+    });
+
+    // Initialize Stepper
+    updateStep(1);
+
     const originalCanvas = document.getElementById('originalCanvas');
     const resultCanvas = document.getElementById('resultCanvas');
     const originalCtx = originalCanvas.getContext('2d');
@@ -76,7 +145,6 @@ document.addEventListener('DOMContentLoaded', () => {
         magnifierCanvas.height = LENS_RADIUS * 2;
     }
 
-    let currentImageData = null;
 
     // --- Local Storage Management ---
     function saveSettings() {
@@ -143,6 +211,8 @@ document.addEventListener('DOMContentLoaded', () => {
     modeSelect.addEventListener('change', () => {
         saveSettings();
         processImage();
+        // Auto-advance to adjustments
+        if (currentStep === 2) updateStep(3);
     });
     thresholdSlider.addEventListener('input', (e) => {
         thresholdValue.textContent = e.target.value;
@@ -724,6 +794,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 resultCtx.drawImage(img, 0, 0);
                 generateSvgBtn.textContent = '🎨 SVGトレース & パターン生成';
                 downloadSvgBtn.style.display = 'none';
+
+                // Auto-advance to step 2 after upload
+                updateStep(2);
             };
             img.src = event.target.result;
         };
@@ -831,6 +904,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     let br = Math.floor(radius);
                     let r2 = radius * radius;
 
+                    const fgColor = invertCheckbox.checked ? 255 : 0;
                     while (true) {
                         for (let bdy = -br; bdy <= br; bdy++) {
                             for (let bdx = -br; bdx <= br; bdx++) {
@@ -838,9 +912,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                     let px = cx + bdx, py = cy + bdy;
                                     if (px >= 0 && px < width && py >= 0 && py < height) {
                                         let idx = (py * width + px) * 4;
-                                        dst[idx] = 0;
-                                        dst[idx + 1] = 0;
-                                        dst[idx + 2] = 0;
+                                        dst[idx] = fgColor;
+                                        dst[idx + 1] = fgColor;
+                                        dst[idx + 2] = fgColor;
                                         dst[idx + 3] = 255;
                                     }
                                 }
@@ -855,14 +929,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (edit.type === 'erase') {
                     const cx = edit.x;
                     const cy = edit.y;
-                    for (let dy = -1; dy <= 0; dy++) {
-                        for (let dx = -1; dx <= 0; dx++) {
+                    const bgColor = invertCheckbox.checked ? 0 : 255;
+                    // Erase area: 4x4
+                    for (let dy = -2; dy <= 1; dy++) {
+                        for (let dx = -2; dx <= 1; dx++) {
                             let px = cx + dx, py = cy + dy;
                             if (px >= 0 && px < width && py >= 0 && py < height) {
                                 let idx = (py * width + px) * 4;
-                                dst[idx] = 255;
-                                dst[idx + 1] = 255;
-                                dst[idx + 2] = 255;
+                                dst[idx] = bgColor;
+                                dst[idx + 1] = bgColor;
+                                dst[idx + 2] = bgColor;
                                 dst[idx + 3] = 255;
                             }
                         }
@@ -870,14 +946,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (edit.type === 'draw') {
                     const cx = edit.x;
                     const cy = edit.y;
-                    for (let dy = -1; dy <= 0; dy++) {
-                        for (let dx = -1; dx <= 0; dx++) {
+                    const fgColor = invertCheckbox.checked ? 255 : 0;
+                    // Draw area: 4x4
+                    for (let dy = -2; dy <= 1; dy++) {
+                        for (let dx = -2; dx <= 1; dx++) {
                             let px = cx + dx, py = cy + dy;
                             if (px >= 0 && px < width && py >= 0 && py < height) {
                                 let idx = (py * width + px) * 4;
-                                dst[idx] = 0;
-                                dst[idx + 1] = 0;
-                                dst[idx + 2] = 0;
+                                dst[idx] = fgColor;
+                                dst[idx + 1] = fgColor;
+                                dst[idx + 2] = fgColor;
                                 dst[idx + 3] = 255;
                             }
                         }
@@ -1670,13 +1748,22 @@ document.addEventListener('DOMContentLoaded', () => {
             let resultCtxData = resultCtx.getImageData(minX, minY, cropWidth, cropHeight);
             let w = cropWidth;
             let h = cropHeight;
-
-            // Convert to a format where visually transparent pixels are actually transparent in alpha
             const traceData = new ImageData(
                 new Uint8ClampedArray(resultCtxData.data),
                 w,
                 h
             );
+
+            // 外枠（黒い四角い枠）の発生を防ぐため、画像データの最外周1ピクセルを強制的に透明にします。
+            // これにより、Tracerが画像の端を境界線として抽出するのを防止します。
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const idx = (y * w + x) * 4;
+                    if (x === 0 || y === 0 || x === w - 1 || y === h - 1) {
+                        traceData.data[idx + 3] = 0;
+                    }
+                }
+            }
 
             const isColorMode = modeSelect.value === 'color';
             const smoothness = 1.0;
@@ -1730,20 +1817,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
             let svgStr = ImageTracer.imagedataToSVG(traceData, options);
 
-            // ImageTracerはデフォルトで自身のstrokewidthパラメータに沿って stroke="..." stroke-width="..." を出力します
-            // 背景の白色パスが膨張して黒縁を削り取ってしまわないよう、白色（や透明）のパスだけ線幅を強制的に0に戻します。
-            // 逆にそのまま残す黒いパス（線幅が適用されるパス）には、はみ出し（トゲ）を防ぐために stroke-linejoin="round" を追加します。
-            svgStr = svgStr.replace(/<path[^>]*>/gi, (match) => {
-                const isWhiteOrNone = /fill="[^"]*(255\s*,\s*255\s*,\s*255|#ffffff|#fff|none)[^"]*"/i.test(match);
-                if (isWhiteOrNone) {
-                    return match.replace(/stroke-width="[^"]*"/ig, 'stroke-width="0"');
+            // ===== SVG外枠除去 =====
+            // ImageTracerは常に「面積最大のパス」を最初に出力します。
+            // このパスは画像全体を囲む背景矩形（外枠）であるため、必ず最初のパスを削除します。
+            // また、パスデータに基づく追加フィルタも適用します。
+            try {
+                const parser = new DOMParser();
+                const svgDoc = parser.parseFromString(svgStr, 'image/svg+xml');
+                const svgEl = svgDoc.querySelector('svg');
+                
+                if (svgEl) {
+                    const allPaths = Array.from(svgEl.querySelectorAll('path'));
+                    
+                    allPaths.forEach((path, idx) => {
+                        const fill   = (path.getAttribute('fill') || '').trim();
+                        const opacity = parseFloat(path.getAttribute('opacity') ?? '1');
+                        const d      = (path.getAttribute('d') || '').trim();
+
+                        // ① ImageTracerの最初のパス = 必ず外枠なので削除
+                        if (idx === 0) {
+                            path.remove();
+                            return;
+                        }
+
+                        // ② 透明・白色・塗りなしパスを削除
+                        const isInvisible = opacity <= 0.01 ||
+                            /rgba?\(\s*255[\s,]+255[\s,]+255/i.test(fill) ||
+                            /^(#fff|#ffffff|white)$/i.test(fill) ||
+                            fill === 'none';
+
+                        // ③ パスデータが極めて単純（コマンド5個以下）= 矩形フレーム
+                        const cmds = d.match(/[MmLlHhVvCcSsQqTtAaZz]/g) || [];
+                        const isSimplePath = cmds.length <= 6;
+
+                        if (isInvisible || isSimplePath) {
+                            path.remove();
+                            return;
+                        }
+
+                        // ④ strokelkiのお知らせ
+                        if (userStrokeWidth > 0 && !path.getAttribute('stroke-linejoin')) {
+                            path.setAttribute('stroke-linejoin', 'round');
+                        }
+                    });
+
+                    svgStr = new XMLSerializer().serializeToString(svgEl);
+                    // 余分なxmlns宣言を整理
+                    svgStr = svgStr.replace(/\s+xmlns(:\w+)?="[^"]*"/g, (m, prefix) =>
+                        prefix ? '' : ' xmlns="http://www.w3.org/2000/svg"'
+                    );
                 }
-                // エッジのトゲを丸める属性を追加（" />" を " stroke-linejoin="round" />" に置換）
-                if (userStrokeWidth > 0 && !match.includes("stroke-linejoin")) {
-                    return match.replace(/\s*\/?(?:>\s*)$/, ' stroke-linejoin="round" />');
-                }
-                return match;
-            });
+            } catch (e) {
+                console.warn('SVG cleanup error:', e);
+            }
 
             currentSvgPattern = svgStr;
 
@@ -1775,9 +1901,9 @@ document.addEventListener('DOMContentLoaded', () => {
         let innerSVG = match ? match[1] : '';
 
         // Fusion 360 ignores 'opacity' and imports invisible bounding paths as solid sketch lines!
-        // ImageTracer outputs background/transparent paths with opacity="0.0". We will safely strip these exact `<path>` elements out.
-        innerSVG = innerSVG.replace(/<path[^>]*?\bopacity="0(?:\.0+)?"[^>]*\/>/gi, '');
-        innerSVG = innerSVG.replace(/<path[^>]*?\bopacity="0(?:\.0+)?"[^>]*>[\s\S]*?<\/path>/gi, '');
+        // Remove white/transparent paths effectively to avoid unwanted frames
+        innerSVG = innerSVG.replace(/<path[^>]*?(?:fill="[^"]*(?:255\s*,\s*255\s*,\s*255|#ffffff|#fff|none)[^"]*"|opacity="0(?:\.0+)?")[^>]*\/>/gi, '');
+        innerSVG = innerSVG.replace(/<path[^>]*?(?:fill="[^"]*(?:255\s*,\s*255\s*,\s*255|#ffffff|#fff|none)[^"]*"|opacity="0(?:\.0+)?")[^>]*>[\s\S]*?<\/path>/gi, '');
         // Also strip transparent groups if any exist
         innerSVG = innerSVG.replace(/<g[^>]*?\bopacity="0(?:\.0+)?"[^>]*>[\s\S]*?<\/g>/gi, '');
         const w = croppedSvgWidth || resultCanvas.width;

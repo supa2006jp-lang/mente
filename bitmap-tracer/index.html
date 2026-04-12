@@ -17,171 +17,179 @@
             <p>画像をアップロードして、白黒ビットマップやエッジ（輪郭）を抽出します。</p>
         </header>
 
+        <!-- Stepper Indicator -->
+        <div class="stepper-container">
+            <div class="step-item active" id="stepIndicator1">
+                <div class="step-circle">1</div>
+                <div class="step-label">画像アップロード</div>
+            </div>
+            <div class="step-item" id="stepIndicator2">
+                <div class="step-circle">2</div>
+                <div class="step-label">モード選択</div>
+            </div>
+            <div class="step-item" id="stepIndicator3">
+                <div class="step-circle">3</div>
+                <div class="step-label">パラメーター調整</div>
+            </div>
+            <div class="step-item" id="stepIndicator4">
+                <div class="step-circle">4</div>
+                <div class="step-label">出力 & パターン生成</div>
+            </div>
+        </div>
+
         <div class="toolbar glass-panel">
-            <div class="control-group">
-                <label for="imageUpload" class="custom-file-upload">
-                    📂 画像を選択
-                </label>
-                <input type="file" id="imageUpload" accept="image/*">
-            </div>
-
-            <div class="control-group">
-                <label for="modeSelect">モード:</label>
-                <select id="modeSelect">
-                    <option value="threshold">白黒2値化 (Threshold)</option>
-                    <option value="edge" selected>輪郭抽出 (Edge Trace)</option>
-                    <option value="dither">誤差拡散ディザリング (Dither)</option>
-                    <option value="bayer">網点ハーフトーン (Bayer)</option>
-                    <option value="color">フルカラー (Color Vector)</option>
-                </select>
-            </div>
-
-            <div class="control-group">
-                <label for="thresholdSlider">しきい値/感度: <span id="thresholdValue">128</span></label>
-                <input type="range" id="thresholdSlider" min="0" max="255" value="128">
-            </div>
-
-            <div class="control-group" id="edgeThicknessGroup">
-                <label for="edgeThicknessSlider">線の太さ/細さ調整: </label>
-                <input type="number" id="edgeThicknessValue" min="-5" max="5" step="0.5" value="0"
-                    style="width: 60px; text-align: right; background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; padding: 2px 4px; display: inline-block;">
-                <input type="range" id="edgeThicknessSlider" min="-5" max="5" value="0" step="0.5">
-
-                <button id="btnThickenThinLines" class="secondary-btn"
-                    style="width: 100%; margin-top: 6px; padding: 6px; font-size: 0.95em; border-radius: 4px;">細い線だけ2倍に太くする</button>
-            </div>
-
-            <div class="control-group" id="whiteFillGroup"
-                style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px; margin-top: 5px;">
-                <label for="whiteFillSlider" style="margin-bottom: 6px;">🧹 明るい部分を白塗り除去</label>
-                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 8px;">
-                    <span style="font-size: 0.8em; opacity: 0.7;">感度:</span>
-                    <input type="range" id="whiteFillSlider" min="0" max="255" value="200" style="flex-grow: 1;">
-                    <span id="whiteFillValue" style="width: 30px; text-align: right; font-size: 0.9em;">200</span>
-                </div>
-                <button id="btnWhiteFill" class="secondary-btn"
-                    style="width: 100%; padding: 6px; font-size: 0.95em; background-color: #f8fafc; color: #0f172a; border-radius: 4px; font-weight: bold;">白塗り実行</button>
-            </div>
-
-            <div class="control-group" id="blackFillGroup"
-                style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px; margin-top: 5px;">
-                <label for="blackFillSlider" style="margin-bottom: 6px;">🖋️ 暗い部分を黒塗りする（元線の復元）</label>
-                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 8px;">
-                    <span style="font-size: 0.8em; opacity: 0.7;">感度:</span>
-                    <input type="range" id="blackFillSlider" min="0" max="255" value="128" style="flex-grow: 1;">
-                    <span id="blackFillValue" style="width: 30px; text-align: right; font-size: 0.9em;">128</span>
-                </div>
-                <button id="btnBlackFill" class="secondary-btn"
-                    style="width: 100%; padding: 6px; font-size: 0.95em; background-color: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; font-weight: bold;">黒塗り実行</button>
-            </div>
-
-            <div class="control-group">
-                <label for="gapFillSlider">途切れた線の補修 (隙間埋め): </label>
-                <input type="number" id="gapFillValue" min="0" max="5" step="0.5" value="0"
-                    style="width: 60px; text-align: right; background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; padding: 2px 4px; display: inline-block;">
-                <input type="range" id="gapFillSlider" min="0" max="5" value="0" step="0.5">
-            </div>
-
-
-            <div class="control-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="invertCheckbox">
-                    反転 (Invert)
-                </label>
-            </div>
-
-            <div class="control-group" style="display: flex; gap: 0.5rem; align-items: center;">
-                <button id="flipHorizontalBtn" class="secondary-btn" title="左右反転">↔️</button>
-                <button id="flipVerticalBtn" class="secondary-btn" title="上下反転">↕️</button>
-                <button id="resetImageBtn" class="secondary-btn" title="画像を初期状態にリセット"
-                    style="margin-left: auto; color: #ef4444; border-color: rgba(239, 68, 68, 0.4);">🔄 リセット</button>
-            </div>
-
-            <div class="control-group">
-                <button id="downloadBtn" class="primary-btn">💾 保存 (PNG)</button>
-            </div>
-
-            <div class="control-group"
-                style="margin-left: max(0px, 1rem); border-left: 1px solid var(--panel-border); padding-left: 1.5rem;">
-                <div style="display: flex; flex-direction: column; gap: 0.8rem;">
-
-                    <label class="checkbox-label" style="margin-top: 0;">
-                        <input type="checkbox" id="halfStepCheckbox" checked>
-                        左右ハーフステップ (無限連続)
+            <!-- Step 1: Upload -->
+            <div class="toolbar-step active" id="stepContent1">
+                <div class="control-group" style="align-items: center; width: 100%; padding: 2rem;">
+                    <label for="imageUpload" class="custom-file-upload" style="font-size: 1.2rem; padding: 1rem 2rem;">
+                        📂 画像を選択して開始
                     </label>
+                    <input type="file" id="imageUpload" accept="image/*">
+                    <p style="margin-top: 1rem; opacity: 0.6; font-size: 0.9rem;">JPG, PNG, WebP に対応しています</p>
+                </div>
+            </div>
 
-                    <label class="checkbox-label" style="margin-top: 0;">
-                        <input type="checkbox" id="singleItemCheckbox">
-                        模様を1個だけ表示する
-                    </label>
+            <!-- Step 2: Mode -->
+            <div class="toolbar-step" id="stepContent2">
+                <div class="control-group">
+                    <label for="modeSelect" style="font-size: 1rem;">変換モードを選択してください:</label>
+                    <select id="modeSelect" style="font-size: 1.1rem; padding: 0.75rem;">
+                        <option value="threshold">白黒2値化 (Threshold)</option>
+                        <option value="edge" selected>輪郭抽出 (Edge Trace)</option>
+                        <option value="dither">誤差拡散ディザリング (Dither)</option>
+                        <option value="bayer">網点ハーフトーン (Bayer)</option>
+                        <option value="color">フルカラー (Color Vector)</option>
+                    </select>
+                </div>
+            </div>
 
-                    <div>
-                        <label class="checkbox-label" style="margin-top: 0; margin-bottom: 0.4rem;">
-                            <input type="checkbox" id="useGridCountCheckbox" checked>
-                            配置数でサイズを指定する (横 × 縦)
-                        </label>
-                        <div id="gridCountGroup"
-                            style="display: flex; gap: 0.5rem; align-items: center; margin-left: 1.8rem; transition: opacity 0.3s;">
-                            <input type="number" id="patternCols" value="5" min="1"
-                                style="width: 70px; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--panel-border); background-color: rgba(0, 0, 0, 0.2); color: var(--text-primary); text-align: center;">
-                            <span>×</span>
-                            <input type="number" id="patternRows" value="5" min="1"
-                                style="width: 70px; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--panel-border); background-color: rgba(0, 0, 0, 0.2); color: var(--text-primary); text-align: center;">
+            <!-- Step 3: Adjust -->
+            <div class="toolbar-step" id="stepContent3">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; width: 100%;">
+                    <div class="control-group">
+                        <label for="thresholdSlider">しきい値/感度: <span id="thresholdValue">128</span></label>
+                        <input type="range" id="thresholdSlider" min="0" max="255" value="128">
+                    </div>
+
+                    <div class="control-group" id="edgeThicknessGroup">
+                        <label for="edgeThicknessSlider">線の太さ調整: </label>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <input type="range" id="edgeThicknessSlider" min="-5" max="5" value="0" step="0.5" style="flex-grow: 1;">
+                            <input type="number" id="edgeThicknessValue" min="-5" max="5" step="0.5" value="0"
+                                style="width: 60px; text-align: right; background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; padding: 2px 4px;">
+                        </div>
+                        <button id="btnThickenThinLines" class="secondary-btn" style="width: 100%; margin-top: 6px; font-size: 0.85em;">細い線を太くする</button>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="gapFillSlider">隙間埋め: </label>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <input type="range" id="gapFillSlider" min="0" max="5" value="0" step="0.5" style="flex-grow: 1;">
+                            <input type="number" id="gapFillValue" min="0" max="5" step="0.5" value="0"
+                                style="width: 60px; text-align: right; background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; padding: 2px 4px;">
                         </div>
                     </div>
 
-                    <label class="checkbox-label" style="margin-top: 0;">
-                        <input type="checkbox" id="keepAspectCheckbox">
-                        元画像のアスペクト比を維持
-                    </label>
+                    <div class="control-group">
+                        <label class="checkbox-label" style="margin: 0;">
+                            <input type="checkbox" id="invertCheckbox">
+                            白黒反転 (Invert)
+                        </label>
+                        <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 10px;">
+                            <button id="flipHorizontalBtn" class="secondary-btn" title="左右反転" style="flex: 1;">↔️</button>
+                            <button id="flipVerticalBtn" class="secondary-btn" title="上下反転" style="flex: 1;">↕️</button>
+                            <button id="resetImageBtn" class="secondary-btn" title="リセット" style="flex: 1; color: #ef4444;">🔄</button>
+                        </div>
+                    </div>
+
+                    <div class="control-group" id="whiteFillGroup" style="border: 1px solid rgba(255,255,255,0.05); padding: 10px; border-radius: 8px;">
+                        <label>🧹 明るい部分を白塗り除去</label>
+                        <div style="display: flex; gap: 0.5rem; align-items: center; margin: 8px 0;">
+                            <input type="range" id="whiteFillSlider" min="0" max="255" value="200" style="flex-grow: 1;">
+                            <span id="whiteFillValue" style="width: 30px; text-align: right; font-size: 0.9em;">200</span>
+                        </div>
+                        <button id="btnWhiteFill" class="secondary-btn" style="width: 100%; background-color: #f8fafc; color: #0f172a; font-weight: bold;">実行</button>
+                    </div>
+
+                    <div class="control-group" id="blackFillGroup" style="border: 1px solid rgba(255,255,255,0.05); padding: 10px; border-radius: 8px;">
+                        <label>🖋️ 暗い部分を黒塗り</label>
+                        <div style="display: flex; gap: 0.5rem; align-items: center; margin: 8px 0;">
+                            <input type="range" id="blackFillSlider" min="0" max="255" value="128" style="flex-grow: 1;">
+                            <span id="blackFillValue" style="width: 30px; text-align: right; font-size: 0.9em;">128</span>
+                        </div>
+                        <button id="btnBlackFill" class="secondary-btn" style="width: 100%; background-color: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,0.3); font-weight: bold;">実行</button>
+                    </div>
                 </div>
             </div>
 
-            <div class="control-group" id="manualScaleGroup"
-                style="margin-left: max(0px, 1rem); border-left: 1px solid var(--panel-border); padding-left: 1.5rem; opacity: 0.5; pointer-events: none; transition: opacity 0.3s;">
-                <label for="manualScalePercent">🔍 大きさ調整 (%)</label>
-                <div style="display: flex; gap: 0.5rem; align-items: center;">
-                    <input type="number" id="manualScalePercent" min="1" step="1" value="100"
-                        style="width: 90px; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--panel-border); background-color: rgba(0, 0, 0, 0.2); color: var(--text-primary); text-align: right;">
-                    <span>%</span>
+            <!-- Step 4: Output -->
+            <div class="toolbar-step" id="stepContent4">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; width: 100%;">
+                    <div class="control-group">
+                        <label>📐 出力設定 (mm)</label>
+                        <div style="display: flex; gap: 0.8rem; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="font-size: 0.8em; opacity: 0.7;">W:</span>
+                                <input type="number" id="outputWidth" value="100" style="width: 70px;">
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="font-size: 0.8em; opacity: 0.7;">H:</span>
+                                <input type="number" id="outputHeight" value="100" style="width: 70px;">
+                            </div>
+                            <label class="checkbox-label" style="margin: 0; font-size: 0.8em;">
+                                <input type="checkbox" id="keepAspectCheckbox"> 比率維持
+                            </label>
+                        </div>
+
+                        <label style="margin-top: 1rem;">🧩 パターン配置</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label class="checkbox-label" style="margin: 0;">
+                                <input type="checkbox" id="halfStepCheckbox" checked> ハーフステップ (リピート)
+                            </label>
+                            <label class="checkbox-label" style="margin: 0;">
+                                <input type="checkbox" id="singleItemCheckbox"> 模様を1個だけ表示
+                            </label>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <label class="checkbox-label" style="margin: 0;">
+                                    <input type="checkbox" id="useGridCountCheckbox" checked> 配置数:
+                                </label>
+                                <div id="gridCountGroup" style="display: flex; gap: 4px; align-items: center;">
+                                    <input type="number" id="patternCols" value="5" min="1" style="width: 50px;">
+                                    <span>×</span>
+                                    <input type="number" id="patternRows" value="5" min="1" style="width: 50px;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="vectorStrokeWidthSlider">✏️ ベクター線の太さ補正</label>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <input type="range" id="vectorStrokeWidthSlider" min="0" max="5" step="0.25" value="1" style="flex-grow: 1;">
+                            <span id="vectorStrokeWidthValue" style="width: 30px; text-align: right; font-size: 0.9em;">1</span>
+                        </div>
+                        <div class="control-group" id="manualScaleGroup" style="margin-top: 10px;">
+                            <label>🔍 大きさ調整 (%)</label>
+                            <input type="number" id="manualScalePercent" min="1" step="1" value="100" style="width: 100px;">
+                        </div>
+                    </div>
+
+                    <div class="control-group" style="justify-content: flex-end; gap: 1rem;">
+                        <button id="downloadBtn" class="primary-btn" style="background-color: #475569;">💾 PNG保存</button>
+                        <button id="generateSvgBtn" class="primary-btn" style="background-color: #8b5cf6;">🎨 SVG生成 & プレビュー</button>
+                        <button id="downloadSvgBtn" class="primary-btn" style="background-color: #10b981; display: none;">💾 SVG保存</button>
+                    </div>
                 </div>
             </div>
 
-            <div class="control-group"
-                style="margin-left: max(0px, 1rem); border-left: 1px solid var(--panel-border); padding-left: 1.5rem;">
-                <label>出力サイズ (mm)</label>
-                <div style="display: flex; gap: 0.5rem; align-items: center;">
-                    <span style="font-size: 0.9em; opacity: 0.8;">W:</span>
-                    <input type="number" id="outputWidth" value="100"
-                        style="width: 80px; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--panel-border); background-color: rgba(0, 0, 0, 0.2); color: var(--text-primary); text-align: center;">
-                    <span style="font-size: 0.9em; opacity: 0.8; margin-left: 0.5rem;">H:</span>
-                    <input type="number" id="outputHeight" value="100"
-                        style="width: 80px; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--panel-border); background-color: rgba(0, 0, 0, 0.2); color: var(--text-primary); text-align: center;">
-                </div>
-            </div>
-
-            <div class="control-group"
-                style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px; margin-top: 5px;">
-                <label for="vectorStrokeWidthSlider" style="margin-bottom: 6px;">✏️ ベクター線の太さ補正</label>
-                <div style="font-size: 0.8em; color: var(--text-secondary); margin-bottom: 8px;">
-                    SVG変換時に線が細くなるのを防いだり、さらに太く肉付けしたりできます。
-                </div>
-                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 8px;">
-                    <span style="font-size: 0.8em; opacity: 0.7;">太さ(px):</span>
-                    <input type="range" id="vectorStrokeWidthSlider" min="0" max="5" step="0.25" value="1"
-                        style="flex-grow: 1;">
-                    <span id="vectorStrokeWidthValue" style="width: 30px; text-align: right; font-size: 0.9em;">1</span>
-                </div>
-            </div>
-
-            <div class="control-group">
-                <button id="generateSvgBtn" class="primary-btn" style="background-color: #8b5cf6;">🎨 SVGトレース &
-                    パターン生成</button>
-            </div>
-
-            <div class="control-group">
-                <button id="downloadSvgBtn" class="primary-btn" style="background-color: #10b981; display: none;">💾 保存
-                    (SVG)</button>
+            <!-- Navigation Buttons -->
+            <div class="step-navigation">
+                <button id="prevStepBtn" class="nav-btn" disabled>
+                    <span>←</span> 戻る
+                </button>
+                <button id="nextStepBtn" class="nav-btn primary">
+                    次へ <span>→</span>
+                </button>
             </div>
         </div>
 
