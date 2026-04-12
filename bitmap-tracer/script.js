@@ -175,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (saved) {
             try {
                 const settings = JSON.parse(saved);
-                if (settings.mode) modeSelect.value = settings.mode;
+                if (settings.mode) { modeSelect.value = settings.mode; syncModeCardUI(settings.mode); }
                 if (settings.threshold) { thresholdSlider.value = settings.threshold; thresholdValue.textContent = settings.threshold; }
                 if (settings.edgeThickness && edgeThicknessSlider) { edgeThicknessSlider.value = settings.edgeThickness; edgeThicknessValue.textContent = settings.edgeThickness; }
                 if (settings.whiteFill) { whiteFillSlider.value = settings.whiteFill; whiteFillValue.textContent = settings.whiteFill; }
@@ -205,10 +205,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load settings into UI on startup
     loadSettings();
+    // Sync card UI to loaded mode
+    syncModeCardUI(modeSelect.value);
 
 
     imageUpload.addEventListener('change', handleImageUpload);
     modeSelect.addEventListener('change', () => {
+        syncModeCardUI(modeSelect.value);
         saveSettings();
         processImage();
         // Auto-advance to adjustments
@@ -303,6 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Reset adjustments & UI 
             modeSelect.value = 'edge';
+            syncModeCardUI('edge');
             thresholdSlider.value = 128;
             thresholdValue.textContent = 128;
             edgeThicknessSlider.value = 0;
@@ -1207,13 +1211,13 @@ document.addEventListener('DOMContentLoaded', () => {
             croppedSvgHeight = maxY - minY + 1;
             croppedSvgMinX = minX;
             croppedSvgMinY = minY;
-            resultSizeInfo.textContent = `(W: ${croppedSvgWidth} × H: ${croppedSvgHeight} mm - 自動トリミング済)`;
+            resultSizeInfo.textContent = `(${croppedSvgWidth} × ${croppedSvgHeight} px - トリミング済)`;
         } else {
             croppedSvgWidth = width;
             croppedSvgHeight = height;
             croppedSvgMinX = 0;
             croppedSvgMinY = 0;
-            resultSizeInfo.textContent = `(W: ${width} × H: ${height} mm)`;
+            resultSizeInfo.textContent = `(${width} × ${height} px)`;
         }
 
         currentSvgPattern = '';
@@ -1772,6 +1776,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             for (let i = 0; i < traceData.data.length; i += 4) {
                 if (traceData.data[i + 3] < 10) {
+                    traceData.data[i] = 255;
+                    traceData.data[i + 1] = 255;
+                    traceData.data[i + 2] = 255;
                     traceData.data[i + 3] = 0;
                 } else if (!isColorMode) {
                     const r = traceData.data[i];
@@ -1834,28 +1841,19 @@ document.addEventListener('DOMContentLoaded', () => {
                         const opacity = parseFloat(path.getAttribute('opacity') ?? '1');
                         const d      = (path.getAttribute('d') || '').trim();
 
-                        // ① ImageTracerの最初のパス = 必ず外枠なので削除
-                        if (idx === 0) {
-                            path.remove();
-                            return;
-                        }
-
-                        // ② 透明・白色・塗りなしパスを削除
+                        // ① 透明・白色・塗りなしパスを削除
+                        // 背景を透明化しているため、外枠背景は自動的にここで除去される。
                         const isInvisible = opacity <= 0.01 ||
                             /rgba?\(\s*255[\s,]+255[\s,]+255/i.test(fill) ||
                             /^(#fff|#ffffff|white)$/i.test(fill) ||
                             fill === 'none';
 
-                        // ③ パスデータが極めて単純（コマンド5個以下）= 矩形フレーム
-                        const cmds = d.match(/[MmLlHhVvCcSsQqTtAaZz]/g) || [];
-                        const isSimplePath = cmds.length <= 6;
-
-                        if (isInvisible || isSimplePath) {
+                        if (isInvisible) {
                             path.remove();
                             return;
                         }
 
-                        // ④ strokelkiのお知らせ
+                        // ② strokelkiのお知らせ
                         if (userStrokeWidth > 0 && !path.getAttribute('stroke-linejoin')) {
                             path.setAttribute('stroke-linejoin', 'round');
                         }
@@ -2074,4 +2072,199 @@ ${useElements}
         link.download = `seamless-pattern-${outW}x${outH}.svg`;
         link.click();
     }
+
+    // ===== Mode Card UI =====
+
+    /**
+     * Sync the mode card visual active state to the given mode value.
+     */
+    function syncModeCardUI(mode) {
+        document.querySelectorAll('#modeCardGrid .mode-card').forEach(card => {
+            if (card.dataset.mode === mode) {
+                card.classList.add('active');
+            } else {
+                card.classList.remove('active');
+            }
+        });
+    }
+
+    /**
+     * Generate representative thumbnails for each mode using Canvas 2D.
+     * The thumbnails simulate a simple gradient-like source image processed
+     * through each algorithm so users can see what to expect.
+     */
+    function generateModeThumbnails() {
+        const W = 100, H = 75;
+
+        // Build a synthetic source: gradient from dark left to light right,
+        // with a diagonal "wave" to add visible structure.
+        function makeSamplePixels() {
+            const data = new Uint8ClampedArray(W * H * 4);
+            for (let y = 0; y < H; y++) {
+                for (let x = 0; x < W; x++) {
+                    const i = (y * W + x) * 4;
+                    const wave = Math.sin(x * 0.18 + y * 0.1) * 30;
+                    const base = (x / W) * 200 + 20 + wave;
+                    const g = Math.min(255, Math.max(0, base));
+                    data[i] = g;
+                    data[i + 1] = g;
+                    data[i + 2] = g;
+                    data[i + 3] = 255;
+                }
+            }
+            return data;
+        }
+
+        // ---- Threshold ----
+        (function drawThreshold() {
+            const canvas = document.getElementById('thumb-threshold');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const src = makeSamplePixels();
+            const out = new Uint8ClampedArray(W * H * 4);
+            const T = 128;
+            for (let i = 0; i < W * H; i++) {
+                const v = src[i * 4] > T ? 255 : 0;
+                out[i * 4] = v; out[i * 4 + 1] = v; out[i * 4 + 2] = v; out[i * 4 + 3] = 255;
+            }
+            ctx.putImageData(new ImageData(out, W, H), 0, 0);
+        })();
+
+        // ---- Edge Trace ----
+        (function drawEdge() {
+            const canvas = document.getElementById('thumb-edge');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const src = makeSamplePixels();
+            const out = new Uint8ClampedArray(W * H * 4);
+            // Fill white first
+            out.fill(255);
+            for (let k = 0; k < W * H * 4; k += 4) out[k + 3] = 255;
+
+            // Simple Sobel-like: look for high gradient pixels
+            for (let y = 1; y < H - 1; y++) {
+                for (let x = 1; x < W - 1; x++) {
+                    const i = y * W + x;
+                    const gx = src[(i + 1) * 4] - src[(i - 1) * 4];
+                    const gy = src[(i + W) * 4] - src[(i - W) * 4];
+                    const mag = Math.sqrt(gx * gx + gy * gy);
+                    const v = mag > 25 ? 0 : 255;
+                    out[i * 4] = v; out[i * 4 + 1] = v; out[i * 4 + 2] = v;
+                }
+            }
+            ctx.putImageData(new ImageData(out, W, H), 0, 0);
+        })();
+
+        // ---- Dithering (Floyd-Steinberg) ----
+        (function drawDither() {
+            const canvas = document.getElementById('thumb-dither');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const src = makeSamplePixels();
+            const gray = new Float32Array(W * H);
+            for (let i = 0; i < W * H; i++) gray[i] = src[i * 4];
+
+            for (let y = 0; y < H; y++) {
+                for (let x = 0; x < W; x++) {
+                    const i = y * W + x;
+                    const old = gray[i];
+                    const newVal = old < 128 ? 0 : 255;
+                    const err = old - newVal;
+                    gray[i] = newVal;
+                    if (x + 1 < W) gray[i + 1] += err * 7 / 16;
+                    if (y + 1 < H) {
+                        if (x > 0) gray[i + W - 1] += err * 3 / 16;
+                        gray[i + W] += err * 5 / 16;
+                        if (x + 1 < W) gray[i + W + 1] += err * 1 / 16;
+                    }
+                }
+            }
+
+            const out = new Uint8ClampedArray(W * H * 4);
+            for (let i = 0; i < W * H; i++) {
+                const v = gray[i] < 128 ? 0 : 255;
+                out[i * 4] = v; out[i * 4 + 1] = v; out[i * 4 + 2] = v; out[i * 4 + 3] = 255;
+            }
+            ctx.putImageData(new ImageData(out, W, H), 0, 0);
+        })();
+
+        // ---- Bayer Halftone (4x4 matrix) ----
+        (function drawBayer() {
+            const canvas = document.getElementById('thumb-bayer');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const src = makeSamplePixels();
+            const bayer4 = [
+                0,  8,  2, 10,
+                12,  4, 14,  6,
+                3, 11,  1,  9,
+                15,  7, 13,  5
+            ];
+            const out = new Uint8ClampedArray(W * H * 4);
+            for (let y = 0; y < H; y++) {
+                for (let x = 0; x < W; x++) {
+                    const i = y * W + x;
+                    const threshold = (bayer4[(y % 4) * 4 + (x % 4)] + 0.5) / 16 * 255;
+                    const v = src[i * 4] > threshold ? 255 : 0;
+                    out[i * 4] = v; out[i * 4 + 1] = v; out[i * 4 + 2] = v; out[i * 4 + 3] = 255;
+                }
+            }
+            ctx.putImageData(new ImageData(out, W, H), 0, 0);
+        })();
+
+        // ---- Full Color ----
+        (function drawColor() {
+            const canvas = document.getElementById('thumb-color');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            // Draw a colorful gradient to represent full-color vectorization
+            const grad = ctx.createLinearGradient(0, 0, W, H);
+            grad.addColorStop(0,    '#f97316');
+            grad.addColorStop(0.25, '#facc15');
+            grad.addColorStop(0.5,  '#4ade80');
+            grad.addColorStop(0.75, '#38bdf8');
+            grad.addColorStop(1,    '#c084fc');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, H);
+
+            // Overlay simplified "vector regions" to hint at posterization
+            ctx.globalAlpha = 0.35;
+            ctx.fillStyle = '#fff';
+            // A few abstract blobs
+            ctx.beginPath();
+            ctx.ellipse(28, 30, 18, 14, 0.3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(72, 50, 14, 12, -0.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        })();
+    }
+
+    // Initialize card grid UI interactions
+    (function initModeCardGrid() {
+        const grid = document.getElementById('modeCardGrid');
+        if (!grid) return;
+
+        grid.querySelectorAll('.mode-card').forEach(card => {
+            const activate = () => {
+                const mode = card.dataset.mode;
+                modeSelect.value = mode;
+                // Dispatch a change event so existing listeners fire
+                modeSelect.dispatchEvent(new Event('change'));
+            };
+
+            card.addEventListener('click', activate);
+            card.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    activate();
+                }
+            });
+        });
+
+        // Draw thumbnails after DOM is ready
+        generateModeThumbnails();
+    })();
+
 });

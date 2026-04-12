@@ -51,15 +51,59 @@
 
             <!-- Step 2: Mode -->
             <div class="toolbar-step" id="stepContent2">
-                <div class="control-group">
-                    <label for="modeSelect" style="font-size: 1rem;">変換モードを選択してください:</label>
-                    <select id="modeSelect" style="font-size: 1.1rem; padding: 0.75rem;">
-                        <option value="threshold">白黒2値化 (Threshold)</option>
-                        <option value="edge" selected>輪郭抽出 (Edge Trace)</option>
-                        <option value="dither">誤差拡散ディザリング (Dither)</option>
-                        <option value="bayer">網点ハーフトーン (Bayer)</option>
-                        <option value="color">フルカラー (Color Vector)</option>
-                    </select>
+                <!-- Hidden select kept for script.js compatibility -->
+                <select id="modeSelect" style="display:none;">
+                    <option value="threshold">白黒2値化 (Threshold)</option>
+                    <option value="edge" selected>輪郭抽出 (Edge Trace)</option>
+                    <option value="dither">誤差拡散ディザリング (Dither)</option>
+                    <option value="bayer">網点ハーフトーン (Bayer)</option>
+                    <option value="color">フルカラー (Color Vector)</option>
+                </select>
+                <div class="mode-picker-header">
+                    <span>🎨</span>
+                    <span>変換モードを選択</span>
+                </div>
+                <div class="mode-card-grid" id="modeCardGrid">
+                    <div class="mode-card" data-mode="threshold" tabindex="0" role="button" aria-label="白黒2値化">
+                        <canvas class="mode-thumbnail" id="thumb-threshold" width="100" height="75"></canvas>
+                        <div class="mode-card-info">
+                            <div class="mode-card-name">白黒2値化</div>
+                            <div class="mode-card-desc">くっきりと2色に分離</div>
+                        </div>
+                        <div class="mode-card-selected-badge">✓ 選択中</div>
+                    </div>
+                    <div class="mode-card active" data-mode="edge" tabindex="0" role="button" aria-label="輪郭抽出">
+                        <canvas class="mode-thumbnail" id="thumb-edge" width="100" height="75"></canvas>
+                        <div class="mode-card-info">
+                            <div class="mode-card-name">輪郭抽出</div>
+                            <div class="mode-card-desc">エッジのみを細い線で</div>
+                        </div>
+                        <div class="mode-card-selected-badge">✓ 選択中</div>
+                    </div>
+                    <div class="mode-card" data-mode="dither" tabindex="0" role="button" aria-label="ディザリング">
+                        <canvas class="mode-thumbnail" id="thumb-dither" width="100" height="75"></canvas>
+                        <div class="mode-card-info">
+                            <div class="mode-card-name">ディザリング</div>
+                            <div class="mode-card-desc">誤差拡散で粒子感を表現</div>
+                        </div>
+                        <div class="mode-card-selected-badge">✓ 選択中</div>
+                    </div>
+                    <div class="mode-card" data-mode="bayer" tabindex="0" role="button" aria-label="ハーフトーン">
+                        <canvas class="mode-thumbnail" id="thumb-bayer" width="100" height="75"></canvas>
+                        <div class="mode-card-info">
+                            <div class="mode-card-name">ハーフトーン</div>
+                            <div class="mode-card-desc">Bayer格子で網点パターン</div>
+                        </div>
+                        <div class="mode-card-selected-badge">✓ 選択中</div>
+                    </div>
+                    <div class="mode-card" data-mode="color" tabindex="0" role="button" aria-label="フルカラー">
+                        <canvas class="mode-thumbnail" id="thumb-color" width="100" height="75"></canvas>
+                        <div class="mode-card-info">
+                            <div class="mode-card-name">フルカラー</div>
+                            <div class="mode-card-desc">色を維持してベクター化</div>
+                        </div>
+                        <div class="mode-card-selected-badge">✓ 選択中</div>
+                    </div>
                 </div>
             </div>
 

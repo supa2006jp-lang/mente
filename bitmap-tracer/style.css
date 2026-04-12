@@ -420,3 +420,122 @@ canvas {
     font-size: 0.875rem;
     pointer-events: none;
 }
+
+/* ===== Mode Card Picker ===== */
+.mode-picker-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+    width: 100%;
+}
+
+.mode-card-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1rem;
+    width: 100%;
+}
+
+@media (max-width: 1100px) {
+    .mode-card-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .mode-card-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.mode-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 0.6rem 0.6rem;
+    border-radius: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease, background 0.2s ease;
+    user-select: none;
+    overflow: hidden;
+}
+
+.mode-card:hover {
+    border-color: rgba(96, 165, 250, 0.5);
+    background: rgba(59, 130, 246, 0.08);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.15);
+}
+
+.mode-card:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.mode-card.active {
+    border-color: var(--accent-color);
+    background: rgba(59, 130, 246, 0.12);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15), 0 6px 20px rgba(59, 130, 246, 0.2);
+}
+
+.mode-thumbnail {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4/3;
+    border-radius: 6px;
+    display: block;
+    image-rendering: pixelated;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #fff;
+}
+
+.mode-card-info {
+    width: 100%;
+    text-align: center;
+}
+
+.mode-card-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.2rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mode-card-desc {
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+    line-height: 1.3;
+}
+
+.mode-card-selected-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--accent-color);
+    color: white;
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 20px;
+    opacity: 0;
+    transform: scale(0.7);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+.mode-card.active .mode-card-selected-badge {
+    opacity: 1;
+    transform: scale(1);
+}
