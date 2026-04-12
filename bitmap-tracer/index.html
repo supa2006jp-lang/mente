@@ -112,21 +112,25 @@
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; width: 100%;">
                     <div class="control-group">
                         <label for="thresholdSlider">しきい値/感度: <span id="thresholdValue">128</span></label>
+                        <div class="help-text">白と黒を分ける色の境界線を調整します。数値を下げると黒く、上げると白っぽくなります。</div>
                         <input type="range" id="thresholdSlider" min="0" max="255" value="128">
                     </div>
 
                     <div class="control-group" id="edgeThicknessGroup">
                         <label for="edgeThicknessSlider">線の太さ調整: </label>
+                        <div class="help-text">画像全体から検出された線の太さを太く/細く増減させます。</div>
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
                             <input type="range" id="edgeThicknessSlider" min="-5" max="5" value="0" step="0.5" style="flex-grow: 1;">
                             <input type="number" id="edgeThicknessValue" min="-5" max="5" step="0.5" value="0"
                                 style="width: 60px; text-align: right; background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; padding: 2px 4px;">
                         </div>
                         <button id="btnThickenThinLines" class="secondary-btn" style="width: 100%; margin-top: 6px; font-size: 0.85em;">細い線を太くする</button>
+                        <div class="help-text" style="text-align: center; margin-top: 4px;">かすれて消えそうな極細の線だけを狙って太らせます。</div>
                     </div>
 
                     <div class="control-group">
                         <label for="gapFillSlider">隙間埋め: </label>
+                        <div class="help-text">途切れた線や、ノイズによる小さな穴を自動的に塞ぎます。</div>
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
                             <input type="range" id="gapFillSlider" min="0" max="5" value="0" step="0.5" style="flex-grow: 1;">
                             <input type="number" id="gapFillValue" min="0" max="5" step="0.5" value="0"
@@ -139,6 +143,7 @@
                             <input type="checkbox" id="invertCheckbox">
                             白黒反転 (Invert)
                         </label>
+                        <div class="help-text">黒と白の色を入れ替えます。抜き型（ステンシル）を作る際に便利です。</div>
                         <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 10px;">
                             <button id="flipHorizontalBtn" class="secondary-btn" title="左右反転" style="flex: 1;">↔️</button>
                             <button id="flipVerticalBtn" class="secondary-btn" title="上下反転" style="flex: 1;">↕️</button>
@@ -146,8 +151,18 @@
                         </div>
                     </div>
 
+                    <div class="control-group">
+                        <label for="cropMarginSlider">✂️ 外枠ノイズのトリミング (px)</label>
+                        <div class="help-text">一番外側に残ってしまう枠線やゴミを、指定ピクセルだけ物理的に内側へ削って消去します。</div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <input type="range" id="cropMarginSlider" min="0" max="20" value="1" step="1" style="flex-grow: 1;">
+                            <span id="cropMarginValue" style="width: 30px; text-align: right; background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; padding: 2px 4px;">1</span>
+                        </div>
+                    </div>
+
                     <div class="control-group" id="whiteFillGroup" style="border: 1px solid rgba(255,255,255,0.05); padding: 10px; border-radius: 8px;">
                         <label>🧹 明るい部分を白塗り除去</label>
+                        <div class="help-text">指定した明るさより白いノイズや薄い影を一気に真っ白にして消去します。</div>
                         <div style="display: flex; gap: 0.5rem; align-items: center; margin: 8px 0;">
                             <input type="range" id="whiteFillSlider" min="0" max="255" value="200" style="flex-grow: 1;">
                             <span id="whiteFillValue" style="width: 30px; text-align: right; font-size: 0.9em;">200</span>
@@ -157,6 +172,7 @@
 
                     <div class="control-group" id="blackFillGroup" style="border: 1px solid rgba(255,255,255,0.05); padding: 10px; border-radius: 8px;">
                         <label>🖋️ 暗い部分を黒塗り</label>
+                        <div class="help-text">指定した暗さより黒い部分を完全に真っ黒に塗りつぶし、ムラを無くします。</div>
                         <div style="display: flex; gap: 0.5rem; align-items: center; margin: 8px 0;">
                             <input type="range" id="blackFillSlider" min="0" max="255" value="128" style="flex-grow: 1;">
                             <span id="blackFillValue" style="width: 30px; text-align: right; font-size: 0.9em;">128</span>
@@ -171,6 +187,7 @@
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; width: 100%;">
                     <div class="control-group">
                         <label>📐 出力設定 (mm)</label>
+                        <div class="help-text">生成するSVGパターンの最終的な物理サイズ（ミリ）を指定します。</div>
                         <div style="display: flex; gap: 0.8rem; align-items: center;">
                             <div style="display: flex; align-items: center; gap: 4px;">
                                 <span style="font-size: 0.8em; opacity: 0.7;">W:</span>
@@ -186,6 +203,7 @@
                         </div>
 
                         <label style="margin-top: 1rem;">🧩 パターン配置</label>
+                        <div class="help-text">抽出した図形をどのように並べて一枚のデータにするか選びます。</div>
                         <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                             <label class="checkbox-label" style="margin: 0;">
                                 <input type="checkbox" id="halfStepCheckbox" checked> ハーフステップ (リピート)
@@ -208,12 +226,14 @@
 
                     <div class="control-group">
                         <label for="vectorStrokeWidthSlider">✏️ ベクター線の太さ補正</label>
+                        <div class="help-text">出力するSVGの線（ストローク）の幅を微調整します。0を指定すると線無しになります。</div>
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
                             <input type="range" id="vectorStrokeWidthSlider" min="0" max="5" step="0.25" value="1" style="flex-grow: 1;">
                             <span id="vectorStrokeWidthValue" style="width: 30px; text-align: right; font-size: 0.9em;">1</span>
                         </div>
                         <div class="control-group" id="manualScaleGroup" style="margin-top: 10px;">
                             <label>🔍 大きさ調整 (%)</label>
+                            <div class="help-text">図形自体の拡大縮小率を手動で指定します。</div>
                             <input type="number" id="manualScalePercent" min="1" step="1" value="100" style="width: 100px;">
                         </div>
                     </div>
@@ -240,18 +260,18 @@
         <div class="main-content">
             <div class="workspace workspace-main">
             <div class="canvas-container glass-panel">
-                <h3>Original Image <span id="originalSizeInfo"
+                <h3>元画像 (Original Image) <span id="originalSizeInfo"
                         style="font-size: 0.8em; color: var(--text-secondary); font-weight: 400; margin-left: 0.5rem;"></span>
                 </h3>
                 <div class="canvas-wrapper">
                     <canvas id="originalCanvas"></canvas>
-                    <div class="placeholder" id="originalPlaceholder">Image will appear here</div>
+                    <div class="placeholder" id="originalPlaceholder">ここに画像が表示されます</div>
                 </div>
             </div>
 
             <div class="canvas-container glass-panel">
                 <h3 style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                    <span style="display: flex; align-items: center;">Traced Result
+                    <span style="display: flex; align-items: center;">トレース結果 (Traced Result)
                         <span id="resultSizeInfo"
                             style="font-size: 0.8em; color: var(--text-secondary); font-weight: 400; margin-left: 0.5rem; margin-right: 1rem;"></span>
                         <div style="display: flex; gap: 4px;">
@@ -314,7 +334,7 @@
                             描画</button>
                     </div>
 
-                    <div class="placeholder" id="resultPlaceholder">Result will appear here</div>
+                    <div class="placeholder" id="resultPlaceholder">ここに各種調整後の結果が表示されます</div>
                 </div>
             </div>
             </div>
@@ -322,13 +342,16 @@
             <div class="workspace preview-sidebar">
                 <div class="canvas-container glass-panel"
                     style="display: flex; flex-direction: column; align-items: center;">
-                    <h3 style="margin-bottom: 1.5rem;">Continuous SVG Pattern Preview</h3>
+                    <h3 style="margin-bottom: 1.5rem;">連続 SVG パターンプレビュー</h3>
                     <div class="canvas-wrapper pattern-canvas-wrapper" id="previewWrapper"
                         style="width: 100%; height: 500px; background-color: #ffffff; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;">
-                        <div class="placeholder" id="patternPlaceholder" style="position: static;">SVG Pattern will appear
-                            here</div>
+                        <div class="placeholder" id="patternPlaceholder" style="position: static;">ここに SVG パターンが表示されます</div>
                         <div id="patternPreview"
                             style="display: none; width: 100%; height: 100%; box-shadow: 0 4px 15px rgba(0,0,0,0.5);"></div>
+                    </div>
+                    <div class="help-text" style="margin-top: 1rem; text-align: center; color: var(--text-secondary); line-height: 1.4;">
+                        💡 枠が出て邪魔な時は、少しでも「白塗り除去」を実行するか、<br>
+                        「外枠ノイズのトリミング」を2程度に設定して実行してください。
                     </div>
                 </div>
             </div>

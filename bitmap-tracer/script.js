@@ -22,6 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const flipVerticalBtn = document.getElementById('flipVerticalBtn');
     const resetImageBtn = document.getElementById('resetImageBtn');
     const downloadBtn = document.getElementById('downloadBtn');
+    const cropMarginSlider = document.getElementById('cropMarginSlider');
+    const cropMarginValue = document.getElementById('cropMarginValue');
 
     const patternColsInput = document.getElementById('patternCols');
     const patternRowsInput = document.getElementById('patternRows');
@@ -165,7 +167,8 @@ document.addEventListener('DOMContentLoaded', () => {
             singleItem: singleItemCheckbox.checked,
             useGridCount: useGridCountCheckbox.checked,
             keepAspect: keepAspectCheckbox.checked,
-            manualScale: manualScalePercent.value
+            manualScale: manualScalePercent.value,
+            cropMargin: cropMarginSlider ? cropMarginSlider.value : null
         };
         localStorage.setItem('bitmapTracerSettings', JSON.stringify(settings));
     }
@@ -197,6 +200,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (settings.useGridCount !== undefined) useGridCountCheckbox.checked = settings.useGridCount;
                 if (settings.keepAspect !== undefined) keepAspectCheckbox.checked = settings.keepAspect;
                 if (settings.manualScale) manualScalePercent.value = settings.manualScale;
+                if (settings.cropMargin && cropMarginSlider) {
+                    cropMarginSlider.value = settings.cropMargin;
+                    cropMarginValue.textContent = settings.cropMargin;
+                }
             } catch (e) {
                 console.error('Failed to load settings', e);
             }
@@ -296,6 +303,14 @@ document.addEventListener('DOMContentLoaded', () => {
     flipHorizontalBtn.addEventListener('click', () => flipImageData('horizontal'));
     flipVerticalBtn.addEventListener('click', () => flipImageData('vertical'));
     downloadBtn.addEventListener('click', downloadResult);
+
+    if (cropMarginSlider) {
+        cropMarginSlider.addEventListener('input', (e) => {
+            if (cropMarginValue) cropMarginValue.textContent = e.target.value;
+            saveSettings();
+            processImage();
+        });
+    }
 
     if (resetImageBtn) {
         resetImageBtn.addEventListener('click', () => {
@@ -879,6 +894,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const gapFill = parseFloat(gapFillSlider.value);
         if (gapFill > 0 && mode !== 'color') {
             applyGapFill(dst, width, height, gapFill);
+        }
+
+        // --- 外枠ノイズのトリミング (Crop Margin) ---
+        const cropMargin = cropMarginSlider ? parseInt(cropMarginSlider.value, 10) : 0;
+        if (cropMargin > 0 && mode !== 'color') {
+            const bgColor = invertCheckbox.checked ? 0 : 255;
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    if (x < cropMargin || x >= width - cropMargin || y < cropMargin || y >= height - cropMargin) {
+                        const idx = (y * width + x) * 4;
+                        dst[idx] = bgColor;
+                        dst[idx + 1] = bgColor;
+                        dst[idx + 2] = bgColor;
+                        dst[idx + 3] = 255;
+                    }
+                }
+            }
         }
 
         const thickness = parseFloat(edgeThicknessSlider.value);
@@ -1750,22 +1782,30 @@ document.addEventListener('DOMContentLoaded', () => {
             const minY = croppedSvgMinY;
 
             let resultCtxData = resultCtx.getImageData(minX, minY, cropWidth, cropHeight);
-            let w = cropWidth;
-            let h = cropHeight;
-            const traceData = new ImageData(
-                new Uint8ClampedArray(resultCtxData.data),
-                w,
-                h
-            );
+            const padding = 2;
+            let w = cropWidth + padding * 2;
+            let h = cropHeight + padding * 2;
 
-            // 外枠（黒い四角い枠）の発生を防ぐため、画像データの最外周1ピクセルを強制的に透明にします。
-            // これにより、Tracerが画像の端を境界線として抽出するのを防止します。
-            for (let y = 0; y < h; y++) {
-                for (let x = 0; x < w; x++) {
-                    const idx = (y * w + x) * 4;
-                    if (x === 0 || y === 0 || x === w - 1 || y === h - 1) {
-                        traceData.data[idx + 3] = 0;
-                    }
+            // マージン（余白）を持たせた新しいImageDataを作成
+            const traceData = new ImageData(w, h);
+            
+            // 余白部分を完全に透明な白 (255, 255, 255, 0) で初期化
+            for (let i = 0; i < traceData.data.length; i += 4) {
+                traceData.data[i] = 255;
+                traceData.data[i + 1] = 255;
+                traceData.data[i + 2] = 255;
+                traceData.data[i + 3] = 0;
+            }
+
+            // 元の画像を中央にコピー
+            for (let y = 0; y < cropHeight; y++) {
+                for (let x = 0; x < cropWidth; x++) {
+                    const srcIdx = (y * cropWidth + x) * 4;
+                    const dstIdx = ((y + padding) * w + (x + padding)) * 4;
+                    traceData.data[dstIdx] = resultCtxData.data[srcIdx];
+                    traceData.data[dstIdx + 1] = resultCtxData.data[srcIdx + 1];
+                    traceData.data[dstIdx + 2] = resultCtxData.data[srcIdx + 2];
+                    traceData.data[dstIdx + 3] = resultCtxData.data[srcIdx + 3];
                 }
             }
 
@@ -1817,8 +1857,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     strokewidth: customStrokeWidth,
                     colorsampling: 0,
                     numberofcolors: 2,
-                    // 白を透明にマッピングするための明示的なパレット定義
-                    pal: [{ r: 0, g: 0, b: 0, a: 255 }, { r: 255, g: 255, b: 255, a: 0 }]
+                    // 透明色をパレットの1番目に指定することで、ImageTracerがベースレイヤー（キャンバス全体を覆う背景パス）の色として
+                    // 黒でなく透明を採用するように強制する。これにより、黒色がベースになって謎の外枠が発生する現象を根絶できる。
+                    pal: [{ r: 255, g: 255, b: 255, a: 0 }, { r: 0, g: 0, b: 0, a: 255 }]
                 };
             }
 
@@ -1851,6 +1892,36 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (isInvisible) {
                             path.remove();
                             return;
+                        }
+
+                        // ③ 極端に巨大なパス（外枠・ベースレイヤー）の強制除去（フレームカッター機能）
+                        // getBBox() はDOMマウントされていないと取得できない場合があるため、簡易的に d 属性の大きさを測るか、
+                        // もしくはキャンバスのサイズ（w, h）に対して極端に大きい矩形パスを消去する
+                        const pathData = path.getAttribute('d') || '';
+                        let xCoords = [];
+                        let yCoords = [];
+                        const regex = /([+-]?\d+(?:\.\d+)?)/g;
+                        let match;
+                        while ((match = regex.exec(d)) !== null) {
+                            // ImageTracer creates coordinates scaled or absolute.
+                            // Simply grab all numbers and estimate range.
+                            xCoords.push(parseFloat(match[0]));
+                        }
+                        if (xCoords.length > 4) { // Needs roughly x and y
+                            // Fast approximate bounding box heuristic for the path
+                            // We don't distinguish x and y perfectly, but if max - min spans > width * 0.95...
+                            // Actually, let's just use the exact fact that an outer bounding frame path will visit coord 2 (padding) and max bound.
+                            // Better yet, just check if the path has VERY FEW commands and covers huge area.
+                            const cmds = d.match(/[MmLlHhVvCcSsQqTtAaZz]/g) || [];
+                            if (cmds.length <= 15) { // Simple shape (like a bounding rect, which uses 5-10 commands)
+                                // If it's a simple shape, it might be the frame!
+                                // Check if it contains coordinates near the edges (e.g. 2, 0, or w-2)
+                                if (d.includes('M 0 0') || d.includes('M 1 ') || d.includes('M 2 ') || d.includes('0 0 L') || d.includes('L 0 0')) {
+                                    // Highly likely to be the border path stretching from origin
+                                    path.remove();
+                                    return;
+                                }
+                            }
                         }
 
                         // ② strokelkiのお知らせ
