@@ -44,17 +44,29 @@ header {
     margin-bottom: 2rem;
 }
 
-header h1 {
-    font-size: 2.5rem;
-    font-weight: 600;
-    background: linear-gradient(135deg, #60a5fa, #c084fc);
+header h1.wordart-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 3.2rem;
+    font-weight: 800;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 50%, #c586ff 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    margin-bottom: 0.5rem;
+    filter: drop-shadow(2px 4px 0px rgba(0, 0, 0, 0.15));
+    letter-spacing: -1.5px;
+    animation: titleFloat 4s ease-in-out infinite;
+    display: inline-block;
+}
+
+@keyframes titleFloat {
+    0%, 100% { transform: translateY(0) rotate(-0.5deg); }
+    50% { transform: translateY(-5px) rotate(0.5deg); }
 }
 
 header p {
     color: var(--text-secondary);
+    font-size: 1.1rem;
+    opacity: 0.9;
 }
 
 .glass-panel {

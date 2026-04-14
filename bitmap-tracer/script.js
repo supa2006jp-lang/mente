@@ -38,8 +38,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const manualScalePercent = document.getElementById('manualScalePercent');
     const vectorStrokeWidthSlider = document.getElementById('vectorStrokeWidthSlider');
     const vectorStrokeWidthValue = document.getElementById('vectorStrokeWidthValue');
+    const nodeReductionSlider = document.getElementById('nodeReductionSlider');
+    const nodeReductionValue = document.getElementById('nodeReductionValue');
     const generateSvgBtn = document.getElementById('generateSvgBtn');
     const downloadSvgBtn = document.getElementById('downloadSvgBtn');
+    const nodeCountDisplay = document.getElementById('nodeCountDisplay');
+    const nodeCountValue = document.getElementById('nodeCountValue');
+    const nodeLoadStatus = document.getElementById('nodeLoadStatus');
+    const nodeLoadBadge = document.getElementById('nodeLoadBadge');
 
     let currentImageData = null;
     let currentStep = 1;
@@ -87,6 +93,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (step === 4) {
             nextStepBtn.style.display = 'none';
+            // Auto-calculate appropriate scale when first entering the output step
+            setTimeout(autoFitManualScale, 10);
         } else {
             nextStepBtn.style.display = 'flex';
             nextStepBtn.innerHTML = `次へ <span>→</span>`;
@@ -168,7 +176,8 @@ document.addEventListener('DOMContentLoaded', () => {
             useGridCount: useGridCountCheckbox.checked,
             keepAspect: keepAspectCheckbox.checked,
             manualScale: manualScalePercent.value,
-            cropMargin: cropMarginSlider ? cropMarginSlider.value : null
+            cropMargin: cropMarginSlider ? cropMarginSlider.value : null,
+            nodeReduction: nodeReductionSlider ? nodeReductionSlider.value : 1.0
         };
         localStorage.setItem('bitmapTracerSettings', JSON.stringify(settings));
     }
@@ -203,6 +212,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (settings.cropMargin && cropMarginSlider) {
                     cropMarginSlider.value = settings.cropMargin;
                     cropMarginValue.textContent = settings.cropMargin;
+                }
+                if (settings.nodeReduction && nodeReductionSlider) {
+                    nodeReductionSlider.value = settings.nodeReduction;
+                    const val = parseFloat(settings.nodeReduction);
+                    let label = val.toFixed(1);
+                    if (val === 1.0) label += " (標準)";
+                    else if (val === 0.1) label += " (最大精密)";
+                    if (nodeReductionValue) nodeReductionValue.textContent = label;
                 }
             } catch (e) {
                 console.error('Failed to load settings', e);
@@ -339,6 +356,10 @@ document.addEventListener('DOMContentLoaded', () => {
             gapFillSlider.value = 0;
             gapFillValue.value = 0;
             invertCheckbox.checked = false;
+            if (nodeReductionSlider) {
+                nodeReductionSlider.value = 1.0;
+                if (nodeReductionValue) nodeReductionValue.textContent = "1.0 (標準)";
+            }
 
             // Clear edits
             editHistory = [];
@@ -385,8 +406,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (w <= 0 || h <= 0) return;
 
         let fitScale = Math.min(outW / w, outH / h);
-        fitScale = Math.max(0.001, Math.min(100.000, fitScale));
-        manualScalePercent.value = Math.floor(fitScale * 100);
+        if (isNaN(fitScale) || fitScale <= 0) fitScale = 0.1;
+
+        // "Manual Scale" now means "% of Fit size", so 100% = Fits perfectly.
+        manualScalePercent.value = 100;
     }
 
     function addEdit(action) {
@@ -500,6 +523,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     outputWidthInput.addEventListener('change', handleOutputSizeChange);
     outputHeightInput.addEventListener('change', handleOutputSizeChange);
+
+    if (nodeReductionSlider) {
+        nodeReductionSlider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            let label = val.toFixed(1);
+            if (val === 1.0) label += " (標準)";
+            if (val === 0.1) label += " (最大精密)";
+            if (val >= 5.0) label += " (簡略化)";
+            
+            if (nodeReductionValue) nodeReductionValue.textContent = label;
+            saveSettings();
+        });
+        nodeReductionSlider.addEventListener('change', () => {
+            if (currentSvgPattern) {
+                generateSvgPattern();
+            }
+        });
+    }
 
     if (vectorStrokeWidthSlider) {
         vectorStrokeWidthSlider.addEventListener('input', (e) => {
@@ -1252,7 +1293,15 @@ document.addEventListener('DOMContentLoaded', () => {
             resultSizeInfo.textContent = `(${width} × ${height} px)`;
         }
 
+        // If in Step 4, we might need to update auto-fit because image content size changed
+        if (currentStep === 4) {
+            // Don't auto-set to 100% every time a slider moves (annoying), 
+            // but we need to ensure patW calculation in preview is aware of new w,h.
+            // updatePatternPreview does this.
+        }
+
         currentSvgPattern = '';
+        if (nodeCountDisplay) nodeCountDisplay.style.display = 'none';
         generateSvgBtn.textContent = '🎨 SVGトレース & パターン生成';
         downloadSvgBtn.style.display = 'none';
         patternPreview.style.display = 'none';
@@ -1810,7 +1859,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const isColorMode = modeSelect.value === 'color';
-            const smoothness = 1.0;
+            const nodeReduction = nodeReductionSlider ? parseFloat(nodeReductionSlider.value) : 1.0;
+            const smoothness = nodeReduction;
             let userStrokeWidth = vectorStrokeWidthSlider ? parseFloat(vectorStrokeWidthSlider.value) : 1;
             const customStrokeWidth = userStrokeWidth === 0 ? 0.001 : userStrokeWidth;
 
@@ -1941,6 +1991,57 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             currentSvgPattern = svgStr;
+            
+            // Count nodes in the final SVG
+            const nodeCount = countSvgNodes(svgStr);
+            if (nodeCountDisplay) {
+                nodeCountDisplay.style.display = 'block';
+                nodeCountValue.textContent = nodeCount.toLocaleString();
+                
+                // Update Fusion 360 Load Feedback
+                let statusText = "";
+                let badgeText = "";
+                let bgColor = "";
+                let textColor = "";
+
+                if (nodeCount < 2500) {
+                    badgeText = "快適";
+                    statusText = "🚀 Fusion 360で非常に軽快に動作します。";
+                    bgColor = "rgba(16, 185, 129, 0.15)";
+                    textColor = "#10b981";
+                } else if (nodeCount < 6000) {
+                    badgeText = "良好";
+                    statusText = "✅ 標準的な負荷です。編集も概ねスムーズです。";
+                    bgColor = "rgba(59, 130, 246, 0.15)";
+                    textColor = "#3b82f6";
+                } else if (nodeCount < 10000) {
+                    badgeText = "注意";
+                    statusText = "⚠️ 負荷が高めです。スケッチ編集時に少しラグが出る可能性があります。";
+                    bgColor = "rgba(245, 158, 11, 0.15)";
+                    textColor = "#f59e0b";
+                } else if (nodeCount < 20000) {
+                    badgeText = "重い";
+                    statusText = "🔴 重いデータです。スケッチの移動や編集でフリーズする恐れがあります。";
+                    bgColor = "rgba(239, 68, 68, 0.15)";
+                    textColor = "#ef4444";
+                } else {
+                    badgeText = "限界";
+                    statusText = "🚫 限界を超えています。ノード削減を強く推奨します。";
+                    bgColor = "rgba(168, 85, 247, 0.15)";
+                    textColor = "#a855f7";
+                }
+
+                nodeCountDisplay.style.backgroundColor = bgColor;
+                nodeCountDisplay.style.borderColor = textColor + "44";
+                nodeCountDisplay.style.color = textColor;
+                if (nodeLoadBadge) {
+                    nodeLoadBadge.textContent = badgeText;
+                    nodeLoadBadge.style.backgroundColor = textColor;
+                }
+                if (nodeLoadStatus) {
+                    nodeLoadStatus.textContent = statusText;
+                }
+            }
 
             updatePatternPreview();
 
@@ -1948,6 +2049,27 @@ document.addEventListener('DOMContentLoaded', () => {
             generateSvgBtn.textContent = '🎨 SVGトレース & パターン生成';
             generateSvgBtn.disabled = false;
         }, 50);
+    }
+
+    function countSvgNodes(svgStr) {
+        if (!svgStr) return 0;
+        // Count all numbers in d attributes. 
+        // Each coordinate is a pair of numbers (x, y). 
+        // There might be some control points too, but for Fusion 360, 
+        // these all contribute to the complexity of the sketch.
+        const dMatches = svgStr.match(/d="([^"]+)"/g);
+        if (!dMatches) return 0;
+        
+        let totalNumbers = 0;
+        const numberRegex = /-?\d+(\.\d+)?/g;
+        
+        dMatches.forEach(dAttr => {
+            const numbers = dAttr.match(numberRegex);
+            if (numbers) totalNumbers += numbers.length;
+        });
+        
+        // Return point count (approx 2 numbers per point)
+        return Math.round(totalNumbers / 2);
     }
 
     function updatePatternPreview() {
@@ -2000,12 +2122,18 @@ document.addEventListener('DOMContentLoaded', () => {
             patW = w * scaleX;
             patH = h * scaleY;
         } else {
-            const manualScale = parseInt(manualScalePercent.value, 10) / 100.0;
-            scaleX = manualScale;
-            scaleY = manualScale;
+            // MODE: Manual Scale (Percentage of Fit)
+            const fitScale = Math.min(outW / w, outH / h);
+            const percent = (parseFloat(manualScalePercent.value) || 100) / 100.0;
+            
+            scaleX = fitScale * percent;
+            scaleY = scaleX;
 
             if (keepAspectCheckbox.checked) {
-                scaleY = scaleX;
+                // Already uniform
+            } else {
+                // If aspect ratio is NOT kept, we still use uniform fit as baseline 
+                // but user can't easily specify non-uniform manual scale yet
             }
 
             patW = w * scaleX;
@@ -2024,14 +2152,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (singleItemCheckbox.checked) {
-            // MODE: Single Item Exact Center Mapping
-            const manualScale = parseInt(manualScalePercent.value, 10) / 100.0;
-            scaleX = manualScale;
-            scaleY = manualScale;
-
-            if (keepAspectCheckbox.checked) {
-                scaleY = scaleX;
-            }
+            // MODE: Single Item Exact Center Mapping (Percentage of Fit)
+            const fitScale = Math.min(outW / w, outH / h);
+            const percent = (parseFloat(manualScalePercent.value) || 100) / 100.0;
+            
+            scaleX = fitScale * percent;
+            scaleY = scaleX;
 
             patW = w * scaleX;
             patH = h * scaleY;
@@ -2174,9 +2300,9 @@ ${useElements}
             for (let y = 0; y < H; y++) {
                 for (let x = 0; x < W; x++) {
                     const i = (y * W + x) * 4;
-                    const wave = Math.sin(x * 0.18 + y * 0.1) * 30;
-                    const base = (x / W) * 200 + 20 + wave;
-                    const g = Math.min(255, Math.max(0, base));
+                    // Create a sharp diagonal Z-like transition for better edge detection visibility
+                    const condition = (x + Math.sin(y * 0.1) * 20) > (W / 2);
+                    const g = condition ? 220 : 40;
                     data[i] = g;
                     data[i + 1] = g;
                     data[i + 2] = g;

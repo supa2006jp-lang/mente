@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>週間天気 - 北本市</title>
+    <link rel="stylesheet" href="style(1).css">
+    <style>
+        body {
+            padding-top: 20px;
+            background: #f2faf2;
+            min-height: 100vh;
+            display: block;
+        }
+        .weekly-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+            animation: fadeIn 0.8s ease-out;
+        }
+        .back-btn {
+            background: #064e3b;
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-bottom: 2rem;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+        .back-btn:hover {
+            background: #059669;
+            transform: translateX(-5px);
+        }
+        .weekly-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 1.5rem;
+        }
+        .day-card {
+            background: white;
+            border-radius: 20px;
+            padding: 2rem 1rem;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            border: 1px solid rgba(6, 78, 59, 0.05);
+            transition: transform 0.3s ease;
+        }
+        .day-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        }
+        .day-name { font-weight: 800; font-size: 1.4rem; color: #1e293b; }
+        .day-date { font-size: 1rem; color: #64748b; }
+        .day-icon { font-size: 3.5rem; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1)); }
+        .day-temp { font-weight: 800; font-size: 1.3rem; margin-top: 0.5rem; }
+        .max { color: #ef4444; }
+        .min { color: #3b82f6; }
+        
+        .sun { color: #ef4444; } /* 日曜日は赤 */
+        .sat { color: #3b82f6; } /* 土曜日は青 */
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="weekly-container">
+        <button class="back-btn" onclick="location.href='index.html'">← ダッシュボードに戻る</button>
+        <h1 style="margin-bottom: 2rem; color: #064e3b; font-size: 2rem; border-left: 8px solid #064e3b; padding-left: 1rem;">北本市の週間天気予報</h1>
+        <div id="weekly-display" class="weekly-grid">
+            <div class="loading">情報を読み込み中...</div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchWeekly() {
+            const lat = 36.0333, lon = 139.5333;
+            // 7日間の天気コード、最高気温、最低気温を取得
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Asia%2FTokyo`;
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                const display = document.getElementById('weekly-display');
+                display.innerHTML = '';
+                
+                for (let i = 0; i < 7; i++) {
+                    const date = new Date(data.daily.time[i]);
+                    const days = ['日', '月', '火', '水', '木', '金', '土'];
+                    const dayIdx = date.getDay();
+                    const dayName = days[dayIdx];
+                    const weatherCode = data.daily.weather_code[i];
+                    
+                    // 曜日に応じたクラス（赤・青）
+                    let dayClass = '';
+                    if (dayIdx === 0) dayClass = 'sun';
+                    else if (dayIdx === 6) dayClass = 'sat';
+
+                    const card = document.createElement('div');
+                    card.className = 'day-card';
+                    card.innerHTML = `
+                        <div class="day-name ${dayClass}">${dayName}曜日</div>
+                        <div class="day-date">${date.getMonth()+1}月${date.getDate()}日</div>
+                        <div class="day-icon">${getIcon(weatherCode)}</div>
+                        <div class="day-temp">
+                            <span class="max">${Math.round(data.daily.temperature_2m_max[i])}°</span>
+                            <span style="color:#e2e8f0; margin:0 5px;">/</span>
+                            <span class="min">${Math.round(data.daily.temperature_2m_min[i])}°</span>
+                        </div>
+                    `;
+                    display.appendChild(card);
+                }
+            } catch (e) { 
+                console.error(e);
+                document.getElementById('weekly-display').innerHTML = '<div class="error">データの取得に失敗しました</div>';
+            }
+        }
+
+        function getIcon(code) {
+            if (code === 0) return '☀️';
+            if (code <= 3) return '⛅';
+            if (code >= 45 && code <= 48) return '🌫️';
+            if (code >= 51 && code <= 55) return '🌦️';
+            if (code >= 61 && code <= 65) return '☔';
+            if (code >= 71 && code <= 77) return '❄️';
+            if (code >= 80 && code <= 82) return '🌧️';
+            if (code >= 95) return '⛈️';
+            return '☁️';
+        }
+
+        fetchWeekly();
+    </script>
+</body>
+</html>

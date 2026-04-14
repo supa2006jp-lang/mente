@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kitamoto Weather Dashboard</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="background-container" id="bg-container"></div>
+    <div class="overlay"></div>
+
+    <!-- 全体を自動スケーリングするためのコンテナ -->
+    <div id="app-container">
+        <div class="news-ticker">
+            <div class="news-ticker-label">NEWS</div>
+            <div class="ticker-settings">
+                <input type="range" id="speed-slider" min="1" max="30" value="30" title="ニュースの速度を調整">
+                <span id="speed-value-display"><span id="speed-value">30</span>s</span>
+            </div>
+            <div class="news-ticker-scroll" id="news-ticker-content">
+                ニュースを取得中...
+            </div>
+        </div>
+        <!-- 話題のタグ欄 -->
+        <div class="trending-bar" style="display: flex !important;">
+            <div class="trending-label">話題のタグ #</div>
+            <div id="trending-tags" class="trending-tags-container">
+                <!-- ここにJSでカードが挿入されます -->
+            </div>
+        </div>
+
+    <main class="dashboard">
+        <header class="dashboard-header">
+            <div class="glass-card clock-card">
+                <div id="clock">--:--</div>
+                <div class="date-container">
+                    <span id="date">----/--/--</span>
+                    <span id="holiday" class="holiday-label"></span>
+                    <span id="anniversary" class="anniversary-label"></span>
+                </div>
+            </div>
+
+            <div class="glass-card summary-card">
+                <div class="summary-header">
+                    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                        <h2 style="margin: 0;">北本市の天気</h2>
+                        <span id="weather-summary" style="font-size: 1.1rem; color: #ef4444; font-weight: 800; border-bottom: 2px solid #ef4444;"></span>
+                        <button onclick="location.href='weekly.html'" class="weekly-btn">週間天気 📅</button>
+                    </div>
+                </div>
+                <div class="summary-grid">
+                    <div class="summary-item current-card">
+                        <div class="label">現在の温度</div>
+                        <div class="value" id="current-temp">--°C</div>
+                    </div>
+                    <div class="summary-item max-highlight">
+                        <div class="label">最高温度 🔥</div>
+                        <div class="value" id="max-temp">--°C</div>
+                    </div>
+                    <div class="summary-item min-highlight">
+                        <div class="label">最低温度 ❄️</div>
+                        <div class="value" id="min-temp">--°C</div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="weather-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <section class="hourly-section">
+
+            <div id="hourly-container" class="hourly-container">
+                <!-- Hourly forecast items will be added here -->
+            </div>
+        </section>
+
+        <!-- 降雨情報メッセージ -->
+        <section class="rain-info-section">
+            <div id="rain-info" class="rain-info-card">降水情報を確認中...</div>
+        </section>
+    </main>
+
+    </div> <!-- /#app-container -->
+    <script src="script.js"></script>
+</body>
+
+</html>

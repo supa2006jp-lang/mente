@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>北本市 天気グラフ</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <style>
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background-color: #f2faf2; /* 前の背景色に合わせる */
+            display: flex; flex-direction: column;
+            font-family: 'Meiryo', sans-serif;
+            overflow: hidden;
+        }
+        .header {
+            background: #064e3b;
+            color: white;
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .back-link {
+            color: white;
+            text-decoration: none;
+            background: rgba(255,255,255,0.2);
+            padding: 10px 30px;
+            border-radius: 50px;
+            font-size: 1.2rem;
+            border: 2px solid white;
+        }
+        .chart-wrapper {
+            flex: 1;
+            padding: 50px;
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span>北本市 12時間予報 (温度・降水確率)</span>
+        <a href="index.html" class="back-link">ダッシュボードへ戻る</a>
+    </div>
+    <div class="chart-wrapper">
+        <canvas id="full-chart"></canvas>
+    </div>
+
+    <script>
+        async function initChart() {
+            const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=36.0333&longitude=139.5333&hourly=temperature_2m,precipitation_probability&timezone=Asia%2FTokyo');
+            const data = await res.json();
+
+            const now = new Date();
+            const currentHour = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()).getTime();
+
+            let hourlyData = [];
+            for (let i = 0; i < data.hourly.time.length; i++) {
+                const d = new Date(data.hourly.time[i]);
+                if (d.getTime() >= currentHour) {
+                    const h = d.getHours();
+                    hourlyData.push({
+                        label: (h % 12 || 12),
+                        realH: h,
+                        temp: data.hourly.temperature_2m[i],
+                        precip: data.hourly.precipitation_probability[i]
+                    });
+                }
+                if (hourlyData.length >= 12) break;
+            }
+
+            const ctx = document.getElementById('full-chart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: hourlyData.map(d => d.label),
+                    datasets: [
+                        { label: '温度 (°C)', data: hourlyData.map(d => d.temp), borderColor: '#f87171', borderWidth: 6, pointRadius: 8, yAxisID: 'yT', tension: 0.4 },
+                        { label: '降水確率 (%)', data: hourlyData.map(d => d.precip), borderColor: '#60a5fa', backgroundColor: 'rgba(96, 165, 250, 0.2)', fill: true, borderWidth: 6, pointRadius: 8, yAxisID: 'yP', tension: 0.4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#064e3b', font: { size: 24, weight: 'bold' } } }
+                    },
+                    scales: {
+                        x: { 
+                            title: { display: true, text: '時刻', font: { size: 24, weight: 'bold' }, color: '#064e3b' },
+                            ticks: { 
+                                font: { size: 28, weight: 'bold' },
+                                color: (c) => {
+                                    const h = hourlyData[c.index]?.realH;
+                                    if (h >= 6 && h < 12) return '#7dd3fc';
+                                    if (h >= 12 && h < 18) return '#fdba74';
+                                    return '#a78bfa';
+                                }
+                            }
+                        },
+                        yT: { position: 'left', title: { display: true, text: '温度(°C)', font: { size: 20 }, color: '#f87171' }, ticks: { font: { size: 22 }, color: '#f87171' } },
+                        yP: { position: 'right', title: { display: true, text: '降水(%)', font: { size: 20 }, color: '#60a5fa' }, ticks: { font: { size: 22 }, color: '#60a5fa' }, min: 0, max: 100 }
+                    }
+                }
+            });
+        }
+        initChart();
+        // 10分ごとに更新
+        setInterval(() => location.reload(), 10 * 60 * 1000);
+    </script>
+</body>
+</html>

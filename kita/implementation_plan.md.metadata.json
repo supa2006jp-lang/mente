@@ -1,0 +1,5 @@
+{
+  "artifactType":  "ARTIFACT_TYPE_IMPLEMENTATION_PLAN",
+  "summary":  "北本市の天気ダッシュボードの実装計画。時計、現在の気象情報、1時間ごとの予報（過去分非表示機能付き）をモダンなWeb技術と無料APIで実装するプラン。",
+  "updatedAt":  "2026-03-11T14:29:28.652172700Z"
+}
