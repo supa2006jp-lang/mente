@@ -146,6 +146,10 @@ class MaintenanceStore {
             if (!d.machineCategories) d.machineCategories = [];
             if (!d.archivedMachineCategories) d.archivedMachineCategories = [];
             if (!d.memos) d.memos = {};
+            if (!d.shiftNotebooks) d.shiftNotebooks = {};
+            if (!d.shiftNotebookGroupPresets) d.shiftNotebookGroupPresets = [];
+            if (!d.shiftNotebookTags) d.shiftNotebookTags = ['通常', '注意', '至急'];
+            if (!d.shiftNotebookRowGroups) d.shiftNotebookRowGroups = ['4号L', '5号L'];
             if (!d.archivedSuggestions) d.archivedSuggestions = { errorNo: [], content: [], cause: [], notes: [], workers: [], partName: [], partModel: [], partSerial: [] };
             if (!d.dokateiCounters) d.dokateiCounters = [
                 { location: '', lastDate: '' },
@@ -410,6 +414,7 @@ class MaintenanceStore {
             photos: record.photos || [],
             workTime: parseInt(record.workTime) || 0,
             isDokatei: !!record.isDokatei,
+            isNonProductionStop: !!record.isNonProductionStop,
             category: record.category || 'other',
             machineCategory: record.machineCategory || '',
             lineNo: record.lineNo || '', // New: 1-9 line selection
@@ -504,6 +509,7 @@ class MaintenanceStore {
     // --- Maintenance Task (Cycle Setting) Archive Management ---
     toggleMaintenanceTaskArchive(id) {
         if (!this.activeData.archivedMaintenanceTasks) this.activeData.archivedMaintenanceTasks = [];
+        this.freezeTaskContentInHistory(id);
         const idx = this.activeData.archivedMaintenanceTasks.indexOf(id);
         if (idx === -1) {
             this.activeData.archivedMaintenanceTasks.push(id);
@@ -517,12 +523,38 @@ class MaintenanceStore {
         return (this.activeData.archivedMaintenanceTasks || []).includes(id);
     }
 
+    freezeTaskContentInHistory(id) {
+        const task = (this.activeData.tasks || []).find(t => t.id === id);
+        if (!task) return;
+        (this.activeData.history || []).forEach(h => {
+            if (String(h.taskId) === String(id) && !h.taskContent) {
+                h.taskContent = task.content || '定期メンテナンス';
+            }
+        });
+    }
+
+    softDeleteMaintenanceTask(id) {
+        this.freezeTaskContentInHistory(id);
+        const task = (this.activeData.tasks || []).find(t => t.id === id);
+        if (task) task.deleted = true;
+        if (this.activeData.archivedMaintenanceTasks) {
+            this.activeData.archivedMaintenanceTasks = this.activeData.archivedMaintenanceTasks.filter(x => x !== id);
+        }
+        this.save();
+    }
+
     hardDeleteMaintenanceTask(id) {
+        this.freezeTaskContentInHistory(id);
         if (this.activeData.archivedMaintenanceTasks) {
             this.activeData.archivedMaintenanceTasks = this.activeData.archivedMaintenanceTasks.filter(x => x !== id);
         }
         if (this.activeData.tasks) {
-            this.activeData.tasks = this.activeData.tasks.filter(t => t.id !== id);
+            const task = this.activeData.tasks.find(t => t.id === id);
+            if (task && (parseInt(task.periodDays) || 0) <= 0) {
+                task.deleted = true;
+            } else {
+                this.activeData.tasks = this.activeData.tasks.filter(t => t.id !== id);
+            }
         }
         this.save();
     }
@@ -759,7 +791,7 @@ class MaintenanceStore {
         return half.toLowerCase().trim();
     }
 
-    static resizeImage(file, maxSide = 1000) {
+    static resizeImage(file, maxSide = 1000, quality = 0.7) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = (e) => {
@@ -785,8 +817,7 @@ class MaintenanceStore {
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
-                    // Compress to JPEG with 0.7 quality
-                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                    resolve(canvas.toDataURL('image/jpeg', quality));
                 };
                 img.onerror = reject;
                 img.src = e.target.result;

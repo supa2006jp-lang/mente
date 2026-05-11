@@ -20,6 +20,8 @@ class MaintenanceApp {
         this.guideTagFilter = null; // Currently selected tag in guides view
         this.guideLineFilter = 'all'; // Currently selected line in guides view
         this.calLineFilter = 'all'; // Currently selected line in calendar view
+        this.calendarCompactMode = localStorage.getItem('calendar_compact_mode') === 'true';
+        this.expandedCompactMemos = new Set();
         this.machineSort = 'rank'; // 'rank' or 'name' or 'newest'
         this.analysisMode = 'parts'; // 'parts' or 'machines'
         this.laborRate = 3500; // Hourly rate for labor cost calculation
@@ -38,6 +40,7 @@ class MaintenanceApp {
     }
 
     getLineColors(line) {
+        if (String(line) === 'other') return { bg: '#334155', text: '#fff' };
         const palette = [
             { bg: '#64748b', text: '#fff' }, // 0 or unknown (Slate)
             { bg: '#2563eb', text: '#fff' }, // 1 (Blue)
@@ -57,7 +60,23 @@ class MaintenanceApp {
     getLineBadge(lineNo) {
         if (!lineNo) return '';
         const colors = this.getLineColors(lineNo);
-        return `<span style="display:inline-flex; align-items:center; justify-content:center; background:${colors.bg}; color:${colors.text}; min-width:32px; padding:2px 8px; border-radius:4px; font-weight:950; font-size:0.75rem; border:1px solid rgba(0,0,0,0.1); box-shadow:0 1px 2px rgba(0,0,0,0.05); margin-right:6px;">${lineNo}号ライン</span>`;
+        return `<span style="display:inline-flex; align-items:center; justify-content:center; background:${colors.bg}; color:${colors.text}; min-width:32px; padding:2px 8px; border-radius:4px; font-weight:950; font-size:0.75rem; border:1px solid rgba(0,0,0,0.1); box-shadow:0 1px 2px rgba(0,0,0,0.05); margin-right:6px;">${this.getLineStampLabel(lineNo)}</span>`;
+    }
+
+    getLineLabel(lineNo) {
+        if (!lineNo) return '';
+        return String(lineNo) === 'other' ? 'その他' : `${lineNo}号ライン`;
+    }
+
+    getLineStampLabel(lineNo) {
+        if (!lineNo) return '';
+        return String(lineNo) === 'other' ? '他' : this.getLineLabel(lineNo);
+    }
+
+    generateLineOptionsHTML(selected = '') {
+        const options = [1,2,3,4,5,6,7,8,9].map(n => ({ value: String(n), label: `${n}号ライン` }));
+        options.push({ value: 'other', label: 'その他' });
+        return options.map(opt => `<option value="${opt.value}" ${String(selected) === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('');
     }
 
     onPeriodChange(select, callback) {
@@ -234,6 +253,19 @@ class MaintenanceApp {
                         this.renderGuides();
                     }
                 }
+            });
+        }
+
+        const notebookSearch = document.getElementById('notebook-search');
+        const notebookSearchBtn = document.getElementById('notebook-search-btn');
+        if (notebookSearch) {
+            notebookSearch.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') this.openShiftNotebookSearchResults(notebookSearch.value, document.getElementById('notebook-search-period')?.value || 'all');
+            });
+        }
+        if (notebookSearchBtn) {
+            notebookSearchBtn.addEventListener('click', () => {
+                this.openShiftNotebookSearchResults(notebookSearch ? notebookSearch.value : '', document.getElementById('notebook-search-period')?.value || 'all');
             });
         }
 
@@ -502,6 +534,7 @@ class MaintenanceApp {
     setupCalendarControls() {
         const prevBtn = document.getElementById('cal-prev');
         const nextBtn = document.getElementById('cal-next');
+        const compactBtn = document.getElementById('calendar-compact-toggle');
 
         if (prevBtn) {
             prevBtn.addEventListener('click', () => {
@@ -513,6 +546,18 @@ class MaintenanceApp {
         if (nextBtn) {
             nextBtn.addEventListener('click', () => {
                 this.currentDate.setMonth(this.currentDate.getMonth() + 1);
+                this.renderCalendar();
+            });
+        }
+
+        if (compactBtn) {
+            compactBtn.classList.toggle('active', this.calendarCompactMode);
+            compactBtn.setAttribute('aria-pressed', String(this.calendarCompactMode));
+            compactBtn.addEventListener('click', () => {
+                this.calendarCompactMode = !this.calendarCompactMode;
+                localStorage.setItem('calendar_compact_mode', String(this.calendarCompactMode));
+                compactBtn.classList.toggle('active', this.calendarCompactMode);
+                compactBtn.setAttribute('aria-pressed', String(this.calendarCompactMode));
                 this.renderCalendar();
             });
         }
@@ -539,7 +584,7 @@ class MaintenanceApp {
             Array.from(lineSet).sort((a,b) => String(a).localeCompare(String(b), undefined, {numeric:true})).forEach(l => {
                 const opt = document.createElement('option');
                 opt.value = l;
-                opt.textContent = `${l}号ライン`;
+                opt.textContent = this.getLineLabel(l);
                 calLineEl.appendChild(opt);
             });
         }
@@ -579,7 +624,14 @@ class MaintenanceApp {
             if (dayOfWeek === 6) cell.classList.add('sat');
 
             cell.innerHTML = `
-                <span class="day-number">${d}</span>
+                <div class="day-top-row">
+                    <span class="day-number">${d}</span>
+                    <div class="shift-note-stamps" aria-label="連絡帳">
+                        <button type="button" class="shift-note-stamp early" title="早番の連絡帳" data-shift="early">早</button>
+                        <button type="button" class="shift-note-stamp late" title="遅番の連絡帳" data-shift="late">遅</button>
+                        <button type="button" class="shift-note-stamp night" title="深夜の連絡帳" data-shift="night">深</button>
+                    </div>
+                </div>
                 <span class="add-sudden-btn" title="突発を登録">+登録</span>
                 <div class="events-container"></div>
             `;
@@ -590,6 +642,17 @@ class MaintenanceApp {
             addBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.openSuddenRecordModal(dateStr);
+            });
+
+            cell.querySelectorAll('.shift-note-stamp').forEach(btn => {
+                const shiftData = store.activeData.shiftNotebooks?.[dateStr]?.[btn.dataset.shift];
+                const shiftRows = Array.isArray(shiftData) ? shiftData : (shiftData?.rows || []);
+                const shiftMembers = Array.isArray(shiftData?.members) ? shiftData.members : [];
+                if (shiftRows.length > 0 || shiftMembers.length > 0) btn.classList.add('has-note');
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.openShiftNotebookModal(dateStr, btn.dataset.shift);
+                });
             });
 
             // Drag & Drop for cell (Drop Target)
@@ -608,9 +671,19 @@ class MaintenanceApp {
             };
 
             const eventsContainer = cell.querySelector('.events-container');
+            const dateHistory = this.getHistoryForDate(dateStr).filter(h => this.matchesCalendarLineFilter(h));
+            const dateScheduled = this.getScheduledTasksForDate(dateStr).filter(s => this.matchesCalendarLineFilter(s));
+            const memoData = store.activeData.memos || {};
+            const memoValue = memoData[dateStr];
+
+            if (this.calendarCompactMode) {
+                eventsContainer.classList.add('compact-events');
+                this.renderCompactCalendarItems(eventsContainer, dateStr, dateHistory, dateScheduled, memoValue, targetDate, today);
+                calContainer.appendChild(cell);
+                continue;
+            }
 
             // 1. History (Completed)
-            const dateHistory = this.getHistoryForDate(dateStr);
             dateHistory.forEach(h => {
                 // カレンダーのラインフィルタ
                 if (this.calLineFilter && this.calLineFilter !== 'all') {
@@ -629,8 +702,9 @@ class MaintenanceApp {
                 const categoryChar = machineCategory ? machineCategory.charAt(0) : '';
                 
                 let stampText = '';
-                if (lineNo && categoryChar) stampText = `${lineNo}-${categoryChar}`;
-                else if (lineNo) stampText = lineNo;
+                const lineStampLabel = lineNo ? this.getLineStampLabel(lineNo) : '';
+                if (lineStampLabel && categoryChar) stampText = `${lineStampLabel}-${categoryChar}`;
+                else if (lineStampLabel) stampText = lineStampLabel;
                 else if (categoryChar) stampText = categoryChar;
 
                 const colors = lineNo ? this.getLineColors(lineNo) : { bg: '#facc15', text: '#dc2626' };
@@ -670,7 +744,6 @@ class MaintenanceApp {
             });
 
             // 2. Scheduled (Planned)
-            const dateScheduled = this.getScheduledTasksForDate(dateStr);
             dateScheduled.forEach(s => {
                 const badge = document.createElement('div');
                 badge.className = 'event-badge success';
@@ -687,8 +760,9 @@ class MaintenanceApp {
                 const categoryChar = machineCategory ? machineCategory.charAt(0) : '';
 
                 let stampText = '';
-                if (lineNo && categoryChar) stampText = `${lineNo}-${categoryChar}`;
-                else if (lineNo) stampText = lineNo;
+                const lineStampLabel = lineNo ? this.getLineStampLabel(lineNo) : '';
+                if (lineStampLabel && categoryChar) stampText = `${lineStampLabel}-${categoryChar}`;
+                else if (lineStampLabel) stampText = lineStampLabel;
                 else if (categoryChar) stampText = categoryChar;
 
                 const colors = lineNo ? this.getLineColors(lineNo) : { bg: '#facc15', text: '#dc2626' };
@@ -713,8 +787,6 @@ class MaintenanceApp {
             });
 
             // 3. Memo (Static text)
-            const memoData = store.activeData.memos || {};
-            const memoValue = memoData[dateStr];
             if (memoValue) {
                 const memoBox = document.createElement('div');
                 memoBox.className = 'calendar-day-memo';
@@ -731,6 +803,1282 @@ class MaintenanceApp {
 
         this.updateCalendarStats();
         this.updateTelop();
+    }
+
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    shiftNoteTextToHtml(text = '') {
+        return this.escapeHtml(text).replace(/\n/g, '<br>');
+    }
+
+    stripShiftNoteHtml(html = '') {
+        const div = document.createElement('div');
+        div.innerHTML = this.sanitizeShiftNoteHtml(html);
+        return div.innerText || div.textContent || '';
+    }
+
+    sanitizeShiftNoteHtml(html = '') {
+        const template = document.createElement('template');
+        template.innerHTML = String(html || '');
+        const allowedColors = new Set(['#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#2563eb', '#7c3aed', '#0f172a']);
+        const allowedSizes = new Set(['0.9rem', '1.05rem', '1.2rem', '1.4rem']);
+        const normalizeColor = (color = '') => {
+            const raw = color.trim().toLowerCase();
+            if (raw.startsWith('#')) return raw;
+            const rgb = raw.match(/rgb\(\s*(\d+),\s*(\d+),\s*(\d+)\s*\)/);
+            if (!rgb) return '';
+            return '#' + rgb.slice(1).map(v => Math.max(0, Math.min(255, Number(v))).toString(16).padStart(2, '0')).join('');
+        };
+        const cleanNode = (node) => {
+            if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || '');
+            if (node.nodeType !== Node.ELEMENT_NODE) return document.createTextNode('');
+
+            const tag = node.tagName.toLowerCase();
+            if (tag === 'br') return document.createElement('br');
+
+            const fragment = document.createDocumentFragment();
+            Array.from(node.childNodes).forEach(child => fragment.appendChild(cleanNode(child)));
+
+            if (tag === 'div' || tag === 'p') {
+                const span = document.createElement('span');
+                span.appendChild(fragment);
+                span.appendChild(document.createElement('br'));
+                return span;
+            }
+
+            if (tag === 'span' || tag === 'font' || tag === 'b' || tag === 'strong') {
+                const span = document.createElement('span');
+                const style = node.getAttribute('style') || '';
+                const colorMatch = style.match(/color:\s*(#[0-9a-fA-F]{6}|rgb\([^)]+\))/);
+                const sizeMatch = style.match(/font-size:\s*([^;]+)/);
+                const weightMatch = style.match(/font-weight:\s*(bold|700|800|900|950)/);
+                const color = normalizeColor(colorMatch?.[1] || node.getAttribute('color') || '');
+                if (color && allowedColors.has(color)) span.style.color = color;
+                const fontSize = sizeMatch?.[1]?.trim();
+                if (fontSize && allowedSizes.has(fontSize)) span.style.fontSize = fontSize;
+                if (weightMatch || tag === 'b' || tag === 'strong') span.style.fontWeight = '950';
+                span.appendChild(fragment);
+                return span;
+            }
+
+            return fragment;
+        };
+        const cleaned = document.createElement('div');
+        Array.from(template.content.childNodes).forEach(node => cleaned.appendChild(cleanNode(node)));
+        return cleaned.innerHTML;
+    }
+
+    saveShiftNoteSelection(editor) {
+        const selection = window.getSelection();
+        if (!editor || !selection || selection.rangeCount === 0) return;
+        const range = selection.getRangeAt(0);
+        if (editor.contains(range.commonAncestorContainer)) {
+            editor._savedRange = range.cloneRange();
+        }
+    }
+
+    restoreShiftNoteSelection(editor) {
+        if (!editor?._savedRange) return;
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(editor._savedRange);
+    }
+
+    rememberShiftNoteSelection(control) {
+        const row = control?.closest('.shift-notebook-row');
+        const editor = row?.querySelector('.shift-note-text');
+        if (!editor) return;
+        this._activeShiftNoteEditor = editor;
+        this.saveShiftNoteSelection(editor);
+    }
+
+    toggleShiftNoteSizeMenu(button) {
+        const menu = button?.closest('.shift-format-menu');
+        if (!menu) return;
+        const willOpen = !menu.classList.contains('open');
+        this.closeShiftNoteFormatMenus();
+        if (willOpen) menu.classList.add('open');
+    }
+
+    closeShiftNoteSizeMenus() {
+        this.closeShiftNoteFormatMenus();
+    }
+
+    toggleShiftNoteColorMenu(button) {
+        const menu = button?.closest('.shift-format-menu');
+        if (!menu) return;
+        const willOpen = !menu.classList.contains('open');
+        this.closeShiftNoteFormatMenus();
+        if (willOpen) menu.classList.add('open');
+    }
+
+    closeShiftNoteFormatMenus() {
+        document.querySelectorAll('.shift-format-menu.open, .shift-color-menu.open').forEach(menu => menu.classList.remove('open'));
+    }
+
+    applyShiftNoteFormat(control, type, value = '') {
+        const row = control?.closest('.shift-notebook-row');
+        const editor = row?.querySelector('.shift-note-text') || this._activeShiftNoteEditor;
+        if (!editor) return;
+        const selection = window.getSelection();
+        const liveRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+        const range = editor._savedRange || (liveRange && editor.contains(liveRange.commonAncestorContainer) ? liveRange.cloneRange() : null);
+        if (!range || range.collapsed) return;
+        if (!editor.contains(range.commonAncestorContainer)) return;
+
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const wrapper = document.createElement('span');
+        if (type === 'color') wrapper.style.color = value;
+        if (type === 'size') wrapper.style.fontSize = value;
+        if (type === 'bold') wrapper.style.cssText = 'font-weight:950;color:#020617;text-shadow:0 0 0 #020617;';
+
+        try {
+            const selectedContent = range.extractContents();
+            if (type === 'size' || type === 'color' || type === 'reset') {
+                selectedContent.querySelectorAll?.('[style]').forEach(el => {
+                    if (type === 'size' || type === 'reset') el.style.fontSize = '';
+                    if (type === 'color' || type === 'reset') el.style.color = '';
+                    if (type === 'reset') {
+                        el.style.fontWeight = '';
+                        el.style.textShadow = '';
+                    }
+                    if (!el.getAttribute('style')) el.removeAttribute('style');
+                });
+            }
+            wrapper.appendChild(selectedContent);
+            range.insertNode(wrapper);
+
+            selection.removeAllRanges();
+            const afterRange = document.createRange();
+            afterRange.setStartAfter(wrapper);
+            afterRange.collapse(true);
+            selection.addRange(afterRange);
+            editor._savedRange = afterRange.cloneRange();
+        } catch (e) {
+            console.warn('Failed to format shift note selection:', e);
+        }
+
+        editor.innerHTML = this.sanitizeShiftNoteHtml(editor.innerHTML);
+        editor.focus();
+        this.scheduleShiftNotebookAutoSave();
+    }
+
+    matchesCalendarLineFilter(item) {
+        if (!this.calLineFilter || this.calLineFilter === 'all') return true;
+        const machine = store.getMachines(true).find(m => m.id === item.machineId);
+        const lineNo = item.lineNo || machine?.lineNo;
+        return String(lineNo) === String(this.calLineFilter);
+    }
+
+    renderCompactCalendarItems(container, dateStr, history, scheduled, memoValue, targetDate, today) {
+        const groups = [
+            {
+                type: 'sudden',
+                label: '突',
+                title: '突発対応',
+                items: history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop),
+                className: 'sudden'
+            },
+            {
+                type: 'dokatei',
+                label: 'ド',
+                title: 'ドカ停',
+                items: history.filter(h => !!h.isDokatei),
+                className: 'dokatei'
+            },
+            {
+                type: 'nonProductionStop',
+                label: '非',
+                title: '非生産停止',
+                items: history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop),
+                className: 'non-production-stop'
+            },
+            {
+                type: 'done',
+                label: '完',
+                title: '完了済み定期メンテ',
+                items: history.filter(h => !!h.taskId),
+                className: 'done'
+            },
+            {
+                type: 'planned',
+                label: targetDate < today ? '未' : '定',
+                title: targetDate < today ? '未完了定期メンテ' : '定期メンテ予定',
+                items: scheduled,
+                className: targetDate < today ? 'unfinished' : 'planned'
+            },
+            {
+                type: 'memo',
+                label: 'メ',
+                title: 'メモ',
+                items: memoValue ? [{ value: memoValue }] : [],
+                className: 'memo'
+            }
+        ];
+
+        groups.forEach(group => {
+            if (group.items.length === 0) return;
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = `compact-event-chip ${group.className}`;
+            chip.title = `${group.title} ${group.items.length}件を確認`;
+            chip.innerHTML = `
+                <span class="compact-event-circle">${group.label}</span>
+                <span class="compact-event-count">x${group.items.length}</span>
+            `;
+            chip.onclick = (e) => {
+                e.stopPropagation();
+                if (group.type === 'memo') {
+                    this.toggleCompactMemo(dateStr);
+                    return;
+                }
+                this.openCompactCalendarDetails(dateStr, group.type);
+            };
+            container.appendChild(chip);
+        });
+
+        if (memoValue && this.expandedCompactMemos.has(dateStr)) {
+            const memoBox = document.createElement('div');
+            memoBox.className = 'calendar-day-memo compact-memo-expanded';
+            memoBox.onclick = (e) => e.stopPropagation();
+            memoBox.innerHTML = `
+                <i class="fa-solid fa-note-sticky" style="margin-right:4px; opacity:0.7;"></i>
+                ${this.escapeHtml(memoValue).replace(/\n/g, '<br>')}
+                <i class="fa-solid fa-xmark calendar-day-memo-delete" title="メモを削除" onclick="event.stopPropagation(); app.deleteDayMemo('${dateStr}');"></i>
+            `;
+            container.appendChild(memoBox);
+        }
+    }
+
+    toggleCompactMemo(dateStr) {
+        if (this.expandedCompactMemos.has(dateStr)) {
+            this.expandedCompactMemos.delete(dateStr);
+        } else {
+            this.expandedCompactMemos.add(dateStr);
+        }
+        this.renderCalendar();
+    }
+
+    openCompactCalendarDetails(dateStr, type) {
+        const history = this.getHistoryForDate(dateStr).filter(h => this.matchesCalendarLineFilter(h));
+        const scheduled = this.getScheduledTasksForDate(dateStr).filter(s => this.matchesCalendarLineFilter(s));
+        const memoValue = (store.activeData.memos || {})[dateStr];
+        const [year, month, day] = dateStr.split('-');
+
+        const targetDate = new Date(Number(year), Number(month) - 1, Number(day));
+        targetDate.setHours(0,0,0,0);
+        const today = new Date();
+        today.setHours(0,0,0,0);
+
+        const configMap = {
+            sudden: { title: '突発対応', items: history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop), icon: 'fa-bolt-lightning' },
+            dokatei: { title: 'ドカ停', items: history.filter(h => !!h.isDokatei), icon: 'fa-triangle-exclamation' },
+            nonProductionStop: { title: '非生産停止', items: history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop), icon: 'fa-circle-pause' },
+            done: { title: '完了済み定期メンテ', items: history.filter(h => !!h.taskId), icon: 'fa-circle-check' },
+            planned: { title: targetDate < today ? '未完了定期メンテ' : '定期メンテ予定', items: scheduled, icon: targetDate < today ? 'fa-triangle-exclamation' : 'fa-wrench' },
+            memo: { title: 'メモ', items: memoValue ? [{ value: memoValue }] : [], icon: 'fa-note-sticky' }
+        };
+        const config = configMap[type];
+        if (!config) return;
+
+        this.openModal('compact-calendar-details', `${month}/${day} ${config.title} ${config.items.length}件`, () => {
+            const content = document.getElementById('modal-content');
+            const emptyHtml = '<p style="font-size:0.85rem; padding:12px; background:var(--background); border-radius:8px;">表示できる項目はありません。</p>';
+            let listHtml = emptyHtml;
+
+            if (type === 'memo' && memoValue) {
+                listHtml = `
+                    <div class="compact-detail-card memo">
+                        <div class="compact-detail-icon"><i class="fa-solid ${config.icon}"></i></div>
+                        <div class="compact-detail-main">
+                            <div class="compact-detail-title">カレンダーメモ</div>
+                            <div class="compact-detail-sub">${this.escapeHtml(memoValue).replace(/\n/g, '<br>')}</div>
+                        </div>
+                    </div>
+                `;
+            } else if (type === 'planned') {
+                listHtml = config.items.length === 0 ? emptyHtml : config.items.map(s => {
+                    const machine = store.getMachines(true).find(m => m.id === s.machineId);
+                    const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
+                    const lineText = machine?.lineNo ? this.getLineLabel(machine.lineNo) : '';
+                    return `
+                        <div class="compact-detail-card planned" onclick="app.closeModal(); app.openCompletionForm('${this.escapeHtml(s.id)}', '${dateStr}')">
+                            <div class="compact-detail-icon"><i class="fa-solid ${config.icon}"></i></div>
+                            <div class="compact-detail-main">
+                                <div class="compact-detail-title">${this.escapeHtml(s.content || '予定')}</div>
+                                <div class="compact-detail-sub">${this.escapeHtml(machineLabel)}${lineText ? ` / ${this.escapeHtml(lineText)}` : ''}</div>
+                            </div>
+                            <i class="fa-solid fa-chevron-right compact-detail-arrow"></i>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                listHtml = config.items.length === 0 ? emptyHtml : config.items.map(h => {
+                    const machine = store.getMachines(true).find(m => m.id === h.machineId);
+                    const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
+                    const workers = Array.isArray(h.workers) ? h.workers : (typeof h.workers === 'string' ? h.workers.split(',').map(s => s.trim()).filter(Boolean) : []);
+                    const workerText = workers.length ? ` / ${workers.join(', ')}` : '';
+                    const dokateiText = h.isDokatei ? ' / ドカ停' : '';
+                    const nonProductionText = h.isNonProductionStop ? ' / 非生産停止' : '';
+                    return `
+                        <div class="compact-detail-card ${type}" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeHtml(h.id)}')">
+                            <div class="compact-detail-icon"><i class="fa-solid ${config.icon}"></i></div>
+                            <div class="compact-detail-main">
+                                <div class="compact-detail-title">${this.escapeHtml(this.getHistoryDisplayText(h))}</div>
+                                <div class="compact-detail-sub">${this.escapeHtml(machineLabel + workerText + dokateiText + nonProductionText)}</div>
+                            </div>
+                            <i class="fa-solid fa-chevron-right compact-detail-arrow"></i>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            content.innerHTML = `<div class="compact-detail-list">${listHtml}</div>`;
+            const saveBtn = document.querySelector('.modal-footer .primary-btn');
+            if (saveBtn) saveBtn.classList.add('hidden');
+        });
+    }
+
+    getShiftNotebookLabel(shift) {
+        const labels = {
+            early: { stamp: '早', name: '早番' },
+            late: { stamp: '遅', name: '遅番' },
+            night: { stamp: '深', name: '深夜' }
+        };
+        return labels[shift] || labels.early;
+    }
+
+    getShiftNotebookRowsAndMembers(notebookData) {
+        if (Array.isArray(notebookData)) return { rows: notebookData, members: [] };
+        return {
+            rows: Array.isArray(notebookData?.rows) ? notebookData.rows : [],
+            members: Array.isArray(notebookData?.members) ? notebookData.members : []
+        };
+    }
+
+    getNotebookSearchDateRange(period) {
+        const format = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        if (period === 'today') return { start: format(today), end: format(today), label: '今日' };
+        if (period === 'yesterday') return { start: format(yesterday), end: format(yesterday), label: '昨日' };
+        if (period === 'yesterday_today') return { start: format(yesterday), end: format(today), label: '昨日と今日' };
+        if (period === 'this_month') {
+            const start = new Date(today.getFullYear(), today.getMonth(), 1);
+            const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            return { start: format(start), end: format(end), label: '今月' };
+        }
+        if (period === 'last_month') {
+            const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+            const end = new Date(today.getFullYear(), today.getMonth(), 0);
+            return { start: format(start), end: format(end), label: '先月' };
+        }
+        if (period === 'this_year') {
+            const start = new Date(today.getFullYear(), 0, 1);
+            const end = new Date(today.getFullYear(), 11, 31);
+            return { start: format(start), end: format(end), label: '今年' };
+        }
+        if (period === 'last_year') {
+            const year = today.getFullYear() - 1;
+            const start = new Date(year, 0, 1);
+            const end = new Date(year, 11, 31);
+            return { start: format(start), end: format(end), label: '去年' };
+        }
+        return { start: '', end: '', label: '全期間' };
+    }
+
+    collectShiftNotebookSearchResults(query, period = 'all') {
+        const q = MaintenanceStore.toHalfWidthLower(query || '');
+        const range = this.getNotebookSearchDateRange(period);
+        const notebooks = store.activeData.shiftNotebooks || {};
+        const results = [];
+
+        Object.keys(notebooks).sort().forEach(dateStr => {
+            if (range.start && (dateStr < range.start || dateStr > range.end)) return;
+            const dayData = notebooks[dateStr] || {};
+            ['early', 'late', 'night'].forEach(shift => {
+                const notebookData = dayData[shift];
+                if (!notebookData) return;
+                const { rows, members } = this.getShiftNotebookRowsAndMembers(notebookData);
+                const label = this.getShiftNotebookLabel(shift);
+
+                rows.forEach((row, index) => {
+                    const text = row?.text || '';
+                    const html = row?.html || '';
+                    const tag = row?.tag || '通常';
+                    const group = row?.group || '未設定';
+                    const photos = Array.isArray(row?.photos) ? row.photos : [];
+                    const searchable = MaintenanceStore.toHalfWidthLower(`${dateStr} ${label.name} ${label.stamp} ${members.join(' ')} ${tag} ${group} ${text}`);
+                    if (q && !searchable.includes(q)) return;
+                    results.push({ dateStr, shift, label, members, text, html, tag, group, photos, index });
+                });
+
+                if (rows.length === 0 && members.length > 0) {
+                    const searchable = MaintenanceStore.toHalfWidthLower(`${dateStr} ${label.name} ${label.stamp} ${members.join(' ')}`);
+                    if (!q || searchable.includes(q)) {
+                        results.push({ dateStr, shift, label, members, text: '', tag: '通常', group: '未設定', photos: [], index: 0 });
+                    }
+                }
+            });
+        });
+
+        return results.sort((a, b) => b.dateStr.localeCompare(a.dateStr) || a.shift.localeCompare(b.shift) || a.index - b.index);
+    }
+
+    openShiftNotebookSearchResults(queryText = '', period = 'all') {
+        const query = (queryText || '').trim();
+        if (!query) {
+            alert('連絡帳の検索キーワードを入力してください。');
+            return;
+        }
+
+        const range = this.getNotebookSearchDateRange(period);
+        const results = this.collectShiftNotebookSearchResults(query, period);
+        this.openModal('shift-notebook-search', `連絡帳検索: ${this.escapeHtml(query)} / ${range.label} (${results.length}件)`, () => {
+            const modalContainer = document.getElementById('modal-container');
+            if (modalContainer) modalContainer.classList.add('shift-notebook-modal', 'shift-notebook-search-modal');
+            const content = document.getElementById('modal-content');
+            const resultHtml = results.length === 0 ? `
+                <div class="notebook-search-empty">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <div>該当する連絡帳はありません。</div>
+                </div>
+            ` : results.map(result => {
+                const members = result.members.length ? result.members.join(', ') : 'メンバー未登録';
+                const photos = result.photos.map(photo => {
+                    const photoData = this.normalizeShiftNotebookPhoto(photo);
+                    return `
+                    <div class="notebook-search-photo-wrap">
+                        <div class="notebook-search-photo img-box">
+                            <img src="${photoData.src}" alt="">
+                        </div>
+                        ${photoData.caption ? `<div class="notebook-search-photo-caption">${this.escapeHtml(photoData.caption)}</div>` : ''}
+                    </div>
+                `;
+                }).join('');
+                return `
+                    <article class="notebook-search-result" style="${this.getShiftNotebookRowGroupStyle(result.group)}">
+                        <div class="notebook-search-meta">
+                            <span class="shift-notebook-badge ${result.shift}">${result.label.stamp}</span>
+                            <div>
+                                <div class="notebook-search-date">${result.dateStr} ${result.label.name}</div>
+                                <div class="notebook-search-members"><i class="fa-solid fa-users"></i> ${this.escapeHtml(members)}</div>
+                            </div>
+                            <button type="button" class="secondary-btn notebook-search-open" onclick="app.closeModal(); app.openShiftNotebookModal('${result.dateStr}', '${result.shift}')">
+                                <i class="fa-solid fa-pen-to-square"></i> 開く
+                            </button>
+                        </div>
+                        <div class="notebook-search-body">
+                            <div class="notebook-search-text">
+                                <span class="shift-note-tag ${this.getShiftNotebookTagClass(result.tag)}">${this.escapeHtml(result.tag || '通常')}</span>
+                                <span class="shift-row-group-badge">${this.escapeHtml(result.group || '未設定')}</span>
+                                ${result.text ? this.sanitizeShiftNoteHtml(result.html || this.shiftNoteTextToHtml(result.text)) : '<span class="muted">本文なし</span>'}
+                            </div>
+                            ${photos ? `<div class="notebook-search-photos">${photos}</div>` : ''}
+                        </div>
+                    </article>
+                `;
+            }).join('');
+
+            content.innerHTML = `
+                <div class="notebook-search-summary">
+                    <span><i class="fa-solid fa-book-open"></i> 検索語: <b>${this.escapeHtml(query)}</b></span>
+                    <span><i class="fa-solid fa-calendar-days"></i> 期間: <b>${range.label}</b></span>
+                    <span>${results.length}件</span>
+                </div>
+                <div class="notebook-search-results">${resultHtml}</div>
+            `;
+            const saveBtn = document.getElementById('modal-save-btn');
+            if (saveBtn) saveBtn.classList.add('hidden');
+        });
+    }
+
+    openShiftNotebookModal(dateStr, shift) {
+        const label = this.getShiftNotebookLabel(shift);
+        if (!store.activeData.shiftNotebooks) store.activeData.shiftNotebooks = {};
+        if (!store.activeData.shiftNotebookGroupPresets) store.activeData.shiftNotebookGroupPresets = [];
+        const dayData = store.activeData.shiftNotebooks[dateStr] || {};
+        const notebookData = dayData[shift];
+        const rows = Array.isArray(notebookData) ? notebookData : (Array.isArray(notebookData?.rows) ? notebookData.rows : []);
+        const members = Array.isArray(notebookData?.members) ? notebookData.members : [];
+        const [year, month, day] = dateStr.split('-');
+        this._editingShiftNotebook = { dateStr, shift };
+
+        this.openModal('shift-notebook', `${month}/${day} ${label.name}の連絡帳`, () => {
+            const modalContainer = document.getElementById('modal-container');
+            if (modalContainer) modalContainer.classList.add('shift-notebook-modal');
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="shift-notebook-toolbar">
+                    <span class="shift-notebook-badge ${shift}">${label.stamp}</span>
+                    <span class="shift-notebook-date">${year}/${month}/${day}</span>
+                    <div class="shift-notebook-nav">
+                        <button type="button" class="icon-btn shift-notebook-nav-btn" title="クリック: 前のシフト / ダブルクリック: 前の入力済み" onclick="app.handleShiftNotebookPrevClick(event)" ondblclick="app.handleShiftNotebookPrevDoubleClick(event)">
+                            <i class="fa-solid fa-caret-left"></i>
+                        </button>
+                        <button type="button" class="icon-btn shift-notebook-nav-btn" title="クリック: 次のシフト / 長押し: 次の入力済み" onpointerdown="app.startShiftNotebookNextHold(event)" onpointerup="app.finishShiftNotebookNextHold(event)" onpointerleave="app.cancelShiftNotebookNextHold()" onpointercancel="app.cancelShiftNotebookNextHold()" onclick="app.moveShiftNotebookToNextShift()">
+                            <i class="fa-solid fa-caret-right"></i>
+                        </button>
+                    </div>
+                    <div class="shift-group-panel">
+                        <label class="shift-group-label">グループ</label>
+                        <input type="text" id="shift-group-members" class="shift-group-input" value="${this.escapeHtml(members.join(', '))}" placeholder="メンバーをカンマ区切りで入力">
+                    </div>
+                    <div class="shift-preset-panel">
+                        <select id="shift-group-preset" class="shift-preset-select" onchange="app.applyShiftGroupPreset(this.value)">
+                            <option value="">プリセット</option>
+                            <option value="__previous_day__">前日と同じ</option>
+                            ${store.activeData.shiftNotebookGroupPresets.map((p, idx) => `<option value="${idx}">${this.escapeHtml(p.name)}</option>`).join('')}
+                        </select>
+                        <button type="button" class="secondary-btn shift-absence-btn" onclick="app.removeShiftAbsentMember()">
+                            <i class="fa-solid fa-user-minus"></i> 欠員
+                        </button>
+                        <button type="button" class="secondary-btn shift-preset-save" onclick="app.saveShiftGroupPreset()">
+                            <i class="fa-solid fa-bookmark"></i> 登録
+                        </button>
+                        <button type="button" class="secondary-btn shift-preset-manage" onclick="app.editShiftGroupPreset()">
+                            <i class="fa-solid fa-pen"></i> 編集
+                        </button>
+                        <button type="button" class="secondary-btn shift-preset-delete" onclick="app.deleteShiftGroupPreset()">
+                            <i class="fa-solid fa-trash-can"></i> 削除
+                        </button>
+                        <button type="button" class="secondary-btn shift-row-group-order-btn" onclick="app.openShiftRowGroupOrderModal()">
+                            <i class="fa-solid fa-arrow-up-wide-short"></i> 順序
+                        </button>
+                    </div>
+                    <button type="button" class="secondary-btn" onclick="app.addShiftNotebookRowWithLastGroup('shift-notebook-rows')">
+                        <i class="fa-solid fa-plus"></i> 行を追加
+                    </button>
+                    <span id="shift-notebook-status" class="shift-notebook-status saved">
+                        <i class="fa-solid fa-check"></i> 保存済み
+                    </span>
+                </div>
+                <div id="shift-notebook-rows" class="shift-notebook-rows"></div>
+            `;
+
+            const rowContainerId = 'shift-notebook-rows';
+            if (rows.length === 0) {
+                this.addShiftNotebookRow(rowContainerId);
+            } else {
+                this.sortShiftNotebookRows(rows).forEach(row => this.addShiftNotebookRow(rowContainerId, row.text || '', row.photos || [], row.tag || '通常', row.group || '未設定', row.html || ''));
+            }
+            this.updateShiftNotebookGroupCorners();
+
+            const saveBtn = document.getElementById('modal-save-btn');
+            if (saveBtn) saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> 保存する';
+            this.scheduleShiftNotebookAutoSave();
+        });
+    }
+
+    setShiftNotebookStatus(message, mode = 'saved') {
+        const status = document.getElementById('shift-notebook-status');
+        if ((mode === 'moved' || mode === 'error') && document.querySelector('.shift-notebook-modal')) {
+            this.showShiftNotebookNotice(message, mode);
+        }
+        if (!status) return;
+        const icons = { saving: 'fa-spinner fa-spin', saved: 'fa-check', moved: 'fa-circle-info', error: 'fa-triangle-exclamation' };
+        status.className = `shift-notebook-status ${mode}`;
+        status.innerHTML = `<i class="fa-solid ${icons[mode] || icons.saved}"></i> ${this.escapeHtml(message)}`;
+        clearTimeout(this._shiftNotebookStatusTimer);
+        if (mode === 'moved' || mode === 'saved') {
+            this._shiftNotebookStatusTimer = setTimeout(() => {
+                if (document.getElementById('shift-notebook-status') === status) {
+                    status.className = 'shift-notebook-status saved';
+                    status.innerHTML = '<i class="fa-solid fa-check"></i> 保存済み';
+                }
+            }, 1600);
+        }
+    }
+
+    showShiftNotebookNotice(message, mode = 'moved') {
+        const container = document.getElementById('modal-container');
+        if (!container) return;
+        container.querySelectorAll('.shift-notebook-notice').forEach(el => el.remove());
+        const notice = document.createElement('div');
+        notice.className = `shift-notebook-notice ${mode}`;
+        const icons = { moved: 'fa-circle-info', saved: 'fa-check', saving: 'fa-spinner fa-spin', error: 'fa-triangle-exclamation' };
+        notice.innerHTML = `<i class="fa-solid ${icons[mode] || icons.moved}"></i> ${this.escapeHtml(message)}`;
+        container.appendChild(notice);
+        requestAnimationFrame(() => notice.classList.add('show'));
+        setTimeout(() => {
+            notice.classList.remove('show');
+            setTimeout(() => notice.remove(), 220);
+        }, 1400);
+    }
+
+    getShiftNotebookDateKey(dateStr, shift) {
+        const order = { early: 0, late: 1, night: 2 };
+        return `${dateStr}#${order[shift] ?? 0}`;
+    }
+
+    getNextShiftNotebookTarget(dateStr, shift) {
+        const order = ['early', 'late', 'night'];
+        const idx = order.indexOf(shift);
+        if (idx >= 0 && idx < order.length - 1) {
+            return { dateStr, shift: order[idx + 1] };
+        }
+        const d = new Date(dateStr);
+        d.setDate(d.getDate() + 1);
+        const nextDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        return { dateStr: nextDate, shift: 'early' };
+    }
+
+    getPreviousShiftNotebookTarget(dateStr, shift) {
+        const order = ['early', 'late', 'night'];
+        const idx = order.indexOf(shift);
+        if (idx > 0) {
+            return { dateStr, shift: order[idx - 1] };
+        }
+        const d = new Date(dateStr);
+        d.setDate(d.getDate() - 1);
+        const previousDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        return { dateStr: previousDate, shift: 'night' };
+    }
+
+    getPreviousFilledShiftNotebookTarget(dateStr, shift) {
+        const notebooks = store.activeData.shiftNotebooks || {};
+        const currentKey = this.getShiftNotebookDateKey(dateStr, shift);
+        const candidates = [];
+        Object.keys(notebooks).forEach(d => {
+            ['early', 'late', 'night'].forEach(s => {
+                const notebookData = notebooks[d]?.[s];
+                if (!notebookData) return;
+                const { rows, members } = this.getShiftNotebookRowsAndMembers(notebookData);
+                const hasRows = (rows || []).some(row => (row?.text || '').trim() || (Array.isArray(row?.photos) && row.photos.length > 0));
+                const hasMembers = (members || []).length > 0;
+                const key = this.getShiftNotebookDateKey(d, s);
+                if ((hasRows || hasMembers) && key < currentKey) candidates.push({ dateStr: d, shift: s, key });
+            });
+        });
+        candidates.sort((a, b) => b.key.localeCompare(a.key));
+        return candidates[0] || null;
+    }
+
+    getNextFilledShiftNotebookTarget(dateStr, shift) {
+        const notebooks = store.activeData.shiftNotebooks || {};
+        const currentKey = this.getShiftNotebookDateKey(dateStr, shift);
+        const candidates = [];
+        Object.keys(notebooks).forEach(d => {
+            ['early', 'late', 'night'].forEach(s => {
+                const notebookData = notebooks[d]?.[s];
+                if (!notebookData) return;
+                const { rows, members } = this.getShiftNotebookRowsAndMembers(notebookData);
+                const hasRows = (rows || []).some(row => (row?.text || '').trim() || (Array.isArray(row?.photos) && row.photos.length > 0));
+                const hasMembers = (members || []).length > 0;
+                const key = this.getShiftNotebookDateKey(d, s);
+                if ((hasRows || hasMembers) && key > currentKey) candidates.push({ dateStr: d, shift: s, key });
+            });
+        });
+        candidates.sort((a, b) => a.key.localeCompare(b.key));
+        return candidates[0] || null;
+    }
+
+    startShiftNotebookNextHold(event) {
+        this._shiftNotebookNextLongPressed = false;
+        clearTimeout(this._shiftNotebookNextHoldTimer);
+        this._shiftNotebookNextHoldTimer = setTimeout(() => {
+            this._shiftNotebookNextLongPressed = true;
+            const editing = this._editingShiftNotebook;
+            if (editing) this.moveShiftNotebookToTarget(this.getNextFilledShiftNotebookTarget(editing.dateStr, editing.shift));
+        }, 650);
+    }
+
+    cancelShiftNotebookNextHold() {
+        clearTimeout(this._shiftNotebookNextHoldTimer);
+    }
+
+    finishShiftNotebookNextHold(event) {
+        clearTimeout(this._shiftNotebookNextHoldTimer);
+        if (this._shiftNotebookNextLongPressed) {
+            event?.preventDefault();
+            event?.stopPropagation();
+            setTimeout(() => { this._shiftNotebookNextLongPressed = false; }, 0);
+        }
+    }
+
+    moveShiftNotebookToTarget(target) {
+        if (!target) {
+            this.setShiftNotebookStatus('移動先がありません', 'error');
+            return;
+        }
+        const editing = this._editingShiftNotebook;
+        if (editing) this.saveShiftNotebook(editing.dateStr, editing.shift, { close: false, render: false });
+        this.closeModal();
+        this.openShiftNotebookModal(target.dateStr, target.shift);
+        setTimeout(() => this.setShiftNotebookStatus('移動しました', 'moved'), 120);
+    }
+
+    moveShiftNotebookToPreviousFilled() {
+        const editing = this._editingShiftNotebook;
+        if (!editing) return;
+        this.moveShiftNotebookToTarget(this.getPreviousFilledShiftNotebookTarget(editing.dateStr, editing.shift));
+    }
+
+    moveShiftNotebookToPreviousShift() {
+        const editing = this._editingShiftNotebook;
+        if (!editing) return;
+        this.moveShiftNotebookToTarget(this.getPreviousShiftNotebookTarget(editing.dateStr, editing.shift));
+    }
+
+    handleShiftNotebookPrevClick(event) {
+        clearTimeout(this._shiftNotebookPrevClickTimer);
+        this._shiftNotebookPrevClickTimer = setTimeout(() => {
+            this.moveShiftNotebookToPreviousShift();
+        }, 220);
+    }
+
+    handleShiftNotebookPrevDoubleClick(event) {
+        event?.preventDefault();
+        event?.stopPropagation();
+        clearTimeout(this._shiftNotebookPrevClickTimer);
+        this.moveShiftNotebookToPreviousFilled();
+    }
+
+    moveShiftNotebookToNextShift() {
+        if (this._shiftNotebookNextLongPressed) return;
+        const editing = this._editingShiftNotebook;
+        if (!editing) return;
+        this.moveShiftNotebookToTarget(this.getNextShiftNotebookTarget(editing.dateStr, editing.shift));
+    }
+
+    getShiftGroupMembersFromInput() {
+        const input = document.getElementById('shift-group-members');
+        return (input?.value || '').split(',').map(v => v.trim()).filter(Boolean);
+    }
+
+    applyShiftGroupPreset(index) {
+        if (index === '') return;
+        if (index === '__previous_day__') {
+            this.applyPreviousDayShiftGroup();
+            return;
+        }
+        const preset = (store.activeData.shiftNotebookGroupPresets || [])[Number(index)];
+        const input = document.getElementById('shift-group-members');
+        if (!preset || !input) return;
+        input.value = (preset.members || []).join(', ');
+        input.focus();
+    }
+
+    getPreviousDateStr(dateStr) {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const date = new Date(year, month - 1, day);
+        date.setDate(date.getDate() - 1);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    applyPreviousDayShiftGroup() {
+        const editing = this._editingShiftNotebook;
+        const input = document.getElementById('shift-group-members');
+        if (!editing || !input) return;
+
+        const previousDate = this.getPreviousDateStr(editing.dateStr);
+        const previousData = store.activeData.shiftNotebooks?.[previousDate]?.[editing.shift];
+        const members = Array.isArray(previousData?.members) ? previousData.members : [];
+
+        if (members.length === 0) {
+            alert('前日の同じシフトに登録されたメンバーがありません。');
+            return;
+        }
+
+        input.value = members.join(', ');
+        input.focus();
+    }
+
+    removeShiftAbsentMember() {
+        const input = document.getElementById('shift-group-members');
+        if (!input) return;
+        const name = prompt('欠員の名前を入力してください。');
+        if (!name) return;
+
+        const target = MaintenanceStore.toHalfWidthLower(name);
+        const members = this.getShiftGroupMembersFromInput();
+        const filtered = members.filter(member => MaintenanceStore.toHalfWidthLower(member) !== target);
+        input.value = filtered.join(', ');
+        input.focus();
+    }
+
+    renderShiftGroupPresetOptions(selectedValue = '') {
+        const select = document.getElementById('shift-group-preset');
+        if (!select) return;
+        select.innerHTML = `
+            <option value="">プリセット</option>
+            <option value="__previous_day__">前日と同じ</option>
+            ${(store.activeData.shiftNotebookGroupPresets || []).map((p, idx) => `<option value="${idx}">${this.escapeHtml(p.name)}</option>`).join('')}
+        `;
+        select.value = selectedValue;
+    }
+
+    saveShiftGroupPreset() {
+        if (!store.activeData.shiftNotebookGroupPresets) store.activeData.shiftNotebookGroupPresets = [];
+        const members = this.getShiftGroupMembersFromInput();
+        if (members.length === 0) {
+            alert('プリセット登録するメンバーを入力してください。');
+            return;
+        }
+        const defaultName = members.join('・');
+        const name = prompt('プリセット名を入力してください。', defaultName);
+        if (!name) return;
+        const existingIndex = store.activeData.shiftNotebookGroupPresets.findIndex(p => p.name === name);
+        const preset = { name, members };
+        if (existingIndex >= 0) {
+            store.activeData.shiftNotebookGroupPresets[existingIndex] = preset;
+        } else {
+            store.activeData.shiftNotebookGroupPresets.push(preset);
+        }
+        store.save();
+
+        const idx = store.activeData.shiftNotebookGroupPresets.findIndex(p => p.name === name);
+        this.renderShiftGroupPresetOptions(String(idx));
+    }
+
+    editShiftGroupPreset() {
+        if (!store.activeData.shiftNotebookGroupPresets) store.activeData.shiftNotebookGroupPresets = [];
+        const select = document.getElementById('shift-group-preset');
+        const input = document.getElementById('shift-group-members');
+        if (!select || !input || select.value === '' || select.value === '__previous_day__') {
+            alert('編集するプリセットを選んでください。');
+            return;
+        }
+
+        const index = Number(select.value);
+        const preset = store.activeData.shiftNotebookGroupPresets[index];
+        if (!preset) return;
+
+        const name = prompt('プリセット名を編集してください。', preset.name);
+        if (!name) return;
+        const memberText = prompt('メンバーをカンマ区切りで編集してください。', (preset.members || []).join(', '));
+        if (memberText === null) return;
+        const members = memberText.split(',').map(v => v.trim()).filter(Boolean);
+        if (members.length === 0) {
+            alert('メンバーを1人以上入力してください。');
+            return;
+        }
+
+        store.activeData.shiftNotebookGroupPresets[index] = { name, members };
+        store.save();
+        input.value = members.join(', ');
+        this.renderShiftGroupPresetOptions(String(index));
+    }
+
+    deleteShiftGroupPreset() {
+        if (!store.activeData.shiftNotebookGroupPresets) store.activeData.shiftNotebookGroupPresets = [];
+        const select = document.getElementById('shift-group-preset');
+        if (!select || select.value === '' || select.value === '__previous_day__') {
+            alert('削除するプリセットを選んでください。');
+            return;
+        }
+
+        const index = Number(select.value);
+        const preset = store.activeData.shiftNotebookGroupPresets[index];
+        if (!preset) return;
+        if (!confirm(`プリセット「${preset.name}」を削除しますか？`)) return;
+
+        store.activeData.shiftNotebookGroupPresets.splice(index, 1);
+        store.save();
+        this.renderShiftGroupPresetOptions('');
+    }
+
+    getShiftNotebookTagOptions(selected = '通常') {
+        if (!store.activeData.shiftNotebookTags) store.activeData.shiftNotebookTags = ['通常', '注意', '至急'];
+        return store.activeData.shiftNotebookTags.map(tag => `<option value="${this.escapeHtml(tag)}" ${tag === selected ? 'selected' : ''}>${this.escapeHtml(tag)}</option>`).join('') +
+            `<option value="ADD_NEW_TAG">+ 新規作成</option>`;
+    }
+
+    getShiftNotebookTagClass(tag) {
+        if (tag === '注意') return 'warning';
+        if (tag === '至急') return 'urgent';
+        return 'normal';
+    }
+
+    onShiftNotebookTagChange(select) {
+        if (!select || select.value !== 'ADD_NEW_TAG') return;
+        const name = prompt('新しい表示区分を入力してください。');
+        if (!name) {
+            select.value = '通常';
+            return;
+        }
+        if (!store.activeData.shiftNotebookTags) store.activeData.shiftNotebookTags = ['通常', '注意', '至急'];
+        if (!store.activeData.shiftNotebookTags.includes(name)) {
+            store.activeData.shiftNotebookTags.push(name);
+            store.save();
+        }
+        document.querySelectorAll('.shift-note-tag-select').forEach(sel => {
+            const current = sel === select ? name : sel.value;
+            sel.innerHTML = this.getShiftNotebookTagOptions(current);
+            sel.value = current;
+        });
+    }
+
+    getShiftNotebookRowGroupOptions(selected = '未設定') {
+        if (!store.activeData.shiftNotebookRowGroups) store.activeData.shiftNotebookRowGroups = ['4号L', '5号L'];
+        const groups = ['未設定', ...store.activeData.shiftNotebookRowGroups.filter(g => g !== '未設定')];
+        return groups.map(group => `<option value="${this.escapeHtml(group)}" ${group === selected ? 'selected' : ''}>${this.escapeHtml(group)}</option>`).join('') +
+            `<option value="ADD_NEW_ROW_GROUP">+ 新規作成</option>`;
+    }
+
+    getShiftNotebookRowGroupStyle(group = '未設定') {
+        const palette = [
+            { bg: '#bfdbfe', border: '#3b82f6' },
+            { bg: '#bbf7d0', border: '#22c55e' },
+            { bg: '#fed7aa', border: '#f97316' },
+            { bg: '#fbcfe8', border: '#ec4899' },
+            { bg: '#ddd6fe', border: '#8b5cf6' },
+            { bg: '#a5f3fc', border: '#06b6d4' },
+            { bg: '#fde68a', border: '#eab308' },
+            { bg: '#cbd5e1', border: '#64748b' }
+        ];
+        if (!group || group === '未設定') return `--shift-row-bg:#ffffff; --shift-row-border:#cbd5e1;`;
+        let hash = 0;
+        for (let i = 0; i < group.length; i++) hash = group.charCodeAt(i) + ((hash << 5) - hash);
+        const color = palette[Math.abs(hash) % palette.length];
+        return `--shift-row-bg:${color.bg}; --shift-row-border:${color.border};`;
+    }
+
+    sortShiftNotebookRows(rows = []) {
+        const order = ['未設定', ...(store.activeData.shiftNotebookRowGroups || [])];
+        const getOrder = (group) => {
+            const idx = order.indexOf(group || '未設定');
+            return idx === -1 ? order.length : idx;
+        };
+        return [...rows].sort((a, b) => {
+            const groupDiff = getOrder(a.group) - getOrder(b.group);
+            if (groupDiff !== 0) return groupDiff;
+            return 0;
+        });
+    }
+
+    onShiftNotebookRowGroupChange(select) {
+        if (!select) return;
+        if (select.value === 'ADD_NEW_ROW_GROUP') {
+            const name = prompt('新しいグループ名を入力してください。（例: 4号L）');
+            if (!name) {
+                select.value = '未設定';
+            } else {
+                if (!store.activeData.shiftNotebookRowGroups) store.activeData.shiftNotebookRowGroups = ['4号L', '5号L'];
+                if (!store.activeData.shiftNotebookRowGroups.includes(name)) {
+                    store.activeData.shiftNotebookRowGroups.push(name);
+                    store.save();
+                }
+                document.querySelectorAll('.shift-row-group-select').forEach(sel => {
+                    const current = sel === select ? name : sel.value;
+                    sel.innerHTML = this.getShiftNotebookRowGroupOptions(current);
+                    sel.value = current;
+                });
+            }
+        }
+        const row = select.closest('.shift-notebook-row');
+        if (row) row.setAttribute('style', this.getShiftNotebookRowGroupStyle(select.value));
+        this.lastShiftNotebookRowGroup = select.value;
+    }
+
+    openShiftRowGroupOrderModal() {
+        if (!store.activeData.shiftNotebookRowGroups) store.activeData.shiftNotebookRowGroups = ['4号L', '5号L'];
+        const groups = store.activeData.shiftNotebookRowGroups.filter(g => g !== '未設定');
+        this.openModal('shift-row-group-order', '連絡帳グループの表示順', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="shift-row-group-order-note">
+                    上にあるグループほど、連絡帳の上に表示されます。未設定は常に先頭です。
+                </div>
+                <div id="shift-row-group-order-list" class="shift-row-group-order-list">
+                    ${groups.length === 0 ? '<div class="shift-row-group-order-empty">登録済みグループはありません。</div>' : groups.map(group => `
+                        <div class="shift-row-group-order-item" data-group="${this.escapeHtml(group)}" style="${this.getShiftNotebookRowGroupStyle(group)}">
+                            <span>${this.escapeHtml(group)}</span>
+                            <div>
+                                <button type="button" class="icon-btn" onclick="app.moveShiftRowGroupOrder(this, -1)" title="上へ"><i class="fa-solid fa-chevron-up"></i></button>
+                                <button type="button" class="icon-btn" onclick="app.moveShiftRowGroupOrder(this, 1)" title="下へ"><i class="fa-solid fa-chevron-down"></i></button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            const saveBtn = document.getElementById('modal-save-btn');
+            if (saveBtn) {
+                saveBtn.classList.add('hidden');
+            }
+        });
+    }
+
+    moveShiftRowGroupOrder(button, direction) {
+        const item = button?.closest('.shift-row-group-order-item');
+        const list = document.getElementById('shift-row-group-order-list');
+        if (!item || !list) return;
+        if (direction < 0 && item.previousElementSibling) {
+            list.insertBefore(item, item.previousElementSibling);
+        } else if (direction > 0 && item.nextElementSibling) {
+            list.insertBefore(item.nextElementSibling, item);
+        }
+        this.saveShiftRowGroupOrder({ keepOpen: true });
+    }
+
+    saveShiftRowGroupOrder(options = {}) {
+        const groups = Array.from(document.querySelectorAll('#shift-row-group-order-list .shift-row-group-order-item'))
+            .map(item => item.dataset.group)
+            .filter(Boolean);
+        store.activeData.shiftNotebookRowGroups = groups;
+        store.save();
+        if (!options.keepOpen) this.closeModal();
+        this.sortShiftNotebookRowsInDom();
+        this.renderShiftRowGroupSelectOptions();
+    }
+
+    normalizeShiftNotebookPhoto(photo) {
+        if (typeof photo === 'string') return { src: photo, caption: '' };
+        return {
+            src: photo?.src || photo?.url || photo?.data || '',
+            caption: photo?.caption || ''
+        };
+    }
+
+    renderShiftRowGroupSelectOptions() {
+        document.querySelectorAll('.shift-row-group-select').forEach(select => {
+            const current = select.value;
+            select.innerHTML = this.getShiftNotebookRowGroupOptions(current);
+            select.value = current;
+        });
+    }
+
+    addShiftNotebookRow(containerId, text = '', photos = [], tag = '通常', group = '未設定', html = '') {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        if (group) this.lastShiftNotebookRowGroup = group;
+        const rowId = `shift-row-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const row = document.createElement('div');
+        row.className = 'shift-notebook-row';
+        row.setAttribute('style', this.getShiftNotebookRowGroupStyle(group));
+        row.innerHTML = `
+            <div class="shift-notebook-line">
+                <select class="shift-row-group-select" onchange="app.onShiftNotebookRowGroupChange(this)">
+                    ${this.getShiftNotebookRowGroupOptions(group)}
+                </select>
+                <div class="shift-note-formatbar">
+                    <div class="shift-format-menu">
+                        <button type="button" class="shift-format-menu-btn" title="色とサイズ" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.toggleShiftNoteSizeMenu(this)">
+                            <i class="fa-solid fa-palette"></i> 装飾 <i class="fa-solid fa-caret-down"></i>
+                        </button>
+                        <div class="shift-format-panel">
+                            <div class="shift-format-panel-title">サイズ</div>
+                            <div class="shift-format-size-options">
+                                <button type="button" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'size', '0.9rem'); app.closeShiftNoteFormatMenus()">標準</button>
+                                <button type="button" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'size', '1.05rem'); app.closeShiftNoteFormatMenus()">少し大</button>
+                                <button type="button" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'size', '1.2rem'); app.closeShiftNoteFormatMenus()">大</button>
+                                <button type="button" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'size', '1.4rem'); app.closeShiftNoteFormatMenus()">特大</button>
+                            </div>
+                            <button type="button" class="shift-format-reset-btn" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'reset'); app.closeShiftNoteFormatMenus()">
+                                標準に戻す
+                            </button>
+                            <div class="shift-format-panel-title">色</div>
+                            <div class="shift-color-options">
+                                <button type="button" class="shift-color-dot red" title="赤" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'color', '#dc2626'); app.closeShiftNoteFormatMenus()"></button>
+                                <button type="button" class="shift-color-dot orange" title="オレンジ" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'color', '#ea580c'); app.closeShiftNoteFormatMenus()"></button>
+                                <button type="button" class="shift-color-dot yellow" title="黄" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'color', '#ca8a04'); app.closeShiftNoteFormatMenus()"></button>
+                                <button type="button" class="shift-color-dot green" title="緑" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'color', '#16a34a'); app.closeShiftNoteFormatMenus()"></button>
+                                <button type="button" class="shift-color-dot blue" title="青" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'color', '#2563eb'); app.closeShiftNoteFormatMenus()"></button>
+                                <button type="button" class="shift-color-dot purple" title="紫" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'color', '#7c3aed'); app.closeShiftNoteFormatMenus()"></button>
+                                <button type="button" class="shift-color-dot black" title="黒" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteFormat(this, 'color', '#0f172a'); app.closeShiftNoteFormatMenus()"></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="shift-note-text" contenteditable="true" spellcheck="false" data-placeholder="連絡内容を入力（Alt+Enterで改行）">${html ? this.sanitizeShiftNoteHtml(html) : this.shiftNoteTextToHtml(text)}</div>
+                <button type="button" class="icon-btn shift-row-add-below" title="この下に同じグループの行を追加" onclick="app.addShiftNotebookRowBelow(this)"><i class="fa-solid fa-plus"></i></button>
+                <button type="button" class="icon-btn shift-row-delete" title="この行を削除"><i class="fa-solid fa-trash-can"></i></button>
+            </div>
+            <div class="shift-photo-area">
+                <label class="shift-photo-btn" for="${rowId}-photo">
+                    <i class="fa-solid fa-camera"></i> 写真
+                </label>
+                <input type="file" id="${rowId}-photo" class="shift-photo-input" accept="image/*" multiple>
+                <div class="shift-photo-previews"></div>
+            </div>
+        `;
+        container.appendChild(row);
+
+        const preview = row.querySelector('.shift-photo-previews');
+        const editor = row.querySelector('.shift-note-text');
+        const resizeEditor = () => {
+            editor.style.height = 'auto';
+            editor.style.height = Math.min(editor.scrollHeight, 180) + 'px';
+        };
+        editor.addEventListener('input', resizeEditor);
+        editor.addEventListener('input', () => this.scheduleShiftNotebookAutoSave());
+        editor.addEventListener('mouseup', () => this.saveShiftNoteSelection(editor));
+        editor.addEventListener('keyup', () => this.saveShiftNoteSelection(editor));
+        editor.addEventListener('blur', () => {
+            this.autoSaveShiftNotebook(true);
+            this.sortShiftNotebookRowsInDom();
+        });
+        editor.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            if (e.altKey) {
+                e.preventDefault();
+                document.execCommand('insertLineBreak');
+                resizeEditor();
+                this.scheduleShiftNotebookAutoSave();
+            } else {
+                e.preventDefault();
+            }
+        });
+        requestAnimationFrame(resizeEditor);
+
+        const appendPreview = (photo) => {
+            const photoData = this.normalizeShiftNotebookPhoto(photo);
+            if (!photoData.src) return;
+            const div = this.createPhotoPreviewElement(photoData.src, null, null, 74);
+            div.classList.add('shift-photo-item');
+            div.insertAdjacentHTML('beforeend', `
+                <input type="text" class="shift-photo-caption" value="${this.escapeHtml(photoData.caption)}" placeholder="写真メモ">
+            `);
+            div.querySelector('.shift-photo-caption')?.addEventListener('input', () => this.scheduleShiftNotebookAutoSave());
+            div.querySelector('.shift-photo-caption')?.addEventListener('blur', () => this.autoSaveShiftNotebook(true));
+            preview.appendChild(div);
+        };
+        (photos || []).forEach(appendPreview);
+
+        row.querySelector('.shift-row-delete').onclick = () => {
+            if (container.querySelectorAll('.shift-notebook-row').length === 1) {
+                row.querySelector('.shift-note-text').innerHTML = '';
+                preview.innerHTML = '';
+                this.autoSaveShiftNotebook(true);
+                return;
+            }
+            row.remove();
+            this.updateShiftNotebookGroupCorners();
+            this.autoSaveShiftNotebook(true);
+        };
+
+        row.querySelector('.shift-photo-input').onchange = async (e) => {
+            const files = Array.from(e.target.files || []);
+            for (const file of files) {
+                const base64 = await MaintenanceStore.resizeImage(file, 1600, 0.88);
+                appendPreview(base64);
+            }
+            e.target.value = '';
+            this.autoSaveShiftNotebook(true);
+        };
+        row.querySelector('.shift-row-group-select')?.addEventListener('change', () => {
+            this.autoSaveShiftNotebook(true);
+            this.sortShiftNotebookRowsInDom();
+        });
+    }
+
+    addShiftNotebookRowWithLastGroup(containerId) {
+        const container = document.getElementById(containerId);
+        const lastRow = container?.querySelector('.shift-notebook-row:last-child');
+        const group = this.lastShiftNotebookRowGroup || lastRow?.querySelector('.shift-row-group-select')?.value || '未設定';
+        this.addShiftNotebookRow(containerId, '', [], '通常', group);
+    }
+
+    addShiftNotebookRowBelow(button) {
+        const currentRow = button?.closest('.shift-notebook-row');
+        const container = document.getElementById('shift-notebook-rows');
+        if (!currentRow || !container) return;
+        const group = currentRow.querySelector('.shift-row-group-select')?.value || '未設定';
+        const existingRows = Array.from(container.children);
+        const tempContainerId = 'shift-notebook-rows';
+        this.addShiftNotebookRow(tempContainerId, '', [], '通常', group);
+        const newRow = container.lastElementChild;
+        if (newRow && existingRows.includes(currentRow)) {
+            currentRow.insertAdjacentElement('afterend', newRow);
+            const input = newRow.querySelector('.shift-note-text');
+            if (input) input.focus();
+        }
+        this.autoSaveShiftNotebook(true);
+    }
+
+    readShiftNotebookRowsFromDom() {
+        return Array.from(document.querySelectorAll('#shift-notebook-rows .shift-notebook-row')).map(row => {
+            const group = row.querySelector('.shift-row-group-select')?.value || '未設定';
+            const editor = row.querySelector('.shift-note-text');
+            const html = this.sanitizeShiftNoteHtml(editor?.innerHTML || '');
+            const text = this.stripShiftNoteHtml(html).trim();
+            const tag = row.querySelector('.shift-note-tag-select')?.value || '通常';
+            const photos = Array.from(row.querySelectorAll('.shift-photo-previews .shift-photo-item')).map(item => {
+                const src = item.querySelector('img')?.src || '';
+                const caption = item.querySelector('.shift-photo-caption')?.value.trim() || '';
+                return caption ? { src, caption } : src;
+            }).filter(photo => typeof photo === 'string' ? !!photo : !!photo.src);
+            return { group, tag, text, html, photos, element: row };
+        }).filter(row => row.text || row.photos.length > 0 || row.element.querySelector('.shift-note-text') === document.activeElement);
+    }
+
+    sortShiftNotebookRowsInDom() {
+        const container = document.getElementById('shift-notebook-rows');
+        if (!container) return;
+        const focused = document.activeElement;
+        const rows = this.sortShiftNotebookRows(Array.from(container.children).map((row, index) => ({
+            group: row.querySelector('.shift-row-group-select')?.value || '未設定',
+            index,
+            element: row
+        })));
+        rows.forEach(row => container.appendChild(row.element));
+        this.updateShiftNotebookGroupCorners();
+        if (focused && document.contains(focused)) focused.focus();
+    }
+
+    updateShiftNotebookGroupCorners() {
+        const rows = Array.from(document.querySelectorAll('#shift-notebook-rows .shift-notebook-row'));
+        rows.forEach((row, index) => {
+            const group = row.querySelector('.shift-row-group-select')?.value || '未設定';
+            const prevGroup = rows[index - 1]?.querySelector('.shift-row-group-select')?.value || null;
+            const nextGroup = rows[index + 1]?.querySelector('.shift-row-group-select')?.value || null;
+            row.classList.toggle('same-group-prev', prevGroup === group);
+            row.classList.toggle('same-group-next', nextGroup === group);
+        });
+    }
+
+    scheduleShiftNotebookAutoSave() {
+        clearTimeout(this._shiftNotebookAutoSaveTimer);
+        this.setShiftNotebookStatus('保存待ち', 'saving');
+        this._shiftNotebookAutoSaveTimer = setTimeout(() => this.autoSaveShiftNotebook(false), 500);
+    }
+
+    autoSaveShiftNotebook(immediate = false) {
+        const editing = this._editingShiftNotebook;
+        if (!editing || !document.getElementById('shift-notebook-rows')) return;
+        clearTimeout(this._shiftNotebookAutoSaveTimer);
+        const run = () => this.saveShiftNotebook(editing.dateStr, editing.shift, { close: false, render: false, status: true });
+        this.setShiftNotebookStatus('保存中', 'saving');
+        if (immediate) run();
+        else this._shiftNotebookAutoSaveTimer = setTimeout(run, 500);
+    }
+
+    saveShiftNotebook(dateStr, shift, options = { close: true, render: true }) {
+        if (!store.activeData.shiftNotebooks) store.activeData.shiftNotebooks = {};
+        const members = this.getShiftGroupMembersFromInput();
+        const rows = this.sortShiftNotebookRows(this.readShiftNotebookRowsFromDom()).map(({ element, index, ...row }) => row);
+
+        if (!store.activeData.shiftNotebooks[dateStr]) store.activeData.shiftNotebooks[dateStr] = {};
+        store.activeData.shiftNotebooks[dateStr][shift] = { members, rows };
+
+        if (Object.values(store.activeData.shiftNotebooks[dateStr]).every(v => {
+            if (Array.isArray(v)) return v.length === 0;
+            return (!Array.isArray(v?.rows) || v.rows.length === 0) && (!Array.isArray(v?.members) || v.members.length === 0);
+        })) {
+            delete store.activeData.shiftNotebooks[dateStr];
+        }
+
+        const saved = store.save();
+        if (options.status) {
+            Promise.resolve(saved)
+                .then(() => this.setShiftNotebookStatus('保存済み', 'saved'))
+                .catch(() => this.setShiftNotebookStatus('保存失敗', 'error'));
+        }
+        if (options.close !== false) {
+            this._editingShiftNotebook = null;
+            this.closeModal();
+        }
+        if (options.render !== false) this.renderCalendar();
     }
 
     handleTaskDrop(taskId, sourceDate, targetDate) {
@@ -822,7 +2170,13 @@ class MaintenanceApp {
         const [ty, tm, td] = dateStr.split('-').map(Number);
         const targetDate = new Date(ty, tm - 1, td);
         targetDate.setHours(0,0,0,0);
-        const tasks = store.getTasks();
+        const activeMachineIds = store.getMachines().map(m => m.id);
+        const tasks = (store.activeData.tasks || []).filter(t => {
+            if (!activeMachineIds.includes(t.machineId)) return false;
+            const periodDays = parseInt(t.periodDays) || 0;
+            if (periodDays <= 0) return true;
+            return !t.deleted && !store.isMaintenanceTaskArchived(t.id);
+        });
         const scheduled = [];
 
         tasks.forEach(t => {
@@ -1308,7 +2662,7 @@ class MaintenanceApp {
                         <label>所属ライン番号 <span style="color:var(--danger)">*</span></label>
                         <select id="f-machine-line-no" required style="height:44px; font-weight:700;">
                             <option value="">-- ラインを選択 --</option>
-                            ${[1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}" ${machine && String(machine.lineNo) === String(n) ? 'selected' : ''}>${n}号ライン</option>`).join('')}
+                            ${this.generateLineOptionsHTML(machine?.lineNo || '')}
                         </select>
                     </div>
                     <div class="form-group">
@@ -1407,13 +2761,17 @@ class MaintenanceApp {
                 <input type="hidden" class="t-id" value="${task ? task.id : ''}">
                 <input type="text" class="t-content" style="flex:2" placeholder="作業内容 (任意)" value="${task ? task.content : ''}">
                 <div style="flex:1; display:flex; align-items:center; gap:4px;">
-                    <input type="number" class="t-period" style="width:70px" min="0" placeholder="周期" value="${task ? task.periodDays : ''}">
+                    <input type="number" class="t-period" style="width:70px" min="0" placeholder="周期" value="${task ? task.periodDays : ''}" oninput="app.updateOneOffBadge(this)">
                     <span style="font-size:0.7rem; color:var(--text-light); white-space:nowrap;">日毎</span>
+                    <span class="one-off-badge ${task && (parseInt(task.periodDays) || 0) === 0 ? '' : 'hidden'}">1回きり</span>
                 </div>
                 <input type="date" class="t-start" style="flex:1" value="${task ? task.startDate : new Date().toISOString().split('T')[0]}">
                 <div style="display:flex; gap:4px;">
                     ${task && task.id 
-                        ? `<button type="button" class="secondary-btn" title="アーカイブ" style="font-size:1rem; color:var(--text-light);" onclick="app.archiveMaintenanceTask('${task.id}', '${task.content.replace(/'/g, "\\'")}')"><i class="fa-solid fa-box-archive"></i></button>` 
+                        ? `
+                            <button type="button" class="secondary-btn" title="アーカイブ" style="font-size:1rem; color:var(--text-light);" onclick="app.archiveMaintenanceTask('${task.id}', '${task.content.replace(/'/g, "\\'")}')"><i class="fa-solid fa-box-archive"></i></button>
+                            <button type="button" class="secondary-btn" title="削除" style="font-size:1rem; color:var(--danger);" onclick="app.deleteMaintenanceTaskFromMachineModal('${task.id}', '${task.content.replace(/'/g, "\\'")}', this)"><i class="fa-solid fa-trash-can"></i></button>
+                        ` 
                         : `<button type="button" class="close-btn" style="font-size:1rem" onclick="this.parentElement.parentElement.parentElement.remove()"><i class="fa-solid fa-trash-can"></i></button>`}
                 </div>
             </div>
@@ -1423,6 +2781,12 @@ class MaintenanceApp {
             </div>
         `;
         container.appendChild(div);
+    }
+
+    updateOneOffBadge(input) {
+        const badge = input?.parentElement?.querySelector('.one-off-badge');
+        if (!badge) return;
+        badge.classList.toggle('hidden', (parseInt(input.value) || 0) !== 0);
     }
 
     openSuddenRecordModal(defaultDate = null) {
@@ -1438,7 +2802,7 @@ class MaintenanceApp {
                         <label style="font-weight:900; color:#475569;"><i class="fa-solid fa-list-ol"></i> 対応ライン番号 <span style="color:var(--danger)">*</span></label>
                         <select id="s-line-no" required style="height:44px; font-weight:900; color:var(--text-main); font-size:1rem; border:2.5px solid var(--border-dark);">
                             <option value="">-- ラインを選択してください --</option>
-                            ${[1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}">${n}号ライン</option>`).join('')}
+                            ${this.generateLineOptionsHTML()}
                         </select>
                     </div>
 
@@ -1464,7 +2828,7 @@ class MaintenanceApp {
                                         const la = a.lineNo || '99';
                                         const lb = b.lineNo || '99';
                                         return String(la).localeCompare(String(lb), undefined, {numeric: true});
-                                    }).map(m => `<option value="${m.id}">[${m.lineNo ? m.lineNo + '号' : '未設定'}] ${m.name} [${m.model}]</option>`).join('')}
+                                    }).map(m => `<option value="${m.id}">[${m.lineNo ? this.getLineLabel(m.lineNo) : '未設定'}] ${m.name} [${m.model}]</option>`).join('')}
                                     <option value="NEW_MACHINE">+ 新しい機械として登録する</option>
                                 </select>
                             </div>
@@ -1505,10 +2869,17 @@ class MaintenanceApp {
                         </div>
                         <div class="form-group" style="display:flex; align-items:flex-end;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:var(--danger-light); padding:10px 16px; border-radius:var(--radius-md); border:1px solid #fca5a5; width:100%;">
-                                <input type="checkbox" id="s-is-dokatei" style="width: auto;">
+                                <input type="checkbox" id="s-is-dokatei" style="width: auto;" onchange="const np=document.getElementById('s-is-non-production-stop'); if(this.checked && np) np.checked=false;">
                                 <span style="font-weight:800; color:var(--danger); font-size:0.85rem;">ドカ停</span>
                             </label>
                         </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:#fffbeb; padding:10px 16px; border-radius:var(--radius-md); border:1px solid #fde68a;">
+                            <input type="checkbox" id="s-is-non-production-stop" style="width:auto;" onchange="const d=document.getElementById('s-is-dokatei'); if(this.checked && d) d.checked=false;">
+                            <span style="font-weight:800; color:#b45309; font-size:0.85rem;">非生産停止トラブル（生産は止まっていない突発メンテ）</span>
+                        </label>
                     </div>
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
@@ -1890,7 +3261,7 @@ class MaintenanceApp {
                         <label style="font-weight:900; color:#475569;"><i class="fa-solid fa-list-ol"></i> 対応ライン番号 <span style="color:var(--danger)">*</span></label>
                         <select id="e-line-no" required style="height:44px; font-weight:900; color:var(--text-main); font-size:1rem; border:2.5px solid var(--border-dark);">
                             <option value="">-- ラインを選択してください --</option>
-                            ${[1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}" ${String(h.lineNo) === String(n) ? 'selected' : ''}>${n}号ライン</option>`).join('')}
+                            ${this.generateLineOptionsHTML(h.lineNo || '')}
                         </select>
                     </div>
 
@@ -1924,10 +3295,17 @@ class MaintenanceApp {
                         </div>
                         <div class="form-group" style="display:flex; align-items:flex-end;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:var(--background); padding:10px 16px; border-radius:var(--radius-md); border:1px solid var(--border); width:100%;">
-                                <input type="checkbox" id="e-is-dokatei" ${h.isDokatei ? 'checked' : ''} style="width: auto;">
+                                <input type="checkbox" id="e-is-dokatei" ${h.isDokatei ? 'checked' : ''} style="width: auto;" onchange="const np=document.getElementById('e-is-non-production-stop'); if(this.checked && np) np.checked=false;">
                                 <span style="font-weight:800; color:var(--text-main); font-size:0.85rem;">ドカ停</span>
                             </label>
                         </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:#fffbeb; padding:10px 16px; border-radius:var(--radius-md); border:1px solid #fde68a;">
+                            <input type="checkbox" id="e-is-non-production-stop" ${h.isNonProductionStop ? 'checked' : ''} style="width:auto;" onchange="const d=document.getElementById('e-is-dokatei'); if(this.checked && d) d.checked=false;">
+                            <span style="font-weight:800; color:#b45309; font-size:0.85rem;">非生産停止トラブル（生産は止まっていない突発メンテ）</span>
+                        </label>
                     </div>
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
@@ -2103,7 +3481,7 @@ class MaintenanceApp {
             Array.from(lines).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })).forEach(l => {
                 const opt = document.createElement('option');
                 opt.value = l;
-                opt.textContent = `${l}号ライン`;
+                opt.textContent = this.getLineLabel(l);
                 lineFilterEl.appendChild(opt);
             });
         }
@@ -2148,7 +3526,9 @@ class MaintenanceApp {
         if (type === 'periodic') {
             filtered = filtered.filter(h => !!h.taskId);
         } else if (type === 'sudden') {
-            filtered = filtered.filter(h => !h.taskId && !h.isDokatei);
+            filtered = filtered.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
+        } else if (type === 'nonProductionStop') {
+            filtered = filtered.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop);
         } else if (type === 'dokatei') {
             filtered = filtered.filter(h => !!h.isDokatei);
         }
@@ -2177,9 +3557,10 @@ class MaintenanceApp {
             const tr = document.createElement('tr');
             
             let rowBg = '#ffffff';
+            const typeInfo = this.getHistoryTypeInfo(h);
             let badgeClass = h.taskId ? 'badge-periodic' : 'badge-sudden';
-            let badgeText = h.taskId ? '定期' : '突発';
-            let titleColor = h.taskId ? 'var(--primary-dark)' : 'var(--success)';
+            let badgeText = typeInfo.label;
+            let titleColor = typeInfo.color;
             
             if (h.isDokatei) {
                 rowBg = '#fef2f2'; // Pink
@@ -2188,6 +3569,9 @@ class MaintenanceApp {
                 titleColor = 'var(--danger)';
             } else if (h.taskId) {
                 rowBg = '#eff6ff'; // Light Blue
+            } else if (h.isNonProductionStop) {
+                rowBg = '#fffbeb'; // Light Amber
+                badgeClass = 'badge-sudden';
             } else {
                 rowBg = '#f0fdf4'; // Light Green
             }
@@ -2255,7 +3639,7 @@ class MaintenanceApp {
                         </div>
                     ` : '<span style="color:var(--text-light); font-size:0.75rem;">-</span>'}
                 </td>
-                <td style="text-align: center;"><span class="badge ${badgeClass}" style="cursor:pointer; padding:4px 6px; font-size:0.65rem; min-width:40px;" onclick="app.toggleTypeFilter('${h.isDokatei ? 'dokatei' : (h.taskId ? 'periodic' : 'sudden')}', event)" title="この区分で抽出">${badgeText}</span></td>
+                <td style="text-align: center;"><span class="badge ${badgeClass}" style="cursor:pointer; padding:4px 6px; font-size:0.65rem; min-width:40px; ${h.isNonProductionStop ? 'background:#fef3c7; color:#92400e; border:1px solid #fcd34d;' : ''}" onclick="app.toggleTypeFilter('${typeInfo.key}', event)" title="この区分で抽出">${badgeText}</span></td>
                 <td>${h.workTime || 0}分</td>
                 <td style="word-break: break-all; white-space: normal;">
                     ${(h.replacedParts || []).map(p => `
@@ -2652,7 +4036,7 @@ class MaintenanceApp {
                         <label style="font-weight:900; color:#475569;"><i class="fa-solid fa-list-ol"></i> 実施ライン番号 <span style="color:var(--danger)">*</span></label>
                         <select id="c-line-no" required style="height:44px; font-weight:900; color:var(--primary); font-size:1rem; border:2px solid var(--primary);">
                             <option value="">-- ラインを選択してください --</option>
-                            ${[1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}" ${machine && String(machine.lineNo) === String(n) ? 'selected' : ''}>${n}号ライン</option>`).join('')}
+                            ${this.generateLineOptionsHTML(machine?.lineNo || '')}
                         </select>
                     </div>
 
@@ -2736,7 +4120,29 @@ class MaintenanceApp {
             if (lastParts.length > 0) {
                 lastParts.forEach(p => this.addPartRow(p, true));
             }
+
+            if ((parseInt(task.periodDays) || 0) <= 0) {
+                const footer = document.querySelector('.modal-footer');
+                if (footer) {
+                    footer.insertAdjacentHTML('afterbegin', `
+                        <button type="button" class="danger-btn" style="margin-right:auto" onclick="app.deleteOneOffMaintenanceFromCompletion('${task.id}', '${task.content.replace(/'/g, "\\'")}')">
+                            <i class="fa-solid fa-trash-can"></i> この予定を削除
+                        </button>
+                    `);
+                }
+            }
         });
+    }
+
+    deleteOneOffMaintenanceFromCompletion(taskId, content) {
+        if (!confirm(`1回きりの定期メンテ「${content}」をカレンダーから削除しますか？\nこの予定は未完了のまま取り消されます。`)) return;
+
+        store.freezeTaskContentInHistory(taskId);
+        store.activeData.tasks = (store.activeData.tasks || []).filter(t => String(t.id) !== String(taskId));
+        store.save();
+        this.closeModal();
+        this.renderCalendar();
+        this.renderMachines();
     }
 
     openModal(type, title, renderFn) {
@@ -2864,32 +4270,29 @@ class MaintenanceApp {
         const preview = document.getElementById('global-image-preview');
         const img = document.getElementById('global-image-target');
         if (!preview || !img) return;
+        this.imagePreviewLocked = false;
 
-        document.addEventListener('mouseover', (e) => {
-            const imgBox = e.target.closest('.img-box');
+        const showPreview = (imgBox) => {
             if (!imgBox) return;
-
             const targetImg = imgBox.querySelector('img');
             if (!targetImg || !targetImg.src) return;
-
             const rect = targetImg.getBoundingClientRect();
             img.src = targetImg.src;
 
-            // Initial position (snapshot of the thumbnail)
             preview.style.left = rect.left + 'px';
             preview.style.top = rect.top + 'px';
             preview.style.width = rect.width + 'px';
             preview.style.height = rect.height + 'px';
             preview.style.transform = 'scale(1)';
-            
-            const scale = 9;
+
+            const isShiftNotebookPhoto = !!imgBox.closest('.shift-photo-previews') || !!imgBox.closest('.notebook-search-photos');
+            const scale = isShiftNotebookPhoto ? Math.min(26, Math.max(12, 980 / Math.max(rect.width, rect.height))) : 9;
             const zoomedW = rect.width * scale;
             const zoomedH = rect.height * scale;
-            
-            // Calculate adjusted center to keep visually expanded image inside viewport
+
             let centerX = rect.left + rect.width / 2;
             let centerY = rect.top + rect.height / 2;
-            const margin = 20; 
+            const margin = 20;
             const winW = window.innerWidth;
             const winH = window.innerHeight;
 
@@ -2899,21 +4302,45 @@ class MaintenanceApp {
             if (centerY + zoomedH / 2 > winH - margin) centerY = winH - zoomedH / 2 - margin;
 
             preview.classList.remove('hidden');
-
-            // Trigger zoom & slide transition
             requestAnimationFrame(() => {
                 preview.style.left = (centerX - rect.width / 2) + 'px';
                 preview.style.top = (centerY - rect.height / 2) + 'px';
                 preview.style.transform = `scale(${scale})`;
             });
+        };
+
+        const hidePreview = () => {
+            preview.classList.add('hidden');
+            preview.classList.remove('locked');
+            preview.style.transform = 'scale(1)';
+            this.imagePreviewLocked = false;
+        };
+
+        document.addEventListener('mouseover', (e) => {
+            if (this.imagePreviewLocked) return;
+            const imgBox = e.target.closest('.img-box');
+            if (!imgBox) return;
+            showPreview(imgBox);
         });
 
         document.addEventListener('mouseout', (e) => {
+            if (this.imagePreviewLocked) return;
             const imgBox = e.target.closest('.img-box');
             if (imgBox && !e.relatedTarget?.closest('.img-box')) {
-                preview.classList.add('hidden');
-                preview.style.transform = 'scale(1)';
+                hidePreview();
             }
+        });
+
+        document.addEventListener('click', (e) => {
+            const imgBox = e.target.closest('.img-box');
+            if (imgBox) {
+                e.stopPropagation();
+                showPreview(imgBox);
+                this.imagePreviewLocked = true;
+                preview.classList.add('locked');
+                return;
+            }
+            if (this.imagePreviewLocked) hidePreview();
         });
     }
 
@@ -3260,7 +4687,11 @@ class MaintenanceApp {
         try {
             const form = document.getElementById(`${type}-form`);
             if (form && !form.reportValidity()) return;
-        if (type === 'machine') {
+        if (type === 'shift-notebook') {
+            const editing = this._editingShiftNotebook;
+            if (!editing) return;
+            this.saveShiftNotebook(editing.dateStr, editing.shift);
+        } else if (type === 'machine') {
             const name = document.getElementById('f-machine-name').value;
             const model = document.getElementById('f-machine-model').value;
             const manufacturer = document.getElementById('f-machine-manufacturer').value;
@@ -3315,6 +4746,11 @@ class MaintenanceApp {
                 if (t.machineId !== machineId) return true; // Keep other machines
                 if (currentTaskIds.includes(t.id)) return true; // Keep active rows
                 if (store.isMaintenanceTaskArchived(t.id)) return true; // Keep archived tasks
+                store.freezeTaskContentInHistory(t.id);
+                if ((parseInt(t.periodDays) || 0) <= 0) {
+                    t.deleted = true;
+                    return true;
+                }
                 return false;
             });
             store.save();
@@ -3334,6 +4770,7 @@ class MaintenanceApp {
             const workTime = document.getElementById('s-work-time').value;
             const workerText = document.getElementById('s-workers').value;
             const isDokatei = document.getElementById('s-is-dokatei').checked;
+            const isNonProductionStop = !isDokatei && !!document.getElementById('s-is-non-production-stop')?.checked;
             const category = document.getElementById('s-category').value;
             const machineCategory = this.getCategoryFromModalInput('s-');
             
@@ -3399,6 +4836,7 @@ class MaintenanceApp {
                 photos: this._tempPhotos || [],
                 isSudden: true,
                 isDokatei,
+                isNonProductionStop,
                 category,
                 machineCategory,
                 lineNo,
@@ -3518,6 +4956,7 @@ class MaintenanceApp {
             const workTime = document.getElementById('e-work-time').value;
             const workerText = document.getElementById('e-workers').value;
             const isDokatei = document.getElementById('e-is-dokatei').checked;
+            const isNonProductionStop = !isDokatei && !!document.getElementById('e-is-non-production-stop')?.checked;
             const machineCategory = this.getCategoryFromModalInput('e-');
 
             // Capture Parts (Defensive)
@@ -3561,7 +5000,7 @@ class MaintenanceApp {
 
                 store.activeData.history[index] = {
                     ...store.activeData.history[index],
-                    machineId, date, notes, cause, errorContent: symptom, errorNo, workTime, workers, replacedParts, isDokatei, category, machineCategory, lineNo,
+                    machineId, date, notes, cause, errorContent: symptom, errorNo, workTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
                     isFirstTime: document.querySelector('input[name="e-occurrence"]:checked')?.value === 'first',
                     photos: this._tempPhotos
                 };
@@ -3726,7 +5165,7 @@ class MaintenanceApp {
             if (!el) return;
             const current = el.value;
             el.innerHTML = '<option value="all">全ライン</option>' + 
-                sortedLines.map(l => `<option value="${l}">${l}号ライン</option>`).join('');
+                sortedLines.map(l => `<option value="${l}">${this.getLineLabel(l)}</option>`).join('');
             el.value = current || 'all';
         };
         populateLines('ranking-filter-line');
@@ -3953,12 +5392,14 @@ class MaintenanceApp {
 
         const periodicTime = history.filter(h => !!h.taskId).reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
         const dokateiTime = history.filter(h => h.isDokatei).reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
-        const suddenTime = history.filter(h => !h.taskId && !h.isDokatei).reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
+        const suddenTime = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop).reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
+        const nonProductionStopTime = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop).reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
         
-        const totalTime = periodicTime + suddenTime + dokateiTime;
-        const suddenCount = history.filter(h => !h.taskId && !h.isDokatei).length;
+        const totalTime = periodicTime + suddenTime + nonProductionStopTime + dokateiTime;
+        const suddenCount = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop).length;
+        const nonProductionStopCount = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop).length;
         const dokateiCount = history.filter(h => h.isDokatei).length;
-        const suddens = history.filter(h => !h.taskId && h.date);
+        const suddens = history.filter(h => !h.taskId && !h.isNonProductionStop && h.date);
         const dokateis = history.filter(h => h.isDokatei).sort((a, b) => (parseInt(b.workTime) || 0) - (parseInt(a.workTime) || 0));
         
         // Past 3 months fixed filter for Worst History
@@ -3966,8 +5407,8 @@ class MaintenanceApp {
         const date3MStr = date3M.toISOString().split('T')[0];
         const dokateis3M = (store.activeData.history || []).filter(h => h.isDokatei && h.date >= date3MStr).sort((a, b) => (parseInt(b.workTime) || 0) - (parseInt(a.workTime) || 0));
 
-        const totalTroubleTime = suddenTime + dokateiTime;
-        const totalTroubleCount = suddenCount + dokateiCount;
+        const totalTroubleTime = suddenTime + nonProductionStopTime + dokateiTime;
+        const totalTroubleCount = suddenCount + nonProductionStopCount + dokateiCount;
         const avgMttr = totalTroubleCount > 0 ? (totalTroubleTime / totalTroubleCount).toFixed(1) : 0;
 
         let mtbf = '-';
@@ -4070,9 +5511,14 @@ class MaintenanceApp {
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${history.filter(h=>!!h.taskId).length}件の実施履歴</div>
                     </div>
                     <div class="card" style="padding:15px; border-top:4px solid var(--success); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='sudden'; app.renderHistory();">
-                        <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">突発故障 合計</div>
+                        <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">突発故障（生産停止）</div>
                         <div style="font-size:1.6rem; font-weight:900; color:var(--success); line-height:1.2;">${suddenTime}<span style="font-size:0.8rem">分</span></div>
-                        <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${suddenCount}件のマイナートラブル</div>
+                        <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${suddenCount}件の停止トラブル</div>
+                    </div>
+                    <div class="card" style="padding:15px; border-top:4px solid #f59e0b; cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='nonProductionStop'; app.renderHistory();">
+                        <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">非生産停止トラブル</div>
+                        <div style="font-size:1.6rem; font-weight:900; color:#d97706; line-height:1.2;">${nonProductionStopTime}<span style="font-size:0.8rem">分</span></div>
+                        <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${nonProductionStopCount}件の非停止メンテ</div>
                     </div>
                     <div class="card" style="padding:15px; border-top:4px solid var(--danger); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='dokatei'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">ドカ停（重大）</div>
@@ -4097,7 +5543,8 @@ class MaintenanceApp {
                 </div>
                 <div style="display:flex; gap:12px; margin-top:15px; font-size:0.65rem; font-weight:800;">
                     <span><i class="fa-solid fa-circle" style="color:#2563eb"></i> 定期</span>
-                    <span><i class="fa-solid fa-circle" style="color:#10b981"></i> 突発</span>
+                    <span><i class="fa-solid fa-circle" style="color:#10b981"></i> 突発(停止)</span>
+                    <span><i class="fa-solid fa-circle" style="color:#f59e0b"></i> 非停止</span>
                     <span><i class="fa-solid fa-circle" style="color:#ef4444"></i> ドカ停</span>
                 </div>
             </div>
@@ -4250,10 +5697,10 @@ class MaintenanceApp {
                 new Chart(ctx, {
                     type: 'doughnut',
                     data: {
-                        labels: ['定期', '突発', 'ドカ停'],
+                        labels: ['定期', '突発(停止)', '非生産停止', 'ドカ停'],
                         datasets: [{
-                            data: [periodicTime, suddenTime, dokateiTime],
-                            backgroundColor: ['#2563eb', '#10b981', '#ef4444'],
+                            data: [periodicTime, suddenTime, nonProductionStopTime, dokateiTime],
+                            backgroundColor: ['#2563eb', '#10b981', '#f59e0b', '#ef4444'],
                             borderWidth: 0,
                             hoverOffset: 12
                         }]
@@ -4797,7 +6244,7 @@ class MaintenanceApp {
             Array.from(lineSet).sort((a,b) => String(a).localeCompare(String(b), undefined, {numeric:true})).forEach(l => {
                 const opt = document.createElement('option');
                 opt.value = l;
-                opt.textContent = `${l}号ライン`;
+                opt.textContent = this.getLineLabel(l);
                 guideLineEl.appendChild(opt);
             });
         }
@@ -5247,7 +6694,7 @@ class MaintenanceApp {
                         <label>ライン番号</label>
                         <select id="ms-line-no">
                             <option value="">-- 指定なし --</option>
-                            ${[1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}">${n}号ライン</option>`).join('')}
+                            ${this.generateLineOptionsHTML()}
                         </select>
                     </div>
                 </div>
@@ -5602,7 +7049,7 @@ class MaintenanceApp {
             Array.from(lines).sort((a,b) => String(a).localeCompare(String(b), undefined, {numeric:true})).forEach(l => {
                 const opt = document.createElement('option');
                 opt.value = l;
-                opt.textContent = `${l}号ライン`;
+                opt.textContent = this.getLineLabel(l);
                 lineFilter.appendChild(opt);
             });
         }
@@ -5627,7 +7074,7 @@ class MaintenanceApp {
         const machines = store.getMachines(true);
 
         const statsMap = {}; 
-        const archivedStats = { totalTime: 0, pt: 0, st: 0, dt: 0, pc: 0, sc: 0, dc: 0, machineTimeMap: {}, troubleCountMap: {} };
+        const archivedStats = { totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0, machineTimeMap: {}, troubleCountMap: {} };
         let totalTimeSum = 0;
 
         history.forEach(h => {
@@ -5648,7 +7095,7 @@ class MaintenanceApp {
                 totalTimeSum += time;
                 const isArchived = (currentGroupBy === 'worker' && store.isWorkerArchived(k));
                 
-                const s = isArchived ? archivedStats : (statsMap[k] || (statsMap[k] = { totalTime: 0, pt: 0, st: 0, dt: 0, pc: 0, sc: 0, dc: 0, machineTimeMap: {}, troubleCountMap: {} }));
+                const s = isArchived ? archivedStats : (statsMap[k] || (statsMap[k] = { totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0, machineTimeMap: {}, troubleCountMap: {} }));
                 
                 s.totalTime += time;
                 if (isPeriodic) {
@@ -5657,6 +7104,9 @@ class MaintenanceApp {
                 } else if (h.isDokatei) {
                     s.dt += time;
                     s.dc++;
+                } else if (h.isNonProductionStop) {
+                    s.np += time;
+                    s.npc++;
                 } else {
                     s.st += time;
                     s.sc++;
@@ -5679,7 +7129,7 @@ class MaintenanceApp {
             const topMachines = Object.entries(s.machineTimeMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>`・${x[0]} (${x[1]}分)`).join('<br>');
             const topTroubles = Object.entries(s.troubleCountMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>`・${x[0]} (${x[1]}件)`).join('<br>');
 
-            return { name, totalTime: s.totalTime, pct, pt: s.pt, st: s.st, dt: s.dt, pc: s.pc, sc: s.sc, dc: s.dc, avgSudden, avgDokatei, topMachines, topTroubles, isArchived: false };
+            return { name, totalTime: s.totalTime, pct, pt: s.pt, st: s.st, np: s.np, dt: s.dt, pc: s.pc, sc: s.sc, npc: s.npc, dc: s.dc, avgSudden, avgDokatei, topMachines, topTroubles, isArchived: false };
         });
 
         if (currentGroupBy === 'worker' && archivedStats.totalTime > 0) {
@@ -5687,7 +7137,7 @@ class MaintenanceApp {
             const pct = totalTimeSum > 0 ? ((s.totalTime / totalTimeSum) * 100).toFixed(1) : 0;
             const topMachines = Object.entries(s.machineTimeMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>`・${x[0]} (${x[1]}分)`).join('<br>');
             const topTroubles = Object.entries(s.troubleCountMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>`・${x[0]} (${x[1]}件)`).join('<br>');
-            results.push({ name: '旧作業者合計', totalTime: s.totalTime, pct, pt: s.pt, st: s.st, dt: s.dt, pc: s.pc, sc: s.sc, dc: s.dc, avgSudden: (s.sc > 0 ? (s.st / s.sc).toFixed(1) : 0), avgDokatei: (s.dc > 0 ? (s.dt / s.dc).toFixed(1) : 0), topMachines, topTroubles, isArchived: true });
+            results.push({ name: '旧作業者合計', totalTime: s.totalTime, pct, pt: s.pt, st: s.st, np: s.np, dt: s.dt, pc: s.pc, sc: s.sc, npc: s.npc, dc: s.dc, avgSudden: (s.sc > 0 ? (s.st / s.sc).toFixed(1) : 0), avgDokatei: (s.dc > 0 ? (s.dt / s.dc).toFixed(1) : 0), topMachines, topTroubles, isArchived: true });
         }
 
         if (q) {
@@ -5724,6 +7174,8 @@ class MaintenanceApp {
                         <th style="background:#f0f9ff; color:#1e40af; font-weight:700; text-align:center;">件数</th>
                         <th style="background:#f0fdf4; color:#166534; font-weight:700; text-align:right;">突発対応 <span style="font-size:0.6rem">(分)</span></th>
                         <th style="background:#f0fdf4; color:#166534; font-weight:700; text-align:center;">件数</th>
+                        <th style="background:#fffbeb; color:#92400e; font-weight:700; text-align:right;">非生産停止 <span style="font-size:0.6rem">(分)</span></th>
+                        <th style="background:#fffbeb; color:#92400e; font-weight:700; text-align:center;">件数</th>
                         <th style="background:#fef2f2; color:#b91c1c; font-weight:700; text-align:right;">ドカ停 <span style="font-size:0.6rem">(分)</span></th>
                         <th style="background:#fef2f2; color:#b91c1c; font-weight:700; text-align:center;">件数</th>
                         <th style="background:#f8fafc; color:var(--text-light); font-weight:700; text-align:right;">平均突発 <span style="font-size:0.6rem">(分)</span></th>
@@ -5755,6 +7207,10 @@ class MaintenanceApp {
                             <td style="text-align:center; background:#f0fdf4;">
                                 <span style="display:inline-block; padding:2px 8px; border-radius:12px; background:#fff; color:#166534; font-weight:800; font-size:0.75rem; border:1px solid #dcfce7;">${r.sc}</span>
                             </td>
+                            <td style="text-align:right; font-weight:800; color:#92400e; background:#fffbeb; font-size:1rem;">${(r.np || 0).toLocaleString()}</td>
+                            <td style="text-align:center; background:#fffbeb;">
+                                <span style="display:inline-block; padding:2px 8px; border-radius:12px; background:#fff; color:#92400e; font-weight:800; font-size:0.75rem; border:1px solid #fde68a;">${r.npc || 0}</span>
+                            </td>
                             <td style="text-align:right; font-weight:800; color:#b91c1c; background:#fef2f2; font-size:1rem;">${r.dt.toLocaleString()}</td>
                             <td style="text-align:center; background:#fef2f2;">
                                 <span style="display:inline-block; padding:2px 8px; border-radius:12px; background:#fff; color:#b91c1c; font-weight:800; font-size:0.75rem; border:1px solid #fecaca;">${r.dc}</span>
@@ -5767,7 +7223,7 @@ class MaintenanceApp {
                             </td>
                         </tr>
                         `;
-                    }).join('') || '<tr><td colspan="12" style="text-align:center; padding:40px; color:var(--text-light);">この期間の作業記録がありません</td></tr>'}
+                    }).join('') || '<tr><td colspan="14" style="text-align:center; padding:40px; color:var(--text-light);">この期間の作業記録がありません</td></tr>'}
                 </tbody>
         `;
         container.appendChild(table);
@@ -5794,7 +7250,7 @@ class MaintenanceApp {
                 label: `${d.getFullYear()}/${d.getMonth() + 1}`,
                 year: d.getFullYear(),
                 month: d.getMonth(),
-                pt: 0, st: 0, dt: 0
+                pt: 0, st: 0, np: 0, dt: 0
             });
         }
         
@@ -5854,16 +7310,18 @@ class MaintenanceApp {
                 history.forEach(h => {
                     const isPt = !!h.taskId;
                     const isDt = !!h.isDokatei;
-                    const isSt = !isPt && !isDt;
+                    const isNp = !isPt && !isDt && !!h.isNonProductionStop;
+                    const isSt = !isPt && !isDt && !isNp;
                     
                     // フィルタリング (クリックされた種別に絞る)
                     if (sel === '定期メンテ' && !isPt) return;
                     if (sel === '突発対応' && !isSt) return;
+                    if (sel === '非生産停止' && !isNp) return;
                     if (sel === 'ドカ停' && !isDt) return;
                     
                     // それ以外の名前（詳細な作業名など）がセットされている場合
                     // または想定外の名前の場合は、その種別のデータがないためフィルタで落とされる
-                    if (sel !== '定期メンテ' && sel !== '突発対応' && sel !== 'ドカ停') {
+                    if (sel !== '定期メンテ' && sel !== '突発対応' && sel !== '非生産停止' && sel !== 'ドカ停') {
                         // 種別名以外でドリルダウンされている場合は解除
                         return;
                     }
@@ -5897,6 +7355,7 @@ class MaintenanceApp {
                     if (target) {
                         if (h.taskId) target.pt += time;
                         else if (h.isDokatei) target.dt += time;
+                        else if (h.isNonProductionStop) target.np += time;
                         else target.st += time;
                     }
                 });
@@ -5905,6 +7364,7 @@ class MaintenanceApp {
                 }
                 datasets.push(
                     { label: '突発対応', data: months.map(m => m.st), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true, tension: 0.3 },
+                    { label: '非生産停止', data: months.map(m => m.np), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.1)', fill: true, tension: 0.3 },
                     { label: 'ドカ停', data: months.map(m => m.dt), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', fill: true, tension: 0.3 }
                 );
             }
@@ -6065,13 +7525,15 @@ class MaintenanceApp {
         }
 
         const ptData = history.filter(h => !!h.taskId);
-        const stData = history.filter(h => !h.taskId && !h.isDokatei);
+        const stData = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
+        const npData = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop);
         const dtData = history.filter(h => !!h.isDokatei);
 
         const ptTime = ptData.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
         const stTime = stData.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
+        const npTime = npData.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
         const dtTime = dtData.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
-        const total = ptTime + stTime + dtTime;
+        const total = ptTime + stTime + npTime + dtTime;
 
         if (total === 0) return alert('この期間のデータがありません');
 
@@ -6125,6 +7587,7 @@ class MaintenanceApp {
 
         const ptBreakdown = getBreakdown(ptData);
         const stBreakdown = getBreakdown(stData);
+        const npBreakdown = getBreakdown(npData);
         const dtBreakdown = getBreakdown(dtData);
 
         const periodMap = { 'this_month': '今月', 'fiscal_year': '今年度', 'all': '累計', 'custom': '指定日以降' };
@@ -6135,9 +7598,10 @@ class MaintenanceApp {
         }
 
         this._currentGraphData = {
-            total: { ptTime, stTime, dtTime },
+            total: { ptTime, stTime, npTime, dtTime },
             pt: ptBreakdown,
             st: stBreakdown,
+            np: npBreakdown,
             dt: dtBreakdown,
             period: periodDisplay
         };
@@ -6147,7 +7611,7 @@ class MaintenanceApp {
             document.getElementById('modal-container').style.maxWidth = '950px';
 
             body.innerHTML = `
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:30px; padding:10px;">
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:30px; padding:10px;">
                     <!-- 1. Total Composition -->
                     <div style="background:var(--background); padding:16px; border-radius:12px; border:1px solid var(--border);">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -6165,14 +7629,22 @@ class MaintenanceApp {
                         <div style="height:220px;"><canvas id="chart-pt"></canvas></div>
                     </div>
                     <!-- 3. Sudden Response Details -->
-                    <div style="background:var(--background); padding:16px; border-radius:12px; border:1px solid var(--border);">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                            <div style="font-weight:900; font-size:0.9rem; color:#166534;"><i class="fa-solid fa-bolt"></i> 突発対応 内訳</div>
-                            <div style="font-size:0.8rem; font-weight:900; color:#166534; background:#f0fdf4; padding:2px 10px; border-radius:99px;">合計 ${stTime} 分</div>
-                        </div>
-                        <div style="height:220px;"><canvas id="chart-st"></canvas></div>
-                    </div>
-                    <!-- 4. Dokatei Details -->
+                     <div style="background:var(--background); padding:16px; border-radius:12px; border:1px solid var(--border);">
+                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                             <div style="font-weight:900; font-size:0.9rem; color:#166534;"><i class="fa-solid fa-bolt"></i> 突発対応 内訳</div>
+                             <div style="font-size:0.8rem; font-weight:900; color:#166534; background:#f0fdf4; padding:2px 10px; border-radius:99px;">合計 ${stTime} 分</div>
+                         </div>
+                         <div style="height:220px;"><canvas id="chart-st"></canvas></div>
+                     </div>
+                     <!-- 4. Non-production-stop Details -->
+                     <div style="background:var(--background); padding:16px; border-radius:12px; border:1px solid var(--border);">
+                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                             <div style="font-weight:900; font-size:0.9rem; color:#92400e;"><i class="fa-solid fa-circle-pause"></i> 非生産停止 内訳</div>
+                             <div style="font-size:0.8rem; font-weight:900; color:#92400e; background:#fffbeb; padding:2px 10px; border-radius:99px;">合計 ${npTime} 分</div>
+                         </div>
+                         <div style="height:220px;"><canvas id="chart-np"></canvas></div>
+                     </div>
+                     <!-- 5. Dokatei Details -->
                     <div style="background:var(--background); padding:16px; border-radius:12px; border:1px solid var(--border);">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                             <div style="font-weight:900; font-size:0.9rem; color:#b91c1c;"><i class="fa-solid fa-triangle-exclamation"></i> ドカ停 原因内訳</div>
@@ -6251,10 +7723,10 @@ class MaintenanceApp {
             this._charts.total = new Chart(document.getElementById('chart-total'), {
                 type: 'doughnut',
                 data: {
-                    labels: ['定期メンテ', '突発対応', 'ドカ停'],
+                    labels: ['定期メンテ', '突発対応', '非生産停止', 'ドカ停'],
                     datasets: [{
-                        data: [ptTime, stTime, dtTime],
-                        backgroundColor: ['#3b82f6', '#10b981', '#ef4444'],
+                        data: [ptTime, stTime, npTime, dtTime],
+                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'],
                         borderWidth: 1
                     }]
                 },
@@ -6311,6 +7783,20 @@ class MaintenanceApp {
                 options: { ...commonOptions, plugins: { ...commonOptions.plugins, tooltip: createBreakdownTooltip(stBreakdown) } }
             });
 
+            // 4. Non-production-stop Chart
+            this._charts.np = new Chart(document.getElementById('chart-np'), {
+                type: 'pie',
+                data: {
+                    labels: npBreakdown.map(x => x.label),
+                    datasets: [{
+                        data: npBreakdown.map(x => x.time),
+                        backgroundColor: npBreakdown.map((_, i) => `hsl(38, 85%, ${45 + i*5}%)`),
+                        borderWidth: 1
+                    }]
+                },
+                options: { ...commonOptions, plugins: { ...commonOptions.plugins, tooltip: createBreakdownTooltip(npBreakdown) } }
+            });
+
             // 4. Dokatei Chart
             this._charts.dt = new Chart(document.getElementById('chart-dt'), {
                 type: 'pie',
@@ -6352,6 +7838,7 @@ class MaintenanceApp {
         const imgTotal = this._charts.total.toBase64Image();
         const imgPt = this._charts.pt.toBase64Image();
         const imgSt = this._charts.st.toBase64Image();
+        const imgNp = this._charts.np?.toBase64Image();
         const imgDt = this._charts.dt.toBase64Image();
 
         const buildTable = (title, list, color, totalCategoryTime) => {
@@ -6386,7 +7873,7 @@ class MaintenanceApp {
         };
 
         const printWin = window.open('', '_blank');
-        const overallTotal = d.total.ptTime + d.total.stTime + d.total.dtTime;
+        const overallTotal = d.total.ptTime + d.total.stTime + (d.total.npTime || 0) + d.total.dtTime;
         
         printWin.document.write(`
             <html>
@@ -6426,6 +7913,10 @@ class MaintenanceApp {
                             <img src="${imgSt}">
                         </div>
                         <div class="chart-item">
+                            <div class="chart-title"><span style="color:#92400e;">非生産停止内訳</span> <span style="color:#92400e;">合計 ${d.total.npTime || 0}分</span></div>
+                            <img src="${imgNp || ''}">
+                        </div>
+                        <div class="chart-item">
                             <div class="chart-title"><span style="color:#b91c1c;">ドカ停原因内訳</span> <span style="color:#b91c1c;">合計 ${d.total.dtTime}分</span></div>
                             <img src="${imgDt}">
                         </div>
@@ -6433,6 +7924,7 @@ class MaintenanceApp {
 
                     ${buildTable('定期メンテナンス 詳細内訳', d.pt, '#1e40af', d.total.ptTime)}
                     ${buildTable('突発不具合対応 詳細内訳', d.st, '#166534', d.total.stTime)}
+                    ${buildTable('非生産停止トラブル 詳細内訳', d.np || [], '#92400e', d.total.npTime || 0)}
                     ${buildTable('ドカ停（重大故障）詳細内訳', d.dt, '#b91c1c', d.total.dtTime)}
 
                     <div style="margin-top:40px; padding-top:20px; border-top:1px solid #e2e8f0; font-size:0.75rem; color:#94a3b8; text-align:right;">
@@ -6832,6 +8324,17 @@ class MaintenanceApp {
             this.renderMachines();
             this.renderCalendar();
         }
+    }
+
+    deleteMaintenanceTaskFromMachineModal(id, content, btn) {
+        if (!confirm(`周期設定「${content}」を削除しますか？\nアーカイブには送らず、メンテ設定画面から削除します。\n完了済みのカレンダー履歴は残ります。周期0日の未完了予定はカレンダーに残ります。`)) return;
+
+        store.softDeleteMaintenanceTask(id);
+        const row = btn?.closest('.task-row');
+        if (row) row.remove();
+        this.updateDataLists();
+        this.renderMachines();
+        this.renderCalendar();
     }
 
     toggleMaintenanceTaskArchive(id) {
@@ -7253,6 +8756,80 @@ class MaintenanceApp {
     }
 
     // --- CSV Export ---
+    csvEscape(value) {
+        return `"${String(value ?? '').replace(/"/g, '""')}"`;
+    }
+
+    parseCSV(text) {
+        const rows = [];
+        let row = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const next = text[i + 1];
+
+            if (char === '"' && inQuotes && next === '"') {
+                current += '"';
+                i++;
+            } else if (char === '"') {
+                inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+                row.push(current);
+                current = '';
+            } else if ((char === '\n' || char === '\r') && !inQuotes) {
+                if (char === '\r' && next === '\n') i++;
+                row.push(current);
+                if (row.some(v => String(v).trim() !== '')) rows.push(row);
+                row = [];
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+
+        row.push(current);
+        if (row.some(v => String(v).trim() !== '')) rows.push(row);
+        return rows;
+    }
+
+    getCategoryLabel(category) {
+        const labels = {
+            machine: '機械',
+            electric: '電気',
+            adjust: '調整',
+            parts: '部品',
+            clean: '清掃',
+            other: 'その他'
+        };
+        return labels[category] || 'その他';
+    }
+
+    getHistoryTypeInfo(h) {
+        if (h.isDokatei) return { key: 'dokatei', label: 'ドカ停', color: 'var(--danger)', chartColor: '#ef4444' };
+        if (h.taskId) return { key: 'periodic', label: '定期', color: 'var(--primary)', chartColor: '#3b82f6' };
+        if (h.isNonProductionStop) return { key: 'nonProductionStop', label: '非停止', color: '#d97706', chartColor: '#f59e0b' };
+        return { key: 'sudden', label: '突発', color: 'var(--success)', chartColor: '#10b981' };
+    }
+
+    parseHistoryPartsText(partsText) {
+        if (!partsText) return [];
+        return String(partsText).split(/\s+\/\s+/).map(item => {
+            const text = item.trim();
+            if (!text) return null;
+            const match = text.match(/^(.*?)(?:\s+\[(.*?)\])?\s*\(([-+]?\d*\.?\d+)\s*([^)]*)\)$/);
+            if (!match) return { name: MaintenanceStore.toFullWidth(text), model: '', count: 0, unit: '個', price: 0 };
+            return {
+                name: MaintenanceStore.toFullWidth(match[1].trim()),
+                model: MaintenanceStore.toHalfWidthLower((match[2] || '').trim()),
+                count: parseFloat(match[3]) || 0,
+                unit: (match[4] || '個').trim() || '個',
+                price: 0
+            };
+        }).filter(Boolean);
+    }
+
     downloadCSV(filename, csvContent) {
         const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
@@ -7293,10 +8870,10 @@ class MaintenanceApp {
     }
 
     downloadHistoryImportTemplate() {
-        const headers = ["日付(YYYY-MM-DD)", "機械名", "型式", "対応種別(突発/定期/ドカ停)", "作業内容(症状)", "原因", "処置内容(備考)", "エラー番号", "作業時間(分)", "作業区分(機械/電気/調整/部品/清掃/その他)", "作業者(カンマ区切り)"];
+        const headers = ["日付(YYYY-MM-DD)", "ライン", "機械名", "型式", "対応種別(突発/非生産停止/定期/ドカ停)", "作業内容(症状)", "原因", "処置内容(備考)", "エラー番号", "作業時間(分)", "作業区分(機械/電気/調整/部品/清掃/その他)", "作業者(カンマ区切り)"];
         const sampleRows = [
-            ["2024-03-01", "メインコンベア", "MC-100", "突発", "ベルトの異音", "経年劣化", "ベルトを調整", "E-01", "30", "機械", "山田, 鈴木"],
-            ["2024-03-05", "サブコンベア", "SC-50", "定期", "定期点検", "", "清掃・グリスアップ", "", "15", "清掃", "田中"]
+            ["2024-03-01", "5号ライン", "メインコンベア", "MC-100", "突発", "ベルトの異音", "経年劣化", "ベルトを調整", "E-01", "30", "機械", "山田, 鈴木"],
+            ["2024-03-05", "その他", "サブコンベア", "SC-50", "非生産停止", "センサー警告", "汚れ", "清掃・動作確認", "", "15", "清掃", "田中"]
         ];
         const csvContent = [headers.join(','), ...sampleRows.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
         this.downloadCSV(`template_history_import.csv`, csvContent);
@@ -7309,70 +8886,110 @@ class MaintenanceApp {
 
         const reader = new FileReader();
         reader.onload = async (e) => {
-            const text = e.target.result;
-            const parseCSVLine = (t) => {
-                const result = [];
-                let current = '';
-                let inQuotes = false;
-                for (let i = 0; i < t.length; i++) {
-                    const char = t[i];
-                    if (char === '"' && t[i+1] === '"') { current += '"'; i++; }
-                    else if (char === '"') inQuotes = !inQuotes;
-                    else if (char === ',' && !inQuotes) { result.push(current); current = ''; }
-                    else current += char;
-                }
-                result.push(current);
-                return result;
-            };
+            const rows = this.parseCSV(e.target.result).filter(row => row.some(col => String(col).trim() !== ''));
+            if (rows.length <= 1) return alert("データがありません。");
 
-            const lines = text.split(/\r?\n/).filter(line => line.trim());
-            if (lines.length <= 1) return alert("データがありません。");
+            const headers = rows[0].map(h => String(h).replace(/^\ufeff/, '').trim());
+            const findIndex = (keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
+            const indexMap = {
+                date: findIndex(['日付']),
+                line: findIndex(['ライン']),
+                machine: findIndex(['機械名']),
+                model: findIndex(['型式']),
+                type: findIndex(['区分', '対応種別']),
+                content: findIndex(['作業内容', '内容']),
+                cause: findIndex(['原因']),
+                notes: findIndex(['処置']),
+                errorNo: findIndex(['エラー']),
+                time: findIndex(['作業時間']),
+                category: findIndex(['作業区分']),
+                workers: findIndex(['作業員', '作業者']),
+                parts: findIndex(['交換部品'])
+            };
+            const getCol = (cols, key, fallbackIndex = -1) => {
+                const index = indexMap[key] >= 0 ? indexMap[key] : fallbackIndex;
+                return index >= 0 ? String(cols[index] || '').trim() : '';
+            };
+            const normalizeLineNo = (value) => {
+                const raw = String(value || '').trim();
+                if (!raw) return '';
+                if (raw === 'その他' || raw === '他' || raw.toLowerCase() === 'other') return 'other';
+                const match = raw.match(/\d+/);
+                return match ? match[0] : '';
+            };
 
             const records = [];
             const machines = store.getMachines(true);
             let addedMachines = 0;
+            const importKey = (record) => [
+                record.date || '',
+                record.machineId || '',
+                record.taskContent || record.errorContent || record.notes || '',
+                String(record.workTime || 0)
+            ].map(v => MaintenanceStore.toHalfWidthLower(String(v).trim())).join('__');
+            const existingKeys = new Set((store.activeData.history || []).map(importKey));
+            const importKeys = new Set();
+            let duplicateCount = 0;
 
-            for (let i = 1; i < lines.length; i++) {
-                const cols = parseCSVLine(lines[i]);
-                if (cols.length < 11) continue;
+            for (let i = 1; i < rows.length; i++) {
+                const cols = rows[i];
+                if (cols.length < 5) continue;
 
-                const [date, mName, mModel, occType, content, cause, notes, errorNo, time, categoryName, workersStr] = cols.map(v => v.trim());
+                const date = getCol(cols, 'date', 0);
+                const lineNo = normalizeLineNo(getCol(cols, 'line'));
+                const mName = getCol(cols, 'machine', 1);
+                const mModel = getCol(cols, 'model', 2);
+                const occType = getCol(cols, 'type', 3);
+                const content = getCol(cols, 'content', 4);
+                const cause = getCol(cols, 'cause', 5);
+                const notes = getCol(cols, 'notes', 6);
+                const errorNo = getCol(cols, 'errorNo', 7);
+                const time = getCol(cols, 'time', 8);
+                const categoryName = getCol(cols, 'category', 9);
+                const workersStr = getCol(cols, 'workers', 10);
+                const partsStr = getCol(cols, 'parts', 11);
                 if (!date || !mName) continue;
 
                 let targetMachine = machines.find(m => m.name === mName && (mModel ? m.model === mModel : true));
                 if (!targetMachine) {
-                    targetMachine = store.addMachine(mName, mModel || '', 'CSV取込で自動登録');
+                    targetMachine = store.addMachine(mName, mModel || '', 'CSV取込で自動登録', '', '', lineNo);
                     machines.push(targetMachine);
                     addedMachines++;
+                } else if (lineNo && !targetMachine.lineNo) {
+                    targetMachine.lineNo = lineNo;
                 }
 
                 let isSudden = false;
                 let isDokatei = false;
-                if (occType === "突発") isSudden = true;
-                if (occType === "ドカ停") { isSudden = true; isDokatei = true; }
-                
+                const isNonProductionStop = occType.includes("非生産停止") || occType.includes("非停止");
+                if (occType.includes("突発") || isNonProductionStop) isSudden = true;
+                if (occType.includes("ドカ停")) { isSudden = true; isDokatei = true; }
+
                 const catMap = { '機械': 'machine', '電気': 'electric', '調整': 'adjust', '部品': 'parts', '清掃': 'clean', 'その他': 'other' };
                 let category = 'other';
                 for (const [k, v] of Object.entries(catMap)) {
                     if (categoryName.includes(k)) { category = v; break; }
                 }
 
-                const workers = workersStr ? workersStr.split(',').map(w => w.trim()).filter(Boolean) : [];
-
+                const workers = workersStr ? workersStr.split(/\s*(?:,|，|、|\/)\s*/).map(w => w.trim()).filter(Boolean) : [];
+                const replacedParts = this.parseHistoryPartsText(partsStr);
                 const record = {
                     id: store.generateId(),
                     machineId: targetMachine.id,
-                    date: date,
+                    date,
                     workTime: parseInt(time) || 0,
                     isSudden,
                     isDokatei,
+                    isNonProductionStop: !isDokatei && isNonProductionStop,
                     errorNo: errorNo || '',
                     errorContent: content || '',
                     cause: cause || '',
                     notes: notes || '',
-                    category: category,
-                    workers: workers,
-                    replacedParts: [],
+                    category,
+                    machineCategory: targetMachine.category || '',
+                    lineNo: lineNo || targetMachine.lineNo || '',
+                    workers,
+                    replacedParts,
                     photos: [],
                     createdAt: new Date().toISOString()
                 };
@@ -7381,22 +8998,35 @@ class MaintenanceApp {
                     record.taskContent = content || '定期点検(CSV)';
                     delete record.errorContent;
                 }
-                
+
+                const key = importKey(record);
+                if (existingKeys.has(key) || importKeys.has(key)) {
+                    duplicateCount++;
+                    continue;
+                }
+                importKeys.add(key);
                 records.push(record);
             }
 
-            if (records.length === 0) return alert("取り込めるデータがありませんでした。");
-
-            if (confirm(`${records.length}件の履歴（うち新規機械登録: ${addedMachines}件）を取り込みます。よろしいですか？`)) {
+            if (records.length === 0) {
+                return alert(duplicateCount > 0 ? `すべて重複候補だったため、取り込みはありませんでした。（${duplicateCount}件）` : "取り込めるデータがありませんでした。");
+            }
+            const duplicateMessage = duplicateCount > 0 ? `\n\n重複候補 ${duplicateCount}件はスキップします。` : '';
+            if (confirm(`${records.length}件の履歴（うち新規機械登録: ${addedMachines}件）を取り込みます。よろしいですか？${duplicateMessage}`)) {
                 store.activeData.history.push(...records);
                 await store.save();
                 this.closeModal();
-                this.showToast(`${records.length}件の履歴をインポートしました！`, 'success');
-                this.renderHistory();
-                this.renderCalendar();
+                this.showToast(`${records.length}件の履歴をインポートしました`, 'success');
+                this.updateDataLists();
+                this.updateHistoryPeriodOptions();
+                requestAnimationFrame(() => {
+                    this.switchView('history');
+                    this.renderHistory();
+                    this.renderCalendar();
+                });
             }
         };
-        reader.readAsText(file);
+        reader.readAsText(file, 'utf-8');
     }
 
     exportHistoryAsCSV() {
@@ -7409,27 +9039,45 @@ class MaintenanceApp {
         history = this.filterHistoryByPeriod(history, period);
         if (type) {
             if (type === 'periodic') history = history.filter(h => !!h.taskId);
-            else if (type === 'sudden') history = history.filter(h => !h.taskId && !h.isDokatei);
+            else if (type === 'sudden') history = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
+            else if (type === 'nonProductionStop') history = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop);
             else if (type === 'dokatei') history = history.filter(h => h.isDokatei);
         }
 
-        const headers = ["日付", "機械名", "型式", "区分", "内容", "エラーNo", "原因", "処置内容", "作業時間(分)", "作業員", "交換部品"];
+        const headers = ["日付", "ライン", "機械名", "型式", "対応種別", "作業内容(症状)", "原因", "処置内容(備考)", "エラー番号", "作業時間(分)", "作業区分", "作業者", "交換部品"];
         const rows = history.map(h => {
             const m = store.getMachines(true).find(x => x.id === h.machineId);
             const mName = m ? m.name : '不明';
             const mModel = m ? m.model : '';
-            const typeLabel = h.isDokatei ? 'ドカ停' : (h.taskId ? '定期' : '突発');
+            const lineLabel = this.getLineLabel(h.lineNo || m?.lineNo || '');
+            const typeLabel = h.isDokatei ? 'ドカ停' : (h.taskId ? '定期' : (h.isNonProductionStop ? '非生産停止' : '突発'));
             const displayText = this.getHistoryDisplayText(h);
-            const workers = (h.workers || []).join(' / ');
-            const parts = (h.replacedParts || []).map(p => `${p.name} (${p.qty}${p.unit})`).join(' / ');
-            
+            const workers = (h.workers || []).join(', ');
+            const parts = (h.replacedParts || []).map(p => {
+                const count = p.count ?? p.qty ?? 0;
+                const unit = p.unit || '個';
+                const model = p.model ? ` [${p.model}]` : '';
+                return `${p.name || ''}${model} (${count}${unit})`;
+            }).join(' / ');
+
             return [
-                h.date, mName, mModel, typeLabel, displayText, h.errorNo || '', 
-                h.cause || '', (h.notes || '').replace(/\n/g, ' '), h.workTime, workers, parts
-            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+                h.date,
+                lineLabel,
+                mName,
+                mModel,
+                typeLabel,
+                displayText,
+                h.cause || '',
+                (h.notes || '').replace(/\r?\n/g, ' '),
+                h.errorNo || '',
+                h.workTime || 0,
+                this.getCategoryLabel(h.category),
+                workers,
+                parts
+            ].map(v => this.csvEscape(v)).join(',');
         });
 
-        const csvContent = [headers.join(','), ...rows].join('\n');
+        const csvContent = [headers.map(h => this.csvEscape(h)).join(','), ...rows].join('\n');
         this.downloadCSV(`maintenance_history_${new Date().toISOString().split('T')[0]}.csv`, csvContent);
     }
 
@@ -7440,7 +9088,7 @@ class MaintenanceApp {
         const machines = store.getMachines(true);
 
         const workerStats = {}; 
-        const archivedStats = { name: '旧作業者合計', totalTime: 0, pt: 0, st: 0, dt: 0, pc: 0, sc: 0, dc: 0 };
+        const archivedStats = { name: '旧作業者合計', totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0 };
         let totalTimeSum = 0;
 
         history.forEach(h => {
@@ -7452,10 +9100,11 @@ class MaintenanceApp {
                 if (!ww) return;
                 totalTimeSum += time;
                 const isArchived = store.isWorkerArchived(ww);
-                const s = isArchived ? archivedStats : (workerStats[ww] || (workerStats[ww] = { name: ww, totalTime: 0, pt: 0, st: 0, dt: 0, pc: 0, sc: 0, dc: 0 }));
+                const s = isArchived ? archivedStats : (workerStats[ww] || (workerStats[ww] = { name: ww, totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0 }));
                 s.totalTime += time;
                 if (isPeriodic) { s.pt += time; s.pc++; }
                 else if (h.isDokatei) { s.dt += time; s.dc++; }
+                else if (h.isNonProductionStop) { s.np += time; s.npc++; }
                 else { s.st += time; s.sc++; }
             });
         });
@@ -7463,10 +9112,10 @@ class MaintenanceApp {
         const stats = Object.values(workerStats).sort((a,b) => b.totalTime - a.totalTime);
         if (archivedStats.totalTime > 0) stats.push(archivedStats);
 
-        const headers = ["作業者", "合計時間(分)", "全体割合(%)", "定期メンテ時間", "定期件数", "突発対応時間", "突発件数", "ドカ停時間", "ドカ停件数"];
+        const headers = ["作業者", "合計時間(分)", "全体割合(%)", "定期メンテ時間", "定期件数", "突発対応時間", "突発件数", "非生産停止時間", "非生産停止件数", "ドカ停時間", "ドカ停件数"];
         const rows = stats.map(s => {
             const pct = totalTimeSum > 0 ? ((s.totalTime / totalTimeSum) * 100).toFixed(1) : 0;
-            return [s.name, s.totalTime, pct, s.pt, s.pc, s.st, s.sc, s.dt, s.dc].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+            return [s.name, s.totalTime, pct, s.pt, s.pc, s.st, s.sc, s.np || 0, s.npc || 0, s.dt, s.dc].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
         });
 
         const csvContent = [headers.join(','), ...rows].join('\n');

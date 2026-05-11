@@ -305,6 +305,25 @@
                         <input type="text" id="global-search" placeholder="機械・履歴を検索...">
                         <i class="fa-solid fa-circle-xmark" id="search-clear" style="cursor:pointer; color:var(--text-light); opacity:0.6; transition:var(--transition);" title="クリア"></i>
                     </div>
+                    <div class="notebook-search-bar">
+                        <i class="fa-solid fa-book-open"></i>
+                        <input type="text" id="notebook-search" placeholder="連絡帳を検索...">
+                        <select id="notebook-search-period" title="検索期間">
+                            <option value="all">全期間</option>
+                            <option value="today">今日</option>
+                            <option value="yesterday">昨日</option>
+                            <option value="yesterday_today">昨日と今日</option>
+                            <option value="this_month">今月</option>
+                            <option value="last_month">先月</option>
+                            <option value="this_year">今年</option>
+                            <option value="last_year">去年</option>
+                        </select>
+                        <button type="button" id="notebook-search-btn" title="連絡帳を検索"><i class="fa-solid fa-magnifying-glass"></i></button>
+                    </div>
+                    <button id="calendar-compact-toggle" class="compact-mode-btn" title="カレンダーのセル表示をコンパクトに切り替え">
+                        <i class="fa-solid fa-table-cells-large"></i>
+                        <span>コンパクト</span>
+                    </button>
                 </div>
                 <div class="header-right"></div>
             </header>
@@ -387,6 +406,7 @@
                             <option value="">全タイプ</option>
                             <option value="periodic">定期のみ</option>
                             <option value="sudden">突発のみ</option>
+                            <option value="nonProductionStop">非生産停止のみ</option>
                             <option value="dokatei">ドカ停のみ</option>
                         </select>
                         <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem; margin-left: auto;" onclick="app.openHistoryImportModal()">
