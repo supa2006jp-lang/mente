@@ -582,7 +582,11 @@ class MaintenanceStore {
         // Guides are stored within history objects
         const hIndex = this.activeData.history.findIndex(h => h.id === id);
         if (hIndex !== -1) {
-            delete this.activeData.history[hIndex].guide;
+            if (this.activeData.history[hIndex].isManualGuide) {
+                this.activeData.history.splice(hIndex, 1);
+            } else {
+                delete this.activeData.history[hIndex].guide;
+            }
         }
         this.save();
     }
