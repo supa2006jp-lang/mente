@@ -1314,10 +1314,13 @@ class MaintenanceApp {
 
     openShiftNoteFullscreen(btn) {
         const row = btn.closest('.shift-notebook-row');
-        const rows = Array.from(document.querySelectorAll('.shift-notebook-row'));
+        const rows = Array.from(document.querySelectorAll('#shift-notebook-rows .shift-notebook-row'))
+            .filter(row => !this.isShiftNotebookRowHiddenForHandover(row));
         const index = rows.indexOf(row);
+        if (!row || index === -1) return;
         const hasPrev = index > 0;
         const hasNext = index < rows.length - 1;
+        const hiddenCount = this.getShiftNotebookHiddenRowCount();
         
         const editor = row.querySelector('.shift-note-text');
         
@@ -1371,6 +1374,16 @@ class MaintenanceApp {
                         ${this.escapeHtml(groupName)}
                     </div>
                 </div>
+                ${this._shiftNotebookHideChecked && hiddenCount > 0 ? `
+                    <div class="shift-fullscreen-hidden-status">
+                        <i class="fa-solid fa-eye-slash"></i> 非表示中 ${hiddenCount}件
+                    </div>
+                ` : ''}
+                <div class="shift-fullscreen-font-controls" title="このフルスクリーン表示だけ文字サイズを調整します。閉じると自動サイズに戻ります。">
+                    <button type="button" class="shift-fullscreen-font-btn" data-font-delta="-1" title="文字を小さくする">−</button>
+                    <span class="shift-fullscreen-font-value">自動</span>
+                    <button type="button" class="shift-fullscreen-font-btn" data-font-delta="1" title="文字を大きくする">＋</button>
+                </div>
                 <button type="button" class="shift-fullscreen-close"><i class="fa-solid fa-xmark"></i></button>
                 <div class="shift-fullscreen-text-wrapper">
                     <div class="shift-fullscreen-content">
@@ -1394,6 +1407,7 @@ class MaintenanceApp {
 
         const textContainer = overlay.querySelector('.shift-fullscreen-text');
         const contentArea = overlay.querySelector('.shift-fullscreen-content');
+        let fullscreenFontDelta = 0;
         
         const adjustFontSize = () => {
             if (!document.body.contains(overlay)) return;
@@ -1410,7 +1424,10 @@ class MaintenanceApp {
                 }
             }
             let targetSize = Math.floor(max / 2);
-            textContainer.style.fontSize = Math.max(28, targetSize) + 'px';
+            const adjustedSize = Math.max(18, Math.min(640, Math.max(28, targetSize) + fullscreenFontDelta));
+            textContainer.style.fontSize = adjustedSize + 'px';
+            const fontValue = overlay.querySelector('.shift-fullscreen-font-value');
+            if (fontValue) fontValue.textContent = fullscreenFontDelta === 0 ? '自動' : `${fullscreenFontDelta > 0 ? '+' : ''}${fullscreenFontDelta}px`;
         };
         
         adjustFontSize();
@@ -1436,6 +1453,13 @@ class MaintenanceApp {
         const nextBtn = overlay.querySelector('.shift-fullscreen-nav.next');
         if (prevBtn) prevBtn.onclick = () => navigate(-1);
         if (nextBtn) nextBtn.onclick = () => navigate(1);
+        overlay.querySelectorAll('.shift-fullscreen-font-btn').forEach(button => {
+            button.onclick = () => {
+                const direction = Number(button.dataset.fontDelta) || 0;
+                fullscreenFontDelta = Math.max(-120, Math.min(240, fullscreenFontDelta + direction * 8));
+                adjustFontSize();
+            };
+        });
         
         overlay._keydownHandler = (e) => {
             if (e.key === 'Escape') closeOverlay();
@@ -1446,6 +1470,10 @@ class MaintenanceApp {
         
         const closeBtn = overlay.querySelector('.shift-fullscreen-close');
         closeBtn.onclick = closeOverlay;
+    }
+
+    isShiftNotebookRowHiddenForHandover(row) {
+        return !!this._shiftNotebookHideChecked && !!row?.querySelector('.shift-row-hide-checkbox')?.checked;
     }
 
     matchesCalendarLineFilter(item) {
@@ -1829,6 +1857,7 @@ class MaintenanceApp {
         const members = Array.isArray(notebookData?.members) ? notebookData.members : [];
         const [year, month, day] = dateStr.split('-');
         this._editingShiftNotebook = { dateStr, shift };
+        this._shiftNotebookHideChecked = false;
 
         this.openModal('shift-notebook', `${month}/${day} ${label.name}の連絡帳`, () => {
             const modalContainer = document.getElementById('modal-container');
@@ -1875,6 +1904,9 @@ class MaintenanceApp {
                         <button type="button" class="secondary-btn shift-row-group-order-btn" onclick="app.openShiftRowGroupOrderModal()">
                             <i class="fa-solid fa-arrow-up-wide-short"></i> 順序
                         </button>
+                        <button type="button" id="shift-hide-checked-btn" class="secondary-btn shift-hide-checked-btn" onclick="app.toggleShiftNotebookHiddenRows()" title="チェックを入れた行を一時的に非表示にします。行は削除されず、全表示で戻せます。">
+                            ☑ 非表示
+                        </button>
                     </div>
                     <button type="button" class="secondary-btn" onclick="app.addShiftNotebookRowWithLastGroup('shift-notebook-rows')">
                         <i class="fa-solid fa-plus"></i> 行を追加
@@ -1902,11 +1934,12 @@ class MaintenanceApp {
             } else {
                 const sortableRows = rows.map((row, index) => ({ ...row, _sourceIndex: index }));
                 this.sortShiftNotebookRows(sortableRows).forEach(row => {
-                    const rowEl = this.addShiftNotebookRow(rowContainerId, row.text || '', row.photos || [], row.tag || '通常', row.group || '未設定', row.html || '');
+                    const rowEl = this.addShiftNotebookRow(rowContainerId, row.text || '', row.photos || [], row.tag || '通常', row.group || '未設定', row.html || '', !!row.hidden);
                     if (rowEl) rowEl.dataset.shiftSourceIndex = String(row._sourceIndex);
                 });
             }
             this.updateShiftNotebookGroupCorners();
+            this.updateShiftNotebookHiddenRows();
 
             const saveBtn = document.getElementById('modal-save-btn');
             if (saveBtn) saveBtn.style.display = 'none';
@@ -2055,7 +2088,8 @@ class MaintenanceApp {
             tag: row.querySelector('.shift-note-tag-select')?.value || '通常',
             text,
             html,
-            photos
+            photos,
+            hidden: !!row.querySelector('.shift-row-hide-checkbox')?.checked
         };
     }
 
@@ -2636,7 +2670,7 @@ class MaintenanceApp {
         this.addShiftNotebookRow('shift-notebook-rows', template.text || '', template.photos || [], template.tag || '通常', template.group || this.lastShiftNotebookRowGroup || '未設定', template.html || '');
         const row = document.querySelector('#shift-notebook-rows .shift-notebook-row:last-child');
         row?.querySelector('.shift-note-text')?.focus();
-        this.updateShiftNotebookGroupCorners();
+        this.sortShiftNotebookRowsInDom();
         this.autoSaveShiftNotebook(true);
     }
 
@@ -2798,7 +2832,7 @@ class MaintenanceApp {
             addedCount++;
         });
         panel.classList.add('hidden');
-        this.updateShiftNotebookGroupCorners();
+        this.sortShiftNotebookRowsInDom();
         this.autoSaveShiftNotebook(true);
         const message = skippedCount > 0 ? `${addedCount}行コピー、${skippedCount}行は重複のためスキップ` : `${addedCount}行コピーしました`;
         this.setShiftNotebookStatus(message, addedCount > 0 ? 'saved' : 'error');
@@ -2814,7 +2848,7 @@ class MaintenanceApp {
         return `${text}__${photos}`;
     }
 
-    addShiftNotebookRow(containerId, text = '', photos = [], tag = '通常', group = '未設定', html = '') {
+    addShiftNotebookRow(containerId, text = '', photos = [], tag = '通常', group = '未設定', html = '', hidden = false) {
         const container = document.getElementById(containerId);
         if (!container) return;
         if (group) this.lastShiftNotebookRowGroup = group;
@@ -2824,6 +2858,7 @@ class MaintenanceApp {
         row.dataset.shiftRowId = rowId;
         row.setAttribute('style', this.getShiftNotebookRowGroupStyle(group));
         row.innerHTML = `
+            <div class="shift-row-group-heading"></div>
             <div class="shift-notebook-line">
                 <button type="button" class="icon-btn shift-row-drag-handle" title="ドラッグして行を並び替え" draggable="true"><i class="fa-solid fa-grip-vertical"></i></button>
                 <select class="shift-row-group-select" onchange="app.onShiftNotebookRowGroupChange(this)">
@@ -2889,6 +2924,10 @@ class MaintenanceApp {
                 <button type="button" class="icon-btn shift-row-template-save" title="この行をテンプレートとして保存" onclick="app.saveShiftNotebookRowTemplate(this)"><i class="fa-solid fa-bookmark"></i></button>
                 <button type="button" class="icon-btn shift-row-add-below" title="この下に同じグループの行を追加" onclick="app.addShiftNotebookRowBelow(this)"><i class="fa-solid fa-plus"></i></button>
                 <button type="button" class="icon-btn shift-row-delete" title="この行を削除"><i class="fa-solid fa-trash-can"></i></button>
+                <label class="shift-row-hide-toggle" title="引継ぎ時にあえて伝えなくてよい行へチェックします。上部の非表示ボタンで、チェックした行だけ一時的に隠せます。">
+                    <input type="checkbox" class="shift-row-hide-checkbox" ${hidden ? 'checked' : ''}>
+                    <span>非表示</span>
+                </label>
             </div>
             <div class="shift-photo-area">
                 <label class="shift-photo-btn" for="${rowId}-photo">
@@ -2908,24 +2947,39 @@ class MaintenanceApp {
             e.dataTransfer.effectAllowed = 'move';
             row.classList.add('dragging');
         });
-        dragHandle?.addEventListener('dragend', () => row.classList.remove('dragging'));
+        dragHandle?.addEventListener('dragend', () => {
+            row.classList.remove('dragging');
+            this.clearShiftNotebookDragIndicators();
+        });
         row.addEventListener('dragover', (e) => {
             const dragging = document.querySelector('.shift-notebook-row.dragging');
             if (!dragging || dragging === row) return;
+            if (!this.canDropShiftNotebookRowOnTarget(dragging, row)) {
+                this.clearShiftNotebookDragIndicators();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+                return;
+            }
             e.preventDefault();
-            row.classList.add('drag-over');
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+            const insertAfter = this.getShiftNotebookDragInsertAfter(dragging, row, e);
+            this.updateShiftNotebookDragIndicator(row, insertAfter);
         });
-        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+        row.addEventListener('dragleave', () => {
+            row.classList.remove('drag-over', 'drag-insert-before', 'drag-insert-after');
+        });
         row.addEventListener('drop', (e) => {
             e.preventDefault();
-            row.classList.remove('drag-over');
             const dragging = document.querySelector('.shift-notebook-row.dragging');
             const containerEl = document.getElementById('shift-notebook-rows');
+            this.clearShiftNotebookDragIndicators(containerEl);
             if (!dragging || !containerEl || dragging === row) return;
-            const rect = row.getBoundingClientRect();
-            const insertAfter = e.clientY > rect.top + rect.height / 2;
+            if (!this.canDropShiftNotebookRowOnTarget(dragging, row)) {
+                this.sortShiftNotebookRowsInDom();
+                return;
+            }
+            const insertAfter = this.getShiftNotebookDragInsertAfter(dragging, row, e);
             containerEl.insertBefore(dragging, insertAfter ? row.nextSibling : row);
-            this.updateShiftNotebookGroupCorners();
+            this.sortShiftNotebookRowsInDom();
             this.autoSaveShiftNotebook(true);
         });
         const resizeEditor = () => {
@@ -3078,7 +3132,45 @@ class MaintenanceApp {
             this.autoSaveShiftNotebook(true);
             this.sortShiftNotebookRowsInDom();
         });
+        row.querySelector('.shift-row-hide-checkbox')?.addEventListener('change', () => {
+            this.updateShiftNotebookHiddenRows();
+            this.autoSaveShiftNotebook(true);
+        });
         return row;
+    }
+
+    getShiftNotebookRowGroup(row) {
+        return row?.querySelector('.shift-row-group-select')?.value || '未設定';
+    }
+
+    canDropShiftNotebookRowOnTarget(dragging, targetRow) {
+        return this.getShiftNotebookRowGroup(dragging) === this.getShiftNotebookRowGroup(targetRow);
+    }
+
+    updateShiftNotebookDragIndicator(targetRow, insertAfter) {
+        const container = targetRow?.parentElement;
+        this.clearShiftNotebookDragIndicators(container);
+        targetRow.classList.add('drag-over', insertAfter ? 'drag-insert-after' : 'drag-insert-before');
+    }
+
+    clearShiftNotebookDragIndicators(container = document.getElementById('shift-notebook-rows')) {
+        container?.querySelectorAll('.shift-notebook-row.drag-over, .shift-notebook-row.drag-insert-before, .shift-notebook-row.drag-insert-after')
+            .forEach(row => row.classList.remove('drag-over', 'drag-insert-before', 'drag-insert-after'));
+    }
+
+    getShiftNotebookDragInsertAfter(dragging, targetRow, event) {
+        const container = targetRow?.parentElement;
+        if (dragging?.parentElement === container && container) {
+            const rows = Array.from(container.children);
+            const fromIndex = rows.indexOf(dragging);
+            const toIndex = rows.indexOf(targetRow);
+            if (fromIndex !== -1 && toIndex !== -1) {
+                if (toIndex === fromIndex + 1) return true;
+                if (toIndex === fromIndex - 1) return false;
+            }
+        }
+        const rect = targetRow.getBoundingClientRect();
+        return event.clientY > rect.top + rect.height / 2;
     }
 
     addShiftNotebookRowWithLastGroup(containerId) {
@@ -3086,6 +3178,8 @@ class MaintenanceApp {
         const lastRow = container?.querySelector('.shift-notebook-row:last-child');
         const group = this.lastShiftNotebookRowGroup || lastRow?.querySelector('.shift-row-group-select')?.value || '未設定';
         this.addShiftNotebookRow(containerId, '', [], '通常', group);
+        this.sortShiftNotebookRowsInDom();
+        this.autoSaveShiftNotebook(true);
     }
 
     addShiftNotebookRowBelow(button) {
@@ -3102,6 +3196,7 @@ class MaintenanceApp {
             const input = newRow.querySelector('.shift-note-text');
             if (input) input.focus();
         }
+        this.sortShiftNotebookRowsInDom();
         this.autoSaveShiftNotebook(true);
     }
 
@@ -3112,12 +3207,13 @@ class MaintenanceApp {
             const html = this.sanitizeShiftNoteHtml(editor?.innerHTML || '');
             const text = this.stripShiftNoteHtml(html).trim();
             const tag = row.querySelector('.shift-note-tag-select')?.value || '通常';
+            const hidden = !!row.querySelector('.shift-row-hide-checkbox')?.checked;
             const photos = Array.from(row.querySelectorAll('.shift-photo-previews .shift-photo-item')).map(item => {
                 const src = item.querySelector('img')?.src || '';
                 const caption = item.querySelector('.shift-photo-caption')?.value.trim() || '';
                 return caption ? { src, caption } : src;
             }).filter(photo => typeof photo === 'string' ? !!photo : !!photo.src);
-            return { group, tag, text, html, photos, element: row };
+            return { group, tag, text, html, photos, hidden, element: row };
         }).filter(row => row.text || row.photos.length > 0 || row.element.querySelector('.shift-note-text') === document.activeElement);
     }
 
@@ -3135,14 +3231,58 @@ class MaintenanceApp {
         if (focused && document.contains(focused)) focused.focus();
     }
 
+    toggleShiftNotebookHiddenRows() {
+        this._shiftNotebookHideChecked = !this._shiftNotebookHideChecked;
+        this.updateShiftNotebookHiddenRows();
+        this.setShiftNotebookStatus(this._shiftNotebookHideChecked ? 'チェック行を非表示にしました' : '全行を表示しました', 'moved');
+    }
+
+    getShiftNotebookHiddenRowCount() {
+        return Array.from(document.querySelectorAll('#shift-notebook-rows .shift-row-hide-checkbox'))
+            .filter(input => input.checked).length;
+    }
+
+    updateShiftNotebookHiddenRows() {
+        const active = !!this._shiftNotebookHideChecked;
+        const hiddenCount = this.getShiftNotebookHiddenRowCount();
+        document.querySelectorAll('#shift-notebook-rows .shift-notebook-row').forEach(row => {
+            const checked = !!row.querySelector('.shift-row-hide-checkbox')?.checked;
+            row.classList.toggle('shift-row-hidden-by-filter', active && checked);
+        });
+        const button = document.getElementById('shift-hide-checked-btn');
+        if (button) {
+            button.classList.toggle('active', active);
+            button.innerHTML = active
+                ? `<i class="fa-solid fa-eye"></i> 全表示 <span class="shift-hidden-count">${hiddenCount}件</span>`
+                : `☑ 非表示${hiddenCount > 0 ? ` <span class="shift-hidden-count">${hiddenCount}件</span>` : ''}`;
+            button.title = active
+                ? '非表示にした行をもう一度表示します。チェック状態は残ります。'
+                : `チェックを入れた行を一時的に非表示にします。行は削除されず、全表示で戻せます。${hiddenCount > 0 ? `現在${hiddenCount}件が対象です。` : ''}`;
+        }
+        this.updateShiftNotebookGroupCorners();
+    }
+
     updateShiftNotebookGroupCorners() {
         const rows = Array.from(document.querySelectorAll('#shift-notebook-rows .shift-notebook-row'));
-        rows.forEach((row, index) => {
-            const group = row.querySelector('.shift-row-group-select')?.value || '未設定';
-            const prevGroup = rows[index - 1]?.querySelector('.shift-row-group-select')?.value || null;
-            const nextGroup = rows[index + 1]?.querySelector('.shift-row-group-select')?.value || null;
+        const visibleRows = rows.filter(row => !row.classList.contains('shift-row-hidden-by-filter'));
+        rows.forEach(row => {
+            row.classList.remove('same-group-prev', 'same-group-next', 'shift-group-start');
+            const heading = row.querySelector('.shift-row-group-heading');
+            if (heading) heading.hidden = true;
+        });
+        visibleRows.forEach((row, index) => {
+            const group = this.getShiftNotebookRowGroup(row);
+            const prevGroup = visibleRows[index - 1] ? this.getShiftNotebookRowGroup(visibleRows[index - 1]) : null;
+            const nextGroup = visibleRows[index + 1] ? this.getShiftNotebookRowGroup(visibleRows[index + 1]) : null;
+            const isGroupStart = prevGroup !== group;
             row.classList.toggle('same-group-prev', prevGroup === group);
             row.classList.toggle('same-group-next', nextGroup === group);
+            row.classList.toggle('shift-group-start', isGroupStart);
+            const heading = row.querySelector('.shift-row-group-heading');
+            if (heading) {
+                heading.textContent = group;
+                heading.hidden = !isGroupStart;
+            }
         });
     }
 

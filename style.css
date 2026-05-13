@@ -1325,8 +1325,17 @@ body {
     flex-shrink: 0;
 }
 
-.shift-notebook-badge.late { background: #7c3aed; }
-.shift-notebook-badge.night { background: #0f172a; }
+.shift-notebook-badge.early {
+    background: linear-gradient(135deg, #38bdf8, #2563eb);
+}
+
+.shift-notebook-badge.late {
+    background: linear-gradient(135deg, #fb923c, #f97316);
+}
+
+.shift-notebook-badge.night {
+    background: linear-gradient(135deg, #a78bfa, #7c3aed);
+}
 
 .shift-notebook-date {
     font-size: 0.9rem;
@@ -1526,6 +1535,34 @@ body {
     padding: 0 10px;
     border-color: #93c5fd;
     background: #eff6ff;
+}
+
+.shift-hide-checked-btn {
+    height: 38px;
+    padding: 0 10px;
+    border-color: #cbd5e1;
+    background: #ffffff;
+    color: #475569;
+}
+
+.shift-hide-checked-btn.active {
+    border-color: #fbbf24;
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.shift-hidden-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: rgba(245, 158, 11, 0.16);
+    color: #92400e;
+    font-size: 0.68rem;
+    font-weight: 950;
 }
 
 .shift-row-group-order-note {
@@ -1798,6 +1835,7 @@ body {
 }
 
 .shift-notebook-row {
+    position: relative;
     padding: 12px;
     background: var(--shift-row-bg, white);
     border: none;
@@ -1812,13 +1850,51 @@ body {
     border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
 
+.shift-row-group-heading {
+    grid-column: 1 / -1;
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 24px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--shift-row-border, #cbd5e1);
+    color: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 900;
+    line-height: 1.1;
+}
+
+.shift-row-group-heading[hidden] {
+    display: none;
+}
+
 .shift-notebook-row.dragging {
     opacity: 0.55;
 }
 
 .shift-notebook-row.drag-over {
-    outline: 2px dashed var(--primary);
-    outline-offset: -4px;
+    outline: none;
+}
+
+.shift-notebook-row.drag-insert-before::before,
+.shift-notebook-row.drag-insert-after::after {
+    content: "";
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    border-top: 3px dashed var(--primary);
+    pointer-events: none;
+    z-index: 3;
+}
+
+.shift-notebook-row.drag-insert-before::before {
+    top: -8px;
+}
+
+.shift-notebook-row.drag-insert-after::after {
+    bottom: -8px;
 }
 
 .shift-notebook-row.shift-row-highlight {
@@ -1841,6 +1917,10 @@ body {
 
 .shift-notebook-row:first-child {
     margin-top: 0;
+}
+
+.shift-notebook-row.shift-row-hidden-by-filter {
+    display: none;
 }
 
 .one-off-badge {
@@ -2330,6 +2410,35 @@ body {
     flex-shrink: 0;
 }
 
+.shift-row-hide-toggle {
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    border: 1px solid rgba(100, 116, 139, 0.28);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.86);
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 900;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.shift-row-hide-toggle input {
+    width: 15px;
+    height: 15px;
+    accent-color: #f59e0b;
+    cursor: pointer;
+}
+
+.shift-row-hide-toggle:has(input:checked) {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+}
+
 .shift-row-drag-handle {
     color: #64748b;
     flex-shrink: 0;
@@ -2583,6 +2692,66 @@ body {
 
 .shift-fullscreen-stamps:has(.night) .shift-fullscreen-group-stamp {
     background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+}
+
+.shift-fullscreen-hidden-status {
+    position: absolute;
+    top: 18px;
+    right: 74px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.78);
+    color: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 950;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+    z-index: 13;
+    pointer-events: none;
+}
+
+.shift-fullscreen-font-controls {
+    position: absolute;
+    top: 58px;
+    right: 74px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.78);
+    color: #ffffff;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+    z-index: 14;
+}
+
+.shift-fullscreen-font-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.36);
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+    font-size: 1.2rem;
+    font-weight: 950;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.shift-fullscreen-font-btn:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.shift-fullscreen-font-value {
+    min-width: 44px;
+    text-align: center;
+    font-size: 0.76rem;
+    font-weight: 950;
+    white-space: nowrap;
 }
 
 .shift-fullscreen-hints {
