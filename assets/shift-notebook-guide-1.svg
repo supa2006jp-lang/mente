@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-label="連絡帳の基本操作">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dbeafe"/>
+      <stop offset="1" stop-color="#dcfce7"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#0f172a" flood-opacity=".18"/>
+    </filter>
+  </defs>
+  <rect width="960" height="540" rx="36" fill="url(#bg)"/>
+  <text x="54" y="72" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="38" font-weight="900" fill="#0f172a">連絡帳の基本</text>
+  <text x="56" y="112" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="18" font-weight="700" fill="#475569">日付・シフトごとに、必要な行だけを残して引き継ぎます</text>
+
+  <g filter="url(#shadow)">
+    <rect x="58" y="150" width="844" height="94" rx="22" fill="#ffffff"/>
+    <rect x="86" y="176" width="74" height="42" rx="21" fill="#22c55e"/>
+    <text x="107" y="205" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="23" font-weight="900" fill="#fff">4号L</text>
+    <rect x="186" y="174" width="520" height="46" rx="12" fill="#f8fafc" stroke="#bfdbfe" stroke-width="3"/>
+    <text x="210" y="205" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="24" font-weight="900" fill="#0f172a">ここに申し送り内容を書く</text>
+    <g transform="translate(732 170)">
+      <rect width="50" height="50" rx="12" fill="#fef3c7" stroke="#fb923c" stroke-width="3"/>
+      <text x="15" y="33" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="22" font-weight="900" fill="#c2410c">遅</text>
+      <rect x="62" width="50" height="50" rx="12" fill="#eef2ff" stroke="#818cf8" stroke-width="3"/>
+      <text x="77" y="33" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="22" font-weight="900" fill="#3730a3">深</text>
+    </g>
+  </g>
+
+  <g transform="translate(70 292)">
+    <rect width="250" height="150" rx="24" fill="#fff" filter="url(#shadow)"/>
+    <circle cx="50" cy="54" r="28" fill="#2563eb"/>
+    <text x="38" y="64" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="28" font-weight="900" fill="#fff">1</text>
+    <text x="92" y="50" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="24" font-weight="900" fill="#0f172a">行を追加</text>
+    <text x="30" y="104" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="17" font-weight="700" fill="#475569">必要なグループの行を</text>
+    <text x="30" y="130" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="17" font-weight="700" fill="#475569">すぐ増やせます</text>
+  </g>
+  <g transform="translate(355 292)">
+    <rect width="250" height="150" rx="24" fill="#fff" filter="url(#shadow)"/>
+    <circle cx="50" cy="54" r="28" fill="#f97316"/>
+    <text x="38" y="64" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="28" font-weight="900" fill="#fff">2</text>
+    <text x="92" y="50" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="24" font-weight="900" fill="#0f172a">スタンプ</text>
+    <text x="30" y="104" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="17" font-weight="700" fill="#475569">人名・早遅深・重要を</text>
+    <text x="30" y="130" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="17" font-weight="700" fill="#475569">文章内に残せます</text>
+  </g>
+  <g transform="translate(640 292)">
+    <rect width="250" height="150" rx="24" fill="#fff" filter="url(#shadow)"/>
+    <circle cx="50" cy="54" r="28" fill="#10b981"/>
+    <text x="38" y="64" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="28" font-weight="900" fill="#fff">3</text>
+    <text x="92" y="50" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="24" font-weight="900" fill="#0f172a">保存は自動</text>
+    <text x="30" y="104" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="17" font-weight="700" fill="#475569">行追加や編集内容は</text>
+    <text x="30" y="130" font-family="'Yu Gothic', 'Meiryo', sans-serif" font-size="17" font-weight="700" fill="#475569">その場で保存されます</text>
+  </g>
+</svg>

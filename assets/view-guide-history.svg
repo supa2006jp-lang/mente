@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="405" viewBox="0 0 720 405">
+  <rect width="720" height="405" rx="28" fill="#eef2ff"/>
+  <text x="36" y="58" font-family="Yu Gothic,Meiryo,sans-serif" font-size="30" font-weight="900" fill="#0f172a">メンテナンス履歴</text>
+  <text x="38" y="94" font-family="Yu Gothic,Meiryo,sans-serif" font-size="16" font-weight="700" fill="#475569">完了記録・突発対応・ドカ停をあとから確認、編集できます</text>
+  <g transform="translate(48 130)" font-family="Yu Gothic,Meiryo,sans-serif">
+    <rect width="624" height="224" rx="20" fill="#fff" stroke="#6366f1" stroke-width="4"/>
+    <rect x="28" y="30" width="568" height="52" rx="14" fill="#f8fafc" stroke="#cbd5e1" stroke-width="3"/>
+    <rect x="28" y="94" width="568" height="52" rx="14" fill="#fff7ed" stroke="#fb923c" stroke-width="3"/>
+    <rect x="28" y="158" width="568" height="52" rx="14" fill="#fef2f2" stroke="#ef4444" stroke-width="3"/>
+
+    <circle cx="58" cy="56" r="16" fill="#2563eb"/>
+    <text x="84" y="63" font-size="18" font-weight="900" fill="#0f172a">定期メンテ完了</text>
+    <text x="264" y="63" font-size="15" font-weight="800" fill="#64748b">作業者 / 時間 / 使用部品 / 写真</text>
+    <rect x="528" y="42" width="42" height="28" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+    <text x="542" y="62" font-size="16" font-weight="900" fill="#1d4ed8">編</text>
+
+    <circle cx="58" cy="120" r="16" fill="#f97316"/>
+    <text x="84" y="127" font-size="18" font-weight="900" fill="#0f172a">突発対応</text>
+    <text x="264" y="127" font-size="15" font-weight="800" fill="#64748b">原因・処置・停止時間を記録</text>
+    <rect x="528" y="106" width="42" height="28" rx="8" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
+    <text x="541" y="126" font-size="16" font-weight="900" fill="#c2410c">写</text>
+
+    <circle cx="58" cy="184" r="16" fill="#ef4444"/>
+    <text x="84" y="191" font-size="18" font-weight="900" fill="#0f172a">ドカ停・非生産停止</text>
+    <text x="264" y="191" font-size="15" font-weight="800" fill="#64748b">重い停止を一覧で追跡</text>
+    <rect x="508" y="170" width="62" height="28" rx="8" fill="#fee2e2" stroke="#ef4444" stroke-width="2"/>
+    <text x="522" y="190" font-size="16" font-weight="900" fill="#dc2626">重要</text>
+  </g>
+</svg>

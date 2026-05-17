@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="405" viewBox="0 0 720 405">
+  <rect width="720" height="405" rx="28" fill="#f8fafc"/>
+  <text x="36" y="58" font-family="Yu Gothic,Meiryo,sans-serif" font-size="30" font-weight="900" fill="#0f172a">設定メニュー</text>
+  <text x="38" y="94" font-family="Yu Gothic,Meiryo,sans-serif" font-size="16" font-weight="700" fill="#475569">部署・連絡帳・ToDo・出力など、管理系の入口をまとめています</text>
+  <g transform="translate(50 130)" font-family="Yu Gothic,Meiryo,sans-serif">
+    <rect width="620" height="222" rx="20" fill="#fff" stroke="#334155" stroke-width="4"/>
+    <g transform="translate(30 30)">
+      <rect width="160" height="70" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="3"/>
+      <text x="24" y="42" font-size="20" font-weight="900" fill="#1d4ed8">部署設定</text>
+    </g>
+    <g transform="translate(230 30)">
+      <rect width="160" height="70" rx="16" fill="#ecfdf5" stroke="#10b981" stroke-width="3"/>
+      <text x="24" y="42" font-size="20" font-weight="900" fill="#047857">人名管理</text>
+    </g>
+    <g transform="translate(430 30)">
+      <rect width="160" height="70" rx="16" fill="#fff7ed" stroke="#fb923c" stroke-width="3"/>
+      <text x="20" y="42" font-size="20" font-weight="900" fill="#c2410c">テンプレート</text>
+    </g>
+    <g transform="translate(30 122)">
+      <rect width="160" height="70" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="3"/>
+      <text x="24" y="42" font-size="20" font-weight="900" fill="#6d28d9">ToDo依頼</text>
+    </g>
+    <g transform="translate(230 122)">
+      <rect width="160" height="70" rx="16" fill="#fef2f2" stroke="#ef4444" stroke-width="3"/>
+      <text x="26" y="42" font-size="20" font-weight="900" fill="#dc2626">操作ログ</text>
+    </g>
+    <g transform="translate(430 122)">
+      <rect width="160" height="70" rx="16" fill="#ecfeff" stroke="#06b6d4" stroke-width="3"/>
+      <text x="28" y="42" font-size="20" font-weight="900" fill="#0891b2">データ出力</text>
+    </g>
+  </g>
+</svg>
