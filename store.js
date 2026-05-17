@@ -146,8 +146,13 @@ class MaintenanceStore {
             if (!d.machineCategories) d.machineCategories = [];
             if (!d.archivedMachineCategories) d.archivedMachineCategories = [];
             if (!d.memos) d.memos = {};
+            if (!d.localTodos) d.localTodos = [];
+            if (!d.localTodoWorkers) d.localTodoWorkers = [{ id: 'default', name: '共通・未設定' }];
+            if (!d.localTodoLogs) d.localTodoLogs = [];
             if (!d.shiftNotebooks) d.shiftNotebooks = {};
             if (!d.shiftNotebookGroupPresets) d.shiftNotebookGroupPresets = [];
+            if (!d.shiftNotebookMemberTypes) d.shiftNotebookMemberTypes = {};
+            if (!d.shiftNotebookMemberOrder) d.shiftNotebookMemberOrder = [];
             if (!d.shiftNotebookTags) d.shiftNotebookTags = ['通常', '注意', '至急'];
             if (!d.shiftNotebookRowGroups) d.shiftNotebookRowGroups = ['4号L', '5号L'];
             if (!d.archivedSuggestions) d.archivedSuggestions = { errorNo: [], content: [], cause: [], notes: [], workers: [], partName: [], partModel: [], partSerial: [] };

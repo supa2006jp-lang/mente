@@ -218,6 +218,9 @@
                 <button class="nav-btn active" data-view="calendar">
                     <i class="fa-regular fa-calendar-days"></i> <span>カレンダー</span>
                 </button>
+                <button class="nav-btn" data-view="todos">
+                    <i class="fa-solid fa-list-check"></i> <span>ToDoリスト</span><span id="todo-request-count-badge" class="nav-count-badge" onclick="event.stopPropagation(); app.openPendingTodoRequestPanel()" hidden>0</span>
+                </button>
                 <button class="nav-btn" data-view="machines">
                     <i class="fa-solid fa-cogs"></i> <span>メンテ・周期設定</span>
                 </button>
@@ -300,6 +303,10 @@
                 <div class="header-left">
                     <button id="sidebar-toggle" class="icon-btn"><i class="fa-solid fa-bars"></i></button>
                     <h2 id="view-title">カレンダー</h2>
+                    <div id="view-guide-slot" class="view-guide-slot"></div>
+                    <button type="button" id="app-settings-btn" class="header-settings-btn" onclick="app.openAppSettingsPanel()" title="設定">
+                        <i class="fa-solid fa-gear"></i>
+                    </button>
                     <div class="search-bar">
                         <i class="fa-solid fa-magnifying-glass"></i>
                         <input type="text" id="global-search" placeholder="機械・履歴を検索...">
@@ -307,7 +314,7 @@
                     </div>
                     <div class="notebook-search-bar">
                         <i class="fa-solid fa-book-open"></i>
-                        <input type="text" id="notebook-search" placeholder="連絡帳を検索...">
+                        <input type="text" id="notebook-search" placeholder="横断検索...">
                         <select id="notebook-search-period" title="検索期間">
                             <option value="all">全期間</option>
                             <option value="today">今日</option>
@@ -318,7 +325,7 @@
                             <option value="this_year">今年</option>
                             <option value="last_year">去年</option>
                         </select>
-                        <button type="button" id="notebook-search-btn" title="連絡帳を検索"><i class="fa-solid fa-magnifying-glass"></i></button>
+                        <button type="button" id="notebook-search-btn" title="連絡帳・メモ・履歴・定期メンテを検索"><i class="fa-solid fa-magnifying-glass"></i></button>
                     </div>
                     <button id="calendar-compact-toggle" class="compact-mode-btn" title="カレンダーのセル表示をコンパクトに切り替え">
                         <i class="fa-solid fa-table-cells-large"></i>
@@ -355,6 +362,64 @@
                             <div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div>
                         </div>
                         <div id="calendar-days" class="calendar-days"></div>
+                    </div>
+                </section>
+
+                <section id="view-todos" class="view">
+                    <div class="kt-board-shell" spellcheck="false">
+                        <h1 class="kt-main-title">TO DOリスト</h1>
+                        <div class="kt-system-card">
+                            <div class="kt-worker-box">
+                                <div class="kt-label-row">
+                                    <label>現在の作業者</label>
+                                    <span class="kt-offline"><span></span>LOCAL</span>
+                                </div>
+                                <div class="kt-worker-controls">
+                                    <select id="kt-worker-select" onchange="app.changeKanbanTodoWorker(this.value)"></select>
+                                    <button type="button" onclick="app.openKanbanWorkerPanel()" title="作業員管理">⚙</button>
+                                </div>
+                            </div>
+                            <div class="kt-log-box">
+                                <h3>システムログ（直近6件）</h3>
+                                <ul id="kt-log-list"></ul>
+                            </div>
+                            <div class="kt-header-actions">
+                                <button type="button" onclick="app.openKanbanLogPanel()">ログ履歴</button>
+                                <button type="button" onclick="app.toggleKanbanTodoHistory(true)">過去履歴</button>
+                                <button type="button" onclick="app.openKanbanRequestDashboard()">依頼ダッシュボード</button>
+                                <button type="button" id="kt-overdue-only-btn" onclick="app.toggleKanbanOverdueOnly()">期限切れのみ</button>
+                                <button type="button" id="kt-fit-btn" class="kt-fit-btn" onclick="app.toggleKanbanTodoFit()">
+                                    <i class="fa-solid fa-compress"></i> Fit
+                                </button>
+                            </div>
+                        </div>
+                        <div id="kt-filter-banner" class="kt-filter-banner" hidden></div>
+                        <main class="kt-kanban">
+                            <section class="kt-column kt-col-todo">
+                                <div class="kt-column-header">
+                                    <div><h2>TO DO</h2><span id="kt-count-todo">0</span></div>
+                                    <div class="kt-column-actions">
+                                        <button type="button" onclick="app.openKanbanTodoModal('todo')">タスク追加</button>
+                                        <button type="button" class="kt-recurring-btn" onclick="app.openKanbanTodoModal('todo', '', true)">定期追加</button>
+                                        <button type="button" class="kt-request-btn" onclick="app.openKanbanTodoModal('todo', '', false, true)">依頼</button>
+                                    </div>
+                                </div>
+                                <div class="kt-task-list" id="kt-list-todo" ondragover="event.preventDefault()" ondrop="app.dropKanbanTodo(event, 'todo')"></div>
+                            </section>
+                            <section class="kt-column kt-col-progress">
+                                <div class="kt-column-header">
+                                    <div><h2>TO DO 処理中</h2><span id="kt-count-progress">0</span></div>
+                                </div>
+                                <div class="kt-task-list" id="kt-list-progress" ondragover="event.preventDefault()" ondrop="app.dropKanbanTodo(event, 'progress')"></div>
+                            </section>
+                            <section class="kt-column kt-col-done">
+                                <div class="kt-column-header">
+                                    <div><h2>TO DO 処理済</h2><span id="kt-count-done">0</span></div>
+                                    <button type="button" onclick="app.toggleKanbanTodoHistory(true)">過去の履歴</button>
+                                </div>
+                                <div class="kt-task-list" id="kt-list-done" ondragover="event.preventDefault()" ondrop="app.dropKanbanTodo(event, 'done')"></div>
+                            </section>
+                        </main>
                     </div>
                 </section>
 
