@@ -32,6 +32,7 @@ class MaintenanceApp {
         this.kanbanOverdueOnly = localStorage.getItem('kanban_overdue_only') === 'true';
         this._shiftNotebookImportantOnly = localStorage.getItem('shift_notebook_important_only') === 'true';
         this._shiftNotebookHideChecked = localStorage.getItem('shift_notebook_hide_checked') === 'true';
+        this._shiftNotebookCompactRows = localStorage.getItem('shift_notebook_compact_rows') === 'true';
         this._shiftNotebookRowMenuHiddenParts = this.loadShiftNotebookRowMenuHiddenParts();
         // アクティブ装飾モード: 先に選んだ装飾を、次の行でも継続して使う
         this._activeShiftNoteFormats = this.loadShiftNoteFormats();
@@ -186,10 +187,15 @@ class MaintenanceApp {
             if (e.target.closest('.shift-responder-menu') || e.target.closest('.shift-row-responder')) return;
             document.querySelectorAll('.shift-responder-menu.open').forEach(el => el.classList.remove('open'));
         });
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('#shift-row-menu-settings-panel') || e.target.closest('#shift-row-menu-toggle-btn')) return;
+            this.closeShiftNotebookRowMenuSettings();
+        });
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 this.closeShiftNoteFormatMenus({ commit: false });
                 document.querySelectorAll('.shift-responder-menu.open').forEach(el => el.classList.remove('open'));
+                this.closeShiftNotebookRowMenuSettings();
             }
         });
     }
@@ -1350,13 +1356,21 @@ class MaintenanceApp {
             rejectedBy: []
         };
         const receivedRequest = current.isRequest && current.requestedBy && current.requestedBy !== this.kanbanTodoWorkerId;
+        const fontScale = this.getKanbanTodoModalFontScale();
         this.closeKanbanTodoModal();
         document.body.insertAdjacentHTML('beforeend', `
             <div id="kt-todo-modal-overlay" class="kt-modal-overlay active" onclick="if(event.target === this) app.closeKanbanTodoModal()">
-                <div class="kt-modal">
+                <div class="kt-modal kt-todo-modal kt-font-${fontScale}">
                     <div class="kt-modal-header">
                         <h2>${todo ? 'タスク編集' : (isRequest ? '依頼を追加' : 'タスク追加')}</h2>
-                        <button type="button" onclick="app.closeKanbanTodoModal()"><i class="fa-solid fa-xmark"></i></button>
+                        <div class="kt-modal-header-actions">
+                            <div class="kt-font-size-controls" aria-label="文字サイズ">
+                                <button type="button" class="${fontScale === 'small' ? 'active' : ''}" onclick="app.setKanbanTodoModalFontScale('small')" title="文字を小さく">A-</button>
+                                <button type="button" class="${fontScale === 'normal' ? 'active' : ''}" onclick="app.setKanbanTodoModalFontScale('normal')" title="標準サイズ">A</button>
+                                <button type="button" class="${fontScale === 'large' ? 'active' : ''}" onclick="app.setKanbanTodoModalFontScale('large')" title="文字を大きく">A+</button>
+                            </div>
+                            <button type="button" class="kt-modal-close-btn" onclick="app.closeKanbanTodoModal()"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
                     </div>
                     <input type="hidden" id="kt-task-id" value="${this.escapeHtml(current.id)}">
                     <input type="hidden" id="kt-task-status" value="${this.escapeHtml(current.status || status)}">
@@ -1412,6 +1426,24 @@ class MaintenanceApp {
             </div>
         `);
         document.getElementById('kt-task-title')?.focus();
+    }
+
+    getKanbanTodoModalFontScale() {
+        const saved = localStorage.getItem('kanbanTodoModalFontScale') || 'normal';
+        return ['small', 'normal', 'large'].includes(saved) ? saved : 'normal';
+    }
+
+    setKanbanTodoModalFontScale(scale) {
+        if (!['small', 'normal', 'large'].includes(scale)) scale = 'normal';
+        localStorage.setItem('kanbanTodoModalFontScale', scale);
+
+        const modal = document.querySelector('.kt-todo-modal');
+        if (!modal) return;
+        modal.classList.remove('kt-font-small', 'kt-font-normal', 'kt-font-large');
+        modal.classList.add(`kt-font-${scale}`);
+        modal.querySelectorAll('.kt-font-size-controls button').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('onclick')?.includes(`'${scale}'`));
+        });
     }
 
     renderKanbanWorkerCheckboxes(selected = []) {
@@ -2738,6 +2770,70 @@ class MaintenanceApp {
         return true;
     }
 
+    insertShiftNoteClipboardContent(editor, event) {
+        if (!editor || !event?.clipboardData) return false;
+        const html = event.clipboardData.getData('text/html');
+        const text = event.clipboardData.getData('text/plain');
+        if (!html && !text) return false;
+
+        event.preventDefault();
+        editor.focus();
+
+        const holder = document.createElement('div');
+        holder.innerHTML = html ? this.sanitizeShiftNoteHtml(html) : this.shiftNoteTextToHtml(text);
+
+        const formats = this._activeShiftNoteFormats || {};
+        const hasFormat = !!(formats.color || formats.size || formats.font);
+        if (hasFormat) {
+            holder.querySelectorAll('[style]').forEach(el => {
+                el.style.fontSize = '';
+                el.style.color = '';
+                el.style.fontFamily = '';
+                if (!el.getAttribute('style')) el.removeAttribute('style');
+            });
+        }
+
+        const fragment = document.createDocumentFragment();
+        if (hasFormat) {
+            const wrapper = document.createElement('span');
+            if (formats.color) wrapper.style.color = formats.color;
+            if (formats.size) wrapper.style.fontSize = formats.size;
+            if (formats.font) wrapper.style.fontFamily = formats.font;
+            while (holder.firstChild) wrapper.appendChild(holder.firstChild);
+            fragment.appendChild(wrapper);
+        } else {
+            while (holder.firstChild) fragment.appendChild(holder.firstChild);
+        }
+
+        const marker = document.createTextNode('');
+        fragment.appendChild(marker);
+
+        const selection = window.getSelection();
+        let range = editor._savedRange?.cloneRange();
+        if (!range || !editor.contains(range.commonAncestorContainer)) {
+            range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+        }
+        if (!range || !editor.contains(range.commonAncestorContainer)) {
+            range = document.createRange();
+            range.selectNodeContents(editor);
+            range.collapse(false);
+        }
+
+        range.deleteContents();
+        range.insertNode(fragment);
+
+        const afterRange = document.createRange();
+        afterRange.setStartBefore(marker);
+        afterRange.collapse(true);
+        marker.remove();
+        selection?.removeAllRanges();
+        selection?.addRange(afterRange);
+        editor._savedRange = afterRange.cloneRange();
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        this.scheduleShiftNotebookAutoSave();
+        return true;
+    }
+
     // アクティブ装飾モードのインジケーター（ボタン表示）を更新する
     _updateShiftNoteFormatIndicator(row) {
         if (!row) return;
@@ -2760,7 +2856,7 @@ class MaintenanceApp {
             indicator.style.display = 'none';
         }
         const label = btn.querySelector('.shift-format-current');
-        if (label) label.textContent = `次入力: ${this.getShiftNoteFormatSummary()}`;
+        if (label) label.textContent = this.getShiftNoteFormatSummary();
     }
 
     ensureShiftNoteActiveFormat(editor) {
@@ -2827,6 +2923,103 @@ class MaintenanceApp {
                 editor._savedRange = range.cloneRange();
             }
         });
+    }
+
+    resizeShiftNoteEditor(editor) {
+        if (!editor) return;
+        editor.style.height = 'auto';
+        editor.style.height = editor.scrollHeight + 'px';
+        this.positionShiftImportantStamp(editor.closest('.shift-notebook-row'));
+    }
+
+    positionShiftImportantStamp(row) {
+        if (!row) return;
+        const stamp = row.querySelector('.shift-important-stamp');
+        const editor = row.querySelector('.shift-note-text');
+        if (!stamp || !editor) return;
+        if (!row.classList.contains('shift-row-important')) {
+            stamp.style.left = '';
+            stamp.style.top = '';
+            return;
+        }
+        const stampHeight = stamp.offsetHeight || 24;
+        stamp.style.left = `${editor.offsetLeft}px`;
+        stamp.style.top = `${editor.offsetTop - (stampHeight * 0.7)}px`;
+    }
+
+    removeShiftNoteBlankLines(button) {
+        const row = button?.closest('.shift-notebook-row');
+        const editor = row?.querySelector('.shift-note-text');
+        if (!editor) return;
+
+        const before = this.sanitizeShiftNoteHtml(editor.innerHTML);
+        const holder = document.createElement('div');
+        holder.innerHTML = before;
+
+        const cloneWithText = (ancestors, text) => {
+            let root = null;
+            let cursor = null;
+            ancestors.forEach(source => {
+                const clone = source.cloneNode(false);
+                if (!root) root = clone;
+                if (cursor) cursor.appendChild(clone);
+                cursor = clone;
+            });
+            const textNode = document.createTextNode(text);
+            if (cursor) cursor.appendChild(textNode);
+            return root || textNode;
+        };
+        const lines = [document.createDocumentFragment()];
+        const currentLine = () => lines[lines.length - 1];
+        const pushLine = () => lines.push(document.createDocumentFragment());
+        const appendCleanNode = (node, ancestors = []) => {
+            if (node.nodeName === 'BR') {
+                pushLine();
+                return;
+            }
+            if (node.nodeType === Node.TEXT_NODE) {
+                String(node.textContent || '').split(/\r?\n/).forEach((part, index) => {
+                    if (index > 0) pushLine();
+                    if (part) currentLine().appendChild(cloneWithText(ancestors, part));
+                });
+                return;
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+            if (!node.childNodes.length) {
+                currentLine().appendChild(node.cloneNode(true));
+                return;
+            }
+            Array.from(node.childNodes).forEach(child => appendCleanNode(child, ancestors.concat(node)));
+        };
+        Array.from(holder.childNodes).forEach(node => appendCleanNode(node));
+
+        const isBlankLine = (fragment) => {
+            const probe = document.createElement('div');
+            probe.appendChild(fragment.cloneNode(true));
+            return !(probe.textContent || '')
+                .replace(/\u200B/g, '')
+                .replace(/\u00A0/g, ' ')
+                .trim();
+        };
+        const keptLines = lines.filter(line => !isBlankLine(line));
+        const cleaned = document.createElement('div');
+        keptLines.forEach((line, index) => {
+            cleaned.appendChild(line);
+            if (index < keptLines.length - 1) cleaned.appendChild(document.createElement('br'));
+        });
+
+        const after = this.sanitizeShiftNoteHtml(cleaned.innerHTML);
+        if (after === before) {
+            this.setShiftNotebookStatus('削除する空白行はありません', 'moved');
+            return;
+        }
+        editor.innerHTML = after;
+        this.cleanupShiftNoteEmptySpans(editor);
+        this.resizeShiftNoteEditor(editor);
+        requestAnimationFrame(() => this.resizeShiftNoteEditor(editor));
+        this.autoSaveShiftNotebook(true);
+        this.setShiftNotebookStatus('空白行を削除しました', 'saved');
     }
 
     getShiftNoteFormatSummary(formats = null) {
@@ -2948,7 +3141,7 @@ class MaintenanceApp {
                         <i class="fa-solid fa-eye-slash"></i> 非表示中 ${hiddenCount}件
                     </div>
                 ` : ''}
-                <div class="shift-fullscreen-font-controls" title="このフルスクリーン表示だけ文字サイズを調整します。閉じると自動サイズに戻ります。">
+                <div class="shift-fullscreen-font-controls" title="フルスクリーン表示の文字サイズを調整します。行を移動しても調整値を維持し、入り切らない時は自動で収まるサイズに下げます。">
                     <button type="button" class="shift-fullscreen-font-btn" data-font-delta="-1" title="文字を小さくする">−</button>
                     <span class="shift-fullscreen-font-value">自動</span>
                     <button type="button" class="shift-fullscreen-font-btn" data-font-delta="1" title="文字を大きくする">＋</button>
@@ -2976,7 +3169,8 @@ class MaintenanceApp {
 
         const textContainer = overlay.querySelector('.shift-fullscreen-text');
         const contentArea = overlay.querySelector('.shift-fullscreen-content');
-        let fullscreenFontDelta = 0;
+        if (typeof this._shiftFullscreenManualFontSize !== 'number') this._shiftFullscreenManualFontSize = 0;
+        let fullscreenManualFontSize = this._shiftFullscreenManualFontSize;
         
         const adjustFontSize = () => {
             if (!document.body.contains(overlay)) return;
@@ -2992,11 +3186,15 @@ class MaintenanceApp {
                     max = mid - 1;
                 }
             }
-            let targetSize = Math.floor(max / 2);
-            const adjustedSize = Math.max(18, Math.min(640, Math.max(28, targetSize) + fullscreenFontDelta));
+            const fitSize = Math.max(12, Math.floor(max / 2));
+            const desiredSize = fullscreenManualFontSize || Math.max(28, fitSize);
+            const adjustedSize = Math.max(12, Math.min(desiredSize, fitSize));
             textContainer.style.fontSize = adjustedSize + 'px';
             const fontValue = overlay.querySelector('.shift-fullscreen-font-value');
-            if (fontValue) fontValue.textContent = fullscreenFontDelta === 0 ? '自動' : `${fullscreenFontDelta > 0 ? '+' : ''}${fullscreenFontDelta}px`;
+            if (fontValue) {
+                const label = fullscreenManualFontSize ? `${fullscreenManualFontSize}px` : '自動';
+                fontValue.textContent = adjustedSize < desiredSize ? `${label} / 自動縮小` : label;
+            }
         };
         
         adjustFontSize();
@@ -3025,7 +3223,9 @@ class MaintenanceApp {
         overlay.querySelectorAll('.shift-fullscreen-font-btn').forEach(button => {
             button.onclick = () => {
                 const direction = Number(button.dataset.fontDelta) || 0;
-                fullscreenFontDelta = Math.max(-120, Math.min(240, fullscreenFontDelta + direction * 8));
+                const currentSize = Number.parseFloat(textContainer.style.fontSize) || 28;
+                fullscreenManualFontSize = Math.max(12, Math.min(640, Math.round(currentSize + direction * 8)));
+                this._shiftFullscreenManualFontSize = fullscreenManualFontSize;
                 adjustFontSize();
             };
         });
@@ -3638,7 +3838,10 @@ class MaintenanceApp {
 
         this.openModal('shift-notebook', `${month}/${day} ${label.name}の連絡帳`, () => {
             const modalContainer = document.getElementById('modal-container');
-            if (modalContainer) modalContainer.classList.add('shift-notebook-modal');
+            if (modalContainer) {
+                modalContainer.classList.add('shift-notebook-modal');
+                modalContainer.classList.toggle('shift-compact-row-mode', !!this._shiftNotebookCompactRows);
+            }
             const modalHeader = modalContainer?.querySelector('.modal-header');
             const modalTitle = modalHeader?.querySelector('h3');
             if (modalHeader && modalTitle) {
@@ -3680,7 +3883,7 @@ class MaintenanceApp {
                             <label class="shift-group-label" style="margin-top: 8px;">グループ</label>
                             <div style="flex:1; display:flex; flex-direction:column; gap:6px;">
                                 <input type="text" id="shift-group-members" class="shift-group-input" value="${this.escapeHtml(members.join(', '))}" placeholder="メンバーをカンマ区切りで入力" oninput="app.updateShiftGroupChant()">
-                                <div id="shift-group-chant-display" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+                                <div id="shift-group-chant-display" class="shift-group-chant-display"></div>
                                 <div id="shift-absence-manage" class="shift-absence-manage hidden"></div>
                             </div>
                         </div>
@@ -3727,6 +3930,7 @@ class MaintenanceApp {
                                 行メニュー設定
                             </button>
                             <div id="shift-row-menu-settings-panel" class="shift-row-menu-settings-panel" hidden>
+                                <button type="button" class="shift-row-menu-settings-close" title="閉じる" onclick="app.closeShiftNotebookRowMenuSettings()">×</button>
                                 <label><input type="checkbox" data-part="group" onchange="app.setShiftNotebookRowMenuHiddenPart('group', this.checked)"> グループ</label>
                                 <label><input type="checkbox" data-part="format" onchange="app.setShiftNotebookRowMenuHiddenPart('format', this.checked)"> 装飾</label>
                                 <label><input type="checkbox" data-part="actions" onchange="app.setShiftNotebookRowMenuHiddenPart('actions', this.checked)"> 右側ボタン</label>
@@ -3736,9 +3940,6 @@ class MaintenanceApp {
                                 </div>
                             </div>
                         </div>
-                        <span id="shift-notebook-status" class="shift-notebook-status saved">
-                            <i class="fa-solid fa-check"></i> 保存済み
-                        </span>
                     </div>
                     <div class="shift-notebook-toolbar-row shift-notebook-toolbar-actions">
                         <div id="shift-row-group-stamps" class="shift-row-group-stamps" aria-label="行グループスタンプ">
@@ -3760,6 +3961,9 @@ class MaintenanceApp {
                         </button>
                         <button type="button" class="secondary-btn" onclick="app.togglePreviousShiftRowsPanel()">
                             <i class="fa-solid fa-copy"></i> 前シフトからコピー
+                        </button>
+                        <button type="button" id="shift-compact-rows-btn" class="secondary-btn shift-compact-rows-btn ${this._shiftNotebookCompactRows ? 'active' : ''}" onclick="app.toggleShiftNotebookCompactRows()" title="行の高さを詰めて表示します">
+                            <i class="fa-solid fa-compress"></i> ${this._shiftNotebookCompactRows ? '標準行' : '省スペース'}
                         </button>
                         <button type="button" id="shift-fit-all-btn" class="secondary-btn shift-fit-all-btn" onclick="app.toggleShiftNotebookFitAll()" title="現在の行を画面内に収まるよう自動調整します">
                             <i class="fa-solid fa-compress"></i> 全行表示
@@ -3784,6 +3988,9 @@ class MaintenanceApp {
             this.updateShiftNotebookGroupCorners();
             this.updateShiftNotebookHiddenRows();
             this.updateShiftNotebookRowMenuVisibility();
+            requestAnimationFrame(() => {
+                document.querySelectorAll('#shift-notebook-rows .shift-notebook-row').forEach(row => this.positionShiftImportantStamp(row));
+            });
             this.setupShiftRowGroupStampDropZone();
             this.setupShiftModalUnifiedSearch();
 
@@ -3814,6 +4021,9 @@ class MaintenanceApp {
             modal.classList.remove('shift-fit-all-mode');
             modal.style.removeProperty('--shift-fit-scale');
             button?.classList.remove('active');
+            requestAnimationFrame(() => {
+                document.querySelectorAll('#shift-notebook-rows .shift-notebook-row').forEach(row => this.positionShiftImportantStamp(row));
+            });
             if (button) button.innerHTML = '<i class="fa-solid fa-compress"></i> 全行表示';
             return;
         }
@@ -3822,6 +4032,24 @@ class MaintenanceApp {
         button?.classList.add('active');
         if (button) button.innerHTML = '<i class="fa-solid fa-up-right-and-down-left-from-center"></i> 元に戻す';
         this.adjustShiftNotebookRowsToFit();
+    }
+
+    toggleShiftNotebookCompactRows() {
+        this._shiftNotebookCompactRows = !this._shiftNotebookCompactRows;
+        localStorage.setItem('shift_notebook_compact_rows', String(this._shiftNotebookCompactRows));
+        const modal = document.querySelector('.modal-container.shift-notebook-modal');
+        const button = document.getElementById('shift-compact-rows-btn');
+        modal?.classList.toggle('shift-compact-row-mode', this._shiftNotebookCompactRows);
+        if (button) {
+            button.classList.toggle('active', this._shiftNotebookCompactRows);
+            button.innerHTML = `<i class="fa-solid fa-compress"></i> ${this._shiftNotebookCompactRows ? '標準行' : '省スペース'}`;
+        }
+        document.querySelectorAll('#shift-notebook-rows .shift-note-text').forEach(editor => this.resizeShiftNoteEditor(editor));
+        if (modal?.classList.contains('shift-fit-all-mode')) this.adjustShiftNotebookRowsToFit();
+        else requestAnimationFrame(() => {
+            document.querySelectorAll('#shift-notebook-rows .shift-notebook-row').forEach(row => this.positionShiftImportantStamp(row));
+        });
+        this.setShiftNotebookStatus(this._shiftNotebookCompactRows ? '省スペース表示にしました' : '標準表示に戻しました', 'moved');
     }
 
     adjustShiftNotebookRowsToFit() {
@@ -3846,6 +4074,7 @@ class MaintenanceApp {
             let count = 0;
             const step = () => {
                 done = fitOnce();
+                document.querySelectorAll('#shift-notebook-rows .shift-notebook-row').forEach(row => this.positionShiftImportantStamp(row));
                 count += 1;
                 if (!done && count < 6) requestAnimationFrame(step);
             };
@@ -4672,7 +4901,7 @@ class MaintenanceApp {
     }
 
     getShiftRowGroupStampButtonsHtml() {
-        const stamps = this.getShiftNotebookRowGroupsForUi().map(group => `
+        const stamps = this.getShiftNotebookOrderedRowGroups().map(group => `
             <button type="button" class="shift-row-group-stamp" draggable="true"
                 style="${this.getShiftNotebookRowGroupStyle(group)}"
                 title="${this.escapeHtml(group)}の空行をドラッグして挿入"
@@ -5280,9 +5509,12 @@ class MaintenanceApp {
                 <div class="shift-note-formatbar">
                     <div class="shift-format-menu">
                         <button type="button" class="shift-format-menu-btn" title="フォント・サイズ・色を選び、反映ボタンで装飾を適用します" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.toggleShiftNoteSizeMenu(this)">
-                            <span class="shift-format-indicator"></span><i class="fa-solid fa-palette"></i> <span class="shift-format-current">次入力: 標準</span> <i class="fa-solid fa-caret-down"></i>
+                            <span class="shift-format-indicator"></span><i class="fa-solid fa-palette"></i> <span class="shift-format-current">標準</span> <i class="fa-solid fa-caret-down"></i>
                         </button>
                         <div class="shift-format-panel">
+                            <button type="button" class="shift-format-close-btn" title="閉じる" onmousedown="event.preventDefault()" onclick="app.cancelShiftNoteFormatMenu(this)">
+                                ×
+                            </button>
                             <div class="shift-format-pending-summary">
                                 <div class="shift-format-summary-line">反映予定: 標準</div>
                                 <div class="shift-format-preview-text standard">連絡帳プレビュー</div>
@@ -5350,13 +5582,11 @@ class MaintenanceApp {
                     </div>
                     <div class="shift-row-action-strip">
                         <button type="button" class="icon-btn shift-row-fullscreen" title="フルスクリーン表示" onclick="app.openShiftNoteFullscreen(this)"><i class="fa-solid fa-expand"></i></button>
-                        <button type="button" class="icon-btn shift-row-template-save" title="この行をテンプレートとして保存" onclick="app.saveShiftNotebookRowTemplate(this)"><i class="fa-solid fa-bookmark"></i></button>
-                        <button type="button" class="icon-btn shift-row-style-template-save" title="この行のスタイルを空行テンプレートとして保存" onclick="app.saveShiftNotebookRowStyleTemplate(this)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-                        <button type="button" class="icon-btn shift-row-add-below" title="この下に同じグループの行を追加" onclick="app.addShiftNotebookRowBelow(this)"><i class="fa-solid fa-plus"></i></button>
+                        <button type="button" class="icon-btn shift-row-trim-blank-lines" title="空白行を削除" onclick="app.removeShiftNoteBlankLines(this)"><i class="fa-solid fa-align-justify"></i></button>
                         <button type="button" class="icon-btn shift-row-delete" title="この行を削除"><i class="fa-solid fa-trash-can"></i></button>
-                        <label class="shift-row-hide-toggle" title="引継ぎ時にあえて伝えなくてよい行へチェックします。上部の非表示ボタンで、チェックした行だけ一時的に隠せます。">
+                        <label class="shift-row-hide-toggle" title="引継ぎ時にあえて伝えなくてよい行へチェックします。上部の非表示ボタンで、チェックした行だけ一時的に隠せます。" aria-label="非表示対象">
                             <input type="checkbox" class="shift-row-hide-checkbox" ${hidden ? 'checked' : ''}>
-                            <span>非表示</span>
+                            <span class="shift-row-hide-icon" aria-hidden="true"><i class="fa-solid fa-tv"></i><i class="fa-solid fa-slash"></i></span>
                         </label>
                     </div>
                     <div class="shift-responder-menu"></div>
@@ -5364,8 +5594,8 @@ class MaintenanceApp {
             </div>
             <div class="shift-reply-collapse-summary" hidden></div>
             <div class="shift-photo-area">
-                <label class="shift-photo-btn" for="${rowId}-photo">
-                    <i class="fa-solid fa-camera"></i> 写真
+                <label class="shift-photo-btn" for="${rowId}-photo" title="写真を追加" aria-label="写真を追加">
+                    <i class="fa-solid fa-camera" aria-hidden="true"></i>
                 </label>
                 <input type="file" id="${rowId}-photo" class="shift-photo-input" accept="image/*" multiple>
                 <div class="shift-photo-previews"></div>
@@ -5485,6 +5715,7 @@ class MaintenanceApp {
         });
         editor.addEventListener('input', resizeEditor);
         editor.addEventListener('input', () => this.scheduleShiftNotebookAutoSave());
+        editor.addEventListener('paste', (e) => this.insertShiftNoteClipboardContent(editor, e));
         editor.addEventListener('mouseup', () => {
             this.saveShiftNoteSelection(editor);
             this.ensureShiftNoteActiveFormat(editor);
@@ -5517,7 +5748,7 @@ class MaintenanceApp {
                 const rows = Array.from(document.querySelectorAll('#shift-notebook-rows .shift-notebook-row'));
                 if (currentRow && rows[rows.length - 1] === currentRow) {
                     e.preventDefault();
-                    this.addShiftNotebookRowBelow(currentRow.querySelector('.shift-row-add-below'));
+                    this.addShiftNotebookRowBelow(currentRow);
                     return;
                 }
             }
@@ -5853,7 +6084,9 @@ class MaintenanceApp {
     }
 
     addShiftNotebookRowBelow(button) {
-        const currentRow = button?.closest('.shift-notebook-row');
+        const currentRow = button?.matches?.('.shift-notebook-row')
+            ? button
+            : button?.closest('.shift-notebook-row');
         const container = document.getElementById('shift-notebook-rows');
         if (!currentRow || !container) return;
         const group = currentRow.querySelector('.shift-row-group-select')?.value || '未設定';
@@ -6493,6 +6726,11 @@ class MaintenanceApp {
         this.syncShiftNotebookRowMenuSettingsPanel();
     }
 
+    closeShiftNotebookRowMenuSettings() {
+        const panel = document.getElementById('shift-row-menu-settings-panel');
+        if (panel) panel.hidden = true;
+    }
+
     setShiftNotebookRowMenuHiddenPart(part, hidden) {
         if (!this._shiftNotebookRowMenuHiddenParts) this._shiftNotebookRowMenuHiddenParts = { group: false, format: false, actions: false };
         if (!['group', 'format', 'actions'].includes(part)) return;
@@ -6531,6 +6769,9 @@ class MaintenanceApp {
         }
         this.syncShiftNotebookRowMenuSettingsPanel();
         if (parts.format) this.closeShiftNoteFormatMenus({ commit: false });
+        requestAnimationFrame(() => {
+            document.querySelectorAll('#shift-notebook-rows .shift-notebook-row').forEach(row => this.positionShiftImportantStamp(row));
+        });
     }
 
     toggleShiftNotebookRowImportant(button) {
@@ -6538,6 +6779,7 @@ class MaintenanceApp {
         if (!row) return;
         const active = row.classList.toggle('shift-row-important');
         button.classList.toggle('active', active);
+        requestAnimationFrame(() => this.positionShiftImportantStamp(row));
         this.autoSaveShiftNotebook(true);
         this.setShiftNotebookStatus(active ? '重要スタンプを押しました' : '重要スタンプを外しました', 'saved');
     }
@@ -8130,7 +8372,7 @@ class MaintenanceApp {
 
         body.innerHTML = '';
         if (filtered.length === 0) {
-            body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:var(--text-light)">履歴が見つかりません</td></tr>';
+            body.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-light)">履歴が見つかりません</td></tr>';
             return;
         }
 
@@ -8163,6 +8405,10 @@ class MaintenanceApp {
             
             const normMName = MaintenanceApp.toFullWidthUpper(machine ? machine.name : '不明');
             const normMModel = MaintenanceApp.toHalfWidthLower(machine ? machine.model : '');
+            const replacedParts = h.replacedParts || [];
+            const partsTitle = replacedParts.length
+                ? replacedParts.map(p => `${p.name || '部品名なし'}${p.model ? ` [${p.model}]` : ''} ${p.count ?? p.qty ?? 0}${this.formatHistoryPartUnit(p.unit)}`).join(' / ')
+                : '';
 
             tr.innerHTML = `
                 <td style="font-weight:700">${h.date}</td>
@@ -8223,14 +8469,13 @@ class MaintenanceApp {
                 </td>
                 <td style="text-align: center;"><span class="badge ${badgeClass}" style="cursor:pointer; padding:4px 6px; font-size:0.65rem; min-width:40px; ${h.isNonProductionStop ? 'background:#fef3c7; color:#92400e; border:1px solid #fcd34d;' : ''}" onclick="app.toggleTypeFilter('${typeInfo.key}', event)" title="この区分で抽出">${badgeText}</span></td>
                 <td>${h.workTime || 0}分</td>
-                <td style="word-break: break-all; white-space: normal;">
-                    ${(h.replacedParts || []).map(p => `
-                        <div style="font-size:0.7rem; line-height:1.2; margin-bottom:4px;">
-                            <span style="font-weight:700; color:var(--text-main);">${p.name}</span>
-                            <span style="color:var(--text-light); font-size:0.6rem;">(${p.model})</span>
-                            <span style="font-weight:700; color:var(--primary); font-size:0.65rem;">${p.count}${(p.unit === 'pcs' || p.unit === '個' || !p.unit) ? '個' : p.unit}</span>
-                        </div>
-                    `).join('') || '-'}
+                <td class="history-parts-cell">
+                    ${replacedParts.length ? `
+                        <button type="button" class="history-parts-btn" onclick="app.openHistoryPartsDetail('${this.escapeJs(h.id)}')" title="${this.escapeHtml(partsTitle)}" aria-label="交換部品の詳細を表示">
+                            <i class="fa-solid fa-box-open"></i>
+                            <span>${replacedParts.length}</span>
+                        </button>
+                    ` : '<span style="color:var(--text-light); font-size:0.75rem;">-</span>'}
                 </td>
                 <td style="vertical-align: top;">
                     <div style="display:flex; flex-direction:column; gap:6px; align-items:center;">
@@ -8260,6 +8505,59 @@ class MaintenanceApp {
                 </td>
             `;
             body.appendChild(tr);
+        });
+    }
+
+    formatHistoryPartUnit(unit) {
+        if (!unit || unit === 'pcs') return '個';
+        return unit;
+    }
+
+    openHistoryPartsDetail(historyId) {
+        const h = (store.activeData.history || []).find(x => String(x.id) === String(historyId));
+        if (!h) return;
+
+        const machine = store.getMachines(true).find(m => m.id === h.machineId);
+        const parts = h.replacedParts || [];
+        this.openModal('history-parts-detail', '交換部品詳細', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="history-parts-detail-head">
+                    <div>
+                        <span>日付</span>
+                        <b>${this.escapeHtml(h.date || '-')}</b>
+                    </div>
+                    <div>
+                        <span>機械</span>
+                        <b>${this.escapeHtml(machine ? `${machine.name} [${machine.model || '-'}]` : '不明')}</b>
+                    </div>
+                    <div>
+                        <span>内容</span>
+                        <b>${this.escapeHtml(this.getHistoryDisplayText(h))}</b>
+                    </div>
+                </div>
+                <div class="history-parts-detail-list">
+                    ${parts.map(p => {
+                        const count = p.count ?? p.qty ?? 0;
+                        const unit = this.formatHistoryPartUnit(p.unit);
+                        const price = Number(p.price || 0);
+                        return `
+                            <div class="history-parts-detail-item">
+                                <div class="history-parts-detail-icon"><i class="fa-solid fa-box"></i></div>
+                                <div>
+                                    <b>${this.escapeHtml(p.name || '部品名なし')}</b>
+                                    <span>${this.escapeHtml(p.model || '型式なし')}</span>
+                                </div>
+                                <strong>${this.escapeHtml(String(count))}${this.escapeHtml(unit)}</strong>
+                                ${price ? `<em>¥${Math.round(price).toLocaleString()}</em>` : '<em>-</em>'}
+                            </div>
+                        `;
+                    }).join('') || '<div style="color:var(--text-light); padding:16px;">交換部品はありません</div>'}
+                </div>
+            `;
+
+            const saveBtn = document.getElementById('modal-save-btn');
+            if (saveBtn) saveBtn.style.display = 'none';
         });
     }
 
