@@ -1912,6 +1912,87 @@ body {
     line-height: 1.35;
 }
 
+.shift-paste-settings {
+    margin-top: 12px;
+    padding: 14px;
+    border: 2px solid #111827;
+    border-radius: 8px;
+    background: #ffffff;
+    display: grid;
+    gap: 12px;
+}
+
+.shift-paste-settings-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #0f172a;
+}
+
+.shift-paste-settings-title i {
+    color: #2563eb;
+    font-size: 1.25rem;
+}
+
+.shift-paste-settings-title span {
+    display: block;
+    font-weight: 950;
+}
+
+.shift-paste-settings-title small {
+    display: block;
+    margin-top: 2px;
+    color: #64748b;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.shift-setting-toggle,
+.shift-setting-range,
+.shift-paste-symbols {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: #0f172a;
+    font-weight: 900;
+}
+
+.shift-setting-toggle input,
+.shift-paste-symbols input {
+    width: 18px;
+    height: 18px;
+    accent-color: #2563eb;
+}
+
+.shift-setting-range input {
+    flex: 1 1 220px;
+    accent-color: #2563eb;
+}
+
+.shift-paste-symbols > span {
+    color: #475569;
+    font-size: 0.82rem;
+}
+
+.shift-paste-symbols label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #f8fafc;
+    font-size: 0.82rem;
+}
+
+.shift-row-paste-settings.active {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #93c5fd;
+    box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
 .view-guide-slot {
     display: inline-flex;
     align-items: center;

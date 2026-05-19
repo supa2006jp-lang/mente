@@ -697,11 +697,29 @@ class MaintenanceApp {
         return todos.filter(todo => todo.isRequest && !todo.archived && (todo.status || 'todo') !== 'done').length;
     }
 
+    compareKanbanTodosForBoard(a, b) {
+        const priorityRank = { high: 3, medium: 2, normal: 2, low: 1 };
+        const aHasDeadline = !!a.deadlineDate;
+        const bHasDeadline = !!b.deadlineDate;
+        if (aHasDeadline !== bHasDeadline) return aHasDeadline ? -1 : 1;
+
+        if (aHasDeadline && bHasDeadline) {
+            const aDeadline = `${a.deadlineDate || ''}T${a.deadlineTime || '00:00'}`;
+            const bDeadline = `${b.deadlineDate || ''}T${b.deadlineTime || '00:00'}`;
+            const deadlineOrder = aDeadline.localeCompare(bDeadline);
+            if (deadlineOrder) return deadlineOrder;
+        }
+
+        const priorityOrder = (priorityRank[b.priority] || 2) - (priorityRank[a.priority] || 2);
+        if (priorityOrder) return priorityOrder;
+        return String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || ''));
+    }
+
     getPendingTodoRequests() {
         const todos = store.activeData?.localTodos || [];
         return todos
             .filter(todo => todo.isRequest && !todo.archived && (todo.status || 'todo') !== 'done')
-            .sort((a, b) => (a.deadlineDate || '9999-99-99').localeCompare(b.deadlineDate || '9999-99-99') || (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
+            .sort((a, b) => this.compareKanbanTodosForBoard(a, b));
     }
 
     updateTodoRequestCountBadge() {
@@ -808,6 +826,16 @@ class MaintenanceApp {
     }
 
     openShiftNotebookSettingsPanel() {
+        const pasteSettings = this.getShiftNotePasteFormatSettings();
+        const punctuationOptions = [
+            ['。', '句点'],
+            ['！', '！'],
+            ['？', '？'],
+            ['.', '.'],
+            ['!', '!'],
+            ['?', '?'],
+            ['、', '読点']
+        ];
         document.getElementById('shift-settings-overlay')?.remove();
         document.body.insertAdjacentHTML('beforeend', `
             <div id="shift-settings-overlay" class="shift-settings-overlay" onclick="if(event.target === this) app.closeShiftNotebookSettingsPanel()">
@@ -848,6 +876,32 @@ class MaintenanceApp {
                             <small>グループ・装飾・右側ボタンの表示を切替</small>
                         </button>
                     </div>
+                    <div class="shift-paste-settings">
+                        <div class="shift-paste-settings-title">
+                            <i class="fa-solid fa-paste"></i>
+                            <div>
+                                <span>貼り付け整形</span>
+                                <small>ペースト時の空白行削除と自動改行を調整します</small>
+                            </div>
+                        </div>
+                        <label class="shift-setting-toggle">
+                            <input type="checkbox" id="shift-paste-auto-break-enabled" ${pasteSettings.enabled ? 'checked' : ''} onchange="app.updateShiftNotePasteAutoBreakSetting('enabled', this.checked)">
+                            <span>貼り付け時に句読点で自動改行する</span>
+                        </label>
+                        <label class="shift-setting-range">
+                            <span>改行位置 <b id="shift-paste-break-ratio-label">${pasteSettings.ratioPercent}%</b></span>
+                            <input type="range" min="60" max="90" step="5" value="${pasteSettings.ratioPercent}" oninput="app.updateShiftNotePasteAutoBreakSetting('ratio', this.value)">
+                        </label>
+                        <div class="shift-paste-symbols">
+                            <span>対象記号</span>
+                            ${punctuationOptions.map(([symbol, label]) => `
+                                <label>
+                                    <input type="checkbox" value="${this.escapeHtml(symbol)}" ${pasteSettings.punctuation.includes(symbol) ? 'checked' : ''} onchange="app.updateShiftNotePasteAutoBreakPunctuation()">
+                                    ${this.escapeHtml(label)}
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
                 </div>
             </div>
         `);
@@ -855,6 +909,97 @@ class MaintenanceApp {
 
     closeShiftNotebookSettingsPanel() {
         document.getElementById('shift-settings-overlay')?.remove();
+    }
+
+    getShiftNotePasteFormatSettings(editor = null) {
+        const ratio = Number(localStorage.getItem('shift_note_paste_break_ratio') || 70);
+        const punctuation = localStorage.getItem('shift_note_paste_break_punctuation') || '。！？.!?';
+        const settings = {
+            enabled: localStorage.getItem('shift_note_paste_auto_break_enabled') !== 'false',
+            ratioPercent: Number.isFinite(ratio) ? Math.max(60, Math.min(90, ratio)) : 70,
+            punctuation: punctuation || '。！？.!?'
+        };
+        const row = editor?.closest?.('.shift-notebook-row');
+        const rowSettings = this.getShiftNoteRowPasteFormatSettings(row);
+        if (rowSettings.mode === 'enabled') settings.enabled = true;
+        if (rowSettings.mode === 'disabled') settings.enabled = false;
+        if (rowSettings.ratioPercent) settings.ratioPercent = rowSettings.ratioPercent;
+        return settings;
+    }
+
+    getShiftNoteRowPasteFormatSettings(row) {
+        const fallback = { mode: 'inherit', ratioPercent: null };
+        if (!row?.dataset?.pasteFormat) return fallback;
+        try {
+            const parsed = JSON.parse(row.dataset.pasteFormat);
+            const mode = ['inherit', 'enabled', 'disabled'].includes(parsed?.mode) ? parsed.mode : 'inherit';
+            const rawRatio = Number(parsed?.ratioPercent);
+            const ratioPercent = Number.isFinite(rawRatio) ? Math.max(60, Math.min(90, rawRatio)) : null;
+            return { mode, ratioPercent };
+        } catch {
+            return fallback;
+        }
+    }
+
+    setShiftNoteRowPasteFormatSettings(row, settings = {}) {
+        if (!row) return;
+        const mode = ['inherit', 'enabled', 'disabled'].includes(settings.mode) ? settings.mode : 'inherit';
+        const rawRatio = Number(settings.ratioPercent);
+        const ratioPercent = Number.isFinite(rawRatio) ? Math.max(60, Math.min(90, rawRatio)) : null;
+        row.dataset.pasteFormat = JSON.stringify({ mode, ratioPercent });
+        row.classList.toggle('shift-row-paste-custom', mode !== 'inherit' || !!ratioPercent);
+        this.updateShiftNoteRowPasteButton(row);
+    }
+
+    updateShiftNoteRowPasteButton(row) {
+        const button = row?.querySelector?.('.shift-row-paste-settings');
+        if (!button) return;
+        const settings = this.getShiftNoteRowPasteFormatSettings(row);
+        const custom = settings.mode !== 'inherit' || !!settings.ratioPercent;
+        button.classList.toggle('active', custom);
+        const modeLabel = settings.mode === 'disabled' ? '自動改行なし' : (settings.mode === 'enabled' ? '自動改行あり' : '全体設定');
+        button.title = `この行の貼り付け整形: ${modeLabel}${settings.ratioPercent ? ` / ${settings.ratioPercent}%` : ''}`;
+    }
+
+    openShiftNoteRowPasteSettings(button) {
+        const row = button?.closest('.shift-notebook-row');
+        if (!row) return;
+        const current = this.getShiftNoteRowPasteFormatSettings(row);
+        const mode = prompt('この行の貼り付け整形を選んでください。\n0: 全体設定を使う\n1: この行だけ自動改行する\n2: この行だけ自動改行しない', current.mode === 'enabled' ? '1' : (current.mode === 'disabled' ? '2' : '0'));
+        if (mode === null) return;
+        const modeMap = { '0': 'inherit', '1': 'enabled', '2': 'disabled' };
+        const nextMode = modeMap[String(mode).trim()] || 'inherit';
+        let ratioPercent = current.ratioPercent;
+        if (nextMode !== 'disabled') {
+            const ratioValue = prompt('この行だけ改行位置を変える場合は 60〜90 の数字を入れてください。\n空欄なら全体設定の割合を使います。', ratioPercent ? String(ratioPercent) : '');
+            if (ratioValue === null) return;
+            ratioPercent = ratioValue.trim() ? Number(ratioValue) : null;
+        } else {
+            ratioPercent = null;
+        }
+        this.setShiftNoteRowPasteFormatSettings(row, { mode: nextMode, ratioPercent });
+        this.scheduleShiftNotebookAutoSave();
+        this.setShiftNotebookStatus('この行の貼り付け設定を保存しました', 'saved');
+    }
+
+    updateShiftNotePasteAutoBreakSetting(key, value) {
+        if (key === 'enabled') {
+            localStorage.setItem('shift_note_paste_auto_break_enabled', String(!!value));
+        } else if (key === 'ratio') {
+            const ratio = Math.max(60, Math.min(90, Number(value) || 70));
+            localStorage.setItem('shift_note_paste_break_ratio', String(ratio));
+            const label = document.getElementById('shift-paste-break-ratio-label');
+            if (label) label.textContent = `${ratio}%`;
+        }
+        this.setShiftNotebookStatus('貼り付け整形設定を保存しました', 'saved');
+    }
+
+    updateShiftNotePasteAutoBreakPunctuation() {
+        const symbols = Array.from(document.querySelectorAll('.shift-paste-symbols input[type="checkbox"]:checked'))
+            .map(input => input.value)
+            .join('');
+        localStorage.setItem('shift_note_paste_break_punctuation', symbols || '。');
+        this.setShiftNotebookStatus('貼り付け整形設定を保存しました', 'saved');
     }
 
     getShiftNotebookGuideImages() {
@@ -1045,7 +1190,7 @@ class MaintenanceApp {
                 .filter(todo => (todo.status || 'todo') === status)
                 .filter(todo => this.isKanbanTodoVisible(todo))
                 .filter(todo => !this.kanbanOverdueOnly || this.getKanbanDeadlineStatus(todo) === 'overdue')
-                .sort((a, b) => (a.deadlineDate || '9999-99-99').localeCompare(b.deadlineDate || '9999-99-99') || (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
+                .sort((a, b) => this.compareKanbanTodosForBoard(a, b));
             document.getElementById(`kt-count-${status}`)?.replaceChildren(document.createTextNode(String(items.length)));
             const emptyText = this.kanbanOverdueOnly ? '期限切れタスクはありません' : `${statusLabels[status]} は空です`;
             list.innerHTML = items.length ? items.map(todo => this.renderKanbanTodoCard(todo)).join('') : `<div class="kt-empty">${emptyText}</div>`;
@@ -1279,11 +1424,11 @@ class MaintenanceApp {
         if (todo.archived) return false;
         const workerId = this.kanbanTodoWorkerId;
         if (workerId === '__all__') return true;
-        if (!todo.isRequest) return true;
-        if (todo.requestedBy === workerId) return true;
         if ((todo.rejectedBy || []).includes(workerId)) return false;
         const assigned = todo.assignedTo || [];
-        return assigned.length === 0 || assigned.includes('all') || assigned.includes(workerId);
+        if (assigned.includes('all') || assigned.includes(workerId)) return true;
+        if (assigned.length === 0) return (todo.requestedBy || '') === workerId;
+        return !!todo.isRequest && todo.requestedBy === workerId;
     }
 
     addKanbanTodoLog(text) {
@@ -1341,6 +1486,9 @@ class MaintenanceApp {
     openKanbanTodoModal(status = 'todo', id = '', isRecurring = false, isRequest = false) {
         const d = this.ensureKanbanTodoState();
         const todo = id ? d.localTodos.find(item => item.id === id) : null;
+        const defaultAssignedTo = this.kanbanTodoWorkerId && this.kanbanTodoWorkerId !== '__all__'
+            ? [this.kanbanTodoWorkerId]
+            : [];
         const current = todo || {
             id: '',
             title: '',
@@ -1351,7 +1499,7 @@ class MaintenanceApp {
             deadlineTime: '',
             isRecurring,
             isRequest,
-            assignedTo: [],
+            assignedTo: defaultAssignedTo,
             requestedBy: this.kanbanTodoWorkerId,
             rejectedBy: []
         };
@@ -2779,8 +2927,12 @@ class MaintenanceApp {
         event.preventDefault();
         editor.focus();
 
+        const previousHtml = this.sanitizeShiftNoteHtml(editor.innerHTML);
         const holder = document.createElement('div');
-        holder.innerHTML = html ? this.sanitizeShiftNoteHtml(html) : this.shiftNoteTextToHtml(text);
+        const blankLineResult = this.cleanShiftNoteBlankLinesHtml(
+            html ? this.sanitizeShiftNoteHtml(html) : this.shiftNoteTextToHtml(text)
+        );
+        holder.innerHTML = blankLineResult.html;
 
         const formats = this._activeShiftNoteFormats || {};
         const hasFormat = !!(formats.color || formats.size || formats.font);
@@ -2792,6 +2944,7 @@ class MaintenanceApp {
                 if (!el.getAttribute('style')) el.removeAttribute('style');
             });
         }
+        const autoBreakChanged = this.insertShiftNoteAutoLineBreaksAtPeriods(holder, editor);
 
         const fragment = document.createDocumentFragment();
         if (hasFormat) {
@@ -2831,10 +2984,131 @@ class MaintenanceApp {
         editor._savedRange = afterRange.cloneRange();
         editor.dispatchEvent(new Event('input', { bubbles: true }));
         this.scheduleShiftNotebookAutoSave();
+        this.showShiftNotePasteFormatFeedback(editor, previousHtml, {
+            blankLines: blankLineResult.changed,
+            autoBreaks: autoBreakChanged
+        });
         return true;
     }
 
     // アクティブ装飾モードのインジケーター（ボタン表示）を更新する
+    showShiftNotePasteFormatFeedback(editor, previousHtml, result = {}) {
+        const changedLabels = [];
+        if (result.blankLines) changedLabels.push('空白行削除');
+        if (result.autoBreaks) changedLabels.push('自動改行');
+        const message = changedLabels.length
+            ? `貼り付けを整形しました: ${changedLabels.join(' / ')}`
+            : '貼り付けました';
+        this.setShiftNotebookStatus(message, changedLabels.length ? 'saved' : 'moved');
+        this.showUndoNotice(message, () => {
+            if (!editor) return;
+            editor.innerHTML = previousHtml;
+            this.cleanupShiftNoteEmptySpans(editor);
+            this.resizeShiftNoteEditor(editor);
+            requestAnimationFrame(() => this.resizeShiftNoteEditor(editor));
+            this.autoSaveShiftNotebook(true);
+            this.setShiftNotebookStatus('貼り付けを取り消しました', 'moved');
+            editor.focus();
+        }, null, document.getElementById('modal-container') || document.body, 'paste-format');
+    }
+
+    insertShiftNoteAutoLineBreaksAtPeriods(holder, editor) {
+        if (!holder || !editor) return false;
+        const settings = this.getShiftNotePasteFormatSettings(editor);
+        if (!settings.enabled) return false;
+        const punctuation = Array.from(settings.punctuation || '。');
+        if (punctuation.length === 0) return false;
+        const computed = window.getComputedStyle(editor);
+        const contentWidth = editor.clientWidth
+            - (parseFloat(computed.paddingLeft) || 0)
+            - (parseFloat(computed.paddingRight) || 0);
+        const limit = Math.max(80, contentWidth * (settings.ratioPercent / 100));
+        if (!Number.isFinite(limit) || limit <= 0) return false;
+
+        const probe = document.createElement('span');
+        probe.style.position = 'fixed';
+        probe.style.left = '-99999px';
+        probe.style.top = '-99999px';
+        probe.style.visibility = 'hidden';
+        probe.style.whiteSpace = 'pre';
+        probe.style.font = computed.font;
+        probe.style.letterSpacing = computed.letterSpacing;
+        const formats = this._activeShiftNoteFormats || {};
+        if (formats.size) probe.style.fontSize = formats.size;
+        if (formats.font) probe.style.fontFamily = formats.font;
+        document.body.appendChild(probe);
+
+        let lineText = '';
+        let changed = false;
+        const fallbackBreakChars = new Set(['、', ',', '，', ' ', '\u3000']);
+        const measure = (text) => {
+            probe.textContent = text || '';
+            return probe.getBoundingClientRect().width;
+        };
+        const appendPart = (fragment, text) => {
+            if (text) fragment.appendChild(document.createTextNode(text));
+        };
+        const splitTextNode = (node) => {
+            const text = node.textContent || '';
+            if (!text) return;
+            const fragment = document.createDocumentFragment();
+            let part = '';
+            for (const char of text) {
+                if (char === '\r') continue;
+                if (char === '\n') {
+                    appendPart(fragment, part);
+                    fragment.appendChild(document.createElement('br'));
+                    part = '';
+                    lineText = '';
+                    changed = true;
+                    continue;
+                }
+                part += char;
+                const candidateLineText = lineText + char;
+                const candidateWidth = measure(candidateLineText);
+                lineText = lineText && candidateWidth > contentWidth ? char : candidateLineText;
+                if (punctuation.includes(char) && measure(lineText) >= limit) {
+                    appendPart(fragment, part);
+                    fragment.appendChild(document.createElement('br'));
+                    part = '';
+                    lineText = '';
+                    changed = true;
+                } else if (fallbackBreakChars.has(char) && measure(lineText) >= limit) {
+                    appendPart(fragment, part);
+                    fragment.appendChild(document.createElement('br'));
+                    part = '';
+                    lineText = '';
+                    changed = true;
+                } else if (candidateWidth > contentWidth && lineText === char && part.length > 1) {
+                    const carry = char;
+                    appendPart(fragment, part.slice(0, -carry.length));
+                    fragment.appendChild(document.createElement('br'));
+                    part = carry;
+                    lineText = carry;
+                    changed = true;
+                }
+            }
+            appendPart(fragment, part);
+            node.replaceWith(fragment);
+        };
+        const walk = (node) => {
+            if (node.nodeName === 'BR') {
+                lineText = '';
+                return;
+            }
+            if (node.nodeType === Node.TEXT_NODE) {
+                splitTextNode(node);
+                return;
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+            Array.from(node.childNodes).forEach(child => walk(child));
+        };
+
+        Array.from(holder.childNodes).forEach(child => walk(child));
+        probe.remove();
+        return changed;
+    }
+
     _updateShiftNoteFormatIndicator(row) {
         if (!row) return;
         const btn = row.querySelector('.shift-format-menu-btn');
@@ -2947,12 +3221,8 @@ class MaintenanceApp {
         stamp.style.top = `${editor.offsetTop - (stampHeight * 0.7)}px`;
     }
 
-    removeShiftNoteBlankLines(button) {
-        const row = button?.closest('.shift-notebook-row');
-        const editor = row?.querySelector('.shift-note-text');
-        if (!editor) return;
-
-        const before = this.sanitizeShiftNoteHtml(editor.innerHTML);
+    cleanShiftNoteBlankLinesHtml(html = '') {
+        const before = this.sanitizeShiftNoteHtml(html);
         const holder = document.createElement('div');
         holder.innerHTML = before;
 
@@ -3010,7 +3280,18 @@ class MaintenanceApp {
         });
 
         const after = this.sanitizeShiftNoteHtml(cleaned.innerHTML);
-        if (after === before) {
+        return { html: after, changed: after !== before };
+    }
+
+    removeShiftNoteBlankLines(button) {
+        const row = button?.closest('.shift-notebook-row');
+        const editor = row?.querySelector('.shift-note-text');
+        if (!editor) return;
+
+        const before = this.sanitizeShiftNoteHtml(editor.innerHTML);
+        const result = this.cleanShiftNoteBlankLinesHtml(before);
+        const after = result.html;
+        if (!result.changed) {
             this.setShiftNotebookStatus('削除する空白行はありません', 'moved');
             return;
         }
@@ -3981,7 +4262,7 @@ class MaintenanceApp {
             } else {
                 const sortableRows = rows.map((row, index) => ({ ...row, _sourceIndex: index }));
                 this.sortShiftNotebookRows(sortableRows).forEach(row => {
-                    const rowEl = this.addShiftNotebookRow(rowContainerId, row.text || '', row.photos || [], row.tag || '通常', row.group || '未設定', row.html || '', !!row.hidden, true, row.id || '', row.replyTo || '', !!row.important);
+                    const rowEl = this.addShiftNotebookRow(rowContainerId, row.text || '', row.photos || [], row.tag || '通常', row.group || '未設定', row.html || '', !!row.hidden, true, row.id || '', row.replyTo || '', !!row.important, row.pasteFormat || null);
                     if (rowEl) rowEl.dataset.shiftSourceIndex = String(row._sourceIndex);
                 });
             }
@@ -4196,8 +4477,9 @@ class MaintenanceApp {
         container.querySelectorAll('.shift-notebook-undo-toast').forEach(el => el.remove());
         const toast = document.createElement('div');
         toast.className = `shift-notebook-undo-toast ${variant}`.trim();
+        const icon = variant === 'paste-format' ? 'fa-rotate-left' : 'fa-trash-can';
         toast.innerHTML = `
-            <span><i class="fa-solid fa-trash-can"></i> ${this.escapeHtml(message)}</span>
+            <span><i class="fa-solid ${icon}"></i> ${this.escapeHtml(message)}</span>
             <span class="undo-countdown">5秒</span>
             <button type="button">取り消す</button>
         `;
@@ -4233,6 +4515,7 @@ class MaintenanceApp {
         const editor = row.querySelector('.shift-note-text');
         const html = this.sanitizeShiftNoteHtml(editor?.innerHTML || '');
         const text = this.stripShiftNoteHtml(html).trim();
+        const pasteFormat = this.getShiftNoteRowPasteFormatSettings(row);
         const photos = Array.from(row.querySelectorAll('.shift-photo-previews .shift-photo-item')).map(item => {
             const src = item.querySelector('img')?.src || '';
             const caption = item.querySelector('.shift-photo-caption')?.value.trim() || '';
@@ -4247,7 +4530,8 @@ class MaintenanceApp {
             html,
             photos,
             hidden: !!row.querySelector('.shift-row-hide-checkbox')?.checked,
-            important: row.classList.contains('shift-row-important')
+            important: row.classList.contains('shift-row-important'),
+            pasteFormat
         };
     }
 
@@ -5240,6 +5524,7 @@ class MaintenanceApp {
             const rows = Array.isArray(template.rows) && template.rows.length > 0 ? template.rows : [{ group: template.group || '未設定', tag: template.tag || '通常' }];
             const addedRows = rows.map(row => this.addShiftNotebookRow('shift-notebook-rows', row.text || '', row.photos || [], row.tag || '通常', row.group || this.lastShiftNotebookRowGroup || '未設定', row.html || '', false, true, '', '', !!row.important))
                 .filter(Boolean);
+            addedRows.forEach((rowEl, index) => this.setShiftNoteRowPasteFormatSettings(rowEl, rows[index]?.pasteFormat || {}));
             this.sortShiftNotebookRowsInDom();
             addedRows[0]?.querySelector('.shift-note-text')?.focus();
             this.autoSaveShiftNotebook(true);
@@ -5249,6 +5534,7 @@ class MaintenanceApp {
         const isBlankRow = !!template.isBlankRow;
         this.addShiftNotebookRow('shift-notebook-rows', isBlankRow ? '' : (template.text || ''), isBlankRow ? [] : (template.photos || []), template.tag || '通常', template.group || this.lastShiftNotebookRowGroup || '未設定', isBlankRow ? '' : (template.html || ''), false, true, '', '', !!template.important);
         const row = document.querySelector('#shift-notebook-rows .shift-notebook-row:last-child');
+        if (row && !isBlankRow) this.setShiftNoteRowPasteFormatSettings(row, template.pasteFormat || {});
         row?.querySelector('.shift-note-text')?.focus();
         this.sortShiftNotebookRowsInDom();
         this.autoSaveShiftNotebook(true);
@@ -5483,7 +5769,7 @@ class MaintenanceApp {
         return `${text}__${photos}`;
     }
 
-    addShiftNotebookRow(containerId, text = '', photos = [], tag = '通常', group = '未設定', html = '', hidden = false, preserveBlank = true, savedRowId = '', replyTo = '', important = false) {
+    addShiftNotebookRow(containerId, text = '', photos = [], tag = '通常', group = '未設定', html = '', hidden = false, preserveBlank = true, savedRowId = '', replyTo = '', important = false, pasteFormat = null) {
         const container = document.getElementById(containerId);
         if (!container) return;
         if (group) this.lastShiftNotebookRowGroup = group;
@@ -5496,6 +5782,7 @@ class MaintenanceApp {
             row.dataset.replyTo = replyTo;
             row.classList.add('shift-reply-row');
         }
+        this.setShiftNoteRowPasteFormatSettings(row, pasteFormat || {});
         if (preserveBlank) row.dataset.preserveBlank = 'true';
         row.setAttribute('style', this.getShiftNotebookRowGroupStyle(group));
         row.innerHTML = `
@@ -5582,6 +5869,7 @@ class MaintenanceApp {
                     </div>
                     <div class="shift-row-action-strip">
                         <button type="button" class="icon-btn shift-row-fullscreen" title="フルスクリーン表示" onclick="app.openShiftNoteFullscreen(this)"><i class="fa-solid fa-expand"></i></button>
+                        <button type="button" class="icon-btn shift-row-paste-settings" title="この行の貼り付け整形" onclick="app.openShiftNoteRowPasteSettings(this)"><i class="fa-solid fa-paste"></i></button>
                         <button type="button" class="icon-btn shift-row-trim-blank-lines" title="空白行を削除" onclick="app.removeShiftNoteBlankLines(this)"><i class="fa-solid fa-align-justify"></i></button>
                         <button type="button" class="icon-btn shift-row-delete" title="この行を削除"><i class="fa-solid fa-trash-can"></i></button>
                         <label class="shift-row-hide-toggle" title="引継ぎ時にあえて伝えなくてよい行へチェックします。上部の非表示ボタンで、チェックした行だけ一時的に隠せます。" aria-label="非表示対象">
@@ -5602,6 +5890,7 @@ class MaintenanceApp {
             </div>
         `;
         container.appendChild(row);
+        this.updateShiftNoteRowPasteButton(row);
 
         const preview = row.querySelector('.shift-photo-previews');
         const editor = row.querySelector('.shift-note-text');
@@ -5835,7 +6124,7 @@ class MaintenanceApp {
                 this.autoSaveShiftNotebook(true);
                 this.showShiftNotebookUndoNotice('行を空にしました', () => {
                     if (!rowData) return;
-                    this.addShiftNotebookRow(containerId, rowData.text, rowData.photos, rowData.tag, rowData.group, rowData.html, rowData.hidden, true, rowData.id, rowData.replyTo);
+                    this.addShiftNotebookRow(containerId, rowData.text, rowData.photos, rowData.tag, rowData.group, rowData.html, rowData.hidden, true, rowData.id, rowData.replyTo, !!rowData.important, rowData.pasteFormat || null);
                     const restored = container.lastElementChild;
                     if (restored && row.parentNode) {
                         row.replaceWith(restored);
@@ -6172,7 +6461,7 @@ class MaintenanceApp {
         if (!container || !Array.isArray(rowsData)) return;
         const restoredRows = [];
         rowsData.forEach(data => {
-            const restored = this.addShiftNotebookRow(containerId, data.text, data.photos, data.tag, data.group, data.html, data.hidden, true, data.id, data.replyTo);
+            const restored = this.addShiftNotebookRow(containerId, data.text, data.photos, data.tag, data.group, data.html, data.hidden, true, data.id, data.replyTo, !!data.important, data.pasteFormat || null);
             if (restored) restoredRows.push(restored);
         });
         const anchor = beforeNode && beforeNode.parentNode === container ? beforeNode : null;
@@ -6615,6 +6904,13 @@ class MaintenanceApp {
             : null;
         const openEditor = openRow?.querySelector('.shift-note-text');
         if (appendOrCompleteInContainer(openEditor)) {
+            this.resizeShiftNoteEditor(openEditor);
+            requestAnimationFrame(() => {
+                this.resizeShiftNoteEditor(openEditor);
+                if (document.querySelector('.modal-container.shift-notebook-modal.shift-fit-all-mode')) {
+                    this.adjustShiftNotebookRowsToFit();
+                }
+            });
             this.saveShiftNotebook(source.dateStr, source.shift, { close: false, render: false, status: false });
             return;
         }
@@ -6647,12 +6943,13 @@ class MaintenanceApp {
             const tag = row.querySelector('.shift-note-tag-select')?.value || '通常';
             const hidden = !!row.querySelector('.shift-row-hide-checkbox')?.checked;
             const important = row.classList.contains('shift-row-important');
+            const pasteFormat = this.getShiftNoteRowPasteFormatSettings(row);
             const photos = Array.from(row.querySelectorAll('.shift-photo-previews .shift-photo-item')).map(item => {
                 const src = item.querySelector('img')?.src || '';
                 const caption = item.querySelector('.shift-photo-caption')?.value.trim() || '';
                 return caption ? { src, caption } : src;
             }).filter(photo => typeof photo === 'string' ? !!photo : !!photo.src);
-            return { id: row.dataset.shiftRowId || '', replyTo: row.dataset.replyTo || '', group, tag, text, html, photos, hidden, important, index, element: row };
+            return { id: row.dataset.shiftRowId || '', replyTo: row.dataset.replyTo || '', group, tag, text, html, photos, hidden, important, pasteFormat, index, element: row };
         }).filter(row => row.text || row.photos.length > 0 || row.important || row.element.dataset.preserveBlank === 'true' || row.element.querySelector('.shift-note-text') === document.activeElement);
     }
 
