@@ -418,6 +418,8 @@ class MaintenanceStore {
             replacedParts: record.replacedParts || [],
             photos: record.photos || [],
             workTime: parseInt(record.workTime) || 0,
+            startTime: record.startTime || '',
+            endTime: record.endTime || '',
             isDokatei: !!record.isDokatei,
             isNonProductionStop: !!record.isNonProductionStop,
             category: record.category || 'other',

@@ -827,15 +827,7 @@ class MaintenanceApp {
 
     openShiftNotebookSettingsPanel() {
         const pasteSettings = this.getShiftNotePasteFormatSettings();
-        const punctuationOptions = [
-            ['。', '句点'],
-            ['！', '！'],
-            ['？', '？'],
-            ['.', '.'],
-            ['!', '!'],
-            ['?', '?'],
-            ['、', '読点']
-        ];
+        const punctuationOptions = this.getShiftPastePunctuationOptions();
         document.getElementById('shift-settings-overlay')?.remove();
         document.body.insertAdjacentHTML('beforeend', `
             <div id="shift-settings-overlay" class="shift-settings-overlay" onclick="if(event.target === this) app.closeShiftNotebookSettingsPanel()">
@@ -890,13 +882,17 @@ class MaintenanceApp {
                         </label>
                         <label class="shift-setting-range">
                             <span>改行位置 <b id="shift-paste-break-ratio-label">${pasteSettings.ratioPercent}%</b></span>
-                            <input type="range" min="60" max="90" step="5" value="${pasteSettings.ratioPercent}" oninput="app.updateShiftNotePasteAutoBreakSetting('ratio', this.value)">
+                            <div class="shift-paste-ruler" id="shift-paste-ruler">
+                                <span class="shift-paste-ruler-fill" style="width:${pasteSettings.ratioPercent}%"></span>
+                                <span class="shift-paste-ruler-marker" style="left:${pasteSettings.ratioPercent}%"></span>
+                            </div>
+                            <input type="range" min="40" max="98" step="1" value="${pasteSettings.ratioPercent}" oninput="app.updateShiftNotePasteAutoBreakSetting('ratio', this.value)">
                         </label>
                         <div class="shift-paste-symbols">
                             <span>対象記号</span>
                             ${punctuationOptions.map(([symbol, label]) => `
                                 <label>
-                                    <input type="checkbox" value="${this.escapeHtml(symbol)}" ${pasteSettings.punctuation.includes(symbol) ? 'checked' : ''} onchange="app.updateShiftNotePasteAutoBreakPunctuation()">
+                                    <input type="checkbox" value="${this.escapeHtml(symbol)}" ${pasteSettings.punctuation.includes(symbol) ? 'checked' : ''} onchange="app.updateShiftNotePasteAutoBreakPunctuation(this)">
                                     ${this.escapeHtml(label)}
                                 </label>
                             `).join('')}
@@ -916,15 +912,127 @@ class MaintenanceApp {
         const punctuation = localStorage.getItem('shift_note_paste_break_punctuation') || '。！？.!?';
         const settings = {
             enabled: localStorage.getItem('shift_note_paste_auto_break_enabled') !== 'false',
-            ratioPercent: Number.isFinite(ratio) ? Math.max(60, Math.min(90, ratio)) : 70,
+            ratioPercent: Number.isFinite(ratio) ? Math.max(40, Math.min(98, ratio)) : 70,
             punctuation: punctuation || '。！？.!?'
         };
         const row = editor?.closest?.('.shift-notebook-row');
         const rowSettings = this.getShiftNoteRowPasteFormatSettings(row);
         if (rowSettings.mode === 'enabled') settings.enabled = true;
         if (rowSettings.mode === 'disabled') settings.enabled = false;
-        if (rowSettings.ratioPercent) settings.ratioPercent = rowSettings.ratioPercent;
         return settings;
+    }
+
+    getShiftPastePunctuationOptions() {
+        return [
+            ['。', '句点'],
+            ['、', '読点'],
+            ['！', '！'],
+            ['？', '？'],
+            ['.', '.'],
+            ['!', '!'],
+            ['?', '?']
+        ];
+    }
+
+    getShiftBreakTargetMenuHtml(settings = this.getShiftNotePasteFormatSettings()) {
+        return `
+            <div class="shift-break-target-menu" onclick="event.stopPropagation()">
+                <div class="shift-break-target-menu-title">改行対象</div>
+                ${this.getShiftPastePunctuationOptions().map(([symbol, label]) => `
+                    <label>
+                        <input type="checkbox" value="${this.escapeHtml(symbol)}" ${settings.punctuation.includes(symbol) ? 'checked' : ''} onchange="app.updateShiftNotePasteAutoBreakPunctuation(this)">
+                        <span>${this.escapeHtml(label)}</span>
+                    </label>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    getShiftNotebookLivePasteRulerHtml() {
+        const settings = this.getShiftNotePasteFormatSettings();
+        return `
+            <div class="shift-inline-paste-ruler">
+                <div class="shift-break-target-control">
+                    <button type="button" class="shift-break-target-stamp" title="貼り付け時、選んだ記号が赤線を越えた後に自動改行します。クリックで改行対象を選べます。" onclick="event.stopPropagation(); app.toggleShiftBreakTargetMenu(this)">
+                        改行
+                    </button>
+                    ${this.getShiftBreakTargetMenuHtml(settings)}
+                </div>
+                <div class="shift-paste-ruler" id="shift-live-paste-ruler">
+                    <span class="shift-paste-ruler-fill" style="width:${settings.ratioPercent}%"></span>
+                    <span class="shift-paste-ruler-marker" style="left:${settings.ratioPercent}%"></span>
+                </div>
+                <input type="range" min="40" max="98" step="1" value="${settings.ratioPercent}" oninput="app.updateShiftNotePasteAutoBreakSetting('ratio', this.value)">
+            </div>
+        `;
+    }
+
+    closeShiftBreakTargetMenus(except = null) {
+        document.querySelectorAll('.shift-break-target-control.open').forEach(control => {
+            if (control !== except) control.classList.remove('open');
+        });
+    }
+
+    toggleShiftBreakTargetMenu(button) {
+        const control = button?.closest?.('.shift-break-target-control');
+        if (!control) return;
+        const willOpen = !control.classList.contains('open');
+        this.closeShiftBreakTargetMenus(control);
+        control.classList.toggle('open', willOpen);
+        if (willOpen) {
+            setTimeout(() => {
+                document.addEventListener('click', this._shiftBreakTargetOutsideClick = (event) => {
+                    if (event.target.closest?.('.shift-break-target-control')) return;
+                    this.closeShiftBreakTargetMenus();
+                    document.removeEventListener('click', this._shiftBreakTargetOutsideClick);
+                    this._shiftBreakTargetOutsideClick = null;
+                }, { once: true });
+            }, 0);
+        }
+    }
+
+    updateShiftNotebookLivePasteLines() {
+        const globalRatio = this.getShiftNotePasteFormatSettings().ratioPercent;
+        document.querySelector('.shift-notebook-modal')?.style.setProperty('--shift-break-line', `${globalRatio}%`);
+        document.querySelectorAll('#shift-notebook-rows .shift-note-text').forEach(editor => {
+            editor.style.setProperty('--shift-break-line', `${globalRatio}%`);
+        });
+        document.querySelectorAll('.shift-fullscreen-text-wrapper, .shift-fullscreen-content, .shift-fullscreen-text').forEach(element => {
+            element.style.setProperty('--shift-break-line', `${globalRatio}%`);
+        });
+        document.querySelectorAll('#shift-paste-break-ratio-label').forEach(label => {
+            label.textContent = `${globalRatio}%`;
+        });
+        document.querySelectorAll('#shift-paste-ruler, #shift-live-paste-ruler').forEach(ruler => {
+            ruler.querySelector('.shift-paste-ruler-fill')?.style.setProperty('width', `${globalRatio}%`);
+            ruler.querySelector('.shift-paste-ruler-marker')?.style.setProperty('left', `${globalRatio}%`);
+        });
+        document.querySelectorAll('.shift-paste-settings input[type="range"], .shift-inline-paste-ruler input[type="range"]').forEach(input => {
+            input.value = String(globalRatio);
+        });
+    }
+
+    isShiftNotebookBreakLineHidden() {
+        return localStorage.getItem('shift_note_break_line_hidden') === 'true';
+    }
+
+    updateShiftNotebookBreakLineVisibility() {
+        const hidden = this.isShiftNotebookBreakLineHidden();
+        document.querySelector('.shift-notebook-modal')?.classList.toggle('shift-hide-break-line', hidden);
+        document.querySelectorAll('.shift-fullscreen-overlay').forEach(overlay => {
+            overlay.classList.toggle('shift-hide-break-line', hidden);
+        });
+        document.querySelectorAll('.shift-row-break-line-toggle').forEach(button => {
+            button.classList.toggle('active', hidden);
+            button.title = hidden ? '改行ラインを表示' : '改行ラインを非表示';
+        });
+    }
+
+    toggleShiftNotebookBreakLine() {
+        const hidden = !this.isShiftNotebookBreakLineHidden();
+        localStorage.setItem('shift_note_break_line_hidden', String(hidden));
+        this.updateShiftNotebookBreakLineVisibility();
+        this.setShiftNotebookStatus(hidden ? '改行ラインを非表示にしました' : '改行ラインを表示しました', 'moved');
     }
 
     getShiftNoteRowPasteFormatSettings(row) {
@@ -933,8 +1041,7 @@ class MaintenanceApp {
         try {
             const parsed = JSON.parse(row.dataset.pasteFormat);
             const mode = ['inherit', 'enabled', 'disabled'].includes(parsed?.mode) ? parsed.mode : 'inherit';
-            const rawRatio = Number(parsed?.ratioPercent);
-            const ratioPercent = Number.isFinite(rawRatio) ? Math.max(60, Math.min(90, rawRatio)) : null;
+            const ratioPercent = null;
             return { mode, ratioPercent };
         } catch {
             return fallback;
@@ -944,11 +1051,12 @@ class MaintenanceApp {
     setShiftNoteRowPasteFormatSettings(row, settings = {}) {
         if (!row) return;
         const mode = ['inherit', 'enabled', 'disabled'].includes(settings.mode) ? settings.mode : 'inherit';
-        const rawRatio = Number(settings.ratioPercent);
-        const ratioPercent = Number.isFinite(rawRatio) ? Math.max(60, Math.min(90, rawRatio)) : null;
+        const ratioPercent = null;
         row.dataset.pasteFormat = JSON.stringify({ mode, ratioPercent });
         row.classList.toggle('shift-row-paste-custom', mode !== 'inherit' || !!ratioPercent);
         this.updateShiftNoteRowPasteButton(row);
+        const editor = row.querySelector?.('.shift-note-text');
+        editor?.style.setProperty('--shift-break-line', `${this.getShiftNotePasteFormatSettings().ratioPercent}%`);
     }
 
     updateShiftNoteRowPasteButton(row) {
@@ -969,15 +1077,8 @@ class MaintenanceApp {
         if (mode === null) return;
         const modeMap = { '0': 'inherit', '1': 'enabled', '2': 'disabled' };
         const nextMode = modeMap[String(mode).trim()] || 'inherit';
-        let ratioPercent = current.ratioPercent;
-        if (nextMode !== 'disabled') {
-            const ratioValue = prompt('この行だけ改行位置を変える場合は 60〜90 の数字を入れてください。\n空欄なら全体設定の割合を使います。', ratioPercent ? String(ratioPercent) : '');
-            if (ratioValue === null) return;
-            ratioPercent = ratioValue.trim() ? Number(ratioValue) : null;
-        } else {
-            ratioPercent = null;
-        }
-        this.setShiftNoteRowPasteFormatSettings(row, { mode: nextMode, ratioPercent });
+        this.setShiftNoteRowPasteFormatSettings(row, { mode: nextMode, ratioPercent: null });
+        this.updateShiftNotebookLivePasteLines();
         this.scheduleShiftNotebookAutoSave();
         this.setShiftNotebookStatus('この行の貼り付け設定を保存しました', 'saved');
     }
@@ -986,19 +1087,33 @@ class MaintenanceApp {
         if (key === 'enabled') {
             localStorage.setItem('shift_note_paste_auto_break_enabled', String(!!value));
         } else if (key === 'ratio') {
-            const ratio = Math.max(60, Math.min(90, Number(value) || 70));
+            const ratio = Math.max(40, Math.min(98, Number(value) || 70));
             localStorage.setItem('shift_note_paste_break_ratio', String(ratio));
-            const label = document.getElementById('shift-paste-break-ratio-label');
-            if (label) label.textContent = `${ratio}%`;
+            let clearedRowRatio = false;
+            document.querySelectorAll('#shift-notebook-rows .shift-notebook-row').forEach(row => {
+                const rowSettings = this.getShiftNoteRowPasteFormatSettings(row);
+                if (rowSettings.ratioPercent) {
+                    this.setShiftNoteRowPasteFormatSettings(row, { ...rowSettings, ratioPercent: null });
+                    clearedRowRatio = true;
+                }
+            });
+            if (clearedRowRatio) this.scheduleShiftNotebookAutoSave?.();
+            document.querySelectorAll('.shift-live-break-line').forEach(line => line.style.left = `${ratio}%`);
+            this.updateShiftNotebookLivePasteLines();
         }
         this.setShiftNotebookStatus('貼り付け整形設定を保存しました', 'saved');
     }
 
-    updateShiftNotePasteAutoBreakPunctuation() {
-        const symbols = Array.from(document.querySelectorAll('.shift-paste-symbols input[type="checkbox"]:checked'))
+    updateShiftNotePasteAutoBreakPunctuation(source = null) {
+        const scope = source?.closest?.('.shift-paste-symbols, .shift-break-target-menu') || document;
+        const symbols = Array.from(scope.querySelectorAll('input[type="checkbox"]:checked'))
             .map(input => input.value)
             .join('');
-        localStorage.setItem('shift_note_paste_break_punctuation', symbols || '。');
+        const nextSymbols = symbols || '。';
+        localStorage.setItem('shift_note_paste_break_punctuation', nextSymbols);
+        document.querySelectorAll('.shift-paste-symbols input[type="checkbox"], .shift-break-target-menu input[type="checkbox"]').forEach(input => {
+            input.checked = nextSymbols.includes(input.value);
+        });
         this.setShiftNotebookStatus('貼り付け整形設定を保存しました', 'saved');
     }
 
@@ -2611,23 +2726,29 @@ class MaintenanceApp {
     appendShiftNoteMemberStamp(editor, memberName) {
         if (!editor || !memberName) return;
         editor.focus();
-        const text = this.stripShiftNoteHtml(editor.innerHTML).trim();
-        const prefix = text ? ' ' : '';
-        const range = document.createRange();
-        range.selectNodeContents(editor);
-        range.collapse(false);
+        let range = editor._savedRange?.cloneRange();
+        const hasSavedCursor = !!(range && editor.contains(range.commonAncestorContainer));
+        if (!hasSavedCursor) {
+            range = document.createRange();
+            range.selectNodeContents(editor);
+            range.collapse(false);
+        }
         const fragment = document.createDocumentFragment();
-        if (prefix) fragment.appendChild(document.createTextNode(prefix));
+        const text = this.stripShiftNoteHtml(editor.innerHTML).trim();
+        if (!hasSavedCursor && text) fragment.appendChild(document.createTextNode(' '));
         const stamp = document.createElement('span');
         stamp.className = 'shift-note-member-stamp';
         stamp.textContent = memberName;
         stamp.setAttribute('contenteditable', 'false');
         fragment.appendChild(stamp);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        range.deleteContents();
         range.insertNode(fragment);
         const afterRange = document.createRange();
         afterRange.setStartAfter(stamp);
         afterRange.collapse(true);
-        const selection = window.getSelection();
         selection.removeAllRanges();
         selection.addRange(afterRange);
         editor._savedRange = afterRange.cloneRange();
@@ -2945,6 +3066,7 @@ class MaintenanceApp {
             });
         }
         const autoBreakChanged = this.insertShiftNoteAutoLineBreaksAtPeriods(holder, editor);
+        const autoBreakPreviewNodes = holder._shiftAutoBreakPreviewNodes || [];
 
         const fragment = document.createDocumentFragment();
         if (hasFormat) {
@@ -2988,6 +3110,16 @@ class MaintenanceApp {
             blankLines: blankLineResult.changed,
             autoBreaks: autoBreakChanged
         });
+        if (autoBreakPreviewNodes.length > 0) {
+            requestAnimationFrame(() => autoBreakPreviewNodes.forEach(node => node.classList.add('show')));
+            setTimeout(() => autoBreakPreviewNodes.forEach(node => node.classList.remove('show')), 10000);
+            setTimeout(() => {
+                autoBreakPreviewNodes.forEach(node => {
+                    while (node.firstChild) node.parentNode?.insertBefore(node.firstChild, node);
+                    node.remove();
+                });
+            }, 10400);
+        }
         return true;
     }
 
@@ -3000,6 +3132,10 @@ class MaintenanceApp {
             ? `貼り付けを整形しました: ${changedLabels.join(' / ')}`
             : '貼り付けました';
         this.setShiftNotebookStatus(message, changedLabels.length ? 'saved' : 'moved');
+        const extraAction = result.autoBreaks ? {
+            label: '改行だけ戻す',
+            callback: () => this.removeShiftNoteAutoBreaks(editor)
+        } : null;
         this.showUndoNotice(message, () => {
             if (!editor) return;
             editor.innerHTML = previousHtml;
@@ -3009,7 +3145,31 @@ class MaintenanceApp {
             this.autoSaveShiftNotebook(true);
             this.setShiftNotebookStatus('貼り付けを取り消しました', 'moved');
             editor.focus();
-        }, null, document.getElementById('modal-container') || document.body, 'paste-format');
+        }, null, document.getElementById('modal-container') || document.body, 'paste-format', {
+            duration: result.autoBreaks ? 10 : 5,
+            extraAction
+        });
+    }
+
+    removeShiftNoteAutoBreaks(editor) {
+        if (!editor) return;
+        editor.querySelectorAll('.shift-paste-autobreak-preview').forEach(node => {
+            while (node.firstChild) node.parentNode?.insertBefore(node.firstChild, node);
+            node.remove();
+        });
+        const breaks = Array.from(editor.querySelectorAll('br[data-shift-auto-break="true"]'));
+        if (breaks.length === 0) {
+            this.setShiftNotebookStatus('戻せる自動改行はありません', 'moved');
+            return;
+        }
+        breaks.forEach(br => br.remove());
+        this.cleanupShiftNoteEmptySpans(editor);
+        this.resizeShiftNoteEditor(editor);
+        requestAnimationFrame(() => this.resizeShiftNoteEditor(editor));
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        this.autoSaveShiftNotebook(true);
+        this.setShiftNotebookStatus(`${breaks.length}件の自動改行を戻しました`, 'saved');
+        editor.focus();
     }
 
     insertShiftNoteAutoLineBreaksAtPeriods(holder, editor) {
@@ -3019,34 +3179,74 @@ class MaintenanceApp {
         const punctuation = Array.from(settings.punctuation || '。');
         if (punctuation.length === 0) return false;
         const computed = window.getComputedStyle(editor);
-        const contentWidth = editor.clientWidth
-            - (parseFloat(computed.paddingLeft) || 0)
-            - (parseFloat(computed.paddingRight) || 0);
-        const limit = Math.max(80, contentWidth * (settings.ratioPercent / 100));
-        if (!Number.isFinite(limit) || limit <= 0) return false;
-
         const probe = document.createElement('span');
-        probe.style.position = 'fixed';
-        probe.style.left = '-99999px';
-        probe.style.top = '-99999px';
+        probe.setAttribute('contenteditable', 'false');
+        probe.setAttribute('aria-hidden', 'true');
+        probe.style.display = 'block';
         probe.style.visibility = 'hidden';
-        probe.style.whiteSpace = 'pre';
+        probe.style.pointerEvents = 'none';
+        probe.style.whiteSpace = 'pre-wrap';
+        probe.style.wordBreak = computed.wordBreak;
+        probe.style.overflowWrap = computed.overflowWrap;
+        probe.style.width = '100%';
+        probe.style.boxSizing = 'border-box';
         probe.style.font = computed.font;
+        probe.style.fontFamily = computed.fontFamily;
+        probe.style.fontSize = computed.fontSize;
+        probe.style.fontWeight = computed.fontWeight;
+        probe.style.lineHeight = computed.lineHeight;
         probe.style.letterSpacing = computed.letterSpacing;
         const formats = this._activeShiftNoteFormats || {};
         if (formats.size) probe.style.fontSize = formats.size;
         if (formats.font) probe.style.fontFamily = formats.font;
-        document.body.appendChild(probe);
+        const probeMarker = document.createElement('span');
+        probeMarker.style.display = 'inline-block';
+        probeMarker.style.width = '0';
+        probeMarker.style.height = '1em';
+        probeMarker.style.overflow = 'hidden';
+        editor.appendChild(probe);
+
+        const getLineMetrics = (text) => {
+            probe.replaceChildren(document.createTextNode(text || ''), probeMarker);
+            const range = document.createRange();
+            if (probe.firstChild) range.selectNodeContents(probe.firstChild);
+            const rects = Array.from(range.getClientRects()).filter(rect => rect.width > 0);
+            range.detach?.();
+            const editorRect = editor.getBoundingClientRect();
+            const markerRect = probeMarker.getBoundingClientRect();
+            return {
+                lineCount: Math.max(1, rects.length),
+                progress: markerRect && editorRect.width
+                    ? Math.max(0, Math.min(1, (markerRect.left - editorRect.left) / editorRect.width))
+                    : 0
+            };
+        };
 
         let lineText = '';
         let changed = false;
-        const fallbackBreakChars = new Set(['、', ',', '，', ' ', '\u3000']);
-        const measure = (text) => {
-            probe.textContent = text || '';
-            return probe.getBoundingClientRect().width;
-        };
-        const appendPart = (fragment, text) => {
-            if (text) fragment.appendChild(document.createTextNode(text));
+        const previewNodes = [];
+        holder._shiftAutoBreakPreviewNodes = previewNodes;
+        const breakRatio = settings.ratioPercent / 100;
+        const editorRect = editor.getBoundingClientRect();
+        const fontSizePx = Number.parseFloat(probe.style.fontSize || computed.fontSize) || 16;
+        const breakAfterLineMargin = editorRect.width
+            ? Math.min(0.08, Math.max(0.018, (fontSizePx * 1.2) / editorRect.width))
+            : 0.025;
+        const appendPart = (fragment, text, highlightTail = false) => {
+            if (!text) return;
+            if (!highlightTail) {
+                fragment.appendChild(document.createTextNode(text));
+                return;
+            }
+            const tailLength = Math.min(14, text.length);
+            const head = text.slice(0, -tailLength);
+            const tail = text.slice(-tailLength);
+            if (head) fragment.appendChild(document.createTextNode(head));
+            const marker = document.createElement('span');
+            marker.className = 'shift-paste-autobreak-preview';
+            marker.textContent = tail;
+            previewNodes.push(marker);
+            fragment.appendChild(marker);
         };
         const splitTextNode = (node) => {
             const text = node.textContent || '';
@@ -3064,27 +3264,20 @@ class MaintenanceApp {
                     continue;
                 }
                 part += char;
-                const candidateLineText = lineText + char;
-                const candidateWidth = measure(candidateLineText);
-                lineText = lineText && candidateWidth > contentWidth ? char : candidateLineText;
-                if (punctuation.includes(char) && measure(lineText) >= limit) {
-                    appendPart(fragment, part);
-                    fragment.appendChild(document.createElement('br'));
+                const candidate = lineText + char;
+                const metrics = getLineMetrics(candidate);
+                if (metrics.lineCount > 1) {
+                    lineText = char;
+                    continue;
+                }
+                lineText = candidate;
+                if (punctuation.includes(char) && metrics.progress >= breakRatio + breakAfterLineMargin) {
+                    appendPart(fragment, part, true);
+                    const autoBreak = document.createElement('br');
+                    autoBreak.dataset.shiftAutoBreak = 'true';
+                    fragment.appendChild(autoBreak);
                     part = '';
                     lineText = '';
-                    changed = true;
-                } else if (fallbackBreakChars.has(char) && measure(lineText) >= limit) {
-                    appendPart(fragment, part);
-                    fragment.appendChild(document.createElement('br'));
-                    part = '';
-                    lineText = '';
-                    changed = true;
-                } else if (candidateWidth > contentWidth && lineText === char && part.length > 1) {
-                    const carry = char;
-                    appendPart(fragment, part.slice(0, -carry.length));
-                    fragment.appendChild(document.createElement('br'));
-                    part = carry;
-                    lineText = carry;
                     changed = true;
                 }
             }
@@ -3447,6 +3640,8 @@ class MaintenanceApp {
             <button type="button" class="shift-fullscreen-nav next" ${!hasNext ? 'disabled' : ''}><i class="fa-solid fa-chevron-right"></i></button>
         `;
         document.body.appendChild(overlay);
+        this.updateShiftNotebookLivePasteLines();
+        this.updateShiftNotebookBreakLineVisibility();
 
         const textContainer = overlay.querySelector('.shift-fullscreen-text');
         const contentArea = overlay.querySelector('.shift-fullscreen-content');
@@ -3891,6 +4086,7 @@ class MaintenanceApp {
                 h.errorNo,
                 h.category,
                 h.workTime ? `${h.workTime}分` : '',
+                h.startTime && h.endTime ? `${h.startTime}-${h.endTime}` : '',
                 task?.content
             ].filter(Boolean).join('\n');
             const searchable = `${h.date} ${typeLabel} ${title} ${body} ${machine?.name || ''} ${machine?.model || ''} ${machine?.lineNo || ''} ${workers}`;
@@ -4231,6 +4427,9 @@ class MaintenanceApp {
                             <i class="fa-solid fa-plus"></i> 行を追加
                         </button>
                         <span class="shift-toolbar-category">テンプレート</span>
+                        <button type="button" class="secondary-btn shift-clear-all-rows-btn" onclick="app.clearShiftNotebookRows()" title="現在表示中の全ての行を削除します">
+                            <i class="fa-solid fa-trash-can"></i> 一括削除
+                        </button>
                         <select id="shift-row-template-select" class="shift-row-template-select" onchange="app.addShiftNotebookRowFromTemplate(this.value); this.value=''">
                             ${this.getShiftRowTemplateOptions()}
                         </select>
@@ -4256,16 +4455,26 @@ class MaintenanceApp {
                 <div id="shift-notebook-rows" class="shift-notebook-rows"></div>
             `;
 
+            document.querySelector('.shift-notebook-toolbar-actions')?.insertAdjacentHTML('beforeend', this.getShiftNotebookLivePasteRulerHtml());
+            this.updateShiftNotebookLivePasteLines();
+            this.updateShiftNotebookBreakLineVisibility();
+
             const rowContainerId = 'shift-notebook-rows';
-            if (rows.length === 0) {
+            if (rows.length > 0) {
                 this.addShiftNotebookRow(rowContainerId, '', [], '通常', '未設定', '', false, false);
-            } else {
+                document.querySelector('#shift-notebook-rows .shift-notebook-row:last-child')?.remove();
                 const sortableRows = rows.map((row, index) => ({ ...row, _sourceIndex: index }));
                 this.sortShiftNotebookRows(sortableRows).forEach(row => {
                     const rowEl = this.addShiftNotebookRow(rowContainerId, row.text || '', row.photos || [], row.tag || '通常', row.group || '未設定', row.html || '', !!row.hidden, true, row.id || '', row.replyTo || '', !!row.important, row.pasteFormat || null);
                     if (rowEl) rowEl.dataset.shiftSourceIndex = String(row._sourceIndex);
+                    if (rowEl && row.suddenRegistered) {
+                        rowEl.classList.add('shift-row-sudden-registered');
+                        rowEl.dataset.suddenRegistered = 'true';
+                        if (row.suddenHistoryId) rowEl.dataset.suddenHistoryId = row.suddenHistoryId;
+                    }
                 });
             }
+            this.updateShiftNotebookLivePasteLines();
             this.updateShiftNotebookGroupCorners();
             this.updateShiftNotebookHiddenRows();
             this.updateShiftNotebookRowMenuVisibility();
@@ -4472,19 +4681,29 @@ class MaintenanceApp {
         }, 1400);
     }
 
-    showUndoNotice(message, undoCallback, expireCallback, container = document.body, variant = '') {
+    showUndoNotice(message, undoCallback, expireCallback, container = document.body, variant = '', options = {}) {
         if (!container) return;
         container.querySelectorAll('.shift-notebook-undo-toast').forEach(el => el.remove());
         const toast = document.createElement('div');
         toast.className = `shift-notebook-undo-toast ${variant}`.trim();
         const icon = variant === 'paste-format' ? 'fa-rotate-left' : 'fa-trash-can';
+        const duration = Math.max(1, Number(options.duration) || 5);
+        const extraAction = options.extraAction || null;
         toast.innerHTML = `
             <span><i class="fa-solid ${icon}"></i> ${this.escapeHtml(message)}</span>
             <span class="undo-countdown">5秒</span>
             <button type="button">取り消す</button>
         `;
         const countdown = toast.querySelector('.undo-countdown');
-        let remaining = 5;
+        if (countdown) countdown.textContent = `${duration}秒`;
+        if (extraAction) {
+            const extraButton = document.createElement('button');
+            extraButton.type = 'button';
+            extraButton.className = 'undo-extra-action';
+            extraButton.textContent = extraAction.label || '実行';
+            countdown?.after(extraButton);
+        }
+        let remaining = duration;
         const interval = setInterval(() => {
             remaining -= 1;
             if (countdown) countdown.textContent = `${Math.max(0, remaining)}秒`;
@@ -4495,8 +4714,14 @@ class MaintenanceApp {
             toast.classList.remove('show');
             setTimeout(() => toast.remove(), 220);
             expireCallback?.();
-        }, 5000);
-        toast.querySelector('button')?.addEventListener('click', () => {
+        }, duration * 1000);
+        toast.querySelector('.undo-extra-action')?.addEventListener('click', () => {
+            clearTimeout(timer);
+            clearInterval(interval);
+            toast.remove();
+            extraAction?.callback?.();
+        });
+        toast.querySelector('button:not(.undo-extra-action)')?.addEventListener('click', () => {
             clearTimeout(timer);
             clearInterval(interval);
             toast.remove();
@@ -4531,6 +4756,8 @@ class MaintenanceApp {
             photos,
             hidden: !!row.querySelector('.shift-row-hide-checkbox')?.checked,
             important: row.classList.contains('shift-row-important'),
+            suddenRegistered: row.dataset.suddenRegistered === 'true',
+            suddenHistoryId: row.dataset.suddenHistoryId || '',
             pasteFormat
         };
     }
@@ -5777,7 +6004,12 @@ class MaintenanceApp {
         const row = document.createElement('div');
         row.className = 'shift-notebook-row';
         if (important) row.classList.add('shift-row-important');
+        const suddenRegistered = !!arguments[12];
+        const suddenHistoryId = arguments[13] || '';
+        if (suddenRegistered) row.classList.add('shift-row-sudden-registered');
         row.dataset.shiftRowId = rowId;
+        if (suddenRegistered) row.dataset.suddenRegistered = 'true';
+        if (suddenHistoryId) row.dataset.suddenHistoryId = suddenHistoryId;
         if (replyTo) {
             row.dataset.replyTo = replyTo;
             row.classList.add('shift-reply-row');
@@ -5788,6 +6020,7 @@ class MaintenanceApp {
         row.innerHTML = `
             <div class="shift-row-group-heading"></div>
             <div class="shift-important-stamp" aria-hidden="true">重要</div>
+            <div class="shift-sudden-registered-stamp" aria-hidden="true">突発対応登録済</div>
             <div class="shift-notebook-line">
                 <button type="button" class="icon-btn shift-row-drag-handle" title="ドラッグして行を上下に移動" draggable="true"><i class="fa-solid fa-arrows-up-down"></i></button>
                 <select class="shift-row-group-select" onchange="app.onShiftNotebookRowGroupChange(this)">
@@ -5860,17 +6093,19 @@ class MaintenanceApp {
                         <button type="button" class="shift-row-shift-stamp early" title="カーソル位置に早番スタンプ" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.insertShiftNoteShiftStamp(this, 'early')">早</button>
                         <button type="button" class="shift-row-shift-stamp late" title="カーソル位置に遅番スタンプ" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.insertShiftNoteShiftStamp(this, 'late')">遅</button>
                         <button type="button" class="shift-row-shift-stamp night" title="カーソル位置に深夜番スタンプ" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.insertShiftNoteShiftStamp(this, 'night')">深</button>
-                        <button type="button" class="icon-btn shift-row-reply" title="この行へリプライ" onclick="app.addShiftNotebookReplyRow(this)"><i class="fa-solid fa-reply"></i></button>
-                        <button type="button" class="icon-btn shift-row-todo-request" title="この行をToDoへ依頼" onclick="app.openShiftRowTodoRequest(this)">依</button>
-                        <button type="button" class="icon-btn shift-row-important-btn ${important ? 'active' : ''}" title="重要スタンプ" onclick="app.toggleShiftNotebookRowImportant(this)">重</button>
+                        <button type="button" class="icon-btn shift-row-reply shift-action-input" title="この行へリプライ" onclick="app.addShiftNotebookReplyRow(this)"><i class="fa-solid fa-reply"></i></button>
+                        <button type="button" class="icon-btn shift-row-todo-request shift-action-input" title="この行をToDoへ依頼" onclick="app.openShiftRowTodoRequest(this)">依</button>
+                        <button type="button" class="icon-btn shift-row-important-btn shift-action-mark ${important ? 'active' : ''}" title="重要スタンプ" onclick="app.toggleShiftNotebookRowImportant(this)">重</button>
                         <button type="button" class="icon-btn shift-row-reply-toggle" title="返信を表示/折りたたみ" onclick="app.toggleShiftNotebookReplies(this)" hidden><i class="fa-solid fa-chevron-down"></i><span class="shift-row-reply-count">0</span></button>
-                        <button type="button" class="icon-btn shift-row-responder" title="返信者スタンプ" onclick="app.toggleShiftResponderMenu(this)"><i class="fa-solid fa-user-pen"></i></button>
-                        <button type="button" class="icon-btn shift-row-check-insert" title="カーソル位置に✅を挿入" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.insertShiftNoteCheckMark(this)">✅</button>
+                        <button type="button" class="icon-btn shift-row-responder shift-action-input" title="返信者スタンプ" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.toggleShiftResponderMenu(this)"><i class="fa-solid fa-user-pen"></i></button>
+                        <button type="button" class="icon-btn shift-row-check-insert shift-action-mark" title="カーソル位置に✅を挿入" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.insertShiftNoteCheckMark(this)">✅</button>
                     </div>
                     <div class="shift-row-action-strip">
-                        <button type="button" class="icon-btn shift-row-fullscreen" title="フルスクリーン表示" onclick="app.openShiftNoteFullscreen(this)"><i class="fa-solid fa-expand"></i></button>
-                        <button type="button" class="icon-btn shift-row-paste-settings" title="この行の貼り付け整形" onclick="app.openShiftNoteRowPasteSettings(this)"><i class="fa-solid fa-paste"></i></button>
-                        <button type="button" class="icon-btn shift-row-trim-blank-lines" title="空白行を削除" onclick="app.removeShiftNoteBlankLines(this)"><i class="fa-solid fa-align-justify"></i></button>
+                        <button type="button" class="icon-btn shift-row-add-below shift-action-structure" title="この行の下に新規行を追加" onclick="app.addShiftNotebookRowBelow(this)"><i class="fa-solid fa-plus"></i></button>
+                        <button type="button" class="icon-btn shift-row-fullscreen shift-action-view" title="フルスクリーン表示" onclick="app.openShiftNoteFullscreen(this)"><i class="fa-solid fa-expand"></i></button>
+                        <button type="button" class="icon-btn shift-row-paste-settings shift-action-organize" title="この行の貼り付け整形" onclick="app.openShiftNoteRowPasteSettings(this)"><i class="fa-solid fa-paste"></i></button>
+                        <button type="button" class="icon-btn shift-row-break-line-toggle shift-action-view" title="改行ラインを非表示" onclick="app.toggleShiftNotebookBreakLine()"><i class="fa-solid fa-eye-slash"></i></button>
+                        <button type="button" class="icon-btn shift-row-trim-blank-lines shift-action-organize" title="空白行を削除" onclick="app.removeShiftNoteBlankLines(this)"><i class="fa-solid fa-align-justify"></i></button>
                         <button type="button" class="icon-btn shift-row-delete" title="この行を削除"><i class="fa-solid fa-trash-can"></i></button>
                         <label class="shift-row-hide-toggle" title="引継ぎ時にあえて伝えなくてよい行へチェックします。上部の非表示ボタンで、チェックした行だけ一時的に隠せます。" aria-label="非表示対象">
                             <input type="checkbox" class="shift-row-hide-checkbox" ${hidden ? 'checked' : ''}>
@@ -5890,7 +6125,32 @@ class MaintenanceApp {
             </div>
         `;
         container.appendChild(row);
+        const suddenButton = document.createElement('button');
+        suddenButton.type = 'button';
+        suddenButton.className = 'icon-btn shift-row-sudden-register shift-action-input';
+        suddenButton.title = 'この行を突発対応として登録';
+        suddenButton.textContent = '登';
+        suddenButton.onclick = () => this.openSuddenRecordFromShiftRow(suddenButton);
+        row.querySelector('.shift-row-important-btn')?.insertAdjacentElement('beforebegin', suddenButton);
+        const suddenStamp = row.querySelector('.shift-sudden-registered-stamp');
+        if (suddenStamp) {
+            suddenStamp.removeAttribute('aria-hidden');
+            suddenStamp.setAttribute('role', 'button');
+            suddenStamp.setAttribute('tabindex', '0');
+            suddenStamp.title = '該当のメンテナンス記録を編集';
+            suddenStamp.onclick = () => this.openShiftSuddenRegisteredHistory(row);
+            suddenStamp.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    this.openShiftSuddenRegisteredHistory(row);
+                }
+            };
+        }
         this.updateShiftNoteRowPasteButton(row);
+        this.updateShiftNotebookBreakLineVisibility();
+        const rowEditor = row.querySelector('.shift-note-text');
+        rowEditor?.style.setProperty('--shift-break-line', `${this.getShiftNotePasteFormatSettings().ratioPercent}%`);
+        requestAnimationFrame(() => this.positionShiftSuddenRegisteredStamp(row));
 
         const preview = row.querySelector('.shift-photo-previews');
         const editor = row.querySelector('.shift-note-text');
@@ -6372,6 +6632,90 @@ class MaintenanceApp {
         this.autoSaveShiftNotebook(true);
     }
 
+    openSuddenRecordFromShiftRow(button) {
+        const row = button?.closest('.shift-notebook-row');
+        const editor = row?.querySelector('.shift-note-text');
+        const html = this.sanitizeShiftNoteHtml(editor?.innerHTML || '');
+        const content = this.stripShiftNoteHtml(html).trim();
+        if (!row || !content) {
+            this.setShiftNotebookStatus('突発登録する行の内容を入力してください', 'error');
+            editor?.focus();
+            return;
+        }
+        const editing = this._editingShiftNotebook;
+        if (!editing?.dateStr || !editing?.shift) return;
+        row.dataset.preserveBlank = 'true';
+        this.saveShiftNotebook(editing.dateStr, editing.shift, { close: false, render: false, status: false });
+        this._pendingShiftSuddenRegistration = {
+            dateStr: editing.dateStr,
+            shift: editing.shift,
+            rowId: row.dataset.shiftRowId || '',
+            content
+        };
+        this.openSuddenRecordModal(editing.dateStr, { content });
+    }
+
+    positionShiftSuddenRegisteredStamp(row) {
+        const stamp = row?.querySelector('.shift-sudden-registered-stamp');
+        const editor = row?.querySelector('.shift-note-text');
+        if (!row || !stamp || !editor) return;
+        if (!row.classList.contains('shift-row-sudden-registered')) return;
+        const rowRect = row.getBoundingClientRect();
+        const editorRect = editor.getBoundingClientRect();
+        const stampWidth = stamp.offsetWidth || 116;
+        stamp.style.left = `${Math.max(0, editorRect.right - rowRect.left - stampWidth - 14)}px`;
+        stamp.style.top = `${editorRect.top - rowRect.top - 17}px`;
+    }
+
+    openShiftSuddenRegisteredHistory(row) {
+        const historyId = row?.dataset.suddenHistoryId || '';
+        if (!historyId) {
+            this.setShiftNotebookStatus('該当する突発対応記録が見つかりません', 'error');
+            return;
+        }
+        this.closeModal();
+        this.openHistoryEditForm(historyId);
+    }
+
+    markShiftNotebookRowSuddenRegistered(historyId = '') {
+        const source = this._pendingShiftSuddenRegistration;
+        this._pendingShiftSuddenRegistration = null;
+        if (!source?.dateStr || !source?.shift || !source?.rowId) return;
+        const dayData = store.activeData.shiftNotebooks?.[source.dateStr];
+        const buckets = [dayData?.[source.shift]?.rows, dayData?.sharedRows].filter(Array.isArray);
+        const row = buckets.flat().find(item => item.id === source.rowId);
+        if (!row) return;
+        row.suddenRegistered = true;
+        row.suddenHistoryId = historyId || row.suddenHistoryId || '';
+        store.save();
+    }
+
+    clearShiftNotebookRows() {
+        const container = document.getElementById('shift-notebook-rows');
+        if (!container) return;
+        const rows = Array.from(container.querySelectorAll('.shift-notebook-row'));
+        if (rows.length === 0) {
+            this.setShiftNotebookStatus('削除する行はありません', 'moved');
+            return;
+        }
+        if (!confirm(`現在表示中の${rows.length}行を全て削除します。よろしいですか？`)) return;
+        const rowDataList = rows.map(row => this.getShiftNotebookRowDataFromElement(row)).filter(Boolean);
+        rows.forEach(row => row.remove());
+        this.updateShiftNotebookGroupCorners();
+        this.autoSaveShiftNotebook(true);
+        this.setShiftNotebookStatus(`${rowDataList.length}行を一括削除しました`, 'saved');
+        this.showShiftNotebookUndoNotice(`${rowDataList.length}行を一括削除しました`, () => {
+            this.restoreShiftNotebookRowsFromData('shift-notebook-rows', rowDataList);
+            this.updateShiftNotebookGroupCorners();
+            this.updateShiftNotebookHiddenRows();
+            this.updateShiftNotebookRowMenuVisibility();
+            this.autoSaveShiftNotebook(true);
+            requestAnimationFrame(() => {
+                document.querySelectorAll('#shift-notebook-rows .shift-notebook-row').forEach(row => this.positionShiftImportantStamp(row));
+            });
+        });
+    }
+
     addShiftNotebookRowBelow(button) {
         const currentRow = button?.matches?.('.shift-notebook-row')
             ? button
@@ -6461,7 +6805,7 @@ class MaintenanceApp {
         if (!container || !Array.isArray(rowsData)) return;
         const restoredRows = [];
         rowsData.forEach(data => {
-            const restored = this.addShiftNotebookRow(containerId, data.text, data.photos, data.tag, data.group, data.html, data.hidden, true, data.id, data.replyTo, !!data.important, data.pasteFormat || null);
+            const restored = this.addShiftNotebookRow(containerId, data.text, data.photos, data.tag, data.group, data.html, data.hidden, true, data.id, data.replyTo, !!data.important, data.pasteFormat || null, !!data.suddenRegistered, data.suddenHistoryId || '');
             if (restored) restoredRows.push(restored);
         });
         const anchor = beforeNode && beforeNode.parentNode === container ? beforeNode : null;
@@ -6569,6 +6913,7 @@ class MaintenanceApp {
     }
 
     toggleShiftResponderMenu(button) {
+        this.rememberShiftNoteSelection(button);
         const row = button?.closest('.shift-notebook-row');
         const panel = row?.querySelector('.shift-responder-menu');
         if (!row || !panel) return;
@@ -6577,7 +6922,7 @@ class MaintenanceApp {
         if (isOpen) return;
         const names = this.getShiftResponderNamesByFrequency().filter(item => item.type !== 'support');
         panel.innerHTML = names.length
-            ? names.map(item => `<button type="button" onclick="app.insertShiftResponderStamp(this, '${this.escapeJs(item.name)}')">${this.escapeHtml(item.name)}<small>${item.count}</small></button>`).join('')
+            ? names.map(item => `<button type="button" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.insertShiftResponderStamp(this, '${this.escapeJs(item.name)}')">${this.escapeHtml(item.name)}<small>${item.count}</small></button>`).join('')
             : '<div class="shift-responder-empty">基幹社員の人名がありません</div>';
         panel.classList.add('open');
     }
@@ -6949,8 +7294,10 @@ class MaintenanceApp {
                 const caption = item.querySelector('.shift-photo-caption')?.value.trim() || '';
                 return caption ? { src, caption } : src;
             }).filter(photo => typeof photo === 'string' ? !!photo : !!photo.src);
-            return { id: row.dataset.shiftRowId || '', replyTo: row.dataset.replyTo || '', group, tag, text, html, photos, hidden, important, pasteFormat, index, element: row };
-        }).filter(row => row.text || row.photos.length > 0 || row.important || row.element.dataset.preserveBlank === 'true' || row.element.querySelector('.shift-note-text') === document.activeElement);
+            const suddenRegistered = row.dataset.suddenRegistered === 'true';
+            const suddenHistoryId = row.dataset.suddenHistoryId || '';
+            return { id: row.dataset.shiftRowId || '', replyTo: row.dataset.replyTo || '', group, tag, text, html, photos, hidden, important, suddenRegistered, suddenHistoryId, pasteFormat, index, element: row };
+        }).filter(row => row.text || row.photos.length > 0 || row.important || row.suddenRegistered || row.element.dataset.preserveBlank === 'true' || row.element.querySelector('.shift-note-text') === document.activeElement);
     }
 
     sortShiftNotebookRowsInDom() {
@@ -7910,7 +8257,8 @@ class MaintenanceApp {
         badge.classList.toggle('hidden', (parseInt(input.value) || 0) !== 0);
     }
 
-    openSuddenRecordModal(defaultDate = null) {
+    openSuddenRecordModal(defaultDate = null, prefill = null) {
+        if (!prefill) this._pendingShiftSuddenRegistration = null;
         const machines = store.getMachines();
         const dateVal = defaultDate || new Date().toISOString().split('T')[0];
         const lastMachineCategory = store.getLastSuddenCategory();
@@ -8003,17 +8351,27 @@ class MaintenanceApp {
                         </label>
                     </div>
 
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
-                        <div class="form-group">
-                            <label>エラー番号</label>
-                            <input type="text" id="s-error-no" placeholder="例: E-01" list="s-list-model-error-nos">
-                            <div id="s-error-no-suggestions" class="suggestion-area"></div>
-                        </div>
+                    <div class="form-group">
+                        <label>エラー番号</label>
+                        <input type="text" id="s-error-no" placeholder="例: E-01" list="s-list-model-error-nos">
+                        <div id="s-error-no-suggestions" class="suggestion-area"></div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px;">
                         <div class="form-group">
                             <label>作業時間 (分) <span style="color:var(--danger)">*</span></label>
                             <input type="number" id="s-work-time" placeholder="例: 30" min="0" required>
                         </div>
+                        <div class="form-group">
+                            <label>開始時間 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">任意</span></label>
+                            <input type="time" id="s-start-time">
+                        </div>
+                        <div class="form-group">
+                            <label>終了時間 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">任意</span></label>
+                            <input type="time" id="s-end-time">
+                        </div>
                     </div>
+                    <div id="s-time-status" class="maintenance-time-status"></div>
 
                     <div class="form-group">
                         <label>対応種別 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">※「初回」のみスキルマップの集計対象になります</span></label>
@@ -8029,19 +8387,19 @@ class MaintenanceApp {
 
                     <div class="form-group">
                         <label>症状・故障内容 <span style="color:var(--danger)">*</span></label>
-                        <textarea id="s-content" rows="2" placeholder="どのような異常が発生したか記入してください" required></textarea>
+                        <textarea id="s-content" class="sudden-detail-textarea" rows="6" placeholder="どのような異常が発生したか記入してください" required></textarea>
                         <div id="s-content-suggestions" class="suggestion-area"></div>
                     </div>
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                         <div class="form-group">
                             <label>原因</label>
-                            <textarea id="s-cause" rows="3" placeholder="故障の根本原因" list="s-list-model-causes"></textarea>
+                            <textarea id="s-cause" class="sudden-detail-textarea" rows="9" placeholder="故障の根本原因" list="s-list-model-causes"></textarea>
                             <div id="s-cause-suggestions" class="suggestion-area"></div>
                         </div>
                         <div class="form-group">
                             <label>処置・対応内容</label>
-                            <textarea id="s-notes" rows="3" placeholder="どのような修理・処置を行ったか" list="s-list-model-treatments"></textarea>
+                            <textarea id="s-notes" class="sudden-detail-textarea" rows="9" placeholder="どのような修理・処置を行ったか" list="s-list-model-treatments"></textarea>
                             <div id="s-notes-suggestions" class="suggestion-area"></div>
                         </div>
                     </div>
@@ -8095,6 +8453,35 @@ class MaintenanceApp {
                     </div>
                 </form>
             `;
+            this.setupAutoResizeTextareas('#sudden-form .sudden-detail-textarea');
+            this.setupSuddenTimeAutoCalc();
+            if (prefill?.content) {
+                const content = document.getElementById('s-content');
+                if (content) {
+                    content.value = prefill.content;
+                    this.autoResizeTextarea(content);
+                    content.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+        });
+    }
+
+    autoResizeTextarea(textarea) {
+        if (!textarea) return;
+        if (!textarea.dataset.minHeight) {
+            textarea.dataset.minHeight = String(textarea.offsetHeight || textarea.scrollHeight || 0);
+        }
+        const minHeight = Number(textarea.dataset.minHeight) || 0;
+        textarea.style.height = 'auto';
+        textarea.style.height = `${Math.max(minHeight, textarea.scrollHeight)}px`;
+    }
+
+    setupAutoResizeTextareas(selector) {
+        document.querySelectorAll(selector).forEach(textarea => {
+            textarea.style.overflowY = 'hidden';
+            textarea.dataset.minHeight = String(textarea.offsetHeight || textarea.scrollHeight || 0);
+            textarea.addEventListener('input', () => this.autoResizeTextarea(textarea));
+            requestAnimationFrame(() => this.autoResizeTextarea(textarea));
         });
     }
 
@@ -8153,10 +8540,13 @@ class MaintenanceApp {
 
         // Populate fields
         if (lastRecord.lineNo) document.getElementById(`${prefix}line-no`).value = lastRecord.lineNo;
-        if (lastRecord.errorContent) document.getElementById(`${prefix}content`).value = lastRecord.errorContent;
+        const contentField = document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`);
+        if (lastRecord.errorContent && contentField) contentField.value = lastRecord.errorContent;
         if (lastRecord.cause) document.getElementById(`${prefix}cause`).value = lastRecord.cause;
         if (lastRecord.notes) document.getElementById(`${prefix}notes`).value = lastRecord.notes;
         if (lastRecord.category) document.getElementById(`${prefix}category`).value = lastRecord.category;
+        [contentField, document.getElementById(`${prefix}cause`), document.getElementById(`${prefix}notes`)]
+            .forEach(textarea => this.autoResizeTextarea(textarea));
         
         // Auto-set as recurrence since it's a copy of past event
         const occRadio = document.querySelector(`input[name="${prefix}occurrence"][value="recurrence"]`);
@@ -8237,19 +8627,24 @@ class MaintenanceApp {
             const archived = (store.activeData.archivedSuggestions && store.activeData.archivedSuggestions[kind]) || [];
             return [...new Set(list)].filter(v => v !== undefined && v !== null && v !== '' && !archived.includes(v)).sort();
         };
+        const countValues = (list) => list.reduce((acc, value) => {
+            if (value !== undefined && value !== null && value !== '') acc[value] = (acc[value] || 0) + 1;
+            return acc;
+        }, {});
 
         const errorNos = getUnique(modelHistory.map(h => h.errorNo), 'errorNo');
         const contents = getUnique(modelHistory.map(h => h.errorContent), 'content');
         const causes = getUnique(modelHistory.map(h => h.cause), 'cause');
         const treatments = getUnique(modelHistory.map(h => h.notes), 'notes');
 
-        const inject = (id, vals, targetId) => {
+        const inject = (id, vals, targetId, counts = {}) => {
             const el = document.getElementById(id);
             if (!el) return;
             if (vals.length === 0) {
                 el.innerHTML = '';
                 return;
             }
+            const rankedVals = vals.slice().sort((a, b) => (counts[b] || 0) - (counts[a] || 0) || String(a).localeCompare(String(b), 'ja'));
             if (id.includes('suggestions')) {
                 // Badge style
                 const kind = targetId.replace(/^[se]-/, '').replace(/-([a-z])/g, g => g[1].toUpperCase()); // e.g. "error-no" -> "errorNo"
@@ -8258,10 +8653,11 @@ class MaintenanceApp {
                         <i class="fa-solid fa-clock-rotate-left"></i> 過去の記録 (同一型式):
                     </div>
                     <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                        ${vals.slice(0, 10).map(v => `
+                        ${rankedVals.slice(0, 10).map(v => `
                             <div class="suggestion-badge" style="display:inline-flex; align-items:stretch; padding:0; overflow:hidden;">
-                                <button type="button" style="background:none; border:none; padding:4px 8px; font-size:inherit; color:inherit; cursor:pointer;" onclick="const t=document.getElementById('${targetId}'); t.value='${v.replace(/'/g, "\\'")}'; t.focus();">
+                                <button type="button" style="background:none; border:none; padding:4px 8px; font-size:inherit; color:inherit; cursor:pointer;" onclick="const t=document.getElementById('${targetId}'); t.value='${v.replace(/'/g, "\\'")}'; app.autoResizeTextarea(t); t.dispatchEvent(new Event('input', { bubbles: true })); t.focus();">
                                     ${String(v).replace(/</g, "&lt;")}
+                                    ${counts[v] ? `<span class="suggestion-count">過去${counts[v]}件</span>` : ''}
                                 </button>
                                 <button type="button" style="background:none; border:none; border-left:1px solid rgba(0,0,0,0.1); padding:0 6px; color:#94a3b8; cursor:pointer;" onclick="app.removeSuggestion('${kind}', '${v.replace(/'/g, "\\'")}', this.parentElement)" title="今後サジェストしない">
                                     <i class="fa-solid fa-xmark"></i>
@@ -8272,20 +8668,55 @@ class MaintenanceApp {
                 `;
             } else {
                 // Datalist style
-                el.innerHTML = vals.map(v => `<option value="${v}">`).join('');
+                el.innerHTML = rankedVals.map(v => `<option value="${v}">`).join('');
             }
         };
 
-        inject(`${prefix}error-no-suggestions`, errorNos, `${prefix}error-no`);
-        inject(`${prefix}content-suggestions`, contents, `${prefix}content`);
-        inject(`${prefix}cause-suggestions`, causes, `${prefix}cause`);
-        inject(`${prefix}notes-suggestions`, treatments, `${prefix}notes`);
-        
+        const symptomTargetId = isEdit ? `${prefix}symptom` : `${prefix}content`;
+        const normalizeText = (value = '') => MaintenanceApp.toHalfWidthLower(String(value || '')).replace(/\s+/g, ' ').trim();
+        const keywordHit = (source, query) => {
+            const normalizedSource = normalizeText(source);
+            const normalizedQuery = normalizeText(query);
+            if (!normalizedQuery) return true;
+            if (normalizedSource.includes(normalizedQuery)) return true;
+            return normalizedQuery
+                .split(/[、。・,.\s]+/)
+                .filter(word => word.length >= 2)
+                .some(word => normalizedSource.includes(word));
+        };
+        const refreshLinkedSuggestions = () => {
+            const symptomValue = document.getElementById(symptomTargetId)?.value || '';
+            const causeValue = document.getElementById(`${prefix}cause`)?.value || '';
+            const symptomMatchedHistory = modelHistory.filter(h => keywordHit(h.errorContent, symptomValue) || keywordHit(`${h.cause || ''} ${h.notes || ''}`, symptomValue));
+            const causeSource = symptomValue.trim() ? symptomMatchedHistory : modelHistory;
+            const treatmentSource = (causeValue.trim()
+                ? causeSource.filter(h => keywordHit(h.cause, causeValue) || keywordHit(h.notes, causeValue))
+                : causeSource);
+            inject(`${prefix}cause-suggestions`, getUnique(causeSource.map(h => h.cause), 'cause'), `${prefix}cause`, countValues(causeSource.map(h => h.cause)));
+            inject(`${prefix}notes-suggestions`, getUnique(treatmentSource.map(h => h.notes), 'notes'), `${prefix}notes`, countValues(treatmentSource.map(h => h.notes)));
+            inject(`${prefix}list-model-causes`, getUnique(causeSource.map(h => h.cause), 'cause'), undefined, countValues(causeSource.map(h => h.cause)));
+            inject(`${prefix}list-model-treatments`, getUnique(treatmentSource.map(h => h.notes), 'notes'), undefined, countValues(treatmentSource.map(h => h.notes)));
+        };
+
+        inject(`${prefix}error-no-suggestions`, errorNos, `${prefix}error-no`, countValues(modelHistory.map(h => h.errorNo)));
+        inject(`${prefix}content-suggestions`, contents, symptomTargetId, countValues(modelHistory.map(h => h.errorContent)));
+        inject(`${prefix}cause-suggestions`, causes, `${prefix}cause`, countValues(modelHistory.map(h => h.cause)));
+        inject(`${prefix}notes-suggestions`, treatments, `${prefix}notes`, countValues(modelHistory.map(h => h.notes)));
+
         // Also update datalists
-        inject(`${prefix}list-model-error-nos`, errorNos);
-        inject(`${prefix}list-model-contents`, contents);
-        inject(`${prefix}list-model-causes`, causes);
-        inject(`${prefix}list-model-treatments`, treatments);
+        inject(`${prefix}list-model-error-nos`, errorNos, undefined, countValues(modelHistory.map(h => h.errorNo)));
+        inject(`${prefix}list-model-contents`, contents, undefined, countValues(modelHistory.map(h => h.errorContent)));
+        inject(`${prefix}list-model-causes`, causes, undefined, countValues(modelHistory.map(h => h.cause)));
+        inject(`${prefix}list-model-treatments`, treatments, undefined, countValues(modelHistory.map(h => h.notes)));
+
+        [document.getElementById(symptomTargetId), document.getElementById(`${prefix}cause`)].forEach(input => {
+            if (!input) return;
+            input.oninput = () => {
+                this.autoResizeTextarea(input);
+                refreshLinkedSuggestions();
+            };
+        });
+        refreshLinkedSuggestions();
     }
 
 
@@ -8443,7 +8874,7 @@ class MaintenanceApp {
 
                     <div class="form-group">
                         <label>症状・故障内容 <span style="color:var(--danger)">*</span></label>
-                        <textarea id="e-symptom" rows="2" placeholder="どのような異常が発生したか記入してください" required>${h.errorContent || ''}</textarea>
+                        <textarea id="e-symptom" class="sudden-detail-textarea" rows="6" placeholder="どのような異常が発生したか記入してください" required>${h.errorContent || ''}</textarea>
                     </div>
 
                     <div class="form-group">
@@ -8479,12 +8910,12 @@ class MaintenanceApp {
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                         <div class="form-group">
                             <label>原因</label>
-                            <textarea id="e-cause" rows="3" placeholder="故障の根本原因" list="e-list-model-causes">${h.cause || ''}</textarea>
+                            <textarea id="e-cause" class="sudden-detail-textarea" rows="9" placeholder="故障の根本原因" list="e-list-model-causes">${h.cause || ''}</textarea>
                             <div id="e-cause-suggestions" class="suggestion-area"></div>
                         </div>
                         <div class="form-group">
                             <label>処置・対応内容</label>
-                            <textarea id="e-notes" rows="3" placeholder="どのような修理・処置を行ったか" list="e-list-model-treatments">${h.notes || ''}</textarea>
+                            <textarea id="e-notes" class="sudden-detail-textarea" rows="9" placeholder="どのような修理・処置を行ったか" list="e-list-model-treatments">${h.notes || ''}</textarea>
                             <div id="e-notes-suggestions" class="suggestion-area"></div>
                         </div>
                     </div>
@@ -8548,10 +8979,120 @@ class MaintenanceApp {
             `;
             const saveBtn = document.getElementById('modal-save-btn');
             if (saveBtn) saveBtn.onclick = () => this.saveModalData('edit-history');
+            const workTimeField = document.getElementById('e-work-time');
+            if (workTimeField) {
+                const timeRow = document.createElement('div');
+                const workTimeGroup = workTimeField.closest('.form-group');
+                const sourceGrid = workTimeField.closest('div[style*="grid-template-columns"]');
+                timeRow.style.cssText = 'display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px;';
+                timeRow.innerHTML = `
+                    <div class="form-group">
+                        <label>開始時間 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">任意</span></label>
+                        <input type="time" id="e-start-time" value="${h.startTime || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label>終了時間 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">任意</span></label>
+                        <input type="time" id="e-end-time" value="${h.endTime || ''}">
+                    </div>
+                `;
+                if (workTimeGroup) timeRow.prepend(workTimeGroup);
+                sourceGrid?.insertAdjacentElement('afterend', timeRow);
+                timeRow.insertAdjacentHTML('afterend', '<div id="e-time-status" class="maintenance-time-status"></div>');
+                this.setupEditHistoryTimeAutoCalc();
+            }
+            this.setupAutoResizeTextareas('#edit-history-form .sudden-detail-textarea');
 
             // Trigger initial suggestions for the selected machine
             this.onSuddenMachineChange(h.machineId, true);
         });
+    }
+
+    setupEditHistoryTimeAutoCalc() {
+        this.setupMaintenanceTimeAutoCalc('e');
+    }
+
+    setupSuddenTimeAutoCalc() {
+        this.setupMaintenanceTimeAutoCalc('s');
+    }
+
+    setupMaintenanceTimeAutoCalc(prefix) {
+        const workTimeField = document.getElementById(`${prefix}-work-time`);
+        const startField = document.getElementById(`${prefix}-start-time`);
+        const endField = document.getElementById(`${prefix}-end-time`);
+        const status = document.getElementById(`${prefix}-time-status`);
+        if (!workTimeField || !startField || !endField) return;
+
+        const updateStatus = (minutes = null) => {
+            if (!status) return;
+            const hasStart = !!startField.value;
+            const hasEnd = !!endField.value;
+            status.className = 'maintenance-time-status';
+            if (hasStart !== hasEnd) {
+                status.textContent = '開始時間と終了時間のどちらかだけが入力されています';
+                status.classList.add('warning');
+                return;
+            }
+            if (minutes === null) {
+                status.textContent = '';
+                return;
+            }
+            const crossesMidnight = this.isEndTimeNextDay(startField.value, endField.value);
+            const label = workTimeField.dataset.manualOverride === 'true' ? '手入力を優先中（自動計算では' : '自動計算: ';
+            const suffix = workTimeField.dataset.manualOverride === 'true' ? '分）' : '分';
+            status.textContent = `${label}${minutes}${suffix}${crossesMidnight ? '（日またぎ計算中）' : ''}`;
+            if (crossesMidnight) status.classList.add('overnight');
+        };
+
+        const updateWorkTime = () => {
+            const minutes = this.calculateMinutesBetweenTimes(startField.value, endField.value);
+            updateStatus(minutes);
+            if (workTimeField.dataset.manualOverride === 'true') return;
+            if (minutes === null) return;
+            workTimeField.value = String(minutes);
+        };
+
+        workTimeField.addEventListener('input', () => {
+            workTimeField.dataset.manualOverride = 'true';
+            updateWorkTime();
+        });
+        startField.addEventListener('input', updateWorkTime);
+        endField.addEventListener('input', updateWorkTime);
+        updateWorkTime();
+    }
+
+    calculateMinutesBetweenTimes(startTime, endTime) {
+        if (!startTime || !endTime) return null;
+        const [startHour, startMinute] = startTime.split(':').map(Number);
+        const [endHour, endMinute] = endTime.split(':').map(Number);
+        if ([startHour, startMinute, endHour, endMinute].some(Number.isNaN)) return null;
+
+        let startTotal = startHour * 60 + startMinute;
+        let endTotal = endHour * 60 + endMinute;
+        if (endTotal < startTotal) endTotal += 24 * 60;
+        return endTotal - startTotal;
+    }
+
+    isEndTimeNextDay(startTime, endTime) {
+        if (!startTime || !endTime) return false;
+        const [startHour, startMinute] = startTime.split(':').map(Number);
+        const [endHour, endMinute] = endTime.split(':').map(Number);
+        if ([startHour, startMinute, endHour, endMinute].some(Number.isNaN)) return false;
+        return (endHour * 60 + endMinute) < (startHour * 60 + startMinute);
+    }
+
+    confirmPartialMaintenanceTime(prefix) {
+        const startTime = document.getElementById(`${prefix}-start-time`)?.value || '';
+        const endTime = document.getElementById(`${prefix}-end-time`)?.value || '';
+        if (!!startTime === !!endTime) return true;
+        return confirm('開始時間と終了時間のどちらかだけが入力されています。このまま保存しますか？');
+    }
+
+    formatHistoryWorkTime(history) {
+        const workTime = history?.workTime || 0;
+        if (history?.startTime && history?.endTime) {
+            return `${history.startTime}-${history.endTime} / ${workTime}分`;
+        }
+        return `${workTime}分`;
     }
 
     deleteHistoryEntry(id) {
@@ -8765,7 +9306,7 @@ class MaintenanceApp {
                     ` : '<span style="color:var(--text-light); font-size:0.75rem;">-</span>'}
                 </td>
                 <td style="text-align: center;"><span class="badge ${badgeClass}" style="cursor:pointer; padding:4px 6px; font-size:0.65rem; min-width:40px; ${h.isNonProductionStop ? 'background:#fef3c7; color:#92400e; border:1px solid #fcd34d;' : ''}" onclick="app.toggleTypeFilter('${typeInfo.key}', event)" title="この区分で抽出">${badgeText}</span></td>
-                <td>${h.workTime || 0}分</td>
+                <td>${this.escapeHtml(this.formatHistoryWorkTime(h))}</td>
                 <td class="history-parts-cell">
                     ${replacedParts.length ? `
                         <button type="button" class="history-parts-btn" onclick="app.openHistoryPartsDetail('${this.escapeJs(h.id)}')" title="${this.escapeHtml(partsTitle)}" aria-label="交換部品の詳細を表示">
@@ -9957,11 +10498,14 @@ class MaintenanceApp {
             const treatment = document.getElementById('s-notes').value;
             const errorNo = document.getElementById('s-error-no').value;
             const workTime = document.getElementById('s-work-time').value;
+            const startTime = document.getElementById('s-start-time')?.value || '';
+            const endTime = document.getElementById('s-end-time')?.value || '';
             const workerText = document.getElementById('s-workers').value;
             const isDokatei = document.getElementById('s-is-dokatei').checked;
             const isNonProductionStop = !isDokatei && !!document.getElementById('s-is-non-production-stop')?.checked;
             const category = document.getElementById('s-category').value;
             const machineCategory = this.getCategoryFromModalInput('s-');
+            if (!this.confirmPartialMaintenanceTime('s')) return;
             
             if (machineId === 'NEW_MACHINE') {
                 const newName = document.getElementById('s-new-name').value;
@@ -10012,7 +10556,7 @@ class MaintenanceApp {
                 // already handled above
             }
 
-            store.addHistoryRecord({
+            const newSuddenRecord = store.addHistoryRecord({
                 machineId,
                 date,
                 notes: treatment,
@@ -10020,6 +10564,8 @@ class MaintenanceApp {
                 errorContent: symptom,
                 errorNo,
                 workTime,
+                startTime,
+                endTime,
                 workers,
                 replacedParts,
                 photos: this._tempPhotos || [],
@@ -10031,6 +10577,7 @@ class MaintenanceApp {
                 lineNo,
                 isFirstTime: document.querySelector('input[name="s-occurrence"]:checked')?.value === 'first'
             });
+            this.markShiftNotebookRowSuddenRegistered(newSuddenRecord?.id || '');
 
             // Update Master Category if it's missing or different (Sync back)
             if (machineId && machineCategory && machineId !== 'NEW_MACHINE') {
@@ -10143,10 +10690,13 @@ class MaintenanceApp {
             const cause = document.getElementById('e-cause').value;
             const errorNo = document.getElementById('e-error-no').value;
             const workTime = document.getElementById('e-work-time').value;
+            const startTime = document.getElementById('e-start-time')?.value || '';
+            const endTime = document.getElementById('e-end-time')?.value || '';
             const workerText = document.getElementById('e-workers').value;
             const isDokatei = document.getElementById('e-is-dokatei').checked;
             const isNonProductionStop = !isDokatei && !!document.getElementById('e-is-non-production-stop')?.checked;
             const machineCategory = this.getCategoryFromModalInput('e-');
+            if (!this.confirmPartialMaintenanceTime('e')) return;
 
             // Capture Parts (Defensive)
             const partRows = document.querySelectorAll('#s-parts-container .part-row');
@@ -10189,7 +10739,7 @@ class MaintenanceApp {
 
                 store.activeData.history[index] = {
                     ...store.activeData.history[index],
-                    machineId, date, notes, cause, errorContent: symptom, errorNo, workTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
+                    machineId, date, notes, cause, errorContent: symptom, errorNo, workTime, startTime, endTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
                     isFirstTime: document.querySelector('input[name="e-occurrence"]:checked')?.value === 'first',
                     photos: this._tempPhotos
                 };
@@ -10701,7 +11251,7 @@ class MaintenanceApp {
                         const mName = m ? m.name : '不明';
                         const mModel = MaintenanceApp.toHalfWidthLower(m && m.model ? m.model : '');
                         const taskText = this.getHistoryDisplayText(h);
-                        const wTime = h.workTime || 0;
+                        const wTime = this.formatHistoryWorkTime(h);
                         const workers = (h.workers || []).join(', ') || '未設定';
                         
                         let rPhotosHtml = '';
@@ -10726,7 +11276,7 @@ class MaintenanceApp {
                                         (h.notes ? '処置: ' + h.notes : '') +
                                     '</div>' : '') +
                                     '<div style="font-size:0.7rem; color:var(--text-light);">' +
-                                        '<i class="fa-regular fa-clock"></i> 作業時間: ' + wTime + '分 | 作業者: ' + workers +
+                                        '<i class="fa-regular fa-clock"></i> 作業時間: ' + wTime + ' | 作業者: ' + workers +
                                     '</div>' +
                                 '</div>' +
                             
@@ -10920,7 +11470,7 @@ class MaintenanceApp {
                                         ${h.cause ? `原因: ${h.cause}` : ''} ${h.notes ? `| 処置: ${h.notes}` : ''}
                                     </div>
                                     <div style="font-size:0.65rem; color:var(--text-light); display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                        <span style="display:inline-block; background:var(--danger-light); color:var(--danger); padding:1px 6px; border-radius:4px; font-weight:900;">${h.workTime}分</span>
+                                        <span style="display:inline-block; background:var(--danger-light); color:var(--danger); padding:1px 6px; border-radius:4px; font-weight:900;">${this.escapeHtml(this.formatHistoryWorkTime(h))}</span>
                                         <span><i class="fa-solid fa-calendar-day"></i> ${h.date}</span>
                                         <span style="color:var(--primary); font-weight:700;"><i class="fa-solid fa-user-gear"></i> ${workers}</span>
                                     </div>
@@ -11099,7 +11649,7 @@ class MaintenanceApp {
 
                 <div class="form-group">
                     <label>手順書・技術メモ</label>
-                    <textarea id="g-text" rows="8" placeholder="次回同じトラブルが起きた際の参考となる手順、重要なポイントなどを記入してください。">${guide.text}</textarea>
+                    <textarea id="g-text" class="guide-detail-textarea" rows="16" placeholder="次回同じトラブルが起きた際の参考となる手順、重要なポイントなどを記入してください。">${guide.text}</textarea>
                 </div>
 
                 <div class="form-group">
@@ -11108,6 +11658,7 @@ class MaintenanceApp {
                     <div id="g-photo-previews" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
                 </div>
             `;
+            this.setupAutoResizeTextareas('#g-text.guide-detail-textarea');
 
             // Photo handler init
             const previewContainer = document.getElementById('g-photo-previews');
