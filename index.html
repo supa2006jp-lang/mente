@@ -227,6 +227,9 @@
                 <button class="nav-btn" data-view="history">
                     <i class="fa-solid fa-clock-rotate-left"></i> <span>メンテナンス履歴</span>
                 </button>
+                <button class="nav-btn" data-view="fiveS">
+                    <i class="fa-solid fa-broom"></i> <span>5S管理</span>
+                </button>
                 <button class="nav-btn" data-view="guides">
                     <i class="fa-solid fa-book-open"></i> <span>手順書・ナレッジDB</span>
                 </button>
@@ -474,6 +477,17 @@
                             <option value="nonProductionStop">非生産停止のみ</option>
                             <option value="dokatei">ドカ停のみ</option>
                         </select>
+                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-parts" onchange="app.renderHistory()"> 部品あり</label>
+                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-photos" onchange="app.renderHistory()"> 写真あり</label>
+                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-guide" onchange="app.renderHistory()"> 手順あり</label>
+                        <select id="hist-density-mode" onchange="app.setHistoryDensityMode(this.value)" title="履歴一覧の表示密度">
+                            <option value="standard">標準表示</option>
+                            <option value="detail">詳細表示</option>
+                            <option value="compact">コンパクト</option>
+                        </select>
+                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.clearHistoryFilters()">
+                            <i class="fa-solid fa-filter-circle-xmark"></i> 絞り込み解除
+                        </button>
                         <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem; margin-left: auto;" onclick="app.openHistoryImportModal()">
                             <i class="fa-solid fa-cloud-arrow-up"></i> 一括取込 (CSV)
                         </button>
@@ -483,6 +497,7 @@
                     </div>
                     
                     <div id="hist-active-filters"></div>
+                    <div id="hist-filter-summary"></div>
 
                     <table class="data-table">
                         <thead>
@@ -499,6 +514,36 @@
                         </thead>
                         <tbody id="history-list-body"></tbody>
                     </table>
+                </section>
+
+                <section id="view-fiveS" class="view">
+                    <div class="view-header">
+                        <div class="title-group">
+                            <p class="subtitle">5Sスタンプを押した連絡帳行の履歴</p>
+                        </div>
+                    </div>
+                    <div class="filter-bar five-s-filter-bar">
+                        <select id="fiveS-filter-period" onchange="app.onPeriodChange(this, () => app.renderFiveSManagement())">
+                            <option value="today">今日</option>
+                            <option value="yesterday">昨日</option>
+                            <option value="yesterday_today">昨日と今日</option>
+                            <option value="this_month">今月分</option>
+                            <option value="last_month">先月分</option>
+                            <option value="this_year">今年</option>
+                            <option value="last_year">去年</option>
+                            <option value="all" selected>累計 (全ての記録)</option>
+                        </select>
+                        <label class="history-extra-filter"><input type="checkbox" id="fiveS-filter-photos" onchange="app.renderFiveSManagement()"> 写真あり</label>
+                        <label class="history-extra-filter"><input type="checkbox" id="fiveS-filter-pending" onchange="app.renderFiveSManagement()"> 未完了ToDoのみ</label>
+                        <button class="secondary-btn" onclick="app.exportFiveSManagementExcel()">
+                            <i class="fa-solid fa-file-excel"></i> Excel出力
+                        </button>
+                        <button class="secondary-btn" onclick="app.exportFiveSManagementSimpleExcel()">
+                            <i class="fa-solid fa-table"></i> 写真なしExcel
+                        </button>
+                    </div>
+                    <div id="fiveS-summary" class="five-s-summary"></div>
+                    <div id="fiveS-list" class="five-s-list"></div>
                 </section>
 
                 <section id="view-guides" class="view">

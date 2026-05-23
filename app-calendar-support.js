@@ -11,8 +11,13 @@
         const tDate = new Date(targetDate);
         const diffTime = tDate.getTime() - sDate.getTime();
         const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+        const isOneOff = (parseInt(task.periodDays) || 0) <= 0;
+        const moveText = diffDays > 0 ? `${diffDays}日後に移動` : `${Math.abs(diffDays)}日前へ移動`;
+        const confirmText = isOneOff
+            ? `単発予定「${task.content}」の日付を ${moveText} しますか？`
+            : `「${task.content}」の予定を ${moveText} してサイクルを調整しますか？`;
 
-        if (confirm(`「${task.content}」の予定を ${diffDays > 0 ? diffDays + '日後に移動' : Math.abs(diffDays) + '日前へ移動'} してサイクルを調整しますか？`)) {
+        if (confirm(confirmText)) {
             const currentStart = new Date(task.startDate);
             currentStart.setDate(currentStart.getDate() + diffDays);
             task.startDate = currentStart.getFullYear() + '-' + String(currentStart.getMonth() + 1).padStart(2, '0') + '-' + String(currentStart.getDate()).padStart(2, '0');

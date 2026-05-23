@@ -396,6 +396,7 @@ class MaintenanceApp {
             'todos': 'ToDoリスト',
             'machines': 'メンテ・周期設定',
             'history': 'メンテナンス履歴',
+            'fiveS': '5S管理',
             'analysis': '部品消費・コスト',
             'worktime': '作業時間集計',
             'dashboard': 'ダッシュボード',
@@ -555,6 +556,10 @@ class MaintenanceApp {
         if (hLine) hLine.value = 'all';
         const hType = document.getElementById('hist-filter-type');
         if (hType) hType.value = '';
+        const fiveSPeriod = document.getElementById('fiveS-filter-period');
+        if (fiveSPeriod) fiveSPeriod.value = 'all';
+        const fiveSPhotos = document.getElementById('fiveS-filter-photos');
+        if (fiveSPhotos) fiveSPhotos.checked = false;
 
         // Reset Ranking View Filter
         const rPeriod = document.getElementById('ranking-filter-period');
@@ -617,6 +622,7 @@ class MaintenanceApp {
             case 'todos': this.renderKanbanLocalTodos(); break;
             case 'machines': this.renderMachines(); break;
             case 'history': this.renderHistory(); break;
+            case 'fiveS': this.renderFiveSManagement(); break;
             case 'analysis': this.renderAnalysis(); break;
             case 'dashboard': this.renderDashboard(); break;
             case 'worktime': this.renderWorkTime(); break;

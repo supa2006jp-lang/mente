@@ -974,16 +974,30 @@
     positionShiftImportantStamp(row) {
         if (!row) return;
         const stamp = row.querySelector('.shift-important-stamp');
+        const fiveSStamp = row.querySelector('.shift-5s-stamp');
         const editor = row.querySelector('.shift-note-text');
-        if (!stamp || !editor) return;
-        if (!row.classList.contains('shift-row-important')) {
-            stamp.style.left = '';
-            stamp.style.top = '';
-            return;
+        if (!editor) return;
+        const top = editor.offsetTop - ((stamp?.offsetHeight || fiveSStamp?.offsetHeight || 24) * 0.7);
+        const left = editor.offsetLeft;
+        if (stamp) {
+            if (row.classList.contains('shift-row-important')) {
+                stamp.style.left = `${left}px`;
+                stamp.style.top = `${top}px`;
+            } else {
+                stamp.style.left = '';
+                stamp.style.top = '';
+            }
         }
-        const stampHeight = stamp.offsetHeight || 24;
-        stamp.style.left = `${editor.offsetLeft}px`;
-        stamp.style.top = `${editor.offsetTop - (stampHeight * 0.7)}px`;
+        if (fiveSStamp) {
+            if (row.classList.contains('shift-row-5s')) {
+                const importantWidth = row.classList.contains('shift-row-important') ? (stamp?.offsetWidth || 46) + 6 : 0;
+                fiveSStamp.style.left = `${left + importantWidth}px`;
+                fiveSStamp.style.top = `${top}px`;
+            } else {
+                fiveSStamp.style.left = '';
+                fiveSStamp.style.top = '';
+            }
+        }
     }
 
     cleanShiftNoteBlankLinesHtml(html = '') {

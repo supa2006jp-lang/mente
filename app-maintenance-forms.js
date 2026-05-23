@@ -8,42 +8,86 @@
         const tasks = id ? store.getTasks(id) : [];
 
         let usedPartsHTML = '';
+        let troubleStampsHTML = '';
         if (id) {
-            const hList = store.activeData.history.filter(h => h.machineId === id && h.replacedParts && h.replacedParts.length > 0);
-            const partMap = {};
-            hList.forEach(h => {
-                h.replacedParts.forEach(p => {
-                    const key = `${p.name}___${p.model}`;
-                    if (!partMap[key]) {
-                        partMap[key] = { name: p.name, model: p.model, count: 0, latestDate: h.date };
-                    }
-                    partMap[key].count += (p.count || 0);
-                    if (new Date(h.date) > new Date(partMap[key].latestDate)) {
-                        partMap[key].latestDate = h.date;
-                    }
-                });
-            });
-            const pArray = Object.values(partMap).sort((a,b) => new Date(b.latestDate) - new Date(a.latestDate));
-            if (pArray.length > 0) {
-                usedPartsHTML = `
-                    <div style="margin-top: 24px; border-top: 2px dashed #cbd5e1; padding-top: 16px;">
-                        <label style="font-size:0.85rem; font-weight:800; color:var(--text-main); display:block; margin-bottom:8px;">
-                            <i class="fa-solid fa-box-open" style="color:var(--secondary);"></i> 過去に使用した部品 (参考)
-                        </label>
-                        <div style="display:flex; flex-wrap:wrap; gap:6px;">
-                            ${pArray.map(p => `
-                                <div style="background:#f8fafc; border:1px solid #e2e8f0; padding:6px 10px; border-radius:6px; font-size:0.75rem;">
-                                    <div style="font-weight:900; color:var(--primary); margin-bottom:2px;">${p.name} ${p.model ? `[${p.model}]` : ''}</div>
-                                    <div style="font-size:0.65rem; color:var(--text-light);"><i class="fa-regular fa-clock"></i> 最終交換: ${p.latestDate}</div>
-                                </div>
-                            `).join('')}
+            const troubleHistory = (store.activeData.history || [])
+                .filter(h => String(h.machineId) === String(id) && !h.taskId)
+                .sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
+            if (troubleHistory.length > 0) {
+                const counts = troubleHistory.reduce((acc, h) => {
+                    const type = this.getMachineTroubleTypeInfo(h).key;
+                    acc[type] = (acc[type] || 0) + 1;
+                    return acc;
+                }, {});
+                const latest = troubleHistory[0];
+                troubleStampsHTML = `
+                    <div class="machine-trouble-stamps-panel">
+                        <div class="machine-trouble-stamps-head">
+                            <span><i class="fa-solid fa-triangle-exclamation"></i> 過去のトラブル</span>
+                            <small>最新: ${this.escapeHtml(latest.date || '日付なし')}</small>
+                        </div>
+                        <div class="machine-trouble-stamps">
+                            ${this.getMachineTroubleStampButtonHtml(id, 'all', '全て', troubleHistory.length, 'fa-list')}
+                            ${this.getMachineTroubleStampButtonHtml(id, 'sudden', '突発', counts.sudden || 0, 'fa-bolt-lightning')}
+                            ${this.getMachineTroubleStampButtonHtml(id, 'dokatei', 'ドカ停', counts.dokatei || 0, 'fa-triangle-exclamation')}
+                            ${this.getMachineTroubleStampButtonHtml(id, 'nonProductionStop', '非生産停止', counts.nonProductionStop || 0, 'fa-circle-pause')}
                         </div>
                     </div>
                 `;
             }
+            const pArray = this.collectMachineUsedParts(id);
+            const referenceParts = this.collectSameModelUsedParts(id, machine);
+            usedPartsHTML = `
+                <div class="machine-used-parts-panel">
+                    <div class="machine-used-parts-head">
+                        <span><i class="fa-solid fa-box-open"></i> 過去の使用部品</span>
+                        <small>${pArray.length > 0 ? `${pArray.length}種類` : '記録なし'}</small>
+                    </div>
+                    ${pArray.length > 0 ? `
+                        <div class="machine-used-parts-list">
+                            ${pArray.map(p => `
+                                <button type="button" class="machine-used-part-card ${p.stockStatus}" onclick="app.openMachinePartHistoryPanel('${this.escapeJs(id)}', '${this.escapeJs(p.name)}', '${this.escapeJs(p.model)}')" title="この部品の使用履歴一覧を開く">
+                                    <span class="machine-used-part-name">${this.escapeHtml(p.name || '部品名なし')}</span>
+                                    ${p.model ? `<span class="machine-used-part-model">${this.escapeHtml(p.model)}</span>` : ''}
+                                    <span class="machine-used-part-meta">
+                                        累計 ${this.escapeHtml(p.count)}${this.escapeHtml(p.unit || '個')} / 最終使用 ${this.escapeHtml(p.latestDate || '-')}
+                                    </span>
+                                    <span class="machine-used-part-pace">${this.escapeHtml(p.paceText)}</span>
+                                    ${this.getMachineUsedPartStockHtml(p)}
+                                </button>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div class="machine-used-parts-empty">
+                            この機械で使用した部品はまだ記録されていません。
+                        </div>
+                    `}
+                    ${referenceParts.length > 0 ? `
+                        <div class="machine-used-parts-reference">
+                            <div class="machine-used-parts-reference-title">
+                                <i class="fa-solid fa-layer-group"></i> 同じ型式の機械で使われた部品
+                            </div>
+                            <div class="machine-used-parts-list reference">
+                                ${referenceParts.map(p => `
+                                    <button type="button" class="machine-used-part-card reference ${p.stockStatus}" onclick="app.openMachinePartHistoryPanel('__same_model__:${this.escapeJs(id)}', '${this.escapeJs(p.name)}', '${this.escapeJs(p.model)}')" title="同型機での使用履歴一覧を開く">
+                                        <span class="machine-used-part-name">${this.escapeHtml(p.name || '部品名なし')}</span>
+                                        ${p.model ? `<span class="machine-used-part-model">${this.escapeHtml(p.model)}</span>` : ''}
+                                        <span class="machine-used-part-meta">
+                                            同型機累計 ${this.escapeHtml(p.count)}${this.escapeHtml(p.unit || '個')} / 最終使用 ${this.escapeHtml(p.latestDate || '-')}
+                                        </span>
+                                        <span class="machine-used-part-pace">${this.escapeHtml(p.paceText)}</span>
+                                        ${this.getMachineUsedPartStockHtml(p)}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
         }
 
         this.openModal('machine', machine ? '機械の編集' : '新規機械登録', () => {
+            this._maintenanceTaskTemplates = this.collectMaintenanceTaskTemplates(machine);
             const content = document.getElementById('modal-content');
             content.innerHTML = `
                 <form id="machine-form">
@@ -79,6 +123,7 @@
                         <label>備考</label>
                         <textarea id="f-machine-remarks" rows="2" placeholder="設置場所など">${machine ? machine.remarks : ''}</textarea>
                     </div>
+                    ${troubleStampsHTML}
 
                     <div class="form-group" style="margin-top:16px;">
                         <label>機械の写真 (プロフィール用)</label>
@@ -101,7 +146,15 @@
                     <div style="margin-top: 24px; border-top: 2px solid #94a3b8; padding-top: 16px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                             <label style="font-size:0.85rem; font-weight:700;">メンテナンス項目</label>
-                            <button type="button" class="secondary-btn" style="padding:4px 10px; font-size:0.75rem;" onclick="app.addTaskRow()"><i class="fa-solid fa-plus"></i> 追加</button>
+                            <div class="maintenance-task-header-actions">
+                                <input type="search" id="maintenance-task-template-search" class="maintenance-task-template-search" placeholder="テンプレート検索" oninput="app.filterMaintenanceTaskTemplates(this.value)" ${this._maintenanceTaskTemplates.length ? '' : 'disabled'}>
+                                <select id="maintenance-task-template-select" class="maintenance-task-template-select" ${this._maintenanceTaskTemplates.length ? '' : 'disabled'}>
+                                    <option value="">過去の項目から追加</option>
+                                    ${this._maintenanceTaskTemplates.map((template, index) => `<option value="${index}">${this.escapeHtml(template.label)}</option>`).join('')}
+                                </select>
+                                <button type="button" class="secondary-btn" style="padding:4px 10px; font-size:0.75rem;" onclick="app.addTaskFromMaintenanceTemplate()" ${this._maintenanceTaskTemplates.length ? '' : 'disabled'}><i class="fa-solid fa-wand-magic-sparkles"></i> 反映</button>
+                                <button type="button" class="secondary-btn" style="padding:4px 10px; font-size:0.75rem;" onclick="app.addTaskRow()"><i class="fa-solid fa-plus"></i> 追加</button>
+                            </div>
                         </div>
                         <div id="f-tasks-container" style="display:flex; flex-direction:column; gap:10px;"></div>
                     </div>
@@ -161,13 +214,13 @@
         div.innerHTML = `
             <div style="display:flex; gap:8px; align-items:center; width:100%;">
                 <input type="hidden" class="t-id" value="${task ? task.id : ''}">
-                <input type="text" class="t-content" style="flex:2" placeholder="作業内容 (任意)" value="${task ? task.content : ''}">
+                <input type="text" class="t-content" style="flex:2" placeholder="作業内容 (任意)" value="${task ? this.escapeHtml(task.content || '') : ''}" oninput="app.updateTaskCyclePreview(this)">
                 <div style="flex:1; display:flex; align-items:center; gap:4px;">
                     <input type="number" class="t-period" style="width:70px" min="0" placeholder="周期" value="${task ? task.periodDays : ''}" oninput="app.updateOneOffBadge(this)">
                     <span style="font-size:0.7rem; color:var(--text-light); white-space:nowrap;">日毎</span>
                     <span class="one-off-badge ${task && (parseInt(task.periodDays) || 0) === 0 ? '' : 'hidden'}">1回きり</span>
                 </div>
-                <input type="date" class="t-start" style="flex:1" value="${task ? task.startDate : new Date().toISOString().split('T')[0]}">
+                <input type="date" class="t-start" style="flex:1" value="${task?.startDate || this.getLocalDateString()}" onchange="app.updateTaskCyclePreview(this)">
                 <div style="display:flex; gap:4px;">
                     ${task && task.id 
                         ? `
@@ -178,17 +231,394 @@
                 </div>
             </div>
             ${partsInfoHTML}
-            <div style="width:100%; font-size:0.65rem; color:var(--text-light);">
-                ※周期を0に設定すると、開始日当日のみ1回だけ予約されます。
+            <div class="task-cycle-tools">
+                <span>周期候補</span>
+                ${[0, 7, 14, 30, 60, 90, 180].map(days => `<button type="button" onclick="app.setTaskPeriod(this, ${days})">${days === 0 ? '単発' : `${days}日`}</button>`).join('')}
+            </div>
+            <div class="task-cycle-preview muted">
+                開始日と周期を入れると次回予定を確認できます
+            </div>
+            <div class="task-cycle-warning" hidden>
+                <i class="fa-solid fa-triangle-exclamation"></i> 周期または開始日が未入力です。保存時は単発予定として扱います。
             </div>
         `;
         container.appendChild(div);
+        this.updateOneOffBadge(div.querySelector('.t-period'));
+        return div;
+    }
+
+    getMachineTroubleTypeInfo(history) {
+        if (history?.isDokatei) return { key: 'dokatei', label: 'ドカ停', icon: 'fa-triangle-exclamation' };
+        if (history?.isNonProductionStop) return { key: 'nonProductionStop', label: '非生産停止', icon: 'fa-circle-pause' };
+        return { key: 'sudden', label: '突発', icon: 'fa-bolt-lightning' };
+    }
+
+    getMachineTroubleStampButtonHtml(machineId, type, label, count, icon) {
+        if (!count) return '';
+        return `
+            <button type="button" class="machine-trouble-stamp ${this.escapeHtml(type)}" onclick="app.openMachineTroubleHistoryPanel('${this.escapeJs(machineId)}', '${this.escapeJs(type)}')">
+                <i class="fa-solid ${icon}"></i>
+                <span>${this.escapeHtml(label)}</span>
+                <b>${count}</b>
+            </button>
+        `;
+    }
+
+    openMachineTroubleHistoryPanel(machineId, type = 'all') {
+        const machine = store.getMachines(true).find(m => String(m.id) === String(machineId));
+        const histories = (store.activeData.history || [])
+            .filter(h => String(h.machineId) === String(machineId) && !h.taskId)
+            .filter(h => type === 'all' || this.getMachineTroubleTypeInfo(h).key === type)
+            .sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
+        const titleMap = {
+            all: '過去のトラブル',
+            sudden: '突発トラブル',
+            dokatei: 'ドカ停',
+            nonProductionStop: '非生産停止'
+        };
+
+        this.openModal('machine-trouble-history', `${machine?.name || '機械'} ${titleMap[type] || '過去のトラブル'} ${histories.length}件`, () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = histories.length ? `
+                <div class="machine-trouble-history-list">
+                    ${histories.map(h => {
+                        const typeInfo = this.getMachineTroubleTypeInfo(h);
+                        const workers = Array.isArray(h.workers) ? h.workers.join(', ') : (h.workers || '');
+                        return `
+                            <article class="machine-trouble-history-card ${typeInfo.key}">
+                                <div class="machine-trouble-history-top">
+                                    <span class="machine-trouble-type"><i class="fa-solid ${typeInfo.icon}"></i> ${this.escapeHtml(typeInfo.label)}</span>
+                                    <span class="machine-trouble-date">${this.escapeHtml(h.date || '日付なし')}</span>
+                                </div>
+                                <div class="machine-trouble-title">${this.escapeHtml(h.errorContent || h.notes || '内容なし')}</div>
+                                <div class="machine-trouble-detail-grid">
+                                    <div><span>原因</span><b>${this.escapeHtml(h.cause || '未入力')}</b></div>
+                                    <div><span>処置</span><b>${this.escapeHtml(h.notes || '未入力')}</b></div>
+                                </div>
+                                <div class="machine-trouble-history-meta">
+                                    ${h.errorNo ? `<span>異常No: ${this.escapeHtml(h.errorNo)}</span>` : ''}
+                                    ${h.workTime ? `<span>作業時間: ${this.escapeHtml(h.workTime)}分</span>` : ''}
+                                    ${workers ? `<span>作業者: ${this.escapeHtml(workers)}</span>` : ''}
+                                </div>
+                                <button type="button" class="secondary-btn machine-trouble-open-btn" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeJs(h.id)}')">
+                                    <i class="fa-solid fa-arrow-up-right-from-square"></i> 履歴を開く
+                                </button>
+                            </article>
+                        `;
+                    }).join('')}
+                </div>
+            ` : '<p style="font-size:0.85rem; padding:12px; background:var(--background); border-radius:8px;">表示できるトラブル履歴はありません。</p>';
+            const saveBtn = document.querySelector('.modal-footer .primary-btn');
+            if (saveBtn) saveBtn.classList.add('hidden');
+        });
+    }
+
+    collectMachineUsedParts(machineId, options = {}) {
+        const histories = (store.activeData.history || [])
+            .filter(h => String(h.machineId) === String(machineId) && h.replacedParts && h.replacedParts.length > 0)
+            .sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
+        return this.collectUsedPartsFromHistories(histories, options.excludeKeys || new Set());
+    }
+
+    collectSameModelUsedParts(machineId, machine) {
+        if (!machine?.model) return [];
+        const model = MaintenanceApp.toHalfWidthLower(machine.model || '');
+        if (!model) return [];
+        const sameModelMachineIds = store.getMachines(true)
+            .filter(m => String(m.id) !== String(machineId) && MaintenanceApp.toHalfWidthLower(m.model || '') === model)
+            .map(m => String(m.id));
+        if (sameModelMachineIds.length === 0) return [];
+        const ownKeys = new Set(this.collectMachineUsedParts(machineId).map(p => `${p.name}___${p.model}`));
+        const histories = (store.activeData.history || [])
+            .filter(h => sameModelMachineIds.includes(String(h.machineId)) && h.replacedParts && h.replacedParts.length > 0)
+            .sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
+        return this.collectUsedPartsFromHistories(histories, ownKeys).slice(0, 12);
+    }
+
+    collectUsedPartsFromHistories(histories, excludeKeys = new Set()) {
+        const partMap = {};
+        histories.forEach(h => {
+            h.replacedParts.forEach(p => {
+                const name = p.name || '';
+                const model = p.model || '';
+                const key = `${name}___${model}`;
+                if (excludeKeys.has(key)) return;
+                if (!partMap[key]) {
+                    const master = store.getPartMaster(name, model);
+                    partMap[key] = {
+                        name,
+                        model,
+                        count: 0,
+                        unit: p.unit || master?.unit || '個',
+                        latestDate: h.date,
+                        latestHistoryId: h.id,
+                        histories: [],
+                        master
+                    };
+                }
+                partMap[key].count += parseFloat(p.count) || 0;
+                partMap[key].histories.push({ history: h, part: p });
+                if (new Date(h.date || '') > new Date(partMap[key].latestDate || '')) {
+                    partMap[key].latestDate = h.date;
+                    partMap[key].latestHistoryId = h.id;
+                    partMap[key].unit = p.unit || partMap[key].unit || '個';
+                }
+            });
+        });
+        return Object.values(partMap).map(part => {
+            const master = part.master || store.getPartMaster(part.name, part.model);
+            const stock = parseFloat(master?.stock);
+            const minStock = parseFloat(master?.minStock);
+            const hasStock = !Number.isNaN(stock);
+            const lowStock = hasStock && minStock > 0 && stock <= minStock;
+            return {
+                ...part,
+                master,
+                stock: hasStock ? stock : null,
+                minStock: Number.isNaN(minStock) ? 0 : minStock,
+                price: parseFloat(master?.price) || 0,
+                supplier: master?.supplier || '',
+                shelf: master?.shelf || '',
+                stockStatus: lowStock ? 'low-stock' : (master ? 'has-master' : 'no-master')
+            };
+            enriched.paceText = this.getUsedPartPaceText(part.histories.map(entry => entry.history.date).filter(Boolean));
+            return enriched;
+        }).sort((a, b) => new Date(b.latestDate || '') - new Date(a.latestDate || ''));
+    }
+
+    getUsedPartPaceText(dateStrings = []) {
+        const dates = [...new Set(dateStrings)]
+            .map(dateStr => new Date(`${dateStr}T00:00:00`))
+            .filter(date => !Number.isNaN(date.getTime()))
+            .sort((a, b) => a - b);
+        if (dates.length === 0) return '使用ペース: 記録なし';
+
+        const latest = dates[dates.length - 1];
+        const sixMonthsAgo = new Date();
+        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+        sixMonthsAgo.setHours(0, 0, 0, 0);
+        const recentCount = dates.filter(date => date >= sixMonthsAgo).length;
+
+        if (dates.length < 2) {
+            return `過去6か月 ${recentCount}回 / 平均: 計算不可`;
+        }
+
+        let totalDays = 0;
+        for (let i = 1; i < dates.length; i++) {
+            totalDays += Math.max(0, Math.round((dates[i] - dates[i - 1]) / (1000 * 60 * 60 * 24)));
+        }
+        const averageDays = Math.max(1, Math.round(totalDays / (dates.length - 1)));
+        const daysSinceLatest = Math.max(0, Math.round((new Date().setHours(0, 0, 0, 0) - latest.getTime()) / (1000 * 60 * 60 * 24)));
+        return `過去6か月 ${recentCount}回 / 平均${averageDays}日ごと / 最終から${daysSinceLatest}日`;
+    }
+
+    getMachineUsedPartStockHtml(part) {
+        if (!part.master) {
+            return '<span class="machine-used-part-stock no-master">部品マスター未登録</span>';
+        }
+        const unit = this.escapeHtml(part.master.unit || part.unit || '個');
+        const stockText = part.stock === null ? '未入力' : `${this.escapeHtml(part.stock)}${unit}`;
+        const priceText = part.price > 0 ? ` / 単価 ${this.escapeHtml(part.price)}円` : '';
+        const supplierText = part.supplier ? ` / ${this.escapeHtml(part.supplier)}` : '';
+        const alertText = part.minStock > 0 ? ` / 発注目安 ${this.escapeHtml(part.minStock)}${unit}` : '';
+        return `
+            <span class="machine-used-part-stock ${part.stockStatus}">
+                在庫 ${stockText}${priceText}${supplierText}${alertText}
+            </span>
+        `;
+    }
+
+    openMachinePartHistoryPanel(machineId, partName, partModel = '') {
+        let targetMachineIds = [String(machineId)];
+        let titlePrefix = '';
+        if (String(machineId).startsWith('__same_model__:')) {
+            const baseId = String(machineId).replace('__same_model__:', '');
+            const baseMachine = store.getMachines(true).find(m => String(m.id) === String(baseId));
+            const model = MaintenanceApp.toHalfWidthLower(baseMachine?.model || '');
+            targetMachineIds = store.getMachines(true)
+                .filter(m => String(m.id) !== String(baseId) && MaintenanceApp.toHalfWidthLower(m.model || '') === model)
+                .map(m => String(m.id));
+            titlePrefix = '同型機 ';
+        }
+        const machineById = new Map(store.getMachines(true).map(m => [String(m.id), m]));
+        const rows = [];
+        (store.activeData.history || []).forEach(h => {
+            if (!targetMachineIds.includes(String(h.machineId))) return;
+            (h.replacedParts || []).forEach(p => {
+                if ((p.name || '') === partName && (p.model || '') === partModel) rows.push({ h, p });
+            });
+        });
+        rows.sort((a, b) => new Date(b.h.date || '') - new Date(a.h.date || ''));
+        const master = store.getPartMaster(partName, partModel);
+        const paceText = this.getUsedPartPaceText(rows.map(row => row.h.date).filter(Boolean));
+
+        this.openModal('machine-part-history', `${titlePrefix}${partName || '部品'} 使用履歴 ${rows.length}件`, () => {
+            const content = document.getElementById('modal-content');
+            const unit = master?.unit || rows[0]?.p?.unit || '個';
+            const masterHtml = master ? `
+                <div class="machine-part-master-summary ${((parseFloat(master.minStock) || 0) > 0 && (parseFloat(master.stock) || 0) <= (parseFloat(master.minStock) || 0)) ? 'low-stock' : ''}">
+                    <span><i class="fa-solid fa-boxes-stacked"></i> 現在庫: ${this.escapeHtml(master.stock ?? '未入力')}${this.escapeHtml(unit)}</span>
+                    ${master.price ? `<span>単価: ${this.escapeHtml(master.price)}円</span>` : ''}
+                    ${master.supplier ? `<span>仕入先: ${this.escapeHtml(master.supplier)}</span>` : ''}
+                    ${master.minStock ? `<span>発注目安: ${this.escapeHtml(master.minStock)}${this.escapeHtml(unit)}</span>` : ''}
+                    ${master.shelf ? `<span>棚番: ${this.escapeHtml(master.shelf)}</span>` : ''}
+                </div>
+            ` : '<div class="machine-part-master-summary no-master"><i class="fa-solid fa-circle-info"></i> 部品マスター未登録です。</div>';
+            content.innerHTML = `
+                ${masterHtml}
+                <div class="machine-part-pace-summary">
+                    <i class="fa-solid fa-chart-line"></i> ${this.escapeHtml(paceText)}
+                </div>
+                ${rows.length ? `
+                    <div class="machine-part-history-list">
+                        ${rows.map(({ h, p }) => {
+                            const machine = machineById.get(String(h.machineId));
+                            return `
+                                <article class="machine-part-history-card">
+                                    <div class="machine-part-history-top">
+                                        <span>${this.escapeHtml(h.date || '日付なし')}</span>
+                                        <span>${this.escapeHtml(machine?.name || '機械名なし')}${machine?.model ? ` [${this.escapeHtml(machine.model)}]` : ''}</span>
+                                    </div>
+                                    <div class="machine-part-history-title">${this.escapeHtml(this.getHistoryDisplayText(h))}</div>
+                                    <div class="machine-part-history-meta">
+                                        <span>使用数: ${this.escapeHtml(p.count || 0)}${this.escapeHtml(p.unit || unit)}</span>
+                                        ${h.workTime ? `<span>作業時間: ${this.escapeHtml(h.workTime)}分</span>` : ''}
+                                    </div>
+                                    ${h.cause || h.notes ? `
+                                        <div class="machine-part-history-detail">
+                                            ${h.cause ? `<div><b>原因</b>${this.escapeHtml(h.cause)}</div>` : ''}
+                                            ${h.notes ? `<div><b>処置</b>${this.escapeHtml(h.notes)}</div>` : ''}
+                                        </div>
+                                    ` : ''}
+                                    <button type="button" class="secondary-btn machine-trouble-open-btn" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeJs(h.id)}')">
+                                        <i class="fa-solid fa-arrow-up-right-from-square"></i> 履歴を開く
+                                    </button>
+                                </article>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : '<p style="font-size:0.85rem; padding:12px; background:var(--background); border-radius:8px;">この部品の使用履歴はありません。</p>'}
+            `;
+            const saveBtn = document.querySelector('.modal-footer .primary-btn');
+            if (saveBtn) saveBtn.classList.add('hidden');
+        });
     }
 
     updateOneOffBadge(input) {
-        const badge = input?.parentElement?.querySelector('.one-off-badge');
-        if (!badge) return;
-        badge.classList.toggle('hidden', (parseInt(input.value) || 0) !== 0);
+        const row = input?.closest('.task-row');
+        const badge = row?.querySelector('.one-off-badge');
+        if (badge) badge.classList.toggle('hidden', (parseInt(input.value) || 0) !== 0);
+        this.updateTaskCyclePreview(row);
+    }
+
+    collectMaintenanceTaskTemplates(machine = null) {
+        const machines = store.getMachines(true);
+        const machineById = new Map(machines.map(m => [String(m.id), m]));
+        const seen = new Set();
+        const templates = [];
+        (store.activeData.tasks || []).forEach(task => {
+            if (!task || task.deleted || !task.content) return;
+            if (store.isMaintenanceTaskArchived(task.id)) return;
+            const sourceMachine = machineById.get(String(task.machineId));
+            if (machine?.category && sourceMachine?.category && sourceMachine.category !== machine.category) return;
+            const periodDays = parseInt(task.periodDays) || 0;
+            const key = `${task.content}__${periodDays}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            const source = sourceMachine ? ` / ${sourceMachine.name || '設備名なし'}` : '';
+            templates.push({
+                content: task.content,
+                periodDays,
+                startDate: this.getLocalDateString(),
+                label: `${task.content}（${periodDays > 0 ? `${periodDays}日周期` : '単発'}${source}）`
+            });
+        });
+        return templates.slice(0, 30);
+    }
+
+    addTaskFromMaintenanceTemplate() {
+        const select = document.getElementById('maintenance-task-template-select');
+        const index = parseInt(select?.value, 10);
+        const template = this._maintenanceTaskTemplates?.[index];
+        if (!template) return;
+        const row = this.addTaskRow({
+            content: template.content,
+            periodDays: template.periodDays,
+            startDate: this.getLocalDateString()
+        });
+        row?.classList.add('task-row-template-added');
+        setTimeout(() => row?.classList.remove('task-row-template-added'), 1600);
+        select.value = '';
+    }
+
+    filterMaintenanceTaskTemplates(query = '') {
+        const select = document.getElementById('maintenance-task-template-select');
+        if (!select) return;
+        const normalizedQuery = MaintenanceApp.toHalfWidthLower(query || '').trim();
+        const options = ['<option value="">過去の項目から追加</option>'];
+        (this._maintenanceTaskTemplates || []).forEach((template, index) => {
+            const searchable = MaintenanceApp.toHalfWidthLower(`${template.label || ''} ${template.content || ''} ${template.periodDays || ''}`);
+            if (normalizedQuery && !searchable.includes(normalizedQuery)) return;
+            options.push(`<option value="${index}">${this.escapeHtml(template.label)}</option>`);
+        });
+        select.innerHTML = options.join('');
+    }
+
+    setTaskPeriod(button, days) {
+        const row = button?.closest('.task-row');
+        const input = row?.querySelector('.t-period');
+        if (!input) return;
+        input.value = String(days);
+        this.updateOneOffBadge(input);
+    }
+
+    updateTaskCyclePreview(rowOrInput) {
+        const row = rowOrInput?.closest?.('.task-row') || rowOrInput;
+        if (!row) return;
+        const periodInput = row.querySelector('.t-period');
+        const startInput = row.querySelector('.t-start');
+        const contentInput = row.querySelector('.t-content');
+        const preview = row.querySelector('.task-cycle-preview');
+        if (!periodInput || !startInput || !preview) return;
+
+        const hasContent = !!contentInput?.value.trim();
+        const missingCycle = hasContent && (!periodInput.value.trim() || !startInput.value);
+        row.classList.toggle('task-row-cycle-warning', missingCycle);
+        const warning = row.querySelector('.task-cycle-warning');
+        if (warning) warning.hidden = !missingCycle;
+
+        const periodDays = parseInt(periodInput.value) || 0;
+        const startDate = startInput.value;
+        if (!startDate) {
+            preview.textContent = '開始日を入れると予定日を確認できます';
+            preview.className = 'task-cycle-preview muted';
+            return;
+        }
+        if (periodDays <= 0) {
+            preview.innerHTML = `<i class="fa-solid fa-circle-info"></i> 初回予定: ${this.formatMaintenancePreviewDate(startDate)}（単発予定）`;
+            preview.className = 'task-cycle-preview one-off';
+            return;
+        }
+
+        const next = this.addDaysForMaintenancePreview(startDate, periodDays);
+        preview.innerHTML = `<i class="fa-regular fa-calendar-check"></i> 初回予定: ${this.formatMaintenancePreviewDate(startDate)} / 次回予定: ${this.formatMaintenancePreviewDate(next)}（${periodDays}日周期）`;
+        preview.className = 'task-cycle-preview periodic';
+    }
+
+    addDaysForMaintenancePreview(dateStr, days) {
+        const date = new Date(`${dateStr}T00:00:00`);
+        date.setDate(date.getDate() + days);
+        return this.getLocalDateString(date);
+    }
+
+    formatMaintenancePreviewDate(dateStr) {
+        if (!dateStr) return '';
+        const [year, month, day] = dateStr.split('-');
+        return `${year}/${month}/${day}`;
+    }
+
+    getLocalDateString(date = new Date()) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     }
 
     openSuddenRecordModal(defaultDate = null, prefill = null) {
@@ -658,6 +1088,7 @@
     openCompletionForm(taskId, dateStr) {
         const task = store.activeData.tasks.find(t => t.id === taskId);
         const machine = store.getMachines(true).find(m => m.id === task.machineId);
+        const isOneOffTask = (parseInt(task?.periodDays) || 0) <= 0;
 
         // Find last parts for this specific task to auto-copy
         // First try: exact taskId match with parts
@@ -699,6 +1130,12 @@
                         <div style="font-weight:900; font-size:1.1rem;">${machine?.name}</div>
                         <div style="font-weight:700; color:var(--text-light);">${task.content}</div>
                     </div>
+                    ${isOneOffTask ? `
+                        <div class="one-off-completion-note">
+                            <i class="fa-solid fa-calendar-check"></i>
+                            <span>この予定は単発です。完了後は未完了予定としてカレンダーに再表示されません。</span>
+                        </div>
+                    ` : ''}
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                         <div class="form-group">
@@ -980,6 +1417,7 @@
             if (this.imagePreviewLocked) return;
             const imgBox = e.target.closest('.img-box');
             if (!imgBox) return;
+            if (imgBox.closest('.shift-photo-previews')) return;
             showPreview(imgBox);
         });
 
@@ -995,6 +1433,10 @@
             const imgBox = e.target.closest('.img-box');
             if (imgBox) {
                 e.stopPropagation();
+                if (imgBox.closest('.shift-photo-previews')) {
+                    this.openShiftPhotoCompare?.(imgBox);
+                    return;
+                }
                 showPreview(imgBox);
                 this.imagePreviewLocked = true;
                 preview.classList.add('locked');
@@ -1384,6 +1826,16 @@
             // Tasks
             const taskRows = document.querySelectorAll('#f-tasks-container .task-row');
             const currentTaskIds = [];
+            const blankCycleRows = Array.from(taskRows).filter(row => {
+                const content = row.querySelector('.t-content')?.value.trim();
+                const period = row.querySelector('.t-period')?.value.trim();
+                const start = row.querySelector('.t-start')?.value;
+                return content && (!period || !start);
+            });
+            if (blankCycleRows.length > 0) {
+                const ok = confirm(`周期または開始日が未入力のメンテ項目が${blankCycleRows.length}件あります。\n周期が空の項目は単発予定として保存されます。このまま保存しますか？`);
+                if (!ok) return;
+            }
             taskRows.forEach(row => {
                 const tId = row.querySelector('.t-id').value;
                 const content = row.querySelector('.t-content').value;

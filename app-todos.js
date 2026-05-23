@@ -535,6 +535,7 @@
         store.save();
         this.updateTodoRequestCountBadge();
         this.renderKanbanLocalTodos();
+        if (document.getElementById('fiveS-list')) this.renderFiveSManagement();
     }
 
     openKanbanTodoModal(status = 'todo', id = '', isRecurring = false, isRequest = false) {
@@ -723,6 +724,7 @@
         store.save();
         this.closeKanbanTodoModal();
         this.renderKanbanLocalTodos();
+        if (document.getElementById('fiveS-list')) this.renderFiveSManagement();
     }
 
     closeKanbanTodoModal() {

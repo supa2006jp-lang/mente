@@ -42,9 +42,11 @@
         if (monthDisplay) {
             monthDisplay.textContent = `${year}年 ${month + 1}月`;
         }
+        this.renderCalendarLegend();
 
         const calContainer = document.getElementById('calendar-days');
         if (!calContainer) return;
+        calContainer.closest('.calendar-grid-container')?.classList.toggle('compact-calendar-grid', !!this.calendarCompactMode);
 
         // カレンダーのラインフィルタ選択肢を動的生成 (初回のみ)
         const calLineEl = document.getElementById('cal-filter-line');
@@ -217,7 +219,8 @@
             // 2. Scheduled (Planned)
             dateScheduled.forEach(s => {
                 const badge = document.createElement('div');
-                badge.className = 'event-badge success';
+                const isOneOff = (parseInt(s.periodDays) || 0) <= 0;
+                badge.className = `event-badge success${isOneOff ? ' one-off-planned' : ''}`;
                 badge.draggable = true;
                 badge.ondragstart = (e) => {
                     e.dataTransfer.setData('h-task', JSON.stringify({ taskId: s.id, sourceDate: dateStr }));
@@ -240,7 +243,14 @@
                 const combinedStamp = stampText ? `<span style="display:inline-flex; align-items:center; justify-content:center; background:${colors.bg}; color:${colors.text}; min-width:24px; padding:0 4px; height:18px; border-radius:3px; font-weight:950; font-size:0.75rem; margin-right:4px; border:1px solid ${colors.bg}; flex-shrink:0; vertical-align:middle;">${stampText}</span>` : '';
                 const modelOrName = MaintenanceApp.isModelBlank(machine?.model) ? (machine?.name || '') : (machine?.model || '');
                 const modelStr = modelOrName ? `${MaintenanceApp.toHalfWidthLower(modelOrName)}: ` : '';
-                badge.innerHTML = `<span style="display:flex; align-items:center;">${combinedStamp}${modelStr}${s.content}</span>`;
+                badge.innerHTML = `<span style="display:flex; align-items:center;">${combinedStamp}${this.escapeHtml(modelStr)}${this.escapeHtml(s.content || '')}</span>`;
+
+                if (isOneOff) {
+                    const oneOffStamp = document.createElement('div');
+                    oneOffStamp.className = 'stamp-one-off';
+                    oneOffStamp.textContent = '単';
+                    badge.appendChild(oneOffStamp);
+                }
 
                 // Unfinished Stamp (If past today)
                 if (targetDate < today) {
@@ -268,12 +278,63 @@
                 `;
                 eventsContainer.appendChild(memoBox);
             }
+            this.applyCalendarDayOverflow(eventsContainer, dateStr);
             
             calContainer.appendChild(cell);
         }
 
         this.updateCalendarStats();
         this.updateTelop();
+    }
+
+    renderCalendarLegend() {
+        const header = document.querySelector('#view-calendar .calendar-header');
+        if (!header) return;
+        let legend = document.getElementById('calendar-legend');
+        if (!legend) {
+            legend = document.createElement('div');
+            legend.id = 'calendar-legend';
+            legend.className = 'calendar-legend';
+            header.insertAdjacentElement('afterend', legend);
+        }
+        const collapsed = localStorage.getItem('calendar_legend_collapsed') === 'true';
+        legend.classList.toggle('collapsed', collapsed);
+        legend.innerHTML = `
+            <button type="button" class="calendar-legend-toggle" onclick="app.toggleCalendarLegend()" aria-expanded="${!collapsed}">
+                <i class="fa-solid fa-circle-info"></i> 凡例
+            </button>
+            <div class="calendar-legend-items">
+                <span class="calendar-legend-item"><span class="calendar-legend-dot periodic"></span>定期予定</span>
+                <span class="calendar-legend-item"><span class="calendar-legend-stamp one-off">単</span>単発予定</span>
+                <span class="calendar-legend-item"><span class="calendar-legend-stamp done">完</span>完了</span>
+                <span class="calendar-legend-item"><span class="calendar-legend-stamp unfinished">未完</span>期限切れ</span>
+            </div>
+        `;
+    }
+
+    toggleCalendarLegend() {
+        const next = localStorage.getItem('calendar_legend_collapsed') !== 'true';
+        localStorage.setItem('calendar_legend_collapsed', String(next));
+        this.renderCalendarLegend();
+    }
+
+    applyCalendarDayOverflow(eventsContainer, dateStr) {
+        const items = Array.from(eventsContainer.children)
+            .filter(child => child.classList.contains('event-badge') || child.classList.contains('calendar-day-memo'));
+        const maxVisible = 3;
+        if (items.length <= maxVisible) return;
+        items.slice(maxVisible).forEach(item => item.classList.add('calendar-day-overflow-hidden'));
+
+        const moreBtn = document.createElement('button');
+        moreBtn.type = 'button';
+        moreBtn.className = 'calendar-day-more-btn';
+        moreBtn.textContent = `+${items.length - maxVisible}件`;
+        moreBtn.title = 'この日の予定をすべて表示';
+        moreBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.openCalendarDayDetails(dateStr);
+        };
+        eventsContainer.appendChild(moreBtn);
     }
     }
 

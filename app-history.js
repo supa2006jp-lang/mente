@@ -89,6 +89,7 @@
             content.innerHTML = `
                 <form id="edit-history-form">
                     <input type="hidden" id="e-h-id" value="${historyId}">
+                    ${this.getHistoryNeighborNavHtml(h)}
                     
                     <div class="form-group" style="background:#f1f5f9; padding:12px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:15px;">
                         <label style="font-weight:900; color:#475569;"><i class="fa-solid fa-list-ol"></i> 対応ライン番号 <span style="color:var(--danger)">*</span></label>
@@ -222,6 +223,7 @@
                             </label>
                         </div>
                     </div>
+                    ${this.getRelatedHistoryLinksHtml(h)}
 
                     <div style="margin-top: 24px; border-top: 2px solid #94a3b8; padding-top: 16px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -395,6 +397,15 @@
     renderHistory(searchQuery = '') {
         const body = document.getElementById('history-list-body');
         if (!body) return;
+        const density = this.historyDensityMode || localStorage.getItem('history_density_mode') || 'standard';
+        this.historyDensityMode = density;
+        const densitySelect = document.getElementById('hist-density-mode');
+        if (densitySelect) densitySelect.value = density;
+        const table = body.closest('table');
+        if (table) {
+            table.classList.remove('history-density-standard', 'history-density-detail', 'history-density-compact');
+            table.classList.add(`history-density-${density}`);
+        }
 
         // Active filters banner
         const activeFiltersArea = document.getElementById('hist-active-filters');
@@ -436,6 +447,9 @@
         const lineVal = document.getElementById('hist-filter-line')?.value || 'all';
         const type = tFilter?.value;
         const period = pFilter?.value || 'this_month';
+        const partsOnly = !!document.getElementById('hist-filter-parts')?.checked;
+        const photosOnly = !!document.getElementById('hist-filter-photos')?.checked;
+        const guideOnly = !!document.getElementById('hist-filter-guide')?.checked;
 
         let filtered = store.activeData.history ? store.activeData.history.filter(h => !h.isManualGuide) : [];
         filtered = this.filterHistoryByPeriod(filtered, period);
@@ -476,6 +490,10 @@
             filtered = filtered.filter(h => !!h.isDokatei);
         }
 
+        if (partsOnly) filtered = filtered.filter(h => (h.replacedParts || []).length > 0);
+        if (photosOnly) filtered = filtered.filter(h => (h.photos || []).length > 0);
+        if (guideOnly) filtered = filtered.filter(h => this.hasHistoryGuide(h));
+
         filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
         if (query) {
@@ -488,6 +506,8 @@
                 return terms.every(t => normTxt.includes(t));
             });
         }
+
+        this.renderHistoryFilterSummary(filtered, { period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly });
 
         body.innerHTML = '';
         if (filtered.length === 0) {
@@ -548,6 +568,11 @@
                                     ${this.modelFilter === normMModel ? ' <i class="fa-solid fa-filter" style="font-size:0.6rem"></i>' : ''}
                                 </span>
                             </div>
+                            ${machine ? `
+                                <button type="button" class="history-machine-edit-btn" onclick="event.stopPropagation(); app.openMachineModal('${this.escapeJs(machine.id)}')" title="この機械の編集画面を開く">
+                                    <i class="fa-solid fa-pen-to-square"></i> 機械編集
+                                </button>
+                            ` : ''}
                         </div>
                     </div>
                 </td>
@@ -570,8 +595,8 @@
                         </div>
                     </div>
                     <div style="font-size:0.75rem; color:var(--text-light); line-height:1.4; margin-top:4px;">
-                        ${h.cause ? `<div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="原因: ${h.cause}">原因: ${this.highlightText(h.cause, query)}</div>` : ''}
-                        ${h.notes ? `<div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="処置: ${h.notes}">処置: ${this.highlightText(h.notes, query)}</div>` : ''}
+                        ${h.cause ? `<div class="history-row-detail-text" title="原因: ${h.cause}">原因: ${this.highlightText(h.cause, query)}</div>` : ''}
+                        ${h.notes ? `<div class="history-row-detail-text" title="処置: ${h.notes}">処置: ${this.highlightText(h.notes, query)}</div>` : ''}
                     </div>
                 </td>
                 <td>
@@ -625,6 +650,114 @@
             `;
             body.appendChild(tr);
         });
+    }
+
+    hasHistoryGuide(h) {
+        if (h?.guide) return true;
+        const title = this.getHistoryDisplayText(h);
+        return (store.activeData.history || []).some(r =>
+            r.id !== h.id &&
+            r.machineId === h.machineId &&
+            this.getHistoryDisplayText(r) === title &&
+            !!r.guide
+        );
+    }
+
+    renderHistoryFilterSummary(filtered, filters) {
+        const area = document.getElementById('hist-filter-summary');
+        if (!area) return;
+        const machine = filters.machineId ? store.getMachines(true).find(m => String(m.id) === String(filters.machineId)) : null;
+        const typeLabels = {
+            periodic: '定期のみ',
+            sudden: '突発のみ',
+            nonProductionStop: '非生産停止のみ',
+            dokatei: 'ドカ停のみ'
+        };
+        const periodSelect = document.getElementById('hist-filter-period');
+        const chips = [];
+        if (filters.period && filters.period !== 'all') chips.push(periodSelect?.selectedOptions?.[0]?.textContent || filters.period);
+        if (machine) chips.push(`機械: ${machine.name || '名称なし'}`);
+        if (filters.lineVal && filters.lineVal !== 'all') chips.push(`ライン: ${this.getLineLabel(filters.lineVal)}`);
+        if (filters.type) chips.push(typeLabels[filters.type] || filters.type);
+        if (this.modelFilter) chips.push(`型式: ${this.modelFilter}`);
+        if (this.workerFilter) chips.push(`作業者: ${this.workerFilter}`);
+        if (filters.partsOnly) chips.push('部品あり');
+        if (filters.photosOnly) chips.push('写真あり');
+        if (filters.guideOnly) chips.push('手順あり');
+        if (filters.query) chips.push(`検索: ${filters.query}`);
+
+        const totalMinutes = filtered.reduce((sum, h) => sum + (parseFloat(h.workTime) || 0), 0);
+        const averageMinutes = filtered.length ? Math.round((totalMinutes / filtered.length) * 10) / 10 : 0;
+        area.innerHTML = `
+            <div class="history-filter-summary">
+                <div class="history-filter-chips">
+                    ${chips.length ? chips.map(chip => `<span>${this.escapeHtml(chip)}</span>`).join('') : '<span>絞り込みなし</span>'}
+                </div>
+                <div class="history-worktime-summary">
+                    <b>${filtered.length}</b>件
+                    <b>${this.escapeHtml(this.formatMinutesAsHours(totalMinutes))}</b>合計
+                    <b>${this.escapeHtml(this.formatMinutesAsHours(averageMinutes))}</b>平均
+                </div>
+            </div>
+        `;
+    }
+
+    formatMinutesAsHours(minutes) {
+        const value = parseFloat(minutes) || 0;
+        if (value < 60) return `${Math.round(value * 10) / 10}分`;
+        const hours = Math.floor(value / 60);
+        const mins = Math.round(value % 60);
+        return mins ? `${hours}時間${mins}分` : `${hours}時間`;
+    }
+
+    getRelatedHistoryLinksHtml(current) {
+        const currentParts = new Set((current.replacedParts || []).map(p => `${p.name || ''}___${p.model || ''}`));
+        const currentTitle = MaintenanceStore.toHalfWidthLower(this.getHistoryDisplayText(current));
+        const related = (store.activeData.history || [])
+            .filter(h => h.id !== current.id && !h.isManualGuide)
+            .map(h => {
+                let score = 0;
+                const reasons = [];
+                if (h.machineId === current.machineId) {
+                    score += 3;
+                    reasons.push('同じ機械');
+                }
+                const title = MaintenanceStore.toHalfWidthLower(this.getHistoryDisplayText(h));
+                if (currentTitle && title && (title.includes(currentTitle) || currentTitle.includes(title))) {
+                    score += 2;
+                    reasons.push('似た内容');
+                }
+                const sharedParts = (h.replacedParts || []).filter(p => currentParts.has(`${p.name || ''}___${p.model || ''}`));
+                if (sharedParts.length > 0) {
+                    score += 2;
+                    reasons.push('同じ部品');
+                }
+                return { h, score, reasons };
+            })
+            .filter(item => item.score > 0)
+            .sort((a, b) => b.score - a.score || new Date(b.h.date || '') - new Date(a.h.date || ''))
+            .slice(0, 5);
+
+        if (related.length === 0) return '';
+        return `
+            <div class="related-history-panel">
+                <div class="related-history-head">
+                    <i class="fa-solid fa-link"></i> 関連履歴
+                </div>
+                <div class="related-history-list">
+                    ${related.map(({ h, reasons }) => {
+                        const machine = store.getMachines(true).find(m => m.id === h.machineId);
+                        return `
+                            <button type="button" class="related-history-card" onclick="app.openHistoryEditForm('${this.escapeJs(h.id)}')">
+                                <span class="related-history-date">${this.escapeHtml(h.date || '日付なし')}</span>
+                                <b>${this.escapeHtml(this.getHistoryDisplayText(h))}</b>
+                                <small>${this.escapeHtml(machine?.name || '機械不明')} / ${this.escapeHtml(reasons.join('・'))}</small>
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
     }
 
     formatHistoryPartUnit(unit) {
@@ -732,6 +865,56 @@
             this.workerFilter = worker;
         }
         this.renderHistory();
+    }
+
+    setHistoryDensityMode(mode = 'standard') {
+        this.historyDensityMode = ['standard', 'detail', 'compact'].includes(mode) ? mode : 'standard';
+        localStorage.setItem('history_density_mode', this.historyDensityMode);
+        this.renderHistory();
+    }
+
+    clearHistoryFilters() {
+        const globalSearch = document.getElementById('global-search');
+        const machineFilter = document.getElementById('hist-filter-machine');
+        const lineFilter = document.getElementById('hist-filter-line');
+        const typeFilter = document.getElementById('hist-filter-type');
+        const partsFilter = document.getElementById('hist-filter-parts');
+        const photosFilter = document.getElementById('hist-filter-photos');
+        const guideFilter = document.getElementById('hist-filter-guide');
+        if (globalSearch) globalSearch.value = '';
+        if (machineFilter) machineFilter.value = '';
+        if (lineFilter) lineFilter.value = 'all';
+        if (typeFilter) typeFilter.value = '';
+        if (partsFilter) partsFilter.checked = false;
+        if (photosFilter) photosFilter.checked = false;
+        if (guideFilter) guideFilter.checked = false;
+        this.modelFilter = null;
+        this.workerFilter = null;
+        this.renderHistory('');
+    }
+
+    getHistoryNeighborNavHtml(current) {
+        const sameMachine = (store.activeData.history || [])
+            .filter(h => h.id !== current.id && !h.isManualGuide && h.machineId === current.machineId)
+            .sort((a, b) => new Date(a.date || '') - new Date(b.date || ''));
+        const currentTime = new Date(current.date || '').getTime();
+        const prev = [...sameMachine].reverse().find(h => new Date(h.date || '').getTime() <= currentTime);
+        const next = sameMachine.find(h => new Date(h.date || '').getTime() >= currentTime);
+        if (!prev && !next) return '';
+        const btn = (history, label, icon) => history ? `
+            <button type="button" class="history-neighbor-btn" onclick="app.openHistoryEditForm('${this.escapeJs(history.id)}')">
+                <i class="fa-solid ${icon}"></i>
+                <span>${label}</span>
+                <b>${this.escapeHtml(history.date || '日付なし')}</b>
+                <small>${this.escapeHtml(this.getHistoryDisplayText(history))}</small>
+            </button>
+        ` : '<div></div>';
+        return `
+            <div class="history-neighbor-nav">
+                ${btn(prev, '前回', 'fa-arrow-left')}
+                ${btn(next, '次回', 'fa-arrow-right')}
+            </div>
+        `;
     }
 
     getWorkerColors(name) {

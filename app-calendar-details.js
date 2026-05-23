@@ -10,6 +10,8 @@
     }
 
     renderCompactCalendarItems(container, dateStr, history, scheduled, memoValue, targetDate, today) {
+        const oneOffScheduled = scheduled.filter(s => (parseInt(s.periodDays) || 0) <= 0);
+        const periodicScheduled = scheduled.filter(s => (parseInt(s.periodDays) || 0) > 0);
         const groups = [
             {
                 type: 'sudden',
@@ -40,10 +42,17 @@
                 className: 'done'
             },
             {
+                type: 'oneOffPlanned',
+                label: '単',
+                title: targetDate < today ? '未完了の単発メンテ' : '単発メンテ予定',
+                items: oneOffScheduled,
+                className: 'one-off-planned'
+            },
+            {
                 type: 'planned',
                 label: targetDate < today ? '未' : '定',
                 title: targetDate < today ? '未完了定期メンテ' : '定期メンテ予定',
-                items: scheduled,
+                items: periodicScheduled,
                 className: targetDate < today ? 'unfinished' : 'planned'
             },
             {
@@ -114,7 +123,8 @@
             dokatei: { title: 'ドカ停', items: history.filter(h => !!h.isDokatei), icon: 'fa-triangle-exclamation' },
             nonProductionStop: { title: '非生産停止', items: history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop), icon: 'fa-circle-pause' },
             done: { title: '完了済み定期メンテ', items: history.filter(h => !!h.taskId), icon: 'fa-circle-check' },
-            planned: { title: targetDate < today ? '未完了定期メンテ' : '定期メンテ予定', items: scheduled, icon: targetDate < today ? 'fa-triangle-exclamation' : 'fa-wrench' },
+            oneOffPlanned: { title: targetDate < today ? '未完了の単発メンテ' : '単発メンテ予定', items: scheduled.filter(s => (parseInt(s.periodDays) || 0) <= 0), icon: 'fa-calendar-day' },
+            planned: { title: targetDate < today ? '未完了定期メンテ' : '定期メンテ予定', items: scheduled.filter(s => (parseInt(s.periodDays) || 0) > 0), icon: targetDate < today ? 'fa-triangle-exclamation' : 'fa-wrench' },
             memo: { title: 'メモ', items: memoValue ? [{ value: memoValue }] : [], icon: 'fa-note-sticky' }
         };
         const config = configMap[type];
@@ -135,13 +145,13 @@
                         </div>
                     </div>
                 `;
-            } else if (type === 'planned') {
+            } else if (type === 'planned' || type === 'oneOffPlanned') {
                 listHtml = config.items.length === 0 ? emptyHtml : config.items.map(s => {
                     const machine = store.getMachines(true).find(m => m.id === s.machineId);
                     const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
                     const lineText = machine?.lineNo ? this.getLineLabel(machine.lineNo) : '';
                     return `
-                        <div class="compact-detail-card planned" onclick="app.closeModal(); app.openCompletionForm('${this.escapeHtml(s.id)}', '${dateStr}')">
+                        <div class="compact-detail-card ${type === 'oneOffPlanned' ? 'one-off-planned' : 'planned'}" onclick="app.closeModal(); app.openCompletionForm('${this.escapeHtml(s.id)}', '${dateStr}')">
                             <div class="compact-detail-icon"><i class="fa-solid ${config.icon}"></i></div>
                             <div class="compact-detail-main">
                                 <div class="compact-detail-title">${this.escapeHtml(s.content || '予定')}</div>
@@ -173,6 +183,70 @@
             }
 
             content.innerHTML = `<div class="compact-detail-list">${listHtml}</div>`;
+            const saveBtn = document.querySelector('.modal-footer .primary-btn');
+            if (saveBtn) saveBtn.classList.add('hidden');
+        });
+    }
+
+    openCalendarDayDetails(dateStr) {
+        const history = this.getHistoryForDate(dateStr).filter(h => this.matchesCalendarLineFilter(h));
+        const scheduled = this.getScheduledTasksForDate(dateStr).filter(s => this.matchesCalendarLineFilter(s));
+        const memoValue = (store.activeData.memos || {})[dateStr];
+        const [year, month, day] = dateStr.split('-');
+        const cards = [];
+
+        history.forEach(h => {
+            const machine = store.getMachines(true).find(m => m.id === h.machineId);
+            const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
+            const workers = Array.isArray(h.workers) ? h.workers : (typeof h.workers === 'string' ? h.workers.split(',').map(s => s.trim()).filter(Boolean) : []);
+            const workerText = workers.length ? ` / ${workers.join(', ')}` : '';
+            const type = h.taskId ? 'done' : (h.isDokatei ? 'dokatei' : (h.isNonProductionStop ? 'nonProductionStop' : 'sudden'));
+            const icon = h.taskId ? 'fa-circle-check' : (h.isDokatei ? 'fa-triangle-exclamation' : (h.isNonProductionStop ? 'fa-circle-pause' : 'fa-bolt-lightning'));
+            cards.push(`
+                <div class="compact-detail-card ${type}" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeHtml(h.id)}')">
+                    <div class="compact-detail-icon"><i class="fa-solid ${icon}"></i></div>
+                    <div class="compact-detail-main">
+                        <div class="compact-detail-title">${this.escapeHtml(this.getHistoryDisplayText(h))}</div>
+                        <div class="compact-detail-sub">${this.escapeHtml(machineLabel + workerText)}</div>
+                    </div>
+                    <i class="fa-solid fa-chevron-right compact-detail-arrow"></i>
+                </div>
+            `);
+        });
+
+        scheduled.forEach(s => {
+            const machine = store.getMachines(true).find(m => m.id === s.machineId);
+            const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
+            const isOneOff = (parseInt(s.periodDays) || 0) <= 0;
+            cards.push(`
+                <div class="compact-detail-card ${isOneOff ? 'one-off-planned' : 'planned'}" onclick="app.closeModal(); app.openCompletionForm('${this.escapeHtml(s.id)}', '${dateStr}')">
+                    <div class="compact-detail-icon"><i class="fa-solid ${isOneOff ? 'fa-calendar-day' : 'fa-wrench'}"></i></div>
+                    <div class="compact-detail-main">
+                        <div class="compact-detail-title">${this.escapeHtml(s.content || '予定')}</div>
+                        <div class="compact-detail-sub">${this.escapeHtml(machineLabel)}${isOneOff ? ' / 単発予定' : ''}</div>
+                    </div>
+                    <i class="fa-solid fa-chevron-right compact-detail-arrow"></i>
+                </div>
+            `);
+        });
+
+        if (memoValue) {
+            cards.push(`
+                <div class="compact-detail-card memo">
+                    <div class="compact-detail-icon"><i class="fa-solid fa-note-sticky"></i></div>
+                    <div class="compact-detail-main">
+                        <div class="compact-detail-title">カレンダーメモ</div>
+                        <div class="compact-detail-sub">${this.escapeHtml(memoValue).replace(/\n/g, '<br>')}</div>
+                    </div>
+                </div>
+            `);
+        }
+
+        this.openModal('calendar-day-details', `${month}/${day} 予定一覧 ${cards.length}件`, () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = cards.length
+                ? `<div class="compact-detail-list">${cards.join('')}</div>`
+                : '<p style="font-size:0.85rem; padding:12px; background:var(--background); border-radius:8px;">表示できる項目はありません。</p>';
             const saveBtn = document.querySelector('.modal-footer .primary-btn');
             if (saveBtn) saveBtn.classList.add('hidden');
         });
