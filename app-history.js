@@ -482,6 +482,10 @@
 
         if (type === 'periodic') {
             filtered = filtered.filter(h => !!h.taskId);
+        } else if (type === 'suddenBundle') {
+            filtered = filtered.filter(h => this.isCalendarSuddenResponseHistory
+                ? this.isCalendarSuddenResponseHistory(h)
+                : (!h.taskId && !h.isManualGuide && (h.isSudden === true || h.isDokatei || h.isNonProductionStop)));
         } else if (type === 'sudden') {
             filtered = filtered.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
         } else if (type === 'nonProductionStop') {
@@ -669,6 +673,7 @@
         const machine = filters.machineId ? store.getMachines(true).find(m => String(m.id) === String(filters.machineId)) : null;
         const typeLabels = {
             periodic: '定期のみ',
+            suddenBundle: '突発+ドカ停+非生産停止',
             sudden: '突発のみ',
             nonProductionStop: '非生産停止のみ',
             dokatei: 'ドカ停のみ'
@@ -890,6 +895,41 @@
         if (guideFilter) guideFilter.checked = false;
         this.modelFilter = null;
         this.workerFilter = null;
+        this.renderHistory('');
+    }
+
+    openHistoryStatFilter(type = 'suddenBundle') {
+        const year = this.currentDate?.getFullYear?.() || new Date().getFullYear();
+        const monthIndex = this.currentDate?.getMonth?.() ?? new Date().getMonth();
+        const start = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
+        const endDate = new Date(year, monthIndex + 1, 0).getDate();
+        const end = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(endDate).padStart(2, '0')}`;
+
+        localStorage.setItem('customRangeStart', start);
+        localStorage.setItem('customRangeEnd', end);
+        this.updateHistoryPeriodOptions();
+
+        const globalSearch = document.getElementById('global-search');
+        const periodFilter = document.getElementById('hist-filter-period');
+        const machineFilter = document.getElementById('hist-filter-machine');
+        const lineFilter = document.getElementById('hist-filter-line');
+        const typeFilter = document.getElementById('hist-filter-type');
+        const partsFilter = document.getElementById('hist-filter-parts');
+        const photosFilter = document.getElementById('hist-filter-photos');
+        const guideFilter = document.getElementById('hist-filter-guide');
+
+        if (globalSearch) globalSearch.value = '';
+        if (periodFilter) periodFilter.value = 'custom_range';
+        if (machineFilter) machineFilter.value = '';
+        if (lineFilter) lineFilter.value = 'all';
+        if (typeFilter) typeFilter.value = type === 'dokatei' ? 'dokatei' : 'suddenBundle';
+        if (partsFilter) partsFilter.checked = false;
+        if (photosFilter) photosFilter.checked = false;
+        if (guideFilter) guideFilter.checked = false;
+        this.modelFilter = null;
+        this.workerFilter = null;
+
+        this.switchView('history');
         this.renderHistory('');
     }
 

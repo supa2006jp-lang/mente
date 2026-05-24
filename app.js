@@ -402,7 +402,8 @@ class MaintenanceApp {
             'dashboard': 'ダッシュボード',
             'ranking': '不具合頻度ランキング',
             'workers': 'スキルマップ',
-            'guides': '手順書・ナレッジDB'
+            'guides': '手順書・ナレッジDB',
+            'photos': '写真管理'
         };
         const titleEl = document.getElementById('view-title');
         if (titleEl) titleEl.textContent = titles[viewName] || 'メンテナンス';
@@ -560,6 +561,14 @@ class MaintenanceApp {
         if (fiveSPeriod) fiveSPeriod.value = 'all';
         const fiveSPhotos = document.getElementById('fiveS-filter-photos');
         if (fiveSPhotos) fiveSPhotos.checked = false;
+        const fiveSPending = document.getElementById('fiveS-filter-pending');
+        if (fiveSPending) fiveSPending.checked = false;
+        const fiveSShift = document.getElementById('fiveS-filter-shift');
+        if (fiveSShift) fiveSShift.value = 'all';
+        const fiveSGroup = document.getElementById('fiveS-filter-group');
+        if (fiveSGroup) fiveSGroup.value = '';
+        const fiveSQuery = document.getElementById('fiveS-filter-query');
+        if (fiveSQuery) fiveSQuery.value = '';
 
         // Reset Ranking View Filter
         const rPeriod = document.getElementById('ranking-filter-period');
@@ -629,6 +638,7 @@ class MaintenanceApp {
             case 'ranking': this.renderRanking(); break;
             case 'workers': this.renderWorkers(); break;
             case 'guides': this.renderGuides(); break;
+            case 'photos': this.renderPhotoManager(); break;
         }
     }
 

@@ -7,6 +7,15 @@
     renderMachines(searchQuery = '') {
         const container = document.getElementById('machines-list');
         if (!container) return;
+        if (typeof this.machineMaintenanceListMode === 'undefined') {
+            this.machineMaintenanceListMode = localStorage.getItem('machine_maintenance_list_mode') === '1';
+        }
+        if (this.machineMaintenanceListMode) {
+            this.renderMachineMaintenanceList(searchQuery);
+            return;
+        }
+        this.updateMachineMaintenanceListButton();
+        container.className = 'grid-list';
         
         const qInput = document.getElementById('global-search');
         const query = (searchQuery || (qInput ? qInput.value : '')).toLowerCase().trim();
@@ -213,6 +222,223 @@
             card.querySelector('.delete-btn').onclick = () => this.deleteMachine(mId);
             container.appendChild(card);
         });
+    }
+
+    toggleMachineMaintenanceListMode() {
+        this.machineMaintenanceListMode = !this.machineMaintenanceListMode;
+        localStorage.setItem('machine_maintenance_list_mode', this.machineMaintenanceListMode ? '1' : '0');
+        this.renderMachines();
+    }
+
+    updateMachineMaintenanceListButton() {
+        const btn = document.getElementById('btn-machine-maintenance-list');
+        if (!btn) return;
+        const listMode = !!this.machineMaintenanceListMode;
+        btn.classList.toggle('active-toggle', listMode);
+        btn.innerHTML = listMode
+            ? '<i class="fa-solid fa-table-cells-large"></i> 看板表示'
+            : '<i class="fa-solid fa-list-ul"></i> 定期（単発含む）メンテリスト表示';
+        btn.title = listMode ? '装置の看板表示へ戻す' : '定期メンテ項目を一覧で表示';
+    }
+
+    getMachineMaintenanceNextDue(task, todayStr = this.getLocalDateString()) {
+        if (!task?.startDate) return '';
+        const periodDays = parseInt(task.periodDays) || 0;
+        if (periodDays <= 0) {
+            const done = (store.activeData.history || []).some(h => h.taskId && String(h.taskId) === String(task.id));
+            return done ? '完了済み' : task.startDate;
+        }
+        const [sy, sm, sd] = task.startDate.split('-').map(Number);
+        const start = new Date(sy, sm - 1, sd);
+        if (isNaN(start.getTime())) return '';
+        const today = new Date(todayStr);
+        today.setHours(0, 0, 0, 0);
+        let due = new Date(start);
+        due.setHours(0, 0, 0, 0);
+        while (due < today) {
+            const dueStr = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`;
+            const done = (store.activeData.history || []).some(h => h.taskId && String(h.taskId) === String(task.id) && h.date === dueStr);
+            if (!done) return dueStr;
+            due.setDate(due.getDate() + periodDays);
+        }
+        return `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`;
+    }
+
+    setMachineMaintenanceListFilter(key, value) {
+        this.machineMaintenanceListFilters = {
+            ...(this.machineMaintenanceListFilters || {}),
+            [key]: value
+        };
+        this.renderMachines();
+    }
+
+    renderMachineMaintenanceList(searchQuery = '') {
+        const container = document.getElementById('machines-list');
+        if (!container) return;
+        this.updateMachineMaintenanceListButton();
+        container.className = 'machine-maintenance-list-wrap';
+
+        const qInput = document.getElementById('global-search');
+        const query = MaintenanceStore.toHalfWidthLower(searchQuery || (qInput ? qInput.value : '') || '').trim();
+        const machines = store.getMachines(true);
+        const machineMap = new Map(machines.map(m => [String(m.id), m]));
+        const histories = store.activeData.history || [];
+        const todayStr = this.getLocalDateString();
+        const listFilters = {
+            status: 'all',
+            kind: 'all',
+            line: 'all',
+            ...(this.machineMaintenanceListFilters || {})
+        };
+
+        let rows = (store.activeData.tasks || [])
+            .filter(t => !store.isMaintenanceTaskArchived(t.id))
+            .map(task => {
+                const machine = machineMap.get(String(task.machineId));
+                const taskHistory = histories
+                    .filter(h => h.taskId && String(h.taskId) === String(task.id))
+                    .sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
+                const latest = taskHistory[0];
+                return {
+                    task,
+                    machine,
+                    latest,
+                    nextDue: this.getMachineMaintenanceNextDue(task, todayStr),
+                    doneCount: taskHistory.length
+                };
+            });
+
+        rows = rows.filter(row => {
+            const periodDays = parseInt(row.task.periodDays) || 0;
+            const isDoneOneOff = periodDays <= 0 && row.nextDue === '完了済み';
+            const isOverdue = row.nextDue && row.nextDue !== '完了済み' && row.nextDue < todayStr;
+            const lineNo = row.machine?.lineNo || '';
+            if (listFilters.status === 'overdue' && !isOverdue) return false;
+            if (listFilters.status === 'active' && isDoneOneOff) return false;
+            if (listFilters.kind === 'periodic' && periodDays <= 0) return false;
+            if (listFilters.kind === 'oneOff' && periodDays > 0) return false;
+            if (listFilters.line !== 'all' && String(lineNo) !== String(listFilters.line)) return false;
+            return true;
+        });
+
+        if (query) {
+            rows = rows.filter(row => {
+                const m = row.machine || {};
+                const text = [
+                    row.task.content,
+                    row.task.periodDays,
+                    row.task.startDate,
+                    row.nextDue,
+                    m.name,
+                    m.model,
+                    m.lineNo,
+                    m.category,
+                    m.manufacturer
+                ].join(' ');
+                return MaintenanceStore.toHalfWidthLower(text).includes(query);
+            });
+        }
+
+        const sortMode = this.machineSort || document.getElementById('machine-sort-select')?.value || 'rank';
+        rows.sort((a, b) => {
+            if (sortMode === 'name') {
+                return `${a.machine?.name || ''} ${a.task.content || ''}`.localeCompare(`${b.machine?.name || ''} ${b.task.content || ''}`, 'ja');
+            }
+            if (sortMode === 'newest') {
+                return (b.task.createdAt || b.machine?.createdAt || 0) - (a.task.createdAt || a.machine?.createdAt || 0);
+            }
+            return String(a.nextDue || '9999-99-99').localeCompare(String(b.nextDue || '9999-99-99'));
+        });
+
+        const rowsHtml = rows.map(row => {
+            const task = row.task;
+            const machine = row.machine;
+            const periodDays = parseInt(task.periodDays) || 0;
+            const periodLabel = periodDays > 0 ? `${periodDays}日毎` : '単発';
+            const nextDueClass = row.nextDue && row.nextDue !== '完了済み' && row.nextDue < todayStr ? ' overdue' : '';
+            const completionDate = row.nextDue && row.nextDue !== '完了済み' ? row.nextDue : todayStr;
+            const completionDisabled = row.nextDue === '完了済み';
+            const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
+            return `
+                <tr>
+                    <td>
+                        <div class="maintenance-list-machine">
+                            ${machine?.photo ? `<img src="${machine.photo}" alt="">` : '<span><i class="fa-solid fa-industry"></i></span>'}
+                            <div>
+                                <b>${this.escapeHtml(machineLabel)}</b>
+                                <small>${machine?.lineNo ? this.escapeHtml(this.getLineLabel(machine.lineNo)) : 'ライン未設定'}${machine?.category ? ` / ${this.escapeHtml(machine.category)}` : ''}</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="maintenance-list-task">${this.escapeHtml(task.content || '内容なし')}</div>
+                    </td>
+                    <td><span class="maintenance-period-pill ${periodDays <= 0 ? 'one-off' : ''}">${this.escapeHtml(periodLabel)}</span></td>
+                    <td>${this.escapeHtml(task.startDate || '-')}</td>
+                    <td><span class="maintenance-next-due${nextDueClass}">${this.escapeHtml(row.nextDue || '-')}</span></td>
+                    <td>${row.latest ? this.escapeHtml(row.latest.date || '-') : '-'}</td>
+                    <td style="text-align:center;">${row.doneCount}</td>
+                    <td class="maintenance-list-actions">
+                        <button type="button" class="primary-btn" ${completionDisabled ? 'disabled' : ''} onclick="app.openCompletionForm('${this.escapeJs(task.id)}', '${this.escapeJs(completionDate)}')">
+                            <i class="fa-solid fa-circle-check"></i> 完了
+                        </button>
+                        <button type="button" class="secondary-btn" onclick="app.editMachine('${this.escapeJs(task.machineId)}')">
+                            <i class="fa-solid fa-pen"></i> 編集
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+        const lineOptions = Array.from(new Set(machines.map(m => m.lineNo).filter(Boolean)))
+            .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }))
+            .map(line => `<option value="${this.escapeHtml(line)}" ${String(listFilters.line) === String(line) ? 'selected' : ''}>${this.escapeHtml(this.getLineLabel(line))}</option>`)
+            .join('');
+
+        container.innerHTML = `
+            <div class="machine-maintenance-list-head">
+                <div>
+                    <b>メンテリスト</b>
+                    <span>${rows.length}件</span>
+                </div>
+                <small>完了ボタンでメンテナンス完了報告を開きます。</small>
+            </div>
+            <div class="machine-maintenance-filter-bar">
+                <select onchange="app.setMachineMaintenanceListFilter('status', this.value)" title="状態で絞り込み">
+                    <option value="all" ${listFilters.status === 'all' ? 'selected' : ''}>全状態</option>
+                    <option value="overdue" ${listFilters.status === 'overdue' ? 'selected' : ''}>期限切れのみ</option>
+                    <option value="active" ${listFilters.status === 'active' ? 'selected' : ''}>未完了のみ</option>
+                </select>
+                <select onchange="app.setMachineMaintenanceListFilter('kind', this.value)" title="メンテ種別で絞り込み">
+                    <option value="all" ${listFilters.kind === 'all' ? 'selected' : ''}>全種別</option>
+                    <option value="periodic" ${listFilters.kind === 'periodic' ? 'selected' : ''}>周期ありのみ</option>
+                    <option value="oneOff" ${listFilters.kind === 'oneOff' ? 'selected' : ''}>単発のみ</option>
+                </select>
+                <select onchange="app.setMachineMaintenanceListFilter('line', this.value)" title="ラインで絞り込み">
+                    <option value="all" ${listFilters.line === 'all' ? 'selected' : ''}>全ライン</option>
+                    ${lineOptions}
+                </select>
+                <button type="button" class="secondary-btn" onclick="app.machineMaintenanceListFilters={status:'all',kind:'all',line:'all'}; app.renderMachines();">
+                    <i class="fa-solid fa-filter-circle-xmark"></i> 解除
+                </button>
+            </div>
+            <table class="data-table machine-maintenance-table">
+                <thead>
+                    <tr>
+                        <th>装置</th>
+                        <th>メンテ内容</th>
+                        <th>周期</th>
+                        <th>開始日</th>
+                        <th>次回予定</th>
+                        <th>直近実績</th>
+                        <th>実績</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHtml || '<tr><td colspan="8" style="text-align:center; padding:36px; color:var(--text-light);">表示できるメンテ項目はありません</td></tr>'}
+                </tbody>
+            </table>
+        `;
     }
     }
 

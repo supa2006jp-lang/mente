@@ -96,11 +96,6 @@
             });
         }
 
-        const purgeBtn = document.getElementById('btn-photo-purge');
-        if (purgeBtn) {
-            purgeBtn.addEventListener('click', () => this.handlePhotoPurge());
-        }
-
         // Worktime Memo Persistence (Per Department)
         const wtMemo = document.getElementById('worktime-memo');
         if (wtMemo) {
@@ -113,35 +108,6 @@
         }
     }
 
-    handlePhotoPurge() {
-        const pass = prompt('管理パスワードを入力してください:');
-        if (pass !== 'glicono1') {
-            alert('パスワードが違います。');
-            return;
-        }
-
-        if (confirm('１年以上前の写真データがすべて消えてしまいますが、本当にパージを実行してよろしいですか？\n※復元はできませんのでバックアップを先に取っておくことを推奨します。')) {
-            const oneYearAgo = new Date();
-            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
-            let count = 0;
-            store.activeData.history.forEach(h => {
-                const hDate = new Date(h.date);
-                if (hDate < oneYearAgo && h.photos && h.photos.length > 0) {
-                    h.photos = [];
-                    count++;
-                }
-            });
-
-            if (count > 0) {
-                store.save();
-                alert(`${count}件の記録から、１年以上前の写真を削除しました。`);
-                this.renderCalendar();
-            } else {
-                alert('１年以上前の写真が見つかりませんでした。データは変更されていません。');
-            }
-        }
-    }
     }
 
     for (const name of Object.getOwnPropertyNames(MaintenanceAppPersistenceMethods.prototype)) {

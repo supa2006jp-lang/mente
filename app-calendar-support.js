@@ -132,6 +132,13 @@
         return scheduled;
     }
 
+    isCalendarSuddenResponseHistory(h) {
+        if (!h || h.taskId || h.isManualGuide) return false;
+        if (h.isDokatei || h.isNonProductionStop) return true;
+        if (Object.prototype.hasOwnProperty.call(h, 'isSudden')) return h.isSudden === true;
+        return true;
+    }
+
     updateCalendarStats() {
         const year = this.currentDate.getFullYear();
         const month = this.currentDate.getMonth();
@@ -167,7 +174,7 @@
         });
         
         const scheduledDoneCount = allMonthHistory.filter(h => !!h.taskId).length;
-        const suddenCount = allMonthHistory.filter(h => !h.taskId).length;
+        const suddenCount = allMonthHistory.filter(h => this.isCalendarSuddenResponseHistory(h)).length;
 
         document.getElementById('cal-stat-remaining').textContent = totalRemaining;
         document.getElementById('cal-stat-done').textContent = scheduledDoneCount;

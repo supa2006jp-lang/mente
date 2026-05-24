@@ -256,9 +256,11 @@
         const period = document.getElementById('fiveS-filter-period')?.value || 'all';
         const photosOnly = !!document.getElementById('fiveS-filter-photos')?.checked;
         const pendingOnly = !!document.getElementById('fiveS-filter-pending')?.checked;
+        const filters = this.getFiveSManagementFilters();
         const range = this.getNotebookSearchDateRange(period);
         const allRows = this.collectFiveSNotebookRows(period, photosOnly)
-            .map(row => ({ ...row, todoStatus: this.getFiveSRowTodoStatus(row) }));
+            .map(row => ({ ...row, todoStatus: this.getFiveSRowTodoStatus(row) }))
+            .filter(row => this.matchesFiveSManagementFilters(row, filters));
         const rows = pendingOnly ? allRows.filter(row => row.todoStatus.openCount > 0) : allRows;
         const summary = document.getElementById('fiveS-summary');
         const list = document.getElementById('fiveS-list');
@@ -285,6 +287,7 @@
                     ${row.photos.map(photo => `
                         <figure>
                             <img src="${photo.src}" alt="${this.escapeHtml(photo.caption || '5S写真')}">
+                            ${photo.marks?.length ? `<span class="five-s-photo-mark-badge"><i class="fa-solid fa-pen"></i> 注記あり</span>` : ''}
                             ${photo.caption ? `<figcaption>${this.escapeHtml(photo.caption)}</figcaption>` : ''}
                         </figure>
                     `).join('')}
@@ -294,7 +297,7 @@
                 ? `ToDo ${row.todoStatus.count}件 / 未完了 ${row.todoStatus.openCount}件 / 完了 ${row.todoStatus.doneCount}件`
                 : 'この5S履歴から作成したToDoはありません';
             return `
-                <article class="five-s-card">
+                <article class="five-s-card" data-five-s-row-id="${this.escapeHtml(row.rowId || '')}">
                     <div class="five-s-card-main">
                         <div class="five-s-meta">
                             <span class="five-s-stamp">5S</span>
@@ -313,20 +316,59 @@
                             <i class="fa-solid fa-list-check"></i> ToDo作成
                         </button>
                         <button type="button" class="secondary-btn" onclick="app.openShiftNotebookModal('${this.escapeJs(row.dateStr)}', '${this.escapeJs(row.shift)}', ${row.index})">
-                            <i class="fa-solid fa-pen-to-square"></i> 開く
+                            <i class="fa-solid fa-arrow-rotate-left"></i> 元の行へ戻る
                         </button>
                     </div>
                 </article>
             `;
         }).join('');
+        this.highlightFiveSManagementRow();
+    }
+
+    highlightFiveSManagementRow() {
+        const rowId = this._fiveSHighlightRowId || '';
+        if (!rowId) return;
+        const card = document.querySelector(`.five-s-card[data-five-s-row-id="${CSS.escape(rowId)}"]`);
+        this._fiveSHighlightRowId = '';
+        if (!card) return;
+        card.classList.add('five-s-card-highlight');
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => card.classList.remove('five-s-card-highlight'), 2200);
+    }
+
+    getFiveSManagementFilters() {
+        return {
+            shift: document.getElementById('fiveS-filter-shift')?.value || 'all',
+            group: document.getElementById('fiveS-filter-group')?.value.trim() || '',
+            query: document.getElementById('fiveS-filter-query')?.value.trim() || ''
+        };
+    }
+
+    matchesFiveSManagementFilters(row = {}, filters = {}) {
+        if (filters.shift && filters.shift !== 'all') {
+            if (filters.shift === 'shared') {
+                if (!row.shared) return false;
+            } else if (row.shift !== filters.shift || row.shared) {
+                return false;
+            }
+        }
+        if (filters.group && !this.matchesSearchTerms(row.group || '', this.getSearchTerms(filters.group))) return false;
+        if (filters.query) {
+            const photoText = (row.photos || []).map(photo => photo.caption || '').filter(Boolean).join(' ');
+            const searchable = `${row.dateStr || ''} ${row.shiftLabel?.name || ''} ${row.shiftLabel?.stamp || ''} ${(row.members || []).join(' ')} ${row.group || ''} ${row.tag || ''} ${row.text || ''} ${photoText}`;
+            if (!this.matchesSearchTerms(searchable, this.getSearchTerms(filters.query))) return false;
+        }
+        return true;
     }
 
     exportFiveSManagementExcel() {
         const period = document.getElementById('fiveS-filter-period')?.value || 'all';
         const photosOnly = !!document.getElementById('fiveS-filter-photos')?.checked;
         const pendingOnly = !!document.getElementById('fiveS-filter-pending')?.checked;
+        const filters = this.getFiveSManagementFilters();
         const rows = this.collectFiveSNotebookRows(period, photosOnly)
             .map(row => ({ ...row, todoStatus: this.getFiveSRowTodoStatus(row) }))
+            .filter(row => this.matchesFiveSManagementFilters(row, filters))
             .filter(row => !pendingOnly || row.todoStatus.openCount > 0);
         if (!rows.length) {
             alert('出力する5S履歴がありません。');
@@ -492,8 +534,10 @@
         const period = document.getElementById('fiveS-filter-period')?.value || 'all';
         const photosOnly = !!document.getElementById('fiveS-filter-photos')?.checked;
         const pendingOnly = !!document.getElementById('fiveS-filter-pending')?.checked;
+        const filters = this.getFiveSManagementFilters();
         const rows = this.collectFiveSNotebookRows(period, photosOnly)
             .map(row => ({ ...row, todoStatus: this.getFiveSRowTodoStatus(row) }))
+            .filter(row => this.matchesFiveSManagementFilters(row, filters))
             .filter(row => !pendingOnly || row.todoStatus.openCount > 0);
         if (!rows.length) {
             alert('出力する5S履歴がありません。');
@@ -3044,6 +3088,21 @@
         const rowEditor = row.querySelector('.shift-note-text');
         rowEditor?.style.setProperty('--shift-break-line', `${this.getShiftNotePasteFormatSettings().ratioPercent}%`);
         requestAnimationFrame(() => this.positionShiftSuddenRegisteredStamp(row));
+        const fiveSStamp = row.querySelector('.shift-5s-stamp');
+        if (fiveSStamp) {
+            fiveSStamp.removeAttribute('aria-hidden');
+            fiveSStamp.setAttribute('role', 'button');
+            fiveSStamp.setAttribute('tabindex', '0');
+            fiveSStamp.title = '5S管理でこの履歴を確認';
+            fiveSStamp.onclick = () => this.openFiveSManagementFromShiftNotebook(row);
+            fiveSStamp.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    this.openFiveSManagementFromShiftNotebook(row);
+                }
+            };
+        }
+        this.updateShiftNotebookRow5SStampStatus(row);
 
         const preview = row.querySelector('.shift-photo-previews');
         const editor = row.querySelector('.shift-note-text');
@@ -3259,6 +3318,7 @@
             div.classList.add('shift-photo-item');
             div.dataset.shiftPhotoMarks = JSON.stringify(photoData.marks || []);
             div.insertAdjacentHTML('beforeend', `
+                <span class="shift-photo-mark-badge" title="写真比較で記号・文字の注記があります"><i class="fa-solid fa-pen"></i></span>
                 <div class="shift-photo-caption-row">
                     <div class="shift-photo-caption-control">
                         <button type="button" class="shift-photo-caption-toggle" title="写真メモを入力">名</button>
@@ -3575,6 +3635,7 @@
         if (photo) photo.marks = marks;
         const previewItem = photo?.previewItem;
         if (previewItem) previewItem.dataset.shiftPhotoMarks = JSON.stringify(marks);
+        if (context.row) this.updateShiftPhotoToolState(context.row);
         this.scheduleShiftNotebookAutoSave();
     }
 
@@ -3584,6 +3645,7 @@
         if (!row || !layer) return;
         const marks = this.readShiftPhotoCompareMarksFromWrap(layer);
         row.dataset.shiftPhotoGlobalMarks = JSON.stringify(marks);
+        this.updateShiftPhotoToolState(row);
         this.scheduleShiftNotebookAutoSave();
     }
 
@@ -3631,13 +3693,27 @@
 
     updateShiftPhotoToolState(row) {
         if (!row) return;
-        const photoCount = row.querySelectorAll('.shift-photo-previews .shift-photo-item img[src]').length;
+        const photoItems = Array.from(row.querySelectorAll('.shift-photo-previews .shift-photo-item'));
+        const photoCount = photoItems.filter(item => !!item.querySelector('img[src]')).length;
         const hasPhotos = photoCount > 0;
+        const globalMarkCount = this.parseShiftPhotoCompareMarks(row.dataset.shiftPhotoGlobalMarks || '[]').length;
+        const markedPhotoCount = photoItems.reduce((count, item) => {
+            const marks = this.parseShiftPhotoCompareMarks(item.dataset.shiftPhotoMarks || '[]');
+            const hasMarks = marks.length > 0 || globalMarkCount > 0;
+            item.classList.toggle('has-photo-marks', hasMarks);
+            const markText = globalMarkCount > 0 ? `注記あり (全体${globalMarkCount}件 / 写真${marks.length}件)` : `注記あり (${marks.length}件)`;
+            item.querySelector('.shift-photo-mark-badge')?.setAttribute('title', hasMarks ? markText : '写真比較で記号・文字の注記があります');
+            return count + (marks.length > 0 ? 1 : 0);
+        }, 0);
+        const hasMarks = globalMarkCount > 0 || markedPhotoCount > 0;
         const compareButton = row.querySelector('.shift-photo-compare-btn');
         const collapseButton = row.querySelector('.shift-photo-collapse-btn');
         compareButton?.classList.toggle('has-photos', hasPhotos);
+        compareButton?.classList.toggle('has-photo-marks', hasMarks);
         if (compareButton) {
-            compareButton.title = hasPhotos ? `写真${photoCount}枚を並べて拡大表示` : '複数写真を並べて拡大表示';
+            compareButton.title = hasPhotos
+                ? `写真${photoCount}枚を並べて拡大表示${hasMarks ? ` / 注記あり ${markedPhotoCount + globalMarkCount}件` : ''}`
+                : '複数写真を並べて拡大表示';
         }
         if (collapseButton) {
             collapseButton.disabled = !hasPhotos;
@@ -6076,9 +6152,64 @@
         if (!row) return;
         const active = row.classList.toggle('shift-row-5s');
         button.classList.toggle('active', active);
+        this.updateShiftNotebookRow5SStampStatus(row);
         requestAnimationFrame(() => this.positionShiftImportantStamp(row));
         this.autoSaveShiftNotebook(true);
         this.setShiftNotebookStatus(active ? '5Sスタンプを押しました' : '5Sスタンプを外しました', 'saved');
+    }
+
+    getShiftNotebookRow5SStatusInfo(row) {
+        const editing = this._editingShiftNotebook || {};
+        const group = row?.querySelector('.shift-row-group-select')?.value || '未設定';
+        const shared = this.isShiftNotebookThroughGroup(group);
+        return {
+            dateStr: editing.dateStr || '',
+            shift: shared ? 'early' : (editing.shift || ''),
+            rowId: row?.dataset?.shiftRowId || '',
+            group,
+            shared
+        };
+    }
+
+    updateShiftNotebookRow5SStampStatus(row) {
+        const stamp = row?.querySelector('.shift-5s-stamp');
+        if (!stamp) return;
+        if (!row.classList.contains('shift-row-5s')) {
+            stamp.textContent = '5S';
+            stamp.removeAttribute('data-open-todos');
+            return;
+        }
+        const info = this.getShiftNotebookRow5SStatusInfo(row);
+        const status = info.rowId && info.dateStr && info.shift
+            ? this.getFiveSRowTodoStatus(info)
+            : { openCount: 0 };
+        stamp.innerHTML = `5S${status.openCount > 0 ? `<span class="shift-5s-alert" title="未完了ToDo ${status.openCount}件">${status.openCount}</span>` : ''}`;
+        if (status.openCount > 0) stamp.dataset.openTodos = String(status.openCount);
+        else stamp.removeAttribute('data-open-todos');
+    }
+
+    openFiveSManagementFromShiftNotebook(row = null) {
+        if (row) {
+            this._fiveSHighlightRowId = row.dataset.shiftRowId || '';
+            this.autoSaveShiftNotebook(true);
+        }
+        const resetValue = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.value = value;
+        };
+        const resetChecked = (id, checked) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = checked;
+        };
+        resetValue('fiveS-filter-period', 'all');
+        resetValue('fiveS-filter-shift', 'all');
+        resetValue('fiveS-filter-group', '');
+        resetValue('fiveS-filter-query', '');
+        resetChecked('fiveS-filter-photos', false);
+        resetChecked('fiveS-filter-pending', false);
+        this.closeModal();
+        this.switchView('fiveS');
+        this.renderFiveSManagement();
     }
 
     getShiftNotebookHiddenRowCount() {

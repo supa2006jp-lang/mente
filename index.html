@@ -191,7 +191,7 @@
                         <span class="value" id="cal-stat-done">0</span>
                     </div>
                 </div>
-                <div class="stat-widget sudden">
+                <div class="stat-widget sudden clickable-stat" role="button" tabindex="0" title="該当するメンテナンス履歴を表示" onclick="app.openHistoryStatFilter('suddenBundle')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); app.openHistoryStatFilter('suddenBundle');}">
                     <div class="stat-icon"><i class="fa-solid fa-bolt-lightning"></i></div>
                     <div class="stat-info">
                         <span class="label">突発対応 件数</span>
@@ -199,7 +199,7 @@
                     </div>
                 </div>
                 <div class="stat-divider"></div>
-                <div class="stat-widget dokatei-main">
+                <div class="stat-widget dokatei-main clickable-stat" role="button" tabindex="0" title="ドカ停のメンテナンス履歴を表示" onclick="app.openHistoryStatFilter('dokatei')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); app.openHistoryStatFilter('dokatei');}">
                     <div class="stat-icon"><i class="fa-solid fa-bolt"></i></div>
                     <div class="stat-info">
                         <span class="label">ドカ停 総計</span>
@@ -234,6 +234,9 @@
                     <i class="fa-solid fa-book-open"></i> <span>手順書・ナレッジDB</span>
                 </button>
                 <div class="nav-divider">分析</div>
+                <button class="nav-btn" data-view="photos">
+                    <i class="fa-solid fa-images"></i> <span>&#20889;&#30495;&#31649;&#29702;</span>
+                </button>
                 <button class="nav-btn" data-view="analysis">
                     <i class="fa-solid fa-box-open"></i> <span>部品消費・コスト</span>
                 </button>
@@ -286,13 +289,9 @@
                     </button>
                     <input type="file" id="btn-import-dept" hidden accept=".json">
                 </div>
-                <!-- Photo Purge Button -->
-                <button id="btn-photo-purge" style="width:100%; margin-top:8px; padding:6px; font-size:0.75rem; background:#fef2f2; border:1px solid #fecaca; color:#dc2626; border-radius:4px; cursor:pointer; font-weight:700;">
-                    <i class="fa-solid fa-broom"></i> 画像パージ
-                </button>
-                <div style="font-size: 0.6rem; color: #dc2626; margin-top: 4px; line-height: 1.3;">
+                <!-- <div style="font-size: 0.6rem; color: #dc2626; margin-top: 4px; line-height: 1.3;">
                     削除された写真は復元できません。実行前に、左下の「出力」ボタンで一度バックアップ（latest.jsonなど）を保存しておくことをお勧めします。
-                </div>
+                </div> -->
                 <div style="font-size: 0.65rem; color: var(--text-light); margin-top: 10px; line-height: 1.4; border-top: 1px solid var(--border); padding-top: 8px;">
                     ※「出力」で日時付きのバックアップ用と、共有用の「latest.json」の2つが同時に保存されます。他のPCへ最新データを渡す際は「latest.json」を読み込んでください。
                 </div>
@@ -438,6 +437,9 @@
                             <button class="primary-btn" id="btn-add-machine">
                                 <i class="fa-solid fa-plus"></i> 新規機械登録
                             </button>
+                            <button class="secondary-btn maintenance-list-toggle-btn" id="btn-machine-maintenance-list" onclick="app.toggleMachineMaintenanceListMode()" title="定期メンテ項目を一覧で表示">
+                                <i class="fa-solid fa-list-ul"></i> 定期（単発含む）メンテリスト表示
+                            </button>
                         </div>
                         <div class="filter-bar" style="margin:0; padding:0; background:none;">
                             <select id="machine-sort-select" onchange="app.machineSort = this.value; app.renderMachines();" style="font-size:0.75rem; padding:6px 12px;">
@@ -473,6 +475,7 @@
                         <select id="hist-filter-type">
                             <option value="">全タイプ</option>
                             <option value="periodic">定期のみ</option>
+                            <option value="suddenBundle">突発+ドカ停+非生産停止</option>
                             <option value="sudden">突発のみ</option>
                             <option value="nonProductionStop">非生産停止のみ</option>
                             <option value="dokatei">ドカ停のみ</option>
@@ -535,6 +538,15 @@
                         </select>
                         <label class="history-extra-filter"><input type="checkbox" id="fiveS-filter-photos" onchange="app.renderFiveSManagement()"> 写真あり</label>
                         <label class="history-extra-filter"><input type="checkbox" id="fiveS-filter-pending" onchange="app.renderFiveSManagement()"> 未完了ToDoのみ</label>
+                        <select id="fiveS-filter-shift" onchange="app.renderFiveSManagement()">
+                            <option value="all">&#20840;&#12471;&#12501;&#12488;</option>
+                            <option value="early">&#26089;&#30058;</option>
+                            <option value="late">&#36933;&#30058;</option>
+                            <option value="night">&#28145;&#22812;&#30058;</option>
+                            <option value="shared">&#20849;&#36890;</option>
+                        </select>
+                        <input type="search" id="fiveS-filter-group" placeholder="&#12464;&#12523;&#12540;&#12503;" oninput="app.renderFiveSManagement()">
+                        <input type="search" id="fiveS-filter-query" placeholder="&#20869;&#23481;&#12539;&#20889;&#30495;&#12513;&#12514;" oninput="app.renderFiveSManagement()">
                         <button class="secondary-btn" onclick="app.exportFiveSManagementExcel()">
                             <i class="fa-solid fa-file-excel"></i> Excel出力
                         </button>
@@ -572,6 +584,56 @@
                     <div id="guides-container" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap:20px;">
                         <!-- Cards will be injected here -->
                     </div>
+                </section>
+
+                <section id="view-photos" class="view">
+                    <div class="view-header" style="justify-content:space-between; align-items:center;">
+                        <div class="title-group">
+                            <h3 style="font-size:1.15rem; font-weight:900;"><i class="fa-solid fa-images" style="margin-right:8px; color:var(--primary);"></i>&#20889;&#30495;&#31649;&#29702;</h3>
+                            <p class="subtitle">&#21508;&#30011;&#38754;&#12395;&#30331;&#37682;&#12375;&#12383;&#20889;&#30495;&#12434;&#19968;&#35239;&#12391;&#31649;&#29702;</p>
+                        </div>
+                    </div>
+                    <div class="photo-manager-toolbar">
+                        <select id="photo-manager-source" onchange="app.renderPhotoManager()">
+                            <option value="all">&#20840;&#12390;&#12398;&#20889;&#30495;</option>
+                            <option value="shift">&#36899;&#32097;&#24115;</option>
+                            <option value="history">&#12513;&#12531;&#12486;&#23653;&#27508;</option>
+                            <option value="guide">&#25163;&#38918;&#26360;</option>
+                            <option value="machine">&#27231;&#26800;</option>
+                            <option value="part">&#37096;&#21697;</option>
+                        </select>
+                        <select id="photo-manager-period" onchange="app.renderPhotoManager()">
+                            <option value="all">&#20840;&#26399;&#38291;</option>
+                            <option value="today">&#20170;&#26085;</option>
+                            <option value="yesterday_today">&#26152;&#26085;&#12392;&#20170;&#26085;</option>
+                            <option value="this_month">&#20170;&#26376;</option>
+                            <option value="last_month">&#20808;&#26376;</option>
+                            <option value="this_year">&#20170;&#24180;</option>
+                            <option value="last_year">&#21435;&#24180;</option>
+                        </select>
+                        <select id="photo-manager-mark-filter" onchange="app.renderPhotoManager()">
+                            <option value="all">&#27880;&#35352;&#12377;&#12409;&#12390;</option>
+                            <option value="marked">&#27880;&#35352;&#12354;&#12426;</option>
+                            <option value="plain">&#27880;&#35352;&#12394;&#12375;</option>
+                        </select>
+                        <select id="photo-manager-sort" onchange="app.renderPhotoManager()">
+                            <option value="date_desc">&#26032;&#12375;&#12356;&#38918;</option>
+                            <option value="date_asc">&#21476;&#12356;&#38918;</option>
+                            <option value="source">&#30001;&#26469;&#38918;</option>
+                            <option value="name">&#21517;&#21069;&#38918;</option>
+                        </select>
+                        <select id="photo-manager-export-mode">
+                            <option value="withMarks">&#27880;&#35352;&#12434;&#21547;&#12417;&#12390;&#20986;&#21147;</option>
+                            <option value="original">&#20803;&#30011;&#20687;&#12398;&#12415;&#20986;&#21147;</option>
+                        </select>
+                        <input type="search" id="photo-manager-query" placeholder="&#26908;&#32034;" oninput="app.renderPhotoManager()">
+                        <button type="button" class="secondary-btn" onclick="app.selectVisiblePhotoManagerItems()"><i class="fa-solid fa-check-double"></i> &#34920;&#31034;&#20998;&#12434;&#20840;&#36984;&#25246;</button>
+                        <button type="button" class="secondary-btn" onclick="app.clearVisiblePhotoManagerSelection()"><i class="fa-regular fa-square"></i> &#20840;&#35299;&#38500;</button>
+                        <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()"><i class="fa-solid fa-file-export"></i> &#20986;&#21147;</button>
+                        <button type="button" class="danger-btn" onclick="app.deleteSelectedPhotoManagerItems()"><i class="fa-solid fa-trash-can"></i> &#36984;&#25246;&#12434;&#23436;&#20840;&#21066;&#38500;</button>
+                    </div>
+                    <div id="photo-manager-summary" class="photo-manager-summary"></div>
+                    <div id="photo-manager-list" class="photo-manager-list"></div>
                 </section>
 
                 <section id="view-analysis" class="view">
@@ -824,6 +886,7 @@
     <script src="app-persistence.js"></script>
     <script src="app-csv.js"></script>
     <script src="app-misc-analysis.js"></script>
+    <script src="app-photo-manager.js"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js"></script>
 </body>
