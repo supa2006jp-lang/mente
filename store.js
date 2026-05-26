@@ -187,17 +187,33 @@ class MaintenanceStore {
     }
 
     async save() {
+        const notify = (status, detail = {}) => {
+            window.dispatchEvent(new CustomEvent('maintenance-save-status', {
+                detail: { status, ...detail }
+            }));
+        };
+        notify('saving');
         if (!this.db) {
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
+            try {
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
+                notify('saved');
+            } catch (error) {
+                notify('error', { error });
+                throw error;
+            }
             return;
         }
         return new Promise((resolve, reject) => {
             const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
             const os = tx.objectStore(this.STORE_NAME);
             const req = os.put(this.data, this.STORAGE_KEY);
-            req.onsuccess = () => resolve();
+            req.onsuccess = () => {
+                notify('saved');
+                resolve();
+            };
             req.onerror = e => {
                 console.error('Save failed', e);
+                notify('error', { error: e });
                 reject(e);
             };
         });
@@ -833,6 +849,15 @@ class MaintenanceStore {
                 img.onerror = reject;
                 img.src = e.target.result;
             };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    static readImageAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (event) => resolve(event.target.result);
             reader.onerror = reject;
             reader.readAsDataURL(file);
         });

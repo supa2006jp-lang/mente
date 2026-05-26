@@ -272,6 +272,36 @@
         this.renderMachines();
     }
 
+    openRemainingMaintenanceList() {
+        this.machineMaintenanceListMode = true;
+        localStorage.setItem('machine_maintenance_list_mode', '1');
+        this.machineSort = 'rank';
+        const sortSelect = document.getElementById('machine-sort-select');
+        if (sortSelect) sortSelect.value = 'rank';
+        this.machineMaintenanceListFilters = {
+            status: 'calendarRemaining',
+            kind: 'all',
+            line: 'all'
+        };
+        this.switchView('machines');
+        this.renderMachines();
+    }
+
+    openCompletedMaintenanceList() {
+        this.machineMaintenanceListMode = true;
+        localStorage.setItem('machine_maintenance_list_mode', '1');
+        this.machineSort = 'rank';
+        const sortSelect = document.getElementById('machine-sort-select');
+        if (sortSelect) sortSelect.value = 'rank';
+        this.machineMaintenanceListFilters = {
+            status: 'calendarCompleted',
+            kind: 'all',
+            line: 'all'
+        };
+        this.switchView('machines');
+        this.renderMachines();
+    }
+
     renderMachineMaintenanceList(searchQuery = '') {
         const container = document.getElementById('machines-list');
         if (!container) return;
@@ -290,6 +320,10 @@
             line: 'all',
             ...(this.machineMaintenanceListFilters || {})
         };
+        const viewYear = this.currentDate?.getFullYear?.() || new Date().getFullYear();
+        const viewMonth = this.currentDate?.getMonth?.() ?? new Date().getMonth();
+        const monthStart = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01`;
+        const monthEnd = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(new Date(viewYear, viewMonth + 1, 0).getDate()).padStart(2, '0')}`;
 
         let rows = (store.activeData.tasks || [])
             .filter(t => !store.isMaintenanceTaskArchived(t.id))
@@ -299,10 +333,12 @@
                     .filter(h => h.taskId && String(h.taskId) === String(task.id))
                     .sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
                 const latest = taskHistory[0];
+                const monthLatest = taskHistory.find(h => h.date && h.date >= monthStart && h.date <= monthEnd);
                 return {
                     task,
                     machine,
                     latest,
+                    monthLatest,
                     nextDue: this.getMachineMaintenanceNextDue(task, todayStr),
                     doneCount: taskHistory.length
                 };
@@ -312,9 +348,12 @@
             const periodDays = parseInt(row.task.periodDays) || 0;
             const isDoneOneOff = periodDays <= 0 && row.nextDue === '完了済み';
             const isOverdue = row.nextDue && row.nextDue !== '完了済み' && row.nextDue < todayStr;
+            const isInViewMonth = row.nextDue && row.nextDue !== '完了済み' && row.nextDue >= monthStart && row.nextDue <= monthEnd;
             const lineNo = row.machine?.lineNo || '';
             if (listFilters.status === 'overdue' && !isOverdue) return false;
             if (listFilters.status === 'active' && isDoneOneOff) return false;
+            if (listFilters.status === 'calendarRemaining' && !isInViewMonth) return false;
+            if (listFilters.status === 'calendarCompleted' && !row.monthLatest) return false;
             if (listFilters.kind === 'periodic' && periodDays <= 0) return false;
             if (listFilters.kind === 'oneOff' && periodDays > 0) return false;
             if (listFilters.line !== 'all' && String(lineNo) !== String(listFilters.line)) return false;
@@ -341,6 +380,9 @@
 
         const sortMode = this.machineSort || document.getElementById('machine-sort-select')?.value || 'rank';
         rows.sort((a, b) => {
+            if (listFilters.status === 'calendarCompleted') {
+                return String(b.monthLatest?.date || '').localeCompare(String(a.monthLatest?.date || ''));
+            }
             if (sortMode === 'name') {
                 return `${a.machine?.name || ''} ${a.task.content || ''}`.localeCompare(`${b.machine?.name || ''} ${b.task.content || ''}`, 'ja');
             }
@@ -376,7 +418,7 @@
                     <td><span class="maintenance-period-pill ${periodDays <= 0 ? 'one-off' : ''}">${this.escapeHtml(periodLabel)}</span></td>
                     <td>${this.escapeHtml(task.startDate || '-')}</td>
                     <td><span class="maintenance-next-due${nextDueClass}">${this.escapeHtml(row.nextDue || '-')}</span></td>
-                    <td>${row.latest ? this.escapeHtml(row.latest.date || '-') : '-'}</td>
+                    <td>${this.escapeHtml((listFilters.status === 'calendarCompleted' ? row.monthLatest?.date : row.latest?.date) || '-')}</td>
                     <td style="text-align:center;">${row.doneCount}</td>
                     <td class="maintenance-list-actions">
                         <button type="button" class="primary-btn" ${completionDisabled ? 'disabled' : ''} onclick="app.openCompletionForm('${this.escapeJs(task.id)}', '${this.escapeJs(completionDate)}')">
@@ -405,6 +447,8 @@
             <div class="machine-maintenance-filter-bar">
                 <select onchange="app.setMachineMaintenanceListFilter('status', this.value)" title="状態で絞り込み">
                     <option value="all" ${listFilters.status === 'all' ? 'selected' : ''}>全状態</option>
+                    <option value="calendarRemaining" ${listFilters.status === 'calendarRemaining' ? 'selected' : ''}>表示月の残り</option>
+                    <option value="calendarCompleted" ${listFilters.status === 'calendarCompleted' ? 'selected' : ''}>表示月の完了</option>
                     <option value="overdue" ${listFilters.status === 'overdue' ? 'selected' : ''}>期限切れのみ</option>
                     <option value="active" ${listFilters.status === 'active' ? 'selected' : ''}>未完了のみ</option>
                 </select>

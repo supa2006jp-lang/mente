@@ -176,7 +176,42 @@ class MaintenanceApp {
         this.restoreStatsState();
         this.setupShiftNoteFormatMenuClose();
         this.setupDelegatedActions?.();
+        this.setupSaveStatusIndicator();
         this.updateTodoRequestCountBadge();
+    }
+
+    setupSaveStatusIndicator() {
+        this.updateSaveStatus('saved');
+        window.addEventListener('maintenance-save-status', (event) => {
+            this.updateSaveStatus(event.detail?.status || 'saved');
+        });
+        document.addEventListener('input', (event) => {
+            if (event.target?.closest?.('#modal-content')) this.updateSaveStatus('dirty');
+        }, true);
+        document.addEventListener('change', (event) => {
+            if (event.target?.closest?.('#modal-content')) this.updateSaveStatus('dirty');
+        }, true);
+    }
+
+    updateSaveStatus(status = 'saved') {
+        const el = document.getElementById('app-save-status');
+        if (!el) return;
+        const states = {
+            dirty: { icon: 'fa-circle-exclamation', text: '未保存' },
+            saving: { icon: 'fa-spinner fa-spin', text: '保存中' },
+            saved: { icon: 'fa-circle-check', text: '保存済み' },
+            error: { icon: 'fa-triangle-exclamation', text: '保存失敗' }
+        };
+        const state = states[status] || states.saved;
+        el.className = `app-save-status ${status}`;
+        el.innerHTML = `<i class="fa-solid ${state.icon}"></i><span>${state.text}</span>`;
+        if (status === 'saved') {
+            el.title = `保存済み ${new Date().toLocaleTimeString()}`;
+        } else if (status === 'error') {
+            el.title = '保存に失敗しました';
+        } else {
+            el.title = state.text;
+        }
     }
 
     setupShiftNoteFormatMenuClose() {

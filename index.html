@@ -177,14 +177,14 @@
                 <i id="sidebar-stats-chevron" class="fa-solid fa-chevron-down" style="transition: transform 0.3s ease;"></i>
             </div>
             <div id="sidebar-stats-container" class="sidebar-stats-container">
-                <div class="stat-widget danger">
+                <div class="stat-widget danger clickable-stat" role="button" tabindex="0" title="定期メンテ残りをリスト表示" onclick="app.openRemainingMaintenanceList()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); app.openRemainingMaintenanceList();}">
                     <div class="stat-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
                     <div class="stat-info">
                         <span class="label">定期メンテ 残り</span>
                         <span class="value" id="cal-stat-remaining">0</span>
                     </div>
                 </div>
-                <div class="stat-widget success">
+                <div class="stat-widget success clickable-stat" role="button" tabindex="0" title="完了した定期メンテをリスト表示" onclick="app.openCompletedMaintenanceList()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); app.openCompletedMaintenanceList();}">
                     <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
                     <div class="stat-info">
                         <span class="label">定期メンテ 完了</span>
@@ -334,7 +334,12 @@
                         <span>コンパクト</span>
                     </button>
                 </div>
-                <div class="header-right"></div>
+                <div class="header-right">
+                    <div id="app-save-status" class="app-save-status saved" title="保存状態">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>保存済み</span>
+                    </div>
+                </div>
             </header>
 
             <div id="content-viewport" class="viewport">
@@ -510,7 +515,19 @@
                                 <th style="width: 35%; min-width: 220px;">内容</th>
                                 <th style="width: 70px;">写真</th>
                                 <th style="width: 60px; text-align: center;">区分</th>
-                                <th style="width: 45px;">時間</th>
+                                <th style="width: 72px;">
+                                    <button type="button" class="history-sort-stamp" id="history-sort-time-btn" onclick="app.toggleHistoryMetricSort('time')" title="作業時間が多い順に並べ替え">
+                                        <i class="fa-regular fa-clock"></i> 時間
+                                    </button>
+                                </th>
+                                <th style="width: 100px;">
+                                    <div class="history-cost-head">
+                                        <button type="button" class="history-sort-stamp" id="history-sort-cost-btn" onclick="app.toggleHistoryMetricSort('cost')" title="コストが多い順に並べ替え">
+                                            <i class="fa-solid fa-yen-sign"></i> コスト
+                                        </button>
+                                        <span id="history-visible-cost-total" class="history-visible-cost-total">¥0</span>
+                                    </div>
+                                </th>
                                 <th style="width: 110px;">交換部品</th>
                                 <th style="width: 70px; text-align: center;">操作</th>
                             </tr>

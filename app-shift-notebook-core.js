@@ -2074,6 +2074,18 @@
             </div>`;
     }
 
+    getShiftTemplateInsertStampButtonsHtml() {
+        return this.getShiftNotebookOrderedRowGroups().map(group => `
+            <button type="button" class="shift-row-group-stamp shift-template-insert-stamp" draggable="true"
+                style="${this.getShiftNotebookRowGroupStyle(group)}"
+                title="${this.escapeHtml(group)}の空行をテンプレートへ追加"
+                ondragstart="app.startShiftRowGroupStampDrag(event, '${this.escapeJs(group)}')"
+                ondragend="app.finishShiftRowGroupStampDrag()">
+                ${this.escapeHtml(group)}
+            </button>
+        `).join('');
+    }
+
     refreshShiftRowGroupStamps() {
         const panel = document.getElementById('shift-row-group-stamps');
         if (panel) panel.innerHTML = this.getShiftRowGroupStampButtonsHtml();
@@ -2149,7 +2161,10 @@
             const content = document.getElementById('modal-content');
             content.innerHTML = `
                 <div class="shift-row-group-order-note">
-                    上にあるグループほど、連絡帳の上に表示されます。未設定は常に先頭です。
+                    <span>上にあるグループほど、連絡帳の上に表示されます。未設定は常に先頭です。</span>
+                    <button type="button" class="secondary-btn shift-group-template-manage-btn" onclick="app.openShiftRowTemplateManageModal()">
+                        <i class="fa-solid fa-list-check"></i> テンプレート管理
+                    </button>
                 </div>
                 <div id="shift-row-group-order-list" class="shift-row-group-order-list">
                     ${groups.length === 0 ? '<div class="shift-row-group-order-empty">登録済みグループはありません。</div>' : groups.map(group => `
@@ -2454,7 +2469,9 @@
                 html: data?.html || '',
                 photos: data?.photos || [],
                 important: !!data?.important,
-                fiveS: !!data?.fiveS
+                fiveS: !!data?.fiveS,
+                pasteFormat: data?.pasteFormat || {},
+                photoCompareMarks: data?.photoCompareMarks || []
             };
         });
     }
@@ -2541,6 +2558,8 @@
             photos: data.photos,
             important: !!data.important,
             fiveS: !!data.fiveS,
+            pasteFormat: data.pasteFormat || {},
+            photoCompareMarks: data.photoCompareMarks || [],
             isBlankRow: !!data.isBlankRow,
             isRowSet: !!data.isRowSet,
             rows: Array.isArray(data.rows) ? data.rows.map(row => ({
@@ -2550,12 +2569,87 @@
                 html: row.html || '',
                 photos: Array.isArray(row.photos) ? row.photos : [],
                 important: !!row.important,
-                fiveS: !!row.fiveS
+                fiveS: !!row.fiveS,
+                pasteFormat: row.pasteFormat || {},
+                photoCompareMarks: row.photoCompareMarks || []
             })) : undefined
         });
         store.save();
         this.refreshShiftRowTemplateSelect();
         this.setShiftNotebookStatus('テンプレートを保存しました', 'saved');
+    }
+
+    normalizeShiftRowTemplateRow(row = {}) {
+        return {
+            group: row.group || '未設定',
+            tag: row.tag || '通常',
+            text: row.text || '',
+            html: row.html || '',
+            photos: Array.isArray(row.photos) ? row.photos : [],
+            important: !!row.important,
+            fiveS: !!row.fiveS,
+            pasteFormat: row.pasteFormat || {},
+            photoCompareMarks: Array.isArray(row.photoCompareMarks) ? row.photoCompareMarks : []
+        };
+    }
+
+    getShiftRowTemplateRows(template = {}) {
+        if (template.isRowSet) {
+            const rows = Array.isArray(template.rows) && template.rows.length > 0
+                ? template.rows
+                : [{ group: template.group || '未設定', tag: template.tag || '通常' }];
+            return rows.map(row => this.normalizeShiftRowTemplateRow(row));
+        }
+        return [this.normalizeShiftRowTemplateRow({
+            group: template.group || '未設定',
+            tag: template.tag || '通常',
+            text: template.isBlankRow ? '' : (template.text || ''),
+            html: template.isBlankRow ? '' : (template.html || ''),
+            photos: template.isBlankRow ? [] : (template.photos || []),
+            important: !!template.important,
+            fiveS: !!template.fiveS,
+            pasteFormat: template.pasteFormat || {},
+            photoCompareMarks: template.photoCompareMarks || []
+        })];
+    }
+
+    setShiftRowTemplateRows(template, rows = []) {
+        const normalized = rows.map(row => this.normalizeShiftRowTemplateRow(row));
+        if (!template || normalized.length === 0) return false;
+        const keepRowSet = template.isRowSet || normalized.length > 1;
+        const first = normalized[0];
+        template.group = first.group;
+        template.tag = first.tag;
+        template.important = !!first.important;
+        template.fiveS = !!first.fiveS;
+        template.pasteFormat = first.pasteFormat || {};
+        template.photoCompareMarks = first.photoCompareMarks || [];
+        if (keepRowSet) {
+            template.isRowSet = true;
+            template.isBlankRow = false;
+            template.text = '';
+            template.html = '';
+            template.photos = [];
+            template.rows = normalized;
+        } else {
+            template.isRowSet = false;
+            template.rows = undefined;
+            template.text = first.text || '';
+            template.html = first.html || '';
+            template.photos = first.photos || [];
+            template.isBlankRow = !template.text && !this.stripShiftNoteHtml(template.html || '').trim() && template.photos.length === 0;
+        }
+        return true;
+    }
+
+    getShiftRowTemplateBlankRow(group = '未設定') {
+        return this.normalizeShiftRowTemplateRow({
+            group: group || '未設定',
+            tag: '通常',
+            text: '',
+            html: '',
+            photos: []
+        });
     }
 
     addShiftNotebookRowFromTemplate(templateId) {
@@ -2565,7 +2659,7 @@
         this.removeOnlyBlankUnsetShiftNotebookRow();
         if (template.isRowSet) {
             const rows = Array.isArray(template.rows) && template.rows.length > 0 ? template.rows : [{ group: template.group || '未設定', tag: template.tag || '通常' }];
-            const addedRows = rows.map(row => this.addShiftNotebookRow('shift-notebook-rows', row.text || '', row.photos || [], row.tag || '通常', row.group || this.lastShiftNotebookRowGroup || '未設定', row.html || '', false, true, '', '', !!row.important, null, false, '', !!row.fiveS))
+            const addedRows = rows.map(row => this.addShiftNotebookRow('shift-notebook-rows', row.text || '', row.photos || [], row.tag || '通常', row.group || this.lastShiftNotebookRowGroup || '未設定', row.html || '', false, true, '', '', !!row.important, null, false, '', !!row.fiveS, row.photoCompareMarks || []))
                 .filter(Boolean);
             addedRows.forEach((rowEl, index) => this.setShiftNoteRowPasteFormatSettings(rowEl, rows[index]?.pasteFormat || {}));
             this.sortShiftNotebookRowsInDom();
@@ -2575,7 +2669,7 @@
             return;
         }
         const isBlankRow = !!template.isBlankRow;
-        this.addShiftNotebookRow('shift-notebook-rows', isBlankRow ? '' : (template.text || ''), isBlankRow ? [] : (template.photos || []), template.tag || '通常', template.group || this.lastShiftNotebookRowGroup || '未設定', isBlankRow ? '' : (template.html || ''), false, true, '', '', !!template.important, null, false, '', !!template.fiveS);
+        this.addShiftNotebookRow('shift-notebook-rows', isBlankRow ? '' : (template.text || ''), isBlankRow ? [] : (template.photos || []), template.tag || '通常', template.group || this.lastShiftNotebookRowGroup || '未設定', isBlankRow ? '' : (template.html || ''), false, true, '', '', !!template.important, null, false, '', !!template.fiveS, template.photoCompareMarks || []);
         const row = document.querySelector('#shift-notebook-rows .shift-notebook-row:last-child');
         if (row && !isBlankRow) this.setShiftNoteRowPasteFormatSettings(row, template.pasteFormat || {});
         row?.querySelector('.shift-note-text')?.focus();
@@ -2713,35 +2807,48 @@
             const render = () => {
                 const templates = store.activeData.shiftNotebookRowTemplates || [];
                 content.innerHTML = `
+                    <div class="shift-template-manage-tools">
+                        <div class="shift-template-manage-stamps">
+                            <span class="shift-row-group-stamps-label">行挿入用看板（テンプレートへドラッグ）</span>
+                            <button type="button" class="secondary-btn shift-template-group-order-btn" onclick="app.openShiftRowGroupOrderModal()">
+                                <i class="fa-solid fa-arrow-down-wide-short"></i> 表示順
+                            </button>
+                            ${this.getShiftTemplateInsertStampButtonsHtml()}
+                        </div>
+                        <div class="shift-template-row-trash"
+                            title="テンプレート内の行看板をここへドラッグして削除"
+                            ondragover="app.handleShiftTemplateRowTrashDragOver(event)"
+                            ondragleave="app.handleShiftTemplateRowTrashDragLeave(event)"
+                            ondrop="app.handleShiftTemplateRowTrashDrop(event)">
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>行削除</span>
+                        </div>
+                    </div>
                     <div class="shift-template-manage-list">
                         ${templates.length === 0 ? '<div class="shift-template-empty">保存済みテンプレートはありません</div>' : templates.map((template, index) => {
                             const isBlankRow = !!template.isBlankRow;
                             const isRowSet = !!template.isRowSet;
-                            const rowSetRows = Array.isArray(template.rows) ? template.rows : [];
+                            const templateRows = this.getShiftRowTemplateRows(template);
+                            const rowSetRows = isRowSet ? templateRows : [];
                             const rowSetSummary = this.getShiftRowSetSummary(rowSetRows);
                             const kindLabel = this.getShiftRowTemplateKindLabel(template);
                             const text = isRowSet ? (rowSetSummary || '行セット') : (isBlankRow ? '空行テンプレート' : (template.text || this.stripShiftNoteHtml(template.html || '').trim() || '本文なし'));
-                            const photoCount = Array.isArray(template.photos) ? template.photos.length : 0;
                             return `
-                                <div class="shift-template-manage-item">
+                                <div class="shift-template-manage-item"
+                                    data-template-index="${index}"
+                                    ondragover="app.handleShiftTemplateCardDragOver(event, ${index})"
+                                    ondragleave="app.handleShiftTemplateCardDragLeave(event)"
+                                    ondrop="app.handleShiftTemplateCardDrop(event, ${index})">
                                     <div class="shift-template-manage-main">
                                         <b>${this.escapeHtml(template.name || '名称未設定')}</b>
                                         <span>${this.escapeHtml(kindLabel)} / ${this.escapeHtml(text).slice(0, 90)}</span>
-                                        <div class="shift-template-preview" style="${this.getShiftNotebookRowGroupStyle(template.group || '未設定')}">
-                                            ${isRowSet ? `
-                                                <div class="shift-template-rowset-preview">
-                                                    ${rowSetRows.map(row => {
-                                                        const rowText = row.text || this.stripShiftNoteHtml(row.html || '').trim();
-                                                        const rowPhotos = Array.isArray(row.photos) ? row.photos : [];
-                                                        return `<span class="shift-template-rowset-chip" style="${this.getShiftNotebookRowGroupStyle(row.group || '未設定')}"><b>${this.escapeHtml(row.group || '未設定')}</b>${rowText ? `<small>${this.escapeHtml(rowText).slice(0, 24)}</small>` : (rowPhotos.length ? `<small>写真 ${rowPhotos.length}枚</small>` : '')}</span>`;
-                                                    }).join('')}
-                                                </div>
-                                            ` : `
-                                                <div class="shift-template-preview-text">
-                                                    ${isBlankRow ? '<span class="shift-template-blank-label">空の行として追加</span>' : (template.html ? this.sanitizeShiftNoteHtml(template.html) : this.shiftNoteTextToHtml(template.text || ''))}
-                                                </div>
-                                            `}
-                                            ${!isBlankRow && photoCount ? `<div class="shift-template-preview-photos"><i class="fa-solid fa-image"></i> 写真 ${photoCount}枚</div>` : ''}
+                                        <div class="shift-template-row-stamps">
+                                            ${templateRows.map((row, rowIndex) => {
+                                                const rowText = row.text || this.stripShiftNoteHtml(row.html || '').trim();
+                                                const rowPhotos = Array.isArray(row.photos) ? row.photos : [];
+                                                const rowLabel = rowText ? rowText.slice(0, 18) : (rowPhotos.length ? `写真 ${rowPhotos.length}枚` : '空行');
+                                                return `<button type="button" class="shift-template-row-stamp" draggable="true" data-template-index="${index}" data-row-index="${rowIndex}" style="${this.getShiftNotebookRowGroupStyle(row.group || '未設定')}" title="ドラッグして削除 / この行の前後に看板を追加" ondragstart="app.startShiftTemplateRowStampDrag(event, ${index}, ${rowIndex})" ondragend="app.finishShiftTemplateRowStampDrag()"><b>${this.escapeHtml(row.group || '未設定')}</b><small>${this.escapeHtml(rowLabel)}</small></button>`;
+                                            }).join('')}
                                         </div>
                                     </div>
                                     <div class="shift-template-manage-actions">
@@ -2800,6 +2907,130 @@
             store.save();
             this.rerenderShiftRowTemplateManager();
         }, null, document.getElementById('modal-container') || document.body);
+    }
+
+    handleShiftTemplateCardDragOver(event, index) {
+        const group = this.getShiftRowGroupStampDragGroup(event);
+        if (!group) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        event.currentTarget?.classList.add('drag-over');
+    }
+
+    handleShiftTemplateCardDragLeave(event) {
+        if (!event.currentTarget?.contains(event.relatedTarget)) {
+            event.currentTarget?.classList.remove('drag-over');
+        }
+    }
+
+    handleShiftTemplateCardDrop(event, index) {
+        const group = this.getShiftRowGroupStampDragGroup(event);
+        if (!group) return;
+        event.preventDefault();
+        event.currentTarget?.classList.remove('drag-over');
+        const templates = store.activeData.shiftNotebookRowTemplates || [];
+        const template = templates[index];
+        if (!template) return;
+        const rows = this.getShiftRowTemplateRows(template);
+        const targetStamp = event.target?.closest?.('.shift-template-row-stamp');
+        let insertIndex = rows.length;
+        if (targetStamp && event.currentTarget?.contains(targetStamp)) {
+            const rowIndex = Number(targetStamp.dataset.rowIndex);
+            if (Number.isFinite(rowIndex)) {
+                const rect = targetStamp.getBoundingClientRect();
+                insertIndex = rowIndex + (event.clientY > rect.top + rect.height / 2 ? 1 : 0);
+            }
+        }
+        rows.splice(Math.max(0, Math.min(rows.length, insertIndex)), 0, this.getShiftRowTemplateBlankRow(group));
+        this.setShiftRowTemplateRows(template, rows);
+        store.save();
+        this.rerenderShiftRowTemplateManager();
+        this.showUndoNotice(`テンプレート「${template.name || '名称未設定'}」に${group}の行を追加しました`, () => {
+            rows.splice(Math.max(0, Math.min(rows.length - 1, insertIndex)), 1);
+            this.setShiftRowTemplateRows(template, rows);
+            store.save();
+            this.rerenderShiftRowTemplateManager();
+        }, null, document.getElementById('modal-container') || document.body);
+        this.finishShiftRowGroupStampDrag();
+    }
+
+    startShiftTemplateRowStampDrag(event, templateIndex, rowIndex) {
+        this._draggingShiftTemplateRow = { templateIndex, rowIndex };
+        if (event?.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('application/x-shift-template-row', JSON.stringify(this._draggingShiftTemplateRow));
+        }
+        event?.currentTarget?.classList.add('dragging');
+        document.body.classList.add('shift-template-row-dragging-active');
+    }
+
+    finishShiftTemplateRowStampDrag() {
+        this._draggingShiftTemplateRow = null;
+        document.body.classList.remove('shift-template-row-dragging-active');
+        document.querySelectorAll('.shift-template-row-stamp.dragging').forEach(el => el.classList.remove('dragging'));
+        document.querySelectorAll('.shift-template-row-trash.drag-over').forEach(el => el.classList.remove('drag-over'));
+    }
+
+    getShiftTemplateRowDragData(event) {
+        const transferTypes = event?.dataTransfer?.types ? Array.from(event.dataTransfer.types) : [];
+        if (transferTypes.includes('application/x-shift-template-row')) {
+            try {
+                const data = JSON.parse(event.dataTransfer.getData('application/x-shift-template-row') || '{}');
+                return {
+                    templateIndex: Number(data.templateIndex),
+                    rowIndex: Number(data.rowIndex)
+                };
+            } catch {
+                return null;
+            }
+        }
+        return this._draggingShiftTemplateRow || null;
+    }
+
+    handleShiftTemplateRowTrashDragOver(event) {
+        const data = this.getShiftTemplateRowDragData(event);
+        if (!data || !Number.isFinite(data.templateIndex) || !Number.isFinite(data.rowIndex)) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        event.currentTarget?.classList.add('drag-over');
+    }
+
+    handleShiftTemplateRowTrashDragLeave(event) {
+        event.currentTarget?.classList.remove('drag-over');
+    }
+
+    handleShiftTemplateRowTrashDrop(event) {
+        const data = this.getShiftTemplateRowDragData(event);
+        if (!data || !Number.isFinite(data.templateIndex) || !Number.isFinite(data.rowIndex)) return;
+        event.preventDefault();
+        event.currentTarget?.classList.remove('drag-over');
+        const templates = store.activeData.shiftNotebookRowTemplates || [];
+        const template = templates[data.templateIndex];
+        if (!template) return;
+        const rows = this.getShiftRowTemplateRows(template);
+        const removed = rows.splice(data.rowIndex, 1)[0];
+        if (!removed) return;
+        if (rows.length === 0) {
+            const removedTemplate = templates.splice(data.templateIndex, 1)[0];
+            store.save();
+            this.rerenderShiftRowTemplateManager();
+            this.showUndoNotice(`テンプレート「${removedTemplate.name || '名称未設定'}」を削除しました`, () => {
+                templates.splice(data.templateIndex, 0, removedTemplate);
+                store.save();
+                this.rerenderShiftRowTemplateManager();
+            }, null, document.getElementById('modal-container') || document.body);
+        } else {
+            this.setShiftRowTemplateRows(template, rows);
+            store.save();
+            this.rerenderShiftRowTemplateManager();
+            this.showUndoNotice(`テンプレート「${template.name || '名称未設定'}」から1行削除しました`, () => {
+                rows.splice(data.rowIndex, 0, removed);
+                this.setShiftRowTemplateRows(template, rows);
+                store.save();
+                this.rerenderShiftRowTemplateManager();
+            }, null, document.getElementById('modal-container') || document.body);
+        }
+        this.finishShiftTemplateRowStampDrag();
     }
 
     togglePreviousShiftRowsPanel() {
@@ -3144,9 +3375,11 @@
             e.dataTransfer?.setData('text/plain', row.dataset.shiftRowId || '');
             e.dataTransfer.effectAllowed = 'move';
             row.classList.add('dragging');
+            document.body.classList.add('shift-row-dragging-active');
         });
         dragHandle?.addEventListener('dragend', () => {
             row.classList.remove('dragging');
+            document.body.classList.remove('shift-row-dragging-active');
             this.clearShiftNotebookDragIndicators();
         });
         row.addEventListener('dragover', (e) => {
@@ -3541,6 +3774,16 @@
                 color: /^#[0-9a-f]{6}$/i.test(mark.color || '') ? mark.color : '#dc2626',
                 text: String(mark.text || '').slice(0, 80),
                 font: this.getShiftPhotoCompareSafeFont(mark.font),
+                wrapWidth: Math.max(0, Number(mark.wrapWidth) || 0),
+                wrapHeight: Math.max(0, Number(mark.wrapHeight) || 0),
+                imageX: Number.isFinite(Number(mark.imageX)) ? Math.max(-20, Math.min(120, Number(mark.imageX))) : null,
+                imageY: Number.isFinite(Number(mark.imageY)) ? Math.max(-20, Math.min(120, Number(mark.imageY))) : null,
+                imageDisplayWidth: Math.max(0, Number(mark.imageDisplayWidth) || 0),
+                imageDisplayHeight: Math.max(0, Number(mark.imageDisplayHeight) || 0),
+                imagePoints: Array.isArray(mark.imagePoints) ? mark.imagePoints.map(point => ({
+                    x: Math.max(-20, Math.min(120, Number(point.x) || 0)),
+                    y: Math.max(-20, Math.min(120, Number(point.y) || 0))
+                })).slice(0, 500) : [],
                 points: Array.isArray(mark.points) ? mark.points.map(point => ({
                     x: Math.max(0, Math.min(100, Number(point.x) || 0)),
                     y: Math.max(0, Math.min(100, Number(point.y) || 0))
@@ -3579,15 +3822,17 @@
         const stroke = Math.max(0.35, Math.min(3, Number(mark.stroke) || 1));
         const outline = mark.outline === false ? false : true;
         const color = /^#[0-9a-f]{6}$/i.test(mark.color || '') ? mark.color : '#dc2626';
-        const text = String(mark.text || '').slice(0, 80);
+        const text = String(mark.text || '').slice(0, 120);
         const font = this.getShiftPhotoCompareSafeFont(mark.font);
         const fontFamily = this.getShiftPhotoCompareFontFamily(font);
+        const wrapWidth = Math.max(0, Number(mark.wrapWidth) || 0);
+        const wrapHeight = Math.max(0, Number(mark.wrapHeight) || 0);
         const points = Array.isArray(mark.points) ? mark.points.map(point => ({
             x: Math.max(0, Math.min(100, Number(point.x) || 0)),
             y: Math.max(0, Math.min(100, Number(point.y) || 0))
         })).slice(0, 500) : [];
         const pointsText = points.map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
-        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-outline="${outline ? '1' : '0'}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-font="${font}" data-points="${this.escapeHtml(JSON.stringify(points))}"`;
+        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-outline="${outline ? '1' : '0'}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-font="${font}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-points="${this.escapeHtml(JSON.stringify(points))}"`;
         if (mode === 'freehand') {
             return `<div class="shift-photo-compare-mark ${mode}" ${common} style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)};"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${this.escapeHtml(pointsText)}"></polyline></svg></div>`;
         }
@@ -3596,6 +3841,9 @@
     }
 
     readShiftPhotoCompareMarksFromWrap(wrap) {
+        const wrapRect = wrap?.getBoundingClientRect?.();
+        const wrapWidth = Math.max(1, Math.round(wrapRect?.width || Number(wrap?.dataset?.markWrapWidth) || 0));
+        const wrapHeight = Math.max(1, Math.round(wrapRect?.height || Number(wrap?.dataset?.markWrapHeight) || 0));
         return Array.from(wrap?.querySelectorAll('.shift-photo-compare-mark') || []).map(mark => ({
             mode: mark.dataset.mode || (mark.classList.contains('arrow') ? 'arrow' : 'circle'),
             x: parseFloat(mark.style.left) || 0,
@@ -3607,10 +3855,38 @@
             stroke: parseFloat(mark.dataset.stroke || '') || 1,
             outline: mark.dataset.outline !== '0',
             color: /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626',
-            text: String(mark.dataset.text || mark.textContent || '').slice(0, 80),
+            text: String(mark.dataset.text || mark.textContent || '').slice(0, 120),
             font: this.getShiftPhotoCompareSafeFont(mark.dataset.font || ''),
+            wrapWidth,
+            wrapHeight,
             points: this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]')
         }));
+    }
+
+    addShiftPhotoCompareImageCoordinates(marks = [], wrap) {
+        const wrapRect = wrap?.getBoundingClientRect?.();
+        const imageRect = this.getShiftPhotoCompareDisplayImageRect(wrap);
+        if (!wrapRect?.width || !wrapRect?.height || !imageRect?.width || !imageRect?.height) return marks;
+        const imageLeft = imageRect.left - wrapRect.left;
+        const imageTop = imageRect.top - wrapRect.top;
+        return marks.map(mark => {
+            const next = {
+                ...mark,
+                imageDisplayWidth: imageRect.width,
+                imageDisplayHeight: imageRect.height
+            };
+            if (mark.mode === 'freehand') {
+                next.imagePoints = this.parseShiftPhotoCompareFreehandPoints(JSON.stringify(mark.points || []))
+                    .map(point => ({
+                        x: ((point.x / 100 * wrapRect.width - imageLeft) / imageRect.width) * 100,
+                        y: ((point.y / 100 * wrapRect.height - imageTop) / imageRect.height) * 100
+                    }));
+            } else {
+                next.imageX = (((Number(mark.x) || 0) / 100 * wrapRect.width - imageLeft) / imageRect.width) * 100;
+                next.imageY = (((Number(mark.y) || 0) / 100 * wrapRect.height - imageTop) / imageRect.height) * 100;
+            }
+            return next;
+        });
     }
 
     parseShiftPhotoCompareFreehandPoints(value = '[]') {
@@ -3631,12 +3907,16 @@
         const context = this._shiftPhotoCompareContext;
         if (!context || !Number.isFinite(photoIndex)) return;
         const photo = context.photos?.[photoIndex];
-        const marks = this.readShiftPhotoCompareMarksFromWrap(wrap);
+        let marks = this.readShiftPhotoCompareMarksFromWrap(wrap);
+        if (context.source === 'guide') marks = this.addShiftPhotoCompareImageCoordinates(marks, wrap);
         if (photo) photo.marks = marks;
         const previewItem = photo?.previewItem;
         if (previewItem) previewItem.dataset.shiftPhotoMarks = JSON.stringify(marks);
-        if (context.row) this.updateShiftPhotoToolState(context.row);
-        this.scheduleShiftNotebookAutoSave();
+        if (context.onSync) context.onSync(context);
+        if (context.row) {
+            this.updateShiftPhotoToolState(context.row);
+            this.scheduleShiftNotebookAutoSave();
+        }
     }
 
     syncShiftPhotoCompareGlobalMarks(layer = document.querySelector('.shift-photo-compare-global-layer')) {
@@ -3749,10 +4029,29 @@
     }
 
     openShiftPhotoCompare(button) {
-        const row = button?.closest('.shift-notebook-row');
-        const photos = this.getShiftPhotoCompareItems(row);
+        const guidePreview = button?.closest?.('.guide-photo-previews');
+        const row = guidePreview ? null : button?.closest('.shift-notebook-row');
+        const photos = guidePreview
+            ? (this._tempPhotos || []).map((rawPhoto, index) => {
+                const photo = this.normalizeGuidePhoto ? this.normalizeGuidePhoto(rawPhoto) : (typeof rawPhoto === 'string' ? { src: rawPhoto, marks: [] } : rawPhoto);
+                const previewItem = guidePreview.querySelector(`.guide-photo-item[data-guide-photo-index="${index}"]`);
+                return {
+                    src: photo.src || '',
+                    caption: '',
+                    index,
+                    marks: Array.isArray(photo.marks) ? photo.marks : [],
+                    previewItem,
+                    role: 'neutral',
+                    setKey: '',
+                    numbers: [],
+                    orderNumber: null,
+                    pairNumber: null,
+                    pairStep: null
+                };
+            }).filter(item => !!item.src)
+            : this.getShiftPhotoCompareItems(row);
         if (photos.length < 1) {
-            this.setShiftNotebookStatus('表示する写真がありません', 'error');
+            if (row) this.setShiftNotebookStatus('表示する写真がありません', 'error');
             return;
         }
 
@@ -3764,7 +4063,23 @@
         const singlePhotoMode = displayPhotos.length === 1;
         const twoPhotoMode = displayPhotos.length === 2;
         const hasRoleLabels = displayLabels.some(Boolean);
-        this._shiftPhotoCompareContext = { row, photos };
+        this._shiftPhotoCompareContext = {
+            row,
+            photos,
+            source: guidePreview ? 'guide' : 'shift',
+            onSync: guidePreview ? (context) => {
+                this._tempPhotos = context.photos.map(photo => ({
+                    src: photo.src,
+                    marks: Array.isArray(photo.marks) ? photo.marks : []
+                }));
+                context.photos.forEach(photo => {
+                    if (photo.previewItem) {
+                        photo.previewItem.dataset.shiftPhotoMarks = JSON.stringify(photo.marks || []);
+                        photo.previewItem.classList.toggle('has-photo-marks', (photo.marks || []).length > 0);
+                    }
+                });
+            } : null
+        };
         const overlay = document.createElement('div');
         overlay.id = 'shift-photo-compare-overlay';
         overlay.className = 'shift-photo-compare-overlay';
@@ -3772,7 +4087,7 @@
             <div class="shift-photo-compare-panel" role="dialog" aria-modal="true" aria-label="写真比較">
                 <div class="shift-photo-compare-header">
                     <div>
-                        <b><i class="fa-solid fa-images"></i> 写真比較</b>
+                        <b><i class="fa-solid fa-images"></i> ${guidePreview ? '手順写真編集' : '写真比較'}</b>
                         <span>${singlePhotoMode ? '1枚を拡大表示' : (hasRoleLabels ? 'Before / After 推測表示' : `${displayPhotos.length}枚を推測順に表示`)}</span>
                     </div>
                     <div class="shift-photo-compare-sample-inline" title="現在の記号設定プレビュー">
@@ -3814,7 +4129,7 @@
                             </div>
                             <label class="shift-photo-compare-text">
                                 <span>文字</span>
-                                <input type="text" id="shift-photo-compare-text-input" maxlength="80" placeholder="入力" oninput="app.updateShiftPhotoCompareSample()">
+                                <textarea id="shift-photo-compare-text-input" maxlength="120" rows="2" placeholder="入力" oninput="app.updateShiftPhotoCompareSample()"></textarea>
                             </label>
                             <label class="shift-photo-compare-font">
                                 <span>書体</span>
@@ -4158,12 +4473,14 @@
         const strokeInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStroke"]');
         const colorInput = document.querySelector('.shift-photo-compare-color input[type="color"]');
         const fontInput = document.querySelector('.shift-photo-compare-font select');
+        const textInput = document.getElementById('shift-photo-compare-text-input');
         if (sizeInput) sizeInput.value = String(size);
         if (stretchInput) stretchInput.value = String(stretch);
         if (stretchYInput) stretchYInput.value = String(stretchY);
         if (strokeInput) strokeInput.value = String(stroke);
         if (colorInput) colorInput.value = color;
         if (fontInput) fontInput.value = font;
+        if (textInput && mark.dataset.mode === 'text') textInput.value = mark.dataset.text || '';
         document.querySelector('.shift-photo-compare-outline')?.classList.toggle('active', outline);
         this._shiftPhotoCompareMarkSize = size;
         this._shiftPhotoCompareMarkAngle = angle;
@@ -4173,6 +4490,8 @@
         this._shiftPhotoCompareMarkColor = color;
         this._shiftPhotoCompareMarkFont = font;
         this._shiftPhotoCompareTextOutline = outline;
+        this._shiftPhotoCompareSampleMode = mark.dataset.mode || 'circle';
+        this._shiftPhotoCompareSampleText = mark.dataset.text || '';
         const sizeLabel = document.getElementById('shift-photo-compare-size-value');
         const angleLabel = document.getElementById('shift-photo-compare-angle-value');
         const stretchLabel = document.getElementById('shift-photo-compare-stretch-value');
@@ -4247,8 +4566,15 @@
     updateShiftPhotoCompareSample() {
         const box = document.getElementById('shift-photo-compare-sample-box');
         if (!box) return;
-        if (['circle', 'arrow', 'rect', 'text', 'number', 'xmark', 'freehand'].includes(this._shiftPhotoCompareMarkMode)) {
+        const selectedMark = this._shiftPhotoCompareMarkMode === 'move' && this._shiftPhotoCompareSelectedMark && document.contains(this._shiftPhotoCompareSelectedMark)
+            ? this._shiftPhotoCompareSelectedMark
+            : null;
+        if (selectedMark) {
+            this._shiftPhotoCompareSampleMode = selectedMark.dataset.mode || 'circle';
+            this._shiftPhotoCompareSampleText = selectedMark.dataset.text || selectedMark.textContent || '';
+        } else if (['circle', 'arrow', 'rect', 'text', 'number', 'xmark', 'freehand'].includes(this._shiftPhotoCompareMarkMode)) {
             this._shiftPhotoCompareSampleMode = this._shiftPhotoCompareMarkMode;
+            this._shiftPhotoCompareSampleText = '';
         }
         const mode = this._shiftPhotoCompareSampleMode || 'circle';
         const size = this._shiftPhotoCompareMarkSize || 56;
@@ -4261,8 +4587,8 @@
         const fontFamily = this.getShiftPhotoCompareFontFamily(font);
         const outline = this._shiftPhotoCompareTextOutline !== false;
         const text = mode === 'text'
-            ? ((document.getElementById('shift-photo-compare-text-input')?.value || '文字').slice(0, 8))
-            : (mode === 'number' ? this.getShiftPhotoCompareNumberText(this._shiftPhotoCompareNumberNext || 1) : '');
+            ? (((selectedMark ? this._shiftPhotoCompareSampleText : document.getElementById('shift-photo-compare-text-input')?.value) || '文字').slice(0, 24))
+            : (mode === 'number' ? ((selectedMark ? this._shiftPhotoCompareSampleText : '') || this.getShiftPhotoCompareNumberText(this._shiftPhotoCompareNumberNext || 1)) : '');
         const sampleContent = mode === 'arrow'
             ? '<span class="shift-photo-arrow-line"></span><span class="shift-photo-arrow-head"></span>'
             : (mode === 'freehand'
@@ -4600,7 +4926,7 @@
         const color = this._shiftPhotoCompareMarkColor || '#dc2626';
         const font = this.getShiftPhotoCompareSafeFont(this._shiftPhotoCompareMarkFont || '');
         const text = mode === 'text'
-            ? (document.getElementById('shift-photo-compare-text-input')?.value || '').trim().slice(0, 80)
+            ? (document.getElementById('shift-photo-compare-text-input')?.value || '').trim().slice(0, 120)
             : (mode === 'number' ? this.getShiftPhotoCompareNumberText(this._shiftPhotoCompareNumberNext || 1) : '');
         if (mode === 'text' && !text) {
             document.getElementById('shift-photo-compare-text-input')?.focus();
@@ -4710,8 +5036,8 @@
             number: '番号'
         };
         const mode = mark?.dataset?.mode || 'circle';
-        const text = (mark?.dataset?.text || mark?.textContent || '').trim();
-        return `${index + 1}. ${labels[mode] || '記号'}${text ? ` ${text.slice(0, 8)}` : ''}`;
+        const text = (mark?.dataset?.text || mark?.textContent || '').trim().replace(/\s+/g, ' ');
+        return `${index + 1}. ${labels[mode] || '記号'}${text ? ` ${text.slice(0, 12)}` : ''}`;
     }
 
     refreshShiftPhotoCompareMarkList() {
@@ -4843,16 +5169,20 @@
             ctx.stroke();
         } else if (mode === 'text' || mode === 'number') {
             ctx.shadowBlur = 4;
-            ctx.font = `900 ${Math.max(12, size * (mode === 'number' ? 0.62 : 0.48))}px ${fontFamily}`;
+            const fontSize = Math.max(12, size * (mode === 'number' ? 0.62 : 0.48));
+            const lineHeight = fontSize * 1.15;
+            const lines = String(text || '').split(/\r?\n/);
+            const startY = -((lines.length - 1) * lineHeight) / 2;
+            ctx.font = `900 ${fontSize}px ${fontFamily}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             if (mark.dataset.outline !== '0') {
                 ctx.lineWidth = Math.max(3, size * 0.11);
                 ctx.strokeStyle = '#ffffff';
-                ctx.strokeText(text, 0, 0);
+                lines.forEach((line, index) => ctx.strokeText(line, 0, startY + index * lineHeight));
             }
             ctx.fillStyle = color;
-            ctx.fillText(text, 0, 0);
+            lines.forEach((line, index) => ctx.fillText(line, 0, startY + index * lineHeight));
         }
         ctx.restore();
     }
@@ -5131,7 +5461,9 @@
     closeShiftPhotoCompare() {
         document.querySelectorAll('.shift-photo-compare-image-wrap').forEach(wrap => this.syncShiftPhotoCompareMarks(wrap));
         this.syncShiftPhotoCompareGlobalMarks();
-        this.autoSaveShiftNotebook(true);
+        if (this._shiftPhotoCompareContext?.row) this.autoSaveShiftNotebook(true);
+        this._shiftPhotoCompareContext?.onSync?.(this._shiftPhotoCompareContext);
+        if (this._shiftPhotoCompareContext?.source === 'guide') this.autoSaveGuideDraftFromModal?.();
         document.getElementById('shift-photo-compare-overlay')?.remove();
         this._shiftPhotoCompareContext = null;
         if (this._shiftPhotoCompareKeydown) {
@@ -5163,10 +5495,12 @@
             event.dataTransfer.setData('text/plain', this._draggingShiftRowGroupStamp);
         }
         event?.currentTarget?.classList.add('dragging');
+        document.body.classList.add('shift-row-group-dragging-active');
     }
 
     finishShiftRowGroupStampDrag() {
         this._draggingShiftRowGroupStamp = null;
+        document.body.classList.remove('shift-row-group-dragging-active');
         document.querySelectorAll('.shift-row-group-stamp.dragging').forEach(el => el.classList.remove('dragging'));
         document.querySelectorAll('.shift-row-group-trash.drag-over').forEach(el => el.classList.remove('drag-over'));
         this.clearShiftNotebookDragIndicators();
@@ -5188,10 +5522,12 @@
             event.dataTransfer.setData('application/x-shift-member', this._draggingShiftMemberStamp);
         }
         event?.currentTarget?.classList.add('dragging');
+        document.body.classList.add('shift-member-dragging-active');
     }
 
     finishShiftMemberStampDrag() {
         this._draggingShiftMemberStamp = null;
+        document.body.classList.remove('shift-member-dragging-active');
         document.querySelectorAll('.shift-member-stamp.dragging').forEach(el => el.classList.remove('dragging'));
     }
 

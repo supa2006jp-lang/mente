@@ -46,7 +46,7 @@
         addPhotoManagerItem(items, item) {
             if (!item?.src) return;
             item.date = this.normalizePhotoManagerDate(item.date);
-            item.annotated = !!item.annotated;
+            item.annotated = !!item.annotated || (Array.isArray(item.marks) && item.marks.length > 0);
             item.displayName = this.getPhotoManagerName(item);
             items.push(item);
         }
@@ -106,7 +106,10 @@
                         deletePhoto: () => { history.photos.splice(index, 1); }
                     });
                 });
-                (history.guide?.photos || []).forEach((src, index) => {
+                (history.guide?.photos || []).forEach((rawPhoto, index) => {
+                    const guidePhoto = this.normalizeGuidePhoto ? this.normalizeGuidePhoto(rawPhoto) : (typeof rawPhoto === 'string' ? { src: rawPhoto, marks: [] } : rawPhoto);
+                    const src = guidePhoto?.src || '';
+                    if (!src) return;
                     this.addPhotoManagerItem(items, {
                         id: this.buildPhotoManagerId(['guide', history.id, index], src),
                         source: 'guide',
@@ -114,6 +117,7 @@
                         title: `${history.date || ''} ${machine?.name || '手順書'} ${history.guide?.tags?.join(' ') || ''}`.trim(),
                         defaultName: `手順書写真${index + 1}`,
                         src,
+                        marks: Array.isArray(guidePhoto.marks) ? guidePhoto.marks : [],
                         date: history.guide?.updatedAt || history.date || '',
                         deleteIndex: index,
                         open: () => this.openGuideModal(history.id),
@@ -303,7 +307,7 @@
         }
 
         async getPhotoManagerDownloadSrc(item) {
-            if (this.getPhotoManagerExportMode() !== 'withMarks' || !item?.annotated || item.source !== 'shift') return item.src;
+            if (this.getPhotoManagerExportMode() !== 'withMarks' || !item?.annotated || !['shift', 'guide'].includes(item.source)) return item.src;
             return await this.renderPhotoManagerImageWithMarks(item);
         }
 
@@ -327,17 +331,36 @@
             return el;
         }
 
-        getPhotoManagerVirtualWrapRect(img) {
+        getPhotoManagerVirtualWrapRect(img, mark = {}, item = {}) {
             const naturalW = img.naturalWidth || img.width || 1;
             const naturalH = img.naturalHeight || img.height || 1;
-            const wrapW = 1000;
-            const wrapH = 840;
+            const savedWrapW = Number(mark.wrapWidth) || 0;
+            const savedWrapH = Number(mark.wrapHeight) || 0;
+            const wrapW = savedWrapW > 0 ? savedWrapW : (item.source === 'guide' ? naturalW : 1000);
+            const wrapH = savedWrapH > 0 ? savedWrapH : (item.source === 'guide' ? naturalH : 840);
             const imageRect = this.getShiftPhotoCompareRenderedImageRect({ naturalWidth: naturalW, naturalHeight: naturalH }, wrapW, wrapH);
             return { wrapW, wrapH, imageRect };
         }
 
-        convertPhotoManagerLocalMark(mark = {}, img) {
-            const { wrapW, wrapH, imageRect } = this.getPhotoManagerVirtualWrapRect(img);
+        convertPhotoManagerLocalMark(mark = {}, img, item = {}) {
+            if (item.source === 'guide' && Number.isFinite(Number(mark.imageX)) && Number.isFinite(Number(mark.imageY))) {
+                const converted = {
+                    ...mark,
+                    x: Number(mark.imageX),
+                    y: Number(mark.imageY)
+                };
+                converted._sizeScale = (img.naturalWidth || img.width || 1) / (Number(mark.imageDisplayWidth) || img.naturalWidth || img.width || 1);
+                return converted;
+            }
+            if (item.source === 'guide' && mark.mode === 'freehand' && Array.isArray(mark.imagePoints) && mark.imagePoints.length) {
+                const converted = {
+                    ...mark,
+                    points: mark.imagePoints
+                };
+                converted._sizeScale = (img.naturalWidth || img.width || 1) / (Number(mark.imageDisplayWidth) || img.naturalWidth || img.width || 1);
+                return converted;
+            }
+            const { wrapW, wrapH, imageRect } = this.getPhotoManagerVirtualWrapRect(img, mark, item);
             const converted = { ...mark };
             if (mark.mode === 'freehand') {
                 converted.points = this.parseShiftPhotoCompareFreehandPoints(JSON.stringify(mark.points || []))
@@ -361,7 +384,7 @@
         }
 
         convertPhotoManagerGlobalMark(mark = {}, item = {}, img) {
-            const { wrapW, wrapH, imageRect } = this.getPhotoManagerVirtualWrapRect(img);
+            const { wrapW, wrapH, imageRect } = this.getPhotoManagerVirtualWrapRect(img, mark, item);
             const gap = 8;
             const count = Math.max(1, Math.min(4, Number(item.photoCount) || 1));
             const index = Math.max(0, Math.min(count - 1, Number(item.photoIndex) || 0));
@@ -404,7 +427,7 @@
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             const rect = { x: 0, y: 0, width: canvas.width, height: canvas.height };
-            const localMarks = (item.marks || []).map(mark => this.convertPhotoManagerLocalMark(mark, img));
+            const localMarks = (item.marks || []).map(mark => this.convertPhotoManagerLocalMark(mark, img, item));
             const globalMarks = (item.globalMarks || []).map(mark => this.convertPhotoManagerGlobalMark(mark, item, img));
             [...localMarks, ...globalMarks].forEach(mark => {
                 ctx.save();

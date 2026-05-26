@@ -1344,6 +1344,243 @@
         return div;
     }
 
+    normalizeGuidePhoto(photo) {
+        if (typeof photo === 'string') return { src: photo, marks: [] };
+        return {
+            src: photo?.src || photo?.url || photo?.data || '',
+            marks: Array.isArray(photo?.marks) ? photo.marks : [],
+            printSize: Math.max(20, Math.min(100, Number(photo?.printSize) || 72))
+        };
+    }
+
+    getGuidePhotoSrc(photo) {
+        return this.normalizeGuidePhoto(photo).src;
+    }
+
+    async renderGuidePhotoPreviews() {
+        const previewContainer = document.getElementById('g-photo-previews');
+        if (!previewContainer) return;
+        this._tempPhotos = (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src);
+        previewContainer.innerHTML = '';
+        if (this._tempPhotos.length > 1) {
+            const alignPanel = document.createElement('label');
+            alignPanel.className = 'guide-photo-align-height';
+            alignPanel.innerHTML = `
+                <input type="checkbox" ${this._guidePhotoHeightsAligned ? 'checked' : ''} onchange="app.alignGuidePhotoPrintHeights(this.checked)">
+                <span>高さをそろえる</span>
+            `;
+            previewContainer.appendChild(alignPanel);
+        }
+        this._tempPhotos.forEach((photo, index) => {
+            const div = document.createElement('div');
+            div.className = `guide-photo-item${photo.marks?.length ? ' has-photo-marks' : ''}`;
+            div.dataset.guidePhotoIndex = String(index);
+            div.dataset.shiftPhotoMarks = JSON.stringify(photo.marks || []);
+            div.style.position = 'relative';
+            div.style.display = 'inline-block';
+            div.innerHTML = `
+                <div class="img-box" style="width:100px; height:100px; border-radius:4px; overflow:hidden;" title="クリックして記号編集">
+                    <img src="${photo.src}" style="width:100%; height:100%; object-fit:contain; background:#f8fafc;">
+                    <span class="shift-photo-mark-badge"><i class="fa-solid fa-pen"></i></span>
+                </div>
+                <label class="guide-photo-size-control">
+                    <span>印刷</span>
+                    <input type="number" min="20" max="100" step="5" value="${photo.printSize}">
+                    <b>%</b>
+                </label>
+                <button type="button" class="guide-photo-insert-btn" title="本文に [[写真${index + 1}]] を挿入">[[写真${index + 1}]]</button>
+                <button type="button" class="rotate-btn" style="position:absolute; bottom:0; right:0; background:rgba(0,0,0,0.6); color:white; border:none; padding:2px 4px; font-size:12px; cursor:pointer; border-radius:2px;" title="回転"><i class="fa-solid fa-rotate-right"></i></button>
+                <button type="button" class="close-btn" style="position:absolute; top:-5px; right:-5px; background:white; padding:2px; font-size:12px; z-index:1000; cursor:pointer;" title="削除">×</button>
+            `;
+            const previewImg = div.querySelector('.img-box img');
+            if (photo.marks?.length && typeof this.getGuidePrintablePhotoSrc === 'function') {
+                this.getGuidePrintablePhotoSrc(photo).then(src => {
+                    if (src && previewImg) previewImg.src = src;
+                });
+            }
+            div.querySelector('.guide-photo-size-control input').oninput = (e) => {
+                this._guidePhotoHeightsAligned = false;
+                const alignInput = document.querySelector('.guide-photo-align-height input');
+                if (alignInput) alignInput.checked = false;
+                const current = this.normalizeGuidePhoto(this._tempPhotos[index]);
+                current.printSize = Math.max(20, Math.min(100, Number(e.target.value) || 72));
+                this._tempPhotos[index] = current;
+                this.autoSaveGuideDraftFromModal();
+                this.updateGuidePageBreakGuides();
+            };
+            div.querySelector('.guide-photo-insert-btn').onclick = (e) => {
+                e.stopPropagation();
+                this.insertGuidePhotoToken(index + 1);
+            };
+            div.querySelector('.rotate-btn').onclick = async (e) => {
+                e.stopPropagation();
+                try {
+                    const rotated = await MaintenanceStore.rotateImageBase64(photo.src, 90);
+                    this._tempPhotos[index] = { ...this.normalizeGuidePhoto(this._tempPhotos[index]), src: rotated };
+                    this.autoSaveGuideDraftFromModal();
+                    this.renderGuidePhotoPreviews();
+                } catch (err) {
+                    console.error('Rotate failed', err);
+                }
+            };
+            div.querySelector('.close-btn').onclick = (e) => {
+                e.stopPropagation();
+                this._tempPhotos.splice(index, 1);
+                this.autoSaveGuideDraftFromModal();
+                this.renderGuidePhotoPreviews();
+            };
+            previewContainer.appendChild(div);
+        });
+        this.updateGuidePageBreakGuides();
+    }
+
+    insertGuidePhotoToken(photoNumber) {
+        const editor = document.getElementById('g-text');
+        if (!editor) return;
+        const number = Math.max(1, Number(photoNumber) || 1);
+        const token = `[[写真${number}]]`;
+        this.restoreGuideEditorSelection();
+        document.execCommand('insertText', false, token);
+        editor.focus();
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    applyGuideTextInlineFormat(kind) {
+        const editor = document.getElementById('g-text');
+        if (!editor) return;
+        this.restoreGuideEditorSelection();
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+            editor.focus();
+            return;
+        }
+        if (kind === 'bold') {
+            document.execCommand('bold');
+        } else if (kind === 'color') {
+            const color = this.getGuideFontColor({ fontColor: document.getElementById('g-font-color')?.value });
+            document.execCommand('foreColor', false, color);
+        } else if (kind === 'font') {
+            const font = this.getGuideFontKey({ fontFamily: document.getElementById('g-font-family')?.value });
+            document.execCommand('fontName', false, this.getGuideFontFamilyCss({ fontFamily: font }));
+        } else {
+            return;
+        }
+        editor.focus();
+        this.rememberGuideEditorSelection();
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        this.autoSaveGuideDraftFromModal();
+    }
+
+    rememberGuideEditorSelection() {
+        const editor = document.getElementById('g-text');
+        const selection = window.getSelection();
+        if (!editor || !selection || selection.rangeCount === 0) return;
+        const range = selection.getRangeAt(0);
+        if (editor.contains(range.commonAncestorContainer)) this._guideEditorRange = range.cloneRange();
+    }
+
+    restoreGuideEditorSelection() {
+        const editor = document.getElementById('g-text');
+        if (!editor || !this._guideEditorRange) {
+            editor?.focus();
+            return;
+        }
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(this._guideEditorRange);
+    }
+
+    async alignGuidePhotoPrintHeights(enabled = true) {
+        this._guidePhotoHeightsAligned = !!enabled;
+        if (!enabled) {
+            this.renderGuidePhotoPreviews();
+            return;
+        }
+        const photos = (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src);
+        if (photos.length < 2) return;
+        const sizes = await Promise.all(photos.map(photo => this.getImageNaturalSize(photo.src)));
+        const renderedHeights = photos.map((photo, index) => {
+            const size = sizes[index];
+            const printSize = Math.max(20, Math.min(100, Number(photo.printSize) || 72));
+            return size.height > 0 ? printSize * size.height / Math.max(1, size.width) : printSize;
+        });
+        const targetHeight = Math.min(...renderedHeights.filter(value => Number.isFinite(value) && value > 0));
+        if (!Number.isFinite(targetHeight) || targetHeight <= 0) return;
+        this._tempPhotos = photos.map((photo, index) => {
+            const size = sizes[index];
+            const nextSize = size.height > 0 ? targetHeight * Math.max(1, size.width) / size.height : Number(photo.printSize) || 72;
+            return {
+                ...photo,
+                printSize: Math.max(20, Math.min(100, Math.round(nextSize)))
+            };
+        });
+        this.autoSaveGuideDraftFromModal();
+        this.renderGuidePhotoPreviews();
+    }
+
+    autoSaveGuideDraftFromModal() {
+        const hId = document.getElementById('g-h-id')?.value;
+        if (!hId) return;
+        const history = store.activeData.history || [];
+        const index = history.findIndex(item => String(item.id) === String(hId));
+        if (index === -1) return;
+        const oldGuide = history[index].guide || {};
+        const html = this.getGuideEditorHtml();
+        const text = html ? this.getGuideTextFromRichHtml(html) : (oldGuide.text ?? '');
+        const author = document.getElementById('g-author')?.value ?? oldGuide.author ?? '';
+        const fontSize = this.getGuideFontSize({ fontSize: document.getElementById('g-font-size')?.value ?? oldGuide.fontSize });
+        const tagsInput = document.getElementById('g-tags')?.value;
+        const tags = tagsInput !== undefined
+            ? tagsInput.split(/[,，、\s]+/).map(tag => tag.trim()).filter(Boolean)
+            : (Array.isArray(oldGuide.tags) ? oldGuide.tags : []);
+        history[index].guide = {
+            ...oldGuide,
+            text,
+            html,
+            author,
+            tags,
+            fontSize,
+            photos: (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src),
+            version: oldGuide.version || 'v1.0',
+            updatedAt: new Date().toLocaleString(),
+            changeNote: oldGuide.changeNote || '自動保存'
+        };
+        store.save();
+        this.renderHistory?.();
+        this.renderGuides?.();
+    }
+
+    getImageNaturalSize(src) {
+        return new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => resolve({ width: img.naturalWidth || img.width || 1, height: img.naturalHeight || img.height || 1 });
+            img.onerror = () => resolve({ width: 1, height: 1 });
+            img.src = src;
+        });
+    }
+
+    getGuidePhotoNaturalSizeSync(src) {
+        if (!src) return { width: 1, height: 1 };
+        if (!this._guidePhotoSizeCache) this._guidePhotoSizeCache = new Map();
+        const cached = this._guidePhotoSizeCache.get(src);
+        if (cached) return cached;
+        const pendingSize = { width: 1, height: 1, pending: true };
+        this._guidePhotoSizeCache.set(src, pendingSize);
+        const img = new Image();
+        img.onload = () => {
+            this._guidePhotoSizeCache.set(src, {
+                width: img.naturalWidth || img.width || 1,
+                height: img.naturalHeight || img.height || 1
+            });
+            this.updateGuidePageBreakGuides();
+        };
+        img.onerror = () => {
+            this._guidePhotoSizeCache.set(src, { width: 1, height: 1 });
+        };
+        img.src = src;
+        return pendingSize;
+    }
+
     async rotateSinglePhotoField(hiddenInputId, previewContainerId) {
         const hiddenInput = document.getElementById(hiddenInputId);
         const preview = document.getElementById(previewContainerId);
@@ -1377,7 +1614,7 @@
             preview.style.height = rect.height + 'px';
             preview.style.transform = 'scale(1)';
 
-            const isShiftNotebookPhoto = !!imgBox.closest('.shift-photo-previews') || !!imgBox.closest('.notebook-search-photos') || !!imgBox.closest('.shift-fullscreen-photos-wrapper');
+            const isShiftNotebookPhoto = !!imgBox.closest('.shift-photo-previews') || !!imgBox.closest('.guide-photo-previews') || !!imgBox.closest('.notebook-search-photos') || !!imgBox.closest('.shift-fullscreen-photos-wrapper');
             if (isShiftNotebookPhoto) {
                 preview.classList.add('contain-mode');
             } else {
@@ -1417,7 +1654,7 @@
             if (this.imagePreviewLocked) return;
             const imgBox = e.target.closest('.img-box');
             if (!imgBox) return;
-            if (imgBox.closest('.shift-photo-previews')) return;
+                if (imgBox.closest('.shift-photo-previews') || imgBox.closest('.guide-photo-previews')) return;
             showPreview(imgBox);
         });
 
@@ -1433,7 +1670,7 @@
             const imgBox = e.target.closest('.img-box');
             if (imgBox) {
                 e.stopPropagation();
-                if (imgBox.closest('.shift-photo-previews')) {
+                if (imgBox.closest('.shift-photo-previews') || imgBox.closest('.guide-photo-previews')) {
                     this.openShiftPhotoCompare?.(imgBox);
                     return;
                 }
@@ -1762,6 +1999,8 @@
             this._skipShiftNoteFormatCommitOnce = true;
             this._activeShiftNoteEditor = null;
         }
+        this._guidePageBreakResizeObserver?.disconnect?.();
+        this._guidePageBreakResizeObserver = null;
         document.getElementById('modal-overlay').classList.add('hidden');
         if (container) delete container.dataset.modalType;
     }
@@ -2150,26 +2389,42 @@
             this._tempPhotos = [];
         } else if (type === 'guide') {
             const hId = document.getElementById('g-h-id').value;
-            const text = document.getElementById('g-text').value;
+            const html = this.getGuideEditorHtml();
+            const text = this.getGuideTextFromRichHtml(html);
             const author = document.getElementById('g-author').value;
+            const fontSize = this.getGuideFontSize({ fontSize: document.getElementById('g-font-size')?.value });
+            const changeNote = document.getElementById('g-change-note')?.value.trim() || '内容更新';
             const tags = document.getElementById('g-tags').value.split(/[,，、\s]+/).map(t => t.trim()).filter(Boolean);
 
             const index = store.activeData.history.findIndex(x => x.id === hId);
             if (index !== -1) {
+                const oldGuide = store.activeData.history[index].guide;
+                const revisions = Array.isArray(oldGuide?.revisions) ? [...oldGuide.revisions] : [];
+                if (oldGuide) {
+                    revisions.push(this.normalizeGuideRevision({
+                        ...oldGuide,
+                        version: this.getGuideVersionLabel(oldGuide),
+                        changeNote: oldGuide.changeNote || '保存前の版'
+                    }));
+                }
+                const version = oldGuide ? `v${this.getNextGuideVersion(oldGuide).toFixed(1)}` : 'v1.0';
                 store.activeData.history[index].guide = {
                     text,
+                    html,
                     author,
                     tags,
+                    fontSize,
+                    version,
                     updatedAt: new Date().toLocaleString(),
-                    photos: this._tempPhotos
+                    changeNote,
+                    photos: (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src),
+                    revisions
                 };
                 store.save();
             }
 
-            this.closeModal();
             this.renderHistory();
             this.renderGuides();
-            this._tempPhotos = [];
         } else if (type === 'part-master') {
             const name = document.getElementById('pm-name').value;
             const model = document.getElementById('pm-model').value;
@@ -2345,7 +2600,8 @@
             if (found) { guide = { ...found.guide }; isRef = true; }
         }
         if (!guide) guide = { text: '', author: '', photos: [] };
-        this._tempPhotos = [...(guide.photos || [])];
+        const versionLabel = this.getGuideVersionLabel(guide);
+        this._tempPhotos = (guide.photos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src);
 
         this.openModal('guide', '作業手順書（ナレッジベース）', () => {
             const content = document.getElementById('modal-content');
@@ -2357,7 +2613,10 @@
                 </div>` : ''}
                 <div style="background:var(--primary-light); padding:12px; border-radius:8px; margin-bottom:16px;">
                     <div style="font-size:0.8rem; font-weight:800; color:var(--primary)">対象</div>
-                    <div style="font-size:1.1rem; font-weight:900;">${machine?.name || '不明'} [${machine?.model || '-'}]</div>
+                    <div style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
+                        <div style="font-size:1.1rem; font-weight:900;">${machine?.name || '不明'} [${machine?.model || '-'}]</div>
+                        <span class="guide-version-pill">${this.escapeHtml(versionLabel)}</span>
+                    </div>
                     <div style="font-weight:700;">${this.getHistoryDisplayText(h)}</div>
                 </div>
 
@@ -2383,75 +2642,452 @@
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label>手順書・技術メモ</label>
-                    <textarea id="g-text" class="guide-detail-textarea" rows="16" placeholder="次回同じトラブルが起きた際の参考となる手順、重要なポイントなどを記入してください。">${guide.text}</textarea>
-                </div>
+                <div class="guide-edit-layout">
+                    <div class="guide-edit-main">
+                        <div class="form-group">
+                            <label>手順書・技術メモ</label>
+                            <div class="guide-photo-token-help">右の写真ボタンで本文中に [[写真1]] を挿入できます。</div>
+                            <div class="guide-text-controls">
+                                <label>
+                                    <span>文字サイズ</span>
+                                    <input type="number" id="g-font-size" min="9" max="24" step="1" value="${this.getGuideFontSize(guide)}" oninput="app.updateGuideTextLayout(); app.autoSaveGuideDraftFromModal();">
+                                    <b>pt</b>
+                                </label>
+                                <label>
+                                    <span>書体</span>
+                                    <select id="g-font-family">
+                                        <option value="gothic">ゴシック</option>
+                                        <option value="meiryo">メイリオ</option>
+                                        <option value="mincho">明朝</option>
+                                        <option value="maru">丸め</option>
+                                        <option value="mono">等幅</option>
+                                    </select>
+                                </label>
+                                <button type="button" class="guide-inline-format-btn" onclick="app.applyGuideTextInlineFormat('font')">選択書体</button>
+                                <button type="button" class="guide-inline-format-btn" onclick="app.applyGuideTextInlineFormat('bold')">太字</button>
+                                <label>
+                                    <span>色</span>
+                                    <input type="color" id="g-font-color" value="${this.getGuideFontColor(guide)}">
+                                </label>
+                                <button type="button" class="guide-inline-format-btn" onclick="app.applyGuideTextInlineFormat('color')">選択色</button>
+                                <span id="g-line-char-count"></span>
+                            </div>
+                            <div class="guide-font-note">※ ゴシック以外の書体を使うと、印刷時の適切な改行ポイントがずれる場合があります。青線は印刷時の改ページ位置の目安です。</div>
+                            <div class="guide-editor-page-wrap">
+                                <div id="g-text" class="guide-detail-textarea guide-rich-editor" contenteditable="true" spellcheck="false" data-placeholder="次回同じトラブルが起きた際の参考となる手順、重要なポイントなどを記入してください。" oninput="app.rememberGuideEditorSelection(); app.autoSaveGuideDraftFromModal(); app.updateGuidePageBreakGuides()" onkeyup="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides()" onmouseup="app.rememberGuideEditorSelection()" onfocus="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides()" onscroll="app.updateGuidePageBreakGuides()">${this.sanitizeGuideRichHtml(guide.html || this.getGuideRichHtmlFromText(guide.text || ''))}</div>
+                                <div id="g-page-break-guides" class="guide-page-break-guides" aria-hidden="true"></div>
+                            </div>
+                        </div>
 
-                <div class="form-group">
-                    <label>手順写真・参考画像</label>
-                    <input type="file" id="g-photos" accept="image/*" multiple style="margin-bottom:8px;">
-                    <div id="g-photo-previews" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+                        <div class="form-group">
+                            <label>今回の変更内容</label>
+                            <input type="text" id="g-change-note" placeholder="例: 写真を追加、注意点を追記、手順2を修正">
+                        </div>
+                    </div>
+
+                    <aside class="guide-photo-side">
+                        <label>手順写真・参考画像</label>
+                        <input type="file" id="g-photos" accept="image/*" multiple>
+                        <div id="g-photo-previews" class="guide-photo-previews"></div>
+                    </aside>
                 </div>
             `;
-            this.setupAutoResizeTextareas('#g-text.guide-detail-textarea');
+            this.updateGuideTextLayout();
+            this.setupGuidePageBreakResizeObserver();
 
-            // Photo handler init
-            const previewContainer = document.getElementById('g-photo-previews');
-            this._tempPhotos.forEach(p => {
-                const div = this.createPhotoPreviewElement(
-                    p, 
-                    (removedSrc) => { this._tempPhotos = this._tempPhotos.filter(img => img !== removedSrc); },
-                    (oldSrc, newSrc) => { this._tempPhotos = this._tempPhotos.map(img => img === oldSrc ? newSrc : img); },
-                    100
-                );
-                previewContainer.appendChild(div);
-            });
+            this.renderGuidePhotoPreviews();
 
             const photoIn = document.getElementById('g-photos');
             photoIn.onchange = async (e) => {
                 const files = Array.from(e.target.files);
                 for (const file of files) {
-                    const base64 = await MaintenanceStore.resizeImage(file);
-                    this._tempPhotos.push(base64);
-                    const div = this.createPhotoPreviewElement(
-                        base64,
-                        (removedSrc) => { this._tempPhotos = this._tempPhotos.filter(p => p !== removedSrc); },
-                        (oldSrc, newSrc) => { this._tempPhotos = this._tempPhotos.map(p => p === oldSrc ? newSrc : p); },
-                        100
-                    );
-                    previewContainer.appendChild(div);
+                    const base64 = await MaintenanceStore.readImageAsDataUrl(file);
+                    this._tempPhotos.push({ src: base64, marks: [], printSize: 72 });
                 }
+                this.autoSaveGuideDraftFromModal();
+                this.renderGuidePhotoPreviews();
+                e.target.value = '';
             };
 
             // Add Print button to footer
             const footer = document.querySelector('.modal-footer');
+            const closeFooterBtn = footer?.querySelector('.secondary-btn[onclick="app.closeModal()"]');
+            if (closeFooterBtn) {
+                closeFooterBtn.textContent = '閉じる';
+                closeFooterBtn.title = '画面を閉じる';
+            }
             footer.insertAdjacentHTML('afterbegin', `
                 <button class="secondary-btn" style="margin-right:auto" onclick="app.printGuide('${hId}')">
                     <i class="fa-solid fa-print"></i> 印刷する
+                </button>
+                <button class="secondary-btn" onclick="app.openGuideVersionHistory('${hId}')">
+                    <i class="fa-solid fa-clock-rotate-left"></i> 変更ログ
                 </button>
             `);
         });
     }
 
-    printGuide(hId) {
+    getGuideVersionNumber(guide) {
+        const raw = String(guide?.version || '1.0').replace(/^v/i, '');
+        const num = parseFloat(raw);
+        return Number.isFinite(num) ? num : 1.0;
+    }
+
+    getGuideVersionLabel(guide) {
+        return `v${this.getGuideVersionNumber(guide).toFixed(1)}`;
+    }
+
+    getNextGuideVersion(guide) {
+        return Math.round((this.getGuideVersionNumber(guide) + 0.1) * 10) / 10;
+    }
+
+    getGuideFontSize(guide = {}) {
+        return Math.max(9, Math.min(24, Number(guide.fontSize) || 11));
+    }
+
+    getGuideFontKey(guide = {}) {
+        const key = String(guide.fontFamily || 'gothic');
+        return ['gothic', 'meiryo', 'mincho', 'maru', 'mono'].includes(key) ? key : 'gothic';
+    }
+
+    getGuideFontFamilyCss(guide = {}) {
+        const fonts = {
+            gothic: '"Yu Gothic", "Meiryo", sans-serif',
+            meiryo: '"Meiryo", sans-serif',
+            mincho: '"Yu Mincho", "MS Mincho", serif',
+            maru: '"Yu Gothic", "Meiryo", sans-serif',
+            mono: '"MS Gothic", "Consolas", monospace'
+        };
+        return fonts[this.getGuideFontKey(guide)];
+    }
+
+    getGuideFontColor(guide = {}) {
+        return /^#[0-9a-f]{6}$/i.test(guide.fontColor || '') ? guide.fontColor : '#111827';
+    }
+
+    sanitizeGuideRichHtml(html = '') {
+        const template = document.createElement('template');
+        template.innerHTML = String(html || '');
+        const allowed = new Set(['DIV', 'P', 'BR', 'B', 'STRONG', 'SPAN', 'FONT']);
+        const toSafeHexColor = (value = '') => {
+            const text = String(value || '').trim();
+            const shortHex = text.match(/^#([0-9a-fA-F]{3})$/);
+            if (shortHex) {
+                return `#${shortHex[1].split('').map(char => char + char).join('')}`;
+            }
+            const hex = text.match(/^#[0-9a-fA-F]{6}$/);
+            if (hex) return text;
+            const rgb = text.match(/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/i);
+            if (!rgb) return '';
+            const parts = rgb.slice(1).map(part => Math.max(0, Math.min(255, Number(part) || 0)));
+            return `#${parts.map(part => part.toString(16).padStart(2, '0')).join('')}`;
+        };
+        const toSafeFontFamily = (value = '') => {
+            const family = String(value || '').replace(/[<>{}]/g, '').trim();
+            if (!family || /url|expression|javascript/i.test(family)) return '';
+            return family;
+        };
+        const getStyleValue = (style = '', name = '') => {
+            const match = String(style || '').match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, 'i'));
+            return match ? match[1].trim() : '';
+        };
+        const cleanNode = (node) => {
+            Array.from(node.childNodes).forEach(child => {
+                if (child.nodeType === Node.TEXT_NODE) return;
+                if (child.nodeType !== Node.ELEMENT_NODE) {
+                    child.remove();
+                    return;
+                }
+                const originalStyle = child.getAttribute('style') || '';
+                const originalColor = child.getAttribute('color') || '';
+                const originalFace = child.getAttribute('face') || '';
+                cleanNode(child);
+                if (!allowed.has(child.tagName)) {
+                    child.replaceWith(...Array.from(child.childNodes));
+                    return;
+                }
+                let target = child;
+                if (child.tagName === 'FONT') {
+                    target = document.createElement('span');
+                    target.append(...Array.from(child.childNodes));
+                    child.replaceWith(target);
+                }
+                Array.from(target.attributes).forEach(attr => target.removeAttribute(attr.name));
+                if (target.tagName === 'SPAN') {
+                    const parts = [];
+                    const color = toSafeHexColor(originalColor || getStyleValue(originalStyle, 'color'));
+                    const family = toSafeFontFamily(originalFace || getStyleValue(originalStyle, 'font-family'));
+                    if (color) parts.push(`color:${color}`);
+                    if (family) parts.push(`font-family:${family}`);
+                    if (parts.length) target.setAttribute('style', parts.join(';'));
+                }
+            });
+        };
+        cleanNode(template.content);
+        return template.innerHTML;
+    }
+
+    getGuideRichHtmlFromText(text = '') {
+        return this.escapeHtml(text || '').replace(/\n/g, '<br>');
+    }
+
+    getGuideTextFromRichHtml(html = '') {
+        const div = document.createElement('div');
+        div.innerHTML = this.sanitizeGuideRichHtml(html);
+        return (div.innerText || '').replace(/\u00a0/g, ' ').trim();
+    }
+
+    getGuideLineChars(fontSize = 11) {
+        return Math.max(22, Math.min(72, Math.round(45 * 11 / Math.max(9, Number(fontSize) || 11))));
+    }
+
+    updateGuideTextLayout() {
+        const textarea = document.getElementById('g-text');
+        const sizeInput = document.getElementById('g-font-size');
+        const countLabel = document.getElementById('g-line-char-count');
+        if (!textarea || !sizeInput) return;
+        const fontSize = this.getGuideFontSize({ fontSize: sizeInput.value });
+        const chars = this.getGuideLineChars(fontSize);
+        const wrap = textarea.closest('.guide-editor-page-wrap');
+        textarea.style.setProperty('--guide-font-size', `${fontSize}pt`);
+        textarea.style.setProperty('--guide-line-chars', chars);
+        textarea.style.setProperty('--guide-editor-width', `${chars + 2}em`);
+        textarea.style.setProperty('--guide-first-page-break', '878px');
+        textarea.style.setProperty('--guide-page-height', '1074px');
+        if (wrap) {
+            wrap.style.setProperty('--guide-font-size', `${fontSize}pt`);
+            wrap.style.setProperty('--guide-line-chars', chars);
+            wrap.style.setProperty('--guide-editor-width', `${chars + 2}em`);
+        }
+        textarea.cols = chars;
+        if (countLabel) countLabel.textContent = `${chars}字/行`;
+        this.updateGuidePageBreakGuides();
+    }
+
+    setupGuidePageBreakResizeObserver() {
+        const editor = document.getElementById('g-text');
+        if (!editor || typeof ResizeObserver === 'undefined') return;
+        this._guidePageBreakResizeObserver?.disconnect?.();
+        this._guidePageBreakResizeObserver = new ResizeObserver(() => {
+            window.requestAnimationFrame(() => this.updateGuidePageBreakGuides());
+        });
+        this._guidePageBreakResizeObserver.observe(editor);
+    }
+
+    updateGuidePageBreakGuides() {
+        const editor = document.getElementById('g-text');
+        const guideLayer = document.getElementById('g-page-break-guides');
+        if (!editor || !guideLayer) return;
+        const firstBreak = 720;
+        const pageHeight = 1074;
+        const editorHeight = Math.max(1, editor.clientHeight || 0);
+        const visibleHeight = Math.max(editorHeight, editor.scrollHeight || 0);
+        const scrollTop = editor.scrollTop || 0;
+        const photoBlocks = this.getGuideEditorPhotoBlocks(editor);
+        const lineHeight = Number.parseFloat(getComputedStyle(editor).lineHeight) || 24;
+        const calibrationOffset = lineHeight * 3;
+        const lines = [];
+        for (let top = firstBreak; top <= visibleHeight + scrollTop + pageHeight; top += pageHeight) {
+            let adjustedTop = top;
+            for (let pass = 0; pass < 4; pass++) {
+                const photoShift = photoBlocks
+                    .filter(block => block.top < adjustedTop)
+                    .reduce((sum, block) => sum + block.extraHeight, 0);
+                const nextTop = top - photoShift;
+                if (Math.abs(nextTop - adjustedTop) < 1) break;
+                adjustedTop = nextTop;
+            }
+            const rawY = adjustedTop + calibrationOffset - (lineHeight / 2) - scrollTop;
+            const y = 10 + Math.round((rawY - 10) / lineHeight) * lineHeight;
+            if (y < 0 || y > editorHeight) continue;
+            lines.push(`<div class="guide-page-break-line" style="top:${y}px;"></div>`);
+        }
+        if (!lines.length) {
+            const fallbackRawTop = Math.max(140, Math.min(firstBreak, editorHeight - 90));
+            const fallbackTop = 10 + Math.round((fallbackRawTop - 10) / lineHeight) * lineHeight;
+            lines.push(`<div class="guide-page-break-line visible-sample" style="top:${fallbackTop}px;"></div>`);
+        }
+        guideLayer.innerHTML = lines.join('');
+    }
+
+    getGuideEditorPhotoBlocks(editor) {
+        const photos = (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo));
+        if (!editor || !photos.length) return [];
+        const editorRect = editor.getBoundingClientRect();
+        const lineHeight = Number.parseFloat(getComputedStyle(editor).lineHeight) || 24;
+        const contentWidth = Math.max(1, editor.clientWidth - 24);
+        const tokenBlocks = [];
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            const text = node.nodeValue || '';
+            const pattern = /\[\[写真(\d+)\]\]/g;
+            let match;
+            while ((match = pattern.exec(text)) !== null) {
+                const photoIndex = Number(match[1]) - 1;
+                const photo = photos[photoIndex];
+                if (!photo?.src) continue;
+                const range = document.createRange();
+                range.setStart(node, match.index);
+                range.setEnd(node, match.index + match[0].length);
+                const rect = range.getBoundingClientRect();
+                range.detach?.();
+                const tokenTop = rect.height
+                    ? rect.top - editorRect.top + (editor.scrollTop || 0)
+                    : 0;
+                const size = this.getGuidePhotoNaturalSizeSync(photo.src);
+                const aspect = Math.max(0.05, (size.height || 1) / Math.max(1, size.width || 1));
+                const printSize = Math.max(20, Math.min(100, Number(photo.printSize) || 72));
+                const isPending = !!size.pending;
+                const estimatedHeight = isPending
+                    ? contentWidth * 0.42
+                    : Math.min(420, contentWidth * (printSize / 100) * aspect);
+                tokenBlocks.push({
+                    top: tokenTop,
+                    height: estimatedHeight
+                });
+            }
+        }
+        const rowMap = new Map();
+        tokenBlocks.forEach(block => {
+            const key = Math.round(block.top / Math.max(1, lineHeight)) * Math.max(1, lineHeight);
+            const current = rowMap.get(key) || { top: block.top, height: 0 };
+            current.top = Math.min(current.top, block.top);
+            current.height = Math.max(current.height, block.height);
+            rowMap.set(key, current);
+        });
+        return Array.from(rowMap.values()).map(block => ({
+            top: block.top,
+            extraHeight: Math.max(0, block.height + 34 - lineHeight)
+        }));
+    }
+
+    getGuideEditorHtml() {
+        const editor = document.getElementById('g-text');
+        return this.sanitizeGuideRichHtml(editor?.innerHTML || '');
+    }
+
+    normalizeGuideRevision(revision) {
+        return {
+            version: revision?.version || 'v1.0',
+            updatedAt: revision?.updatedAt || '',
+            author: revision?.author || '',
+            changeNote: revision?.changeNote || '',
+            text: revision?.text || '',
+            html: this.sanitizeGuideRichHtml(revision?.html || this.getGuideRichHtmlFromText(revision?.text || '')),
+            tags: Array.isArray(revision?.tags) ? revision.tags : [],
+            photos: Array.isArray(revision?.photos) ? revision.photos.map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src) : [],
+            fontSize: this.getGuideFontSize(revision)
+        };
+    }
+
+    openGuideVersionHistory(hId) {
+        const h = store.activeData.history.find(x => String(x.id) === String(hId));
+        if (!h?.guide) return alert('まず手順書を保存してください。');
+        const current = this.normalizeGuideRevision({
+            ...h.guide,
+            version: this.getGuideVersionLabel(h.guide),
+            changeNote: '現在の版'
+        });
+        const revisions = [...(h.guide.revisions || []).map(r => this.normalizeGuideRevision(r)), current]
+            .sort((a, b) => this.getGuideVersionNumber({ version: b.version }) - this.getGuideVersionNumber({ version: a.version }));
+
+        this.openModal('guide-version-history', '手順書の変更ログ', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="guide-version-list">
+                    ${revisions.map((rev, idx) => {
+                        const isCurrent = idx === 0;
+                        return `
+                            <article class="guide-version-card ${isCurrent ? 'current' : ''}">
+                                <div class="guide-version-card-head">
+                                    <span>${this.escapeHtml(rev.version)}</span>
+                                    <b>${this.escapeHtml(rev.updatedAt || '-')}</b>
+                                    ${isCurrent ? '<em>現在</em>' : ''}
+                                </div>
+                                <div class="guide-version-meta">
+                                    更新者: ${this.escapeHtml(rev.author || '不明')} / 変更内容: ${this.escapeHtml(rev.changeNote || '未入力')}
+                                </div>
+                                <div class="guide-version-preview">${this.escapeHtml(rev.text || '').slice(0, 180).replace(/\n/g, '<br>')}</div>
+                                ${isCurrent ? '' : `
+                                    <button type="button" class="secondary-btn" onclick="app.rollbackGuideVersion('${this.escapeJs(hId)}', '${this.escapeJs(rev.version)}')">
+                                        <i class="fa-solid fa-rotate-left"></i> この版へ戻す
+                                    </button>
+                                `}
+                            </article>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+            const saveBtn = document.getElementById('modal-save-btn');
+            if (saveBtn) saveBtn.style.display = 'none';
+        });
+    }
+
+    rollbackGuideVersion(hId, version) {
+        const h = store.activeData.history.find(x => String(x.id) === String(hId));
+        if (!h?.guide) return;
+        const target = (h.guide.revisions || []).find(r => String(r.version) === String(version));
+        if (!target) return alert('指定した版が見つかりません。');
+        if (!confirm(`${version} の内容へ戻しますか？\n現在の内容は変更ログに残します。`)) return;
+
+        const currentGuide = h.guide;
+        const nextVersion = this.getNextGuideVersion(currentGuide);
+        const revisions = Array.isArray(currentGuide.revisions) ? [...currentGuide.revisions] : [];
+        revisions.push(this.normalizeGuideRevision({
+            ...currentGuide,
+            version: this.getGuideVersionLabel(currentGuide),
+            changeNote: 'ロールバック前の版'
+        }));
+
+        h.guide = {
+            text: target.text || '',
+            html: this.sanitizeGuideRichHtml(target.html || this.getGuideRichHtmlFromText(target.text || '')),
+            author: target.author || currentGuide.author || '',
+            tags: Array.isArray(target.tags) ? [...target.tags] : [],
+            photos: Array.isArray(target.photos) ? target.photos.map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src) : [],
+            version: `v${nextVersion.toFixed(1)}`,
+            updatedAt: new Date().toLocaleString(),
+            changeNote: `${version} へロールバック`,
+            revisions
+        };
+        store.save();
+        this.closeModal();
+        this.openGuideModal(hId);
+        this.renderGuides();
+        this.renderHistory();
+    }
+
+    async printGuide(hId) {
         const h = store.activeData.history.find(x => x.id === hId);
         const machine = store.getMachines(true).find(m => m.id === h.machineId);
         const guide = h.guide;
         if (!guide) return alert('まず手順書を保存してください。');
 
         const printWindow = window.open('', '_blank');
-        const photosHTML = guide.photos.map(p => `<img src="${p}" style="max-width:45%; margin:10px; border:1px solid #ccc;">`).join('');
+        const fontSize = this.getGuideFontSize(guide);
+        const lineChars = this.getGuideLineChars(fontSize);
+        const printLineChars = Math.max(22, lineChars - 4);
+        const guideContentHTML = await this.renderGuideTextWithPhotoTokens(guide);
+        const photosHTML = await this.renderGuideUnreferencedPhotosHtml(guide);
 
         printWindow.document.write(`
             <html>
                 <head>
                     <title>作業手順書 - ${machine?.name}</title>
                     <style>
-                        body { font-family: sans-serif; padding: 40px; }
-                        h1 { border-bottom: 2px solid #333; padding-bottom: 10px; }
-                        .meta { margin-bottom: 30px; background: #eee; padding: 15px; border-radius: 8px; }
-                        .content { white-space: pre-wrap; line-height: 1.6; font-size: 1.1rem; }
+                        body { font-family: sans-serif; padding: 24px 36px; }
+                        h1 { border-bottom: 2px solid #333; padding-bottom: 6px; margin: 0 0 14px; font-size: 24pt; line-height: 1.2; }
+                        .meta { width: ${printLineChars}em; max-width: 100%; margin-bottom: 18px; padding: 4px 0 10px; border-bottom: 1px dashed #bbb; font-size: 11pt; line-height: 1.45; }
+                        .meta-grid { display:grid; grid-template-columns:max-content max-content; gap:6px 32px; justify-content:start; }
+                        .meta-wide { grid-column: span 2; }
+                        .meta-notes { border-top: 1px dashed #ddd; padding-top: 6px; margin-top: 2px; }
+                        .content { white-space: normal; line-height: 1.6; font-size: ${fontSize}pt; width: ${printLineChars}em; max-width: 100%; font-family: "Yu Gothic", "Meiryo", sans-serif; font-weight: 400; color: #111827; }
+                        .guide-inline-photo { display: block; width: var(--guide-photo-size, 72%); max-width: 100%; max-height: 420px; margin: 14px 0 20px; border: 1px solid #ccc; object-fit: contain; }
+                        .guide-inline-photo-row { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 20px; max-width: 100%; }
+                        .guide-inline-photo-row .guide-inline-photo { flex: 0 1 var(--guide-photo-size, 72%); min-width: 0; max-width: var(--guide-photo-size, 72%); width: var(--guide-photo-size, 72%); max-height: 360px; margin: 0; }
+                        .guide-photo-rest { margin-top: 40px; }
+                        .guide-photo-rest img { max-width: 45%; margin: 10px; border: 1px solid #ccc; }
                         @media print { .no-print { display:none; } }
                     </style>
                 </head>
@@ -2459,29 +3095,102 @@
                     <div class="no-print" style="margin-bottom:20px;">
                         <button onclick="window.print()">印刷実行</button>
                     </div>
-                    <h1>作業手順書: ${this.getHistoryDisplayText(h)}</h1>
+                    <h1>作業手順書: ${this.escapeHtml(this.getHistoryDisplayText(h))}</h1>
                     <div class="meta">
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                            <div><strong>機械:</strong> ${machine?.name} [${machine?.model}]</div>
-                            <div><strong>作成者:</strong> ${guide.author || '不明'}</div>
-                            <div><strong>記録日:</strong> ${h.date}</div>
-                            <div><strong>手順書最終更新:</strong> ${guide.updatedAt || '-'}</div>
-                            <div style="grid-column: span 2; border-top: 1px dashed #bbb; padding-top: 10px; margin-top: 5px;">
-                                <strong>【原因】:</strong> ${h.cause || '(点検記録に未入力)'}
+                        <div class="meta-grid">
+                            <div><strong>機械:</strong> ${this.escapeHtml(machine?.name || '')} [${this.escapeHtml(machine?.model || '')}]</div>
+                            <div><strong>作成者:</strong> ${this.escapeHtml(guide.author || '不明')}</div>
+                            <div><strong>記録日:</strong> ${this.escapeHtml(h.date || '')}</div>
+                            <div><strong>手順書最終更新:</strong> ${this.escapeHtml(guide.updatedAt || '-')}</div>
+                            <div class="meta-wide meta-notes">
+                                <strong>【原因】:</strong> ${this.escapeHtml(h.cause || '(点検記録に未入力)')}
                             </div>
-                            <div style="grid-column: span 2;">
-                                <strong>【処置内容】:</strong> ${h.notes || '(点検記録に未入力)'}
+                            <div class="meta-wide">
+                                <strong>【処置内容】:</strong> ${this.escapeHtml(h.notes || '(点検記録に未入力)')}
                             </div>
                         </div>
                     </div>
-                    <div class="content">${guide.text}</div>
-                    <div style="margin-top:40px;">
-                        ${photosHTML}
-                    </div>
+                    <div class="content">${guideContentHTML}</div>
+                    ${photosHTML ? `<div class="guide-photo-rest">${photosHTML}</div>` : ''}
                 </body>
             </html>
         `);
         printWindow.document.close();
+    }
+
+    getGuideReferencedPhotoNumbers(text = '') {
+        const numbers = new Set();
+        String(text || '').replace(/\[\[写真(\d+)\]\]/g, (_, rawNumber) => {
+            const number = Number(rawNumber);
+            if (Number.isFinite(number) && number > 0) numbers.add(number);
+            return '';
+        });
+        return numbers;
+    }
+
+    async getGuidePrintablePhotoSrc(photo = {}) {
+        const normalized = this.normalizeGuidePhoto(photo);
+        if (!normalized.src) return '';
+        if (!normalized.marks?.length || typeof this.renderPhotoManagerImageWithMarks !== 'function') return normalized.src;
+        try {
+            return await this.renderPhotoManagerImageWithMarks({
+                source: 'guide',
+                src: normalized.src,
+                marks: normalized.marks,
+                annotated: true
+            });
+        } catch (error) {
+            console.error('Guide photo mark render failed', error);
+            return normalized.src;
+        }
+    }
+
+    async renderGuideTextWithPhotoTokens(guide = {}) {
+        const sourceHtml = this.sanitizeGuideRichHtml(guide.html || this.getGuideRichHtmlFromText(guide.text || ''));
+        const photos = Array.isArray(guide.photos) ? guide.photos.map(photo => this.normalizeGuidePhoto(photo)) : [];
+        const tokenPattern = /\[\[写真(\d+)\]\]/g;
+        const tokenRunPattern = /(?:\[\[写真\d+\]\](?:\s|&nbsp;|<br\s*\/?>)*)+/g;
+        let html = '';
+        let lastIndex = 0;
+        let match;
+        const renderPhoto = async (photoIndex) => {
+            const photo = photos[photoIndex];
+            if (!photo?.src) {
+                return `<span style="color:#b91c1c; font-weight:700;">[[写真${photoIndex + 1}]]</span>`;
+            }
+            const printableSrc = await this.getGuidePrintablePhotoSrc(photo);
+            const printSize = Math.max(20, Math.min(100, Number(photo.printSize) || 72));
+            return `<img class="guide-inline-photo" src="${printableSrc}" alt="写真${photoIndex + 1}" style="--guide-photo-size:${printSize}%;">`;
+        };
+        while ((match = tokenRunPattern.exec(sourceHtml)) !== null) {
+            html += sourceHtml.slice(lastIndex, match.index);
+            const numbers = Array.from(match[0].matchAll(tokenPattern))
+                .map(token => Number(token[1]) - 1)
+                .filter(index => Number.isFinite(index) && index >= 0);
+            if (numbers.length > 1) {
+                const images = [];
+                for (const photoIndex of numbers) images.push(await renderPhoto(photoIndex));
+                html += `<div class="guide-inline-photo-row">${images.join('')}</div>`;
+            } else if (numbers.length === 1) {
+                html += await renderPhoto(numbers[0]);
+            } else {
+                html += match[0];
+            }
+            lastIndex = match.index + match[0].length;
+        }
+        html += sourceHtml.slice(lastIndex);
+        return html || '';
+    }
+
+    async renderGuideUnreferencedPhotosHtml(guide = {}) {
+        const referenced = this.getGuideReferencedPhotoNumbers(guide.text || '');
+        const parts = [];
+        for (const [index, p] of (guide.photos || []).entries()) {
+            if (referenced.has(index + 1)) continue;
+            const photo = this.normalizeGuidePhoto(p);
+            if (photo.src) parts.push(`<img src="${await this.getGuidePrintablePhotoSrc(photo)}" alt="写真${index + 1}" style="width:${Math.max(20, Math.min(100, Number(photo.printSize) || 72))}%;">`);
+        }
+        return parts.join('');
     }
 
     highlightText(text, query) {

@@ -378,6 +378,34 @@
         return `${workTime}分`;
     }
 
+    getHistoryWorkMinutes(history) {
+        return parseFloat(history?.workTime) || 0;
+    }
+
+    toggleHistoryMetricSort(mode) {
+        this.historyMetricSortMode = this.historyMetricSortMode === mode ? null : mode;
+        this.renderHistory();
+    }
+
+    updateHistoryMetricSortButtons() {
+        const timeBtn = document.getElementById('history-sort-time-btn');
+        const costBtn = document.getElementById('history-sort-cost-btn');
+        if (timeBtn) timeBtn.classList.toggle('active', this.historyMetricSortMode === 'time');
+        if (costBtn) costBtn.classList.toggle('active', this.historyMetricSortMode === 'cost');
+    }
+
+    sortHistoryRows(rows) {
+        if (this.historyMetricSortMode === 'time') {
+            rows.sort((a, b) => this.getHistoryWorkMinutes(b) - this.getHistoryWorkMinutes(a) || new Date(b.date || '') - new Date(a.date || ''));
+            return;
+        }
+        if (this.historyMetricSortMode === 'cost') {
+            rows.sort((a, b) => this.calculateHistoryCost(b).total - this.calculateHistoryCost(a).total || new Date(b.date || '') - new Date(a.date || ''));
+            return;
+        }
+        rows.sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
+    }
+
     deleteHistoryEntry(id) {
         if (confirm('この記録を完全に削除しますか？')) {
             const h = store.activeData.history.find(h => h.id === id);
@@ -406,6 +434,7 @@
             table.classList.remove('history-density-standard', 'history-density-detail', 'history-density-compact');
             table.classList.add(`history-density-${density}`);
         }
+        this.updateHistoryMetricSortButtons();
 
         // Active filters banner
         const activeFiltersArea = document.getElementById('hist-active-filters');
@@ -498,8 +527,6 @@
         if (photosOnly) filtered = filtered.filter(h => (h.photos || []).length > 0);
         if (guideOnly) filtered = filtered.filter(h => this.hasHistoryGuide(h));
 
-        filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
-
         if (query) {
             const terms = MaintenanceStore.toHalfWidthLower(query).split(/\s+/).filter(t => t);
             filtered = filtered.filter(h => {
@@ -511,11 +538,19 @@
             });
         }
 
+        this.sortHistoryRows(filtered);
+
         this.renderHistoryFilterSummary(filtered, { period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly });
+        const visibleCostTotal = filtered.reduce((sum, h) => sum + this.calculateHistoryCost(h).total, 0);
+        const visibleCostTotalEl = document.getElementById('history-visible-cost-total');
+        if (visibleCostTotalEl) {
+            visibleCostTotalEl.textContent = this.formatCurrency(visibleCostTotal);
+            visibleCostTotalEl.title = `表示中 ${filtered.length}件の合計コスト`;
+        }
 
         body.innerHTML = '';
         if (filtered.length === 0) {
-            body.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-light)">履歴が見つかりません</td></tr>';
+            body.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:40px; color:var(--text-light)">履歴が見つかりません</td></tr>';
             return;
         }
 
@@ -552,6 +587,7 @@
             const partsTitle = replacedParts.length
                 ? replacedParts.map(p => `${p.name || '部品名なし'}${p.model ? ` [${p.model}]` : ''} ${p.count ?? p.qty ?? 0}${this.formatHistoryPartUnit(p.unit)}`).join(' / ')
                 : '';
+            const cost = this.calculateHistoryCost(h);
 
             tr.innerHTML = `
                 <td style="font-weight:700">${h.date}</td>
@@ -616,7 +652,18 @@
                     ` : '<span style="color:var(--text-light); font-size:0.75rem;">-</span>'}
                 </td>
                 <td style="text-align: center;"><span class="badge ${badgeClass}" style="cursor:pointer; padding:4px 6px; font-size:0.65rem; min-width:40px; ${h.isNonProductionStop ? 'background:#fef3c7; color:#92400e; border:1px solid #fcd34d;' : ''}" onclick="app.toggleTypeFilter('${typeInfo.key}', event)" title="この区分で抽出">${badgeText}</span></td>
-                <td>${this.escapeHtml(this.formatHistoryWorkTime(h))}</td>
+                <td>
+                    <div class="history-metric-cell time">
+                        <b>${this.escapeHtml(this.formatHistoryWorkTime(h))}</b>
+                    </div>
+                </td>
+                <td>
+                    <div class="history-metric-cell cost" title="人件費: ${this.escapeHtml(this.formatCurrency(cost.labor))} / 部品代: ${this.escapeHtml(this.formatCurrency(cost.parts))}">
+                        <b>${this.escapeHtml(this.formatCurrency(cost.total))}</b>
+                        <small>人 ${this.escapeHtml(this.formatCurrency(cost.labor))}</small>
+                        <small>部 ${this.escapeHtml(this.formatCurrency(cost.parts))}</small>
+                    </div>
+                </td>
                 <td class="history-parts-cell">
                     ${replacedParts.length ? `
                         <button type="button" class="history-parts-btn" onclick="app.openHistoryPartsDetail('${this.escapeJs(h.id)}')" title="${this.escapeHtml(partsTitle)}" aria-label="交換部品の詳細を表示">
@@ -713,6 +760,47 @@
         const hours = Math.floor(value / 60);
         const mins = Math.round(value % 60);
         return mins ? `${hours}時間${mins}分` : `${hours}時間`;
+    }
+
+    getHistoryLaborRate() {
+        const inputRate = parseFloat(document.getElementById('analysis-labor-rate')?.value);
+        if (!Number.isNaN(inputRate) && inputRate > 0) return inputRate;
+        const savedRate = parseFloat(this.laborRate);
+        if (!Number.isNaN(savedRate) && savedRate > 0) return savedRate;
+        return 3500;
+    }
+
+    calculateHistoryPartCost(history) {
+        return (history?.replacedParts || []).reduce((sum, part) => {
+            const count = parseFloat(part.count ?? part.qty ?? 0) || 0;
+            const directPrice = parseFloat(part.price);
+            const master = store.getPartMaster?.(part.name || '', part.model || '');
+            const masterPrice = parseFloat(master?.price);
+            const unitPrice = !Number.isNaN(directPrice) && directPrice > 0
+                ? directPrice
+                : (!Number.isNaN(masterPrice) && masterPrice > 0 ? masterPrice : 0);
+            return sum + (count * unitPrice);
+        }, 0);
+    }
+
+    calculateHistoryCost(history) {
+        const workMinutes = parseFloat(history?.workTime) || 0;
+        const workers = Array.isArray(history?.workers)
+            ? history.workers.filter(Boolean)
+            : (typeof history?.workers === 'string' ? history.workers.split(',').map(w => w.trim()).filter(Boolean) : []);
+        const workerCount = Math.max(workers.length, 1);
+        const labor = (workMinutes / 60) * this.getHistoryLaborRate() * workerCount;
+        const parts = this.calculateHistoryPartCost(history);
+        return {
+            labor,
+            parts,
+            total: labor + parts
+        };
+    }
+
+    formatCurrency(value) {
+        const amount = Math.round(parseFloat(value) || 0);
+        return `¥${amount.toLocaleString()}`;
     }
 
     getRelatedHistoryLinksHtml(current) {

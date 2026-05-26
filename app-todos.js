@@ -158,12 +158,11 @@
             if ((todo.status || '') === 'done' && !todo.completedAt) todo.completedAt = todo.updatedAt || todo.createdAt || new Date().toISOString();
         });
 
+        const validWorkerIds = new Set(['__all__', ...d.localTodoWorkers.map(w => w.id)]);
         const savedWorker = localStorage.getItem('kanbanTodoWorkerId');
-        const selectedExists = d.localTodoWorkers.some(w => w.id === this.kanbanTodoWorkerId);
-        this.kanbanTodoWorkerId = selectedExists ? this.kanbanTodoWorkerId : (savedWorker || d.localTodoWorkers[0].id);
-        if (!d.localTodoWorkers.some(w => w.id === this.kanbanTodoWorkerId)) {
-            this.kanbanTodoWorkerId = d.localTodoWorkers[0].id;
-        }
+        this.kanbanTodoWorkerId = validWorkerIds.has(this.kanbanTodoWorkerId)
+            ? this.kanbanTodoWorkerId
+            : (validWorkerIds.has(savedWorker) ? savedWorker : d.localTodoWorkers[0].id);
         return d;
     }
 
@@ -497,8 +496,8 @@
 
     changeKanbanTodoWorker(workerId) {
         this.ensureKanbanTodoState();
-        this.kanbanTodoWorkerId = workerId;
-        localStorage.setItem('kanbanTodoWorkerId', workerId);
+        this.kanbanTodoWorkerId = workerId === 'all' ? '__all__' : workerId;
+        localStorage.setItem('kanbanTodoWorkerId', this.kanbanTodoWorkerId);
         this.renderKanbanLocalTodos();
     }
 
