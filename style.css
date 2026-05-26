@@ -6115,6 +6115,32 @@ body {
     transform: translateY(-1px);
 }
 
+.shift-template-new-group-stamp {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 72px;
+    min-height: 32px;
+    padding: 6px 12px;
+    border: 1.5px solid #93c5fd;
+    border-left: 5px solid #2563eb;
+    border-radius: 10px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.82rem;
+    font-weight: 950;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.shift-template-new-group-stamp:hover {
+    background: #dbeafe;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.18);
+}
+
 .shift-template-empty {
     padding: 28px;
     text-align: center;
