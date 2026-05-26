@@ -2001,6 +2001,7 @@
         }
         this._guidePageBreakResizeObserver?.disconnect?.();
         this._guidePageBreakResizeObserver = null;
+        this.clearGuidePhotoTokenHighlights?.();
         document.getElementById('modal-overlay').classList.add('hidden');
         if (container) delete container.dataset.modalType;
     }
@@ -2674,7 +2675,7 @@
                             </div>
                             <div class="guide-font-note">※ ゴシック以外の書体を使うと、印刷時の適切な改行ポイントがずれる場合があります。青線は印刷時の改ページ位置の目安です。</div>
                             <div class="guide-editor-page-wrap">
-                                <div id="g-text" class="guide-detail-textarea guide-rich-editor" contenteditable="true" spellcheck="false" data-placeholder="次回同じトラブルが起きた際の参考となる手順、重要なポイントなどを記入してください。" oninput="app.rememberGuideEditorSelection(); app.autoSaveGuideDraftFromModal(); app.updateGuidePageBreakGuides()" onkeyup="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides()" onmouseup="app.rememberGuideEditorSelection()" onfocus="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides()" onscroll="app.updateGuidePageBreakGuides()">${this.sanitizeGuideRichHtml(guide.html || this.getGuideRichHtmlFromText(guide.text || ''))}</div>
+                                <div id="g-text" class="guide-detail-textarea guide-rich-editor" contenteditable="true" spellcheck="false" data-placeholder="次回同じトラブルが起きた際の参考となる手順、重要なポイントなどを記入してください。" oninput="app.rememberGuideEditorSelection(); app.autoSaveGuideDraftFromModal(); app.updateGuidePageBreakGuides(); app.updateGuidePhotoTokenHighlights()" onkeyup="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides(); app.updateGuidePhotoTokenHighlights()" onmouseup="app.rememberGuideEditorSelection()" onfocus="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides(); app.updateGuidePhotoTokenHighlights()" onscroll="app.updateGuidePageBreakGuides()">${this.sanitizeGuideRichHtml(guide.html || this.getGuideRichHtmlFromText(guide.text || ''))}</div>
                                 <div id="g-page-break-guides" class="guide-page-break-guides" aria-hidden="true"></div>
                             </div>
                         </div>
@@ -2694,6 +2695,7 @@
             `;
             this.updateGuideTextLayout();
             this.setupGuidePageBreakResizeObserver();
+            this.updateGuidePhotoTokenHighlights();
 
             this.renderGuidePhotoPreviews();
 
@@ -2723,6 +2725,9 @@
                 <button class="secondary-btn" onclick="app.openGuideVersionHistory('${hId}')">
                     <i class="fa-solid fa-clock-rotate-left"></i> 変更ログ
                 </button>
+                <div class="app-save-status modal-save-status saved" title="保存状態">
+                    <i class="fa-solid fa-circle-check"></i><span>保存済み</span>
+                </div>
             `);
         });
     }
@@ -2878,6 +2883,7 @@
         const editor = document.getElementById('g-text');
         const guideLayer = document.getElementById('g-page-break-guides');
         if (!editor || !guideLayer) return;
+        this.updateGuidePhotoTokenHighlights();
         const firstBreak = 720;
         const pageHeight = 1074;
         const editorHeight = Math.max(1, editor.clientHeight || 0);
@@ -2886,6 +2892,7 @@
         const photoBlocks = this.getGuideEditorPhotoBlocks(editor);
         const lineHeight = Number.parseFloat(getComputedStyle(editor).lineHeight) || 24;
         const calibrationOffset = lineHeight * 3;
+        const photoLineCorrection = photoBlocks.length && !this._guidePhotoHeightsAligned ? lineHeight : 0;
         const lines = [];
         for (let top = firstBreak; top <= visibleHeight + scrollTop + pageHeight; top += pageHeight) {
             let adjustedTop = top;
@@ -2897,7 +2904,7 @@
                 if (Math.abs(nextTop - adjustedTop) < 1) break;
                 adjustedTop = nextTop;
             }
-            const rawY = adjustedTop + calibrationOffset - (lineHeight / 2) - scrollTop;
+            const rawY = adjustedTop + calibrationOffset + photoLineCorrection - (lineHeight / 2) - scrollTop;
             const y = 10 + Math.round((rawY - 10) / lineHeight) * lineHeight;
             if (y < 0 || y > editorHeight) continue;
             lines.push(`<div class="guide-page-break-line" style="top:${y}px;"></div>`);
@@ -2908,6 +2915,30 @@
             lines.push(`<div class="guide-page-break-line visible-sample" style="top:${fallbackTop}px;"></div>`);
         }
         guideLayer.innerHTML = lines.join('');
+    }
+
+    updateGuidePhotoTokenHighlights() {
+        const editor = document.getElementById('g-text');
+        if (!editor || !window.CSS?.highlights || typeof Highlight === 'undefined') return;
+        const ranges = [];
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            const text = node.nodeValue || '';
+            const pattern = /\[\[写真\d+\]\]/g;
+            let match;
+            while ((match = pattern.exec(text)) !== null) {
+                const range = document.createRange();
+                range.setStart(node, match.index);
+                range.setEnd(node, match.index + match[0].length);
+                ranges.push(range);
+            }
+        }
+        CSS.highlights.set('guide-photo-token', new Highlight(...ranges));
+    }
+
+    clearGuidePhotoTokenHighlights() {
+        if (window.CSS?.highlights) CSS.highlights.delete('guide-photo-token');
     }
 
     getGuideEditorPhotoBlocks(editor) {
@@ -2939,9 +2970,10 @@
                 const aspect = Math.max(0.05, (size.height || 1) / Math.max(1, size.width || 1));
                 const printSize = Math.max(20, Math.min(100, Number(photo.printSize) || 72));
                 const isPending = !!size.pending;
-                const estimatedHeight = isPending
+                const estimatedHeightRaw = isPending
                     ? contentWidth * 0.42
                     : Math.min(420, contentWidth * (printSize / 100) * aspect);
+                const estimatedHeight = estimatedHeightRaw * 0.95;
                 tokenBlocks.push({
                     top: tokenTop,
                     height: estimatedHeight

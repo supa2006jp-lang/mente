@@ -194,8 +194,8 @@ class MaintenanceApp {
     }
 
     updateSaveStatus(status = 'saved') {
-        const el = document.getElementById('app-save-status');
-        if (!el) return;
+        const elements = document.querySelectorAll('.app-save-status');
+        if (!elements.length) return;
         const states = {
             dirty: { icon: 'fa-circle-exclamation', text: '未保存' },
             saving: { icon: 'fa-spinner fa-spin', text: '保存中' },
@@ -203,15 +203,14 @@ class MaintenanceApp {
             error: { icon: 'fa-triangle-exclamation', text: '保存失敗' }
         };
         const state = states[status] || states.saved;
-        el.className = `app-save-status ${status}`;
-        el.innerHTML = `<i class="fa-solid ${state.icon}"></i><span>${state.text}</span>`;
-        if (status === 'saved') {
-            el.title = `保存済み ${new Date().toLocaleTimeString()}`;
-        } else if (status === 'error') {
-            el.title = '保存に失敗しました';
-        } else {
-            el.title = state.text;
-        }
+        const title = status === 'saved'
+            ? `保存済み ${new Date().toLocaleTimeString()}`
+            : (status === 'error' ? '保存に失敗しました' : state.text);
+        elements.forEach(el => {
+            el.className = `app-save-status ${status}${el.classList.contains('modal-save-status') ? ' modal-save-status' : ''}`;
+            el.innerHTML = `<i class="fa-solid ${state.icon}"></i><span>${state.text}</span>`;
+            el.title = title;
+        });
     }
 
     setupShiftNoteFormatMenuClose() {
