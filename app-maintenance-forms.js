@@ -1240,6 +1240,7 @@
         const overlay = document.getElementById('modal-overlay');
         const container = document.getElementById('modal-container');
         container.dataset.modalType = type;
+        container.className = 'modal-container';
         
         container.innerHTML = `
             <div class="modal-header">
@@ -2003,7 +2004,10 @@
         this._guidePageBreakResizeObserver = null;
         this.clearGuidePhotoTokenHighlights?.();
         document.getElementById('modal-overlay').classList.add('hidden');
-        if (container) delete container.dataset.modalType;
+        if (container) {
+            delete container.dataset.modalType;
+            container.className = 'modal-container';
+        }
     }
 
     // Real-time price calculator for part master (supports "price/weightKG" format)

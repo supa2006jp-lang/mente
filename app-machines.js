@@ -236,7 +236,7 @@
         const listMode = !!this.machineMaintenanceListMode;
         btn.classList.toggle('active-toggle', listMode);
         btn.innerHTML = listMode
-            ? '<i class="fa-solid fa-table-cells-large"></i> 看板表示'
+            ? '<i class="fa-solid fa-table-cells-large"></i> 装置看板表示'
             : '<i class="fa-solid fa-list-ul"></i> 定期（単発含む）メンテリスト表示';
         btn.title = listMode ? '装置の看板表示へ戻す' : '定期メンテ項目を一覧で表示';
     }

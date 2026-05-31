@@ -488,11 +488,12 @@
                         <label class="history-extra-filter"><input type="checkbox" id="hist-filter-parts" onchange="app.renderHistory()"> 部品あり</label>
                         <label class="history-extra-filter"><input type="checkbox" id="hist-filter-photos" onchange="app.renderHistory()"> 写真あり</label>
                         <label class="history-extra-filter"><input type="checkbox" id="hist-filter-guide" onchange="app.renderHistory()"> 手順あり</label>
-                        <select id="hist-density-mode" onchange="app.setHistoryDensityMode(this.value)" title="履歴一覧の表示密度">
-                            <option value="standard">標準表示</option>
-                            <option value="detail">詳細表示</option>
-                            <option value="compact">コンパクト</option>
-                        </select>
+                        <div id="hist-density-mode" class="history-density-segment" title="&#23653;&#27508;&#19968;&#35239;&#12398;&#34920;&#31034;&#23494;&#24230;" role="group" aria-label="&#23653;&#27508;&#19968;&#35239;&#12398;&#34920;&#31034;&#23494;&#24230;">
+                            <button type="button" data-density-mode="standard" onclick="app.setHistoryDensityMode('standard')" title="&#20889;&#30495;&#12539;&#22411;&#24335;&#12539;&#20027;&#35201;&#24773;&#22577;&#12434;&#12496;&#12521;&#12531;&#12473;&#12424;&#12367;&#34920;&#31034;">&#27161;&#28310;</button>
+                            <button type="button" data-density-mode="detail" onclick="app.setHistoryDensityMode('detail')" title="&#21407;&#22240;&#12539;&#20966;&#32622;&#12539;&#12513;&#12514;&#12434;&#242広;&#12367;&#34920;&#31034;">&#35443;&#32048;</button>
+                            <button type="button" data-density-mode="compact" onclick="app.setHistoryDensityMode('compact')" title="&#34892;&#12398;&#39640;&#12373;&#12434;&#25233;&#12360;&#12390;&#19968;&#35239;&#24615;&#12434;&#20778;&#20808;">&#12467;&#12531;&#12497;&#12463;&#12488;</button>
+                        </div>
+                        <span id="hist-density-current-label" class="history-density-current-label">&#34920;&#31034;: &#27161;&#28310;</span>
                         <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.clearHistoryFilters()">
                             <i class="fa-solid fa-filter-circle-xmark"></i> 絞り込み解除
                         </button>
@@ -563,6 +564,10 @@
                             <option value="shared">&#20849;&#36890;</option>
                         </select>
                         <input type="search" id="fiveS-filter-group" placeholder="&#12464;&#12523;&#12540;&#12503;" oninput="app.renderFiveSManagement()">
+                        <select id="fiveS-filter-assignee" onchange="app.renderFiveSManagement()">
+                            <option value="all">5S担当すべて</option>
+                            <option value="__unset__">5S担当未設定</option>
+                        </select>
                         <input type="search" id="fiveS-filter-query" placeholder="&#20869;&#23481;&#12539;&#20889;&#30495;&#12513;&#12514;" oninput="app.renderFiveSManagement()">
                         <button class="secondary-btn" onclick="app.exportFiveSManagementExcel()">
                             <i class="fa-solid fa-file-excel"></i> Excel出力

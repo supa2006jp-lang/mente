@@ -227,6 +227,7 @@
             filterBanner.hidden = filters.length === 0;
             filterBanner.innerHTML = filters.join('<span class="kt-filter-sep"></span>');
         }
+        this.renderTodoFiveSReturnNotice();
 
         const logList = document.getElementById('kt-log-list');
         if (logList) {
@@ -381,6 +382,12 @@
         const requestToLabel = todo.isRequest ? this.getKanbanTodoRequestTargetLabel(todo) : '';
         const requestFromLabel = todo.isRequest ? this.getKanbanTodoWorkerName(todo.requestedBy) : '';
         const hasShiftSource = !!(todo.isRequest && todo.shiftRequestSource?.dateStr && todo.shiftRequestSource?.shift);
+        const hasFiveSSource = hasShiftSource && this.isKanbanTodoFiveSRequest(todo);
+        const cardDescription = String(todo.description || '').split(/\r?\n/)[0];
+        const navigationStamps = [
+            hasShiftSource ? `<button type="button" class="kt-mini-badge notebook" onclick="event.stopPropagation(); app.openShiftNotebookFromTodoCard('${this.escapeJs(todo.id)}')" title="該当の連絡帳へ移動"><i class="fa-solid fa-book-open"></i> 連絡帳</button>` : '',
+            hasFiveSSource ? `<button type="button" class="kt-mini-badge five-s" onclick="event.stopPropagation(); app.openFiveSManagementFromTodoCard('${this.escapeJs(todo.id)}')" title="該当の5S管理へ移動"><i class="fa-solid fa-broom"></i> 5S管理</button>` : ''
+        ].join('');
         return `
             <article class="kt-task-card priority-${this.escapeHtml(todo.priority || 'medium')} ${todo.isRecurring ? 'type-recurring' : ''} ${todo.isRequest ? 'type-request' : ''} deadline-${deadlineStatus}"
                 draggable="true"
@@ -390,9 +397,10 @@
                     <span class="kt-priority-badge">${priorityLabels[todo.priority] || '中'}</span>
                     ${todo.isRecurring ? '<span class="kt-mini-badge recurring">定期</span>' : ''}
                     ${todo.isRequest ? `<span class="kt-mini-badge request">依頼先: ${this.escapeHtml(requestToLabel)}</span><span class="kt-mini-badge requester">依頼者: ${this.escapeHtml(requestFromLabel)}</span>` : ''}
+                    ${navigationStamps}
                 </div>
                 <div class="kt-card-title">${this.escapeHtml(todo.title || '無題のタスク')}</div>
-                ${todo.description ? `<div class="kt-card-desc">${this.escapeHtml(todo.description).slice(0, 80)}</div>` : ''}
+                ${cardDescription ? `<div class="kt-card-desc">${this.escapeHtml(cardDescription).slice(0, 80)}</div>` : ''}
                 <div class="kt-card-meta">
                     ${deadlineLabel ? `<span><i class="fa-solid fa-clock"></i> ${this.escapeHtml(deadlineLabel)}</span>` : '<span class="kt-muted">期限なし</span>'}
                     <span class="kt-card-actions">
@@ -403,6 +411,14 @@
                 </div>
             </article>
         `;
+    }
+
+    isKanbanTodoFiveSRequest(todo) {
+        if (!todo?.shiftRequestSource?.rowId) return false;
+        if (String(todo.title || '').startsWith('5S対応:')) return true;
+        if (typeof this.resolveFiveSNotebookRowSource !== 'function') return false;
+        const source = todo.shiftRequestSource;
+        return !!this.resolveFiveSNotebookRowSource(source.dateStr, source.shift, source.rowId);
     }
 
     openShiftNotebookFromTodoCard(todoId) {
@@ -424,20 +440,200 @@
         }, 120);
     }
 
-    openKanbanTodoFromSearch(todoId) {
+    openFiveSManagementFromTodoCard(todoId) {
+        const todo = (store.activeData.localTodos || []).find(item => item.id === todoId);
+        const source = todo?.shiftRequestSource;
+        if (!source?.rowId) {
+            alert('該当の5S管理が見つかりません。');
+            return;
+        }
+        this._fiveSHighlightRowId = source.rowId;
+        this._fiveSHighlightSource = { ...source };
+        this._fiveSHighlightTodoId = todo.id;
+        this._fiveSJumpOrigin = {
+            todoId: todo.id,
+            title: todo.title || '無題のToDo',
+            status: this.getKanbanTodoStatusLabel(todo),
+            assignees: this.getKanbanTodoAssigneeLabel(todo, 3)
+        };
+        this.addJumpHistory({
+            kind: 'fiveS',
+            todoId: todo.id,
+            from: 'ToDo',
+            to: '5S管理',
+            label: todo.title || '無題のToDo'
+        });
+        this._fiveSHighlightRetryCount = 0;
+        if (typeof this.openFiveSManagementFromShiftNotebook === 'function') {
+            this.openFiveSManagementFromShiftNotebook(null);
+            return;
+        }
+        this.closeModal();
+        const alreadyFiveS = this.currentView === 'fiveS';
+        this.switchView('fiveS');
+        if (alreadyFiveS) this.renderFiveSManagement();
+    }
+
+    getKanbanTodoStatusLabel(todo) {
+        const status = todo?.status || 'todo';
+        if (status === 'progress') return '対応中';
+        if (status === 'done') return '完了';
+        return '未完了';
+    }
+
+    getKanbanTodoAssigneeLabel(todo, limit = 2) {
+        const names = (todo?.assignedTo || []).map(id => this.getKanbanTodoWorkerName(id)).filter(Boolean);
+        if (!names.length) return '未設定';
+        const visible = names.slice(0, limit).join(', ');
+        return names.length > limit ? `${visible} 他${names.length - limit}` : visible;
+    }
+
+    getKanbanTodoJumpLabel(todo, total = 1) {
+        const status = this.getKanbanTodoStatusLabel(todo);
+        const assignees = this.getKanbanTodoAssigneeLabel(todo);
+        return `${status}ToDoへ: ${assignees}${total > 1 ? ` (${total})` : ''}`;
+    }
+
+    addJumpHistory(entry = {}) {
+        if (!entry.todoId || !entry.to) return;
+        const history = this.getJumpHistory();
+        const item = {
+            ...entry,
+            time: new Date().toISOString()
+        };
+        this._jumpHistory = [
+            item,
+            ...history.filter(old => !(old.todoId === item.todoId && old.to === item.to))
+        ].slice(0, 5);
+    }
+
+    getJumpHistory() {
+        const now = Date.now();
+        const ttl = 10 * 60 * 1000;
+        const history = Array.isArray(this._jumpHistory) ? this._jumpHistory : [];
+        this._jumpHistory = history.filter(entry => {
+            const time = entry.time ? new Date(entry.time).getTime() : 0;
+            return time && !Number.isNaN(time) && now - time <= ttl;
+        });
+        return this._jumpHistory;
+    }
+
+    getJumpHistoryLabel(entry = {}) {
+        const time = entry.time ? new Date(entry.time) : null;
+        const stamp = time && !Number.isNaN(time.getTime())
+            ? `${time.getHours()}:${String(time.getMinutes()).padStart(2, '0')}`
+            : '';
+        return `${stamp ? `${stamp} ` : ''}${entry.from || ''}→${entry.to || ''}: ${entry.label || '無題'}`;
+    }
+
+    openJumpHistoryEntry(index) {
+        const entry = this.getJumpHistory()[Number(index)];
+        if (!entry?.todoId) return;
+        if (entry.to === '5S管理') {
+            this.openFiveSManagementFromTodoCard(entry.todoId);
+            return;
+        }
+        if (entry.to === 'ToDo') {
+            this.openKanbanTodoFromSearch(entry.todoId, false, { recordJump: false });
+        }
+    }
+
+    showKanbanTodoJumpNotice(todo, workerLabel = '') {
+        document.querySelectorAll('.kanban-jump-toast').forEach(el => el.remove());
+        const toast = document.createElement('div');
+        toast.className = 'kanban-jump-toast';
+        toast.innerHTML = `<i class="fa-solid fa-location-dot"></i><span>${this.escapeHtml(workerLabel || this.getKanbanTodoAssigneeLabel(todo))}のToDoリストへ移動しました</span>`;
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 220);
+        }, 2600);
+    }
+
+    openKanbanTodoFromSearch(todoId, openDetail = true, options = {}) {
         const todo = (store.activeData.localTodos || []).find(item => item.id === todoId);
         if (!todo) return;
+        const fromView = this.currentView;
         const workerId = (todo.assignedTo || [])[0] || todo.requestedBy || this.kanbanTodoWorkerId || '__all__';
         this.changeKanbanTodoWorker(workerId === 'all' ? '__all__' : workerId);
         this.switchView('todos');
+        const workerLabel = this.getKanbanTodoWorkerName(workerId === 'all' ? '__all__' : workerId);
+        if (options.notice !== false) this.showKanbanTodoJumpNotice(todo, workerLabel);
+        if (options.recordJump !== false && fromView && fromView !== 'todos') {
+            this.addJumpHistory({
+                kind: 'todo',
+                todoId: todo.id,
+                from: fromView === 'fiveS' ? '5S管理' : '画面',
+                to: 'ToDo',
+                label: todo.title || '無題のToDo'
+            });
+        }
+        if (fromView === 'fiveS') {
+            this._todoFiveSReturnOrigin = {
+                todoId: todo.id,
+                title: todo.title || '無題のToDo',
+                status: this.getKanbanTodoStatusLabel(todo),
+                assignees: this.getKanbanTodoAssigneeLabel(todo, 3)
+            };
+        }
         setTimeout(() => {
             const card = Array.from(document.querySelectorAll('.kt-task-card'))
                 .find(el => (el.getAttribute('onclick') || '').includes(todo.id));
             card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             card?.classList.add('kt-task-card-jump');
-            setTimeout(() => card?.classList.remove('kt-task-card-jump'), 2200);
-            this.openKanbanTodoModal(todo.status || 'todo', todo.id);
+            setTimeout(() => card?.classList.remove('kt-task-card-jump'), 4000);
+            if (openDetail) this.openKanbanTodoModal(todo.status || 'todo', todo.id);
         }, 80);
+    }
+
+    renderTodoFiveSReturnNotice() {
+        const shell = document.querySelector('.kt-board-shell');
+        if (!shell) return;
+        let notice = document.getElementById('kt-five-s-return-notice');
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.id = 'kt-five-s-return-notice';
+            notice.className = 'kt-five-s-return-notice';
+            const board = shell.querySelector('.kt-kanban');
+            if (board) board.before(notice);
+            else shell.appendChild(notice);
+        }
+        const origin = this._todoFiveSReturnOrigin;
+        if (!origin) {
+            notice.hidden = true;
+            notice.innerHTML = '';
+            return;
+        }
+        const history = this.getJumpHistory().slice(0, 4);
+        const historyHtml = history.length ? `
+            <div class="kt-jump-history">
+                <span>移動履歴</span>
+                ${history.map((entry, index) => `
+                    <button type="button" onclick="app.openJumpHistoryEntry(${index})" title="${this.escapeHtml(this.getJumpHistoryLabel(entry))}">
+                        ${this.escapeHtml(this.getJumpHistoryLabel(entry))}
+                    </button>
+                `).join('')}
+            </div>
+        ` : '';
+        notice.hidden = false;
+        notice.innerHTML = `
+            <div class="kt-five-s-return-main">
+                <div>
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                    <b>5S管理から移動</b>
+                    <span>${this.escapeHtml(origin.title || '無題のToDo')}</span>
+                    <small>${this.escapeHtml(origin.status || '未完了')} / ${this.escapeHtml(origin.assignees || '未設定')}</small>
+                </div>
+                <button type="button" onclick="app.openFiveSManagementFromTodoCard('${this.escapeJs(origin.todoId)}')">
+                    <i class="fa-solid fa-broom"></i> 5S管理へ戻る
+                </button>
+            </div>
+            ${historyHtml}
+            <button type="button" class="kt-five-s-return-close" onclick="app._todoFiveSReturnOrigin = null; app.renderTodoFiveSReturnNotice()" title="案内を閉じる">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        `;
     }
 
     getKanbanTodoWorkerName(id) {
@@ -774,7 +970,7 @@
             .find(el => (el.getAttribute('onclick') || '').includes(todoId));
         card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         card?.classList.add('kt-task-card-jump');
-        setTimeout(() => card?.classList.remove('kt-task-card-jump'), 2200);
+        setTimeout(() => card?.classList.remove('kt-task-card-jump'), 4000);
     }
 
     archiveKanbanTodo(id) {

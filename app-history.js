@@ -427,12 +427,18 @@
         if (!body) return;
         const density = this.historyDensityMode || localStorage.getItem('history_density_mode') || 'standard';
         this.historyDensityMode = density;
-        const densitySelect = document.getElementById('hist-density-mode');
-        if (densitySelect) densitySelect.value = density;
+        document.querySelectorAll('#hist-density-mode [data-density-mode]').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.densityMode === density);
+        });
         const table = body.closest('table');
         if (table) {
             table.classList.remove('history-density-standard', 'history-density-detail', 'history-density-compact');
             table.classList.add(`history-density-${density}`);
+        }
+        const densityLabel = document.getElementById('hist-density-current-label');
+        if (densityLabel) {
+            const densityLabels = { standard: '標準', detail: '詳細', compact: 'コンパクト' };
+            densityLabel.textContent = `表示: ${densityLabels[density] || '標準'}`;
         }
         this.updateHistoryMetricSortButtons();
 
@@ -583,11 +589,13 @@
             
             const normMName = MaintenanceApp.toFullWidthUpper(machine ? machine.name : '不明');
             const normMModel = MaintenanceApp.toHalfWidthLower(machine ? machine.model : '');
+            const isBlankModel = MaintenanceApp.isModelBlank(normMModel);
             const replacedParts = h.replacedParts || [];
             const partsTitle = replacedParts.length
                 ? replacedParts.map(p => `${p.name || '部品名なし'}${p.model ? ` [${p.model}]` : ''} ${p.count ?? p.qty ?? 0}${this.formatHistoryPartUnit(p.unit)}`).join(' / ')
                 : '';
             const cost = this.calculateHistoryCost(h);
+            const matchLabels = this.getHistorySearchMatchLabels(h, machine, query);
 
             tr.innerHTML = `
                 <td style="font-weight:700">${h.date}</td>
@@ -602,17 +610,17 @@
                                 ${ (h.machineCategory || machine?.category) ? `<span style="font-size:0.65rem; color:var(--text-light); font-weight:800;"><i class="fa-solid fa-tag"></i> ${h.machineCategory || machine.category}</span>` : ''}
                             </div>
                             <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; font-weight:700;" title="${normMName}">${this.highlightText(normMName, query)}</div>
-                            <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                                <span style="color:var(--secondary); font-weight:700; cursor:pointer; font-size:0.75rem;" onclick="app.toggleModelFilter('${normMModel}', event)" title="この型式で抽出">
+                            <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+                                <span class="history-model-label ${isBlankModel ? 'blank' : ''}" onclick="app.toggleModelFilter('${normMModel}', event)" title="この型式で抽出">
                                     [${this.highlightText(normMModel, query)}]
                                     ${this.modelFilter === normMModel ? ' <i class="fa-solid fa-filter" style="font-size:0.6rem"></i>' : ''}
                                 </span>
+                                ${machine ? `
+                                    <button type="button" class="history-machine-edit-btn" onclick="event.stopPropagation(); app.openMachineModal('${this.escapeJs(machine.id)}')" title="この機械の編集画面を開く" aria-label="機械編集">
+                                        <i class="fa-solid fa-pen-to-square"></i>
+                                    </button>
+                                ` : ''}
                             </div>
-                            ${machine ? `
-                                <button type="button" class="history-machine-edit-btn" onclick="event.stopPropagation(); app.openMachineModal('${this.escapeJs(machine.id)}')" title="この機械の編集画面を開く">
-                                    <i class="fa-solid fa-pen-to-square"></i> 機械編集
-                                </button>
-                            ` : ''}
                         </div>
                     </div>
                 </td>
@@ -638,6 +646,11 @@
                         ${h.cause ? `<div class="history-row-detail-text" title="原因: ${h.cause}">原因: ${this.highlightText(h.cause, query)}</div>` : ''}
                         ${h.notes ? `<div class="history-row-detail-text" title="処置: ${h.notes}">処置: ${this.highlightText(h.notes, query)}</div>` : ''}
                     </div>
+                    ${matchLabels.length ? `
+                        <div class="history-match-labels" title="検索語が一致した項目">
+                            ${matchLabels.map(label => `<span>${this.escapeHtml(label)}</span>`).join('')}
+                        </div>
+                    ` : ''}
                 </td>
                 <td>
                     ${h.photos && h.photos.length > 0 ? `
@@ -685,13 +698,13 @@
                             
                             if (guideInfo) {
                                 return `
-                                <button class="secondary-btn ${guideBtnClass}" style="padding:4px 6px; font-size:0.65rem; width:100%; justify-content:center; ${isRef ? 'opacity:0.8; border-style:dashed;' : ''}" onclick="app.openGuideModal('${h.id}')">
-                                    <i class="fa-solid fa-file-invoice"></i> 手順
+                                <button class="secondary-btn history-guide-icon-btn ${guideBtnClass}" style="${isRef ? 'opacity:0.8; border-style:dashed;' : ''}" onclick="app.openGuideModal('${h.id}')" title="手順を開く" aria-label="手順を開く">
+                                    <i class="fa-solid fa-file-invoice"></i>
                                 </button>`;
                             } else {
                                 return `
-                                <button class="secondary-btn guide-none" style="padding:4px 6px; font-size:0.65rem; width:100%; justify-content:center;" onclick="app.openGuideModal('${h.id}')">
-                                    <i class="fa-solid fa-file-invoice"></i> 手順
+                                <button class="secondary-btn history-guide-icon-btn guide-none" onclick="app.openGuideModal('${h.id}')" title="手順を作成" aria-label="手順を作成">
+                                    <i class="fa-solid fa-file-invoice"></i>
                                 </button>`;
                             }
                         })()}
@@ -744,6 +757,9 @@
             <div class="history-filter-summary">
                 <div class="history-filter-chips">
                     ${chips.length ? chips.map(chip => `<span>${this.escapeHtml(chip)}</span>`).join('') : '<span>絞り込みなし</span>'}
+                    <span class="history-guide-legend has-guide"><i class="fa-solid fa-file-invoice"></i> 手順あり</span>
+                    <span class="history-guide-legend no-guide"><i class="fa-solid fa-file-invoice"></i> 手順なし</span>
+                    <span class="history-guide-legend ref-guide"><i class="fa-solid fa-file-invoice"></i> 関連手順</span>
                 </div>
                 <div class="history-worktime-summary">
                     <b>${filtered.length}</b>件
@@ -1069,6 +1085,28 @@
         if (!h.taskId) return h.errorContent || h.notes || '突発対応';
         const task = store.activeData.tasks.find(t => String(t.id) === String(h.taskId));
         return task ? task.content : (h.taskContent || '定期メンテナンス');
+    }
+
+    getHistorySearchMatchLabels(h, machine, query) {
+        const terms = MaintenanceStore.toHalfWidthLower(query || '').split(/\s+/).filter(Boolean);
+        if (!terms.length) return [];
+        const fields = [
+            ['日付', h.date],
+            ['機械名', machine?.name],
+            ['型式', machine?.model],
+            ['区分', h.machineCategory || machine?.category],
+            ['内容', this.getHistoryDisplayText(h)],
+            ['原因', h.cause],
+            ['処置', h.notes],
+            ['作業者', (h.workers || []).join(' ')],
+            ['部品', (h.replacedParts || []).map(p => `${p.name || ''} ${p.model || ''}`).join(' ')]
+        ];
+        return fields
+            .filter(([, value]) => {
+                const text = MaintenanceStore.toHalfWidthLower(String(value || ''));
+                return text && terms.some(term => text.includes(term));
+            })
+            .map(([label]) => label);
     }
 
     getFiscalYear(dateStr) {
