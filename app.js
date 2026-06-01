@@ -30,6 +30,8 @@ class MaintenanceApp {
         this.dashboardPeriod = 'yesterday_today'; // Default dashboard view range
         this.excludePeriodicInTrend = false; // Whether to exclude periodic maintenance from trend chart
         this.kanbanOverdueOnly = localStorage.getItem('kanban_overdue_only') === 'true';
+        this.kanbanTodoCompactCards = localStorage.getItem('kanban_todo_compact_cards') === 'true';
+        this.kanbanTodoPriorityFilter = localStorage.getItem('kanban_todo_priority_filter') || 'all';
         this._shiftNotebookImportantOnly = localStorage.getItem('shift_notebook_important_only') === 'true';
         this._shiftNotebookHideChecked = localStorage.getItem('shift_notebook_hide_checked') === 'true';
         this._shiftNotebookCompactRows = localStorage.getItem('shift_notebook_compact_rows') === 'true';
@@ -261,6 +263,7 @@ class MaintenanceApp {
         navBtns.forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const viewName = e.currentTarget.dataset.view;
+                if (!viewName) return;
                 this.resetSearchAndFilters();
                 this.switchView(viewName);
             });
@@ -411,8 +414,10 @@ class MaintenanceApp {
         }
     }
 
-    switchView(viewName) {
-        if (this.currentView === viewName) return;
+    switchView(viewName, options = {}) {
+        if (!viewName) return;
+        if (this.currentView === viewName && !options.force) return;
+        this.updateSidebarCurrentShiftLink?.();
         
         // Update Nav UI
         document.querySelectorAll('.nav-btn').forEach(btn => {

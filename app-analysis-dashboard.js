@@ -228,8 +228,40 @@
         return { todayStr, pendingRequests, overdueTodos, todayTodos, todayTasks, importantRows };
     }
 
+    getCurrentShiftNotebookTarget(now = new Date()) {
+        const target = new Date(now);
+        const hour = now.getHours();
+        let shift = 'early';
+        if (hour >= 13 && hour <= 20) {
+            shift = 'late';
+        } else if (hour >= 21) {
+            shift = 'night';
+        } else if (hour < 5) {
+            shift = 'night';
+            target.setDate(target.getDate() - 1);
+        }
+        const dateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+        return { dateStr, shift, label: this.getShiftNotebookLabel(shift) };
+    }
+
+    openCurrentShiftNotebookFromDashboard() {
+        const target = this.getCurrentShiftNotebookTarget();
+        this.switchView('calendar', { force: true });
+        this.openShiftNotebookModal(target.dateStr, target.shift);
+    }
+
+    updateSidebarCurrentShiftLink() {
+        const badge = document.getElementById('sidebar-current-shift-badge');
+        if (!badge) return;
+        const target = this.getCurrentShiftNotebookTarget();
+        badge.textContent = target.label.stamp;
+        badge.className = `sidebar-shift-badge ${target.shift}`;
+        badge.title = `${target.dateStr} ${target.label.name}`;
+    }
+
     getTodayActionPanelHtml() {
         const summary = this.getTodayActionSummary();
+        const shiftTarget = this.getCurrentShiftNotebookTarget();
         const itemHtml = [
             ...summary.overdueTodos.slice(0, 4).map(todo => `
                 <button type="button" class="today-action-item danger" onclick="app.openPendingTodoRequest('${this.escapeJs(todo.id)}')">
@@ -254,7 +286,14 @@
                         <h3><i class="fa-solid fa-sun"></i> 今日やること</h3>
                         <p>${summary.todayStr} の未処理依頼・期限切れ・重要連絡</p>
                     </div>
-                    <button type="button" onclick="app.openKanbanRequestDashboard()">依頼一覧</button>
+                    <div class="today-action-head-actions">
+                        <button type="button" class="today-shift-link" onclick="app.openCurrentShiftNotebookFromDashboard()" title="現在時刻のシフト連絡帳へ">
+                            <i class="fa-solid fa-book-open"></i>
+                            連絡帳 ${this.escapeHtml(shiftTarget.label.stamp)}
+                            <small>${this.escapeHtml(shiftTarget.dateStr)}</small>
+                        </button>
+                        <button type="button" onclick="app.openKanbanRequestDashboard()">依頼一覧</button>
+                    </div>
                 </div>
                 <div class="today-action-stats">
                     <button type="button" onclick="app.switchView('todos'); app.changeKanbanTodoWorker('__all__')"><span>未完了依頼</span><b>${summary.pendingRequests.length}</b></button>
@@ -272,6 +311,7 @@
     renderDashboard() {
         const container = document.getElementById('dashboard-widgets');
         if (!container) return;
+        this.updateSidebarCurrentShiftLink();
 
         const period = this.dashboardPeriod || 'this_month';
         if (!this.dashboardPeriod) this.dashboardPeriod = period;
@@ -300,6 +340,7 @@
         const totalTroubleTime = suddenTime + nonProductionStopTime + dokateiTime;
         const totalTroubleCount = suddenCount + nonProductionStopCount + dokateiCount;
         const avgMttr = totalTroubleCount > 0 ? (totalTroubleTime / totalTroubleCount).toFixed(1) : 0;
+        const periodLabel = this.getPeriodLabel(period);
 
         let mtbf = '-';
         if (suddens.length >= 2) {
@@ -313,19 +354,78 @@
         const yestStr = yest.toISOString().split('T')[0];
         const recentHistory = store.activeData.history.filter(h => h.date === todayStr || h.date === yestStr);
         recentHistory.sort((a,b) => new Date(b.date) - new Date(a.date));
+        const actionSummary = this.getTodayActionSummary();
+        const todos = store.activeData.localTodos || [];
+        const activeTodos = todos.filter(todo => {
+            const status = todo.status || (todo.done ? 'done' : 'todo');
+            return !todo.archived && status !== 'done';
+        });
+        const doneTodos = todos.filter(todo => {
+            const status = todo.status || (todo.done ? 'done' : 'todo');
+            return !todo.archived && status === 'done';
+        });
+        const fiveSRows = typeof this.collectFiveSNotebookRows === 'function' ? this.collectFiveSNotebookRows('this_month') : [];
+        const fiveSPendingRows = fiveSRows.filter(row => {
+            const related = typeof this.getFiveSRowRelatedTodos === 'function' ? this.getFiveSRowRelatedTodos(row) : [];
+            return related.some(todo => !todo.archived && (todo.status || 'todo') !== 'done');
+        });
+        const lowStockParts = store.getLowStockParts();
+        const alertItems = [
+            actionSummary.overdueTodos.length ? { key: 'danger', icon: 'fa-clock', label: `期限切れ ${actionSummary.overdueTodos.length}件` } : null,
+            lowStockParts.length ? { key: 'warn', icon: 'fa-box-open', label: `在庫不足 ${lowStockParts.length}件` } : null,
+            dokateiCount ? { key: 'danger', icon: 'fa-bolt', label: `ドカ停 ${dokateiCount}件` } : null,
+            actionSummary.importantRows.length ? { key: 'warn', icon: 'fa-star', label: `重要連絡 ${actionSummary.importantRows.length}件` } : null
+        ].filter(Boolean);
 
+        container.classList.add('dashboard-shell');
         container.style.display = 'grid';
-        container.style.gridTemplateColumns = 'repeat(3, 1fr)';
-        container.style.gap = '20px';
+        container.style.gridTemplateColumns = 'repeat(12, minmax(0, 1fr))';
+        container.style.gap = '10px';
 
         container.innerHTML = `
             ${this.getTodayActionPanelHtml()}
-            <div class="card" style="grid-column: 1 / -1; margin-bottom: 5px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+            <div class="dashboard-alert-strip">
+                <div>
+                    <b><i class="fa-solid fa-bell"></i> 重要アラート</b>
+                    <span>${alertItems.length ? '確認が必要な項目があります' : '現在、大きな注意項目はありません'}</span>
+                </div>
+                <div class="dashboard-alert-items">
+                    ${alertItems.length ? alertItems.map(item => `
+                        <span class="${item.key}"><i class="fa-solid ${item.icon}"></i>${item.label}</span>
+                    `).join('') : '<span class="ok"><i class="fa-solid fa-circle-check"></i> 異常なし</span>'}
+                </div>
+            </div>
+
+            <div class="dashboard-flow-panel">
+                <div class="dashboard-flow-head">
+                    <h4><i class="fa-solid fa-route"></i> 5S / ToDo / 連絡帳の流れ</h4>
+                    <span class="dashboard-period-chip">今日・今月</span>
+                </div>
+                <div class="dashboard-flow-steps">
+                    <button type="button" class="dashboard-flow-step dashboard-clickable" onclick="app.openCurrentShiftNotebookFromDashboard()">
+                        <span>連絡帳</span><b>${actionSummary.importantRows.length}</b><small>今日の重要連絡</small>
+                    </button>
+                    <i class="fa-solid fa-chevron-right"></i>
+                    <button type="button" class="dashboard-flow-step dashboard-clickable" onclick="app.switchView('todos'); app.changeKanbanTodoWorker('__all__')">
+                        <span>ToDo</span><b>${activeTodos.length}</b><small>未完了</small>
+                    </button>
+                    <i class="fa-solid fa-chevron-right"></i>
+                    <button type="button" class="dashboard-flow-step dashboard-clickable" onclick="app.switchView('todos')">
+                        <span>完了</span><b>${doneTodos.length}</b><small>処理済</small>
+                    </button>
+                    <i class="fa-solid fa-chevron-right"></i>
+                    <button type="button" class="dashboard-flow-step dashboard-clickable" onclick="app.switchView('fiveS')">
+                        <span>5S確認</span><b>${fiveSRows.length}</b><small>${fiveSPendingRows.length ? `未完了 ${fiveSPendingRows.length}件` : '今月履歴'}</small>
+                    </button>
+                </div>
+            </div>
+
+            <div class="card dashboard-card dashboard-recent-card" style="grid-column: 1 / 8; margin-bottom: 0;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid var(--border); padding-bottom:6px;">
                     <h4 style="margin:0; color:var(--text-main);"><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary); margin-right:8px;"></i>直近の活動（今日・昨日）</h4>
                     <span class="badge" style="background:var(--primary-light); color:var(--primary);">${recentHistory.length}件</span>
                 </div>
-                <div style="display:flex; flex-direction:column; gap:10px; max-height:300px; overflow-y:auto; padding-right:5px;">
+                <div class="dashboard-timeline">
                     ${recentHistory.length > 0 ? recentHistory.map(h => {
                         const m = store.getMachines(true).find(machine => machine.id === h.machineId);
                         const isToday = h.date === todayStr;
@@ -354,69 +454,52 @@
                         
                         const catBadge = (h.machineCategory || m?.category) ? '<span style="font-size:0.65rem; color:var(--text-light); font-weight:800; margin-left:6px;"><i class="fa-solid fa-tag"></i> ' + (h.machineCategory || m.category) + '</span>' : '';
                         
-                        return '<div class="hover-shadow" style="padding:12px; background:var(--background); border-radius:10px; border:1px solid var(--border); display:flex; gap:15px; align-items:center; cursor:pointer;" onclick="app.switchView(\'history\'); document.getElementById(\'global-search\').value=\'' + h.date + '\'; app.renderHistory();">' +
-                                '<div class="img-box" style="width:40px; height:40px; border-radius:8px; flex-shrink:0;">' +
-                                    photoHtml +
+                        return '<div class="dashboard-timeline-item dashboard-clickable" onclick="app.switchView(\'history\'); document.getElementById(\'global-search\').value=\'' + h.date + '\'; app.renderHistory();">' +
+                                '<div class="dashboard-timeline-date">' + (isToday ? '今日' : '昨日') + '</div>' +
+                                '<div class="dashboard-timeline-main">' +
+                                    '<b>' + lineBadge + ' ' + mName + ' [' + mModel + ']</b>' +
+                                    '<span>' + taskText + '</span>' +
+                                    '<small><i class="fa-regular fa-clock"></i> ' + wTime + ' / ' + workers + '</small>' +
                                 '</div>' +
-                                '<div style="min-width:0; margin-right:15px;">' +
-                                    '<div style="font-size:0.85rem; font-weight:800; color:var(--text-main); margin-bottom:2px;">' + dateBadge + ' ' + lineBadge + catBadge + ' ' + mName + ' [' + mModel + ']</div>' +
-                                    '<div style="font-size:0.75rem; font-weight:700; color:var(--primary); margin-bottom:4px;">' + taskText + '</div>' +
-                                    ((h.cause || h.notes) ? '<div style="font-size:0.75rem; color:var(--text-light); line-height:1.4; margin-bottom:4px;">' +
-                                        (h.cause ? '原因: ' + h.cause + '<br>' : '') +
-                                        (h.notes ? '処置: ' + h.notes : '') +
-                                    '</div>' : '') +
-                                    '<div style="font-size:0.7rem; color:var(--text-light);">' +
-                                        '<i class="fa-regular fa-clock"></i> 作業時間: ' + wTime + ' | 作業者: ' + workers +
-                                    '</div>' +
-                                '</div>' +
-                            
-                            '<div style="display:flex; gap:6px; overflow-x:auto; max-width:250px; flex-shrink:0;">' +
-                                (rPhotosHtml || '<span style="color:var(--text-light); font-size:0.7rem; opacity:0.6;">(写真なし)</span>') +
-                            '</div>' +
-
-                            '<div style="flex:1"></div>' +
-
-                            '<div style="display:flex; gap:8px; align-items:center; flex-shrink:0; margin-left:15px;">' +
-                                '<button type="button" class="icon-btn" style="color:var(--primary); background:var(--primary-light); padding:6px; border-radius:6px; border:1px solid var(--primary-light);" onclick="event.stopPropagation(); app.openHistoryEditForm(\'' + h.id + '\');" title="この記録を編集">' +
-                                    '<i class="fa-solid fa-pen-to-square"></i>' +
-                                '</button>' +
-                                '<div style="font-size:1rem; color:var(--border);"><i class="fa-solid fa-chevron-right"></i></div>' +
-                            '</div>' +
+                                '<button type="button" class="icon-btn" onclick="event.stopPropagation(); app.openHistoryEditForm(\'' + h.id + '\');" title="この記録を編集"><i class="fa-solid fa-pen-to-square"></i></button>' +
                         '</div>';
-                    }).join('') : '<div style="color:var(--text-light); text-align:center; padding:30px; font-size:0.85rem;">昨日から今日にかけてのメンテナンス記録はありません。</div>'}
+                    }).join('') : '<div class="dashboard-empty-compact">昨日から今日のメンテナンス記録はありません</div>'}
                 </div>
             </div>
 
-            <div style="grid-column: 1 / 2; grid-row: 2 / 3;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding:0 4px;">
-                    <h4 style="margin:0; font-size:0.85rem; font-weight:900; color:var(--text-light);"><i class="fa-solid fa-calculator"></i> メンテ時間 集計</h4>
-                    <select id="dashboard-filter-period" onchange="app.dashboardPeriod=this.value; app.onPeriodChange(this, () => app.renderDashboard())" 
-                            style="font-size:0.75rem; padding:4px 10px; border-radius:99px; border:1px solid var(--border); background:white; font-weight:800; cursor:pointer;">
-                        ${this.generatePeriodOptionsHTML(period)}
-                    </select>
+            <div class="dashboard-section dashboard-time-section" style="grid-column: 1 / 5;">
+                <div class="dashboard-section-head">
+                    <h4><i class="fa-solid fa-calculator"></i> メンテ時間 集計</h4>
+                    <div class="dashboard-period-control">
+                        <span class="dashboard-period-chip">${this.escapeHtml(periodLabel)}</span>
+                        <select id="dashboard-filter-period" onchange="app.dashboardPeriod=this.value; app.onPeriodChange(this, () => app.renderDashboard())" 
+                                style="font-size:0.75rem; padding:4px 10px; border-radius:99px; border:1px solid var(--border); background:white; font-weight:800; cursor:pointer;">
+                            ${this.generatePeriodOptionsHTML(period)}
+                        </select>
+                    </div>
                 </div>
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
-                    <div class="card" style="padding:15px; border-top:4px solid var(--primary); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='periodic'; app.renderHistory();">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--primary); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='periodic'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">定期保全 合計</div>
                         <div style="font-size:1.6rem; font-weight:900; color:var(--primary); line-height:1.2;">${periodicTime}<span style="font-size:0.8rem">分</span></div>
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${history.filter(h=>!!h.taskId).length}件の実施履歴</div>
                     </div>
-                    <div class="card" style="padding:15px; border-top:4px solid var(--success); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='sudden'; app.renderHistory();">
+                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--success); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='sudden'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">突発故障（生産停止）</div>
                         <div style="font-size:1.6rem; font-weight:900; color:var(--success); line-height:1.2;">${suddenTime}<span style="font-size:0.8rem">分</span></div>
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${suddenCount}件の停止トラブル</div>
                     </div>
-                    <div class="card" style="padding:15px; border-top:4px solid #f59e0b; cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='nonProductionStop'; app.renderHistory();">
+                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid #f59e0b; cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='nonProductionStop'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">非生産停止トラブル</div>
                         <div style="font-size:1.6rem; font-weight:900; color:#d97706; line-height:1.2;">${nonProductionStopTime}<span style="font-size:0.8rem">分</span></div>
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${nonProductionStopCount}件の非停止メンテ</div>
                     </div>
-                    <div class="card" style="padding:15px; border-top:4px solid var(--danger); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='dokatei'; app.renderHistory();">
+                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--danger); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='dokatei'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">ドカ停（重大）</div>
                         <div style="font-size:1.6rem; font-weight:900; color:var(--danger); line-height:1.2;">${dokateiTime}<span style="font-size:0.8rem">分</span></div>
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${dokateiCount}件の生産停止</div>
                     </div>
-                    <div class="card" style="padding:15px; border-top:4px solid var(--secondary); background:var(--secondary-light);">
+                    <div class="card dashboard-metric-card" style="padding:10px; border-top:4px solid var(--secondary); background:var(--secondary-light);">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">MTBF / MTTR</div>
                         <div style="font-size:1.1rem; font-weight:900; color:var(--secondary); margin-bottom:2px;">間隔: ${mtbf}日</div>
                         <div style="font-size:1.1rem; font-weight:900; color:var(--danger);">修理: ${avgMttr}分</div>
@@ -424,15 +507,15 @@
                 </div>
             </div>
 
-            <div class="card" style="display:flex; flex-direction:column; align-items:center; justify-content:center; grid-column: 2 / 3; grid-row: 2 / 3; min-height: 280px; padding-top: 25px;">
-                <div style="width:100%; display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <div class="card dashboard-card dashboard-chart-card" style="display:flex; flex-direction:column; align-items:center; justify-content:center; grid-column: 5 / 9; min-height: 220px; padding-top: 12px;">
+                <div style="width:100%; display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <h4 style="margin:0;">時間・内容内訳 (%)</h4>
-                    <div style="font-size:0.75rem; font-weight:800; color:var(--text-light)">合計: ${totalTime}分</div>
+                    <div style="display:flex; align-items:center; gap:8px;"><span class="dashboard-period-chip">${this.escapeHtml(periodLabel)}</span><div style="font-size:0.75rem; font-weight:800; color:var(--text-light)">合計: ${totalTime}分</div></div>
                 </div>
-                <div style="width:180px; height:180px; position:relative;">
+                <div style="width:150px; height:150px; position:relative;">
                     <canvas id="dashboard-pie-chart"></canvas>
                 </div>
-                <div style="display:flex; gap:12px; margin-top:15px; font-size:0.65rem; font-weight:800;">
+                <div style="display:flex; gap:10px; margin-top:8px; font-size:0.65rem; font-weight:800;">
                     <span><i class="fa-solid fa-circle" style="color:#2563eb"></i> 定期</span>
                     <span><i class="fa-solid fa-circle" style="color:#10b981"></i> 突発(停止)</span>
                     <span><i class="fa-solid fa-circle" style="color:#f59e0b"></i> 非停止</span>
@@ -440,20 +523,19 @@
                 </div>
             </div>
 
-            <div class="card" style="grid-column: 3 / 4; grid-row: 2 / 3; display:flex; flex-direction:column; border-top: 4px solid var(--primary); padding:20px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <div class="card dashboard-card dashboard-alert-card" style="grid-column: 8 / 13; display:flex; flex-direction:column; border-top: 4px solid var(--primary); padding:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <h4 style="margin:0; border:none; padding-left:0; font-weight:900;"><i class="fa-solid fa-box-open" style="color:var(--primary); margin-right:8px;"></i>部品在庫アラート</h4>
-                    <span class="badge" style="background:var(--danger-light); color:var(--danger);">${store.getLowStockParts().length}件</span>
+                    <span class="badge" style="background:var(--danger-light); color:var(--danger);">${lowStockParts.length}件</span>
                 </div>
-                <div style="flex:1; display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:220px; padding-right:5px;">
+                <div style="flex:1; display:flex; flex-direction:column; gap:6px; overflow-y:auto; max-height:180px; padding-right:3px;">
                     ${(() => {
-                        const lowStockParts = store.getLowStockParts();
-                        if (lowStockParts.length === 0) return '<div style="color:var(--text-light); text-align:center; padding:20px; font-size:0.8rem;">現在、在庫不足はありません</div>';
-                        return lowStockParts.map(p => {
+                        if (lowStockParts.length === 0) return '<div class="dashboard-empty-compact"><i class="fa-solid fa-circle-check"></i> 現在、在庫不足はありません</div>';
+                        return lowStockParts.slice(0, 3).map(p => {
                             const stats = this.getPartUsageStats(p.name, p.model);
                             const unit = p.unit || '個';
                             return `
-                            <div class="hover-shadow" style="padding:12px; background:white; border-radius:12px; border:1px solid #fecaca; display:flex; gap:12px; align-items:start; cursor:pointer;" onclick="app.openPartMasterModal('${p.name.replace(/'/g, "\\'")}', '${p.model.replace(/'/g, "\\'")}')">
+                            <div class="hover-shadow dashboard-clickable" style="padding:12px; background:white; border-radius:12px; border:1px solid #fecaca; display:flex; gap:12px; align-items:start; cursor:pointer;" onclick="app.openPartMasterModal('${p.name.replace(/'/g, "\\'")}', '${p.model.replace(/'/g, "\\'")}')">
                                 <div class="img-box" style="width:44px; height:44px; border-radius:8px; flex-shrink:0; background:#f8fafc;">
                                     ${p.photo ? `<img src="${p.photo}">` : '<i class="fa-solid fa-box" style="color:#cbd5e1; font-size:1.1rem;"></i>'}
                                 </div>
@@ -484,13 +566,13 @@
                                     </div>
                                 </div>
                             </div>
-                        `;}).join('');
+                        `;}).join('') + (lowStockParts.length > 3 ? `<button type="button" class="secondary-btn dashboard-more-btn" onclick="app.switchView('machines')">他 ${lowStockParts.length - 3}件を見る</button>` : '');
                     })()}
                 </div>
             </div>
 
-            <div class="card" style="grid-column: 1 / 2; grid-row: 3 / 4; padding: 20px; background: white; border-top: 4px solid var(--danger); display:flex; flex-direction:column;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <div class="card dashboard-card dashboard-counter-card" style="grid-column: 1 / 5; padding: 12px; background: white; border-top: 4px solid var(--danger); display:flex; flex-direction:column;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <h4 style="margin:0; font-weight:900; color:var(--text-main);">
                         <i class="fa-solid fa-stopwatch" style="color:var(--danger); margin-right:8px;"></i>
                         ドカ停ゼロ 継続日数
@@ -500,7 +582,7 @@
                         <button class="icon-btn" onclick="app.addDokateiCounter()" title="カウンターを追加" style="color:var(--primary); font-size:1.1rem; border:none; background:none; cursor:pointer;"><i class="fa-solid fa-circle-plus"></i></button>
                     </div>
                 </div>
-                <div style="flex:1; display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:420px; padding-right:5px;">
+                <div style="flex:1; display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:300px; padding-right:3px;">
                     ${(store.activeData.dokateiCounters || []).map((c, i) => {
                         const days = c.lastDate ? Math.floor((new Date() - new Date(c.lastDate)) / (86400000)) : '-';
                         const dayColor = days === '-' ? 'var(--text-light)' : (days > 180 ? 'var(--success)' : (days > 30 ? 'var(--primary)' : 'var(--danger)'));
@@ -522,17 +604,17 @@
                         </div>
                         `;
                     }).join('')}
-                    ${(store.activeData.dokateiCounters || []).length === 0 ? '<div style="color:var(--text-light); text-align:center; padding:20px; font-size:0.75rem; border:1px dashed var(--border); border-radius:8px;">カウンターがありません。右上の＋ボタンで追加してください。</div>' : ''}
+                    ${(store.activeData.dokateiCounters || []).length === 0 ? '<div class="dashboard-empty-compact">カウンターなし。右上の＋で追加できます</div>' : ''}
                 </div>
             </div>
 
-            <div class="card" style="grid-column: 2 / 4; grid-row: 3 / 4; display:flex; flex-direction:column;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <div class="card dashboard-card dashboard-worst-card" style="grid-column: 5 / 13; display:flex; flex-direction:column;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <h4 style="margin:0; border-left:4px solid var(--danger); padding-left:8px;">直近3ヶ月のドカ停ワースト履歴（修理時間順）</h4>
                     <span class="badge badge-dokatei" style="background:#fee2e2; color:#b91c1c;">${dokateis3M.length}件</span>
                 </div>
-                <div style="flex:1; display:flex; flex-direction:column; gap:10px; overflow-y:auto; max-height:400px; padding-right:5px;">
-                    ${dokateis3M.slice(0, 10).map(h => {
+                <div style="flex:1; display:flex; flex-direction:column; gap:7px; overflow-y:auto; max-height:300px; padding-right:3px;">
+                    ${dokateis3M.slice(0, 10).map((h, index) => {
                         const m = store.getMachines(true).find(machine => machine.id === h.machineId);
                         const lineInfo = h.lineNo || m?.lineNo;
                         const lineBadge = this.getLineBadge(lineInfo);
@@ -547,7 +629,8 @@
                         }
                         
                         return `
-                        <div class="hover-shadow" style="padding:12px; background:var(--background); border-radius:12px; border:1px solid var(--border); display:flex; gap:15px; align-items:center; cursor:pointer;" onclick="app.switchView('history'); document.getElementById('global-search').value='${h.date}'; app.renderHistory();">
+                        <div class="dashboard-rank-row dashboard-clickable ${index < 3 ? 'top' : ''}" onclick="app.switchView('history'); document.getElementById('global-search').value='${h.date}'; app.renderHistory();">
+                                <div class="dashboard-rank-no">${index + 1}</div>
                                 <div class="img-box" style="width:45px; height:45px; border-radius:10px; flex-shrink:0;">
                                     ${m?.photo ? `<img src="${m.photo}">` : '<i class="fa-solid fa-industry" style="font-size:1rem; color:#cbd5e1;"></i>'}
                                 </div>
@@ -575,7 +658,7 @@
                                 <div style="font-size:1rem; color:var(--border); flex-shrink:0; display:flex; align-items:center;"><i class="fa-solid fa-chevron-right"></i></div>
                         </div>
                         `;
-                    }).join('') || '<div style="color:var(--text-light); text-align:center; padding:50px; border:1px dashed var(--border); border-radius:12px;">この期間の重大故障（ドカ停）記録はありません</div>'}
+                    }).join('') || '<div class="dashboard-empty-compact">直近3ヶ月の重大故障（ドカ停）記録はありません</div>'}
                 </div>
             </div>
         `;

@@ -15,7 +15,10 @@
         if (Array.isArray(notebookData)) return { rows: notebookData, members: [] };
         return {
             rows: Array.isArray(notebookData?.rows) ? notebookData.rows : [],
-            members: Array.isArray(notebookData?.members) ? notebookData.members : []
+            members: Array.isArray(notebookData?.members) ? notebookData.members : [],
+            absentMembers: Array.isArray(notebookData?.absentMembers) ? notebookData.absentMembers : [],
+            inheritedMembers: !!notebookData?.inheritedMembers,
+            inheritedFrom: notebookData?.inheritedFrom || ''
         };
     }
 
@@ -29,11 +32,14 @@
 
     getShiftNotebookRowsForShift(dayData = {}, shift) {
         const notebookData = dayData?.[shift];
-        const { rows, members } = this.getShiftNotebookRowsAndMembers(notebookData);
+        const { rows, members, absentMembers, inheritedMembers, inheritedFrom } = this.getShiftNotebookRowsAndMembers(notebookData);
         const sharedRows = Array.isArray(dayData?.sharedRows) ? dayData.sharedRows : [];
         return {
             rows: [...sharedRows, ...rows],
-            members
+            members,
+            absentMembers,
+            inheritedMembers,
+            inheritedFrom
         };
     }
 
@@ -1417,9 +1423,11 @@
         if (!store.activeData.shiftNotebooks) store.activeData.shiftNotebooks = {};
         if (!store.activeData.shiftNotebookGroupPresets) store.activeData.shiftNotebookGroupPresets = [];
         const dayData = store.activeData.shiftNotebooks[dateStr] || {};
-        const { rows, members } = this.getShiftNotebookRowsForShift(dayData, shift);
+        const { rows, members, absentMembers, inheritedMembers, inheritedFrom } = this.getShiftNotebookRowsForShift(dayData, shift);
         const [year, month, day] = dateStr.split('-');
         this._editingShiftNotebook = { dateStr, shift };
+        this._shiftNotebookAbsentMembers = [...(absentMembers || [])];
+        this._shiftNotebookWeekGroupBase = null;
         this._shiftNotebookHideChecked = localStorage.getItem('shift_notebook_hide_checked') === 'true';
         this._shiftNotebookImportantOnly = localStorage.getItem('shift_notebook_important_only') === 'true';
 
@@ -1469,7 +1477,8 @@
                         <div class="shift-group-panel" style="align-items: flex-start;">
                             <label class="shift-group-label" style="margin-top: 8px;">グループ</label>
                             <div style="flex:1; display:flex; flex-direction:column; gap:6px;">
-                                <input type="text" id="shift-group-members" class="shift-group-input" value="${this.escapeHtml(members.join(', '))}" placeholder="メンバーをカンマ区切りで入力" oninput="app.updateShiftGroupChant()">
+                                <input type="text" id="shift-group-members" class="shift-group-input" value="${this.escapeHtml(members.join(', '))}" placeholder="メンバーをカンマ区切りで入力" oninput="app.clearShiftNotebookWeekGroupBase(); app.updateShiftGroupChant(); app.scheduleShiftNotebookAutoSave()" onchange="app.autoSaveShiftNotebook(true)">
+                                ${inheritedMembers ? `<div class="shift-group-inherited-note">週内引き継ぎ: ${this.escapeHtml(inheritedFrom || '週頭')}から自動表示中。編集・保存するとこの日の入力になります。</div>` : ''}
                                 <div id="shift-group-chant-display" class="shift-group-chant-display"></div>
                                 <div id="shift-absence-manage" class="shift-absence-manage hidden"></div>
                             </div>
@@ -1932,9 +1941,9 @@
                 const dayData = notebooks[d] || {};
                 const notebookData = dayData[s];
                 if (!notebookData && !(Array.isArray(dayData.sharedRows) && dayData.sharedRows.length > 0)) return;
-                const { rows, members } = this.getShiftNotebookRowsForShift(dayData, s);
+                const { rows, members, inheritedMembers } = this.getShiftNotebookRowsForShift(dayData, s);
                 const hasRows = (rows || []).some(row => (row?.text || '').trim() || (Array.isArray(row?.photos) && row.photos.length > 0));
-                const hasMembers = (members || []).length > 0;
+                const hasMembers = !inheritedMembers && (members || []).length > 0;
                 const key = this.getShiftNotebookDateKey(d, s);
                 if ((hasRows || hasMembers) && key < currentKey) candidates.push({ dateStr: d, shift: s, key });
             });
@@ -1952,9 +1961,9 @@
                 const dayData = notebooks[d] || {};
                 const notebookData = dayData[s];
                 if (!notebookData && !(Array.isArray(dayData.sharedRows) && dayData.sharedRows.length > 0)) return;
-                const { rows, members } = this.getShiftNotebookRowsForShift(dayData, s);
+                const { rows, members, inheritedMembers } = this.getShiftNotebookRowsForShift(dayData, s);
                 const hasRows = (rows || []).some(row => (row?.text || '').trim() || (Array.isArray(row?.photos) && row.photos.length > 0));
-                const hasMembers = (members || []).length > 0;
+                const hasMembers = !inheritedMembers && (members || []).length > 0;
                 const key = this.getShiftNotebookDateKey(d, s);
                 if ((hasRows || hasMembers) && key > currentKey) candidates.push({ dateStr: d, shift: s, key });
             });
@@ -1993,8 +2002,15 @@
         if (!input || !display || !editing) return;
         
         const members = input.value.split(',').map(m => m.trim()).filter(Boolean);
+        const absentMembers = Array.isArray(this._shiftNotebookAbsentMembers) ? this._shiftNotebookAbsentMembers : [];
+        const absentHtml = absentMembers.length ? `
+            <div class="shift-absent-display">
+                <span>欠員</span>
+                ${absentMembers.map(name => `<b>${this.escapeHtml(name)}</b>`).join('')}
+            </div>
+        ` : '';
         if (members.length === 0) {
-            display.innerHTML = '<span style="font-size: 0.75rem; color: var(--text-light);">※メンバーを入力すると安全唱和の担当者が自動で割り当てられます</span>';
+            display.innerHTML = '<span style="font-size: 0.75rem; color: var(--text-light);">※メンバーを入力すると安全唱和の担当者が自動で割り当てられます</span>' + absentHtml;
             const absencePanel = document.getElementById('shift-absence-manage');
             if (absencePanel) absencePanel.innerHTML = '';
             return;
@@ -2009,7 +2025,7 @@
             const isTurn = i === turnIndex;
             const memberType = this.getShiftMemberType(m);
             return `<span class="shift-member-stamp ${memberType} ${isTurn ? 'active' : ''}" draggable="true" ondragstart="app.startShiftMemberStampDrag(event, '${this.escapeJs(m)}')" ondragend="app.finishShiftMemberStampDrag()" title="${this.escapeHtml(this.getShiftMemberTypeLabel(memberType))}">${this.escapeHtml(m)}</span>`;
-        }).join('');
+        }).join('') + absentHtml;
 
         const absencePanel = document.getElementById('shift-absence-manage');
         if (absencePanel && !absencePanel.classList.contains('hidden')) {
@@ -2071,6 +2087,55 @@
         return (input?.value || '').split(',').map(v => v.trim()).filter(Boolean);
     }
 
+    setShiftNotebookWeekGroupBase(members = []) {
+        const editing = this._editingShiftNotebook;
+        const normalized = (members || []).map(member => String(member || '').trim()).filter(Boolean);
+        if (!editing || normalized.length === 0) {
+            this._shiftNotebookWeekGroupBase = null;
+            return;
+        }
+        this._shiftNotebookWeekGroupBase = {
+            dateStr: editing.dateStr,
+            shift: editing.shift,
+            members: normalized
+        };
+    }
+
+    clearShiftNotebookWeekGroupBase() {
+        this._shiftNotebookWeekGroupBase = null;
+        this._shiftNotebookAbsentMembers = [];
+    }
+
+    getShiftNotebookWeekGroupMembersForSync(currentMembers = []) {
+        const editing = this._editingShiftNotebook;
+        const base = this._shiftNotebookWeekGroupBase;
+        if (!editing || !base || base.dateStr !== editing.dateStr || base.shift !== editing.shift) return currentMembers;
+        const currentSet = new Set((currentMembers || []).map(member => MaintenanceStore.toHalfWidthLower(member)));
+        const currentIsSubsetOfBase = (currentMembers || []).every(member =>
+            (base.members || []).some(baseMember => MaintenanceStore.toHalfWidthLower(baseMember) === MaintenanceStore.toHalfWidthLower(member))
+        );
+        return currentIsSubsetOfBase && currentSet.size < (base.members || []).length ? base.members : currentMembers;
+    }
+
+    getShiftGroupPresetSavedMessage(dateStr) {
+        const weekday = this.getShiftNotebookWeekday(dateStr);
+        return weekday >= 1 && weekday <= 5 ? 'プリセット保存済み / 金曜まで反映済み' : 'プリセット保存済み';
+    }
+
+    saveShiftGroupPresetSelection(message = '') {
+        const editing = this._editingShiftNotebook;
+        if (!editing) return;
+        clearTimeout(this._shiftNotebookAutoSaveTimer);
+        this.setShiftNotebookStatus('保存中', 'saving');
+        this.saveShiftNotebook(editing.dateStr, editing.shift, {
+            close: false,
+            render: true,
+            status: true,
+            statusMessage: message || this.getShiftGroupPresetSavedMessage(editing.dateStr),
+            noticeMessage: message || this.getShiftGroupPresetSavedMessage(editing.dateStr)
+        });
+    }
+
     applyShiftGroupPreset(index) {
         if (index === '') return;
         if (index === '__previous_day__') {
@@ -2081,7 +2146,10 @@
         const input = document.getElementById('shift-group-members');
         if (!preset || !input) return;
         input.value = (preset.members || []).join(', ');
+        this._shiftNotebookAbsentMembers = [];
+        this.setShiftNotebookWeekGroupBase(preset.members || []);
         this.updateShiftGroupChant();
+        this.saveShiftGroupPresetSelection(this.getShiftGroupPresetSavedMessage(this._editingShiftNotebook?.dateStr || ''));
         input.focus();
     }
 
@@ -2090,6 +2158,80 @@
         const date = new Date(year, month - 1, day);
         date.setDate(date.getDate() - 1);
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    formatShiftNotebookDate(date) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    getShiftNotebookWeekday(dateStr) {
+        const [year, month, day] = String(dateStr || '').split('-').map(Number);
+        if (!year || !month || !day) return -1;
+        return new Date(year, month - 1, day).getDay();
+    }
+
+    isShiftNotebookInheritedOnly(notebookData) {
+        if (!notebookData?.inheritedMembers) return false;
+        const rows = Array.isArray(notebookData.rows) ? notebookData.rows : [];
+        return rows.length === 0;
+    }
+
+    syncShiftNotebookWeekGroupPreset(dateStr, shift, members = []) {
+        if (!dateStr || !shift || !Array.isArray(members) || members.length === 0) return;
+        const weekday = this.getShiftNotebookWeekday(dateStr);
+        if (weekday < 1 || weekday > 5) return;
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const sourceDate = new Date(year, month - 1, day);
+        const friday = new Date(sourceDate);
+        friday.setDate(sourceDate.getDate() + (5 - weekday));
+        const memberCopy = members.map(member => String(member || '').trim()).filter(Boolean);
+        if (memberCopy.length === 0) return;
+
+        if (!store.activeData.shiftNotebooks) store.activeData.shiftNotebooks = {};
+        for (let d = new Date(sourceDate); d <= friday; d.setDate(d.getDate() + 1)) {
+            const targetDateStr = this.formatShiftNotebookDate(d);
+            if (targetDateStr === dateStr) continue;
+            if (!store.activeData.shiftNotebooks[targetDateStr]) store.activeData.shiftNotebooks[targetDateStr] = {};
+            const dayData = store.activeData.shiftNotebooks[targetDateStr];
+            const existing = dayData[shift];
+            const existingRows = Array.isArray(existing?.rows) ? existing.rows : (Array.isArray(existing) ? existing : []);
+            const hasRows = existingRows.length > 0;
+            const hasRealMembers = Array.isArray(existing?.members) && existing.members.length > 0 && !existing.inheritedMembers;
+            if (hasRows || hasRealMembers) continue;
+            dayData[shift] = {
+                members: [...memberCopy],
+                rows: existingRows,
+                inheritedMembers: true,
+                inheritedFrom: dateStr
+            };
+        }
+    }
+
+    clearShiftNotebookWeekInheritedGroupPreset(dateStr, shift) {
+        if (!dateStr || !shift || !store.activeData.shiftNotebooks) return;
+        const weekday = this.getShiftNotebookWeekday(dateStr);
+        if (weekday < 1 || weekday > 5) return;
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const sourceDate = new Date(year, month - 1, day);
+        const friday = new Date(sourceDate);
+        friday.setDate(sourceDate.getDate() + (5 - weekday));
+        for (let d = new Date(sourceDate); d <= friday; d.setDate(d.getDate() + 1)) {
+            const targetDateStr = this.formatShiftNotebookDate(d);
+            if (targetDateStr === dateStr) continue;
+            const dayData = store.activeData.shiftNotebooks[targetDateStr];
+            const existing = dayData?.[shift];
+            if (!dayData || !existing?.inheritedMembers || existing.inheritedFrom !== dateStr) continue;
+            delete dayData[shift];
+            const hasAnyData = Object.values(dayData).some(v => {
+                if (Array.isArray(v)) return v.length > 0;
+                return (Array.isArray(v?.rows) && v.rows.length > 0)
+                    || (Array.isArray(v?.members) && v.members.length > 0)
+                    || (Array.isArray(v?.absentMembers) && v.absentMembers.length > 0);
+            });
+            if (!hasAnyData && (!Array.isArray(dayData.sharedRows) || dayData.sharedRows.length === 0)) {
+                delete store.activeData.shiftNotebooks[targetDateStr];
+            }
+        }
     }
 
     applyPreviousDayShiftGroup() {
@@ -2107,7 +2249,10 @@
         }
 
         input.value = members.join(', ');
+        this._shiftNotebookAbsentMembers = [];
+        this.setShiftNotebookWeekGroupBase(members);
         this.updateShiftGroupChant();
+        this.saveShiftGroupPresetSelection(this.getShiftGroupPresetSavedMessage(editing.dateStr));
         input.focus();
     }
 
@@ -2116,6 +2261,7 @@
         if (!input) return;
         const panel = document.getElementById('shift-absence-manage');
         if (!panel) return;
+        if (panel.classList.contains('hidden')) this.setShiftNotebookWeekGroupBase(this.getShiftGroupMembersFromInput());
         panel.classList.toggle('hidden');
         this.updateShiftGroupChant();
     }
@@ -2125,8 +2271,14 @@
         if (!input || !name) return;
         const target = MaintenanceStore.toHalfWidthLower(name);
         const members = this.getShiftGroupMembersFromInput();
+        const removed = members.find(member => MaintenanceStore.toHalfWidthLower(member) === target) || name;
         const filtered = members.filter(member => MaintenanceStore.toHalfWidthLower(member) !== target);
         input.value = filtered.join(', ');
+        const absent = Array.isArray(this._shiftNotebookAbsentMembers) ? this._shiftNotebookAbsentMembers : [];
+        if (!absent.some(member => MaintenanceStore.toHalfWidthLower(member) === MaintenanceStore.toHalfWidthLower(removed))) {
+            absent.push(removed);
+        }
+        this._shiftNotebookAbsentMembers = absent;
         this.updateShiftGroupChant();
         this.scheduleShiftNotebookAutoSave();
         input.focus();
@@ -3077,7 +3229,7 @@
             photoCompareMarks: data.photoCompareMarks || [],
             isBlankRow: !!data.isBlankRow,
             isRowSet: !!data.isRowSet,
-            rows: Array.isArray(data.rows) ? data.rows.map(row => ({
+            rows: Array.isArray(data.rows) ? this.sortShiftRowTemplateRows(data.rows.map(row => ({
                 group: row.group || '未設定',
                 tag: row.tag || '通常',
                 text: row.text || '',
@@ -3088,7 +3240,7 @@
                 fiveSAssigneeId: row.fiveSAssigneeId || '',
                 pasteFormat: row.pasteFormat || {},
                 photoCompareMarks: row.photoCompareMarks || []
-            })) : undefined
+            }))) : undefined
         });
         store.save();
         this.refreshShiftRowTemplateSelect();
@@ -3115,7 +3267,7 @@
             const rows = Array.isArray(template.rows) && template.rows.length > 0
                 ? template.rows
                 : [{ group: template.group || '未設定', tag: template.tag || '通常' }];
-            return rows.map(row => this.normalizeShiftRowTemplateRow(row));
+            return this.sortShiftRowTemplateRows(rows.map(row => this.normalizeShiftRowTemplateRow(row)));
         }
         return [this.normalizeShiftRowTemplateRow({
             group: template.group || '未設定',
@@ -3131,8 +3283,25 @@
         })];
     }
 
+    getShiftRowTemplateGroupOrderIndex(group = '未設定') {
+        const order = [...this.getShiftNotebookOrderedRowGroups(), '未設定'];
+        const idx = order.indexOf(group || '未設定');
+        return idx === -1 ? order.length : idx;
+    }
+
+    sortShiftRowTemplateRows(rows = []) {
+        return rows
+            .map((row, index) => ({ row, index }))
+            .sort((a, b) => {
+                const groupDiff = this.getShiftRowTemplateGroupOrderIndex(a.row.group) - this.getShiftRowTemplateGroupOrderIndex(b.row.group);
+                if (groupDiff) return groupDiff;
+                return a.index - b.index;
+            })
+            .map(item => item.row);
+    }
+
     setShiftRowTemplateRows(template, rows = []) {
-        const normalized = rows.map(row => this.normalizeShiftRowTemplateRow(row));
+        const normalized = this.sortShiftRowTemplateRows(rows.map(row => this.normalizeShiftRowTemplateRow(row)));
         if (!template || normalized.length === 0) return false;
         const keepRowSet = template.isRowSet || normalized.length > 1;
         const first = normalized[0];
@@ -3333,14 +3502,14 @@
                                 <i class="fa-solid fa-arrow-down-wide-short"></i> 表示順
                             </button>
                             ${this.getShiftTemplateInsertStampButtonsHtml()}
-                        </div>
-                        <div class="shift-template-row-trash"
-                            title="テンプレート内の行看板をここへドラッグして削除"
-                            ondragover="app.handleShiftTemplateRowTrashDragOver(event)"
-                            ondragleave="app.handleShiftTemplateRowTrashDragLeave(event)"
-                            ondrop="app.handleShiftTemplateRowTrashDrop(event)">
-                            <i class="fa-solid fa-trash-can"></i>
-                            <span>行削除</span>
+                            <div class="shift-row-group-trash shift-template-group-trash"
+                                title="グループ看板をここへドラッグして削除"
+                                ondragover="app.handleShiftRowGroupTrashDragOver(event)"
+                                ondragleave="app.handleShiftRowGroupTrashDragLeave(event)"
+                                ondrop="app.handleShiftRowGroupTrashDrop(event)">
+                                <i class="fa-solid fa-trash-can"></i>
+                                <span>看板削除</span>
+                            </div>
                         </div>
                         <button type="button" class="shift-template-new-group-stamp"
                             title="新しいグループスタンプを作成"
@@ -3380,6 +3549,14 @@
                                         <button type="button" class="icon-btn" title="上へ" onclick="app.moveShiftRowTemplate(${index}, -1)"><i class="fa-solid fa-chevron-up"></i></button>
                                         <button type="button" class="icon-btn" title="下へ" onclick="app.moveShiftRowTemplate(${index}, 1)"><i class="fa-solid fa-chevron-down"></i></button>
                                         <button type="button" class="secondary-btn" onclick="app.renameShiftRowTemplate(${index})">名前変更</button>
+                                        <div class="shift-template-row-trash"
+                                            title="このテンプレート内の行看板をここへドラッグして削除"
+                                            ondragover="app.handleShiftTemplateRowTrashDragOver(event)"
+                                            ondragleave="app.handleShiftTemplateRowTrashDragLeave(event)"
+                                            ondrop="app.handleShiftTemplateRowTrashDrop(event)">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                            <span>行削除</span>
+                                        </div>
                                         <button type="button" class="icon-btn" style="color:var(--danger);" title="削除" onclick="app.deleteShiftRowTemplate(${index})"><i class="fa-solid fa-trash-can"></i></button>
                                     </div>
                                 </div>
@@ -6207,15 +6384,21 @@
         }
         event?.currentTarget?.classList.add('dragging');
         document.body.classList.add('shift-row-group-dragging-active');
+        document.body.classList.toggle('shift-row-group-delete-disabled', this.isShiftRowGroupDeleteDisabled(group));
     }
 
     finishShiftRowGroupStampDrag() {
         this._draggingShiftRowGroupStamp = null;
         document.body.classList.remove('shift-row-group-dragging-active');
+        document.body.classList.remove('shift-row-group-delete-disabled');
         document.querySelectorAll('.shift-row-group-stamp.dragging').forEach(el => el.classList.remove('dragging'));
         document.querySelectorAll('.shift-row-group-trash.drag-over').forEach(el => el.classList.remove('drag-over'));
         this.clearShiftNotebookDragIndicators();
         document.getElementById('shift-notebook-rows')?.classList.remove('shift-stamp-drop-empty');
+    }
+
+    isShiftRowGroupDeleteDisabled(group) {
+        return !group || group === '未設定' || this.isShiftNotebookThroughGroup(group);
     }
 
     getShiftRowGroupStampDragGroup(event) {
@@ -6254,7 +6437,7 @@
         const group = this.getShiftRowGroupStampDragGroup(event);
         if (!group) return;
         event.preventDefault();
-        const canDelete = group !== '未設定' && !this.isShiftNotebookThroughGroup(group);
+        const canDelete = !this.isShiftRowGroupDeleteDisabled(group);
         if (event.dataTransfer) event.dataTransfer.dropEffect = canDelete ? 'move' : 'none';
         event.currentTarget?.classList.toggle('drag-over', canDelete);
         this.clearShiftNotebookDragIndicators();
@@ -6305,6 +6488,7 @@
         this.renderShiftRowGroupSelectOptions();
         this.refreshShiftRowGroupStamps();
         this.refreshShiftRowTemplateSelect();
+        this.rerenderShiftRowTemplateManager?.();
         this.updateShiftNotebookGroupCorners();
         this.autoSaveShiftNotebook(true);
         this.setShiftNotebookStatus(`グループ「${group}」を削除しました`, 'saved');
@@ -6997,8 +7181,9 @@
         const fiveSLink = this.isKanbanTodoFiveSRequest?.(todo)
             ? `<span class="shift-todo-five-s-link" data-todo-id="${todoId}" onclick="app.openFiveSManagementFromShiftTodoStamp(this)" title="5S管理でこの依頼を確認" contenteditable="false"><i class="fa-solid fa-broom"></i> 5S管理</span>`
             : '';
+        const completionNote = todo.completionComment ? ` / 内容: ${todo.completionComment}` : '';
         const text = phase === 'done'
-            ? `ToDo完了 ${stamp}${this.kanbanTodoWorkerId ? ` / 完了: ${this.getKanbanTodoWorkerName(this.kanbanTodoWorkerId)}` : ''}`
+            ? `ToDo完了 ${stamp}${this.kanbanTodoWorkerId ? ` / 完了: ${this.getKanbanTodoWorkerName(this.kanbanTodoWorkerId)}` : ''}${completionNote}`
             : (phase === 'progress'
                 ? `ToDo進行中 ${stamp}${this.kanbanTodoWorkerId ? ` / 担当: ${this.getKanbanTodoWorkerName(this.kanbanTodoWorkerId)}` : ''}`
                 : (phase === 'deleted'
@@ -7399,17 +7584,36 @@
     saveShiftNotebook(dateStr, shift, options = { close: true, render: true }) {
         if (!store.activeData.shiftNotebooks) store.activeData.shiftNotebooks = {};
         const members = this.getShiftGroupMembersFromInput();
+        const absentMembers = Array.isArray(this._shiftNotebookAbsentMembers)
+            ? this._shiftNotebookAbsentMembers.map(member => String(member || '').trim()).filter(Boolean)
+            : [];
         const allRows = this.sortShiftNotebookRows(this.readShiftNotebookRowsFromDom()).map(({ element, index, ...row }) => row);
         const sharedRows = allRows.filter(row => this.isShiftNotebookThroughGroup(row.group));
         const rows = allRows.filter(row => !this.isShiftNotebookThroughGroup(row.group));
 
         if (!store.activeData.shiftNotebooks[dateStr]) store.activeData.shiftNotebooks[dateStr] = {};
+        const previousShiftData = store.activeData.shiftNotebooks[dateStr][shift];
+        const keepInherited = this.isShiftNotebookInheritedOnly(previousShiftData)
+            && rows.length === 0
+            && members.join('\n') === (previousShiftData.members || []).join('\n');
         store.activeData.shiftNotebooks[dateStr].sharedRows = sharedRows;
-        store.activeData.shiftNotebooks[dateStr][shift] = { members, rows };
+        store.activeData.shiftNotebooks[dateStr][shift] = {
+            members,
+            absentMembers,
+            rows,
+            inheritedMembers: keepInherited,
+            inheritedFrom: keepInherited ? previousShiftData.inheritedFrom || '' : ''
+        };
+        if (!keepInherited) {
+            if (members.length > 0) this.syncShiftNotebookWeekGroupPreset(dateStr, shift, this.getShiftNotebookWeekGroupMembersForSync(members));
+            else this.clearShiftNotebookWeekInheritedGroupPreset(dateStr, shift);
+        }
 
         if (Object.values(store.activeData.shiftNotebooks[dateStr]).every(v => {
             if (Array.isArray(v)) return v.length === 0;
-            return (!Array.isArray(v?.rows) || v.rows.length === 0) && (!Array.isArray(v?.members) || v.members.length === 0);
+            return (!Array.isArray(v?.rows) || v.rows.length === 0)
+                && (!Array.isArray(v?.members) || v.members.length === 0)
+                && (!Array.isArray(v?.absentMembers) || v.absentMembers.length === 0);
         }) && (!Array.isArray(store.activeData.shiftNotebooks[dateStr].sharedRows) || store.activeData.shiftNotebooks[dateStr].sharedRows.length === 0)) {
             delete store.activeData.shiftNotebooks[dateStr];
         }
@@ -7417,7 +7621,11 @@
         const saved = store.save();
         if (options.status) {
             Promise.resolve(saved)
-                .then(() => this.setShiftNotebookStatus('保存済み', 'saved'))
+                .then(() => {
+                    const message = options.statusMessage || '保存済み';
+                    this.setShiftNotebookStatus(message, 'saved');
+                    if (options.noticeMessage) this.showShiftNotebookNotice(options.noticeMessage, 'saved');
+                })
                 .catch(() => this.setShiftNotebookStatus('保存失敗', 'error'));
         }
         if (options.close !== false) {

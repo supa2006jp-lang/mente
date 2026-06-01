@@ -219,14 +219,29 @@
                 + d.localTodoWorkers.map(w => `<option value="${this.escapeHtml(w.id)}" ${w.id === this.kanbanTodoWorkerId ? 'selected' : ''}>${this.escapeHtml(w.name)}</option>`).join('');
         }
         document.getElementById('kt-overdue-only-btn')?.classList.toggle('active', this.kanbanOverdueOnly);
+        const priorityFilter = document.getElementById('kt-priority-filter');
+        if (priorityFilter) priorityFilter.value = this.kanbanTodoPriorityFilter || 'all';
         const filterBanner = document.getElementById('kt-filter-banner');
         if (filterBanner) {
             const filters = [];
             if (this.kanbanOverdueOnly) filters.push('<i class="fa-solid fa-triangle-exclamation"></i> 期限切れのみ表示中');
             if (this.kanbanTodoWorkerId === '__all__') filters.push('<i class="fa-solid fa-users"></i> 全員を表示中');
+            if ((this.kanbanTodoPriorityFilter || 'all') !== 'all') {
+                const priorityLabel = { high: '高', medium: '中', low: '低' }[this.kanbanTodoPriorityFilter] || this.kanbanTodoPriorityFilter;
+                filters.push(`<i class="fa-solid fa-filter"></i> 優先度 ${priorityLabel} のみ`);
+            }
             filterBanner.hidden = filters.length === 0;
             filterBanner.innerHTML = filters.join('<span class="kt-filter-sep"></span>');
         }
+        const shell = document.querySelector('.kt-board-shell');
+        shell?.classList.toggle('kt-compact-cards', !!this.kanbanTodoCompactCards);
+        const densityBtn = document.getElementById('kt-density-btn');
+        if (densityBtn) {
+            densityBtn.classList.toggle('active', !!this.kanbanTodoCompactCards);
+            densityBtn.textContent = this.kanbanTodoCompactCards ? '標準表示' : 'コンパクト';
+        }
+        this.renderKanbanWorkloadSummary(d);
+        this.renderKanbanOverduePin(d);
         this.renderTodoFiveSReturnNotice();
 
         const logList = document.getElementById('kt-log-list');
@@ -243,17 +258,79 @@
             const items = d.localTodos
                 .filter(todo => (todo.status || 'todo') === status)
                 .filter(todo => this.isKanbanTodoVisible(todo))
+                .filter(todo => this.isKanbanTodoPriorityVisible(todo))
                 .filter(todo => !this.kanbanOverdueOnly || this.getKanbanDeadlineStatus(todo) === 'overdue')
                 .sort((a, b) => this.compareKanbanTodosForBoard(a, b));
             document.getElementById(`kt-count-${status}`)?.replaceChildren(document.createTextNode(String(items.length)));
             const emptyText = this.kanbanOverdueOnly ? '期限切れタスクはありません' : `${statusLabels[status]} は空です`;
             list.innerHTML = items.length ? items.map(todo => this.renderKanbanTodoCard(todo)).join('') : `<div class="kt-empty">${emptyText}</div>`;
         });
+        const historyCountBadge = document.getElementById('kt-history-count-badge');
+        if (historyCountBadge) {
+            historyCountBadge.textContent = String(d.localTodos.filter(todo => todo.archived).length);
+        }
         this.updateTodoRequestCountBadge();
         if (document.querySelector('.kt-board-shell.kt-fit-mode')) {
             clearTimeout(this._kanbanFitTimer);
             this._kanbanFitTimer = setTimeout(() => this.adjustKanbanTodoFit(), 60);
         }
+    }
+
+    toggleKanbanTodoDensity() {
+        this.kanbanTodoCompactCards = !this.kanbanTodoCompactCards;
+        localStorage.setItem('kanban_todo_compact_cards', String(this.kanbanTodoCompactCards));
+        this.renderKanbanLocalTodos();
+    }
+
+    renderKanbanWorkloadSummary(d = this.ensureKanbanTodoState()) {
+        const container = document.getElementById('kt-workload-summary');
+        if (!container) return;
+        const workers = d.localTodoWorkers || [];
+        if (!workers.length) {
+            container.innerHTML = '';
+            return;
+        }
+        container.innerHTML = workers.map(worker => {
+            const related = (d.localTodos || []).filter(todo => {
+                if (todo.archived) return false;
+                const assigned = todo.assignedTo || [];
+                return assigned.includes(worker.id) || assigned.includes('all') || (!assigned.length && todo.requestedBy === worker.id);
+            });
+            const pending = related.filter(todo => (todo.status || 'todo') !== 'done');
+            const overdue = pending.filter(todo => this.getKanbanDeadlineStatus(todo) === 'overdue');
+            const progress = pending.filter(todo => (todo.status || 'todo') === 'progress');
+            return `
+                <button type="button" class="kt-workload-card ${overdue.length ? 'danger' : ''} ${this.kanbanTodoWorkerId === worker.id ? 'active' : ''}" onclick="app.changeKanbanTodoWorker('${this.escapeJs(worker.id)}')">
+                    <span>${this.escapeHtml(worker.name)}</span>
+                    <b>未完了 ${pending.length}</b>
+                    <small>期限切れ ${overdue.length} / 処理中 ${progress.length}</small>
+                </button>
+            `;
+        }).join('');
+    }
+
+    renderKanbanOverduePin(d = this.ensureKanbanTodoState()) {
+        const container = document.getElementById('kt-overdue-pin');
+        if (!container) return;
+        const overdue = (d.localTodos || [])
+            .filter(todo => !todo.archived && (todo.status || 'todo') !== 'done')
+            .filter(todo => this.isKanbanTodoVisible(todo))
+            .filter(todo => this.isKanbanTodoPriorityVisible(todo))
+            .filter(todo => this.getKanbanDeadlineStatus(todo) === 'overdue')
+            .sort((a, b) => this.compareKanbanTodosForBoard(a, b))
+            .slice(0, 6);
+        container.hidden = overdue.length === 0;
+        container.innerHTML = overdue.length ? `
+            <div class="kt-overdue-pin-head"><i class="fa-solid fa-triangle-exclamation"></i><b>期限切れ固定</b><span>${overdue.length}件を先頭に表示</span></div>
+            <div class="kt-overdue-pin-list">
+                ${overdue.map(todo => `
+                    <button type="button" onclick="app.openKanbanTodoModal('${this.escapeJs(todo.status || 'todo')}', '${this.escapeJs(todo.id)}')">
+                        <b>${this.escapeHtml(todo.title || '無題')}</b>
+                        <span>${this.escapeHtml(todo.deadlineDate || '')} / ${this.escapeHtml(this.getKanbanTodoAssigneeLabel(todo, 2))}</span>
+                    </button>
+                `).join('')}
+            </div>
+        ` : '';
     }
 
     toggleKanbanTodoFit() {
@@ -280,6 +357,12 @@
         this.kanbanOverdueOnly = force === null ? !this.kanbanOverdueOnly : !!force;
         localStorage.setItem('kanban_overdue_only', String(this.kanbanOverdueOnly));
         document.getElementById('kt-overdue-only-btn')?.classList.toggle('active', this.kanbanOverdueOnly);
+        this.renderKanbanLocalTodos();
+    }
+
+    changeKanbanTodoPriorityFilter(priority = 'all') {
+        this.kanbanTodoPriorityFilter = ['all', 'high', 'medium', 'low'].includes(priority) ? priority : 'all';
+        localStorage.setItem('kanban_todo_priority_filter', this.kanbanTodoPriorityFilter);
         this.renderKanbanLocalTodos();
     }
 
@@ -373,6 +456,7 @@
         });
         this.addKanbanTodoLog(`完了タスクを自動で履歴へ移動: ${archivedTitles.join('、')}`);
         store.save();
+        this.showKanbanAutoArchiveNotice(archivedTitles.length);
     }
 
     renderKanbanTodoCard(todo) {
@@ -384,12 +468,17 @@
         const hasShiftSource = !!(todo.isRequest && todo.shiftRequestSource?.dateStr && todo.shiftRequestSource?.shift);
         const hasFiveSSource = hasShiftSource && this.isKanbanTodoFiveSRequest(todo);
         const cardDescription = String(todo.description || '').split(/\r?\n/)[0];
+        const archiveNotice = this.getKanbanDoneArchiveNotice(todo);
+        const sourceClass = hasFiveSSource ? 'source-five-s' : (hasShiftSource ? 'source-shift' : 'source-normal');
+        const completionCommentHtml = todo.completionComment
+            ? `<div class="kt-completion-comment"><i class="fa-solid fa-check"></i> ${this.escapeHtml(todo.completionComment)}</div>`
+            : '';
         const navigationStamps = [
             hasShiftSource ? `<button type="button" class="kt-mini-badge notebook" onclick="event.stopPropagation(); app.openShiftNotebookFromTodoCard('${this.escapeJs(todo.id)}')" title="該当の連絡帳へ移動"><i class="fa-solid fa-book-open"></i> 連絡帳</button>` : '',
             hasFiveSSource ? `<button type="button" class="kt-mini-badge five-s" onclick="event.stopPropagation(); app.openFiveSManagementFromTodoCard('${this.escapeJs(todo.id)}')" title="該当の5S管理へ移動"><i class="fa-solid fa-broom"></i> 5S管理</button>` : ''
         ].join('');
         return `
-            <article class="kt-task-card priority-${this.escapeHtml(todo.priority || 'medium')} ${todo.isRecurring ? 'type-recurring' : ''} ${todo.isRequest ? 'type-request' : ''} deadline-${deadlineStatus}"
+            <article class="kt-task-card priority-${this.escapeHtml(todo.priority || 'medium')} ${sourceClass} ${todo.isRecurring ? 'type-recurring' : ''} ${todo.isRequest ? 'type-request' : ''} deadline-${deadlineStatus}"
                 draggable="true"
                 ondragstart="app.dragKanbanTodo(event, '${this.escapeJs(todo.id)}')"
                 onclick="app.openKanbanTodoModal('${this.escapeJs(todo.status || 'todo')}', '${this.escapeJs(todo.id)}')">
@@ -401,8 +490,10 @@
                 </div>
                 <div class="kt-card-title">${this.escapeHtml(todo.title || '無題のタスク')}</div>
                 ${cardDescription ? `<div class="kt-card-desc">${this.escapeHtml(cardDescription).slice(0, 80)}</div>` : ''}
+                ${completionCommentHtml}
                 <div class="kt-card-meta">
                     ${deadlineLabel ? `<span><i class="fa-solid fa-clock"></i> ${this.escapeHtml(deadlineLabel)}</span>` : '<span class="kt-muted">期限なし</span>'}
+                    ${archiveNotice}
                     <span class="kt-card-actions">
                         ${hasShiftSource ? `<button type="button" class="kt-card-calendar" onclick="event.stopPropagation(); app.openShiftNotebookFromTodoCard('${this.escapeJs(todo.id)}')" title="依頼元の連絡帳へ戻る"><i class="fa-solid fa-calendar-days"></i></button>` : ''}
                         ${todo.status === 'done' ? `<button type="button" class="kt-card-archive" onclick="event.stopPropagation(); app.archiveKanbanTodo('${this.escapeJs(todo.id)}')" title="履歴へ移動"><i class="fa-solid fa-box-archive"></i></button>` : ''}
@@ -411,6 +502,18 @@
                 </div>
             </article>
         `;
+    }
+
+    getKanbanDoneArchiveNotice(todo) {
+        if ((todo.status || '') !== 'done') return '';
+        const dayMs = 24 * 60 * 60 * 1000;
+        const weekMs = 7 * dayMs;
+        const completedTime = new Date(todo.completedAt || todo.updatedAt || todo.createdAt || 0).getTime();
+        if (!completedTime) return '<span class="kt-archive-countdown" title="処理済は基本7日後に過去履歴へ移動します"><i class="fa-solid fa-box-archive"></i> 履歴化まであと7日</span>';
+        const remainingMs = weekMs - (Date.now() - completedTime);
+        const daysLeft = Math.max(0, Math.ceil(remainingMs / dayMs));
+        const label = daysLeft <= 0 ? '次回履歴へ移動' : `履歴化まであと${daysLeft}日`;
+        return `<span class="kt-archive-countdown" title="処理済は基本7日後に過去履歴へ移動します。処理済が6件以上ある場合は古いものから先に移動します。"><i class="fa-solid fa-box-archive"></i> ${this.escapeHtml(label)}</span>`;
     }
 
     isKanbanTodoFiveSRequest(todo) {
@@ -551,6 +654,19 @@
         }, 2600);
     }
 
+    showKanbanAutoArchiveNotice(count = 0) {
+        document.querySelectorAll('.kanban-jump-toast').forEach(el => el.remove());
+        const toast = document.createElement('div');
+        toast.className = 'kanban-jump-toast kanban-auto-archive-toast';
+        toast.innerHTML = `<i class="fa-solid fa-box-archive"></i><span>処理済ToDo ${count}件を過去履歴へ移動しました</span>`;
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 220);
+        }, 3200);
+    }
+
     openKanbanTodoFromSearch(todoId, openDetail = true, options = {}) {
         const todo = (store.activeData.localTodos || []).find(item => item.id === todoId);
         if (!todo) return;
@@ -680,6 +796,13 @@
         return !!todo.isRequest && todo.requestedBy === workerId;
     }
 
+    isKanbanTodoPriorityVisible(todo) {
+        const filter = this.kanbanTodoPriorityFilter || 'all';
+        if (filter === 'all') return true;
+        const priority = todo.priority === 'normal' ? 'medium' : (todo.priority || 'medium');
+        return priority === filter;
+    }
+
     addKanbanTodoLog(text) {
         this.ensureKanbanTodoState();
         store.activeData.localTodoLogs.unshift({
@@ -715,7 +838,10 @@
         const previousStatus = todo.status || 'todo';
         todo.status = status;
         todo.done = status === 'done';
-        if (status === 'done' && previousStatus !== 'done') todo.completedAt = new Date().toISOString();
+        if (status === 'done' && previousStatus !== 'done') {
+            todo.completedAt = new Date().toISOString();
+            todo.completionComment = this.askKanbanCompletionComment(todo);
+        }
         if (status !== 'done') todo.completedAt = '';
         todo.updatedAt = new Date().toISOString();
         this.addKanbanTodoLog(`「${todo.title || '無題'}」を${{ todo: 'TO DO', progress: '処理中', done: '処理済' }[status]}へ移動`);
@@ -731,6 +857,12 @@
         this.updateTodoRequestCountBadge();
         this.renderKanbanLocalTodos();
         if (document.getElementById('fiveS-list')) this.renderFiveSManagement();
+    }
+
+    askKanbanCompletionComment(todo) {
+        const existing = todo?.completionComment || '';
+        const value = prompt('完了コメント（任意）\n依頼元の連絡帳や5S履歴にも残せます。', existing);
+        return value === null ? existing : String(value || '').trim();
     }
 
     openKanbanTodoModal(status = 'todo', id = '', isRecurring = false, isRequest = false) {
@@ -885,7 +1017,10 @@
         todo.priority = document.getElementById('kt-task-priority')?.value || 'medium';
         todo.status = document.getElementById('kt-task-status')?.value || 'todo';
         todo.done = todo.status === 'done';
-        if (todo.status === 'done' && previousStatus !== 'done') todo.completedAt = now;
+        if (todo.status === 'done' && previousStatus !== 'done') {
+            todo.completedAt = now;
+            todo.completionComment = this.askKanbanCompletionComment(todo);
+        }
         if (todo.status !== 'done') todo.completedAt = '';
         todo.deadlineDate = document.getElementById('kt-task-deadline-date')?.value || '';
         todo.deadlineTime = document.getElementById('kt-task-deadline-time')?.value || '';
@@ -1061,18 +1196,120 @@
     toggleKanbanTodoHistory(open = true) {
         if (!open) return this.closeKanbanTodoModal();
         const d = this.ensureKanbanTodoState();
-        const archived = d.localTodos.filter(todo => todo.archived);
+        const filters = this._kanbanHistoryFilters || {};
         this.openKanbanPanel('過去履歴', `
-            <div class="kt-history-list">
-                ${archived.map(todo => `
-                    <article class="kt-history-card" onclick="app.openKanbanTodoHistoryDetail('${this.escapeJs(todo.id)}')">
-                        <b>${this.escapeHtml(todo.title || '無題')}</b>
-                        <span>${this.escapeHtml(todo.deadlineDate || '期限なし')} / ${this.escapeHtml(this.getKanbanTodoWorkerName(todo.requestedBy || ''))}</span>
-                        <button type="button" class="secondary-btn" onclick="event.stopPropagation(); app.restoreKanbanTodo('${this.escapeJs(todo.id)}')">戻す</button>
-                    </article>
-                `).join('') || '<p class="kt-muted">履歴はありません</p>'}
+            <div class="kt-history-filters">
+                <input type="text" id="kt-history-search" value="${this.escapeHtml(filters.query || '')}" placeholder="タイトル・詳細・担当者で検索..." oninput="app.renderKanbanTodoHistoryList()">
+                <select id="kt-history-source-filter" onchange="app.renderKanbanTodoHistoryList()">
+                    <option value="all" ${(!filters.source || filters.source === 'all') ? 'selected' : ''}>すべて</option>
+                    <option value="shift" ${filters.source === 'shift' ? 'selected' : ''}>連絡帳由来</option>
+                    <option value="fiveS" ${filters.source === 'fiveS' ? 'selected' : ''}>5S由来</option>
+                    <option value="request" ${filters.source === 'request' ? 'selected' : ''}>依頼のみ</option>
+                </select>
+                <select id="kt-history-priority-filter" onchange="app.renderKanbanTodoHistoryList()">
+                    <option value="all" ${(!filters.priority || filters.priority === 'all') ? 'selected' : ''}>優先度すべて</option>
+                    <option value="high" ${filters.priority === 'high' ? 'selected' : ''}>高のみ</option>
+                    <option value="medium" ${filters.priority === 'medium' ? 'selected' : ''}>中のみ</option>
+                    <option value="low" ${filters.priority === 'low' ? 'selected' : ''}>低のみ</option>
+                </select>
+                <input type="date" id="kt-history-date-from" value="${this.escapeHtml(filters.dateFrom || '')}" onchange="app.renderKanbanTodoHistoryList()" title="履歴移動日 開始">
+                <input type="date" id="kt-history-date-to" value="${this.escapeHtml(filters.dateTo || '')}" onchange="app.renderKanbanTodoHistoryList()" title="履歴移動日 終了">
+                <button type="button" class="secondary-btn kt-history-reset-btn" onclick="app.resetKanbanTodoHistoryFilters()">リセット</button>
             </div>
-        `);
+            <div id="kt-history-count" class="kt-history-count"></div>
+            <div class="kt-history-list">
+                <div id="kt-history-results"></div>
+            </div>
+        `, 'kt-history-list-panel');
+        this.renderKanbanTodoHistoryList();
+    }
+
+    getKanbanTodoHistoryFiltersFromDom() {
+        const saved = this._kanbanHistoryFilters || {};
+        return {
+            query: document.getElementById('kt-history-search')?.value ?? saved.query ?? '',
+            source: document.getElementById('kt-history-source-filter')?.value ?? saved.source ?? 'all',
+            priority: document.getElementById('kt-history-priority-filter')?.value ?? saved.priority ?? 'all',
+            dateFrom: document.getElementById('kt-history-date-from')?.value ?? saved.dateFrom ?? '',
+            dateTo: document.getElementById('kt-history-date-to')?.value ?? saved.dateTo ?? ''
+        };
+    }
+
+    resetKanbanTodoHistoryFilters() {
+        this._kanbanHistoryFilters = { query: '', source: 'all', priority: 'all', dateFrom: '', dateTo: '' };
+        ['kt-history-search', 'kt-history-date-from', 'kt-history-date-to'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        const source = document.getElementById('kt-history-source-filter');
+        const priority = document.getElementById('kt-history-priority-filter');
+        if (source) source.value = 'all';
+        if (priority) priority.value = 'all';
+        this.renderKanbanTodoHistoryList();
+    }
+
+    getFilteredKanbanTodoHistory(filters = this._kanbanHistoryFilters || {}) {
+        const d = this.ensureKanbanTodoState();
+        const query = MaintenanceStore.toHalfWidthLower(filters.query || '');
+        const sourceFilter = filters.source || 'all';
+        const priorityFilter = filters.priority || 'all';
+        const dateFrom = filters.dateFrom || '';
+        const dateTo = filters.dateTo || '';
+        return d.localTodos
+            .filter(todo => todo.archived)
+            .filter(todo => {
+                const source = todo.shiftRequestSource || {};
+                const isShift = !!(source.dateStr && source.shift);
+                const isFiveS = this.isKanbanTodoFiveSRequest?.(todo);
+                if (sourceFilter === 'shift' && !isShift) return false;
+                if (sourceFilter === 'fiveS' && !isFiveS) return false;
+                if (sourceFilter === 'request' && !todo.isRequest) return false;
+                const priority = todo.priority === 'normal' ? 'medium' : (todo.priority || 'medium');
+                if (priorityFilter !== 'all' && priority !== priorityFilter) return false;
+                const archivedDate = String(todo.archivedAt || '').slice(0, 10);
+                if (dateFrom && (!archivedDate || archivedDate < dateFrom)) return false;
+                if (dateTo && (!archivedDate || archivedDate > dateTo)) return false;
+                if (!query) return true;
+                const haystack = MaintenanceStore.toHalfWidthLower([
+                    todo.title || '',
+                    todo.description || '',
+                    todo.completionComment || '',
+                    this.getKanbanTodoRequestTargetLabel(todo),
+                    todo.deadlineDate || ''
+                ].join(' '));
+                return haystack.includes(query);
+            })
+            .sort((a, b) => String(b.archivedAt || b.updatedAt || '').localeCompare(String(a.archivedAt || a.updatedAt || '')));
+    }
+
+    renderKanbanTodoHistoryList() {
+        const target = document.getElementById('kt-history-results');
+        if (!target) return;
+        this._kanbanHistoryFilters = this.getKanbanTodoHistoryFiltersFromDom();
+        const total = this.ensureKanbanTodoState().localTodos.filter(todo => todo.archived).length;
+        const archived = this.getFilteredKanbanTodoHistory(this._kanbanHistoryFilters);
+        this._kanbanHistoryResultIds = archived.map(todo => todo.id);
+        const countEl = document.getElementById('kt-history-count');
+        if (countEl) countEl.textContent = `${total}件中 ${archived.length}件表示`;
+        target.innerHTML = archived.map(todo => {
+            const source = todo.shiftRequestSource || {};
+            const priorityLabels = { low: '低', medium: '中', normal: '中', high: '高' };
+            const priorityKey = todo.priority === 'normal' ? 'medium' : (todo.priority || 'medium');
+            const priorityBadge = `<span class="kt-history-priority priority-${this.escapeHtml(priorityKey)}">優先度 ${this.escapeHtml(priorityLabels[todo.priority] || priorityLabels[priorityKey] || '中')}</span>`;
+            const sourceBadge = this.isKanbanTodoFiveSRequest?.(todo)
+                ? '<span class="kt-history-source five-s">5S</span>'
+                : (source.dateStr && source.shift ? '<span class="kt-history-source shift">連絡帳</span>' : '');
+            return `
+                <article class="kt-history-card priority-${this.escapeHtml(priorityKey)}" onclick="app.openKanbanTodoHistoryDetail('${this.escapeJs(todo.id)}')">
+                    <div class="kt-history-card-main">
+                        <b>${sourceBadge}${priorityBadge}${this.escapeHtml(todo.title || '無題')}</b>
+                        <span>${this.escapeHtml(todo.deadlineDate || '期限なし')} / ${this.escapeHtml(this.getKanbanTodoRequestTargetLabel(todo))} / 履歴: ${this.escapeHtml(this.formatKanbanTodoTime(todo.archivedAt) || '-')}</span>
+                    </div>
+                    <button type="button" class="secondary-btn kt-history-restore-btn" title="処理済へ戻す" onclick="event.stopPropagation(); app.restoreKanbanTodo('${this.escapeJs(todo.id)}')">戻す</button>
+                    ${todo.completionComment ? `<small>${this.escapeHtml(todo.completionComment)}</small>` : ''}
+                </article>
+            `;
+        }).join('') || '<p class="kt-muted">条件に合う履歴はありません</p>';
     }
 
     openKanbanTodoHistoryDetail(id) {
@@ -1081,6 +1318,13 @@
         if (!todo) return;
         const priorityLabels = { low: '低', medium: '中', high: '高' };
         const statusLabels = { todo: '未着手', progress: '処理中', done: '完了' };
+        const historyIds = Array.isArray(this._kanbanHistoryResultIds) && this._kanbanHistoryResultIds.length
+            ? this._kanbanHistoryResultIds
+            : this.getFilteredKanbanTodoHistory(this._kanbanHistoryFilters || {}).map(item => item.id);
+        const historyIndex = historyIds.indexOf(id);
+        const prevHistoryId = historyIndex > 0 ? historyIds[historyIndex - 1] : '';
+        const nextHistoryId = historyIndex >= 0 && historyIndex < historyIds.length - 1 ? historyIds[historyIndex + 1] : '';
+        const historyPosition = historyIndex >= 0 ? `${historyIndex + 1} / ${historyIds.length}` : '';
         const assignedTo = this.getKanbanTodoRequestTargetLabel(todo);
         const requestedBy = todo.requestedBy ? this.getKanbanTodoWorkerName(todo.requestedBy) : '未設定';
         const source = todo.shiftRequestSource || {};
@@ -1090,46 +1334,85 @@
         this.openKanbanPanel('履歴詳細', `
             <div class="kt-history-detail">
                 <div class="kt-history-detail-title">${this.escapeHtml(todo.title || '無題')}</div>
+                <div class="kt-history-detail-nav">
+                    <button type="button" class="secondary-btn" ${prevHistoryId ? `onclick="app.openKanbanTodoHistoryDetail('${this.escapeJs(prevHistoryId)}')"` : 'disabled'}>前へ</button>
+                    <span>${this.escapeHtml(historyPosition || '履歴詳細')}</span>
+                    <button type="button" class="secondary-btn" ${nextHistoryId ? `onclick="app.openKanbanTodoHistoryDetail('${this.escapeJs(nextHistoryId)}')"` : 'disabled'}>次へ</button>
+                </div>
                 <div class="kt-history-detail-grid">
                     <span>状態</span><b>${this.escapeHtml(statusLabels[todo.status] || todo.status || '未設定')}</b>
-                    <span>優先度</span><b>${this.escapeHtml(priorityLabels[todo.priority] || '低')}</b>
+                    <span>元の優先度</span><b><span class="kt-history-priority priority-${this.escapeHtml(todo.priority === 'normal' ? 'medium' : (todo.priority || 'medium'))}">優先度 ${this.escapeHtml(priorityLabels[todo.priority] || priorityLabels[todo.priority === 'normal' ? 'medium' : (todo.priority || 'medium')] || '中')}</span></b>
                     <span>期限</span><b>${this.escapeHtml(todo.deadlineDate || '期限なし')}${todo.deadlineTime ? ` ${this.escapeHtml(todo.deadlineTime)}` : ''}</b>
                     <span>依頼先</span><b>${this.escapeHtml(assignedTo)}</b>
                     <span>依頼者</span><b>${this.escapeHtml(requestedBy)}</b>
                     <span>完了日時</span><b>${this.escapeHtml(this.formatKanbanTodoTime(todo.completedAt) || '-')}</b>
                     <span>履歴移動</span><b>${this.escapeHtml(this.formatKanbanTodoTime(todo.archivedAt) || '-')}</b>
                     <span>依頼元</span><b>${this.escapeHtml(sourceLabel)}</b>
+                    <span>完了コメント</span><b>${this.escapeHtml(todo.completionComment || '-')}</b>
                 </div>
-                ${todo.description ? `<div class="kt-history-detail-desc">${this.escapeHtml(todo.description)}</div>` : '<div class="kt-history-detail-desc kt-muted">詳細文はありません</div>'}
+                <div class="kt-history-detail-desc-edit">
+                    <div class="kt-history-detail-desc-label">詳細本文</div>
+                    <textarea id="kt-history-detail-desc-input">${this.escapeHtml(todo.description || '')}</textarea>
+                </div>
                 <div class="kt-history-detail-actions">
                     <button type="button" class="secondary-btn" onclick="app.toggleKanbanTodoHistory(true)">一覧へ戻る</button>
                     ${source.dateStr && source.shift ? `<button type="button" class="secondary-btn" onclick="app.openShiftNotebookFromTodoCard('${this.escapeJs(todo.id)}')"><i class="fa-solid fa-calendar-days"></i> 依頼元へ</button>` : ''}
-                    <button type="button" class="primary-btn" onclick="app.restoreKanbanTodo('${this.escapeJs(todo.id)}')">戻す</button>
+                    <button type="button" class="primary-btn" onclick="app.saveKanbanTodoHistoryDescription('${this.escapeJs(todo.id)}')">本文を保存</button>
+                    <label class="kt-history-restore-control">
+                        <span>戻し先</span>
+                        <select id="kt-history-restore-status">
+                            <option value="done" selected>処理済</option>
+                            <option value="progress">処理中</option>
+                            <option value="todo">未着手</option>
+                        </select>
+                    </label>
+                    <button type="button" class="primary-btn" onclick="app.restoreKanbanTodo('${this.escapeJs(todo.id)}', document.getElementById('kt-history-restore-status')?.value || 'done')">戻す</button>
                 </div>
             </div>
-        `);
+        `, 'kt-history-detail-panel');
     }
 
-    restoreKanbanTodo(id) {
+    saveKanbanTodoHistoryDescription(id) {
         const d = this.ensureKanbanTodoState();
         const todo = d.localTodos.find(item => item.id === id);
         if (!todo) return;
-        todo.archived = false;
-        todo.status = 'done';
-        if (!todo.completedAt) todo.completedAt = new Date().toISOString();
+        todo.description = document.getElementById('kt-history-detail-desc-input')?.value || '';
         todo.updatedAt = new Date().toISOString();
-        this.addKanbanTodoLog(`履歴から復元: 「${todo.title || '無題'}」`);
+        if (!Array.isArray(todo.changeLog)) todo.changeLog = [];
+        todo.changeLog.unshift({
+            at: todo.updatedAt,
+            by: this.getKanbanTodoWorkerName(this.kanbanTodoWorkerId),
+            action: '履歴本文更新',
+            fields: ['詳細']
+        });
+        todo.changeLog = todo.changeLog.slice(0, 50);
+        this.addKanbanTodoLog(`履歴本文更新: 「${todo.title || '無題'}」`);
+        store.save();
+        this.showKanbanTodoJumpNotice(todo, '履歴本文を保存');
+    }
+
+    restoreKanbanTodo(id, status = 'done') {
+        const d = this.ensureKanbanTodoState();
+        const todo = d.localTodos.find(item => item.id === id);
+        if (!todo) return;
+        const nextStatus = ['todo', 'progress', 'done'].includes(status) ? status : 'done';
+        const statusLabels = { todo: '未着手', progress: '処理中', done: '処理済' };
+        todo.archived = false;
+        todo.status = nextStatus;
+        todo.completedAt = nextStatus === 'done' ? (todo.completedAt || new Date().toISOString()) : '';
+        todo.updatedAt = new Date().toISOString();
+        this.addKanbanTodoLog(`履歴から復元（${statusLabels[nextStatus]}）: 「${todo.title || '無題'}」`);
         store.save();
         this.updateTodoRequestCountBadge();
         this.toggleKanbanTodoHistory(true);
         this.renderKanbanLocalTodos();
     }
 
-    openKanbanPanel(title, bodyHtml) {
+    openKanbanPanel(title, bodyHtml, panelClass = '') {
         document.getElementById('kt-panel-overlay')?.remove();
         document.body.insertAdjacentHTML('beforeend', `
             <div id="kt-panel-overlay" class="kt-modal-overlay active" onclick="if(event.target === this) app.closeKanbanTodoModal()">
-                <div class="kt-modal kt-panel">
+                <div class="kt-modal kt-panel ${this.escapeHtml(panelClass)}">
                     <div class="kt-modal-header">
                         <h2>${this.escapeHtml(title)}</h2>
                         <button type="button" onclick="app.closeKanbanTodoModal()"><i class="fa-solid fa-xmark"></i></button>

@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20260601-dashboard-compact">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -218,6 +218,9 @@
                 <button class="nav-btn active" data-view="calendar">
                     <i class="fa-regular fa-calendar-days"></i> <span>カレンダー</span>
                 </button>
+                <button class="nav-btn sidebar-current-shift-link" onclick="app.openCurrentShiftNotebookFromDashboard()" title="現時刻の連絡帳へ">
+                    <i class="fa-solid fa-book-open"></i> <span>現時刻の連絡帳</span><b id="sidebar-current-shift-badge">--</b>
+                </button>
                 <button class="nav-btn" data-view="todos">
                     <i class="fa-solid fa-list-check"></i> <span>ToDoリスト</span><span id="todo-request-count-badge" class="nav-count-badge" onclick="event.stopPropagation(); app.openPendingTodoRequestPanel()" hidden>0</span>
                 </button>
@@ -395,12 +398,21 @@
                                 <button type="button" onclick="app.toggleKanbanTodoHistory(true)">過去履歴</button>
                                 <button type="button" onclick="app.openKanbanRequestDashboard()">依頼ダッシュボード</button>
                                 <button type="button" id="kt-overdue-only-btn" onclick="app.toggleKanbanOverdueOnly()">期限切れのみ</button>
+                                <select id="kt-priority-filter" class="kt-priority-filter" onchange="app.changeKanbanTodoPriorityFilter(this.value)" title="表示する優先度を選択">
+                                    <option value="all">優先度すべて</option>
+                                    <option value="high">高のみ</option>
+                                    <option value="medium">中のみ</option>
+                                    <option value="low">低のみ</option>
+                                </select>
+                                <button type="button" id="kt-density-btn" onclick="app.toggleKanbanTodoDensity()" title="カードの表示密度を切替">コンパクト</button>
                                 <button type="button" id="kt-fit-btn" class="kt-fit-btn" onclick="app.toggleKanbanTodoFit()">
                                     <i class="fa-solid fa-compress"></i> Fit
                                 </button>
                             </div>
                         </div>
                         <div id="kt-filter-banner" class="kt-filter-banner" hidden></div>
+                        <div id="kt-workload-summary" class="kt-workload-summary"></div>
+                        <div id="kt-overdue-pin" class="kt-overdue-pin" hidden></div>
                         <main class="kt-kanban">
                             <section class="kt-column kt-col-todo">
                                 <div class="kt-column-header">
@@ -421,8 +433,8 @@
                             </section>
                             <section class="kt-column kt-col-done">
                                 <div class="kt-column-header">
-                                    <div><h2>TO DO 処理済</h2><span id="kt-count-done">0</span></div>
-                                    <button type="button" onclick="app.toggleKanbanTodoHistory(true)">過去の履歴</button>
+                                    <div><h2 title="処理済は基本7日後に自動で過去履歴へ移動します。処理済が6件以上ある場合は、古いものから履歴へ移動して最大5件だけ残します。">TO DO 処理済 <span class="kt-rule-help" title="基本7日後に過去履歴へ移動。処理済が6件以上ある場合は古いものから履歴へ移動し、最大5件だけ残します。">?</span></h2><span id="kt-count-done">0</span></div>
+                                    <button type="button" onclick="app.toggleKanbanTodoHistory(true)">過去の履歴 <span id="kt-history-count-badge" class="kt-history-count-badge">0</span></button>
                                 </div>
                                 <div class="kt-task-list" id="kt-list-done" ondragover="event.preventDefault()" ondrop="app.dropKanbanTodo(event, 'done')"></div>
                             </section>
@@ -888,12 +900,12 @@
     <script src="store.js"></script>
     <script src="app.js"></script>
     <script src="app-settings.js"></script>
-    <script src="app-todos.js"></script>
+    <script src="app-todos.js?v=20260601-history-tools"></script>
     <script src="app-shift-notebook-settings.js"></script>
-    <script src="app-calendar.js"></script>
+    <script src="app-calendar.js?v=20260601-shift-absence-visible"></script>
     <script src="app-calendar-details.js"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js"></script>
+    <script src="app-shift-notebook-core.js?v=20260601-shift-absence-visible"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js"></script>
     <script src="app-machines.js"></script>

@@ -120,8 +120,9 @@
             cell.querySelectorAll('.shift-note-stamp').forEach(btn => {
                 const shiftData = store.activeData.shiftNotebooks?.[dateStr]?.[btn.dataset.shift];
                 const shiftRows = Array.isArray(shiftData) ? shiftData : (shiftData?.rows || []);
-                const shiftMembers = Array.isArray(shiftData?.members) ? shiftData.members : [];
-                if (shiftRows.length > 0 || shiftMembers.length > 0) btn.classList.add('has-note');
+                const shiftMembers = Array.isArray(shiftData?.members) && !shiftData?.inheritedMembers ? shiftData.members : [];
+                const shiftAbsentMembers = Array.isArray(shiftData?.absentMembers) && !shiftData?.inheritedMembers ? shiftData.absentMembers : [];
+                if (shiftRows.length > 0 || shiftMembers.length > 0 || shiftAbsentMembers.length > 0) btn.classList.add('has-note');
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     this.openShiftNotebookModal(dateStr, btn.dataset.shift);
