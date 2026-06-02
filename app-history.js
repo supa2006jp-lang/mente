@@ -445,11 +445,18 @@
         // Active filters banner
         const activeFiltersArea = document.getElementById('hist-active-filters');
         if (activeFiltersArea) {
-            if (this.modelFilter || this.workerFilter) {
+            const returnHtml = this.historyReturnContext ? `
+                <div class="history-return-banner">
+                    <span><i class="fa-solid fa-arrow-left"></i> ${this.escapeHtml(this.historyReturnContext.label || '作業時間集計から移動')}</span>
+                    <button class="secondary-btn" style="padding:4px 12px; font-size:0.75rem;" onclick="app.returnToWorkTimeFromHistory()">作業時間集計へ戻る</button>
+                </div>
+            ` : '';
+            if (this.modelFilter || this.workerFilter || this.machineCategoryFilter || this.historyReturnContext) {
                 activeFiltersArea.innerHTML = `
+                    ${returnHtml}
                     <div style="background:var(--secondary-light); color:var(--secondary); padding:8px 16px; border-radius:8px; margin-bottom:12px; font-size:0.8rem; display:flex; justify-content:space-between; align-items:center;">
-                        <span><i class="fa-solid fa-filter"></i> <b>${this.modelFilter ? `型式: ${this.modelFilter}` : `作業員: ${this.workerFilter}`}</b> で抽出中</span>
-                        <button class="secondary-btn" style="padding:2px 10px; font-size:0.7rem;" onclick="app.clearModelFilter(); app.workerFilter=null; app.renderHistory();">解除</button>
+                        <span><i class="fa-solid fa-filter"></i> <b>${this.modelFilter ? `型式: ${this.modelFilter}` : (this.workerFilter ? `作業員: ${this.workerFilter}` : (this.machineCategoryFilter ? `装置区分: ${this.machineCategoryFilter}` : '作業時間集計からの絞り込み'))}</b> で抽出中</span>
+                        <button class="secondary-btn" style="padding:2px 10px; font-size:0.7rem;" onclick="app.clearModelFilter(); app.workerFilter=null; app.machineCategoryFilter=null; app.historyReturnContext=null; app.renderHistory();">解除</button>
                     </div>
                 `;
             } else {
@@ -487,11 +494,15 @@
         const guideOnly = !!document.getElementById('hist-filter-guide')?.checked;
 
         let filtered = store.activeData.history ? store.activeData.history.filter(h => !h.isManualGuide) : [];
+        const filterSteps = [{ label: '全履歴', count: filtered.length }];
         filtered = this.filterHistoryByPeriod(filtered, period);
+        filterSteps.push({ label: period === 'all' ? '期間: 全期間' : `期間: ${document.getElementById('hist-filter-period')?.selectedOptions?.[0]?.textContent || period}`, count: filtered.length });
         this.updateViewSubtitle('view-history', period);
 
         if (machineId) {
             filtered = filtered.filter(h => h.machineId === machineId);
+            const machine = store.getMachines(true).find(m => String(m.id) === String(machineId));
+            filterSteps.push({ label: `機械: ${machine?.name || machineId}`, count: filtered.length });
         }
 
         if (lineVal !== 'all') {
@@ -500,6 +511,7 @@
                 const l = h.lineNo || m?.lineNo;
                 return String(l) === String(lineVal);
             });
+            filterSteps.push({ label: `ライン: ${this.getLineLabel(lineVal)}`, count: filtered.length });
         }
         
         if (this.modelFilter) {
@@ -509,29 +521,55 @@
                 const mModel = MaintenanceApp.toHalfWidthLower(machine?.model || '');
                 return mModel === normFilter;
             });
+            filterSteps.push({ label: `型式: ${this.modelFilter}`, count: filtered.length });
         }
 
         if (this.workerFilter) {
             filtered = filtered.filter(h => h.workers && h.workers.includes(this.workerFilter));
+            filterSteps.push({ label: `作業者: ${this.workerFilter}`, count: filtered.length });
+        }
+
+        if (this.machineCategoryFilter) {
+            const normCategory = MaintenanceStore.toHalfWidthLower(this.machineCategoryFilter);
+            filtered = filtered.filter(h => {
+                const machine = store.getMachines(true).find(m => m.id === h.machineId);
+                const cat = h.machineCategory || machine?.category || 'その他';
+                return MaintenanceStore.toHalfWidthLower(cat) === normCategory;
+            });
+            filterSteps.push({ label: `装置区分: ${this.machineCategoryFilter}`, count: filtered.length });
         }
 
         if (type === 'periodic') {
             filtered = filtered.filter(h => !!h.taskId);
+            filterSteps.push({ label: '区分: 定期のみ', count: filtered.length });
         } else if (type === 'suddenBundle') {
             filtered = filtered.filter(h => this.isCalendarSuddenResponseHistory
                 ? this.isCalendarSuddenResponseHistory(h)
                 : (!h.taskId && !h.isManualGuide && (h.isSudden === true || h.isDokatei || h.isNonProductionStop)));
+            filterSteps.push({ label: '区分: 突発+ドカ停+非生産停止', count: filtered.length });
         } else if (type === 'sudden') {
             filtered = filtered.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
+            filterSteps.push({ label: '区分: 突発のみ', count: filtered.length });
         } else if (type === 'nonProductionStop') {
             filtered = filtered.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop);
+            filterSteps.push({ label: '区分: 非生産停止のみ', count: filtered.length });
         } else if (type === 'dokatei') {
             filtered = filtered.filter(h => !!h.isDokatei);
+            filterSteps.push({ label: '区分: ドカ停のみ', count: filtered.length });
         }
 
-        if (partsOnly) filtered = filtered.filter(h => (h.replacedParts || []).length > 0);
-        if (photosOnly) filtered = filtered.filter(h => (h.photos || []).length > 0);
-        if (guideOnly) filtered = filtered.filter(h => this.hasHistoryGuide(h));
+        if (partsOnly) {
+            filtered = filtered.filter(h => (h.replacedParts || []).length > 0);
+            filterSteps.push({ label: '部品あり', count: filtered.length });
+        }
+        if (photosOnly) {
+            filtered = filtered.filter(h => (h.photos || []).length > 0);
+            filterSteps.push({ label: '写真あり', count: filtered.length });
+        }
+        if (guideOnly) {
+            filtered = filtered.filter(h => this.hasHistoryGuide(h));
+            filterSteps.push({ label: '手順あり', count: filtered.length });
+        }
 
         if (query) {
             const terms = MaintenanceStore.toHalfWidthLower(query).split(/\s+/).filter(t => t);
@@ -542,11 +580,12 @@
                 const normTxt = MaintenanceStore.toHalfWidthLower(searchableText);
                 return terms.every(t => normTxt.includes(t));
             });
+            filterSteps.push({ label: `検索: ${query}`, count: filtered.length });
         }
 
         this.sortHistoryRows(filtered);
 
-        this.renderHistoryFilterSummary(filtered, { period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly });
+        this.renderHistoryFilterSummary(filtered, { period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly, machineCategory: this.machineCategoryFilter });
         const visibleCostTotal = filtered.reduce((sum, h) => sum + this.calculateHistoryCost(h).total, 0);
         const visibleCostTotalEl = document.getElementById('history-visible-cost-total');
         if (visibleCostTotalEl) {
@@ -556,7 +595,7 @@
 
         body.innerHTML = '';
         if (filtered.length === 0) {
-            body.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:40px; color:var(--text-light)">履歴が見つかりません</td></tr>';
+            body.innerHTML = this.renderHistoryEmptyReason(filterSteps);
             return;
         }
 
@@ -716,6 +755,38 @@
         });
     }
 
+    renderHistoryEmptyReason(filterSteps = []) {
+        const firstZeroIndex = filterSteps.findIndex(step => step.count === 0);
+        const firstZero = firstZeroIndex >= 0 ? filterSteps[firstZeroIndex] : null;
+        const previous = firstZeroIndex > 0 ? filterSteps[firstZeroIndex - 1] : null;
+        const remaining = filterSteps.filter(step => step.count > 0).slice(-3).reverse();
+        const reason = firstZero
+            ? `${firstZero.label} で一致する履歴が0件になりました`
+            : '現在の条件に一致する履歴がありません';
+        const hint = previous
+            ? `${previous.label} までは ${previous.count}件 あります`
+            : '登録済みのメンテナンス履歴がありません';
+        return `
+            <tr>
+                <td colspan="9" class="history-empty-cell">
+                    <div class="history-empty-reason">
+                        <div class="history-empty-icon"><i class="fa-solid fa-magnifying-glass-chart"></i></div>
+                        <div class="history-empty-body">
+                            <h4>履歴が見つかりません</h4>
+                            <p>${this.escapeHtml(reason)}</p>
+                            <div class="history-empty-hint"><i class="fa-solid fa-circle-info"></i> ${this.escapeHtml(hint)}</div>
+                            ${remaining.length ? `
+                                <div class="history-empty-steps">
+                                    ${remaining.map(step => `<span>${this.escapeHtml(step.label)} <b>${step.count}件</b></span>`).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
     hasHistoryGuide(h) {
         if (h?.guide) return true;
         const title = this.getHistoryDisplayText(h);
@@ -746,6 +817,7 @@
         if (filters.type) chips.push(typeLabels[filters.type] || filters.type);
         if (this.modelFilter) chips.push(`型式: ${this.modelFilter}`);
         if (this.workerFilter) chips.push(`作業者: ${this.workerFilter}`);
+        if (filters.machineCategory) chips.push(`装置区分: ${filters.machineCategory}`);
         if (filters.partsOnly) chips.push('部品あり');
         if (filters.photosOnly) chips.push('写真あり');
         if (filters.guideOnly) chips.push('手順あり');
@@ -1144,6 +1216,12 @@
             const lastMonthStr = formatDate(lastMonthVal).substring(0, 7);
             return history.filter(h => h.date && h.date.startsWith(lastMonthStr));
         }
+        if (period === 'last_this_month') {
+            const curMonthStr = todayStr.substring(0, 7);
+            const lastMonthVal = new Date(todayVal.getFullYear(), todayVal.getMonth() - 1, 1);
+            const lastMonthStr = formatDate(lastMonthVal).substring(0, 7);
+            return history.filter(h => h.date && (h.date.startsWith(curMonthStr) || h.date.startsWith(lastMonthStr)));
+        }
         if (period === 'last_30_days') {
             const start = new Date(); start.setDate(start.getDate() - 30);
             const startStr = formatDate(start);
@@ -1218,6 +1296,7 @@
                 <option value="yesterday">昨日</option>
                 <option value="yesterday_today">昨日と今日</option>
                 <option value="this_month">今月 (${currentMonth}月)</option>
+                <option value="last_this_month">先月と今月</option>
                 <option value="all">累計 (全ての記録)</option>
                 <option value="custom">${customLabel}</option>
                 <option value="custom_range">${rangeLabel}</option>
@@ -1228,9 +1307,9 @@
                 opt.textContent = `${y}年度 (4月〜3月)`;
                 filter.appendChild(opt);
             });
-            // デフォルトは「今月」に設定（ただし既に値がある場合は保持）
-            if (!currentVal) {
-                filter.value = 'this_month';
+            // デフォルトは「先月と今月」に設定（ツール更新直後の today 初期値も補正）
+            if (!currentVal || currentVal === 'today') {
+                filter.value = 'last_this_month';
             } else {
                 filter.value = currentVal;
             }
@@ -1279,6 +1358,10 @@
             const lastM = new Date(now.getFullYear(), now.getMonth(), 0);
             return lastM.getDate();
         }
+        if (period === 'last_this_month') {
+            const lastM = new Date(now.getFullYear(), now.getMonth(), 0);
+            return lastM.getDate() + now.getDate();
+        }
         if (period === 'last_30_days') return 30;
         if (period === 'prev_30_days') return 30;
         if (period === 'fiscal_year') {
@@ -1315,6 +1398,7 @@
             'yesterday': '昨日',
             'yesterday_today': '昨日・今日',
             'this_month': '今月', 
+            'last_this_month': '先月と今月',
             'fiscal_year': '今年度', 
             'all': '累計', 
             'custom': '指定日以降', 

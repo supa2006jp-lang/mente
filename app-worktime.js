@@ -16,11 +16,565 @@
         this.renderWorkTime();
     }
 
-    renderWorkTime(searchQuery = '') {
+    resetWorkTimeFilters() {
+        const periodSelect = document.getElementById('worktime-filter-period');
+        const lineSelect = document.getElementById('worktime-filter-line');
+        const searchInput = document.getElementById('worktime-search');
+        if (periodSelect) periodSelect.value = 'last_this_month';
+        if (lineSelect) lineSelect.value = 'all';
+        if (searchInput) searchInput.value = '';
+        this.workTimeSearchQuery = '';
+        this.workTimeDrillDownCategory = null;
+        this.excludePeriodicInTrend = false;
+        this.setWorkTimeGroup('worker');
+    }
+
+    getWorkTimePeriodBadgeLabel(period) {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth();
+        const fmtMonth = (date) => `${date.getFullYear()}年${date.getMonth() + 1}月`;
+        const fmtDate = (date) => `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+        const fmtFiscalYear = (fy, suffix = '年度') => `${fy}${suffix}（${fy}/4/1 - ${fy + 1}/3/31）`;
+        if (period === 'today') return `${fmtDate(now)}（今日）`;
+        if (period === 'yesterday') {
+            const d = new Date(y, m, now.getDate() - 1);
+            return `${fmtDate(d)}（昨日）`;
+        }
+        if (period === 'yesterday_today') {
+            const d = new Date(y, m, now.getDate() - 1);
+            return `${fmtDate(d)} - ${fmtDate(now)}（昨日・今日）`;
+        }
+        if (period === 'this_month') return `${fmtMonth(now)}（今月）`;
+        if (period === 'last_month') return `${fmtMonth(new Date(y, m - 1, 1))}（先月）`;
+        if (period === 'last_this_month') return `${fmtMonth(new Date(y, m - 1, 1))} - ${fmtMonth(now)}（先月と今月）`;
+        if (period === 'this_year' || period === 'fiscal_year') {
+            const fy = m < 3 ? y - 1 : y;
+            return fmtFiscalYear(fy, '年度');
+        }
+        if (period === 'last_year' || period === 'last_fiscal_year') {
+            const fy = m < 3 ? y - 2 : y - 1;
+            return fmtFiscalYear(fy, '年度');
+        }
+        if (period === 'last_30_days') return '直近30日';
+        if (period === 'prev_30_days') return '前の30日';
+        if (period === 'custom') {
+            const start = localStorage.getItem('customStartDate') || '開始日未設定';
+            return `${start}以降（指定日以降）`;
+        }
+        if (period === 'custom_range') {
+            const start = localStorage.getItem('customRangeStart') || '開始日未設定';
+            const end = localStorage.getItem('customRangeEnd') || '終了日未設定';
+            return `${start} - ${end}（指定範囲）`;
+        }
+        if (period === 'CUSTOM') {
+            const start = this.customStartDate || '開始日未設定';
+            const end = this.customEndDate || '終了日未設定';
+            return `${start} - ${end}（カスタム）`;
+        }
+        const fiscalYear = parseInt(period, 10);
+        if (!Number.isNaN(fiscalYear) && String(fiscalYear) === String(period)) {
+            return fmtFiscalYear(fiscalYear, '年度');
+        }
+        return '全期間';
+    }
+
+    escapeWorkTimeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[ch]));
+    }
+
+    renderWorkTimeConditionBar({ period, lineVal, query, groupBy, isDrilledDown, resultCount, totalMinutes }) {
+        const lineText = lineVal === 'all' ? '全ライン' : this.getLineLabel(lineVal);
+        const groupText = groupBy === 'category' ? '装置区分別' : '作業者別';
+        const searchText = query ? `検索: ${this.escapeWorkTimeHtml(query)}` : '検索なし';
+        const detailText = isDrilledDown ? `詳細: ${this.escapeWorkTimeHtml(this.workTimeDrillDownCategory)}` : '詳細なし';
+        const periodText = this.escapeWorkTimeHtml(this.getWorkTimePeriodBadgeLabel(period));
+        const bar = document.createElement('div');
+        bar.className = 'worktime-condition-bar';
+        bar.innerHTML = `
+            <div class="worktime-condition-main">
+                <div class="worktime-period-badge">
+                    <i class="fa-regular fa-calendar"></i>
+                    <span>集計期間</span>
+                    <b>${periodText}</b>
+                </div>
+                <div class="worktime-condition-chips">
+                    <span>${this.escapeWorkTimeHtml(groupText)}</span>
+                    <span>${this.escapeWorkTimeHtml(lineText)}</span>
+                    <span>${searchText}</span>
+                    <span>${detailText}</span>
+                </div>
+            </div>
+            <div class="worktime-condition-actions">
+                <div class="worktime-result-summary">
+                    <b>${resultCount.toLocaleString()}</b><span>件</span>
+                    <b>${totalMinutes.toLocaleString()}</b><span>分</span>
+                </div>
+                <button type="button" class="secondary-btn worktime-reset-btn" onclick="app.resetWorkTimeFilters()" title="期間・ライン・検索条件を初期状態に戻します">
+                    <i class="fa-solid fa-rotate-left"></i> 条件リセット
+                </button>
+            </div>
+        `;
+        return bar;
+    }
+
+    filterWorkTimeRecordsByLine(records, lineVal, machines) {
+        if (lineVal === 'all') return records;
+        return records.filter(h => {
+            const m = machines.find(x => x.id === h.machineId);
+            const l = h.lineNo || m?.lineNo;
+            return String(l) === String(lineVal);
+        });
+    }
+
+    getWorkTimeMinutes(records) {
+        return records.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
+    }
+
+    getWorkTimeChartTooltipEl(chart) {
+        const parent = chart.canvas.parentNode;
+        parent.style.position = 'relative';
+        parent.style.overflow = 'visible';
+        let el = parent.querySelector('.worktime-chart-tooltip');
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'worktime-chart-tooltip';
+            parent.appendChild(el);
+        }
+        return el;
+    }
+
+    hideOtherWorkTimeChartTooltips(activeEl) {
+        document.querySelectorAll('.worktime-chart-tooltip').forEach(el => {
+            if (el !== activeEl) {
+                el.style.opacity = 0;
+                el.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    renderWorkTimeExternalTooltip(context) {
+        const { chart, tooltip } = context;
+        const el = this.getWorkTimeChartTooltipEl(chart);
+        const isTrendChart = chart.canvas.id === 'worktime-trend-chart';
+        const isWorkTimeModalChart = ['chart-total', 'chart-pt', 'chart-st', 'chart-np', 'chart-dt'].includes(chart.canvas.id);
+        if (!tooltip || tooltip.opacity === 0) {
+            if (!isTrendChart && !isWorkTimeModalChart) {
+                el.style.opacity = 0;
+                el.style.pointerEvents = 'none';
+            }
+            return;
+        }
+
+        this.hideOtherWorkTimeChartTooltips(el);
+        this.hideWorkTimeTrendChoiceMenu();
+
+        const title = (tooltip.title || []).map(t => `<div class="worktime-chart-tooltip-title">${this.escapeWorkTimeHtml(t)}</div>`).join('');
+        const labelColors = tooltip.labelColors || [];
+        const trendTypeMap = { '定期メンテ': 'periodic', '突発対応': 'sudden', '非生産停止': 'nonProductionStop', 'ドカ停': 'dokatei' };
+        const drilledTypeValue = trendTypeMap[this.workTimeDrillDownCategory] || '';
+        const body = isTrendChart && tooltip.dataPoints?.length
+            ? tooltip.dataPoints
+                .filter(point => (point.parsed?.y || 0) > 0)
+                .map((point, itemIndex) => {
+                    const color = labelColors[itemIndex]?.borderColor || point.dataset.borderColor || point.dataset.backgroundColor || '#475569';
+                    const label = point.dataset.label || '';
+                    const value = point.parsed?.y || 0;
+                    const machineId = point.dataset.machineId || '';
+                    const machineCategory = point.dataset.machineCategory || '';
+                    const clickHandler = machineId
+                        ? `app.openWorkTimeMachineHistory('${this.escapeWorkTimeHtml(machineId)}')`
+                        : machineCategory
+                        ? `app.openWorkTimeMachineCategoryHistory(decodeURIComponent('${encodeURIComponent(machineCategory)}'))`
+                        : drilledTypeValue
+                        ? `app.openWorkTimeTroubleHistory(decodeURIComponent('${encodeURIComponent(label)}'), '${drilledTypeValue}')`
+                        : `app.openWorkTimeTypeHistory(decodeURIComponent('${encodeURIComponent(label)}'))`;
+                    return `
+                        <button type="button" class="worktime-chart-tooltip-line clickable" style="color:${this.escapeWorkTimeHtml(color)}" onclick="${clickHandler}" title="この条件でメンテナンス履歴を表示">
+                            <span>${this.escapeWorkTimeHtml(label)}: ${value.toLocaleString()}</span>
+                            <i class="fa-solid fa-book-open worktime-link-icon" aria-hidden="true"></i>
+                        </button>
+                    `;
+                })
+                .join('')
+            : isWorkTimeModalChart && tooltip.dataPoints?.length
+                ? tooltip.dataPoints
+                    .filter(point => (point.parsed || 0) > 0)
+                    .map((point, itemIndex) => {
+                        const color = labelColors[itemIndex]?.backgroundColor || point.dataset.backgroundColor?.[point.dataIndex] || point.dataset.backgroundColor || '#475569';
+                        const label = point.label || chart.data.labels?.[point.dataIndex] || '';
+                        const searchKey = point.dataset.searchKeys?.[point.dataIndex] || label;
+                        const value = point.parsed || 0;
+                        const typeMap = { 'chart-total': '', 'chart-pt': 'periodic', 'chart-st': 'sudden', 'chart-np': 'nonProductionStop', 'chart-dt': 'dokatei' };
+                        const clickHandler = chart.canvas.id === 'chart-total'
+                            ? `app.openWorkTimeTypeHistory(decodeURIComponent('${encodeURIComponent(label)}'))`
+                            : `app.openWorkTimeTroubleHistory(decodeURIComponent('${encodeURIComponent(searchKey)}'), '${typeMap[chart.canvas.id] || ''}')`;
+                        return `
+                            <button type="button" class="worktime-chart-tooltip-line clickable" style="color:${this.escapeWorkTimeHtml(color)}" onclick="${clickHandler}" title="この条件でメンテナンス履歴を表示">
+                                <span>${this.escapeWorkTimeHtml(label)}: ${value.toLocaleString()}分</span>
+                                <i class="fa-solid fa-book-open worktime-link-icon" aria-hidden="true"></i>
+                            </button>
+                        `;
+                    })
+                    .join('')
+            : (tooltip.body || [])
+                .map((item, itemIndex) => {
+                    const color = labelColors[itemIndex]?.borderColor || labelColors[itemIndex]?.backgroundColor || '#475569';
+                    return (item.lines || [])
+                        .flatMap(line => String(line).split('\n'))
+                        .filter(Boolean)
+                        .map(line => `<div class="worktime-chart-tooltip-line" style="color:${this.escapeWorkTimeHtml(color)}">${this.escapeWorkTimeHtml(line)}</div>`)
+                        .join('');
+                })
+                .join('');
+        el.innerHTML = `${title}<div class="worktime-chart-tooltip-body">${body}</div>`;
+
+        el.style.opacity = 1;
+        el.style.pointerEvents = (isTrendChart || isWorkTimeModalChart) ? 'auto' : 'none';
+        el.style.left = '0px';
+        el.style.top = '0px';
+
+        const canvasLeft = chart.canvas.offsetLeft;
+        const canvasTop = chart.canvas.offsetTop;
+        const tooltipWidth = el.offsetWidth || 240;
+        const tooltipHeight = el.offsetHeight || 110;
+        const targetX = canvasLeft + tooltip.caretX;
+        const targetY = canvasTop + tooltip.caretY;
+        const left = Math.max(canvasLeft - 8, targetX - tooltipWidth - 86);
+        const top = Math.max(canvasTop - 22, targetY - tooltipHeight - 76);
+
+        el.style.left = `${left}px`;
+        el.style.top = `${top}px`;
+    }
+
+    hideWorkTimeTrendChoiceMenu() {
+        const menu = document.querySelector('.worktime-trend-choice-menu');
+        if (menu) menu.remove();
+    }
+
+    showWorkTimeTrendChoiceMenu(chart, point, choices) {
+        this.hideWorkTimeTrendChoiceMenu();
+        const parent = chart.canvas.parentNode;
+        parent.style.position = 'relative';
+        parent.style.overflow = 'visible';
+
+        const menu = document.createElement('div');
+        menu.className = 'worktime-trend-choice-menu';
+        const month = chart.data.labels[point.index] || '';
+        menu.innerHTML = `
+            <div class="worktime-trend-choice-title">${this.escapeWorkTimeHtml(month)} の表示先</div>
+            <div class="worktime-trend-choice-list"></div>
+        `;
+        const list = menu.querySelector('.worktime-trend-choice-list');
+        choices.forEach(choice => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.innerHTML = `<span style="background:${choice.color}"></span>${this.escapeWorkTimeHtml(choice.label)}<b>${choice.value.toLocaleString()}分</b>`;
+            btn.addEventListener('click', () => {
+                this.workTimeDrillDownCategory = choice.label;
+                this.hideWorkTimeTrendChoiceMenu();
+                this.renderWorkTime();
+            });
+            list.appendChild(btn);
+        });
+        parent.appendChild(menu);
+
+        const canvasLeft = chart.canvas.offsetLeft;
+        const canvasTop = chart.canvas.offsetTop;
+        const pointX = canvasLeft + point.element.x;
+        const pointY = canvasTop + point.element.y;
+        const width = menu.offsetWidth || 210;
+        const height = menu.offsetHeight || 120;
+        menu.style.left = `${Math.max(canvasLeft - 8, pointX - width - 74)}px`;
+        menu.style.top = `${Math.max(canvasTop - 18, pointY - height - 62)}px`;
+
+        setTimeout(() => {
+            const close = (ev) => {
+                if (!menu.contains(ev.target)) {
+                    this.hideWorkTimeTrendChoiceMenu();
+                    document.removeEventListener('pointerdown', close);
+                }
+            };
+            document.addEventListener('pointerdown', close);
+        }, 0);
+    }
+
+    openWorkTimeWorkerHistory(workerName) {
+        if (!workerName || workerName === '旧作業者合計') return;
+
+        const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
+        const histPeriod = document.getElementById('hist-filter-period');
+        const histLine = document.getElementById('hist-filter-line');
+        const histMachine = document.getElementById('hist-filter-machine');
+        const histType = document.getElementById('hist-filter-type');
+        const searchIn = document.getElementById('global-search');
+
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histMachine) histMachine.value = '';
+        if (histType) histType.value = '';
+        if (searchIn) searchIn.value = '';
+        this.modelFilter = null;
+        this.workerFilter = workerName;
+        this.machineCategoryFilter = null;
+        this.historyReturnContext = this.buildWorkTimeReturnContext(`作業者: ${workerName}`);
+
+        this.switchView('history');
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        this.renderHistory('');
+    }
+
+    openWorkTimeTypeHistory(typeLabel) {
+        const typeMap = {
+            '定期メンテ': 'periodic',
+            '突発対応': 'sudden',
+            '非生産停止': 'nonProductionStop',
+            'ドカ停': 'dokatei'
+        };
+        const histTypeValue = typeMap[typeLabel];
+        if (!histTypeValue) return;
+
+        const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
+        const histPeriod = document.getElementById('hist-filter-period');
+        const histLine = document.getElementById('hist-filter-line');
+        const histMachine = document.getElementById('hist-filter-machine');
+        const histType = document.getElementById('hist-filter-type');
+        const searchIn = document.getElementById('global-search');
+
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histMachine) histMachine.value = '';
+        if (histType) histType.value = histTypeValue;
+        if (searchIn) searchIn.value = '';
+        this.modelFilter = null;
+        this.workerFilter = null;
+        this.machineCategoryFilter = null;
+        this.workTimeDrillDownCategory = null;
+        this.historyReturnContext = this.buildWorkTimeReturnContext(`種別: ${typeLabel}`);
+
+        this.switchView('history');
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histType) histType.value = histTypeValue;
+        this.renderHistory('');
+    }
+
+    openWorkTimeTroubleHistory(troubleLabel, histTypeValue = '') {
+        if (!troubleLabel) return;
+
+        const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
+        const histPeriod = document.getElementById('hist-filter-period');
+        const histLine = document.getElementById('hist-filter-line');
+        const histMachine = document.getElementById('hist-filter-machine');
+        const histType = document.getElementById('hist-filter-type');
+        const searchIn = document.getElementById('global-search');
+
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histMachine) histMachine.value = '';
+        if (histType) histType.value = histTypeValue || '';
+        if (searchIn) searchIn.value = troubleLabel;
+        this.modelFilter = null;
+        this.workerFilter = null;
+        this.machineCategoryFilter = null;
+        this.historyReturnContext = this.buildWorkTimeReturnContext(`内容: ${troubleLabel}`);
+
+        this.switchView('history');
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histType) histType.value = histTypeValue || '';
+        if (searchIn) searchIn.value = troubleLabel;
+        this.renderHistory(troubleLabel.toLowerCase());
+    }
+
+    openWorkTimeMachineHistory(machineId) {
+        if (!machineId) return;
+
+        const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
+        const histPeriod = document.getElementById('hist-filter-period');
+        const histLine = document.getElementById('hist-filter-line');
+        const histMachine = document.getElementById('hist-filter-machine');
+        const histType = document.getElementById('hist-filter-type');
+        const searchIn = document.getElementById('global-search');
+
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histMachine) histMachine.value = machineId;
+        if (histType) histType.value = '';
+        if (searchIn) searchIn.value = '';
+        this.modelFilter = null;
+        this.workerFilter = null;
+        this.machineCategoryFilter = null;
+        this.historyReturnContext = this.buildWorkTimeReturnContext('機械別履歴');
+
+        this.switchView('history');
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histMachine) histMachine.value = machineId;
+        if (histType) histType.value = '';
+        this.renderHistory('');
+    }
+
+    openWorkTimeMachineCategoryHistory(machineCategory) {
+        if (!machineCategory) return;
+
+        const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
+        const histPeriod = document.getElementById('hist-filter-period');
+        const histLine = document.getElementById('hist-filter-line');
+        const histMachine = document.getElementById('hist-filter-machine');
+        const histType = document.getElementById('hist-filter-type');
+        const searchIn = document.getElementById('global-search');
+
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histMachine) histMachine.value = '';
+        if (histType) histType.value = '';
+        if (searchIn) searchIn.value = '';
+        this.modelFilter = null;
+        this.workerFilter = null;
+        this.machineCategoryFilter = machineCategory;
+        this.historyReturnContext = this.buildWorkTimeReturnContext(`装置区分: ${machineCategory}`);
+
+        this.switchView('history');
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histMachine) histMachine.value = '';
+        if (histType) histType.value = '';
+        if (searchIn) searchIn.value = '';
+        this.renderHistory('');
+    }
+
+    buildWorkTimeReturnContext(label) {
+        return {
+            label,
+            period: document.getElementById('worktime-filter-period')?.value || 'this_month',
+            line: document.getElementById('worktime-filter-line')?.value || 'all',
+            groupBy: this.workTimeGroupBy || 'worker',
+            search: document.getElementById('worktime-search')?.value || '',
+            drillDown: this.workTimeDrillDownCategory || null,
+            scrollY: window.scrollY || document.documentElement.scrollTop || 0
+        };
+    }
+
+    returnToWorkTimeFromHistory() {
+        const ctx = this.historyReturnContext || {};
+        this.switchView('worktime');
+        const period = document.getElementById('worktime-filter-period');
+        const line = document.getElementById('worktime-filter-line');
+        const search = document.getElementById('worktime-search');
+        if (period && ctx.period) period.value = ctx.period;
+        if (line && ctx.line) line.value = ctx.line;
+        if (search) search.value = ctx.search || '';
+        this.workTimeSearchQuery = (ctx.search || '').toLowerCase();
+        this.workTimeDrillDownCategory = ctx.drillDown || null;
+        if (ctx.groupBy) this.workTimeGroupBy = ctx.groupBy;
+        this.historyReturnContext = null;
+        this.renderWorkTime(this.workTimeSearchQuery);
+        setTimeout(() => {
+            window.scrollTo({ top: ctx.scrollY || 0, behavior: 'smooth' });
+        }, 50);
+    }
+
+    renderWorkTimeEmptyState({ period, lineVal, query, groupBy, allHistory, periodHistory, lineHistory, resultCount, machines }) {
+        const e = (value) => this.escapeWorkTimeHtml(value);
+        const lineText = lineVal === 'all' ? '全ライン' : this.getLineLabel(lineVal);
+        const groupText = groupBy === 'category' ? '装置区分別' : '作業者別';
+        const conditionText = `${this.getWorkTimePeriodBadgeLabel(period)} / ${lineText} / ${groupText} / ${query ? `検索: ${query}` : '検索なし'}`;
+        const missingWorkerCount = lineHistory.filter(h => !(h.workers || []).some(w => String(w || '').trim())).length;
+        let reasonTitle = '現在の条件に一致する集計結果がありません';
+        let reasonDetail = '期間・ライン・検索条件のどれかで対象が0件になっています。';
+
+        if (allHistory.length === 0) {
+            reasonTitle = 'メンテナンス履歴がまだ登録されていません';
+            reasonDetail = '履歴が登録されると、作業時間を自動で集計します。';
+        } else if (periodHistory.length === 0) {
+            reasonTitle = '指定期間に作業記録がありません';
+            reasonDetail = `${this.getWorkTimePeriodBadgeLabel(period)} には履歴が見つかりませんでした。`;
+        } else if (lineHistory.length === 0) {
+            reasonTitle = '指定ラインに作業記録がありません';
+            reasonDetail = `${lineText} に該当する履歴が、この期間にはありません。`;
+        } else if (query) {
+            reasonTitle = '検索条件に一致する集計結果がありません';
+            reasonDetail = groupBy === 'category'
+                ? `装置区分名に「${query}」を含む集計結果がありません。`
+                : `作業者名に「${query}」を含む集計結果がありません。`;
+        } else if (groupBy === 'worker' && missingWorkerCount === lineHistory.length) {
+            reasonTitle = '作業者名が未入力のため集計できません';
+            reasonDetail = 'この条件の履歴はありますが、作業者名が入っていないため作業者別に表示できません。';
+        } else if (resultCount === 0) {
+            reasonTitle = '集計対象がありません';
+            reasonDetail = '履歴はありますが、現在の表示条件では集計行を作れませんでした。';
+        }
+
+        const currentFiscalYear = (typeof this.getFiscalYear === 'function')
+            ? this.getFiscalYear(new Date().toISOString().split('T')[0])
+            : (new Date().getMonth() < 3 ? new Date().getFullYear() - 1 : new Date().getFullYear());
+        const periodOptions = Array.from(new Set([period, 'this_month', String(currentFiscalYear), String(currentFiscalYear - 1), 'all'])).map(pid => {
+            const records = this.filterHistoryByPeriod(allHistory, pid);
+            const lineRecords = this.filterWorkTimeRecordsByLine(records, lineVal, machines);
+            return {
+                id: pid,
+                label: this.getWorkTimePeriodBadgeLabel(pid),
+                count: lineRecords.length,
+                minutes: this.getWorkTimeMinutes(lineRecords)
+            };
+        });
+        const alternatives = periodOptions
+            .filter(item => item.id !== period || item.count > 0)
+            .map(item => `
+                <div class="worktime-empty-stat">
+                    <span>${e(item.label)}</span>
+                    <b>${item.count.toLocaleString()}件</b>
+                    <em>${item.minutes.toLocaleString()}分</em>
+                </div>
+            `).join('');
+
+        const workerHint = groupBy === 'worker' && missingWorkerCount > 0
+            ? `<p><i class="fa-solid fa-user-pen"></i> この条件内に作業者未入力の履歴が ${missingWorkerCount.toLocaleString()} 件あります。</p>`
+            : '';
+
+        return `
+            <tr>
+                <td colspan="14" class="worktime-empty-cell">
+                    <div class="worktime-empty-state">
+                        <div class="worktime-empty-icon"><i class="fa-solid fa-magnifying-glass-chart"></i></div>
+                        <div class="worktime-empty-body">
+                            <h4>${e(reasonTitle)}</h4>
+                            <p>${e(reasonDetail)}</p>
+                            <div class="worktime-empty-condition">${e(conditionText)}</div>
+                            ${workerHint}
+                            <div class="worktime-empty-stats">
+                                ${alternatives || '<div class="worktime-empty-stat"><span>全期間</span><b>0件</b><em>0分</em></div>'}
+                            </div>
+                            <button type="button" class="secondary-btn worktime-reset-btn" onclick="app.resetWorkTimeFilters()">
+                                <i class="fa-solid fa-rotate-left"></i> 条件リセット
+                            </button>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
+    renderWorkTime(searchQuery = null) {
         const container = document.getElementById('worktime-container');
         if (!container) return;
 
-        const q = (searchQuery || '').toLowerCase().trim();
+        const searchInput = document.getElementById('worktime-search');
+        const rawQuery = searchQuery === null ? (searchInput?.value || this.workTimeSearchQuery || '') : searchQuery;
+        const q = MaintenanceStore.toHalfWidthLower(rawQuery || '').trim();
         this.workTimeSearchQuery = q;
         const period = document.getElementById('worktime-filter-period')?.value || 'this_month';
         const lineVal = document.getElementById('worktime-filter-line')?.value || 'all';
@@ -46,18 +600,13 @@
         // トレンドグラフの描画
         this.renderWorkTimeTrend();
 
-        let history = store.getHistory({});
-        history = this.filterHistoryByPeriod(history, period);
-
-        if (lineVal !== 'all') {
-            const machines_temp = store.getMachines(true);
-            history = history.filter(h => {
-                const m = machines_temp.find(x => x.id === h.machineId);
-                const l = h.lineNo || m?.lineNo;
-                return String(l) === String(lineVal);
-            });
-        }
+        const allHistory = store.getHistory({});
+        let history = this.filterHistoryByPeriod(allHistory, period);
+        const periodHistory = history.slice();
         const machines = store.getMachines(true);
+
+        history = this.filterWorkTimeRecordsByLine(history, lineVal, machines);
+        const lineHistory = history.slice();
 
         const statsMap = {}; 
         const archivedStats = { totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0, machineTimeMap: {}, troubleCountMap: {} };
@@ -134,8 +683,18 @@
             });
         }
         results.sort((a, b) => b.totalTime - a.totalTime);
+        const displayedTotalTime = results.reduce((sum, r) => sum + (parseInt(r.totalTime) || 0), 0);
 
         container.innerHTML = '';
+        container.appendChild(this.renderWorkTimeConditionBar({
+            period,
+            lineVal,
+            query: q,
+            groupBy: currentGroupBy,
+            isDrilledDown,
+            resultCount: results.length,
+            totalMinutes: displayedTotalTime
+        }));
         
         if (isDrilledDown) {
             const backLink = document.createElement('div');
@@ -179,9 +738,16 @@
                                 displayName = this.getLineBadge(mach.lineNo) + displayName;
                             }
                         }
+                        const safeNameArg = String(r.name).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+                        const linkIcon = '<i class="fa-solid fa-book-open worktime-link-icon" aria-hidden="true"></i>';
+                        const nameCellHtml = (currentGroupBy === 'worker' && !isDrilledDown && !r.isArchived)
+                            ? `<button type="button" class="worktime-worker-link" onclick="app.openWorkTimeWorkerHistory('${safeNameArg}')" title="${this.escapeWorkTimeHtml(r.name)} さんのメンテナンス履歴をこの期間で表示"><span>${displayName}</span>${linkIcon}</button>`
+                            : (currentGroupBy === 'category' && !isDrilledDown)
+                                ? `<button type="button" class="worktime-worker-link" onclick="app.openWorkTimeMachineCategoryHistory('${safeNameArg}')" title="${this.escapeWorkTimeHtml(r.name)} のメンテナンス履歴をこの期間で表示"><span>${displayName}</span>${linkIcon}</button>`
+                                : displayName;
                         return `
                         <tr style="${r.isArchived ? 'background: #f8fafc; font-style: italic; opacity: 0.8;' : ''}">
-                            <td style="font-weight:700; color:var(--text-main);">${displayName}</td>
+                            <td style="font-weight:700; color:var(--text-main);">${nameCellHtml}</td>
                             <td style="text-align:right; font-weight:900; color:var(--primary); font-size:1rem;">
                                 ${r.totalTime.toLocaleString()} <span style="font-size:0.75rem; color:var(--text-light); font-weight:400; margin-left:4px;">(${r.pct}%)</span>
                             </td>
@@ -209,7 +775,7 @@
                             </td>
                         </tr>
                         `;
-                    }).join('') || '<tr><td colspan="14" style="text-align:center; padding:40px; color:var(--text-light);">この期間の作業記録がありません</td></tr>'}
+                    }).join('') || this.renderWorkTimeEmptyState({ period, lineVal, query: q, groupBy: currentGroupBy, allHistory, periodHistory, lineHistory, resultCount: results.length, machines })}
                 </tbody>
         `;
         container.appendChild(table);
@@ -250,15 +816,15 @@
             });
         }
         if (this.workTimeSearchQuery) {
-            const q = this.workTimeSearchQuery.toLowerCase();
+            const q = MaintenanceStore.toHalfWidthLower(this.workTimeSearchQuery);
             if (this.workTimeGroupBy === 'category') {
                 history = history.filter(h => {
                     const m = machines.find(x => x.id === h.machineId);
                     const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
-                    return cat.toLowerCase().includes(q);
+                    return MaintenanceStore.toHalfWidthLower(cat).includes(q);
                 });
             } else {
-                history = history.filter(h => (h.workers || []).some(w => w.trim().toLowerCase().includes(q)));
+                history = history.filter(h => (h.workers || []).some(w => MaintenanceStore.toHalfWidthLower(w.trim()).includes(q)));
             }
         }
         
@@ -357,6 +923,7 @@
         } else {
             // 装置区分別 または ドリルダウン(機器別)
             const labelMap = {};
+            const machineIdMap = {};
             history.forEach(h => {
                 const m = machines.find(x => x.id === h.machineId);
                 const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
@@ -370,6 +937,7 @@
                 }
 
                 if (!labelMap[key]) labelMap[key] = months.map(() => 0);
+                if (isDrilledDownTrend && m?.id && !machineIdMap[key]) machineIdMap[key] = m.id;
                 
                 const d = new Date(h.date);
                 const time = parseInt(h.workTime) || 0;
@@ -386,6 +954,8 @@
                 datasets.push({
                     label: label,
                     data: data,
+                    machineId: machineIdMap[label] || '',
+                    machineCategory: isDrilledDownTrend ? '' : label,
                     borderColor: colors[i % colors.length],
                     backgroundColor: 'transparent',
                     borderWidth: 2,
@@ -412,6 +982,7 @@
                 maintainAspectRatio: false,
                 onClick: (evt, elements) => {
                     const groupMode = this.workTimeGroupBy || 'worker';
+                    this.hideWorkTimeTrendChoiceMenu();
 
                     // 既にドリルダウン中の場合：再クリックで解除
                     if (this.workTimeDrillDownCategory) {
@@ -420,14 +991,43 @@
                         return;
                     }
 
-                    const activePoints = this._trendChart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, true);
+                    const activePoints = this._trendChart.getElementsAtEventForMode(evt, 'point', { intersect: true }, true);
                     if (activePoints.length > 0) {
-                        const dsIdx = activePoints[0].datasetIndex;
+                        const point = activePoints[0];
+                        const dataIndex = point.index;
+                        const clickedValue = this._trendChart.data.datasets[point.datasetIndex]?.data?.[dataIndex];
+                        const overlapChoices = this._trendChart.data.datasets
+                            .map((ds, dsIndex) => ({
+                                label: ds.label,
+                                value: ds.data?.[dataIndex] || 0,
+                                color: ds.borderColor || ds.backgroundColor || '#2563eb',
+                                dsIndex
+                            }))
+                            .filter(item => item.value > 0 && item.value === clickedValue && this._trendChart.isDatasetVisible(item.dsIndex));
+
+                        if (overlapChoices.length > 1) {
+                            this.showWorkTimeTrendChoiceMenu(this._trendChart, point, overlapChoices);
+                            return;
+                        }
+
+                        const dsIdx = point.datasetIndex;
                         const label = this._trendChart.data.datasets[dsIdx].label;
                         if (label) {
                             this.workTimeDrillDownCategory = label;
                             this.renderWorkTime();
                         }
+                    }
+                },
+                interaction: {
+                    mode: 'point',
+                    intersect: true
+                },
+                elements: {
+                    point: {
+                        radius: 5,
+                        hoverRadius: 8,
+                        hitRadius: 6,
+                        borderWidth: 2
                     }
                 },
                 scales: {
@@ -494,7 +1094,12 @@
                         textStrokeColor: 'rgba(255,255,255,0.8)',
                         textStrokeWidth: 2
                     },
-                    tooltip: { position: 'nearest', mode: 'index', intersect: false }
+                    tooltip: {
+                        enabled: false,
+                        external: (context) => this.renderWorkTimeExternalTooltip(context),
+                        mode: 'point',
+                        intersect: true
+                    }
                 }
             }
         });
@@ -507,7 +1112,16 @@
         
         // 人名フィルタが行われている場合、その人を含む履歴のみに絞り込む
         if (this.workTimeSearchQuery) {
-            history = history.filter(h => (h.workers || []).some(w => w.trim().toLowerCase().includes(this.workTimeSearchQuery)));
+            const q = MaintenanceStore.toHalfWidthLower(this.workTimeSearchQuery);
+            if (this.workTimeGroupBy === 'category') {
+                history = history.filter(h => {
+                    const m = store.getMachines(true).find(x => x.id === h.machineId);
+                    const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
+                    return MaintenanceStore.toHalfWidthLower(cat).includes(q);
+                });
+            } else {
+                history = history.filter(h => (h.workers || []).some(w => MaintenanceStore.toHalfWidthLower(w.trim()).includes(q)));
+            }
         }
 
         const ptData = history.filter(h => !!h.taskId);
@@ -539,16 +1153,20 @@
                 const mName = m ? m.name : '不明';
                 
                 let label = '';
+                let searchKey = '';
                 if (isDrilledDown) {
                     label = mName;
+                    searchKey = mName;
                 } else if (isCatMode) {
                     label = mCat;
+                    searchKey = mCat;
                 } else {
                     const task = this.getHistoryDisplayText(h);
                     label = `${h.date} [${mName}] ${task.length > 20 ? task.substring(0,20)+'...' : task}`;
+                    searchKey = task;
                 }
 
-                if (!map[label]) map[label] = { time: 0, workers: new Set(), troubles: {} };
+                if (!map[label]) map[label] = { time: 0, workers: new Set(), troubles: {}, searchKey };
                 map[label].time += (parseInt(h.workTime) || 0);
                 (h.workers || []).forEach(w => map[label].workers.add(w.trim()));
                 
@@ -564,6 +1182,7 @@
 
                 return {
                     label,
+                    searchKey: info.searchKey || label,
                     time: info.time,
                     workers: Array.from(info.workers).filter(Boolean).sort().join('、'),
                     topTroubles: topTroubles.join(' / ')
@@ -647,6 +1266,10 @@
             const commonOptions = {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'nearest',
+                    intersect: true
+                },
                 onClick: (evt, elements) => {
                     if (isCatMode && !isDrilledDown && elements && elements.length > 0) {
                         const index = elements[0].index;
@@ -685,7 +1308,8 @@
                         textStrokeWidth: 1,
                     },
                     tooltip: {
-                        padding: 12,
+                        enabled: false,
+                        external: (context) => this.renderWorkTimeExternalTooltip(context),
                         titleFont: { size: 13, weight: '800' },
                         bodyFont: { size: 12 },
                         backgroundColor: 'rgba(255, 255, 255, 0.96)',
@@ -748,6 +1372,7 @@
                     labels: ptBreakdown.map(x => x.label),
                     datasets: [{
                         data: ptBreakdown.map(x => x.time),
+                        searchKeys: ptBreakdown.map(x => x.searchKey),
                         backgroundColor: ptBreakdown.map((_, i) => `hsl(217, 80%, ${45 + i*5}%)`),
                         borderWidth: 1
                     }]
@@ -762,6 +1387,7 @@
                     labels: stBreakdown.map(x => x.label),
                     datasets: [{
                         data: stBreakdown.map(x => x.time),
+                        searchKeys: stBreakdown.map(x => x.searchKey),
                         backgroundColor: stBreakdown.map((_, i) => `hsl(142, 70%, ${35 + i*5}%)`),
                         borderWidth: 1
                     }]
@@ -776,6 +1402,7 @@
                     labels: npBreakdown.map(x => x.label),
                     datasets: [{
                         data: npBreakdown.map(x => x.time),
+                        searchKeys: npBreakdown.map(x => x.searchKey),
                         backgroundColor: npBreakdown.map((_, i) => `hsl(38, 85%, ${45 + i*5}%)`),
                         borderWidth: 1
                     }]
@@ -790,6 +1417,7 @@
                     labels: dtBreakdown.map(x => x.label),
                     datasets: [{
                         data: dtBreakdown.map(x => x.time),
+                        searchKeys: dtBreakdown.map(x => x.searchKey),
                         backgroundColor: dtBreakdown.map((_, i) => `hsl(0, 80%, ${45 + i*5}%)`),
                         borderWidth: 1
                     }]

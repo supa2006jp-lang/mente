@@ -113,6 +113,7 @@ class MaintenanceApp {
             { id: 'yesterday_today', label: '昨日と今日' },
             { id: 'this_month', label: '今月分' },
             { id: 'last_month', label: '先月分' },
+            { id: 'last_this_month', label: '先月と今月' },
             { id: 'this_year', label: '今期 (4月〜)' },
             { id: 'last_year', label: '前期' },
             { id: 'all', label: '全期間' },
@@ -122,7 +123,7 @@ class MaintenanceApp {
     }
 
     getPeriodLabel(pId) {
-        const labels = { today: '今日', yesterday: '昨日', yesterday_today: '昨日・今日', this_month: '今月', last_month: '先月', this_year: '今期', last_year: '前期', all: '全期間', CUSTOM: 'カスタム指定' };
+        const labels = { today: '今日', yesterday: '昨日', yesterday_today: '昨日・今日', this_month: '今月', last_month: '先月', last_this_month: '先月と今月', this_year: '今期', last_year: '前期', all: '全期間', CUSTOM: 'カスタム指定' };
         return labels[pId] || pId;
     }
 
@@ -153,6 +154,7 @@ class MaintenanceApp {
         if (period === 'yesterday_today') return history.filter(h => h.date === todayStr || h.date === yestStr);
         if (period === 'this_month') return history.filter(h => h.date && h.date.startsWith(curMonthStr));
         if (period === 'last_month') return history.filter(h => h.date && h.date.startsWith(lastMonthStr));
+        if (period === 'last_this_month') return history.filter(h => h.date && (h.date.startsWith(curMonthStr) || h.date.startsWith(lastMonthStr)));
         if (period === 'this_year') return history.filter(h => h.date && h.date >= startOfCurFY);
         if (period === 'last_year') return history.filter(h => h.date && h.date >= startOfLastFY && h.date <= endOfLastFY);
         if (period === 'CUSTOM') {
@@ -589,7 +591,7 @@ class MaintenanceApp {
         
         // Reset History View Filters
         const hPeriod = document.getElementById('hist-filter-period');
-        if (hPeriod) hPeriod.value = 'all';
+        if (hPeriod) hPeriod.value = 'last_this_month';
         const hMachine = document.getElementById('hist-filter-machine');
         if (hMachine) hMachine.value = '';
         const hLine = document.getElementById('hist-filter-line');
@@ -611,13 +613,15 @@ class MaintenanceApp {
 
         // Reset Ranking View Filter
         const rPeriod = document.getElementById('ranking-filter-period');
-        if (rPeriod) rPeriod.value = 'all';
+        if (rPeriod) rPeriod.value = 'last_this_month';
 
         // Reset Analysis/Dashboard View Filters
         const aPeriod = document.getElementById('analysis-filter-period');
-        if (aPeriod) aPeriod.value = 'all';
+        if (aPeriod) aPeriod.value = 'last_this_month';
         const dPeriod = document.getElementById('dashboard-filter-period');
         if (dPeriod) dPeriod.value = 'this_month';
+        const wtPeriod = document.getElementById('worktime-filter-period');
+        if (wtPeriod) wtPeriod.value = 'last_this_month';
 
         // Reset Guides View Filters
         const gLine = document.getElementById('guides-filter-line');
@@ -625,6 +629,8 @@ class MaintenanceApp {
 
         this.modelFilter = null;
         this.workerFilter = null;
+        this.machineCategoryFilter = null;
+        this.historyReturnContext = null;
         this.skillModelFilter = null;
         this.skillSearchQuery = '';
         this.guideTagFilter = null;
