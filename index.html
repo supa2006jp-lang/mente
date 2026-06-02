@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260601-dashboard-compact">
+    <link rel="stylesheet" href="style.css?v=20260602-placement-flash">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -218,9 +218,6 @@
                 <button class="nav-btn active" data-view="calendar">
                     <i class="fa-regular fa-calendar-days"></i> <span>カレンダー</span>
                 </button>
-                <button class="nav-btn sidebar-current-shift-link" onclick="app.openCurrentShiftNotebookFromDashboard()" title="現時刻の連絡帳へ">
-                    <i class="fa-solid fa-book-open"></i> <span>現時刻の連絡帳</span><b id="sidebar-current-shift-badge">--</b>
-                </button>
                 <button class="nav-btn" data-view="todos">
                     <i class="fa-solid fa-list-check"></i> <span>ToDoリスト</span><span id="todo-request-count-badge" class="nav-count-badge" onclick="event.stopPropagation(); app.openPendingTodoRequestPanel()" hidden>0</span>
                 </button>
@@ -398,21 +395,12 @@
                                 <button type="button" onclick="app.toggleKanbanTodoHistory(true)">過去履歴</button>
                                 <button type="button" onclick="app.openKanbanRequestDashboard()">依頼ダッシュボード</button>
                                 <button type="button" id="kt-overdue-only-btn" onclick="app.toggleKanbanOverdueOnly()">期限切れのみ</button>
-                                <select id="kt-priority-filter" class="kt-priority-filter" onchange="app.changeKanbanTodoPriorityFilter(this.value)" title="表示する優先度を選択">
-                                    <option value="all">優先度すべて</option>
-                                    <option value="high">高のみ</option>
-                                    <option value="medium">中のみ</option>
-                                    <option value="low">低のみ</option>
-                                </select>
-                                <button type="button" id="kt-density-btn" onclick="app.toggleKanbanTodoDensity()" title="カードの表示密度を切替">コンパクト</button>
                                 <button type="button" id="kt-fit-btn" class="kt-fit-btn" onclick="app.toggleKanbanTodoFit()">
                                     <i class="fa-solid fa-compress"></i> Fit
                                 </button>
                             </div>
                         </div>
                         <div id="kt-filter-banner" class="kt-filter-banner" hidden></div>
-                        <div id="kt-workload-summary" class="kt-workload-summary"></div>
-                        <div id="kt-overdue-pin" class="kt-overdue-pin" hidden></div>
                         <main class="kt-kanban">
                             <section class="kt-column kt-col-todo">
                                 <div class="kt-column-header">
@@ -433,8 +421,8 @@
                             </section>
                             <section class="kt-column kt-col-done">
                                 <div class="kt-column-header">
-                                    <div><h2 title="処理済は基本7日後に自動で過去履歴へ移動します。処理済が6件以上ある場合は、古いものから履歴へ移動して最大5件だけ残します。">TO DO 処理済 <span class="kt-rule-help" title="基本7日後に過去履歴へ移動。処理済が6件以上ある場合は古いものから履歴へ移動し、最大5件だけ残します。">?</span></h2><span id="kt-count-done">0</span></div>
-                                    <button type="button" onclick="app.toggleKanbanTodoHistory(true)">過去の履歴 <span id="kt-history-count-badge" class="kt-history-count-badge">0</span></button>
+                                    <div><h2>TO DO 処理済</h2><span id="kt-count-done">0</span></div>
+                                    <button type="button" onclick="app.toggleKanbanTodoHistory(true)">過去の履歴</button>
                                 </div>
                                 <div class="kt-task-list" id="kt-list-done" ondragover="event.preventDefault()" ondrop="app.dropKanbanTodo(event, 'done')"></div>
                             </section>
@@ -500,12 +488,11 @@
                         <label class="history-extra-filter"><input type="checkbox" id="hist-filter-parts" onchange="app.renderHistory()"> 部品あり</label>
                         <label class="history-extra-filter"><input type="checkbox" id="hist-filter-photos" onchange="app.renderHistory()"> 写真あり</label>
                         <label class="history-extra-filter"><input type="checkbox" id="hist-filter-guide" onchange="app.renderHistory()"> 手順あり</label>
-                        <div id="hist-density-mode" class="history-density-segment" title="&#23653;&#27508;&#19968;&#35239;&#12398;&#34920;&#31034;&#23494;&#24230;" role="group" aria-label="&#23653;&#27508;&#19968;&#35239;&#12398;&#34920;&#31034;&#23494;&#24230;">
-                            <button type="button" data-density-mode="standard" onclick="app.setHistoryDensityMode('standard')" title="&#20889;&#30495;&#12539;&#22411;&#24335;&#12539;&#20027;&#35201;&#24773;&#22577;&#12434;&#12496;&#12521;&#12531;&#12473;&#12424;&#12367;&#34920;&#31034;">&#27161;&#28310;</button>
-                            <button type="button" data-density-mode="detail" onclick="app.setHistoryDensityMode('detail')" title="&#21407;&#22240;&#12539;&#20966;&#32622;&#12539;&#12513;&#12514;&#12434;&#242広;&#12367;&#34920;&#31034;">&#35443;&#32048;</button>
-                            <button type="button" data-density-mode="compact" onclick="app.setHistoryDensityMode('compact')" title="&#34892;&#12398;&#39640;&#12373;&#12434;&#25233;&#12360;&#12390;&#19968;&#35239;&#24615;&#12434;&#20778;&#20808;">&#12467;&#12531;&#12497;&#12463;&#12488;</button>
-                        </div>
-                        <span id="hist-density-current-label" class="history-density-current-label">&#34920;&#31034;: &#27161;&#28310;</span>
+                        <select id="hist-density-mode" onchange="app.setHistoryDensityMode(this.value)" title="履歴一覧の表示密度">
+                            <option value="standard">標準表示</option>
+                            <option value="detail">詳細表示</option>
+                            <option value="compact">コンパクト</option>
+                        </select>
                         <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.clearHistoryFilters()">
                             <i class="fa-solid fa-filter-circle-xmark"></i> 絞り込み解除
                         </button>
@@ -576,10 +563,6 @@
                             <option value="shared">&#20849;&#36890;</option>
                         </select>
                         <input type="search" id="fiveS-filter-group" placeholder="&#12464;&#12523;&#12540;&#12503;" oninput="app.renderFiveSManagement()">
-                        <select id="fiveS-filter-assignee" onchange="app.renderFiveSManagement()">
-                            <option value="all">5S担当すべて</option>
-                            <option value="__unset__">5S担当未設定</option>
-                        </select>
                         <input type="search" id="fiveS-filter-query" placeholder="&#20869;&#23481;&#12539;&#20889;&#30495;&#12513;&#12514;" oninput="app.renderFiveSManagement()">
                         <button class="secondary-btn" onclick="app.exportFiveSManagementExcel()">
                             <i class="fa-solid fa-file-excel"></i> Excel出力
@@ -712,9 +695,18 @@
                 <section id="view-dashboard" class="view">
                     <div class="view-header" style="justify-content: space-between;">
                         <div class="title-group">
-                            <p class="subtitle">故障トレンドと異常頻度のワースト分析</p>
+                            <p class="subtitle">保全状況と注意項目をまとめて確認</p>
                         </div>
                         <div class="filter-bar" style="margin-top:0;">
+                            <span id="dashboard-layout-hint" class="dashboard-layout-hint" hidden>
+                                カードをドラッグ。幅・高さも変更できます
+                            </span>
+                            <button type="button" id="dashboard-layout-reset-btn" class="secondary-btn dashboard-layout-reset-btn" onclick="app.resetDashboardLayout()" hidden>
+                                <i class="fa-solid fa-rotate-left"></i> 初期配置へ
+                            </button>
+                            <button type="button" id="dashboard-layout-mode-btn" class="secondary-btn" onclick="app.toggleDashboardLayoutEditMode()">
+                                <i class="fa-solid fa-up-down-left-right"></i> 配置編集
+                            </button>
                         </div>
                     </div>
                     <div id="dashboard-widgets" class="dashboard-grid"></div>
@@ -900,18 +892,18 @@
     <script src="store.js"></script>
     <script src="app.js"></script>
     <script src="app-settings.js"></script>
-    <script src="app-todos.js?v=20260601-history-tools"></script>
+    <script src="app-todos.js"></script>
     <script src="app-shift-notebook-settings.js"></script>
-    <script src="app-calendar.js?v=20260601-shift-absence-visible"></script>
+    <script src="app-calendar.js"></script>
     <script src="app-calendar-details.js"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js?v=20260601-shift-absence-visible"></script>
+    <script src="app-shift-notebook-core.js"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js"></script>
     <script src="app-machines.js"></script>
     <script src="app-maintenance-forms.js"></script>
     <script src="app-history.js"></script>
-    <script src="app-analysis-dashboard.js"></script>
+    <script src="app-analysis-dashboard.js?v=20260602-placement-flash"></script>
     <script src="app-ranking-guides.js"></script>
     <script src="app-skills.js"></script>
     <script src="app-worktime.js"></script>

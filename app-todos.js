@@ -1398,14 +1398,23 @@
         const nextStatus = ['todo', 'progress', 'done'].includes(status) ? status : 'done';
         const statusLabels = { todo: '未着手', progress: '処理中', done: '処理済' };
         todo.archived = false;
+        todo.archivedAt = '';
         todo.status = nextStatus;
-        todo.completedAt = nextStatus === 'done' ? (todo.completedAt || new Date().toISOString()) : '';
+        todo.completedAt = nextStatus === 'done' ? new Date().toISOString() : '';
         todo.updatedAt = new Date().toISOString();
         this.addKanbanTodoLog(`履歴から復元（${statusLabels[nextStatus]}）: 「${todo.title || '無題'}」`);
         store.save();
         this.updateTodoRequestCountBadge();
-        this.toggleKanbanTodoHistory(true);
+        this.closeKanbanTodoModal();
+        this.switchView('todos');
+        this.kanbanTodoWorkerId = '__all__';
+        this.kanbanTodoPriorityFilter = 'all';
+        this.kanbanOverdueOnly = false;
+        localStorage.setItem('kanbanTodoWorkerId', this.kanbanTodoWorkerId);
+        localStorage.setItem('kanban_todo_priority_filter', this.kanbanTodoPriorityFilter);
+        localStorage.setItem('kanban_overdue_only', 'false');
         this.renderKanbanLocalTodos();
+        setTimeout(() => this.highlightKanbanTodoCard(id), 120);
     }
 
     openKanbanPanel(title, bodyHtml, panelClass = '') {

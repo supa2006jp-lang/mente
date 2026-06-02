@@ -280,7 +280,7 @@
             `)
         ].slice(0, 10).join('');
         return `
-            <div class="today-action-panel">
+            <div class="today-action-panel" data-dashboard-card="today">
                 <div class="today-action-head">
                     <div>
                         <h3><i class="fa-solid fa-sun"></i> 今日やること</h3>
@@ -379,12 +379,12 @@
 
         container.classList.add('dashboard-shell');
         container.style.display = 'grid';
-        container.style.gridTemplateColumns = 'repeat(12, minmax(0, 1fr))';
+        container.style.gridTemplateColumns = 'repeat(24, minmax(0, 1fr))';
         container.style.gap = '10px';
 
         container.innerHTML = `
             ${this.getTodayActionPanelHtml()}
-            <div class="dashboard-alert-strip">
+            <div class="dashboard-alert-strip" data-dashboard-card="alerts">
                 <div>
                     <b><i class="fa-solid fa-bell"></i> 重要アラート</b>
                     <span>${alertItems.length ? '確認が必要な項目があります' : '現在、大きな注意項目はありません'}</span>
@@ -396,7 +396,7 @@
                 </div>
             </div>
 
-            <div class="dashboard-flow-panel">
+            <div class="dashboard-flow-panel" data-dashboard-card="flow">
                 <div class="dashboard-flow-head">
                     <h4><i class="fa-solid fa-route"></i> 5S / ToDo / 連絡帳の流れ</h4>
                     <span class="dashboard-period-chip">今日・今月</span>
@@ -420,7 +420,7 @@
                 </div>
             </div>
 
-            <div class="card dashboard-card dashboard-recent-card" style="grid-column: 1 / 8; margin-bottom: 0;">
+            <div class="card dashboard-card dashboard-recent-card" data-dashboard-card="recent" style="margin-bottom: 0;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid var(--border); padding-bottom:6px;">
                     <h4 style="margin:0; color:var(--text-main);"><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary); margin-right:8px;"></i>直近の活動（今日・昨日）</h4>
                     <span class="badge" style="background:var(--primary-light); color:var(--primary);">${recentHistory.length}件</span>
@@ -467,7 +467,7 @@
                 </div>
             </div>
 
-            <div class="dashboard-section dashboard-time-section" style="grid-column: 1 / 5;">
+            <div class="dashboard-section dashboard-time-section" data-dashboard-card="time">
                 <div class="dashboard-section-head">
                     <h4><i class="fa-solid fa-calculator"></i> メンテ時間 集計</h4>
                     <div class="dashboard-period-control">
@@ -507,7 +507,7 @@
                 </div>
             </div>
 
-            <div class="card dashboard-card dashboard-chart-card" style="display:flex; flex-direction:column; align-items:center; justify-content:center; grid-column: 5 / 9; min-height: 220px; padding-top: 12px;">
+            <div class="card dashboard-card dashboard-chart-card" data-dashboard-card="chart" style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height: 220px; padding-top: 12px;">
                 <div style="width:100%; display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <h4 style="margin:0;">時間・内容内訳 (%)</h4>
                     <div style="display:flex; align-items:center; gap:8px;"><span class="dashboard-period-chip">${this.escapeHtml(periodLabel)}</span><div style="font-size:0.75rem; font-weight:800; color:var(--text-light)">合計: ${totalTime}分</div></div>
@@ -523,7 +523,7 @@
                 </div>
             </div>
 
-            <div class="card dashboard-card dashboard-alert-card" style="grid-column: 8 / 13; display:flex; flex-direction:column; border-top: 4px solid var(--primary); padding:12px;">
+            <div class="card dashboard-card dashboard-alert-card" data-dashboard-card="stock" style="display:flex; flex-direction:column; border-top: 4px solid var(--primary); padding:12px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <h4 style="margin:0; border:none; padding-left:0; font-weight:900;"><i class="fa-solid fa-box-open" style="color:var(--primary); margin-right:8px;"></i>部品在庫アラート</h4>
                     <span class="badge" style="background:var(--danger-light); color:var(--danger);">${lowStockParts.length}件</span>
@@ -571,7 +571,7 @@
                 </div>
             </div>
 
-            <div class="card dashboard-card dashboard-counter-card" style="grid-column: 1 / 5; padding: 12px; background: white; border-top: 4px solid var(--danger); display:flex; flex-direction:column;">
+            <div class="card dashboard-card dashboard-counter-card" data-dashboard-card="counter" style="padding: 12px; background: white; border-top: 4px solid var(--danger); display:flex; flex-direction:column;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <h4 style="margin:0; font-weight:900; color:var(--text-main);">
                         <i class="fa-solid fa-stopwatch" style="color:var(--danger); margin-right:8px;"></i>
@@ -608,7 +608,7 @@
                 </div>
             </div>
 
-            <div class="card dashboard-card dashboard-worst-card" style="grid-column: 5 / 13; display:flex; flex-direction:column;">
+            <div class="card dashboard-card dashboard-worst-card" data-dashboard-card="worst" style="display:flex; flex-direction:column;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <h4 style="margin:0; border-left:4px solid var(--danger); padding-left:8px;">直近3ヶ月のドカ停ワースト履歴（修理時間順）</h4>
                     <span class="badge badge-dokatei" style="background:#fee2e2; color:#b91c1c;">${dokateis3M.length}件</span>
@@ -662,6 +662,7 @@
                 </div>
             </div>
         `;
+        this.setupDashboardCardOrdering();
 
         if (totalTime > 0) {
             setTimeout(() => {
@@ -704,7 +705,666 @@
             }, 100);
         }
     }
-    
+
+    getDashboardCardDefaultOrder() {
+        return ['today', 'alerts', 'flow', 'recent', 'time', 'chart', 'stock', 'counter', 'worst'];
+    }
+
+    getDashboardCardDefaultSizes() {
+        return {
+            today: 'l',
+            alerts: 'm',
+            flow: 'm',
+            recent: 'l',
+            time: 'm',
+            chart: 'm',
+            stock: 'm',
+            counter: 'm',
+            worst: 'xl'
+        };
+    }
+
+    getDashboardCardDefaultHeights() {
+        return {
+            today: 'auto',
+            alerts: 'low',
+            flow: 'low',
+            recent: 'auto',
+            time: 'auto',
+            chart: 'auto',
+            stock: 'auto',
+            counter: 'auto',
+            worst: 'auto'
+        };
+    }
+
+    getDashboardCardColumnSpan(size) {
+        return ({ s: 6, m: 8, l: 12, xl: 16 })[size] || 8;
+    }
+
+    getDashboardGridColumns() {
+        return 24;
+    }
+
+    getDashboardGridRowHeight() {
+        return 20;
+    }
+
+    getDashboardMaxGridRow() {
+        return 48;
+    }
+
+    getDashboardCardOrder() {
+        const defaults = this.getDashboardCardDefaultOrder();
+        let saved = [];
+        try {
+            saved = JSON.parse(localStorage.getItem('dashboard_card_order') || '[]');
+        } catch {
+            saved = [];
+        }
+        const clean = saved.filter(key => defaults.includes(key));
+        return [...clean, ...defaults.filter(key => !clean.includes(key))];
+    }
+
+    getDashboardCardSizes() {
+        const defaults = this.getDashboardCardDefaultSizes();
+        let saved = {};
+        try {
+            saved = JSON.parse(localStorage.getItem('dashboard_card_sizes') || '{}') || {};
+        } catch {
+            saved = {};
+        }
+        const allowed = ['s', 'm', 'l', 'xl'];
+        return Object.fromEntries(Object.keys(defaults).map(key => {
+            const size = allowed.includes(saved[key]) ? saved[key] : defaults[key];
+            return [key, size];
+        }));
+    }
+
+    getDashboardCardHeights() {
+        const defaults = this.getDashboardCardDefaultHeights();
+        let saved = {};
+        try {
+            saved = JSON.parse(localStorage.getItem('dashboard_card_heights') || '{}') || {};
+        } catch {
+            saved = {};
+        }
+        const allowed = ['low', 'auto', 'high'];
+        return Object.fromEntries(Object.keys(defaults).map(key => {
+            const height = allowed.includes(saved[key]) ? saved[key] : defaults[key];
+            return [key, height];
+        }));
+    }
+
+    isDashboardLayoutEditMode() {
+        return localStorage.getItem('dashboard_layout_edit_mode') === 'true';
+    }
+
+    toggleDashboardLayoutEditMode() {
+        localStorage.setItem('dashboard_layout_edit_mode', this.isDashboardLayoutEditMode() ? 'false' : 'true');
+        this.renderDashboard();
+    }
+
+    resetDashboardLayout() {
+        if (!confirm('ダッシュボードの配置・幅・高さを初期状態に戻しますか？')) return;
+        localStorage.removeItem('dashboard_card_layout');
+        localStorage.removeItem('dashboard_card_sizes');
+        localStorage.removeItem('dashboard_card_heights');
+        localStorage.removeItem('dashboard_card_order');
+        this.renderDashboard();
+        this.showToast?.('ダッシュボード配置を初期化しました');
+    }
+
+    updateDashboardLayoutModeButton() {
+        const button = document.getElementById('dashboard-layout-mode-btn');
+        const resetButton = document.getElementById('dashboard-layout-reset-btn');
+        const hint = document.getElementById('dashboard-layout-hint');
+        if (!button) return;
+        const active = this.isDashboardLayoutEditMode();
+        button.classList.toggle('active-toggle', active);
+        button.innerHTML = active
+            ? '<i class="fa-solid fa-check"></i> 配置編集中'
+            : '<i class="fa-solid fa-up-down-left-right"></i> 配置編集';
+        button.title = active ? '配置編集を終了' : 'カードの配置・幅・高さを編集';
+        if (resetButton) resetButton.hidden = !active;
+        if (hint) hint.hidden = !active;
+    }
+
+    getDashboardCardLayout() {
+        let saved = {};
+        try {
+            saved = JSON.parse(localStorage.getItem('dashboard_card_layout') || '{}') || {};
+        } catch {
+            saved = {};
+        }
+        const defaults = this.getDashboardCardDefaultOrder();
+        const cleaned = {};
+        defaults.forEach(key => {
+            const item = saved[key];
+            if (!item) return;
+            const col = Number(item.col);
+            const row = Number(item.row);
+            if (!Number.isFinite(col) || !Number.isFinite(row)) return;
+            cleaned[key] = {
+                col: Math.max(1, Math.min(this.getDashboardGridColumns(), col)),
+                row: Math.max(1, Math.min(this.getDashboardMaxGridRow(), row))
+            };
+        });
+        return cleaned;
+    }
+
+    saveDashboardCardLayout(layout) {
+        localStorage.setItem('dashboard_card_layout', JSON.stringify(layout || {}));
+    }
+
+    setupDashboardCardOrdering() {
+        const container = document.getElementById('dashboard-widgets');
+        if (!container) return;
+        const order = this.getDashboardCardOrder();
+        const sizes = this.getDashboardCardSizes();
+        const heights = this.getDashboardCardHeights();
+        const layout = this.getDashboardCardLayout();
+        const editMode = this.isDashboardLayoutEditMode();
+        const cards = Array.from(container.querySelectorAll('[data-dashboard-card]'));
+        container.classList.toggle('dashboard-edit-mode', editMode);
+        container.ondragover = event => this.handleDashboardContainerDragOver(event);
+        container.ondrop = event => this.handleDashboardContainerDrop(event);
+        const dashboardView = document.getElementById('view-dashboard');
+        if (dashboardView) {
+            dashboardView.ondragover = event => this.handleDashboardContainerDragOver(event);
+            dashboardView.ondrop = event => this.handleDashboardContainerDrop(event);
+        }
+        cards.forEach(card => {
+            const key = card.dataset.dashboardCard || '';
+            card.style.order = String(Math.max(0, order.indexOf(key)));
+            card.dataset.dashboardSize = sizes[key] || 'm';
+            card.dataset.dashboardHeight = heights[key] || 'auto';
+            this.applyDashboardCardGridPlacement(card, key, sizes[key] || 'm', layout[key]);
+            card.draggable = false;
+            card.title = card.title || 'ドラッグで表示順を変更。右上の幅ボタンでサイズ変更できます';
+            card.classList.add('dashboard-reorderable');
+            this.addDashboardCardSizeControl(card, key, sizes[key] || 'm');
+            this.addDashboardCardHeightControl(card, key, heights[key] || 'auto');
+            card.onpointerdown = event => this.startDashboardCardPointerDrag(event);
+            card.addEventListener('click', event => {
+                if (this._dashboardSuppressClickUntil && Date.now() < this._dashboardSuppressClickUntil) {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                }
+            }, true);
+        });
+        this.updateDashboardLayoutModeButton();
+        this.scheduleDashboardCardRowSpans();
+    }
+
+    applyDashboardCardGridPlacement(card, key, size, placement) {
+        const span = this.getDashboardCardColumnSpan(size);
+        card.style.gridColumnStart = '';
+        card.style.gridColumnEnd = `span ${span}`;
+        card.style.gridRowStart = '';
+        card.style.gridRowEnd = '';
+        if (!placement || !Number.isFinite(Number(placement.col)) || !Number.isFinite(Number(placement.row))) return;
+        const maxCol = this.getDashboardGridColumns() + 1 - span;
+        const col = Math.max(1, Math.min(maxCol, Number(placement.col)));
+        const row = Math.max(1, Math.min(this.getDashboardMaxGridRow(), Number(placement.row)));
+        card.style.gridColumnStart = String(col);
+        card.style.gridColumnEnd = `span ${span}`;
+        card.style.gridRowStart = String(row);
+    }
+
+    scheduleDashboardCardRowSpans() {
+        requestAnimationFrame(() => this.updateDashboardCardRowSpans());
+    }
+
+    updateDashboardCardRowSpans() {
+        const container = document.getElementById('dashboard-widgets');
+        if (!container) return;
+        const rowHeight = this.getDashboardGridRowHeight();
+        const gap = Number.parseFloat(getComputedStyle(container).rowGap || '10') || 10;
+        Array.from(container.querySelectorAll('[data-dashboard-card]')).forEach(card => {
+            const span = Math.max(4, Math.ceil((card.offsetHeight + gap) / (rowHeight + gap)));
+            card.style.gridRowEnd = `span ${span}`;
+        });
+    }
+
+    addDashboardCardSizeControl(card, key, currentSize) {
+        if (!key || card.querySelector('.dashboard-size-control')) return;
+        const labels = [
+            ['s', '小'],
+            ['m', '中'],
+            ['l', '大'],
+            ['xl', '特大']
+        ];
+        const control = document.createElement('div');
+        control.className = 'dashboard-size-control';
+        control.setAttribute('aria-label', 'カード幅変更');
+        control.innerHTML = '<span>幅</span>' + labels.map(([size, label]) => (
+            `<button type="button" class="${size === currentSize ? 'active' : ''}" data-size="${size}" title="幅を${label}にする">${label}</button>`
+        )).join('');
+        control.addEventListener('click', event => {
+            event.stopPropagation();
+            const button = event.target.closest('button[data-size]');
+            if (!button) return;
+            this.setDashboardCardSize(key, button.dataset.size);
+        });
+        card.appendChild(control);
+    }
+
+    addDashboardCardHeightControl(card, key, currentHeight) {
+        if (!key || card.querySelector('.dashboard-height-control')) return;
+        const labels = [
+            ['low', '低'],
+            ['auto', '標'],
+            ['high', '高']
+        ];
+        const control = document.createElement('div');
+        control.className = 'dashboard-height-control';
+        control.setAttribute('aria-label', 'カード高さ変更');
+        control.innerHTML = '<span>高</span>' + labels.map(([height, label]) => (
+            `<button type="button" class="${height === currentHeight ? 'active' : ''}" data-height="${height}" title="高さを${label}にする">${label}</button>`
+        )).join('');
+        control.addEventListener('click', event => {
+            event.stopPropagation();
+            const button = event.target.closest('button[data-height]');
+            if (!button) return;
+            this.setDashboardCardHeight(key, button.dataset.height);
+        });
+        card.appendChild(control);
+    }
+
+    setDashboardCardSize(key, size) {
+        if (!key || !['s', 'm', 'l', 'xl'].includes(size)) return;
+        const sizes = this.getDashboardCardSizes();
+        sizes[key] = size;
+        localStorage.setItem('dashboard_card_sizes', JSON.stringify(sizes));
+        const layout = this.getDashboardCardLayout();
+        if (layout[key]) {
+            const span = this.getDashboardCardColumnSpan(size);
+            layout[key].col = Math.max(1, Math.min(this.getDashboardGridColumns() + 1 - span, Number(layout[key].col) || 1));
+            this.saveDashboardCardLayout(layout);
+        }
+        this.renderDashboard();
+        this.showToast?.('カード幅を保存しました');
+    }
+
+    setDashboardCardHeight(key, height) {
+        if (!key || !['low', 'auto', 'high'].includes(height)) return;
+        const heights = this.getDashboardCardHeights();
+        heights[key] = height;
+        localStorage.setItem('dashboard_card_heights', JSON.stringify(heights));
+        this.renderDashboard();
+        this.showToast?.('カード高さを保存しました');
+    }
+
+    flashDashboardAdjustedCard(key) {
+        if (!key) return;
+        requestAnimationFrame(() => {
+            const card = document.querySelector(`[data-dashboard-card="${CSS.escape(key)}"]`);
+            if (!card) return;
+            card.classList.remove('dashboard-placement-flash');
+            void card.offsetWidth;
+            card.classList.add('dashboard-placement-flash');
+            setTimeout(() => card.classList.remove('dashboard-placement-flash'), 1400);
+        });
+    }
+
+    startDashboardCardPointerDrag(event) {
+        if (event.button !== 0 || event.target?.closest?.('button, input, select, textarea, a, canvas, .dashboard-size-control, .dashboard-height-control')) {
+            return;
+        }
+        if (!this.isDashboardLayoutEditMode()) return;
+        const card = event.currentTarget;
+        const key = card?.dataset?.dashboardCard || '';
+        if (!key) return;
+        const rect = card.getBoundingClientRect();
+        this._dashboardPointerDrag = {
+            card,
+            key,
+            startX: event.clientX,
+            startY: event.clientY,
+            offsetX: Math.max(0, event.clientX - rect.left),
+            offsetY: Math.max(0, event.clientY - rect.top),
+            active: false
+        };
+        this._dashboardPointerMoveHandler = this._dashboardPointerMoveHandler || (moveEvent => this.handleDashboardCardPointerMove(moveEvent));
+        this._dashboardPointerUpHandler = this._dashboardPointerUpHandler || (upEvent => this.handleDashboardCardPointerUp(upEvent));
+        document.addEventListener('pointermove', this._dashboardPointerMoveHandler);
+        document.addEventListener('pointerup', this._dashboardPointerUpHandler, { once: true });
+        document.addEventListener('pointercancel', this._dashboardPointerUpHandler, { once: true });
+    }
+
+    beginDashboardCardPointerDrag(event) {
+        const state = this._dashboardPointerDrag;
+        if (!state || state.active) return;
+        state.active = true;
+        this._draggingDashboardCard = state.key;
+        this._dashboardDropHandled = false;
+        this._dashboardDragOffset = { x: state.offsetX, y: state.offsetY };
+        state.card.classList.add('dragging');
+        document.getElementById('dashboard-widgets')?.classList.add('dashboard-drag-active');
+        const rect = state.card.getBoundingClientRect();
+        const ghost = state.card.cloneNode(true);
+        ghost.classList.add('dashboard-drag-ghost');
+        ghost.removeAttribute('id');
+        ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+        ghost.style.width = `${rect.width}px`;
+        ghost.style.height = `${rect.height}px`;
+        document.body.appendChild(ghost);
+        this._dashboardDragGhost = ghost;
+        this.moveDashboardDragGhost(event);
+    }
+
+    moveDashboardDragGhost(event) {
+        const state = this._dashboardPointerDrag;
+        const ghost = this._dashboardDragGhost;
+        if (!state || !ghost) return;
+        const left = event.clientX - state.offsetX;
+        const top = event.clientY - state.offsetY;
+        ghost.style.left = `${left}px`;
+        ghost.style.top = `${top}px`;
+        this.updateDashboardSnapGuide();
+        const container = document.getElementById('dashboard-widgets');
+        if (container) {
+            const containerRect = container.getBoundingClientRect();
+            const bottom = top - containerRect.top + container.scrollTop + ghost.offsetHeight + 24;
+            if (bottom > container.offsetHeight) {
+                container.style.minHeight = `${Math.ceil(bottom)}px`;
+            }
+        }
+    }
+
+    getDashboardGridMetrics() {
+        const container = document.getElementById('dashboard-widgets');
+        if (!container) return null;
+        const rect = container.getBoundingClientRect();
+        const gap = Number.parseFloat(getComputedStyle(container).columnGap || '10') || 10;
+        const columns = this.getDashboardGridColumns();
+        const colWidth = (rect.width - gap * (columns - 1)) / columns;
+        return { container, rect, gap, columns, colWidth, rowHeight: this.getDashboardGridRowHeight() };
+    }
+
+    ensureDashboardSnapGuide() {
+        const container = document.getElementById('dashboard-widgets');
+        if (!container) return null;
+        let guide = container.querySelector('.dashboard-snap-guide');
+        if (!guide) {
+            guide = document.createElement('div');
+            guide.className = 'dashboard-snap-guide';
+            container.appendChild(guide);
+        }
+        return guide;
+    }
+
+    updateDashboardSnapGuide() {
+        const state = this._dashboardPointerDrag;
+        const ghost = this._dashboardDragGhost;
+        const metrics = this.getDashboardGridMetrics();
+        const guide = this.ensureDashboardSnapGuide();
+        if (!state || !ghost || !metrics || !guide) return;
+        const size = this.getDashboardCardSizes()[state.key] || 'm';
+        const span = this.getDashboardCardColumnSpan(size);
+        const ghostRect = ghost.getBoundingClientRect();
+        const localX = ghostRect.left - metrics.rect.left + metrics.container.scrollLeft;
+        const localY = ghostRect.top - metrics.rect.top + metrics.container.scrollTop;
+        const pos = this.getDashboardGridPositionFromLocalPoint(localX, localY, size);
+        if (!pos) return;
+        const guideHeight = Math.max(56, ghost.offsetHeight || 80);
+        const blocked = this.isDashboardPlacementOverlapping(pos, size, guideHeight, state.key);
+        state.blocked = blocked;
+        guide.style.display = 'block';
+        guide.classList.toggle('blocked', blocked);
+        guide.style.left = `${(pos.col - 1) * (metrics.colWidth + metrics.gap)}px`;
+        guide.style.top = `${(pos.row - 1) * (metrics.rowHeight + metrics.gap)}px`;
+        guide.style.width = `${metrics.colWidth * span + metrics.gap * (span - 1)}px`;
+        guide.style.height = `${guideHeight}px`;
+    }
+
+    handleDashboardCardPointerMove(event) {
+        const state = this._dashboardPointerDrag;
+        if (!state) return;
+        const distance = Math.hypot(event.clientX - state.startX, event.clientY - state.startY);
+        if (!state.active && distance < 2) return;
+        if (!state.active) this.beginDashboardCardPointerDrag(event);
+        this.moveDashboardDragGhost(event);
+        event.preventDefault();
+    }
+
+    handleDashboardCardPointerUp(event) {
+        document.removeEventListener('pointermove', this._dashboardPointerMoveHandler);
+        document.removeEventListener('pointercancel', this._dashboardPointerUpHandler);
+        const state = this._dashboardPointerDrag;
+        if (!state) return;
+        if (state.active) {
+            const saved = this.saveDashboardCardPositionFromGhost(state.key);
+            this._dashboardSuppressClickUntil = Date.now() + 350;
+            this.finishDashboardCardDrag();
+            if (saved) {
+                const adjusted = this._dashboardPlacementAdjusted;
+                this._dashboardPlacementAdjusted = false;
+                this.renderDashboard();
+                if (adjusted) this.flashDashboardAdjustedCard(state.key);
+                this.showToast?.(adjusted ? '重ならない近くの空き位置へ配置しました' : 'カード位置を保存しました');
+            } else {
+                this.showToast?.('他のカードと重なるため置けません');
+            }
+            event.preventDefault();
+        }
+        this._dashboardPointerDrag = null;
+    }
+
+    startDashboardCardDrag(event) {
+        if (event.target?.closest?.('button, input, select, textarea, a, canvas, .dashboard-size-control')) {
+            event.preventDefault();
+            return;
+        }
+        const card = event.currentTarget;
+        this._draggingDashboardCard = card?.dataset?.dashboardCard || '';
+        this._dashboardDropHandled = false;
+        const rect = card.getBoundingClientRect();
+        this._dashboardDragOffset = {
+            x: Math.max(0, event.clientX - rect.left),
+            y: Math.max(0, event.clientY - rect.top)
+        };
+        card?.classList.add('dragging');
+        document.getElementById('dashboard-widgets')?.classList.add('dashboard-drag-active');
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', this._draggingDashboardCard);
+            event.dataTransfer.setDragImage(card, this._dashboardDragOffset.x, this._dashboardDragOffset.y);
+        }
+    }
+
+    handleDashboardCardDragOver(event) {
+        if (!this._draggingDashboardCard) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    }
+
+    handleDashboardCardDragLeave(event) {
+        event.currentTarget?.classList.remove('drag-over');
+    }
+
+    handleDashboardContainerDragOver(event) {
+        if (!this._draggingDashboardCard) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    }
+
+    getDashboardDropGridPosition(event, size) {
+        const container = document.getElementById('dashboard-widgets');
+        if (!container) return null;
+        const rect = container.getBoundingClientRect();
+        const gap = Number.parseFloat(getComputedStyle(container).columnGap || '10') || 10;
+        const span = this.getDashboardCardColumnSpan(size);
+        const columns = this.getDashboardGridColumns();
+        const colWidth = (rect.width - gap * (columns - 1)) / columns;
+        const offset = this._dashboardDragOffset || { x: 0, y: 0 };
+        const x = Math.max(0, event.clientX - rect.left + container.scrollLeft - offset.x);
+        const y = Math.max(0, event.clientY - rect.top + container.scrollTop - offset.y);
+        const col = Math.max(1, Math.min(columns + 1 - span, Math.floor(x / (colWidth + gap)) + 1));
+        const rowHeight = this.getDashboardGridRowHeight();
+        const row = Math.max(1, Math.min(this.getDashboardMaxGridRow(), Math.floor(y / (rowHeight + gap)) + 1));
+        return { col, row, span, colWidth, gap };
+    }
+
+    getDashboardGridPositionFromLocalPoint(x, y, size) {
+        const container = document.getElementById('dashboard-widgets');
+        if (!container) return null;
+        const gap = Number.parseFloat(getComputedStyle(container).columnGap || '10') || 10;
+        const span = this.getDashboardCardColumnSpan(size);
+        const columns = this.getDashboardGridColumns();
+        const colWidth = (container.getBoundingClientRect().width - gap * (columns - 1)) / columns;
+        const col = Math.max(1, Math.min(columns + 1 - span, Math.floor(Math.max(0, x) / (colWidth + gap)) + 1));
+        const rowHeight = this.getDashboardGridRowHeight();
+        const row = Math.max(1, Math.min(this.getDashboardMaxGridRow(), Math.floor(Math.max(0, y) / (rowHeight + gap)) + 1));
+        return { col, row };
+    }
+
+    getDashboardPlacementPixelRect(pos, size, height) {
+        const metrics = this.getDashboardGridMetrics();
+        if (!metrics || !pos) return null;
+        const span = this.getDashboardCardColumnSpan(size);
+        return {
+            left: (pos.col - 1) * (metrics.colWidth + metrics.gap),
+            top: (pos.row - 1) * (metrics.rowHeight + metrics.gap),
+            width: metrics.colWidth * span + metrics.gap * (span - 1),
+            height: Math.max(56, height || 80)
+        };
+    }
+
+    dashboardRectsOverlap(a, b) {
+        const overlapX = Math.max(0, Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left));
+        const overlapY = Math.max(0, Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top));
+        return overlapX > 8 && overlapY > 8;
+    }
+
+    isDashboardPlacementOverlapping(pos, size, height, from) {
+        const container = document.getElementById('dashboard-widgets');
+        const metrics = this.getDashboardGridMetrics();
+        const target = this.getDashboardPlacementPixelRect(pos, size, height);
+        if (!container || !metrics || !target) return false;
+        return Array.from(container.querySelectorAll('[data-dashboard-card]')).some(card => {
+            if (card.dataset.dashboardCard === from) return false;
+            const rect = card.getBoundingClientRect();
+            const other = {
+                left: rect.left - metrics.rect.left + container.scrollLeft,
+                top: rect.top - metrics.rect.top + container.scrollTop,
+                width: rect.width,
+                height: rect.height
+            };
+            return this.dashboardRectsOverlap(target, other);
+        });
+    }
+
+    findNearestDashboardOpenPlacement(pos, size, height, from) {
+        if (!pos) return null;
+        const span = this.getDashboardCardColumnSpan(size);
+        const maxCol = this.getDashboardGridColumns() + 1 - span;
+        const maxRow = this.getDashboardMaxGridRow();
+        const start = {
+            col: Math.max(1, Math.min(maxCol, Number(pos.col) || 1)),
+            row: Math.max(1, Math.min(maxRow, Number(pos.row) || 1))
+        };
+        if (!this.isDashboardPlacementOverlapping(start, size, height, from)) {
+            return { ...start, adjusted: false };
+        }
+        const candidates = [];
+        for (let row = 1; row <= maxRow; row += 1) {
+            for (let col = 1; col <= maxCol; col += 1) {
+                const candidate = { col, row };
+                if (this.isDashboardPlacementOverlapping(candidate, size, height, from)) continue;
+                const dx = col - start.col;
+                const dy = row - start.row;
+                candidates.push({
+                    ...candidate,
+                    adjusted: true,
+                    score: dx * dx + dy * dy * 1.15 + Math.abs(dx) * 0.08 + Math.abs(dy) * 0.12
+                });
+            }
+        }
+        candidates.sort((a, b) => a.score - b.score || a.row - b.row || a.col - b.col);
+        return candidates[0] || null;
+    }
+
+    saveDashboardCardPositionFromGhost(from) {
+        const container = document.getElementById('dashboard-widgets');
+        const ghost = this._dashboardDragGhost;
+        this._dashboardPlacementAdjusted = false;
+        if (!from || !container || !ghost) return false;
+        const containerRect = container.getBoundingClientRect();
+        const ghostRect = ghost.getBoundingClientRect();
+        const size = this.getDashboardCardSizes()[from] || 'm';
+        const localX = ghostRect.left - containerRect.left + container.scrollLeft;
+        const localY = ghostRect.top - containerRect.top + container.scrollTop;
+        const pos = this.getDashboardGridPositionFromLocalPoint(localX, localY, size);
+        if (!pos) return false;
+        const openPos = this.findNearestDashboardOpenPlacement(pos, size, ghostRect.height, from);
+        if (!openPos) return false;
+        this._dashboardPlacementAdjusted = !!openPos.adjusted;
+        const layout = this.getDashboardCardLayout();
+        layout[from] = { col: openPos.col, row: openPos.row };
+        this.saveDashboardCardLayout(layout);
+        return true;
+    }
+
+    saveDashboardCardPositionFromEvent(event, from) {
+        const container = document.getElementById('dashboard-widgets');
+        this._dashboardPlacementAdjusted = false;
+        if (!from || !container || !event || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return false;
+        if (event.clientX <= 0 && event.clientY <= 0) return false;
+        const dragging = container.querySelector(`[data-dashboard-card="${from}"]`);
+        const size = dragging?.dataset.dashboardSize || this.getDashboardCardSizes()[from] || 'm';
+        const pos = this.getDashboardDropGridPosition(event, size);
+        if (!pos) return false;
+        const openPos = this.findNearestDashboardOpenPlacement(pos, size, dragging?.offsetHeight || 80, from);
+        if (!openPos) return false;
+        this._dashboardPlacementAdjusted = !!openPos.adjusted;
+        const layout = this.getDashboardCardLayout();
+        layout[from] = { col: openPos.col, row: openPos.row };
+        this.saveDashboardCardLayout(layout);
+        return true;
+    }
+
+    handleDashboardContainerDrop(event) {
+        event.preventDefault();
+        const from = this._draggingDashboardCard || event.dataTransfer?.getData('text/plain') || '';
+        if (!from) return;
+        this._dashboardDropHandled = this.saveDashboardCardPositionFromEvent(event, from);
+        this.finishDashboardCardDrag();
+        this.renderDashboard();
+        const adjusted = this._dashboardPlacementAdjusted;
+        this._dashboardPlacementAdjusted = false;
+        if (adjusted) this.flashDashboardAdjustedCard(from);
+        this.showToast?.(adjusted ? '重ならない近くの空き位置へ配置しました' : 'カード位置を保存しました');
+    }
+
+    handleDashboardCardDragEnd(event) {
+        const from = this._draggingDashboardCard;
+        if (from && !this._dashboardDropHandled && this.saveDashboardCardPositionFromEvent(event, from)) {
+            this.finishDashboardCardDrag();
+            this.renderDashboard();
+            const adjusted = this._dashboardPlacementAdjusted;
+            this._dashboardPlacementAdjusted = false;
+            if (adjusted) this.flashDashboardAdjustedCard(from);
+            this.showToast?.(adjusted ? '重ならない近くの空き位置へ配置しました' : 'カード位置を保存しました');
+            return;
+        }
+        this.finishDashboardCardDrag();
+    }
+
+    finishDashboardCardDrag() {
+        this._draggingDashboardCard = '';
+        this._dashboardDragOffset = null;
+        this._dashboardDropHandled = false;
+        this._dashboardDragGhost?.remove();
+        this._dashboardDragGhost = null;
+        document.querySelector('.dashboard-snap-guide')?.remove();
+        document.getElementById('dashboard-widgets')?.classList.remove('dashboard-drag-active');
+        document.querySelectorAll('.dashboard-reorderable.dragging, .dashboard-reorderable.drag-over').forEach(el => {
+            el.classList.remove('dragging', 'drag-over');
+        });
+    }
+
     addDokateiCounter() {
         if (!store.activeData.dokateiCounters) store.activeData.dokateiCounters = [];
         store.activeData.dokateiCounters.push({ location: '', lastDate: '' });
