@@ -693,6 +693,7 @@
                             </button>
                             <div style="font-size:0.65rem; color:var(--text-light); text-align:center; margin-top:4px;">※症状/原因/処置/作業者/部品を自動入力します</div>
                         </div>
+                        <div id="s-history-assist-panel"></div>
                     </div>
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
@@ -751,7 +752,7 @@
 
                     <div class="form-group">
                         <label>症状・故障内容 <span style="color:var(--danger)">*</span></label>
-                        <textarea id="s-content" class="sudden-detail-textarea" rows="6" placeholder="どのような異常が発生したか記入してください" required></textarea>
+                        <textarea id="s-content" class="sudden-detail-textarea" rows="6" placeholder="どのような異常が発生したか記入してください" required oninput="app.updateHistorySmartAssist('s-', false)"></textarea>
                         <div id="s-content-suggestions" class="suggestion-area"></div>
                     </div>
 
@@ -937,12 +938,157 @@
         }
     }
 
+    getHistoryAssistCandidates(machineId, symptomText = '', currentId = '') {
+        if (!machineId || machineId === 'NEW_MACHINE') return { candidates: [], recurrence: null };
+        const machines = store.getMachines(true);
+        const machine = machines.find(m => String(m.id) === String(machineId));
+        const model = MaintenanceApp.toHalfWidthLower(machine?.model || '');
+        const normalize = (value = '') => MaintenanceApp.toHalfWidthLower(String(value || '')).replace(/\s+/g, ' ').trim();
+        const symptom = normalize(symptomText);
+        const terms = symptom.split(/[、。・,.\s\[\]（）()]+/).filter(word => word.length >= 2);
+        const troubleHistory = (store.activeData.history || [])
+            .filter(h => String(h.id) !== String(currentId))
+            .filter(h => !h.isManualGuide)
+            .filter(h => !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden)
+            .map(h => {
+                const m = machines.find(mm => String(mm.id) === String(h.machineId));
+                const text = normalize(`${this.getHistoryDisplayText(h)} ${h.errorContent || ''} ${h.cause || ''} ${h.notes || ''} ${h.errorNo || ''}`);
+                const sameMachine = String(h.machineId) === String(machineId);
+                const sameModel = model && MaintenanceApp.toHalfWidthLower(m?.model || '') === model;
+                let score = sameMachine ? 45 : (sameModel ? 24 : 0);
+                if (symptom && normalize(this.getHistoryDisplayText(h)) === symptom) score += 50;
+                if (symptom && text.includes(symptom)) score += 28;
+                const hitCount = terms.filter(term => text.includes(term)).length;
+                score += hitCount * 10;
+                if (h.isFirstTime === false) score += 8;
+                if (h.guide && !store.isGuideArchived?.(h.id)) score += 6;
+                if (h.date) {
+                    const days = (Date.now() - new Date(h.date).getTime()) / 86400000;
+                    if (Number.isFinite(days) && days <= 90) score += 6;
+                }
+                return { history: h, machine: m, score, sameMachine, sameModel, hitCount };
+            })
+            .filter(item => item.score > 0)
+            .sort((a, b) => b.score - a.score || (b.history.date || '').localeCompare(a.history.date || ''));
+
+        const recurrenceSource = symptom
+            ? troubleHistory.filter(item => item.sameMachine && (normalize(this.getHistoryDisplayText(item.history)) === symptom || normalize(item.history.errorContent || '').includes(symptom) || item.hitCount > 0))
+            : troubleHistory.filter(item => item.sameMachine);
+        const recurrenceItems = recurrenceSource.slice(0, 8);
+        const recurrence = recurrenceItems.length >= 2 ? {
+            count: recurrenceItems.length,
+            latest: recurrenceItems[0],
+            first: recurrenceItems[recurrenceItems.length - 1],
+            totalTime: recurrenceItems.reduce((sum, item) => sum + (parseInt(item.history.workTime, 10) || 0), 0)
+        } : null;
+
+        return { candidates: troubleHistory.slice(0, 5), recurrence };
+    }
+
+    getHistoryAssistHtml(prefix, machineId, symptomText = '', currentId = '') {
+        const { candidates, recurrence } = this.getHistoryAssistCandidates(machineId, symptomText, currentId);
+        if (!machineId || machineId === 'NEW_MACHINE') return '';
+        if (!candidates.length && !recurrence) return '';
+        const latest = recurrence?.latest?.history;
+        return `
+            <div class="history-assist-panel">
+                ${recurrence ? `
+                    <div class="history-recurrence-card ${recurrence.count >= 3 ? 'strong' : ''}">
+                        <div class="history-assist-head">
+                            <span><i class="fa-solid fa-repeat"></i> 再発管理</span>
+                            <b>${recurrence.count}件 / 合計 ${recurrence.totalTime}分</b>
+                        </div>
+                        <div class="history-recurrence-body">
+                            <div>
+                                <strong>前回</strong>
+                                ${this.escapeHtml(latest?.date || '-')} ${this.escapeHtml(this.getHistoryDisplayText(latest) || '内容なし')}
+                            </div>
+                            <div>
+                                <strong>前回処置</strong>
+                                ${this.escapeHtml(latest?.notes || '未入力')}
+                            </div>
+                        </div>
+                        <div class="history-assist-actions">
+                            <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(latest?.id || '')}', '${this.escapeJs(prefix)}', 'recurrence')">
+                                <i class="fa-solid fa-copy"></i> 原因・処置を反映
+                            </button>
+                            <button type="button" class="secondary-btn" onclick="app.openHistoryEditForm('${this.escapeJs(latest?.id || '')}')">
+                                <i class="fa-solid fa-clock-rotate-left"></i> 前回を開く
+                            </button>
+                        </div>
+                    </div>
+                ` : ''}
+                ${candidates.length ? `
+                    <div class="history-assist-candidates">
+                        <div class="history-assist-head">
+                            <span><i class="fa-solid fa-wand-magic-sparkles"></i> 似た過去履歴から入力候補</span>
+                            <b>${candidates.length}件</b>
+                        </div>
+                        ${candidates.map(item => {
+                            const h = item.history;
+                            return `
+                                <article class="history-assist-candidate">
+                                    <div class="history-assist-candidate-main">
+                                        <b>${this.escapeHtml(h.date || '日付なし')} ${this.escapeHtml(this.getHistoryDisplayText(h) || '内容なし')}</b>
+                                        <small>${this.escapeHtml(item.machine?.name || '機械不明')}${item.machine?.model ? ` [${this.escapeHtml(item.machine.model)}]` : ''} / ${parseInt(h.workTime, 10) || 0}分</small>
+                                        <div><span>原因</span>${this.escapeHtml(h.cause || '未入力')}</div>
+                                        <div><span>処置</span>${this.escapeHtml(h.notes || '未入力')}</div>
+                                    </div>
+                                    <div class="history-assist-actions vertical">
+                                        <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', 'detail')">原因・処置</button>
+                                        <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', 'full')">一式反映</button>
+                                    </div>
+                                </article>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    updateHistorySmartAssist(prefix = 's-', isEdit = false, currentId = '') {
+        const panel = document.getElementById(`${prefix}history-assist-panel`);
+        if (!panel) return;
+        const machineId = document.getElementById(`${prefix}machine-id`)?.value || '';
+        const symptom = (document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`))?.value || '';
+        panel.innerHTML = this.getHistoryAssistHtml(prefix, machineId, symptom, currentId);
+    }
+
+    applyHistoryAssistCandidate(historyId = '', prefix = 's-', mode = 'detail') {
+        const source = (store.activeData.history || []).find(h => String(h.id) === String(historyId));
+        if (!source) return;
+        const contentField = document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`);
+        const causeField = document.getElementById(`${prefix}cause`);
+        const notesField = document.getElementById(`${prefix}notes`);
+        const workTimeField = document.getElementById(`${prefix}work-time`);
+        const categoryField = document.getElementById(`${prefix}category`);
+        const workersField = document.getElementById(`${prefix}workers`);
+        if (mode === 'full' && source.errorContent && contentField) contentField.value = source.errorContent;
+        if (source.cause && causeField) causeField.value = source.cause;
+        if (source.notes && notesField) notesField.value = source.notes;
+        if ((mode === 'full' || mode === 'recurrence') && source.workTime && workTimeField && !workTimeField.value) workTimeField.value = source.workTime;
+        if ((mode === 'full' || mode === 'recurrence') && source.category && categoryField && !categoryField.value) categoryField.value = source.category;
+        if (mode === 'full' && Array.isArray(source.workers) && source.workers.length && workersField && !workersField.value) workersField.value = source.workers.join(', ');
+        const recurrenceRadio = document.querySelector(`input[name="${prefix}occurrence"][value="recurrence"]`);
+        if (recurrenceRadio) recurrenceRadio.checked = true;
+        [contentField, causeField, notesField].forEach(field => {
+            this.autoResizeTextarea(field);
+            field?.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        const panel = document.getElementById(`${prefix}history-assist-panel`);
+        panel?.classList.add('applied');
+        setTimeout(() => panel?.classList.remove('applied'), 800);
+    }
+
     onSuddenMachineChange(mId, isEdit = false) {
         if (!isEdit) this.toggleNewMachineFields(mId);
         this.updateRelatedGuides(mId); // Update Related Guides Qucik Access
+        const prefix = isEdit ? 'e-' : 's-';
+        const currentId = isEdit ? (document.getElementById('e-h-id')?.value || '') : '';
+        this.updateHistorySmartAssist(prefix, isEdit, currentId);
         
         // Show/Hide "Copy Last Record" button
-        const prefix = isEdit ? 'e-' : 's-';
         const copySection = document.getElementById(`${prefix}copy-last-section`);
         if (copySection) {
             const hasHistory = store.activeData.history.some(h => h.machineId === mId);
@@ -1051,6 +1197,7 @@
         const refreshLinkedSuggestions = () => {
             const symptomValue = document.getElementById(symptomTargetId)?.value || '';
             const causeValue = document.getElementById(`${prefix}cause`)?.value || '';
+            this.updateHistorySmartAssist(prefix, isEdit, currentId);
             const symptomMatchedHistory = modelHistory.filter(h => keywordHit(h.errorContent, symptomValue) || keywordHit(`${h.cause || ''} ${h.notes || ''}`, symptomValue));
             const causeSource = symptomValue.trim() ? symptomMatchedHistory : modelHistory;
             const treatmentSource = (causeValue.trim()
@@ -1255,6 +1402,7 @@
         `;
         
         if (renderFn) renderFn();
+        this.injectUnifiedSearchReturnButton?.();
 
         const saveBtn = document.getElementById('modal-save-btn');
         if (saveBtn) saveBtn.onclick = () => this.saveModalData(type);
@@ -3280,14 +3428,18 @@
 
     deleteMachine(id) {
         if (confirm('この機械を削除（アーカイブ）しますか？\n（復元は管理画面から可能です）')) {
+            const machine = store.getMachines(true).find(m => String(m.id) === String(id));
             store.updateMachine(id, { deleted: true });
+            this.recordAdminOperationLog?.('archive', '装置をアーカイブ', machine?.name || id, { view: 'machine', id });
             this.renderMachines();
             this.renderCalendar();
         }
     }
 
     restoreMachine(id) {
+        const machine = store.getMachines(true).find(m => String(m.id) === String(id));
         store.updateMachine(id, { deleted: false });
+        this.recordAdminOperationLog?.('restore', '装置を復元', machine?.name || id, { view: 'machine', id });
         this.renderWorkerMaintenanceModal(); // Refresh restoration UI
         this.renderMachines();
         this.renderCalendar();

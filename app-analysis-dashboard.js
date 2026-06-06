@@ -228,6 +228,310 @@
         return { todayStr, pendingRequests, overdueTodos, todayTodos, todayTasks, importantRows };
     }
 
+    getDashboardCardLabels() {
+        return {
+            today: '今日やること',
+            memo: '今日のメモ',
+            alerts: '重要アラート',
+            flow: '業務の流れ',
+            recent: '直近の活動',
+            time: 'メンテ時間',
+            chart: '時間内訳',
+            stock: '部品在庫',
+            counter: 'ドカ停ゼロ',
+            worst: 'ドカ停ワースト'
+        };
+    }
+
+    getDashboardHiddenCards() {
+        const defaults = this.getDashboardCardDefaultOrder();
+        try {
+            const saved = JSON.parse(localStorage.getItem('dashboard_hidden_cards') || '[]');
+            return Array.isArray(saved) ? saved.filter(key => defaults.includes(key)) : [];
+        } catch {
+            return [];
+        }
+    }
+
+    saveDashboardHiddenCards(hidden) {
+        const defaults = this.getDashboardCardDefaultOrder();
+        const clean = [...new Set(hidden || [])].filter(key => defaults.includes(key));
+        localStorage.setItem('dashboard_hidden_cards', JSON.stringify(clean));
+    }
+
+    getDashboardHiddenRestoreState() {
+        try {
+            return JSON.parse(localStorage.getItem('dashboard_hidden_card_restore_state') || '{}') || {};
+        } catch {
+            return {};
+        }
+    }
+
+    saveDashboardHiddenRestoreState(state) {
+        localStorage.setItem('dashboard_hidden_card_restore_state', JSON.stringify(state || {}));
+    }
+
+    rememberDashboardHiddenCardState(key) {
+        if (!key) return;
+        const state = this.getDashboardHiddenRestoreState();
+        state[key] = {
+            order: this.getDashboardCardOrder(),
+            size: this.getDashboardCardSizes()[key],
+            height: this.getDashboardCardHeights()[key],
+            layout: this.getDashboardCardLayout()[key] || null
+        };
+        this.saveDashboardHiddenRestoreState(state);
+    }
+
+    restoreDashboardHiddenCardState(key) {
+        const state = this.getDashboardHiddenRestoreState();
+        const saved = state[key];
+        if (!saved) return;
+        if (Array.isArray(saved.order)) {
+            localStorage.setItem('dashboard_card_order', JSON.stringify(saved.order));
+        }
+        if (saved.size) {
+            const sizes = this.getDashboardCardSizes();
+            sizes[key] = saved.size;
+            localStorage.setItem('dashboard_card_sizes', JSON.stringify(sizes));
+        }
+        if (saved.height) {
+            const heights = this.getDashboardCardHeights();
+            heights[key] = saved.height;
+            localStorage.setItem('dashboard_card_heights', JSON.stringify(heights));
+        }
+        const layout = this.getDashboardCardLayout();
+        if (saved.layout) {
+            layout[key] = saved.layout;
+        } else {
+            delete layout[key];
+        }
+        this.saveDashboardCardLayout(layout);
+        delete state[key];
+        this.saveDashboardHiddenRestoreState(state);
+    }
+
+    hideDashboardCard(key) {
+        if (!key) return;
+        this.rememberDashboardHiddenCardState(key);
+        const hidden = this.getDashboardHiddenCards();
+        if (!hidden.includes(key)) hidden.push(key);
+        this.saveDashboardHiddenCards(hidden);
+        this.renderDashboard();
+        this.showToast?.('カードを収納しました');
+    }
+
+    restoreDashboardCard(key) {
+        if (!key) return;
+        this.restoreDashboardHiddenCardState(key);
+        this.saveDashboardHiddenCards(this.getDashboardHiddenCards().filter(item => item !== key));
+        this.renderDashboard();
+        this.showToast?.('カードを戻しました');
+    }
+
+    restoreAllDashboardCards() {
+        const hidden = this.getDashboardHiddenCards();
+        hidden.forEach(key => this.restoreDashboardHiddenCardState(key));
+        this.saveDashboardHiddenCards([]);
+        this.renderDashboard();
+        this.showToast?.('収納中カードをすべて戻しました');
+    }
+
+    moveDashboardHiddenCard(key, direction) {
+        const hidden = this.getDashboardHiddenCards();
+        const index = hidden.indexOf(key);
+        if (index < 0) return;
+        const nextIndex = Math.max(0, Math.min(hidden.length - 1, index + direction));
+        if (nextIndex === index) return;
+        [hidden[index], hidden[nextIndex]] = [hidden[nextIndex], hidden[index]];
+        this.saveDashboardHiddenCards(hidden);
+        this.renderDashboard();
+    }
+
+    getDashboardHiddenShelfHtml() {
+        const hidden = this.getDashboardHiddenCards();
+        if (!hidden.length) return '';
+        const labels = this.getDashboardCardLabels();
+        return `
+            <div class="dashboard-hidden-shelf">
+                <div><i class="fa-solid fa-box-archive"></i> 収納中</div>
+                <div class="dashboard-hidden-list">
+                    <button type="button" class="restore-all" onclick="app.restoreAllDashboardCards()" title="収納中カードをすべて戻す">
+                        <i class="fa-solid fa-rotate-left"></i>すべて戻す
+                    </button>
+                    ${hidden.map((key, index) => `
+                        <span class="dashboard-hidden-item">
+                            <button type="button" class="mini" onclick="app.moveDashboardHiddenCard('${this.escapeJs(key)}', -1)" ${index === 0 ? 'disabled' : ''} title="左へ移動">
+                                <i class="fa-solid fa-chevron-left"></i>
+                            </button>
+                            <button type="button" onclick="app.restoreDashboardCard('${this.escapeJs(key)}')" title="カードを戻す">
+                                <i class="fa-solid fa-arrow-rotate-left"></i>${this.escapeHtml(labels[key] || key)}
+                            </button>
+                            <button type="button" class="mini" onclick="app.moveDashboardHiddenCard('${this.escapeJs(key)}', 1)" ${index === hidden.length - 1 ? 'disabled' : ''} title="右へ移動">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </span>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    applyDashboardHiddenCards(container) {
+        const hidden = this.getDashboardHiddenCards();
+        hidden.forEach(key => {
+            container.querySelector(`[data-dashboard-card="${CSS.escape(key)}"]`)?.remove();
+        });
+    }
+
+    getDashboardMemoDates() {
+        return Object.entries(store.activeData.memos || {})
+            .filter(([, memo]) => String(memo || '').trim())
+            .map(([date]) => date)
+            .sort();
+    }
+
+    getDashboardMemoTargetDate(todayStr) {
+        const selected = this.dashboardMemoDate || todayStr;
+        const memos = store.activeData.memos || {};
+        if (selected === todayStr || memos[selected]) return selected;
+        return todayStr;
+    }
+
+    getNeighborMemoDate(currentDate, direction, todayStr) {
+        const dates = [...new Set([...this.getDashboardMemoDates(), todayStr])].sort();
+        const candidates = direction < 0
+            ? dates.filter(date => date < currentDate)
+            : dates.filter(date => date > currentDate);
+        if (!candidates.length) return currentDate;
+        return direction < 0 ? candidates[candidates.length - 1] : candidates[0];
+    }
+
+    moveDashboardMemo(direction) {
+        const todayStr = this.formatLocalDate ? this.formatLocalDate(new Date()) : this.getTodayDateString();
+        const currentDate = this.getDashboardMemoTargetDate(todayStr);
+        this.dashboardMemoDate = this.getNeighborMemoDate(currentDate, direction, todayStr);
+        this.renderDashboard();
+    }
+
+    showTodayDashboardMemo() {
+        this.dashboardMemoDate = this.formatLocalDate ? this.formatLocalDate(new Date()) : this.getTodayDateString();
+        this.renderDashboard();
+    }
+
+    openDashboardMemoDateInCalendar(dateStr) {
+        const [year, month, day] = String(dateStr || '').split('-').map(Number);
+        if (!year || !month || !day) return;
+        this.currentDate = new Date(year, month - 1, 1);
+        this.switchView('calendar', { force: true });
+        this.renderCalendar();
+        setTimeout(() => this.openDayQuickMenu(dateStr), 0);
+    }
+
+    setDashboardMemoSaveStatus(text, state = 'saved') {
+        const status = document.getElementById('dashboard-memo-save-status');
+        if (!status) return;
+        clearTimeout(this._dashboardMemoStatusTimer);
+        status.textContent = text;
+        status.dataset.state = state;
+        status.classList.remove('fade');
+        if (state !== 'saving') {
+            this._dashboardMemoStatusTimer = setTimeout(() => {
+                status.classList.add('fade');
+            }, 1600);
+        }
+    }
+
+    markDashboardMemoSaving() {
+        this.setDashboardMemoSaveStatus('入力中...', 'saving');
+    }
+
+    scheduleDashboardMemoSave(dateStr, value) {
+        this.markDashboardMemoSaving();
+        clearTimeout(this._dashboardMemoSaveTimer);
+        this._dashboardMemoSaveTimer = setTimeout(() => {
+            this.saveDashboardMemo(dateStr, value);
+        }, 500);
+    }
+
+    saveDashboardMemo(dateStr, value) {
+        clearTimeout(this._dashboardMemoSaveTimer);
+        if (!store.activeData.memos) store.activeData.memos = {};
+        const memo = String(value || '').trim();
+        if (memo) {
+            store.activeData.memos[dateStr] = memo;
+        } else {
+            delete store.activeData.memos[dateStr];
+        }
+        store.save();
+        this.dashboardMemoDate = dateStr;
+        this.autoResizeDashboardMemo();
+        this.setDashboardMemoSaveStatus(memo ? '保存済み' : '未入力に戻しました', memo ? 'saved' : 'empty');
+        if (typeof this.renderCalendar === 'function') this.renderCalendar();
+    }
+
+    autoResizeDashboardMemo(textarea = document.getElementById('dashboard-memo-editor')) {
+        if (!textarea) return;
+        textarea.style.height = 'auto';
+        textarea.style.height = `${Math.max(112, textarea.scrollHeight)}px`;
+        this.scheduleDashboardCardRowSpans?.();
+    }
+
+    getTodayDateString() {
+        const date = new Date();
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    getTodayMemoDashboardCardHtml(todayStr) {
+        const targetDate = this.getDashboardMemoTargetDate(todayStr);
+        this.dashboardMemoDate = targetDate;
+        const memo = (store.activeData.memos || {})[targetDate] || '';
+        const displayDate = targetDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, (_, y, m, d) => `${Number(m)}/${Number(d)}`);
+        const fullDate = targetDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, (_, y, m, d) => `${y}年 ${Number(m)}/${Number(d)}`);
+        const prevDate = this.getNeighborMemoDate(targetDate, -1, todayStr);
+        const nextDate = this.getNeighborMemoDate(targetDate, 1, todayStr);
+        const isToday = targetDate === todayStr;
+        const memoDates = this.getDashboardMemoDates();
+        const memoIndex = memoDates.indexOf(targetDate);
+        const memoCountLabel = memoDates.length
+            ? (memoIndex >= 0 ? `${memoIndex + 1} / ${memoDates.length}` : `記入済み ${memoDates.length}件`)
+            : '記入済み 0件';
+        return `
+            <div class="card dashboard-card dashboard-memo-card" data-dashboard-card="memo">
+                <div class="dashboard-memo-head">
+                    <h4><i class="fa-solid fa-note-sticky"></i> ${isToday ? '今日のメモ' : '記入済みメモ'}</h4>
+                    <div class="dashboard-memo-nav">
+                        <button type="button" class="icon-btn" onclick="app.moveDashboardMemo(-1)" ${prevDate === targetDate ? 'disabled' : ''} title="前の記入済みメモ">
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </button>
+                        <button type="button" class="secondary-btn" onclick="app.openDashboardMemoDateInCalendar('${this.escapeJs(targetDate)}')" title="この日をカレンダーで開く">
+                            ${this.escapeHtml(displayDate)}
+                        </button>
+                        <button type="button" class="icon-btn today-jump" onclick="app.showTodayDashboardMemo()" ${isToday ? 'disabled' : ''} title="今日のメモへ戻る">
+                            <i class="fa-solid fa-calendar-day"></i>
+                        </button>
+                        <button type="button" class="icon-btn" onclick="app.moveDashboardMemo(1)" ${nextDate === targetDate ? 'disabled' : ''} title="次の記入済みメモ">
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="dashboard-memo-meta-row">
+                    <div class="dashboard-memo-date">${this.escapeHtml(fullDate)}</div>
+                    <div class="dashboard-memo-count">${this.escapeHtml(memoCountLabel)}</div>
+                </div>
+                <textarea id="dashboard-memo-editor"
+                    class="dashboard-memo-body ${memo ? '' : 'empty'}"
+                    placeholder="この日のメモを入力"
+                    oninput="app.autoResizeDashboardMemo(this); app.scheduleDashboardMemoSave('${this.escapeJs(targetDate)}', this.value)"
+                    onblur="app.saveDashboardMemo('${this.escapeJs(targetDate)}', this.value)">${this.escapeHtml(memo)}</textarea>
+                <div class="dashboard-memo-foot">
+                    <span>${memo ? '編集中の内容は自動保存されます' : '未入力です。ここに直接入力できます'}</span>
+                    <span id="dashboard-memo-save-status" class="dashboard-memo-save-status" data-state="saved">保存済み</span>
+                </div>
+            </div>
+        `;
+    }
+
     getCurrentShiftNotebookTarget(now = new Date()) {
         const target = new Date(now);
         const hour = now.getHours();
@@ -349,9 +653,11 @@
             mtbf = (totalRangeDays / (suddens.length - 1)).toFixed(1);
         }
 
-        const todayStr = new Date().toISOString().split('T')[0];
-        const yest = new Date(); yest.setDate(yest.getDate() - 1);
-        const yestStr = yest.toISOString().split('T')[0];
+        const formatLocalDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const todayDate = new Date();
+        const todayStr = formatLocalDate(todayDate);
+        const yest = new Date(todayDate); yest.setDate(yest.getDate() - 1);
+        const yestStr = formatLocalDate(yest);
         const recentHistory = store.activeData.history.filter(h => h.date === todayStr || h.date === yestStr);
         recentHistory.sort((a,b) => new Date(b.date) - new Date(a.date));
         const actionSummary = this.getTodayActionSummary();
@@ -383,7 +689,9 @@
         container.style.gap = '10px';
 
         container.innerHTML = `
+            ${this.getDashboardHiddenShelfHtml()}
             ${this.getTodayActionPanelHtml()}
+            ${this.getTodayMemoDashboardCardHtml(todayStr)}
             <div class="dashboard-alert-strip" data-dashboard-card="alerts">
                 <div>
                     <b><i class="fa-solid fa-bell"></i> 重要アラート</b>
@@ -662,7 +970,9 @@
                 </div>
             </div>
         `;
+        this.applyDashboardHiddenCards(container);
         this.setupDashboardCardOrdering();
+        this.autoResizeDashboardMemo();
 
         if (totalTime > 0) {
             setTimeout(() => {
@@ -707,12 +1017,13 @@
     }
 
     getDashboardCardDefaultOrder() {
-        return ['today', 'alerts', 'flow', 'recent', 'time', 'chart', 'stock', 'counter', 'worst'];
+        return ['today', 'memo', 'alerts', 'flow', 'recent', 'time', 'chart', 'stock', 'counter', 'worst'];
     }
 
     getDashboardCardDefaultSizes() {
         return {
             today: 'l',
+            memo: 'm',
             alerts: 'm',
             flow: 'm',
             recent: 'l',
@@ -727,6 +1038,7 @@
     getDashboardCardDefaultHeights() {
         return {
             today: 'auto',
+            memo: 'auto',
             alerts: 'low',
             flow: 'low',
             recent: 'auto',
@@ -801,7 +1113,14 @@
     }
 
     toggleDashboardLayoutEditMode() {
-        localStorage.setItem('dashboard_layout_edit_mode', this.isDashboardLayoutEditMode() ? 'false' : 'true');
+        const nextActive = !this.isDashboardLayoutEditMode();
+        localStorage.setItem('dashboard_layout_edit_mode', nextActive ? 'true' : 'false');
+        if (!nextActive) {
+            this.dashboardOpenToolCardKey = null;
+            document.querySelectorAll('.dashboard-reorderable.dashboard-tools-open').forEach(card => {
+                card.classList.remove('dashboard-tools-open');
+            });
+        }
         this.renderDashboard();
     }
 
@@ -811,6 +1130,8 @@
         localStorage.removeItem('dashboard_card_sizes');
         localStorage.removeItem('dashboard_card_heights');
         localStorage.removeItem('dashboard_card_order');
+        localStorage.removeItem('dashboard_hidden_cards');
+        localStorage.removeItem('dashboard_hidden_card_restore_state');
         this.renderDashboard();
         this.showToast?.('ダッシュボード配置を初期化しました');
     }
@@ -826,6 +1147,7 @@
             ? '<i class="fa-solid fa-check"></i> 配置編集中'
             : '<i class="fa-solid fa-up-down-left-right"></i> 配置編集';
         button.title = active ? '配置編集を終了' : 'カードの配置・幅・高さを編集';
+        if (hint) hint.textContent = active ? 'ドラッグで移動。幅・高さ変更、不要カードの収納ができます' : '';
         if (resetButton) resetButton.hidden = !active;
         if (hint) hint.hidden = !active;
     }
@@ -881,10 +1203,12 @@
             card.dataset.dashboardHeight = heights[key] || 'auto';
             this.applyDashboardCardGridPlacement(card, key, sizes[key] || 'm', layout[key]);
             card.draggable = false;
-            card.title = card.title || 'ドラッグで表示順を変更。右上の幅ボタンでサイズ変更できます';
+            card.title = card.title || '配置編集中はドラッグで移動できます';
             card.classList.add('dashboard-reorderable');
-            this.addDashboardCardSizeControl(card, key, sizes[key] || 'm');
-            this.addDashboardCardHeightControl(card, key, heights[key] || 'auto');
+            if (this.dashboardOpenToolCardKey === key) {
+                card.classList.add('dashboard-tools-open');
+            }
+            this.addDashboardCardToolToggle(card, key, sizes[key] || 'm', heights[key] || 'auto');
             card.onpointerdown = event => this.startDashboardCardPointerDrag(event);
             card.addEventListener('click', event => {
                 if (this._dashboardSuppressClickUntil && Date.now() < this._dashboardSuppressClickUntil) {
@@ -894,6 +1218,7 @@
             }, true);
         });
         this.updateDashboardLayoutModeButton();
+        this.setupDashboardToolOutsideClose();
         this.scheduleDashboardCardRowSpans();
     }
 
@@ -927,49 +1252,94 @@
         });
     }
 
-    addDashboardCardSizeControl(card, key, currentSize) {
-        if (!key || card.querySelector('.dashboard-size-control')) return;
-        const labels = [
+    addDashboardCardToolToggle(card, key, currentSize, currentHeight) {
+        if (!key || card.querySelector('.dashboard-tool-toggle')) return;
+        const labels = this.getDashboardCardLabels();
+        const sizeLabels = [
             ['s', '小'],
             ['m', '中'],
             ['l', '大'],
             ['xl', '特大']
         ];
-        const control = document.createElement('div');
-        control.className = 'dashboard-size-control';
-        control.setAttribute('aria-label', 'カード幅変更');
-        control.innerHTML = '<span>幅</span>' + labels.map(([size, label]) => (
-            `<button type="button" class="${size === currentSize ? 'active' : ''}" data-size="${size}" title="幅を${label}にする">${label}</button>`
-        )).join('');
-        control.addEventListener('click', event => {
+        const heightLabels = [
+            ['low', '低め'],
+            ['auto', '自動'],
+            ['high', '広め']
+        ];
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'dashboard-tool-toggle';
+        toggle.title = `${labels[key] || 'カード'}の表示設定`;
+        toggle.innerHTML = '<i class="fa-solid fa-sliders"></i>';
+        toggle.addEventListener('click', event => {
             event.stopPropagation();
-            const button = event.target.closest('button[data-size]');
-            if (!button) return;
-            this.setDashboardCardSize(key, button.dataset.size);
+            const willOpen = !card.classList.contains('dashboard-tools-open');
+            document.querySelectorAll('.dashboard-reorderable.dashboard-tools-open').forEach(other => {
+                if (other !== card) other.classList.remove('dashboard-tools-open');
+            });
+            this.dashboardOpenToolCardKey = willOpen ? key : null;
+            card.classList.toggle('dashboard-tools-open');
+            if (willOpen) card.classList.add('dashboard-tools-open');
         });
-        card.appendChild(control);
+        const panel = document.createElement('div');
+        panel.className = 'dashboard-card-tools';
+        panel.setAttribute('aria-label', 'カード表示設定');
+        panel.innerHTML = `
+            <div class="dashboard-card-tool-group dashboard-size-control">
+                <span>幅</span>
+                ${sizeLabels.map(([size, label]) => (
+                    `<button type="button" class="${size === currentSize ? 'active' : ''}" data-size="${size}" title="幅を${label}にする">${label}</button>`
+                )).join('')}
+            </div>
+            <div class="dashboard-card-tool-group dashboard-height-control">
+                <span>高</span>
+                ${heightLabels.map(([height, label]) => (
+                    `<button type="button" class="${height === currentHeight ? 'active' : ''}" data-height="${height}" title="高さを${label}にする">${label}</button>`
+                )).join('')}
+            </div>
+            <button type="button" class="dashboard-hide-control" title="${this.escapeHtml(labels[key] || 'カード')}を収納">
+                <i class="fa-solid fa-box-archive"></i>収納
+            </button>
+            <button type="button" class="dashboard-reset-card-control" title="${this.escapeHtml(labels[key] || 'カード')}の幅と高さを初期状態に戻す">
+                <i class="fa-solid fa-rotate-left"></i>初期サイズ
+            </button>
+        `;
+        panel.addEventListener('click', event => {
+            event.stopPropagation();
+            const sizeButton = event.target.closest('button[data-size]');
+            if (sizeButton) {
+                this.setDashboardCardSize(key, sizeButton.dataset.size);
+                return;
+            }
+            const heightButton = event.target.closest('button[data-height]');
+            if (heightButton) {
+                this.setDashboardCardHeight(key, heightButton.dataset.height);
+                return;
+            }
+            if (event.target.closest('.dashboard-hide-control')) {
+                this.hideDashboardCard(key);
+                return;
+            }
+            if (event.target.closest('.dashboard-reset-card-control')) {
+                this.resetDashboardCardSizeHeight(key);
+            }
+        });
+        card.appendChild(toggle);
+        card.appendChild(panel);
     }
 
-    addDashboardCardHeightControl(card, key, currentHeight) {
-        if (!key || card.querySelector('.dashboard-height-control')) return;
-        const labels = [
-            ['low', '低'],
-            ['auto', '標'],
-            ['high', '高']
-        ];
-        const control = document.createElement('div');
-        control.className = 'dashboard-height-control';
-        control.setAttribute('aria-label', 'カード高さ変更');
-        control.innerHTML = '<span>高</span>' + labels.map(([height, label]) => (
-            `<button type="button" class="${height === currentHeight ? 'active' : ''}" data-height="${height}" title="高さを${label}にする">${label}</button>`
-        )).join('');
-        control.addEventListener('click', event => {
-            event.stopPropagation();
-            const button = event.target.closest('button[data-height]');
-            if (!button) return;
-            this.setDashboardCardHeight(key, button.dataset.height);
-        });
-        card.appendChild(control);
+    setupDashboardToolOutsideClose() {
+        if (this._dashboardToolOutsideCloseHandler) {
+            document.removeEventListener('pointerdown', this._dashboardToolOutsideCloseHandler);
+        }
+        this._dashboardToolOutsideCloseHandler = (event) => {
+            if (event.target.closest('.dashboard-tool-toggle, .dashboard-card-tools')) return;
+            document.querySelectorAll('.dashboard-reorderable.dashboard-tools-open').forEach(card => {
+                card.classList.remove('dashboard-tools-open');
+            });
+            this.dashboardOpenToolCardKey = null;
+        };
+        document.addEventListener('pointerdown', this._dashboardToolOutsideCloseHandler);
     }
 
     setDashboardCardSize(key, size) {
@@ -977,6 +1347,7 @@
         const sizes = this.getDashboardCardSizes();
         sizes[key] = size;
         localStorage.setItem('dashboard_card_sizes', JSON.stringify(sizes));
+        this.dashboardOpenToolCardKey = key;
         const layout = this.getDashboardCardLayout();
         if (layout[key]) {
             const span = this.getDashboardCardColumnSpan(size);
@@ -992,8 +1363,24 @@
         const heights = this.getDashboardCardHeights();
         heights[key] = height;
         localStorage.setItem('dashboard_card_heights', JSON.stringify(heights));
+        this.dashboardOpenToolCardKey = key;
         this.renderDashboard();
         this.showToast?.('カード高さを保存しました');
+    }
+
+    resetDashboardCardSizeHeight(key) {
+        if (!key) return;
+        const defaultSizes = this.getDashboardCardDefaultSizes();
+        const defaultHeights = this.getDashboardCardDefaultHeights();
+        const sizes = this.getDashboardCardSizes();
+        const heights = this.getDashboardCardHeights();
+        sizes[key] = defaultSizes[key] || 'm';
+        heights[key] = defaultHeights[key] || 'auto';
+        localStorage.setItem('dashboard_card_sizes', JSON.stringify(sizes));
+        localStorage.setItem('dashboard_card_heights', JSON.stringify(heights));
+        this.dashboardOpenToolCardKey = key;
+        this.renderDashboard();
+        this.showToast?.('このカードの幅と高さを初期化しました');
     }
 
     flashDashboardAdjustedCard(key) {
@@ -1009,7 +1396,7 @@
     }
 
     startDashboardCardPointerDrag(event) {
-        if (event.button !== 0 || event.target?.closest?.('button, input, select, textarea, a, canvas, .dashboard-size-control, .dashboard-height-control')) {
+        if (event.button !== 0 || event.target?.closest?.('button, input, select, textarea, a, canvas, .dashboard-tool-toggle, .dashboard-card-tools')) {
             return;
         }
         if (!this.isDashboardLayoutEditMode()) return;
@@ -1153,7 +1540,7 @@
     }
 
     startDashboardCardDrag(event) {
-        if (event.target?.closest?.('button, input, select, textarea, a, canvas, .dashboard-size-control')) {
+        if (event.target?.closest?.('button, input, select, textarea, a, canvas, .dashboard-tool-toggle, .dashboard-card-tools')) {
             event.preventDefault();
             return;
         }

@@ -32,6 +32,39 @@
                 this.renderCalendar();
             });
         }
+
+        const monthDisplay = document.getElementById('current-month-display');
+        if (monthDisplay && monthDisplay.dataset.bgToggleBound !== 'true') {
+            monthDisplay.classList.add('calendar-bg-toggle');
+            monthDisplay.addEventListener('click', () => this.toggleCalendarBackgroundMode());
+            monthDisplay.dataset.bgToggleBound = 'true';
+        }
+    }
+
+    getCalendarBackgroundMode() {
+        return localStorage.getItem('calendar_background_mode') === 'anime' ? 'anime' : 'season';
+    }
+
+    toggleCalendarBackgroundMode() {
+        const nextMode = this.getCalendarBackgroundMode() === 'anime' ? 'season' : 'anime';
+        localStorage.setItem('calendar_background_mode', nextMode);
+        this.renderCalendar();
+        if (typeof this.showToast === 'function') {
+            this.showToast(nextMode === 'anime' ? 'アニメ調背景に切り替えました' : '季節背景に切り替えました');
+        }
+    }
+
+    updateCalendarBackgroundModeUI(monthDisplay) {
+        if (!monthDisplay) return;
+        const mode = this.getCalendarBackgroundMode();
+        monthDisplay.classList.add('calendar-bg-toggle');
+        if (monthDisplay.dataset.bgToggleBound !== 'true') {
+            monthDisplay.addEventListener('click', () => this.toggleCalendarBackgroundMode());
+            monthDisplay.dataset.bgToggleBound = 'true';
+        }
+        monthDisplay.dataset.bgMode = '切替';
+        monthDisplay.title = mode === 'anime' ? 'クリックで季節背景に切り替え' : 'クリックでアニメ調背景に切り替え';
+        monthDisplay.setAttribute('aria-label', `${monthDisplay.textContent} 背景切り替え`);
     }
 
     renderCalendar() {
@@ -41,6 +74,14 @@
         const monthDisplay = document.getElementById('current-month-display');
         if (monthDisplay) {
             monthDisplay.textContent = `${year}年 ${month + 1}月`;
+            this.updateCalendarBackgroundModeUI(monthDisplay);
+        }
+        const calendarView = document.getElementById('view-calendar');
+        if (calendarView) {
+            Array.from(calendarView.classList)
+                .filter(name => name.startsWith('calendar-season-') || name.startsWith('calendar-bg-mode-'))
+                .forEach(name => calendarView.classList.remove(name));
+            calendarView.classList.add('calendar-season-bg', `calendar-season-${month + 1}`, `calendar-bg-mode-${this.getCalendarBackgroundMode()}`);
         }
         this.renderCalendarLegend();
 
@@ -268,17 +309,20 @@
                 eventsContainer.appendChild(badge);
             });
 
-            // 3. Memo (Static text)
-            if (memoValue) {
-                const memoBox = document.createElement('div');
-                memoBox.className = 'calendar-day-memo';
-                memoBox.innerHTML = `
-                    <i class="fa-solid fa-note-sticky" style="margin-right:4px; opacity:0.7;"></i>
-                    ${memoValue.replace(/\n/g, '<br>')}
-                    <i class="fa-solid fa-xmark calendar-day-memo-delete" title="メモを削除" onclick="event.stopPropagation(); app.deleteDayMemo('${dateStr}');"></i>
-                `;
-                eventsContainer.appendChild(memoBox);
-            }
+            // 3. Memo
+            const hasMemo = !!String(memoValue || '').trim();
+            const memoBox = document.createElement('div');
+            memoBox.className = `calendar-day-memo calendar-memo-icon-wrap ${hasMemo ? 'has-memo' : 'empty-memo'}`;
+            memoBox.title = hasMemo ? 'メモを編集' : 'メモを追加';
+            memoBox.innerHTML = `
+                <i class="fa-solid fa-note-sticky"></i>
+                ${hasMemo ? `<i class="fa-solid fa-xmark calendar-day-memo-delete" title="メモを削除" onclick="event.stopPropagation(); app.closeCalendarMemoEditor?.(); app.deleteDayMemo('${dateStr}');"></i>` : ''}
+            `;
+            memoBox.onclick = (e) => {
+                e.stopPropagation();
+                this.openCalendarMemoEditor(dateStr, memoBox);
+            };
+            eventsContainer.appendChild(memoBox);
             this.applyCalendarDayOverflow(eventsContainer, dateStr);
             
             calContainer.appendChild(cell);
@@ -300,6 +344,19 @@
         }
         const collapsed = localStorage.getItem('calendar_legend_collapsed') === 'true';
         legend.classList.toggle('collapsed', collapsed);
+        legend.classList.toggle('compact-active', !!this.calendarCompactMode);
+        const compactLegendHtml = this.calendarCompactMode ? `
+            <div class="calendar-legend-items compact-legend-items">
+                <span class="calendar-legend-item"><span class="compact-legend-mark sudden">突</span>突発</span>
+                <span class="calendar-legend-item"><span class="compact-legend-mark dokatei">ド</span>ドカ停</span>
+                <span class="calendar-legend-item"><span class="compact-legend-mark non-production-stop">非</span>非生産停止</span>
+                <span class="calendar-legend-item"><span class="compact-legend-mark done">完</span>完了</span>
+                <span class="calendar-legend-item"><span class="compact-legend-mark one-off-planned">単</span>単発</span>
+                <span class="calendar-legend-item"><span class="compact-legend-mark planned">定</span>定期予定</span>
+                <span class="calendar-legend-item"><span class="compact-legend-mark unfinished">未</span>期限切れ</span>
+                <span class="calendar-legend-item"><span class="compact-legend-mark memo"><i class="fa-solid fa-note-sticky"></i></span>メモ</span>
+            </div>
+        ` : '';
         legend.innerHTML = `
             <button type="button" class="calendar-legend-toggle" onclick="app.toggleCalendarLegend()" aria-expanded="${!collapsed}">
                 <i class="fa-solid fa-circle-info"></i> 凡例
@@ -310,6 +367,7 @@
                 <span class="calendar-legend-item"><span class="calendar-legend-stamp done">完</span>完了</span>
                 <span class="calendar-legend-item"><span class="calendar-legend-stamp unfinished">未完</span>期限切れ</span>
             </div>
+            ${compactLegendHtml}
         `;
     }
 

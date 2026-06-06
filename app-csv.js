@@ -89,6 +89,73 @@
     }
 
     // --- CSV Import ---
+    getHistoryImportLogs() {
+        if (!store.activeData.historyImportLogs) store.activeData.historyImportLogs = [];
+        return store.activeData.historyImportLogs;
+    }
+
+    renderHistoryImportLogsHtml() {
+        const logs = this.getHistoryImportLogs().slice(0, 10);
+        if (!logs.length) {
+            return `
+                <div class="history-import-log-panel empty">
+                    <b><i class="fa-solid fa-clock-rotate-left"></i> 取り込みログ</b>
+                    <p>まだCSV取り込みログはありません。</p>
+                </div>
+            `;
+        }
+        return `
+            <div class="history-import-log-panel">
+                <div class="history-import-log-head">
+                    <b><i class="fa-solid fa-clock-rotate-left"></i> 最近の取り込みログ</b>
+                    <button type="button" class="secondary-btn" onclick="app.clearHistoryImportLogs()" title="ログを消去">ログ消去</button>
+                </div>
+                <div class="history-import-log-list">
+                    ${logs.map(log => `
+                        <div class="history-import-log-item">
+                            <div>
+                                <strong>${this.escapeHtml(log.fileName || 'CSV取り込み')}</strong>
+                                <span>${this.escapeHtml(this.formatHistoryImportLogTime(log.at))}</span>
+                            </div>
+                            <div class="history-import-log-stats">
+                                <em class="added">追加 ${Number(log.added || 0).toLocaleString()}件</em>
+                                <em>重複 ${Number(log.duplicates || 0).toLocaleString()}件</em>
+                                <em>新規機械 ${Number(log.addedMachines || 0).toLocaleString()}件</em>
+                                <em>初回 ${Number(log.firstTime || 0).toLocaleString()}件</em>
+                                <em>再発 ${Number(log.recurrence || 0).toLocaleString()}件</em>
+                                ${Number(log.skipped || 0) > 0 ? `<em>未取込 ${Number(log.skipped || 0).toLocaleString()}件</em>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    formatHistoryImportLogTime(value) {
+        const date = value ? new Date(value) : null;
+        if (!date || isNaN(date.getTime())) return '';
+        return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    }
+
+    async addHistoryImportLog(log) {
+        const logs = this.getHistoryImportLogs();
+        logs.unshift({
+            id: store.generateId ? store.generateId() : String(Date.now()),
+            at: new Date().toISOString(),
+            ...log
+        });
+        store.activeData.historyImportLogs = logs.slice(0, 50);
+        await store.save();
+    }
+
+    async clearHistoryImportLogs() {
+        if (!confirm('CSV取り込みログを消去しますか？')) return;
+        store.activeData.historyImportLogs = [];
+        await store.save();
+        this.openHistoryImportModal();
+    }
+
     openHistoryImportModal() {
         this.openModal('history-import', '過去履歴のCSV一括取込', () => {
             const content = document.getElementById('modal-content');
@@ -97,7 +164,7 @@
                     <p>Excel等で作成した過去のメンテナンス記録（CSV形式）を一括で取り込みます。</p>
                     <p style="margin-top:8px; padding:10px; background:#eff6ff; border-radius:6px; border:1px solid #bae6fd;">
                         1. まず下記のボタンから専用の「テンプレート(CSV)」をダウンロードしてください。<br>
-                        2. テンプレートの2行目以降にデータを入力し、保存してください。<br>
+                        2. 見出し行より下にデータを入力し、CSV形式で保存してください。<br>
                         3. 「ファイルを選択」から保存したCSVを読み込ませてください。
                     </p>
                     <button class="secondary-btn" style="margin-top:12px; padding:6px 16px; font-size:0.8rem;" onclick="app.downloadHistoryImportTemplate()"><i class="fa-solid fa-download"></i> テンプレート(CSV)をダウンロード</button>
@@ -106,6 +173,7 @@
                     <label style="font-weight:800; color:var(--primary);">CSVファイルを選択</label>
                     <input type="file" id="hist-csv-upload" accept=".csv" style="margin-top:8px; display:block;">
                 </div>
+                ${this.renderHistoryImportLogsHtml()}
             `;
             const footer = document.querySelector('.modal-footer');
             footer.innerHTML = `
@@ -117,13 +185,221 @@
     }
 
     downloadHistoryImportTemplate() {
-        const headers = ["日付(YYYY-MM-DD)", "ライン", "機械名", "型式", "対応種別(突発/非生産停止/定期/ドカ停)", "作業内容(症状)", "原因", "処置内容(備考)", "エラー番号", "作業時間(分)", "作業区分(機械/電気/調整/部品/清掃/その他)", "作業者(カンマ区切り)"];
+        const headers = this.getHistoryImportCsvHeaders();
         const sampleRows = [
-            ["2024-03-01", "5号ライン", "メインコンベア", "MC-100", "突発", "ベルトの異音", "経年劣化", "ベルトを調整", "E-01", "30", "機械", "山田, 鈴木"],
-            ["2024-03-05", "その他", "サブコンベア", "SC-50", "非生産停止", "センサー警告", "汚れ", "清掃・動作確認", "", "15", "清掃", "田中"]
+            ["2024-03-01", "5号ライン", "メインコンベア", "MC-100", "突発", "初回", "ベルトの異音", "経年劣化", "ベルトを調整", "E-01", "30", "機械", "山田, 鈴木", "Vベルト [A-42] (1本)"],
+            ["2024-03-05", "その他", "サブコンベア", "SC-50", "非生産停止", "再発", "センサー警告", "汚れ", "清掃・動作確認", "", "15", "清掃", "田中", ""]
         ];
         const csvContent = [headers.join(','), ...sampleRows.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
         this.downloadCSV(`template_history_import.csv`, csvContent);
+    }
+
+    getHistoryImportCsvHeaders() {
+        return ["日付(YYYY-MM-DD)", "ライン", "機械名", "型式", "対応種別(突発/非生産停止/定期/ドカ停)", "初回/再発", "作業内容(症状)", "原因", "処置内容(備考)", "エラー番号", "作業時間(分)", "作業区分(機械/電気/調整/部品/清掃/その他)", "作業者(カンマ区切り)", "交換部品"];
+    }
+
+    openHistoryCsvBuilder() {
+        const machines = store.getMachines(true);
+        const workers = store.getWorkers ? store.getWorkers().filter(w => !store.isWorkerArchived?.(w)) : [];
+        const today = new Date().toISOString().split('T')[0];
+        const machineOptions = machines.map(m => {
+            const label = `${m.name || ''}${m.model ? ` [${m.model}]` : ''}`;
+            return `<option value="${this.escapeHtml(label)}" data-name="${this.escapeHtml(m.name || '')}" data-model="${this.escapeHtml(m.model || '')}" data-line="${this.escapeHtml(m.lineNo || '')}"></option>`;
+        }).join('');
+        const workerOptions = workers.map(w => `<option value="${this.escapeHtml(w)}"></option>`).join('');
+
+        this.openModal('history-csv-builder', 'メンテナンス履歴CSV作成', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="history-csv-builder">
+                    <div class="history-csv-builder-head">
+                        <div>
+                            <b><i class="fa-solid fa-file-csv"></i> 取込用CSVをここで作成</b>
+                            <span>入力した内容を「一括取込(CSV)」で読める形式にして出力します。</span>
+                        </div>
+                        <button type="button" class="secondary-btn" onclick="app.addHistoryCsvBuilderRow()">
+                            <i class="fa-solid fa-plus"></i> 行を追加
+                        </button>
+                    </div>
+                    <datalist id="history-csv-machine-options">${machineOptions}</datalist>
+                    <datalist id="history-csv-worker-options">${workerOptions}</datalist>
+                    <div class="history-csv-builder-table-wrap">
+                        <table class="history-csv-builder-table">
+                            <thead>
+                                <tr>
+                                    <th>日付</th>
+                                    <th>ライン</th>
+                                    <th>機械名</th>
+                                    <th>型式</th>
+                                    <th>対応種別</th>
+                                    <th>初回/再発</th>
+                                    <th>作業内容</th>
+                                    <th>原因</th>
+                                    <th>処置</th>
+                                    <th>エラー</th>
+                                    <th>分</th>
+                                    <th>作業区分</th>
+                                    <th>作業者</th>
+                                    <th>交換部品</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-csv-builder-body"></tbody>
+                        </table>
+                    </div>
+                    <div class="history-csv-builder-note">
+                        <span><i class="fa-solid fa-circle-info"></i> 機械名は候補から選ぶと型式とラインを自動入力します。</span>
+                        <span>作業者は「山田, 田中」のようにカンマ区切りで複数入力できます。</span>
+                    </div>
+                </div>
+            `;
+            const footer = document.querySelector('.modal-footer');
+            footer.innerHTML = `
+                <button class="secondary-btn" id="modal-cancel">閉じる</button>
+                <button class="secondary-btn" onclick="app.fillHistoryCsvBuilderSample()"><i class="fa-solid fa-wand-magic-sparkles"></i> サンプル入力</button>
+                <button class="primary-btn" onclick="app.downloadHistoryCsvBuilder()"><i class="fa-solid fa-download"></i> CSV出力</button>
+            `;
+            document.getElementById('modal-cancel').onclick = () => this.closeModal();
+            this.addHistoryCsvBuilderRow({ date: today });
+        });
+    }
+
+    addHistoryCsvBuilderRow(values = {}) {
+        const body = document.getElementById('history-csv-builder-body');
+        if (!body) return;
+        const row = document.createElement('tr');
+        row.className = 'history-csv-builder-row';
+        row.innerHTML = this.renderHistoryCsvBuilderRow(values);
+        body.appendChild(row);
+    }
+
+    renderHistoryCsvBuilderRow(values = {}) {
+        const e = (v) => this.escapeHtml(v ?? '');
+        return `
+            <td><input type="date" data-field="date" value="${e(values.date)}"></td>
+            <td>
+                <select data-field="line">
+                    <option value="" ${!values.line ? 'selected' : ''}>未指定</option>
+                    ${Array.from({ length: 10 }, (_, i) => {
+                        const n = String(i + 1);
+                        return `<option value="${n}" ${String(values.line || '') === n ? 'selected' : ''}>${n}号ライン</option>`;
+                    }).join('')}
+                    <option value="other" ${values.line === 'other' ? 'selected' : ''}>その他</option>
+                </select>
+            </td>
+            <td><input type="text" data-field="machine" list="history-csv-machine-options" value="${e(values.machine)}" placeholder="機械名" onchange="app.applyHistoryCsvMachineSuggestion(this)"></td>
+            <td><input type="text" data-field="model" value="${e(values.model)}" placeholder="型式"></td>
+            <td>
+                <select data-field="type">
+                    ${['突発', '非生産停止', '定期', 'ドカ停'].map(type => `<option value="${type}" ${values.type === type ? 'selected' : ''}>${type}</option>`).join('')}
+                </select>
+            </td>
+            <td>
+                <select data-field="occurrence">
+                    ${['初回', '再発'].map(item => `<option value="${item}" ${values.occurrence === item ? 'selected' : ''}>${item}</option>`).join('')}
+                </select>
+            </td>
+            <td><textarea data-field="content" rows="2" placeholder="症状・作業内容">${e(values.content)}</textarea></td>
+            <td><textarea data-field="cause" rows="2" placeholder="原因">${e(values.cause)}</textarea></td>
+            <td><textarea data-field="notes" rows="2" placeholder="処置内容">${e(values.notes)}</textarea></td>
+            <td><input type="text" data-field="errorNo" value="${e(values.errorNo)}" placeholder="E-01"></td>
+            <td><input type="number" data-field="time" min="0" step="1" value="${e(values.time)}" placeholder="30"></td>
+            <td>
+                <select data-field="category">
+                    ${['機械', '電気', '調整', '部品', '清掃', 'その他'].map(cat => `<option value="${cat}" ${values.category === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                </select>
+            </td>
+            <td><input type="text" data-field="workers" list="history-csv-worker-options" value="${e(values.workers)}" placeholder="山田, 田中"></td>
+            <td><input type="text" data-field="parts" value="${e(values.parts)}" placeholder="ベルト x1 個 @1200"></td>
+            <td><button type="button" class="icon-btn history-csv-row-delete" title="行を削除" onclick="app.deleteHistoryCsvBuilderRow(this)"><i class="fa-solid fa-trash"></i></button></td>
+        `;
+    }
+
+    applyHistoryCsvMachineSuggestion(input) {
+        const row = input.closest('tr');
+        const option = Array.from(document.querySelectorAll('#history-csv-machine-options option')).find(opt => opt.value === input.value);
+        if (!row || !option) return;
+        const name = option.dataset.name || input.value;
+        const model = option.dataset.model || '';
+        const line = option.dataset.line || '';
+        row.querySelector('[data-field="machine"]').value = name;
+        row.querySelector('[data-field="model"]').value = model;
+        if (line) {
+            const lineSelect = row.querySelector('[data-field="line"]');
+            if (lineSelect && Array.from(lineSelect.options).some(opt => opt.value === line)) lineSelect.value = line;
+        }
+    }
+
+    deleteHistoryCsvBuilderRow(button) {
+        const body = document.getElementById('history-csv-builder-body');
+        const row = button.closest('tr');
+        if (!body || !row) return;
+        if (body.children.length <= 1) {
+            row.querySelectorAll('input, textarea').forEach(el => { el.value = ''; });
+            row.querySelectorAll('select').forEach(el => { el.selectedIndex = 0; });
+            return;
+        }
+        row.remove();
+    }
+
+    fillHistoryCsvBuilderSample() {
+        const body = document.getElementById('history-csv-builder-body');
+        if (!body) return;
+        body.innerHTML = '';
+        this.addHistoryCsvBuilderRow({
+            date: new Date().toISOString().split('T')[0],
+            line: '5',
+            machine: 'メインコンベア',
+            model: 'MC-100',
+            type: '突発',
+            occurrence: '初回',
+            content: 'ベルトの異音',
+            cause: '経年劣化',
+            notes: 'ベルトを調整',
+            errorNo: 'E-01',
+            time: '30',
+            category: '機械',
+            workers: '山田, 鈴木'
+        });
+    }
+
+    getHistoryCsvBuilderRows() {
+        const rows = Array.from(document.querySelectorAll('#history-csv-builder-body tr'));
+        return rows.map(row => {
+            const get = (field) => row.querySelector(`[data-field="${field}"]`)?.value?.trim() || '';
+            return [
+                get('date'),
+                get('line') === 'other' ? 'その他' : (get('line') ? `${get('line')}号ライン` : ''),
+                get('machine'),
+                get('model'),
+                get('type') || '突発',
+                get('occurrence') || '初回',
+                get('content'),
+                get('cause'),
+                get('notes'),
+                get('errorNo'),
+                get('time'),
+                get('category') || 'その他',
+                get('workers'),
+                get('parts')
+            ];
+        }).filter(row => row.some(cell => cell));
+    }
+
+    downloadHistoryCsvBuilder() {
+        const rows = this.getHistoryCsvBuilderRows();
+        if (!rows.length) return alert('出力する行がありません。');
+        const invalid = rows.findIndex(row => !row[0] || !row[2] || !row[5]);
+        if (invalid >= 0) {
+            return alert(`${invalid + 1}行目は「日付・機械名・作業内容」を入力してください。`);
+        }
+        const headers = this.getHistoryImportCsvHeaders();
+        const csvContent = [
+            headers.map(h => this.csvEscape(h)).join(','),
+            ...rows.map(row => row.map(value => this.csvEscape(value)).join(','))
+        ].join('\n');
+        this.downloadCSV(`history_import_${new Date().toISOString().split('T')[0]}.csv`, csvContent);
+        this.showToast?.('取込用CSVを出力しました', 'success');
     }
 
     processHistoryImportCSV() {
@@ -136,7 +412,13 @@
             const rows = this.parseCSV(e.target.result).filter(row => row.some(col => String(col).trim() !== ''));
             if (rows.length <= 1) return alert("データがありません。");
 
-            const headers = rows[0].map(h => String(h).replace(/^\ufeff/, '').trim());
+            const headerRowIndex = rows.findIndex(row => {
+                const normalized = row.map(h => String(h).replace(/^\ufeff/, '').trim());
+                return normalized.some(h => h.includes('日付')) && normalized.some(h => h.includes('機械名'));
+            });
+            if (headerRowIndex < 0) return alert("CSVの見出し行が見つかりませんでした。日付・機械名などの見出しがある行を残してください。");
+
+            const headers = rows[headerRowIndex].map(h => String(h).replace(/^\ufeff/, '').trim());
             const findIndex = (keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
             const indexMap = {
                 date: findIndex(['日付']),
@@ -144,6 +426,7 @@
                 machine: findIndex(['機械名']),
                 model: findIndex(['型式']),
                 type: findIndex(['区分', '対応種別']),
+                occurrence: findIndex(['初回', '再発', '対応回数']),
                 content: findIndex(['作業内容', '内容']),
                 cause: findIndex(['原因']),
                 notes: findIndex(['処置']),
@@ -168,6 +451,8 @@
             const records = [];
             const machines = store.getMachines(true);
             let addedMachines = 0;
+            let candidateRowCount = 0;
+            let skippedInvalidRows = 0;
             const importKey = (record) => [
                 record.date || '',
                 record.machineId || '',
@@ -178,24 +463,34 @@
             const importKeys = new Set();
             let duplicateCount = 0;
 
-            for (let i = 1; i < rows.length; i++) {
+            for (let i = headerRowIndex + 1; i < rows.length; i++) {
                 const cols = rows[i];
-                if (cols.length < 5) continue;
+                if (!cols.some(col => String(col).trim() !== '')) continue;
+                candidateRowCount++;
+                if (cols.length < 5) {
+                    skippedInvalidRows++;
+                    continue;
+                }
 
                 const date = getCol(cols, 'date', 0);
                 const lineNo = normalizeLineNo(getCol(cols, 'line'));
                 const mName = getCol(cols, 'machine', 1);
                 const mModel = getCol(cols, 'model', 2);
                 const occType = getCol(cols, 'type', 3);
-                const content = getCol(cols, 'content', 4);
-                const cause = getCol(cols, 'cause', 5);
-                const notes = getCol(cols, 'notes', 6);
-                const errorNo = getCol(cols, 'errorNo', 7);
-                const time = getCol(cols, 'time', 8);
-                const categoryName = getCol(cols, 'category', 9);
-                const workersStr = getCol(cols, 'workers', 10);
-                const partsStr = getCol(cols, 'parts', 11);
-                if (!date || !mName) continue;
+                const occurrenceText = getCol(cols, 'occurrence', -1);
+                const hasOccurrenceColumn = indexMap.occurrence >= 0;
+                const content = getCol(cols, 'content', hasOccurrenceColumn ? 5 : 4);
+                const cause = getCol(cols, 'cause', hasOccurrenceColumn ? 6 : 5);
+                const notes = getCol(cols, 'notes', hasOccurrenceColumn ? 7 : 6);
+                const errorNo = getCol(cols, 'errorNo', hasOccurrenceColumn ? 8 : 7);
+                const time = getCol(cols, 'time', hasOccurrenceColumn ? 9 : 8);
+                const categoryName = getCol(cols, 'category', hasOccurrenceColumn ? 10 : 9);
+                const workersStr = getCol(cols, 'workers', hasOccurrenceColumn ? 11 : 10);
+                const partsStr = getCol(cols, 'parts', hasOccurrenceColumn ? 12 : 11);
+                if (!date || !mName) {
+                    skippedInvalidRows++;
+                    continue;
+                }
 
                 let targetMachine = machines.find(m => m.name === mName && (mModel ? m.model === mModel : true));
                 if (!targetMachine) {
@@ -211,6 +506,7 @@
                 const isNonProductionStop = occType.includes("非生産停止") || occType.includes("非停止");
                 if (occType.includes("突発") || isNonProductionStop) isSudden = true;
                 if (occType.includes("ドカ停")) { isSudden = true; isDokatei = true; }
+                const isFirstTime = !String(occurrenceText || '').includes('再発');
 
                 const catMap = { '機械': 'machine', '電気': 'electric', '調整': 'adjust', '部品': 'parts', '清掃': 'clean', 'その他': 'other' };
                 let category = 'other';
@@ -235,6 +531,7 @@
                     category,
                     machineCategory: targetMachine.category || '',
                     lineNo: lineNo || targetMachine.lineNo || '',
+                    isFirstTime,
                     workers,
                     replacedParts,
                     photos: [],
@@ -256,14 +553,33 @@
             }
 
             if (records.length === 0) {
+                await this.addHistoryImportLog({
+                    fileName: file.name || 'CSV取り込み',
+                    totalRows: candidateRowCount,
+                    added: 0,
+                    duplicates: duplicateCount,
+                    skipped: skippedInvalidRows,
+                    addedMachines,
+                    firstTime: 0,
+                    recurrence: 0
+                });
                 return alert(duplicateCount > 0 ? `すべて重複候補だったため、取り込みはありませんでした。（${duplicateCount}件）` : "取り込めるデータがありませんでした。");
             }
             const duplicateMessage = duplicateCount > 0 ? `\n\n重複候補 ${duplicateCount}件はスキップします。` : '';
             if (confirm(`${records.length}件の履歴（うち新規機械登録: ${addedMachines}件）を取り込みます。よろしいですか？${duplicateMessage}`)) {
                 store.activeData.history.push(...records);
-                await store.save();
+                await this.addHistoryImportLog({
+                    fileName: file.name || 'CSV取り込み',
+                    totalRows: candidateRowCount,
+                    added: records.length,
+                    duplicates: duplicateCount,
+                    skipped: skippedInvalidRows,
+                    addedMachines,
+                    firstTime: records.filter(r => r.isFirstTime !== false).length,
+                    recurrence: records.filter(r => r.isFirstTime === false).length
+                });
                 this.closeModal();
-                this.showToast(`${records.length}件の履歴をインポートしました`, 'success');
+                this.showToast(`${records.length}件の履歴をインポートしました（重複${duplicateCount}件）`, 'success');
                 this.updateDataLists();
                 this.updateHistoryPeriodOptions();
                 requestAnimationFrame(() => {
@@ -291,7 +607,7 @@
             else if (type === 'dokatei') history = history.filter(h => h.isDokatei);
         }
 
-        const headers = ["日付", "ライン", "機械名", "型式", "対応種別", "作業内容(症状)", "原因", "処置内容(備考)", "エラー番号", "作業時間(分)", "作業区分", "作業者", "交換部品"];
+        const headers = ["日付", "ライン", "機械名", "型式", "対応種別", "初回/再発", "作業内容(症状)", "原因", "処置内容(備考)", "エラー番号", "作業時間(分)", "作業区分", "作業者", "交換部品"];
         const rows = history.map(h => {
             const m = store.getMachines(true).find(x => x.id === h.machineId);
             const mName = m ? m.name : '不明';
@@ -313,6 +629,7 @@
                 mName,
                 mModel,
                 typeLabel,
+                h.isFirstTime === false ? '再発' : '初回',
                 displayText,
                 h.cause || '',
                 (h.notes || '').replace(/\r?\n/g, ' '),

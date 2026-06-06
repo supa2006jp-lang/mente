@@ -88,11 +88,40 @@ class MaintenanceApp {
         return options.map(opt => `<option value="${opt.value}" ${String(selected) === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('');
     }
 
+    normalizePeriodDateInput(input) {
+        const raw = String(input || '').trim();
+        if (!raw) return '';
+        const normalized = raw
+            .replace(/[年月]/g, '/')
+            .replace(/日/g, '')
+            .replace(/[.]/g, '/')
+            .replace(/-/g, '/')
+            .replace(/\s+/g, '');
+        let year;
+        let month;
+        let day;
+        let match = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+        if (match) {
+            year = Number(match[1]);
+            month = Number(match[2]);
+            day = Number(match[3]);
+        } else {
+            match = normalized.match(/^(\d{1,2})\/(\d{1,2})$/);
+            if (!match) return '';
+            year = new Date().getFullYear();
+            month = Number(match[1]);
+            day = Number(match[2]);
+        }
+        const date = new Date(year, month - 1, day);
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return '';
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
     onPeriodChange(select, callback) {
         const val = select.value;
         if (val === 'CUSTOM') {
-            const start = prompt('開始日 (YYYY-MM-DD)', this.customStartDate || new Date().toISOString().split('T')[0]);
-            const end = prompt('終了日 (YYYY-MM-DD)', this.customEndDate || new Date().toISOString().split('T')[0]);
+            const start = this.normalizePeriodDateInput(prompt('開始日 (YYYY-MM-DD / M/D)', this.customStartDate || new Date().toISOString().split('T')[0]));
+            const end = this.normalizePeriodDateInput(prompt('終了日 (YYYY-MM-DD / M/D)', this.customEndDate || new Date().toISOString().split('T')[0]));
             if (start && end) {
                 this.customStartDate = start;
                 this.customEndDate = end;
@@ -377,7 +406,10 @@ class MaintenanceApp {
         }
 
         const wtPeriodFilter = document.getElementById('worktime-filter-period');
-        if (wtPeriodFilter) wtPeriodFilter.onchange = () => this.onPeriodChange(wtPeriodFilter, () => this.renderWorkTime());
+        if (wtPeriodFilter) wtPeriodFilter.onchange = () => this.onPeriodChange(wtPeriodFilter, () => {
+            this.saveWorkTimePeriodSelection?.();
+            this.renderWorkTime();
+        });
 
         const addMachineBtn = document.getElementById('btn-add-machine');
         if (addMachineBtn) {
@@ -448,6 +480,8 @@ class MaintenanceApp {
         };
         const titleEl = document.getElementById('view-title');
         if (titleEl) titleEl.textContent = titles[viewName] || 'メンテナンス';
+        const topHeader = document.querySelector('.top-header');
+        if (topHeader) topHeader.dataset.viewBg = viewName;
 
         // Reset skill filters when switching views to ensure fresh state
         this.skillModelFilter = null;
@@ -621,7 +655,10 @@ class MaintenanceApp {
         const dPeriod = document.getElementById('dashboard-filter-period');
         if (dPeriod) dPeriod.value = 'this_month';
         const wtPeriod = document.getElementById('worktime-filter-period');
-        if (wtPeriod) wtPeriod.value = 'last_this_month';
+        if (wtPeriod) {
+            wtPeriod.value = 'last_this_month';
+            this.saveWorkTimePeriodSelection?.();
+        }
 
         // Reset Guides View Filters
         const gLine = document.getElementById('guides-filter-line');

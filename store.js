@@ -149,6 +149,7 @@ class MaintenanceStore {
             if (!d.localTodos) d.localTodos = [];
             if (!d.localTodoWorkers) d.localTodoWorkers = [{ id: 'default', name: '共通・未設定' }];
             if (!d.localTodoLogs) d.localTodoLogs = [];
+            if (!d.historyImportLogs) d.historyImportLogs = [];
             if (!d.shiftNotebooks) d.shiftNotebooks = {};
             if (!d.shiftNotebookGroupPresets) d.shiftNotebookGroupPresets = [];
             if (!d.shiftNotebookMemberTypes) d.shiftNotebookMemberTypes = {};

@@ -4,32 +4,36 @@
     class MaintenanceAppHardDeleteMethods extends MaintenanceApp {
     // --- Hard Delete Actions (Permanent Deletion) ---
     hardDeleteWorker(name) {
-        if (confirm(`作業員「${name}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
+        if (this.requireDangerConfirm?.(`作業員「${name}」を完全に削除しますか？`, 'この操作は取り消せません。') ?? confirm(`作業員「${name}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
             store.hardDeleteWorker(name);
+            this.recordAdminOperationLog?.('delete', '作業員を完全削除', name, { tab: 'archive', search: name });
             this.renderWorkerMaintenanceModal();
             this.renderWorkers();
         }
     }
 
     hardDeleteTask(tk, label) {
-        if (confirm(`スキルマップ項目「${label}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
+        if (this.requireDangerConfirm?.(`スキルマップ項目「${label}」を完全に削除しますか？`, 'この操作は取り消せません。') ?? confirm(`スキルマップ項目「${label}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
             store.hardDeleteTask(tk);
+            this.recordAdminOperationLog?.('delete', 'スキル項目を完全削除', label, { tab: 'archive', search: label });
             this.renderWorkerMaintenanceModal();
             this.renderWorkers();
         }
     }
 
     hardDeletePart(name, model) {
-        if (confirm(`部品「${name} [${model}]」を完全に削除しますか？\nマスターからも削除されます。この操作は取り消せません。`)) {
+        if (this.requireDangerConfirm?.(`部品「${name} [${model}]」を完全に削除しますか？`, 'マスターからも削除されます。この操作は取り消せません。') ?? confirm(`部品「${name} [${model}]」を完全に削除しますか？\nマスターからも削除されます。この操作は取り消せません。`)) {
             store.hardDeletePart(name, model);
+            this.recordAdminOperationLog?.('delete', '部品を完全削除', `${name} [${model || '-'}]`, { tab: 'archive', search: name });
             this.renderWorkerMaintenanceModal();
             this.renderAnalysis();
         }
     }
 
     hardDeleteMaintenanceTask(id, content) {
-        if (confirm(`周期設定「${content}」を完全に削除しますか？\n設定データそのものが消去されます。この操作は取り消せません。`)) {
+        if (this.requireDangerConfirm?.(`周期設定「${content}」を完全に削除しますか？`, '設定データそのものが消去されます。この操作は取り消せません。') ?? confirm(`周期設定「${content}」を完全に削除しますか？\n設定データそのものが消去されます。この操作は取り消せません。`)) {
             store.hardDeleteMaintenanceTask(id);
+            this.recordAdminOperationLog?.('delete', '周期設定を完全削除', content, { tab: 'archive', search: content });
             this.renderWorkerMaintenanceModal();
             this.renderMachines();
             this.renderCalendar();
@@ -37,8 +41,9 @@
     }
 
     hardDeleteGuide(id, title) {
-        if (confirm(`手順書「${title}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
+        if (this.requireDangerConfirm?.(`手順書「${title}」を完全に削除しますか？`, 'この操作は取り消せません。') ?? confirm(`手順書「${title}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
             store.hardDeleteGuide(id);
+            this.recordAdminOperationLog?.('delete', '手順書を完全削除', title, { tab: 'archive', search: title });
             this.renderWorkerMaintenanceModal();
             this.renderGuides();
         }
@@ -129,17 +134,19 @@
     }
 
     hardDeleteMachineCategory(name) {
-        if (confirm(`装置区分「${name}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
+        if (this.requireDangerConfirm?.(`装置区分「${name}」を完全に削除しますか？`, 'この操作は取り消せません。') ?? confirm(`装置区分「${name}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
             store.activeData.archivedMachineCategories = store.activeData.archivedMachineCategories.filter(c => c !== name);
             store.save();
+            this.recordAdminOperationLog?.('delete', '装置区分を完全削除', name, { tab: 'archive', search: name });
             this.renderWorkerMaintenanceModal();
             this.updateDataLists();
         }
     }
 
     hardDeleteMachine(id, name) {
-        if (confirm(`装置「${name}」を完全に削除しますか？\n装置に関連する周期設定も削除されます（履歴は残ります）。\nこの操作は取り消せません。`)) {
+        if (this.requireDangerConfirm?.(`装置「${name}」を完全に削除しますか？`, '装置に関連する周期設定も削除されます（履歴は残ります）。この操作は取り消せません。') ?? confirm(`装置「${name}」を完全に削除しますか？\n装置に関連する周期設定も削除されます（履歴は残ります）。\nこの操作は取り消せません。`)) {
             store.hardDeleteMachine(id);
+            this.recordAdminOperationLog?.('delete', '装置を完全削除', name, { tab: 'archive', search: name });
             this.renderWorkerMaintenanceModal();
             this.renderMachines();
             this.renderCalendar();
@@ -147,8 +154,9 @@
     }
 
     hardDeleteSuggestion(kind, value) {
-        if (confirm(`サジェスト項目「${value}」をリストから完全に消去しますか？\n今後再びサジェストの候補に現れるようになります。`)) {
+        if (this.requireDangerConfirm?.(`サジェスト項目「${value}」をリストから完全に消去しますか？`, '今後再びサジェストの候補に現れるようになります。') ?? confirm(`サジェスト項目「${value}」をリストから完全に消去しますか？\n今後再びサジェストの候補に現れるようになります。`)) {
             store.toggleArchivedSuggestion(kind, value); // toggle to remove from archive
+            this.recordAdminOperationLog?.('delete', 'サジェストを完全削除', value, { tab: 'suggest', search: value });
             this.renderWorkerMaintenanceModal();
         }
     }

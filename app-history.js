@@ -45,9 +45,13 @@
 
                 <div style="margin-bottom: 24px;">
                     <h4 style="font-size:0.85rem; color:var(--text-light); margin-bottom:12px;"><i class="fa-solid fa-note-sticky"></i> カレンダーに表示するメモ</h4>
-                    <textarea id="cal-day-memo" style="width:100%; height:120px; padding:12px; border:2px solid var(--border); border-radius:10px; font-size:0.9rem; font-family:inherit; line-height:1.5; outline:none; transition:border-color 0.2s;" placeholder="カレンダーのセル内に常備表示したいメモを記入（例: 点検立ち合い、来客など）">${store.activeData.memos[dateStr] || ''}</textarea>
-                    <button class="primary-btn" style="width:100%; margin-top:10px; font-weight:900;" onclick="app.saveDayMemo('${dateStr}')"><i class="fa-solid fa-floppy-disk"></i> メモをカレンダーへ保存</button>
-                    <p style="font-size:0.65rem; color:var(--text-light); margin-top:4px;">※メンテナンス履歴とは別に、セル内に直接メモとして表示されます。</p>
+                    <div style="padding:14px; border:1px solid #fde68a; border-radius:12px; background:#fffbeb;">
+                        <div style="font-size:0.92rem; color:#78350f; font-weight:850; line-height:1.65; margin-bottom:12px; min-height:86px; max-height:180px; overflow:auto; white-space:pre-wrap;">${store.activeData.memos[dateStr] ? this.escapeHtml(store.activeData.memos[dateStr]) : 'この日のメモは未入力です。'}</div>
+                        <button class="primary-btn" style="width:100%; font-weight:900;" onclick="app.closeModal(); app.openCalendarMemoEditor('${dateStr}', null, { returnToDayMenu: true })">
+                            <i class="fa-solid fa-note-sticky"></i> 大きいメモ編集を開く
+                        </button>
+                        <p style="font-size:0.65rem; color:var(--text-light); margin-top:6px;">※カレンダーセルのメモアイコンと同じ編集画面を開きます。</p>
+                    </div>
                 </div>
 
                 <div style="border-top: 1px dashed var(--border); padding-top: 16px; display:flex; gap:8px;">
@@ -61,23 +65,34 @@
 
     deleteDayMemo(date) {
         if (!confirm('この日のメモを削除しますか？')) return;
+        this.closeCalendarMemoEditor?.();
         if (store.activeData.memos) {
             delete store.activeData.memos[date];
             store.save();
             this.renderCalendar();
+            if (typeof this.renderDashboard === 'function' && document.getElementById('dashboard-widgets')) {
+                this.renderDashboard();
+            }
         }
     }
 
     saveDayMemo(date) {
-        const txt = document.getElementById('cal-day-memo').value.trim();
+        const txt = (document.getElementById('cal-day-memo')?.value || '').trim();
         if (!store.activeData.memos) store.activeData.memos = {};
-        store.activeData.memos[date] = txt;
+        if (txt) {
+            store.activeData.memos[date] = txt;
+        } else {
+            delete store.activeData.memos[date];
+        }
         store.save();
         this.closeModal();
         this.renderCalendar();
+        if (typeof this.renderDashboard === 'function' && document.getElementById('dashboard-widgets')) {
+            this.renderDashboard();
+        }
     }
 
-    openHistoryEditForm(historyId) {
+    openHistoryEditForm(historyId, focusTarget = null) {
         const h = store.activeData.history.find(x => x.id === historyId);
         if (!h) return;
 
@@ -156,8 +171,9 @@
 
                     <div class="form-group">
                         <label>症状・故障内容 <span style="color:var(--danger)">*</span></label>
-                        <textarea id="e-symptom" class="sudden-detail-textarea" rows="6" placeholder="どのような異常が発生したか記入してください" required>${h.errorContent || ''}</textarea>
+                        <textarea id="e-symptom" class="sudden-detail-textarea" rows="6" placeholder="どのような異常が発生したか記入してください" required oninput="app.updateHistorySmartAssist('e-', true, '${this.escapeJs(historyId)}')">${h.errorContent || ''}</textarea>
                     </div>
+                    <div id="e-history-assist-panel"></div>
 
                     <div class="form-group">
                         <label>作業者 (カンマ区切り)</label>
@@ -262,6 +278,7 @@
             `;
             const saveBtn = document.getElementById('modal-save-btn');
             if (saveBtn) saveBtn.onclick = () => this.saveModalData('edit-history');
+            this.injectUnifiedSearchReturnButton?.();
             const workTimeField = document.getElementById('e-work-time');
             if (workTimeField) {
                 const timeRow = document.createElement('div');
@@ -287,7 +304,33 @@
 
             // Trigger initial suggestions for the selected machine
             this.onSuddenMachineChange(h.machineId, true);
+            if (focusTarget) {
+                setTimeout(() => this.focusHistoryEditField(focusTarget), 120);
+            }
         });
+    }
+
+    focusHistoryEditField(target) {
+        const fieldMap = {
+            title: 'e-symptom',
+            symptom: 'e-symptom',
+            cause: 'e-cause',
+            notes: 'e-notes',
+            action: 'e-notes'
+        };
+        const fieldId = fieldMap[target] || target;
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+        const group = field.closest('.form-group') || field;
+        group.classList.remove('history-edit-field-focus');
+        void group.offsetWidth;
+        group.classList.add('history-edit-field-focus');
+        field.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        setTimeout(() => {
+            field.focus({ preventScroll: true });
+            if (typeof field.select === 'function') field.select();
+        }, 260);
+        setTimeout(() => group.classList.remove('history-edit-field-focus'), 2600);
     }
 
     setupEditHistoryTimeAutoCalc() {
@@ -378,23 +421,91 @@
         return `${workTime}分`;
     }
 
+    renderHistoryWorkTimeCell(history) {
+        const workTime = history?.workTime || 0;
+        if (history?.startTime && history?.endTime) {
+            return `
+                <b>${this.escapeHtml(`${history.startTime}-${history.endTime}`)}</b>
+                <small>${this.escapeHtml(`${workTime}分`)}</small>
+            `;
+        }
+        return `<b>${this.escapeHtml(`${workTime}分`)}</b>`;
+    }
+
+    renderHistoryDateCell(dateText, isRepeated = false, isGroupStart = false, groupCount = 1) {
+        const match = String(dateText || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (!match) return this.escapeHtml(dateText || '-');
+        const [, year, month, day] = match;
+        return `
+            <div class="history-date-cell ${isRepeated ? 'same-date' : ''} ${isGroupStart ? 'group-start' : ''}">
+                ${isRepeated ? '' : `<b>${this.escapeHtml(year)}</b>`}
+                <span>${Number(month)}/${Number(day)}</span>
+                ${isGroupStart && groupCount > 1 ? `<em>${groupCount}件</em>` : ''}
+            </div>
+        `;
+    }
+
     getHistoryWorkMinutes(history) {
         return parseFloat(history?.workTime) || 0;
     }
 
+    initializeHistorySortState() {
+        if (this._historySortReady) return;
+        const savedMode = localStorage.getItem('history_sort_mode');
+        const savedDateDir = localStorage.getItem('history_date_sort_dir');
+        this.historyMetricSortMode = ['date', 'time', 'cost'].includes(savedMode) ? savedMode : (this.historyMetricSortMode || 'date');
+        this.historyDateSortDir = ['asc', 'desc'].includes(savedDateDir) ? savedDateDir : (this.historyDateSortDir || 'desc');
+        this._historySortReady = true;
+    }
+
+    saveHistorySortState() {
+        localStorage.setItem('history_sort_mode', this.historyMetricSortMode || 'date');
+        localStorage.setItem('history_date_sort_dir', this.historyDateSortDir || 'desc');
+    }
+
+    getHistorySortLabel() {
+        if (this.historyMetricSortMode === 'time') return '並び替え: 作業時間 多い順';
+        if (this.historyMetricSortMode === 'cost') return '並び替え: コスト 高い順';
+        return `並び替え: 日付 ${this.historyDateSortDir === 'asc' ? '古い順' : '新しい順'}`;
+    }
+
     toggleHistoryMetricSort(mode) {
-        this.historyMetricSortMode = this.historyMetricSortMode === mode ? null : mode;
+        if (mode === 'date') {
+            this.historyMetricSortMode = 'date';
+            this.historyDateSortDir = this.historyDateSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.historyMetricSortMode = this.historyMetricSortMode === mode ? 'date' : mode;
+            this.historyDateSortDir = 'desc';
+        }
+        this.saveHistorySortState();
         this.renderHistory();
     }
 
     updateHistoryMetricSortButtons() {
+        const dateBtn = document.getElementById('history-sort-date-btn');
         const timeBtn = document.getElementById('history-sort-time-btn');
         const costBtn = document.getElementById('history-sort-cost-btn');
+        const dateIcon = document.getElementById('history-sort-date-icon');
+        const timeIcon = document.getElementById('history-sort-time-icon');
+        const costIcon = document.getElementById('history-sort-cost-icon');
+        const isDateSort = !this.historyMetricSortMode || this.historyMetricSortMode === 'date';
+        if (dateBtn) dateBtn.classList.toggle('active', isDateSort);
+        if (dateIcon) dateIcon.className = `fa-solid ${this.historyDateSortDir === 'asc' ? 'fa-arrow-up-short-wide' : 'fa-arrow-down-wide-short'}`;
         if (timeBtn) timeBtn.classList.toggle('active', this.historyMetricSortMode === 'time');
         if (costBtn) costBtn.classList.toggle('active', this.historyMetricSortMode === 'cost');
+        if (timeIcon) timeIcon.className = 'fa-solid fa-arrow-down-wide-short history-sort-dir-icon';
+        if (costIcon) costIcon.className = 'fa-solid fa-arrow-down-wide-short history-sort-dir-icon';
     }
 
     sortHistoryRows(rows) {
+        const sortByDate = () => {
+            const dir = this.historyDateSortDir === 'asc' ? 1 : -1;
+            rows.sort((a, b) => (new Date(a.date || '') - new Date(b.date || '')) * dir);
+        };
+        if (!this.historyMetricSortMode || this.historyMetricSortMode === 'date') {
+            sortByDate();
+            return;
+        }
         if (this.historyMetricSortMode === 'time') {
             rows.sort((a, b) => this.getHistoryWorkMinutes(b) - this.getHistoryWorkMinutes(a) || new Date(b.date || '') - new Date(a.date || ''));
             return;
@@ -403,7 +514,7 @@
             rows.sort((a, b) => this.calculateHistoryCost(b).total - this.calculateHistoryCost(a).total || new Date(b.date || '') - new Date(a.date || ''));
             return;
         }
-        rows.sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
+        sortByDate();
     }
 
     deleteHistoryEntry(id) {
@@ -422,9 +533,536 @@
         }
     }
 
+    ensureHistorySelectionState() {
+        if (!(this.selectedHistoryIds instanceof Set)) this.selectedHistoryIds = new Set();
+    }
+
+    toggleHistorySelection(id, checked) {
+        this.ensureHistorySelectionState();
+        if (checked) this.selectedHistoryIds.add(String(id));
+        else this.selectedHistoryIds.delete(String(id));
+        this.updateHistoryBulkBar();
+    }
+
+    toggleVisibleHistorySelection(checked) {
+        this.ensureHistorySelectionState();
+        (this.visibleHistoryIds || []).forEach(id => {
+            if (checked) this.selectedHistoryIds.add(String(id));
+            else this.selectedHistoryIds.delete(String(id));
+        });
+        document.querySelectorAll('.history-row-select').forEach(input => {
+            input.checked = !!checked;
+        });
+        this.updateHistoryBulkBar();
+    }
+
+    clearHistorySelection() {
+        this.ensureHistorySelectionState();
+        this.selectedHistoryIds.clear();
+        document.querySelectorAll('.history-row-select').forEach(input => input.checked = false);
+        const all = document.getElementById('history-select-all');
+        if (all) {
+            all.checked = false;
+            all.indeterminate = false;
+        }
+        this.updateHistoryBulkBar();
+    }
+
+    getSelectedHistoryRecords() {
+        this.ensureHistorySelectionState();
+        return (store.activeData.history || []).filter(h => this.selectedHistoryIds.has(String(h.id)) && !h.isManualGuide);
+    }
+
+    updateHistoryBulkBar() {
+        this.ensureHistorySelectionState();
+        const bar = document.getElementById('hist-bulk-bar');
+        const visibleIds = this.visibleHistoryIds || [];
+        const selectedVisibleCount = visibleIds.filter(id => this.selectedHistoryIds.has(String(id))).length;
+        const selectedTotal = this.getSelectedHistoryRecords().length;
+        const all = document.getElementById('history-select-all');
+        if (all) {
+            all.checked = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
+            all.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleIds.length;
+        }
+        if (!bar) return;
+        bar.hidden = false;
+        if (selectedTotal <= 0) {
+            bar.className = 'history-bulk-bar empty';
+            bar.innerHTML = `
+                <div class="history-bulk-message">
+                    <b><i class="fa-solid fa-list-check"></i> 複数の履歴をまとめて編集できます</b>
+                    <span>左端のチェック欄で履歴を選ぶと、ライン・装置区分・作業区分・作業者などを一括変更できます。</span>
+                </div>
+                <div class="history-bulk-actions">
+                    <button type="button" class="secondary-btn" onclick="app.toggleVisibleHistorySelection(true)"><i class="fa-solid fa-check-double"></i> 表示中を全選択</button>
+                    <button type="button" class="secondary-btn history-bulk-main-btn is-disabled" onclick="app.showHistoryBulkEditGuide()" aria-disabled="true"><i class="fa-solid fa-pen-to-square"></i> チェック後に一括編集</button>
+                    <button type="button" class="secondary-btn" onclick="app.showHistoryBulkEditGuide()"><i class="fa-solid fa-hand-pointer"></i> チェック欄を表示</button>
+                </div>
+            `;
+            return;
+        }
+        bar.className = 'history-bulk-bar ready';
+        const readyClass = selectedTotal >= 2 ? 'is-ready' : 'is-single';
+        bar.innerHTML = `
+            <div class="history-bulk-message">
+                <b><i class="fa-solid fa-check-square"></i> ${selectedTotal}件を選択中</b>
+                <span>${selectedTotal >= 2 ? '複数選択されています。右の一括編集ボタンからまとめて変更できます。' : 'もう1件選ぶと複数履歴をまとめて変更できます。'}</span>
+            </div>
+            <div class="history-bulk-actions">
+                <button type="button" class="secondary-btn" onclick="app.toggleVisibleHistorySelection(true)"><i class="fa-solid fa-check-double"></i> 表示中を全選択</button>
+                <button type="button" class="primary-btn history-bulk-main-btn ${readyClass}" onclick="app.openHistoryBulkEditModal()"><i class="fa-solid fa-pen-to-square"></i> 選択した${selectedTotal}件を一括編集</button>
+                <button type="button" class="secondary-btn" onclick="app.clearHistorySelection()">選択解除</button>
+            </div>
+        `;
+    }
+
+    showHistoryBulkEditGuide() {
+        const table = document.querySelector('#history-list-body')?.closest('table');
+        table?.classList.add('history-bulk-guide-flash');
+        setTimeout(() => table?.classList.remove('history-bulk-guide-flash'), 2200);
+        const targets = document.querySelectorAll('.history-row-select, #history-select-all');
+        targets.forEach(el => el.classList.add('selection-hint'));
+        document.getElementById('history-select-all')?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        setTimeout(() => targets.forEach(el => el.classList.remove('selection-hint')), 2200);
+        this.showToast?.('履歴一覧の左端チェックを選ぶと、一括編集できます', 'info');
+    }
+
+    openHistoryBulkEditModal() {
+        const selected = this.getSelectedHistoryRecords();
+        if (!selected.length) {
+            this.showHistoryBulkEditGuide();
+            alert('一括編集する履歴を、一覧の左端チェックで選択してください。');
+            return;
+        }
+        const workers = store.getWorkers ? store.getWorkers().filter(w => !store.isWorkerArchived?.(w)) : [];
+        this.openModal('history-bulk-edit', 'メンテナンス履歴の一括編集', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="history-bulk-edit">
+                    <div class="history-bulk-edit-note">
+                        <b><i class="fa-solid fa-list-check"></i> ${selected.length}件をまとめて編集します</b>
+                        <span>「変更する」にチェックした項目だけ反映されます。</span>
+                    </div>
+                    <div class="history-bulk-edit-grid">
+                        <label class="history-bulk-field">
+                            <span><input type="checkbox" id="bulk-use-line"> ラインを変更する</span>
+                            <select id="bulk-line-no">${this.generateLineOptionsHTML()}</select>
+                        </label>
+                        <label class="history-bulk-field">
+                            <span><input type="checkbox" id="bulk-use-machine-category"> 装置区分を変更する</span>
+                            <select id="bulk-machine-category">${this.getMachineCategoryOptions('', false)}</select>
+                        </label>
+                        <label class="history-bulk-field">
+                            <span><input type="checkbox" id="bulk-use-category"> 作業区分を変更する</span>
+                            <select id="bulk-category">
+                                <option value="machine">機械修理</option>
+                                <option value="electric">電気系修理</option>
+                                <option value="adjust">調整・設定変更</option>
+                                <option value="parts">部品交換</option>
+                                <option value="clean">清掃・給油</option>
+                                <option value="other">その他</option>
+                            </select>
+                        </label>
+                        <label class="history-bulk-field">
+                            <span><input type="checkbox" id="bulk-use-occurrence"> 初回/再発を変更する</span>
+                            <select id="bulk-occurrence">
+                                <option value="first">初回</option>
+                                <option value="recurrence">再発</option>
+                            </select>
+                        </label>
+                        <label class="history-bulk-field">
+                            <span><input type="checkbox" id="bulk-use-type"> 対応種別を変更する</span>
+                            <select id="bulk-type">
+                                <option value="sudden">突発</option>
+                                <option value="nonProductionStop">非生産停止</option>
+                                <option value="dokatei">ドカ停</option>
+                            </select>
+                        </label>
+                        <label class="history-bulk-field wide">
+                            <span><input type="checkbox" id="bulk-use-workers"> 作業者を変更する</span>
+                            <div class="history-bulk-workers">
+                                <select id="bulk-workers-mode">
+                                    <option value="replace">置き換え</option>
+                                    <option value="add">追記</option>
+                                    <option value="remove">削除</option>
+                                </select>
+                                <input type="text" id="bulk-workers" placeholder="例: 山田, 田中" list="bulk-worker-list">
+                                <datalist id="bulk-worker-list">${workers.map(w => `<option value="${this.escapeHtml(w)}"></option>`).join('')}</datalist>
+                            </div>
+                        </label>
+                    </div>
+                    <div class="history-bulk-preview">
+                        ${selected.slice(0, 8).map(h => {
+                            const machine = store.getMachines(true).find(m => m.id === h.machineId);
+                            return `<span>${this.escapeHtml(h.date || '-')} / ${this.escapeHtml(machine?.name || '機械不明')} / ${this.escapeHtml(this.getHistoryDisplayText(h))}</span>`;
+                        }).join('')}
+                        ${selected.length > 8 ? `<span>ほか ${selected.length - 8}件</span>` : ''}
+                    </div>
+                </div>
+            `;
+            const footer = document.querySelector('.modal-footer');
+            footer.innerHTML = `
+                <button class="secondary-btn" id="modal-cancel">キャンセル</button>
+                <button class="primary-btn" onclick="app.applyHistoryBulkEdit()"><i class="fa-solid fa-floppy-disk"></i> 一括更新</button>
+            `;
+            document.getElementById('modal-cancel').onclick = () => this.closeModal();
+        });
+    }
+
+    splitWorkerText(text) {
+        return String(text || '').split(/\s*(?:,|，|、|\/)\s*/).map(w => w.trim()).filter(Boolean);
+    }
+
+    applyHistoryBulkEdit() {
+        const selected = this.getSelectedHistoryRecords();
+        if (!selected.length) return alert('一括編集する履歴にチェックを入れてください。');
+        const useLine = !!document.getElementById('bulk-use-line')?.checked;
+        const useMachineCategory = !!document.getElementById('bulk-use-machine-category')?.checked;
+        const useCategory = !!document.getElementById('bulk-use-category')?.checked;
+        const useOccurrence = !!document.getElementById('bulk-use-occurrence')?.checked;
+        const useType = !!document.getElementById('bulk-use-type')?.checked;
+        const useWorkers = !!document.getElementById('bulk-use-workers')?.checked;
+        if (!useLine && !useMachineCategory && !useCategory && !useOccurrence && !useType && !useWorkers) {
+            alert('変更する項目にチェックを入れてください。');
+            return;
+        }
+        const lineNo = document.getElementById('bulk-line-no')?.value || '';
+        const machineCategory = document.getElementById('bulk-machine-category')?.value || '';
+        const category = document.getElementById('bulk-category')?.value || 'other';
+        const occurrence = document.getElementById('bulk-occurrence')?.value || 'first';
+        const type = document.getElementById('bulk-type')?.value || 'sudden';
+        const workersMode = document.getElementById('bulk-workers-mode')?.value || 'replace';
+        const workers = this.splitWorkerText(document.getElementById('bulk-workers')?.value || '');
+        if (useWorkers && workers.length === 0) {
+            alert('作業者を入力してください。');
+            return;
+        }
+        if (useMachineCategory && !machineCategory) {
+            alert('装置区分を選択してください。');
+            return;
+        }
+        const ok = confirm(`${selected.length}件の履歴を一括更新します。よろしいですか？`);
+        if (!ok) return;
+
+        selected.forEach(h => {
+            if (useLine) h.lineNo = lineNo;
+            if (useMachineCategory) {
+                h.machineCategory = machineCategory;
+                const machine = store.getMachines(true).find(m => m.id === h.machineId);
+                if (machine && machine.category !== machineCategory) {
+                    store.updateMachine(h.machineId, { category: machineCategory });
+                }
+            }
+            if (useCategory) h.category = category;
+            if (useOccurrence) h.isFirstTime = occurrence === 'first';
+            if (useType) {
+                if (h.taskId) {
+                    h.taskContent = h.taskContent || this.getHistoryDisplayText(h);
+                    h.errorContent = h.errorContent || h.taskContent || h.notes || '突発対応';
+                    delete h.taskId;
+                }
+                h.isSudden = true;
+                h.isDokatei = type === 'dokatei';
+                h.isNonProductionStop = type === 'nonProductionStop';
+            }
+            if (useWorkers) {
+                const current = Array.isArray(h.workers) ? h.workers : [];
+                if (workersMode === 'replace') h.workers = [...workers];
+                if (workersMode === 'add') h.workers = Array.from(new Set([...current, ...workers]));
+                if (workersMode === 'remove') h.workers = current.filter(w => !workers.includes(w));
+            }
+        });
+        store.save();
+        this.closeModal();
+        this.clearHistorySelection();
+        this.updateDataLists();
+        this.renderHistory();
+        this.renderCalendar();
+        this.renderDashboard?.();
+        this.showToast?.(`${selected.length}件を一括更新しました`, 'success');
+    }
+
+    getHistoryImportLikeKey(record) {
+        return [
+            record.date || '',
+            record.machineId || '',
+            this.getHistoryDisplayText(record) || record.errorContent || record.notes || '',
+            String(record.workTime || 0)
+        ].map(v => MaintenanceStore.toHalfWidthLower(String(v).trim())).join('__');
+    }
+
+    getHistoryQualityChecks() {
+        const histories = (store.activeData.history || []).filter(h => !h.isManualGuide);
+        const machines = store.getMachines(true);
+        const machineMap = new Map(machines.map(m => [String(m.id), m]));
+        const duplicateMap = new Map();
+        const checks = [
+            { key: 'missingMachine', label: '機械が見つからない履歴', icon: 'fa-industry', severity: 'danger', items: [] },
+            { key: 'missingLine', label: 'ライン未設定', icon: 'fa-route', severity: 'warning', items: [] },
+            { key: 'missingMachineCategory', label: '装置区分未設定', icon: 'fa-tag', severity: 'warning', items: [] },
+            { key: 'missingWorkers', label: '作業者未入力', icon: 'fa-user-gear', severity: 'danger', items: [] },
+            { key: 'missingContent', label: '内容未入力', icon: 'fa-file-lines', severity: 'danger', items: [] },
+            { key: 'missingCause', label: '原因未入力（突発系）', icon: 'fa-magnifying-glass-chart', severity: 'info', items: [] },
+            { key: 'zeroTime', label: '作業時間0分', icon: 'fa-clock', severity: 'warning', items: [] },
+            { key: 'invalidDate', label: '日付不正・未入力', icon: 'fa-calendar-xmark', severity: 'danger', items: [] },
+            { key: 'duplicateCandidate', label: '重複候補', icon: 'fa-clone', severity: 'info', groups: [] }
+        ];
+        const byKey = Object.fromEntries(checks.map(c => [c.key, c]));
+        histories.forEach(h => {
+            const machine = machineMap.get(String(h.machineId));
+            const line = h.lineNo || machine?.lineNo || '';
+            const category = h.machineCategory || machine?.category || '';
+            const content = this.getHistoryDisplayText(h);
+            const isTrouble = !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden;
+            const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(String(h.date || '')) && !isNaN(new Date(h.date).getTime());
+            const item = {
+                id: h.id,
+                date: h.date || '日付なし',
+                machineName: machine?.name || '機械不明',
+                title: content || '内容なし',
+                meta: `${line ? this.getLineLabel(line) : 'ライン未設定'} / ${category || '装置区分未設定'}`
+            };
+            if (!machine) byKey.missingMachine.items.push(item);
+            if (!line) byKey.missingLine.items.push(item);
+            if (!category) byKey.missingMachineCategory.items.push(item);
+            if (!Array.isArray(h.workers) || h.workers.length === 0) byKey.missingWorkers.items.push(item);
+            if (!content || content === '突発対応' || content === '定期メンテナンス') byKey.missingContent.items.push(item);
+            if (isTrouble && !String(h.cause || '').trim()) byKey.missingCause.items.push(item);
+            if ((parseFloat(h.workTime) || 0) <= 0) byKey.zeroTime.items.push(item);
+            if (!dateOk) byKey.invalidDate.items.push(item);
+            const key = this.getHistoryImportLikeKey(h);
+            if (!duplicateMap.has(key)) duplicateMap.set(key, []);
+            duplicateMap.get(key).push(item);
+        });
+        byKey.duplicateCandidate.groups = Array.from(duplicateMap.values()).filter(group => group.length > 1);
+        const priority = {
+            missingMachine: 1,
+            invalidDate: 2,
+            missingWorkers: 3,
+            missingContent: 4,
+            zeroTime: 5,
+            missingLine: 6,
+            missingMachineCategory: 7,
+            missingCause: 8,
+            duplicateCandidate: 9
+        };
+        return checks.sort((a, b) => {
+            const countA = a.groups ? a.groups.length : a.items.length;
+            const countB = b.groups ? b.groups.length : b.items.length;
+            const activeA = countA > 0 ? 0 : 1;
+            const activeB = countB > 0 ? 0 : 1;
+            if (activeA !== activeB) return activeA - activeB;
+            return (priority[a.key] || 99) - (priority[b.key] || 99);
+        });
+    }
+
+    renderHistoryQualityItem(item) {
+        return `
+            <button type="button" class="history-quality-item" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeJs(item.id)}')">
+                <b>${this.escapeHtml(item.date)} / ${this.escapeHtml(item.machineName)}</b>
+                <span>${this.escapeHtml(item.title)}</span>
+                <small>${this.escapeHtml(item.meta)}</small>
+            </button>
+        `;
+    }
+
+    selectHistoryQualityItems(mapKey) {
+        this.ensureHistorySelectionState();
+        const ids = Array.from(new Set((this.historyQualitySelectMap?.[mapKey]?.ids || []).map(id => String(id))));
+        if (!ids.length) {
+            alert('選択できる履歴がありません。');
+            return;
+        }
+        ids.forEach(id => this.selectedHistoryIds.add(id));
+        const label = this.historyQualitySelectMap?.[mapKey]?.label || '品質チェック';
+        this.closeModal();
+        this.switchView('history');
+        this.renderHistory();
+        this.updateHistoryBulkBar();
+        this.showToast?.(`${label} の ${ids.length}件を選択しました`, 'success');
+    }
+
+    selectAllHistoryQualityItems() {
+        this.ensureHistorySelectionState();
+        const allIds = Object.values(this.historyQualitySelectMap || {}).flatMap(entry => entry.ids || []);
+        const ids = Array.from(new Set(allIds.map(id => String(id))));
+        if (!ids.length) {
+            alert('選択できる履歴がありません。');
+            return;
+        }
+        ids.forEach(id => this.selectedHistoryIds.add(id));
+        this.closeModal();
+        this.switchView('history');
+        this.renderHistory();
+        this.updateHistoryBulkBar();
+        this.showToast?.(`品質チェックの該当履歴 ${ids.length}件を選択しました`, 'success');
+    }
+
+    openHistoryQualityCheck() {
+        const checks = this.getHistoryQualityChecks();
+        const totalIssues = checks.reduce((sum, check) => sum + (check.groups ? check.groups.length : check.items.length), 0);
+        const brokenReport = typeof this.getBrokenDataReport === 'function' ? this.getBrokenDataReport() : null;
+        const brokenTotal = brokenReport && typeof this.getBrokenDataCount === 'function' ? this.getBrokenDataCount(brokenReport) : 0;
+        this.historyQualitySelectMap = {};
+        this.openModal('history-quality-check', 'データ品質チェック', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="history-quality">
+                    <div class="history-quality-head">
+                        <div>
+                            <b><i class="fa-solid fa-shield-halved"></i> 集計精度に影響しやすいデータを確認</b>
+                            <span>項目をクリックすると対象の履歴編集を開きます。</span>
+                        </div>
+                        <strong class="${totalIssues ? 'has-issues' : 'ok'}">${totalIssues ? `${totalIssues}項目` : '問題なし'}</strong>
+                    </div>
+                    ${brokenReport ? `
+                        <div class="history-quality-admin-link ${brokenTotal ? 'has-issues' : 'ok'}">
+                            <div>
+                                <b><i class="fa-solid fa-screwdriver-wrench"></i> 管理画面の壊れた参照</b>
+                                <span>
+                                    周期設定参照 ${brokenReport.archivedMaintenanceTasks.length}件 / 手順書参照 ${brokenReport.archivedGuides.length}件 / スキル除外参照 ${brokenReport.archivedTasks.length}件 / 機械不明履歴 ${brokenReport.missingMachineHistories.length}件
+                                </span>
+                            </div>
+                            <div>
+                                <button class="secondary-btn" onclick="app.openBrokenDataDetailModal()" ${brokenTotal ? '' : 'disabled'}>
+                                    <i class="fa-solid fa-list-ul"></i> 詳細
+                                </button>
+                                <button class="secondary-btn" onclick="app.cleanupBrokenDataReferences()" ${(brokenReport.archivedMaintenanceTasks.length + brokenReport.archivedGuides.length + brokenReport.archivedTasks.length) ? '' : 'disabled'}>
+                                    <i class="fa-solid fa-broom"></i> 自動修復
+                                </button>
+                            </div>
+                        </div>
+                    ` : ''}
+                    <div class="history-quality-grid">
+                        ${checks.map(check => {
+                            const count = check.groups ? check.groups.length : check.items.length;
+                            const ids = check.groups
+                                ? check.groups.flatMap(group => group.map(item => item.id))
+                                : check.items.map(item => item.id);
+                            const mapKey = `quality_${check.key}`;
+                            this.historyQualitySelectMap[mapKey] = { ids, label: check.label };
+                            return `
+                                <section class="history-quality-card ${check.severity}">
+                                    <header>
+                                        <i class="fa-solid ${check.icon}"></i>
+                                        <b>${this.escapeHtml(check.label)}</b>
+                                        <em>${count}</em>
+                                    </header>
+                                    <button type="button" class="history-quality-select-btn" onclick="app.selectHistoryQualityItems('${this.escapeJs(mapKey)}')" ${ids.length ? '' : 'disabled'}>
+                                        <i class="fa-solid fa-check-square"></i> 該当履歴を選択
+                                    </button>
+                                    <div class="history-quality-list">
+                                        ${count === 0 ? '<p>該当なし</p>' : ''}
+                                        ${check.groups ? check.groups.slice(0, 10).map((group, idx) => `
+                                            <div class="history-quality-duplicate">
+                                                <strong>候補 ${idx + 1}: ${group.length}件</strong>
+                                                ${group.map(item => this.renderHistoryQualityItem(item)).join('')}
+                                            </div>
+                                        `).join('') : check.items.slice(0, 12).map(item => this.renderHistoryQualityItem(item)).join('')}
+                                        ${count > (check.groups ? 10 : 12) ? `<p>ほか ${count - (check.groups ? 10 : 12)}件</p>` : ''}
+                                    </div>
+                                </section>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+            const footer = document.querySelector('.modal-footer');
+            footer.innerHTML = `
+                <button class="secondary-btn" id="modal-cancel">閉じる</button>
+                <button class="secondary-btn" onclick="app.selectAllHistoryQualityItems()" ${totalIssues ? '' : 'disabled'}><i class="fa-solid fa-check-double"></i> 問題履歴をすべて選択</button>
+                <button class="primary-btn" onclick="app.closeModal(); app.openHistoryBulkEditModal()"><i class="fa-solid fa-list-check"></i> 選択履歴を一括編集</button>
+            `;
+            document.getElementById('modal-cancel').onclick = () => this.closeModal();
+        });
+    }
+
+    isTroubleHistoryForDetail(h) {
+        return !h?.taskId || h?.isDokatei || h?.isNonProductionStop || h?.isSudden;
+    }
+
+    setHistoryMissingDetailFilter(kind, event) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        this.hideHistoryDetailPopover();
+        this.historyMissingDetailFilter = this.historyMissingDetailFilter === kind ? null : kind;
+        this.renderHistory();
+        const label = kind === 'cause' ? '原因未入力' : '処置未入力';
+        this.showToast?.(`${label}の履歴で絞り込みました`, 'info');
+    }
+
+    showHistoryDetailPopover(anchor, historyId, kind, event) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        if (!anchor) return;
+        const popoverKey = `${historyId}:${kind}`;
+        if (event?.type === 'mouseenter' && this.historyDetailPopover) {
+            if (this.historyDetailPopoverKey === popoverKey) return;
+            return;
+        }
+        if (this.historyDetailPopover && this.historyDetailPopoverKey === popoverKey) return;
+        const label = kind === 'cause' ? '原因' : '処置';
+        const fullText = anchor.dataset.detailFull || `${label}: ${anchor.textContent || ''}`;
+        this.hideHistoryDetailPopover();
+        const popover = document.createElement('div');
+        popover.className = `history-detail-popover ${kind}`;
+        popover.innerHTML = `
+            <div class="history-detail-popover-head">
+                <b>${this.escapeHtml(label)}</b>
+                <button type="button" onclick="app.hideHistoryDetailPopover()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="history-detail-popover-body">${this.escapeHtml(fullText.replace(new RegExp(`^${label}:\\s*`), ''))}</div>
+            <div class="history-detail-popover-actions">
+                <button type="button" class="primary-btn" onclick="app.hideHistoryDetailPopover(); app.openHistoryEditForm('${this.escapeJs(historyId)}', '${kind === 'cause' ? 'cause' : 'notes'}')">
+                    <i class="fa-solid fa-pen-to-square"></i> 編集
+                </button>
+            </div>
+        `;
+        document.body.appendChild(popover);
+        const rect = anchor.getBoundingClientRect();
+        const width = Math.min(520, Math.max(320, window.innerWidth - 28));
+        popover.style.width = `${width}px`;
+        const popRect = popover.getBoundingClientRect();
+        const left = Math.min(Math.max(14, rect.left), window.innerWidth - popRect.width - 14);
+        const topCandidate = rect.top - popRect.height - 10;
+        const top = topCandidate > 14 ? topCandidate : Math.min(rect.bottom + 10, window.innerHeight - popRect.height - 14);
+        popover.style.left = `${left}px`;
+        popover.style.top = `${Math.max(14, top)}px`;
+        this.historyDetailPopover = popover;
+        this.historyDetailPopoverKey = popoverKey;
+        setTimeout(() => {
+            const close = (e) => {
+                if (!popover.contains(e.target) && e.target !== anchor) {
+                    this.hideHistoryDetailPopover();
+                    document.removeEventListener('mousedown', close);
+                }
+            };
+            document.addEventListener('mousedown', close);
+            this.historyDetailPopoverClose = close;
+        }, 0);
+    }
+
+    hideHistoryDetailPopover() {
+        if (this.historyDetailPopoverClose) {
+            document.removeEventListener('mousedown', this.historyDetailPopoverClose);
+            this.historyDetailPopoverClose = null;
+        }
+        if (this.historyDetailPopover) {
+            this.historyDetailPopover.remove();
+            this.historyDetailPopover = null;
+        }
+        this.historyDetailPopoverKey = null;
+    }
+
     renderHistory(searchQuery = '') {
         const body = document.getElementById('history-list-body');
         if (!body) return;
+        this.ensureHistorySelectionState();
+        this.initializeHistorySortState();
         const density = this.historyDensityMode || localStorage.getItem('history_density_mode') || 'standard';
         this.historyDensityMode = density;
         document.querySelectorAll('#hist-density-mode [data-density-mode]').forEach(btn => {
@@ -451,12 +1089,21 @@
                     <button class="secondary-btn" style="padding:4px 12px; font-size:0.75rem;" onclick="app.returnToWorkTimeFromHistory()">作業時間集計へ戻る</button>
                 </div>
             ` : '';
-            if (this.modelFilter || this.workerFilter || this.machineCategoryFilter || this.historyReturnContext) {
+            if (this.modelFilter || this.workerFilter || this.machineCategoryFilter || this.historyMissingDetailFilter || this.historyReturnContext) {
+                const activeLabel = this.modelFilter
+                    ? `型式: ${this.modelFilter}`
+                    : (this.workerFilter
+                        ? `作業員: ${this.workerFilter}`
+                        : (this.machineCategoryFilter
+                            ? `装置区分: ${this.machineCategoryFilter}`
+                            : (this.historyMissingDetailFilter === 'cause'
+                                ? '原因未入力'
+                                : (this.historyMissingDetailFilter === 'notes' ? '処置未入力' : '作業時間集計からの絞り込み'))));
                 activeFiltersArea.innerHTML = `
                     ${returnHtml}
                     <div style="background:var(--secondary-light); color:var(--secondary); padding:8px 16px; border-radius:8px; margin-bottom:12px; font-size:0.8rem; display:flex; justify-content:space-between; align-items:center;">
-                        <span><i class="fa-solid fa-filter"></i> <b>${this.modelFilter ? `型式: ${this.modelFilter}` : (this.workerFilter ? `作業員: ${this.workerFilter}` : (this.machineCategoryFilter ? `装置区分: ${this.machineCategoryFilter}` : '作業時間集計からの絞り込み'))}</b> で抽出中</span>
-                        <button class="secondary-btn" style="padding:2px 10px; font-size:0.7rem;" onclick="app.clearModelFilter(); app.workerFilter=null; app.machineCategoryFilter=null; app.historyReturnContext=null; app.renderHistory();">解除</button>
+                        <span><i class="fa-solid fa-filter"></i> <b>${this.escapeHtml(activeLabel)}</b> で抽出中</span>
+                        <button class="secondary-btn" style="padding:2px 10px; font-size:0.7rem;" onclick="app.clearModelFilter(); app.workerFilter=null; app.machineCategoryFilter=null; app.historyMissingDetailFilter=null; app.historyReturnContext=null; app.renderHistory();">解除</button>
                     </div>
                 `;
             } else {
@@ -571,6 +1218,12 @@
             filterSteps.push({ label: '手順あり', count: filtered.length });
         }
 
+        if (this.historyMissingDetailFilter) {
+            const kind = this.historyMissingDetailFilter;
+            filtered = filtered.filter(h => this.isTroubleHistoryForDetail(h) && !String(kind === 'cause' ? h.cause || '' : h.notes || '').trim());
+            filterSteps.push({ label: kind === 'cause' ? '原因未入力' : '処置未入力', count: filtered.length });
+        }
+
         if (query) {
             const terms = MaintenanceStore.toHalfWidthLower(query).split(/\s+/).filter(t => t);
             filtered = filtered.filter(h => {
@@ -584,24 +1237,42 @@
         }
 
         this.sortHistoryRows(filtered);
+        this.visibleHistoryIds = filtered.map(h => String(h.id));
+        for (const id of Array.from(this.selectedHistoryIds)) {
+            if (!(store.activeData.history || []).some(h => String(h.id) === id && !h.isManualGuide)) {
+                this.selectedHistoryIds.delete(id);
+            }
+        }
 
-        this.renderHistoryFilterSummary(filtered, { period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly, machineCategory: this.machineCategoryFilter });
+        this.renderHistoryFilterSummary(filtered, { period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly, machineCategory: this.machineCategoryFilter, missingDetail: this.historyMissingDetailFilter });
         const visibleCostTotal = filtered.reduce((sum, h) => sum + this.calculateHistoryCost(h).total, 0);
         const visibleCostTotalEl = document.getElementById('history-visible-cost-total');
         if (visibleCostTotalEl) {
-            visibleCostTotalEl.textContent = this.formatCurrency(visibleCostTotal);
-            visibleCostTotalEl.title = `表示中 ${filtered.length}件の合計コスト`;
+            visibleCostTotalEl.textContent = this.formatCompactCurrency(visibleCostTotal);
+            const fullCostLabel = `表示中 ${filtered.length}件 / 合計 ${this.formatCurrency(visibleCostTotal)}`;
+            visibleCostTotalEl.title = fullCostLabel;
+            visibleCostTotalEl.setAttribute('aria-label', fullCostLabel);
         }
 
         body.innerHTML = '';
         if (filtered.length === 0) {
             body.innerHTML = this.renderHistoryEmptyReason(filterSteps);
+            this.updateHistoryBulkBar();
             return;
         }
 
-        filtered.forEach(h => {
+        const historyDateCounts = filtered.reduce((map, item) => {
+            const key = item.date || '';
+            map[key] = (map[key] || 0) + 1;
+            return map;
+        }, {});
+
+        filtered.forEach((h, index) => {
             const machine = store.getMachines(true).find(m => m.id === h.machineId);
             const tr = document.createElement('tr');
+            const isSameDateAsPrevious = index > 0 && filtered[index - 1]?.date === h.date;
+            const isDateGroupStart = index === 0 || !isSameDateAsPrevious;
+            if (index > 0 && !isSameDateAsPrevious) tr.classList.add('history-date-group-start');
             
             let rowBg = '#ffffff';
             const typeInfo = this.getHistoryTypeInfo(h);
@@ -635,9 +1306,15 @@
                 : '';
             const cost = this.calculateHistoryCost(h);
             const matchLabels = this.getHistorySearchMatchLabels(h, machine, query);
+            const isTroubleHistory = !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden;
+            const causeText = String(h.cause || '').trim();
+            const notesText = String(h.notes || '').trim();
 
             tr.innerHTML = `
-                <td style="font-weight:700">${h.date}</td>
+                <td style="text-align:center;">
+                    <input type="checkbox" class="history-row-select" ${this.selectedHistoryIds.has(String(h.id)) ? 'checked' : ''} onchange="app.toggleHistorySelection('${this.escapeJs(h.id)}', this.checked)" aria-label="履歴を選択">
+                </td>
+                <td style="font-weight:700">${this.renderHistoryDateCell(h.date, isSameDateAsPrevious, isDateGroupStart, historyDateCounts[h.date] || 1)}</td>
                 <td style="font-size:0.85rem">
                     <div style="display:flex; gap:10px; align-items:center;">
                         <div class="img-box" style="width:36px; height:36px; border-radius:8px; flex-shrink:0;">
@@ -648,7 +1325,12 @@
                                 ${this.getLineBadge(h.lineNo || machine?.lineNo)}
                                 ${ (h.machineCategory || machine?.category) ? `<span style="font-size:0.65rem; color:var(--text-light); font-weight:800;"><i class="fa-solid fa-tag"></i> ${h.machineCategory || machine.category}</span>` : ''}
                             </div>
-                            <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; font-weight:700;" title="${normMName}">${this.highlightText(normMName, query)}</div>
+                            <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; font-weight:700;" title="${normMName}">
+                                <span class="history-machine-name-filter ${machine && document.getElementById('hist-filter-machine')?.value === String(machine.id) ? 'active' : ''}" onclick="app.toggleMachineFilter('${this.escapeJs(machine?.id || '')}', event)" title="この機械名で抽出">
+                                    ${this.highlightText(normMName, query)}
+                                    ${machine && document.getElementById('hist-filter-machine')?.value === String(machine.id) ? ' <i class="fa-solid fa-filter" style="font-size:0.6rem"></i>' : ''}
+                                </span>
+                            </div>
                             <div style="display:flex; align-items:center; gap:6px; min-width:0;">
                                 <span class="history-model-label ${isBlankModel ? 'blank' : ''}" onclick="app.toggleModelFilter('${normMModel}', event)" title="この型式で抽出">
                                     [${this.highlightText(normMModel, query)}]
@@ -663,10 +1345,10 @@
                         </div>
                     </div>
                 </td>
-                <td>
+                <td class="history-content-cell" onclick="app.openHistoryEditForm('${this.escapeJs(h.id)}')" title="クリックして編集">
                     <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
                         <div style="font-weight:900; color:${titleColor}; flex:1; display:flex; align-items:center; min-width:0; gap:6px;">
-                            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${this.getHistoryDisplayText(h)}">${this.highlightText(this.getHistoryDisplayText(h), query)}</span>
+                            <span class="history-main-content" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${this.getHistoryDisplayText(h)}" onclick="event.stopPropagation(); app.openHistoryEditForm('${this.escapeJs(h.id)}', 'symptom')">${this.highlightText(this.getHistoryDisplayText(h), query)}</span>
                             ${h.isFirstTime !== false 
                                 ? `<span class="badge-occurrence first" style="font-size:0.65rem; padding:2px 6px; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; border-radius:4px; font-weight:800; flex-shrink:0;">初回</span>`
                                 : `<span class="badge-occurrence recurrence" style="font-size:0.65rem; padding:2px 6px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:4px; font-weight:800; flex-shrink:0;">再発</span>`
@@ -681,9 +1363,15 @@
                             ${this.workerFilter && (h.workers || []).includes(this.workerFilter) ? ' <i class="fa-solid fa-filter" style="font-size:0.75rem; color:var(--primary)"></i>' : ''}
                         </div>
                     </div>
-                    <div style="font-size:0.75rem; color:var(--text-light); line-height:1.4; margin-top:4px;">
-                        ${h.cause ? `<div class="history-row-detail-text" title="原因: ${h.cause}">原因: ${this.highlightText(h.cause, query)}</div>` : ''}
-                        ${h.notes ? `<div class="history-row-detail-text" title="処置: ${h.notes}">処置: ${this.highlightText(h.notes, query)}</div>` : ''}
+                    <div class="history-detail-lines">
+                        ${causeText
+                            ? `<div class="history-row-detail-text history-cause-detail has-value"><span class="history-row-detail-hit" data-detail-full="${this.escapeHtml(`原因: ${causeText}`)}" title="原因: ${this.escapeHtml(causeText)}" onmouseenter="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'cause', event)" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'cause', event)"><span class="history-row-detail-label">原因</span><span class="history-row-detail-value">${this.highlightText(causeText, query)}</span></span></div>`
+                            : (isTroubleHistory ? `<div class="history-row-detail-text history-cause-detail is-missing"><span class="history-row-detail-hit" data-detail-full="原因未入力" title="クリックで原因未入力だけ表示" onclick="app.setHistoryMissingDetailFilter('cause', event)"><span class="history-row-detail-label">原因</span><span class="history-row-detail-value">未入力</span></span></div>` : '')
+                        }
+                        ${notesText
+                            ? `<div class="history-row-detail-text history-action-detail has-value"><span class="history-row-detail-hit" data-detail-full="${this.escapeHtml(`処置: ${notesText}`)}" title="処置: ${this.escapeHtml(notesText)}" onmouseenter="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'notes', event)" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'notes', event)"><span class="history-row-detail-label">処置</span><span class="history-row-detail-value">${this.highlightText(notesText, query)}</span></span></div>`
+                            : (isTroubleHistory ? `<div class="history-row-detail-text history-action-detail is-missing"><span class="history-row-detail-hit" data-detail-full="処置未入力" title="クリックで処置未入力だけ表示" onclick="app.setHistoryMissingDetailFilter('notes', event)"><span class="history-row-detail-label">処置</span><span class="history-row-detail-value">未入力</span></span></div>` : '')
+                        }
                     </div>
                     ${matchLabels.length ? `
                         <div class="history-match-labels" title="検索語が一致した項目">
@@ -706,7 +1394,7 @@
                 <td style="text-align: center;"><span class="badge ${badgeClass}" style="cursor:pointer; padding:4px 6px; font-size:0.65rem; min-width:40px; ${h.isNonProductionStop ? 'background:#fef3c7; color:#92400e; border:1px solid #fcd34d;' : ''}" onclick="app.toggleTypeFilter('${typeInfo.key}', event)" title="この区分で抽出">${badgeText}</span></td>
                 <td>
                     <div class="history-metric-cell time">
-                        <b>${this.escapeHtml(this.formatHistoryWorkTime(h))}</b>
+                        ${this.renderHistoryWorkTimeCell(h)}
                     </div>
                 </td>
                 <td>
@@ -753,6 +1441,7 @@
             `;
             body.appendChild(tr);
         });
+        this.updateHistoryBulkBar();
     }
 
     renderHistoryEmptyReason(filterSteps = []) {
@@ -768,7 +1457,7 @@
             : '登録済みのメンテナンス履歴がありません';
         return `
             <tr>
-                <td colspan="9" class="history-empty-cell">
+                <td colspan="10" class="history-empty-cell">
                     <div class="history-empty-reason">
                         <div class="history-empty-icon"><i class="fa-solid fa-magnifying-glass-chart"></i></div>
                         <div class="history-empty-body">
@@ -822,9 +1511,18 @@
         if (filters.photosOnly) chips.push('写真あり');
         if (filters.guideOnly) chips.push('手順あり');
         if (filters.query) chips.push(`検索: ${filters.query}`);
+        if (filters.missingDetail === 'cause') chips.push('原因未入力');
+        if (filters.missingDetail === 'notes') chips.push('処置未入力');
+        chips.push(this.getHistorySortLabel());
 
         const totalMinutes = filtered.reduce((sum, h) => sum + (parseFloat(h.workTime) || 0), 0);
         const averageMinutes = filtered.length ? Math.round((totalMinutes / filtered.length) * 10) / 10 : 0;
+        const troubleHistories = filtered.filter(h => this.isTroubleHistoryForDetail(h));
+        const causeFilled = troubleHistories.filter(h => String(h.cause || '').trim()).length;
+        const notesFilled = troubleHistories.filter(h => String(h.notes || '').trim()).length;
+        const rate = (value) => troubleHistories.length ? Math.round((value / troubleHistories.length) * 100) : 100;
+        const causeRate = rate(causeFilled);
+        const notesRate = rate(notesFilled);
         area.innerHTML = `
             <div class="history-filter-summary">
                 <div class="history-filter-chips">
@@ -832,6 +1530,18 @@
                     <span class="history-guide-legend has-guide"><i class="fa-solid fa-file-invoice"></i> 手順あり</span>
                     <span class="history-guide-legend no-guide"><i class="fa-solid fa-file-invoice"></i> 手順なし</span>
                     <span class="history-guide-legend ref-guide"><i class="fa-solid fa-file-invoice"></i> 関連手順</span>
+                </div>
+                <div class="history-quality-rate-strip">
+                    <button type="button" class="history-quality-rate-card ${causeRate < 100 ? 'has-gap' : 'complete'}" onclick="app.setHistoryMissingDetailFilter('cause', event)" title="原因未入力だけ表示">
+                        <span><i class="fa-solid fa-magnifying-glass-chart"></i> 原因入力率</span>
+                        <b>${causeRate}%</b>
+                        <small>${causeFilled}/${troubleHistories.length}件</small>
+                    </button>
+                    <button type="button" class="history-quality-rate-card ${notesRate < 100 ? 'has-gap' : 'complete'}" onclick="app.setHistoryMissingDetailFilter('notes', event)" title="処置未入力だけ表示">
+                        <span><i class="fa-solid fa-screwdriver-wrench"></i> 処置入力率</span>
+                        <b>${notesRate}%</b>
+                        <small>${notesFilled}/${troubleHistories.length}件</small>
+                    </button>
                 </div>
                 <div class="history-worktime-summary">
                     <b>${filtered.length}</b>件
@@ -848,6 +1558,15 @@
         const hours = Math.floor(value / 60);
         const mins = Math.round(value % 60);
         return mins ? `${hours}時間${mins}分` : `${hours}時間`;
+    }
+
+    formatCompactCurrency(value) {
+        const amount = Math.round(parseFloat(value) || 0);
+        if (Math.abs(amount) >= 10000) {
+            const compact = Math.round((amount / 10000) * 10) / 10;
+            return `¥${compact.toLocaleString()}万`;
+        }
+        return this.formatCurrency(amount);
     }
 
     getHistoryLaborRate() {
@@ -1071,6 +1790,9 @@
         if (guideFilter) guideFilter.checked = false;
         this.modelFilter = null;
         this.workerFilter = null;
+        this.machineCategoryFilter = null;
+        this.historyMissingDetailFilter = null;
+        this.historyReturnContext = null;
         this.renderHistory('');
     }
 
@@ -1104,6 +1826,8 @@
         if (guideFilter) guideFilter.checked = false;
         this.modelFilter = null;
         this.workerFilter = null;
+        this.machineCategoryFilter = null;
+        this.historyMissingDetailFilter = null;
 
         this.switchView('history');
         this.renderHistory('');
@@ -1316,11 +2040,41 @@
         });
     }
 
+    normalizePeriodDateInput(input) {
+        const raw = String(input || '').trim();
+        if (!raw) return '';
+        const normalized = raw
+            .replace(/[年月]/g, '/')
+            .replace(/日/g, '')
+            .replace(/[.]/g, '/')
+            .replace(/-/g, '/')
+            .replace(/\s+/g, '');
+        let year;
+        let month;
+        let day;
+        let match = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+        if (match) {
+            year = Number(match[1]);
+            month = Number(match[2]);
+            day = Number(match[3]);
+        } else {
+            match = normalized.match(/^(\d{1,2})\/(\d{1,2})$/);
+            if (!match) return '';
+            year = new Date().getFullYear();
+            month = Number(match[1]);
+            day = Number(match[2]);
+        }
+        const date = new Date(year, month - 1, day);
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return '';
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
     onPeriodChange(el, renderFn) {
         if (el.value === 'custom') {
             const current = localStorage.getItem('customStartDate') || new Date().toISOString().split('T')[0];
-            const date = prompt('指定日以降のデータを集計します。開始日を入力してください (YYYY-MM-DD):', current);
-            if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            const input = prompt('指定日以降のデータを集計します。開始日を入力してください (YYYY-MM-DD / M/D):', current);
+            const date = this.normalizePeriodDateInput(input);
+            if (date) {
                 localStorage.setItem('customStartDate', date);
                 this.updateHistoryPeriodOptions();
                 el.value = 'custom';
@@ -1330,10 +2084,10 @@
         } else if (el.value === 'custom_range') {
             const curS = localStorage.getItem('customRangeStart') || new Date().toISOString().split('T')[0];
             const curE = localStorage.getItem('customRangeEnd') || new Date().toISOString().split('T')[0];
-            const start = prompt('開始日を入力してください (YYYY-MM-DD):', curS);
-            if (start && /^\d{4}-\d{2}-\d{2}$/.test(start)) {
-                const end = prompt('終了日を入力してください (YYYY-MM-DD):', curE);
-                if (end && /^\d{4}-\d{2}-\d{2}$/.test(end)) {
+            const start = this.normalizePeriodDateInput(prompt('開始日を入力してください (YYYY-MM-DD / M/D):', curS));
+            if (start) {
+                const end = this.normalizePeriodDateInput(prompt('終了日を入力してください (YYYY-MM-DD / M/D):', curE));
+                if (end) {
                     localStorage.setItem('customRangeStart', start);
                     localStorage.setItem('customRangeEnd', end);
                     this.updateHistoryPeriodOptions();

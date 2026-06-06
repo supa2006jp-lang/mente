@@ -59,7 +59,7 @@
                 type: 'memo',
                 label: 'メ',
                 title: 'メモ',
-                items: memoValue ? [{ value: memoValue }] : [],
+                items: [{ value: memoValue || '' }],
                 className: 'memo'
             }
         ];
@@ -68,33 +68,293 @@
             if (group.items.length === 0) return;
             const chip = document.createElement('button');
             chip.type = 'button';
-            chip.className = `compact-event-chip ${group.className}`;
-            chip.title = `${group.title} ${group.items.length}件を確認`;
-            chip.innerHTML = `
-                <span class="compact-event-circle">${group.label}</span>
-                <span class="compact-event-count">x${group.items.length}</span>
-            `;
+            const hasMemo = group.type === 'memo' && !!String(memoValue || '').trim();
+            chip.className = `compact-event-chip ${group.className}${group.type === 'memo' ? ` calendar-memo-icon-chip ${hasMemo ? 'has-memo' : 'empty-memo'}` : ''}`;
+            chip.title = group.type === 'memo'
+                ? (hasMemo ? 'メモを編集' : 'メモを追加')
+                : `${group.title} ${group.items.length}件を確認`;
+            chip.innerHTML = group.type === 'memo'
+                ? `
+                    <span class="compact-event-circle"><i class="fa-solid fa-note-sticky"></i></span>
+                    ${hasMemo ? `<i class="fa-solid fa-xmark calendar-day-memo-delete" title="メモを削除" onclick="event.stopPropagation(); app.closeCalendarMemoEditor?.(); app.deleteDayMemo('${dateStr}');"></i>` : ''}
+                `
+                : `
+                    <span class="compact-event-circle">${group.label}</span>
+                    <span class="compact-event-count">x${group.items.length}</span>
+                `;
             chip.onclick = (e) => {
                 e.stopPropagation();
                 if (group.type === 'memo') {
-                    this.toggleCompactMemo(dateStr);
+                    this.openCalendarMemoEditor(dateStr, chip);
                     return;
                 }
                 this.openCompactCalendarDetails(dateStr, group.type);
             };
             container.appendChild(chip);
         });
+    }
 
-        if (memoValue && this.expandedCompactMemos.has(dateStr)) {
-            const memoBox = document.createElement('div');
-            memoBox.className = 'calendar-day-memo compact-memo-expanded';
-            memoBox.onclick = (e) => e.stopPropagation();
-            memoBox.innerHTML = `
-                <i class="fa-solid fa-note-sticky" style="margin-right:4px; opacity:0.7;"></i>
-                ${this.escapeHtml(memoValue).replace(/\n/g, '<br>')}
-                <i class="fa-solid fa-xmark calendar-day-memo-delete" title="メモを削除" onclick="event.stopPropagation(); app.deleteDayMemo('${dateStr}');"></i>
-            `;
-            container.appendChild(memoBox);
+    openCalendarMemoEditor(dateStr, anchorEl, options = {}) {
+        this.closeCalendarMemoEditor();
+
+        const memoValue = (store.activeData.memos || {})[dateStr] || '';
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const title = `${year}年 ${month}/${day} のメモ`;
+        const todayStr = this.getTodayDateString ? this.getTodayDateString() : (() => {
+            const today = new Date();
+            return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        })();
+        const isToday = dateStr === todayStr;
+        this._calendarMemoEditorReturnToDayMenu = !!options.returnToDayMenu;
+        const prevInfo = this.getCalendarMemoNeighborInfo(dateStr, -1);
+        const nextInfo = this.getCalendarMemoNeighborInfo(dateStr, 1);
+        const popover = document.createElement('div');
+        popover.className = 'calendar-memo-editor-popover';
+        popover.innerHTML = `
+            <div class="calendar-memo-editor-head">
+                <div>
+                    <span class="calendar-memo-editor-label"><i class="fa-solid fa-note-sticky"></i> カレンダーメモ</span>
+                    <strong class="calendar-memo-editor-title">${this.escapeHtml(title)}</strong>
+                </div>
+                <div class="calendar-memo-editor-head-actions">
+                    <button type="button" class="icon-btn calendar-memo-editor-prev" title="前日のメモ">
+                        <i class="fa-solid fa-chevron-left"></i><span>前日</span><small>${this.escapeHtml(prevInfo.hasMemo ? 'メモあり' : '未入力')}</small>
+                    </button>
+                    <button type="button" class="icon-btn calendar-memo-editor-today" title="今日のメモ" ${isToday ? 'disabled' : ''}>
+                        <i class="fa-solid fa-calendar-day"></i><span>今日へ</span>
+                    </button>
+                    <button type="button" class="icon-btn calendar-memo-editor-next" title="翌日のメモ">
+                        <small>${this.escapeHtml(nextInfo.hasMemo ? 'メモあり' : '未入力')}</small><span>翌日</span><i class="fa-solid fa-chevron-right"></i>
+                    </button>
+                    <button type="button" class="icon-btn calendar-memo-editor-close" title="閉じる">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+            ${memoValue ? '' : `
+                <div class="calendar-memo-editor-empty-hint">
+                    <i class="fa-solid fa-circle-info"></i> この日はまだメモがありません。下の欄に入力すると保存できます。
+                </div>
+            `}
+            <textarea class="calendar-memo-editor-text" placeholder="この日に表示したいメモを入力">${this.escapeHtml(memoValue)}</textarea>
+            <div class="calendar-memo-editor-actions">
+                <span class="calendar-memo-editor-status" aria-live="polite"></span>
+                <button type="button" class="secondary-btn calendar-memo-editor-delete">
+                    <i class="fa-solid fa-trash-can"></i> 削除
+                </button>
+                <button type="button" class="secondary-btn calendar-memo-editor-discard">
+                    <i class="fa-solid fa-ban"></i> 保存せず閉じる
+                </button>
+                ${this._calendarMemoEditorReturnToDayMenu ? `
+                    <button type="button" class="secondary-btn calendar-memo-editor-return">
+                        <i class="fa-solid fa-arrow-left"></i> 保存して日付メニューへ戻る
+                    </button>
+                ` : ''}
+                <button type="button" class="primary-btn calendar-memo-editor-save">
+                    <i class="fa-solid fa-floppy-disk"></i> 保存
+                </button>
+            </div>
+        `;
+
+        document.body.appendChild(popover);
+        this._calendarMemoEditor = popover;
+        this._calendarMemoEditorDate = dateStr;
+        this.positionCalendarMemoEditor(popover, anchorEl);
+
+        const textarea = popover.querySelector('.calendar-memo-editor-text');
+        const saveBtn = popover.querySelector('.calendar-memo-editor-save');
+        const closeBtn = popover.querySelector('.calendar-memo-editor-close');
+        const deleteBtn = popover.querySelector('.calendar-memo-editor-delete');
+        const prevBtn = popover.querySelector('.calendar-memo-editor-prev');
+        const nextBtn = popover.querySelector('.calendar-memo-editor-next');
+        const todayBtn = popover.querySelector('.calendar-memo-editor-today');
+        const discardBtn = popover.querySelector('.calendar-memo-editor-discard');
+        const returnBtn = popover.querySelector('.calendar-memo-editor-return');
+
+        textarea?.focus();
+        textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
+        saveBtn?.addEventListener('click', () => this.saveCalendarMemoEditorInPlace(dateStr));
+        closeBtn?.addEventListener('click', () => this.saveCalendarMemoEditor(dateStr));
+        prevBtn?.addEventListener('click', () => this.moveCalendarMemoEditorDate(dateStr, -1));
+        nextBtn?.addEventListener('click', () => this.moveCalendarMemoEditorDate(dateStr, 1));
+        todayBtn?.addEventListener('click', () => this.openTodayCalendarMemoEditor(dateStr));
+        discardBtn?.addEventListener('click', () => this.closeCalendarMemoEditor());
+        returnBtn?.addEventListener('click', () => this.saveCalendarMemoEditorAndReturnToDayMenu(dateStr));
+        deleteBtn?.addEventListener('click', () => {
+            if (!confirm('この日のメモを削除しますか？')) return;
+            this.saveCalendarMemoEditor(dateStr, '');
+        });
+        textarea?.addEventListener('input', () => {
+            const hint = popover.querySelector('.calendar-memo-editor-empty-hint');
+            if (hint && textarea.value.trim()) hint.classList.add('hidden');
+        });
+        textarea?.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                this.saveCalendarMemoEditor(dateStr);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                this.saveCalendarMemoEditor(dateStr);
+            }
+        });
+
+        this._calendarMemoEditorOutsideHandler = (e) => {
+            if (popover.contains(e.target) || anchorEl?.contains(e.target)) return;
+            this.saveCalendarMemoEditor(dateStr);
+        };
+        setTimeout(() => {
+            document.addEventListener('pointerdown', this._calendarMemoEditorOutsideHandler);
+        }, 0);
+        if (this._calendarMemoEditorMoved) {
+            popover.querySelector('.calendar-memo-editor-title')?.classList.add('date-changed');
+            this._calendarMemoEditorMoved = false;
+        }
+    }
+
+    getCalendarMemoNeighborInfo(dateStr, direction) {
+        const [year, month, day] = String(dateStr || '').split('-').map(Number);
+        if (!year || !month || !day) return { dateStr: '', hasMemo: false };
+        const target = new Date(year, month - 1, day);
+        target.setDate(target.getDate() + direction);
+        const neighborDateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+        return {
+            dateStr: neighborDateStr,
+            hasMemo: !!String((store.activeData.memos || {})[neighborDateStr] || '').trim()
+        };
+    }
+
+    moveCalendarMemoEditorDate(dateStr, direction) {
+        const [year, month, day] = String(dateStr || '').split('-').map(Number);
+        if (!year || !month || !day) return;
+        const popover = this._calendarMemoEditor;
+        const textarea = popover?.querySelector('.calendar-memo-editor-text');
+        const nextValue = (textarea?.value || '').trim();
+        if (!store.activeData.memos) store.activeData.memos = {};
+        if (nextValue) {
+            store.activeData.memos[dateStr] = nextValue;
+        } else {
+            delete store.activeData.memos[dateStr];
+        }
+        store.save();
+        const target = new Date(year, month - 1, day);
+        target.setDate(target.getDate() + direction);
+        const nextDateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+        this.syncCalendarMemoEditorMonth(target);
+        this._calendarMemoEditorMoved = true;
+        this.openCalendarMemoEditor(nextDateStr, null, { returnToDayMenu: this._calendarMemoEditorReturnToDayMenu });
+    }
+
+    openTodayCalendarMemoEditor(dateStr) {
+        const popover = this._calendarMemoEditor;
+        const textarea = popover?.querySelector('.calendar-memo-editor-text');
+        const nextValue = (textarea?.value || '').trim();
+        if (!store.activeData.memos) store.activeData.memos = {};
+        if (nextValue) {
+            store.activeData.memos[dateStr] = nextValue;
+        } else {
+            delete store.activeData.memos[dateStr];
+        }
+        store.save();
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        this.syncCalendarMemoEditorMonth(today);
+        this._calendarMemoEditorMoved = true;
+        this.openCalendarMemoEditor(todayStr, null, { returnToDayMenu: this._calendarMemoEditorReturnToDayMenu });
+    }
+
+    syncCalendarMemoEditorMonth(targetDate) {
+        if (!(targetDate instanceof Date) || Number.isNaN(targetDate.getTime())) return;
+        const currentYear = this.currentDate?.getFullYear?.();
+        const currentMonth = this.currentDate?.getMonth?.();
+        if (currentYear === targetDate.getFullYear() && currentMonth === targetDate.getMonth()) return;
+        this.currentDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+        this.renderCalendar();
+    }
+
+    positionCalendarMemoEditor(popover, anchorEl) {
+        popover.style.left = '50%';
+        popover.style.top = '50%';
+        popover.style.transform = 'translate(-50%, -50%)';
+    }
+
+    saveCalendarMemoEditor(dateStr, forcedValue = null) {
+        const popover = this._calendarMemoEditor;
+        const textarea = popover?.querySelector('.calendar-memo-editor-text');
+        const nextValue = forcedValue === null ? (textarea?.value || '').trim() : String(forcedValue || '').trim();
+
+        if (!store.activeData.memos) store.activeData.memos = {};
+        if (nextValue) {
+            store.activeData.memos[dateStr] = nextValue;
+        } else {
+            delete store.activeData.memos[dateStr];
+        }
+        store.save();
+        this.showCalendarMemoEditorStatus(nextValue ? '保存済み' : '未入力に戻しました');
+        this.closeCalendarMemoEditor();
+        this.renderCalendar();
+        if (typeof this.renderDashboard === 'function' && document.getElementById('dashboard-widgets')) {
+            this.renderDashboard();
+        }
+    }
+
+    saveCalendarMemoEditorInPlace(dateStr) {
+        const popover = this._calendarMemoEditor;
+        const textarea = popover?.querySelector('.calendar-memo-editor-text');
+        const nextValue = (textarea?.value || '').trim();
+        if (!store.activeData.memos) store.activeData.memos = {};
+        if (nextValue) {
+            store.activeData.memos[dateStr] = nextValue;
+        } else {
+            delete store.activeData.memos[dateStr];
+        }
+        store.save();
+        this.showCalendarMemoEditorStatus(nextValue ? '保存済み' : '未入力に戻しました');
+        this.renderCalendar();
+        if (typeof this.renderDashboard === 'function' && document.getElementById('dashboard-widgets')) {
+            this.renderDashboard();
+        }
+    }
+
+    saveCalendarMemoEditorAndReturnToDayMenu(dateStr) {
+        const popover = this._calendarMemoEditor;
+        const textarea = popover?.querySelector('.calendar-memo-editor-text');
+        const nextValue = (textarea?.value || '').trim();
+        if (!store.activeData.memos) store.activeData.memos = {};
+        if (nextValue) {
+            store.activeData.memos[dateStr] = nextValue;
+        } else {
+            delete store.activeData.memos[dateStr];
+        }
+        store.save();
+        this.closeCalendarMemoEditor();
+        this.renderCalendar();
+        if (typeof this.renderDashboard === 'function' && document.getElementById('dashboard-widgets')) {
+            this.renderDashboard();
+        }
+        this.openDayQuickMenu(dateStr);
+    }
+
+    showCalendarMemoEditorStatus(text) {
+        const status = this._calendarMemoEditor?.querySelector('.calendar-memo-editor-status');
+        if (!status) return;
+        status.textContent = text;
+        status.classList.add('visible');
+        clearTimeout(this._calendarMemoEditorStatusTimer);
+        this._calendarMemoEditorStatusTimer = setTimeout(() => {
+            status.classList.remove('visible');
+        }, 1800);
+    }
+
+    closeCalendarMemoEditor() {
+        clearTimeout(this._calendarMemoEditorStatusTimer);
+        if (this._calendarMemoEditorOutsideHandler) {
+            document.removeEventListener('pointerdown', this._calendarMemoEditorOutsideHandler);
+            this._calendarMemoEditorOutsideHandler = null;
+        }
+        if (this._calendarMemoEditor) {
+            this._calendarMemoEditor.remove();
+            this._calendarMemoEditor = null;
+            this._calendarMemoEditorDate = null;
         }
     }
 

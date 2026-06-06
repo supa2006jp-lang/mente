@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260603-history-empty-link-scroll">
+    <link rel="stylesheet" href="style.css?v=20260606-history-assist-recurrence">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -16,7 +16,7 @@
         #app-container { visibility: hidden !important; }
     </style>
     <style>
-        .calendar-day-memo {
+        .calendar-day-memo:not(.calendar-memo-icon-wrap) {
             position: relative;
             margin-top: 4px;
             padding: 6px 28px 6px 10px; /* Right padding for X */
@@ -215,45 +215,45 @@
             </div>
 
             <nav class="sidebar-nav">
-                <button class="nav-btn active" data-view="calendar">
+                <button class="nav-btn active" data-view="calendar" data-nav-bg="calendar">
                     <i class="fa-regular fa-calendar-days"></i> <span>カレンダー</span>
                 </button>
-                <button class="nav-btn" data-view="todos">
+                <button class="nav-btn" data-view="todos" data-nav-bg="todos">
                     <i class="fa-solid fa-list-check"></i> <span>ToDoリスト</span><span id="todo-request-count-badge" class="nav-count-badge" onclick="event.stopPropagation(); app.openPendingTodoRequestPanel()" hidden>0</span>
                 </button>
-                <button class="nav-btn" data-view="machines">
+                <button class="nav-btn" data-view="machines" data-nav-bg="machines">
                     <i class="fa-solid fa-cogs"></i> <span>メンテ・周期設定</span>
                 </button>
-                <button class="nav-btn" data-view="history">
+                <button class="nav-btn" data-view="history" data-nav-bg="history">
                     <i class="fa-solid fa-clock-rotate-left"></i> <span>メンテナンス履歴</span>
                 </button>
-                <button class="nav-btn" data-view="fiveS">
+                <button class="nav-btn" data-view="fiveS" data-nav-bg="fiveS">
                     <i class="fa-solid fa-broom"></i> <span>5S管理</span>
                 </button>
-                <button class="nav-btn" data-view="guides">
+                <button class="nav-btn" data-view="guides" data-nav-bg="guides">
                     <i class="fa-solid fa-book-open"></i> <span>手順書・ナレッジDB</span>
                 </button>
                 <div class="nav-divider">分析</div>
-                <button class="nav-btn" data-view="photos">
+                <button class="nav-btn" data-view="photos" data-nav-bg="photos">
                     <i class="fa-solid fa-images"></i> <span>&#20889;&#30495;&#31649;&#29702;</span>
                 </button>
-                <button class="nav-btn" data-view="analysis">
+                <button class="nav-btn" data-view="analysis" data-nav-bg="analysis">
                     <i class="fa-solid fa-box-open"></i> <span>部品消費・コスト</span>
                 </button>
-                <button class="nav-btn" data-view="dashboard">
+                <button class="nav-btn" data-view="dashboard" data-nav-bg="dashboard">
                     <i class="fa-solid fa-chart-line"></i> <span>ダッシュボード</span>
                 </button>
-                <button class="nav-btn" data-view="worktime">
+                <button class="nav-btn" data-view="worktime" data-nav-bg="worktime">
                     <i class="fa-solid fa-business-time"></i> <span>作業時間集計</span>
                 </button>
-                <button class="nav-btn" data-view="ranking">
+                <button class="nav-btn" data-view="ranking" data-nav-bg="ranking">
                     <i class="fa-solid fa-ranking-star"></i> <span>異常頻度ランク</span>
                 </button>
                 <div class="nav-divider">管理</div>
-                <button class="nav-btn" data-view="workers">
+                <button class="nav-btn" data-view="workers" data-nav-bg="workers">
                     <i class="fa-solid fa-users"></i> <span>スキルマップ</span>
                 </button>
-                <button class="nav-btn" onclick="app.openWorkerMaintenance()" style="color:var(--secondary);">
+                <button class="nav-btn" data-nav-bg="workers" onclick="app.openWorkerMaintenance()" style="color:var(--secondary);">
                     <i class="fa-solid fa-user-lock"></i> <span>管理画面</span>
                 </button>
                 <div class="nav-divider" onclick="app.toggleSidebarBottom()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition: var(--transition); user-select: none;">
@@ -301,7 +301,7 @@
 
         <!-- Main Content Area -->
         <main class="main-content">
-            <header class="top-header">
+            <header class="top-header" data-view-bg="calendar">
                 <div class="header-left">
                     <button id="sidebar-toggle" class="icon-btn"><i class="fa-solid fa-bars"></i></button>
                     <h2 id="view-title">カレンダー</h2>
@@ -316,7 +316,7 @@
                     </div>
                     <div class="notebook-search-bar">
                         <i class="fa-solid fa-book-open"></i>
-                        <input type="text" id="notebook-search" placeholder="横断検索...">
+                        <input type="text" id="notebook-search" placeholder="履歴・手順書・連絡帳・ToDoを検索...">
                         <select id="notebook-search-period" title="検索期間">
                             <option value="all">全期間</option>
                             <option value="today">今日</option>
@@ -327,7 +327,7 @@
                             <option value="this_year">今年</option>
                             <option value="last_year">去年</option>
                         </select>
-                        <button type="button" id="notebook-search-btn" title="連絡帳・メモ・履歴・定期メンテを検索"><i class="fa-solid fa-magnifying-glass"></i></button>
+                        <button type="button" id="notebook-search-btn" title="履歴・手順書・連絡帳・ToDo・メモを検索"><i class="fa-solid fa-magnifying-glass"></i></button>
                     </div>
                     <button id="calendar-compact-toggle" class="compact-mode-btn" title="カレンダーのセル表示をコンパクトに切り替え">
                         <i class="fa-solid fa-table-cells-large"></i>
@@ -496,8 +496,14 @@
                         <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.clearHistoryFilters()">
                             <i class="fa-solid fa-filter-circle-xmark"></i> 絞り込み解除
                         </button>
+                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openHistoryQualityCheck()">
+                            <i class="fa-solid fa-shield-halved"></i> 品質チェック
+                        </button>
                         <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem; margin-left: auto;" onclick="app.openHistoryImportModal()">
                             <i class="fa-solid fa-cloud-arrow-up"></i> 一括取込 (CSV)
+                        </button>
+                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openHistoryCsvBuilder()">
+                            <i class="fa-solid fa-pen-to-square"></i> CSV作成
                         </button>
                         <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.exportHistoryAsCSV()">
                             <i class="fa-solid fa-file-csv"></i> 履歴をCSV出力
@@ -506,24 +512,32 @@
                     
                     <div id="hist-active-filters"></div>
                     <div id="hist-filter-summary"></div>
+                    <div id="hist-bulk-bar" class="history-bulk-bar" hidden></div>
 
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th style="width: 70px;">日付</th>
-                                <th style="width: 25%; min-width: 150px;">機械</th>
-                                <th style="width: 35%; min-width: 220px;">内容</th>
-                                <th style="width: 70px;">写真</th>
-                                <th style="width: 60px; text-align: center;">区分</th>
-                                <th style="width: 72px;">
-                                    <button type="button" class="history-sort-stamp" id="history-sort-time-btn" onclick="app.toggleHistoryMetricSort('time')" title="作業時間が多い順に並べ替え">
-                                        <i class="fa-regular fa-clock"></i> 時間
+                                <th style="width: 42px; text-align:center;">
+                                    <input type="checkbox" id="history-select-all" title="表示中を全選択" onchange="app.toggleVisibleHistorySelection(this.checked)">
+                                </th>
+                                <th style="width: 58px;">
+                                    <button type="button" class="history-sort-stamp compact" id="history-sort-date-btn" onclick="app.toggleHistoryMetricSort('date')" title="日付順">
+                                        <i class="fa-regular fa-calendar-days"></i><i id="history-sort-date-icon" class="fa-solid fa-arrow-down-wide-short history-sort-dir-icon"></i>
                                     </button>
                                 </th>
-                                <th style="width: 100px;">
+                                <th style="width: 24%; min-width: 150px;">機械</th>
+                                <th style="width: 40%; min-width: 250px;">内容</th>
+                                <th style="width: 70px;">写真</th>
+                                <th style="width: 60px; text-align: center;">区分</th>
+                                <th style="width: 64px;">
+                                    <button type="button" class="history-sort-stamp" id="history-sort-time-btn" onclick="app.toggleHistoryMetricSort('time')" title="作業時間順">
+                                        <i class="fa-regular fa-clock"></i><i id="history-sort-time-icon" class="fa-solid fa-arrow-down-wide-short history-sort-dir-icon"></i>
+                                    </button>
+                                </th>
+                                <th style="width: 84px;">
                                     <div class="history-cost-head">
-                                        <button type="button" class="history-sort-stamp" id="history-sort-cost-btn" onclick="app.toggleHistoryMetricSort('cost')" title="コストが多い順に並べ替え">
-                                            <i class="fa-solid fa-yen-sign"></i> コスト
+                                        <button type="button" class="history-sort-stamp" id="history-sort-cost-btn" onclick="app.toggleHistoryMetricSort('cost')" title="コスト順">
+                                            <i class="fa-solid fa-yen-sign"></i><i id="history-sort-cost-icon" class="fa-solid fa-arrow-down-wide-short history-sort-dir-icon"></i>
                                         </button>
                                         <span id="history-visible-cost-total" class="history-visible-cost-total">¥0</span>
                                     </div>
@@ -889,28 +903,28 @@
     </div>
 
     <!-- Scripts -->
-    <script src="store.js"></script>
-    <script src="app.js?v=20260603-history-empty-link-scroll"></script>
+    <script src="store.js?v=20260605-history-import-logs"></script>
+    <script src="app.js?v=20260606-view-header-bg"></script>
     <script src="app-settings.js"></script>
     <script src="app-todos.js"></script>
     <script src="app-shift-notebook-settings.js"></script>
-    <script src="app-calendar.js"></script>
-    <script src="app-calendar-details.js"></script>
+    <script src="app-calendar.js?v=20260605-calendar-bg-toggle-cell-alpha"></script>
+    <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js"></script>
+    <script src="app-shift-notebook-core.js?v=20260606-unified-search-opened-reset"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js"></script>
     <script src="app-machines.js"></script>
-    <script src="app-maintenance-forms.js"></script>
-    <script src="app-history.js?v=20260603-history-empty-link-scroll"></script>
-    <script src="app-analysis-dashboard.js?v=20260602-placement-flash"></script>
+    <script src="app-maintenance-forms.js?v=20260606-history-assist-recurrence"></script>
+    <script src="app-history.js?v=20260606-history-assist-recurrence"></script>
+    <script src="app-analysis-dashboard.js?v=20260604-dashboard-memo-calendar-open"></script>
     <script src="app-ranking-guides.js"></script>
     <script src="app-skills.js"></script>
-    <script src="app-worktime.js?v=20260603-history-empty-link-scroll"></script>
-    <script src="app-archives.js"></script>
-    <script src="app-hard-delete.js"></script>
-    <script src="app-persistence.js"></script>
-    <script src="app-csv.js"></script>
+    <script src="app-worktime.js?v=20260604-history-date-counts"></script>
+    <script src="app-archives.js?v=20260606-admin-log-targets"></script>
+    <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
+    <script src="app-persistence.js?v=20260606-admin-log-targets"></script>
+    <script src="app-csv.js?v=20260605-history-import-logs"></script>
     <script src="app-misc-analysis.js"></script>
     <script src="app-photo-manager.js"></script>
     <script src="app-dom-actions.js"></script>

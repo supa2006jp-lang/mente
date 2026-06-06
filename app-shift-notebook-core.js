@@ -1118,13 +1118,48 @@
                     const photoText = photos.map(photo => this.normalizeShiftNotebookPhoto(photo).caption).filter(Boolean).join(' ');
                     const searchable = `${dateStr} ${label.name} ${label.stamp} ${members.join(' ')} ${tag} ${group} ${text} ${photoText}`;
                     if (!this.matchesSearchTerms(searchable, terms)) return;
-                    results.push({ dateStr, shift, label, members, text, html, tag, group, photos, index });
+                    results.push({
+                        dateStr,
+                        shift,
+                        label,
+                        members,
+                        text,
+                        html,
+                        tag,
+                        group,
+                        photos,
+                        index,
+                        matchLabels: this.getUnifiedSearchMatchLabels({
+                            '日付': dateStr,
+                            '勤務': label.name,
+                            'メンバー': members.join(' '),
+                            'タグ': tag,
+                            'グループ': group,
+                            '本文': text || this.stripShiftNoteHtml(html || ''),
+                            '写真': photoText
+                        }, terms)
+                    });
                 });
 
                 if (rows.length === 0 && members.length > 0) {
                     const searchable = `${dateStr} ${label.name} ${label.stamp} ${members.join(' ')}`;
                     if (this.matchesSearchTerms(searchable, terms)) {
-                        results.push({ dateStr, shift, label, members, text: '', tag: '通常', group: '未設定', photos: [], index: 0 });
+                        results.push({
+                            dateStr,
+                            shift,
+                            label,
+                            members,
+                            text: '',
+                            tag: '通常',
+                            group: '未設定',
+                            photos: [],
+                            index: 0,
+                            matchLabels: this.getUnifiedSearchMatchLabels({
+                                '日付': dateStr,
+                                '勤務': label.name,
+                                'メンバー': members.join(' ')
+                            }, terms)
+                        });
                     }
                 }
             });
@@ -1148,6 +1183,127 @@
         return terms.every(term => normalized.includes(term));
     }
 
+    getUnifiedSearchMatchLabels(fields = {}, terms = []) {
+        if (!terms.length) return [];
+        return Object.entries(fields)
+            .filter(([, value]) => value !== undefined && value !== null && this.matchesSearchTerms(String(value), terms))
+            .map(([label]) => label)
+            .slice(0, 5);
+    }
+
+    getUnifiedSearchSnippet(text = '', query = '', maxLength = 180) {
+        const raw = String(text || '').replace(/\s+/g, ' ').trim();
+        if (!raw) return '';
+        const terms = this.getSearchTerms(query);
+        const normalized = MaintenanceStore.toHalfWidthLower(raw);
+        const hitIndex = terms
+            .map(term => normalized.indexOf(term))
+            .filter(index => index >= 0)
+            .sort((a, b) => a - b)[0] ?? 0;
+        const start = Math.max(0, hitIndex - 46);
+        const snippet = raw.slice(start, start + maxLength);
+        return `${start > 0 ? '...' : ''}${snippet}${start + maxLength < raw.length ? '...' : ''}`;
+    }
+
+    getUnifiedSearchTargetTypes() {
+        const controls = Array.from(document.querySelectorAll('.unified-search-target-check'));
+        if (!controls.length) return ['history', 'guide', 'notebook', 'todo', 'memo', 'task'];
+        return controls.filter(input => input.checked).map(input => input.value);
+    }
+
+    getSavedUnifiedSearchTargetTypes() {
+        const defaults = ['history', 'guide', 'notebook', 'todo', 'memo', 'task'];
+        try {
+            const saved = JSON.parse(localStorage.getItem('unified_search_target_types') || 'null');
+            const valid = defaults.filter(type => Array.isArray(saved) && saved.includes(type));
+            return valid.length ? valid : defaults;
+        } catch (_) {
+            return defaults;
+        }
+    }
+
+    saveUnifiedSearchTargetTypes() {
+        try {
+            localStorage.setItem('unified_search_target_types', JSON.stringify(this.getUnifiedSearchTargetTypes()));
+        } catch (_) {}
+    }
+
+    getOpenedUnifiedSearchKeys() {
+        try {
+            const saved = JSON.parse(localStorage.getItem('unified_search_opened_keys') || '[]');
+            return new Set(Array.isArray(saved) ? saved : []);
+        } catch (_) {
+            return new Set();
+        }
+    }
+
+    markUnifiedSearchResultOpened(key = '') {
+        if (!key) return;
+        const opened = this.getOpenedUnifiedSearchKeys();
+        opened.add(String(key));
+        try {
+            localStorage.setItem('unified_search_opened_keys', JSON.stringify(Array.from(opened).slice(-500)));
+        } catch (_) {}
+        document.querySelectorAll(`.notebook-search-result[data-result-key="${CSS.escape(String(key))}"]`).forEach(item => {
+            item.classList.add('opened');
+            item.querySelector('.unified-search-opened-badge')?.classList.remove('hidden');
+        });
+    }
+
+    resetUnifiedSearchOpenedMarks() {
+        if (!confirm('検索結果の「確認済み」表示をすべてリセットしますか？')) return;
+        try {
+            localStorage.removeItem('unified_search_opened_keys');
+        } catch (_) {}
+        document.querySelectorAll('.notebook-search-result.opened').forEach(item => item.classList.remove('opened'));
+        document.querySelectorAll('.unified-search-opened-badge').forEach(badge => badge.classList.add('hidden'));
+    }
+
+    rememberAndOpenUnifiedSearchResult(key = '', query = '', period = 'all', action = '') {
+        this.markUnifiedSearchResultOpened(key);
+        this.rememberUnifiedSearchReturn(query, period);
+        if (action) {
+            try {
+                Function('app', action)(this);
+            } catch (error) {
+                console.error('Failed to open search result:', error);
+            }
+        }
+    }
+
+    rememberUnifiedSearchReturn(query = '', period = 'all') {
+        const list = document.querySelector('.notebook-search-results');
+        this._unifiedSearchReturn = {
+            query,
+            period,
+            types: this.getUnifiedSearchTargetTypes(),
+            activeTab: document.querySelector('.notebook-search-tabs button.active')?.dataset.searchTab || 'all',
+            sort: document.querySelector('.notebook-search-sort button.active')?.dataset.sortMode || 'date',
+            scrollTop: list?.scrollTop || 0
+        };
+    }
+
+    injectUnifiedSearchReturnButton() {
+        const state = this._unifiedSearchReturn;
+        const container = document.getElementById('modal-container');
+        const footer = document.querySelector('.modal-footer');
+        if (!state || !footer || !container || container.dataset.modalType === 'shift-notebook-search') return;
+        if (footer.querySelector('.unified-search-return-btn')) return;
+        footer.insertAdjacentHTML('afterbegin', `
+            <button type="button" class="secondary-btn unified-search-return-btn" onclick="app.reopenUnifiedSearchReturn()">
+                <i class="fa-solid fa-arrow-left"></i> 検索結果へ戻る
+            </button>
+        `);
+    }
+
+    reopenUnifiedSearchReturn() {
+        const state = this._unifiedSearchReturn;
+        if (!state?.query) return;
+        this._restoreUnifiedSearchState = { ...state };
+        this.closeModal();
+        this.openShiftNotebookSearchResults(state.query, state.period || 'all');
+    }
+
     highlightUnifiedSearchText(text = '', query = '') {
         const terms = (query || '').trim().split(/[\s　]+/).filter(Boolean);
         let html = this.escapeHtml(text || '');
@@ -1168,9 +1324,20 @@
         const machineById = new Map(machines.map(machine => [String(machine.id), machine]));
         const tasks = store.activeData.tasks || [];
         const taskById = new Map(tasks.map(task => [String(task.id), task]));
+        const hasRelatedGuide = (history) => {
+            if (history?.guide && !store.isGuideArchived?.(history.id)) return true;
+            const title = this.getHistoryDisplayText(history);
+            return (store.activeData.history || []).some(row =>
+                row.id !== history.id &&
+                row.guide &&
+                !store.isGuideArchived?.(row.id) &&
+                String(row.machineId) === String(history.machineId) &&
+                this.getHistoryDisplayText(row) === title
+            );
+        };
 
         this.collectShiftNotebookSearchResults(query, period).forEach(result => {
-            results.push({ ...result, type: 'notebook', typeLabel: '連絡帳', date: result.dateStr });
+            results.push({ ...result, type: 'notebook', resultKey: `notebook:${result.dateStr}:${result.shift}:${result.index}`, typeLabel: '連絡帳', date: result.dateStr });
         });
 
         Object.entries(store.activeData.memos || {}).forEach(([dateStr, memo]) => {
@@ -1180,10 +1347,16 @@
             if (!this.matchesSearchTerms(`${dateStr} メモ ${text}`, terms)) return;
             results.push({
                 type: 'memo',
+                resultKey: `memo:${dateStr}`,
                 typeLabel: 'メモ',
                 date: dateStr,
                 title: `${dateStr} メモ`,
                 text,
+                snippet: this.getUnifiedSearchSnippet(text, query),
+                matchLabels: this.getUnifiedSearchMatchLabels({
+                    '日付': dateStr,
+                    'メモ': text
+                }, terms),
                 openAction: `app.closeModal(); app.openDayQuickMenu('${this.escapeJs(dateStr)}')`
             });
         });
@@ -1209,13 +1382,71 @@
             if (!this.matchesSearchTerms(searchable, terms)) return;
             results.push({
                 type: 'history',
+                resultKey: `history:${h.id}`,
                 typeLabel,
                 date: h.date || '',
                 title,
                 text: body || title,
+                snippet: this.getUnifiedSearchSnippet(`${title}\n${body}`, query),
                 sub: `${machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし'}${workers ? ` / ${workers}` : ''}`,
                 historyKind: h.isDokatei ? 'dokatei' : (h.taskId ? 'periodic' : (h.isNonProductionStop ? 'nonProductionStop' : 'sudden')),
+                hasGuide: hasRelatedGuide(h),
+                matchLabels: this.getUnifiedSearchMatchLabels({
+                    '日付': h.date,
+                    '区分': typeLabel,
+                    'タイトル': title,
+                    '内容': h.errorContent,
+                    '原因': h.cause,
+                    '処置': h.notes,
+                    '機械': machine?.name,
+                    '型式': machine?.model,
+                    '作業者': workers
+                }, terms),
                 openAction: `app.closeModal(); app.openHistoryEditForm('${this.escapeJs(h.id)}')`
+            });
+        });
+
+        (store.activeData.history || []).filter(h => h.guide && !store.isGuideArchived?.(h.id)).forEach(h => {
+            if (!this.matchesNotebookSearchPeriod(h.date || '', period)) return;
+            const machine = machineById.get(String(h.machineId)) || null;
+            const title = this.getHistoryDisplayText(h) || h.errorContent || '手順書';
+            const guide = h.guide || {};
+            const tagList = Array.isArray(guide.tags) ? guide.tags : [];
+            const tags = tagList.join(' ');
+            const text = [
+                guide.title,
+                guide.text,
+                tags,
+                h.errorContent,
+                h.cause,
+                h.notes
+            ].filter(Boolean).join('\n');
+            const searchable = `${h.date || ''} 手順書 ナレッジ ${title} ${text} ${machine?.name || ''} ${machine?.model || ''} ${machine?.lineNo || ''}`;
+            if (!this.matchesSearchTerms(searchable, terms)) return;
+            results.push({
+                type: 'guide',
+                resultKey: `guide:${h.id}`,
+                typeLabel: '手順書',
+                date: h.date || '',
+                title,
+                text: guide.text || text || title,
+                snippet: this.getUnifiedSearchSnippet(`${guide.title || title}\n${guide.text || ''}\n${h.cause || ''}\n${h.notes || ''}`, query),
+                sub: `${machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし'}${tags ? ` / ${tags}` : ''}`,
+                tags: tagList,
+                matchLabels: this.getUnifiedSearchMatchLabels({
+                    '日付': h.date,
+                    '手順書タイトル': guide.title || title,
+                    '手順書本文': guide.text,
+                    'タグ': tags,
+                    '元履歴': title,
+                    '原因': h.cause,
+                    '処置': h.notes,
+                    '機械': machine?.name,
+                    '型式': machine?.model
+                }, terms),
+                secondaryAction: `app.closeModal(); app.openHistoryEditForm('${this.escapeJs(h.id)}')`,
+                secondaryLabel: '元履歴',
+                openAction: `app.closeModal(); app.openGuideModal('${this.escapeJs(h.id)}')`
             });
         });
 
@@ -1229,11 +1460,20 @@
             const openDate = dateStr || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             results.push({
                 type: 'task',
+                resultKey: `task:${task.id}`,
                 typeLabel: '定期メンテ',
                 date: dateStr,
                 title: task.content || '定期メンテ',
                 text: task.periodDays ? `${task.periodDays}日周期` : '単発予定',
+                snippet: this.getUnifiedSearchSnippet(`${task.content || ''} ${task.periodDays || ''} ${machine?.name || ''} ${machine?.model || ''}`, query),
                 sub: machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし',
+                matchLabels: this.getUnifiedSearchMatchLabels({
+                    '日付': dateStr,
+                    '定期メンテ': task.content,
+                    '周期': task.periodDays,
+                    '機械': machine?.name,
+                    '型式': machine?.model
+                }, terms),
                 openAction: `app.closeModal(); app.openCompletionForm('${this.escapeJs(task.id)}', '${this.escapeJs(openDate)}')`
             });
         });
@@ -1248,16 +1488,132 @@
             if (!this.matchesSearchTerms(searchable, terms)) return;
             results.push({
                 type: 'todo',
+                resultKey: `todo:${todo.id}`,
                 typeLabel: todo.isRequest ? 'ToDo依頼' : 'ToDo',
                 date,
                 title: todo.title || '無題のToDo',
                 text: todo.description || statusLabel || '詳細なし',
+                snippet: this.getUnifiedSearchSnippet(`${todo.title || ''}\n${todo.description || ''}\n${statusLabel}\n${assigned}\n${requester}`, query),
                 sub: `${statusLabel}${assigned ? ` / 依頼先: ${assigned}` : ''}${requester ? ` / 依頼者: ${requester}` : ''}`,
+                matchLabels: this.getUnifiedSearchMatchLabels({
+                    '日付': date,
+                    'タイトル': todo.title,
+                    '内容': todo.description,
+                    '担当': assigned,
+                    '依頼者': requester,
+                    '状態': statusLabel
+                }, terms),
                 openAction: `app.closeModal(); app.openKanbanTodoFromSearch('${this.escapeJs(todo.id)}')`
             });
         });
 
         return results.sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.typeLabel.localeCompare(b.typeLabel, 'ja'));
+    }
+
+    collectGuideGapResults(period = 'all') {
+        const machines = store.getMachines(true);
+        const machineById = new Map(machines.map(machine => [String(machine.id), machine]));
+        const hasGuideForHistory = (history) => {
+            if (history?.guide && !store.isGuideArchived?.(history.id)) return true;
+            const title = this.getHistoryDisplayText(history);
+            return (store.activeData.history || []).some(row =>
+                row.id !== history.id &&
+                row.guide &&
+                !store.isGuideArchived?.(row.id) &&
+                String(row.machineId) === String(history.machineId) &&
+                this.getHistoryDisplayText(row) === title
+            );
+        };
+        const getPriority = (history) => {
+            const workTime = parseInt(history.workTime, 10) || 0;
+            let score = 0;
+            const reasons = [];
+            if (history.isDokatei) {
+                score += 50;
+                reasons.push('ドカ停');
+            }
+            if (history.isFirstTime === false) {
+                score += 35;
+                reasons.push('再発');
+            }
+            if (workTime >= 60) {
+                score += 25;
+                reasons.push(`${workTime}分`);
+            } else if (workTime >= 30) {
+                score += 12;
+                reasons.push(`${workTime}分`);
+            }
+            if (history.isNonProductionStop) {
+                score += 15;
+                reasons.push('非生産停止');
+            }
+            if (!String(history.cause || '').trim() || !String(history.notes || '').trim()) {
+                score -= 8;
+            }
+            const level = score >= 60 ? 'high' : (score >= 30 ? 'medium' : 'normal');
+            const label = level === 'high' ? '高' : (level === 'medium' ? '中' : '通常');
+            return { score, level, label, reasons: reasons.length ? reasons : ['通常'] };
+        };
+        return (store.activeData.history || [])
+            .filter(h => !h.isManualGuide)
+            .filter(h => this.matchesNotebookSearchPeriod(h.date || '', period))
+            .filter(h => !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden)
+            .filter(h => !hasGuideForHistory(h))
+            .map(h => {
+                const machine = machineById.get(String(h.machineId)) || null;
+                const priority = getPriority(h);
+                return {
+                    id: h.id,
+                    date: h.date || '',
+                    title: this.getHistoryDisplayText(h),
+                    machine: machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし',
+                    cause: h.cause || '',
+                    notes: h.notes || '',
+                    typeLabel: h.isDokatei ? 'ドカ停' : (h.isNonProductionStop ? '非生産停止' : '突発対応'),
+                    priority
+                };
+            })
+            .sort((a, b) => (b.priority.score - a.priority.score) || (b.date || '').localeCompare(a.date || ''));
+    }
+
+    openGuideGapList(period = 'all') {
+        const range = this.getNotebookSearchDateRange(period);
+        const rows = this.collectGuideGapResults(period);
+        this.openModal('guide-gap-list', `手順書の未整備一覧 / ${range.label} (${rows.length}件)`, () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = rows.length ? `
+                <div class="guide-gap-list">
+                    ${rows.map(row => `
+                        <article class="guide-gap-card">
+                            <div class="guide-gap-head">
+                                <span>${this.escapeHtml(row.typeLabel)}</span>
+                                <b>${this.escapeHtml(row.date || '日付なし')}</b>
+                            </div>
+                            <div class="guide-gap-priority ${this.escapeHtml(row.priority.level)}">
+                                <strong>優先度 ${this.escapeHtml(row.priority.label)}</strong>
+                                ${row.priority.reasons.map(reason => `<em>${this.escapeHtml(reason)}</em>`).join('')}
+                            </div>
+                            <h4>${this.escapeHtml(row.title || '内容なし')}</h4>
+                            <div class="guide-gap-machine"><i class="fa-solid fa-industry"></i> ${this.escapeHtml(row.machine)}</div>
+                            <div class="guide-gap-detail">
+                                <div><strong>原因</strong>${this.escapeHtml(row.cause || '未入力')}</div>
+                                <div><strong>処置</strong>${this.escapeHtml(row.notes || '未入力')}</div>
+                            </div>
+                            <button type="button" class="primary-btn" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeJs(row.id)}')">
+                                <i class="fa-solid fa-pen-to-square"></i> 履歴を開いて手順書作成
+                            </button>
+                        </article>
+                    `).join('')}
+                </div>
+            ` : `
+                <div class="notebook-search-empty">
+                    <i class="fa-solid fa-circle-check"></i>
+                    <div>この期間の未整備候補はありません。</div>
+                </div>
+            `;
+            const saveBtn = document.getElementById('modal-save-btn');
+            if (saveBtn) saveBtn.classList.add('hidden');
+        });
     }
 
     highlightShiftNotebookSearchHtml(html = '', query = '') {
@@ -1317,8 +1673,23 @@
             ['todo', 'ToDo', typeCounts.todo || 0],
             ['memo', 'メモ', typeCounts.memo || 0],
             ['history', '履歴', typeCounts.history || 0],
+            ['guide', '手順書', typeCounts.guide || 0],
             ['task', '定期メンテ', typeCounts.task || 0]
         ];
+        const targetTypes = [
+            ['history', '履歴'],
+            ['guide', '手順書'],
+            ['notebook', '連絡帳'],
+            ['todo', 'ToDo'],
+            ['memo', 'メモ'],
+            ['task', '定期メンテ']
+        ];
+        const restoreState = this._restoreUnifiedSearchState;
+        const restoredTypes = restoreState?.query === query && restoreState?.period === period && Array.isArray(restoreState.types)
+            ? restoreState.types
+            : this.getSavedUnifiedSearchTargetTypes();
+        const guideGapCount = this.collectGuideGapResults(period).length;
+        const openedKeys = this.getOpenedUnifiedSearchKeys();
         this.openModal('shift-notebook-search', `横断検索: ${this.escapeHtml(query)} / ${range.label} (${results.length}件)`, () => {
             const modalContainer = document.getElementById('modal-container');
             if (modalContainer) modalContainer.classList.add('shift-notebook-modal', 'shift-notebook-search-modal');
@@ -1333,21 +1704,32 @@
                     const iconMap = {
                         memo: 'fa-note-sticky',
                         history: result.historyKind === 'periodic' ? 'fa-circle-check' : (result.historyKind === 'dokatei' ? 'fa-triangle-exclamation' : (result.historyKind === 'nonProductionStop' ? 'fa-circle-pause' : 'fa-bolt-lightning')),
-                        task: 'fa-wrench'
+                        guide: 'fa-book-open',
+                        task: 'fa-wrench',
+                        todo: 'fa-list-check'
                     };
+                    const resultKey = result.resultKey || `${result.type}:${result.date || ''}:${result.title || ''}`;
+                    const isOpened = openedKeys.has(resultKey);
                     return `
-                        <article class="notebook-search-result unified ${this.escapeHtml(result.type)}" data-search-type="${this.escapeHtml(result.type)}">
+                        <article class="notebook-search-result unified ${this.escapeHtml(result.type)} ${isOpened ? 'opened' : ''}" data-search-type="${this.escapeHtml(result.type)}" data-result-key="${this.escapeHtml(resultKey)}" data-search-date="${this.escapeHtml(result.date || '')}" data-search-title="${this.escapeHtml(result.title || '')}">
                             <div class="notebook-search-meta">
                                 <span class="unified-search-type ${this.escapeHtml(result.type)}"><i class="fa-solid ${iconMap[result.type] || 'fa-circle-info'}"></i> ${this.escapeHtml(result.typeLabel)}</span>
                                 <div>
                                     <div class="notebook-search-date">${this.escapeHtml(result.date || '日付なし')} ${this.escapeHtml(result.title || '')}</div>
                                     ${result.sub ? `<div class="notebook-search-members">${this.escapeHtml(result.sub)}</div>` : ''}
+                                    ${Array.isArray(result.tags) && result.tags.length ? `<div class="unified-search-tags">${result.tags.map(tag => `<span><i class="fa-solid fa-tag"></i> ${this.escapeHtml(tag)}</span>`).join('')}</div>` : ''}
                                 </div>
-                                ${result.openAction ? `<button type="button" class="secondary-btn notebook-search-open" onclick="${result.openAction}"><i class="fa-solid fa-arrow-up-right-from-square"></i> 開く</button>` : ''}
+                                <span class="unified-search-opened-badge ${isOpened ? '' : 'hidden'}"><i class="fa-solid fa-check"></i> 確認済み</span>
+                                ${result.hasGuide ? `<span class="unified-search-guide-badge"><i class="fa-solid fa-file-invoice"></i> 手順書あり</span>` : ''}
+                                <div class="notebook-search-actions">
+                                    ${result.secondaryAction ? `<button type="button" class="secondary-btn notebook-search-open" onclick="app.rememberAndOpenUnifiedSearchResult('${this.escapeJs(resultKey)}', '${this.escapeJs(query)}', '${this.escapeJs(period)}', '${this.escapeJs(result.secondaryAction)}')"><i class="fa-solid fa-clock-rotate-left"></i> ${this.escapeHtml(result.secondaryLabel || '関連')}</button>` : ''}
+                                    ${result.openAction ? `<button type="button" class="secondary-btn notebook-search-open" onclick="app.rememberAndOpenUnifiedSearchResult('${this.escapeJs(resultKey)}', '${this.escapeJs(query)}', '${this.escapeJs(period)}', '${this.escapeJs(result.openAction)}')"><i class="fa-solid fa-arrow-up-right-from-square"></i> 開く</button>` : ''}
+                                </div>
                             </div>
+                            ${Array.isArray(result.matchLabels) && result.matchLabels.length ? `<div class="unified-search-match-labels">${result.matchLabels.map(label => `<span>${this.escapeHtml(label)}に一致</span>`).join('')}</div>` : ''}
                             <div class="notebook-search-body single">
                                 <div class="notebook-search-text">
-                                    ${this.highlightUnifiedSearchText(result.text || result.title || '', query)}
+                                    ${this.highlightUnifiedSearchText(result.snippet || result.text || result.title || '', query)}
                                 </div>
                             </div>
                         </article>
@@ -1365,8 +1747,10 @@
                     </div>
                 `;
                 }).join('');
+                const resultKey = result.resultKey || `notebook:${result.dateStr}:${result.shift}:${result.index}`;
+                const isOpened = openedKeys.has(resultKey);
                 return `
-                    <article class="notebook-search-result" data-search-type="notebook" style="${this.getShiftNotebookRowGroupStyle(result.group)}">
+                    <article class="notebook-search-result ${isOpened ? 'opened' : ''}" data-search-type="notebook" data-result-key="${this.escapeHtml(resultKey)}" data-search-date="${this.escapeHtml(result.dateStr || '')}" data-search-title="${this.escapeHtml(result.text || result.group || '')}" style="${this.getShiftNotebookRowGroupStyle(result.group)}">
                         <div class="notebook-search-meta">
                             <span class="unified-search-type notebook"><i class="fa-solid fa-book-open"></i> 連絡帳</span>
                             <span class="shift-notebook-badge ${result.shift}">${result.label.stamp}</span>
@@ -1374,10 +1758,12 @@
                                 <div class="notebook-search-date">${result.dateStr} ${result.label.name}</div>
                                 <div class="notebook-search-members"><i class="fa-solid fa-users"></i> ${this.escapeHtml(members)}</div>
                             </div>
-                            <button type="button" class="secondary-btn notebook-search-open" onclick="app.closeModal(); app.openShiftNotebookModal('${result.dateStr}', '${result.shift}', ${result.index}, '${query.replace(/'/g, "\\'")}')">
+                            <span class="unified-search-opened-badge ${isOpened ? '' : 'hidden'}"><i class="fa-solid fa-check"></i> 確認済み</span>
+                            <button type="button" class="secondary-btn notebook-search-open" onclick="app.markUnifiedSearchResultOpened('${this.escapeJs(resultKey)}'); app.rememberUnifiedSearchReturn('${this.escapeJs(query)}', '${this.escapeJs(period)}'); app.closeModal(); app.openShiftNotebookModal('${result.dateStr}', '${result.shift}', ${result.index}, '${query.replace(/'/g, "\\'")}')">
                                 <i class="fa-solid fa-pen-to-square"></i> 開く
                             </button>
                         </div>
+                        ${Array.isArray(result.matchLabels) && result.matchLabels.length ? `<div class="unified-search-match-labels">${result.matchLabels.map(label => `<span>${this.escapeHtml(label)}に一致</span>`).join('')}</div>` : ''}
                         <div class="notebook-search-body">
                             <div class="notebook-search-text">
                                 <span class="shift-note-tag ${this.getShiftNotebookTagClass(result.tag)}">${this.escapeHtml(result.tag || '通常')}</span>
@@ -1395,10 +1781,28 @@
                     <span><i class="fa-solid fa-magnifying-glass"></i> 検索語: <b>${this.escapeHtml(query)}</b></span>
                     <span><i class="fa-solid fa-calendar-days"></i> 期間: <b>${range.label}</b></span>
                     <span>${results.length}件</span>
+                    <div class="notebook-search-sort">
+                        <span>並び替え</span>
+                        <button type="button" data-sort-mode="date" class="active" onclick="app.sortUnifiedSearchResults('date', this)">日付順</button>
+                        <button type="button" data-sort-mode="type" onclick="app.sortUnifiedSearchResults('type', this)">種類順</button>
+                        <button type="button" class="unified-search-reset-opened-btn" onclick="app.resetUnifiedSearchOpenedMarks()"><i class="fa-solid fa-rotate-left"></i> 確認済みリセット</button>
+                    </div>
+                </div>
+                <div class="unified-search-targets">
+                    <span><i class="fa-solid fa-sliders"></i> 検索対象</span>
+                    ${targetTypes.map(([type, label]) => `
+                        <label class="${restoredTypes.includes(type) ? 'active' : ''}">
+                            <input type="checkbox" class="unified-search-target-check" value="${type}" ${restoredTypes.includes(type) ? 'checked' : ''} onchange="app.applyUnifiedSearchFilters()">
+                            ${label}<b>${typeCounts[type] || 0}</b>
+                        </label>
+                    `).join('')}
+                    <button type="button" class="secondary-btn unified-search-gap-btn" onclick="app.rememberUnifiedSearchReturn('${this.escapeJs(query)}', '${this.escapeJs(period)}'); app.openGuideGapList('${this.escapeJs(period)}')">
+                        <i class="fa-solid fa-clipboard-question"></i> 手順書未整備 <b>${guideGapCount}</b>
+                    </button>
                 </div>
                 <div class="notebook-search-tabs">
                     ${searchTabs.map(([type, label, count], index) => `
-                        <button type="button" class="${index === 0 ? 'active' : ''}" onclick="app.filterUnifiedSearchTab('${type}', this)">
+                        <button type="button" data-search-tab="${type}" class="${index === 0 ? 'active' : ''}" onclick="app.filterUnifiedSearchTab('${type}', this)">
                             ${label}<b>${count}</b>
                         </button>
                     `).join('')}
@@ -1407,14 +1811,58 @@
             `;
             const saveBtn = document.getElementById('modal-save-btn');
             if (saveBtn) saveBtn.classList.add('hidden');
+            this.applyUnifiedSearchFilters();
+            if (restoreState?.query === query && restoreState?.period === period) {
+                const tabButton = document.querySelector(`.notebook-search-tabs button[data-search-tab="${this.escapeHtml(restoreState.activeTab || 'all')}"]`);
+                if (tabButton) this.filterUnifiedSearchTab(restoreState.activeTab || 'all', tabButton);
+                const sortButton = document.querySelector(`.notebook-search-sort button[data-sort-mode="${this.escapeHtml(restoreState.sort || 'date')}"]`);
+                if (sortButton) this.sortUnifiedSearchResults(restoreState.sort || 'date', sortButton);
+                const list = document.querySelector('.notebook-search-results');
+                if (list) list.scrollTop = restoreState.scrollTop || 0;
+                this._restoreUnifiedSearchState = null;
+            }
         });
     }
 
     filterUnifiedSearchTab(type = 'all', button = null) {
         document.querySelectorAll('.notebook-search-tabs button').forEach(btn => btn.classList.toggle('active', btn === button));
-        document.querySelectorAll('.notebook-search-result[data-search-type]').forEach(item => {
-            item.hidden = type !== 'all' && item.dataset.searchType !== type;
+        this.applyUnifiedSearchFilters();
+    }
+
+    applyUnifiedSearchFilters() {
+        this.saveUnifiedSearchTargetTypes();
+        const selectedTypes = new Set(this.getUnifiedSearchTargetTypes());
+        const activeTab = document.querySelector('.notebook-search-tabs button.active')?.dataset.searchTab || 'all';
+        document.querySelectorAll('.unified-search-targets label').forEach(label => {
+            const input = label.querySelector('input');
+            label.classList.toggle('active', !!input?.checked);
         });
+        document.querySelectorAll('.notebook-search-result[data-search-type]').forEach(item => {
+            const type = item.dataset.searchType || '';
+            const typeAllowed = selectedTypes.has(type);
+            const tabAllowed = activeTab === 'all' || activeTab === type;
+            item.hidden = !typeAllowed || !tabAllowed;
+        });
+    }
+
+    sortUnifiedSearchResults(mode = 'date', button = null) {
+        if (button) {
+            document.querySelectorAll('.notebook-search-sort button').forEach(btn => btn.classList.toggle('active', btn === button));
+        }
+        const list = document.querySelector('.notebook-search-results');
+        if (!list) return;
+        const priority = { history: 1, guide: 2, task: 3, todo: 4, notebook: 5, memo: 6 };
+        const items = Array.from(list.querySelectorAll('.notebook-search-result[data-search-type]'));
+        items.sort((a, b) => {
+            if (mode === 'type') {
+                const typeOrder = (priority[a.dataset.searchType] || 99) - (priority[b.dataset.searchType] || 99);
+                if (typeOrder !== 0) return typeOrder;
+            }
+            const dateOrder = (b.dataset.searchDate || '').localeCompare(a.dataset.searchDate || '');
+            if (dateOrder !== 0) return dateOrder;
+            return (a.dataset.searchTitle || '').localeCompare(b.dataset.searchTitle || '', 'ja');
+        });
+        items.forEach(item => list.appendChild(item));
     }
 
     openShiftNotebookModal(dateStr, shift, focusRowIndex = null, focusQuery = '') {
@@ -1445,7 +1893,7 @@
                 modalTitle.insertAdjacentHTML('afterend', `
                     <div class="notebook-search-bar shift-modal-search-bar">
                         <i class="fa-solid fa-magnifying-glass"></i>
-                        <input type="text" id="shift-modal-unified-search" placeholder="横断検索...">
+                        <input type="text" id="shift-modal-unified-search" placeholder="履歴・手順書・連絡帳・ToDoを検索...">
                         <select id="shift-modal-unified-search-period" title="検索期間">
                             <option value="all">全期間</option>
                             <option value="today">今日</option>
