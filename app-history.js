@@ -432,7 +432,7 @@
         return `<b>${this.escapeHtml(`${workTime}分`)}</b>`;
     }
 
-    renderHistoryDateCell(dateText, isRepeated = false, isGroupStart = false, groupCount = 1) {
+    renderHistoryDateCell(dateText, isRepeated = false, isGroupStart = false, groupCount = 1, isCollapsed = false) {
         const match = String(dateText || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
         if (!match) return this.escapeHtml(dateText || '-');
         const [, year, month, day] = match;
@@ -440,9 +440,42 @@
             <div class="history-date-cell ${isRepeated ? 'same-date' : ''} ${isGroupStart ? 'group-start' : ''}">
                 ${isRepeated ? '' : `<b>${this.escapeHtml(year)}</b>`}
                 <span>${Number(month)}/${Number(day)}</span>
-                ${isGroupStart && groupCount > 1 ? `<em>${groupCount}件</em>` : ''}
+                ${isGroupStart && groupCount > 1 ? `<button type="button" class="history-date-count-toggle ${isCollapsed ? 'collapsed' : ''}" onclick="app.toggleHistoryDateGroup('${this.escapeJs(dateText)}', event)" title="${isCollapsed ? 'この日の履歴を展開' : 'この日の履歴を折りたたむ'}">${isCollapsed ? '+' : ''}${groupCount}件</button>` : ''}
             </div>
         `;
+    }
+
+    toggleHistoryDateGroup(dateText, event) {
+        if (event) event.stopPropagation();
+        if (!this.collapsedHistoryDates) this.collapsedHistoryDates = new Set();
+        const key = String(dateText || '');
+        if (!key) return;
+        if (this.collapsedHistoryDates.has(key)) {
+            this.collapsedHistoryDates.delete(key);
+        } else {
+            this.collapsedHistoryDates.add(key);
+        }
+        this.renderHistory();
+    }
+
+    renderHistoryPrioritySigns(history, recurrenceGroup, cost) {
+        const signs = [];
+        const workMinutes = parseFloat(history?.workTime) || 0;
+        if (recurrenceGroup?.count >= 3 || (recurrenceGroup?.count >= 2 && recurrenceGroup.avgIntervalDays && recurrenceGroup.avgIntervalDays <= 14)) {
+            signs.push({ cls: 'recurrence', icon: 'fa-repeat', label: '高頻度' });
+        }
+        if ((cost?.total || 0) >= 5000) {
+            signs.push({ cls: 'cost', icon: 'fa-yen-sign', label: '高コスト' });
+        }
+        if (workMinutes >= 60) {
+            signs.push({ cls: 'time', icon: 'fa-clock', label: '長時間' });
+        }
+        if (!signs.length) return '';
+        return `<span class="history-priority-signs">${signs.map(sign => `
+            <span class="history-priority-sign ${sign.cls}" title="${this.escapeHtml(sign.label)}">
+                <i class="fa-solid ${sign.icon}"></i>${this.escapeHtml(sign.label)}
+            </span>
+        `).join('')}</span>`;
     }
 
     getHistoryWorkMinutes(history) {
@@ -493,6 +526,7 @@
         if (dateIcon) dateIcon.className = `fa-solid ${this.historyDateSortDir === 'asc' ? 'fa-arrow-up-short-wide' : 'fa-arrow-down-wide-short'}`;
         if (timeBtn) timeBtn.classList.toggle('active', this.historyMetricSortMode === 'time');
         if (costBtn) costBtn.classList.toggle('active', this.historyMetricSortMode === 'cost');
+        document.getElementById('history-visible-cost-total')?.classList.toggle('active', this.historyMetricSortMode === 'cost');
         if (timeIcon) timeIcon.className = 'fa-solid fa-arrow-down-wide-short history-sort-dir-icon';
         if (costIcon) costIcon.className = 'fa-solid fa-arrow-down-wide-short history-sort-dir-icon';
     }
@@ -1089,21 +1123,23 @@
                     <button class="secondary-btn" style="padding:4px 12px; font-size:0.75rem;" onclick="app.returnToWorkTimeFromHistory()">作業時間集計へ戻る</button>
                 </div>
             ` : '';
-            if (this.modelFilter || this.workerFilter || this.machineCategoryFilter || this.historyMissingDetailFilter || this.historyReturnContext) {
+            if (this.modelFilter || this.workerFilter || this.machineCategoryFilter || this.historyMissingDetailFilter || this.historyRecurrenceFrequencyFilter || this.historyReturnContext) {
                 const activeLabel = this.modelFilter
                     ? `型式: ${this.modelFilter}`
                     : (this.workerFilter
                         ? `作業員: ${this.workerFilter}`
                         : (this.machineCategoryFilter
                             ? `装置区分: ${this.machineCategoryFilter}`
-                            : (this.historyMissingDetailFilter === 'cause'
-                                ? '原因未入力'
-                                : (this.historyMissingDetailFilter === 'notes' ? '処置未入力' : '作業時間集計からの絞り込み'))));
+                            : (this.historyRecurrenceFrequencyFilter
+                                ? `再発グループ: ${this.historyRecurrenceFrequencyFilter.label || '同じグループ'}`
+                                : (this.historyMissingDetailFilter === 'cause'
+                                    ? '原因未入力'
+                                    : (this.historyMissingDetailFilter === 'notes' ? '処置未入力' : '作業時間集計からの絞り込み')))));
                 activeFiltersArea.innerHTML = `
                     ${returnHtml}
                     <div style="background:var(--secondary-light); color:var(--secondary); padding:8px 16px; border-radius:8px; margin-bottom:12px; font-size:0.8rem; display:flex; justify-content:space-between; align-items:center;">
                         <span><i class="fa-solid fa-filter"></i> <b>${this.escapeHtml(activeLabel)}</b> で抽出中</span>
-                        <button class="secondary-btn" style="padding:2px 10px; font-size:0.7rem;" onclick="app.clearModelFilter(); app.workerFilter=null; app.machineCategoryFilter=null; app.historyMissingDetailFilter=null; app.historyReturnContext=null; app.renderHistory();">解除</button>
+                        <button class="secondary-btn" style="padding:2px 10px; font-size:0.7rem;" onclick="app.clearModelFilter(); app.workerFilter=null; app.machineCategoryFilter=null; app.historyMissingDetailFilter=null; app.historyRecurrenceFrequencyFilter=null; app.historyReturnContext=null; app.renderHistory();">解除</button>
                     </div>
                 `;
             } else {
@@ -1139,6 +1175,7 @@
         const partsOnly = !!document.getElementById('hist-filter-parts')?.checked;
         const photosOnly = !!document.getElementById('hist-filter-photos')?.checked;
         const guideOnly = !!document.getElementById('hist-filter-guide')?.checked;
+        const recurrenceFrequencyByHistoryId = this.getHistoryRecurrenceFrequencyMap();
 
         let filtered = store.activeData.history ? store.activeData.history.filter(h => !h.isManualGuide) : [];
         const filterSteps = [{ label: '全履歴', count: filtered.length }];
@@ -1207,21 +1244,51 @@
 
         if (partsOnly) {
             filtered = filtered.filter(h => (h.replacedParts || []).length > 0);
-            filterSteps.push({ label: '部品あり', count: filtered.length });
+            filterSteps.push({ label: '部品有', count: filtered.length });
         }
         if (photosOnly) {
             filtered = filtered.filter(h => (h.photos || []).length > 0);
-            filterSteps.push({ label: '写真あり', count: filtered.length });
+            filterSteps.push({ label: '写真有', count: filtered.length });
         }
         if (guideOnly) {
             filtered = filtered.filter(h => this.hasHistoryGuide(h));
-            filterSteps.push({ label: '手順あり', count: filtered.length });
+            filterSteps.push({ label: '手順有', count: filtered.length });
         }
 
         if (this.historyMissingDetailFilter) {
             const kind = this.historyMissingDetailFilter;
             filtered = filtered.filter(h => this.isTroubleHistoryForDetail(h) && !String(kind === 'cause' ? h.cause || '' : h.notes || '').trim());
             filterSteps.push({ label: kind === 'cause' ? '原因未入力' : '処置未入力', count: filtered.length });
+        }
+
+        if (this.historyRecurrenceFrequencyFilter?.ids?.length) {
+            const idSet = new Set(this.historyRecurrenceFrequencyFilter.ids.map(String));
+            filtered = filtered.filter(h => idSet.has(String(h.id)));
+            filterSteps.push({ label: `再発グループ: ${this.historyRecurrenceFrequencyFilter.label || '同じグループ'}`, count: filtered.length });
+        }
+
+        if (this.historyRecurrenceFrequencyFilter?.ids?.length && activeFiltersArea) {
+            const idSet = new Set(this.historyRecurrenceFrequencyFilter.ids.map(String));
+            const groupRows = (store.activeData.history || []).filter(h => idSet.has(String(h.id)) && !h.isManualGuide);
+            const dates = groupRows.map(h => h.date).filter(Boolean).sort();
+            const minutes = groupRows.reduce((sum, h) => sum + (parseFloat(h.workTime) || 0), 0);
+            const costTotal = groupRows.reduce((sum, h) => sum + this.calculateHistoryCost(h).total, 0);
+            const label = this.historyRecurrenceFrequencyFilter.label || '同じグループ';
+            activeFiltersArea.innerHTML = `
+                <div class="history-recurrence-filter-banner">
+                    <div>
+                        <span><i class="fa-solid fa-repeat"></i> 再発グループで絞り込み中</span>
+                        <b>${this.escapeHtml(label)}</b>
+                    </div>
+                    <div class="history-recurrence-filter-stats">
+                        <span>${groupRows.length}件</span>
+                        <span>${this.escapeHtml(this.formatMinutesAsHours(minutes))}</span>
+                        <span>${this.escapeHtml(this.formatCurrency(costTotal))}</span>
+                        ${dates.length ? `<span>${this.escapeHtml(dates[0])} - ${this.escapeHtml(dates[dates.length - 1])}</span>` : ''}
+                    </div>
+                    <button class="secondary-btn" onclick="app.historyRecurrenceFrequencyFilter=null; app.renderHistory('')" type="button">解除</button>
+                </div>
+            `;
         }
 
         if (query) {
@@ -1237,14 +1304,13 @@
         }
 
         this.sortHistoryRows(filtered);
-        this.visibleHistoryIds = filtered.map(h => String(h.id));
         for (const id of Array.from(this.selectedHistoryIds)) {
             if (!(store.activeData.history || []).some(h => String(h.id) === id && !h.isManualGuide)) {
                 this.selectedHistoryIds.delete(id);
             }
         }
 
-        this.renderHistoryFilterSummary(filtered, { period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly, machineCategory: this.machineCategoryFilter, missingDetail: this.historyMissingDetailFilter });
+        this.renderHistoryFilterSummary(filtered, { period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly, machineCategory: this.machineCategoryFilter, missingDetail: this.historyMissingDetailFilter, recurrenceFrequency: this.historyRecurrenceFrequencyFilter });
         const visibleCostTotal = filtered.reduce((sum, h) => sum + this.calculateHistoryCost(h).total, 0);
         const visibleCostTotalEl = document.getElementById('history-visible-cost-total');
         if (visibleCostTotalEl) {
@@ -1266,11 +1332,20 @@
             map[key] = (map[key] || 0) + 1;
             return map;
         }, {});
+        const collapsedDates = this.collapsedHistoryDates || new Set();
+        const seenDates = new Set();
+        const displayRows = filtered.filter(item => {
+            const key = item.date || '';
+            const first = !seenDates.has(key);
+            seenDates.add(key);
+            return first || !collapsedDates.has(key);
+        });
+        this.visibleHistoryIds = displayRows.map(h => String(h.id));
 
-        filtered.forEach((h, index) => {
+        displayRows.forEach((h, index) => {
             const machine = store.getMachines(true).find(m => m.id === h.machineId);
             const tr = document.createElement('tr');
-            const isSameDateAsPrevious = index > 0 && filtered[index - 1]?.date === h.date;
+            const isSameDateAsPrevious = index > 0 && displayRows[index - 1]?.date === h.date;
             const isDateGroupStart = index === 0 || !isSameDateAsPrevious;
             if (index > 0 && !isSameDateAsPrevious) tr.classList.add('history-date-group-start');
             
@@ -1281,17 +1356,17 @@
             let titleColor = typeInfo.color;
             
             if (h.isDokatei) {
-                rowBg = '#fef2f2'; // Pink
+                rowBg = '#fee2e2'; // Stronger Pink
                 badgeClass = 'badge-dokatei';
                 badgeText = 'ドカ停';
                 titleColor = 'var(--danger)';
             } else if (h.taskId) {
                 rowBg = '#eff6ff'; // Light Blue
             } else if (h.isNonProductionStop) {
-                rowBg = '#fffbeb'; // Light Amber
+                rowBg = '#fef3c7'; // Stronger Amber
                 badgeClass = 'badge-sudden';
             } else {
-                rowBg = '#f0fdf4'; // Light Green
+                rowBg = '#dcfce7'; // Stronger Green
             }
             tr.style.backgroundColor = rowBg;
 
@@ -1309,12 +1384,14 @@
             const isTroubleHistory = !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden;
             const causeText = String(h.cause || '').trim();
             const notesText = String(h.notes || '').trim();
+            const recurrenceFrequency = recurrenceFrequencyByHistoryId.get(String(h.id));
+            const isDateCollapsed = collapsedDates.has(h.date || '');
 
             tr.innerHTML = `
                 <td style="text-align:center;">
                     <input type="checkbox" class="history-row-select" ${this.selectedHistoryIds.has(String(h.id)) ? 'checked' : ''} onchange="app.toggleHistorySelection('${this.escapeJs(h.id)}', this.checked)" aria-label="履歴を選択">
                 </td>
-                <td style="font-weight:700">${this.renderHistoryDateCell(h.date, isSameDateAsPrevious, isDateGroupStart, historyDateCounts[h.date] || 1)}</td>
+                <td style="font-weight:700">${this.renderHistoryDateCell(h.date, isSameDateAsPrevious, isDateGroupStart, historyDateCounts[h.date] || 1, isDateCollapsed)}</td>
                 <td style="font-size:0.85rem">
                     <div style="display:flex; gap:10px; align-items:center;">
                         <div class="img-box" style="width:36px; height:36px; border-radius:8px; flex-shrink:0;">
@@ -1353,6 +1430,8 @@
                                 ? `<span class="badge-occurrence first" style="font-size:0.65rem; padding:2px 6px; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; border-radius:4px; font-weight:800; flex-shrink:0;">初回</span>`
                                 : `<span class="badge-occurrence recurrence" style="font-size:0.65rem; padding:2px 6px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:4px; font-weight:800; flex-shrink:0;">再発</span>`
                             }
+                            ${this.renderHistoryRecurrenceFrequencyChip(recurrenceFrequency)}
+                            ${this.renderHistoryPrioritySigns(h, recurrenceFrequency, cost)}
                         </div>
                         <div style="font-size:0.85rem; color:var(--text-light); font-weight:700; white-space:nowrap; display:flex; gap:4px; align-items:center; flex-shrink:0;">
                             <i class="fa-solid fa-user-gear" style="font-size:0.75rem; opacity:0.8;"></i> 
@@ -1507,12 +1586,13 @@
         if (this.modelFilter) chips.push(`型式: ${this.modelFilter}`);
         if (this.workerFilter) chips.push(`作業者: ${this.workerFilter}`);
         if (filters.machineCategory) chips.push(`装置区分: ${filters.machineCategory}`);
-        if (filters.partsOnly) chips.push('部品あり');
-        if (filters.photosOnly) chips.push('写真あり');
-        if (filters.guideOnly) chips.push('手順あり');
+        if (filters.partsOnly) chips.push('部品有');
+        if (filters.photosOnly) chips.push('写真有');
+        if (filters.guideOnly) chips.push('手順有');
         if (filters.query) chips.push(`検索: ${filters.query}`);
         if (filters.missingDetail === 'cause') chips.push('原因未入力');
         if (filters.missingDetail === 'notes') chips.push('処置未入力');
+        if (filters.recurrenceFrequency?.ids?.length) chips.push(`再発グループ: ${filters.recurrenceFrequency.label || '同じグループ'}`);
         chips.push(this.getHistorySortLabel());
 
         const totalMinutes = filtered.reduce((sum, h) => sum + (parseFloat(h.workTime) || 0), 0);
@@ -1527,8 +1607,11 @@
             <div class="history-filter-summary">
                 <div class="history-filter-chips">
                     ${chips.length ? chips.map(chip => `<span>${this.escapeHtml(chip)}</span>`).join('') : '<span>絞り込みなし</span>'}
-                    <span class="history-guide-legend has-guide"><i class="fa-solid fa-file-invoice"></i> 手順あり</span>
-                    <span class="history-guide-legend no-guide"><i class="fa-solid fa-file-invoice"></i> 手順なし</span>
+                    <span class="history-row-color-legend sudden ${filters.type === 'sudden' ? 'active' : ''}" onclick="app.toggleTypeFilter('sudden', event)" title="突発で抽出"><i></i> 突発</span>
+                    <span class="history-row-color-legend non-production ${filters.type === 'nonProductionStop' ? 'active' : ''}" onclick="app.toggleTypeFilter('nonProductionStop', event)" title="非生産停止で抽出"><i></i> 非生産停止</span>
+                    <span class="history-row-color-legend dokatei ${filters.type === 'dokatei' ? 'active' : ''}" onclick="app.toggleTypeFilter('dokatei', event)" title="ドカ停で抽出"><i></i> ドカ停</span>
+                    <span class="history-guide-legend has-guide"><i class="fa-solid fa-file-invoice"></i> 手順有</span>
+                    <span class="history-guide-legend no-guide"><i class="fa-solid fa-file-invoice"></i> 手順無</span>
                     <span class="history-guide-legend ref-guide"><i class="fa-solid fa-file-invoice"></i> 関連手順</span>
                 </div>
                 <div class="history-quality-rate-strip">
@@ -1549,6 +1632,102 @@
                     <b>${this.escapeHtml(this.formatMinutesAsHours(averageMinutes))}</b>平均
                 </div>
             </div>
+        `;
+    }
+
+    getHistoryRecurrenceFrequencyMap() {
+        const map = new Map();
+        const groups = this.collectRecurrenceGroupSummaries?.() || [];
+        groups.forEach(group => {
+            if (!group || !Array.isArray(group.histories)) return;
+            group.histories.forEach(history => {
+                if (history?.id) map.set(String(history.id), group);
+            });
+        });
+        const fallbackGroups = new Map();
+        (store.activeData.history || []).forEach(history => {
+            if (!history?.id || history.isManualGuide) return;
+            if (!this.getHistoryDisplayText(history) || (!this.isTroubleHistoryForDetail(history) && !history.recurrenceGroup)) return;
+            const key = this.getHistoryFrequencyGroupKey(history);
+            if (!fallbackGroups.has(key)) fallbackGroups.set(key, []);
+            fallbackGroups.get(key).push(history);
+        });
+        fallbackGroups.forEach(histories => {
+            const sorted = histories.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+            const firstDate = sorted[0]?.date || '';
+            const latestDate = sorted[sorted.length - 1]?.date || '';
+            const firstMs = firstDate ? new Date(firstDate).getTime() : NaN;
+            const latestMs = latestDate ? new Date(latestDate).getTime() : NaN;
+            const spanDays = Number.isFinite(firstMs) && Number.isFinite(latestMs) ? Math.max(0, Math.round((latestMs - firstMs) / 86400000)) : 0;
+            const avgIntervalDays = histories.length >= 2 ? Math.max(1, Math.round(spanDays / (histories.length - 1))) : null;
+            const recent90Count = histories.filter(h => {
+                const ms = h.date ? new Date(h.date).getTime() : NaN;
+                return Number.isFinite(ms) && (Date.now() - ms) <= 90 * 86400000;
+            }).length;
+            const monthlyRate = spanDays > 0 ? (histories.length / Math.max(1, spanDays / 30)) : histories.length;
+            const summary = {
+                count: histories.length,
+                firstDate,
+                latestDate,
+                avgIntervalDays,
+                recent90Count,
+                monthlyRate,
+                frequencyLabel: histories.length >= 2 ? `約${avgIntervalDays}日に1回` : '単発',
+                histories
+            };
+            histories.forEach(history => {
+                const current = map.get(String(history.id));
+                if (!current || summary.count > current.count) map.set(String(history.id), summary);
+            });
+        });
+        return map;
+    }
+
+    normalizeHistoryFrequencyText(value = '') {
+        return MaintenanceStore.toHalfWidthLower(value)
+            .replace(/dansen/g, '断線')
+            .replace(/koukan/g, '交換')
+            .replace(/ore/g, '折れ')
+            .replace(/ijou/g, '異常')
+            .replace(/ion/g, '異音')
+            .replace(/sensor/g, 'センサー')
+            .replace(/[［\[][^］\]]*[］\]]/g, '')
+            .replace(/\s+/g, '');
+    }
+
+    getHistoryFrequencyGroupKey(history) {
+        const title = this.normalizeHistoryFrequencyText(this.getHistoryDisplayText(history));
+        const detail = this.normalizeHistoryFrequencyText(`${history.errorContent || ''}${history.cause || ''}${history.notes || ''}`);
+        const combined = `${title}${detail}`;
+        const failureWords = ['過負荷停止', '断線', '異音', '警告', '停止', '破損', '漏れ', '詰まり', '折れ', '交換'];
+        const failure = failureWords.find(word => combined.includes(word)) || '';
+        let core = title || combined;
+        failureWords.forEach(word => { core = core.replaceAll(word, ''); });
+        core = core
+            .replace(/駆動部|従動部|本体|部品|同部|原因|処置/g, '')
+            .replace(/[0-9０-９]+号?ライン/g, '')
+            .replace(/[^\wぁ-んァ-ン一-龥ー#]/g, '')
+            .slice(0, 32);
+        return `${history.machineId || ''}::${core || title || combined.slice(0, 32) || 'unknown'}::${failure || 'trouble'}`;
+    }
+
+    renderHistoryRecurrenceFrequencyChip(group) {
+        if (!group) return '';
+        const ids = (group.histories || []).map(history => String(history.id || '')).filter(Boolean);
+        const payload = encodeURIComponent(JSON.stringify(ids));
+        const label = group.count >= 2 ? `${group.frequencyLabel} (${group.count}件)` : '単発';
+        const detail = [
+            `発生頻度: ${group.frequencyLabel}`,
+            `${group.count}件`,
+            group.firstDate && group.latestDate ? `${group.firstDate} - ${group.latestDate}` : '',
+            `直近90日 ${group.recent90Count || 0}件`,
+            Number.isFinite(group.monthlyRate) ? `月換算 ${group.monthlyRate.toFixed(1)}件` : ''
+        ].filter(Boolean).join(' / ');
+        return `
+            <span class="history-recurrence-frequency-chip ${group.count < 2 ? 'is-single' : ''}" title="${this.escapeHtml(detail)} / クリックで同じグループを表示" onclick="app.setHistoryRecurrenceFrequencyFilter('${this.escapeJs(payload)}', '${this.escapeJs(label)}', event)">
+                <i class="fa-solid fa-chart-line"></i>
+                <span>${this.escapeHtml(group.frequencyLabel)}</span>
+            </span>
         `;
     }
 
@@ -1693,8 +1872,10 @@
                         const count = p.count ?? p.qty ?? 0;
                         const unit = this.formatHistoryPartUnit(p.unit);
                         const price = Number(p.price || 0);
+                        const name = p.name || '';
+                        const model = p.model || '';
                         return `
-                            <div class="history-parts-detail-item">
+                            <button type="button" class="history-parts-detail-item history-parts-detail-link" onclick="app.closeModal(); app.openPartMasterModal('${this.escapeJs(name)}', '${this.escapeJs(model)}')" title="部品マスターを編集">
                                 <div class="history-parts-detail-icon"><i class="fa-solid fa-box"></i></div>
                                 <div>
                                     <b>${this.escapeHtml(p.name || '部品名なし')}</b>
@@ -1702,7 +1883,8 @@
                                 </div>
                                 <strong>${this.escapeHtml(String(count))}${this.escapeHtml(unit)}</strong>
                                 ${price ? `<em>¥${Math.round(price).toLocaleString()}</em>` : '<em>-</em>'}
-                            </div>
+                                <i class="fa-solid fa-pen-to-square history-parts-edit-cue"></i>
+                            </button>
                         `;
                     }).join('') || '<div style="color:var(--text-light); padding:16px;">交換部品はありません</div>'}
                 </div>
@@ -1740,6 +1922,27 @@
         this.renderHistory();
     }
 
+    toggleLineFilter(lineNo, event) {
+        if (!lineNo) return;
+        if (event) event.stopPropagation();
+
+        const filter = document.getElementById('hist-filter-line');
+        if (!filter) return;
+
+        const target = String(lineNo);
+        const hasOption = Array.from(filter.options || []).some(option => option.value === target);
+        if (!hasOption) {
+            const opt = document.createElement('option');
+            opt.value = target;
+            opt.textContent = this.getLineLabel(target);
+            filter.appendChild(opt);
+        }
+
+        filter.value = filter.value === target ? 'all' : target;
+        this.historyRecurrenceFrequencyFilter = null;
+        this.renderHistory();
+    }
+
     toggleTypeFilter(type, event) {
         if (!type) return;
         if (event) event.stopPropagation();
@@ -1752,6 +1955,7 @@
         } else {
             filter.value = type;
         }
+        this.historyRecurrenceFrequencyFilter = null;
         this.renderHistory();
     }
 
@@ -1765,6 +1969,44 @@
             this.workerFilter = worker;
         }
         this.renderHistory();
+    }
+
+    setHistoryRecurrenceFrequencyFilter(encodedIds = '', label = '同じグループ', event) {
+        if (event) event.stopPropagation();
+        let ids = [];
+        try {
+            ids = JSON.parse(decodeURIComponent(encodedIds));
+        } catch (error) {
+            ids = [];
+        }
+        ids = Array.isArray(ids) ? ids.map(String).filter(Boolean) : [];
+        if (!ids.length) return;
+
+        const globalSearch = document.getElementById('global-search');
+        const machineFilter = document.getElementById('hist-filter-machine');
+        const lineFilter = document.getElementById('hist-filter-line');
+        const typeFilter = document.getElementById('hist-filter-type');
+        const periodFilter = document.getElementById('hist-filter-period');
+        const partsFilter = document.getElementById('hist-filter-parts');
+        const photosFilter = document.getElementById('hist-filter-photos');
+        const guideFilter = document.getElementById('hist-filter-guide');
+
+        if (globalSearch) globalSearch.value = '';
+        if (machineFilter) machineFilter.value = '';
+        if (lineFilter) lineFilter.value = 'all';
+        if (typeFilter) typeFilter.value = '';
+        if (periodFilter) periodFilter.value = 'all';
+        if (partsFilter) partsFilter.checked = false;
+        if (photosFilter) photosFilter.checked = false;
+        if (guideFilter) guideFilter.checked = false;
+
+        this.modelFilter = null;
+        this.workerFilter = null;
+        this.machineCategoryFilter = null;
+        this.historyMissingDetailFilter = null;
+        this.historyReturnContext = null;
+        this.historyRecurrenceFrequencyFilter = { ids, label };
+        this.renderHistory('');
     }
 
     setHistoryDensityMode(mode = 'standard') {
@@ -1792,6 +2034,7 @@
         this.workerFilter = null;
         this.machineCategoryFilter = null;
         this.historyMissingDetailFilter = null;
+        this.historyRecurrenceFrequencyFilter = null;
         this.historyReturnContext = null;
         this.renderHistory('');
     }

@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260606-history-assist-recurrence">
+    <link rel="stylesheet" href="style.css?v=20260606-part-master-search-results">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -463,7 +463,7 @@
                             <p class="subtitle">全期間のメンテナンス実施履歴</p>
                         </div>
                     </div>
-                    <div class="filter-bar" style="display:flex; gap:12px; margin-bottom:16px;">
+                    <div class="filter-bar history-filter-bar" style="display:flex; gap:12px; margin-bottom:16px;">
                         <select id="hist-filter-period" onchange="app.onPeriodChange(this, () => app.renderHistory())">
                             <option value="today">今日</option>
                             <option value="yesterday">昨日</option>
@@ -485,28 +485,28 @@
                             <option value="nonProductionStop">非生産停止のみ</option>
                             <option value="dokatei">ドカ停のみ</option>
                         </select>
-                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-parts" onchange="app.renderHistory()"> 部品あり</label>
-                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-photos" onchange="app.renderHistory()"> 写真あり</label>
-                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-guide" onchange="app.renderHistory()"> 手順あり</label>
+                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-parts" onchange="app.renderHistory()"> 部品有</label>
+                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-photos" onchange="app.renderHistory()"> 写真有</label>
+                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-guide" onchange="app.renderHistory()"> 手順有</label>
                         <select id="hist-density-mode" onchange="app.setHistoryDensityMode(this.value)" title="履歴一覧の表示密度">
                             <option value="standard">標準表示</option>
                             <option value="detail">詳細表示</option>
                             <option value="compact">コンパクト</option>
                         </select>
-                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.clearHistoryFilters()">
-                            <i class="fa-solid fa-filter-circle-xmark"></i> 絞り込み解除
+                        <button class="secondary-btn history-toolbar-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.clearHistoryFilters()">
+                            <i class="fa-solid fa-filter-circle-xmark"></i> 絞込解除
                         </button>
-                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openHistoryQualityCheck()">
-                            <i class="fa-solid fa-shield-halved"></i> 品質チェック
+                        <button class="secondary-btn history-toolbar-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openHistoryQualityCheck()">
+                            <i class="fa-solid fa-shield-halved"></i> チェック
                         </button>
-                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem; margin-left: auto;" onclick="app.openHistoryImportModal()">
-                            <i class="fa-solid fa-cloud-arrow-up"></i> 一括取込 (CSV)
+                        <button class="secondary-btn history-toolbar-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openRecurrenceGroupsModal()">
+                            <i class="fa-solid fa-repeat"></i> 再発
                         </button>
-                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openHistoryCsvBuilder()">
-                            <i class="fa-solid fa-pen-to-square"></i> CSV作成
+                        <button class="secondary-btn history-toolbar-btn" style="padding: 6px 14px; font-size: 0.75rem; margin-left: auto;" onclick="app.openHistoryImportModal()">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> CSV取込
                         </button>
-                        <button class="secondary-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.exportHistoryAsCSV()">
-                            <i class="fa-solid fa-file-csv"></i> 履歴をCSV出力
+                        <button class="secondary-btn history-toolbar-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.exportHistoryAsCSV()">
+                            <i class="fa-solid fa-file-csv"></i> CSV出力
                         </button>
                     </div>
                     
@@ -527,7 +527,7 @@
                                 </th>
                                 <th style="width: 24%; min-width: 150px;">機械</th>
                                 <th style="width: 40%; min-width: 250px;">内容</th>
-                                <th style="width: 70px;">写真</th>
+                                <th class="history-photo-head" style="width: 70px;">写真</th>
                                 <th style="width: 60px; text-align: center;">区分</th>
                                 <th style="width: 64px;">
                                     <button type="button" class="history-sort-stamp" id="history-sort-time-btn" onclick="app.toggleHistoryMetricSort('time')" title="作業時間順">
@@ -536,13 +536,10 @@
                                 </th>
                                 <th style="width: 84px;">
                                     <div class="history-cost-head">
-                                        <button type="button" class="history-sort-stamp" id="history-sort-cost-btn" onclick="app.toggleHistoryMetricSort('cost')" title="コスト順">
-                                            <i class="fa-solid fa-yen-sign"></i><i id="history-sort-cost-icon" class="fa-solid fa-arrow-down-wide-short history-sort-dir-icon"></i>
-                                        </button>
-                                        <span id="history-visible-cost-total" class="history-visible-cost-total">¥0</span>
+                                        <button type="button" id="history-visible-cost-total" class="history-visible-cost-total" onclick="app.toggleHistoryMetricSort('cost')" title="金額で並び替え">¥0</button>
                                     </div>
                                 </th>
-                                <th style="width: 110px;">交換部品</th>
+                                <th style="width: 110px;">部品</th>
                                 <th style="width: 70px; text-align: center;">操作</th>
                             </tr>
                         </thead>
@@ -904,7 +901,7 @@
 
     <!-- Scripts -->
     <script src="store.js?v=20260605-history-import-logs"></script>
-    <script src="app.js?v=20260606-view-header-bg"></script>
+    <script src="app.js?v=20260606-line-badge-filter"></script>
     <script src="app-settings.js"></script>
     <script src="app-todos.js"></script>
     <script src="app-shift-notebook-settings.js"></script>
@@ -915,8 +912,8 @@
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js"></script>
     <script src="app-machines.js"></script>
-    <script src="app-maintenance-forms.js?v=20260606-history-assist-recurrence"></script>
-    <script src="app-history.js?v=20260606-history-assist-recurrence"></script>
+    <script src="app-maintenance-forms.js?v=20260606-part-search-history-cards"></script>
+    <script src="app-history.js?v=20260606-history-parts-master-link"></script>
     <script src="app-analysis-dashboard.js?v=20260604-dashboard-memo-calendar-open"></script>
     <script src="app-ranking-guides.js"></script>
     <script src="app-skills.js"></script>
@@ -924,7 +921,7 @@
     <script src="app-archives.js?v=20260606-admin-log-targets"></script>
     <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
     <script src="app-persistence.js?v=20260606-admin-log-targets"></script>
-    <script src="app-csv.js?v=20260605-history-import-logs"></script>
+    <script src="app-csv.js?v=20260606-history-parts-split-import"></script>
     <script src="app-misc-analysis.js"></script>
     <script src="app-photo-manager.js"></script>
     <script src="app-dom-actions.js"></script>

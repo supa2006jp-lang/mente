@@ -69,7 +69,8 @@ class MaintenanceApp {
     getLineBadge(lineNo) {
         if (!lineNo) return '';
         const colors = this.getLineColors(lineNo);
-        return `<span style="display:inline-flex; align-items:center; justify-content:center; background:${colors.bg}; color:${colors.text}; min-width:32px; padding:2px 8px; border-radius:4px; font-weight:950; font-size:0.75rem; border:1px solid rgba(0,0,0,0.1); box-shadow:0 1px 2px rgba(0,0,0,0.05); margin-right:6px;">${this.getLineStampLabel(lineNo)}</span>`;
+        const isActive = document.getElementById('hist-filter-line')?.value === String(lineNo);
+        return `<span class="line-filter-badge ${isActive ? 'active' : ''}" style="display:inline-flex; align-items:center; justify-content:center; background:${colors.bg}; color:${colors.text}; min-width:32px; padding:2px 8px; border-radius:4px; font-weight:950; font-size:0.75rem; border:1px solid rgba(0,0,0,0.1); box-shadow:0 1px 2px rgba(0,0,0,0.05); margin-right:6px;" title="このラインで抽出" onclick="app.toggleLineFilter?.('${this.escapeJs(lineNo)}', event)">${this.getLineStampLabel(lineNo)}${isActive ? ' <i class="fa-solid fa-filter" style="font-size:0.58rem; margin-left:4px;"></i>' : ''}</span>`;
     }
 
     getLineLabel(lineNo) {

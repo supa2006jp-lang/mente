@@ -904,12 +904,31 @@
         if (!lastRecord) return;
 
         // Populate fields
-        if (lastRecord.lineNo) document.getElementById(`${prefix}line-no`).value = lastRecord.lineNo;
+        if (lastRecord.lineNo) {
+            const lineField = document.getElementById(`${prefix}line-no`);
+            lineField.value = lastRecord.lineNo;
+            this.markHistoryAssistCopiedField(lineField);
+        }
         const contentField = document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`);
-        if (lastRecord.errorContent && contentField) contentField.value = lastRecord.errorContent;
-        if (lastRecord.cause) document.getElementById(`${prefix}cause`).value = lastRecord.cause;
-        if (lastRecord.notes) document.getElementById(`${prefix}notes`).value = lastRecord.notes;
-        if (lastRecord.category) document.getElementById(`${prefix}category`).value = lastRecord.category;
+        if (lastRecord.errorContent && contentField) {
+            contentField.value = lastRecord.errorContent;
+            this.markHistoryAssistCopiedField(contentField);
+        }
+        if (lastRecord.cause) {
+            const causeField = document.getElementById(`${prefix}cause`);
+            causeField.value = lastRecord.cause;
+            this.markHistoryAssistCopiedField(causeField);
+        }
+        if (lastRecord.notes) {
+            const notesField = document.getElementById(`${prefix}notes`);
+            notesField.value = lastRecord.notes;
+            this.markHistoryAssistCopiedField(notesField);
+        }
+        if (lastRecord.category) {
+            const categoryField = document.getElementById(`${prefix}category`);
+            categoryField.value = lastRecord.category;
+            this.markHistoryAssistCopiedField(categoryField);
+        }
         [contentField, document.getElementById(`${prefix}cause`), document.getElementById(`${prefix}notes`)]
             .forEach(textarea => this.autoResizeTextarea(textarea));
         
@@ -918,7 +937,9 @@
         if (occRadio) occRadio.checked = true;
         
         if (lastRecord.workers) {
-            document.getElementById(`${prefix}workers`).value = lastRecord.workers.join(', ');
+            const workersField = document.getElementById(`${prefix}workers`);
+            workersField.value = lastRecord.workers.join(', ');
+            this.markHistoryAssistCopiedField(workersField);
         }
 
         // Handle parts
@@ -938,16 +959,55 @@
         }
     }
 
+    markHistoryAssistCopiedField(field) {
+        if (!field) return;
+        field.classList.add('history-assist-copied-value');
+        field.dataset.historyAssistCopied = 'true';
+    }
+
+    getRecurrenceExcludedIds() {
+        try {
+            const saved = JSON.parse(localStorage.getItem('recurrence_group_excluded_history_ids') || '[]');
+            return new Set(Array.isArray(saved) ? saved.map(String) : []);
+        } catch (_) {
+            return new Set();
+        }
+    }
+
+    saveRecurrenceExcludedIds(ids) {
+        try {
+            localStorage.setItem('recurrence_group_excluded_history_ids', JSON.stringify(Array.from(ids).map(String)));
+        } catch (_) {}
+    }
+
+    excludeHistoryFromRecurrenceGroup(historyId = '', prefix = 's-', currentId = '') {
+        if (!historyId) return;
+        const excluded = this.getRecurrenceExcludedIds();
+        excluded.add(String(historyId));
+        this.saveRecurrenceExcludedIds(excluded);
+        const machineId = document.getElementById(`${prefix}machine-id`)?.value || '';
+        const symptom = (document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`))?.value || '';
+        const panel = document.getElementById(`${prefix}history-assist-panel`);
+        if (panel) panel.innerHTML = this.getHistoryAssistHtml(prefix, machineId, symptom, currentId);
+    }
+
+    getRecurrenceGroupId(machineId = '', title = '') {
+        const normalizedTitle = MaintenanceApp.toHalfWidthLower(String(title || '')).replace(/\s+/g, '_').replace(/[^\wぁ-んァ-ン一-龥ー#-]/g, '').slice(0, 48);
+        return `rec:${machineId || 'unknown'}:${normalizedTitle || 'untitled'}`;
+    }
+
     getHistoryAssistCandidates(machineId, symptomText = '', currentId = '') {
         if (!machineId || machineId === 'NEW_MACHINE') return { candidates: [], recurrence: null };
         const machines = store.getMachines(true);
         const machine = machines.find(m => String(m.id) === String(machineId));
+        const excludedIds = this.getRecurrenceExcludedIds();
         const model = MaintenanceApp.toHalfWidthLower(machine?.model || '');
         const normalize = (value = '') => MaintenanceApp.toHalfWidthLower(String(value || '')).replace(/\s+/g, ' ').trim();
         const symptom = normalize(symptomText);
         const terms = symptom.split(/[、。・,.\s\[\]（）()]+/).filter(word => word.length >= 2);
         const troubleHistory = (store.activeData.history || [])
             .filter(h => String(h.id) !== String(currentId))
+            .filter(h => !excludedIds.has(String(h.id)))
             .filter(h => !h.isManualGuide)
             .filter(h => !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden)
             .map(h => {
@@ -971,16 +1031,68 @@
             .filter(item => item.score > 0)
             .sort((a, b) => b.score - a.score || (b.history.date || '').localeCompare(a.history.date || ''));
 
-        const recurrenceSource = symptom
+        const recurrenceSource = (symptom
             ? troubleHistory.filter(item => item.sameMachine && (normalize(this.getHistoryDisplayText(item.history)) === symptom || normalize(item.history.errorContent || '').includes(symptom) || item.hitCount > 0))
-            : troubleHistory.filter(item => item.sameMachine);
-        const recurrenceItems = recurrenceSource.slice(0, 8);
-        const recurrence = recurrenceItems.length >= 2 ? {
-            count: recurrenceItems.length,
-            latest: recurrenceItems[0],
-            first: recurrenceItems[recurrenceItems.length - 1],
-            totalTime: recurrenceItems.reduce((sum, item) => sum + (parseInt(item.history.workTime, 10) || 0), 0)
-        } : null;
+            : troubleHistory.filter(item => item.sameMachine)
+        );
+        const countByValue = (list) => list.reduce((acc, value) => {
+            const key = String(value || '').trim();
+            if (key) acc[key] = (acc[key] || 0) + 1;
+            return acc;
+        }, {});
+        const mostFrequent = (list, fallback = '') => {
+            const counts = countByValue(list);
+            const top = Object.entries(counts).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'ja'))[0];
+            return top ? { value: top[0], count: top[1], total: list.filter(Boolean).length } : { value: fallback, count: fallback ? 1 : 0, total: fallback ? 1 : 0 };
+        };
+        const groupKeyFor = (history) => {
+            const title = normalize(this.getHistoryDisplayText(history) || history.errorContent || '');
+            if (!title) return normalize(`${history.cause || ''} ${history.notes || ''}`).slice(0, 36);
+            const titleWords = title.split(/[、。・,.\s\[\]（）()]+/).filter(word => word.length >= 2);
+            if (terms.length) {
+                const hits = titleWords.filter(word => terms.some(term => word.includes(term) || term.includes(word)));
+                if (hits.length) return hits.slice(0, 4).join(' ');
+            }
+            return title.replace(/[0-9０-９]+/g, '#').slice(0, 44);
+        };
+        const groups = Array.from(recurrenceSource.reduce((map, item) => {
+            const key = groupKeyFor(item.history);
+            if (!key) return map;
+            if (!map.has(key)) map.set(key, []);
+            map.get(key).push(item);
+            return map;
+        }, new Map()).values())
+            .filter(group => group.length >= 2)
+            .map(group => {
+                const sorted = group.slice().sort((a, b) => (b.history.date || '').localeCompare(a.history.date || ''));
+                const titles = group.map(item => this.getHistoryDisplayText(item.history) || item.history.errorContent || '').filter(Boolean);
+                const notes = group.map(item => item.history.notes || '').filter(Boolean);
+                const causes = group.map(item => item.history.cause || '').filter(Boolean);
+                const avgScore = Math.round(group.reduce((sum, item) => sum + item.score, 0) / group.length);
+                const strength = avgScore >= 90 ? 'strong' : (avgScore >= 65 ? 'medium' : 'weak');
+                const strengthLabel = strength === 'strong' ? '強一致' : (strength === 'medium' ? '中一致' : '弱一致');
+                return {
+                    id: this.getRecurrenceGroupId(machineId, mostFrequent(titles, this.getHistoryDisplayText(sorted[0]?.history) || '').value),
+                    items: sorted,
+                    count: group.length,
+                    latest: sorted[0],
+                    first: sorted[sorted.length - 1],
+                    totalTime: group.reduce((sum, item) => sum + (parseInt(item.history.workTime, 10) || 0), 0),
+                    avgScore,
+                    strength,
+                    strengthLabel,
+                    title: mostFrequent(titles, this.getHistoryDisplayText(sorted[0]?.history) || '').value,
+                    titleStat: mostFrequent(titles, this.getHistoryDisplayText(sorted[0]?.history) || ''),
+                    mostTreatment: mostFrequent(notes, sorted[0]?.history?.notes || ''),
+                    mostCause: mostFrequent(causes, sorted[0]?.history?.cause || ''),
+                    mostWorkTime: mostFrequent(group.map(item => item.history.workTime || '').filter(Boolean), sorted[0]?.history?.workTime || ''),
+                    mostCategory: mostFrequent(group.map(item => item.history.category || '').filter(Boolean), sorted[0]?.history?.category || ''),
+                    mostWorkers: mostFrequent(group.map(item => Array.isArray(item.history.workers) ? item.history.workers.join(', ') : '').filter(Boolean), Array.isArray(sorted[0]?.history?.workers) ? sorted[0].history.workers.join(', ') : '')
+                };
+            })
+            .sort((a, b) => b.count - a.count || b.totalTime - a.totalTime || (b.latest?.history?.date || '').localeCompare(a.latest?.history?.date || ''));
+        const topGroup = groups[0];
+        const recurrence = topGroup ? { ...topGroup, groups } : null;
 
         return { candidates: troubleHistory.slice(0, 5), recurrence };
     }
@@ -990,27 +1102,75 @@
         if (!machineId || machineId === 'NEW_MACHINE') return '';
         if (!candidates.length && !recurrence) return '';
         const latest = recurrence?.latest?.history;
+        const latestTreatment = latest?.notes || '';
+        const latestCause = latest?.cause || '';
+        const mostTreatment = recurrence?.mostTreatment?.value || '';
+        const mostCause = recurrence?.mostCause?.value || '';
+        const mostWorkTime = recurrence?.mostWorkTime?.value || '';
+        const mostCategory = recurrence?.mostCategory?.value || '';
+        const mostWorkers = recurrence?.mostWorkers?.value || '';
         return `
             <div class="history-assist-panel">
                 ${recurrence ? `
                     <div class="history-recurrence-card ${recurrence.count >= 3 ? 'strong' : ''}">
                         <div class="history-assist-head">
-                            <span><i class="fa-solid fa-repeat"></i> 再発管理</span>
+                            <span><i class="fa-solid fa-repeat"></i> 再発管理（最多内容）</span>
                             <b>${recurrence.count}件 / 合計 ${recurrence.totalTime}分</b>
+                        </div>
+                        <input type="hidden" id="${this.escapeHtml(prefix)}recurrence-group-id" value="${this.escapeHtml(recurrence.id || '')}">
+                        <input type="hidden" id="${this.escapeHtml(prefix)}recurrence-group-title" value="${this.escapeHtml(recurrence.title || '')}">
+                        <div class="history-recurrence-meta">
+                            <span class="${this.escapeHtml(recurrence.strength)}">${this.escapeHtml(recurrence.strengthLabel)} / ${recurrence.avgScore}点</span>
+                            <span>最多内容 ${recurrence.titleStat?.count || recurrence.count}/${recurrence.titleStat?.total || recurrence.count}件</span>
+                            <span>最多原因 ${recurrence.mostCause?.count || 0}/${recurrence.mostCause?.total || recurrence.count}件</span>
+                            <span>最多処置 ${recurrence.mostTreatment?.count || 0}/${recurrence.mostTreatment?.total || recurrence.count}件</span>
+                        </div>
+                        <div class="history-recurrence-title">
+                            <strong>一番多い内容</strong>
+                            ${this.escapeHtml(recurrence.title || this.getHistoryDisplayText(latest) || '内容なし')}
+                            ${recurrence.groups?.length > 1 ? `<small>他 ${recurrence.groups.length - 1}グループあり</small>` : ''}
                         </div>
                         <div class="history-recurrence-body">
                             <div>
-                                <strong>前回</strong>
+                                <strong>前回履歴</strong>
                                 ${this.escapeHtml(latest?.date || '-')} ${this.escapeHtml(this.getHistoryDisplayText(latest) || '内容なし')}
                             </div>
                             <div>
                                 <strong>前回処置</strong>
-                                ${this.escapeHtml(latest?.notes || '未入力')}
+                                ${this.escapeHtml(latestTreatment || '未入力')}
+                            </div>
+                            <div>
+                                <strong>最多原因</strong>
+                                ${this.escapeHtml(mostCause || '未入力')}
+                            </div>
+                            <div>
+                                <strong>最多処置</strong>
+                                ${this.escapeHtml(mostTreatment || '未入力')}
                             </div>
                         </div>
+                        <details class="history-recurrence-details">
+                            <summary><i class="fa-solid fa-list-ul"></i> この再発グループの内訳を見る</summary>
+                            <div class="history-recurrence-list">
+                                ${recurrence.items.map(item => {
+                                    const h = item.history;
+                                    return `
+                                        <button type="button" onclick="app.openHistoryEditForm('${this.escapeJs(h.id)}')">
+                                            <b>${this.escapeHtml(h.date || '日付なし')} ${this.escapeHtml(this.getHistoryDisplayText(h) || '内容なし')}</b>
+                                            <small>${parseInt(h.workTime, 10) || 0}分 / ${item.score}点 / ${this.escapeHtml(h.notes || '処置未入力')}</small>
+                                        </button>
+                                        <button type="button" class="exclude" onclick="app.excludeHistoryFromRecurrenceGroup('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', '${this.escapeJs(currentId)}')">
+                                            <i class="fa-solid fa-ban"></i> これは違う
+                                        </button>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </details>
                         <div class="history-assist-actions">
                             <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(latest?.id || '')}', '${this.escapeJs(prefix)}', 'recurrence')">
-                                <i class="fa-solid fa-copy"></i> 原因・処置を反映
+                                <i class="fa-solid fa-clock-rotate-left"></i> 前回一式を使う
+                            </button>
+                            <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistText('${this.escapeJs(mostCause)}', '${this.escapeJs(mostTreatment)}', '${this.escapeJs(prefix)}', 'most', { content: '${this.escapeJs(recurrence.title || '')}', workTime: '${this.escapeJs(mostWorkTime)}', category: '${this.escapeJs(mostCategory)}', workers: '${this.escapeJs(mostWorkers)}' })">
+                                <i class="fa-solid fa-ranking-star"></i> 最多一式を使う
                             </button>
                             <button type="button" class="secondary-btn" onclick="app.openHistoryEditForm('${this.escapeJs(latest?.id || '')}')">
                                 <i class="fa-solid fa-clock-rotate-left"></i> 前回を開く
@@ -1064,12 +1224,30 @@
         const workTimeField = document.getElementById(`${prefix}work-time`);
         const categoryField = document.getElementById(`${prefix}category`);
         const workersField = document.getElementById(`${prefix}workers`);
-        if (mode === 'full' && source.errorContent && contentField) contentField.value = source.errorContent;
-        if (source.cause && causeField) causeField.value = source.cause;
-        if (source.notes && notesField) notesField.value = source.notes;
-        if ((mode === 'full' || mode === 'recurrence') && source.workTime && workTimeField && !workTimeField.value) workTimeField.value = source.workTime;
-        if ((mode === 'full' || mode === 'recurrence') && source.category && categoryField && !categoryField.value) categoryField.value = source.category;
-        if (mode === 'full' && Array.isArray(source.workers) && source.workers.length && workersField && !workersField.value) workersField.value = source.workers.join(', ');
+        if ((mode === 'full' || mode === 'recurrence') && source.errorContent && contentField) {
+            contentField.value = source.errorContent;
+            this.markHistoryAssistCopiedField(contentField);
+        }
+        if (source.cause && causeField) {
+            causeField.value = source.cause;
+            this.markHistoryAssistCopiedField(causeField);
+        }
+        if (source.notes && notesField) {
+            notesField.value = source.notes;
+            this.markHistoryAssistCopiedField(notesField);
+        }
+        if ((mode === 'full' || mode === 'recurrence') && source.workTime && workTimeField && !workTimeField.value) {
+            workTimeField.value = source.workTime;
+            this.markHistoryAssistCopiedField(workTimeField);
+        }
+        if ((mode === 'full' || mode === 'recurrence') && source.category && categoryField && !categoryField.value) {
+            categoryField.value = source.category;
+            this.markHistoryAssistCopiedField(categoryField);
+        }
+        if ((mode === 'full' || mode === 'recurrence') && Array.isArray(source.workers) && source.workers.length && workersField && !workersField.value) {
+            workersField.value = source.workers.join(', ');
+            this.markHistoryAssistCopiedField(workersField);
+        }
         const recurrenceRadio = document.querySelector(`input[name="${prefix}occurrence"][value="recurrence"]`);
         if (recurrenceRadio) recurrenceRadio.checked = true;
         [contentField, causeField, notesField].forEach(field => {
@@ -1077,8 +1255,209 @@
             field?.dispatchEvent(new Event('input', { bubbles: true }));
         });
         const panel = document.getElementById(`${prefix}history-assist-panel`);
+        this.showHistoryAssistAppliedNotice(prefix, mode === 'recurrence' ? ['症状', '原因', '処置', '作業時間', '対応区分', '作業者'] : (mode === 'full' ? ['症状', '原因', '処置', '作業時間', '対応区分', '作業者'] : ['原因', '処置']));
         panel?.classList.add('applied');
         setTimeout(() => panel?.classList.remove('applied'), 800);
+    }
+
+    applyHistoryAssistText(cause = '', notes = '', prefix = 's-', mode = 'most', extras = {}) {
+        const contentField = document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`);
+        const causeField = document.getElementById(`${prefix}cause`);
+        const notesField = document.getElementById(`${prefix}notes`);
+        const workTimeField = document.getElementById(`${prefix}work-time`);
+        const categoryField = document.getElementById(`${prefix}category`);
+        const workersField = document.getElementById(`${prefix}workers`);
+        if (extras?.content && contentField) {
+            contentField.value = extras.content;
+            this.markHistoryAssistCopiedField(contentField);
+        }
+        if (cause && causeField) {
+            causeField.value = cause;
+            this.markHistoryAssistCopiedField(causeField);
+        }
+        if (notes && notesField) {
+            notesField.value = notes;
+            this.markHistoryAssistCopiedField(notesField);
+        }
+        if (extras?.workTime && workTimeField && !workTimeField.value) {
+            workTimeField.value = extras.workTime;
+            this.markHistoryAssistCopiedField(workTimeField);
+        }
+        if (extras?.category && categoryField && !categoryField.value) {
+            categoryField.value = extras.category;
+            this.markHistoryAssistCopiedField(categoryField);
+        }
+        if (extras?.workers && workersField && !workersField.value) {
+            workersField.value = extras.workers;
+            this.markHistoryAssistCopiedField(workersField);
+        }
+        const recurrenceRadio = document.querySelector(`input[name="${prefix}occurrence"][value="recurrence"]`);
+        if (recurrenceRadio) recurrenceRadio.checked = true;
+        [contentField, causeField, notesField].forEach(field => {
+            this.autoResizeTextarea(field);
+            field?.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        const panel = document.getElementById(`${prefix}history-assist-panel`);
+        const copied = [];
+        if (extras?.content) copied.push('症状');
+        if (cause) copied.push('原因');
+        if (notes) copied.push('処置');
+        if (extras?.workTime) copied.push('作業時間');
+        if (extras?.category) copied.push('対応区分');
+        if (extras?.workers) copied.push('作業者');
+        this.showHistoryAssistAppliedNotice(prefix, copied);
+        panel?.classList.add('applied');
+        setTimeout(() => panel?.classList.remove('applied'), 800);
+    }
+
+    showHistoryAssistAppliedNotice(prefix = 's-', labels = []) {
+        const panel = document.getElementById(`${prefix}history-assist-panel`);
+        if (!panel || !labels.length) return;
+        let notice = panel.querySelector('.history-assist-applied-notice');
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.className = 'history-assist-applied-notice';
+            panel.prepend(notice);
+        }
+        notice.innerHTML = `<i class="fa-solid fa-circle-check"></i> ${this.escapeHtml(labels.join('・'))}を反映しました`;
+        notice.classList.add('show');
+        clearTimeout(this._historyAssistNoticeTimer);
+        this._historyAssistNoticeTimer = setTimeout(() => notice?.classList.remove('show'), 2600);
+    }
+
+    getCurrentRecurrenceMeta(prefix = 's-') {
+        const isRecurrence = document.querySelector(`input[name="${prefix}occurrence"][value="recurrence"]`)?.checked;
+        if (!isRecurrence) return null;
+        const machineId = document.getElementById(`${prefix}machine-id`)?.value || '';
+        const symptom = (document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`))?.value || '';
+        const groupId = document.getElementById(`${prefix}recurrence-group-id`)?.value || '';
+        const title = document.getElementById(`${prefix}recurrence-group-title`)?.value || symptom || '再発グループ';
+        return {
+            groupId: groupId || this.getRecurrenceGroupId(machineId, title),
+            title,
+            linkedAt: new Date().toISOString()
+        };
+    }
+
+    collectRecurrenceGroupSummaries() {
+        const machines = store.getMachines(true);
+        const groups = new Map();
+        const addGroup = (group, machineId = '') => {
+            if (!group?.id || !Array.isArray(group.items) || group.items.length < 1) return;
+            const key = group.id;
+            if (groups.has(key)) return;
+            const histories = group.items.map(item => item.history || item).filter(Boolean);
+            const latest = histories.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+            const dates = histories.map(h => h.date).filter(Boolean).sort();
+            const firstDate = dates[0] || '';
+            const latestDate = dates[dates.length - 1] || latest?.date || '';
+            const firstMs = firstDate ? new Date(firstDate).getTime() : NaN;
+            const latestMs = latestDate ? new Date(latestDate).getTime() : NaN;
+            const spanDays = Number.isFinite(firstMs) && Number.isFinite(latestMs) ? Math.max(0, Math.round((latestMs - firstMs) / 86400000)) : 0;
+            const avgIntervalDays = histories.length >= 2 ? Math.max(1, Math.round(spanDays / (histories.length - 1))) : null;
+            const recent90Count = histories.filter(h => {
+                const ms = h.date ? new Date(h.date).getTime() : NaN;
+                return Number.isFinite(ms) && (Date.now() - ms) <= 90 * 86400000;
+            }).length;
+            const monthlyRate = spanDays > 0 ? (histories.length / Math.max(1, spanDays / 30)) : histories.length;
+            const frequencyLabel = histories.length >= 2
+                ? `約${avgIntervalDays}日に1回`
+                : '単発';
+            groups.set(key, {
+                id: key,
+                title: group.title || latest?.recurrenceGroup?.title || this.getHistoryDisplayText(latest) || '再発グループ',
+                machineId: machineId || latest?.machineId || '',
+                count: histories.length,
+                firstDate,
+                latestDate: latestDate || '',
+                spanDays,
+                avgIntervalDays,
+                recent90Count,
+                monthlyRate,
+                frequencyLabel,
+                latestId: latest?.id || '',
+                latestTreatment: latest?.notes || '',
+                totalTime: histories.reduce((sum, h) => sum + (parseInt(h.workTime, 10) || 0), 0),
+                hasGuide: histories.some(h => h.guide && !store.isGuideArchived?.(h.id)),
+                histories
+            });
+        };
+
+        machines.forEach(machine => {
+            const result = this.getHistoryAssistCandidates(machine.id, '');
+            (result.recurrence?.groups || []).forEach(group => addGroup(group, machine.id));
+        });
+
+        const savedGroups = (store.activeData.history || []).reduce((map, h) => {
+            if (!h.recurrenceGroup?.groupId) return map;
+            const key = h.recurrenceGroup.groupId;
+            if (!map.has(key)) map.set(key, []);
+            map.get(key).push(h);
+            return map;
+        }, new Map());
+        savedGroups.forEach((histories, key) => {
+            if (histories.length < 1 || groups.has(key)) return;
+            const latest = histories.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+            addGroup({
+                id: key,
+                title: latest?.recurrenceGroup?.title || this.getHistoryDisplayText(latest) || '再発グループ',
+                items: histories
+            }, latest?.machineId || '');
+        });
+
+        return Array.from(groups.values()).sort((a, b) => b.count - a.count || (b.latestDate || '').localeCompare(a.latestDate || ''));
+    }
+
+    openRecurrenceGroupsModal() {
+        const groups = this.collectRecurrenceGroupSummaries();
+        this.openModal('recurrence-groups', `再発グループ一覧 (${groups.length}件)`, () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = groups.length ? `
+                <div class="recurrence-group-list">
+                    ${groups.map(group => {
+                        const machine = store.getMachines(true).find(m => String(m.id) === String(group.machineId));
+                        return `
+                            <article class="recurrence-group-card">
+                                <div class="recurrence-group-head">
+                                    <h4>${this.escapeHtml(group.title)}</h4>
+                                    <span>${group.count}件</span>
+                                </div>
+                                <div class="recurrence-group-meta">
+                                    <span><i class="fa-solid fa-industry"></i> ${this.escapeHtml(machine?.name || '機械不明')}</span>
+                                    <span><i class="fa-regular fa-calendar"></i> 最新 ${this.escapeHtml(group.latestDate || '-')}</span>
+                                    <span class="frequency"><i class="fa-solid fa-chart-line"></i> ${this.escapeHtml(group.frequencyLabel)} / 直近90日 ${group.recent90Count}件</span>
+                                    <span><i class="fa-regular fa-clock"></i> 合計 ${group.totalTime}分</span>
+                                    <span class="${group.hasGuide ? 'has-guide' : 'no-guide'}"><i class="fa-solid fa-file-invoice"></i> ${group.hasGuide ? '手順書あり' : '手順書なし'}</span>
+                                </div>
+                                <div class="recurrence-group-frequency">
+                                    <strong>発生頻度</strong>
+                                    <b>${this.escapeHtml(group.frequencyLabel)}</b>
+                                    <small>${group.count}件${group.firstDate && group.latestDate ? ` / ${this.escapeHtml(group.firstDate)} - ${this.escapeHtml(group.latestDate)}` : ''}${group.count >= 2 ? ` / 月換算 ${group.monthlyRate.toFixed(1)}件` : ''}</small>
+                                </div>
+                                <div class="recurrence-group-treatment">
+                                    <strong>前回処置</strong>
+                                    ${this.escapeHtml(group.latestTreatment || '未入力')}
+                                </div>
+                                <div class="recurrence-group-actions">
+                                    <button type="button" class="secondary-btn" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeJs(group.latestId)}')">
+                                        <i class="fa-solid fa-clock-rotate-left"></i> 最新履歴
+                                    </button>
+                                    <button type="button" class="secondary-btn" onclick="app.closeModal(); app.switchView('history'); document.getElementById('hist-filter-machine').value='${this.escapeJs(group.machineId)}'; app.renderHistory();">
+                                        <i class="fa-solid fa-filter"></i> この機械で絞る
+                                    </button>
+                                </div>
+                            </article>
+                        `;
+                    }).join('')}
+                </div>
+            ` : `
+                <div class="notebook-search-empty">
+                    <i class="fa-solid fa-repeat"></i>
+                    <div>再発グループはまだありません。</div>
+                </div>
+            `;
+            document.getElementById('modal-save-btn')?.classList.add('hidden');
+        });
     }
 
     onSuddenMachineChange(mId, isEdit = false) {
@@ -1165,7 +1544,7 @@
                     <div style="display:flex; flex-wrap:wrap; gap:4px;">
                         ${rankedVals.slice(0, 10).map(v => `
                             <div class="suggestion-badge" style="display:inline-flex; align-items:stretch; padding:0; overflow:hidden;">
-                                <button type="button" style="background:none; border:none; padding:4px 8px; font-size:inherit; color:inherit; cursor:pointer;" onclick="const t=document.getElementById('${targetId}'); t.value='${v.replace(/'/g, "\\'")}'; app.autoResizeTextarea(t); t.dispatchEvent(new Event('input', { bubbles: true })); t.focus();">
+                                <button type="button" style="background:none; border:none; padding:4px 8px; font-size:inherit; color:inherit; cursor:pointer;" onclick="const t=document.getElementById('${targetId}'); t.value='${v.replace(/'/g, "\\'")}'; app.markHistoryAssistCopiedField(t); app.autoResizeTextarea(t); t.dispatchEvent(new Event('input', { bubbles: true })); t.focus();">
                                     ${String(v).replace(/</g, "&lt;")}
                                     ${counts[v] ? `<span class="suggestion-count">過去${counts[v]}件</span>` : ''}
                                 </button>
@@ -2100,6 +2479,7 @@
         const count = p?.count || '';
         const unit = p?.unit || '個';
         const price = p?.price || '';
+        const e = (value) => this.escapeHtml(value ?? '');
 
         const row = document.createElement('div');
         row.className = 'part-row';
@@ -2118,16 +2498,26 @@
         };
 
         row.innerHTML = `
-            <input type="text" class="p-name" placeholder="部品名" value="${name}" list="list-part-names">
-            <input type="text" class="p-model" placeholder="型番" value="${model}" list="list-part-models">
-            <input type="number" class="p-count" placeholder="量" value="${count}" step="0.001">
+            <div class="part-master-replace-bar">
+                <div class="part-master-replace-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="search" class="p-master-search" placeholder="登録済み部品を検索して正式名に訂正" oninput="app.renderPartMasterSearchResults(this)">
+                </div>
+                <button type="button" class="secondary-btn part-master-replace-btn" onclick="app.applyPartMasterSelectionToRow(this.closest('.part-row').querySelector('.p-master-search'))">
+                    <i class="fa-solid fa-magnifying-glass"></i> 検索
+                </button>
+                <div class="part-master-replace-results"></div>
+            </div>
+            <input type="text" class="p-name" placeholder="部品名" value="${e(name)}" list="list-part-names">
+            <input type="text" class="p-model" placeholder="型番" value="${e(model)}" list="list-part-models">
+            <input type="number" class="p-count" placeholder="量" value="${e(count)}" step="0.001">
             <select class="p-unit">
                 <option value="個" ${unit === 'pcs' || unit === '個' ? 'selected' : ''}>個</option>
                 <option value="g" ${unit === 'g' || unit === 'kg' ? 'selected' : ''}>g</option>
             </select>
             ${hidePrice 
-                ? `<input type="hidden" class="p-price" value="${price}">` 
-                : `<input type="number" class="p-price" placeholder="単価" value="${price}">`}
+                ? `<input type="hidden" class="p-price" value="${e(price)}">` 
+                : `<input type="number" class="p-price" placeholder="単価" value="${e(price)}">`}
             <button type="button" class="close-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
         `;
 
@@ -2135,11 +2525,235 @@
         const modelIn = row.querySelector('.p-model');
         nameIn.addEventListener('input', updatePrice);
         modelIn.addEventListener('input', updatePrice);
+        this.ensurePartMasterSearchDatalist();
         
         // Initial lookup if name provided
         if (name && !price && price !== 0) updatePrice();
 
         container.appendChild(row);
+    }
+
+    getPartMasterSearchLabel(part) {
+        if (!part) return '';
+        const model = part.model ? ` [${part.model}]` : '';
+        const price = parseFloat(part.price);
+        const priceText = !Number.isNaN(price) && price > 0 ? ` / ¥${price.toLocaleString()}` : '';
+        return `${part.name || ''}${model}${priceText}`;
+    }
+
+    ensurePartMasterSearchDatalist() {
+        let list = document.getElementById('list-part-master-options');
+        if (!list) {
+            list = document.createElement('datalist');
+            list.id = 'list-part-master-options';
+            document.body.appendChild(list);
+        }
+        const parts = (store.activeData.partsMaster || [])
+            .filter(part => part && part.name && !store.isPartArchived?.(part.name, part.model || ''))
+            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ja'));
+        list.innerHTML = parts.map(part => `<option value="${this.escapeHtml(this.getPartMasterSearchLabel(part))}"></option>`).join('');
+    }
+
+    findPartMasterFromSearchValue(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return null;
+        const parts = this.collectPartSearchEntries().map(entry => entry.part);
+        return parts.find(part => this.getPartMasterSearchLabel(part) === raw)
+            || parts.find(part => {
+                const label = `${part.name || ''}${part.model ? ` [${part.model}]` : ''}`;
+                return label === raw;
+            })
+            || parts.find(part => String(part.name || '') === raw);
+    }
+
+    collectPartSearchEntries() {
+        const entries = new Map();
+        const put = (part, source = 'master') => {
+            if (!part?.name) return;
+            const name = source === 'history' ? MaintenanceStore.toFullWidth(part.name || '') : (part.name || '');
+            const model = source === 'history' ? MaintenanceStore.toHalfWidthLower(part.model || '') : (part.model || '');
+            const key = `${name}::${model}`;
+            const existing = entries.get(key);
+            const next = {
+                name,
+                model,
+                unit: part.unit || existing?.unit || '個',
+                price: parseFloat(part.price) || existing?.price || 0,
+                stock: part.stock ?? existing?.stock,
+                supplier: part.supplier || existing?.supplier || '',
+                shelf: part.shelf || existing?.shelf || '',
+                remarks: part.remarks || existing?.remarks || '',
+                source: existing?.source === 'master' ? 'master' : source,
+                usageCount: (existing?.usageCount || 0) + (source === 'history' ? 1 : 0)
+            };
+            entries.set(key, next);
+        };
+        (store.activeData.partsMaster || [])
+            .filter(part => part && part.name && !store.isPartArchived?.(part.name, part.model || ''))
+            .forEach(part => put(part, 'master'));
+        (store.activeData.history || []).forEach(history => {
+            (history.replacedParts || []).forEach(part => {
+                put(part, 'history');
+                const master = store.getPartMaster?.(part.name, part.model || '');
+                if (master) put(master, 'master');
+            });
+        });
+        return Array.from(entries.values()).map((part, index) => ({ part, index }));
+    }
+
+    getPartMasterSearchTerms(query) {
+        const normalize = (value) => MaintenanceStore.toHalfWidthLower(String(value || '')
+            .replace(/[＠]/g, '@')
+            .replace(/[ｘＸ×]/g, 'x')
+            .replace(/[（]/g, '(')
+            .replace(/[）]/g, ')')
+            .replace(/\s+/g, ' ')
+            .trim());
+        const raw = normalize(query);
+        if (!raw) return [];
+        const terms = [raw];
+        const beforeAmount = raw
+            .replace(/\s*@\s*[-+]?\d[\d,.]*/g, ' ')
+            .replace(/\s*x\s*[-+]?\d*\.?\d+\s*(?:個|g|kg|本|枚|袋|箱)?/ig, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (beforeAmount) terms.push(beforeAmount);
+        const xMatch = raw.match(/^(.*?)(?:\s*x\s*[-+]?\d|x[-+]?\d|@)/i);
+        if (xMatch?.[1]?.trim()) terms.push(xMatch[1].trim());
+        raw.split(/[\s,，、/／;；()[\]@]+/).forEach(token => {
+            const cleaned = token.replace(/^x[-+]?\d*\.?\d+$/i, '').trim();
+            if (cleaned && !/^[-+]?\d*\.?\d+$/.test(cleaned) && !/^(個|g|kg|本|枚|袋|箱)$/i.test(cleaned)) {
+                terms.push(cleaned);
+            }
+        });
+        return [...new Set(terms.map(t => normalize(t)).filter(Boolean))];
+    }
+
+    getPartMasterSearchCandidates(query) {
+        const normalize = (value) => MaintenanceStore.toHalfWidthLower(String(value || '').trim());
+        const terms = this.getPartMasterSearchTerms(query);
+        return this.collectPartSearchEntries()
+            .map(item => {
+                const text = normalize([
+                    item.part.name,
+                    item.part.model,
+                    item.part.supplier,
+                    item.part.shelf,
+                    item.part.remarks
+                ].filter(Boolean).join(' '));
+                const name = normalize(item.part.name);
+                const model = normalize(item.part.model);
+                let score = 0;
+                if (!terms.length) score = 1;
+                terms.forEach((q, termIndex) => {
+                    if (!q) return;
+                    const bonus = termIndex === 0 ? 0 : 8;
+                    if (name === q || model === q) score = Math.max(score, 100 + bonus);
+                    else if (name.startsWith(q) || model.startsWith(q)) score = Math.max(score, 80 + bonus);
+                    else if (name.includes(q) || model.includes(q)) score = Math.max(score, 65 + bonus);
+                    else if (text.includes(q)) score = Math.max(score, 50 + bonus);
+                    else if (q.includes(name) && name.length >= 2) score = Math.max(score, 45 + bonus);
+                });
+                return { ...item, score };
+            })
+            .filter(item => item.score > 0)
+            .sort((a, b) => b.score - a.score || String(a.part.name || '').localeCompare(String(b.part.name || ''), 'ja'))
+            .slice(0, 12);
+    }
+
+    renderPartMasterSearchResults(input, force = false) {
+        if (!input) return;
+        const row = input.closest('.part-row');
+        const resultsEl = row?.querySelector('.part-master-replace-results');
+        if (!row || !resultsEl) return;
+        let query = input.value.trim();
+        if (!query && force) {
+            query = row.querySelector('.p-name')?.value?.trim() || '';
+            input.value = query;
+        }
+        if (!query) {
+            resultsEl.innerHTML = `<div class="part-master-replace-empty">部品名や型番を入力して検索してください。</div>`;
+            return;
+        }
+        const candidates = this.getPartMasterSearchCandidates(query);
+        this._partMasterSearchCandidates = candidates;
+        resultsEl.innerHTML = candidates.length ? candidates.map(({ part, index }) => {
+            const price = parseFloat(part.price);
+            const stock = parseFloat(part.stock);
+            const sourceLabel = part.source === 'history' ? `履歴 ${Number(part.usageCount || 0).toLocaleString()}件` : '部品マスター';
+            return `
+                <button type="button" class="part-master-result" data-part-index="${index}" onclick="app.applyPartMasterSelectionButton(this)">
+                    <span>
+                        <b>${this.escapeHtml(part.name || '')}</b>
+                        ${part.model ? `<em>${this.escapeHtml(part.model)}</em>` : ''}
+                    </span>
+                    <small>
+                        ${this.escapeHtml(sourceLabel)}
+                        / ${part.unit ? `${this.escapeHtml(part.unit)}` : '単位なし'}
+                        ${!Number.isNaN(price) && price > 0 ? ` / ¥${price.toLocaleString()}` : ''}
+                        ${!Number.isNaN(stock) ? ` / 在庫 ${stock.toLocaleString()}` : ''}
+                    </small>
+                </button>
+            `;
+        }).join('') : `<div class="part-master-replace-empty">一致する登録済み部品がありません。</div>`;
+    }
+
+    applyPartMasterSelectionButton(button) {
+        const row = button?.closest('.part-row');
+        const index = Number(button?.dataset?.partIndex);
+        const selected = Number.isInteger(index) ? (this._partMasterSearchCandidates || []).find(item => item.index === index)?.part : null;
+        if (!row || !selected) return;
+        this.applyPartMasterToRow(row, selected);
+    }
+
+    applyPartMasterSelectionToRow(input) {
+        if (!input) return;
+        const row = input.closest('.part-row');
+        if (!row) return;
+        const selected = this.findPartMasterFromSearchValue(input.value);
+        if (!selected) {
+            this.renderPartMasterSearchResults(input, true);
+            return;
+        }
+        this.applyPartMasterToRow(row, selected);
+    }
+
+    applyPartMasterToRow(row, selected) {
+        const nameInput = row.querySelector('.p-name');
+        const modelInput = row.querySelector('.p-model');
+        const unitInput = row.querySelector('.p-unit');
+        const priceInput = row.querySelector('.p-price');
+        const searchInput = row.querySelector('.p-master-search');
+        const resultsEl = row.querySelector('.part-master-replace-results');
+        const oldName = MaintenanceStore.toFullWidth(nameInput?.value || '');
+        const oldModel = MaintenanceStore.toHalfWidthLower(modelInput?.value || '');
+        const newName = selected.name || '';
+        const newModel = selected.model || '';
+        const changed = oldName !== newName || oldModel !== newModel;
+
+        if (nameInput) nameInput.value = newName;
+        if (modelInput) modelInput.value = newModel;
+        if (unitInput && selected.unit) {
+            const normalizedUnit = selected.unit === 'kg' ? 'g' : selected.unit;
+            if (Array.from(unitInput.options).some(opt => opt.value === normalizedUnit)) unitInput.value = normalizedUnit;
+        }
+        if (priceInput && (selected.price || selected.price === 0)) priceInput.value = selected.price;
+        if (searchInput) searchInput.value = '';
+        if (resultsEl) resultsEl.innerHTML = '';
+
+        const hasOldExactMaster = (store.activeData.partsMaster || []).some(part => part.name === oldName && (part.model || '') === oldModel);
+        if (changed && oldName && hasOldExactMaster) {
+            const oldLabel = `${oldName}${oldModel ? ` [${oldModel}]` : ''}`;
+            const newLabel = `${newName}${newModel ? ` [${newModel}]` : ''}`;
+            if (confirm(`正式な部品名「${newLabel}」へ上書きしました。\n\n元の部品マスター「${oldLabel}」も削除しますか？\n不正確な部品名の登録を残したくない場合はOKを押してください。`)) {
+                store.hardDeletePart(oldName, oldModel);
+                this.ensurePartMasterSearchDatalist();
+                this.updateDataLists();
+                this.showToast?.('元の部品マスターを削除しました', 'success');
+            }
+        } else {
+            this.showToast?.('部品名を正式名で上書きしました', 'success');
+        }
     }
 
     closeModal() {
@@ -2355,7 +2969,8 @@
                 category,
                 machineCategory,
                 lineNo,
-                isFirstTime: document.querySelector('input[name="s-occurrence"]:checked')?.value === 'first'
+                isFirstTime: document.querySelector('input[name="s-occurrence"]:checked')?.value === 'first',
+                recurrenceGroup: this.getCurrentRecurrenceMeta('s-')
             });
             this.markShiftNotebookRowSuddenRegistered(newSuddenRecord?.id || '');
 
@@ -2521,6 +3136,7 @@
                     ...store.activeData.history[index],
                     machineId, date, notes, cause, errorContent: symptom, errorNo, workTime, startTime, endTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
                     isFirstTime: document.querySelector('input[name="e-occurrence"]:checked')?.value === 'first',
+                    recurrenceGroup: this.getCurrentRecurrenceMeta('e-'),
                     photos: this._tempPhotos
                 };
 
