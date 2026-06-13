@@ -8201,6 +8201,19 @@ body {
     --calendar-season-size: cover;
 }
 
+#view-calendar.calendar-season-1 { --calendar-season-bg: url("assets/calendar-backgrounds/month-01.png"); }
+#view-calendar.calendar-season-2 { --calendar-season-bg: url("assets/calendar-backgrounds/month-02.png"); }
+#view-calendar.calendar-season-3 { --calendar-season-bg: url("assets/calendar-backgrounds/month-03.png"); }
+#view-calendar.calendar-season-4 { --calendar-season-bg: url("assets/calendar-backgrounds/month-04.png"); }
+#view-calendar.calendar-season-5 { --calendar-season-bg: url("assets/calendar-backgrounds/month-05.png"); }
+#view-calendar.calendar-season-6 { --calendar-season-bg: url("assets/calendar-backgrounds/month-06.png"); }
+#view-calendar.calendar-season-7 { --calendar-season-bg: url("assets/calendar-backgrounds/month-07.png"); }
+#view-calendar.calendar-season-8 { --calendar-season-bg: url("assets/calendar-backgrounds/month-08.png"); }
+#view-calendar.calendar-season-9 { --calendar-season-bg: url("assets/calendar-backgrounds/month-09.png"); }
+#view-calendar.calendar-season-10 { --calendar-season-bg: url("assets/calendar-backgrounds/month-10.png"); }
+#view-calendar.calendar-season-11 { --calendar-season-bg: url("assets/calendar-backgrounds/month-11.png"); }
+#view-calendar.calendar-season-12 { --calendar-season-bg: url("assets/calendar-backgrounds/month-12.png"); }
+
 #view-calendar.calendar-bg-mode-anime.calendar-season-1 { --calendar-season-bg: url("assets/calendar-backgrounds-anime/month-01.png"); }
 #view-calendar.calendar-bg-mode-anime.calendar-season-2 { --calendar-season-bg: url("assets/calendar-backgrounds-anime/month-02.png"); }
 #view-calendar.calendar-bg-mode-anime.calendar-season-3 { --calendar-season-bg: url("assets/calendar-backgrounds-anime/month-03.png"); }
