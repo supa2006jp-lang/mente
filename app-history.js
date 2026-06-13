@@ -467,15 +467,53 @@
         if ((cost?.total || 0) >= 5000) {
             signs.push({ cls: 'cost', icon: 'fa-yen-sign', label: '高コスト' });
         }
+        const missingPartPrices = this.getHistoryMissingPartPrices(history);
+        if (missingPartPrices.length) {
+            signs.push({ cls: 'part-price', icon: 'fa-triangle-exclamation', label: `単価未設定: ${missingPartPrices.map(p => p.label).join(' / ')}` });
+        }
         if (workMinutes >= 60) {
             signs.push({ cls: 'time', icon: 'fa-clock', label: '長時間' });
         }
         if (!signs.length) return '';
         return `<span class="history-priority-signs">${signs.map(sign => `
-            <span class="history-priority-sign ${sign.cls}" title="${this.escapeHtml(sign.label)}">
+            <span class="history-priority-sign ${sign.cls}" title="${this.escapeHtml(sign.label)}"${sign.cls === 'part-price' && missingPartPrices[0] ? ` onclick="app.openMissingPartPriceMaster('${this.escapeJs(missingPartPrices[0].name)}', '${this.escapeJs(missingPartPrices[0].model)}', event)"` : ''}>
                 <i class="fa-solid ${sign.icon}"></i>${this.escapeHtml(sign.label)}
             </span>
         `).join('')}</span>`;
+    }
+
+    openMissingPartPriceMaster(name, model = '', event = null) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        this.openPartMasterModal(name, model);
+        setTimeout(() => {
+            const priceInput = document.getElementById('pm-price-raw') || document.getElementById('pm-price');
+            if (!priceInput) return;
+            priceInput.focus();
+            priceInput.classList.add('history-missing-price-focus');
+            priceInput.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            setTimeout(() => priceInput.classList.remove('history-missing-price-focus'), 2200);
+        }, 80);
+    }
+
+    toggleHistoryFilterDetails() {
+        const bar = document.querySelector('.history-filter-bar');
+        if (!bar) return;
+        const expanded = !bar.classList.contains('history-filters-expanded');
+        localStorage.setItem('history_filters_expanded', expanded ? 'true' : 'false');
+        this.updateHistoryFilterDetailsButton();
+    }
+
+    updateHistoryFilterDetailsButton() {
+        const bar = document.querySelector('.history-filter-bar');
+        const button = document.getElementById('history-filter-details-toggle');
+        if (!bar || !button) return;
+        const expanded = localStorage.getItem('history_filters_expanded') === 'true';
+        bar.classList.toggle('history-filters-expanded', expanded);
+        button.classList.toggle('active', expanded);
+        button.innerHTML = expanded
+            ? '<i class="fa-solid fa-chevron-up"></i> 詳細閉じる'
+            : '<i class="fa-solid fa-sliders"></i> 詳細';
     }
 
     getHistoryWorkMinutes(history) {
@@ -837,6 +875,7 @@
             { key: 'missingWorkers', label: '作業者未入力', icon: 'fa-user-gear', severity: 'danger', items: [] },
             { key: 'missingContent', label: '内容未入力', icon: 'fa-file-lines', severity: 'danger', items: [] },
             { key: 'missingCause', label: '原因未入力（突発系）', icon: 'fa-magnifying-glass-chart', severity: 'info', items: [] },
+            { key: 'missingNotes', label: '処置未入力（突発系）', icon: 'fa-screwdriver-wrench', severity: 'info', items: [] },
             { key: 'zeroTime', label: '作業時間0分', icon: 'fa-clock', severity: 'warning', items: [] },
             { key: 'invalidDate', label: '日付不正・未入力', icon: 'fa-calendar-xmark', severity: 'danger', items: [] },
             { key: 'duplicateCandidate', label: '重複候補', icon: 'fa-clone', severity: 'info', groups: [] }
@@ -862,6 +901,7 @@
             if (!Array.isArray(h.workers) || h.workers.length === 0) byKey.missingWorkers.items.push(item);
             if (!content || content === '突発対応' || content === '定期メンテナンス') byKey.missingContent.items.push(item);
             if (isTrouble && !String(h.cause || '').trim()) byKey.missingCause.items.push(item);
+            if (isTrouble && !String(h.notes || '').trim()) byKey.missingNotes.items.push(item);
             if ((parseFloat(h.workTime) || 0) <= 0) byKey.zeroTime.items.push(item);
             if (!dateOk) byKey.invalidDate.items.push(item);
             const key = this.getHistoryImportLikeKey(h);
@@ -878,7 +918,8 @@
             missingLine: 6,
             missingMachineCategory: 7,
             missingCause: 8,
-            duplicateCandidate: 9
+            missingNotes: 9,
+            duplicateCandidate: 10
         };
         return checks.sort((a, b) => {
             const countA = a.groups ? a.groups.length : a.items.length;
@@ -1112,6 +1153,8 @@
             const densityLabels = { standard: '標準', detail: '詳細', compact: 'コンパクト' };
             densityLabel.textContent = `表示: ${densityLabels[density] || '標準'}`;
         }
+        this.syncLaborRateInputs(this.laborRate);
+        this.updateHistoryFilterDetailsButton();
         this.updateHistoryMetricSortButtons();
 
         // Active filters banner
@@ -1380,6 +1423,7 @@
                 ? replacedParts.map(p => `${p.name || '部品名なし'}${p.model ? ` [${p.model}]` : ''} ${p.count ?? p.qty ?? 0}${this.formatHistoryPartUnit(p.unit)}`).join(' / ')
                 : '';
             const cost = this.calculateHistoryCost(h);
+            const missingPartPrices = this.getHistoryMissingPartPrices(h);
             const matchLabels = this.getHistorySearchMatchLabels(h, machine, query);
             const isTroubleHistory = !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden;
             const causeText = String(h.cause || '').trim();
@@ -1395,7 +1439,7 @@
                 <td style="font-size:0.85rem">
                     <div style="display:flex; gap:10px; align-items:center;">
                         <div class="img-box" style="width:36px; height:36px; border-radius:8px; flex-shrink:0;">
-                            ${machine?.photo ? `<img src="${machine.photo}">` : '<i class="fa-solid fa-industry" style="font-size:0.8rem; color:#cbd5e1;"></i>'}
+                            ${machine?.photo ? `<img src="${machine.photo}">` : (machine ? `<button type="button" class="machine-photo-placeholder small" onclick="app.openMachinePhotoChoice('${this.escapeJs(machine.id)}', event)" title="画像を選択"><i class="fa-solid fa-industry"></i></button>` : '<i class="fa-solid fa-industry" style="font-size:0.8rem; color:#cbd5e1;"></i>')}
                         </div>
                         <div style="flex:1; min-width:0;">
                             <div style="display:flex; gap:4px; align-items:center; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
@@ -1485,9 +1529,10 @@
                 </td>
                 <td class="history-parts-cell">
                     ${replacedParts.length ? `
-                        <button type="button" class="history-parts-btn" onclick="app.openHistoryPartsDetail('${this.escapeJs(h.id)}')" title="${this.escapeHtml(partsTitle)}" aria-label="交換部品の詳細を表示">
+                        <button type="button" class="history-parts-btn ${missingPartPrices.length ? 'missing-price' : ''}" onclick="${missingPartPrices.length ? `app.openMissingPartPriceMaster('${this.escapeJs(missingPartPrices[0].name)}', '${this.escapeJs(missingPartPrices[0].model)}', event)` : `app.openHistoryPartsDetail('${this.escapeJs(h.id)}')`}" title="${this.escapeHtml(missingPartPrices.length ? `単価未設定: ${missingPartPrices.map(p => p.label).join(' / ')}` : partsTitle)}" aria-label="交換部品の詳細を表示">
                             <i class="fa-solid fa-box-open"></i>
                             <span>${replacedParts.length}</span>
+                            ${missingPartPrices.length ? '<i class="fa-solid fa-triangle-exclamation history-parts-price-alert"></i>' : ''}
                         </button>
                     ` : '<span style="color:var(--text-light); font-size:0.75rem;">-</span>'}
                 </td>
@@ -1578,6 +1623,7 @@
             dokatei: 'ドカ停のみ'
         };
         const periodSelect = document.getElementById('hist-filter-period');
+        const commonBadge = this.getCommonFilterBadgeHtml?.('history') || '';
         const chips = [];
         if (filters.period && filters.period !== 'all') chips.push(periodSelect?.selectedOptions?.[0]?.textContent || filters.period);
         if (machine) chips.push(`機械: ${machine.name || '名称なし'}`);
@@ -1606,6 +1652,7 @@
         area.innerHTML = `
             <div class="history-filter-summary">
                 <div class="history-filter-chips">
+                    ${commonBadge}
                     ${chips.length ? chips.map(chip => `<span>${this.escapeHtml(chip)}</span>`).join('') : '<span>絞り込みなし</span>'}
                     <span class="history-row-color-legend sudden ${filters.type === 'sudden' ? 'active' : ''}" onclick="app.toggleTypeFilter('sudden', event)" title="突発で抽出"><i></i> 突発</span>
                     <span class="history-row-color-legend non-production ${filters.type === 'nonProductionStop' ? 'active' : ''}" onclick="app.toggleTypeFilter('nonProductionStop', event)" title="非生産停止で抽出"><i></i> 非生産停止</span>
@@ -1749,11 +1796,33 @@
     }
 
     getHistoryLaborRate() {
+        const historyInputRate = parseFloat(document.getElementById('history-labor-rate')?.value);
+        if (!Number.isNaN(historyInputRate) && historyInputRate > 0) return historyInputRate;
         const inputRate = parseFloat(document.getElementById('analysis-labor-rate')?.value);
         if (!Number.isNaN(inputRate) && inputRate > 0) return inputRate;
         const savedRate = parseFloat(this.laborRate);
         if (!Number.isNaN(savedRate) && savedRate > 0) return savedRate;
         return 3500;
+    }
+
+    syncLaborRateInputs(value) {
+        const rate = Math.max(0, parseFloat(value) || 0);
+        this.laborRate = rate || 3500;
+        localStorage.setItem('maintenance_labor_rate', String(this.laborRate));
+        ['history-labor-rate', 'analysis-labor-rate'].forEach(id => {
+            const input = document.getElementById(id);
+            if (input && document.activeElement !== input) input.value = this.laborRate;
+        });
+    }
+
+    updateHistoryLaborRate(value) {
+        this.syncLaborRateInputs(value);
+        this.renderHistory();
+    }
+
+    updateAnalysisLaborRate(value) {
+        this.syncLaborRateInputs(value);
+        this.renderAnalysis();
     }
 
     calculateHistoryPartCost(history) {
@@ -1767,6 +1836,24 @@
                 : (!Number.isNaN(masterPrice) && masterPrice > 0 ? masterPrice : 0);
             return sum + (count * unitPrice);
         }, 0);
+    }
+
+    getHistoryMissingPartPrices(history) {
+        return (history?.replacedParts || []).map(part => {
+            const name = String(part?.name || '').trim();
+            if (!name) return null;
+            const model = String(part?.model || '').trim();
+            const directPrice = parseFloat(part.price);
+            const master = store.getPartMaster?.(name, model);
+            const masterPrice = parseFloat(master?.price);
+            const hasPrice = (!Number.isNaN(directPrice) && directPrice > 0) || (!Number.isNaN(masterPrice) && masterPrice > 0);
+            if (hasPrice) return null;
+            return {
+                name,
+                model,
+                label: `${name}${model ? ` [${model}]` : ''}`
+            };
+        }).filter(Boolean);
     }
 
     calculateHistoryCost(history) {
@@ -2250,7 +2337,8 @@
         const currentMonth = now.getMonth() + 1;
 
         filters.forEach(filter => {
-            const currentVal = filter.value;
+            const savedWorkTimePeriod = filter === wtFilter ? localStorage.getItem(this.getWorkTimePeriodStorageKey?.() || 'worktime_filter_period') : null;
+            const currentVal = savedWorkTimePeriod || filter.value;
             const customDate = localStorage.getItem('customStartDate');
             const customLabel = customDate ? `指定日以降 (${customDate})` : '指定日以降...';
             
@@ -2274,8 +2362,8 @@
                 opt.textContent = `${y}年度 (4月〜3月)`;
                 filter.appendChild(opt);
             });
-            // デフォルトは「先月と今月」に設定（ツール更新直後の today 初期値も補正）
-            if (!currentVal || currentVal === 'today') {
+            // デフォルトは「先月と今月」。作業時間集計は保存済み期間を優先して復元する。
+            if (!currentVal || (currentVal === 'today' && filter !== wtFilter)) {
                 filter.value = 'last_this_month';
             } else {
                 filter.value = currentVal;
@@ -2341,6 +2429,7 @@
                 if (el.value === 'custom_range') el.value = 'this_month';
             }
         }
+        this.rememberCommonTopFilter?.(el);
         renderFn();
     }
 

@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260606-part-master-search-results">
+    <link rel="stylesheet" href="style.css?v=20260613-contextual-help-ticker">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -306,6 +306,7 @@
                     <button id="sidebar-toggle" class="icon-btn"><i class="fa-solid fa-bars"></i></button>
                     <h2 id="view-title">カレンダー</h2>
                     <div id="view-guide-slot" class="view-guide-slot"></div>
+                    <div id="contextual-help-slot" class="contextual-help-slot" aria-live="polite"></div>
                     <button type="button" id="app-settings-btn" class="header-settings-btn" onclick="app.openAppSettingsPanel()" title="設定">
                         <i class="fa-solid fa-gear"></i>
                     </button>
@@ -395,6 +396,9 @@
                                 <button type="button" onclick="app.toggleKanbanTodoHistory(true)">過去履歴</button>
                                 <button type="button" onclick="app.openKanbanRequestDashboard()">依頼ダッシュボード</button>
                                 <button type="button" id="kt-overdue-only-btn" onclick="app.toggleKanbanOverdueOnly()">期限切れのみ</button>
+                                <button type="button" id="kt-requester-only-btn" onclick="app.toggleKanbanRequesterOnly()" title="自分が依頼した未完了ToDoだけ表示">
+                                    <i class="fa-regular fa-paper-plane"></i> 依頼中
+                                </button>
                                 <button type="button" id="kt-fit-btn" class="kt-fit-btn" onclick="app.toggleKanbanTodoFit()">
                                     <i class="fa-solid fa-compress"></i> Fit
                                 </button>
@@ -485,21 +489,29 @@
                             <option value="nonProductionStop">非生産停止のみ</option>
                             <option value="dokatei">ドカ停のみ</option>
                         </select>
-                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-parts" onchange="app.renderHistory()"> 部品有</label>
-                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-photos" onchange="app.renderHistory()"> 写真有</label>
-                        <label class="history-extra-filter"><input type="checkbox" id="hist-filter-guide" onchange="app.renderHistory()"> 手順有</label>
-                        <select id="hist-density-mode" onchange="app.setHistoryDensityMode(this.value)" title="履歴一覧の表示密度">
+                        <button type="button" id="history-filter-details-toggle" class="secondary-btn history-toolbar-btn history-filter-details-toggle" onclick="app.toggleHistoryFilterDetails()">
+                            <i class="fa-solid fa-sliders"></i> 詳細
+                        </button>
+                        <label class="history-extra-filter history-collapsible-filter"><input type="checkbox" id="hist-filter-parts" onchange="app.renderHistory()"> 部品有</label>
+                        <label class="history-extra-filter history-collapsible-filter"><input type="checkbox" id="hist-filter-photos" onchange="app.renderHistory()"> 写真有</label>
+                        <label class="history-extra-filter history-collapsible-filter"><input type="checkbox" id="hist-filter-guide" onchange="app.renderHistory()"> 手順有</label>
+                        <select id="hist-density-mode" class="history-collapsible-filter" onchange="app.setHistoryDensityMode(this.value)" title="履歴一覧の表示密度">
                             <option value="standard">標準表示</option>
                             <option value="detail">詳細表示</option>
                             <option value="compact">コンパクト</option>
                         </select>
+                        <label class="history-labor-rate-box history-collapsible-filter" title="作業時間から人件費を計算する単価です">
+                            <span><i class="fa-solid fa-user-clock"></i> 人件費</span>
+                            <input type="number" id="history-labor-rate" value="3500" min="0" step="100" oninput="app.updateHistoryLaborRate(this.value)">
+                            <em>円/h</em>
+                        </label>
                         <button class="secondary-btn history-toolbar-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.clearHistoryFilters()">
                             <i class="fa-solid fa-filter-circle-xmark"></i> 絞込解除
                         </button>
-                        <button class="secondary-btn history-toolbar-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openHistoryQualityCheck()">
+                        <button class="secondary-btn history-toolbar-btn history-collapsible-filter" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openHistoryQualityCheck()">
                             <i class="fa-solid fa-shield-halved"></i> チェック
                         </button>
-                        <button class="secondary-btn history-toolbar-btn" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openRecurrenceGroupsModal()">
+                        <button class="secondary-btn history-toolbar-btn history-collapsible-filter" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.openRecurrenceGroupsModal()">
                             <i class="fa-solid fa-repeat"></i> 再発
                         </button>
                         <button class="secondary-btn history-toolbar-btn" style="padding: 6px 14px; font-size: 0.75rem; margin-left: auto;" onclick="app.openHistoryImportModal()">
@@ -629,6 +641,7 @@
                             <option value="guide">&#25163;&#38918;&#26360;</option>
                             <option value="machine">&#27231;&#26800;</option>
                             <option value="part">&#37096;&#21697;</option>
+                            <option value="library">取込画像</option>
                         </select>
                         <select id="photo-manager-period" onchange="app.renderPhotoManager()">
                             <option value="all">&#20840;&#26399;&#38291;</option>
@@ -644,6 +657,10 @@
                             <option value="marked">&#27880;&#35352;&#12354;&#12426;</option>
                             <option value="plain">&#27880;&#35352;&#12394;&#12375;</option>
                         </select>
+                        <button type="button" class="secondary-btn" id="photo-manager-alpha-filter" onclick="app.togglePhotoManagerAlphaCandidateFilter()"><i class="fa-solid fa-layer-group"></i> 透過候補のみ</button>
+                        <select id="photo-manager-tag-filter" onchange="app.renderPhotoManager()">
+                            <option value="all">すべてのタグ</option>
+                        </select>
                         <select id="photo-manager-sort" onchange="app.renderPhotoManager()">
                             <option value="date_desc">&#26032;&#12375;&#12356;&#38918;</option>
                             <option value="date_asc">&#21476;&#12356;&#38918;</option>
@@ -655,8 +672,12 @@
                             <option value="original">&#20803;&#30011;&#20687;&#12398;&#12415;&#20986;&#21147;</option>
                         </select>
                         <input type="search" id="photo-manager-query" placeholder="&#26908;&#32034;" oninput="app.renderPhotoManager()">
+                        <input type="file" id="photo-manager-import-input" accept="image/*" multiple hidden onchange="app.importPhotoManagerFiles(this.files); this.value=''">
+                        <button type="button" class="primary-btn" onclick="document.getElementById('photo-manager-import-input')?.click()"><i class="fa-solid fa-file-import"></i> 画像取込</button>
+                        <button type="button" class="secondary-btn" onclick="app.importPhotoManagerImageFromClipboard()"><i class="fa-solid fa-paste"></i> 貼付取込</button>
                         <button type="button" class="secondary-btn" onclick="app.selectVisiblePhotoManagerItems()"><i class="fa-solid fa-check-double"></i> &#34920;&#31034;&#20998;&#12434;&#20840;&#36984;&#25246;</button>
                         <button type="button" class="secondary-btn" onclick="app.clearVisiblePhotoManagerSelection()"><i class="fa-regular fa-square"></i> &#20840;&#35299;&#38500;</button>
+                        <button type="button" class="secondary-btn" onclick="app.createTransparentSelectedPhotoManagerImages()"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過作成</button>
                         <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()"><i class="fa-solid fa-file-export"></i> &#20986;&#21147;</button>
                         <button type="button" class="danger-btn" onclick="app.deleteSelectedPhotoManagerItems()"><i class="fa-solid fa-trash-can"></i> &#36984;&#25246;&#12434;&#23436;&#20840;&#21066;&#38500;</button>
                     </div>
@@ -668,6 +689,7 @@
                     <div class="view-header" style="justify-content: space-between;">
                         <div class="title-group">
                             <p class="subtitle" id="analysis-subtitle">交換部品の消費ペースと年間コスト予測</p>
+                            <div id="analysis-common-filter-badge" class="common-filter-badge-slot"></div>
                         </div>
                         <div class="filter-bar" style="margin-top:0;">
                             <div class="btn-group">
@@ -676,7 +698,7 @@
                             </div>
                             <div id="cost-labor-rate-box" style="display:none; align-items:center; gap:8px; background:white; padding:4px 12px; border-radius:99px; border:1px solid var(--border);">
                                 <label style="font-size:0.7rem; color:var(--text-light); font-weight:800; white-space:nowrap;">人件費単価:</label>
-                                <input type="number" id="analysis-labor-rate" value="3500" step="100" style="width:70px; border:none; font-weight:800; color:var(--primary); outline:none;" oninput="app.laborRate = parseFloat(this.value)||0; app.renderAnalysis();">
+                                <input type="number" id="analysis-labor-rate" value="3500" step="100" style="width:70px; border:none; font-weight:800; color:var(--primary); outline:none;" oninput="app.updateAnalysisLaborRate(this.value);">
                                 <span style="font-size:0.7rem; color:var(--text-light);">円/h</span>
                             </div>
                             <!-- Cost Pattern Toggle -->
@@ -688,7 +710,7 @@
                             <button class="primary-btn" style="padding: 8px 16px; font-size:0.8rem;" onclick="app.openPartMasterModal('', '')">
                                 <i class="fa-solid fa-plus"></i> 新規部品登録
                             </button>
-                            <select id="analysis-filter-line" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.renderAnalysis()">
+                            <select id="analysis-filter-line" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.onCommonLineFilterChange(this, () => app.renderAnalysis())">
                                 <option value="all">全ライン</option>
                             </select>
                             <select id="analysis-filter-period" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.onPeriodChange(this, () => app.renderAnalysis())">
@@ -791,6 +813,7 @@
                     <div class="view-header" style="justify-content: flex-start; align-items: center; gap: 16px;">
                         <div class="title-group">
                             <p class="subtitle">担当者ごとの作業負荷と習熟度の集計分析</p>
+                            <div id="worktime-common-filter-badge" class="common-filter-badge-slot"></div>
                         </div>
                         <div class="filter-bar" style="margin-top:0; display:flex; gap:8px; align-items:center;">
                             <div class="btn-group" style="margin-right:12px; display: flex; flex-shrink: 0;">
@@ -804,7 +827,7 @@
                                 <option value="this_month" selected>今月分</option>
                                 <option value="all">累計 (全ての記録)</option>
                             </select>
-                            <select id="worktime-filter-line" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.renderWorkTime()">
+                            <select id="worktime-filter-line" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.onCommonLineFilterChange(this, () => app.renderWorkTime())">
                                 <option value="all">全ライン</option>
                             </select>
                             <input type="text" id="worktime-search" placeholder="作業員を検索..." style="font-size:0.8rem; padding:6px 14px; border-radius:99px; width:180px;" oninput="app.onWorkTimeSearch(this.value)">
@@ -901,29 +924,29 @@
 
     <!-- Scripts -->
     <script src="store.js?v=20260605-history-import-logs"></script>
-    <script src="app.js?v=20260606-line-badge-filter"></script>
-    <script src="app-settings.js"></script>
-    <script src="app-todos.js"></script>
+    <script src="app.js?v=20260613-contextual-help-ticker"></script>
+    <script src="app-settings.js?v=20260611-global-improve-34-priority-color"></script>
+    <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
     <script src="app-calendar.js?v=20260605-calendar-bg-toggle-cell-alpha"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js?v=20260606-unified-search-opened-reset"></script>
+    <script src="app-shift-notebook-core.js?v=20260611-global-improve-34-priority-color"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js"></script>
     <script src="app-machines.js"></script>
-    <script src="app-maintenance-forms.js?v=20260606-part-search-history-cards"></script>
-    <script src="app-history.js?v=20260606-history-parts-master-link"></script>
-    <script src="app-analysis-dashboard.js?v=20260604-dashboard-memo-calendar-open"></script>
-    <script src="app-ranking-guides.js"></script>
+    <script src="app-maintenance-forms.js?v=20260613-guide-title-candidates"></script>
+    <script src="app-history.js?v=20260611-global-improve-234"></script>
+    <script src="app-analysis-dashboard.js?v=20260611-part-alias-count-chips"></script>
+    <script src="app-ranking-guides.js?v=20260613-guide-title-candidates"></script>
     <script src="app-skills.js"></script>
-    <script src="app-worktime.js?v=20260604-history-date-counts"></script>
+    <script src="app-worktime.js?v=20260611-alias-health-common-complete"></script>
     <script src="app-archives.js?v=20260606-admin-log-targets"></script>
     <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
     <script src="app-persistence.js?v=20260606-admin-log-targets"></script>
-    <script src="app-csv.js?v=20260606-history-parts-split-import"></script>
+    <script src="app-csv.js?v=20260611-xlsx-history-import"></script>
     <script src="app-misc-analysis.js"></script>
-    <script src="app-photo-manager.js"></script>
+    <script src="app-photo-manager.js?v=20260613-contextual-help"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js"></script>
 </body>

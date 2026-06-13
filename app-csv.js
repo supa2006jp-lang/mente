@@ -267,21 +267,28 @@
     }
 
     openHistoryImportModal() {
-        this.openModal('history-import', '過去履歴のCSV一括取込', () => {
+        this.openModal('history-import', '過去履歴のExcel/CSV一括取込', () => {
             const content = document.getElementById('modal-content');
             content.innerHTML = `
                 <div style="margin-bottom:20px; font-size:0.85rem; color:var(--text-main); line-height:1.6;">
-                    <p>Excel等で作成した過去のメンテナンス記録（CSV形式）を一括で取り込みます。</p>
+                    <p>Excelテンプレート（.xlsx）またはCSVで作成した過去のメンテナンス記録を一括で取り込みます。</p>
                     <p style="margin-top:8px; padding:10px; background:#eff6ff; border-radius:6px; border:1px solid #bae6fd;">
                         1. まず下記のボタンから専用の「テンプレート(CSV)」をダウンロードしてください。<br>
-                        2. 見出し行より下にデータを入力し、CSV形式で保存してください。<br>
-                        3. 「ファイルを選択」から保存したCSVを読み込ませてください。
+                        2. マクロ無しExcelテンプレート（.xlsx）を使う場合は、そのまま保存して取り込めます。<br>
+                        3. 「ファイルを選択」から保存した .xlsx または .csv を読み込ませてください。
                     </p>
-                    <button class="secondary-btn" style="margin-top:12px; padding:6px 16px; font-size:0.8rem;" onclick="app.downloadHistoryImportTemplate()"><i class="fa-solid fa-download"></i> テンプレート(CSV)をダウンロード</button>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
+                        <a class="secondary-btn" style="padding:6px 16px; font-size:0.8rem; text-decoration:none;" href="CSV/history_import_template_入力用.xlsx" download>
+                            <i class="fa-solid fa-file-excel"></i> マクロ無しExcelテンプレート
+                        </a>
+                        <button class="secondary-btn" style="padding:6px 16px; font-size:0.8rem;" onclick="app.downloadHistoryImportTemplate()">
+                            <i class="fa-solid fa-download"></i> テンプレート(CSV)
+                        </button>
+                    </div>
                 </div>
                 <div class="form-group" style="border-top:1px dashed var(--border); padding-top:20px;">
-                    <label style="font-weight:800; color:var(--primary);">CSVファイルを選択</label>
-                    <input type="file" id="hist-csv-upload" accept=".csv" style="margin-top:8px; display:block;">
+                    <label style="font-weight:800; color:var(--primary);">Excel / CSVファイルを選択</label>
+                    <input type="file" id="hist-csv-upload" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="margin-top:8px; display:block;">
                 </div>
                 ${this.renderHistoryImportLogsHtml()}
             `;
@@ -529,14 +536,152 @@
         this.showToast?.('取込用CSVを出力しました', 'success');
     }
 
-    processHistoryImportCSV() {
-        const fileInput = document.getElementById('hist-csv-upload');
-        if (!fileInput.files.length) return alert("CSVファイルを選択してください。");
-        const file = fileInput.files[0];
+    async inflateZipEntry(data, method) {
+        if (method === 0) return data;
+        if (method !== 8) throw new Error('対応していないExcel圧縮形式です。');
+        if (typeof DecompressionStream === 'undefined') {
+            throw new Error('このブラウザではExcelファイルの展開に対応していません。CSVで保存して取り込んでください。');
+        }
+        const tryInflate = async (format) => {
+            const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream(format));
+            return new Uint8Array(await new Response(stream).arrayBuffer());
+        };
+        try {
+            return await tryInflate('deflate-raw');
+        } catch (err) {
+            return await tryInflate('deflate');
+        }
+    }
 
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            const rows = this.parseCSV(e.target.result).filter(row => row.some(col => String(col).trim() !== ''));
+    async readXlsxZipEntries(arrayBuffer) {
+        const bytes = new Uint8Array(arrayBuffer);
+        const view = new DataView(arrayBuffer);
+        const textDecoder = new TextDecoder('utf-8');
+        let eocd = -1;
+        for (let i = bytes.length - 22; i >= 0; i--) {
+            if (view.getUint32(i, true) === 0x06054b50) {
+                eocd = i;
+                break;
+            }
+        }
+        if (eocd < 0) throw new Error('Excelファイルの形式を読み取れませんでした。');
+        const entryCount = view.getUint16(eocd + 10, true);
+        const centralOffset = view.getUint32(eocd + 16, true);
+        const entries = {};
+        let offset = centralOffset;
+        for (let i = 0; i < entryCount; i++) {
+            if (view.getUint32(offset, true) !== 0x02014b50) break;
+            const method = view.getUint16(offset + 10, true);
+            const compressedSize = view.getUint32(offset + 20, true);
+            const nameLen = view.getUint16(offset + 28, true);
+            const extraLen = view.getUint16(offset + 30, true);
+            const commentLen = view.getUint16(offset + 32, true);
+            const localOffset = view.getUint32(offset + 42, true);
+            const name = textDecoder.decode(bytes.slice(offset + 46, offset + 46 + nameLen)).replace(/\\/g, '/');
+            if (view.getUint32(localOffset, true) !== 0x04034b50) {
+                offset += 46 + nameLen + extraLen + commentLen;
+                continue;
+            }
+            const localNameLen = view.getUint16(localOffset + 26, true);
+            const localExtraLen = view.getUint16(localOffset + 28, true);
+            const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+            const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+            entries[name] = await this.inflateZipEntry(compressed, method);
+            offset += 46 + nameLen + extraLen + commentLen;
+        }
+        return entries;
+    }
+
+    getXlsxEntryText(entries, path) {
+        const entry = entries[path] || entries[path.replace(/\//g, '\\')];
+        if (!entry) return '';
+        return new TextDecoder('utf-8').decode(entry);
+    }
+
+    xmlTextContent(node) {
+        return Array.from(node.getElementsByTagName('t')).map(t => t.textContent || '').join('');
+    }
+
+    parseXlsxCellRef(ref) {
+        const match = String(ref || '').match(/^([A-Z]+)(\d+)$/i);
+        if (!match) return { col: 0, row: 0 };
+        const letters = match[1].toUpperCase();
+        let col = 0;
+        for (const ch of letters) col = col * 26 + ch.charCodeAt(0) - 64;
+        return { col: col - 1, row: parseInt(match[2], 10) };
+    }
+
+    excelSerialToDate(value) {
+        const serial = Number(value);
+        if (!Number.isFinite(serial) || serial < 1) return String(value || '');
+        const utcDays = Math.floor(serial - 25569);
+        const date = new Date(utcDays * 86400 * 1000);
+        const y = date.getUTCFullYear();
+        const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(date.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+
+    normalizeXlsxImportRows(rows) {
+        const headerRowIndex = rows.findIndex(row => {
+            const normalized = row.map(h => String(h).replace(/^\ufeff/, '').trim());
+            return normalized.some(h => h.includes('日付')) && normalized.some(h => h.includes('機械名'));
+        });
+        if (headerRowIndex < 0) return rows;
+        const dateIndex = rows[headerRowIndex].findIndex(h => String(h).includes('日付'));
+        if (dateIndex < 0) return rows;
+        return rows.map((row, rowIndex) => {
+            if (rowIndex <= headerRowIndex) return row;
+            const next = row.slice();
+            const raw = String(next[dateIndex] || '').trim();
+            if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(raw) || /^\d{4}\/\d{1,2}\/\d{1,2}$/.test(raw)) {
+                next[dateIndex] = raw.replace(/\//g, '-');
+            } else if (/^\d+(\.\d+)?$/.test(raw)) {
+                next[dateIndex] = this.excelSerialToDate(raw);
+            }
+            return next;
+        });
+    }
+
+    async parseHistoryImportWorkbook(arrayBuffer) {
+        const entries = await this.readXlsxZipEntries(arrayBuffer);
+        const sharedXml = this.getXlsxEntryText(entries, 'xl/sharedStrings.xml');
+        const sharedStrings = [];
+        if (sharedXml) {
+            const sharedDoc = new DOMParser().parseFromString(sharedXml, 'application/xml');
+            Array.from(sharedDoc.getElementsByTagName('si')).forEach(si => sharedStrings.push(this.xmlTextContent(si)));
+        }
+        const sheetPath = entries['xl/worksheets/sheet1.xml'] ? 'xl/worksheets/sheet1.xml' : Object.keys(entries).find(name => /^xl\/worksheets\/sheet\d+\.xml$/.test(name));
+        if (!sheetPath) throw new Error('Excel内の入力シートが見つかりませんでした。');
+        const sheetXml = this.getXlsxEntryText(entries, sheetPath);
+        const sheetDoc = new DOMParser().parseFromString(sheetXml, 'application/xml');
+        const rows = Array.from(sheetDoc.getElementsByTagName('row')).map(rowEl => {
+            const row = [];
+            Array.from(rowEl.getElementsByTagName('c')).forEach(cell => {
+                const { col } = this.parseXlsxCellRef(cell.getAttribute('r'));
+                const type = cell.getAttribute('t');
+                const valueNode = cell.getElementsByTagName('v')[0];
+                let value = valueNode ? (valueNode.textContent || '') : '';
+                if (type === 's') value = sharedStrings[parseInt(value, 10)] || '';
+                else if (type === 'inlineStr') value = this.xmlTextContent(cell);
+                else if (type === 'b') value = value === '1' ? 'TRUE' : 'FALSE';
+                row[col] = value;
+            });
+            return row.map(value => value ?? '');
+        }).filter(row => row.some(col => String(col).trim() !== ''));
+        return this.normalizeXlsxImportRows(rows);
+    }
+
+    async processHistoryImportCSV() {
+        const fileInput = document.getElementById('hist-csv-upload');
+        if (!fileInput.files.length) return alert("ExcelまたはCSVファイルを選択してください。");
+        const file = fileInput.files[0];
+        const isExcel = /\.xlsx$/i.test(file.name || '');
+
+        try {
+            const rows = isExcel
+                ? await this.parseHistoryImportWorkbook(await file.arrayBuffer())
+                : this.parseCSV(await file.text()).filter(row => row.some(col => String(col).trim() !== ''));
             if (rows.length <= 1) return alert("データがありません。");
 
             const headerRowIndex = rows.findIndex(row => {
@@ -730,8 +875,10 @@
                     this.renderCalendar();
                 });
             }
-        };
-        reader.readAsText(file, 'utf-8');
+        } catch (err) {
+            console.error('History import failed', err);
+            alert(`取り込みファイルを読み取れませんでした。\n${err.message || err}`);
+        }
     }
 
     exportHistoryAsCSV() {

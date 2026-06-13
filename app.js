@@ -24,7 +24,7 @@ class MaintenanceApp {
         this.expandedCompactMemos = new Set();
         this.machineSort = 'rank'; // 'rank' or 'name' or 'newest'
         this.analysisMode = 'parts'; // 'parts' or 'machines'
-        this.laborRate = 3500; // Hourly rate for labor cost calculation
+        this.laborRate = parseFloat(localStorage.getItem('maintenance_labor_rate')) || 3500; // Hourly rate for labor cost calculation
         this.costFilter = 'all'; // 'all', 'periodic', 'sudden'
         this.workTimeDrillDownCategory = null; // Filter worktime by category (Drill-down)
         this.dashboardPeriod = 'yesterday_today'; // Default dashboard view range
@@ -39,6 +39,7 @@ class MaintenanceApp {
         // アクティブ装飾モード: 先に選んだ装飾を、次の行でも継続して使う
         this._activeShiftNoteFormats = this.loadShiftNoteFormats();
         this.init();
+        this.ensureImageSourceChoiceListener?.();
         this.initGlobalImageZoom(); // Add global zoom listener
     }
 
@@ -132,8 +133,61 @@ class MaintenanceApp {
                 if (callback) callback();
             }
         } else {
+            this.rememberCommonTopFilter(select);
             if (callback) callback();
         }
+    }
+
+    rememberCommonTopFilter(select) {
+        if (!select?.id) return;
+        const periodIds = ['hist-filter-period', 'analysis-filter-period', 'worktime-filter-period', 'ranking-filter-period'];
+        const lineIds = ['hist-filter-line', 'analysis-filter-line', 'worktime-filter-line', 'ranking-filter-line'];
+        if (periodIds.includes(select.id)) localStorage.setItem('common_filter_period', select.value || '');
+        if (lineIds.includes(select.id)) localStorage.setItem('common_filter_line', select.value || 'all');
+    }
+
+    applyCommonTopFilters(viewName = this.currentView) {
+        const periodMap = {
+            history: 'hist-filter-period',
+            analysis: 'analysis-filter-period',
+            worktime: 'worktime-filter-period',
+            ranking: 'ranking-filter-period'
+        };
+        const lineMap = {
+            history: 'hist-filter-line',
+            analysis: 'analysis-filter-line',
+            worktime: 'worktime-filter-line',
+            ranking: 'ranking-filter-line'
+        };
+        const applyValue = (id, value) => {
+            const el = document.getElementById(id);
+            if (!el || !value) return;
+            if (Array.from(el.options || []).some(opt => opt.value === value)) el.value = value;
+        };
+        applyValue(periodMap[viewName], localStorage.getItem('common_filter_period'));
+        applyValue(lineMap[viewName], localStorage.getItem('common_filter_line'));
+    }
+
+    onCommonLineFilterChange(select, callback) {
+        this.rememberCommonTopFilter(select);
+        if (callback) callback();
+    }
+
+    getCommonFilterBadgeHtml(viewName = this.currentView) {
+        const periodMap = { history: 'hist-filter-period', analysis: 'analysis-filter-period', worktime: 'worktime-filter-period', ranking: 'ranking-filter-period' };
+        const lineMap = { history: 'hist-filter-line', analysis: 'analysis-filter-line', worktime: 'worktime-filter-line', ranking: 'ranking-filter-line' };
+        const periodEl = document.getElementById(periodMap[viewName]);
+        const lineEl = document.getElementById(lineMap[viewName]);
+        const period = periodEl?.selectedOptions?.[0]?.textContent || '';
+        const line = lineEl?.value && lineEl.value !== 'all' ? this.getLineLabel(lineEl.value) : '全ライン';
+        if (!period && line === '全ライン') return '';
+        return `<span class="common-filter-badge"><i class="fa-solid fa-filter"></i>${this.escapeHtml(period || '期間指定なし')} / ${this.escapeHtml(line)}</span>`;
+    }
+
+    renderCommonFilterBadgeSlot(viewName = this.currentView) {
+        const id = `${viewName}-common-filter-badge`;
+        const slot = document.getElementById(id);
+        if (slot) slot.innerHTML = this.getCommonFilterBadgeHtml(viewName);
     }
 
     generatePeriodOptionsHTML(current) {
@@ -381,7 +435,7 @@ class MaintenanceApp {
         if (hMachineFilter) hMachineFilter.onchange = () => this.renderHistory();
 
         const hLineFilter = document.getElementById('hist-filter-line');
-        if (hLineFilter) hLineFilter.onchange = () => this.renderHistory();
+        if (hLineFilter) hLineFilter.onchange = () => this.onCommonLineFilterChange(hLineFilter, () => this.renderHistory());
 
         const hTypeFilter = document.getElementById('hist-filter-type');
         if (hTypeFilter) hTypeFilter.onchange = () => this.renderHistory();
@@ -497,6 +551,7 @@ class MaintenanceApp {
 
         this.currentView = viewName;
         this.renderView(viewName);
+        this.updateContextualHelp(viewName);
     }
 
     updateViewGuideSlot(viewName = this.currentView) {
@@ -555,6 +610,96 @@ class MaintenanceApp {
 
     closeViewGuideViewer() {
         document.getElementById('view-guide-viewer')?.remove();
+    }
+
+    updateContextualHelp(viewName = this.currentView) {
+        const slot = document.getElementById('contextual-help-slot');
+        if (!slot) return;
+        const items = this.getContextualHelpItems(viewName);
+        const tickerText = items.map(item => item.text).filter(Boolean).join('   /   ');
+        const first = items[0] || {};
+        slot.innerHTML = tickerText ? `
+            <div class="contextual-help-card">
+                <span class="contextual-help-label"><i class="fa-solid fa-lightbulb"></i> ヒント</span>
+                <div class="contextual-help-ticker ${this.escapeHtml(first.tone || '')}" title="${this.escapeHtml(tickerText)}">
+                    ${first.icon ? `<i class="fa-solid ${this.escapeHtml(first.icon)}"></i>` : ''}
+                    <span>${this.escapeHtml(tickerText)}</span>
+                </div>
+            </div>
+        ` : '';
+    }
+
+    getContextualHelpItems(viewName = this.currentView) {
+        const items = [];
+        const safeCount = (fn, fallback = 0) => {
+            try {
+                const value = fn?.();
+                return Array.isArray(value) ? value.length : (Number(value) || fallback);
+            } catch (_) {
+                return fallback;
+            }
+        };
+
+        if (viewName === 'photos') {
+            const visible = this._photoManagerVisibleIds?.length || 0;
+            const selected = safeCount(() => this.getSelectedPhotoManagerIds?.());
+            const duplicate = safeCount(() => this.getPhotoManagerDuplicateGroups?.());
+            const pageOnly = safeCount(() => this.getPhotoManagerPageOnlyItems?.());
+            if (selected) items.push({ icon: 'fa-check-double', text: `${selected}件選択中。一括タイトル変更・透過作成・削除が使えます。`, tone: 'active' });
+            if (duplicate) items.push({ icon: 'fa-clone', text: `重複画像が${duplicate}組あります。重複整理で容量を軽くできます。`, tone: 'warn' });
+            if (pageOnly) items.push({ icon: 'fa-folder-minus', text: `写真管理にない個別ページ写真が${pageOnly}件あります。ページ残り整理で確認できます。`, tone: 'warn' });
+            if (!items.length) items.push({ icon: 'fa-file-import', text: visible ? '画像カードをクリックすると編集、チェックを付けると一括操作できます。' : '画像取込やクリップボード登録で写真管理に追加できます。' });
+            return items;
+        }
+
+        if (viewName === 'guides') {
+            const guides = (store.activeData.history || []).filter(h => h.guide && !store.isGuideArchived?.(h.id));
+            const untitled = guides.filter(h => !String(h.guide?.title || '').trim()).length;
+            const query = (document.getElementById('global-search')?.value || '').trim();
+            if (query) items.push({ icon: 'fa-magnifying-glass', text: '検索中です。タグ・本文・原因・処置・タイトルから絞り込めます。', tone: 'active' });
+            if (untitled) items.push({ icon: 'fa-pen', text: `タイトル未上書きの手順書が${untitled}件あります。カードのペンで整えられます。`, tone: 'warn' });
+            items.push({ icon: 'fa-wand-magic-sparkles', text: 'キラキラボタンで、原因・処置からタイトル候補を自動作成できます。' });
+            return items;
+        }
+
+        if (viewName === 'history') {
+            const guideCount = (store.activeData.history || []).filter(h => h.guide && !store.isGuideArchived?.(h.id)).length;
+            items.push({ icon: 'fa-book-open', text: `手順書ありの履歴は${guideCount}件。手順アイコンから作成・編集できます。` });
+            items.push({ icon: 'fa-filter', text: '上部の期間・ライン・手順有フィルタで必要な履歴だけに絞れます。' });
+            return items;
+        }
+
+        if (viewName === 'machines') {
+            items.push({ icon: 'fa-image', text: '無画像アイコンから写真管理・ファイル読込を選んで画像を設定できます。' });
+            items.push({ icon: 'fa-clock-rotate-left', text: '周期や再発回数の表示から、次に見るべき設備を探せます。' });
+            return items;
+        }
+
+        if (viewName === 'calendar') {
+            items.push({ icon: 'fa-magnifying-glass', text: '上の検索欄に入力すると履歴検索へ切り替わります。' });
+            items.push({ icon: 'fa-table-cells-large', text: '表示が詰まる時はコンパクト表示を切り替えられます。' });
+            return items;
+        }
+
+        if (viewName === 'todos') {
+            items.push({ icon: 'fa-user-check', text: '自分の依頼だけ表示したい時は担当・依頼者フィルタを使えます。' });
+            items.push({ icon: 'fa-tags', text: 'タグや状態で絞ると、未処理の作業が見つけやすくなります。' });
+            return items;
+        }
+
+        if (viewName === 'analysis') {
+            items.push({ icon: 'fa-filter', text: '期間とラインを絞ると、部品消費の傾向が読みやすくなります。' });
+            items.push({ icon: 'fa-yen-sign', text: '価格未設定の部品はコスト予測に反映されないので、部品カードから設定できます。' });
+            return items;
+        }
+
+        if (viewName === 'worktime') {
+            items.push({ icon: 'fa-clock', text: '期間・ライン・作業者で絞ると、負荷の偏りを確認できます。' });
+            items.push({ icon: 'fa-chart-line', text: '空表示の時は、上部の条件バーで抽出条件を確認できます。' });
+            return items;
+        }
+
+        return items;
     }
 
     toggleSkillStats(force = null) {
@@ -657,8 +802,10 @@ class MaintenanceApp {
         if (dPeriod) dPeriod.value = 'this_month';
         const wtPeriod = document.getElementById('worktime-filter-period');
         if (wtPeriod) {
-            wtPeriod.value = 'last_this_month';
-            this.saveWorkTimePeriodSelection?.();
+            const savedWorkTimePeriod = localStorage.getItem(this.getWorkTimePeriodStorageKey?.() || 'worktime_filter_period');
+            const validWorkTimePeriods = Array.from(wtPeriod.options).map(opt => opt.value);
+            wtPeriod.value = validWorkTimePeriods.includes(savedWorkTimePeriod) ? savedWorkTimePeriod : 'last_this_month';
+            if (!savedWorkTimePeriod) this.saveWorkTimePeriodSelection?.();
         }
 
         // Reset Guides View Filters
@@ -709,6 +856,7 @@ class MaintenanceApp {
     renderView(viewName) {
         this.updateTodoRequestCountBadge();
         this.updateViewGuideSlot(viewName);
+        this.applyCommonTopFilters(viewName);
         switch (viewName) {
             case 'calendar': this.renderCalendar(); break;
             case 'todos': this.renderKanbanLocalTodos(); break;
@@ -723,6 +871,7 @@ class MaintenanceApp {
             case 'guides': this.renderGuides(); break;
             case 'photos': this.renderPhotoManager(); break;
         }
+        this.updateContextualHelp(viewName);
     }
 
     escapeHtml(value) {

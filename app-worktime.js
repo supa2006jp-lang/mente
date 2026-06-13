@@ -22,16 +22,20 @@
 
     initializeWorkTimePeriodSelect() {
         const periodSelect = document.getElementById('worktime-filter-period');
-        if (!periodSelect || periodSelect.dataset.worktimePeriodReady === 'true') return;
+        if (!periodSelect) return;
 
         const validValues = Array.from(periodSelect.options).map(opt => opt.value);
         const savedPeriod = localStorage.getItem(this.getWorkTimePeriodStorageKey());
         const initialPeriod = validValues.includes(savedPeriod) ? savedPeriod : 'last_this_month';
-        if (validValues.includes(initialPeriod)) {
+        if (periodSelect.value !== initialPeriod && validValues.includes(initialPeriod)) {
             periodSelect.value = initialPeriod;
+        }
+        if (!savedPeriod && validValues.includes(initialPeriod)) {
             localStorage.setItem(this.getWorkTimePeriodStorageKey(), initialPeriod);
         }
-        if (validValues.includes(savedPeriod)) this.queueWorkTimeRestoreNotice();
+        if (periodSelect.dataset.worktimePeriodReady !== 'true' && validValues.includes(savedPeriod)) {
+            this.queueWorkTimeRestoreNotice();
+        }
         periodSelect.dataset.worktimePeriodReady = 'true';
     }
 
@@ -486,6 +490,130 @@
         this.renderHistory(troubleLabel.toLowerCase());
     }
 
+    getWorkTimeHistoryTypeKey(history) {
+        if (history?.taskId) return 'periodic';
+        if (history?.isDokatei) return 'dokatei';
+        if (history?.isNonProductionStop) return 'nonProductionStop';
+        return 'sudden';
+    }
+
+    getWorkTimeHistoryTypeLabel(typeKey) {
+        const labels = {
+            periodic: '定期メンテ',
+            sudden: '突発対応',
+            nonProductionStop: '非生産停止',
+            dokatei: 'ドカ停'
+        };
+        return labels[typeKey] || '内容';
+    }
+
+    getWorkTimeCountBadgeHtml(rowName, groupBy, typeKey, count, color, borderColor, disabled = false) {
+        const value = Number(count || 0);
+        if (value <= 0 || disabled) {
+            return `<span class="worktime-count-badge disabled" style="color:${color}; border-color:${borderColor};">${value}</span>`;
+        }
+        return `
+            <button type="button" class="worktime-count-badge clickable" style="color:${color}; border-color:${borderColor};"
+                onclick="app.openWorkTimeCountDetails(decodeURIComponent('${encodeURIComponent(rowName)}'), '${groupBy}', '${typeKey}')"
+                title="${this.escapeWorkTimeHtml(this.getWorkTimeHistoryTypeLabel(typeKey))}の内容を表示">
+                ${value}
+            </button>
+        `;
+    }
+
+    addWorkTimeContentStat(stats, typeKey, content, minutes) {
+        if (!stats.contentTypeMap) stats.contentTypeMap = { periodic: {}, sudden: {}, nonProductionStop: {}, dokatei: {} };
+        if (!stats.contentTypeMap[typeKey]) stats.contentTypeMap[typeKey] = {};
+        const key = content || '内容なし';
+        const item = stats.contentTypeMap[typeKey][key] || { count: 0, minutes: 0 };
+        item.count++;
+        item.minutes += parseInt(minutes) || 0;
+        stats.contentTypeMap[typeKey][key] = item;
+    }
+
+    openWorkTimeCountDetails(groupName, groupBy, typeKey) {
+        const records = this.getWorkTimeGroupedRecords(groupName, groupBy, typeKey);
+        const contentMap = {};
+        records.forEach(h => {
+            const content = this.getHistoryDisplayText(h) || '内容なし';
+            if (!contentMap[content]) contentMap[content] = { count: 0, minutes: 0 };
+            contentMap[content].count++;
+            contentMap[content].minutes += parseInt(h.workTime) || 0;
+        });
+        const items = Object.entries(contentMap).sort((a, b) => b[1].count - a[1].count || b[1].minutes - a[1].minutes);
+        const typeLabel = this.getWorkTimeHistoryTypeLabel(typeKey);
+        const groupLabel = groupBy === 'category' ? '装置区分' : '担当者';
+
+        this.openModal('worktime-count-details', `${groupLabel}: ${groupName} / ${typeLabel}`, () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = items.length ? `
+                <div class="worktime-count-detail-list">
+                    ${items.map(([label, stat]) => `
+                        <button type="button" class="worktime-count-detail-item"
+                            onclick="app.closeModal(); app.openWorkTimeGroupedTroubleHistory(decodeURIComponent('${encodeURIComponent(label)}'), '${typeKey}', decodeURIComponent('${encodeURIComponent(groupName)}'), '${groupBy}')">
+                            <span>${this.escapeWorkTimeHtml(label)}</span>
+                            <b>${Number(stat.count || 0).toLocaleString()}件</b>
+                            <em>${Number(stat.minutes || 0).toLocaleString()}分</em>
+                            <i class="fa-solid fa-book-open"></i>
+                        </button>
+                    `).join('')}
+                </div>
+            ` : `
+                <div class="worktime-count-detail-empty">
+                    この条件の内容はありません。
+                </div>
+            `;
+            const saveBtn = document.querySelector('.modal-footer .primary-btn');
+            if (saveBtn) saveBtn.classList.add('hidden');
+        });
+    }
+
+    getWorkTimeGroupedRecords(groupName, groupBy, typeKey) {
+        const period = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const lineVal = document.getElementById('worktime-filter-line')?.value || 'all';
+        const machines = store.getMachines(true);
+        let records = this.filterHistoryByPeriod(store.getHistory({}), period);
+        records = this.filterWorkTimeRecordsByLine(records, lineVal, machines);
+        records = records.filter(h => this.getWorkTimeHistoryTypeKey(h) === typeKey);
+        return records.filter(h => {
+            if (groupBy === 'category') {
+                const m = machines.find(x => x.id === h.machineId);
+                const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
+                return cat === groupName;
+            }
+            return (h.workers || []).map(w => w.trim()).filter(Boolean).includes(groupName);
+        });
+    }
+
+    openWorkTimeGroupedTroubleHistory(troubleLabel, histTypeValue, groupName, groupBy) {
+        if (!troubleLabel) return;
+
+        const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
+        const histPeriod = document.getElementById('hist-filter-period');
+        const histLine = document.getElementById('hist-filter-line');
+        const histMachine = document.getElementById('hist-filter-machine');
+        const histType = document.getElementById('hist-filter-type');
+        const searchIn = document.getElementById('global-search');
+
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histMachine) histMachine.value = '';
+        if (histType) histType.value = histTypeValue || '';
+        if (searchIn) searchIn.value = troubleLabel;
+        this.modelFilter = null;
+        this.workerFilter = groupBy === 'worker' ? groupName : null;
+        this.machineCategoryFilter = groupBy === 'category' ? groupName : null;
+        this.historyReturnContext = this.buildWorkTimeReturnContext(`${groupName}: ${troubleLabel}`);
+
+        this.switchView('history');
+        if (histPeriod) histPeriod.value = workPeriod;
+        if (histLine) histLine.value = workLine;
+        if (histType) histType.value = histTypeValue || '';
+        if (searchIn) searchIn.value = troubleLabel;
+        this.renderHistory(troubleLabel.toLowerCase());
+    }
+
     openWorkTimeMachineHistory(machineId) {
         if (!machineId) return;
 
@@ -670,6 +798,7 @@
         const period = document.getElementById('worktime-filter-period')?.value || 'this_month';
         const lineVal = document.getElementById('worktime-filter-line')?.value || 'all';
         this.updateViewSubtitle('view-worktime', period);
+        this.renderCommonFilterBadgeSlot?.('worktime');
 
         // Populate line filter if empty (except for 'all')
         const lineFilter = document.getElementById('worktime-filter-line');
@@ -699,8 +828,14 @@
         history = this.filterWorkTimeRecordsByLine(history, lineVal, machines);
         const lineHistory = history.slice();
 
+        const createWorkTimeStats = () => ({
+            totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0,
+            machineTimeMap: {},
+            troubleCountMap: {},
+            contentTypeMap: { periodic: {}, sudden: {}, nonProductionStop: {}, dokatei: {} }
+        });
         const statsMap = {}; 
-        const archivedStats = { totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0, machineTimeMap: {}, troubleCountMap: {} };
+        const archivedStats = createWorkTimeStats();
         let totalTimeSum = 0;
 
         history.forEach(h => {
@@ -721,9 +856,10 @@
                 totalTimeSum += time;
                 const isArchived = (currentGroupBy === 'worker' && store.isWorkerArchived(k));
                 
-                const s = isArchived ? archivedStats : (statsMap[k] || (statsMap[k] = { totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0, machineTimeMap: {}, troubleCountMap: {} }));
+                const s = isArchived ? archivedStats : (statsMap[k] || (statsMap[k] = createWorkTimeStats()));
                 
                 s.totalTime += time;
+                const typeKey = this.getWorkTimeHistoryTypeKey(h);
                 if (isPeriodic) {
                     s.pt += time;
                     s.pc++;
@@ -744,6 +880,7 @@
                 }
                 const content = this.getHistoryDisplayText(h);
                 s.troubleCountMap[content] = (s.troubleCountMap[content] || 0) + 1;
+                this.addWorkTimeContentStat(s, typeKey, content, time);
             });
         });
 
@@ -755,7 +892,7 @@
             const topMachines = Object.entries(s.machineTimeMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>`・${x[0]} (${x[1]}分)`).join('<br>');
             const topTroubles = Object.entries(s.troubleCountMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>`・${x[0]} (${x[1]}件)`).join('<br>');
 
-            return { name, totalTime: s.totalTime, pct, pt: s.pt, st: s.st, np: s.np, dt: s.dt, pc: s.pc, sc: s.sc, npc: s.npc, dc: s.dc, avgSudden, avgDokatei, topMachines, topTroubles, isArchived: false };
+            return { name, totalTime: s.totalTime, pct, pt: s.pt, st: s.st, np: s.np, dt: s.dt, pc: s.pc, sc: s.sc, npc: s.npc, dc: s.dc, avgSudden, avgDokatei, topMachines, topTroubles, contentTypeMap: s.contentTypeMap, isArchived: false };
         });
 
         if (currentGroupBy === 'worker' && archivedStats.totalTime > 0) {
@@ -763,7 +900,7 @@
             const pct = totalTimeSum > 0 ? ((s.totalTime / totalTimeSum) * 100).toFixed(1) : 0;
             const topMachines = Object.entries(s.machineTimeMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>`・${x[0]} (${x[1]}分)`).join('<br>');
             const topTroubles = Object.entries(s.troubleCountMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>`・${x[0]} (${x[1]}件)`).join('<br>');
-            results.push({ name: '旧作業者合計', totalTime: s.totalTime, pct, pt: s.pt, st: s.st, np: s.np, dt: s.dt, pc: s.pc, sc: s.sc, npc: s.npc, dc: s.dc, avgSudden: (s.sc > 0 ? (s.st / s.sc).toFixed(1) : 0), avgDokatei: (s.dc > 0 ? (s.dt / s.dc).toFixed(1) : 0), topMachines, topTroubles, isArchived: true });
+            results.push({ name: '旧作業者合計', totalTime: s.totalTime, pct, pt: s.pt, st: s.st, np: s.np, dt: s.dt, pc: s.pc, sc: s.sc, npc: s.npc, dc: s.dc, avgSudden: (s.sc > 0 ? (s.st / s.sc).toFixed(1) : 0), avgDokatei: (s.dc > 0 ? (s.dt / s.dc).toFixed(1) : 0), topMachines, topTroubles, contentTypeMap: s.contentTypeMap, isArchived: true });
         }
 
         if (q) {
@@ -831,6 +968,7 @@
                         }
                         const safeNameArg = String(r.name).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
                         const linkIcon = '<i class="fa-solid fa-book-open worktime-link-icon" aria-hidden="true"></i>';
+                        const countGroupBy = currentGroupBy === 'category' ? 'category' : 'worker';
                         const nameCellHtml = (currentGroupBy === 'worker' && !isDrilledDown && !r.isArchived)
                             ? `<button type="button" class="worktime-worker-link" onclick="app.openWorkTimeWorkerHistory('${safeNameArg}')" title="${this.escapeWorkTimeHtml(r.name)} さんのメンテナンス履歴をこの期間で表示"><span>${displayName}</span>${linkIcon}</button>`
                             : (currentGroupBy === 'category' && !isDrilledDown)
@@ -844,19 +982,19 @@
                             </td>
                             <td style="text-align:right; font-weight:800; color:#1e40af; background:#f0f9ff; font-size:1rem;">${r.pt.toLocaleString()}</td>
                             <td style="text-align:center; background:#f0f9ff;">
-                                <span style="display:inline-block; padding:2px 8px; border-radius:12px; background:#fff; color:#1e40af; font-weight:800; font-size:0.75rem; border:1px solid #dbeafe;">${r.pc}</span>
+                                ${this.getWorkTimeCountBadgeHtml(r.name, countGroupBy, 'periodic', r.pc, '#1e40af', '#dbeafe', r.isArchived)}
                             </td>
                             <td style="text-align:right; font-weight:800; color:#166534; background:#f0fdf4; font-size:1rem;">${r.st.toLocaleString()}</td>
                             <td style="text-align:center; background:#f0fdf4;">
-                                <span style="display:inline-block; padding:2px 8px; border-radius:12px; background:#fff; color:#166534; font-weight:800; font-size:0.75rem; border:1px solid #dcfce7;">${r.sc}</span>
+                                ${this.getWorkTimeCountBadgeHtml(r.name, countGroupBy, 'sudden', r.sc, '#166534', '#dcfce7', r.isArchived)}
                             </td>
                             <td style="text-align:right; font-weight:800; color:#92400e; background:#fffbeb; font-size:1rem;">${(r.np || 0).toLocaleString()}</td>
                             <td style="text-align:center; background:#fffbeb;">
-                                <span style="display:inline-block; padding:2px 8px; border-radius:12px; background:#fff; color:#92400e; font-weight:800; font-size:0.75rem; border:1px solid #fde68a;">${r.npc || 0}</span>
+                                ${this.getWorkTimeCountBadgeHtml(r.name, countGroupBy, 'nonProductionStop', r.npc || 0, '#92400e', '#fde68a', r.isArchived)}
                             </td>
                             <td style="text-align:right; font-weight:800; color:#b91c1c; background:#fef2f2; font-size:1rem;">${r.dt.toLocaleString()}</td>
                             <td style="text-align:center; background:#fef2f2;">
-                                <span style="display:inline-block; padding:2px 8px; border-radius:12px; background:#fff; color:#b91c1c; font-weight:800; font-size:0.75rem; border:1px solid #fecaca;">${r.dc}</span>
+                                ${this.getWorkTimeCountBadgeHtml(r.name, countGroupBy, 'dokatei', r.dc, '#b91c1c', '#fecaca', r.isArchived)}
                             </td>
                             <td style="text-align:right; font-weight:800; color:var(--text-main); font-size:0.85rem;">${r.avgSudden}</td>
                             <td style="text-align:right; font-weight:800; color:var(--danger); font-size:0.85rem;">${r.avgDokatei}</td>

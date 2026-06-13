@@ -30,6 +30,12 @@
                         <button type="button" data-action="app-settings-open-activity-log">
                             <i class="fa-solid fa-clock-rotate-left"></i><span>操作ログ</span><small>ToDo操作と最近のメンテ記録を確認</small>
                         </button>
+                        <button type="button" onclick="app.closeAppSettingsPanel(); app.openDataHealthCheckPanel()">
+                            <i class="fa-solid fa-heart-pulse"></i><span>保存データ健康診断</span><small>未設定・文字化け・名寄せ候補をまとめて確認</small>
+                        </button>
+                        <button type="button" onclick="app.closeAppSettingsPanel(); app.openDataFixCenterPanel()">
+                            <i class="fa-solid fa-screwdriver-wrench"></i><span>未入力・未設定の集中修正</span><small>原因・処置・単価・名寄せ候補を1画面で確認</small>
+                        </button>
                         <button type="button" data-action="app-settings-export-data">
                             <i class="fa-solid fa-download"></i><span>データ出力</span><small>バックアップ用に現在データを書き出し</small>
                         </button>
@@ -39,34 +45,316 @@
         `);
     }
 
+    openDataHealthCheckPanel() {
+        const health = this.getDataHealthCheckReport();
+        this.openModal('data-health-check', '保存データ健康診断', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="data-health-panel ${health.totalIssues ? 'has-issues' : 'ok'}">
+                    <div class="data-health-head">
+                        <i class="fa-solid ${health.totalIssues ? 'fa-triangle-exclamation' : 'fa-circle-check'}"></i>
+                        <div>
+                            <b>${health.totalIssues ? `${health.totalIssues}件の確認項目があります` : '目立つ問題はありません'}</b>
+                            <span>履歴・部品・設定データを横断して確認しました。</span>
+                        </div>
+                    </div>
+                    <div class="data-health-grid">
+                        ${health.sections.map(section => `
+                            <div class="data-health-card ${section.level}">
+                                <div class="data-health-card-head">
+                                    <i class="fa-solid ${section.icon}"></i>
+                                    <b>${this.escapeHtml(section.label)}</b>
+                                    <em>${section.count}件</em>
+                                </div>
+                                <p>${this.escapeHtml(section.description)}</p>
+                                ${section.actionLabel && section.action ? `
+                                    <button type="button" class="data-health-card-action" onclick="${section.action}">
+                                        <i class="fa-solid fa-wand-magic-sparkles"></i>${this.escapeHtml(section.actionLabel)}
+                                    </button>
+                                ` : ''}
+                                ${section.items.length ? `
+                                    <div class="data-health-items">
+                                        ${section.items.slice(0, 5).map(item => `
+                                            <button type="button" onclick="${item.action || ''}" ${item.action ? '' : 'disabled'}>
+                                                <span>${this.escapeHtml(item.title)}</span>
+                                                <small>${this.escapeHtml(item.meta || '')}</small>
+                                            </button>
+                                        `).join('')}
+                                        ${section.items.length > 5 ? `<small class="data-health-more">他 ${section.items.length - 5}件</small>` : ''}
+                                    </div>
+                                ` : '<div class="data-health-ok">OK</div>'}
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="data-health-actions">
+                        <button type="button" class="secondary-btn" onclick="app.closeModal(); app.renderWorkerMaintenanceModal()">
+                            <i class="fa-solid fa-user-lock"></i> 管理画面
+                        </button>
+                        <button type="button" class="secondary-btn" onclick="app.closeModal(); app.switchView('history'); app.openHistoryQualityCheck?.()">
+                            <i class="fa-solid fa-shield-halved"></i> 品質チェック
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    getDataHealthCheckReport() {
+        const brokenReport = this.getBrokenDataReport?.() || { missingMachineHistories: [], archivedMaintenanceTasks: [], archivedGuides: [], archivedTasks: [] };
+        const qualityChecks = this.getHistoryQualityChecks?.() || [];
+        const priceItems = (store.activeData.history || [])
+            .filter(h => !h.isManualGuide)
+            .flatMap(h => (this.getHistoryMissingPartPrices?.(h) || []).map(part => ({
+                title: part.label,
+                meta: `${h.date || '-'} / ${this.getHistoryDisplayText?.(h) || ''}`,
+                action: `app.closeModal(); app.openMissingPartPriceMaster('${this.escapeJs(part.name)}', '${this.escapeJs(part.model)}')`
+            })));
+        const mojibakeItems = this.findDataMojibakeItems();
+        const aliasItems = this.findPartAliasCandidates().map(group => ({
+            title: group.label,
+            meta: `${group.count}件の表記ゆれ候補`,
+            action: `app.closeModal(); app.openPartMasterModal('${this.escapeJs(group.name)}', '${this.escapeJs(group.model)}')`
+        }));
+        const qualityCount = qualityChecks.reduce((sum, check) => sum + (check.groups ? check.groups.length : check.items.length), 0);
+        const brokenCount = (brokenReport.missingMachineHistories || []).length + (brokenReport.archivedMaintenanceTasks || []).length + (brokenReport.archivedGuides || []).length + (brokenReport.archivedTasks || []).length;
+        const sections = [
+            { key: 'broken', label: '壊れた参照', icon: 'fa-link-slash', level: brokenCount ? 'danger' : 'ok', count: brokenCount, description: '存在しない機械やアーカイブ参照を確認します。', actionLabel: brokenCount ? '品質チェックで修正' : '', action: "app.closeModal(); app.switchView('history'); app.openHistoryQualityCheck?.()", items: (brokenReport.missingMachineHistories || []).slice(0, 8).map(h => ({ title: h.title || h.id || '履歴', meta: h.date || '', action: "app.closeModal(); app.switchView('history'); app.openHistoryQualityCheck?.()" })) },
+            { key: 'quality', label: '履歴の入力品質', icon: 'fa-shield-halved', level: qualityCount ? 'warning' : 'ok', count: qualityCount, description: '原因・処置・作業時間・担当者などの未入力を確認します。', actionLabel: qualityCount ? 'まとめて確認' : '', action: "app.closeModal(); app.switchView('history'); app.openHistoryQualityCheck?.()", items: qualityChecks.flatMap(check => (check.items || check.groups || []).slice(0, 3).map(item => ({ title: check.label, meta: item.title || item.date || '', action: "app.closeModal(); app.switchView('history'); app.openHistoryQualityCheck?.()" }))) },
+            { key: 'price', label: '部品単価未設定', icon: 'fa-yen-sign', level: priceItems.length ? 'warning' : 'ok', count: priceItems.length, description: '部品代が0円で集計される履歴を確認します。', actionLabel: priceItems.length ? '先頭から単価設定' : '', action: priceItems[0]?.action || '', items: priceItems },
+            { key: 'alias', label: '部品名寄せ候補', icon: 'fa-code-merge', level: aliasItems.length ? 'warning' : 'ok', count: aliasItems.length, description: '半角/全角や表記ゆれで分かれている可能性を確認します。', actionLabel: aliasItems.length ? '候補を確認' : '', action: aliasItems[0]?.action || '', items: aliasItems },
+            { key: 'mojibake', label: '文字化け候補', icon: 'fa-font', level: mojibakeItems.length ? 'danger' : 'ok', count: mojibakeItems.length, description: '表示が崩れそうな文字列を確認します。', actionLabel: mojibakeItems.length ? '該当画面で確認' : '', action: mojibakeItems[0]?.action || '', items: mojibakeItems }
+        ];
+        return { sections, totalIssues: sections.reduce((sum, s) => sum + s.count, 0) };
+    }
+
+    findDataMojibakeItems() {
+        const badPattern = /縺|譁|蜿|逋|莉|荳|邱|螟|豁ｴ|蜈|鬆|驕|謇|譌|蛟|縲|陦|霑|髢|窶|譛|莨/;
+        const items = [];
+        const scan = (label, value, action = '') => {
+            const text = String(value || '');
+            if (badPattern.test(text)) items.push({ title: label, meta: text.slice(0, 80), action });
+        };
+        (store.activeData.machines || []).forEach(m => {
+            scan('機械名', m.name, `app.closeModal(); app.openMachineModal('${this.escapeJs(m.id)}')`);
+            scan('型式', m.model, `app.closeModal(); app.openMachineModal('${this.escapeJs(m.id)}')`);
+        });
+        (store.activeData.history || []).forEach(h => {
+            scan('履歴内容', this.getHistoryDisplayText?.(h), `app.closeModal(); app.openHistoryEditForm('${this.escapeJs(h.id)}')`);
+            scan('原因', h.cause, `app.closeModal(); app.openHistoryEditForm('${this.escapeJs(h.id)}', 'cause')`);
+            scan('処置', h.notes, `app.closeModal(); app.openHistoryEditForm('${this.escapeJs(h.id)}', 'notes')`);
+        });
+        (store.activeData.partsMaster || []).forEach(p => scan('部品名', `${p.name} ${p.model || ''}`, `app.closeModal(); app.openPartMasterModal('${this.escapeJs(p.name)}', '${this.escapeJs(p.model || '')}')`));
+        return items.slice(0, 50);
+    }
+
+    findPartAliasCandidates() {
+        const normalize = (value) => MaintenanceStore.toHalfWidthLower(String(value || '').replace(/\s+/g, '').replace(/[×ｘX]/g, 'x'));
+        const groups = new Map();
+        (store.activeData.partsMaster || []).forEach(part => {
+            const key = normalize(part.name);
+            if (!key) return;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(part);
+        });
+        return Array.from(groups.values())
+            .filter(list => list.length > 1)
+            .map(list => ({ name: list[0].name, model: list[0].model || '', label: list.map(p => `${p.name}${p.model ? ` [${p.model}]` : ''}`).join(' / '), count: list.length }))
+            .slice(0, 30);
+    }
+
     closeAppSettingsPanel() {
         document.getElementById('app-settings-overlay')?.remove();
     }
 
     openSystemActivityLogPanel() {
         this.ensureKanbanTodoState?.();
+        const systemLogs = (store.activeData.systemActivityLogs || []).slice(0, 120).map(log => ({
+            ...log,
+            type: log.type || '操作'
+        }));
         const todoLogs = (store.activeData.localTodoLogs || []).slice(0, 80).map(log => ({
+            id: log.id || '',
             time: log.time || '',
             title: log.text || '',
             type: 'ToDo'
         }));
         const historyLogs = (store.activeData.history || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 40).map(h => ({
+            id: h.id || '',
             time: h.date || '',
             title: this.getHistoryDisplayText(h),
             type: h.taskId ? '定期メンテ' : (h.isDokatei ? 'ドカ停' : '突発')
         }));
-        const logs = [...todoLogs, ...historyLogs].sort((a, b) => String(b.time || '').localeCompare(String(a.time || ''))).slice(0, 100);
+        const logs = [...systemLogs, ...todoLogs, ...historyLogs].sort((a, b) => String(b.time || '').localeCompare(String(a.time || ''))).slice(0, 140);
         this.openKanbanPanel('操作ログ', `
             <div class="system-log-list">
                 ${logs.map(log => `
-                    <div class="system-log-item">
+                    <div class="system-log-item ${log.level || ''}">
                         <b>${this.escapeHtml(log.type)}</b>
                         <span>${this.escapeHtml(this.formatKanbanTodoTime(log.time) || log.time || '-')}</span>
                         <p>${this.escapeHtml(log.title || '')}</p>
+                        ${log.restoreAction ? `<button type="button" class="secondary-btn system-log-restore" onclick="${log.restoreAction}"><i class="fa-solid fa-rotate-left"></i> 復元</button>` : ''}
                     </div>
                 `).join('') || '<p class="kt-muted">ログはありません</p>'}
             </div>
         `);
+    }
+
+    addSystemActivityLog(type, title, detail = {}) {
+        if (!store.activeData.systemActivityLogs) store.activeData.systemActivityLogs = [];
+        const id = `syslog-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        store.activeData.systemActivityLogs.unshift({
+            id,
+            type,
+            title,
+            detail,
+            time: new Date().toISOString(),
+            level: detail.level || ''
+        });
+        store.activeData.systemActivityLogs = store.activeData.systemActivityLogs.slice(0, 300);
+        store.save?.();
+        return id;
+    }
+
+    restoreDeletedPartMasterLog(logId) {
+        const log = (store.activeData.systemActivityLogs || []).find(item => item.id === logId);
+        const parts = log?.detail?.deletedParts || [];
+        if (!parts.length) {
+            alert('復元できる部品カードがありません。');
+            return;
+        }
+        if (!store.activeData.partsMaster) store.activeData.partsMaster = [];
+        let restored = 0;
+        parts.forEach(part => {
+            const exists = store.activeData.partsMaster.some(p => p.name === part.name && (p.model || '') === (part.model || ''));
+            if (!exists) {
+                store.activeData.partsMaster.push(part);
+                restored += 1;
+            }
+        });
+        log.restoreAction = '';
+        log.title = `${log.title || '名寄せ元カード削除'}（復元済み ${restored}件）`;
+        store.save?.();
+        this.closeKanbanTodoModal?.();
+        this.renderAnalysis?.();
+        this.showToast?.(`${restored}件の部品カードを復元しました`, 'success');
+    }
+
+    openDataFixCenterPanel() {
+        const histories = (store.activeData.history || []).filter(h => !h.isManualGuide);
+        const trouble = histories.filter(h => !h.taskId || h.isSudden || h.isDokatei || h.isNonProductionStop);
+        const causeItems = trouble.filter(h => !String(h.cause || '').trim()).sort((a, b) => this.compareFixCenterHistoryPriority(a, b)).slice(0, 20);
+        const notesItems = trouble.filter(h => !String(h.notes || '').trim()).sort((a, b) => this.compareFixCenterHistoryPriority(a, b)).slice(0, 20);
+        const partUseCount = this.getFixCenterPartUseCountMap(histories);
+        const priceItems = histories
+            .flatMap(h => (this.getHistoryMissingPartPrices?.(h) || []).map(part => ({ h, part })))
+            .sort((a, b) => (partUseCount.get(`${b.part.name}___${b.part.model || ''}`) || 0) - (partUseCount.get(`${a.part.name}___${a.part.model || ''}`) || 0) || this.compareFixCenterHistoryPriority(a.h, b.h))
+            .slice(0, 20);
+        const aliasGroups = this.findPartAliasCandidates().sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 20);
+        const makeHistoryItem = (h, focus) => `
+            <button type="button" class="fix-center-item" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeJs(h.id)}', '${this.escapeJs(focus)}')">
+                ${this.getFixCenterPriorityBadgeHtml(h)}
+                <b>${this.escapeHtml(h.date || '-')} / ${this.escapeHtml(this.getHistoryDisplayText?.(h) || '内容なし')}</b>
+                <small>${this.escapeHtml(focus === 'cause' ? '原因を入力' : '処置を入力')} / ${this.escapeHtml(this.getFixCenterPriorityReason(h))}</small>
+            </button>
+        `;
+        const total = causeItems.length + notesItems.length + priceItems.length + aliasGroups.length;
+        this.openModal('data-fix-center', `未入力・未設定の集中修正 (${total}件)`, () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="fix-center-panel">
+                    <div class="fix-center-head">
+                        <div><b>集計や検索に効く未設定をまとめて修正</b><span>各項目を押すと、該当入力欄や部品マスターを直接開きます。</span></div>
+                        <strong>${total}件</strong>
+                    </div>
+                    <div class="fix-center-grid">
+                        <section class="fix-center-card">
+                            <header><i class="fa-solid fa-magnifying-glass-chart"></i><b>原因未入力</b><em>${causeItems.length}</em></header>
+                            <div>${causeItems.map(h => makeHistoryItem(h, 'cause')).join('') || '<p>該当なし</p>'}</div>
+                        </section>
+                        <section class="fix-center-card">
+                            <header><i class="fa-solid fa-screwdriver-wrench"></i><b>処置未入力</b><em>${notesItems.length}</em></header>
+                            <div>${notesItems.map(h => makeHistoryItem(h, 'notes')).join('') || '<p>該当なし</p>'}</div>
+                        </section>
+                        <section class="fix-center-card">
+                            <header><i class="fa-solid fa-yen-sign"></i><b>単価未設定</b><em>${priceItems.length}</em></header>
+                            <div>${priceItems.map(({ h, part }) => `
+                                <button type="button" class="fix-center-item" onclick="app.closeModal(); app.openMissingPartPriceMaster('${this.escapeJs(part.name)}', '${this.escapeJs(part.model)}')">
+                                    <span class="fix-center-priority medium"><i class="fa-solid fa-chart-column"></i> 使用${partUseCount.get(`${part.name}___${part.model || ''}`) || 0}件</span>
+                                    <b>${this.escapeHtml(part.label)}</b>
+                                    <small>${this.escapeHtml(h.date || '-')} / ${this.escapeHtml(this.getHistoryDisplayText?.(h) || '')}</small>
+                                </button>
+                            `).join('') || '<p>該当なし</p>'}</div>
+                        </section>
+                        <section class="fix-center-card">
+                            <header><i class="fa-solid fa-code-merge"></i><b>名寄せ候補</b><em>${aliasGroups.length}</em></header>
+                            <div>${aliasGroups.map(group => `
+                                <button type="button" class="fix-center-item" onclick="app.closeModal(); app.openPartMasterModal('${this.escapeJs(group.name)}', '${this.escapeJs(group.model)}')">
+                                    <span class="fix-center-priority info"><i class="fa-solid fa-code-merge"></i> 候補${group.count}件</span>
+                                    <b>${this.escapeHtml(group.label)}</b>
+                                    <small>${group.count}件の表記ゆれ候補</small>
+                                </button>
+                            `).join('') || '<p>該当なし</p>'}</div>
+                        </section>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    getFixCenterHistoryPriority(history) {
+        const workTime = parseFloat(history?.workTime) || 0;
+        let score = 0;
+        if (history?.isDokatei) score += 100;
+        if (history?.isNonProductionStop) score += 55;
+        if (history?.isSudden || !history?.taskId) score += 30;
+        if (history?.isFirstTime === false) score += 25;
+        score += Math.min(50, workTime);
+        return score;
+    }
+
+    compareFixCenterHistoryPriority(a, b) {
+        return this.getFixCenterHistoryPriority(b) - this.getFixCenterHistoryPriority(a)
+            || String(b?.date || '').localeCompare(String(a?.date || ''));
+    }
+
+    getFixCenterPriorityLevel(history) {
+        const score = this.getFixCenterHistoryPriority(history);
+        if (history?.isDokatei || score >= 90) return 'high';
+        if (history?.isNonProductionStop || score >= 55) return 'medium';
+        return 'info';
+    }
+
+    getFixCenterPriorityReason(history) {
+        const reasons = [];
+        if (history?.isDokatei) reasons.push('ドカ停');
+        else if (history?.isNonProductionStop) reasons.push('非生産停止');
+        else if (history?.isSudden || !history?.taskId) reasons.push('突発');
+        if (history?.isFirstTime === false) reasons.push('再発');
+        const workTime = parseFloat(history?.workTime) || 0;
+        if (workTime > 0) reasons.push(`${workTime}分`);
+        return reasons.join(' / ') || '通常';
+    }
+
+    getFixCenterPriorityBadgeHtml(history) {
+        const level = this.getFixCenterPriorityLevel(history);
+        const label = level === 'high' ? '高優先' : (level === 'medium' ? '中優先' : '確認');
+        return `<span class="fix-center-priority ${level}"><i class="fa-solid fa-arrow-trend-up"></i> ${this.escapeHtml(label)}</span>`;
+    }
+
+    getFixCenterPartUseCountMap(histories = []) {
+        const map = new Map();
+        (histories || []).forEach(h => {
+            const seenInHistory = new Set();
+            (h.replacedParts || []).forEach(part => {
+                const master = store.getPartMaster?.(part.name, part.model || '');
+                const name = master?.name || part.name || '';
+                const model = master?.model || part.model || '';
+                if (!name) return;
+                seenInHistory.add(`${name}___${model || ''}`);
+            });
+            seenInHistory.forEach(key => map.set(key, (map.get(key) || 0) + 1));
+        });
+        return map;
     }
     }
 

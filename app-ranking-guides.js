@@ -200,7 +200,7 @@
                 <div style="font-size:0.8rem; font-weight:800; color:var(--primary); margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
                     <div style="display:flex; align-items:center; gap:4px;">
                         ${this.getLineBadge(h.lineNo || machine?.lineNo)}
-                        <span>${this.getHistoryDisplayText(h)}</span>
+                        <span>${this.getGuideDisplayTitle(h)}</span>
                     </div>
                     <span style="font-size:0.65rem; color:var(--text-light); font-weight:400;"><i class="fa-solid fa-clock-rotate-left"></i> ${h.date}</span>
                 </div>
@@ -212,6 +212,100 @@
                 </div>
             </div>
         `).join('');
+    }
+
+    getGuideDisplayTitle(history, guideOverride = null) {
+        const guide = guideOverride || history?.guide || {};
+        const title = String(guide.title || '').trim();
+        return title || this.getHistoryDisplayText(history) || history?.errorContent || history?.notes || '手順書';
+    }
+
+    getGuideTitleCandidates(history, machineOverride = null) {
+        const machine = machineOverride || store.getMachines(true).find(m => String(m.id) === String(history?.machineId));
+        const compact = (value, max = 22) => String(value || '')
+            .replace(/\(.*?\)/g, ' ')
+            .replace(/[【】\[\]（）]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, max);
+        const baseTitle = compact(this.getHistoryDisplayText(history), 28);
+        const cause = compact(history?.cause, 24);
+        const notes = compact(history?.notes, 24);
+        const machineName = compact(machine?.name, 18);
+        const source = `${baseTitle} ${cause} ${notes}`;
+        let suffix = '対応手順';
+        if (/交換|取替|取り替/.test(source)) suffix = '交換手順';
+        else if (/清掃|掃除|洗浄/.test(source)) suffix = '清掃手順';
+        else if (/調整|芯出|位置/.test(source)) suffix = '調整手順';
+        else if (/復旧|リセット|再起動|解除/.test(source)) suffix = '復旧手順';
+        else if (/点検|確認|測定/.test(source)) suffix = '点検手順';
+
+        const subject = baseTitle || cause || notes || machineName || '作業';
+        const raw = [
+            `${subject}${/(手順|方法|対応|復旧|交換|調整|点検)$/.test(subject) ? '' : suffix}`,
+            machineName && subject ? `${machineName} ${subject}` : '',
+            cause ? `${cause}の対処手順` : '',
+            notes ? `${notes}手順` : '',
+            machineName ? `${machineName} ${suffix}` : ''
+        ];
+        const seen = new Set();
+        return raw
+            .map(item => item.replace(/\s+/g, ' ').trim())
+            .filter(item => item && !seen.has(item) && seen.add(item))
+            .slice(0, 5);
+    }
+
+    setGuideTitle(hId, title, options = {}) {
+        const history = store.activeData.history || [];
+        const item = history.find(h => String(h.id) === String(hId));
+        if (!item) return false;
+        if (!item.guide) item.guide = { text: '', author: '', photos: [] };
+        item.guide.title = String(title || '').trim();
+        item.guide.updatedAt = new Date().toLocaleString();
+        item.guide.changeNote = options.changeNote || 'タイトル更新';
+        store.save();
+        const titleInput = document.getElementById('g-title');
+        if (titleInput && document.getElementById('g-h-id')?.value === String(hId)) {
+            titleInput.value = item.guide.title || this.getGuideDisplayTitle(item);
+        }
+        this.renderGuides?.();
+        this.renderHistory?.();
+        return true;
+    }
+
+    editGuideTitleFromCard(hId, event) {
+        event?.stopPropagation?.();
+        const item = (store.activeData.history || []).find(h => String(h.id) === String(hId));
+        if (!item) return;
+        const current = this.getGuideDisplayTitle(item);
+        const next = prompt('手順書タイトルを入力してください。', current);
+        if (next === null) return;
+        this.setGuideTitle(hId, next, { changeNote: 'カード上でタイトル更新' });
+    }
+
+    chooseGuideTitleCandidate(hId, event) {
+        event?.stopPropagation?.();
+        const item = (store.activeData.history || []).find(h => String(h.id) === String(hId));
+        if (!item) return;
+        const machine = item.machineId === 'COMMON'
+            ? { name: '全般・共通', model: '-', category: item.guideCategory || '共通知識' }
+            : store.getMachines(true).find(m => String(m.id) === String(item.machineId));
+        const candidates = this.getGuideTitleCandidates(item, machine);
+        if (!candidates.length) return alert('タイトル候補を作れませんでした。原因・処置・内容を入力すると候補が出しやすくなります。');
+        const message = `使うタイトル候補の番号を入力してください。\n\n${candidates.map((title, index) => `${index + 1}. ${title}`).join('\n')}`;
+        const answer = prompt(message, '1');
+        if (answer === null) return;
+        const index = Number(answer.trim()) - 1;
+        const title = candidates[index] || answer.trim();
+        if (!title) return;
+        this.setGuideTitle(hId, title, { changeNote: 'タイトル候補を適用' });
+    }
+
+    applyGuideTitleCandidate(title) {
+        const input = document.getElementById('g-title');
+        if (!input) return;
+        input.value = String(title || '').trim();
+        this.autoSaveGuideDraftFromModal?.();
     }
 
     renderGuides() {
@@ -335,7 +429,7 @@
             if (normQuery) {
                 const terms = normQuery.split(/[\s　]+/).filter(Boolean);
                 const machine = machines.find(m => m.id === h.machineId);
-                const title = this.getHistoryDisplayText(h);
+                const title = this.getGuideDisplayTitle(h);
                 const searchStr = `${title} ${h.guide.text} ${h.guide.tags.join(' ')} ${machine?.name || ''} ${machine?.model || ''} ${h.cause || ''} ${h.notes || ''}`.toLowerCase();
                 const normSearch = MaintenanceStore.toHalfWidthLower(searchStr);
                 return terms.every(t => normSearch.includes(t));
@@ -352,15 +446,19 @@
                     <div style="font-size:0.85rem; opacity:0.8;">検索条件を変えるか、右上の「強制登録」から新規作成してください。</div>
                 </div>
             `;
+            this.updateContextualHelp?.('guides');
             return;
         }
 
         container.innerHTML = filteredResult.map(h => {
             const isCommon = h.machineId === 'COMMON';
             const machine = isCommon ? { name: '全般・共通', model: '-', category: h.guideCategory || '共通知識' } : store.getMachines(true).find(m => m.id === h.machineId);
-            const title = this.getHistoryDisplayText(h);
+            const title = this.getGuideDisplayTitle(h);
             const machinePhoto = machine?.photo;
+            const guidePhoto = Array.isArray(h.guide?.photos) ? this.normalizeGuidePhoto?.(h.guide.photos[0])?.src : '';
+            const representativePhoto = guidePhoto || machinePhoto;
             const manualGuideBadge = h.isManualGuide ? '<span style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; padding:1px 6px; border-radius:3px; font-weight:900; font-size:0.65rem;"><i class="fa-solid fa-file-circle-plus"></i> 単独登録</span>' : '';
+            const titleCandidates = this.getGuideTitleCandidates(h, machine);
             
             // 共通手順用のスタイル
             const cardStyle = isCommon 
@@ -371,14 +469,18 @@
                 <div class="card" style="${cardStyle}">
                     <div style="padding:0px;">
                         <div style="display:flex; gap:12px; margin-bottom:12px; align-items:flex-start;">
-                            ${machinePhoto ? `<div class="img-box" style="width:70px; height:70px; border-radius:8px; flex-shrink:0;"><img src="${machinePhoto}"></div>` : 
-                             (isCommon ? `<div style="width:70px; height:70px; border-radius:8px; background:var(--primary-light); display:flex; align-items:center; justify-content:center; color:var(--primary); border:1px solid var(--primary); flex-shrink:0;"><i class="fa-solid fa-lightbulb" style="font-size:1.8rem; opacity:0.6;"></i></div>` : '')}
+                            ${representativePhoto ? `<div class="img-box" style="width:70px; height:70px; border-radius:8px; flex-shrink:0;"><img src="${representativePhoto}"></div>` : 
+                             `<div class="img-box" style="width:70px; height:70px; border-radius:8px; flex-shrink:0;"><button type="button" class="machine-photo-placeholder guide" onclick="app.openGuidePhotoChoice('${this.escapeJs(h.id)}', event)" title="画像を選択"><i class="fa-solid ${isCommon ? 'fa-lightbulb' : 'fa-industry'}"></i></button></div>`}
                             <div style="flex:1; min-width:0;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                                     <span style="font-size:0.65rem; color:var(--text-light); border:1px solid #cbd5e1; padding:2px 6px; border-radius:4px; font-weight:700; background:white;">${h.date}</span>
                                     <span style="font-size:0.65rem; color:var(--primary); font-weight:900;">by ${h.guide.author || '不明'}</span>
                                 </div>
-                                <h4 style="border:none; padding:0; margin-bottom:2px; font-size:1rem; cursor:pointer; line-height:1.3;" onclick="app.openGuideModal('${h.id}')" title="${title}">${this.highlightText(title, query)}</h4>
+                                <div style="display:flex; align-items:flex-start; gap:6px; margin-bottom:2px;">
+                                    <h4 style="border:none; padding:0; margin:0; font-size:1rem; cursor:pointer; line-height:1.3; flex:1; min-width:0;" onclick="app.openGuideModal('${this.escapeJs(h.id)}')" title="${this.escapeHtml(title)}">${this.highlightText(title, query)}</h4>
+                                    <button type="button" class="secondary-btn" style="padding:3px 6px; font-size:0.7rem; flex-shrink:0;" onclick="app.editGuideTitleFromCard('${this.escapeJs(h.id)}', event)" title="タイトルを編集"><i class="fa-solid fa-pen"></i></button>
+                                    ${titleCandidates.length ? `<button type="button" class="secondary-btn" style="padding:3px 6px; font-size:0.7rem; flex-shrink:0;" onclick="app.chooseGuideTitleCandidate('${this.escapeJs(h.id)}', event)" title="タイトル候補から選ぶ"><i class="fa-solid fa-wand-magic-sparkles"></i></button>` : ''}
+                                </div>
                                     ${this.getLineBadge(h.lineNo || machine?.lineNo)}
                                     ${manualGuideBadge}
                                     ${machine?.category ? `<span style="background:${isCommon ? 'var(--primary)' : '#eff6ff'}; color:${isCommon ? 'white' : '#1e40af'}; border:1px solid #bae6fd; padding:1px 6px; border-radius:3px; font-weight:800; font-size:0.65rem;">${machine.category}</span>` : ''}
@@ -415,6 +517,7 @@
                 </div>
             `;
         }).join('');
+        this.updateContextualHelp?.('guides');
     }
     }
 

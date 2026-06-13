@@ -5,6 +5,7 @@
     renderAnalysis(searchQuery = '') {
         const container = document.getElementById('analysis-container');
         if (!container) return;
+        this.syncLaborRateInputs?.(this.laborRate);
 
         const qInput = document.getElementById('global-search');
         const query = (searchQuery || (qInput ? qInput.value : '')).toLowerCase().trim();
@@ -14,6 +15,7 @@
         const period = pFilter?.value || 'this_month';
         const lineFilter = document.getElementById('analysis-filter-line')?.value || 'all';
         this.updateViewSubtitle('view-analysis', period);
+        this.renderCommonFilterBadgeSlot?.('analysis');
 
         let history = store.getHistory({});
         history = this.filterHistoryByPeriod(history, period);
@@ -107,6 +109,7 @@
             const price = master?.price || latestRecord?.price || 0;
             const supplier = master?.supplier || '-';
             const shelf = master?.shelf || '';
+            const aliasChips = this.getPartMasterAliasChipsHtml(master, history);
 
             let priceDisplay = '価格未設定';
             if (master?.priceRaw && master.priceRaw.includes('/')) {
@@ -149,7 +152,7 @@
             card.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; gap:12px;">
                     <div class="img-box" style="width:50px; height:50px; border-radius:10px; position:relative;">
-                        ${master?.photo ? `<img src="${master.photo}">` : '<i class="fa-solid fa-gear" style="font-size:1.2rem; color:#cbd5e1;"></i>'}
+                        ${master?.photo ? `<img src="${master.photo}">` : `<button type="button" class="machine-photo-placeholder part" onclick="app.openPartPhotoChoice('${this.escapeJs(part.name)}', '${this.escapeJs(part.model)}', event)" title="画像を選択"><i class="fa-solid fa-gear"></i></button>`}
                         ${isLowStock ? '<div style="position:absolute; top:-8px; right:-12px; background:var(--danger); color:white; font-size:0.6rem; padding:2px 6px; border-radius:12px; font-weight:900; box-shadow:0 2px 4px rgba(0,0,0,0.2); animation:pulse 2s infinite;">在庫少</div>' : ''}
                     </div>
                     <div style="flex:1; overflow:hidden;">
@@ -167,6 +170,7 @@
                     <p style="font-size:0.75rem; color:var(--text-light); font-weight:700; margin:0;">${this.highlightText(part.model, query)}</p>
                     ${shelf ? `<div style="font-size:0.65rem; background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:4px; font-weight:900; border:1px solid #e2e8f0;"><i class="fa-solid fa-location-dot" style="margin-right:4px;"></i>${shelf}</div>` : ''}
                 </div>
+                ${aliasChips}
                 
                 <div style="margin-bottom:12px; padding:10px; background:${isLowStock ? '#fee2e2' : '#f0fdf4'}; border-radius:8px; border:1px solid ${isLowStock ? '#fecaca' : '#dcfce7'};">
                     <div style="display:flex; justify-content:space-between; align-items:flex-end;">
@@ -206,6 +210,44 @@
             `;
             container.appendChild(card);
         });
+    }
+
+    getPartMasterAliasChipsHtml(master, histories = []) {
+        const seeds = Array.isArray(master?.seeds) ? master.seeds.filter(seed => seed?.name) : [];
+        if (!seeds.length) return '';
+        const aliases = [];
+        const seen = new Set();
+        seeds.forEach(seed => {
+            const name = String(seed.name || '').trim();
+            const model = String(seed.model || '').trim();
+            if (!name) return;
+            const key = `${name}___${model}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            const label = `${name}${model ? ` [${model}]` : ''}`.trim();
+            const count = (histories || []).filter(h =>
+                (h.replacedParts || []).some(part =>
+                    String(part.name || '') === name && String(part.model || '') === model
+                )
+            ).length;
+            aliases.push({ label, count });
+        });
+        if (!aliases.length) return '';
+        const visible = aliases.slice(0, 4);
+        const more = aliases.length - visible.length;
+        const title = aliases.map(alias => `${alias.label}: ${alias.count}件`).join(' / ');
+        return `
+            <div class="part-master-alias-strip" title="${this.escapeHtml(title)}">
+                <span class="part-master-alias-head"><i class="fa-solid fa-code-merge"></i> 吸収済み</span>
+                ${visible.map(alias => `
+                    <span class="part-master-alias-chip">
+                        ${this.escapeHtml(alias.label)}
+                        <b>${alias.count}件</b>
+                    </span>
+                `).join('')}
+                ${more > 0 ? `<span class="part-master-alias-more">+${more}</span>` : ''}
+            </div>
+        `;
     }
 
     getTodayActionSummary() {
@@ -845,7 +887,7 @@
                             return `
                             <div class="hover-shadow dashboard-clickable" style="padding:12px; background:white; border-radius:12px; border:1px solid #fecaca; display:flex; gap:12px; align-items:start; cursor:pointer;" onclick="app.openPartMasterModal('${p.name.replace(/'/g, "\\'")}', '${p.model.replace(/'/g, "\\'")}')">
                                 <div class="img-box" style="width:44px; height:44px; border-radius:8px; flex-shrink:0; background:#f8fafc;">
-                                    ${p.photo ? `<img src="${p.photo}">` : '<i class="fa-solid fa-box" style="color:#cbd5e1; font-size:1.1rem;"></i>'}
+                                    ${p.photo ? `<img src="${p.photo}">` : `<button type="button" class="machine-photo-placeholder part small" onclick="app.openPartPhotoChoice('${this.escapeJs(p.name)}', '${this.escapeJs(p.model || '')}', event)" title="画像を選択"><i class="fa-solid fa-box"></i></button>`}
                                 </div>
                                 <div style="min-width:0; flex:1;">
                                     <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:4px;">

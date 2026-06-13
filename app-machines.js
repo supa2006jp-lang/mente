@@ -160,7 +160,7 @@
             card.innerHTML = `
                 <div class="card-header" style="gap:16px; align-items: flex-start;">
                     <div class="img-box" style="width:64px; height:64px; border-radius:10px;">
-                        ${m.photo ? `<img src="${m.photo}">` : '<i class="fa-solid fa-industry" style="font-size:1.4rem; color:#cbd5e1;"></i>'}
+                        ${m.photo ? `<img src="${m.photo}">` : `<button type="button" class="machine-photo-placeholder" onclick="app.openMachinePhotoChoice('${this.escapeJs(mId)}', event)" title="画像を選択"><i class="fa-solid fa-industry"></i></button>`}
                     </div>
                     <div style="flex:1">
                         <h4 style="margin:0">${this.highlightText(normName, query)}</h4>
@@ -405,7 +405,7 @@
                 <tr>
                     <td>
                         <div class="maintenance-list-machine">
-                            ${machine?.photo ? `<img src="${machine.photo}" alt="">` : '<span><i class="fa-solid fa-industry"></i></span>'}
+                            ${machine?.photo ? `<img src="${machine.photo}" alt="">` : (machine ? `<button type="button" class="machine-photo-placeholder small" onclick="app.openMachinePhotoChoice('${this.escapeJs(machine.id)}', event)" title="画像を選択"><i class="fa-solid fa-industry"></i></button>` : '<span><i class="fa-solid fa-industry"></i></span>')}
                             <div>
                                 <b>${this.escapeHtml(machineLabel)}</b>
                                 <small>${machine?.lineNo ? this.escapeHtml(this.getLineLabel(machine.lineNo)) : 'ライン未設定'}${machine?.category ? ` / ${this.escapeHtml(machine.category)}` : ''}</small>
@@ -483,6 +483,118 @@
                 </tbody>
             </table>
         `;
+    }
+
+    openMachinePhotoChoice(machineId, event = null) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const machine = store.getMachines(true).find(item => String(item.id) === String(machineId));
+        if (!machine) return;
+        this.openQuickPhotoChoice({ type: 'machine', id: String(machineId) });
+    }
+
+    openGuidePhotoChoice(historyId, event = null) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const history = (store.activeData.history || []).find(item => String(item.id) === String(historyId));
+        if (!history) return;
+        this.openQuickPhotoChoice({ type: 'guide', id: String(historyId) });
+    }
+
+    openPartPhotoChoice(name = '', model = '', event = null) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        this.openQuickPhotoChoice({ type: 'part', name, model: model || '' });
+    }
+
+    openQuickPhotoChoice(target = {}) {
+        let input = document.getElementById('machine-photo-quick-input');
+        if (!input) {
+            input = document.createElement('input');
+            input.type = 'file';
+            input.id = 'machine-photo-quick-input';
+            input.accept = 'image/*';
+            input.hidden = true;
+            document.body.appendChild(input);
+        }
+        input._quickPhotoTarget = target;
+        input._machinePhotoTargetId = target.type === 'machine' ? String(target.id) : '';
+        input.onchange = async (changeEvent) => {
+            const file = changeEvent.target.files?.[0];
+            changeEvent.target.value = '';
+            if (!file || !/^image\//i.test(file.type || '')) return;
+            try {
+                const src = typeof this.readPhotoManagerFileAsDataUrl === 'function'
+                    ? await this.readPhotoManagerFileAsDataUrl(file)
+                    : await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(String(reader.result || ''));
+                        reader.onerror = () => reject(reader.error || new Error('画像を読み込めませんでした'));
+                        reader.readAsDataURL(file);
+                    });
+                this.applyQuickPhotoFromSource(input._quickPhotoTarget || target, src);
+            } catch (error) {
+                console.error(error);
+            }
+        };
+        if (typeof this.openImageSourceChoice === 'function') {
+            this.openImageSourceChoice(input);
+        } else {
+            input.click();
+        }
+    }
+
+    applyQuickPhotoFromSource(target = {}, src = '') {
+        if (target?.type === 'machine') {
+            this.applyMachinePhotoFromSource(target.id, src);
+            return;
+        }
+        if (target?.type === 'guide') {
+            this.applyGuidePhotoFromSource(target.id, src);
+            return;
+        }
+        if (target?.type === 'part') {
+            this.applyPartPhotoFromSource(target.name, target.model || '', src);
+        }
+    }
+
+    applyMachinePhotoFromSource(machineId, src) {
+        if (!/^data:image\//i.test(src || '')) return;
+        const machine = store.getMachines(true).find(item => String(item.id) === String(machineId));
+        if (!machine) return;
+        store.updateMachine(machine.id, { photo: src });
+        store.save?.();
+        this.renderMachines();
+        this.renderPhotoManager?.();
+        this.showPhotoManagerNotice?.('機械写真を設定しました。');
+    }
+
+    applyGuidePhotoFromSource(historyId, src) {
+        if (!/^data:image\//i.test(src || '')) return;
+        const history = (store.activeData.history || []).find(item => String(item.id) === String(historyId));
+        if (!history) return;
+        if (!history.guide || typeof history.guide !== 'object') history.guide = {};
+        const current = Array.isArray(history.guide.photos) ? history.guide.photos : [];
+        history.guide.photos = [{ src, marks: [], printSize: 72 }, ...current];
+        store.save();
+        this.renderGuides?.();
+        this.renderPhotoManager?.();
+        this.showPhotoManagerNotice?.('手順書の代表画像を設定しました。');
+    }
+
+    applyPartPhotoFromSource(name = '', model = '', src = '') {
+        if (!/^data:image\//i.test(src || '')) return;
+        if (!Array.isArray(store.activeData.partsMaster)) store.activeData.partsMaster = [];
+        let part = store.activeData.partsMaster.find(item => item.name === name && (item.model || '') === (model || ''));
+        if (!part) {
+            part = { name, model: model || '', price: 0, stock: 0, unit: '個', photo: '' };
+            store.activeData.partsMaster.push(part);
+        }
+        part.photo = src;
+        store.save();
+        this.renderAnalysis?.();
+        this.renderPhotoManager?.();
+        this.showPhotoManagerNotice?.('部品画像を設定しました。');
     }
     }
 

@@ -2055,6 +2055,8 @@
         const oldGuide = history[index].guide || {};
         const html = this.getGuideEditorHtml();
         const text = html ? this.getGuideTextFromRichHtml(html) : (oldGuide.text ?? '');
+        const titleInput = document.getElementById('g-title')?.value;
+        const title = titleInput !== undefined ? titleInput.trim() : (oldGuide.title || '');
         const author = document.getElementById('g-author')?.value ?? oldGuide.author ?? '';
         const fontSize = this.getGuideFontSize({ fontSize: document.getElementById('g-font-size')?.value ?? oldGuide.fontSize });
         const tagsInput = document.getElementById('g-tags')?.value;
@@ -2063,6 +2065,7 @@
             : (Array.isArray(oldGuide.tags) ? oldGuide.tags : []);
         history[index].guide = {
             ...oldGuide,
+            title,
             text,
             html,
             author,
@@ -2384,6 +2387,27 @@
                         <textarea id="pm-remarks" rows="2" placeholder="図面番号や保管場所など">${master?.remarks || ''}</textarea>
                     </div>
 
+                    <div class="form-group">
+                        <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            別名・名寄せ
+                            <span style="font-size:0.65rem; color:var(--text-light); font-weight:400;">1行に1つ。例: ベルト x1 個 @1200 / ﾍﾞﾙﾄ / 旧型番</span>
+                        </label>
+                        <div class="part-alias-help">
+                            履歴やCSVで表記ゆれした部品名を、この正式な部品としてまとめる設定です。登録した別名はコスト集計・使用履歴・部品検索で同じ部品として扱われます。
+                        </div>
+                        <div id="pm-alias-chips" class="part-alias-chips">
+                            ${(master?.seeds || []).map(seed => {
+                                const label = `${seed.name || ''}${seed.model ? ` [${seed.model}]` : ''}`.trim();
+                                return label ? `<button type="button" onclick="app.removePartAliasLine('${this.escapeJs(label)}')" title="この別名を解除">${this.escapeHtml(label)} <i class="fa-solid fa-xmark"></i></button>` : '';
+                            }).join('') || '<span>登録済みの別名はありません</span>'}
+                        </div>
+                        <div id="pm-alias-candidates" class="part-alias-candidates">
+                            ${this.renderPartAliasCandidates(name, model)}
+                        </div>
+                        <textarea id="pm-seeds" rows="3" placeholder="この部品として扱いたい表記ゆれを入力" oninput="app.updatePartAliasPreview()">${(master?.seeds || []).map(seed => `${seed.name || ''}${seed.model ? ` [${seed.model}]` : ''}`).join('\n')}</textarea>
+                        <div id="pm-alias-preview" class="part-alias-preview"></div>
+                    </div>
+
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:16px; padding:15px; background:#fff7ed; border:1.5px solid #fed7aa; border-radius:12px;">
                         <div class="form-group" style="grid-column: span 2;">
                              <label style="font-weight:800; color:#c2410c;">管理単位</label>
@@ -2467,7 +2491,117 @@
                     </div>
                 </form>
             `;
+            setTimeout(() => this.updatePartAliasPreview(), 0);
         });
+    }
+
+    renderPartAliasCandidates(name, model = '') {
+        if (!name) return '<span class="part-alias-empty">正式名を保存後に候補を表示します</span>';
+        const currentKey = `${name}___${model || ''}`;
+        const norm = (value) => MaintenanceStore.toHalfWidthLower(String(value || '').replace(/\s+/g, '').replace(/[×ｘX]/g, 'x'));
+        const target = norm(name);
+        const candidates = new Map();
+        const add = (partName, partModel = '', source = '') => {
+            const label = `${partName || ''}${partModel ? ` [${partModel}]` : ''}`.trim();
+            if (!label || `${partName}___${partModel || ''}` === currentKey) return;
+            const score = norm(partName) === target || norm(partName).includes(target) || target.includes(norm(partName));
+            if (!score) return;
+            candidates.set(label, { name: partName, model: partModel || '', source });
+        };
+        (store.activeData.partsMaster || []).forEach(part => add(part.name, part.model || '', '部品マスター'));
+        (store.activeData.history || []).forEach(h => (h.replacedParts || []).forEach(part => add(part.name, part.model || '', '履歴')));
+        const list = Array.from(candidates.values()).slice(0, 8);
+        if (!list.length) return '<span class="part-alias-empty">近い表記は見つかりません</span>';
+        return `
+            <b><i class="fa-solid fa-wand-magic-sparkles"></i> 候補</b>
+            <div>
+                ${list.map(item => {
+                    const label = `${item.name}${item.model ? ` [${item.model}]` : ''}`;
+                    return `<button type="button" onclick="app.addPartAliasLine('${this.escapeJs(label)}')" title="${this.escapeHtml(item.source)}から候補">${this.escapeHtml(label)}</button>`;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    getPartAliasLines() {
+        return (document.getElementById('pm-seeds')?.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    }
+
+    setPartAliasLines(lines = []) {
+        const unique = [...new Set(lines.map(s => String(s || '').trim()).filter(Boolean))];
+        const textarea = document.getElementById('pm-seeds');
+        if (textarea) textarea.value = unique.join('\n');
+        this.updatePartAliasPreview();
+    }
+
+    addPartAliasLine(label) {
+        this.setPartAliasLines([...this.getPartAliasLines(), label]);
+    }
+
+    removePartAliasLine(label) {
+        this.setPartAliasLines(this.getPartAliasLines().filter(line => line !== label));
+    }
+
+    updatePartAliasPreview() {
+        const preview = document.getElementById('pm-alias-preview');
+        const chips = document.getElementById('pm-alias-chips');
+        if (!preview) return;
+        const lines = this.getPartAliasLines();
+        if (chips) {
+            chips.innerHTML = lines.length
+                ? lines.map(line => `<button type="button" onclick="app.removePartAliasLine('${this.escapeJs(line)}')" title="この別名を解除">${this.escapeHtml(line)} <i class="fa-solid fa-xmark"></i></button>`).join('')
+                : '<span>登録済みの別名はありません</span>';
+        }
+        const aliases = lines.map(line => {
+            const bracket = line.match(/^(.*?)\s*\[(.*?)\]\s*$/);
+            if (bracket) return { name: bracket[1].trim(), model: bracket[2].trim(), label: line };
+            const parsed = this.parseHistoryPartsText?.(line)?.[0] || {};
+            return { name: parsed.name || line, model: parsed.model || '', label: line };
+        });
+        const hitIds = new Set();
+        (store.activeData.history || []).forEach(h => {
+            const hit = (h.replacedParts || []).some(part => aliases.some(alias => String(part.name || '') === alias.name && String(part.model || '') === String(alias.model || '')));
+            if (hit) hitIds.add(h.id || `${h.date}-${hitIds.size}`);
+        });
+        preview.innerHTML = aliases.length
+            ? `<i class="fa-solid fa-code-merge"></i> 保存すると ${aliases.length}件の別名を登録し、該当履歴 ${hitIds.size}件を同じ部品として集計します。`
+            : '<i class="fa-solid fa-circle-info"></i> 別名を追加すると、保存前に影響件数を表示します。';
+    }
+
+    parsePartAliasLine(line) {
+        const text = String(line || '').trim();
+        if (!text) return null;
+        const bracket = text.match(/^(.*?)\s*\[(.*?)\]\s*$/);
+        if (bracket) return { name: bracket[1].trim(), model: bracket[2].trim(), label: text };
+        const parsed = this.parseHistoryPartsText?.(text)?.[0] || {};
+        return { name: parsed.name || text, model: parsed.model || '', label: text };
+    }
+
+    getPartAliasMasterDeletionCandidates(seeds = [], canonicalName = '', canonicalModel = '') {
+        const canonicalKey = `${canonicalName}___${canonicalModel || ''}`;
+        const seedKeys = new Set((seeds || [])
+            .filter(seed => seed?.name)
+            .map(seed => `${seed.name}___${seed.model || ''}`)
+            .filter(key => key !== canonicalKey));
+        const seen = new Set();
+        return (store.activeData.partsMaster || []).filter(part => {
+            const key = `${part.name}___${part.model || ''}`;
+            if (!seedKeys.has(key) || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    deletePartMasterCardsForAliases(parts = [], canonicalName = '', canonicalModel = '') {
+        if (!parts.length) return 0;
+        const deleteKeys = new Set(parts.map(part => `${part.name}___${part.model || ''}`));
+        const canonicalKey = `${canonicalName}___${canonicalModel || ''}`;
+        const before = (store.activeData.partsMaster || []).length;
+        store.activeData.partsMaster = (store.activeData.partsMaster || []).filter(part => {
+            const key = `${part.name}___${part.model || ''}`;
+            return key === canonicalKey || !deleteKeys.has(key);
+        });
+        return before - store.activeData.partsMaster.length;
     }
 
     addPartRow(p = null, hidePrice = false) {
@@ -3160,6 +3294,7 @@
             const hId = document.getElementById('g-h-id').value;
             const html = this.getGuideEditorHtml();
             const text = this.getGuideTextFromRichHtml(html);
+            const title = document.getElementById('g-title')?.value.trim() || '';
             const author = document.getElementById('g-author').value;
             const fontSize = this.getGuideFontSize({ fontSize: document.getElementById('g-font-size')?.value });
             const changeNote = document.getElementById('g-change-note')?.value.trim() || '内容更新';
@@ -3178,6 +3313,7 @@
                 }
                 const version = oldGuide ? `v${this.getNextGuideVersion(oldGuide).toFixed(1)}` : 'v1.0';
                 store.activeData.history[index].guide = {
+                    title,
                     text,
                     html,
                     author,
@@ -3202,6 +3338,18 @@
             const shelf = document.getElementById('pm-shelf')?.value || '';
             const remarks = document.getElementById('pm-remarks').value;
             const photo = document.getElementById('pm-photo-base64').value; // New
+            const existingPartMaster = store.getPartMaster(name, model);
+            const previousSeedKeys = new Set((existingPartMaster?.seeds || []).map(seed => `${seed.name}___${seed.model || ''}`));
+            const seedLines = (document.getElementById('pm-seeds')?.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+            const seeds = seedLines
+                .map(line => this.parsePartAliasLine(line))
+                .filter(seed => seed?.name && !(seed.name === name && (seed.model || '') === (model || '')))
+                .map(seed => ({ name: seed.name, model: seed.model || '' }));
+            const addedSeeds = seeds.filter(seed => !previousSeedKeys.has(`${seed.name}___${seed.model || ''}`));
+            const aliasDeleteCandidates = this.getPartAliasMasterDeletionCandidates(seeds, name, model);
+            const shouldDeleteAliasCards = aliasDeleteCandidates.length
+                ? confirm(`名寄せした部品カードを削除しますか？\n\n${aliasDeleteCandidates.map(part => `・${part.name}${part.model ? ` [${part.model}]` : ''}`).join('\n')}\n\nOKを押すと、これらのカードは部品マスター一覧から消えます。履歴は正式名へ名寄せして集計されます。`)
+                : false;
 
             // Parse "price/weightKG" or plain number
             let computedPrice = 0;
@@ -3229,8 +3377,33 @@
                 photo,
                 stock: parseFloat(stock),
                 minStock: parseFloat(minStock),
-                unit
+                unit,
+                seeds
             });
+            if (addedSeeds.length) {
+                this.addSystemActivityLog?.('部品名寄せ', `${name}${model ? ` [${model}]` : ''} に ${addedSeeds.length}件の別名を追加`, {
+                    canonical: { name, model },
+                    aliases: addedSeeds,
+                    level: 'info'
+                });
+            }
+            if (shouldDeleteAliasCards) {
+                const deletedParts = aliasDeleteCandidates.map(part => ({ ...part }));
+                const deletedCount = this.deletePartMasterCardsForAliases(aliasDeleteCandidates, name, model);
+                if (deletedCount > 0) {
+                    const logId = this.addSystemActivityLog?.('部品カード削除', `名寄せ元カード ${deletedCount}件を削除`, {
+                        canonical: { name, model },
+                        deletedParts,
+                        level: 'warning'
+                    });
+                    const log = (store.activeData.systemActivityLogs || []).find(item => item.id === logId);
+                    if (log) {
+                        log.restoreAction = `app.restoreDeletedPartMasterLog('${this.escapeJs(logId)}')`;
+                    }
+                    store.save();
+                    this.showToast?.(`${deletedCount}件の名寄せ元カードを削除しました`);
+                }
+            }
             this.closeModal();
             this.renderAnalysis();
         } else if (type === 'substitute') {
@@ -3370,6 +3543,8 @@
         }
         if (!guide) guide = { text: '', author: '', photos: [] };
         const versionLabel = this.getGuideVersionLabel(guide);
+        const guideTitle = this.getGuideDisplayTitle?.(h, guide) || this.getHistoryDisplayText(h);
+        const guideTitleCandidates = this.getGuideTitleCandidates?.(h, machine) || [];
         this._tempPhotos = (guide.photos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src);
 
         this.openModal('guide', '作業手順書（ナレッジベース）', () => {
@@ -3386,7 +3561,22 @@
                         <div style="font-size:1.1rem; font-weight:900;">${machine?.name || '不明'} [${machine?.model || '-'}]</div>
                         <span class="guide-version-pill">${this.escapeHtml(versionLabel)}</span>
                     </div>
-                    <div style="font-weight:700;">${this.getHistoryDisplayText(h)}</div>
+                    <div style="font-weight:700;">元の履歴: ${this.escapeHtml(this.getHistoryDisplayText(h))}</div>
+                </div>
+
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label>手順書タイトル</label>
+                    <input type="text" id="g-title" placeholder="例: 搬送ベルトの交換手順" value="${this.escapeHtml(guideTitle)}" oninput="app.autoSaveGuideDraftFromModal()">
+                    ${guideTitleCandidates.length ? `
+                        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
+                            ${guideTitleCandidates.map(candidate => `
+                                <button type="button" class="tag-badge" style="cursor:pointer;" onclick="app.applyGuideTitleCandidate('${this.escapeJs(candidate)}')">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> ${this.escapeHtml(candidate)}
+                                </button>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    <div style="font-size:0.75rem; color:var(--text-light); margin-top:6px;">ここを変更すると、ナレッジDB上の手順書タイトルとして上書きされます。</div>
                 </div>
 
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
@@ -3403,11 +3593,11 @@
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
                     <div class="form-group">
                         <label>作成者</label>
-                        <input type="text" id="g-author" placeholder="例: メンテナンス 田中" value="${guide.author || ''}" list="list-workers">
+                        <input type="text" id="g-author" placeholder="例: メンテナンス 田中" value="${this.escapeHtml(guide.author || '')}" list="list-workers">
                     </div>
                     <div class="form-group">
                         <label>タグ (カンマ区切り)</label>
-                        <input type="text" id="g-tags" placeholder="例: 油漏れ, センサー異常" value="${(guide.tags || []).join(', ')}">
+                        <input type="text" id="g-tags" placeholder="例: 油漏れ, センサー異常" value="${this.escapeHtml((guide.tags || []).join(', '))}">
                     </div>
                 </div>
 
@@ -3771,6 +3961,7 @@
         return {
             version: revision?.version || 'v1.0',
             updatedAt: revision?.updatedAt || '',
+            title: String(revision?.title || '').trim(),
             author: revision?.author || '',
             changeNote: revision?.changeNote || '',
             text: revision?.text || '',
@@ -3808,6 +3999,7 @@
                                 <div class="guide-version-meta">
                                     更新者: ${this.escapeHtml(rev.author || '不明')} / 変更内容: ${this.escapeHtml(rev.changeNote || '未入力')}
                                 </div>
+                                ${rev.title ? `<div class="guide-version-meta">タイトル: ${this.escapeHtml(rev.title)}</div>` : ''}
                                 <div class="guide-version-preview">${this.escapeHtml(rev.text || '').slice(0, 180).replace(/\n/g, '<br>')}</div>
                                 ${isCurrent ? '' : `
                                     <button type="button" class="secondary-btn" onclick="app.rollbackGuideVersion('${this.escapeJs(hId)}', '${this.escapeJs(rev.version)}')">
@@ -3841,6 +4033,7 @@
         }));
 
         h.guide = {
+            title: target.title || currentGuide.title || '',
             text: target.text || '',
             html: this.sanitizeGuideRichHtml(target.html || this.getGuideRichHtmlFromText(target.text || '')),
             author: target.author || currentGuide.author || '',
@@ -3868,6 +4061,7 @@
         const fontSize = this.getGuideFontSize(guide);
         const lineChars = this.getGuideLineChars(fontSize);
         const printLineChars = Math.max(22, lineChars - 4);
+        const guideTitle = this.getGuideDisplayTitle?.(h, guide) || this.getHistoryDisplayText(h);
         const guideContentHTML = await this.renderGuideTextWithPhotoTokens(guide);
         const photosHTML = await this.renderGuideUnreferencedPhotosHtml(guide);
 
@@ -3895,13 +4089,14 @@
                     <div class="no-print" style="margin-bottom:20px;">
                         <button onclick="window.print()">印刷実行</button>
                     </div>
-                    <h1>作業手順書: ${this.escapeHtml(this.getHistoryDisplayText(h))}</h1>
+                    <h1>作業手順書: ${this.escapeHtml(guideTitle)}</h1>
                     <div class="meta">
                         <div class="meta-grid">
                             <div><strong>機械:</strong> ${this.escapeHtml(machine?.name || '')} [${this.escapeHtml(machine?.model || '')}]</div>
                             <div><strong>作成者:</strong> ${this.escapeHtml(guide.author || '不明')}</div>
                             <div><strong>記録日:</strong> ${this.escapeHtml(h.date || '')}</div>
                             <div><strong>手順書最終更新:</strong> ${this.escapeHtml(guide.updatedAt || '-')}</div>
+                            <div class="meta-wide"><strong>元の履歴:</strong> ${this.escapeHtml(this.getHistoryDisplayText(h))}</div>
                             <div class="meta-wide meta-notes">
                                 <strong>【原因】:</strong> ${this.escapeHtml(h.cause || '(点検記録に未入力)')}
                             </div>
