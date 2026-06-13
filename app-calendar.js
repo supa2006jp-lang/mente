@@ -42,7 +42,7 @@
     }
 
     getCalendarBackgroundMode() {
-        return localStorage.getItem('calendar_background_mode') === 'anime' ? 'anime' : 'season';
+        return localStorage.getItem('calendar_background_mode') === 'season' ? 'season' : 'anime';
     }
 
     toggleCalendarBackgroundMode() {
