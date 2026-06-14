@@ -125,6 +125,8 @@
                     src: photo.src,
                     date: photo.date || '',
                     marks: Array.isArray(photo.marks) ? photo.marks : [],
+                    sizePreset: photo.sizePreset && typeof photo.sizePreset === 'object' ? photo.sizePreset : null,
+                    imageFit: photo.imageFit === 'fill' ? 'fill' : '',
                     deleteIndex: index,
                     open: () => this.openPhotoManagerEditor(photo.id || this.buildPhotoManagerId(['library', index], photo.src)),
                     deletePhoto: () => { this.getPhotoManagerLibrary().splice(index, 1); }
@@ -258,7 +260,8 @@
             }
             if (markFilter === 'marked') items = items.filter(item => item.annotated);
             if (markFilter === 'plain') items = items.filter(item => !item.annotated);
-            if (this._photoManagerAlphaCandidateOnly) items = items.filter(item => this.getPhotoManagerAlphaStatus(item));
+            if (this._photoManagerAlphaFilterMode === 'transparent') items = items.filter(item => this.getPhotoManagerAlphaStatus(item) === 'transparent');
+            if (this._photoManagerAlphaFilterMode === 'candidate') items = items.filter(item => this.getPhotoManagerAlphaStatus(item) === 'candidate');
             if (tagFilter !== 'all') items = items.filter(item => (item.tags || []).includes(tagFilter));
             if (terms.length) {
                 items = items.filter(item => this.matchesSearchTerms(`${item.sourceLabel} ${item.title} ${item.displayName} ${item.caption || ''} ${item.date} ${(item.tags || []).join(' ')}`, terms));
@@ -316,7 +319,7 @@
                         <img src="${item.src}" alt="${this.escapeHtml(name)}">
                         ${duplicateSrcs.has(item.src) ? '<span class="photo-manager-duplicate-badge"><i class="fa-solid fa-clone"></i> 重複</span>' : ''}
                         ${item.annotated ? '<span class="photo-manager-mark-badge"><i class="fa-solid fa-pen"></i> 注記あり</span>' : ''}
-                        ${alphaStatus ? `<span class="photo-manager-alpha-badge ${alphaStatus}"><i class="fa-solid fa-layer-group"></i> ${alphaStatus === 'transparent' ? '透過' : '透過候補'}</span>` : ''}
+                        ${alphaStatus ? `<span class="photo-manager-alpha-badge ${alphaStatus}" role="button" tabindex="0" onpointerdown="event.preventDefault(); event.stopPropagation();" onclick="event.preventDefault(); event.stopPropagation(); app.openImageSourceChoiceTransparencyPreview('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> ${alphaStatus === 'transparent' ? '透過' : '透過候補'}</span>` : ''}
                         <span class="photo-manager-usage-badge ${usageSummary.count ? 'used' : 'unused'}"><i class="fa-solid ${usageSummary.count ? 'fa-link' : 'fa-circle-minus'}"></i> ${this.escapeHtml(usageSummary.label)}</span>
                     </button>
                     <div class="photo-manager-info">
@@ -408,15 +411,24 @@
             });
         }
 
-        togglePhotoManagerAlphaCandidateFilter() {
-            this._photoManagerAlphaCandidateOnly = !this._photoManagerAlphaCandidateOnly;
+        togglePhotoManagerAlphaFilter(mode = 'candidate') {
+            const next = ['transparent', 'candidate'].includes(mode) ? mode : 'candidate';
+            this._photoManagerAlphaFilterMode = this._photoManagerAlphaFilterMode === next ? '' : next;
             this.renderPhotoManager();
         }
 
+        togglePhotoManagerAlphaCandidateFilter() {
+            this.togglePhotoManagerAlphaFilter('candidate');
+        }
+
         updatePhotoManagerAlphaFilterButton() {
-            const button = document.getElementById('photo-manager-alpha-filter');
-            if (!button) return;
-            button.classList.toggle('active', !!this._photoManagerAlphaCandidateOnly);
+            const mode = this._photoManagerAlphaFilterMode || '';
+            const oldButton = document.getElementById('photo-manager-alpha-filter');
+            if (oldButton) oldButton.classList.toggle('active', mode === 'candidate');
+            const transparent = document.getElementById('photo-manager-alpha-transparent-filter');
+            const candidate = document.getElementById('photo-manager-alpha-candidate-filter');
+            if (transparent) transparent.classList.toggle('active', mode === 'transparent');
+            if (candidate) candidate.classList.toggle('active', mode === 'candidate');
         }
 
         getPhotoManagerAllTags() {
@@ -1792,7 +1804,7 @@
             });
         }
 
-        async createTransparentPhotoManagerSource(src = '') {
+        async createTransparentPhotoManagerSource(src = '', options = {}) {
             if (!/^data:image\//i.test(src || '')) throw new Error('画像データがありません');
             const img = await this.loadPhotoManagerImage(src);
             const naturalW = img.naturalWidth || img.width || 1;
@@ -1804,36 +1816,10 @@
             canvas.height = Math.max(1, Math.round(naturalH * scale));
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = image.data;
-            const samplePoints = [
-                [0, 0],
-                [canvas.width - 1, 0],
-                [0, canvas.height - 1],
-                [canvas.width - 1, canvas.height - 1]
-            ];
-            const samples = samplePoints.map(([x, y]) => {
-                const i = (Math.max(0, y) * canvas.width + Math.max(0, x)) * 4;
-                return [data[i], data[i + 1], data[i + 2]];
-            });
-            let changed = 0;
-            const tolerance = 54;
-            for (let i = 0; i < data.length; i += 4) {
-                const near = samples.some(([r, g, b]) => {
-                    const dr = data[i] - r;
-                    const dg = data[i + 1] - g;
-                    const db = data[i + 2] - b;
-                    return Math.hypot(dr, dg, db) <= tolerance;
-                });
-                if (near && data[i + 3] > 0) {
-                    data[i + 3] = 0;
-                    changed += 1;
-                }
-            }
-            ctx.putImageData(image, 0, 0);
+            const result = this.makeConnectedBackgroundTransparentOnCanvas(canvas, ctx, options);
             return {
                 src: canvas.toDataURL('image/png'),
-                changed,
+                changed: result.changed,
                 total: canvas.width * canvas.height
             };
         }
@@ -1948,6 +1934,15 @@
                 this.openImageSourceChoice(input);
             };
             document.addEventListener('click', this._imageSourceChoiceListener, true);
+            this._imageSourceChoiceChangeListener = (event) => {
+                const input = event.target;
+                if (!input?._imageSourceDirectReviewOnce || !input.matches?.('input[type="file"][accept*="image"]')) return;
+                input._imageSourceDirectReviewOnce = false;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                this.importImageSourceDirectFilesForReview(input, input.files);
+            };
+            document.addEventListener('change', this._imageSourceChoiceChangeListener, true);
         }
 
         getImageSourceChoiceItems(query = '') {
@@ -1986,6 +1981,7 @@
                     </div>
                     <div class="image-source-choice-actions">
                         <button type="button" class="primary-btn" onclick="app.chooseImageSourceDirectFile()"><i class="fa-solid fa-file-import"></i> 直接ファイル</button>
+                        <button type="button" class="image-source-choice-filter clipboard" onclick="app.importImageSourceChoiceFromClipboard()" title="クリップボードの画像を写真管理へ登録して選択"><i class="fa-solid fa-clipboard"></i> クリップボードから取込</button>
                         <button type="button" class="image-source-choice-filter" id="image-source-choice-transparent-filter" onclick="app.toggleImageSourceTransparentFilter()" title="透過画像だけ表示"><i class="fa-solid fa-layer-group"></i> 透過のみ</button>
                         <label class="image-source-choice-search">
                             <i class="fa-solid fa-magnifying-glass"></i>
@@ -2029,7 +2025,81 @@
             this.closeImageSourceChoice();
             if (!input) return;
             input._imageSourceDirectOnce = true;
+            input._imageSourceDirectReviewOnce = true;
             input.click();
+        }
+
+        async importImageSourceDirectFilesForReview(input, files) {
+            const selectedFiles = Array.from(files || []).filter(file => /^image\//i.test(file.type || ''));
+            input.value = '';
+            if (!input || !selectedFiles.length) return;
+            try {
+                const imported = [];
+                for (const file of selectedFiles) {
+                    const src = await this.readPhotoManagerFileAsDataUrl(file);
+                    const added = this.addPhotoManagerLibraryImage(src, file.name || '直接ファイル画像');
+                    if (added) imported.push(added);
+                }
+                if (!imported.length) return;
+                store.save();
+                if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
+                this.openImageSourceChoice(input);
+                requestAnimationFrame(() => {
+                    imported.forEach(item => {
+                        const safeId = window.CSS?.escape ? CSS.escape(item.id) : String(item.id).replace(/"/g, '\\"');
+                        const choice = document.querySelector(`#image-source-choice-list .image-source-choice-item[data-image-choice-id="${safeId}"] input`);
+                        if (choice) choice.checked = true;
+                    });
+                    this.updateImageSourceChoicePreview(imported[0]);
+                    this.openImageSourceChoiceTransparencyPreview(imported[0].id);
+                });
+                this.showPhotoManagerNotice(`${imported.length}枚の直接ファイル画像を取り込みました`);
+            } catch (error) {
+                console.error(error);
+                this.showPhotoManagerNotice('直接ファイル画像を取り込めませんでした');
+            }
+        }
+
+        async importImageSourceChoiceFromClipboard() {
+            if (!navigator.clipboard?.read) {
+                this.showPhotoManagerNotice('この画面ではCtrl+Vでも画像を取り込めます');
+                return;
+            }
+            try {
+                const items = await navigator.clipboard.read();
+                const imported = [];
+                for (const item of items) {
+                    const type = item.types?.find(value => /^image\//i.test(value));
+                    if (!type) continue;
+                    const blob = await item.getType(type);
+                    const src = await this.readPhotoManagerFileAsDataUrl(blob);
+                    const added = this.addPhotoManagerLibraryImage(src, 'クリップボード画像');
+                    if (added) imported.push(added);
+                }
+                if (!imported.length) {
+                    this.showPhotoManagerNotice('クリップボードに画像がありません');
+                    return;
+                }
+                store.save();
+                if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
+                this._imageSourceTransparentOnly = false;
+                this.updateImageSourceTransparentFilterButton();
+                const query = document.getElementById('image-source-choice-query');
+                if (query) query.value = '';
+                this.renderImageSourceChoiceList('');
+                requestAnimationFrame(() => {
+                    imported.forEach(item => {
+                        const safeId = window.CSS?.escape ? CSS.escape(item.id) : String(item.id).replace(/"/g, '\\"');
+                        const input = document.querySelector(`#image-source-choice-list .image-source-choice-item[data-image-choice-id="${safeId}"] input`);
+                        if (input) input.checked = true;
+                    });
+                    this.updateImageSourceChoicePreview(imported[0]);
+                });
+                this.showPhotoManagerNotice(`${imported.length}枚のクリップボード画像を取り込みました`);
+            } catch (error) {
+                console.error(error);
+                this.showPhotoManagerNotice('クリップボード画像を取り込めませんでした。Ctrl+Vも試せます。');
+            }
         }
 
         getImageSourceChoiceRecentSrcRank() {
@@ -2093,7 +2163,7 @@
                         <input type="${multiple ? 'checkbox' : 'radio'}" name="image-source-choice-item" value="${this.escapeHtml(item.id)}">
                         <span class="image-source-choice-thumb">
                             <img src="${item.src}" alt="${this.escapeHtml(title)}">
-                            ${canHaveAlpha ? '<em class="image-source-choice-alpha-badge"><i class="fa-solid fa-layer-group"></i> 透過候補</em>' : ''}
+                            ${canHaveAlpha ? `<span class="image-source-choice-alpha-badge" role="button" tabindex="0" onpointerdown="event.preventDefault(); event.stopPropagation();" onclick="event.preventDefault(); event.stopPropagation(); app.openImageSourceChoiceTransparencyPreview('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 透過候補</span>` : ''}
                         </span>
                         <span>
                             <b>${this.escapeHtml(title)}</b>
@@ -2142,11 +2212,47 @@
             preview.innerHTML = `
                 <div class="image-source-choice-preview-stage">
                     <img src="${item.src}" alt="${this.escapeHtml(title)}">
-                    ${canHaveAlpha ? '<em><i class="fa-solid fa-layer-group"></i> 透過候補</em>' : ''}
+                    ${canHaveAlpha ? `<button type="button" onclick="event.preventDefault(); event.stopPropagation(); app.openImageSourceChoiceTransparencyPreview('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 透過候補</button>` : ''}
                 </div>
                 <b>${this.escapeHtml(title)}</b>
                 <span>${this.escapeHtml(sub || '写真管理')}</span>
             `;
+        }
+
+        async openImageSourceChoiceTransparencyPreview(id = '') {
+            const item = this.collectPhotoManagerItems().find(entry => entry.id === id);
+            if (!item?.src) return this.showPhotoManagerNotice('透過チェックする画像が見つかりません');
+            if (typeof this.openShiftPhotoCompareBaseImageTransparencyPreview !== 'function'
+                || typeof this.createTransparentPhotoManagerSource !== 'function') {
+                return this.showPhotoManagerNotice('透過チェック画面を開けませんでした');
+            }
+            try {
+                const alreadyTransparent = typeof this.imageHasTransparentPixels === 'function'
+                    ? await this.imageHasTransparentPixels(item.src)
+                    : false;
+                if (alreadyTransparent) {
+                    this.openShiftPhotoCompareBaseImageTransparencyPreview(item.src, item.src, {
+                        name: this.getPhotoManagerName(item) || item.defaultName || item.title || '画像',
+                        changed: 0,
+                        total: 0,
+                        alreadyTransparent: true,
+                        sizePreset: item.sizePreset || null,
+                        imageFit: item.imageFit === 'fill' ? 'fill' : ''
+                    });
+                    return;
+                }
+                const result = await this.createTransparentPhotoManagerSource(item.src);
+                this.openShiftPhotoCompareBaseImageTransparencyPreview(item.src, result.src || item.src, {
+                    name: this.getPhotoManagerName(item) || item.defaultName || item.title || '画像',
+                    changed: result.changed || 0,
+                    total: result.total || 0,
+                    sizePreset: item.sizePreset || null,
+                    imageFit: item.imageFit === 'fill' ? 'fill' : ''
+                });
+            } catch (error) {
+                console.error(error);
+                this.showPhotoManagerNotice('透過チェックに失敗しました');
+            }
         }
 
         canImageSourceHaveAlpha(src = '') {
@@ -2287,7 +2393,19 @@
             if (id === 'shift-photo-compare-image-stamp-input') {
                 const src = selected[0].src;
                 this._shiftPhotoCompareImageStampSrc = src;
+                const recentPreset = this.getShiftPhotoCompareRecentImageStamps?.().find?.(item => item.src === src)?.sizePreset || null;
+                const sizePreset = selected[0].sizePreset || recentPreset;
+                if (sizePreset && selected[0].imageFit === 'fill') sizePreset.imageFit = 'fill';
+                if (sizePreset) this.applyShiftPhotoCompareRecentImageSizePreset?.({ src, sizePreset });
                 this.rememberShiftPhotoCompareImageStamp?.(src, this.getPhotoManagerName(selected[0]) || selected[0].defaultName || selected[0].title || '写真管理');
+                if (sizePreset) {
+                    const recent = this.getShiftPhotoCompareRecentImageStamps?.() || [];
+                    const recentItem = recent.find(entry => entry.src === src);
+                    if (recentItem) {
+                        recentItem.sizePreset = sizePreset;
+                        this.saveShiftPhotoCompareRecentImageStamps?.(recent);
+                    }
+                }
                 this.setShiftPhotoCompareMarkModeDirect?.('image');
                 this.updateShiftPhotoCompareSample?.();
                 this.showShiftPhotoCompareActionMessage?.('写真管理の画像を読み込みました。写真上をクリックして配置できます。');
@@ -2505,7 +2623,7 @@
                         <img src="${item.src}" alt="${this.escapeHtml(name)}">
                         ${duplicateSrcs.has(item.src) ? '<span class="photo-manager-duplicate-badge"><i class="fa-solid fa-clone"></i> 重複</span>' : ''}
                         ${item.annotated ? '<span class="photo-manager-mark-badge"><i class="fa-solid fa-pen"></i> 注記あり</span>' : ''}
-                        ${alphaStatus ? `<span class="photo-manager-alpha-badge ${alphaStatus}"><i class="fa-solid fa-layer-group"></i> ${alphaStatus === 'transparent' ? '透過' : '透過候補'}</span>` : ''}
+                        ${alphaStatus ? `<span class="photo-manager-alpha-badge ${alphaStatus}" role="button" tabindex="0" onpointerdown="event.preventDefault(); event.stopPropagation();" onclick="event.preventDefault(); event.stopPropagation(); app.openImageSourceChoiceTransparencyPreview('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> ${alphaStatus === 'transparent' ? '透過' : '透過候補'}</span>` : ''}
                         <span class="photo-manager-usage-badge ${usageSummary.count ? 'used' : 'unused'}"><i class="fa-solid ${usageSummary.count ? 'fa-link' : 'fa-circle-minus'}"></i> ${this.escapeHtml(usageSummary.label.replace('縺区園縺ｧ菴ｿ逕ｨ荳ｭ', 'か所で使用中').replace('譛ｪ菴ｿ逕ｨ', '未使用'))}</span>
                     </button>
                     <div class="photo-manager-info">

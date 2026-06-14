@@ -849,11 +849,6 @@
                         <div style="font-size:1.6rem; font-weight:900; color:var(--danger); line-height:1.2;">${dokateiTime}<span style="font-size:0.8rem">分</span></div>
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${dokateiCount}件の生産停止</div>
                     </div>
-                    <div class="card dashboard-metric-card" style="padding:10px; border-top:4px solid var(--secondary); background:var(--secondary-light);">
-                        <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">MTBF / MTTR</div>
-                        <div style="font-size:1.1rem; font-weight:900; color:var(--secondary); margin-bottom:2px;">間隔: ${mtbf}日</div>
-                        <div style="font-size:1.1rem; font-weight:900; color:var(--danger);">修理: ${avgMttr}分</div>
-                    </div>
                 </div>
             </div>
 

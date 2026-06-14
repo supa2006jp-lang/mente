@@ -4939,23 +4939,26 @@
             const marks = JSON.parse(value || '[]');
             if (!Array.isArray(marks)) return [];
             return marks.map(mark => ({
-                mode: ['circle', 'arrow', 'rect', 'text', 'number', 'xmark', 'freehand', 'mosaic', 'image'].includes(mark.mode) ? mark.mode : 'circle',
+                mode: ['circle', 'arrow', 'rect', 'text', 'boxedText', 'number', 'xmark', 'freehand', 'mosaic', 'image'].includes(mark.mode) ? mark.mode : 'circle',
                 x: Math.max(0, Math.min(100, Number(mark.x) || 0)),
                 y: Math.max(0, Math.min(100, Number(mark.y) || 0)),
                 size: Math.max(24, Math.min(mark.mode === 'mosaic' ? 1200 : 700, Number(mark.size) || 56)),
                 angle: Math.max(0, Math.min(360, Number(mark.angle) || 0)),
                 stretch: Math.max(mark.mode === 'mosaic' ? 0.05 : 0.5, Math.min(mark.mode === 'mosaic' ? 12 : 5, Number(mark.stretch) || 1)),
-                stretchY: Math.max(mark.mode === 'mosaic' ? 0.05 : 0.5, Math.min(mark.mode === 'mosaic' ? 12 : 2.6, Number(mark.stretchY) || 1)),
+                stretchY: Math.max(mark.mode === 'mosaic' ? 0.05 : 0.5, Math.min(mark.mode === 'mosaic' ? 12 : 5, Number(mark.stretchY) || 1)),
                 stroke: Math.max(0.35, Math.min(3, Number(mark.stroke) || 1)),
                 outline: mark.outline === false ? false : true,
                 color: /^#[0-9a-f]{6}$/i.test(mark.color || '') ? mark.color : '#dc2626',
-                text: String(mark.text || '').slice(0, 80),
+                text: String(mark.text || '').slice(0, 120),
                 imageSrc: /^data:image\//i.test(mark.imageSrc || '') ? mark.imageSrc : '',
                 originalImageSrc: /^data:image\//i.test(mark.originalImageSrc || '') ? mark.originalImageSrc : '',
+                imageFit: mark.imageFit === 'fill' ? 'fill' : '',
                 flipX: mark.flipX === -1 || mark.flipX === '-1' ? -1 : 1,
                 flipY: mark.flipY === -1 || mark.flipY === '-1' ? -1 : 1,
                 font: this.getShiftPhotoCompareSafeFont(mark.font),
                 anchor: mark.anchor === 'left' ? 'left' : 'center',
+                textAlign: ['left', 'center', 'right'].includes(mark.textAlign || '') ? mark.textAlign : 'left',
+                boxTrim: mark.boxTrim === true || mark.boxTrim === '1' ? '1' : '',
                 pairId: /^[a-z0-9_-]{4,40}$/i.test(mark.pairId || '') ? mark.pairId : '',
                 pairRole: ['number', 'text'].includes(mark.pairRole || '') ? mark.pairRole : '',
                 wrapWidth: Math.max(0, Number(mark.wrapWidth) || 0),
@@ -5012,24 +5015,27 @@
     }
 
     getShiftPhotoCompareMarkHtml(mark = {}) {
-        const mode = ['circle', 'arrow', 'rect', 'text', 'number', 'xmark', 'freehand', 'mosaic', 'image'].includes(mark.mode) ? mark.mode : 'circle';
+        const mode = ['circle', 'arrow', 'rect', 'text', 'boxedText', 'number', 'xmark', 'freehand', 'mosaic', 'image'].includes(mark.mode) ? mark.mode : 'circle';
         const x = Math.max(0, Math.min(100, Number(mark.x) || 0));
         const y = Math.max(0, Math.min(100, Number(mark.y) || 0));
         const size = Math.max(24, Math.min(mode === 'mosaic' ? 1200 : 700, Number(mark.size) || 56));
         const angle = Math.max(0, Math.min(360, Number(mark.angle) || 0));
         const stretch = Math.max(mode === 'mosaic' ? 0.05 : 0.5, Math.min(mode === 'mosaic' ? 12 : 5, Number(mark.stretch) || 1));
-        const stretchY = Math.max(mode === 'mosaic' ? 0.05 : 0.5, Math.min(mode === 'mosaic' ? 12 : 2.6, Number(mark.stretchY) || 1));
+        const stretchY = Math.max(mode === 'mosaic' ? 0.05 : 0.5, Math.min(mode === 'mosaic' ? 12 : 5, Number(mark.stretchY) || 1));
         const stroke = Math.max(0.35, Math.min(3, Number(mark.stroke) || 1));
         const outline = mark.outline === false ? false : true;
         const color = /^#[0-9a-f]{6}$/i.test(mark.color || '') ? mark.color : '#dc2626';
         const text = String(mark.text || '').slice(0, 120);
         const imageSrc = /^data:image\//i.test(mark.imageSrc || '') ? mark.imageSrc : '';
         const originalImageSrc = /^data:image\//i.test(mark.originalImageSrc || '') ? mark.originalImageSrc : '';
+        const imageFit = mark.imageFit === 'fill' ? 'fill' : '';
         const opacity = Math.max(0.1, Math.min(1, Number(mark.opacity) || 1));
         const flipX = mark.flipX === -1 || mark.flipX === '-1' ? -1 : 1;
         const flipY = mark.flipY === -1 || mark.flipY === '-1' ? -1 : 1;
         const font = this.getShiftPhotoCompareSafeFont(mark.font);
         const anchor = mark.anchor === 'left' ? 'left' : 'center';
+        const textAlign = ['left', 'center', 'right'].includes(mark.textAlign || '') ? mark.textAlign : 'left';
+        const boxTrim = mark.boxTrim === true || mark.boxTrim === '1' ? '1' : '';
         const pairId = /^[a-z0-9_-]{4,40}$/i.test(mark.pairId || '') ? mark.pairId : '';
         const pairRole = ['number', 'text'].includes(mark.pairRole || '') ? mark.pairRole : '';
         const groupId = /^[a-z0-9_-]{4,40}$/i.test(mark.groupId || '') ? mark.groupId : '';
@@ -5043,7 +5049,7 @@
             y: Math.max(0, Math.min(100, Number(point.y) || 0))
         })).slice(0, 500) : [];
         const pointsText = points.map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
-        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-outline="${outline ? '1' : '0'}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-locked="${locked ? '1' : '0'}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-points="${this.escapeHtml(JSON.stringify(points))}"`;
+        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-outline="${outline ? '1' : '0'}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-locked="${locked ? '1' : '0'}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-points="${this.escapeHtml(JSON.stringify(points))}"`;
         if (mode === 'freehand') {
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)};"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${this.escapeHtml(pointsText)}"></polyline></svg></div>`;
         }
@@ -5051,7 +5057,7 @@
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-font:${fontFamily}; --mark-opacity:${opacity};"><img src="${this.escapeHtml(imageSrc)}" alt=""></div>`;
         }
         const xmarkHtml = '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M18 18 L82 82 M82 18 L18 82"></path></svg>';
-        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-font:${fontFamily};">${mode === 'arrow' ? '<span class="shift-photo-arrow-line"></span><span class="shift-photo-arrow-head"></span><span class="shift-photo-arrow-end start" data-arrow-end="start"></span><span class="shift-photo-arrow-end end" data-arrow-end="end"></span>' : (mode === 'xmark' ? xmarkHtml : (mode === 'text' || mode === 'number' ? this.escapeHtml(text) : ''))}</div>`;
+        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-font:${fontFamily};">${mode === 'arrow' ? '<span class="shift-photo-arrow-line"></span><span class="shift-photo-arrow-head"></span><span class="shift-photo-arrow-end start" data-arrow-end="start"></span><span class="shift-photo-arrow-end end" data-arrow-end="end"></span>' : (mode === 'xmark' ? xmarkHtml : (mode === 'text' || mode === 'number' || mode === 'boxedText' ? this.escapeHtml(text) : ''))}</div>`;
     }
 
     readShiftPhotoCompareMarksFromWrap(wrap) {
@@ -5072,11 +5078,14 @@
             text: String(mark.dataset.text || mark.textContent || '').slice(0, 120),
             imageSrc: /^data:image\//i.test(mark.dataset.imageSrc || '') ? mark.dataset.imageSrc : '',
             originalImageSrc: /^data:image\//i.test(mark.dataset.originalImageSrc || '') ? mark.dataset.originalImageSrc : '',
+            imageFit: mark.dataset.imageFit === 'fill' ? 'fill' : '',
             opacity: Math.max(0.1, Math.min(1, parseFloat(mark.dataset.opacity || '') || 1)),
             flipX: mark.dataset.flipX === '-1' ? -1 : 1,
             flipY: mark.dataset.flipY === '-1' ? -1 : 1,
             font: this.getShiftPhotoCompareSafeFont(mark.dataset.font || ''),
             anchor: mark.dataset.anchor === 'left' ? 'left' : 'center',
+            textAlign: ['left', 'center', 'right'].includes(mark.dataset.textAlign || '') ? mark.dataset.textAlign : 'left',
+            boxTrim: mark.dataset.boxTrim === '1' ? '1' : '',
             pairId: /^[a-z0-9_-]{4,40}$/i.test(mark.dataset.pairId || '') ? mark.dataset.pairId : '',
             pairRole: ['number', 'text'].includes(mark.dataset.pairRole || '') ? mark.dataset.pairRole : '',
             groupId: /^[a-z0-9_-]{4,40}$/i.test(mark.dataset.groupId || '') ? mark.dataset.groupId : '',
@@ -5483,6 +5492,9 @@
                             <button type="button" class="shift-photo-compare-mark-btn" data-mark-mode="text" onclick="app.setShiftPhotoCompareMarkMode('text')" title="文字を置く">
                                 <i class="fa-solid fa-font"></i>
                             </button>
+                            <button type="button" class="shift-photo-compare-mark-btn" data-mark-mode="boxedText" onclick="app.setShiftPhotoCompareMarkMode('boxedText')" title="枠付き文字を置く">
+                                <i class="fa-regular fa-message"></i>
+                            </button>
                             <button type="button" class="shift-photo-compare-mark-btn shift-photo-compare-number-btn" data-mark-mode="number" onclick="app.setShiftPhotoCompareMarkMode('number')" title="クリックするたびに①②③を連続配置">
                                 ①
                             </button>
@@ -5536,6 +5548,7 @@
                                     <i class="fa-solid fa-arrow-right"></i>
                                     <em></em>
                                 </button>
+                                <input type="number" class="shift-photo-angle-number" min="0" max="360" step="1" value="0" oninput="app.setShiftPhotoCompareMarkAngle(this.value)" title="角度を数値で入力">
                                 <b id="shift-photo-compare-angle-value">0</b>
                             </div>
                             <label class="shift-photo-compare-size">
@@ -5545,9 +5558,18 @@
                             </label>
                             <label class="shift-photo-compare-size">
                                 <span>縦</span>
-                                <input type="range" min="50" max="260" value="100" oninput="app.setShiftPhotoCompareMarkStretchY(this.value)">
+                                <input type="range" min="50" max="500" value="100" oninput="app.setShiftPhotoCompareMarkStretchY(this.value)">
                                 <b id="shift-photo-compare-stretch-y-value">100</b>
                             </label>
+                            <button type="button" class="shift-photo-compare-stretch-reset" onclick="app.resetSelectedShiftPhotoCompareStretch()" title="選択中の横・縦倍率を100に戻す">
+                                <i class="fa-solid fa-compress"></i>
+                            </button>
+                            <button type="button" class="shift-photo-compare-image-ratio-reset" onclick="app.resetSelectedShiftPhotoCompareImageAspectRatio()" title="画像を元の縦横比へ戻す">
+                                <i class="fa-solid fa-expand"></i>
+                            </button>
+                            <button type="button" class="shift-photo-compare-aspect-lock" onclick="app.toggleShiftPhotoCompareAspectLock()" title="画像の比率固定">
+                                <i class="fa-solid fa-lock"></i>
+                            </button>
                             <label class="shift-photo-compare-size">
                                 <span>線</span>
                                 <input type="range" min="35" max="300" value="100" oninput="app.setShiftPhotoCompareMarkStroke(this.value)">
@@ -5656,6 +5678,7 @@
                     <button type="button" class="shift-photo-compare-number-text-btn" onclick="app.addTextNextToSelectedShiftPhotoNumber()" title="番号の右に文字を追加"><i class="fa-solid fa-font"></i><span>+</span></button>
                     <button type="button" class="shift-photo-compare-pair-gap-btn" onclick="app.adjustSelectedShiftPhotoNumberTextGap(-4)" title="文字を番号に近づける"><i class="fa-solid fa-compress"></i></button>
                     <button type="button" class="shift-photo-compare-pair-gap-btn" onclick="app.adjustSelectedShiftPhotoNumberTextGap(4)" title="文字を番号から離す"><i class="fa-solid fa-expand"></i></button>
+                    <button type="button" class="shift-photo-compare-boxed-text-align-btn" onclick="app.toggleSelectedShiftPhotoBoxedTextAlign()" title="枠付き文字の揃えを切替">揃</button>
                     <button type="button" class="shift-photo-compare-mini-select-range" data-mark-mode="selectRange" onclick="app.setShiftPhotoCompareMarkMode('selectRange')" title="範囲選択"><i class="fa-regular fa-object-group"></i></button>
                     <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('left')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('left')" title="左揃え"><i class="fa-solid fa-align-left"></i></button>
                     <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('top')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('top')" title="上揃え"><i class="fa-solid fa-align-left fa-rotate-90"></i></button>
@@ -5686,10 +5709,16 @@
             if (e.target === overlay) this.closeShiftPhotoCompare();
         });
         overlay.addEventListener('contextmenu', (e) => {
-            const mark = e.target?.closest?.('.shift-photo-compare-mark.image');
-            if (!mark || !overlay.contains(mark)) return;
+            const mark = e.target?.closest?.('.shift-photo-compare-mark.image, .shift-photo-compare-mark.boxedText');
+            if (mark && overlay.contains(mark)) {
+                e.preventDefault();
+                this.openShiftPhotoCompareImageContextMenu(e, mark);
+                return;
+            }
+            const wrap = e.target?.closest?.('.shift-photo-compare-image-wrap');
+            if (!wrap || !overlay.contains(wrap)) return;
             e.preventDefault();
-            this.openShiftPhotoCompareImageContextMenu(e, mark);
+            this.openShiftPhotoCompareBaseImageContextMenu(e, wrap);
         });
         document.body.appendChild(overlay);
         this._shiftPhotoCompareNumberNext = 1;
@@ -5836,6 +5865,7 @@
         const reader = new FileReader();
         reader.onload = () => {
             this._shiftPhotoCompareImageStampSrc = String(reader.result || '');
+            this._shiftPhotoCompareImageFit = '';
             this.rememberShiftPhotoCompareImageStamp(this._shiftPhotoCompareImageStampSrc, file.name || '画像');
             this.setShiftPhotoCompareMarkModeDirect('image');
             this.updateShiftPhotoCompareSample();
@@ -5849,6 +5879,7 @@
         const reader = new FileReader();
         reader.onload = () => {
             this._shiftPhotoCompareImageStampSrc = String(reader.result || '');
+            this._shiftPhotoCompareImageFit = '';
             this.rememberShiftPhotoCompareImageStamp(this._shiftPhotoCompareImageStampSrc, 'クリップボード');
             this.setShiftPhotoCompareMarkModeDirect('image');
             this.updateShiftPhotoCompareSample();
@@ -6020,10 +6051,12 @@
 
     applyShiftPhotoCompareRecentImageSizePreset(item = {}) {
         const preset = item.sizePreset || {};
+        this._shiftPhotoCompareKeepImageSizePreset = !!preset.size;
+        this._shiftPhotoCompareImageFit = preset.source === 'boxedText' || preset.imageFit === 'fill' ? 'fill' : '';
         if (!preset.size) return;
         this._shiftPhotoCompareMarkSize = Math.max(24, Math.min(700, Number(preset.size) || 56));
         this._shiftPhotoCompareMarkStretch = Math.max(50, Math.min(500, Math.round((Number(preset.stretch) || 1) * 100)));
-        this._shiftPhotoCompareMarkStretchY = Math.max(50, Math.min(260, Math.round((Number(preset.stretchY) || 1) * 100)));
+        this._shiftPhotoCompareMarkStretchY = Math.max(50, Math.min(500, Math.round((Number(preset.stretchY) || 1) * 100)));
         const sizeInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkSize"]');
         const stretchInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretch"]');
         const stretchYInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretchY"]');
@@ -6051,6 +6084,45 @@
             stretchY: parseFloat(mark.dataset.stretchY || '') || 1
         };
         this.saveShiftPhotoCompareRecentImageStamps(recent);
+    }
+
+    getShiftPhotoCompareBoxedTextImageSizePreset(mark) {
+        if (!mark || mark.dataset.mode !== 'boxedText') return null;
+        const rect = mark.getBoundingClientRect?.();
+        const baseWidth = Math.max(1, mark.offsetWidth || rect?.width || 1);
+        const baseHeight = Math.max(1, mark.offsetHeight || rect?.height || 1);
+        const markStretch = Math.max(0.05, parseFloat(mark.dataset.stretch || '') || 1);
+        const markStretchY = Math.max(0.05, parseFloat(mark.dataset.stretchY || '') || 1);
+        const targetWidth = Math.max(24, baseWidth * markStretch);
+        const targetHeight = Math.max(24, baseHeight * markStretchY);
+        const ratio = Math.max(0.1, targetWidth / targetHeight);
+        const boxedTextHeightCorrection = 1.5;
+        let size = targetHeight;
+        let stretch = ratio;
+        let stretchY = boxedTextHeightCorrection;
+        if (stretch > 5) {
+            stretch = 5;
+            size = targetWidth / stretch;
+            stretchY = (targetHeight / size) * boxedTextHeightCorrection;
+        }
+        if (stretch < 0.5) {
+            stretch = 0.5;
+            size = targetWidth / stretch;
+            stretchY = (targetHeight / size) * boxedTextHeightCorrection;
+        }
+        if (size > 700) {
+            const scale = size / 700;
+            size = 700;
+            stretch = Math.min(5, stretch * scale);
+            stretchY = Math.min(5, stretchY * scale);
+        }
+        return {
+            size: Math.max(24, Math.min(700, Math.round(size))),
+            stretch: Math.max(0.5, Math.min(5, stretch)),
+            stretchY: Math.max(0.5, Math.min(5, stretchY)),
+            source: 'boxedText',
+            imageFit: 'fill'
+        };
     }
 
     async detectShiftPhotoCompareRecentImageTransparency(src = '') {
@@ -6180,6 +6252,7 @@
             rect: '四角モード中: 写真上をドラッグして四角を置けます。',
             xmark: 'バツ印モード中: 写真上をドラッグしてバツ印を置けます。',
             text: '文字モード中: 入力欄の文字を写真上に置けます。',
+            boxedText: '枠付き文字モード中: 入力欄の文字を不透明の枠付き文字として置けます。',
             number: '番号モード中: 写真上をクリックして連番を置けます。',
             image: '画像スタンプモード中: 写真上をクリックして読み込んだ画像を配置できます。'
         };
@@ -6206,6 +6279,7 @@
                 rect: '四角',
                 xmark: 'バツ',
                 text: '文字',
+                boxedText: '枠文字',
                 number: '番号',
                 image: '画像'
             };
@@ -6344,6 +6418,8 @@
         if (stretchYLabel) stretchYLabel.textContent = '100';
         if (strokeLabel) strokeLabel.textContent = '100';
         const dial = document.querySelector('.shift-photo-angle-dial');
+        const angleInput = document.querySelector('.shift-photo-angle-number');
+        if (angleInput) angleInput.value = '0';
         if (dial) dial.style.setProperty('--angle', '0deg');
         this.updateShiftPhotoCompareSample();
         const button = document.querySelector('.shift-photo-compare-default-reset');
@@ -6365,6 +6441,8 @@
         this._shiftPhotoCompareMarkAngle = angle;
         const label = document.getElementById('shift-photo-compare-angle-value');
         if (label) label.textContent = String(angle);
+        const angleInput = document.querySelector('.shift-photo-angle-number');
+        if (angleInput && angleInput.value !== String(angle)) angleInput.value = String(angle);
         const dial = document.querySelector('.shift-photo-angle-dial');
         if (dial) dial.style.setProperty('--angle', `${angle}deg`);
         this.applyShiftPhotoCompareSettingsToSelectedMark({ angle });
@@ -6409,12 +6487,120 @@
     }
 
     setShiftPhotoCompareMarkStretchY(value) {
-        const stretchY = Math.max(50, Math.min(260, parseInt(value, 10) || 100));
+        const stretchY = Math.max(50, Math.min(500, parseInt(value, 10) || 100));
         this._shiftPhotoCompareMarkStretchY = stretchY;
         const label = document.getElementById('shift-photo-compare-stretch-y-value');
         if (label) label.textContent = String(stretchY);
         this.applyShiftPhotoCompareSettingsToSelectedMark({ stretchY: stretchY / 100 });
         this.updateShiftPhotoCompareSample();
+    }
+
+    resetSelectedShiftPhotoCompareStretch() {
+        const marks = this.getShiftPhotoCompareStyleTargetMarks();
+        if (!marks.length || this._shiftPhotoCompareMarkMode !== 'move') {
+            this._shiftPhotoCompareMarkStretch = 100;
+            this._shiftPhotoCompareMarkStretchY = 100;
+            this.updateShiftPhotoCompareSample();
+            return;
+        }
+        this.applyShiftPhotoCompareSettingsToSelectedMark({ stretch: 1, stretchY: 1 });
+        const stretchInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretch"]');
+        const stretchYInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretchY"]');
+        const stretchLabel = document.getElementById('shift-photo-compare-stretch-value');
+        const stretchYLabel = document.getElementById('shift-photo-compare-stretch-y-value');
+        if (stretchInput) stretchInput.value = '100';
+        if (stretchYInput) stretchYInput.value = '100';
+        if (stretchLabel) stretchLabel.textContent = '100';
+        if (stretchYLabel) stretchYLabel.textContent = '100';
+        this._shiftPhotoCompareMarkStretch = 100;
+        this._shiftPhotoCompareMarkStretchY = 100;
+        this.updateShiftPhotoCompareSample();
+        this.showShiftPhotoCompareActionMessage('横・縦倍率を100に戻しました。');
+    }
+
+    async applyShiftPhotoCompareImageNaturalRatio(mark) {
+        if (!mark || mark.dataset.mode !== 'image') return false;
+        const src = mark.dataset.originalImageSrc || mark.dataset.imageSrc || mark.querySelector('img')?.src || '';
+        if (!/^data:image\//i.test(src)) return false;
+        const img = await this.loadShiftPhotoCompareImage(src);
+        const naturalW = img.naturalWidth || img.width || 1;
+        const naturalH = img.naturalHeight || img.height || 1;
+        const ratio = Math.max(0.05, naturalW / naturalH);
+        const currentX = Math.max(0.05, parseFloat(mark.dataset.stretch || '') || 1);
+        const currentY = Math.max(0.05, parseFloat(mark.dataset.stretchY || '') || 1);
+        const areaScale = Math.sqrt(currentX * currentY);
+        const nextX = Math.max(0.5, Math.min(5, areaScale * Math.sqrt(ratio)));
+        const nextY = Math.max(0.5, Math.min(5, areaScale / Math.sqrt(ratio)));
+        mark.dataset.stretch = String(nextX);
+        mark.dataset.stretchY = String(nextY);
+        mark.style.setProperty('--mark-scale-x', String(nextX));
+        mark.style.setProperty('--mark-scale-y', String(nextY));
+        return true;
+    }
+
+    async resetSelectedShiftPhotoCompareImageAspectRatio() {
+        const marks = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks())
+            .filter(mark => mark.dataset.mode === 'image');
+        if (!marks.length || this._shiftPhotoCompareMarkMode !== 'move') {
+            this.showShiftPhotoCompareActionMessage('元比率へ戻す画像を選択してください。');
+            return;
+        }
+        this.pushShiftPhotoCompareUndo();
+        const changed = [];
+        for (const mark of marks) {
+            try {
+                if (await this.applyShiftPhotoCompareImageNaturalRatio(mark)) changed.push(mark);
+            } catch (error) {
+                console.error(error);
+            }
+        }
+        if (!changed.length) {
+            this.showShiftPhotoCompareActionMessage('画像の元比率を読み取れませんでした。');
+            return;
+        }
+        const first = changed[0];
+        const stretch = Math.round((parseFloat(first.dataset.stretch || '') || 1) * 100);
+        const stretchY = Math.round((parseFloat(first.dataset.stretchY || '') || 1) * 100);
+        const stretchInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretch"]');
+        const stretchYInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretchY"]');
+        const stretchLabel = document.getElementById('shift-photo-compare-stretch-value');
+        const stretchYLabel = document.getElementById('shift-photo-compare-stretch-y-value');
+        if (stretchInput) stretchInput.value = String(stretch);
+        if (stretchYInput) stretchYInput.value = String(stretchY);
+        if (stretchLabel) stretchLabel.textContent = String(stretch);
+        if (stretchYLabel) stretchYLabel.textContent = String(stretchY);
+        this._shiftPhotoCompareMarkStretch = stretch;
+        this._shiftPhotoCompareMarkStretchY = stretchY;
+        new Set(changed.map(mark => mark.closest('.shift-photo-compare-image-wrap') || mark.closest('.shift-photo-compare-global-layer')).filter(Boolean)).forEach(wrap => {
+            if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+            else this.syncShiftPhotoCompareMarks(wrap);
+        });
+        this.refreshShiftPhotoCompareMarkList();
+        this.updateShiftPhotoCompareSelectionBounds();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`${changed.length}件の画像を元比率へ戻しました。`);
+    }
+
+    toggleShiftPhotoCompareAspectLock() {
+        this._shiftPhotoCompareAspectLock = !this._shiftPhotoCompareAspectLock;
+        this.updateShiftPhotoCompareAspectLockButton();
+        this.showShiftPhotoCompareActionMessage(this._shiftPhotoCompareAspectLock ? '画像の比率固定をオンにしました。' : '画像の比率固定をオフにしました。');
+    }
+
+    updateShiftPhotoCompareAspectLockButton() {
+        const button = document.querySelector('.shift-photo-compare-aspect-lock');
+        const ratioButton = document.querySelector('.shift-photo-compare-image-ratio-reset');
+        const hasImage = this.getShiftPhotoCompareSelectedMarks().some(mark => mark.dataset.mode === 'image');
+        if (button) {
+            button.classList.toggle('active', !!this._shiftPhotoCompareAspectLock);
+            button.disabled = !hasImage && this._shiftPhotoCompareMarkMode === 'move';
+            button.title = hasImage ? '画像の比率固定' : '画像選択中に使えます';
+        }
+        if (ratioButton) {
+            ratioButton.disabled = !hasImage && this._shiftPhotoCompareMarkMode === 'move';
+            ratioButton.title = hasImage ? '画像を元の縦横比へ戻す' : '画像選択中に使えます';
+        }
     }
 
     setShiftPhotoCompareMarkStroke(value) {
@@ -6446,7 +6632,7 @@
         if (this._shiftPhotoCompareMarkMode === 'move'
             && mark
             && document.contains(mark)
-            && mark.dataset.mode === 'text') {
+            && (mark.dataset.mode === 'text' || mark.dataset.mode === 'boxedText')) {
             if (this._shiftPhotoCompareTextEditingMark !== mark) {
                 this.pushShiftPhotoCompareUndo();
                 this._shiftPhotoCompareTextEditingMark = mark;
@@ -6624,6 +6810,27 @@
         this.showShiftPhotoCompareActionMessage(`${targets.length}件のグループ化を解除しました。`);
     }
 
+    toggleSelectedShiftPhotoBoxedTextAlign() {
+        const selected = this.getShiftPhotoCompareSelectedMarks().filter(mark => mark?.dataset?.mode === 'boxedText' && document.contains(mark) && !this.isShiftPhotoCompareMarkLocked(mark));
+        if (!selected.length) {
+            this.showShiftPhotoCompareActionMessage('枠付き文字を選択してください。');
+            return;
+        }
+        const order = ['left', 'center', 'right'];
+        const current = order.includes(selected[0].dataset.textAlign || '') ? selected[0].dataset.textAlign : 'left';
+        const next = order[(order.indexOf(current) + 1) % order.length];
+        const labels = { left: '左揃え', center: '中央揃え', right: '右揃え' };
+        this.pushShiftPhotoCompareUndo();
+        selected.forEach(mark => {
+            mark.dataset.textAlign = next;
+        });
+        this.syncShiftPhotoCompareWrapForMark(selected[0]);
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`枠付き文字を${labels[next]}にしました。`);
+    }
+
     selectShiftPhotoCompareMark(mark, additive = false) {
         if (!additive) {
             document.querySelectorAll('.shift-photo-compare-mark.selected').forEach(item => item.classList.remove('selected'));
@@ -6633,6 +6840,7 @@
             this.syncShiftPhotoCompareSelectionState();
             this._shiftPhotoCompareTextEditingMark = null;
             this.updateShiftPhotoCompareMiniToolbar();
+            this.updateShiftPhotoCompareAspectLockButton();
             this.refreshShiftPhotoCompareMarkList();
             return;
         }
@@ -6642,6 +6850,7 @@
             this.clearShiftPhotoCompareImageBrushMode({ silent: true });
             this.syncShiftPhotoCompareSelectionState();
             this.updateShiftPhotoCompareMiniToolbar();
+            this.updateShiftPhotoCompareAspectLockButton();
             return;
         }
         mark.classList.add('selected');
@@ -6664,13 +6873,15 @@
         const colorInput = document.querySelector('.shift-photo-compare-color input[type="color"]');
         const fontInput = document.querySelector('.shift-photo-compare-font select');
         const textInput = document.getElementById('shift-photo-compare-text-input');
+        const angleInput = document.querySelector('.shift-photo-angle-number');
         if (sizeInput) sizeInput.value = String(size);
+        if (angleInput) angleInput.value = String(angle);
         if (stretchInput) stretchInput.value = String(stretch);
         if (stretchYInput) stretchYInput.value = String(stretchY);
         if (strokeInput) strokeInput.value = String(stroke);
         if (colorInput) colorInput.value = color;
         if (fontInput) fontInput.value = font;
-        if (textInput && mark.dataset.mode === 'text') textInput.value = mark.dataset.text || '';
+        if (textInput && (mark.dataset.mode === 'text' || mark.dataset.mode === 'boxedText')) textInput.value = mark.dataset.text || '';
         document.querySelector('.shift-photo-compare-outline')?.classList.toggle('active', outline);
         this._shiftPhotoCompareMarkSize = size;
         this._shiftPhotoCompareMarkAngle = angle;
@@ -6696,6 +6907,7 @@
         if (dial) dial.style.setProperty('--angle', `${angle}deg`);
         this.updateShiftPhotoCompareSample();
         this.refreshShiftPhotoCompareMarkList();
+        this.updateShiftPhotoCompareAspectLockButton();
         this.updateShiftPhotoCompareMiniToolbar();
     }
 
@@ -6715,7 +6927,9 @@
         toolbar.dataset.primaryMode = mark.dataset.mode || '';
         toolbar.dataset.hasNumberTextPair = this.getShiftPhotoCompareNumberTextPair(mark) ? '1' : '';
         toolbar.dataset.hasImageSelection = selected.some(item => item.dataset.mode === 'image') ? '1' : '';
+        toolbar.dataset.hasBoxedTextSelection = selected.some(item => item.dataset.mode === 'boxedText') ? '1' : '';
         toolbar.dataset.hasLockedSelection = selected.some(item => this.isShiftPhotoCompareMarkLocked(item)) ? '1' : '';
+        this.updateShiftPhotoCompareAspectLockButton();
         const lockButton = toolbar.querySelector('.shift-photo-compare-lock-btn');
         if (lockButton) {
             const locked = selected.length > 0 && selected.every(item => this.isShiftPhotoCompareMarkLocked(item));
@@ -6730,6 +6944,19 @@
             groupButton.classList.toggle('active', grouped);
             groupButton.title = grouped ? 'グループ化を解除' : '選択中の記号をグループ化';
             groupButton.innerHTML = grouped ? '<i class="fa-solid fa-link-slash"></i>' : '<i class="fa-solid fa-link"></i>';
+        }
+        const boxedTextAlignButton = toolbar.querySelector('.shift-photo-compare-boxed-text-align-btn');
+        if (boxedTextAlignButton) {
+            const boxedTextMark = selected.find(item => item.dataset.mode === 'boxedText');
+            const align = ['left', 'center', 'right'].includes(boxedTextMark?.dataset?.textAlign || '') ? boxedTextMark.dataset.textAlign : 'left';
+            const labels = {
+                left: '左揃え',
+                center: '中央揃え',
+                right: '右揃え'
+            };
+            boxedTextAlignButton.textContent = '揃';
+            boxedTextAlignButton.title = `枠付き文字: ${labels[align]} / 押すと切替`;
+            boxedTextAlignButton.dataset.align = align;
         }
         const panel = document.querySelector('.shift-photo-compare-panel');
         const selectedRects = selected.map(item => item.getBoundingClientRect()).filter(rect => rect.width || rect.height);
@@ -6811,10 +7038,17 @@
             box.className = 'shift-photo-compare-selection-bounds';
             box.onpointerdown = (event) => this.startShiftPhotoCompareSelectionBoundsDrag(event, box);
             box.innerHTML = `
-                <span class="shift-photo-compare-resize-handle nw" data-corner="nw"></span>
-                <span class="shift-photo-compare-resize-handle ne" data-corner="ne"></span>
-                <span class="shift-photo-compare-resize-handle sw" data-corner="sw"></span>
-                <span class="shift-photo-compare-resize-handle se" data-corner="se"></span>
+                <span class="shift-photo-compare-resize-handle nw" data-corner="nw" title="全体を拡大・縮小"></span>
+                <span class="shift-photo-compare-resize-handle n" data-corner="n" title="縦だけ拡大・縮小 / Shiftで中心基準"></span>
+                <span class="shift-photo-compare-resize-handle ne" data-corner="ne" title="全体を拡大・縮小"></span>
+                <span class="shift-photo-compare-resize-handle e" data-corner="e" title="横だけ拡大・縮小 / Shiftで中心基準"></span>
+                <span class="shift-photo-compare-resize-handle w" data-corner="w" title="横だけ拡大・縮小 / Shiftで中心基準"></span>
+                <span class="shift-photo-compare-resize-handle sw" data-corner="sw" title="全体を拡大・縮小"></span>
+                <span class="shift-photo-compare-resize-handle s" data-corner="s" title="縦だけ拡大・縮小 / Shiftで中心基準"></span>
+                <span class="shift-photo-compare-resize-handle se" data-corner="se" title="全体を拡大・縮小"></span>
+                <span class="shift-photo-compare-rotate-handle" title="ドラッグで回転 / 45度ごとに吸着"></span>
+                <span class="shift-photo-compare-resize-guide" hidden></span>
+                <span class="shift-photo-compare-resize-readout" hidden></span>
             `;
             panel.appendChild(box);
         }
@@ -6824,12 +7058,19 @@
         box.style.height = `${Math.max(8, bottom - top)}px`;
         box.dataset.grouped = groupIds.length ? '1' : '';
         box.dataset.groupLabel = groupIds.length ? `グループ ${selected.length}件` : '';
+        box.dataset.hasImage = selected.some(mark => mark.dataset.mode === 'image') ? '1' : '';
+        box.dataset.hasRotate = selected.some(mark => mark.dataset.mode === 'image' || mark.dataset.mode === 'boxedText') ? '1' : '';
     }
 
     startShiftPhotoCompareSelectionBoundsDrag(event, box) {
         const selected = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks());
         if (!box || event.button !== 0 || !selected.length) return;
         const handle = event.target?.closest?.('.shift-photo-compare-resize-handle');
+        const rotateHandle = event.target?.closest?.('.shift-photo-compare-rotate-handle');
+        if (rotateHandle) {
+            this.startShiftPhotoCompareSelectionRotate(event, box);
+            return;
+        }
         if (handle) {
             const arrowHit = this.getShiftPhotoCompareArrowEndpointHit(event, selected);
             if (arrowHit) {
@@ -6893,9 +7134,14 @@
     }
 
     startShiftPhotoCompareSelectionResize(event, box, corner = 'se') {
+        const axis = ['e', 'w'].includes(corner) ? 'x' : (['n', 's'].includes(corner) ? 'y' : 'both');
         const selected = this.expandShiftPhotoCompareMarksWithPairs(this.getShiftPhotoCompareSelectedMarks())
             .filter(mark => mark.dataset.mode !== 'freehand' && !this.isShiftPhotoCompareMarkLocked(mark));
-        if (!selected.length) return;
+        const targetMarks = axis === 'both' ? selected : selected.filter(mark => mark.dataset.mode !== 'arrow');
+        if (!targetMarks.length) {
+            if (selected.some(mark => mark.dataset.mode === 'arrow')) this.showShiftPhotoCompareActionMessage('矢印は中点ハンドルでは伸縮しません。端の丸をドラッグしてください。');
+            return;
+        }
         event.preventDefault();
         event.stopPropagation();
         if (this._shiftPhotoCompareMarkMode !== 'move') this.setShiftPhotoCompareMarkModeDirect('move');
@@ -6905,30 +7151,99 @@
             x: boxRect.left + boxRect.width / 2,
             y: boxRect.top + boxRect.height / 2
         };
-        const startDistance = Math.max(12, Math.hypot(event.clientX - center.x, event.clientY - center.y));
-        const states = selected.map(mark => {
+        const origin = {
+            x: corner === 'e' ? boxRect.left : (corner === 'w' ? boxRect.right : center.x),
+            y: corner === 's' ? boxRect.top : (corner === 'n' ? boxRect.bottom : center.y)
+        };
+        const getDistance = (pointerEvent) => {
+            const useCenter = pointerEvent.shiftKey || axis === 'both';
+            const ox = useCenter ? center.x : origin.x;
+            const oy = useCenter ? center.y : origin.y;
+            if (axis === 'x') return Math.abs(pointerEvent.clientX - ox);
+            if (axis === 'y') return Math.abs(pointerEvent.clientY - oy);
+            return Math.hypot(pointerEvent.clientX - ox, pointerEvent.clientY - oy);
+        };
+        const startDistance = Math.max(12, getDistance(event));
+        const states = targetMarks.map(mark => {
             const wrap = mark.closest('.shift-photo-compare-image-wrap') || mark.closest('.shift-photo-compare-global-layer');
             const wrapRect = wrap?.getBoundingClientRect();
+            const markRect = mark.getBoundingClientRect();
             return {
                 mark,
                 wrap,
                 wrapWidth: wrapRect?.width || 1,
                 wrapHeight: wrapRect?.height || 1,
+                visualWidth: markRect?.width || 0,
                 x: parseFloat(mark.style.left) || 0,
                 y: parseFloat(mark.style.top) || 0,
                 size: parseFloat(mark.dataset.size || '') || 56,
                 stretch: parseFloat(mark.dataset.stretch || '') || 1,
                 stretchY: parseFloat(mark.dataset.stretchY || '') || 1,
                 centerX: wrapRect ? ((center.x - wrapRect.left) / wrapRect.width) * 100 : 50,
-                centerY: wrapRect ? ((center.y - wrapRect.top) / wrapRect.height) * 100 : 50
+                centerY: wrapRect ? ((center.y - wrapRect.top) / wrapRect.height) * 100 : 50,
+                originX: wrapRect ? ((origin.x - wrapRect.left) / wrapRect.width) * 100 : 50,
+                originY: wrapRect ? ((origin.y - wrapRect.top) / wrapRect.height) * 100 : 50
             };
         }).filter(item => item.wrap);
+        const selectedSet = new Set(targetMarks);
+        const widthSnapModes = new Set(['image', 'boxedText']);
+        const snapSourceWraps = Array.from(new Set(states.map(item => item.wrap)));
+        const widthSnapTargets = snapSourceWraps.flatMap(wrap => Array.from(wrap.querySelectorAll('.shift-photo-compare-mark.image, .shift-photo-compare-mark.boxedText'))
+            .filter(mark => !selectedSet.has(mark) && widthSnapModes.has(mark.dataset.mode || ''))
+            .map(mark => {
+                const rect = mark.getBoundingClientRect();
+                return { mark, wrap, width: rect?.width || 0 };
+            })
+            .filter(item => item.width > 8));
         const move = (moveEvent) => {
             moveEvent.preventDefault();
-            const distance = Math.max(4, Math.hypot(moveEvent.clientX - center.x, moveEvent.clientY - center.y));
-            const scale = Math.max(0.1, Math.min(10, distance / startDistance));
+            const distance = Math.max(4, getDistance(moveEvent));
+            let scale = Math.max(0.1, Math.min(10, distance / startDistance));
+            const useCenter = moveEvent.shiftKey || axis === 'both';
+            const aspectLock = !!this._shiftPhotoCompareAspectLock;
+            let widthSnapTarget = null;
+            const primary = states[0];
+            if (moveEvent.shiftKey && this.isShiftPhotoCompareSnapGuideEnabled() && widthSnapModes.has(primary?.mark?.dataset.mode || '') && ['both', 'x'].includes(axis) && primary.visualWidth > 8 && widthSnapTargets.length) {
+                const currentWidth = primary.visualWidth * scale;
+                const threshold = Math.max(14, this.getShiftPhotoCompareSnapGuideThreshold() * 10);
+                widthSnapTarget = widthSnapTargets.reduce((best, item) => {
+                    const diff = Math.abs(currentWidth - item.width);
+                    if (diff > threshold) return best;
+                    if (!best || diff < best.diff) return { ...item, diff };
+                    return best;
+                }, null);
+                if (widthSnapTarget) {
+                    scale = Math.max(0.1, Math.min(10, widthSnapTarget.width / primary.visualWidth));
+                }
+            }
             states.forEach(item => {
-                const nextSize = Math.max(24, Math.min(item.mark.dataset.mode === 'mosaic' ? 1200 : 700, item.size * scale));
+                const isMosaic = item.mark.dataset.mode === 'mosaic';
+                const isLockedImage = aspectLock && item.mark.dataset.mode === 'image';
+                const baseX = useCenter ? item.centerX : item.originX;
+                const baseY = useCenter ? item.centerY : item.originY;
+                if (isLockedImage && axis !== 'both') {
+                    const nextSize = Math.max(24, Math.min(700, item.size * scale));
+                    item.mark.dataset.size = String(Math.round(nextSize));
+                    item.mark.style.setProperty('--mark-size', `${nextSize}px`);
+                    item.mark.style.left = `${Math.max(0, Math.min(100, baseX + (item.x - baseX) * scale))}%`;
+                    item.mark.style.top = `${Math.max(0, Math.min(100, baseY + (item.y - baseY) * scale))}%`;
+                    return;
+                }
+                if (axis === 'x') {
+                    const nextStretch = Math.max(isMosaic ? 0.05 : 0.5, Math.min(isMosaic ? 12 : 5, item.stretch * scale));
+                    item.mark.dataset.stretch = String(nextStretch);
+                    item.mark.style.setProperty('--mark-scale-x', String(nextStretch));
+                    item.mark.style.left = `${Math.max(0, Math.min(100, baseX + (item.x - baseX) * scale))}%`;
+                    return;
+                }
+                if (axis === 'y') {
+                    const nextStretchY = Math.max(isMosaic ? 0.05 : 0.5, Math.min(isMosaic ? 12 : 5, item.stretchY * scale));
+                    item.mark.dataset.stretchY = String(nextStretchY);
+                    item.mark.style.setProperty('--mark-scale-y', String(nextStretchY));
+                    item.mark.style.top = `${Math.max(0, Math.min(100, baseY + (item.y - baseY) * scale))}%`;
+                    return;
+                }
+                const nextSize = Math.max(24, Math.min(isMosaic ? 1200 : 700, item.size * scale));
                 item.mark.dataset.size = String(Math.round(nextSize));
                 item.mark.style.setProperty('--mark-size', `${nextSize}px`);
                 item.mark.style.left = `${Math.max(0, Math.min(100, item.centerX + (item.x - item.centerX) * scale))}%`;
@@ -6936,13 +7251,61 @@
             });
             const first = states[0]?.mark;
             if (first) {
-                const sizeInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkSize"]');
-                const sizeLabel = document.getElementById('shift-photo-compare-size-value');
-                const size = Math.round(parseFloat(first.dataset.size || '') || 56);
-                if (sizeInput) sizeInput.value = String(size);
-                if (sizeLabel) sizeLabel.textContent = String(size);
-                this._shiftPhotoCompareMarkSize = size;
+                if (axis === 'x') {
+                    const stretch = Math.round((parseFloat(first.dataset.stretch || '') || 1) * 100);
+                    const input = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretch"]');
+                    const label = document.getElementById('shift-photo-compare-stretch-value');
+                    if (input) input.value = String(stretch);
+                    if (label) label.textContent = String(stretch);
+                    this._shiftPhotoCompareMarkStretch = stretch;
+                } else if (axis === 'y') {
+                    const stretchY = Math.round((parseFloat(first.dataset.stretchY || '') || 1) * 100);
+                    const input = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretchY"]');
+                    const label = document.getElementById('shift-photo-compare-stretch-y-value');
+                    if (input) input.value = String(stretchY);
+                    if (label) label.textContent = String(stretchY);
+                    this._shiftPhotoCompareMarkStretchY = stretchY;
+                } else {
+                    const sizeInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkSize"]');
+                    const sizeLabel = document.getElementById('shift-photo-compare-size-value');
+                    const size = Math.round(parseFloat(first.dataset.size || '') || 56);
+                    if (sizeInput) sizeInput.value = String(size);
+                    if (sizeLabel) sizeLabel.textContent = String(size);
+                    this._shiftPhotoCompareMarkSize = size;
+                }
+                const readout = box.querySelector('.shift-photo-compare-resize-readout');
+                if (readout) {
+                    const sx = Math.round((parseFloat(first.dataset.stretch || '') || 1) * 100);
+                    const sy = Math.round((parseFloat(first.dataset.stretchY || '') || 1) * 100);
+                    const size = Math.round(parseFloat(first.dataset.size || '') || 56);
+                    readout.hidden = false;
+                    const hint = axis === 'both' ? '' : (moveEvent.shiftKey ? ' / 中心基準' : ' / Shiftで中心');
+                    readout.textContent = axis === 'x'
+                        ? `横${sx}%`
+                        : (axis === 'y' ? `縦${sy}%` : `大きさ${size}`);
+                    readout.dataset.hint = widthSnapTarget ? ' / 幅一致' : hint;
+                }
+                const guide = box.querySelector('.shift-photo-compare-resize-guide');
+                if (guide) {
+                    guide.hidden = axis === 'both';
+                    guide.className = `shift-photo-compare-resize-guide ${axis === 'x' ? 'vertical' : 'horizontal'}`;
+                    guide.style.left = '';
+                    guide.style.right = '';
+                    guide.style.top = '';
+                    guide.style.bottom = '';
+                    if (axis === 'x') {
+                        if (useCenter) guide.style.left = '50%';
+                        else if (corner === 'e') guide.style.left = '0';
+                        else guide.style.right = '0';
+                    } else if (axis === 'y') {
+                        if (useCenter) guide.style.top = '50%';
+                        else if (corner === 's') guide.style.top = '0';
+                        else guide.style.bottom = '0';
+                    }
+                }
             }
+            if (widthSnapTarget) this.renderShiftPhotoCompareResizeWidthMatchGuide(widthSnapTarget.mark);
+            else this.clearShiftPhotoCompareResizeWidthMatchGuide();
             this.updateShiftPhotoCompareSelectionBounds();
             this.updateShiftPhotoCompareMiniToolbar();
         };
@@ -6950,6 +7313,10 @@
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', stop);
             window.removeEventListener('pointercancel', stop);
+            box.querySelector('.shift-photo-compare-resize-readout')?.setAttribute('hidden', '');
+            box.querySelector('.shift-photo-compare-resize-guide')?.setAttribute('hidden', '');
+            this.clearShiftPhotoCompareResizeWidthMatchGuide();
+            states.forEach(item => this.rememberShiftPhotoCompareRecentImageSizePreset(item.mark));
             new Set(states.map(item => item.wrap)).forEach(wrap => {
                 if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
                 else this.syncShiftPhotoCompareMarks(wrap);
@@ -6957,6 +7324,69 @@
             this.refreshShiftPhotoCompareMarkList();
             this.autoSaveShiftNotebook(true);
         };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', stop, { once: true });
+        window.addEventListener('pointercancel', stop, { once: true });
+    }
+
+    startShiftPhotoCompareSelectionRotate(event, box) {
+        const targets = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks())
+            .filter(mark => mark.dataset.mode === 'image' || mark.dataset.mode === 'boxedText');
+        if (!box || event.button !== 0 || !targets.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (this._shiftPhotoCompareMarkMode !== 'move') this.setShiftPhotoCompareMarkModeDirect('move');
+        this.pushShiftPhotoCompareUndo();
+        const boxRect = box.getBoundingClientRect();
+        const center = {
+            x: boxRect.left + boxRect.width / 2,
+            y: boxRect.top + boxRect.height / 2
+        };
+        const applyAngle = (pointerEvent) => {
+            const rad = Math.atan2(pointerEvent.clientY - center.y, pointerEvent.clientX - center.x);
+            let angle = Math.round((rad * 180 / Math.PI - 90 + 360) % 360);
+            const snapped = Math.round(angle / 45) * 45;
+            if (Math.abs(angle - snapped) <= 6 || Math.abs(angle - snapped + 360) <= 6 || Math.abs(angle - snapped - 360) <= 6) {
+                angle = ((snapped % 360) + 360) % 360;
+            }
+            targets.forEach(mark => {
+                mark.dataset.angle = String(angle);
+                mark.style.setProperty('--mark-rotate', `${angle}deg`);
+            });
+            this._shiftPhotoCompareMarkAngle = angle;
+            const angleLabel = document.getElementById('shift-photo-compare-angle-value');
+            const angleInput = document.querySelector('.shift-photo-angle-number');
+            const dial = document.querySelector('.shift-photo-angle-dial');
+            if (angleLabel) angleLabel.textContent = String(angle);
+            if (angleInput) angleInput.value = String(angle);
+            if (dial) dial.style.setProperty('--angle', `${angle}deg`);
+            const liveBox = document.getElementById('shift-photo-compare-selection-bounds') || box;
+            const liveReadout = liveBox?.querySelector?.('.shift-photo-compare-resize-readout');
+            if (liveReadout) {
+                liveReadout.hidden = false;
+                liveReadout.textContent = `${angle}度`;
+                liveReadout.dataset.hint = angle % 45 === 0 ? ' / 45度吸着' : '';
+            }
+            this.updateShiftPhotoCompareSelectionBounds();
+        };
+        const move = (moveEvent) => {
+            moveEvent.preventDefault();
+            applyAngle(moveEvent);
+        };
+        const stop = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', stop);
+            window.removeEventListener('pointercancel', stop);
+            document.querySelector('#shift-photo-compare-selection-bounds .shift-photo-compare-resize-readout')?.setAttribute('hidden', '');
+            new Set(targets.map(mark => mark.closest('.shift-photo-compare-image-wrap') || mark.closest('.shift-photo-compare-global-layer')).filter(Boolean)).forEach(wrap => {
+                if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+                else this.syncShiftPhotoCompareMarks(wrap);
+            });
+            this.refreshShiftPhotoCompareMarkList();
+            this.updateShiftPhotoCompareMiniToolbar();
+            this.autoSaveShiftNotebook(true);
+        };
+        applyAngle(event);
         window.addEventListener('pointermove', move);
         window.addEventListener('pointerup', stop, { once: true });
         window.addEventListener('pointercancel', stop, { once: true });
@@ -7010,7 +7440,7 @@
             mark.style.setProperty('--mark-scale-x', String(stretch));
         }
         if (settings.stretchY !== undefined) {
-            const stretchY = Math.max(0.5, Math.min(2.6, Number(settings.stretchY) || 1));
+            const stretchY = Math.max(0.5, Math.min(5, Number(settings.stretchY) || 1));
             mark.dataset.stretchY = String(stretchY);
             mark.style.setProperty('--mark-scale-y', String(stretchY));
         }
@@ -7032,7 +7462,7 @@
         if (settings.outline !== undefined) {
             mark.dataset.outline = settings.outline ? '1' : '0';
         }
-        if (settings.text !== undefined && mark.dataset.mode === 'text') {
+        if (settings.text !== undefined && (mark.dataset.mode === 'text' || mark.dataset.mode === 'boxedText')) {
             const text = String(settings.text || '').slice(0, 120);
             mark.dataset.text = text;
             mark.innerHTML = this.escapeHtml(text);
@@ -7076,6 +7506,99 @@
         return { canvas, ctx };
     }
 
+    makeConnectedBackgroundTransparentOnCanvas(canvas, ctx, options = {}) {
+        const width = Math.max(1, canvas?.width || 1);
+        const height = Math.max(1, canvas?.height || 1);
+        const image = ctx.getImageData(0, 0, width, height);
+        const data = image.data;
+        const samplePoints = [
+            [0, 0],
+            [width - 1, 0],
+            [0, height - 1],
+            [width - 1, height - 1]
+        ];
+        const samples = samplePoints.map(([x, y]) => {
+            const i = (y * width + x) * 4;
+            return [data[i], data[i + 1], data[i + 2]];
+        });
+        const edgeStep = Math.max(1, Math.floor(Math.max(width, height) / 160));
+        const buckets = new Map();
+        const addBucket = (x, y) => {
+            const i = (y * width + x) * 4;
+            if (data[i + 3] <= 0) return;
+            const key = `${Math.round(data[i] / 16) * 16},${Math.round(data[i + 1] / 16) * 16},${Math.round(data[i + 2] / 16) * 16}`;
+            const bucket = buckets.get(key) || { count: 0, r: 0, g: 0, b: 0 };
+            bucket.count += 1;
+            bucket.r += data[i];
+            bucket.g += data[i + 1];
+            bucket.b += data[i + 2];
+            buckets.set(key, bucket);
+        };
+        for (let x = 0; x < width; x += edgeStep) {
+            addBucket(x, 0);
+            addBucket(x, height - 1);
+        }
+        for (let y = 0; y < height; y += edgeStep) {
+            addBucket(0, y);
+            addBucket(width - 1, y);
+        }
+        const minBucketCount = Math.max(4, Math.round((width / edgeStep + height / edgeStep) * 0.025));
+        [...buckets.values()]
+            .filter(bucket => bucket.count >= minBucketCount)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 8)
+            .forEach(bucket => samples.push([
+                Math.round(bucket.r / bucket.count),
+                Math.round(bucket.g / bucket.count),
+                Math.round(bucket.b / bucket.count)
+            ]));
+        const tolerance = Number.isFinite(options.tolerance) ? options.tolerance : 54;
+        const total = width * height;
+        const visited = new Uint8Array(total);
+        const queue = new Int32Array(total);
+        let head = 0;
+        let tail = 0;
+        let changed = 0;
+        const isBackgroundLike = (index) => {
+            const i = index * 4;
+            if (data[i + 3] <= 0) return true;
+            return samples.some(([r, g, b]) => {
+                const dr = data[i] - r;
+                const dg = data[i + 1] - g;
+                const db = data[i + 2] - b;
+                return Math.hypot(dr, dg, db) <= tolerance;
+            });
+        };
+        const enqueue = (index) => {
+            if (index < 0 || index >= total || visited[index] || !isBackgroundLike(index)) return;
+            visited[index] = 1;
+            queue[tail++] = index;
+        };
+        for (let x = 0; x < width; x += 1) {
+            enqueue(x);
+            enqueue((height - 1) * width + x);
+        }
+        for (let y = 1; y < height - 1; y += 1) {
+            enqueue(y * width);
+            enqueue(y * width + width - 1);
+        }
+        while (head < tail) {
+            const index = queue[head++];
+            const i = index * 4;
+            if (data[i + 3] > 0) {
+                data[i + 3] = 0;
+                changed += 1;
+            }
+            const x = index % width;
+            if (x > 0) enqueue(index - 1);
+            if (x < width - 1) enqueue(index + 1);
+            if (index >= width) enqueue(index - width);
+            if (index < total - width) enqueue(index + width);
+        }
+        ctx.putImageData(image, 0, 0);
+        return { changed, total };
+    }
+
     async removeSelectedShiftPhotoImageBackground() {
         const mark = this.getSelectedShiftPhotoImageMark();
         if (!mark) {
@@ -7088,33 +7611,9 @@
         try {
             const { canvas, ctx } = await this.drawImageToWorkCanvas(src);
             if (!mark.dataset.originalImageSrc) mark.dataset.originalImageSrc = src;
-            const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = image.data;
-            const samplePoints = [
-                [0, 0],
-                [canvas.width - 1, 0],
-                [0, canvas.height - 1],
-                [canvas.width - 1, canvas.height - 1]
-            ];
-            const samples = samplePoints.map(([x, y]) => {
-                const i = (Math.max(0, y) * canvas.width + Math.max(0, x)) * 4;
-                return [data[i], data[i + 1], data[i + 2]];
-            });
-            const tolerance = 54;
-            for (let i = 0; i < data.length; i += 4) {
-                const near = samples.some(([r, g, b]) => {
-                    const dr = data[i] - r;
-                    const dg = data[i + 1] - g;
-                    const db = data[i + 2] - b;
-                    return Math.hypot(dr, dg, db) <= tolerance;
-                });
-                if (near) {
-                    data[i + 3] = 0;
-                }
-            }
-            ctx.putImageData(image, 0, 0);
+            const result = this.makeConnectedBackgroundTransparentOnCanvas(canvas, ctx);
             this.setShiftPhotoImageMarkSource(mark, canvas.toDataURL('image/png'));
-            this.syncShiftPhotoImageMark(mark, '画像の背景色を簡易透明化しました。');
+            this.syncShiftPhotoImageMark(mark, result.changed ? '外側につながった背景だけを透明化しました。' : '透明化できそうな背景色が見つかりませんでした。');
         } catch (error) {
             console.error(error);
             this.showShiftPhotoCompareActionMessage('背景抜きに失敗しました。');
@@ -7278,6 +7777,92 @@
         return canvas.toDataURL('image/png');
     }
 
+    async renderShiftPhotoCompareMarkAsAsset(mark) {
+        if (!mark || !document.contains(mark)) return '';
+        if (mark.dataset.mode === 'image') return this.renderShiftPhotoImageMarkAsAsset(mark);
+        const rect = mark.getBoundingClientRect();
+        const naturalWidth = Math.max(1, mark.offsetWidth || rect.width || 1);
+        const naturalHeight = Math.max(1, mark.offsetHeight || rect.height || 1);
+        const stretch = Math.max(0.05, parseFloat(mark.dataset.stretch || '') || 1);
+        const stretchY = Math.max(0.05, parseFloat(mark.dataset.stretchY || '') || 1);
+        const angle = ((parseFloat(mark.dataset.angle || '') || 0) % 360 + 360) % 360;
+        const rad = angle * Math.PI / 180;
+        const rotatedWidth = Math.abs(Math.cos(rad)) * naturalWidth * stretch + Math.abs(Math.sin(rad)) * naturalHeight * stretchY;
+        const rotatedHeight = Math.abs(Math.sin(rad)) * naturalWidth * stretch + Math.abs(Math.cos(rad)) * naturalHeight * stretchY;
+        const margin = Math.max(14, Math.ceil(Math.max(naturalWidth, naturalHeight) * 0.035));
+        const width = Math.max(120, Math.ceil(rotatedWidth + margin * 2));
+        const height = Math.max(90, Math.ceil(rotatedHeight + margin * 2));
+        const exportScale = mark.dataset.mode === 'boxedText' ? 3 : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(width * exportScale));
+        canvas.height = Math.max(1, Math.round(height * exportScale));
+        const ctx = canvas.getContext('2d');
+        ctx.scale(exportScale, exportScale);
+        const clone = mark.cloneNode(true);
+        clone.style.left = '50%';
+        clone.style.top = '50%';
+        clone.dataset.assetBoxWidth = String(naturalWidth);
+        clone.dataset.assetBoxHeight = String(naturalHeight);
+        await this.drawShiftPhotoCompareMark(ctx, clone, { x: 0, y: 0, width, height });
+        return canvas.toDataURL('image/png');
+    }
+
+    getShiftPhotoCompareBoxedTextName(mark) {
+        const text = String(mark?.dataset?.text || mark?.textContent || '').trim().replace(/\s+/g, ' ');
+        return text ? `枠付き文字 ${text.slice(0, 18)}` : '枠付き文字';
+    }
+
+    async saveShiftPhotoCompareBoxedTextToManager(mark = this._shiftPhotoCompareSelectedMark) {
+        if (!mark || mark.dataset.mode !== 'boxedText') return this.showShiftPhotoCompareActionMessage('保存する枠付き文字を選択してください。');
+        if (typeof this.addPhotoManagerLibraryImage !== 'function') {
+            return this.showShiftPhotoCompareActionMessage('写真管理が利用できません。');
+        }
+        try {
+            const src = await this.renderShiftPhotoCompareMarkAsAsset(mark);
+            if (!src) return this.showShiftPhotoCompareActionMessage('枠付き文字を画像化できませんでした。');
+            const item = this.addPhotoManagerLibraryImage(src, this.getShiftPhotoCompareBoxedTextName(mark));
+            if (!item) return;
+            const sizePreset = this.getShiftPhotoCompareBoxedTextImageSizePreset(mark);
+            if (sizePreset) item.sizePreset = sizePreset;
+            item.imageFit = 'fill';
+            this.rememberShiftPhotoCompareImageStamp(src, this.getShiftPhotoCompareBoxedTextName(mark));
+            const recent = this.getShiftPhotoCompareRecentImageStamps?.() || [];
+            const recentItem = recent.find(entry => entry.src === src);
+            if (recentItem && sizePreset) {
+                recentItem.sizePreset = sizePreset;
+                this.saveShiftPhotoCompareRecentImageStamps?.(recent);
+            }
+            if (!this._imageSourceTransparencyCache) this._imageSourceTransparencyCache = new Map();
+            this._imageSourceTransparencyCache.set(src, true);
+            store.save();
+            if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
+            this.showShiftPhotoCompareActionMessage('枠付き文字を画像として写真管理へ保存しました。');
+        } catch (error) {
+            console.error(error);
+            this.showShiftPhotoCompareActionMessage('枠付き文字の保存に失敗しました。');
+        }
+    }
+
+    async checkShiftPhotoCompareBoxedTextTransparency(mark = this._shiftPhotoCompareSelectedMark) {
+        if (!mark || mark.dataset.mode !== 'boxedText') return this.showShiftPhotoCompareActionMessage('透過チェックする枠付き文字を選択してください。');
+        try {
+            const src = await this.renderShiftPhotoCompareMarkAsAsset(mark);
+            if (!src) return this.showShiftPhotoCompareActionMessage('枠付き文字を画像化できませんでした。');
+            const sizePreset = this.getShiftPhotoCompareBoxedTextImageSizePreset(mark);
+            this.openShiftPhotoCompareBaseImageTransparencyPreview(src, src, {
+                name: this.getShiftPhotoCompareBoxedTextName(mark),
+                changed: 0,
+                total: 0,
+                alreadyTransparent: true,
+                sizePreset,
+                imageFit: 'fill'
+            });
+        } catch (error) {
+            console.error(error);
+            this.showShiftPhotoCompareActionMessage('枠付き文字の透過チェックに失敗しました。');
+        }
+    }
+
     saveSelectedShiftPhotoImageToManager() {
         const mark = this.getSelectedShiftPhotoImageMark();
         const src = mark?.dataset?.imageSrc || mark?.querySelector?.('img')?.src || '';
@@ -7315,17 +7900,18 @@
     }
 
     openShiftPhotoCompareImageContextMenu(event, mark) {
-        if (!mark || mark.dataset.mode !== 'image') return;
+        if (!mark || !['image', 'boxedText'].includes(mark.dataset.mode || '')) return;
         this.closeShiftPhotoCompareImageContextMenu();
         if (!mark.classList.contains('selected')) this.selectShiftPhotoCompareMark(mark);
+        const isBoxedText = mark.dataset.mode === 'boxedText';
         const panel = document.querySelector('.shift-photo-compare-panel');
         const panelRect = panel?.getBoundingClientRect();
         if (!panelRect?.width) return;
         const menu = document.createElement('div');
         menu.className = 'shift-photo-compare-image-context-menu';
         menu.innerHTML = `
-            <button type="button" data-action="save"><i class="fa-solid fa-bookmark"></i><span>写真管理へ保存</span></button>
-            <button type="button" data-action="restore"><i class="fa-solid fa-clock-rotate-left"></i><span>元画像に戻す</span></button>
+            <button type="button" data-action="save"><i class="fa-solid fa-bookmark"></i><span>${isBoxedText ? '枠を画像として写真管理へ保存' : '写真管理へ保存'}</span></button>
+            ${isBoxedText ? '' : '<button type="button" data-action="restore"><i class="fa-solid fa-clock-rotate-left"></i><span>元画像に戻す</span></button>'}
             <button type="button" data-action="cutout"><i class="fa-solid fa-wand-magic-sparkles"></i><span>透過候補チェック</span></button>
             <button type="button" data-action="front"><i class="fa-solid fa-arrow-up"></i><span>前面へ</span></button>
             <button type="button" data-action="back"><i class="fa-solid fa-arrow-down"></i><span>背面へ</span></button>
@@ -7336,11 +7922,362 @@
             if (!action) return;
             menuEvent.preventDefault();
             menuEvent.stopPropagation();
-            if (action === 'save') this.saveSelectedShiftPhotoImageToManager();
+            if (action === 'save') {
+                if (isBoxedText) this.saveShiftPhotoCompareBoxedTextToManager(mark);
+                else this.saveSelectedShiftPhotoImageToManager();
+            }
             if (action === 'restore') this.restoreSelectedShiftPhotoImageOriginal();
-            if (action === 'cutout') this.removeSelectedShiftPhotoImageBackground();
+            if (action === 'cutout') {
+                if (isBoxedText) this.checkShiftPhotoCompareBoxedTextTransparency(mark);
+                else this.removeSelectedShiftPhotoImageBackground();
+            }
             if (action === 'front') this.moveSelectedShiftPhotoCompareMarkLayer('front');
             if (action === 'back') this.moveSelectedShiftPhotoCompareMarkLayer('back');
+            this.closeShiftPhotoCompareImageContextMenu();
+        });
+        panel.appendChild(menu);
+        const left = Math.max(8, Math.min(panelRect.width - menu.offsetWidth - 8, event.clientX - panelRect.left));
+        const top = Math.max(8, Math.min(panelRect.height - menu.offsetHeight - 8, event.clientY - panelRect.top));
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    }
+
+    getShiftPhotoCompareBaseImageSource(wrap) {
+        return wrap?.querySelector?.(':scope > img')?.src || wrap?.querySelector?.('img')?.src || '';
+    }
+
+    getShiftPhotoCompareBaseImageName(wrap) {
+        const index = Number(wrap?.dataset?.photoIndex);
+        const photo = Number.isFinite(index) ? this.getCurrentShiftPhotoComparePhotos?.()[index] : null;
+        const caption = photo?.caption
+            || wrap?.closest?.('.shift-photo-compare-item')?.querySelector?.('.shift-photo-compare-caption')?.textContent?.trim()
+            || wrap?.parentElement?.querySelector?.('.shift-photo-compare-caption')?.textContent?.trim()
+            || '';
+        return caption || `ベース画像${Number.isFinite(index) ? index + 1 : ''}`.trim();
+    }
+
+    saveShiftPhotoCompareBaseImageToManager(wrap) {
+        const src = this.getShiftPhotoCompareBaseImageSource(wrap);
+        if (!src) return this.showShiftPhotoCompareActionMessage('登録するベース画像が見つかりません。');
+        if (typeof this.addPhotoManagerLibraryImage !== 'function') {
+            return this.showShiftPhotoCompareActionMessage('写真管理が利用できません。');
+        }
+        const item = this.addPhotoManagerLibraryImage(src, this.getShiftPhotoCompareBaseImageName(wrap));
+        if (!item) return;
+        store.save();
+        if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
+        this.showShiftPhotoCompareActionMessage('ベース画像を写真管理へ登録しました。');
+    }
+
+    async checkShiftPhotoCompareBaseImageTransparency(wrap) {
+        const src = this.getShiftPhotoCompareBaseImageSource(wrap);
+        if (!src) return this.showShiftPhotoCompareActionMessage('チェックするベース画像が見つかりません。');
+        try {
+            const alreadyTransparent = typeof this.imageHasTransparentPixels === 'function'
+                ? await this.imageHasTransparentPixels(src)
+                : false;
+            if (alreadyTransparent) {
+                this.openShiftPhotoCompareBaseImageTransparencyPreview(src, src, {
+                    name: this.getShiftPhotoCompareBaseImageName(wrap),
+                    changed: 0,
+                    total: 0,
+                    alreadyTransparent: true
+                });
+                return;
+            }
+            if (typeof this.createTransparentPhotoManagerSource !== 'function') {
+                this.showShiftPhotoCompareActionMessage('透過候補チェックが利用できません。');
+                return;
+            }
+            const result = await this.createTransparentPhotoManagerSource(src);
+            const ratio = result.total ? result.changed / result.total : 0;
+            this.openShiftPhotoCompareBaseImageTransparencyPreview(src, result.src || src, {
+                name: this.getShiftPhotoCompareBaseImageName(wrap),
+                changed: result.changed || 0,
+                total: result.total || 0,
+                ratio
+            });
+            if (result.changed && ratio > 0.005) {
+                this.showShiftPhotoCompareActionMessage(`透過プレビューを表示しました。背景候補 ${Math.round(ratio * 100)}% を透明化できます。`);
+            } else {
+                this.showShiftPhotoCompareActionMessage('透過プレビューを表示しました。透明化できそうな背景は少なめです。');
+            }
+        } catch (error) {
+            console.error(error);
+            this.showShiftPhotoCompareActionMessage('透過候補チェックに失敗しました。');
+        }
+    }
+
+    openShiftPhotoCompareBaseImageTransparencyPreview(originalSrc = '', transparentSrc = '', options = {}) {
+        if (!originalSrc || !transparentSrc) return;
+        document.getElementById('shift-photo-compare-alpha-preview')?.remove();
+        const changed = Number(options.changed || 0);
+        const total = Number(options.total || 0);
+        const ratio = total ? Math.round((changed / total) * 100) : 0;
+        const alreadyTransparent = !!options.alreadyTransparent;
+        const strength = options.strength || 'standard';
+        const title = options.name ? `${options.name} の透過チェック` : 'ベース画像の透過チェック';
+        const summary = alreadyTransparent
+            ? 'この画像はすでに透過情報を持っています。'
+            : changed
+                ? `外側背景として ${ratio}% を透明化したプレビューです。`
+                : '透明化できそうな外側背景は見つかりませんでした。';
+        const overlay = document.createElement('div');
+        overlay.id = 'shift-photo-compare-alpha-preview';
+        overlay.className = 'shift-photo-compare-alpha-preview';
+        overlay.innerHTML = `
+            <div class="shift-photo-compare-alpha-card" role="dialog" aria-modal="true" aria-label="${this.escapeHtml(title)}">
+                <div class="shift-photo-compare-alpha-head">
+                    <div>
+                        <b>${this.escapeHtml(title)}</b>
+                        <span class="shift-photo-compare-alpha-summary">${this.escapeHtml(summary)}</span>
+                    </div>
+                    <button type="button" onclick="app.closeShiftPhotoCompareBaseImageTransparencyPreview()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="shift-photo-compare-alpha-tools">
+                    <div class="shift-photo-compare-alpha-strength" aria-label="透過の強さ">
+                        <span>透過の強さ</span>
+                    <button type="button" data-strength="weak" class="${strength === 'weak' ? 'active' : ''}" onclick="app.refreshShiftPhotoCompareAlphaPreview('weak')">弱</button>
+                    <button type="button" data-strength="standard" class="${strength === 'standard' ? 'active' : ''}" onclick="app.refreshShiftPhotoCompareAlphaPreview('standard')">標準</button>
+                    <button type="button" data-strength="strong" class="${strength === 'strong' ? 'active' : ''}" onclick="app.refreshShiftPhotoCompareAlphaPreview('strong')">強</button>
+                    </div>
+                    <div class="shift-photo-compare-alpha-bg" aria-label="背景確認">
+                        <span>背景確認</span>
+                        <button type="button" data-bg="checker" class="active" onclick="app.setShiftPhotoCompareAlphaPreviewBg('checker')">格子</button>
+                        <button type="button" data-bg="red" onclick="app.setShiftPhotoCompareAlphaPreviewBg('red')">赤</button>
+                        <button type="button" data-bg="blue" onclick="app.setShiftPhotoCompareAlphaPreviewBg('blue')">青</button>
+                        <button type="button" data-bg="black" onclick="app.setShiftPhotoCompareAlphaPreviewBg('black')">黒</button>
+                    </div>
+                </div>
+                <div class="shift-photo-compare-alpha-grid">
+                    <figure>
+                        <figcaption>元画像</figcaption>
+                        <button type="button" class="shift-photo-compare-alpha-stage" onclick="app.openShiftPhotoCompareAlphaPreviewZoom('original')" title="拡大表示">
+                            <img src="${this.escapeHtml(originalSrc)}" alt="元画像">
+                        </button>
+                    </figure>
+                    <figure>
+                        <figcaption>透過後</figcaption>
+                        <button type="button" class="shift-photo-compare-alpha-stage checker" onclick="app.openShiftPhotoCompareAlphaPreviewZoom('transparent')" title="拡大表示">
+                            <img src="${this.escapeHtml(transparentSrc)}" alt="透過後">
+                        </button>
+                    </figure>
+                </div>
+                <div class="shift-photo-compare-alpha-actions">
+                    <button type="button" class="secondary" onclick="app.closeShiftPhotoCompareBaseImageTransparencyPreview()">閉じる</button>
+                    <button type="button" class="secondary" onclick="app.useShiftPhotoCompareAlphaPreviewAsStamp()"><i class="fa-solid fa-image"></i> このまま画像編集へ貼る</button>
+                    <button type="button" onclick="app.saveShiftPhotoCompareAlphaPreviewToManager()"><i class="fa-solid fa-bookmark"></i> 透過版を写真管理へ保存</button>
+                </div>
+            </div>
+        `;
+        overlay.addEventListener('click', event => {
+            if (event.target === overlay) this.closeShiftPhotoCompareBaseImageTransparencyPreview();
+        });
+        this._shiftPhotoCompareAlphaPreview = {
+            originalSrc,
+            src: transparentSrc,
+            name: `${options.name || 'ベース画像'} 透過`,
+            baseName: options.name || 'ベース画像',
+            strength,
+            bgMode: 'checker',
+            alreadyTransparent,
+            sizePreset: options.sizePreset || null,
+            imageFit: options.imageFit === 'fill' ? 'fill' : ''
+        };
+        document.body.appendChild(overlay);
+    }
+
+    closeShiftPhotoCompareBaseImageTransparencyPreview() {
+        document.getElementById('shift-photo-compare-alpha-preview')?.remove();
+        document.getElementById('shift-photo-compare-alpha-zoom')?.remove();
+    }
+
+    setShiftPhotoCompareAlphaPreviewBg(mode = 'checker') {
+        const allowed = ['checker', 'red', 'blue', 'black'];
+        const next = allowed.includes(mode) ? mode : 'checker';
+        if (!this._shiftPhotoCompareAlphaPreview) return;
+        this._shiftPhotoCompareAlphaPreview.bgMode = next;
+        const overlay = document.getElementById('shift-photo-compare-alpha-preview');
+        overlay?.querySelectorAll('.shift-photo-compare-alpha-bg button[data-bg]').forEach(button => {
+            button.classList.toggle('active', button.dataset.bg === next);
+        });
+        overlay?.querySelectorAll('.shift-photo-compare-alpha-stage.checker').forEach(stage => {
+            stage.classList.remove('bg-checker', 'bg-red', 'bg-blue', 'bg-black');
+            stage.classList.add(`bg-${next}`);
+        });
+        const zoomStage = document.querySelector('#shift-photo-compare-alpha-zoom .shift-photo-compare-alpha-zoom-stage.checker');
+        if (zoomStage) {
+            zoomStage.classList.remove('bg-checker', 'bg-red', 'bg-blue', 'bg-black');
+            zoomStage.classList.add(`bg-${next}`);
+        }
+    }
+
+    getShiftPhotoCompareAlphaTolerance(strength = 'standard') {
+        const values = { weak: 32, standard: 54, strong: 82 };
+        return values[strength] || values.standard;
+    }
+
+    async refreshShiftPhotoCompareAlphaPreview(strength = 'standard') {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.originalSrc || typeof this.createTransparentPhotoManagerSource !== 'function') return;
+        try {
+            const result = await this.createTransparentPhotoManagerSource(preview.originalSrc, {
+                tolerance: this.getShiftPhotoCompareAlphaTolerance(strength)
+            });
+            const changed = Number(result.changed || 0);
+            const total = Number(result.total || 0);
+            const ratio = total ? Math.round((changed / total) * 100) : 0;
+            preview.src = result.src || preview.originalSrc;
+            preview.strength = strength;
+            preview.alreadyTransparent = false;
+            const overlay = document.getElementById('shift-photo-compare-alpha-preview');
+            overlay?.querySelectorAll('.shift-photo-compare-alpha-strength button[data-strength]').forEach(button => {
+                button.classList.toggle('active', button.dataset.strength === strength);
+            });
+            const summary = overlay?.querySelector('.shift-photo-compare-alpha-summary');
+            if (summary) {
+                summary.textContent = changed
+                    ? `外側背景として ${ratio}% を透明化したプレビューです。`
+                    : '透明化できそうな外側背景は見つかりませんでした。';
+            }
+            const transparentImg = overlay?.querySelector('.shift-photo-compare-alpha-stage.checker img');
+            if (transparentImg) transparentImg.src = preview.src;
+        } catch (error) {
+            console.error(error);
+            this.showShiftPhotoCompareActionMessage('透過プレビューの更新に失敗しました。');
+        }
+    }
+
+    useShiftPhotoCompareAlphaPreviewAsStamp() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.src) return this.showShiftPhotoCompareActionMessage('貼り付ける透過プレビューがありません。');
+        if (!document.querySelector('.shift-photo-compare-overlay')) {
+            return this.showShiftPhotoCompareActionMessage('画像編集画面を開いてから貼り付けてください。');
+        }
+        this._shiftPhotoCompareImageStampSrc = preview.src;
+        if (preview.sizePreset) {
+            this.applyShiftPhotoCompareRecentImageSizePreset({ src: preview.src, sizePreset: preview.sizePreset });
+        }
+        this._shiftPhotoCompareImageFit = preview.imageFit === 'fill' ? 'fill' : '';
+        this.rememberShiftPhotoCompareImageStamp?.(preview.src, preview.name || '透過画像');
+        if (preview.sizePreset) {
+            const recent = this.getShiftPhotoCompareRecentImageStamps?.() || [];
+            const recentItem = recent.find(item => item.src === preview.src);
+            if (recentItem) {
+                recentItem.sizePreset = preview.sizePreset;
+                this.saveShiftPhotoCompareRecentImageStamps?.(recent);
+            }
+        }
+        this.setShiftPhotoCompareMarkModeDirect('image');
+        this.updateShiftPhotoCompareSample();
+        this.closeShiftPhotoCompareBaseImageTransparencyPreview();
+        this.showShiftPhotoCompareActionMessage('透過画像を読み込みました。写真上をクリックして配置できます。');
+    }
+
+    openShiftPhotoCompareAlphaPreviewZoom(kind = 'transparent') {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        const src = kind === 'original' ? preview?.originalSrc : preview?.src;
+        if (!src) return;
+        document.getElementById('shift-photo-compare-alpha-zoom')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'shift-photo-compare-alpha-zoom';
+        overlay.className = 'shift-photo-compare-alpha-zoom';
+        const bgMode = preview?.bgMode || 'checker';
+        overlay.innerHTML = `
+            <button type="button" class="shift-photo-compare-alpha-zoom-close" onclick="app.closeShiftPhotoCompareAlphaPreviewZoom()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+            <div class="shift-photo-compare-alpha-zoom-stage ${kind === 'transparent' ? `checker bg-${bgMode}` : ''}">
+                <img src="${this.escapeHtml(src)}" alt="${kind === 'original' ? '元画像' : '透過後'}">
+            </div>
+        `;
+        overlay.addEventListener('click', event => {
+            if (event.target === overlay) this.closeShiftPhotoCompareAlphaPreviewZoom();
+        });
+        document.body.appendChild(overlay);
+    }
+
+    closeShiftPhotoCompareAlphaPreviewZoom() {
+        document.getElementById('shift-photo-compare-alpha-zoom')?.remove();
+    }
+
+    saveShiftPhotoCompareAlphaPreviewToManager() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.src) return this.showShiftPhotoCompareActionMessage('保存する透過プレビューがありません。');
+        if (typeof this.addPhotoManagerLibraryImage !== 'function') {
+            return this.showShiftPhotoCompareActionMessage('写真管理が利用できません。');
+        }
+        const added = this.addPhotoManagerLibraryImage(preview.src, preview.name || 'ベース画像 透過');
+        if (!added) return;
+        if (preview.sizePreset) added.sizePreset = preview.sizePreset;
+        if (preview.imageFit === 'fill') added.imageFit = 'fill';
+        if (!this._imageSourceTransparencyCache) this._imageSourceTransparencyCache = new Map();
+        this._imageSourceTransparencyCache.set(preview.src, true);
+        store.save();
+        if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
+        this.closeShiftPhotoCompareBaseImageTransparencyPreview();
+        this.showShiftPhotoCompareActionMessage('透過版を写真管理へ保存しました。');
+    }
+
+    async saveTransparentShiftPhotoCompareBaseImageToManager(wrap) {
+        const src = this.getShiftPhotoCompareBaseImageSource(wrap);
+        if (!src) return this.showShiftPhotoCompareActionMessage('透過化するベース画像が見つかりません。');
+        if (typeof this.addPhotoManagerLibraryImage !== 'function' || typeof this.createTransparentPhotoManagerSource !== 'function') {
+            return this.showShiftPhotoCompareActionMessage('写真管理または透過作成が利用できません。');
+        }
+        try {
+            const alreadyTransparent = typeof this.imageHasTransparentPixels === 'function'
+                ? await this.imageHasTransparentPixels(src)
+                : false;
+            const result = await this.createTransparentPhotoManagerSource(src);
+            if (!result.changed && alreadyTransparent) {
+                const added = this.addPhotoManagerLibraryImage(src, `${this.getShiftPhotoCompareBaseImageName(wrap)} 透過`);
+                if (added) {
+                    store.save();
+                    if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
+                    this.showShiftPhotoCompareActionMessage('透過済みのベース画像を写真管理へ登録しました。');
+                }
+                return;
+            }
+            if (!result.changed) {
+                this.showShiftPhotoCompareActionMessage('透明化できそうな背景色が見つかりませんでした。');
+                return;
+            }
+            const added = this.addPhotoManagerLibraryImage(result.src, `${this.getShiftPhotoCompareBaseImageName(wrap)} 透過`);
+            if (!added) return;
+            if (!this._imageSourceTransparencyCache) this._imageSourceTransparencyCache = new Map();
+            this._imageSourceTransparencyCache.set(result.src, true);
+            store.save();
+            if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
+            this.showShiftPhotoCompareActionMessage('ベース画像の透過版を写真管理へ保存しました。');
+        } catch (error) {
+            console.error(error);
+            this.showShiftPhotoCompareActionMessage('ベース画像の透過版保存に失敗しました。');
+        }
+    }
+
+    openShiftPhotoCompareBaseImageContextMenu(event, wrap) {
+        const src = this.getShiftPhotoCompareBaseImageSource(wrap);
+        if (!src) return;
+        this.closeShiftPhotoCompareImageContextMenu();
+        this.clearShiftPhotoCompareSelection?.();
+        const panel = document.querySelector('.shift-photo-compare-panel');
+        const panelRect = panel?.getBoundingClientRect();
+        if (!panelRect?.width) return;
+        const menu = document.createElement('div');
+        menu.className = 'shift-photo-compare-image-context-menu base-image';
+        menu.innerHTML = `
+            <button type="button" data-action="save-base"><i class="fa-solid fa-bookmark"></i><span>ベース画像を写真管理へ登録</span></button>
+            <button type="button" data-action="check-alpha"><i class="fa-solid fa-layer-group"></i><span>透過候補チェック</span></button>
+            <button type="button" data-action="save-alpha"><i class="fa-solid fa-wand-magic-sparkles"></i><span>透過版を写真管理へ保存</span></button>
+        `;
+        menu.addEventListener('pointerdown', menuEvent => menuEvent.stopPropagation());
+        menu.addEventListener('click', menuEvent => {
+            const action = menuEvent.target.closest('button')?.dataset?.action || '';
+            if (!action) return;
+            menuEvent.preventDefault();
+            menuEvent.stopPropagation();
+            if (action === 'save-base') this.saveShiftPhotoCompareBaseImageToManager(wrap);
+            if (action === 'check-alpha') this.checkShiftPhotoCompareBaseImageTransparency(wrap);
+            if (action === 'save-alpha') this.saveTransparentShiftPhotoCompareBaseImageToManager(wrap);
             this.closeShiftPhotoCompareImageContextMenu();
         });
         panel.appendChild(menu);
@@ -7359,7 +8296,7 @@
         if (selectedMark) {
             this._shiftPhotoCompareSampleMode = selectedMark.dataset.mode || 'circle';
             this._shiftPhotoCompareSampleText = selectedMark.dataset.text || selectedMark.textContent || '';
-        } else if (['circle', 'arrow', 'rect', 'text', 'number', 'xmark', 'freehand', 'image'].includes(this._shiftPhotoCompareMarkMode)) {
+        } else if (['circle', 'arrow', 'rect', 'text', 'boxedText', 'number', 'xmark', 'freehand', 'image'].includes(this._shiftPhotoCompareMarkMode)) {
             this._shiftPhotoCompareSampleMode = this._shiftPhotoCompareMarkMode;
             this._shiftPhotoCompareSampleText = '';
         }
@@ -7373,7 +8310,7 @@
         const font = this.getShiftPhotoCompareSafeFont(this._shiftPhotoCompareMarkFont || '');
         const fontFamily = this.getShiftPhotoCompareFontFamily(font);
         const outline = this._shiftPhotoCompareTextOutline !== false;
-        const text = mode === 'text'
+        const text = (mode === 'text' || mode === 'boxedText')
             ? (((selectedMark ? this._shiftPhotoCompareSampleText : document.getElementById('shift-photo-compare-text-input')?.value) || '文字').slice(0, 24))
             : (mode === 'number' ? ((selectedMark ? this._shiftPhotoCompareSampleText : '') || this.getShiftPhotoCompareNumberText(this._shiftPhotoCompareNumberNext || 1)) : '');
         const sampleContent = mode === 'arrow'
@@ -7384,8 +8321,8 @@
                     ? (this._shiftPhotoCompareImageStampSrc ? `<img src="${this.escapeHtml(this._shiftPhotoCompareImageStampSrc)}" alt="">` : '<i class="fa-regular fa-image"></i>')
                 : (mode === 'xmark'
                     ? '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M18 18 L82 82 M82 18 L18 82"></path></svg>'
-                    : (mode === 'text' || mode === 'number' ? this.escapeHtml(text) : ''))));
-        box.innerHTML = `<div class="shift-photo-compare-mark ${mode} sample" data-font="${font}" data-outline="${outline ? '1' : '0'}" style="--mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-font:${fontFamily};">${sampleContent}</div>`;
+                    : (mode === 'text' || mode === 'boxedText' || mode === 'number' ? this.escapeHtml(text) : ''))));
+        box.innerHTML = `<div class="shift-photo-compare-mark ${mode} sample" data-font="${font}" data-outline="${outline ? '1' : '0'}" data-text-align="left" style="--mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-font:${fontFamily};">${sampleContent}</div>`;
     }
 
     getShiftPhotoCompareMarkPosition(event, wrap) {
@@ -7519,6 +8456,27 @@
         clearTimeout(this._shiftPhotoCompareSnapGuideClearTimer);
         this._shiftPhotoCompareSnapGuideClearTimer = null;
         document.querySelectorAll('.shift-photo-compare-snap-guide').forEach(line => line.remove());
+    }
+
+    renderShiftPhotoCompareResizeWidthMatchGuide(targetMark) {
+        this.clearShiftPhotoCompareResizeWidthMatchGuide();
+        const wrap = targetMark?.closest('.shift-photo-compare-image-wrap') || targetMark?.closest('.shift-photo-compare-global-layer');
+        if (!targetMark || !wrap) return;
+        const wrapRect = wrap.getBoundingClientRect();
+        const markRect = targetMark.getBoundingClientRect();
+        if (!wrapRect.width || !wrapRect.height || !markRect.width || !markRect.height) return;
+        const guide = document.createElement('div');
+        guide.className = 'shift-photo-compare-width-match-guide';
+        guide.dataset.label = '幅一致';
+        guide.style.left = `${markRect.left - wrapRect.left}px`;
+        guide.style.top = `${markRect.top - wrapRect.top}px`;
+        guide.style.width = `${markRect.width}px`;
+        guide.style.height = `${markRect.height}px`;
+        wrap.appendChild(guide);
+    }
+
+    clearShiftPhotoCompareResizeWidthMatchGuide() {
+        document.querySelectorAll('.shift-photo-compare-width-match-guide').forEach(guide => guide.remove());
     }
 
     clearShiftPhotoCompareSnapGuidesAfterPlacement(delay = 100) {
@@ -7667,6 +8625,7 @@
         mark.dataset.text = '';
         mark.dataset.font = font;
         mark.dataset.outline = this._shiftPhotoCompareTextOutline === false ? '0' : '1';
+        mark.dataset.textAlign = 'left';
         mark.style.setProperty('--mark-size', `${size}px`);
         mark.style.setProperty('--mark-stroke', String(stroke));
         mark.style.setProperty('--mark-color', color);
@@ -8195,10 +9154,10 @@
         const stroke = (this._shiftPhotoCompareMarkStroke || 100) / 100;
         const color = this._shiftPhotoCompareMarkColor || '#dc2626';
         const font = this.getShiftPhotoCompareSafeFont(this._shiftPhotoCompareMarkFont || '');
-        const text = mode === 'text'
+        const text = (mode === 'text' || mode === 'boxedText')
             ? (document.getElementById('shift-photo-compare-text-input')?.value || '').trim().slice(0, 120)
             : (mode === 'number' ? this.getShiftPhotoCompareNumberText(this._shiftPhotoCompareNumberNext || 1) : '');
-        if (mode === 'text' && !text) {
+        if ((mode === 'text' || mode === 'boxedText') && !text) {
             document.getElementById('shift-photo-compare-text-input')?.focus();
             return null;
         }
@@ -8218,6 +9177,7 @@
         mark.dataset.text = text;
         mark.dataset.imageSrc = mode === 'image' ? this._shiftPhotoCompareImageStampSrc : '';
         mark.dataset.originalImageSrc = mode === 'image' ? this._shiftPhotoCompareImageStampSrc : '';
+        mark.dataset.imageFit = mode === 'image' && this._shiftPhotoCompareImageFit === 'fill' ? 'fill' : '';
         mark.dataset.opacity = '1';
         mark.dataset.flipX = '1';
         mark.dataset.flipY = '1';
@@ -8237,11 +9197,25 @@
                 ? '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M18 18 L82 82 M82 18 L18 82"></path></svg>'
                 : (mode === 'image'
                     ? `<img src="${this.escapeHtml(this._shiftPhotoCompareImageStampSrc)}" alt="">`
-                    : (mode === 'text' || mode === 'number' ? this.escapeHtml(text) : '')));
+                    : (mode === 'text' || mode === 'boxedText' || mode === 'number' ? this.escapeHtml(text) : '')));
         this.positionShiftPhotoCompareMark(mark, event, wrap);
         layer.appendChild(mark);
         if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
         else this.syncShiftPhotoCompareMarks(wrap);
+        if (mode === 'image') {
+            const keepSizePreset = !!this._shiftPhotoCompareKeepImageSizePreset;
+            this._shiftPhotoCompareKeepImageSizePreset = false;
+            if (keepSizePreset) {
+                this.rememberShiftPhotoCompareRecentImageSizePreset(mark);
+            } else this.applyShiftPhotoCompareImageNaturalRatio(mark).then(changed => {
+                if (!changed || !document.contains(mark)) return;
+                if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+                else this.syncShiftPhotoCompareMarks(wrap);
+                this.updateShiftPhotoCompareSelectionBounds();
+                this.refreshShiftPhotoCompareMarkList();
+                this.scheduleShiftNotebookAutoSave();
+            });
+        }
         this.refreshShiftPhotoCompareMarkList();
         if (mode === 'number') {
             this._shiftPhotoCompareNumberNext = (this._shiftPhotoCompareNumberNext || 1) + 1;
@@ -8645,6 +9619,7 @@
             mosaic: 'モザイク',
             image: '画像',
             text: '文字',
+            boxedText: '枠付き文字',
             number: '番号'
         };
         const mode = mark?.dataset?.mode || 'circle';
@@ -8786,6 +9761,7 @@
         const color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
         const text = String(mark.dataset.text || mark.textContent || '');
         const fontFamily = this.getShiftPhotoCompareFontFamily(mark.dataset.font || '');
+        const textAlign = ['left', 'center', 'right'].includes(mark.dataset.textAlign || '') ? mark.dataset.textAlign : 'left';
         if (mode === 'image') {
             const imageSrc = mark.dataset.imageSrc || mark.querySelector?.('img')?.src || '';
             if (!imageSrc) return;
@@ -8853,6 +9829,60 @@
             ctx.moveTo(length / 2, 0);
             ctx.lineTo(length / 2 - headLength, headHeight);
             ctx.stroke();
+        } else if (mode === 'boxedText') {
+            ctx.shadowBlur = 0;
+            const fontSize = Math.max(14, size * 0.42);
+            const lineHeight = fontSize * 1.28;
+            const paddingX = Math.max(12, fontSize * 0.68);
+            const paddingY = Math.max(5, fontSize * 0.21);
+            const lines = String(text || '文字').split(/\r?\n/);
+            ctx.font = `900 ${fontSize}px ${fontFamily}`;
+            const maxLineWidth = Math.max(fontSize * 2.4, ...lines.map(line => ctx.measureText(line || ' ').width));
+            const assetBoxWidth = Number(mark.dataset.assetBoxWidth || 0);
+            const assetBoxHeight = Number(mark.dataset.assetBoxHeight || 0);
+            const boxWidth = assetBoxWidth > 0 ? assetBoxWidth : maxLineWidth + paddingX * 2;
+            const boxHeight = assetBoxHeight > 0 ? assetBoxHeight : lineHeight * lines.length + paddingY * 2;
+            const borderWidth = Math.max(6, size * 0.12 * stroke);
+            const radius = Math.max(10, size * 0.09);
+            const drawRoundedBox = (x0, y0, w, h, r0 = radius) => {
+                const r = Math.min(r0, w / 2, h / 2);
+                ctx.beginPath();
+                if (typeof ctx.roundRect === 'function') {
+                    ctx.roundRect(x0, y0, w, h, r);
+                    return;
+                }
+                ctx.moveTo(x0 + r, y0);
+                ctx.lineTo(x0 + w - r, y0);
+                ctx.quadraticCurveTo(x0 + w, y0, x0 + w, y0 + r);
+                ctx.lineTo(x0 + w, y0 + h - r);
+                ctx.quadraticCurveTo(x0 + w, y0 + h, x0 + w - r, y0 + h);
+                ctx.lineTo(x0 + r, y0 + h);
+                ctx.quadraticCurveTo(x0, y0 + h, x0, y0 + h - r);
+                ctx.lineTo(x0, y0 + r);
+                ctx.quadraticCurveTo(x0, y0, x0 + r, y0);
+            };
+            const x0 = -boxWidth / 2;
+            const y0 = -boxHeight / 2;
+            ctx.fillStyle = color;
+            drawRoundedBox(x0, y0, boxWidth, boxHeight, radius);
+            ctx.fill();
+            ctx.fillStyle = '#fff7fb';
+            drawRoundedBox(
+                x0 + borderWidth,
+                y0 + borderWidth,
+                Math.max(0, boxWidth - borderWidth * 2),
+                Math.max(0, boxHeight - borderWidth * 2),
+                radius
+            );
+            ctx.fill();
+            ctx.fillStyle = color;
+            ctx.textAlign = textAlign;
+            ctx.textBaseline = 'middle';
+            const textX = textAlign === 'right'
+                ? boxWidth / 2 - paddingX
+                : (textAlign === 'center' ? 0 : -boxWidth / 2 + paddingX);
+            const startY = -((lines.length - 1) * lineHeight) / 2;
+            lines.forEach((line, index) => ctx.fillText(line, textX, startY + index * lineHeight));
         } else if (mode === 'text' || mode === 'number') {
             ctx.shadowBlur = 4;
             const fontSize = Math.max(12, size * (mode === 'number' ? 0.62 : 0.48));

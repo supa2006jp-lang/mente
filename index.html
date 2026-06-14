@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260613-pop-season-backgrounds">
+    <link rel="stylesheet" href="style.css?v=20260614-width-snap-boxed">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -657,7 +657,8 @@
                             <option value="marked">&#27880;&#35352;&#12354;&#12426;</option>
                             <option value="plain">&#27880;&#35352;&#12394;&#12375;</option>
                         </select>
-                        <button type="button" class="secondary-btn" id="photo-manager-alpha-filter" onclick="app.togglePhotoManagerAlphaCandidateFilter()"><i class="fa-solid fa-layer-group"></i> 透過候補のみ</button>
+                        <button type="button" class="secondary-btn photo-manager-alpha-filter" id="photo-manager-alpha-transparent-filter" onclick="app.togglePhotoManagerAlphaFilter('transparent')"><i class="fa-solid fa-layer-group"></i> 透過済み</button>
+                        <button type="button" class="secondary-btn photo-manager-alpha-filter" id="photo-manager-alpha-candidate-filter" onclick="app.togglePhotoManagerAlphaFilter('candidate')"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過候補</button>
                         <select id="photo-manager-tag-filter" onchange="app.renderPhotoManager()">
                             <option value="all">すべてのタグ</option>
                         </select>
@@ -931,13 +932,13 @@
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js?v=20260611-global-improve-34-priority-color"></script>
+    <script src="app-shift-notebook-core.js?v=20260614-width-snap-boxed"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js"></script>
     <script src="app-machines.js"></script>
     <script src="app-maintenance-forms.js?v=20260613-guide-title-candidates"></script>
     <script src="app-history.js?v=20260611-global-improve-234"></script>
-    <script src="app-analysis-dashboard.js?v=20260611-part-alias-count-chips"></script>
+    <script src="app-analysis-dashboard.js?v=20260613-dashboard-hide-mtbf"></script>
     <script src="app-ranking-guides.js?v=20260613-guide-title-candidates"></script>
     <script src="app-skills.js"></script>
     <script src="app-worktime.js?v=20260611-alias-health-common-complete"></script>
@@ -946,7 +947,7 @@
     <script src="app-persistence.js?v=20260606-admin-log-targets"></script>
     <script src="app-csv.js?v=20260611-xlsx-history-import"></script>
     <script src="app-misc-analysis.js"></script>
-    <script src="app-photo-manager.js?v=20260613-contextual-help"></script>
+    <script src="app-photo-manager.js?v=20260614-boxed-text-alpha-fit"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js"></script>
 </body>
