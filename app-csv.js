@@ -278,7 +278,7 @@
                         3. 「ファイルを選択」から保存した .xlsx または .csv を読み込ませてください。
                     </p>
                     <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
-                        <a class="secondary-btn" style="padding:6px 16px; font-size:0.8rem; text-decoration:none;" href="CSV/history_import_template_入力用.xlsx" download>
+                        <a class="secondary-btn" style="padding:6px 16px; font-size:0.8rem; text-decoration:none;" href="CSV/history_import_template_input.xlsx" download="history_import_template_入力用.xlsx">
                             <i class="fa-solid fa-file-excel"></i> マクロ無しExcelテンプレート
                         </a>
                         <button class="secondary-btn" style="padding:6px 16px; font-size:0.8rem;" onclick="app.downloadHistoryImportTemplate()">
