@@ -24,6 +24,9 @@
             if (!store.activeData.photoManagerTags || typeof store.activeData.photoManagerTags !== 'object') {
                 store.activeData.photoManagerTags = {};
             }
+            if (!store.activeData.photoManagerEditedAt || typeof store.activeData.photoManagerEditedAt !== 'object') {
+                store.activeData.photoManagerEditedAt = {};
+            }
             return store.activeData.photoManagerNames;
         }
 
@@ -104,6 +107,7 @@
             item.annotated = item.annotated || (Array.isArray(item.globalMarks) && item.globalMarks.length > 0) || item.managerMarks.length > 0;
             item.displayName = this.getPhotoManagerName(item);
             item.tags = this.getPhotoManagerTags(item);
+            item.editedAt = Number(item.editedAt || store.activeData.photoManagerEditedAt?.[item.id] || 0) || 0;
             items.push(item);
         }
 
@@ -124,6 +128,7 @@
                     caption: photo.caption || '',
                     src: photo.src,
                     date: photo.date || '',
+                    editedAt: Number(photo.updatedAt || photo.createdAt || 0) || 0,
                     marks: Array.isArray(photo.marks) ? photo.marks : [],
                     sizePreset: photo.sizePreset && typeof photo.sizePreset === 'object' ? photo.sizePreset : null,
                     imageFit: photo.imageFit === 'fill' ? 'fill' : '',
@@ -269,6 +274,7 @@
 
             const nameOf = item => this.getPhotoManagerName(item) || '';
             items.sort((a, b) => {
+                if (sort === 'edited_desc') return (b.editedAt || 0) - (a.editedAt || 0) || (b.date || '').localeCompare(a.date || '') || a.sourceLabel.localeCompare(b.sourceLabel, 'ja');
                 if (sort === 'date_asc') return (a.date || '9999-99-99').localeCompare(b.date || '9999-99-99');
                 if (sort === 'source') return a.sourceLabel.localeCompare(b.sourceLabel, 'ja') || (b.date || '').localeCompare(a.date || '');
                 if (sort === 'name') return nameOf(a).localeCompare(nameOf(b), 'ja') || (b.date || '').localeCompare(a.date || '');
@@ -511,7 +517,8 @@
                 caption: '',
                 date: this.getPhotoManagerToday(),
                 marks: [],
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                updatedAt: Date.now()
             };
             this.getPhotoManagerLibrary().unshift(item);
             return item;
@@ -651,11 +658,14 @@
                 globalMarks: [],
                 onSync: (context) => {
                     const edited = context.photos?.[0] || {};
+                    const now = Date.now();
                     if (item.source === 'library' && libraryPhoto) {
                         libraryPhoto.caption = edited.caption || '';
                         libraryPhoto.marks = Array.isArray(edited.marks) ? edited.marks : [];
+                        libraryPhoto.updatedAt = now;
                     } else {
                         overlays[item.id] = Array.isArray(edited.marks) ? edited.marks : [];
+                        store.activeData.photoManagerEditedAt[item.id] = now;
                     }
                     store.save();
                     if (document.getElementById('photo-manager-list')) this.renderPhotoManager();
@@ -1959,7 +1969,17 @@
             }).sort((a, b) => {
                 const ar = recent.get(a.src) ?? 9999;
                 const br = recent.get(b.src) ?? 9999;
-                return ar - br;
+                const dateScore = item => {
+                    if (item.editedAt) return Number(item.editedAt) || 0;
+                    if (item.createdAt) return Number(item.createdAt) || 0;
+                    const date = Date.parse(item.date || '');
+                    if (Number.isFinite(date)) return date;
+                    return 0;
+                };
+                return dateScore(b) - dateScore(a)
+                    || ar - br
+                    || (b.date || '').localeCompare(a.date || '')
+                    || (a.sourceLabel || '').localeCompare(b.sourceLabel || '', 'ja');
             }).slice(0, 120);
         }
 
