@@ -866,7 +866,7 @@
                     recurrence: records.filter(r => r.isFirstTime === false).length
                 });
                 this.closeModal();
-                this.showToast(`${records.length}件の履歴をインポートしました（重複${duplicateCount}件）`, 'success');
+                this.showToast?.(`${records.length}件の履歴をインポートしました（重複${duplicateCount}件）`, 'success');
                 this.updateDataLists();
                 this.updateHistoryPeriodOptions();
                 requestAnimationFrame(() => {

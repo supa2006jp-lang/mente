@@ -883,6 +883,28 @@ class MaintenanceApp {
             .replace(/'/g, '&#39;');
     }
 
+    showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        if (!container || !message) return;
+        const normalizedType = ['success', 'error', 'warning', 'info'].includes(type) ? type : 'info';
+        const iconMap = {
+            success: 'fa-circle-check',
+            error: 'fa-circle-exclamation',
+            warning: 'fa-triangle-exclamation',
+            info: 'fa-circle-info'
+        };
+        const toast = document.createElement('div');
+        toast.className = `app-toast app-toast-${normalizedType}`;
+        toast.setAttribute('role', normalizedType === 'error' ? 'alert' : 'status');
+        toast.innerHTML = `<i class="fa-solid ${iconMap[normalizedType]}"></i><span>${this.escapeHtml(message)}</span>`;
+        container.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('visible'));
+        window.setTimeout(() => {
+            toast.classList.remove('visible');
+            window.setTimeout(() => toast.remove(), 220);
+        }, 4200);
+    }
+
     escapeJs(value) {
         return String(value ?? '')
             .replace(/\\/g, '\\\\')
