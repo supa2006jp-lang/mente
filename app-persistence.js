@@ -147,7 +147,7 @@
         const backupFilename = `maintenance_before_import_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
         this.downloadJsonText?.(
             backupFilename,
-            store.exportAsJSON(),
+            store.exportAsJSON({ optimizeImages: true, mode: 'complete' }),
             '取込前バックアップを出力しました'
         );
         this.recordAdminBackupLog?.('import', backupFilename);
@@ -212,6 +212,175 @@
         });
     }
 
+    formatExportBytes(bytes = 0) {
+        const value = Math.max(0, Number(bytes) || 0);
+        if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(value >= 10 * 1024 * 1024 ? 1 : 2)}MB`;
+        if (value >= 1024) return `${(value / 1024).toFixed(1)}KB`;
+        return `${Math.round(value)}B`;
+    }
+
+    getBackupExportAnalysis(scope = 'all') {
+        const target = scope === 'dept' ? store.activeData : store.data;
+        const images = store.analyzeImageStorage(target);
+        const rawText = scope === 'dept' ? store.exportCurrentDeptAsJSON() : store.exportAsJSON();
+        const originalSummary = store.getRemovableOriginalImageSummary(target);
+        const unused = typeof this.getUnusedPhotoManagerLibraryItems === 'function'
+            ? this.getUnusedPhotoManagerLibraryItems()
+            : [];
+        return {
+            images,
+            rawJsonBytes: new Blob([rawText]).size,
+            originalSummary,
+            unusedCount: unused.length,
+            unusedBytes: unused.reduce((sum, item) => sum + store.estimateDataUrlBytes(item.src), 0)
+        };
+    }
+
+    renderBackupCapacityRows(analysis) {
+        const labels = {
+            library: '写真管理', history: '履歴・手順書', notebook: '連絡帳・5S',
+            originals: '編集用の元画像', recent: '最近使った画像', trash: 'ゴミ箱', other: 'その他の画像'
+        };
+        const order = ['library', 'history', 'notebook', 'originals', 'recent', 'trash', 'other'];
+        return order.map(key => {
+            const item = analysis.images.categories[key] || { count: 0, bytes: 0 };
+            return `
+                <div class="backup-capacity-row">
+                    <span>${labels[key]}</span>
+                    <b>${item.count}件</b>
+                    <strong>${this.formatExportBytes(item.bytes)}</strong>
+                </div>
+            `;
+        }).join('');
+    }
+
+    openBackupExportModal(scope = 'all') {
+        const analysis = this.getBackupExportAnalysis(scope);
+        this.pendingBackupExportScope = scope;
+        this.openModal('backup-export-options', scope === 'dept' ? '部署データの出力' : 'JSONバックアップの出力', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="backup-export-panel">
+                    <div class="admin-preview-alert ok">
+                        <i class="fa-solid fa-chart-pie"></i>
+                        <div>
+                            <b>現在のJSON容量 ${this.formatExportBytes(analysis.rawJsonBytes)}</b>
+                            <span>画像 ${analysis.images.occurrences}個（実体 ${analysis.images.uniqueCount}個）／重複分 約${this.formatExportBytes(analysis.images.duplicateBytes)}</span>
+                        </div>
+                    </div>
+                    <div class="backup-capacity-list">
+                        <div class="backup-capacity-head"><span>保存場所</span><b>画像数</b><strong>画像実容量</strong></div>
+                        ${this.renderBackupCapacityRows(analysis)}
+                    </div>
+                    <div class="backup-export-choices">
+                        <button type="button" class="backup-export-choice recommended" onclick="app.exportOptimizedBackup('light', '${scope}')">
+                            <i class="fa-solid fa-feather-pointed"></i>
+                            <span><b>軽量バックアップ <em id="backup-light-size">計算中…</em></b><small>最近使用・ゴミ箱・編集用元画像を除外。同一画像は1回だけ保存します。</small></span>
+                        </button>
+                        <button type="button" class="backup-export-choice" onclick="app.exportOptimizedBackup('complete', '${scope}')">
+                            <i class="fa-solid fa-box-archive"></i>
+                            <span><b>完全バックアップ <em id="backup-complete-size">計算中…</em></b><small>ゴミ箱や元画像を含め、同一画像だけ重複排除して保存します。</small></span>
+                        </button>
+                    </div>
+                    <div class="backup-cleanup-panel">
+                        <b>保存データ自体を整理</b>
+                        <p>ここで削除した内容は次回以降のJSONにも含まれません。必ず確認後に実行します。</p>
+                        <div class="backup-cleanup-actions">
+                            <button type="button" class="secondary-btn" onclick="app.openUnusedImagesFromBackup()">
+                                <i class="fa-solid fa-broom"></i> 未使用画像 ${analysis.unusedCount}件（約${this.formatExportBytes(analysis.unusedBytes)}）
+                            </button>
+                            <button type="button" class="secondary-btn" onclick="app.confirmRemoveStoredOriginalImages('${scope}')">
+                                <i class="fa-solid fa-images"></i> 元画像 ${analysis.originalSummary.count}件（約${this.formatExportBytes(analysis.originalSummary.bytes)}）
+                            </button>
+                            <button type="button" class="secondary-btn" onclick="app.closeModal(); app.openPhotoManagerTrashDialog?.()">
+                                <i class="fa-solid fa-trash-restore"></i> ゴミ箱を確認
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            const footer = document.querySelector('.modal-footer');
+            if (footer) footer.innerHTML = '<button class="secondary-btn" onclick="app.closeModal()">閉じる</button>';
+            setTimeout(() => this.updateBackupExportEstimates(scope), 0);
+        });
+    }
+
+    async updateBackupExportEstimates(scope = 'all') {
+        const calculate = async (mode, elementId) => {
+            await new Promise(resolve => setTimeout(resolve, 20));
+            const text = scope === 'dept'
+                ? store.exportCurrentDeptAsJSON({ optimizeImages: true, mode })
+                : store.exportAsJSON({ optimizeImages: true, mode });
+            const element = document.getElementById(elementId);
+            if (element) element.textContent = `予想 ${this.formatExportBytes(new Blob([text]).size)}`;
+        };
+        try {
+            await calculate('light', 'backup-light-size');
+            await calculate('complete', 'backup-complete-size');
+        } catch (error) {
+            ['backup-light-size', 'backup-complete-size'].forEach(id => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = '計算できません';
+            });
+            console.error('Backup size estimate failed', error);
+        }
+    }
+
+    exportOptimizedBackup(mode = 'light', scope = 'all') {
+        const options = { optimizeImages: true, mode: mode === 'complete' ? 'complete' : 'light' };
+        const data = scope === 'dept' ? store.exportCurrentDeptAsJSON(options) : store.exportAsJSON(options);
+        const date = new Date().toISOString().split('T')[0];
+        const modeLabel = options.mode === 'light' ? 'light' : 'complete';
+        const deptName = store.data.departments.find(d => d.id === store.data.currentDepartmentId)?.name || 'dept';
+        const filename = scope === 'dept'
+            ? `maintenance_${deptName}_${modeLabel}_${date}.json`
+            : `maintenance_ALL_${modeLabel}_${date}.json`;
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const download = (name) => {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            a.click();
+        };
+        download(filename);
+        if (scope === 'all') {
+            setTimeout(() => {
+                download('latest.json');
+                URL.revokeObjectURL(url);
+            }, 120);
+        } else {
+            setTimeout(() => URL.revokeObjectURL(url), 120);
+        }
+        this.showToast?.(`${options.mode === 'light' ? '軽量' : '完全'}バックアップを出力しました（${this.formatExportBytes(blob.size)}）`, 'success');
+        this.closeModal();
+    }
+
+    openUnusedImagesFromBackup() {
+        const unused = this.getUnusedPhotoManagerLibraryItems?.() || [];
+        if (!unused.length) {
+            alert('削除できる未使用画像はありません。');
+            return;
+        }
+        this.closeModal();
+        this.openPhotoManagerDeleteReview?.('unused', unused);
+    }
+
+    confirmRemoveStoredOriginalImages(scope = 'all') {
+        const target = scope === 'dept' ? store.activeData : store.data;
+        const summary = store.getRemovableOriginalImageSummary(target);
+        if (!summary.count) {
+            alert('削除できる編集用元画像はありません。');
+            return;
+        }
+        const ok = confirm(`加工後の画像は残したまま、編集用の元画像 ${summary.count}件（約${this.formatExportBytes(summary.bytes)}）を完全削除します。\n元画像へ戻す操作はできなくなります。よろしいですか？`);
+        if (!ok) return;
+        const removed = store.removeStoredOriginalImages(target);
+        this.showToast?.(`編集用元画像 ${removed}件を削除しました`, 'success');
+        this.closeModal();
+        this.openBackupExportModal(scope);
+    }
+
     // --- Persistence Effects ---
     setupSideEffects() {
         const importBtn = document.getElementById('btn-import-trigger');
@@ -239,44 +408,13 @@
 
         const exportBtn = document.getElementById('btn-export');
         if (exportBtn) {
-            exportBtn.addEventListener('click', () => {
-                const data = store.exportAsJSON();
-                const blob = new Blob([data], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                
-                // 1. Download timestamped backup (for user record)
-                const aBatch = document.createElement('a');
-                aBatch.href = url;
-                aBatch.download = `maintenance_ALL_backup_${new Date().toISOString().split('T')[0]}.json`;
-                aBatch.click();
-
-                // Small delay to ensure browser handles both
-                setTimeout(() => {
-                    // 2. Download latest.json (for shared use)
-                    const aLatest = document.createElement('a');
-                    aLatest.href = url;
-                    aLatest.download = `latest.json`;
-                    aLatest.click();
-                    URL.revokeObjectURL(url);
-                }, 100);
-            });
+            exportBtn.addEventListener('click', () => this.openBackupExportModal('all'));
         }
 
         // --- Single Dept Export ---
         const exportDeptBtn = document.getElementById('btn-export-dept');
         if (exportDeptBtn) {
-            exportDeptBtn.addEventListener('click', () => {
-                const deptName = store.data.departments.find(d => d.id === store.data.currentDepartmentId)?.name || 'dept';
-                const data = store.exportCurrentDeptAsJSON();
-                const blob = new Blob([data], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `maintenance_${deptName}_only_${new Date().toISOString().split('T')[0]}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-            });
+            exportDeptBtn.addEventListener('click', () => this.openBackupExportModal('dept'));
         }
 
         // --- Single Dept Import ---

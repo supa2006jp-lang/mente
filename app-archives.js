@@ -684,7 +684,7 @@
         const backupFilename = `maintenance_before_repair_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
         this.downloadJsonText(
             backupFilename,
-            store.exportAsJSON(),
+            store.exportAsJSON({ optimizeImages: true, mode: 'complete' }),
             '修復前バックアップを出力しました'
         );
         this.recordAdminBackupLog('repair', backupFilename);
@@ -742,7 +742,7 @@
     }
 
     exportAdminBackupJson() {
-        const data = store.exportAsJSON();
+        const data = store.exportAsJSON({ optimizeImages: true, mode: 'complete' });
         const filename = `maintenance_admin_backup_${new Date().toISOString().split('T')[0]}.json`;
         this.downloadJsonText(filename, data, '現在データのバックアップを出力しました');
         this.recordAdminBackupLog('manual', filename);

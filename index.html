@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260618-toast-notification">
+    <link rel="stylesheet" href="style.css?v=20260618-storage-diagnostics">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -657,6 +657,11 @@
                             <option value="marked">&#27880;&#35352;&#12354;&#12426;</option>
                             <option value="plain">&#27880;&#35352;&#12394;&#12375;</option>
                         </select>
+                        <select id="photo-manager-compression-filter" onchange="app.renderPhotoManager()" title="圧縮状態で絞り込み">
+                            <option value="all">圧縮状態すべて</option>
+                            <option value="uncompressed">非圧縮</option>
+                            <option value="compressed">圧縮済み</option>
+                        </select>
                         <button type="button" class="secondary-btn photo-manager-alpha-filter" id="photo-manager-alpha-transparent-filter" onclick="app.togglePhotoManagerAlphaFilter('transparent')"><i class="fa-solid fa-layer-group"></i> 透過済み</button>
                         <button type="button" class="secondary-btn photo-manager-alpha-filter" id="photo-manager-alpha-candidate-filter" onclick="app.togglePhotoManagerAlphaFilter('candidate')"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過候補</button>
                         <select id="photo-manager-tag-filter" onchange="app.renderPhotoManager()">
@@ -664,6 +669,7 @@
                         </select>
                         <select id="photo-manager-sort" onchange="app.renderPhotoManager()">
                             <option value="edited_desc">編集新しい順</option>
+                            <option value="size_desc">容量の重い順</option>
                             <option value="date_desc">&#26032;&#12375;&#12356;&#38918;</option>
                             <option value="date_asc">&#21476;&#12356;&#38918;</option>
                             <option value="source">&#30001;&#26469;&#38918;</option>
@@ -680,6 +686,8 @@
                         <button type="button" class="secondary-btn" onclick="app.selectVisiblePhotoManagerItems()"><i class="fa-solid fa-check-double"></i> &#34920;&#31034;&#20998;&#12434;&#20840;&#36984;&#25246;</button>
                         <button type="button" class="secondary-btn" onclick="app.clearVisiblePhotoManagerSelection()"><i class="fa-regular fa-square"></i> &#20840;&#35299;&#38500;</button>
                         <button type="button" class="secondary-btn" onclick="app.createTransparentSelectedPhotoManagerImages()"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過作成</button>
+                        <button type="button" class="secondary-btn" onclick="app.compressSelectedPhotoManagerImages()"><i class="fa-solid fa-compress"></i> 画像圧縮</button>
+                        <button type="button" class="secondary-btn" onclick="app.autoTagSelectedPhotoManagerItems()"><i class="fa-solid fa-tags"></i> タグ自動作成</button>
                         <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()"><i class="fa-solid fa-file-export"></i> &#20986;&#21147;</button>
                         <button type="button" class="danger-btn" onclick="app.deleteSelectedPhotoManagerItems()"><i class="fa-solid fa-trash-can"></i> &#36984;&#25246;&#12434;&#23436;&#20840;&#21066;&#38500;</button>
                     </div>
@@ -925,15 +933,15 @@
     </div>
 
     <!-- Scripts -->
-    <script src="store.js?v=20260605-history-import-logs"></script>
-    <script src="app.js?v=20260618-toast-notification"></script>
-    <script src="app-settings.js?v=20260611-global-improve-34-priority-color"></script>
+    <script src="store.js?v=20260618-json-image-export"></script>
+    <script src="app.js?v=20260618-photo-capacity-expiry-alpha"></script>
+    <script src="app-settings.js?v=20260618-storage-diagnostics"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js?v=20260615-sample-selected-image-sync"></script>
+    <script src="app-shift-notebook-core.js?v=20260618-sample-toggle"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js"></script>
     <script src="app-machines.js"></script>
@@ -945,11 +953,11 @@
     <script src="app-worktime.js?v=20260611-alias-health-common-complete"></script>
     <script src="app-archives.js?v=20260606-admin-log-targets"></script>
     <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
-    <script src="app-persistence.js?v=20260606-admin-log-targets"></script>
+    <script src="app-persistence.js?v=20260618-backup-size-estimate"></script>
     <script src="app-csv.js?v=20260618-history-import-toast-fix"></script>
     <script src="app-misc-analysis.js"></script>
-    <script src="app-photo-manager.js?v=20260615-image-choice-newest"></script>
+    <script src="app-photo-manager.js?v=20260618-deduplicated-methods"></script>
     <script src="app-dom-actions.js"></script>
-    <script src="app-boot.js"></script>
+    <script src="app-boot.js?v=20260618-storage-diagnostics"></script>
 </body>
 </html>

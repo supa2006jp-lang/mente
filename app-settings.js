@@ -36,6 +36,12 @@
                         <button type="button" onclick="app.closeAppSettingsPanel(); app.openDataFixCenterPanel()">
                             <i class="fa-solid fa-screwdriver-wrench"></i><span>未入力・未設定の集中修正</span><small>原因・処置・単価・名寄せ候補を1画面で確認</small>
                         </button>
+                        <button type="button" onclick="app.closeAppSettingsPanel(); app.openStorageManagementCenter()">
+                            <i class="fa-solid fa-hard-drive"></i><span>容量管理センター</span><small>写真・ゴミ箱・元画像・JSON容量を確認して整理</small>
+                        </button>
+                        <button type="button" onclick="app.closeAppSettingsPanel(); app.openScheduledDataDiagnosticsPanel(true)">
+                            <i class="fa-solid fa-stethoscope"></i><span>画像・関連データ診断</span><small>孤立・重複・壊れた関連付けを自動検出</small>
+                        </button>
                         <button type="button" data-action="app-settings-export-data">
                             <i class="fa-solid fa-download"></i><span>データ出力</span><small>バックアップ用に現在データを書き出し</small>
                         </button>
@@ -43,6 +49,158 @@
                 </div>
             </div>
         `);
+    }
+
+    getStorageManagementReport() {
+        const analysis = this.getBackupExportAnalysis?.('all') || {
+            images: store.analyzeImageStorage(store.data),
+            rawJsonBytes: new Blob([JSON.stringify(store.data)]).size,
+            originalSummary: store.getRemovableOriginalImageSummary(store.data),
+            unusedCount: 0,
+            unusedBytes: 0
+        };
+        const trash = Object.values(store.data.deptData || {}).flatMap(data => data.photoManagerTrash || []);
+        const trashBytes = trash.reduce((sum, item) => sum + store.estimateDataUrlBytes(item?.src || ''), 0);
+        return { ...analysis, trashCount: trash.length, trashBytes };
+    }
+
+    openStorageManagementCenter() {
+        const report = this.getStorageManagementReport();
+        const categories = report.images?.categories || {};
+        const labels = {
+            library: '写真管理', history: '履歴・手順書', notebook: '連絡帳・5S',
+            originals: '編集用の元画像', recent: '最近使った画像', trash: 'ゴミ箱', other: 'その他'
+        };
+        const rows = ['library', 'history', 'notebook', 'originals', 'recent', 'trash', 'other'].map(key => {
+            const item = categories[key] || { count: 0, bytes: 0 };
+            const ratio = report.images.embeddedBytes ? Math.max(1, Math.round(item.bytes / report.images.embeddedBytes * 100)) : 0;
+            return `
+                <div class="storage-center-row">
+                    <div><b>${labels[key]}</b><span>${item.count}件</span></div>
+                    <div class="storage-center-meter"><i style="width:${Math.min(100, ratio)}%"></i></div>
+                    <strong>${this.formatExportBytes?.(item.bytes) || item.bytes + 'B'}</strong>
+                </div>`;
+        }).join('');
+        this.openModal('storage-management-center', '容量管理センター', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="storage-center-panel">
+                    <div class="storage-center-summary">
+                        <div><i class="fa-solid fa-file-code"></i><span>現在のJSON</span><b>${this.formatExportBytes(report.rawJsonBytes)}</b></div>
+                        <div><i class="fa-solid fa-images"></i><span>画像の実容量</span><b>${this.formatExportBytes(report.images.embeddedBytes)}</b></div>
+                        <div><i class="fa-solid fa-clone"></i><span>重複埋込み分</span><b>${this.formatExportBytes(report.images.duplicateBytes)}</b></div>
+                    </div>
+                    <div class="storage-center-list">${rows}</div>
+                    <div class="storage-center-actions">
+                        <button type="button" onclick="app.closeModal(); app.openUnusedImagesFromBackup?.()"><i class="fa-solid fa-image-circle-xmark"></i><b>未使用画像を確認</b><span>${report.unusedCount}件 / 約${this.formatExportBytes(report.unusedBytes)}</span></button>
+                        <button type="button" onclick="app.closeModal(); app.openPhotoManagerDuplicateReview?.()"><i class="fa-solid fa-clone"></i><b>重複画像を整理</b><span>削除前に残す画像を選択</span></button>
+                        <button type="button" onclick="app.closeModal(); app.openPhotoManagerTrashDialog?.()"><i class="fa-solid fa-trash-restore"></i><b>ゴミ箱を確認</b><span>${report.trashCount}件 / 約${this.formatExportBytes(report.trashBytes)}</span></button>
+                        <button type="button" onclick="app.confirmRemoveStoredOriginalImages?.('all')"><i class="fa-solid fa-layer-group"></i><b>編集用元画像を整理</b><span>${report.originalSummary.count}件 / 約${this.formatExportBytes(report.originalSummary.bytes)}</span></button>
+                        <button type="button" onclick="app.closeModal(); app.openScheduledDataDiagnosticsPanel(true)"><i class="fa-solid fa-stethoscope"></i><b>データ診断</b><span>孤立・参照切れを確認</span></button>
+                        <button type="button" onclick="app.closeModal(); app.openBackupExportModal?.('all')"><i class="fa-solid fa-feather-pointed"></i><b>軽量JSONを出力</b><span>同一画像を1回だけ格納</span></button>
+                    </div>
+                    <p class="storage-center-note"><i class="fa-solid fa-shield-halved"></i> 削除操作は各確認画面を開きます。ここを開いただけではデータは削除されません。</p>
+                </div>`;
+            const footer = document.querySelector('.modal-footer');
+            if (footer) footer.innerHTML = '<button class="secondary-btn" onclick="app.closeModal()">閉じる</button>';
+        });
+    }
+
+    collectOrphanPhotoManagerMetadata() {
+        this.ensurePhotoManagerData?.();
+        const validIds = new Set((this.collectPhotoManagerItems?.() || []).map(item => item.id));
+        const keys = ['photoManagerNames', 'photoManagerOverlays', 'photoManagerTags', 'photoManagerEditedAt'];
+        const entries = [];
+        keys.forEach(key => {
+            const map = store.activeData[key];
+            if (!map || typeof map !== 'object' || Array.isArray(map)) return;
+            Object.keys(map).forEach(id => {
+                if (!validIds.has(id)) entries.push({ key, id });
+            });
+        });
+        return entries;
+    }
+
+    getScheduledDataDiagnosticsReport() {
+        const items = this.collectPhotoManagerItems?.() || [];
+        const unused = this.getUnusedPhotoManagerLibraryItems?.() || [];
+        const duplicateGroups = this.getPhotoManagerDuplicateGroups?.() || [];
+        const pageOnly = this.getPhotoManagerPageOnlyItems?.() || [];
+        const orphanMetadata = this.collectOrphanPhotoManagerMetadata();
+        const broken = this.getBrokenDataReport?.() || {};
+        const brokenCount = ['missingMachineHistories', 'archivedMaintenanceTasks', 'archivedGuides', 'archivedTasks']
+            .reduce((sum, key) => sum + (Array.isArray(broken[key]) ? broken[key].length : 0), 0);
+        const duplicateBytes = duplicateGroups.reduce((sum, group) => {
+            const bytes = store.estimateDataUrlBytes(group.src || '');
+            return sum + bytes * Math.max(0, (group.items?.length || 1) - 1);
+        }, 0);
+        const unusedBytes = unused.reduce((sum, item) => sum + store.estimateDataUrlBytes(item.src || ''), 0);
+        return {
+            runAt: new Date().toISOString(),
+            photoCount: items.length,
+            unusedCount: unused.length,
+            unusedBytes,
+            duplicateCount: duplicateGroups.length,
+            duplicateBytes,
+            pageOnlyCount: pageOnly.length,
+            orphanMetadataCount: orphanMetadata.length,
+            brokenReferenceCount: brokenCount,
+            issueCount: unused.length + duplicateGroups.length + pageOnly.length + orphanMetadata.length + brokenCount
+        };
+    }
+
+    runScheduledDataDiagnostics(force = false) {
+        const today = new Date().toISOString().slice(0, 10);
+        const previous = store.activeData.dataDiagnosticsLastReport;
+        if (!force && store.activeData.dataDiagnosticsLastRun === today && previous) return previous;
+        const report = this.getScheduledDataDiagnosticsReport();
+        store.activeData.dataDiagnosticsLastRun = today;
+        store.activeData.dataDiagnosticsLastReport = report;
+        store.save?.();
+        if (!previous || previous.issueCount !== report.issueCount) {
+            this.addSystemActivityLog?.('データ診断', `画像・関連データ診断: 確認項目 ${report.issueCount}件`, {
+                level: report.brokenReferenceCount ? 'warning' : '', report
+            });
+        }
+        return report;
+    }
+
+    openScheduledDataDiagnosticsPanel(force = false) {
+        const report = this.runScheduledDataDiagnostics(force);
+        const cards = [
+            { icon: 'fa-photo-film', label: '孤立・未使用画像', count: report.unusedCount, meta: `約${this.formatExportBytes(report.unusedBytes)}`, action: "app.closeModal(); app.openUnusedImagesFromBackup?.()" },
+            { icon: 'fa-clone', label: '完全一致の重複画像', count: report.duplicateCount, meta: `重複分 約${this.formatExportBytes(report.duplicateBytes)}`, action: "app.closeModal(); app.openPhotoManagerDuplicateReview?.()" },
+            { icon: 'fa-folder-minus', label: '写真管理に未登録', count: report.pageOnlyCount, meta: '個別ページだけに存在', action: "app.closeModal(); app.openPhotoManagerPageOnlyCleanupReview?.()" },
+            { icon: 'fa-tags', label: '孤立した画像設定', count: report.orphanMetadataCount, meta: '画像の無い名前・タグ・注記', action: report.orphanMetadataCount ? "app.confirmCleanOrphanPhotoManagerMetadata()" : '' },
+            { icon: 'fa-link-slash', label: '壊れた関連付け', count: report.brokenReferenceCount, meta: '機械・履歴・手順書の参照', action: report.brokenReferenceCount ? "app.closeModal(); app.switchView('history'); app.openHistoryQualityCheck?.()" : '' }
+        ];
+        this.openModal('scheduled-data-diagnostics', '画像・関連データ診断', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="diagnostics-center-panel ${report.issueCount ? 'has-issues' : 'ok'}">
+                    <div class="data-health-head">
+                        <i class="fa-solid ${report.issueCount ? 'fa-stethoscope' : 'fa-circle-check'}"></i>
+                        <div><b>${report.issueCount ? `${report.issueCount}件の確認項目` : '問題は見つかりませんでした'}</b><span>${new Date(report.runAt).toLocaleString('ja-JP')} に診断 / 写真 ${report.photoCount}件</span></div>
+                    </div>
+                    <div class="diagnostics-center-grid">
+                        ${cards.map(card => `<button type="button" class="diagnostics-center-card ${card.count ? 'has-issue' : 'ok'}" ${card.action ? `onclick="${card.action}"` : 'disabled'}><i class="fa-solid ${card.icon}"></i><span><b>${card.label}</b><small>${card.meta}</small></span><strong>${card.count}</strong></button>`).join('')}
+                    </div>
+                    <p class="storage-center-note"><i class="fa-solid fa-clock"></i> 診断は起動後に1日1回自動実行されます。検出だけを行い、自動削除はしません。</p>
+                </div>`;
+            const footer = document.querySelector('.modal-footer');
+            if (footer) footer.innerHTML = '<button class="secondary-btn" onclick="app.openScheduledDataDiagnosticsPanel(true)"><i class="fa-solid fa-rotate"></i> 再診断</button><button class="secondary-btn" onclick="app.closeModal()">閉じる</button>';
+        });
+    }
+
+    confirmCleanOrphanPhotoManagerMetadata() {
+        const entries = this.collectOrphanPhotoManagerMetadata();
+        if (!entries.length) return this.openScheduledDataDiagnosticsPanel(true);
+        if (!confirm(`画像の存在しない名前・タグ・注記 ${entries.length}件を削除します。\n画像本体は削除されません。よろしいですか？`)) return;
+        entries.forEach(({ key, id }) => { delete store.activeData[key][id]; });
+        store.save?.();
+        this.addSystemActivityLog?.('データ整理', `孤立した画像設定 ${entries.length}件を削除`, { level: 'info' });
+        this.showToast?.(`${entries.length}件の孤立した画像設定を整理しました`, 'success');
+        this.openScheduledDataDiagnosticsPanel(true);
     }
 
     openDataHealthCheckPanel() {

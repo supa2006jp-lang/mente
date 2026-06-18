@@ -266,6 +266,7 @@ class MaintenanceApp {
         this.setupDelegatedActions?.();
         this.setupSaveStatusIndicator();
         this.updateTodoRequestCountBadge();
+        this.cleanupExpiredShiftNotebookPhotos?.();
     }
 
     setupSaveStatusIndicator() {

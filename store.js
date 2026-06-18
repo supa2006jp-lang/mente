@@ -675,18 +675,195 @@ class MaintenanceStore {
 
 
     // --- Import / Export ---
-    exportAsJSON() {
+    isImageDataUrl(value) {
+        return typeof value === 'string' && /^data:image\/[a-z0-9.+-]+;base64,/i.test(value);
+    }
+
+    estimateDataUrlBytes(value) {
+        if (!this.isImageDataUrl(value)) return 0;
+        const base64 = value.slice(value.indexOf(',') + 1).replace(/\s/g, '');
+        const padding = base64.endsWith('==') ? 2 : (base64.endsWith('=') ? 1 : 0);
+        return Math.max(0, Math.floor(base64.length * 3 / 4) - padding);
+    }
+
+    getImageStorageCategory(path = [], key = '') {
+        const joined = path.join('.');
+        if (joined.includes('photoManagerTrash')) return 'trash';
+        if (joined.includes('imageSourceRecentUsed') || joined.includes('shiftPhotoRecentImageStamps')) return 'recent';
+        if (/^original.*src$/i.test(key) || key === 'originalImageSrc') return 'originals';
+        if (joined.includes('photoManagerLibrary')) return 'library';
+        if (joined.includes('history')) return 'history';
+        if (joined.includes('shift') || joined.includes('fiveS') || joined.includes('contact')) return 'notebook';
+        return 'other';
+    }
+
+    analyzeImageStorage(value = this.data) {
+        const categories = {};
+        const uniqueSources = new Map();
+        let occurrences = 0;
+        let embeddedBytes = 0;
+        const visit = (node, path = []) => {
+            if (!node || typeof node !== 'object') return;
+            Object.entries(node).forEach(([key, child]) => {
+                const nextPath = [...path, key];
+                if (this.isImageDataUrl(child)) {
+                    const bytes = this.estimateDataUrlBytes(child);
+                    const category = this.getImageStorageCategory(nextPath, key);
+                    if (!categories[category]) categories[category] = { count: 0, bytes: 0 };
+                    categories[category].count += 1;
+                    categories[category].bytes += bytes;
+                    occurrences += 1;
+                    embeddedBytes += bytes;
+                    if (!uniqueSources.has(child)) uniqueSources.set(child, bytes);
+                } else if (child && typeof child === 'object') {
+                    visit(child, nextPath);
+                }
+            });
+        };
+        visit(value);
+        const uniqueBytes = Array.from(uniqueSources.values()).reduce((sum, bytes) => sum + bytes, 0);
+        return {
+            occurrences,
+            uniqueCount: uniqueSources.size,
+            embeddedBytes,
+            uniqueBytes,
+            duplicateBytes: Math.max(0, embeddedBytes - uniqueBytes),
+            categories
+        };
+    }
+
+    packImageDataForExport(payload, options = {}) {
+        const mode = options.mode === 'light' ? 'light' : 'complete';
+        const assets = {};
+        const sourceToId = new Map();
+        const excluded = { recent: 0, trash: 0, originals: 0 };
+        const transientKeys = new Set(['imageSourceRecentUsed', 'shiftPhotoRecentImageStamps']);
+        const clone = (node, path = [], parentKey = '') => {
+            if (this.isImageDataUrl(node)) {
+                let id = sourceToId.get(node);
+                if (!id) {
+                    id = `img_${sourceToId.size + 1}`;
+                    sourceToId.set(node, id);
+                    assets[id] = node;
+                }
+                return `maintenance-image-ref://${id}`;
+            }
+            if (Array.isArray(node)) return node.map((item, index) => clone(item, [...path, String(index)], parentKey));
+            if (!node || typeof node !== 'object') return node;
+            const result = {};
+            Object.entries(node).forEach(([key, child]) => {
+                if (mode === 'light' && transientKeys.has(key)) {
+                    excluded.recent += Array.isArray(child) ? child.length : 1;
+                    result[key] = [];
+                    return;
+                }
+                if (mode === 'light' && key === 'photoManagerTrash') {
+                    excluded.trash += Array.isArray(child) ? child.length : 1;
+                    result[key] = [];
+                    return;
+                }
+                if (mode === 'light' && key === 'originalImageSrc' && this.isImageDataUrl(child)) {
+                    excluded.originals += 1;
+                    result[key] = '';
+                    return;
+                }
+                result[key] = clone(child, [...path, key], key);
+            });
+            return result;
+        };
+        return { payload: clone(payload), assets, excluded, mode };
+    }
+
+    hydratePackedImageData(imported) {
+        if (!imported || typeof imported !== 'object' || !imported.imageAssets) return imported;
+        const assets = imported.imageAssets;
+        const hydrate = (node) => {
+            if (typeof node === 'string' && node.startsWith('maintenance-image-ref://')) {
+                return assets[node.slice('maintenance-image-ref://'.length)] || '';
+            }
+            if (Array.isArray(node)) return node.map(hydrate);
+            if (!node || typeof node !== 'object') return node;
+            Object.keys(node).forEach(key => {
+                if (key !== 'imageAssets') node[key] = hydrate(node[key]);
+            });
+            return node;
+        };
+        const hydrated = hydrate(imported);
+        delete hydrated.imageAssets;
+        delete hydrated.imageExportMeta;
+        return hydrated;
+    }
+
+    createOptimizedExport(payload, options = {}) {
+        const packed = this.packImageDataForExport(payload, options);
+        packed.payload.imageAssets = packed.assets;
+        packed.payload.imageExportMeta = {
+            format: 'maintenance-image-assets-v1',
+            mode: packed.mode,
+            createdAt: new Date().toISOString(),
+            uniqueImages: Object.keys(packed.assets).length,
+            excluded: packed.excluded
+        };
+        return JSON.stringify(packed.payload, null, 2);
+    }
+
+    getRemovableOriginalImageSummary(value = this.data) {
+        let count = 0;
+        let bytes = 0;
+        const unique = new Set();
+        const visit = (node) => {
+            if (!node || typeof node !== 'object') return;
+            if (this.isImageDataUrl(node.originalImageSrc) && this.isImageDataUrl(node.imageSrc)) {
+                count += 1;
+                if (!unique.has(node.originalImageSrc)) {
+                    unique.add(node.originalImageSrc);
+                    bytes += this.estimateDataUrlBytes(node.originalImageSrc);
+                }
+            }
+            Object.values(node).forEach(child => {
+                if (child && typeof child === 'object') visit(child);
+            });
+        };
+        visit(value);
+        return { count, bytes, uniqueCount: unique.size };
+    }
+
+    removeStoredOriginalImages(value = this.data) {
+        let count = 0;
+        const visit = (node) => {
+            if (!node || typeof node !== 'object') return;
+            if (this.isImageDataUrl(node.originalImageSrc) && this.isImageDataUrl(node.imageSrc)) {
+                node.originalImageSrc = '';
+                count += 1;
+            }
+            Object.values(node).forEach(child => {
+                if (child && typeof child === 'object') visit(child);
+            });
+        };
+        visit(value);
+        if (count) this.save();
+        return count;
+    }
+
+    getExportPayload() {
         const payload = {
             mainData: this.data,
             skillEvaluations: JSON.parse(localStorage.getItem('skillEvaluations') || '{}'),
             manualSkills: JSON.parse(localStorage.getItem('manualSkills') || '[]')
         };
-        return JSON.stringify(payload, null, 2);
+        return payload;
+    }
+
+    exportAsJSON(options = {}) {
+        const payload = this.getExportPayload();
+        return options.optimizeImages
+            ? this.createOptimizedExport(payload, options)
+            : JSON.stringify(payload, null, 2);
     }
 
     importFromJSON(jsonString) {
         try {
-            const imported = JSON.parse(jsonString);
+            const imported = this.hydratePackedImageData(JSON.parse(jsonString));
             let dataToLoad = imported;
 
             // Check if this is the new payload format (includes skills)
@@ -732,7 +909,7 @@ class MaintenanceStore {
     }
 
     // --- Single Department Support ---
-    exportCurrentDeptAsJSON() {
+    exportCurrentDeptAsJSON(options = {}) {
         const deptId = this.data.currentDepartmentId;
         const deptInfo = this.data.departments.find(d => d.id === deptId);
         
@@ -745,12 +922,14 @@ class MaintenanceStore {
             skillEvaluations: JSON.parse(localStorage.getItem('skillEvaluations') || '{}'),
             manualSkills: JSON.parse(localStorage.getItem('manualSkills') || '[]')
         };
-        return JSON.stringify(payload, null, 2);
+        return options.optimizeImages
+            ? this.createOptimizedExport(payload, options)
+            : JSON.stringify(payload, null, 2);
     }
 
     importToCurrentDeptFromJSON(jsonString) {
         try {
-            const imported = JSON.parse(jsonString);
+            const imported = this.hydratePackedImageData(JSON.parse(jsonString));
             
             // Validate type
             if (imported.type !== 'single_department_backup') {
@@ -762,20 +941,11 @@ class MaintenanceStore {
             // Overwrite current department data
             const active = this.activeData;
             if (imported.data) {
-                active.machines = imported.data.machines || [];
-                active.tasks = imported.data.tasks || [];
-                active.history = imported.data.history || [];
-                active.partsMaster = imported.data.partsMaster || [];
-                active.archivedWorkers = imported.data.archivedWorkers || [];
-                active.archivedTasks = imported.data.archivedTasks || [];
-                active.archivedParts = imported.data.archivedParts || [];
-                active.archivedMaintenanceTasks = imported.data.archivedMaintenanceTasks || [];
-                active.archivedGuides = imported.data.archivedGuides || [];
-                active.machineCategories = imported.data.machineCategories || [];
-                active.archivedMachineCategories = imported.data.archivedMachineCategories || [];
-                active.archivedSuggestions = imported.data.archivedSuggestions || { errorNo: [], content: [], cause: [], notes: [], workers: [], partName: [], partModel: [], partSerial: [] };
-                active.memos = imported.data.memos || {};
-                active.dokateiCounters = imported.data.dokateiCounters || [{ location: '', lastDate: '' }, { location: '', lastDate: '' }, { location: '', lastDate: '' }];
+                Object.keys(active).forEach(key => delete active[key]);
+                Object.entries(imported.data).forEach(([key, value]) => {
+                    if (!['__proto__', 'prototype', 'constructor'].includes(key)) active[key] = value;
+                });
+                this.normalizeData();
             }
 
             // Merge skills (overwrite specific keys if present)
