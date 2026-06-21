@@ -59,6 +59,7 @@ class MaintenanceStore {
             request.onsuccess = async (e) => {
                 this.db = e.target.result;
                 await this.loadFromIDB();
+                await this.purgeRemovedAutoBackups();
                 resolve();
             };
             
@@ -217,6 +218,25 @@ class MaintenanceStore {
                 notify('error', { error: e });
                 reject(e);
             };
+        });
+    }
+
+    async purgeRemovedAutoBackups() {
+        if (!this.db) return;
+        const prefix = 'maintenance_auto_backup_';
+        const keys = await new Promise(resolve => {
+            const tx = this.db.transaction(this.STORE_NAME, 'readonly');
+            const request = tx.objectStore(this.STORE_NAME).getAllKeys();
+            request.onsuccess = () => resolve((request.result || []).filter(key => String(key).startsWith(prefix)));
+            request.onerror = () => resolve([]);
+        });
+        if (!keys.length) return;
+        await new Promise(resolve => {
+            const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
+            const os = tx.objectStore(this.STORE_NAME);
+            keys.forEach(key => os.delete(key));
+            tx.oncomplete = resolve;
+            tx.onerror = resolve;
         });
     }
 

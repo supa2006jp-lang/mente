@@ -16887,7 +16887,16 @@ select.history-assist-copied-value {
     display: none !important;
 }
 
+.shift-photo-compare-image-circle-tool {
+    display: none !important;
+}
+
 .shift-photo-compare-mini-toolbar[data-has-image-selection="1"] .shift-photo-compare-image-tool {
+    display: inline-grid !important;
+    place-items: center;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-circle-image-selection="1"] .shift-photo-compare-image-circle-tool {
     display: inline-grid !important;
     place-items: center;
 }
@@ -17479,6 +17488,8 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-alpha-strength,
+.shift-photo-compare-alpha-gap,
+.shift-photo-compare-alpha-inner,
 .shift-photo-compare-alpha-bg {
     display: inline-flex;
     align-items: center;
@@ -17486,13 +17497,30 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-alpha-strength span,
+.shift-photo-compare-alpha-gap span,
+.shift-photo-compare-alpha-inner span,
 .shift-photo-compare-alpha-bg span {
     color: #334155;
     font-size: 0.76rem;
     font-weight: 900;
 }
 
+.shift-photo-compare-alpha-inner {
+    padding: 5px 9px;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    background: #ffffff;
+    cursor: pointer;
+}
+
+.shift-photo-compare-alpha-inner input {
+    width: 16px;
+    height: 16px;
+    accent-color: #2563eb;
+}
+
 .shift-photo-compare-alpha-strength button,
+.shift-photo-compare-alpha-gap button,
 .shift-photo-compare-alpha-bg button {
     height: 30px;
     border: 1px solid #bfdbfe;
@@ -17506,6 +17534,7 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-alpha-strength button.active,
+.shift-photo-compare-alpha-gap button.active,
 .shift-photo-compare-alpha-bg button.active {
     border-color: #2563eb;
     background: #2563eb;
@@ -17879,15 +17908,51 @@ select.history-assist-copied-value {
     object-fit: fill;
 }
 
-.shift-photo-compare-mark.image[data-flip-x="-1"] img {
+.shift-photo-compare-mark.image[data-image-shape="circle"] {
+    border-radius: 50%;
+    overflow: hidden;
+    box-sizing: border-box;
+    border: var(--circle-border-width, 4px) solid var(--mark-color, #dc2626);
+    background: var(--mark-fill, #ffffff);
+}
+
+.shift-photo-compare-mark.image[data-image-shape="circle"].selected {
+    cursor: grab;
+}
+
+.shift-photo-compare-mark.image[data-image-shape="circle"].circle-content-dragging {
+    cursor: grabbing !important;
+}
+
+.shift-photo-compare-mark.image[data-image-shape="circle"] img {
+    position: absolute;
+    left: calc(50% + var(--circle-image-offset-x, 0%));
+    top: calc(50% + var(--circle-image-offset-y, 0%));
+    width: var(--circle-image-size, 100%);
+    height: var(--circle-image-size, 100%);
+    max-width: none;
+    object-fit: cover;
+    border-radius: 50%;
+    transform: translate(-50%, -50%) scaleX(var(--circle-image-flip-x, 1)) scaleY(var(--circle-image-flip-y, 1));
+}
+
+.shift-photo-compare-mark.image[data-image-shape="circle"][data-flip-x="-1"] img {
+    --circle-image-flip-x: -1;
+}
+
+.shift-photo-compare-mark.image[data-image-shape="circle"][data-flip-y="-1"] img {
+    --circle-image-flip-y: -1;
+}
+
+.shift-photo-compare-mark.image:not([data-image-shape="circle"])[data-flip-x="-1"] img {
     transform: scaleX(-1);
 }
 
-.shift-photo-compare-mark.image[data-flip-y="-1"] img {
+.shift-photo-compare-mark.image:not([data-image-shape="circle"])[data-flip-y="-1"] img {
     transform: scaleY(-1);
 }
 
-.shift-photo-compare-mark.image[data-flip-x="-1"][data-flip-y="-1"] img {
+.shift-photo-compare-mark.image:not([data-image-shape="circle"])[data-flip-x="-1"][data-flip-y="-1"] img {
     transform: scale(-1, -1);
 }
 
@@ -18029,6 +18094,41 @@ select.history-assist-copied-value {
     letter-spacing: 0;
     text-align: left;
     white-space: pre;
+}
+
+.shift-photo-boxed-text-content {
+    display: block;
+    transform: scale(var(--boxed-text-inverse-x, 1), var(--boxed-text-inverse-y, 1));
+    transform-origin: center;
+    white-space: pre;
+}
+
+.shift-photo-boxed-text-editor {
+    display: block;
+    field-sizing: content;
+    width: auto;
+    min-width: calc(var(--mark-size) * 2.4);
+    min-height: 1.28em;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    resize: none;
+    border: 0;
+    border-radius: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+    text-align: inherit;
+    white-space: pre;
+    cursor: text;
+}
+
+.shift-photo-boxed-text-editor::placeholder {
+    color: currentColor;
+    opacity: 0.46;
 }
 
 .shift-photo-compare-mark.boxedText[data-text-align="center"] {
@@ -21228,6 +21328,7 @@ select.history-assist-copied-value {
 }
 
 .photo-manager-card {
+    position: relative;
     display: grid;
     grid-template-columns: 28px 104px minmax(0, 1fr);
     gap: 10px;
@@ -21237,6 +21338,97 @@ select.history-assist-copied-value {
     border-radius: 8px;
     background: #ffffff;
     box-shadow: var(--shadow-sm);
+}
+
+.photo-manager-side-actions {
+    position: absolute;
+    left: 48px;
+    top: 104px;
+    width: 104px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.photo-manager-side-actions .secondary-btn {
+    min-width: 0;
+    min-height: 27px;
+    padding: 3px 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    white-space: nowrap;
+    font-size: 0.63rem;
+}
+
+.photo-manager-side-actions .icon-only {
+    min-height: 34px;
+    font-size: 0.9rem;
+}
+
+.photo-manager-more-actions {
+    position: relative;
+    grid-column: 1 / -1;
+}
+
+.photo-manager-more-actions summary {
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: #ffffff;
+    color: #475569;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.66rem;
+    font-weight: 900;
+}
+
+.photo-manager-more-actions summary::-webkit-details-marker {
+    display: none;
+}
+
+.photo-manager-more-actions > div {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 4px);
+    z-index: 20;
+    width: 142px;
+    display: grid;
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.24);
+}
+
+.photo-manager-more-actions > div button {
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 6px;
+    padding: 4px 7px;
+    background: #f8fafc;
+    color: #334155;
+    cursor: pointer;
+    font-size: 0.68rem;
+    font-weight: 850;
+}
+
+.photo-manager-more-actions > div button:hover {
+    background: #e2e8f0;
+}
+
+.photo-manager-more-actions > div button.danger {
+    background: #fff1f2;
+    color: #dc2626;
 }
 
 .photo-manager-check {
@@ -21286,6 +21478,7 @@ select.history-assist-copied-value {
 
 .photo-manager-info {
     min-width: 0;
+    min-height: 148px;
 }
 
 .photo-manager-meta {
@@ -21334,12 +21527,49 @@ select.history-assist-copied-value {
     color: #64748b;
 }
 
+.photo-manager-meta .photo-manager-size,
+.photo-manager-meta .photo-manager-compressed-meta,
+.photo-manager-meta .photo-manager-uncompressed-meta,
+.photo-manager-meta .photo-manager-protected {
+    display: none;
+}
+
+.photo-manager-state-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-wrap: nowrap;
+    margin: 0 0 6px;
+    overflow: hidden;
+}
+
+.photo-manager-state-row span {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 5px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #64748b;
+    font-size: 0.58rem;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.photo-manager-state-row .size { background: #ecfeff; color: #0e7490; }
+.photo-manager-state-row .alpha.transparent { background: #dcfce7; color: #15803d; }
+.photo-manager-state-row .alpha.candidate { background: #dbeafe; color: #1d4ed8; }
+.photo-manager-state-row .compression.done { background: #ede9fe; color: #6d28d9; }
+.photo-manager-state-row .locked { background: #fef3c7; color: #92400e; }
+
 .photo-manager-thumb .photo-manager-compressed-badge {
     left: auto;
     right: 5px;
     top: auto;
-    bottom: 5px;
-    background: rgba(5, 150, 105, 0.96);
+    bottom: 30px;
+    background: rgba(124, 58, 237, 0.96);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.92), 0 3px 8px rgba(15, 23, 42, 0.18);
 }
 
 .photo-manager-actions .secondary-btn.active {
@@ -21372,6 +21602,19 @@ select.history-assist-copied-value {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
+}
+
+.photo-manager-actions button[onclick*="openPhotoManagerEditor"],
+.photo-manager-actions button[onclick*="downloadPhotoManagerItem"],
+.photo-manager-actions button[onclick*="autoTagPhotoManagerItem"],
+.photo-manager-actions button[onclick*="compressPhotoManagerImage"] {
+    display: none;
+}
+
+.photo-manager-actions button[onclick*="togglePhotoManagerSourceProtection"],
+.photo-manager-actions button[onclick*="createTransparentPhotoManagerImage"],
+.photo-manager-actions button[onclick*="deletePhotoManagerItem"] {
+    display: none;
 }
 
 .photo-manager-actions .secondary-btn,
@@ -21461,6 +21704,13 @@ select.history-assist-copied-value {
     right: 5px;
     top: 5px;
     background: rgba(234, 88, 12, 0.96);
+}
+
+.photo-manager-thumb .photo-manager-circle-image-badge {
+    left: auto;
+    right: 5px;
+    top: 28px;
+    background: rgba(14, 116, 144, 0.96);
 }
 
 .photo-manager-thumb .photo-manager-usage-badge {
@@ -22156,6 +22406,18 @@ select.history-assist-copied-value {
     color: #0f172a;
 }
 
+.image-source-choice-search.search-highlight {
+    border-color: #2563eb;
+    background: #eff6ff;
+    color: #1d4ed8;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.22), 0 8px 20px rgba(37, 99, 235, 0.16);
+    animation: image-search-highlight-pulse 900ms ease-in-out 2;
+}
+
+@keyframes image-search-highlight-pulse {
+    50% { box-shadow: 0 0 0 7px rgba(37, 99, 235, 0.12), 0 8px 22px rgba(37, 99, 235, 0.2); }
+}
+
 .image-source-choice-main {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 260px;
@@ -22221,6 +22483,75 @@ select.history-assist-copied-value {
     border-radius: 7px;
     background: transparent;
     display: block;
+}
+
+.image-source-choice-match-info {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 5px;
+}
+
+.image-source-choice-match-info em {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 0.64rem;
+    font-style: normal;
+    font-weight: 900;
+}
+
+.image-source-choice-match-info em.popular {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.photo-manager-info .photo-manager-reading-input {
+    border-color: #c4b5fd;
+    background: #faf5ff;
+}
+
+.photo-manager-stamp-sheet-preview {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    max-height: 52vh;
+    overflow: auto;
+    padding: 10px;
+    border: 1px solid #dbeafe;
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.photo-manager-stamp-sheet-preview figure {
+    margin: 0;
+    padding: 7px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    background: #ffffff;
+}
+
+.photo-manager-stamp-sheet-preview img {
+    display: block;
+    width: 100%;
+    height: 96px;
+    object-fit: contain;
+    background-color: #f8fafc;
+    background-image: linear-gradient(45deg, #e2e8f0 25%, transparent 25%, transparent 75%, #e2e8f0 75%), linear-gradient(45deg, #e2e8f0 25%, transparent 25%, transparent 75%, #e2e8f0 75%);
+    background-position: 0 0, 7px 7px;
+    background-size: 14px 14px;
+}
+
+.photo-manager-stamp-sheet-preview figcaption {
+    margin-top: 5px;
+    color: #64748b;
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-align: center;
 }
 
 .image-source-choice-alpha-badge {
@@ -22591,6 +22922,10 @@ select.history-assist-copied-value {
     color: #1d4ed8;
     white-space: nowrap;
     box-shadow: var(--shadow-sm);
+}
+
+.photo-manager-card:has(.photo-manager-more-actions[open]) {
+    z-index: 30;
 }
 
 .worktime-period-badge span {
@@ -23663,3 +23998,15 @@ select.history-assist-copied-value {
 .app-toast-error i { color: #dc2626; }
 .app-toast-warning { border-color: #fcd34d; background: #fffbeb; }
 .app-toast-warning i { color: #d97706; }
+
+/* Compact status badges keep more of the thumbnail visible. */
+.photo-manager-thumb span,
+.photo-manager-thumb .photo-manager-usage-badge {
+    gap: 2px;
+    padding: 2px 5px;
+    font-size: 0.54rem;
+}
+
+.photo-manager-thumb .photo-manager-usage-badge.stamp {
+    background: rgba(2, 132, 199, 0.96);
+}

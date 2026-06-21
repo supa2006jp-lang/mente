@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260618-storage-diagnostics">
+    <link rel="stylesheet" href="style.css?v=20260621-stamp-sheet-split-import">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -662,6 +662,11 @@
                             <option value="uncompressed">非圧縮</option>
                             <option value="compressed">圧縮済み</option>
                         </select>
+                        <select id="photo-manager-circle-filter" onchange="app.renderPhotoManager()" title="丸画像で絞り込み">
+                            <option value="all">画像形状すべて</option>
+                            <option value="circle">丸画像のみ</option>
+                            <option value="normal">通常画像のみ</option>
+                        </select>
                         <button type="button" class="secondary-btn photo-manager-alpha-filter" id="photo-manager-alpha-transparent-filter" onclick="app.togglePhotoManagerAlphaFilter('transparent')"><i class="fa-solid fa-layer-group"></i> 透過済み</button>
                         <button type="button" class="secondary-btn photo-manager-alpha-filter" id="photo-manager-alpha-candidate-filter" onclick="app.togglePhotoManagerAlphaFilter('candidate')"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過候補</button>
                         <select id="photo-manager-tag-filter" onchange="app.renderPhotoManager()">
@@ -681,8 +686,10 @@
                         </select>
                         <input type="search" id="photo-manager-query" placeholder="&#26908;&#32034;" oninput="app.renderPhotoManager()">
                         <input type="file" id="photo-manager-import-input" accept="image/*" multiple hidden onchange="app.importPhotoManagerFiles(this.files); this.value=''">
+                        <input type="file" id="photo-manager-stamp-sheet-input" accept="image/*" hidden onchange="app.importPhotoManagerStampSheet(this.files); this.value=''">
                         <button type="button" class="primary-btn" onclick="document.getElementById('photo-manager-import-input')?.click()"><i class="fa-solid fa-file-import"></i> 画像取込</button>
                         <button type="button" class="secondary-btn" onclick="app.importPhotoManagerImageFromClipboard()"><i class="fa-solid fa-paste"></i> 貼付取込</button>
+                        <button type="button" class="secondary-btn" onclick="app.choosePhotoManagerStampSheetFile()"><i class="fa-solid fa-table-cells-large"></i> スタンプ集を分割取込</button>
                         <button type="button" class="secondary-btn" onclick="app.selectVisiblePhotoManagerItems()"><i class="fa-solid fa-check-double"></i> &#34920;&#31034;&#20998;&#12434;&#20840;&#36984;&#25246;</button>
                         <button type="button" class="secondary-btn" onclick="app.clearVisiblePhotoManagerSelection()"><i class="fa-regular fa-square"></i> &#20840;&#35299;&#38500;</button>
                         <button type="button" class="secondary-btn" onclick="app.createTransparentSelectedPhotoManagerImages()"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過作成</button>
@@ -933,15 +940,18 @@
     </div>
 
     <!-- Scripts -->
-    <script src="store.js?v=20260618-json-image-export"></script>
+    <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
+    <script src="store.js?v=20260619-remove-auto-backup"></script>
     <script src="app.js?v=20260618-photo-capacity-expiry-alpha"></script>
-    <script src="app-settings.js?v=20260618-storage-diagnostics"></script>
+    <script src="app-settings.js?v=20260619-safe-data-repair"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js?v=20260618-sample-toggle"></script>
+    <script src="app-shift-notebook-core.js?v=20260621-romaji-search-hint"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js"></script>
     <script src="app-machines.js"></script>
@@ -956,8 +966,8 @@
     <script src="app-persistence.js?v=20260618-backup-size-estimate"></script>
     <script src="app-csv.js?v=20260618-history-import-toast-fix"></script>
     <script src="app-misc-analysis.js"></script>
-    <script src="app-photo-manager.js?v=20260618-deduplicated-methods"></script>
+    <script src="app-photo-manager.js?v=20260621-stamp-sheet-split-import"></script>
     <script src="app-dom-actions.js"></script>
-    <script src="app-boot.js?v=20260618-storage-diagnostics"></script>
+    <script src="app-boot.js?v=20260619-remove-auto-backup"></script>
 </body>
 </html>

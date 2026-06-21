@@ -188,8 +188,27 @@
                     <p class="storage-center-note"><i class="fa-solid fa-clock"></i> 診断は起動後に1日1回自動実行されます。検出だけを行い、自動削除はしません。</p>
                 </div>`;
             const footer = document.querySelector('.modal-footer');
-            if (footer) footer.innerHTML = '<button class="secondary-btn" onclick="app.openScheduledDataDiagnosticsPanel(true)"><i class="fa-solid fa-rotate"></i> 再診断</button><button class="secondary-btn" onclick="app.closeModal()">閉じる</button>';
+            if (footer) footer.innerHTML = `<button class="primary-btn" ${report.orphanMetadataCount || report.brokenReferenceCount ? '' : 'disabled'} onclick="app.autoRepairSafeDataIssues()"><i class="fa-solid fa-screwdriver-wrench"></i> 安全な項目を自動修復</button><button class="secondary-btn" onclick="app.openScheduledDataDiagnosticsPanel(true)"><i class="fa-solid fa-rotate"></i> 再診断</button><button class="secondary-btn" onclick="app.closeModal()">閉じる</button>`;
         });
+    }
+
+    async autoRepairSafeDataIssues() {
+        const orphanEntries = this.collectOrphanPhotoManagerMetadata();
+        const broken = this.getBrokenDataReport?.() || {};
+        const repairKeys = ['archivedMaintenanceTasks', 'archivedGuides', 'archivedTasks'];
+        const referenceCount = repairKeys.reduce((sum, key) => sum + (Array.isArray(broken[key]) ? broken[key].length : 0), 0);
+        const total = orphanEntries.length + referenceCount;
+        if (!total) return this.openScheduledDataDiagnosticsPanel(true);
+        if (!confirm(`安全に自動修復できる ${total}件を修復します。\n画像や履歴本体は削除しません。続行しますか？`)) return;
+        orphanEntries.forEach(({ key, id }) => { delete store.activeData[key][id]; });
+        repairKeys.forEach(key => {
+            const invalid = new Set(Array.isArray(broken[key]) ? broken[key] : []);
+            store.activeData[key] = (store.activeData[key] || []).filter(value => !invalid.has(value));
+        });
+        await store.save?.();
+        this.addSystemActivityLog?.('データ修復', `安全なデータ修復 ${total}件`, { level: 'info' });
+        this.showToast?.(`${total}件を修復しました`, 'success');
+        this.openScheduledDataDiagnosticsPanel(true);
     }
 
     confirmCleanOrphanPhotoManagerMetadata() {
