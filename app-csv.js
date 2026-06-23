@@ -270,14 +270,14 @@
         this.openModal('history-import', '過去履歴のExcel/CSV一括取込', () => {
             const content = document.getElementById('modal-content');
             content.innerHTML = `
-                <div style="margin-bottom:20px; font-size:0.85rem; color:var(--text-main); line-height:1.6;">
+                <div class="history-import-intro" style="margin-bottom:20px; font-size:0.85rem; color:var(--text-main); line-height:1.6;">
                     <p>Excelテンプレート（.xlsx）またはCSVで作成した過去のメンテナンス記録を一括で取り込みます。</p>
                     <p style="margin-top:8px; padding:10px; background:#eff6ff; border-radius:6px; border:1px solid #bae6fd;">
                         1. まず下記のボタンから専用の「テンプレート(CSV)」をダウンロードしてください。<br>
                         2. マクロ無しExcelテンプレート（.xlsx）を使う場合は、そのまま保存して取り込めます。<br>
                         3. 「ファイルを選択」から保存した .xlsx または .csv を読み込ませてください。
                     </p>
-                    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
+                    <div class="history-import-template-actions" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
                         <a class="secondary-btn" style="padding:6px 16px; font-size:0.8rem; text-decoration:none;" href="CSV/history_import_template_input.xlsx" download="history_import_template_入力用.xlsx">
                             <i class="fa-solid fa-file-excel"></i> マクロ無しExcelテンプレート
                         </a>
@@ -286,7 +286,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="form-group" style="border-top:1px dashed var(--border); padding-top:20px;">
+                <div class="form-group history-import-file-picker" style="border-top:1px dashed var(--border); padding-top:20px;">
                     <label style="font-weight:800; color:var(--primary);">Excel / CSVファイルを選択</label>
                     <input type="file" id="hist-csv-upload" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="margin-top:8px; display:block;">
                 </div>

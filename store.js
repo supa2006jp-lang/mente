@@ -125,10 +125,34 @@ class MaintenanceStore {
 
     normalizeData() {
         // Integrity check for departments
+        if (!this.data || typeof this.data !== 'object') this.data = {};
+        if (!this.data.deptData || typeof this.data.deptData !== 'object') {
+            this.data.deptData = {};
+        }
         if (!this.data.departments || this.data.departments.length === 0) {
             this.data.departments = [{ id: 'dept_default', name: '初期部署' }];
         }
+        this.data.departments = this.data.departments
+            .filter(d => d && d.id)
+            .map((d, index) => ({ id: String(d.id), name: d.name || `部署${index + 1}` }))
+            .filter((d, index, array) => array.findIndex(item => item.id === d.id) === index);
+        if (this.data.departments.length === 0) {
+            this.data.departments = [{ id: 'dept_default', name: '初期部署' }];
+        }
+        Object.keys(this.data.deptData).forEach(id => {
+            if (!this.data.departments.some(d => String(d.id) === String(id))) {
+                this.data.departments.push({ id: String(id), name: `部署${this.data.departments.length + 1}` });
+            }
+        });
+        this.data.departments.forEach(dept => {
+            if (!this.data.deptData[dept.id] || typeof this.data.deptData[dept.id] !== 'object') {
+                this.data.deptData[dept.id] = {};
+            }
+        });
         if (!this.data.currentDepartmentId) {
+            this.data.currentDepartmentId = this.data.departments[0].id;
+        }
+        if (!this.data.departments.some(d => String(d.id) === String(this.data.currentDepartmentId))) {
             this.data.currentDepartmentId = this.data.departments[0].id;
         }
         
@@ -881,7 +905,7 @@ class MaintenanceStore {
             : JSON.stringify(payload, null, 2);
     }
 
-    importFromJSON(jsonString) {
+    async importFromJSON(jsonString) {
         try {
             const imported = this.hydratePackedImageData(JSON.parse(jsonString));
             let dataToLoad = imported;
@@ -900,7 +924,8 @@ class MaintenanceStore {
             // Case 1: New multi-dept format
             if (dataToLoad.departments && dataToLoad.deptData) {
                 this.data = dataToLoad;
-                this.save();
+                this.normalizeData();
+                await this.save();
                 return true;
             }
             // Case 2: Legacy single-dept format
@@ -919,7 +944,8 @@ class MaintenanceStore {
                 
                 if (dataToLoad.settings) this.data.settings = dataToLoad.settings;
                 
-                this.save();
+                this.normalizeData();
+                await this.save();
                 return true;
             }
         } catch (e) {
@@ -947,7 +973,7 @@ class MaintenanceStore {
             : JSON.stringify(payload, null, 2);
     }
 
-    importToCurrentDeptFromJSON(jsonString) {
+    async importToCurrentDeptFromJSON(jsonString) {
         try {
             const imported = this.hydratePackedImageData(JSON.parse(jsonString));
             
@@ -982,7 +1008,7 @@ class MaintenanceStore {
                 localStorage.setItem('manualSkills', JSON.stringify(unique));
             }
 
-            this.save();
+            await this.save();
             return { success: true, departmentName: imported.departmentName };
         } catch (e) {
             console.error('Dept import failed', e);
@@ -1009,6 +1035,18 @@ class MaintenanceStore {
         return half.toLowerCase().trim();
     }
 
+    static canvasHasTransparency(ctx, width, height) {
+        try {
+            const data = ctx.getImageData(0, 0, width, height).data;
+            for (let i = 3; i < data.length; i += 4) {
+                if (data[i] < 255) return true;
+            }
+        } catch (e) {
+            return false;
+        }
+        return false;
+    }
+
     static resizeImage(file, maxSide = 1000, quality = 0.7) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -1031,11 +1069,13 @@ class MaintenanceStore {
                         }
                     }
 
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-                    resolve(canvas.toDataURL('image/jpeg', quality));
+                    canvas.width = Math.max(1, Math.round(width));
+                    canvas.height = Math.max(1, Math.round(height));
+                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const hasAlpha = MaintenanceStore.canvasHasTransparency(ctx, canvas.width, canvas.height);
+                    resolve(hasAlpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', quality));
                 };
                 img.onerror = reject;
                 img.src = e.target.result;
@@ -1066,11 +1106,13 @@ class MaintenanceStore {
                     canvas.width = img.width;
                     canvas.height = img.height;
                 }
-                const ctx = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.translate(canvas.width / 2, canvas.height / 2);
                 ctx.rotate(degrees * Math.PI / 180);
                 ctx.drawImage(img, -img.width / 2, -img.height / 2);
-                resolve(canvas.toDataURL('image/jpeg', 0.8));
+                const hasAlpha = MaintenanceStore.canvasHasTransparency(ctx, canvas.width, canvas.height);
+                resolve(hasAlpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.8));
             };
             img.onerror = reject;
             img.src = base64data;

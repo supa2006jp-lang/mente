@@ -134,7 +134,10 @@
                             <div style="flex:1">
                                 <input type="file" id="f-machine-photo" accept="image/*" style="font-size:0.8rem;">
                                 <input type="hidden" id="f-machine-photo-base64" value="${machine ? machine.photo || '' : ''}">
-                                <button type="button" class="secondary-btn f-rotate-btn" style="padding:2px 8px; font-size:0.7rem; margin-top:4px; margin-bottom:4px; display:${machine && machine.photo ? 'inline-block' : 'none'};" onclick="app.rotateSinglePhotoField('f-machine-photo-base64', 'f-machine-photo-preview')"><i class="fa-solid fa-rotate-right"></i> 向きを修正</button>
+                                <div class="profile-photo-actions" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; margin-bottom:4px;">
+                                    <button type="button" class="secondary-btn f-rotate-btn" style="padding:2px 8px; font-size:0.7rem; display:${machine && machine.photo ? 'inline-block' : 'none'};" onclick="app.rotateSinglePhotoField('f-machine-photo-base64', 'f-machine-photo-preview')"><i class="fa-solid fa-rotate-right"></i> 向きを修正</button>
+                                    <button type="button" class="secondary-btn f-delete-photo-btn" style="padding:2px 8px; font-size:0.7rem; color:var(--danger); border-color:#fecaca; display:${machine && machine.photo ? 'inline-block' : 'none'};" onclick="app.clearSinglePhotoField('f-machine-photo-base64', 'f-machine-photo-preview', 'f-machine-photo')"><i class="fa-solid fa-trash"></i> 画像削除</button>
+                                </div>
                                 <p style="font-size:0.65rem; color:var(--text-light); margin-top:6px; line-height:1.4;">
                                     ※設定すると一覧やダッシュボードに表示されます。<br>
                                     ※大きな画像は自動でリサイズされます。
@@ -1829,6 +1832,8 @@
                         preview.innerHTML = `<img src="${base64}" style="width:100%; height:100%; object-fit:cover;">`;
                         const rotateBtn = photoInput.parentElement.querySelector('.f-rotate-btn');
                         if (rotateBtn) rotateBtn.style.display = 'inline-block';
+                        const deleteBtn = photoInput.parentElement.querySelector('.f-delete-photo-btn');
+                        if (deleteBtn) deleteBtn.style.display = 'inline-block';
                     }
                 });
             }
@@ -2126,6 +2131,21 @@
         }
     }
 
+    clearSinglePhotoField(hiddenInputId, previewContainerId, fileInputId = '') {
+        const hiddenInput = document.getElementById(hiddenInputId);
+        const preview = document.getElementById(previewContainerId);
+        const fileInput = fileInputId ? document.getElementById(fileInputId) : null;
+        if (!hiddenInput || !preview) return;
+        if (hiddenInput.value && !confirm('登録画像を削除しますか？\n保存するまでは確定されません。')) return;
+
+        hiddenInput.value = '';
+        if (fileInput) fileInput.value = '';
+        preview.innerHTML = '<i class="fa-solid fa-camera" style="font-size:1.5rem; color:#cbd5e1;"></i>';
+        const actionRoot = fileInput?.parentElement || preview.parentElement;
+        actionRoot?.querySelector('.f-rotate-btn')?.style?.setProperty('display', 'none');
+        actionRoot?.querySelector('.f-delete-photo-btn')?.style?.setProperty('display', 'none');
+    }
+
     initGlobalImageZoom() {
         const preview = document.getElementById('global-image-preview');
         const img = document.getElementById('global-image-target');
@@ -2231,11 +2251,13 @@
                         width = maxWidth;
                     }
 
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-                    resolve(canvas.toDataURL('image/jpeg', quality));
+                    canvas.width = Math.max(1, Math.round(width));
+                    canvas.height = Math.max(1, Math.round(height));
+                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const hasAlpha = MaintenanceStore.canvasHasTransparency?.(ctx, canvas.width, canvas.height);
+                    resolve(hasAlpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', quality));
                 };
             };
         });
@@ -2436,7 +2458,10 @@
                             <div style="flex:1">
                                 <input type="file" id="pm-photo" accept="image/*" style="font-size:0.8rem; margin-bottom:8px;">
                                 <input type="hidden" id="pm-photo-base64" value="${master ? master.photo || '' : ''}">
-                                <button type="button" class="secondary-btn f-rotate-btn" style="padding:2px 8px; font-size:0.7rem; margin-top:4px; margin-bottom:4px; display:${master && master.photo ? 'inline-block' : 'none'};" onclick="app.rotateSinglePhotoField('pm-photo-base64', 'pm-photo-preview')"><i class="fa-solid fa-rotate-right"></i> 向きを修正</button>
+                                <div class="profile-photo-actions" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; margin-bottom:4px;">
+                                    <button type="button" class="secondary-btn f-rotate-btn" style="padding:2px 8px; font-size:0.7rem; display:${master && master.photo ? 'inline-block' : 'none'};" onclick="app.rotateSinglePhotoField('pm-photo-base64', 'pm-photo-preview')"><i class="fa-solid fa-rotate-right"></i> 向きを修正</button>
+                                    <button type="button" class="secondary-btn f-delete-photo-btn" style="padding:2px 8px; font-size:0.7rem; color:var(--danger); border-color:#fecaca; display:${master && master.photo ? 'inline-block' : 'none'};" onclick="app.clearSinglePhotoField('pm-photo-base64', 'pm-photo-preview', 'pm-photo')"><i class="fa-solid fa-trash"></i> 画像削除</button>
+                                </div>
                                 <div style="font-size:0.65rem; color:var(--text-light); line-height:1.4;">
                                     ※現場での識別を容易にするために、現物の全体写真やラベル等のアップロードを推奨します。
                                 </div>

@@ -136,14 +136,19 @@
         });
     }
 
-    confirmFullImportFromPreview() {
+    async confirmFullImportFromPreview() {
         const preview = this.pendingFullImportPreview;
         if (!preview) return;
+        const importBtn = document.querySelector('.modal-footer .danger-btn');
         const ok = this.requireDangerConfirm?.(
             '全データを取込ファイルで置き換えます。',
             '現在データは取込前バックアップを出力してから置き換えます。続行すると画面を再読み込みします。'
         ) ?? confirm('現在データをバックアップしてから、選択したJSONで全データを置き換えます。続行しますか？');
         if (!ok) return;
+        if (importBtn) {
+            importBtn.disabled = true;
+            importBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中...';
+        }
         const backupFilename = `maintenance_before_import_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
         this.downloadJsonText?.(
             backupFilename,
@@ -152,7 +157,7 @@
         );
         this.recordAdminBackupLog?.('import', backupFilename);
         this.recordAdminOperationLog?.('import', '全データ取込を実行', preview.fileName || preview.typeLabel || 'JSON', { tab: 'backup' });
-        if (store.importFromJSON(preview.jsonText)) {
+        if (await store.importFromJSON(preview.jsonText)) {
             localStorage.setItem('maintenance_pending_import_result', JSON.stringify({
                 at: new Date().toISOString(),
                 fileName: preview.fileName,
@@ -164,6 +169,10 @@
             this.pendingFullImportPreview = null;
             location.reload();
         } else {
+            if (importBtn) {
+                importBtn.disabled = false;
+                importBtn.innerHTML = '<i class="fa-solid fa-upload"></i> バックアップして取込';
+            }
             alert('インポートに失敗しました。ファイル形式を確認してください。');
         }
     }
@@ -433,8 +442,8 @@
                 }
 
                 const reader = new FileReader();
-                reader.onload = (event) => {
-                    const result = store.importToCurrentDeptFromJSON(event.target.result);
+                reader.onload = async (event) => {
+                    const result = await store.importToCurrentDeptFromJSON(event.target.result);
                     if (result.success) {
                         alert(`「${currentDeptName}」のデータを更新しました。`);
                         location.reload();

@@ -4944,7 +4944,7 @@
                 y: Math.max(0, Math.min(100, Number(mark.y) || 0)),
                 size: Math.max(24, Math.min(mark.mode === 'mosaic' ? 1200 : 700, Number(mark.size) || 56)),
                 angle: Math.max(0, Math.min(360, Number(mark.angle) || 0)),
-                stretch: Math.max(mark.mode === 'mosaic' ? 0.05 : 0.5, Math.min(mark.mode === 'mosaic' ? 12 : 5, Number(mark.stretch) || 1)),
+                stretch: Math.max(mark.mode === 'mosaic' || mark.mode === 'arrow' ? 0.05 : 0.5, Math.min(mark.mode === 'mosaic' ? 12 : (mark.mode === 'arrow' ? 1000 : 5), Number(mark.stretch) || 1)),
                 stretchY: Math.max(mark.mode === 'mosaic' ? 0.05 : 0.5, Math.min(mark.mode === 'mosaic' ? 12 : 5, Number(mark.stretchY) || 1)),
                 stroke: Math.max(0.35, Math.min(3, Number(mark.stroke) || 1)),
                 outline: mark.outline === false ? false : true,
@@ -5036,7 +5036,7 @@
         const y = Math.max(0, Math.min(100, Number(mark.y) || 0));
         const size = Math.max(24, Math.min(mode === 'mosaic' ? 1200 : 700, Number(mark.size) || 56));
         const angle = Math.max(0, Math.min(360, Number(mark.angle) || 0));
-        const stretch = Math.max(mode === 'mosaic' ? 0.05 : 0.5, Math.min(mode === 'mosaic' ? 12 : 5, Number(mark.stretch) || 1));
+        const stretch = Math.max(mode === 'mosaic' || mode === 'arrow' ? 0.05 : 0.5, Math.min(mode === 'mosaic' ? 12 : (mode === 'arrow' ? 1000 : 5), Number(mark.stretch) || 1));
         const stretchY = Math.max(mode === 'mosaic' ? 0.05 : 0.5, Math.min(mode === 'mosaic' ? 12 : 5, Number(mark.stretchY) || 1));
         const stroke = Math.max(0.35, Math.min(3, Number(mark.stroke) || 1));
         const outline = mark.outline === false ? false : true;
@@ -7912,7 +7912,7 @@
         box.dataset.grouped = groupIds.length ? '1' : '';
         box.dataset.groupLabel = groupIds.length ? `グループ ${selected.length}件` : '';
         box.dataset.hasImage = selected.some(mark => mark.dataset.mode === 'image') ? '1' : '';
-        box.dataset.hasRotate = selected.some(mark => ['image', 'boxedText', 'callout'].includes(mark.dataset.mode || '')) ? '1' : '';
+        box.dataset.hasRotate = selected.some(mark => (mark.dataset.mode || '') !== 'arrow') ? '1' : '';
     }
 
     startShiftPhotoCompareSelectionBoundsDrag(event, box) {
@@ -8190,7 +8190,7 @@
 
     startShiftPhotoCompareSelectionRotate(event, box) {
         const targets = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks())
-            .filter(mark => ['image', 'boxedText', 'callout'].includes(mark.dataset.mode || ''));
+            .filter(mark => (mark.dataset.mode || '') !== 'arrow');
         if (!box || event.button !== 0 || !targets.length) return;
         event.preventDefault();
         event.stopPropagation();
@@ -8295,7 +8295,8 @@
             mark.style.setProperty('--mark-rotate', `${angle}deg`);
         }
         if (settings.stretch !== undefined) {
-            const stretch = Math.max(0.5, Math.min(5, Number(settings.stretch) || 1));
+            const isArrow = mark.dataset.mode === 'arrow';
+            const stretch = Math.max(isArrow ? 0.05 : 0.5, Math.min(isArrow ? 1000 : 5, Number(settings.stretch) || 1));
             mark.dataset.stretch = String(stretch);
             mark.style.setProperty('--mark-scale-x', String(stretch));
             this.updateShiftPhotoCompareCalloutScaleCompensation(mark);
@@ -10139,7 +10140,7 @@
         const length = Math.max(8, Math.hypot(end.x - start.x, end.y - start.y));
         const size = parseFloat(mark.dataset.size || '') || 56;
         const angle = Math.round((Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI + 360) % 360);
-        const stretch = Math.max(0.5, Math.min(5, length / (size * 0.86)));
+        const stretch = Math.max(0.05, Math.min(1000, length / (size * 0.86)));
         mark.style.left = `${Math.max(0, Math.min(100, ((cx - rect.left) / rect.width) * 100))}%`;
         mark.style.top = `${Math.max(0, Math.min(100, ((cy - rect.top) / rect.height) * 100))}%`;
         mark.dataset.angle = String(angle);

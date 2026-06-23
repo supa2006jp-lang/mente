@@ -2950,6 +2950,7 @@
                 if (hidden) hidden.value = src;
                 if (preview) preview.innerHTML = `<img src="${src}" style="width:100%; height:100%; object-fit:cover;">`;
                 input.parentElement?.querySelector('.f-rotate-btn')?.style?.setProperty('display', 'inline-block');
+                input.parentElement?.querySelector('.f-delete-photo-btn')?.style?.setProperty('display', 'inline-block');
                 return;
             }
             if (id === 'g-photos') {

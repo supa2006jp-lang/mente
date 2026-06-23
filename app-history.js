@@ -1069,16 +1069,13 @@
     }
 
     showHistoryDetailPopover(anchor, historyId, kind, event) {
+        if (event && event.type !== 'click') return;
         if (event) {
             event.preventDefault();
             event.stopPropagation();
         }
         if (!anchor) return;
         const popoverKey = `${historyId}:${kind}`;
-        if (event?.type === 'mouseenter' && this.historyDetailPopover) {
-            if (this.historyDetailPopoverKey === popoverKey) return;
-            return;
-        }
         if (this.historyDetailPopover && this.historyDetailPopoverKey === popoverKey) return;
         const label = kind === 'cause' ? '原因' : '処置';
         const fullText = anchor.dataset.detailFull || `${label}: ${anchor.textContent || ''}`;
@@ -1488,11 +1485,11 @@
                     </div>
                     <div class="history-detail-lines">
                         ${causeText
-                            ? `<div class="history-row-detail-text history-cause-detail has-value"><span class="history-row-detail-hit" data-detail-full="${this.escapeHtml(`原因: ${causeText}`)}" title="原因: ${this.escapeHtml(causeText)}" onmouseenter="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'cause', event)" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'cause', event)"><span class="history-row-detail-label">原因</span><span class="history-row-detail-value">${this.highlightText(causeText, query)}</span></span></div>`
+                            ? `<div class="history-row-detail-text history-cause-detail has-value"><span class="history-row-detail-hit" data-detail-full="${this.escapeHtml(`原因: ${causeText}`)}" title="クリックで原因を表示" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'cause', event)"><span class="history-row-detail-label">原因</span><span class="history-row-detail-value">${this.highlightText(causeText, query)}</span></span></div>`
                             : (isTroubleHistory ? `<div class="history-row-detail-text history-cause-detail is-missing"><span class="history-row-detail-hit" data-detail-full="原因未入力" title="クリックで原因未入力だけ表示" onclick="app.setHistoryMissingDetailFilter('cause', event)"><span class="history-row-detail-label">原因</span><span class="history-row-detail-value">未入力</span></span></div>` : '')
                         }
                         ${notesText
-                            ? `<div class="history-row-detail-text history-action-detail has-value"><span class="history-row-detail-hit" data-detail-full="${this.escapeHtml(`処置: ${notesText}`)}" title="処置: ${this.escapeHtml(notesText)}" onmouseenter="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'notes', event)" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'notes', event)"><span class="history-row-detail-label">処置</span><span class="history-row-detail-value">${this.highlightText(notesText, query)}</span></span></div>`
+                            ? `<div class="history-row-detail-text history-action-detail has-value"><span class="history-row-detail-hit" data-detail-full="${this.escapeHtml(`処置: ${notesText}`)}" title="クリックで処置を表示" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'notes', event)"><span class="history-row-detail-label">処置</span><span class="history-row-detail-value">${this.highlightText(notesText, query)}</span></span></div>`
                             : (isTroubleHistory ? `<div class="history-row-detail-text history-action-detail is-missing"><span class="history-row-detail-hit" data-detail-full="処置未入力" title="クリックで処置未入力だけ表示" onclick="app.setHistoryMissingDetailFilter('notes', event)"><span class="history-row-detail-label">処置</span><span class="history-row-detail-value">未入力</span></span></div>` : '')
                         }
                     </div>
