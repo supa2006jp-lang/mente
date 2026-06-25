@@ -1232,6 +1232,44 @@
             };
         }
 
+        getPhotoManagerUsageKindLabel(usage = {}) {
+            return usage.usageKind === 'stamp' ? 'スタンプ使用' : '写真として使用';
+        }
+
+        openPhotoManagerUsageList(id = '') {
+            const item = this.findPhotoManagerItem(id);
+            if (!item?.src) return this.showPhotoManagerNotice?.('写真が見つかりませんでした。');
+            const summary = this.getPhotoManagerUsageSummary(item);
+            const usages = summary.usages || [];
+            if (!usages.length) return this.showPhotoManagerNotice?.('この写真の使用先はありません。');
+            const title = this.getPhotoManagerName(item) || item.defaultName || item.title || '写真';
+            const body = `
+                <div class="photo-manager-review-summary">
+                    <b>${this.escapeHtml(title)}</b>
+                    <span>使用先 ${usages.length}件 / 写真として ${summary.baseCount}件 / スタンプ ${summary.stampCount}件</span>
+                </div>
+                <div class="photo-manager-relation-list">
+                    ${usages.map(usage => `
+                        <article class="photo-manager-relation-item">
+                            <img src="${usage.src || item.src}" alt="${this.escapeHtml(usage.title || title)}">
+                            <div>
+                                <b>${this.escapeHtml(this.getPhotoManagerSourceLabel(usage))} / ${this.escapeHtml(this.getPhotoManagerUsageKindLabel(usage))}</b>
+                                <small>${this.escapeHtml([usage.date || '', usage.title || usage.defaultName || ''].filter(Boolean).join(' / '))}</small>
+                                <div class="photo-manager-relation-chips">
+                                    <button type="button" onclick="app.openPhotoManagerUsageSource('${this.escapeJs(usage.id)}')">
+                                        <i class="fa-solid fa-up-right-from-square"></i> この使用先を開く
+                                    </button>
+                                </div>
+                            </div>
+                        </article>
+                    `).join('')}
+                </div>
+                <div class="photo-manager-review-actions">
+                    <button type="button" class="secondary-btn" onclick="app.closePhotoManagerReviewDialog()">閉じる</button>
+                </div>`;
+            this.openPhotoManagerReviewDialog('写真の使用先', body);
+        }
+
         getPhotoManagerPageOnlyItems() {
             const items = this.collectPhotoManagerItems();
             const librarySrcs = new Set(items.filter(item => item.source === 'library' && item.src).map(item => item.src));
@@ -3297,10 +3335,11 @@
                             <div class="photo-manager-usage-links">
                                 ${usageSummary.usages.slice(0, 4).map(usage => `
                                     <button type="button" onclick="app.openPhotoManagerUsageSource('${this.escapeJs(usage.id)}')" title="${this.escapeHtml(usage.title || '')}">
-                                        ${this.escapeHtml(this.getPhotoManagerSourceLabel(usage))}
+                                        ${this.escapeHtml(this.getPhotoManagerSourceLabel(usage))}${usage.usageKind === 'stamp' ? '・スタンプ' : ''}
                                     </button>
                                 `).join('')}
-                                ${usageSummary.usages.length > 4 ? `<span>+${usageSummary.usages.length - 4}</span>` : ''}
+                                ${usageSummary.usages.length > 4 ? `<button type="button" onclick="app.openPhotoManagerUsageList('${this.escapeJs(item.id)}')">+${usageSummary.usages.length - 4}</button>` : ''}
+                                <button type="button" onclick="app.openPhotoManagerUsageList('${this.escapeJs(item.id)}')"><i class="fa-solid fa-list"></i> 使用先一覧</button>
                             </div>
                         ` : '<div class="photo-manager-usage-links empty">使用先なし</div>'}
                         <div class="photo-manager-actions">

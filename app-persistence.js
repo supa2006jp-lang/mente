@@ -33,6 +33,7 @@
             || imported.departmentName
             || '不明';
         const currentDeptName = store.data.departments.find(d => String(d.id) === String(currentDeptId))?.name || '現在の部署';
+        const deptNameMismatch = !!(incomingDeptName && currentDeptName && incomingDeptName !== '不明' && currentDeptName !== '現在の部署' && incomingDeptName !== currentDeptName);
         let currentSkillEvaluations = {};
         let currentManualSkills = [];
         try { currentSkillEvaluations = JSON.parse(localStorage.getItem('skillEvaluations') || '{}'); } catch (e) {}
@@ -54,6 +55,7 @@
             incomingDeptId,
             incomingDeptName,
             currentDeptName,
+            deptNameMismatch,
             typeLabel,
             dangerLabel,
             isInitialJson: imported?.type === 'maintenance_initialization_json',
@@ -112,6 +114,12 @@
                             <p>これは部署取込向けのファイルです。全データ取込で続行すると、形式が合わず失敗する可能性があります。</p>
                         </div>
                     ` : ''}
+                    ${preview.deptNameMismatch ? `
+                        <div class="admin-preview-note danger">
+                            <b>部署名が違います</b>
+                            <p>現在開いている部署は「${this.escapeHtml(preview.currentDeptName)}」、取込ファイル側は「${this.escapeHtml(preview.incomingDeptName)}」です。別部署のデータを読み込む可能性があります。</p>
+                        </div>
+                    ` : ''}
                     <div class="admin-import-summary">
                         <div><span>現在</span><b>${this.escapeHtml(preview.currentDeptName)}</b></div>
                         <div><span>取込後</span><b>${this.escapeHtml(preview.incomingDeptName)}</b></div>
@@ -140,6 +148,10 @@
         const preview = this.pendingFullImportPreview;
         if (!preview) return;
         const importBtn = document.querySelector('.modal-footer .danger-btn');
+        if (preview.deptNameMismatch) {
+            const mismatchOk = confirm(`部署名が違います。\n\n現在: ${preview.currentDeptName}\n取込ファイル: ${preview.incomingDeptName}\n\nこのまま全データ取込を続行しますか？`);
+            if (!mismatchOk) return;
+        }
         const ok = this.requireDangerConfirm?.(
             '全データを取込ファイルで置き換えます。',
             '現在データは取込前バックアップを出力してから置き換えます。続行すると画面を再読み込みします。'
@@ -436,13 +448,24 @@
                 if (!file) return;
 
                 const currentDeptName = store.data.departments.find(d => d.id === store.data.currentDepartmentId)?.name || '不明';
-                if (!confirm(`現在開いている「${currentDeptName}」のデータのみを、選択したファイルの内容で上書きしますか？\n他の部署のデータには影響しません。`)) {
-                    fileDeptInput.value = '';
-                    return;
-                }
-
                 const reader = new FileReader();
                 reader.onload = async (event) => {
+                    let incomingDeptName = '不明';
+                    try {
+                        const imported = JSON.parse(event.target.result || '{}');
+                        incomingDeptName = imported.departmentName || imported.mainData?.departments?.find?.(d => d.id === imported.mainData?.currentDepartmentId)?.name || '不明';
+                    } catch (error) {}
+                    if (incomingDeptName !== '不明' && currentDeptName !== '不明' && incomingDeptName !== currentDeptName) {
+                        const mismatchOk = confirm(`部署名が違います。\n\n現在開いている部署: ${currentDeptName}\n取込ファイルの部署: ${incomingDeptName}\n\nこのまま「${currentDeptName}」へ上書きしますか？`);
+                        if (!mismatchOk) {
+                            fileDeptInput.value = '';
+                            return;
+                        }
+                    }
+                    if (!confirm(`現在開いている「${currentDeptName}」のデータのみを、選択したファイルの内容で上書きしますか？\n他の部署のデータには影響しません。`)) {
+                        fileDeptInput.value = '';
+                        return;
+                    }
                     const result = await store.importToCurrentDeptFromJSON(event.target.result);
                     if (result.success) {
                         alert(`「${currentDeptName}」のデータを更新しました。`);

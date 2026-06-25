@@ -16788,6 +16788,27 @@ select.history-assist-copied-value {
     border-color: rgba(250, 204, 21, 0.72);
 }
 
+.shift-photo-compare-selection-hint {
+    max-width: min(360px, 42vw);
+    margin: 0 4px;
+    padding: 6px 9px;
+    border-radius: 999px;
+    background: rgba(219, 234, 254, 0.14);
+    color: #dbeafe;
+    border: 1px solid rgba(147, 197, 253, 0.34);
+    font-size: 0.72rem;
+    font-weight: 850;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+
+.shift-photo-compare-selection-hint[hidden] {
+    display: none;
+}
+
 .shift-photo-compare-number-text-btn {
     position: relative;
     display: none;
@@ -17534,6 +17555,7 @@ select.history-assist-copied-value {
 .shift-photo-compare-alpha-strength,
 .shift-photo-compare-alpha-gap,
 .shift-photo-compare-alpha-inner,
+.shift-photo-compare-alpha-presets,
 .shift-photo-compare-alpha-bg {
     display: inline-flex;
     align-items: center;
@@ -17543,6 +17565,7 @@ select.history-assist-copied-value {
 .shift-photo-compare-alpha-strength span,
 .shift-photo-compare-alpha-gap span,
 .shift-photo-compare-alpha-inner span,
+.shift-photo-compare-alpha-presets span,
 .shift-photo-compare-alpha-bg span {
     color: #334155;
     font-size: 0.76rem;
@@ -17565,6 +17588,7 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-alpha-strength button,
 .shift-photo-compare-alpha-gap button,
+.shift-photo-compare-alpha-presets button,
 .shift-photo-compare-alpha-bg button {
     height: 30px;
     border: 1px solid #bfdbfe;
@@ -17579,6 +17603,7 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-alpha-strength button.active,
 .shift-photo-compare-alpha-gap button.active,
+.shift-photo-compare-alpha-presets button.active,
 .shift-photo-compare-alpha-bg button.active {
     border-color: #2563eb;
     background: #2563eb;
@@ -17915,7 +17940,14 @@ select.history-assist-copied-value {
     height: var(--mark-size);
     border: max(2px, calc(var(--mark-size) * 0.08 * var(--mark-stroke))) solid var(--mark-color);
     border-radius: 2px;
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 8px 18px rgba(15, 23, 42, 0.28);
+    box-shadow: 0 0 0 max(4px, calc(var(--mark-size) * 0.055)) rgba(255, 255, 255, 0.96), 0 8px 18px rgba(15, 23, 42, 0.28);
+}
+
+.shift-photo-compare-mark.circle[data-outline="0"],
+.shift-photo-compare-mark.rect[data-outline="0"],
+.shift-photo-compare-mark.mosaic[data-outline="0"],
+.shift-photo-compare-mark.boxedText[data-outline="0"] {
+    box-shadow: none;
 }
 
 .shift-photo-compare-mark.mosaic {
@@ -17935,7 +17967,11 @@ select.history-assist-copied-value {
 .shift-photo-compare-mark.image {
     width: var(--mark-size);
     height: var(--mark-size);
-    filter: drop-shadow(0 5px 12px rgba(15, 23, 42, 0.25));
+    filter: drop-shadow(0 0 4px #ffffff) drop-shadow(0 0 2px #ffffff) drop-shadow(0 5px 12px rgba(15, 23, 42, 0.25));
+}
+
+.shift-photo-compare-mark.image[data-outline="0"] {
+    filter: none;
 }
 
 .shift-photo-compare-mark.image img,
@@ -18009,13 +18045,17 @@ select.history-assist-copied-value {
     width: 100%;
     height: 100%;
     overflow: visible;
-    filter: drop-shadow(0 0 2px #ffffff) drop-shadow(0 8px 18px rgba(15, 23, 42, 0.28));
+    filter: drop-shadow(0 0 5px #ffffff) drop-shadow(0 0 2px #ffffff) drop-shadow(0 8px 18px rgba(15, 23, 42, 0.28));
+}
+
+.shift-photo-compare-mark.xmark[data-outline="0"] svg {
+    filter: none;
 }
 
 .shift-photo-compare-mark.xmark path {
     fill: none;
     stroke: var(--mark-color);
-    stroke-width: max(4px, calc(var(--mark-size) * 0.11 * var(--mark-stroke)));
+    stroke-width: var(--xmark-stroke, 9.5);
     stroke-linecap: round;
     stroke-linejoin: round;
 }
@@ -18025,7 +18065,11 @@ select.history-assist-copied-value {
     width: max(calc(var(--mark-size) * 0.7), calc(var(--mark-size) * var(--mark-scale-x) * 0.86));
     height: var(--mark-size);
     transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
-    filter: drop-shadow(0 0 2px #ffffff) drop-shadow(0 6px 10px rgba(15, 23, 42, 0.32));
+    filter: drop-shadow(0 0 5px #ffffff) drop-shadow(0 0 2px #ffffff) drop-shadow(0 6px 10px rgba(15, 23, 42, 0.32));
+}
+
+.shift-photo-compare-mark.arrow[data-outline="0"] {
+    filter: none;
 }
 
 .shift-photo-arrow-end {
@@ -18105,8 +18149,8 @@ select.history-assist-copied-value {
     line-height: 1.15;
     font-weight: 950;
     white-space: pre;
-    text-shadow: 0 0 3px #ffffff, 0 2px 6px rgba(15, 23, 42, 0.36);
-    -webkit-text-stroke: max(1px, calc(var(--mark-size) * 0.035)) #ffffff;
+    text-shadow: 0 0 5px #ffffff, 0 0 2px #ffffff, 0 2px 6px rgba(15, 23, 42, 0.36);
+    -webkit-text-stroke: max(2px, calc(var(--mark-size) * 0.055)) #ffffff;
     paint-order: stroke fill;
 }
 
@@ -18119,6 +18163,7 @@ select.history-assist-copied-value {
 .shift-photo-compare-mark.text[data-outline="0"],
 .shift-photo-compare-mark.number[data-outline="0"] {
     -webkit-text-stroke: 0 transparent;
+    text-shadow: none;
 }
 
 .shift-photo-compare-mark.boxedText {
@@ -18616,8 +18661,12 @@ select.history-assist-copied-value {
     stroke-width: max(2px, calc(var(--mark-size) * 0.08 * var(--mark-stroke)));
     stroke-linecap: round;
     stroke-linejoin: round;
-    filter: drop-shadow(0 0 0.18px #ffffff) drop-shadow(0 0.55px 0.75px rgba(15, 23, 42, 0.32));
+    filter: drop-shadow(0 0 4px #ffffff) drop-shadow(0 0 2px #ffffff) drop-shadow(0 0.55px 0.75px rgba(15, 23, 42, 0.32));
     pointer-events: stroke;
+}
+
+.shift-photo-compare-mark.freehand[data-outline="0"] polyline {
+    filter: none;
 }
 
 .shift-photo-compare-overlay.moving .shift-photo-compare-mark.freehand,

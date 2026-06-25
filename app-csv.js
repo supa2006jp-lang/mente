@@ -724,6 +724,13 @@
                 const match = raw.match(/\d+/);
                 return match ? match[0] : '';
             };
+            const normalizeImportedWorkerName = (value) => {
+                let name = String(value || '').trim();
+                if (!name) return '';
+                name = name.replace(/[（(]\s*(?:フリガナ|ふりがな|ﾌﾘｶﾞﾅ|[ァ-ヶーｦ-ﾟA-Za-z\s.\-]+)\s*[）)]$/u, '').trim();
+                name = name.replace(/\s*[（(]\s*[）)]\s*$/u, '').trim();
+                return name;
+            };
 
             const records = [];
             const machines = store.getMachines(true);
@@ -795,7 +802,9 @@
                     if (categoryName.includes(k)) { category = v; break; }
                 }
 
-                const workers = workersStr ? workersStr.split(/\s*(?:,|，|、|\/)\s*/).map(w => w.trim()).filter(Boolean) : [];
+                const workers = workersStr
+                    ? workersStr.split(/\s*(?:,|，|、|\/)\s*/).map(w => normalizeImportedWorkerName(w)).filter(Boolean)
+                    : [];
                 const replacedParts = this.parseHistoryImportParts(partsStr, partNameStr, partCountStr, partUnitStr, partPriceStr);
                 const record = {
                     id: store.generateId(),
