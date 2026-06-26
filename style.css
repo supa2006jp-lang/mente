@@ -15989,11 +15989,15 @@ select.history-assist-copied-value {
     grid-column: 1 / -1;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-areas:
+        "tools close"
+        "recent recent";
     align-items: start;
     gap: 8px;
 }
 
 .shift-photo-compare-markbar {
+    grid-area: tools;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -16007,14 +16011,15 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-recent-images {
-    flex: 1 1 220px;
-    min-width: 160px;
-    max-width: 460px;
-    height: 34px;
+    grid-area: recent;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    min-height: 40px;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 6px;
+    padding: 5px 8px;
     border: 1px solid rgba(147, 197, 253, 0.25);
     border-radius: 8px;
     background: rgba(15, 23, 42, 0.22);
@@ -16051,6 +16056,8 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-recent-list {
+    flex: 1 1 auto;
+    width: 100%;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -16062,9 +16069,9 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-recent-image {
     position: relative;
-    width: 28px;
-    height: 28px;
-    flex: 0 0 28px;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
     padding: 2px;
     border: 1px solid rgba(255, 255, 255, 0.24);
     border-radius: 6px;
@@ -16085,6 +16092,23 @@ select.history-assist-copied-value {
 .shift-photo-compare-recent-image.pinned {
     border-color: #facc15;
     box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.45);
+}
+
+.shift-photo-compare-recent-image.standard-flash {
+    border-color: #86efac;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.62), 0 0 18px rgba(34, 197, 94, 0.52);
+    animation: shiftPhotoRecentStandardFlash 1.2s ease-out;
+}
+
+@keyframes shiftPhotoRecentStandardFlash {
+    0% {
+        transform: scale(1.12);
+        filter: brightness(1.45);
+    }
+    100% {
+        transform: scale(1);
+        filter: brightness(1);
+    }
 }
 
 .shift-photo-compare-recent-image img {
@@ -16115,14 +16139,30 @@ select.history-assist-copied-value {
     right: 1px;
     bottom: 1px;
     min-width: 13px;
+    max-width: 28px;
     padding: 1px 2px;
     border-radius: 4px;
     background: rgba(37, 99, 235, 0.92);
     color: #fff;
-    font-size: 0.48rem;
+    font-size: 0.46rem;
     font-weight: 950;
     line-height: 1;
     pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+}
+
+.shift-photo-compare-recent-image.standard-size strong {
+    background: rgba(22, 163, 74, 0.94);
+    right: 1px;
+    max-width: 24px;
+}
+
+.shift-photo-compare-recent-image.has-size-preset strong::before {
+    content: "保";
+    margin-right: 1px;
+    color: #dbeafe;
 }
 
 .shift-photo-compare-recent-pin,
@@ -16206,6 +16246,16 @@ select.history-assist-copied-value {
     white-space: nowrap;
 }
 
+.shift-photo-compare-recent-preview small {
+    display: block;
+    margin-top: 3px;
+    color: #bfdbfe;
+    font-size: 0.58rem;
+    font-weight: 800;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
 .shift-photo-compare-mode-chip {
     height: 32px;
     display: inline-flex;
@@ -16231,6 +16281,8 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-mark-btn,
+.shift-photo-compare-cancel-placement,
+.shift-photo-compare-one-shot-toggle,
 .shift-photo-compare-snap-toggle,
 .shift-photo-compare-clipboard,
 .shift-photo-compare-image-cutout,
@@ -16263,6 +16315,18 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-number-reset {
     font-size: 1rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-one-shot-toggle {
+    width: auto;
+    min-width: 54px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 8px;
+    font-size: 0.7rem;
     font-weight: 950;
 }
 
@@ -16724,6 +16788,7 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-close {
+    grid-area: close;
     width: 34px;
     height: 34px;
     border: 1px solid rgba(255, 255, 255, 0.34);
@@ -16952,6 +17017,10 @@ select.history-assist-copied-value {
     display: none !important;
 }
 
+.shift-photo-compare-standard-size-btn {
+    display: none !important;
+}
+
 .shift-photo-compare-image-circle-tool {
     display: none !important;
 }
@@ -16959,6 +17028,20 @@ select.history-assist-copied-value {
 .shift-photo-compare-mini-toolbar[data-has-image-selection="1"] .shift-photo-compare-image-tool {
     display: inline-grid !important;
     place-items: center;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-standard-size-selection="1"] .shift-photo-compare-standard-size-btn {
+    display: inline-grid !important;
+    place-items: center;
+}
+
+.shift-photo-compare-standard-size-btn span {
+    position: absolute;
+    right: 2px;
+    bottom: 1px;
+    font-size: 0.56rem;
+    font-weight: 950;
+    line-height: 1;
 }
 
 .shift-photo-compare-mini-toolbar[data-has-circle-image-selection="1"] .shift-photo-compare-image-circle-tool {
@@ -17032,6 +17115,19 @@ select.history-assist-copied-value {
     white-space: nowrap;
 }
 
+.shift-photo-compare-selection-bounds[data-grouped="1"][data-group-icon-hidden="1"] {
+    border-style: dashed;
+    border-color: #facc15;
+    background: rgba(250, 204, 21, 0.10);
+    box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.20), 0 10px 26px rgba(15, 23, 42, 0.18);
+}
+
+.shift-photo-compare-selection-bounds[data-grouped="1"][data-group-icon-hidden="1"]::before {
+    border-color: rgba(254, 240, 138, 0.88);
+    background: rgba(66, 32, 6, 0.94);
+    color: #fef9c3;
+}
+
 .shift-photo-compare-resize-handle {
     position: absolute;
     width: 12px;
@@ -17045,6 +17141,62 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-resize-handle:hover {
     background: #dbeafe;
+    transform: scale(1.18);
+}
+
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.n,
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.s,
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.e,
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.w {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.62rem;
+    font-weight: 950;
+    line-height: 1;
+}
+
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.n,
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.s {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+    box-shadow: 0 2px 10px rgba(146, 64, 14, 0.34), 0 0 0 2px rgba(254, 240, 138, 0.76);
+}
+
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.e,
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.w {
+    border-color: #38bdf8;
+    background: #ecfeff;
+    color: #075985;
+    box-shadow: 0 2px 10px rgba(3, 105, 161, 0.30), 0 0 0 2px rgba(186, 230, 253, 0.74);
+}
+
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.n::after,
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.s::after {
+    content: "厚";
+}
+
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.e::after,
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.w::after {
+    content: "長";
+}
+
+.shift-photo-compare-selection-bounds[data-resize-role="thickness"] .shift-photo-compare-resize-handle.n,
+.shift-photo-compare-selection-bounds[data-resize-role="thickness"] .shift-photo-compare-resize-handle.s {
+    background: #f59e0b;
+    border-color: #fff7ed;
+    color: #ffffff;
+    transform: scale(1.18);
+}
+
+.shift-photo-compare-selection-bounds[data-resize-role="length"] .shift-photo-compare-resize-handle.e,
+.shift-photo-compare-selection-bounds[data-resize-role="length"] .shift-photo-compare-resize-handle.w {
+    background: #0ea5e9;
+    border-color: #ecfeff;
+    color: #ffffff;
     transform: scale(1.18);
 }
 
@@ -17147,16 +17299,31 @@ select.history-assist-copied-value {
     cursor: ns-resize;
 }
 
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.n {
+    left: calc(50% - 12px);
+    top: -13px;
+}
+
 .shift-photo-compare-resize-handle.e {
     right: -7px;
     top: calc(50% - 6px);
     cursor: ew-resize;
 }
 
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.e {
+    right: -13px;
+    top: calc(50% - 12px);
+}
+
 .shift-photo-compare-resize-handle.w {
     left: -7px;
     top: calc(50% - 6px);
     cursor: ew-resize;
+}
+
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.w {
+    left: -13px;
+    top: calc(50% - 12px);
 }
 
 .shift-photo-compare-resize-handle.sw {
@@ -17169,6 +17336,11 @@ select.history-assist-copied-value {
     left: calc(50% - 6px);
     bottom: -7px;
     cursor: ns-resize;
+}
+
+.shift-photo-compare-selection-bounds[data-has-arrow="1"] .shift-photo-compare-resize-handle.s {
+    left: calc(50% - 12px);
+    bottom: -13px;
 }
 
 .shift-photo-compare-resize-handle.se {
@@ -17240,8 +17412,8 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-mark-list {
-    min-height: 34px;
-    max-height: 76px;
+    min-height: 42px;
+    max-height: 96px;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -17255,14 +17427,18 @@ select.history-assist-copied-value {
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(147, 197, 253, 0.28);
+    width: min(100% - 28px, 1280px);
+    margin: 8px auto 10px;
+    border: 1px solid rgba(147, 197, 253, 0.36);
     border-radius: 7px;
-    background: rgba(37, 99, 235, 0.16);
-    color: #dbeafe;
+    background: rgba(15, 23, 42, 0.72);
+    color: #e0f2fe;
     padding: 5px 10px;
     text-align: center;
     font-size: 0.74rem;
-    font-weight: 900;
+    font-weight: 950;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .shift-photo-compare-mode-hint[hidden] {
@@ -17275,6 +17451,51 @@ select.history-assist-copied-value {
     color: #fee2e2;
 }
 
+.shift-photo-compare-mode-hint.notice {
+    animation: shiftPhotoCompareNoticePulse 1.15s ease-out 2;
+}
+
+.shift-photo-compare-mode-hint.notice[data-notice-type="success"] {
+    border-color: rgba(134, 239, 172, 0.92);
+    background: rgba(20, 83, 45, 0.92);
+    color: #dcfce7;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.24), 0 8px 24px rgba(20, 83, 45, 0.36);
+}
+
+.shift-photo-compare-mode-hint.notice[data-notice-type="warning"],
+.shift-photo-compare-mode-hint.notice:not([data-notice-type]),
+.shift-photo-compare-mode-hint.notice[data-notice-type=""] {
+    border-color: rgba(250, 204, 21, 0.92);
+    background: rgba(113, 63, 18, 0.92);
+    color: #fef9c3;
+    box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.28), 0 8px 24px rgba(113, 63, 18, 0.38);
+}
+
+.shift-photo-compare-mode-hint.notice[data-notice-type="danger"] {
+    border-color: rgba(252, 165, 165, 0.95);
+    background: rgba(127, 29, 29, 0.94);
+    color: #fee2e2;
+    box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.26), 0 8px 24px rgba(127, 29, 29, 0.42);
+}
+
+.shift-photo-compare-mode-hint.notice[data-notice-type="info"] {
+    border-color: rgba(147, 197, 253, 0.92);
+    background: rgba(30, 64, 175, 0.90);
+    color: #dbeafe;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.24), 0 8px 24px rgba(30, 64, 175, 0.36);
+}
+
+@keyframes shiftPhotoCompareNoticePulse {
+    0% {
+        transform: translateY(-2px);
+        filter: brightness(1.35);
+    }
+    100% {
+        transform: translateY(0);
+        filter: brightness(1);
+    }
+}
+
 .shift-photo-compare-mark-list-empty {
     color: #94a3b8;
     font-size: 0.72rem;
@@ -17282,7 +17503,7 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-mark-list-item {
-    height: 30px;
+    min-height: 38px;
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -17314,6 +17535,59 @@ select.history-assist-copied-value {
     font-weight: 950;
 }
 
+.shift-photo-compare-mark-list-item small {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 170px;
+    overflow: visible;
+}
+
+.shift-photo-compare-mark-badge {
+    min-width: 0;
+    height: 17px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.18);
+    color: #cbd5e1;
+    padding: 0 5px;
+    font-size: 0.58rem;
+    font-style: normal;
+    font-weight: 950;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-mark-badge.global {
+    background: rgba(59, 130, 246, 0.22);
+    color: #bfdbfe;
+}
+
+.shift-photo-compare-mark-badge.locked {
+    background: rgba(250, 204, 21, 0.20);
+    color: #fde68a;
+}
+
+.shift-photo-compare-mark-badge.group {
+    background: rgba(14, 165, 233, 0.20);
+    color: #bae6fd;
+}
+
+.shift-photo-compare-mark-badge.pair {
+    background: rgba(168, 85, 247, 0.20);
+    color: #e9d5ff;
+}
+
+.shift-photo-compare-mark-list-item.group-hidden {
+    border-color: rgba(250, 204, 21, 0.55);
+}
+
+.shift-photo-compare-mark-list-item.group-hidden .shift-photo-compare-mark-badge.group {
+    background: rgba(250, 204, 21, 0.22);
+    color: #fef08a;
+}
+
 .shift-photo-compare-mark-list-item.locked::after {
     content: "\f023";
     color: #facc15;
@@ -17337,6 +17611,12 @@ select.history-assist-copied-value {
 .shift-photo-compare-mark-list-item:hover b,
 .shift-photo-compare-mark-list-item.selected b {
     color: #dc2626;
+}
+
+.shift-photo-compare-mark-list-item:hover .shift-photo-compare-mark-badge,
+.shift-photo-compare-mark-list-item.selected .shift-photo-compare-mark-badge {
+    background: #f1f5f9;
+    color: #334155;
 }
 
 .shift-photo-compare-global-layer {
@@ -17414,8 +17694,9 @@ select.history-assist-copied-value {
     cursor: pointer;
 }
 
-.shift-photo-compare-overlay.moving .shift-photo-compare-image-wrap {
-    cursor: grab;
+.shift-photo-compare-overlay.moving .shift-photo-compare-image-wrap,
+.shift-photo-compare-overlay.moving .shift-photo-compare-global-layer {
+    cursor: crosshair;
 }
 
 .shift-photo-compare-overlay.moving .shift-photo-compare-mark {
@@ -17439,6 +17720,59 @@ select.history-assist-copied-value {
     cursor: crosshair;
 }
 
+.shift-photo-compare-overlay.image-placing .shift-photo-compare-image-wrap,
+.shift-photo-compare-overlay.image-placing .shift-photo-compare-global-layer {
+    cursor: copy;
+}
+
+.shift-photo-compare-placement-preview {
+    position: absolute;
+    z-index: 28;
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    transform: translate(-50%, -50%) rotate(var(--preview-rotate, 0deg)) scale(var(--preview-scale-x, 1), var(--preview-scale-y, 1));
+    border: 2px dashed rgba(255, 255, 255, 0.86);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.22);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.34);
+    opacity: 0.72;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.shift-photo-compare-placement-preview[hidden] {
+    display: none;
+}
+
+.shift-photo-compare-placement-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.shift-photo-compare-placement-preview span {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    max-width: 92px;
+    padding: 2px 5px;
+    border-radius: 5px;
+    background: rgba(15, 23, 42, 0.92);
+    color: #dbeafe;
+    font-size: 0.56rem;
+    font-weight: 950;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.28);
+}
+
+.shift-photo-compare-placement-preview[data-image-fit="fill"] img {
+    object-fit: fill;
+}
+
 .shift-photo-compare-image-context-menu {
     position: absolute;
     z-index: 40;
@@ -17454,6 +17788,12 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-image-context-menu.base-image {
     min-width: 220px;
+}
+
+.shift-photo-compare-recent-context-menu {
+    position: fixed;
+    min-width: 180px;
+    z-index: 12020;
 }
 
 .shift-photo-compare-image-context-menu button {
@@ -17475,6 +17815,14 @@ select.history-assist-copied-value {
 .shift-photo-compare-image-context-menu button:hover {
     background: #ffffff;
     color: #dc2626;
+}
+
+.shift-photo-compare-image-context-menu button.danger {
+    color: #fecaca;
+}
+
+.shift-photo-compare-image-context-menu button.danger:hover {
+    color: #b91c1c;
 }
 
 .shift-photo-compare-alpha-preview {
@@ -17818,6 +18166,10 @@ select.history-assist-copied-value {
     transform: rotate(calc(-1 * var(--mark-rotate))) scale(calc(1 / max(0.5, var(--mark-scale-x))), calc(1 / max(0.5, var(--mark-scale-y))));
     box-shadow: 0 2px 8px rgba(15, 23, 42, 0.35);
     pointer-events: none;
+}
+
+.shift-photo-compare-mark[data-group-id]:not([data-group-id=""])[data-group-icon-hidden="1"]::before {
+    display: none;
 }
 
 .shift-photo-compare-mark.selected:not(:last-child) {
@@ -18706,6 +19058,44 @@ select.history-assist-copied-value {
     gap: 8px;
     width: min(100%, 520px);
     margin: 0 auto;
+}
+
+.shift-photo-compare-meta-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: #e2e8f0;
+    font-size: 0.76rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-meta-toggle {
+    border: 1px solid rgba(147, 197, 253, 0.36);
+    border-radius: 999px;
+    background: rgba(219, 234, 254, 0.12);
+    color: #bfdbfe;
+    padding: 4px 10px;
+    font-size: 0.68rem;
+    font-weight: 950;
+    cursor: pointer;
+}
+
+.shift-photo-compare-meta-toggle:hover {
+    background: rgba(219, 234, 254, 0.22);
+}
+
+.shift-photo-compare-meta-body {
+    display: grid;
+    gap: 8px;
+}
+
+.shift-photo-compare-meta[data-collapsed="1"] {
+    gap: 0;
+}
+
+.shift-photo-compare-meta[data-collapsed="1"] .shift-photo-compare-meta-body {
+    display: none;
 }
 
 .shift-photo-compare-caption-edit {
