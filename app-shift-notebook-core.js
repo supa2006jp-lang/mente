@@ -5043,7 +5043,7 @@
                 fillColor: /^#[0-9a-f]{6}$/i.test(mark.fillColor || '') ? mark.fillColor : (mark.mode === 'boxedText' ? '#fff7fb' : (mark.mode === 'image' ? '#ffffff' : '#fff3a3')),
                 polylineFill: mark.polylineFill === true || mark.polylineFill === '1',
                 polylineFillColor: /^#[0-9a-f]{6}$/i.test(mark.polylineFillColor || '') ? mark.polylineFillColor : (/^#[0-9a-f]{6}$/i.test(mark.color || '') ? mark.color : '#dc2626'),
-                polylineFillOpacity: Math.max(0.05, Math.min(1, Number(mark.polylineFillOpacity) || 0.25)),
+                polylineFillOpacity: Math.max(0.05, Math.min(1, Number(mark.polylineFillOpacity) || 1)),
                 polylineRegionFills: this.normalizeShiftPhotoComparePolylineRegionFills(mark.polylineRegionFills),
                 textColor: /^#[0-9a-f]{6}$/i.test(mark.textColor || '') ? mark.textColor : (mark.mode === 'boxedText' ? '#dc2626' : '#111827'),
                 textScale: Math.max(0.5, Math.min(3, Number(mark.textScale) || 1)),
@@ -5159,7 +5159,7 @@
         const regionFills = this.reconcileShiftPhotoComparePolylineRegionFills(pointsValue, regionFillValue, fillDefaults);
         const defaultEnabled = fillDefaults.enabled === true;
         const defaultColor = /^#[0-9a-f]{6}$/i.test(fillDefaults.color || '') ? fillDefaults.color : '#dc2626';
-        const defaultOpacity = Math.max(0.05, Math.min(1, Number(fillDefaults.opacity) || 0.25));
+        const defaultOpacity = Math.max(0.05, Math.min(1, Number(fillDefaults.opacity) || 1));
         const regionPolygons = regions.map((region, index) => {
             const fill = regionFills[index] || {};
             const enabled = typeof fill.enabled === 'boolean' ? fill.enabled : defaultEnabled;
@@ -5173,7 +5173,7 @@
 
     getShiftPhotoComparePolylineRegionLabelsHtml(pointsValue = []) {
         return this.getShiftPhotoComparePolylineRegions(pointsValue).map((region, index) => (
-            `<i class="shift-photo-polyline-region-label" style="left:${region.centerX}%;top:${region.centerY}%">${index + 1}</i>`
+            `<button type="button" class="shift-photo-polyline-region-label" data-region-index="${index}" style="left:${region.centerX}%;top:${region.centerY}%" title="区画 ${index + 1} の設定">${index + 1}</button>`
         )).join('');
     }
 
@@ -5193,7 +5193,7 @@
         return (Array.isArray(source) ? source : []).slice(0, 80).map(fill => ({
             enabled: fill?.enabled === true || fill?.enabled === '1',
             color: /^#[0-9a-f]{6}$/i.test(fill?.color || '') ? fill.color : '#dc2626',
-            opacity: Math.max(0.05, Math.min(1, Number(fill?.opacity) || 0.25)),
+            opacity: Math.max(0.05, Math.min(1, Number(fill?.opacity) || 1)),
             centerX: Number.isFinite(Number(fill?.centerX)) ? Math.max(0, Math.min(100, Number(fill.centerX))) : null,
             centerY: Number.isFinite(Number(fill?.centerY)) ? Math.max(0, Math.min(100, Number(fill.centerY))) : null,
             area: Number.isFinite(Number(fill?.area)) ? Math.max(0, Number(fill.area)) : null
@@ -5205,7 +5205,7 @@
         const previous = this.normalizeShiftPhotoComparePolylineRegionFills(value);
         const defaultEnabled = fillDefaults.enabled === true;
         const defaultColor = /^#[0-9a-f]{6}$/i.test(fillDefaults.color || '') ? fillDefaults.color : '#dc2626';
-        const defaultOpacity = Math.max(0.05, Math.min(1, Number(fillDefaults.opacity) || 0.25));
+        const defaultOpacity = Math.max(0.05, Math.min(1, Number(fillDefaults.opacity) || 1));
         const unmatched = new Set(previous.map((_, index) => index));
         return regions.map((region, regionIndex) => {
             let matchedIndex = -1;
@@ -5240,7 +5240,65 @@
         });
     }
 
+    normalizeShiftPhotoComparePolylineIntersections(points = []) {
+        if (!Array.isArray(points) || points.length < 4) return Array.isArray(points) ? points.map(point => ({ ...point })) : [];
+        const safePoints = points.map(point => ({
+            x: Math.max(0, Math.min(100, Number(point?.x) || 0)),
+            y: Math.max(0, Math.min(100, Number(point?.y) || 0))
+        }));
+        const insertions = Array.from({ length: safePoints.length - 1 }, () => []);
+        const epsilon = 0.0001;
+        for (let leftIndex = 0; leftIndex < safePoints.length - 1; leftIndex += 1) {
+            const a = safePoints[leftIndex];
+            const b = safePoints[leftIndex + 1];
+            const abX = b.x - a.x;
+            const abY = b.y - a.y;
+            for (let rightIndex = leftIndex + 2; rightIndex < safePoints.length - 1; rightIndex += 1) {
+                if (rightIndex === leftIndex + 1) continue;
+                const c = safePoints[rightIndex];
+                const d = safePoints[rightIndex + 1];
+                const cdX = d.x - c.x;
+                const cdY = d.y - c.y;
+                const denominator = abX * cdY - abY * cdX;
+                if (Math.abs(denominator) < epsilon) continue;
+                const acX = c.x - a.x;
+                const acY = c.y - a.y;
+                const leftT = (acX * cdY - acY * cdX) / denominator;
+                const rightT = (acX * abY - acY * abX) / denominator;
+                if (leftT < -epsilon || leftT > 1 + epsilon || rightT < -epsilon || rightT > 1 + epsilon) continue;
+                const point = {
+                    x: a.x + abX * Math.max(0, Math.min(1, leftT)),
+                    y: a.y + abY * Math.max(0, Math.min(1, leftT))
+                };
+                if (leftT > epsilon && leftT < 1 - epsilon) {
+                    insertions[leftIndex].push({ t: leftT, point });
+                }
+                if (rightT > epsilon && rightT < 1 - epsilon) {
+                    insertions[rightIndex].push({ t: rightT, point });
+                }
+            }
+        }
+        const result = [{ ...safePoints[0] }];
+        insertions.forEach((segmentInsertions, index) => {
+            segmentInsertions
+                .sort((left, right) => left.t - right.t)
+                .forEach(insertion => {
+                    const previous = result[result.length - 1];
+                    if (Math.hypot(previous.x - insertion.point.x, previous.y - insertion.point.y) >= 0.05) {
+                        result.push({ ...insertion.point });
+                    }
+                });
+            const endpoint = safePoints[index + 1];
+            const previous = result[result.length - 1];
+            if (Math.hypot(previous.x - endpoint.x, previous.y - endpoint.y) >= 0.05) {
+                result.push({ ...endpoint });
+            }
+        });
+        return result.slice(0, 500);
+    }
+
     getShiftPhotoComparePolylineRegions(points = []) {
+        points = this.normalizeShiftPhotoComparePolylineIntersections(points);
         if (!Array.isArray(points) || points.length < 4) return [];
         const vertices = [];
         const path = points.map(point => {
@@ -5272,50 +5330,82 @@
             return Math.atan2(vertices[left].y - origin.y, vertices[left].x - origin.x)
                 - Math.atan2(vertices[right].y - origin.y, vertices[right].x - origin.x);
         }));
-        const visited = new Set();
-        const regions = [];
-        vertices.forEach((_, startFrom) => {
-            sortedAdjacency[startFrom].forEach(startTo => {
-                const startKey = `${startFrom}>${startTo}`;
-                if (visited.has(startKey)) return;
-                const cycle = [];
-                let from = startFrom;
-                let to = startTo;
-                let closed = false;
-                for (let guard = 0; guard < edgeKeys.size * 2 + 4; guard += 1) {
-                    const directedKey = `${from}>${to}`;
-                    if (visited.has(directedKey)) break;
-                    visited.add(directedKey);
-                    cycle.push(from);
-                    const neighbors = sortedAdjacency[to];
-                    const reverseIndex = neighbors.indexOf(from);
-                    if (reverseIndex < 0 || !neighbors.length) break;
-                    const next = neighbors[(reverseIndex - 1 + neighbors.length) % neighbors.length];
-                    from = to;
-                    to = next;
-                    if (from === startFrom && to === startTo) {
-                        closed = true;
-                        break;
+        const cycles = [];
+        const seenCycles = new Set();
+        [-1, 1].forEach(turn => {
+            const visited = new Set();
+            vertices.forEach((_, startFrom) => {
+                sortedAdjacency[startFrom].forEach(startTo => {
+                    const startKey = `${startFrom}>${startTo}`;
+                    if (visited.has(startKey)) return;
+                    const cycle = [];
+                    let from = startFrom;
+                    let to = startTo;
+                    let closed = false;
+                    for (let guard = 0; guard < edgeKeys.size * 2 + 4; guard += 1) {
+                        const directedKey = `${from}>${to}`;
+                        if (visited.has(directedKey)) break;
+                        visited.add(directedKey);
+                        cycle.push(from);
+                        const neighbors = sortedAdjacency[to];
+                        const reverseIndex = neighbors.indexOf(from);
+                        if (reverseIndex < 0 || !neighbors.length) break;
+                        const next = neighbors[(reverseIndex + turn + neighbors.length) % neighbors.length];
+                        from = to;
+                        to = next;
+                        if (from === startFrom && to === startTo) {
+                            closed = true;
+                            break;
+                        }
                     }
-                }
-                if (!closed || cycle.length < 3) return;
-                let area = 0;
-                cycle.forEach((vertexIndex, index) => {
-                    const current = vertices[vertexIndex];
-                    const next = vertices[cycle[(index + 1) % cycle.length]];
-                    area += current.x * next.y - next.x * current.y;
-                });
-                if (area <= 0.01) return;
-                const regionPoints = cycle.map(vertexIndex => ({ ...vertices[vertexIndex] }));
-                regions.push({
-                    points: regionPoints,
-                    area: area / 2,
-                    centerX: regionPoints.reduce((sum, point) => sum + point.x, 0) / regionPoints.length,
-                    centerY: regionPoints.reduce((sum, point) => sum + point.y, 0) / regionPoints.length
+                    if (!closed || cycle.length < 3) return;
+                    const normalizedKey = this.getShiftPhotoComparePolylineCycleKey(cycle);
+                    if (seenCycles.has(normalizedKey)) return;
+                    seenCycles.add(normalizedKey);
+                    let signedArea = 0;
+                    cycle.forEach((vertexIndex, index) => {
+                        const current = vertices[vertexIndex];
+                        const next = vertices[cycle[(index + 1) % cycle.length]];
+                        signedArea += current.x * next.y - next.x * current.y;
+                    });
+                    const area = Math.abs(signedArea) / 2;
+                    if (area <= 0.01) return;
+                    const regionPoints = cycle.map(vertexIndex => ({ ...vertices[vertexIndex] }));
+                    cycles.push({
+                        points: regionPoints,
+                        area,
+                        signedArea,
+                        centerX: regionPoints.reduce((sum, point) => sum + point.x, 0) / regionPoints.length,
+                        centerY: regionPoints.reduce((sum, point) => sum + point.y, 0) / regionPoints.length
+                    });
                 });
             });
         });
-        return regions.sort((left, right) => left.centerY - right.centerY || left.centerX - right.centerX || left.area - right.area);
+        const regions = cycles.filter((region, index) => {
+            const contained = cycles.filter((other, otherIndex) => (
+                otherIndex !== index
+                && other.area < region.area - 0.01
+                && this.isPointInsideShiftPhotoComparePolygon(
+                    { x: other.centerX, y: other.centerY },
+                    region.points
+                )
+            ));
+            if (!contained.length) return true;
+            const containedArea = contained.reduce((sum, other) => sum + other.area, 0);
+            return containedArea < region.area * 0.45;
+        });
+        return regions
+            .sort((left, right) => left.centerY - right.centerY || left.centerX - right.centerX || left.area - right.area)
+            .slice(0, 80);
+    }
+
+    getShiftPhotoComparePolylineCycleKey(cycle = []) {
+        const values = Array.isArray(cycle) ? cycle.slice() : [];
+        if (!values.length) return '';
+        const makeRotations = source => source.map((_, index) => (
+            [...source.slice(index), ...source.slice(0, index)].join(':')
+        ));
+        return [...makeRotations(values), ...makeRotations(values.slice().reverse())].sort()[0] || '';
     }
 
     hasShiftPhotoComparePolylineClosedRegion(points = []) {
@@ -5541,7 +5631,7 @@
         const fillColor = /^#[0-9a-f]{6}$/i.test(mark.fillColor || '') ? mark.fillColor : (mode === 'boxedText' ? '#fff7fb' : (mode === 'image' ? '#ffffff' : '#fff3a3'));
         const polylineFill = mark.polylineFill === true || mark.polylineFill === '1';
         const polylineFillColor = /^#[0-9a-f]{6}$/i.test(mark.polylineFillColor || '') ? mark.polylineFillColor : color;
-        const polylineFillOpacity = Math.max(0.05, Math.min(1, Number(mark.polylineFillOpacity) || 0.25));
+        const polylineFillOpacity = Math.max(0.05, Math.min(1, Number(mark.polylineFillOpacity) || 1));
         let polylineRegionFills = this.normalizeShiftPhotoComparePolylineRegionFills(mark.polylineRegionFills);
         const textColor = /^#[0-9a-f]{6}$/i.test(mark.textColor || '') ? mark.textColor : (mode === 'boxedText' ? color : '#111827');
         const textScale = Math.max(0.5, Math.min(3, Number(mark.textScale) || 1));
@@ -5566,11 +5656,12 @@
         const imageY = mark.imageY !== null && mark.imageY !== '' && Number.isFinite(Number(mark.imageY)) ? Math.max(-20, Math.min(120, Number(mark.imageY))) : null;
         const imageDisplayWidth = Math.max(0, Number(mark.imageDisplayWidth) || 0);
         const imageDisplayHeight = Math.max(0, Number(mark.imageDisplayHeight) || 0);
-        const points = Array.isArray(mark.points) ? mark.points.map(point => ({
+        let points = Array.isArray(mark.points) ? mark.points.map(point => ({
             x: Math.max(0, Math.min(100, Number(point.x) || 0)),
             y: Math.max(0, Math.min(100, Number(point.y) || 0))
         })).slice(0, 500) : [];
         if (mode === 'polyline') {
+            points = this.normalizeShiftPhotoComparePolylineIntersections(points);
             polylineRegionFills = this.reconcileShiftPhotoComparePolylineRegionFills(points, polylineRegionFills, {
                 enabled: polylineFill,
                 color: polylineFillColor,
@@ -5652,7 +5743,7 @@
             fillColor: /^#[0-9a-f]{6}$/i.test(mark.dataset.fillColor || '') ? mark.dataset.fillColor : (mark.dataset.mode === 'boxedText' ? '#fff7fb' : (mark.dataset.mode === 'image' ? '#ffffff' : '#fff3a3')),
             polylineFill: mark.dataset.polylineFill === '1',
             polylineFillColor: /^#[0-9a-f]{6}$/i.test(mark.dataset.polylineFillColor || '') ? mark.dataset.polylineFillColor : (mark.dataset.color || '#dc2626'),
-            polylineFillOpacity: Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 0.25)),
+            polylineFillOpacity: Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 1)),
             polylineRegionFills: this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]'),
             textColor: /^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '') ? mark.dataset.textColor : (mark.dataset.mode === 'boxedText' ? (mark.dataset.color || '#dc2626') : '#111827'),
             textScale: Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1)),
@@ -6186,6 +6277,9 @@
                             <button type="button" class="shift-photo-compare-mark-btn" data-mark-mode="polyline" onclick="app.setShiftPhotoCompareMarkMode('polyline')" title="45度刻みの角度付近で吸着。その他は自由角度で描画">
                                 <i class="fa-solid fa-slash"></i>
                             </button>
+                            <button type="button" class="shift-photo-compare-polyline-snap-toggle active" id="shift-photo-compare-polyline-snap-toggle" onclick="app.toggleShiftPhotoComparePolylineSnap()" title="直線引きの吸着をオン・オフ">
+                                <i class="fa-solid fa-magnet"></i><span>線吸着</span>
+                            </button>
                             <button type="button" class="shift-photo-compare-mark-btn" data-mark-mode="text" onclick="app.setShiftPhotoCompareMarkMode('text')" title="文字を置く">
                                 <i class="fa-solid fa-font"></i>
                             </button>
@@ -6408,6 +6502,7 @@
                 <div class="shift-photo-compare-mini-toolbar" id="shift-photo-compare-mini-toolbar" hidden onpointerdown="app.startShiftPhotoCompareMiniToolbarDrag(event, this)">
                     <button type="button" onclick="app.copySelectedShiftPhotoCompareMark()" title="コピー"><i class="fa-regular fa-copy"></i></button>
                     <button type="button" onclick="app.clearShiftPhotoCompareSelection()" title="選択解除"><i class="fa-solid fa-ban"></i></button>
+                    <span class="shift-photo-compare-polyline-state" hidden></span>
                     <button type="button" class="shift-photo-compare-lock-btn" onclick="app.toggleSelectedShiftPhotoCompareMarkLock()" title="選択中の記号をロック/解除"><i class="fa-solid fa-lock-open"></i></button>
                     <button type="button" class="shift-photo-compare-group-btn" onclick="app.toggleSelectedShiftPhotoCompareMarkGroup()" title="選択中の記号をグループ化/解除"><i class="fa-solid fa-link"></i></button>
                     <button type="button" class="shift-photo-compare-group-icon-btn" onclick="app.toggleSelectedShiftPhotoCompareGroupIcon()" title="グループアイコンを非表示/表示"><i class="fa-regular fa-eye"></i></button>
@@ -6477,6 +6572,16 @@
             </div>
         `;
         overlay.addEventListener('click', (e) => {
+            const regionLabel = e.target?.closest?.('.shift-photo-polyline-region-label');
+            const regionMark = regionLabel?.closest?.('.shift-photo-compare-mark.polyline');
+            if (regionLabel && regionMark && overlay.contains(regionMark)) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.openShiftPhotoCompareImageContextMenu(e, regionMark, {
+                    polylineRegionIndex: Number(regionLabel.dataset.regionIndex)
+                });
+                return;
+            }
             if (!e.target.closest?.('.shift-photo-compare-image-context-menu, .shift-photo-compare-table-menu')) this.closeShiftPhotoCompareImageContextMenu();
             if (e.target === overlay) this.closeShiftPhotoCompare();
         });
@@ -6493,6 +6598,14 @@
                 e.preventDefault();
                 this.openShiftPhotoComparePolylinePointContextMenu(e, mark, Number(pointHandle.dataset.pointIndex) || 0);
                 return;
+            }
+            if (mark?.dataset?.mode === 'polyline' && overlay.contains(mark)) {
+                const edgeHit = this.getShiftPhotoComparePolylineSegmentAtEvent(e, mark);
+                if (edgeHit) {
+                    e.preventDefault();
+                    this.openShiftPhotoComparePolylineEdgeContextMenu(e, mark, edgeHit.index);
+                    return;
+                }
             }
             if (mark && overlay.contains(mark)) {
                 e.preventDefault();
@@ -6526,8 +6639,14 @@
             if (this._shiftPhotoCompareSelectedMark !== mark) this.selectShiftPhotoCompareMark(mark);
             this.adjustSelectedShiftPhotoCircleImageZoom(e.deltaY < 0 ? 0.1 : -0.1);
         }, { passive: false });
-        overlay.addEventListener('pointermove', (e) => this.updateShiftPhotoComparePlacementPreview(e));
-        overlay.addEventListener('pointerleave', () => this.hideShiftPhotoComparePlacementPreview());
+        overlay.addEventListener('pointermove', (e) => {
+            this.updateShiftPhotoComparePlacementPreview(e);
+            this.updateShiftPhotoComparePolylineRegionHover(e, overlay);
+        });
+        overlay.addEventListener('pointerleave', () => {
+            this.hideShiftPhotoComparePlacementPreview();
+            this.clearShiftPhotoComparePolylineRegionHover();
+        });
         document.body.appendChild(overlay);
         overlay.querySelectorAll('.shift-photo-compare-mark.callout').forEach(mark => this.fitShiftPhotoCompareCalloutText(mark));
         overlay.querySelectorAll('.shift-photo-compare-mark.boxedText').forEach(mark => this.syncShiftPhotoCompareTextOutlineMirror(mark));
@@ -6558,6 +6677,7 @@
         this.updateShiftPhotoCompareModeHint();
         this.updateShiftPhotoCompareUndoButton();
         this.updateShiftPhotoCompareSnapGuideButton();
+        this.updateShiftPhotoComparePolylineSnapButton();
         this.updateShiftPhotoCompareImageBrushSizeControl();
         this.updateShiftPhotoCompareOneShotButton();
         this.renderShiftPhotoCompareRecentImageStamps();
@@ -6869,6 +6989,7 @@
         this.updateShiftPhotoCompareExtendedColorControls();
         this.updateShiftPhotoCompareDashedButton();
         this.updateShiftPhotoCompareStrokeControl();
+        this.updateShiftPhotoComparePolylineSnapButton();
     }
 
     clearShiftPhotoCompareTransientModes({ keepMove = true, silent = true } = {}) {
@@ -6983,6 +7104,34 @@
             strong: '吸着ガイドを強にしました。'
         };
         this.showShiftPhotoCompareActionMessage(messages[next] || '吸着ガイドを標準にしました。');
+    }
+
+    isShiftPhotoComparePolylineSnapEnabled() {
+        return this._shiftPhotoComparePolylineSnapEnabled !== false;
+    }
+
+    updateShiftPhotoComparePolylineSnapButton() {
+        const button = document.getElementById('shift-photo-compare-polyline-snap-toggle');
+        if (!button) return;
+        const enabled = this.isShiftPhotoComparePolylineSnapEnabled();
+        button.classList.toggle('active', enabled);
+        button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        button.dataset.snapMode = enabled ? 'on' : 'off';
+        button.title = enabled
+            ? '直線引きの吸着: ON。押すと自由線になります'
+            : '直線引きの吸着: OFF。押すと45度・平行・X/Y吸着を使います';
+        const label = button.querySelector('span');
+        if (label) label.textContent = enabled ? '線吸着' : '自由線';
+    }
+
+    toggleShiftPhotoComparePolylineSnap() {
+        this._shiftPhotoComparePolylineSnapEnabled = !this.isShiftPhotoComparePolylineSnapEnabled();
+        if (!this.isShiftPhotoComparePolylineSnapEnabled()) this.clearShiftPhotoCompareSnapGuides();
+        this.updateShiftPhotoComparePolylineSnapButton();
+        this.updateShiftPhotoCompareModeHint();
+        this.showShiftPhotoCompareActionMessage(this.isShiftPhotoComparePolylineSnapEnabled()
+            ? '直線引きの吸着をオンにしました。'
+            : '直線引きの吸着をオフにしました。自由な角度で引けます。');
     }
 
     readShiftPhotoCompareImageBlob(blob) {
@@ -7802,7 +7951,9 @@
             selectRange: '範囲選択モード中: ドラッグで選択、Shiftで追加、Ctrlで除外できます。',
             move: '移動モード中: Shiftクリックで複数選択、ドラッグで移動できます。吸着ガイドがオンの時は中央線・端・他の記号に吸着します。',
             freehand: '線モード中: ドラッグで線を描けます。',
-            polyline: '直線引き中: 青い接続点へ近づけると吸着。緑へ戻すと閉じた線を確定します。',
+            polyline: this.isShiftPhotoComparePolylineSnapEnabled()
+                ? '直線引き中: 45度・平行・青点のX/Y位置へ吸着します。右クリックで選択、青点右クリックで始点変更できます。'
+                : '直線引き中: 吸着OFF。自由な角度で引けます。右クリックで選択できます。',
             circle: '丸モード中: 写真上をドラッグして丸を置けます。',
             arrow: '矢印モード中: 写真上をドラッグして矢印を置けます。',
             dimension: '寸法線モード中: 測りたい区間を始点から終点までドラッグします。寸法値は文字欄で変更できます。',
@@ -7834,6 +7985,7 @@
                 selectRange: '範囲選択',
                 move: '移動 / 範囲選択可',
                 freehand: '線',
+                polyline: '直線',
                 circle: '丸',
                 arrow: '矢印',
                 dimension: '寸法線',
@@ -9911,6 +10063,32 @@
         toolbar.dataset.hasCalloutSelection = selected.some(item => item.dataset.mode === 'callout') ? '1' : '';
         toolbar.dataset.hasTableSelection = selected.some(item => item.dataset.mode === 'table') ? '1' : '';
         toolbar.dataset.hasLockedSelection = selected.some(item => this.isShiftPhotoCompareMarkLocked(item)) ? '1' : '';
+        const polylineState = toolbar.querySelector('.shift-photo-compare-polyline-state');
+        if (polylineState) {
+            const polyline = selected.find(item => item.dataset.mode === 'polyline');
+            if (polyline) {
+                const points = this.parseShiftPhotoCompareFreehandPoints(polyline.dataset.points || '[]');
+                const regions = this.getShiftPhotoComparePolylineRegions(points);
+                const fills = this.reconcileShiftPhotoComparePolylineRegionFills(
+                    points,
+                    polyline.dataset.polylineRegionFills || '[]',
+                    {
+                        enabled: polyline.dataset.polylineFill === '1',
+                        color: polyline.dataset.polylineFillColor || polyline.dataset.color,
+                        opacity: polyline.dataset.polylineFillOpacity
+                    }
+                );
+                const enabledCount = fills.filter(fill => fill.enabled).length;
+                polylineState.hidden = false;
+                polylineState.textContent = regions.length
+                    ? `直線: 区画${regions.length} / 塗り${enabledCount}`
+                    : `直線: 点${points.length}`;
+                polylineState.title = '右クリックで区画の塗り分け、塗り設定コピー、青点整理ができます';
+            } else {
+                polylineState.hidden = true;
+                polylineState.textContent = '';
+            }
+        }
         const circleImageButton = toolbar.querySelector('.shift-photo-compare-image-circle-btn');
         if (circleImageButton) {
             const imageMarks = selected.filter(item => item.dataset.mode === 'image');
@@ -11695,7 +11873,7 @@
             const color = /^#[0-9a-f]{6}$/i.test(item.dataset.polylineFillColor || '')
                 ? item.dataset.polylineFillColor
                 : (/^#[0-9a-f]{6}$/i.test(item.dataset.color || '') ? item.dataset.color : '#dc2626');
-            const opacity = Math.max(0.05, Math.min(1, Number(item.dataset.polylineFillOpacity) || 0.25));
+            const opacity = Math.max(0.05, Math.min(1, Number(item.dataset.polylineFillOpacity) || 1));
             item.dataset.polylineFill = enabled ? '1' : '0';
             item.dataset.polylineFillColor = color;
             item.dataset.polylineFillOpacity = String(opacity);
@@ -11770,7 +11948,7 @@
             fills.push({
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color || '#dc2626',
-                opacity: Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 0.25))
+                opacity: Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 1))
             });
         }
         this.pushShiftPhotoCompareUndo();
@@ -11804,7 +11982,7 @@
             fills.push({
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color || '#dc2626',
-                opacity: Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 0.25))
+                opacity: Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 1))
             });
         }
         this.pushShiftPhotoCompareUndo();
@@ -11818,6 +11996,288 @@
         this.showShiftPhotoCompareActionMessage(fills[index].enabled
             ? `区画 ${index + 1} を塗りつぶしました。`
             : `区画 ${index + 1} の塗りつぶしを解除しました。`);
+    }
+
+    copyShiftPhotoComparePolylineRegionFill(mark, regionIndex = -1) {
+        if (!mark || mark.dataset.mode !== 'polyline') return;
+        const regions = this.getShiftPhotoComparePolylineRegions(
+            this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]')
+        );
+        const fills = this.reconcileShiftPhotoComparePolylineRegionFills(
+            this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]'),
+            mark.dataset.polylineRegionFills || '[]',
+            {
+                enabled: mark.dataset.polylineFill === '1',
+                color: mark.dataset.polylineFillColor || mark.dataset.color,
+                opacity: mark.dataset.polylineFillOpacity
+            }
+        );
+        const index = Math.max(0, Math.min(regions.length - 1, Number(regionIndex) || 0));
+        const fill = fills[index];
+        if (!fill) return;
+        this._shiftPhotoComparePolylineFillClipboard = {
+            enabled: fill.enabled === true,
+            color: /^#[0-9a-f]{6}$/i.test(fill.color || '') ? fill.color : '#dc2626',
+            opacity: Math.max(0.05, Math.min(1, Number(fill.opacity) || 1))
+        };
+        this.showShiftPhotoCompareActionMessage(`区画 ${index + 1} の塗り設定をコピーしました。`);
+    }
+
+    pasteShiftPhotoComparePolylineRegionFill(mark, regionIndex = -1) {
+        const clip = this._shiftPhotoComparePolylineFillClipboard;
+        if (!mark || mark.dataset.mode !== 'polyline' || !clip || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const regions = this.getShiftPhotoComparePolylineRegions(
+            this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]')
+        );
+        const fills = this.reconcileShiftPhotoComparePolylineRegionFills(
+            this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]'),
+            mark.dataset.polylineRegionFills || '[]',
+            {
+                enabled: mark.dataset.polylineFill === '1',
+                color: mark.dataset.polylineFillColor || mark.dataset.color,
+                opacity: mark.dataset.polylineFillOpacity
+            }
+        );
+        const targets = Number(regionIndex) >= 0
+            ? [Math.max(0, Math.min(regions.length - 1, Number(regionIndex) || 0))]
+            : regions.map((_, index) => index);
+        if (!targets.length) return;
+        this.pushShiftPhotoCompareUndo();
+        targets.forEach(index => {
+            fills[index] = {
+                ...(fills[index] || {}),
+                enabled: clip.enabled,
+                color: clip.color,
+                opacity: clip.opacity
+            };
+        });
+        mark.dataset.polylineRegionFills = JSON.stringify(fills);
+        mark.dataset.polylineFill = fills.some(fill => fill.enabled) ? '1' : '0';
+        this.refreshShiftPhotoComparePolylineRegions(mark);
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(Number(regionIndex) >= 0 ? `区画 ${Number(regionIndex) + 1} へ塗り設定を貼り付けました。` : '全区画へ塗り設定を貼り付けました。');
+    }
+
+    mergeCloseShiftPhotoComparePolylinePoints(mark, thresholdPercent = 0.35) {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (points.length < 3) return;
+        const next = [];
+        points.forEach(point => {
+            const last = next[next.length - 1];
+            if (last && Math.hypot(point.x - last.x, point.y - last.y) < thresholdPercent) return;
+            next.push({ ...point });
+        });
+        if (next.length > 2 && Math.hypot(next[0].x - next[next.length - 1].x, next[0].y - next[next.length - 1].y) < thresholdPercent) {
+            next[next.length - 1] = { ...next[0] };
+        }
+        if (next.length === points.length && next.every((point, index) => Math.hypot(point.x - points[index].x, point.y - points[index].y) < 0.001)) {
+            this.showShiftPhotoCompareActionMessage('結合できる近い青点はありませんでした。');
+            return;
+        }
+        this.pushShiftPhotoCompareUndo();
+        this.updateShiftPhotoCompareFreehandMark(mark, this.normalizeShiftPhotoComparePolylineIntersections(next));
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage('近い青点を結合しました。');
+    }
+
+    simplifyShiftPhotoComparePolylinePoints(mark, tolerancePercent = 0.18) {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (points.length < 4) return;
+        const distanceToSegment = (point, a, b) => {
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const len2 = dx * dx + dy * dy || 0.000001;
+            const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2));
+            return Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
+        };
+        const closed = Math.hypot(points[0].x - points[points.length - 1].x, points[0].y - points[points.length - 1].y) < 0.05;
+        const core = closed ? points.slice(0, -1) : points.slice();
+        const simplified = [];
+        core.forEach((point, index) => {
+            if (!closed && (index === 0 || index === core.length - 1)) {
+                simplified.push({ ...point });
+                return;
+            }
+            const prev = core[(index - 1 + core.length) % core.length];
+            const next = core[(index + 1) % core.length];
+            if (!prev || !next || distanceToSegment(point, prev, next) > tolerancePercent) simplified.push({ ...point });
+        });
+        if (closed && simplified.length) simplified.push({ ...simplified[0] });
+        if (simplified.length >= points.length || simplified.length < (closed ? 4 : 2)) {
+            this.showShiftPhotoCompareActionMessage('削除できる不要な中間点はありませんでした。');
+            return;
+        }
+        this.pushShiftPhotoCompareUndo();
+        this.updateShiftPhotoCompareFreehandMark(mark, this.normalizeShiftPhotoComparePolylineIntersections(simplified));
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage('不要な中間点を整理しました。');
+    }
+
+    async pickShiftPhotoComparePolylineFillColor(mark, regionIndex = -1, transparencyPercent = 0) {
+        if (typeof window.EyeDropper !== 'function') {
+            this.startShiftPhotoCompareFallbackEyedropper(mark, regionIndex, transparencyPercent);
+            return;
+        }
+        try {
+            const result = await new window.EyeDropper().open();
+            const color = result?.sRGBHex || '';
+            if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+            if (Number(regionIndex) >= 0) {
+                this.setShiftPhotoComparePolylineRegionFill(mark, regionIndex, color, transparencyPercent);
+            } else {
+                this.setSelectedShiftPhotoComparePolylineFill(color, transparencyPercent, { mark });
+            }
+        } catch (error) {
+            if (error?.name !== 'AbortError') {
+                this.showShiftPhotoCompareActionMessage('スポイトで色を取得できませんでした。');
+            }
+        }
+    }
+
+    startShiftPhotoCompareFallbackEyedropper(mark, regionIndex = -1, transparencyPercent = 0) {
+        if (!mark || !document.contains(mark)) return;
+        this.stopShiftPhotoCompareFallbackEyedropper();
+        const overlay = mark.closest('.shift-photo-compare-overlay') || document.querySelector('.shift-photo-compare-overlay');
+        if (!overlay) {
+            this.showShiftPhotoCompareActionMessage('スポイト対象の画面が見つかりません。');
+            return;
+        }
+        this.showShiftPhotoCompareActionMessage('スポイト: 写真上をクリックすると、その場所の色を拾います。Escでキャンセルできます。');
+        overlay.classList.add('eyedropper-picking');
+        const cleanup = () => this.stopShiftPhotoCompareFallbackEyedropper();
+        const previewMove = event => this.updateShiftPhotoCompareFallbackEyedropperPreview(event);
+        const applyColor = async event => {
+            if (event.button !== 0) {
+                cleanup();
+                return;
+            }
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const color = await this.getShiftPhotoCompareColorAtPoint(event);
+            cleanup();
+            if (!/^#[0-9a-f]{6}$/i.test(color || '')) {
+                this.showShiftPhotoCompareActionMessage('この場所の色を取得できませんでした。画像の上をクリックしてください。');
+                return;
+            }
+            if (Number(regionIndex) >= 0) {
+                this.setShiftPhotoComparePolylineRegionFill(mark, regionIndex, color, transparencyPercent);
+            } else {
+                this.setSelectedShiftPhotoComparePolylineFill(color, transparencyPercent, { mark });
+            }
+            this.showShiftPhotoCompareActionMessage(`スポイトで ${color} を反映しました。`);
+        };
+        const keydown = event => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            cleanup();
+            this.showShiftPhotoCompareActionMessage('スポイトをキャンセルしました。');
+        };
+        this._shiftPhotoCompareFallbackEyedropper = { overlay, applyColor, keydown };
+        window.addEventListener('pointerdown', applyColor, true);
+        window.addEventListener('pointermove', previewMove, true);
+        window.addEventListener('keydown', keydown, true);
+        this._shiftPhotoCompareFallbackEyedropper.previewMove = previewMove;
+    }
+
+    stopShiftPhotoCompareFallbackEyedropper() {
+        const picker = this._shiftPhotoCompareFallbackEyedropper;
+        if (!picker) return;
+        window.removeEventListener('pointerdown', picker.applyColor, true);
+        window.removeEventListener('pointermove', picker.previewMove, true);
+        window.removeEventListener('keydown', picker.keydown, true);
+        picker.overlay?.classList?.remove('eyedropper-picking');
+        document.getElementById('shift-photo-eyedropper-preview')?.remove();
+        this._shiftPhotoCompareFallbackEyedropper = null;
+    }
+
+    updateShiftPhotoCompareFallbackEyedropperPreview(event) {
+        const picker = this._shiftPhotoCompareFallbackEyedropper;
+        if (!picker) return;
+        let preview = document.getElementById('shift-photo-eyedropper-preview');
+        if (!preview) {
+            preview = document.createElement('div');
+            preview.id = 'shift-photo-eyedropper-preview';
+            preview.className = 'shift-photo-eyedropper-preview';
+            preview.innerHTML = '<i></i><span>取得中</span>';
+            document.body.appendChild(preview);
+        }
+        preview.style.left = `${Math.min(window.innerWidth - 116, event.clientX + 14)}px`;
+        preview.style.top = `${Math.min(window.innerHeight - 38, event.clientY + 14)}px`;
+        const seq = (picker.previewSeq || 0) + 1;
+        picker.previewSeq = seq;
+        clearTimeout(picker.previewTimer);
+        picker.previewTimer = setTimeout(async () => {
+            const color = await this.getShiftPhotoCompareColorAtPoint(event);
+            if (!this._shiftPhotoCompareFallbackEyedropper || this._shiftPhotoCompareFallbackEyedropper.previewSeq !== seq) return;
+            const dot = preview.querySelector('i');
+            const label = preview.querySelector('span');
+            if (/^#[0-9a-f]{6}$/i.test(color || '')) {
+                preview.dataset.valid = '1';
+                if (dot) dot.style.background = color;
+                if (label) label.textContent = color;
+            } else {
+                preview.dataset.valid = '';
+                if (dot) dot.style.background = 'transparent';
+                if (label) label.textContent = '画像外';
+            }
+        }, 80);
+    }
+
+    async getShiftPhotoCompareColorAtPoint(event) {
+        const wrap = document.elementsFromPoint(event.clientX, event.clientY)
+            .map(element => element.closest?.('.shift-photo-compare-image-wrap'))
+            .find(Boolean);
+        if (!wrap) return '';
+        const img = wrap.querySelector(':scope > img');
+        const imageRect = this.getShiftPhotoCompareDisplayImageRect(wrap);
+        if (!img || !imageRect?.width || !imageRect?.height) return '';
+        if (event.clientX < imageRect.left || event.clientX > imageRect.right
+            || event.clientY < imageRect.top || event.clientY > imageRect.bottom) {
+            return '';
+        }
+        if (document.fonts?.ready) {
+            try {
+                await document.fonts.ready;
+            } catch (_) {
+                // フォント待機に失敗しても、現在の描画状態に近い色を拾う。
+            }
+        }
+        const naturalW = Math.max(1, Math.min(1600, Math.round(img.naturalWidth || img.width || 1)));
+        const naturalH = Math.max(1, Math.min(1600, Math.round(img.naturalHeight || img.height || 1)));
+        const scale = Math.min(1, 1200 / Math.max(naturalW, naturalH));
+        const canvasW = Math.max(1, Math.round(naturalW * scale));
+        const canvasH = Math.max(1, Math.round(naturalH * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasW;
+        canvas.height = canvasH;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return '';
+        try {
+            const source = await this.loadShiftPhotoCompareImage(img.src);
+            ctx.drawImage(source, 0, 0, canvasW, canvasH);
+            const rect = { x: 0, y: 0, width: canvasW, height: canvasH };
+            for (const item of wrap.querySelectorAll('.shift-photo-compare-mark')) {
+                await this.drawShiftPhotoCompareMarkFromWrap(ctx, item, wrap, rect);
+            }
+            await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, rect);
+            const sx = Math.max(0, Math.min(canvasW - 1, Math.floor((event.clientX - imageRect.left) / imageRect.width * canvasW)));
+            const sy = Math.max(0, Math.min(canvasH - 1, Math.floor((event.clientY - imageRect.top) / imageRect.height * canvasH)));
+            const [r, g, b, a] = ctx.getImageData(sx, sy, 1, 1).data;
+            if (a === 0) return '';
+            const toHex = value => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0');
+            return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+        } catch (_) {
+            return '';
+        }
     }
 
     syncShiftPhotoCompareChangedMarkWraps(marks = []) {
@@ -13668,7 +14128,40 @@
     closeShiftPhotoCompareImageContextMenu() {
         document.querySelectorAll('.shift-photo-compare-image-context-menu').forEach(menu => menu.remove());
         document.querySelectorAll('.shift-photo-compare-table-menu').forEach(menu => menu.remove());
+        document.querySelectorAll('.shift-photo-polyline-endpoint.connect-candidate')
+            .forEach(edge => edge.classList.remove('connect-candidate'));
+        this.clearShiftPhotoComparePolylineRegionFocus();
         this.closeShiftPhotoCompareRecentImageContextMenu?.();
+    }
+
+    startShiftPhotoCompareContextMenuDrag(event, menu) {
+        const panel = document.querySelector('.shift-photo-compare-panel');
+        const panelRect = panel?.getBoundingClientRect?.();
+        const menuRect = menu?.getBoundingClientRect?.();
+        if (!menu || !panelRect?.width || !menuRect?.width || event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const start = {
+            x: event.clientX,
+            y: event.clientY,
+            left: menuRect.left - panelRect.left,
+            top: menuRect.top - panelRect.top
+        };
+        const move = moveEvent => {
+            moveEvent.preventDefault();
+            const left = Math.max(4, Math.min(panelRect.width - menu.offsetWidth - 4, start.left + moveEvent.clientX - start.x));
+            const top = Math.max(4, Math.min(panelRect.height - menu.offsetHeight - 4, start.top + moveEvent.clientY - start.y));
+            menu.style.left = `${left}px`;
+            menu.style.top = `${top}px`;
+        };
+        const stop = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', stop);
+            window.removeEventListener('pointercancel', stop);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', stop, { once: true });
+        window.addEventListener('pointercancel', stop, { once: true });
     }
 
     openShiftPhotoComparePolylinePointContextMenu(event, mark, pointIndex = 0) {
@@ -13690,38 +14183,524 @@
             && endpointDistance <= 20;
         const corePoints = closed ? points.slice(0, -1) : points.slice();
         const canChangeStart = corePoints.length >= 3;
+        const canDeletePoint = closed ? corePoints.length > 3 : points.length > 2;
         const safeIndex = closed && pointIndex === points.length - 1
             ? 0
             : Math.max(0, Math.min(corePoints.length - 1, Number(pointIndex) || 0));
+        const isOpenEndpoint = !closed && (safeIndex === 0 || safeIndex === points.length - 1);
+        const nearestEndpoint = isOpenEndpoint
+            ? this.getNearestShiftPhotoComparePolylineEndpoint(mark, safeIndex)
+            : null;
+        if (nearestEndpoint) this.highlightShiftPhotoComparePolylineEndpoint(nearestEndpoint.mark, nearestEndpoint.index, 'connect-candidate');
         const panel = document.querySelector('.shift-photo-compare-panel');
         const panelRect = panel?.getBoundingClientRect();
         if (!panel || !panelRect?.width) return;
         const menu = document.createElement('div');
         menu.className = 'shift-photo-compare-image-context-menu';
-        menu.innerHTML = canChangeStart
-            ? `<button type="button" data-action="set-start"${safeIndex === 0 ? ' disabled' : ''}><i class="fa-solid fa-play"></i><span>${safeIndex === 0 ? '現在の始点です' : 'この点を始点に変更'}</span></button>`
-            : '<button type="button" disabled><i class="fa-solid fa-circle-info"></i><span>始点変更には3点以上必要です</span></button>';
+        menu.innerHTML = `
+            ${isOpenEndpoint
+                ? '<button type="button" data-action="continue-from-end"><i class="fa-solid fa-route"></i><span>この端からつなぐ</span></button>'
+                : '<button type="button" disabled><i class="fa-solid fa-route"></i><span>端点からつなげます</span></button>'}
+            ${isOpenEndpoint
+                ? '<button type="button" data-action="connect-nearest"><i class="fa-solid fa-link"></i><span>近い端と接続</span></button>'
+                : ''}
+            ${isOpenEndpoint && points.length >= 3
+                ? '<button type="button" data-action="close-ends"><i class="fa-solid fa-draw-polygon"></i><span>端同士を閉じる</span></button>'
+                : ''}
+            ${canChangeStart
+                ? `<button type="button" data-action="set-start"${safeIndex === 0 ? ' disabled' : ''}><i class="fa-solid fa-play"></i><span>${safeIndex === 0 ? '現在の始点です' : 'この点を始点に変更'}</span></button>`
+                : '<button type="button" disabled><i class="fa-solid fa-circle-info"></i><span>始点変更には3点以上必要です</span></button>'}
+            <button type="button" data-action="delete-point" class="danger"${canDeletePoint ? '' : ' disabled'}><i class="fa-solid fa-circle-minus"></i><span>${canDeletePoint ? 'この青点を削除' : 'これ以上削除できません'}</span></button>
+        `;
         menu.addEventListener('pointerdown', menuEvent => menuEvent.stopPropagation());
         menu.addEventListener('click', menuEvent => {
             const action = menuEvent.target.closest('button')?.dataset?.action;
-            if (action !== 'set-start' || safeIndex === 0) return;
+            if (!action) return;
             menuEvent.preventDefault();
             menuEvent.stopPropagation();
-            this.pushShiftPhotoCompareUndo();
-            const rotated = [...corePoints.slice(safeIndex), ...corePoints.slice(0, safeIndex)];
-            rotated.push({ ...rotated[0] });
-            this.updateShiftPhotoCompareFreehandMark(mark, rotated);
-            if (wrap?.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
-            else if (wrap) this.syncShiftPhotoCompareMarks(wrap);
-            this.selectShiftPhotoCompareMark(mark);
-            this.refreshShiftPhotoCompareMarkList();
-            this.autoSaveShiftNotebook(true);
-            this.showShiftPhotoCompareActionMessage('選択した青点を新しい始点に変更しました。');
+            if (action === 'continue-from-end' && isOpenEndpoint) {
+                this.continueShiftPhotoComparePolylineFromEndpoint(mark, safeIndex);
+            }
+            if (action === 'connect-nearest' && isOpenEndpoint) {
+                this.connectShiftPhotoComparePolylineNearestEndpoint(mark, safeIndex);
+            }
+            if (action === 'close-ends' && isOpenEndpoint) {
+                this.closeShiftPhotoComparePolylineEnds(mark);
+            }
+            if (action === 'set-start' && safeIndex !== 0) {
+                this.pushShiftPhotoCompareUndo();
+                let reordered;
+                if (closed) {
+                    reordered = [...corePoints.slice(safeIndex), ...corePoints.slice(0, safeIndex)];
+                    reordered.push({ ...reordered[0] });
+                } else if (safeIndex === points.length - 1) {
+                    reordered = points.slice().reverse();
+                } else {
+                    reordered = this.buildShiftPhotoComparePolylineTraversal(points, safeIndex);
+                }
+                this.updateShiftPhotoCompareFreehandMark(mark, reordered);
+                if (wrap?.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+                else if (wrap) this.syncShiftPhotoCompareMarks(wrap);
+                this.selectShiftPhotoCompareMark(mark);
+                this._shiftPhotoComparePendingPolylineMark = mark;
+                this.setShiftPhotoCompareActivePolyline(mark);
+                this.setShiftPhotoCompareMarkModeDirect('polyline');
+                this.refreshShiftPhotoCompareMarkList();
+                this.autoSaveShiftNotebook(true);
+                this.showShiftPhotoCompareActionMessage('選択した青点を新しい始点に変更しました。続けて直線を引けます。');
+            }
+            if (action === 'delete-point' && canDeletePoint) {
+                this.deleteShiftPhotoComparePolylinePoint(mark, safeIndex);
+            }
             this.closeShiftPhotoCompareImageContextMenu();
         });
         panel.appendChild(menu);
         menu.style.left = `${Math.max(8, Math.min(panelRect.width - menu.offsetWidth - 8, event.clientX - panelRect.left))}px`;
         menu.style.top = `${Math.max(8, Math.min(panelRect.height - menu.offsetHeight - 8, event.clientY - panelRect.top))}px`;
+    }
+
+    getShiftPhotoComparePolylineSegmentAtEvent(event, mark) {
+        if (!mark || mark.dataset.mode !== 'polyline') return null;
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const rect = wrap?.getBoundingClientRect?.();
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (!rect?.width || !rect?.height || points.length < 2 || !Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) return null;
+        const target = { x: event.clientX, y: event.clientY };
+        const threshold = 14;
+        let best = null;
+        for (let index = 0; index < points.length - 1; index += 1) {
+            const start = {
+                x: rect.left + points[index].x / 100 * rect.width,
+                y: rect.top + points[index].y / 100 * rect.height
+            };
+            const end = {
+                x: rect.left + points[index + 1].x / 100 * rect.width,
+                y: rect.top + points[index + 1].y / 100 * rect.height
+            };
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const lengthSquared = dx * dx + dy * dy;
+            if (lengthSquared < 0.01) continue;
+            const t = Math.max(0, Math.min(1, ((target.x - start.x) * dx + (target.y - start.y) * dy) / lengthSquared));
+            const projected = { x: start.x + dx * t, y: start.y + dy * t };
+            const distance = Math.hypot(target.x - projected.x, target.y - projected.y);
+            if (distance <= threshold && (!best || distance < best.distance)) {
+                best = { index, distance };
+            }
+        }
+        return best;
+    }
+
+    getShiftPhotoComparePolylineMarkAtEvent(event, container) {
+        if (!container || !Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) return null;
+        let best = null;
+        Array.from(container.querySelectorAll('.shift-photo-compare-mark.polyline')).forEach(mark => {
+            const hit = this.getShiftPhotoComparePolylineSegmentAtEvent(event, mark);
+            if (!hit) return;
+            if (!best || hit.distance < best.distance) best = { mark, distance: hit.distance };
+        });
+        return best?.mark || null;
+    }
+
+    getShiftPhotoCompareDirectMarkAtEvent(event, container) {
+        const mark = event?.target?.closest?.('.shift-photo-compare-mark');
+        if (!mark || !container?.contains?.(mark)) return null;
+        if (mark.dataset.mode !== 'polyline') return mark;
+        const directControl = event.target?.closest?.(
+            '.shift-photo-polyline-endpoint, .shift-photo-polyline-vertex, .shift-photo-polyline-region-label'
+        );
+        if (directControl && mark.contains(directControl)) return mark;
+        return this.getShiftPhotoComparePolylineSegmentAtEvent(event, mark) ? mark : null;
+    }
+
+    openShiftPhotoComparePolylineEdgeContextMenu(event, mark, edgeIndex = 0) {
+        if (!mark || mark.dataset.mode !== 'polyline') return;
+        this.closeShiftPhotoCompareImageContextMenu();
+        this.selectShiftPhotoCompareMark(mark);
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        const safeIndex = Math.max(0, Math.min(points.length - 2, Number(edgeIndex) || 0));
+        const canDeleteEdge = points.length >= 3 && !this.isShiftPhotoCompareMarkLocked(mark);
+        const panel = document.querySelector('.shift-photo-compare-panel');
+        const panelRect = panel?.getBoundingClientRect();
+        if (!panel || !panelRect?.width) return;
+        const menu = document.createElement('div');
+        menu.className = 'shift-photo-compare-image-context-menu';
+        menu.innerHTML = `
+            <button type="button" data-action="delete-edge" class="danger"${canDeleteEdge ? '' : ' disabled'}>
+                <i class="fa-solid fa-minus"></i><span>${canDeleteEdge ? 'この辺を削除' : 'この辺は削除できません'}</span>
+            </button>
+            <button type="button" data-action="add-point"><i class="fa-solid fa-circle-plus"></i><span>この辺を分割</span></button>
+        `;
+        menu.addEventListener('pointerdown', menuEvent => menuEvent.stopPropagation());
+        menu.addEventListener('click', menuEvent => {
+            const action = menuEvent.target.closest('button')?.dataset?.action;
+            if (!action) return;
+            menuEvent.preventDefault();
+            menuEvent.stopPropagation();
+            if (action === 'delete-edge' && canDeleteEdge) this.deleteShiftPhotoComparePolylineEdge(mark, safeIndex);
+            if (action === 'add-point') this.addShiftPhotoComparePolylinePoint(mark, event);
+            this.closeShiftPhotoCompareImageContextMenu();
+        });
+        panel.appendChild(menu);
+        menu.style.left = `${Math.max(8, Math.min(panelRect.width - menu.offsetWidth - 8, event.clientX - panelRect.left))}px`;
+        menu.style.top = `${Math.max(8, Math.min(panelRect.height - menu.offsetHeight - 8, event.clientY - panelRect.top))}px`;
+    }
+
+    continueShiftPhotoComparePolylineFromEndpoint(mark, pointIndex = 0) {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        let points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (points.length < 2) return;
+        const index = Math.max(0, Math.min(points.length - 1, Number(pointIndex) || 0));
+        if (index !== 0 && index !== points.length - 1) {
+            this.showShiftPhotoCompareActionMessage('つなぐ操作は端の青点で使えます。');
+            return;
+        }
+        if (index === 0) {
+            this.pushShiftPhotoCompareUndo();
+            points = points.slice().reverse();
+            this.updateShiftPhotoCompareFreehandMark(mark, points);
+            this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        }
+        this.selectShiftPhotoCompareMark(mark);
+        this._shiftPhotoComparePendingPolylineMark = mark;
+        this.setShiftPhotoCompareActivePolyline(mark);
+        this.setShiftPhotoCompareMarkModeDirect('polyline');
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        if (wrap?.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+        else if (wrap) this.syncShiftPhotoCompareMarks(wrap);
+        this.showShiftPhotoCompareActionMessage('この端から続けて直線を引けます。');
+    }
+
+    getShiftPhotoComparePolylineOpenEndpoints(mark) {
+        if (!mark || mark.dataset.mode !== 'polyline') return [];
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (points.length < 2) return [];
+        const first = points[0];
+        const last = points[points.length - 1];
+        if (first && last && Math.hypot(first.x - last.x, first.y - last.y) < 0.05) return [];
+        return [
+            { mark, index: 0, point: first, side: 'start', points },
+            { mark, index: points.length - 1, point: last, side: 'end', points }
+        ].filter(item => item.point);
+    }
+
+    getNearestShiftPhotoComparePolylineEndpoint(mark, pointIndex = 0, maxDistance = 80) {
+        if (!mark || mark.dataset.mode !== 'polyline') return null;
+        const layer = mark.parentElement;
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const rect = wrap?.getBoundingClientRect?.();
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (!layer || !rect?.width || !rect?.height || points.length < 2) return null;
+        const index = Math.max(0, Math.min(points.length - 1, Number(pointIndex) || 0));
+        if (index !== 0 && index !== points.length - 1) return null;
+        const sourcePoint = points[index];
+        let best = null;
+        Array.from(layer.querySelectorAll('.shift-photo-compare-mark.polyline')).forEach(candidateMark => {
+            if (!candidateMark || candidateMark === mark || this.isShiftPhotoCompareMarkLocked(candidateMark)) return;
+            this.getShiftPhotoComparePolylineOpenEndpoints(candidateMark).forEach(endpoint => {
+                const distance = Math.hypot(
+                    (endpoint.point.x - sourcePoint.x) / 100 * rect.width,
+                    (endpoint.point.y - sourcePoint.y) / 100 * rect.height
+                );
+                if (distance <= maxDistance && (!best || distance < best.distance)) best = { ...endpoint, distance };
+            });
+        });
+        return best;
+    }
+
+    highlightShiftPhotoComparePolylineEndpoint(mark, pointIndex = -1, className = 'connect-candidate') {
+        document.querySelectorAll(`.shift-photo-polyline-endpoint.${className}`)
+            .forEach(handle => handle.classList.remove(className));
+        if (!mark || mark.dataset.mode !== 'polyline') return;
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        const index = Math.max(0, Math.min(points.length - 1, Number(pointIndex) || 0));
+        const selector = index === 0
+            ? '.shift-photo-polyline-endpoint.start'
+            : '.shift-photo-polyline-endpoint.end';
+        mark.querySelector(selector)?.classList.add(className);
+    }
+
+    closeShiftPhotoComparePolylineEnds(mark) {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (points.length < 3) return;
+        const first = points[0];
+        const last = points[points.length - 1];
+        if (!first || !last || Math.hypot(first.x - last.x, first.y - last.y) < 0.05) return;
+        this.pushShiftPhotoCompareUndo();
+        const nextPoints = this.normalizeShiftPhotoComparePolylineIntersections([...points, { ...first }]);
+        mark.dataset.polylineRegionFills = '[]';
+        this.updateShiftPhotoCompareFreehandMark(mark, nextPoints);
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.selectShiftPhotoCompareMark(mark);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage('始点と終点をつないで閉じました。');
+    }
+
+    connectShiftPhotoComparePolylineNearestEndpoint(mark, pointIndex = 0) {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const layer = mark.parentElement;
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const rect = wrap?.getBoundingClientRect?.();
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (!layer || !rect?.width || !rect?.height || points.length < 2) return;
+        const index = Math.max(0, Math.min(points.length - 1, Number(pointIndex) || 0));
+        if (index !== 0 && index !== points.length - 1) {
+            this.showShiftPhotoCompareActionMessage('接続は端の青点で使えます。');
+            return;
+        }
+        const best = this.getNearestShiftPhotoComparePolylineEndpoint(mark, index, 80);
+        if (!best) {
+            this.showShiftPhotoCompareActionMessage('近くに接続できる端点がありません。');
+            return;
+        }
+        const sourceOriented = index === points.length - 1 ? points.slice() : points.slice().reverse();
+        const targetPoints = best.points || this.parseShiftPhotoCompareFreehandPoints(best.mark.dataset.points || '[]');
+        const targetOriented = best.side === 'start' ? targetPoints.slice() : targetPoints.slice().reverse();
+        const bridgeNeeded = Math.hypot(sourceOriented[sourceOriented.length - 1].x - targetOriented[0].x, sourceOriented[sourceOriented.length - 1].y - targetOriented[0].y) >= 0.05;
+        const combined = bridgeNeeded
+            ? [...sourceOriented, { ...targetOriented[0] }, ...targetOriented.slice(1)]
+            : [...sourceOriented, ...targetOriented.slice(1)];
+        this.pushShiftPhotoCompareUndo();
+        mark.dataset.polylineRegionFills = '[]';
+        this.updateShiftPhotoCompareFreehandMark(mark, this.normalizeShiftPhotoComparePolylineIntersections(combined));
+        best.mark.remove();
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.selectShiftPhotoCompareMark(mark);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage('近い端点同士を接続しました。');
+    }
+
+    buildShiftPhotoComparePolylineTraversal(points = [], startIndex = 0) {
+        if (!Array.isArray(points) || points.length < 2) return points;
+        const vertices = [];
+        const path = points.map(point => {
+            let index = vertices.findIndex(vertex => Math.hypot(vertex.x - point.x, vertex.y - point.y) < 0.05);
+            if (index < 0) {
+                index = vertices.length;
+                vertices.push({ ...point });
+            }
+            return index;
+        });
+        const edges = [];
+        const edgeKeys = new Set();
+        const adjacency = vertices.map(() => []);
+        for (let index = 1; index < path.length; index += 1) {
+            const from = path[index - 1];
+            const to = path[index];
+            if (from === to) continue;
+            const key = from < to ? `${from}:${to}` : `${to}:${from}`;
+            if (edgeKeys.has(key)) continue;
+            edgeKeys.add(key);
+            const edgeIndex = edges.length;
+            edges.push({ from, to });
+            adjacency[from].push({ edgeIndex, to });
+            adjacency[to].push({ edgeIndex, to: from });
+        }
+        const startVertex = path[Math.max(0, Math.min(path.length - 1, Number(startIndex) || 0))];
+        const used = new Set();
+        const route = [startVertex];
+        const visit = vertex => {
+            adjacency[vertex].forEach(connection => {
+                if (used.has(connection.edgeIndex)) return;
+                used.add(connection.edgeIndex);
+                route.push(connection.to);
+                visit(connection.to);
+                route.push(vertex);
+            });
+        };
+        visit(startVertex);
+        return route.slice(0, 500).map(vertexIndex => ({ ...vertices[vertexIndex] }));
+    }
+
+    buildShiftPhotoComparePolylinePiecesWithoutEdge(points = [], edgeIndex = 0) {
+        if (!Array.isArray(points) || points.length < 2) return [];
+        const vertices = [];
+        const findVertex = point => {
+            const safePoint = {
+                x: Math.max(0, Math.min(100, Number(point?.x) || 0)),
+                y: Math.max(0, Math.min(100, Number(point?.y) || 0))
+            };
+            let index = vertices.findIndex(vertex => Math.hypot(vertex.x - safePoint.x, vertex.y - safePoint.y) < 0.05);
+            if (index < 0) {
+                index = vertices.length;
+                vertices.push(safePoint);
+            }
+            return index;
+        };
+        const path = points.map(findVertex);
+        const safeEdgeIndex = Math.max(0, Math.min(path.length - 2, Number(edgeIndex) || 0));
+        const deletedFrom = path[safeEdgeIndex];
+        const deletedTo = path[safeEdgeIndex + 1];
+        const deletedKey = deletedFrom < deletedTo ? `${deletedFrom}:${deletedTo}` : `${deletedTo}:${deletedFrom}`;
+        const edges = [];
+        const edgeKeys = new Set();
+        for (let index = 1; index < path.length; index += 1) {
+            const from = path[index - 1];
+            const to = path[index];
+            if (from === to) continue;
+            const key = from < to ? `${from}:${to}` : `${to}:${from}`;
+            if (key === deletedKey || edgeKeys.has(key)) continue;
+            edgeKeys.add(key);
+            edges.push({ from, to, key });
+        }
+        if (!edges.length) return [];
+        const adjacency = vertices.map(() => []);
+        edges.forEach((edge, index) => {
+            adjacency[edge.from].push(index);
+            adjacency[edge.to].push(index);
+        });
+        adjacency.forEach(list => list.sort((leftIndex, rightIndex) => {
+            const left = edges[leftIndex];
+            const right = edges[rightIndex];
+            const leftOther = left.from === left.to ? left.to : null;
+            return (leftOther ?? 0) - (right.from === right.to ? right.to : 0);
+        }));
+        const used = new Set();
+        const pieces = [];
+        const walk = startVertex => {
+            const route = [startVertex];
+            let current = startVertex;
+            for (let guard = 0; guard < edges.length + 2; guard += 1) {
+                const edgeIndexValue = adjacency[current].find(item => !used.has(item));
+                if (edgeIndexValue === undefined) break;
+                used.add(edgeIndexValue);
+                const edge = edges[edgeIndexValue];
+                current = edge.from === current ? edge.to : edge.from;
+                route.push(current);
+                if (adjacency[current].filter(item => !used.has(item)).length !== 1) break;
+            }
+            if (route.length >= 2) pieces.push(route.map(vertexIndex => ({ ...vertices[vertexIndex] })));
+        };
+        vertices
+            .map((_, index) => index)
+            .filter(index => adjacency[index].length === 1)
+            .forEach(index => {
+                while (adjacency[index].some(edgeIndexValue => !used.has(edgeIndexValue))) walk(index);
+            });
+        vertices
+            .map((_, index) => index)
+            .forEach(index => {
+                while (adjacency[index].some(edgeIndexValue => !used.has(edgeIndexValue))) walk(index);
+            });
+        return pieces.slice(0, 80);
+    }
+
+    addShiftPhotoComparePolylinePoint(mark, clientPoint) {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const rect = wrap?.getBoundingClientRect?.();
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (!rect?.width || !rect?.height || points.length < 2) return;
+        const target = { x: Number(clientPoint?.clientX) || 0, y: Number(clientPoint?.clientY) || 0 };
+        let best = null;
+        for (let index = 0; index < points.length - 1; index += 1) {
+            const start = {
+                x: rect.left + points[index].x / 100 * rect.width,
+                y: rect.top + points[index].y / 100 * rect.height
+            };
+            const end = {
+                x: rect.left + points[index + 1].x / 100 * rect.width,
+                y: rect.top + points[index + 1].y / 100 * rect.height
+            };
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const lengthSquared = dx * dx + dy * dy;
+            if (lengthSquared < 0.01) continue;
+            const t = Math.max(0, Math.min(1, ((target.x - start.x) * dx + (target.y - start.y) * dy) / lengthSquared));
+            const projected = { x: start.x + dx * t, y: start.y + dy * t };
+            const distance = Math.hypot(target.x - projected.x, target.y - projected.y);
+            if (!best || distance < best.distance) {
+                best = {
+                    index,
+                    distance,
+                    point: {
+                        x: (projected.x - rect.left) / rect.width * 100,
+                        y: (projected.y - rect.top) / rect.height * 100
+                    }
+                };
+            }
+        }
+        if (!best) return;
+        this.pushShiftPhotoCompareUndo();
+        points.splice(best.index + 1, 0, best.point);
+        const normalized = this.normalizeShiftPhotoComparePolylineIntersections(points);
+        this.updateShiftPhotoCompareFreehandMark(mark, normalized);
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.selectShiftPhotoCompareMark(mark);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage('線上に青点を追加しました。');
+    }
+
+    deleteShiftPhotoComparePolylinePoint(mark, pointIndex) {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        const first = points[0];
+        const last = points[points.length - 1];
+        const closed = points.length >= 4 && first && last && Math.hypot(first.x - last.x, first.y - last.y) < 0.05;
+        let nextPoints;
+        if (closed) {
+            const core = points.slice(0, -1);
+            if (core.length <= 3) return;
+            const index = Math.max(0, Math.min(core.length - 1, Number(pointIndex) || 0));
+            core.splice(index, 1);
+            nextPoints = [...core, { ...core[0] }];
+        } else {
+            if (points.length <= 2) return;
+            const index = Math.max(0, Math.min(points.length - 1, Number(pointIndex) || 0));
+            nextPoints = points.filter((_, itemIndex) => itemIndex !== index);
+        }
+        this.pushShiftPhotoCompareUndo();
+        nextPoints = this.normalizeShiftPhotoComparePolylineIntersections(nextPoints);
+        this.updateShiftPhotoCompareFreehandMark(mark, nextPoints);
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.selectShiftPhotoCompareMark(mark);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage('青点を削除しました。');
+    }
+
+    deleteShiftPhotoComparePolylineEdge(mark, edgeIndex = 0) {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (points.length < 3) return;
+        const index = Math.max(0, Math.min(points.length - 2, Number(edgeIndex) || 0));
+        const first = points[0];
+        const last = points[points.length - 1];
+        const closed = points.length >= 4 && first && last && Math.hypot(first.x - last.x, first.y - last.y) < 0.05;
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const layer = mark.parentElement;
+        if (!wrap || !layer) return;
+        this.pushShiftPhotoCompareUndo();
+        const created = [];
+        const pieces = this.buildShiftPhotoComparePolylinePiecesWithoutEdge(points, index)
+            .map(piece => this.normalizeShiftPhotoComparePolylineIntersections(piece))
+            .filter(piece => piece.length >= 2);
+        if (!pieces.length) {
+            mark.remove();
+        } else {
+            mark.dataset.polylineRegionFills = '[]';
+            this.updateShiftPhotoCompareFreehandMark(mark, pieces[0]);
+            pieces.slice(1).forEach(piece => {
+                const copy = mark.cloneNode(true);
+                copy.classList.remove('selected');
+                copy.removeAttribute('data-polyline-active');
+                copy.dataset.polylineRegionFills = '[]';
+                this.updateShiftPhotoCompareFreehandMark(copy, piece);
+                layer.appendChild(copy);
+                created.push(copy);
+            });
+        }
+        this.syncShiftPhotoCompareChangedMarkWraps([mark, ...created]);
+        this.selectShiftPhotoCompareMark(mark.isConnected ? mark : (created[0] || null));
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(created.length ? 'この辺を削除し、重ならない線に分けました。' : 'この辺を削除しました。');
     }
 
     isPointInsideShiftPhotoComparePolygon(point, polygon = []) {
@@ -13758,6 +14737,52 @@
         return null;
     }
 
+    clearShiftPhotoComparePolylineRegionHover() {
+        document.querySelectorAll('.shift-photo-polyline-region.region-hover')
+            .forEach(region => region.classList.remove('region-hover'));
+    }
+
+    clearShiftPhotoComparePolylineRegionFocus() {
+        document.querySelectorAll('.shift-photo-polyline-region.region-focus, .shift-photo-polyline-region.region-menu-hover')
+            .forEach(region => region.classList.remove('region-focus', 'region-menu-hover'));
+        document.querySelectorAll('.shift-photo-polyline-region-row.hovering')
+            .forEach(row => row.classList.remove('hovering'));
+    }
+
+    setShiftPhotoComparePolylineRegionFocus(mark, regionIndex = -1, className = 'region-focus') {
+        if (!mark || mark.dataset.mode !== 'polyline') return;
+        if (className === 'region-focus') {
+            document.querySelectorAll('.shift-photo-polyline-region.region-focus')
+                .forEach(region => region.classList.remove('region-focus'));
+        }
+        if (className === 'region-menu-hover') {
+            document.querySelectorAll('.shift-photo-polyline-region.region-menu-hover')
+                .forEach(region => region.classList.remove('region-menu-hover'));
+        }
+        const index = Number(regionIndex);
+        if (!Number.isInteger(index) || index < 0) return;
+        mark.querySelector(`.shift-photo-polyline-region[data-region-index="${index}"]`)
+            ?.classList.add(className);
+    }
+
+    updateShiftPhotoComparePolylineRegionHover(event, overlay = document.querySelector('.shift-photo-compare-overlay')) {
+        this.clearShiftPhotoComparePolylineRegionHover();
+        if (!overlay || !['move', 'polyline'].includes(this._shiftPhotoCompareMarkMode)) return;
+        if (event.target?.closest?.('.shift-photo-compare-image-context-menu, .shift-photo-compare-table-menu')) return;
+        const wrap = event.target?.closest?.('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        if (!wrap) return;
+        const containers = [
+            overlay.querySelector('.shift-photo-compare-global-layer'),
+            wrap
+        ].filter((item, index, items) => item && items.indexOf(item) === index);
+        const hit = containers
+            .map(container => this.getShiftPhotoComparePolylineRegionAtPoint(event, container))
+            .find(Boolean);
+        if (!hit) return;
+        hit.mark.querySelector(`.shift-photo-polyline-region[data-region-index="${hit.regionIndex}"]`)
+            ?.classList.add('region-hover');
+    }
+
     openShiftPhotoCompareImageContextMenu(event, mark, options = {}) {
         const mode = mark?.dataset?.mode || '';
         const isGrouped = !!this.getShiftPhotoCompareGroupId(mark);
@@ -13775,6 +14800,7 @@
         const isArrow = mode === 'arrow';
         const isTable = mode === 'table';
         const isPolyline = mode === 'polyline';
+        const isPolylineLocked = isPolyline && this.isShiftPhotoCompareMarkLocked(mark);
         const isClosedPolyline = isPolyline && this.isShiftPhotoCompareClosedPolyline(mark);
         const polylineRegions = isPolyline
             ? this.getShiftPhotoComparePolylineRegions(this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]'))
@@ -13802,9 +14828,8 @@
                 ? mark.dataset.polylineFillColor
                 : (/^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626'));
         const polylineFillOpacity = regionFill?.opacity ?? Number(mark.dataset.polylineFillOpacity);
-        const polylineFillTransparency = Math.round((1 - Math.max(0.05, Math.min(1, polylineFillOpacity || 0.25))) * 100);
-        const canSelectFromDrawing = (this._shiftPhotoCompareMarkMode === 'freehand' && mode === 'freehand')
-            || (this._shiftPhotoCompareMarkMode === 'polyline' && mode === 'polyline');
+        const polylineFillTransparency = Math.round((1 - Math.max(0.05, Math.min(1, polylineFillOpacity || 1))) * 100);
+        const canSelectFromDrawing = ['freehand', 'polyline'].includes(mode);
         const arrowHeadHidden = isArrow && mark.dataset.arrowHeadHidden === '1';
         const selected = this.getShiftPhotoCompareSelectedMarks();
         const outlineTextModes = ['text', 'number', 'boxedText', 'callout'];
@@ -13841,13 +14866,42 @@
         const groupIconHidden = groupTargets.length >= 2 && groupTargets.every(item => item.dataset.groupIconHidden === '1');
         const pasteTarget = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
         const pastePoint = { clientX: event.clientX, clientY: event.clientY };
+        const polylineFillPalette = ['#ffffff', '#111827', '#ef4444', '#f59e0b', '#facc15', '#22c55e', '#2563eb', '#a855f7'];
+        const polylineRegionSummaryHtml = isClosedPolyline && polylineRegions.length
+            ? `<div class="shift-photo-polyline-region-menu" aria-label="区画一覧">
+                <b>区画一覧</b>
+                <div class="shift-photo-polyline-region-row all-regions">
+                    <strong>全区画</strong>
+                    <label><span>色</span><input type="color" value="${this.escapeHtml(polylineFillColor)}" data-field="polyline-region-all-color"></label>
+                    <label><span>透明</span><input type="number" min="0" max="95" step="5" value="${polylineFillTransparency}" data-field="polyline-region-all-opacity"></label>
+                    <button type="button" data-action="polyline-region-apply-all"><i class="fa-solid fa-check-double"></i><span>一括反映</span></button>
+                    <button type="button" data-action="polyline-region-random-colors"><i class="fa-solid fa-wand-magic-sparkles"></i><span>ランダム配色</span></button>
+                </div>
+                ${polylineRegions.map((region, index) => {
+                    const fill = polylineRegionFills[index] || {};
+                    const enabled = fill.enabled === true;
+                    const color = /^#[0-9a-f]{6}$/i.test(fill.color || '') ? fill.color : polylineFillColor;
+                    const transparency = Math.round((1 - Math.max(0.05, Math.min(1, Number(fill.opacity) || 1))) * 100);
+                    return `<div class="shift-photo-polyline-region-row ${enabled ? 'enabled' : ''}" data-region-index="${index}">
+                        <button type="button" data-action="polyline-region-toggle" data-region-index="${index}" title="区画${index + 1}の塗りを切替">
+                            <i style="--region-color:${this.escapeHtml(color)}"></i><span>区画 ${index + 1}</span><small>${enabled ? '塗り中' : '未塗り'}</small>
+                        </button>
+                        <label><span>色</span><input type="color" value="${this.escapeHtml(color)}" data-field="polyline-region-color" data-region-index="${index}"></label>
+                        <label><span>透明</span><input type="number" min="0" max="95" step="5" value="${transparency}" data-field="polyline-region-opacity" data-region-index="${index}"></label>
+                        <button type="button" class="shift-photo-polyline-region-apply" data-action="polyline-region-apply" data-region-index="${index}" title="この区画へ反映"><i class="fa-solid fa-check"></i><span>反映</span></button>
+                    </div>`;
+                }).join('')}
+            </div>`
+            : '';
         const panel = document.querySelector('.shift-photo-compare-panel');
         const panelRect = panel?.getBoundingClientRect();
         if (!panelRect?.width) return;
         const menu = document.createElement('div');
-        menu.className = 'shift-photo-compare-image-context-menu';
+        menu.className = `shift-photo-compare-image-context-menu${isClosedPolyline ? ' polyline-wide' : ''}`;
         menu.innerHTML = `
+            <div class="shift-photo-context-menu-grip" data-action="drag-menu" title="ドラッグでメニューを移動"><i class="fa-solid fa-grip-lines"></i><span>メニュー移動</span></div>
             ${canSelectFromDrawing ? '<button type="button" data-action="select"><i class="fa-solid fa-arrow-pointer"></i><span>選択</span></button>' : ''}
+            ${isPolyline ? `<button type="button" data-action="polyline-draw"${isPolylineLocked ? ' disabled' : ''}><i class="fa-solid fa-route"></i><span>${isPolylineLocked ? 'ロック解除後に直線引き' : '直線引きを再開'}</span></button>` : ''}
             <button type="button" data-action="copy"><i class="fa-regular fa-copy"></i><span>コピー${selectedCount > 1 ? ` (${selectedCount}件)` : ''}</span></button>
             <button type="button" data-action="lock"><i class="fa-solid ${allLocked ? 'fa-lock-open' : 'fa-lock'}"></i><span>${allLocked ? 'ロックを解除' : 'ロック'}</span></button>
             ${canGroup ? `<button type="button" data-action="group"><i class="fa-solid ${isGrouped && selected.length <= 1 ? 'fa-link-slash' : 'fa-link'}"></i><span>${isGrouped && selected.length <= 1 ? 'グループ化を解除' : 'グループ化/解除'}</span></button>` : ''}
@@ -13866,8 +14920,17 @@
                 <label><span>透明度 %</span><input type="number" min="0" max="95" step="5" value="${polylineFillTransparency}" data-field="polyline-fill-opacity"></label>
                 <button type="button" data-action="polyline-fill-settings" title="色と透明度を反映"><i class="fa-solid fa-check"></i></button>
             </div>
+            <div class="shift-photo-polyline-fill-tools" aria-label="塗りつぶし色">
+                ${polylineFillPalette.map(colorValue => `<button type="button" class="shift-photo-polyline-color-swatch" data-action="polyline-fill-swatch" data-color="${colorValue}" style="--swatch-color:${colorValue}" title="${colorValue}"></button>`).join('')}
+                <button type="button" class="shift-photo-polyline-eyedropper" data-action="polyline-fill-eyedropper"><i class="fa-solid fa-eye-dropper"></i><span>スポイト</span></button>
+            </div>
+            ${polylineRegionSummaryHtml}
+            <button type="button" data-action="polyline-fill-copy"><i class="fa-regular fa-copy"></i><span>${polylineRegionIndex >= 0 ? `区画 ${polylineRegionIndex + 1}` : '区画'}の塗り設定をコピー</span></button>
+            ${this._shiftPhotoComparePolylineFillClipboard ? `<button type="button" data-action="polyline-fill-paste"><i class="fa-solid fa-paste"></i><span>${polylineRegionIndex >= 0 ? `区画 ${polylineRegionIndex + 1}` : '全区画'}へ塗り設定を貼付</span></button>` : ''}
             <button type="button" data-action="polyline-fill-toggle"><i class="fa-solid ${polylineFillEnabled ? 'fa-fill-drip' : 'fa-paint-roller'}"></i><span>${polylineRegionIndex >= 0 ? `区画 ${polylineRegionIndex + 1}：` : ''}${polylineFillEnabled ? '塗りつぶしを解除' : '内側を塗りつぶす'}</span></button>` : ''}
             ${isPolyline && !isClosedPolyline ? '<button type="button" disabled title="始点まで線をつなぐと塗りつぶせます"><i class="fa-solid fa-fill-drip"></i><span>閉じた直線で塗りつぶし可能</span></button>' : ''}
+            ${isPolyline ? '<button type="button" data-action="polyline-merge-points"><i class="fa-solid fa-code-merge"></i><span>近い青点を結合</span></button>' : ''}
+            ${isPolyline ? '<button type="button" data-action="polyline-simplify-points"><i class="fa-solid fa-broom"></i><span>不要な中間点を整理</span></button>' : ''}
             ${outlineTextTarget ? `<div class="shift-photo-context-font-row">
                 <label><span>フォント</span><select data-field="text-font">${this.getShiftPhotoCompareTableFontOptions(outlineTextFont)}</select></label>
                 <button type="button" data-action="text-font" title="フォントを反映"><i class="fa-solid fa-check"></i></button>
@@ -13896,6 +14959,7 @@
             ${canStandardSize ? `<button type="button" data-action="standard-size"><i class="fa-solid fa-ruler-combined"></i><span>${standardSizeLabel}</span></button>` : ''}
             ${mixedStandardTargets ? '<button type="button" data-action="standard-images"><i class="fa-regular fa-image"></i><span>画像だけ標準寸法</span></button>' : ''}
             ${mixedStandardTargets ? '<button type="button" data-action="standard-symbols"><i class="fa-solid fa-shapes"></i><span>記号だけ標準寸法</span></button>' : ''}
+            ${isPolyline ? '<button type="button" data-action="polyline-add-point"><i class="fa-solid fa-circle-plus"></i><span>ここに青点を追加</span></button>' : ''}
             ${isArrow ? `<button type="button" data-action="arrow-head"><i class="fa-solid ${arrowHeadHidden ? 'fa-arrow-right' : 'fa-minus'}"></i><span>${arrowHeadHidden ? '先端を表示' : '先端を消す（直線）'}</span></button>` : ''}
             ${isTable ? '<button type="button" data-action="table-settings"><i class="fa-solid fa-table-cells"></i><span>表の行列・Rを再設定</span></button>' : ''}
             ${isImage ? '<button type="button" data-action="restore"><i class="fa-solid fa-clock-rotate-left"></i><span>元画像に戻す</span></button>' : ''}
@@ -13905,6 +14969,50 @@
             <button type="button" data-action="delete" class="danger"><i class="fa-solid fa-trash"></i><span>削除</span></button>
         `;
         menu.addEventListener('pointerdown', menuEvent => menuEvent.stopPropagation());
+        menu.querySelector('.shift-photo-context-menu-grip')?.addEventListener('pointerdown', gripEvent => {
+            this.startShiftPhotoCompareContextMenuDrag(gripEvent, menu);
+        });
+        if (polylineRegionIndex >= 0) {
+            this.setShiftPhotoComparePolylineRegionFocus(mark, polylineRegionIndex, 'region-focus');
+        }
+        menu.querySelectorAll('.shift-photo-polyline-region-row[data-region-index]').forEach(row => {
+            const focusRegion = () => {
+                const index = Number(row.dataset.regionIndex);
+                menu.querySelectorAll('.shift-photo-polyline-region-row.hovering')
+                    .forEach(item => item.classList.remove('hovering'));
+                row.classList.add('hovering');
+                this.setShiftPhotoComparePolylineRegionFocus(mark, index, 'region-menu-hover');
+            };
+            row.addEventListener('pointerenter', focusRegion);
+            row.addEventListener('focusin', focusRegion);
+        });
+        menu.querySelector('.shift-photo-polyline-region-menu')?.addEventListener('pointerleave', () => {
+            document.querySelectorAll('.shift-photo-polyline-region.region-menu-hover')
+                .forEach(region => region.classList.remove('region-menu-hover'));
+            menu.querySelectorAll('.shift-photo-polyline-region-row.hovering')
+                .forEach(row => row.classList.remove('hovering'));
+        });
+        const applyInlineRegionFill = input => {
+            const index = Number(input?.dataset?.regionIndex);
+            if (!Number.isInteger(index)) return;
+            const color = menu.querySelector(`[data-field="polyline-region-color"][data-region-index="${index}"]`)?.value;
+            const transparency = menu.querySelector(`[data-field="polyline-region-opacity"][data-region-index="${index}"]`)?.value;
+            this.setShiftPhotoComparePolylineRegionFill(mark, index, color, transparency);
+            const row = menu.querySelector(`.shift-photo-polyline-region-row[data-region-index="${index}"]`);
+            const dot = row?.querySelector('i');
+            const state = row?.querySelector('small');
+            row?.classList.add('enabled');
+            row?.classList.remove('pending');
+            if (dot && /^#[0-9a-f]{6}$/i.test(color || '')) dot.style.setProperty('--region-color', color);
+            if (state) state.textContent = '塗り中';
+            this.setShiftPhotoComparePolylineRegionFocus(mark, index, 'region-focus');
+        };
+        menu.querySelectorAll('[data-field="polyline-region-color"], [data-field="polyline-region-opacity"]')
+            .forEach(input => input.addEventListener('input', event => {
+                const index = Number(event.target?.dataset?.regionIndex);
+                const row = menu.querySelector(`.shift-photo-polyline-region-row[data-region-index="${index}"]`);
+                row?.classList.add('pending');
+            }));
         const previewOutlineWidths = () => this.setSelectedShiftPhotoCompareOutlineWidths(
             menu.querySelector('[data-field="outer-outline-width"]')?.value,
             menu.querySelector('[data-field="inner-outline-width"]')?.value,
@@ -13921,7 +15029,18 @@
         menu.querySelector('[data-field="callout-text-fit"]')?.addEventListener('change', fitEvent => {
             this.setSelectedShiftPhotoCalloutTextFit(fitEvent.target.value);
         });
-        menu.addEventListener('click', menuEvent => {
+        const applyPolylineFillFromMenu = (colorValue = '') => {
+            const selectedColor = /^#[0-9a-f]{6}$/i.test(colorValue || '')
+                ? colorValue
+                : menu.querySelector('[data-field="polyline-fill-color"]')?.value;
+            const transparency = menu.querySelector('[data-field="polyline-fill-opacity"]')?.value;
+            if (polylineRegionIndex >= 0) {
+                this.setShiftPhotoComparePolylineRegionFill(mark, polylineRegionIndex, selectedColor, transparency);
+            } else {
+                this.setSelectedShiftPhotoComparePolylineFill(selectedColor, transparency, { mark });
+            }
+        };
+        menu.addEventListener('click', async menuEvent => {
             const action = menuEvent.target.closest('button')?.dataset?.action || '';
             if (!action) return;
             menuEvent.preventDefault();
@@ -13930,6 +15049,10 @@
                 this.setShiftPhotoCompareMarkModeDirect('move');
                 this.selectShiftPhotoCompareMark(mark);
                 this.showShiftPhotoCompareActionMessage(`${mode === 'polyline' ? '直線引き' : 'フリーハンド'}を解除して選択状態にしました。`);
+            }
+            if (action === 'polyline-draw') {
+                const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+                this.continueShiftPhotoComparePolylineFromEndpoint(mark, Math.max(0, points.length - 1));
             }
             if (action === 'copy') this.copySelectedShiftPhotoCompareMark();
             if (action === 'lock') this.toggleSelectedShiftPhotoCompareMarkLock();
@@ -13948,25 +15071,110 @@
                 this.setSelectedShiftPhotoCompareFreehandWidth(menu.querySelector('[data-field="freehand-width"]')?.value);
             }
             if (action === 'polyline-fill-settings') {
-                if (polylineRegionIndex >= 0) {
-                    this.setShiftPhotoComparePolylineRegionFill(
-                        mark,
-                        polylineRegionIndex,
-                        menu.querySelector('[data-field="polyline-fill-color"]')?.value,
-                        menu.querySelector('[data-field="polyline-fill-opacity"]')?.value
-                    );
-                } else {
-                    this.setSelectedShiftPhotoComparePolylineFill(
-                        menu.querySelector('[data-field="polyline-fill-color"]')?.value,
-                        menu.querySelector('[data-field="polyline-fill-opacity"]')?.value,
-                        { mark }
-                    );
-                }
+                applyPolylineFillFromMenu();
+            }
+            if (action === 'polyline-fill-swatch') {
+                applyPolylineFillFromMenu(menuEvent.target.closest('button')?.dataset?.color || '');
+            }
+            if (action === 'polyline-fill-eyedropper') {
+                const transparency = menu.querySelector('[data-field="polyline-fill-opacity"]')?.value;
+                this.closeShiftPhotoCompareImageContextMenu();
+                await this.pickShiftPhotoComparePolylineFillColor(mark, polylineRegionIndex, transparency);
+                return;
             }
             if (action === 'polyline-fill-toggle') {
                 if (polylineRegionIndex >= 0) this.toggleShiftPhotoComparePolylineRegionFill(mark, polylineRegionIndex);
                 else this.toggleSelectedShiftPhotoComparePolylineFill(mark);
             }
+            if (action === 'polyline-region-toggle') {
+                const index = Number(menuEvent.target.closest('button')?.dataset?.regionIndex);
+                if (Number.isInteger(index)) this.toggleShiftPhotoComparePolylineRegionFill(mark, index);
+            }
+            if (action === 'polyline-region-apply') {
+                const index = Number(menuEvent.target.closest('button')?.dataset?.regionIndex);
+                if (Number.isInteger(index)) {
+                    const input = menu.querySelector(`[data-field="polyline-region-color"][data-region-index="${index}"]`);
+                    applyInlineRegionFill(input);
+                }
+                return;
+            }
+            if (action === 'polyline-region-apply-all') {
+                const color = menu.querySelector('[data-field="polyline-region-all-color"]')?.value;
+                const transparency = menu.querySelector('[data-field="polyline-region-all-opacity"]')?.value;
+                this.setSelectedShiftPhotoComparePolylineFill(color, transparency, { mark });
+                menu.querySelectorAll('.shift-photo-polyline-region-row[data-region-index]').forEach(row => {
+                    row.classList.add('enabled');
+                    const dot = row.querySelector('i');
+                    const state = row.querySelector('small');
+                    const colorInput = row.querySelector('[data-field="polyline-region-color"]');
+                    const opacityInput = row.querySelector('[data-field="polyline-region-opacity"]');
+                    if (dot && /^#[0-9a-f]{6}$/i.test(color || '')) dot.style.setProperty('--region-color', color);
+                    if (colorInput && /^#[0-9a-f]{6}$/i.test(color || '')) colorInput.value = color;
+                    if (opacityInput) opacityInput.value = String(Math.max(0, Math.min(95, Number(transparency) || 0)));
+                    if (state) state.textContent = '塗り中';
+                });
+                this.showShiftPhotoCompareActionMessage('全区画へ塗り設定を一括反映しました。');
+                return;
+            }
+            if (action === 'polyline-region-random-colors') {
+                const regions = this.getShiftPhotoComparePolylineRegions(
+                    this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]')
+                );
+                if (!regions.length) return;
+                const transparency = menu.querySelector('[data-field="polyline-region-all-opacity"]')?.value;
+                const opacity = Math.max(0.05, Math.min(1, 1 - Math.max(0, Math.min(95, Number(transparency) || 0)) / 100));
+                const startHue = Math.floor(Math.random() * 360);
+                const hslToHex = (h, s, l) => {
+                    s /= 100;
+                    l /= 100;
+                    const k = n => (n + h / 30) % 12;
+                    const a = s * Math.min(l, 1 - l);
+                    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+                    return `#${[f(0), f(8), f(4)].map(value => Math.round(255 * value).toString(16).padStart(2, '0')).join('')}`;
+                };
+                const fills = regions.map((_, index) => {
+                    const hue = (startHue + index * 137.508 + Math.random() * 22 - 11 + 360) % 360;
+                    const saturation = 72 + Math.random() * 18;
+                    const lightness = 54 + Math.random() * 13;
+                    return {
+                        enabled: true,
+                        color: hslToHex(hue, saturation, lightness),
+                        opacity
+                    };
+                });
+                this.pushShiftPhotoCompareUndo();
+                mark.dataset.polylineRegionFills = JSON.stringify(fills);
+                mark.dataset.polylineFill = '1';
+                mark.dataset.polylineFillOpacity = String(opacity);
+                this.refreshShiftPhotoComparePolylineRegions(mark);
+                this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+                menu.querySelectorAll('.shift-photo-polyline-region-row[data-region-index]').forEach(row => {
+                    const index = Number(row.dataset.regionIndex);
+                    const fill = fills[index];
+                    if (!fill) return;
+                    row.classList.add('enabled');
+                    row.classList.remove('pending');
+                    row.querySelector('i')?.style.setProperty('--region-color', fill.color);
+                    const colorInput = row.querySelector('[data-field="polyline-region-color"]');
+                    const opacityInput = row.querySelector('[data-field="polyline-region-opacity"]');
+                    const state = row.querySelector('small');
+                    if (colorInput) colorInput.value = fill.color;
+                    if (opacityInput) opacityInput.value = String(Math.round((1 - opacity) * 100));
+                    if (state) state.textContent = '塗り中';
+                });
+                this.refreshShiftPhotoCompareMarkList();
+                this.autoSaveShiftNotebook(true);
+                this.showShiftPhotoCompareActionMessage('全区画をランダム配色にしました。');
+                return;
+            }
+            if (action === 'polyline-fill-copy') {
+                this.copyShiftPhotoComparePolylineRegionFill(mark, polylineRegionIndex >= 0 ? polylineRegionIndex : 0);
+            }
+            if (action === 'polyline-fill-paste') {
+                this.pasteShiftPhotoComparePolylineRegionFill(mark, polylineRegionIndex);
+            }
+            if (action === 'polyline-merge-points') this.mergeCloseShiftPhotoComparePolylinePoints(mark);
+            if (action === 'polyline-simplify-points') this.simplifyShiftPhotoComparePolylinePoints(mark);
             if (action === 'callout-padding') {
                 this.setSelectedShiftPhotoCalloutTextPadding(
                     menu.querySelector('[data-field="callout-padding-x"]')?.value,
@@ -13987,6 +15195,7 @@
             if (action === 'standard-size') this.resetSelectedShiftPhotoImageStandardSize('all');
             if (action === 'standard-images') this.resetSelectedShiftPhotoImageStandardSize('image');
             if (action === 'standard-symbols') this.resetSelectedShiftPhotoImageStandardSize('symbol');
+            if (action === 'polyline-add-point') this.addShiftPhotoComparePolylinePoint(mark, pastePoint);
             if (action === 'arrow-head') this.toggleSelectedShiftPhotoCompareArrowHead(mark);
             if (action === 'table-settings') {
                 const tableWrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
@@ -14949,26 +16158,52 @@
         if (!wrap) return;
         clearTimeout(this._shiftPhotoCompareSnapGuideClearTimer);
         this._shiftPhotoCompareSnapGuideClearTimer = null;
-        wrap.querySelectorAll('.shift-photo-compare-snap-guide').forEach(line => line.remove());
+        wrap.querySelectorAll('.shift-photo-compare-snap-guide, .shift-photo-compare-parallel-guide, .shift-photo-compare-snap-status').forEach(line => line.remove());
         if (x === null && y === null) return;
         if (x !== null) {
             const line = document.createElement('div');
             line.className = 'shift-photo-compare-snap-guide vertical';
             line.style.left = `${x}%`;
+            line.dataset.label = 'X一致';
             wrap.appendChild(line);
         }
         if (y !== null) {
             const line = document.createElement('div');
             line.className = 'shift-photo-compare-snap-guide horizontal';
             line.style.top = `${y}%`;
+            line.dataset.label = 'Y一致';
             wrap.appendChild(line);
         }
+    }
+
+    renderShiftPhotoCompareParallelGuide(wrap, guide = null) {
+        wrap?.querySelectorAll?.('.shift-photo-compare-parallel-guide').forEach(item => item.remove());
+        if (!wrap || !guide) return;
+        const badge = document.createElement('div');
+        badge.className = 'shift-photo-compare-parallel-guide';
+        badge.textContent = guide.sameLength ? '平行・同長' : '平行';
+        badge.style.left = `${guide.x}%`;
+        badge.style.top = `${guide.y}%`;
+        badge.style.setProperty('--parallel-angle', `${guide.angle || 0}deg`);
+        wrap.appendChild(badge);
+    }
+
+    renderShiftPhotoCompareSnapStatus(wrap, point = null, labels = []) {
+        wrap?.querySelectorAll?.('.shift-photo-compare-snap-status').forEach(item => item.remove());
+        const uniqueLabels = [...new Set((Array.isArray(labels) ? labels : []).filter(Boolean))];
+        if (!wrap || !point || !uniqueLabels.length) return;
+        const badge = document.createElement('div');
+        badge.className = 'shift-photo-compare-snap-status';
+        badge.textContent = uniqueLabels.join(' + ');
+        badge.style.left = `${Math.max(0, Math.min(100, point.x))}%`;
+        badge.style.top = `${Math.max(0, Math.min(100, point.y))}%`;
+        wrap.appendChild(badge);
     }
 
     clearShiftPhotoCompareSnapGuides() {
         clearTimeout(this._shiftPhotoCompareSnapGuideClearTimer);
         this._shiftPhotoCompareSnapGuideClearTimer = null;
-        document.querySelectorAll('.shift-photo-compare-snap-guide').forEach(line => line.remove());
+        document.querySelectorAll('.shift-photo-compare-snap-guide, .shift-photo-compare-parallel-guide, .shift-photo-compare-snap-status').forEach(line => line.remove());
     }
 
     renderShiftPhotoCompareResizeWidthMatchGuide(targetMark) {
@@ -15107,6 +16342,117 @@
             x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
             y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100))
         };
+    }
+
+    startShiftPhotoComparePolylinePointDrag(event, mark, wrap, handle) {
+        if (!mark || mark.dataset.mode !== 'polyline' || !handle || !wrap) return false;
+        if (this.isShiftPhotoCompareMarkLocked(mark)) {
+            this.selectShiftPhotoCompareMark(mark);
+            this.showShiftPhotoCompareActionMessage('ロック中の直線です。ロック解除すると青点を移動できます。');
+            return true;
+        }
+        let points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        const originalPoints = points.map(point => ({ ...point }));
+        const originalRegionFills = mark.dataset.polylineRegionFills || '[]';
+        const pointIndex = Math.max(0, Math.min(points.length - 1, Number(handle.dataset.pointIndex) || 0));
+        const sourcePoint = points[pointIndex];
+        if (!sourcePoint) return false;
+        const linkedIndices = points
+            .map((point, index) => Math.hypot(point.x - sourcePoint.x, point.y - sourcePoint.y) < 0.05 ? index : -1)
+            .filter(index => index >= 0);
+        event.preventDefault();
+        event.stopPropagation();
+        this.pushShiftPhotoCompareUndo();
+        this.selectShiftPhotoCompareMark(mark);
+        const linkedIndexSet = new Set(linkedIndices);
+        const anchors = [];
+        linkedIndices.forEach(index => {
+            [index - 1, index + 1].forEach(neighborIndex => {
+                if (neighborIndex < 0 || neighborIndex >= points.length || linkedIndexSet.has(neighborIndex)) return;
+                const candidate = points[neighborIndex];
+                if (!anchors.some(anchor => Math.hypot(anchor.x - candidate.x, anchor.y - candidate.y) < 0.05)) {
+                    anchors.push({ ...candidate });
+                }
+            });
+        });
+        const wrapRect = wrap.getBoundingClientRect();
+        const dragStart = { x: event.clientX, y: event.clientY };
+        let moved = false;
+        anchors.sort((left, right) => {
+            const leftDistance = Math.hypot(
+                (left.x - sourcePoint.x) / 100 * wrapRect.width,
+                (left.y - sourcePoint.y) / 100 * wrapRect.height
+            );
+            const rightDistance = Math.hypot(
+                (right.x - sourcePoint.x) / 100 * wrapRect.width,
+                (right.y - sourcePoint.y) / 100 * wrapRect.height
+            );
+            return leftDistance - rightDistance;
+        });
+        let finished = false;
+        const cleanup = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', stop);
+            window.removeEventListener('pointercancel', cancel);
+            window.removeEventListener('keydown', keydown, true);
+        };
+        const move = moveEvent => {
+            moveEvent.preventDefault();
+            if (!moved && Math.hypot(moveEvent.clientX - dragStart.x, moveEvent.clientY - dragStart.y) < 4) return;
+            moved = true;
+            let nextPoint = this.getShiftPhotoCompareFreehandPoint(moveEvent, wrap);
+            if (!nextPoint) return;
+            if (moveEvent.shiftKey && anchors[0]) {
+                nextPoint = this.snapShiftPhotoComparePolylinePoint(anchors[0], nextPoint, wrap, { force: true });
+            }
+            linkedIndices.forEach(index => {
+                points[index] = { ...nextPoint };
+            });
+            this.updateShiftPhotoCompareFreehandMark(mark, points);
+        };
+        const stop = () => {
+            if (finished) return;
+            finished = true;
+            cleanup();
+            const isEndpoint = handle.classList.contains('shift-photo-polyline-endpoint')
+                && (pointIndex === 0 || pointIndex === originalPoints.length - 1);
+            if (!moved && isEndpoint) {
+                this._shiftPhotoCompareUndoStack?.pop?.();
+                this.updateShiftPhotoCompareUndoButton();
+                this.continueShiftPhotoComparePolylineFromEndpoint(mark, pointIndex);
+                return;
+            }
+            points = this.normalizeShiftPhotoComparePolylineIntersections(points);
+            this.updateShiftPhotoCompareFreehandMark(mark, points);
+            if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+            else this.syncShiftPhotoCompareMarks(wrap);
+            this.refreshShiftPhotoCompareMarkList();
+            this.autoSaveShiftNotebook(true);
+            this.showShiftPhotoCompareActionMessage(linkedIndices.length > 1
+                ? '接続している青点をまとめて移動しました。'
+                : '青点を移動しました。');
+        };
+        const cancel = () => {
+            if (finished) return;
+            finished = true;
+            cleanup();
+            mark.dataset.polylineRegionFills = originalRegionFills;
+            this.updateShiftPhotoCompareFreehandMark(mark, originalPoints);
+            this._shiftPhotoCompareUndoStack?.pop?.();
+            this.updateShiftPhotoCompareUndoButton();
+            this.showShiftPhotoCompareActionMessage('青点の移動を取り消しました。');
+        };
+        const keydown = keyEvent => {
+            if (keyEvent.key !== 'Escape') return;
+            keyEvent.preventDefault();
+            keyEvent.stopImmediatePropagation();
+            cancel();
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', stop, { once: true });
+        window.addEventListener('pointercancel', cancel, { once: true });
+        window.addEventListener('keydown', keydown, true);
+        return true;
     }
 
     updateShiftPhotoCompareFreehandMark(mark, points) {
@@ -15274,7 +16620,7 @@
         window.addEventListener('pointercancel', stop, { once: true });
     }
 
-    snapShiftPhotoComparePolylinePoint(anchor, point, wrap) {
+    snapShiftPhotoComparePolylinePoint(anchor, point, wrap, options = {}) {
         const rect = wrap?.getBoundingClientRect?.();
         if (!anchor || !point || !rect?.width || !rect?.height) return point;
         const dx = (point.x - anchor.x) / 100 * rect.width;
@@ -15288,7 +16634,7 @@
             Math.sin(rawAngle - angle),
             Math.cos(rawAngle - angle)
         ));
-        if (angleDifference > 7 * Math.PI / 180) return point;
+        if (!options.force && angleDifference > 7 * Math.PI / 180) return point;
         const ux = Math.cos(angle);
         const uy = Math.sin(angle);
         const anchorX = anchor.x / 100 * rect.width;
@@ -15374,6 +16720,153 @@
         return this.getShiftPhotoComparePolylineStartAxisSnap(point, committed, wrap).point;
     }
 
+    getShiftPhotoComparePolylineAxisGuideSnap(point, committed = [], wrap) {
+        const rect = wrap?.getBoundingClientRect?.();
+        if (!point || !rect?.width || !rect?.height || !Array.isArray(committed) || committed.length < 2) {
+            return { point, x: null, y: null };
+        }
+        const thresholdPx = 14;
+        let snapX = null;
+        let snapY = null;
+        let bestX = thresholdPx;
+        let bestY = thresholdPx;
+        committed.forEach(candidate => {
+            if (!candidate) return;
+            const xDistance = Math.abs(point.x - candidate.x) / 100 * rect.width;
+            const yDistance = Math.abs(point.y - candidate.y) / 100 * rect.height;
+            if (xDistance <= bestX) {
+                bestX = xDistance;
+                snapX = candidate.x;
+            }
+            if (yDistance <= bestY) {
+                bestY = yDistance;
+                snapY = candidate.y;
+            }
+        });
+        return {
+            point: {
+                ...point,
+                x: snapX === null ? point.x : snapX,
+                y: snapY === null ? point.y : snapY
+            },
+            x: snapX,
+            y: snapY
+        };
+    }
+
+    getShiftPhotoComparePolylineParallelSnap(point, committed = [], wrap) {
+        const rect = wrap?.getBoundingClientRect?.();
+        const anchor = committed?.[committed.length - 1];
+        if (!point || !anchor || !rect?.width || !rect?.height || committed.length < 3) {
+            return { point, guide: null };
+        }
+        const dx = (point.x - anchor.x) / 100 * rect.width;
+        const dy = (point.y - anchor.y) / 100 * rect.height;
+        const distance = Math.hypot(dx, dy);
+        if (distance < 10) return { point, guide: null };
+        const currentAngle = Math.atan2(dy, dx);
+        let best = null;
+        const lengthSnapThreshold = Math.max(10, Math.min(24, Math.hypot(rect.width, rect.height) * 0.018));
+        for (let index = 0; index < committed.length - 2; index += 1) {
+            const a = committed[index];
+            const b = committed[index + 1];
+            if (!a || !b) continue;
+            const sx = (b.x - a.x) / 100 * rect.width;
+            const sy = (b.y - a.y) / 100 * rect.height;
+            const segmentLength = Math.hypot(sx, sy);
+            if (segmentLength < 10) continue;
+            const segmentAngle = Math.atan2(sy, sx);
+            const diff = Math.abs(Math.atan2(
+                Math.sin(currentAngle - segmentAngle),
+                Math.cos(currentAngle - segmentAngle)
+            ));
+            const parallelDiff = Math.min(diff, Math.abs(Math.PI - diff));
+            if (parallelDiff <= 5 * Math.PI / 180 && (!best || parallelDiff < best.diff)) {
+                const sameDirection = diff <= Math.PI / 2;
+                best = {
+                    diff: parallelDiff,
+                    angle: sameDirection ? segmentAngle : segmentAngle + Math.PI,
+                    segmentLength
+                };
+            }
+        }
+        if (!best) return { point, guide: null };
+        const lengthDiff = Math.abs(distance - best.segmentLength);
+        const sameLength = lengthDiff <= lengthSnapThreshold;
+        const snappedDistance = sameLength ? best.segmentLength : distance;
+        const next = {
+            x: Math.max(0, Math.min(100, anchor.x + Math.cos(best.angle) * snappedDistance / rect.width * 100)),
+            y: Math.max(0, Math.min(100, anchor.y + Math.sin(best.angle) * snappedDistance / rect.height * 100))
+        };
+        return {
+            point: next,
+            guide: {
+                x: (anchor.x + next.x) / 2,
+                y: (anchor.y + next.y) / 2,
+                angle: best.angle * 180 / Math.PI,
+                sameLength,
+                length: best.segmentLength
+            }
+        };
+    }
+
+    getShiftPhotoComparePolylineParallelAxisGuideSnap(parallelSnap, committed = [], wrap) {
+        const rect = wrap?.getBoundingClientRect?.();
+        const point = parallelSnap?.point;
+        const guide = parallelSnap?.guide;
+        const anchor = committed?.[committed.length - 1];
+        if (!point || !guide || !anchor || !rect?.width || !rect?.height || !Array.isArray(committed) || committed.length < 2) {
+            return { point, x: null, y: null };
+        }
+        const angle = (Number(guide.angle) || 0) * Math.PI / 180;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const anchorPx = { x: anchor.x / 100 * rect.width, y: anchor.y / 100 * rect.height };
+        const pointPx = { x: point.x / 100 * rect.width, y: point.y / 100 * rect.height };
+        const thresholdPx = 14;
+        let best = null;
+        const addCandidate = (axis, value, candidatePointPx, distance) => {
+            if (!Number.isFinite(candidatePointPx.x) || !Number.isFinite(candidatePointPx.y)) return;
+            const fromAnchor = Math.hypot(candidatePointPx.x - anchorPx.x, candidatePointPx.y - anchorPx.y);
+            if (fromAnchor < 6) return;
+            if (!best || distance < best.distance) {
+                best = { axis, value, candidatePointPx, distance };
+            }
+        };
+        committed.forEach(candidate => {
+            if (!candidate) return;
+            const candidateX = candidate.x / 100 * rect.width;
+            const candidateY = candidate.y / 100 * rect.height;
+            const xDistance = Math.abs(pointPx.x - candidateX);
+            if (xDistance <= thresholdPx && Math.abs(cos) > 0.08) {
+                const length = (candidateX - anchorPx.x) / cos;
+                addCandidate('x', candidate.x, {
+                    x: candidateX,
+                    y: anchorPx.y + sin * length
+                }, xDistance);
+            }
+            const yDistance = Math.abs(pointPx.y - candidateY);
+            if (yDistance <= thresholdPx && Math.abs(sin) > 0.08) {
+                const length = (candidateY - anchorPx.y) / sin;
+                addCandidate('y', candidate.y, {
+                    x: anchorPx.x + cos * length,
+                    y: candidateY
+                }, yDistance);
+            }
+        });
+        if (!best) return { point, x: null, y: null };
+        const next = {
+            x: Math.max(0, Math.min(100, best.candidatePointPx.x / rect.width * 100)),
+            y: Math.max(0, Math.min(100, best.candidatePointPx.y / rect.height * 100))
+        };
+        const snapCheck = this.getShiftPhotoComparePolylineAxisGuideSnap(next, committed, wrap);
+        return {
+            point: next,
+            x: best.axis === 'x' ? best.value : snapCheck.x,
+            y: best.axis === 'y' ? best.value : snapCheck.y
+        };
+    }
+
     startShiftPhotoComparePolylineDrag(event, wrap, sourceMark = null) {
         const layer = wrap?.classList?.contains('shift-photo-compare-global-layer')
             ? wrap
@@ -15385,6 +16878,7 @@
         let mark = sourceMark?.dataset?.mode === 'polyline'
             ? sourceMark
             : this._shiftPhotoComparePendingPolylineMark;
+        const clickedStartHandle = event.target?.closest?.('.shift-photo-polyline-endpoint.start');
         const isActivePolyline = mark?.dataset?.polylineActive === '1'
             && mark === this._shiftPhotoComparePendingPolylineMark;
         if (!mark || !document.contains(mark) || mark.parentElement !== layer) {
@@ -15402,7 +16896,8 @@
             const last = points[points.length - 1];
             const firstDistance = Math.hypot(startPoint.x - first.x, startPoint.y - first.y);
             const lastDistance = Math.hypot(startPoint.x - last.x, startPoint.y - last.y);
-            if (!isActivePolyline && firstDistance < lastDistance) points.reverse();
+            const explicitlyStartedFromFirst = clickedStartHandle && mark.contains(clickedStartHandle);
+            if (explicitlyStartedFromFirst || (!isActivePolyline && firstDistance < lastDistance)) points.reverse();
             const endpoint = points[points.length - 1];
             const wrapRect = wrap.getBoundingClientRect();
             const endpointDistance = Math.hypot(
@@ -15433,7 +16928,7 @@
             mark.dataset.color = color;
             mark.dataset.polylineFill = '0';
             mark.dataset.polylineFillColor = color;
-            mark.dataset.polylineFillOpacity = '0.25';
+            mark.dataset.polylineFillOpacity = '1';
             mark.dataset.polylineRegionFills = '[]';
             mark.dataset.text = '';
             mark.dataset.font = font;
@@ -15446,7 +16941,7 @@
             mark.style.setProperty('--mark-stroke', String(stroke));
             mark.style.setProperty('--mark-color', color);
             mark.style.setProperty('--polyline-fill-color', color);
-            mark.style.setProperty('--polyline-fill-opacity', '0.25');
+            mark.style.setProperty('--polyline-fill-opacity', '1');
             mark.style.setProperty('--outer-outline-width', `${outerOutlineWidth}px`);
             mark.style.setProperty('--inner-outline-width', `${innerOutlineWidth}px`);
             mark.innerHTML = this.getShiftPhotoComparePolylineSvg('');
@@ -15466,6 +16961,13 @@
                 return;
             }
             moved = moved || Math.hypot(rawPoint.x - startPoint.x, rawPoint.y - startPoint.y) > 0.15;
+            if (!this.isShiftPhotoComparePolylineSnapEnabled()) {
+                this.setShiftPhotoComparePolylineSnapTarget(mark, -1);
+                previewPoints[previewPoints.length - 1] = rawPoint;
+                this.clearShiftPhotoCompareSnapGuides();
+                this.updateShiftPhotoCompareFreehandMark(mark, previewPoints);
+                return;
+            }
             const existingSnap = this.getShiftPhotoComparePolylineExistingPointSnap(rawPoint, committed, wrap);
             this.setShiftPhotoComparePolylineSnapTarget(mark, existingSnap?.index ?? -1);
             const closurePoint = existingSnap?.point
@@ -15475,17 +16977,45 @@
             const anglePoint = closesAtStart
                 ? closurePoint
                 : this.snapShiftPhotoComparePolylinePoint(committed[committed.length - 1], rawPoint, wrap);
+            const angleSnapped = !closesAtStart && Math.hypot(anglePoint.x - rawPoint.x, anglePoint.y - rawPoint.y) > 0.02;
             const closedPoint = existingSnap?.point
                 || this.snapShiftPhotoComparePolylineClosurePoint(anglePoint, committed, wrap);
             const axisSnap = existingSnap
                 ? { point: existingSnap.point, axis: '' }
                 : this.getShiftPhotoComparePolylineStartAxisSnap(closedPoint, committed, wrap);
-            previewPoints[previewPoints.length - 1] = axisSnap.point;
+            const parallelSnap = existingSnap
+                ? { point: axisSnap.point, guide: null }
+                : this.getShiftPhotoComparePolylineParallelSnap(axisSnap.point, committed, wrap);
+            const parallelPoint = parallelSnap.guide ? parallelSnap.point : axisSnap.point;
+            const guideSnap = existingSnap
+                ? { point: parallelPoint, x: null, y: null }
+                : (parallelSnap.guide
+                    ? (parallelSnap.guide.sameLength
+                        ? { point: parallelPoint, x: null, y: null }
+                        : this.getShiftPhotoComparePolylineParallelAxisGuideSnap(parallelSnap, committed, wrap))
+                    : this.getShiftPhotoComparePolylineAxisGuideSnap(parallelPoint, committed, wrap));
+            previewPoints[previewPoints.length - 1] = guideSnap.point;
+            const parallelGuide = parallelSnap.guide
+                ? {
+                    ...parallelSnap.guide,
+                    x: (committed[committed.length - 1].x + guideSnap.point.x) / 2,
+                    y: (committed[committed.length - 1].y + guideSnap.point.y) / 2
+                }
+                : null;
+            const snapLabels = [];
+            if (existingSnap) snapLabels.push('接続点');
+            if (angleSnapped) snapLabels.push('45度');
+            if (parallelGuide) snapLabels.push('平行');
+            if (parallelSnap.guide?.sameLength) snapLabels.push('同長');
+            if (guideSnap.x !== null || axisSnap.axis === 'x') snapLabels.push('X一致');
+            if (guideSnap.y !== null || axisSnap.axis === 'y') snapLabels.push('Y一致');
             this.renderShiftPhotoCompareSnapGuides(
                 wrap,
-                axisSnap.axis === 'x' ? first?.x : null,
-                axisSnap.axis === 'y' ? first?.y : null
+                guideSnap.x ?? (axisSnap.axis === 'x' ? first?.x : null),
+                guideSnap.y ?? (axisSnap.axis === 'y' ? first?.y : null)
             );
+            this.renderShiftPhotoCompareParallelGuide(wrap, parallelGuide);
+            this.renderShiftPhotoCompareSnapStatus(wrap, guideSnap.point, snapLabels);
             this.updateShiftPhotoCompareFreehandMark(mark, previewPoints);
         };
         const stop = (upEvent) => {
@@ -15495,6 +17025,32 @@
             this.clearShiftPhotoCompareSnapGuides();
             const previous = committed[committed.length - 1];
             const rawPoint = moved && upEvent ? this.getShiftPhotoCompareFreehandPoint(upEvent, wrap) : startPoint;
+            if (!this.isShiftPhotoComparePolylineSnapEnabled()) {
+                if (rawPoint) previewPoints[previewPoints.length - 1] = rawPoint;
+                const endpoint = previewPoints[previewPoints.length - 1];
+                let nextPoints = previous && Math.hypot(endpoint.x - previous.x, endpoint.y - previous.y) < 0.05
+                    ? committed
+                    : previewPoints;
+                const changed = nextPoints.length !== committed.length
+                    || nextPoints.some((pointValue, index) => {
+                        const oldPoint = committed[index];
+                        return !oldPoint || Math.hypot(pointValue.x - oldPoint.x, pointValue.y - oldPoint.y) >= 0.05;
+                    });
+                if (!changed) {
+                    this._shiftPhotoCompareUndoStack?.pop?.();
+                    this.updateShiftPhotoCompareUndoButton();
+                }
+                this.updateShiftPhotoCompareFreehandMark(mark, nextPoints);
+                this.setShiftPhotoComparePolylineSnapTarget(mark, -1);
+                this._shiftPhotoComparePendingPolylineMark = mark;
+                this.setShiftPhotoCompareActivePolyline(mark);
+                this._shiftPhotoCompareLastPlacementToolKey = this.getShiftPhotoComparePlacementToolKey('polyline');
+                if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+                else this.syncShiftPhotoCompareMarks(wrap);
+                this.refreshShiftPhotoCompareMarkList();
+                this.autoSaveShiftNotebook(true);
+                return;
+            }
             const existingSnap = this.getShiftPhotoComparePolylineExistingPointSnap(rawPoint, committed, wrap);
             const closurePoint = existingSnap?.point
                 || this.snapShiftPhotoComparePolylineClosurePoint(rawPoint, committed, wrap);
@@ -15505,11 +17061,20 @@
                 : (previous ? this.snapShiftPhotoComparePolylinePoint(previous, rawPoint, wrap) : rawPoint);
             const closedPoint = existingSnap?.point
                 || this.snapShiftPhotoComparePolylineClosurePoint(anglePoint, committed, wrap);
+            const startAxisPoint = this.snapShiftPhotoComparePolylineStartAxisPoint(closedPoint, committed, wrap);
+            const parallelSnap = this.getShiftPhotoComparePolylineParallelSnap(startAxisPoint, committed, wrap);
+            const parallelGuideSnap = parallelSnap.guide
+                ? (parallelSnap.guide.sameLength
+                    ? { point: parallelSnap.point, x: null, y: null }
+                    : this.getShiftPhotoComparePolylineParallelAxisGuideSnap(parallelSnap, committed, wrap))
+                : null;
             const point = existingSnap?.point
-                || this.snapShiftPhotoComparePolylineStartAxisPoint(closedPoint, committed, wrap);
+                || (parallelSnap.guide
+                    ? parallelGuideSnap.point
+                    : this.getShiftPhotoComparePolylineAxisGuideSnap(parallelSnap.point, committed, wrap).point);
             if (point) previewPoints[previewPoints.length - 1] = point;
             const endpoint = previewPoints[previewPoints.length - 1];
-            const nextPoints = previous && Math.hypot(endpoint.x - previous.x, endpoint.y - previous.y) < 0.05
+            let nextPoints = previous && Math.hypot(endpoint.x - previous.x, endpoint.y - previous.y) < 0.05
                 ? committed
                 : previewPoints;
             const changed = nextPoints.length !== committed.length
@@ -15521,6 +17086,7 @@
                 this._shiftPhotoCompareUndoStack?.pop?.();
                 this.updateShiftPhotoCompareUndoButton();
             }
+            nextPoints = this.normalizeShiftPhotoComparePolylineIntersections(nextPoints);
             this.updateShiftPhotoCompareFreehandMark(mark, nextPoints);
             this.setShiftPhotoComparePolylineSnapTarget(mark, -1);
             this._shiftPhotoComparePendingPolylineMark = mark;
@@ -15530,8 +17096,13 @@
             else this.syncShiftPhotoCompareMarks(wrap);
             this.refreshShiftPhotoCompareMarkList();
             this.autoSaveShiftNotebook(true);
-            const closed = this.hasShiftPhotoComparePolylineClosedRegion(nextPoints);
-            if (closed) {
+            const currentFirst = nextPoints[0];
+            const currentLast = nextPoints[nextPoints.length - 1];
+            const closedAtCurrentEnd = nextPoints.length >= 4
+                && currentFirst
+                && currentLast
+                && Math.hypot(currentFirst.x - currentLast.x, currentFirst.y - currentLast.y) < 0.05;
+            if (closedAtCurrentEnd) {
                 this.finishShiftPhotoComparePolyline({ silent: true });
                 this.showShiftPhotoCompareActionMessage('接続点へつないで、閉じた区画を確定しました。');
             } else if (existingSnap && existingSnap.index > 0) {
@@ -15903,7 +17474,18 @@
         const mode = this._shiftPhotoCompareMarkMode;
         if (!wrap || event.button !== 0) return;
         event.preventDefault();
-        const clickedMark = event.target?.closest?.('.shift-photo-compare-mark');
+        let clickedMark = this.getShiftPhotoCompareDirectMarkAtEvent(event, wrap);
+        if (!clickedMark && (!mode || mode === 'move')) {
+            clickedMark = this.getShiftPhotoComparePolylineMarkAtEvent(event, wrap);
+        }
+        const polylinePointHandle = event.target?.closest?.('.shift-photo-polyline-endpoint, .shift-photo-polyline-vertex');
+        if (polylinePointHandle && clickedMark?.dataset?.mode === 'polyline' && wrap.contains(clickedMark)
+            && clickedMark.classList.contains('selected')
+            && mode !== 'polyline'
+            && !['erase', 'eraseRange'].includes(mode)) {
+            this.startShiftPhotoComparePolylinePointDrag(event, clickedMark, wrap, polylinePointHandle);
+            return;
+        }
         if (mode === 'erase') {
             const mark = clickedMark;
             if (mark && wrap.contains(mark)) {
@@ -15940,11 +17522,23 @@
             this.startShiftPhotoCompareFreehandDrag(event, wrap);
             return;
         }
+        const isPendingPolylineClick = clickedMark?.dataset?.mode === 'polyline'
+            && clickedMark === this._shiftPhotoComparePendingPolylineMark
+            && clickedMark.dataset.polylineActive === '1';
+        if (mode === 'polyline' && clickedMark?.dataset?.mode === 'polyline' && wrap.contains(clickedMark) && !isPendingPolylineClick) {
+            this.setShiftPhotoCompareMarkModeDirect('move');
+            this.startShiftPhotoCompareExistingMarkMove(event, clickedMark, wrap);
+            this.showShiftPhotoCompareActionMessage('直線図形を選択しました。移動モードで編集できます。');
+            return;
+        }
         if (mode === 'polyline') {
             this.startShiftPhotoComparePolylineDrag(event, wrap, clickedMark);
             return;
         }
         if (clickedMark && wrap.contains(clickedMark)) {
+            if (!mode && clickedMark.dataset.mode === 'polyline') {
+                this.setShiftPhotoCompareMarkModeDirect('move');
+            }
             if (this.shouldDragShiftPhotoCircleImageContent(event, clickedMark)) {
                 this.startShiftPhotoCircleImageContentDrag(event, clickedMark);
                 return;
@@ -15987,11 +17581,22 @@
 
     startShiftPhotoCompareGlobalMarkDrag(event, layer) {
         this.closeShiftPhotoCompareImageContextMenu();
-        if (!this._shiftPhotoCompareGlobalTarget) return;
         const mode = this._shiftPhotoCompareMarkMode;
         if (!layer || event.button !== 0) return;
+        let clickedMark = this.getShiftPhotoCompareDirectMarkAtEvent(event, layer);
+        if (!clickedMark && (!mode || mode === 'move')) {
+            clickedMark = this.getShiftPhotoComparePolylineMarkAtEvent(event, layer);
+        }
+        if (!this._shiftPhotoCompareGlobalTarget && (!clickedMark || (mode && mode !== 'move'))) return;
         event.preventDefault();
-        const clickedMark = event.target?.closest?.('.shift-photo-compare-mark');
+        const polylinePointHandle = event.target?.closest?.('.shift-photo-polyline-endpoint, .shift-photo-polyline-vertex');
+        if (polylinePointHandle && clickedMark?.dataset?.mode === 'polyline' && layer.contains(clickedMark)
+            && clickedMark.classList.contains('selected')
+            && mode !== 'polyline'
+            && !['erase', 'eraseRange'].includes(mode)) {
+            this.startShiftPhotoComparePolylinePointDrag(event, clickedMark, layer, polylinePointHandle);
+            return;
+        }
         if (mode === 'erase') {
             const mark = clickedMark;
             if (mark && layer.contains(mark)) {
@@ -16028,11 +17633,23 @@
             this.startShiftPhotoCompareFreehandDrag(event, layer);
             return;
         }
+        const isPendingPolylineClick = clickedMark?.dataset?.mode === 'polyline'
+            && clickedMark === this._shiftPhotoComparePendingPolylineMark
+            && clickedMark.dataset.polylineActive === '1';
+        if (mode === 'polyline' && clickedMark?.dataset?.mode === 'polyline' && layer.contains(clickedMark) && !isPendingPolylineClick) {
+            this.setShiftPhotoCompareMarkModeDirect('move');
+            this.startShiftPhotoCompareExistingMarkMove(event, clickedMark, layer);
+            this.showShiftPhotoCompareActionMessage('直線図形を選択しました。移動モードで編集できます。');
+            return;
+        }
         if (mode === 'polyline') {
             this.startShiftPhotoComparePolylineDrag(event, layer, clickedMark);
             return;
         }
         if (clickedMark && layer.contains(clickedMark)) {
+            if (!mode && clickedMark.dataset.mode === 'polyline') {
+                this.setShiftPhotoCompareMarkModeDirect('move');
+            }
             if (this.shouldDragShiftPhotoCircleImageContent(event, clickedMark)) {
                 this.startShiftPhotoCircleImageContentDrag(event, clickedMark);
                 return;
@@ -16900,7 +18517,7 @@
                 const defaultFillColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.polylineFillColor || '')
                     ? mark.dataset.polylineFillColor
                     : color;
-                const defaultFillOpacity = Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 0.25));
+                const defaultFillOpacity = Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 1));
                 regions.forEach((region, index) => {
                     const fill = regionFills[index];
                     const enabled = typeof fill?.enabled === 'boolean' ? fill.enabled : defaultFillEnabled;
