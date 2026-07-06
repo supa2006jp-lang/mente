@@ -1,4 +1,10 @@
 ﻿/* Design Tokens */
+@font-face {
+    font-family: "fkKikaiChokoku";
+    src: url("assets/fonts/fk-kikaichokoku/fkKikaiChokoku.otf") format("opentype");
+    font-display: swap;
+}
+
 :root {
     --primary: #2563eb;
     --primary-light: #eff6ff;
@@ -1424,7 +1430,7 @@ body {
 .history-quality-duplicate {
     display: grid;
     gap: 6px;
-    padding: 8px;
+    padding: 6px;
     border: 1px dashed #bfdbfe;
     border-radius: 10px;
     background: #f8fbff;
@@ -16286,6 +16292,8 @@ select.history-assist-copied-value {
 .shift-photo-compare-snap-toggle,
 .shift-photo-compare-polyline-snap-toggle,
 .shift-photo-compare-clipboard,
+.shift-photo-compare-wallpaper-btn,
+.shift-photo-compare-wallpaper-clear,
 .shift-photo-compare-image-cutout,
 .shift-photo-compare-clear,
 .shift-photo-compare-range-delete,
@@ -16530,6 +16538,73 @@ select.history-assist-copied-value {
     font-weight: 950;
     white-space: nowrap;
     cursor: pointer;
+}
+
+.shift-photo-compare-wallpaper-btn,
+.shift-photo-compare-wallpaper-clear {
+    flex: 0 0 32px;
+}
+
+.shift-photo-compare-wallpaper-btn {
+    position: relative;
+    display: inline-flex;
+    place-items: center;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: auto;
+    min-width: 58px;
+    padding: 0 7px;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.shift-photo-compare-wallpaper-btn input,
+.shift-photo-compare-mini-wallpaper-btn input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.shift-photo-compare-wallpaper-clear {
+    color: #fecaca;
+}
+
+.shift-photo-compare-mini-wallpaper-btn,
+.shift-photo-compare-mini-wallpaper-clear {
+    display: none;
+}
+
+.shift-photo-compare-mini-wallpaper-btn {
+    position: relative;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: auto;
+    min-width: 58px;
+    height: 28px;
+    padding: 0 7px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.10);
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-wallpaper-selection="1"] .shift-photo-compare-mini-wallpaper-btn {
+    display: inline-flex;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-wallpaper-selection="1"] .shift-photo-compare-mini-wallpaper-clear {
+    display: inline-grid;
+    place-items: center;
+    color: #fecaca;
 }
 
 .shift-photo-compare-inner-outline {
@@ -16947,7 +17022,17 @@ select.history-assist-copied-value {
     line-height: 1;
 }
 
-.shift-photo-compare-plain-text-align-btn {
+.shift-photo-compare-boxed-text-vertical-btn {
+    display: none;
+    width: auto !important;
+    min-width: 48px;
+    padding: 0 6px;
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.shift-photo-compare-plain-text-align-btn,
+.shift-photo-compare-plain-text-vertical-btn {
     display: none;
     width: auto !important;
     min-width: 48px;
@@ -16983,6 +17068,8 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-callout-font-size-btn,
 .shift-photo-compare-callout-font-size-value,
+.shift-photo-compare-region-font-size-btn,
+.shift-photo-compare-region-font-size-value,
 .shift-photo-compare-callout-font-select,
 .shift-photo-compare-table-font-size-btn,
 .shift-photo-compare-table-font-size-value,
@@ -16990,7 +17077,8 @@ select.history-assist-copied-value {
     display: none;
 }
 
-.shift-photo-compare-callout-font-size-value {
+.shift-photo-compare-callout-font-size-value,
+.shift-photo-compare-region-font-size-value {
     min-width: 38px;
     color: #ffffff;
     font-size: 0.7rem;
@@ -17066,7 +17154,22 @@ select.history-assist-copied-value {
     place-items: center;
 }
 
-.shift-photo-compare-mini-toolbar[data-has-plain-text-selection="1"] .shift-photo-compare-plain-text-align-btn {
+.shift-photo-compare-mini-toolbar[data-has-region-comment-selection="1"] .shift-photo-compare-boxed-text-vertical-btn {
+    display: inline-grid;
+    place-items: center;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-region-comment-selection="1"] .shift-photo-compare-region-font-size-btn {
+    display: inline-grid;
+    place-items: center;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-region-comment-selection="1"] .shift-photo-compare-region-font-size-value {
+    display: inline-block;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-plain-text-selection="1"] .shift-photo-compare-plain-text-align-btn,
+.shift-photo-compare-mini-toolbar[data-has-plain-text-selection="1"] .shift-photo-compare-plain-text-vertical-btn {
     display: inline-grid;
     place-items: center;
 }
@@ -17719,6 +17822,7 @@ select.history-assist-copied-value {
     position: absolute;
     inset: 0;
     z-index: 14;
+    isolation: isolate;
     pointer-events: none;
 }
 
@@ -17921,6 +18025,147 @@ select.history-assist-copied-value {
     min-width: 220px;
 }
 
+.shift-photo-compare-image-context-menu.mark-template-menu {
+    width: min(760px, calc(100% - 18px));
+    max-height: min(70vh, 560px);
+}
+
+.shift-photo-mark-template-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 6px;
+}
+
+.shift-photo-mark-template-item {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(3, 34px);
+    align-items: stretch;
+    border: 1px solid rgba(96, 165, 250, 0.32);
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(30, 64, 175, 0.16);
+}
+
+.shift-photo-compare-image-context-menu.mark-template-menu.overwrite-mode .shift-photo-mark-template-item {
+    grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.shift-photo-compare-image-context-menu .shift-photo-mark-template-item > button {
+    height: 48px;
+    min-width: 0;
+    border-radius: 0;
+}
+
+.shift-photo-mark-template-item > button:first-child span {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.shift-photo-mark-template-item b,
+.shift-photo-mark-template-item small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shift-photo-mark-template-item small {
+    color: #bfdbfe;
+    font-size: 0.62rem;
+}
+
+.shift-photo-compare-image-context-menu .shift-photo-mark-template-item > button:not(:first-child) {
+    justify-content: center;
+    padding: 0;
+    border-left: 1px solid rgba(96, 165, 250, 0.24);
+}
+
+.shift-photo-mark-template-preview-panel {
+    display: grid;
+    gap: 6px;
+    padding: 6px;
+    border: 1px solid rgba(96, 165, 250, 0.42);
+    border-radius: 7px;
+    background: rgba(15, 23, 42, 0.76);
+}
+
+.shift-photo-mark-template-preview-panel[hidden] {
+    display: none;
+}
+
+.shift-photo-mark-template-preview-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #e0f2fe;
+}
+
+.shift-photo-mark-template-preview-head > span {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+}
+
+.shift-photo-mark-template-preview-head b,
+.shift-photo-mark-template-preview-head small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shift-photo-mark-template-preview-head small {
+    color: #bfdbfe;
+    font-size: 0.64rem;
+}
+
+.shift-photo-compare-image-context-menu .shift-photo-mark-template-preview-head button {
+    flex: 0 0 30px;
+    width: 30px;
+    height: 28px;
+    justify-content: center;
+    padding: 0;
+}
+
+.shift-photo-mark-template-preview-stage {
+    position: relative;
+    height: 220px;
+    overflow: hidden;
+    border: 1px solid rgba(191, 219, 254, 0.36);
+    border-radius: 6px;
+    background:
+        linear-gradient(45deg, rgba(148, 163, 184, 0.10) 25%, transparent 25% 75%, rgba(148, 163, 184, 0.10) 75%),
+        linear-gradient(45deg, rgba(148, 163, 184, 0.10) 25%, transparent 25% 75%, rgba(148, 163, 184, 0.10) 75%),
+        #f8fafc;
+    background-position: 0 0, 8px 8px;
+    background-size: 16px 16px;
+}
+
+.shift-photo-mark-template-preview-canvas {
+    inset: auto;
+    transform-origin: 0 0;
+    pointer-events: none;
+}
+
+.shift-photo-mark-template-preview-canvas .shift-photo-compare-mark,
+.shift-photo-mark-template-preview-canvas textarea,
+.shift-photo-mark-template-preview-canvas button {
+    pointer-events: none !important;
+}
+
+.shift-photo-mark-template-empty {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 14px 10px;
+    border: 1px dashed rgba(147, 197, 253, 0.42);
+    border-radius: 6px;
+    color: #bfdbfe;
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 850;
+}
+
 .shift-photo-compare-image-context-menu.polyline-wide {
     width: min(980px, calc(100% - 18px));
     max-height: min(74vh, 620px);
@@ -17978,6 +18223,44 @@ select.history-assist-copied-value {
     user-select: none;
 }
 
+.shift-photo-region-aspect-info {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    margin: 4px 2px 6px;
+    padding: 8px 9px;
+    border: 1px solid rgba(96, 165, 250, 0.45);
+    border-radius: 8px;
+    background: rgba(30, 64, 175, 0.28);
+    color: #dbeafe;
+}
+
+.shift-photo-region-aspect-info > i {
+    color: #93c5fd;
+    text-align: center;
+}
+
+.shift-photo-region-aspect-info > span {
+    display: grid;
+    gap: 2px;
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
+.shift-photo-region-aspect-info small {
+    color: #bfdbfe;
+    font-size: 0.61rem;
+    font-weight: 800;
+}
+
+.shift-photo-region-aspect-info strong {
+    color: #ffffff;
+    font-size: 0.9rem;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
 .shift-photo-context-menu-grip:active {
     cursor: grabbing;
 }
@@ -17999,6 +18282,12 @@ select.history-assist-copied-value {
     font-weight: 900;
 }
 
+.shift-photo-outline-width-row label > span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 .shift-photo-outline-width-row input {
     width: 58px;
     height: 28px;
@@ -18010,6 +18299,15 @@ select.history-assist-copied-value {
     padding: 0 5px;
     font-size: 0.72rem;
     font-weight: 900;
+}
+
+.shift-photo-outline-width-row input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    padding: 0;
+    accent-color: #2563eb;
+    cursor: pointer;
 }
 
 .shift-photo-polyline-fill-row input[type="color"] {
@@ -18024,6 +18322,42 @@ select.history-assist-copied-value {
     align-items: center;
     padding: 6px 4px;
     border-bottom: 1px solid rgba(191, 219, 254, 0.22);
+}
+
+.shift-photo-polyline-region-image-tools {
+    display: grid;
+    grid-template-columns: minmax(130px, 1fr) repeat(4, 38px);
+    gap: 6px;
+    align-items: center;
+    padding: 8px;
+    border: 1px solid rgba(96, 165, 250, 0.6);
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.58);
+}
+
+.shift-photo-polyline-region-image-tools > b {
+    grid-column: 1 / -1;
+    font-size: 0.78rem;
+}
+
+.shift-photo-polyline-region-image-preview {
+    width: 64px;
+    height: 44px;
+    border: 2px solid #fff;
+    border-radius: 4px;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+
+.shift-photo-compare-image-context-menu .shift-photo-polyline-region-image-tools button {
+    min-width: 38px;
+    min-height: 34px;
+    margin: 0;
+}
+
+.shift-photo-polyline-region-image-tools button:has(span) {
+    grid-column: span 2;
 }
 
 .shift-photo-compare-image-context-menu .shift-photo-polyline-fill-tools button.shift-photo-polyline-color-swatch {
@@ -18983,6 +19317,7 @@ select.history-assist-copied-value {
 .shift-photo-compare-mark-layer {
     position: absolute;
     inset: 0;
+    isolation: isolate;
     pointer-events: none;
 }
 
@@ -19123,7 +19458,7 @@ select.history-assist-copied-value {
     height: var(--mark-size);
     border: max(2px, calc(var(--mark-size) * 0.08 * var(--mark-stroke))) solid var(--mark-color);
     border-radius: 999px;
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 8px 18px rgba(15, 23, 42, 0.28);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.28);
 }
 
 .shift-photo-compare-mark.rect {
@@ -19551,14 +19886,41 @@ select.history-assist-copied-value {
     margin: auto;
 }
 
-.shift-photo-compare-mark.circle[data-outline="0"],
 .shift-photo-compare-mark.rect[data-outline="0"],
 .shift-photo-compare-mark.mosaic[data-outline="0"],
 .shift-photo-compare-mark.boxedText[data-outline="0"] {
     box-shadow: none;
 }
 
+.shift-photo-compare-mark.circle[data-outline="0"][data-inner-outline="0"] {
+    box-shadow: none;
+}
+
+.shift-photo-compare-mark.circle[data-outline="1"][data-inner-outline="0"] {
+    box-shadow:
+        0 0 0 var(--outer-outline-width, 6px) rgba(255, 255, 255, 0.96),
+        inset 0 0 0 var(--outer-outline-width, 6px) rgba(255, 255, 255, 0.96),
+        0 8px 18px rgba(15, 23, 42, 0.28);
+}
+
+.shift-photo-compare-mark.circle[data-outline="0"][data-inner-outline="1"] {
+    box-shadow:
+        0 0 0 var(--inner-outline-width, 3px) #111111,
+        inset 0 0 0 var(--inner-outline-width, 3px) #111111,
+        0 8px 18px rgba(15, 23, 42, 0.28);
+}
+
+.shift-photo-compare-mark.circle[data-outline="1"][data-inner-outline="1"] {
+    box-shadow:
+        0 0 0 var(--inner-outline-width, 3px) #111111,
+        0 0 0 calc(var(--inner-outline-width, 3px) + var(--outer-outline-width, 6px)) rgba(255, 255, 255, 0.96),
+        inset 0 0 0 var(--inner-outline-width, 3px) #111111,
+        inset 0 0 0 calc(var(--inner-outline-width, 3px) + var(--outer-outline-width, 6px)) rgba(255, 255, 255, 0.96),
+        0 8px 18px rgba(15, 23, 42, 0.28);
+}
+
 .shift-photo-compare-mark.mosaic {
+    z-index: 15;
     width: var(--mark-size);
     height: var(--mark-size);
     border: 2px dashed rgba(15, 23, 42, 0.88);
@@ -19653,7 +20015,7 @@ select.history-assist-copied-value {
     width: 100%;
     height: 100%;
     overflow: visible;
-    filter: drop-shadow(0 0 5px #ffffff) drop-shadow(0 0 2px #ffffff) drop-shadow(0 8px 18px rgba(15, 23, 42, 0.28));
+    filter: drop-shadow(0 8px 18px rgba(15, 23, 42, 0.28));
 }
 
 .shift-photo-compare-mark.xmark[data-outline="0"] svg {
@@ -19662,10 +20024,36 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-mark.xmark path {
     fill: none;
-    stroke: var(--mark-color);
-    stroke-width: var(--xmark-stroke, 9.5);
     stroke-linecap: round;
     stroke-linejoin: round;
+}
+
+.shift-photo-xmark-outline {
+    display: none;
+}
+
+.shift-photo-compare-mark.xmark[data-outline="1"] .shift-photo-xmark-outline.outer,
+.shift-photo-compare-mark.xmark[data-inner-outline="1"] .shift-photo-xmark-outline.inner {
+    display: inline;
+}
+
+.shift-photo-xmark-outline.outer {
+    stroke: #ffffff;
+    stroke-width: var(--xmark-outer-stroke, 31);
+}
+
+.shift-photo-compare-mark.xmark[data-outline="1"][data-inner-outline="1"] .shift-photo-xmark-outline.outer {
+    stroke-width: var(--xmark-outer-with-inner-stroke, 42);
+}
+
+.shift-photo-xmark-outline.inner {
+    stroke: #111111;
+    stroke-width: var(--xmark-inner-stroke, 20);
+}
+
+.shift-photo-xmark-main {
+    stroke: var(--mark-color);
+    stroke-width: var(--xmark-stroke, 9.5);
 }
 
 .shift-photo-compare-mark.arrow {
@@ -19678,7 +20066,8 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-mark.xmark[data-dashed="1"] path {
-    stroke-dasharray: 14 10;
+    stroke-dasharray: 7 8;
+    stroke-linecap: butt;
 }
 
 .shift-photo-compare-mark.arrow[data-outline="0"] {
@@ -19983,7 +20372,10 @@ select.history-assist-copied-value {
     font-weight: inherit;
     white-space: pre;
     text-align: inherit;
-    -webkit-text-stroke: var(--outer-outline-width, max(5px, calc(var(--mark-size) * 0.11))) #ffffff;
+    -webkit-text-stroke: calc(
+        var(--outer-outline-width, max(5px, calc(var(--mark-size) * 0.11)))
+        + var(--inner-outline-width, max(2px, calc(var(--mark-size) * 0.055)))
+    ) #ffffff;
     paint-order: stroke fill;
     text-shadow: 0 0 5px #ffffff, 0 0 2px #ffffff;
     pointer-events: none;
@@ -20020,6 +20412,26 @@ select.history-assist-copied-value {
 .shift-photo-compare-mark.text[data-anchor="left"] {
     transform: translate(0, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
     transform-origin: left center;
+}
+
+.shift-photo-compare-mark.text[data-text-vertical="top"] {
+    transform: translate(-50%, 0) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    transform-origin: center top;
+}
+
+.shift-photo-compare-mark.text[data-text-vertical="bottom"] {
+    transform: translate(-50%, -100%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    transform-origin: center bottom;
+}
+
+.shift-photo-compare-mark.text[data-anchor="left"][data-text-vertical="top"] {
+    transform: translate(0, 0) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    transform-origin: left top;
+}
+
+.shift-photo-compare-mark.text[data-anchor="left"][data-text-vertical="bottom"] {
+    transform: translate(0, -100%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    transform-origin: left bottom;
 }
 
 .shift-photo-compare-mark.text[data-text-align="left"] {
@@ -20095,10 +20507,6 @@ select.history-assist-copied-value {
     display: none;
 }
 
-.shift-photo-compare-mark.text.plain-text-editing::before {
-    display: none;
-}
-
 .shift-photo-plain-text-move-handle {
     position: absolute;
     left: -30px;
@@ -20161,6 +20569,30 @@ select.history-assist-copied-value {
     text-shadow: 0 1px 2px rgba(15, 23, 42, 0.8);
 }
 
+.shift-photo-mark-wallpaper {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    object-fit: fill;
+    object-position: center;
+    pointer-events: none;
+    user-select: none;
+}
+
+.shift-photo-compare-image-wrap .shift-photo-mark-wallpaper,
+.shift-photo-compare-global-layer .shift-photo-mark-wallpaper {
+    object-fit: fill;
+}
+
+.shift-photo-compare-mark.boxedText > .shift-photo-boxed-text-content {
+    position: relative;
+    z-index: 1;
+}
+
 .shift-photo-compare-mark.boxedText {
     box-sizing: border-box;
     width: max-content;
@@ -20178,6 +20610,104 @@ select.history-assist-copied-value {
     letter-spacing: 0;
     text-align: left;
     white-space: pre;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] {
+    box-sizing: border-box;
+    z-index: 8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--region-comment-width, 240px);
+    height: var(--region-comment-height, 120px);
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    white-space: normal;
+}
+
+.shift-photo-region-info-btn {
+    position: absolute;
+    right: 7px;
+    bottom: 7px;
+    z-index: 12;
+    display: none;
+    align-items: center;
+    gap: 4px;
+    min-width: 48px;
+    height: 27px;
+    padding: 0 7px;
+    border: 2px solid #ffffff;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.9);
+    color: #ffffff;
+    font-family: "Yu Gothic", "Meiryo", sans-serif;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 2px 7px rgba(15, 23, 42, 0.38);
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"].selected .shift-photo-region-info-btn,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"]:focus-within .shift-photo-region-info-btn {
+    display: inline-flex;
+}
+
+.shift-photo-region-info-btn:hover {
+    background: #2563eb;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-content {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-editor,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-outline-mirror,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-inner-outline-mirror {
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    max-height: 100%;
+    min-width: 0;
+    min-height: 0;
+    padding: 6px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="top"] .shift-photo-boxed-text-content {
+    align-items: flex-start;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="middle"] .shift-photo-boxed-text-content,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"]:not([data-text-vertical]) .shift-photo-boxed-text-content {
+    align-items: center;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="bottom"] .shift-photo-boxed-text-content {
+    align-items: flex-end;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="top"] .shift-photo-boxed-text-editor,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="top"] .shift-photo-boxed-text-outline-mirror,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="top"] .shift-photo-boxed-text-inner-outline-mirror,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="bottom"] .shift-photo-boxed-text-editor,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="bottom"] .shift-photo-boxed-text-outline-mirror,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="bottom"] .shift-photo-boxed-text-inner-outline-mirror {
+    padding: 6px;
 }
 
 .shift-photo-boxed-text-content {
@@ -20254,6 +20784,14 @@ select.history-assist-copied-value {
     opacity: 1;
 }
 
+.shift-photo-compare-mark.boxedText[data-outline="1"][data-inner-outline="1"] .shift-photo-boxed-text-outline-mirror,
+.shift-photo-compare-mark.callout[data-outline="1"][data-inner-outline="1"] .shift-photo-callout-text-outline-mirror {
+    -webkit-text-stroke: calc(
+        var(--outer-outline-width, max(5px, calc(var(--mark-size) * 0.11)))
+        + var(--inner-outline-width, max(2px, calc(var(--mark-size) * 0.055)))
+    ) #ffffff;
+}
+
 .shift-photo-boxed-text-outline-mirror,
 .shift-photo-boxed-text-inner-outline-mirror {
     min-width: calc(var(--mark-size) * 2.4);
@@ -20281,6 +20819,7 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-mark.callout {
     --mark-fill: #fff3a3;
+    --callout-border-width: max(3px, calc(var(--mark-size) * 0.07 * var(--mark-stroke)));
     --callout-tail-pos: 50%;
     --callout-tail-inverse-x: 1;
     --callout-tail-inverse-y: 1;
@@ -20294,7 +20833,7 @@ select.history-assist-copied-value {
     padding: calc(var(--mark-size) * 0.18) calc(var(--mark-size) * 0.28);
     color: var(--callout-text-color, #111827);
     background: var(--mark-fill);
-    border: max(3px, calc(var(--mark-size) * 0.07 * var(--mark-stroke))) solid var(--mark-color);
+    border: var(--callout-border-width) solid var(--mark-color);
     border-radius: max(12px, calc(var(--mark-size) * 0.18));
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.20);
     font-family: var(--mark-font);
@@ -20302,6 +20841,53 @@ select.history-assist-copied-value {
     line-height: 1.28;
     font-weight: 800;
     text-align: center;
+}
+
+.shift-photo-compare-mark.callout::before {
+    content: "";
+    display: none;
+    position: absolute;
+    z-index: 3;
+    background: var(--mark-fill);
+    border-radius: 3px;
+    pointer-events: none;
+}
+
+.shift-photo-compare-mark.callout[data-tail-enabled="1"]::before {
+    display: block;
+}
+
+.shift-photo-compare-mark.callout[data-tail-enabled="1"][data-tail-side="left"]::before {
+    left: -1px;
+    top: var(--callout-tail-pos);
+    width: 4px;
+    height: 52px;
+    transform: translateY(-50%) scaleY(var(--callout-tail-inverse-y));
+}
+
+.shift-photo-compare-mark.callout[data-tail-enabled="1"][data-tail-side="right"]::before {
+    right: -1px;
+    top: var(--callout-tail-pos);
+    width: 4px;
+    height: 52px;
+    transform: translateY(-50%) scaleY(var(--callout-tail-inverse-y));
+}
+
+.shift-photo-compare-mark.callout[data-tail-enabled="1"][data-tail-side="top"]::before {
+    left: var(--callout-tail-pos);
+    top: -1px;
+    width: 52px;
+    height: 4px;
+    transform: translateX(-50%) scaleX(var(--callout-tail-inverse-x));
+}
+
+.shift-photo-compare-mark.callout[data-tail-enabled="1"][data-tail-side="bottom"]::before,
+.shift-photo-compare-mark.callout[data-tail-enabled="1"]:not([data-tail-side])::before {
+    left: var(--callout-tail-pos);
+    bottom: -1px;
+    width: 52px;
+    height: 4px;
+    transform: translateX(-50%) scaleX(var(--callout-tail-inverse-x));
 }
 
 .shift-photo-callout-text-wrap {
@@ -20376,6 +20962,13 @@ select.history-assist-copied-value {
 .shift-photo-compare-mark.callout[data-text-fit="wrap"] .shift-photo-callout-text-wrap,
 .shift-photo-compare-mark.callout[data-text-fit="expand"] .shift-photo-callout-text-wrap {
     overflow: hidden;
+}
+
+.shift-photo-compare-mark.callout[data-text-fit="wrap"][data-outline="1"] .shift-photo-callout-text-wrap,
+.shift-photo-compare-mark.callout[data-text-fit="wrap"][data-inner-outline="1"] .shift-photo-callout-text-wrap,
+.shift-photo-compare-mark.callout[data-text-fit="expand"][data-outline="1"] .shift-photo-callout-text-wrap,
+.shift-photo-compare-mark.callout[data-text-fit="expand"][data-inner-outline="1"] .shift-photo-callout-text-wrap {
+    overflow: visible;
 }
 
 .shift-photo-compare-mark.callout[data-text-fit="overflow"] .shift-photo-callout-text-wrap {
@@ -20622,7 +21215,7 @@ select.history-assist-copied-value {
     top: calc(100% - var(--callout-border-overlap-y));
     width: 65px;
     height: calc(126px + var(--callout-tail-extra-y));
-    clip-path: polygon(0 0, 100% 0, 50% 100%);
+    clip-path: polygon(0 0, 100% 0, 55.5% calc(100% - 3px), 53.5% calc(100% - 1px), 51.5% 100%, 48.5% 100%, 46.5% calc(100% - 1px), 44.5% calc(100% - 3px));
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="bottom"] .shift-photo-callout-tail::after,
@@ -20639,7 +21232,7 @@ select.history-assist-copied-value {
     bottom: calc(100% - var(--callout-border-overlap-y));
     width: 65px;
     height: calc(126px + var(--callout-tail-extra-y));
-    clip-path: polygon(50% 0, 100% 100%, 0 100%);
+    clip-path: polygon(48.5% 0, 51.5% 0, 53.5% 1px, 55.5% 3px, 100% 100%, 0 100%, 44.5% 3px, 46.5% 1px);
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="top"] .shift-photo-callout-tail::after {
@@ -20655,7 +21248,7 @@ select.history-assist-copied-value {
     top: var(--callout-tail-pos);
     width: calc(126px + var(--callout-tail-extra-x));
     height: 65px;
-    clip-path: polygon(0 0, 100% 50%, 0 100%);
+    clip-path: polygon(0 0, calc(100% - 3px) 44.5%, calc(100% - 1px) 46.5%, 100% 48.5%, 100% 51.5%, calc(100% - 1px) 53.5%, calc(100% - 3px) 55.5%, 0 100%);
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="right"] .shift-photo-callout-tail::after {
@@ -20671,7 +21264,7 @@ select.history-assist-copied-value {
     top: var(--callout-tail-pos);
     width: calc(126px + var(--callout-tail-extra-x));
     height: 65px;
-    clip-path: polygon(100% 0, 100% 100%, 0 50%);
+    clip-path: polygon(100% 0, 100% 100%, 3px 55.5%, 1px 53.5%, 0 51.5%, 0 48.5%, 1px 46.5%, 3px 44.5%);
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="left"] .shift-photo-callout-tail::after {
@@ -20844,6 +21437,43 @@ select.history-assist-copied-value {
     width: 100%;
     height: 100%;
     overflow: visible;
+    pointer-events: none;
+}
+
+.shift-photo-compare-mark.polyline .shift-photo-polyline-fill-canvas,
+.shift-photo-compare-mark.polyline .shift-photo-polyline-main-canvas {
+    position: absolute;
+    inset: 0;
+}
+
+.shift-photo-compare-mark.polyline .shift-photo-polyline-fill-canvas {
+    z-index: -1;
+}
+
+.shift-photo-compare-mark.polyline .shift-photo-polyline-main-canvas {
+    z-index: 3;
+}
+
+.shift-photo-compare-mark.polyline .shift-photo-polyline-region-images {
+    position: absolute;
+    inset: 0;
+    display: block;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.shift-photo-compare-mark.polyline .shift-photo-polyline-region-image {
+    position: absolute;
+    display: block;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.shift-photo-compare-mark.polyline .shift-photo-polyline-region-image img {
+    position: absolute;
+    display: block;
+    max-width: none;
+    object-fit: contain;
     pointer-events: none;
 }
 

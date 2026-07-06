@@ -2339,6 +2339,12 @@
                     input._imageSourceDirectOnce = false;
                     return;
                 }
+                if (input.dataset.shiftPhotoWallpaperPicker === '1'
+                    && this.prepareShiftPhotoCompareWallpaperPicker?.(input) === false) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
                 event.preventDefault();
                 event.stopPropagation();
                 this.openImageSourceChoice(input);
