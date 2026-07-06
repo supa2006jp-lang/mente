@@ -8817,12 +8817,12 @@
         }
         mirrors.forEach(mirror => {
             mirror.textContent = editor.value;
-            mirror.style.left = `${isRegionComment ? editor.offsetLeft : 0}px`;
-            mirror.style.top = `${isRegionComment ? editor.offsetTop : 0}px`;
+            mirror.style.left = `${isRegionComment ? editor.offsetLeft - editor.scrollLeft : 0}px`;
+            mirror.style.top = `${isRegionComment ? editor.offsetTop - editor.scrollTop : 0}px`;
             mirror.style.right = 'auto';
             mirror.style.bottom = 'auto';
             mirror.style.width = `${editor.clientWidth}px`;
-            mirror.style.height = `${editor.clientHeight}px`;
+            mirror.style.height = `${isRegionComment ? Math.max(editor.clientHeight, editor.scrollHeight) : editor.clientHeight}px`;
             if (isRegionComment) {
                 const editorStyle = getComputedStyle(editor);
                 mirror.style.paddingTop = editorStyle.paddingTop;
@@ -8833,8 +8833,8 @@
                 mirror.style.padding = '0';
             }
             mirror.style.transform = 'none';
-            mirror.style.marginTop = `${-editor.scrollTop}px`;
-            mirror.style.marginLeft = `${-editor.scrollLeft}px`;
+            mirror.style.marginTop = isRegionComment ? '0px' : `${-editor.scrollTop}px`;
+            mirror.style.marginLeft = isRegionComment ? '0px' : `${-editor.scrollLeft}px`;
         });
     }
 

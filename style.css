@@ -20670,6 +20670,7 @@ select.history-assist-copied-value {
     height: 100%;
     min-width: 0;
     min-height: 0;
+    overflow: hidden;
 }
 
 .shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-editor,
@@ -20682,10 +20683,25 @@ select.history-assist-copied-value {
     min-width: 0;
     min-height: 0;
     padding: 6px;
-    overflow: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-editor {
+    overflow: auto;
+    scrollbar-width: none;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-editor::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-outline-mirror,
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-inner-outline-mirror {
+    overflow: hidden;
+    max-height: none;
 }
 
 .shift-photo-compare-mark.boxedText[data-region-comment="1"][data-text-vertical="top"] .shift-photo-boxed-text-content {
