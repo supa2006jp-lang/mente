@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -6,12 +6,12 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>工場保全管理 Next | Maintenance Next</title>
+    <title>メンテ管理帳 Next | Maintenance Next</title>
     <!-- Google Fonts: Inter & Noto Sans JP -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260706-region-text-outline-full-height">
+    <link rel="stylesheet" href="style.css?v=20260713-outlook-assist-chip-focus-preserve">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -60,7 +60,7 @@
                 <div class="logo-box-large">
                     <i class="fa-solid fa-industry"></i>
                 </div>
-                <h2 class="login-title">工場保全管理 Next</h2>
+                <h2 class="login-title">メンテ管理帳 Next</h2>
                 <div class="login-subtitle">
                     <p>MAINTENANCE MANAGEMENT SYSTEM</p>
                     <span>アクセスパスを入力してください</span>
@@ -183,21 +183,21 @@
                 <div class="stat-widget danger clickable-stat" role="button" tabindex="0" title="定期メンテ残りをリスト表示" onclick="app.openRemainingMaintenanceList()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); app.openRemainingMaintenanceList();}">
                     <div class="stat-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
                     <div class="stat-info">
-                        <span class="label">定期メンテ 残り</span>
+                        <span class="label">定期メンテ残り</span>
                         <span class="value" id="cal-stat-remaining">0</span>
                     </div>
                 </div>
                 <div class="stat-widget success clickable-stat" role="button" tabindex="0" title="完了した定期メンテをリスト表示" onclick="app.openCompletedMaintenanceList()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); app.openCompletedMaintenanceList();}">
                     <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
                     <div class="stat-info">
-                        <span class="label">定期メンテ 完了</span>
+                        <span class="label">定期メンテ完了</span>
                         <span class="value" id="cal-stat-done">0</span>
                     </div>
                 </div>
                 <div class="stat-widget sudden clickable-stat" role="button" tabindex="0" title="該当するメンテナンス履歴を表示" onclick="app.openHistoryStatFilter('suddenBundle')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); app.openHistoryStatFilter('suddenBundle');}">
                     <div class="stat-icon"><i class="fa-solid fa-bolt-lightning"></i></div>
                     <div class="stat-info">
-                        <span class="label">突発対応 件数</span>
+                        <span class="label">突発対応件数</span>
                         <span class="value" id="cal-stat-sudden-count">0</span>
                     </div>
                 </div>
@@ -205,7 +205,7 @@
                 <div class="stat-widget dokatei-main clickable-stat" role="button" tabindex="0" title="ドカ停のメンテナンス履歴を表示" onclick="app.openHistoryStatFilter('dokatei')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); app.openHistoryStatFilter('dokatei');}">
                     <div class="stat-icon"><i class="fa-solid fa-bolt"></i></div>
                     <div class="stat-info">
-                        <span class="label">ドカ停 総計</span>
+                        <span class="label">ドカ停 集計</span>
                         <div class="value-row">
                             <span class="value" id="cal-stat-dokatei-count">0</span>
                             <span class="unit">件</span>
@@ -225,7 +225,7 @@
                     <i class="fa-solid fa-list-check"></i> <span>ToDoリスト</span><span id="todo-request-count-badge" class="nav-count-badge" onclick="event.stopPropagation(); app.openPendingTodoRequestPanel()" hidden>0</span>
                 </button>
                 <button class="nav-btn" data-view="machines" data-nav-bg="machines">
-                    <i class="fa-solid fa-cogs"></i> <span>メンテ・周期設定</span>
+                    <i class="fa-solid fa-cogs"></i> <span>メンテ周期設定</span>
                 </button>
                 <button class="nav-btn" data-view="history" data-nav-bg="history">
                     <i class="fa-solid fa-clock-rotate-left"></i> <span>メンテナンス履歴</span>
@@ -255,6 +255,9 @@
                 <div class="nav-divider">管理</div>
                 <button class="nav-btn" data-view="workers" data-nav-bg="workers">
                     <i class="fa-solid fa-users"></i> <span>スキルマップ</span>
+                </button>
+                <button class="nav-btn" data-view="outlookAssist" data-nav-bg="workers">
+                    <i class="fa-regular fa-envelope"></i> <span>outlook入力補助</span>
                 </button>
                 <button class="nav-btn" data-nav-bg="workers" onclick="app.openWorkerMaintenance()" style="color:var(--secondary);">
                     <i class="fa-solid fa-user-lock"></i> <span>管理画面</span>
@@ -329,7 +332,7 @@
                             <option value="this_month">今月</option>
                             <option value="last_month">先月</option>
                             <option value="this_year">今年</option>
-                            <option value="last_year">去年</option>
+                            <option value="last_year">昨年</option>
                         </select>
                         <button type="button" id="notebook-search-btn" title="履歴・手順書・連絡帳・ToDo・メモを検索"><i class="fa-solid fa-magnifying-glass"></i></button>
                     </div>
@@ -529,7 +532,7 @@
                     <div id="hist-filter-summary"></div>
                     <div id="hist-bulk-bar" class="history-bulk-bar" hidden></div>
 
-                    <table class="data-table">
+                    <table class="data-table history-data-table">
                         <thead>
                             <tr>
                                 <th style="width: 42px; text-align:center;">
@@ -829,6 +832,28 @@
                     <div id="skill-stats-container" style="margin-top:40px; display:none;"></div>
                 </section>
 
+                <section id="view-outlookAssist" class="view">
+                    <div class="outlook-assist-shell">
+                        <aside class="outlook-assist-people">
+                            <div class="outlook-assist-panel-head">
+                                <div>
+                                    <h3><i class="fa-solid fa-user-check"></i> 基幹社員</h3>
+                                    <p>個別の下書きとして保存</p>
+                                </div>
+                                <button type="button" class="icon-btn" title="人名管理" onclick="app.openShiftMemberTypeManageModal?.()">
+                                    <i class="fa-solid fa-user-gear"></i>
+                                </button>
+                            </div>
+                            <div class="outlook-assist-search">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="search" id="outlook-assist-worker-search" placeholder="社員を検索" oninput="app.filterOutlookAssistWorkers(this.value)">
+                            </div>
+                            <div id="outlook-assist-worker-list" class="outlook-assist-worker-list"></div>
+                        </aside>
+                        <section class="outlook-assist-main" id="outlook-assist-main"></section>
+                    </div>
+                </section>
+
                 <section id="view-worktime" class="view">
                     <div class="view-header" style="justify-content: flex-start; align-items: center; gap: 16px;">
                         <div class="title-group">
@@ -948,29 +973,32 @@
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
     <script src="store.js?v=20260623-transparent-rotate-fix"></script>
     <script src="app.js?v=20260618-photo-capacity-expiry-alpha"></script>
-    <script src="app-settings.js?v=20260619-safe-data-repair"></script>
+    <script src="app-settings.js?v=20260711-guide-bulk-compress"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js?v=20260706-region-text-overflow-sync"></script>
+    <script src="app-shift-notebook-core.js?v=20260710-overflow-warning-timeout"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js?v=20260623-dept-switch-import-fix"></script>
     <script src="app-machines.js"></script>
-    <script src="app-maintenance-forms.js?v=20260623-profile-photo-delete"></script>
+    <script src="app-maintenance-forms.js?v=20260711-guide-bulk-compress"></script>
     <script src="app-history.js?v=20260623-history-popover-click-only"></script>
     <script src="app-analysis-dashboard.js?v=20260613-dashboard-hide-mtbf"></script>
     <script src="app-ranking-guides.js?v=20260613-guide-title-candidates"></script>
-    <script src="app-skills.js"></script>
+    <script src="app-skills.js?v=20260711-worker-radar-compare"></script>
+    <script src="app-outlook-assist.js?v=20260713-outlook-assist-chip-focus-preserve"></script>
     <script src="app-worktime.js?v=20260611-alias-health-common-complete"></script>
     <script src="app-archives.js?v=20260606-admin-log-targets"></script>
     <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
     <script src="app-persistence.js?v=20260625-dept-import-warning"></script>
     <script src="app-csv.js?v=20260625-history-import-worker-name"></script>
     <script src="app-misc-analysis.js"></script>
-    <script src="app-photo-manager.js?v=20260706-wallpaper-choice-return"></script>
+    <script src="app-photo-manager.js?v=20260711-photo-manager-open-fast"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js?v=20260619-remove-auto-backup"></script>
 </body>
 </html>
+
+

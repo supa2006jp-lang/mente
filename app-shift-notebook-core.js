@@ -392,6 +392,68 @@
         return `${this.escapeHtml(text)}${todoHtml}`;
     }
 
+    renderFiveSConditionBar({ range, filters, photosOnly, pendingOnly, rows, allRows }) {
+        const shiftLabels = {
+            all: '全シフト',
+            shared: '共通',
+            day: '昼勤',
+            night: '夜勤'
+        };
+        const chips = [
+            range?.label || '全期間',
+            shiftLabels[filters.shift] || filters.shift || '全シフト',
+            filters.assignee === '__unset__'
+                ? '5S担当未設定'
+                : (filters.assignee && filters.assignee !== 'all' ? `5S担当: ${this.getKanbanTodoWorkerName(filters.assignee)}` : '5S担当すべて')
+        ];
+        if (filters.group) chips.push(`グループ: ${filters.group}`);
+        if (filters.query) chips.push(`検索: ${filters.query}`);
+        if (photosOnly) chips.push('写真あり');
+        if (pendingOnly) chips.push('未完了ToDoのみ');
+        const photoCount = rows.reduce((sum, row) => sum + row.photos.length, 0);
+        const pendingCount = allRows.filter(row => row.todoStatus.openCount > 0).length;
+        return `
+            <div class="five-s-condition-bar">
+                <div class="five-s-condition-main">
+                    <div class="five-s-condition-period">
+                        <i class="fa-regular fa-calendar"></i>
+                        <span>表示条件</span>
+                        <b>${this.escapeHtml(range?.label || '全期間')}</b>
+                    </div>
+                    <div class="five-s-condition-chips">
+                        ${chips.map(chip => `<span>${this.escapeHtml(chip)}</span>`).join('')}
+                    </div>
+                </div>
+                <div class="five-s-condition-summary">
+                    <b>${rows.length.toLocaleString()}</b><span>件</span>
+                    <b>${photoCount.toLocaleString()}</b><span>枚</span>
+                    <b>${pendingCount.toLocaleString()}</b><span>未完了</span>
+                    <button type="button" class="secondary-btn" onclick="app.clearFiveSManagementFilters()">
+                        <i class="fa-solid fa-filter-circle-xmark"></i> 条件リセット
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    clearFiveSManagementFilters() {
+        const period = document.getElementById('fiveS-filter-period');
+        const photos = document.getElementById('fiveS-filter-photos');
+        const pending = document.getElementById('fiveS-filter-pending');
+        const shift = document.getElementById('fiveS-filter-shift');
+        const assignee = document.getElementById('fiveS-filter-assignee');
+        const group = document.getElementById('fiveS-filter-group');
+        const query = document.getElementById('fiveS-filter-query');
+        if (period) period.value = 'all';
+        if (photos) photos.checked = false;
+        if (pending) pending.checked = false;
+        if (shift) shift.value = 'all';
+        if (assignee) assignee.value = 'all';
+        if (group) group.value = '';
+        if (query) query.value = '';
+        this.renderFiveSManagement();
+    }
+
     renderFiveSManagement() {
         const period = document.getElementById('fiveS-filter-period')?.value || 'all';
         const photosOnly = !!document.getElementById('fiveS-filter-photos')?.checked;
@@ -412,6 +474,7 @@
             const pendingCount = allRows.filter(row => row.todoStatus.openCount > 0).length;
             const doneCount = allRows.filter(row => row.todoStatus.key === 'done').length;
             summary.innerHTML = `
+                ${this.renderFiveSConditionBar({ range, filters, photosOnly, pendingOnly, rows, allRows })}
                 <div><b>${this.escapeHtml(range.label)}</b></div>
                 <div><span>${rows.length}</span>件の5S履歴</div>
                 <div><span>${photoCount}</span>枚の写真</div>
@@ -1791,8 +1854,8 @@
                     <span>${results.length}件</span>
                     <div class="notebook-search-sort">
                         <span>並び替え</span>
-                        <button type="button" data-sort-mode="date" class="active" onclick="app.sortUnifiedSearchResults('date', this)">日付順</button>
-                        <button type="button" data-sort-mode="type" onclick="app.sortUnifiedSearchResults('type', this)">種類順</button>
+                        <button type="button" data-sort-mode="date" onclick="app.sortUnifiedSearchResults('date', this)">日付順</button>
+                        <button type="button" data-sort-mode="type" class="active" onclick="app.sortUnifiedSearchResults('type', this)">種類順</button>
                         <button type="button" class="unified-search-reset-opened-btn" onclick="app.resetUnifiedSearchOpenedMarks()"><i class="fa-solid fa-rotate-left"></i> 確認済みリセット</button>
                     </div>
                 </div>
@@ -1837,6 +1900,8 @@
                 const list = document.querySelector('.notebook-search-results');
                 if (list) list.scrollTop = restoreState.scrollTop || 0;
                 this._restoreUnifiedSearchState = null;
+            } else {
+                this.sortUnifiedSearchResults('type');
             }
         });
     }
@@ -1860,6 +1925,7 @@
             const tabAllowed = activeTab === 'all' || activeTab === type;
             item.hidden = !typeAllowed || !tabAllowed;
         });
+        this.updateUnifiedSearchResultGroupHeaders();
     }
 
     sortUnifiedSearchResults(mode = 'date', button = null) {
@@ -1880,6 +1946,40 @@
             return (a.dataset.searchTitle || '').localeCompare(b.dataset.searchTitle || '', 'ja');
         });
         items.forEach(item => list.appendChild(item));
+        this.updateUnifiedSearchResultGroupHeaders();
+    }
+
+    updateUnifiedSearchResultGroupHeaders() {
+        const list = document.querySelector('.notebook-search-results');
+        if (!list) return;
+        list.querySelectorAll('.unified-search-result-section').forEach(el => el.remove());
+        const activeSort = document.querySelector('.notebook-search-sort button.active')?.dataset.sortMode || 'type';
+        if (activeSort !== 'type') return;
+        const labels = {
+            history: ['履歴', 'fa-clock-rotate-left'],
+            guide: ['手順書', 'fa-book-open'],
+            task: ['定期メンテ', 'fa-wrench'],
+            todo: ['ToDo', 'fa-list-check'],
+            notebook: ['連絡帳', 'fa-address-book'],
+            memo: ['メモ', 'fa-note-sticky']
+        };
+        let previousType = '';
+        Array.from(list.querySelectorAll('.notebook-search-result[data-search-type]'))
+            .filter(item => !item.hidden)
+            .forEach(item => {
+                const type = item.dataset.searchType || '';
+                if (type === previousType) return;
+                previousType = type;
+                const [label, icon] = labels[type] || [type || 'その他', 'fa-circle-info'];
+                const count = Array.from(list.querySelectorAll('.notebook-search-result[data-search-type]'))
+                    .filter(row => !row.hidden && row.dataset.searchType === type).length;
+                item.insertAdjacentHTML('beforebegin', `
+                    <div class="unified-search-result-section ${this.escapeHtml(type)}">
+                        <span><i class="fa-solid ${this.escapeHtml(icon)}"></i> ${this.escapeHtml(label)}</span>
+                        <b>${count}件</b>
+                    </div>
+                `);
+            });
     }
 
     openShiftNotebookModal(dateStr, shift, focusRowIndex = null, focusQuery = '') {
@@ -5026,7 +5126,7 @@
                 tableHorizontalLineStyle: ['solid', 'dashed', 'dotted', 'none'].includes(mark.tableHorizontalLineStyle) ? mark.tableHorizontalLineStyle : 'solid',
                 tableCells: this.normalizeShiftPhotoCompareTableCells(mark.tableCells, mark.tableRows, mark.tableCols),
                 color: /^#[0-9a-f]{6}$/i.test(mark.color || '') ? mark.color : '#dc2626',
-                text: String(mark.text || '').slice(0, 120),
+                text: String(mark.text || '').slice(0, this.getShiftPhotoCompareMarkTextMaxLength(mark)),
                 imageSrc: /^data:image\//i.test(mark.imageSrc || '') ? mark.imageSrc : '',
                 originalImageSrc: /^data:image\//i.test(mark.originalImageSrc || '') ? mark.originalImageSrc : '',
                 wallpaperSrc: /^data:image\//i.test(mark.wallpaperSrc || '') ? mark.wallpaperSrc : '',
@@ -5055,6 +5155,7 @@
                 regionCommentAnchorX: mark.regionCommentAnchorX !== null && mark.regionCommentAnchorX !== '' && Number.isFinite(Number(mark.regionCommentAnchorX)) ? Math.max(0, Math.min(100, Number(mark.regionCommentAnchorX))) : null,
                 regionCommentAnchorY: mark.regionCommentAnchorY !== null && mark.regionCommentAnchorY !== '' && Number.isFinite(Number(mark.regionCommentAnchorY)) ? Math.max(0, Math.min(100, Number(mark.regionCommentAnchorY))) : null,
                 textColor: /^#[0-9a-f]{6}$/i.test(mark.textColor || '') ? mark.textColor : (mark.mode === 'boxedText' ? '#dc2626' : '#111827'),
+                textColorRuns: this.normalizeShiftPhotoCompareTextColorRuns(mark.textColorRuns, String(mark.text || '').length),
                 textScale: Math.max(0.5, Math.min(3, Number(mark.textScale) || 1)),
                 textFit: ['shrink', 'wrap', 'overflow', 'expand'].includes(mark.textFit) ? mark.textFit : 'shrink',
                 textPaddingX: Math.max(0, Math.min(35, Number.isFinite(Number(mark.textPaddingX)) ? Number(mark.textPaddingX) : 3)),
@@ -5124,20 +5225,585 @@
         return fonts[key];
     }
 
-    getShiftPhotoCompareBoxedTextEditorHtml(text = '') {
-        const safeText = String(text || '');
-        const placeholder = safeText ? '' : 'クリックして文字入力';
-        return `<span class="shift-photo-boxed-text-content"><span class="shift-photo-text-outline-mirror shift-photo-boxed-text-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><span class="shift-photo-text-inner-outline-mirror shift-photo-boxed-text-inner-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><textarea class="shift-photo-boxed-text-editor" maxlength="120" rows="1" placeholder="${placeholder}" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark')); this.focus()" onkeydown="event.stopPropagation()" onscroll="app.scheduleShiftPhotoCompareTextOutlineMirrorSync(this.closest('.shift-photo-compare-mark'))" oninput="app.updateShiftPhotoCompareBoxedText(this)">${this.escapeHtml(safeText)}</textarea></span>`;
+    getShiftPhotoCompareBoxedTextMaxLength(mark = null) {
+        return mark?.regionComment === true || mark?.regionComment === '1' || mark?.dataset?.regionComment === '1' ? 800 : 120;
     }
 
-    getShiftPhotoCompareCalloutTextEditorHtml(text = '') {
+    getShiftPhotoCompareCalloutTextMaxLength() {
+        return 800;
+    }
+
+    getShiftPhotoCompareMarkTextMaxLength(mark = null) {
+        const mode = mark?.dataset?.mode || mark?.mode || '';
+        if (mode === 'callout') return this.getShiftPhotoCompareCalloutTextMaxLength(mark);
+        if (mode === 'boxedText') return this.getShiftPhotoCompareBoxedTextMaxLength(mark);
+        return 120;
+    }
+
+    getShiftPhotoCompareTextInputAttrs() {
+        return 'spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" lang="ja"';
+    }
+
+    normalizeShiftPhotoCompareTextColorRuns(value, textLength = 800) {
+        let source = value;
+        if (typeof source === 'string') {
+            try { source = JSON.parse(source); } catch (_) { source = []; }
+        }
+        if (!Array.isArray(source)) return [];
+        const limit = Math.max(0, Math.min(800, Number(textLength) || 0));
+        const colors = Array(limit).fill('');
+        source.slice(0, 200).forEach(run => {
+            const color = /^#[0-9a-f]{6}$/i.test(run?.color || '') ? run.color.toLowerCase() : '';
+            const start = Math.max(0, Math.min(limit, Math.floor(Number(run?.start) || 0)));
+            const end = Math.max(start, Math.min(limit, Math.floor(Number(run?.end) || 0)));
+            if (!color || end <= start) return;
+            for (let index = start; index < end; index += 1) colors[index] = color;
+        });
+        const runs = [];
+        let start = 0;
+        while (start < colors.length) {
+            const color = colors[start];
+            if (!color) { start += 1; continue; }
+            let end = start + 1;
+            while (end < colors.length && colors[end] === color) end += 1;
+            runs.push({ start, end, color });
+            start = end;
+        }
+        return runs;
+    }
+
+    getShiftPhotoCompareRichTextColorHtml(text = '', runs = [], baseColor = '#111827', selection = null) {
         const safeText = String(text || '');
-        return `<span class="shift-photo-callout-text-wrap"><span class="shift-photo-text-outline-mirror shift-photo-callout-text-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><span class="shift-photo-text-inner-outline-mirror shift-photo-callout-text-inner-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><textarea class="shift-photo-callout-text" maxlength="120" rows="1" placeholder="クリックして文字入力" onpointerdown="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark'))" onclick="event.stopPropagation(); this.focus()" onkeydown="event.stopPropagation()" onscroll="app.scheduleShiftPhotoCompareTextOutlineMirrorSync(this.closest('.shift-photo-compare-mark'))" oninput="app.updateShiftPhotoCompareCalloutText(this)">${this.escapeHtml(safeText)}</textarea></span>`;
+        const normalized = this.normalizeShiftPhotoCompareTextColorRuns(runs, safeText.length);
+        const selectionStart = Math.max(0, Math.min(safeText.length, Number(selection?.start) || 0));
+        const selectionEnd = Math.max(selectionStart, Math.min(safeText.length, Number(selection?.end) || 0));
+        if (!normalized.length && selectionEnd <= selectionStart) return this.escapeHtml(safeText);
+        const parts = [];
+        const colorAt = index => normalized.find(run => index >= run.start && index < run.end)?.color || baseColor;
+        let cursor = 0;
+        while (cursor < safeText.length) {
+            const color = colorAt(cursor);
+            const selected = cursor >= selectionStart && cursor < selectionEnd;
+            let end = cursor + 1;
+            while (end < safeText.length
+                && colorAt(end) === color
+                && (end >= selectionStart && end < selectionEnd) === selected) end += 1;
+            parts.push(`<span${selected ? ' class="stored-selection"' : ''} style="color:${this.escapeHtml(color)}">${this.escapeHtml(safeText.slice(cursor, end))}</span>`);
+            cursor = end;
+        }
+        return parts.join('');
+    }
+
+    getShiftPhotoCompareRichTextColorMirrorHtml(text = '', options = {}) {
+        const sourceRuns = options.textColorRuns ?? options.dataset?.textColorRuns;
+        const sourceColor = options.textColor ?? options.dataset?.textColor;
+        const runs = this.normalizeShiftPhotoCompareTextColorRuns(sourceRuns, String(text || '').length);
+        const baseColor = /^#[0-9a-f]{6}$/i.test(sourceColor || '') ? sourceColor : '#111827';
+        return `<span class="shift-photo-text-color-mirror" aria-hidden="true">${this.getShiftPhotoCompareRichTextColorHtml(text, runs, baseColor)}</span>`;
+    }
+
+    getShiftPhotoCompareBoxedTextEditorHtml(text = '', options = {}) {
+        const safeText = String(text || '');
+        const placeholder = safeText ? '' : 'クリックして文字入力';
+        const maxLength = this.getShiftPhotoCompareBoxedTextMaxLength(options);
+        const inputAttrs = this.getShiftPhotoCompareTextInputAttrs();
+        return `<span class="shift-photo-boxed-text-content"><span class="shift-photo-text-outline-mirror shift-photo-boxed-text-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><span class="shift-photo-text-inner-outline-mirror shift-photo-boxed-text-inner-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span>${this.getShiftPhotoCompareRichTextColorMirrorHtml(safeText, options)}<textarea class="shift-photo-boxed-text-editor" maxlength="${maxLength}" rows="1" placeholder="${placeholder}" ${inputAttrs} onpointerdown="app.handleShiftPhotoCompareBoxedTextPointerDown(event, this)" onwheel="app.handleShiftPhotoCompareBoxedTextWheel(event, this)" onclick="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark')); this.focus()" onkeydown="event.stopPropagation()" onselect="app.rememberShiftPhotoCompareTextSelection(this)" onkeyup="app.rememberShiftPhotoCompareTextSelection(this)" onmouseup="app.rememberShiftPhotoCompareTextSelection(this)" onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" onscroll="app.scheduleShiftPhotoCompareTextOutlineMirrorSync(this.closest('.shift-photo-compare-mark'))" oninput="app.updateShiftPhotoCompareBoxedText(this)">${this.escapeHtml(safeText)}</textarea></span>`;
+    }
+
+    getShiftPhotoCompareCalloutTextEditorHtml(text = '', options = {}) {
+        const safeText = String(text || '');
+        const maxLength = this.getShiftPhotoCompareCalloutTextMaxLength();
+        const inputAttrs = this.getShiftPhotoCompareTextInputAttrs();
+        return `<span class="shift-photo-callout-text-wrap"><span class="shift-photo-text-outline-mirror shift-photo-callout-text-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><span class="shift-photo-text-inner-outline-mirror shift-photo-callout-text-inner-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span>${this.getShiftPhotoCompareRichTextColorMirrorHtml(safeText, options)}<textarea class="shift-photo-callout-text" maxlength="${maxLength}" rows="1" placeholder="クリックして文字入力" ${inputAttrs} onpointerdown="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark'))" onwheel="app.handleShiftPhotoCompareCalloutTextWheel(event, this)" onclick="event.stopPropagation(); this.focus()" onkeydown="event.stopPropagation()" onselect="app.rememberShiftPhotoCompareTextSelection(this)" onkeyup="app.rememberShiftPhotoCompareTextSelection(this)" onmouseup="app.rememberShiftPhotoCompareTextSelection(this)" onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" onscroll="app.scheduleShiftPhotoCompareTextOutlineMirrorSync(this.closest('.shift-photo-compare-mark'))" oninput="app.updateShiftPhotoCompareCalloutText(this)">${this.escapeHtml(safeText)}</textarea></span>`;
     }
 
     getShiftPhotoComparePlainTextEditorHtml(text = '') {
         const safeText = String(text || '');
-        return `<button type="button" class="shift-photo-plain-text-move-handle" title="掴んで文字を移動" onpointerdown="app.startShiftPhotoComparePlainTextMove(event, this)"><i class="fa-solid fa-up-down-left-right"></i></button><textarea class="shift-photo-plain-text-editor" maxlength="120" rows="1" placeholder="文字入力" onpointerdown="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark'))" onclick="event.stopPropagation(); this.focus()" onfocus="this.closest('.shift-photo-compare-mark')?.classList.add('plain-text-editing')" onblur="app.finishShiftPhotoComparePlainTextEditing(this)" onkeydown="event.stopPropagation()" oninput="app.updateShiftPhotoComparePlainText(this)">${this.escapeHtml(safeText)}</textarea><span class="shift-photo-plain-text-display" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); app.startShiftPhotoComparePlainTextEditing(this)">${this.escapeHtml(safeText)}</span>`;
+        const inputAttrs = this.getShiftPhotoCompareTextInputAttrs();
+        return `<button type="button" class="shift-photo-plain-text-move-handle" title="掴んで文字を移動" onpointerdown="app.startShiftPhotoComparePlainTextMove(event, this)"><i class="fa-solid fa-up-down-left-right"></i></button><textarea class="shift-photo-plain-text-editor" maxlength="120" rows="1" placeholder="文字入力" ${inputAttrs} onpointerdown="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark'))" onwheel="app.handleShiftPhotoComparePlainTextWheel(event, this)" onclick="event.stopPropagation(); this.focus()" onfocus="this.closest('.shift-photo-compare-mark')?.classList.add('plain-text-editing')" onblur="app.finishShiftPhotoComparePlainTextEditing(this)" onkeydown="event.stopPropagation()" onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" oninput="app.updateShiftPhotoComparePlainText(this)">${this.escapeHtml(safeText)}</textarea><span class="shift-photo-plain-text-display" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); app.startShiftPhotoComparePlainTextEditing(this)">${this.escapeHtml(safeText)}</span>`;
+    }
+
+    rememberShiftPhotoCompareTextSelection(editor) {
+        const mark = editor?.closest?.('.shift-photo-compare-mark');
+        if (!mark || !['boxedText', 'callout'].includes(mark.dataset.mode || '')) return;
+        if (document.activeElement === editor && mark.dataset.showStoredTextSelection === '1') {
+            mark.dataset.showStoredTextSelection = '0';
+            this.updateShiftPhotoCompareRichTextColorMirror(mark);
+        }
+        mark._shiftPhotoCompareTextSelection = {
+            start: Math.max(0, Number(editor.selectionStart) || 0),
+            end: Math.max(0, Number(editor.selectionEnd) || 0),
+            editor
+        };
+        this.updateShiftPhotoCompareMiniToolbar();
+    }
+
+    getRememberedShiftPhotoCompareTextSelection() {
+        const mark = this._shiftPhotoCompareSelectedMark;
+        if (!mark || !['boxedText', 'callout'].includes(mark.dataset.mode || '')) return null;
+        const editor = mark.querySelector(mark.dataset.mode === 'callout' ? '.shift-photo-callout-text' : '.shift-photo-boxed-text-editor');
+        if (!editor) return null;
+        if (document.activeElement === editor) {
+            mark._shiftPhotoCompareTextSelection = {
+                start: Math.max(0, Number(editor.selectionStart) || 0),
+                end: Math.max(0, Number(editor.selectionEnd) || 0),
+                editor
+            };
+        }
+        const remembered = mark._shiftPhotoCompareTextSelection;
+        if (!remembered || remembered.editor !== editor) return null;
+        return { mark, editor, start: remembered.start, end: remembered.end };
+    }
+
+    restoreRememberedShiftPhotoCompareTextSelection() {
+        const selection = this.getRememberedShiftPhotoCompareTextSelection();
+        if (!selection || !document.contains(selection.editor)) return;
+        selection.mark.dataset.showStoredTextSelection = '0';
+        this.updateShiftPhotoCompareRichTextColorMirror(selection.mark);
+        selection.editor.focus({ preventScroll: true });
+        selection.editor.setSelectionRange(selection.start, selection.end);
+    }
+
+    preserveShiftPhotoCompareTextSelectionOnControl(event) {
+        this.getRememberedShiftPhotoCompareTextSelection();
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+    }
+
+    handleShiftPhotoCompareTextSettingsPointerDown(event) {
+        const selection = this.getRememberedShiftPhotoCompareTextSelection();
+        const colorInput = event?.target?.closest?.('input[type="color"]');
+        if (colorInput && selection && selection.end > selection.start) {
+            selection.mark.dataset.showStoredTextSelection = '1';
+            this.updateShiftPhotoCompareRichTextColorMirror(selection.mark);
+        }
+        const needsNativeFocus = !!event?.target?.closest?.('input[type="color"], select');
+        if (!needsNativeFocus) event?.preventDefault?.();
+        event?.stopPropagation?.();
+    }
+
+    rebaseShiftPhotoCompareTextColorRuns(mark, before = '', after = '') {
+        if (!mark || before === after) return;
+        const oldText = String(before || '');
+        const newText = String(after || '');
+        const runs = this.normalizeShiftPhotoCompareTextColorRuns(mark.dataset.textColorRuns || '[]', oldText.length);
+        if (!runs.length) return;
+        const oldColors = Array(oldText.length).fill('');
+        runs.forEach(run => {
+            for (let index = run.start; index < run.end; index += 1) oldColors[index] = run.color;
+        });
+        let prefix = 0;
+        while (prefix < oldText.length && prefix < newText.length && oldText[prefix] === newText[prefix]) prefix += 1;
+        let suffix = 0;
+        while (suffix < oldText.length - prefix && suffix < newText.length - prefix
+            && oldText[oldText.length - 1 - suffix] === newText[newText.length - 1 - suffix]) suffix += 1;
+        const oldChangedEnd = oldText.length - suffix;
+        const newChangedEnd = newText.length - suffix;
+        const newColors = Array(newText.length).fill('');
+        for (let index = 0; index < prefix; index += 1) newColors[index] = oldColors[index] || '';
+        const inheritedColor = oldColors[prefix] || oldColors[prefix - 1] || '';
+        for (let index = prefix; index < newChangedEnd; index += 1) newColors[index] = inheritedColor;
+        for (let offset = 0; offset < suffix; offset += 1) {
+            newColors[newText.length - suffix + offset] = oldColors[oldChangedEnd + offset] || '';
+        }
+        const nextRuns = [];
+        let index = 0;
+        while (index < newColors.length) {
+            const color = newColors[index];
+            if (!color) { index += 1; continue; }
+            let end = index + 1;
+            while (end < newColors.length && newColors[end] === color) end += 1;
+            nextRuns.push({ start: index, end, color });
+            index = end;
+        }
+        mark.dataset.textColorRuns = JSON.stringify(nextRuns);
+        mark.dataset.hasPartialTextColor = nextRuns.length ? '1' : '0';
+    }
+
+    updateShiftPhotoCompareRichTextColorMirror(mark) {
+        if (!mark || !['boxedText', 'callout'].includes(mark.dataset.mode || '')) return;
+        const editor = mark.querySelector(mark.dataset.mode === 'callout' ? '.shift-photo-callout-text' : '.shift-photo-boxed-text-editor');
+        const mirror = mark.querySelector('.shift-photo-text-color-mirror');
+        if (!editor || !mirror) return;
+        const text = String(editor.value || '');
+        const baseColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '')
+            ? mark.dataset.textColor
+            : (mark.dataset.mode === 'boxedText' ? (mark.dataset.color || '#dc2626') : '#111827');
+        const runs = this.normalizeShiftPhotoCompareTextColorRuns(mark.dataset.textColorRuns || '[]', text.length);
+        mark.dataset.textColorRuns = JSON.stringify(runs);
+        mark.dataset.hasPartialTextColor = runs.length ? '1' : '0';
+        const storedSelection = mark.dataset.showStoredTextSelection === '1' ? mark._shiftPhotoCompareTextSelection : null;
+        mirror.innerHTML = this.getShiftPhotoCompareRichTextColorHtml(text, runs, baseColor, storedSelection);
+    }
+
+    setSelectedShiftPhotoPartialTextColor(value) {
+        const color = /^#[0-9a-f]{6}$/i.test(value || '') ? value.toLowerCase() : '#111827';
+        const mark = this._shiftPhotoCompareSelectedMark;
+        if (!mark || !['boxedText', 'callout'].includes(mark.dataset.mode || '') || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const editor = mark.querySelector(mark.dataset.mode === 'callout' ? '.shift-photo-callout-text' : '.shift-photo-boxed-text-editor');
+        if (!editor) return;
+        this._shiftPhotoComparePendingTextColor = color;
+        const remembered = mark._shiftPhotoCompareTextSelection;
+        const start = Math.max(0, Math.min(editor.value.length, Number(remembered?.start ?? editor.selectionStart) || 0));
+        const end = Math.max(start, Math.min(editor.value.length, Number(remembered?.end ?? editor.selectionEnd) || 0));
+        if (this._shiftPhotoComparePartialColorEditingMark !== mark) {
+            this.pushShiftPhotoCompareUndo();
+            this._shiftPhotoComparePartialColorEditingMark = mark;
+        }
+        if (end > start) {
+            const runs = this.normalizeShiftPhotoCompareTextColorRuns(mark.dataset.textColorRuns || '[]', editor.value.length);
+            runs.push({ start, end, color });
+            const normalized = this.normalizeShiftPhotoCompareTextColorRuns(runs, editor.value.length);
+            mark.dataset.textColorRuns = JSON.stringify(normalized);
+            mark.dataset.hasPartialTextColor = normalized.length ? '1' : '0';
+        } else {
+            mark.dataset.textColor = color;
+            mark.dataset.textColorRuns = '[]';
+            mark.dataset.hasPartialTextColor = '0';
+            mark.style.setProperty('--callout-text-color', color);
+        }
+        this.updateShiftPhotoCompareRichTextColorMirror(mark);
+        this.syncShiftPhotoCompareTextOutlineMirror(mark);
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        if (wrap?.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+        else if (wrap) this.syncShiftPhotoCompareMarks(wrap);
+        this.refreshShiftPhotoCompareMarkList();
+        this.scheduleShiftNotebookAutoSave();
+        this.updateShiftPhotoCompareMiniToolbar();
+    }
+
+    finishSelectedShiftPhotoPartialTextColor() {
+        const mark = this._shiftPhotoComparePartialColorEditingMark;
+        const recentColor = this._shiftPhotoComparePendingTextColor;
+        this._shiftPhotoComparePartialColorEditingMark = null;
+        this._shiftPhotoComparePendingTextColor = '';
+        if (recentColor) this.rememberShiftPhotoCompareRecentTextColor(recentColor);
+        const selection = mark?._shiftPhotoCompareTextSelection;
+        if (selection?.editor && document.contains(selection.editor)) {
+            requestAnimationFrame(() => {
+                selection.editor.focus();
+                selection.editor.setSelectionRange(selection.start, selection.end);
+            });
+        }
+        this.autoSaveShiftNotebook(true);
+    }
+
+    getShiftPhotoCompareRecentTextColors() {
+        try {
+            const stored = JSON.parse(localStorage.getItem('shift_photo_compare_recent_text_colors') || '[]');
+            return Array.isArray(stored)
+                ? stored.filter(color => /^#[0-9a-f]{6}$/i.test(color || '')).map(color => color.toLowerCase()).slice(0, 5)
+                : [];
+        } catch (_) {
+            return [];
+        }
+    }
+
+    rememberShiftPhotoCompareRecentTextColor(value) {
+        const color = /^#[0-9a-f]{6}$/i.test(value || '') ? value.toLowerCase() : '';
+        if (!color) return;
+        const colors = [color, ...this.getShiftPhotoCompareRecentTextColors().filter(item => item !== color)].slice(0, 5);
+        try { localStorage.setItem('shift_photo_compare_recent_text_colors', JSON.stringify(colors)); } catch (_) {}
+        this.renderShiftPhotoCompareRecentTextColors();
+    }
+
+    renderShiftPhotoCompareRecentTextColors() {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        const container = toolbar?.querySelector?.('.shift-photo-compare-recent-text-colors');
+        if (!container) return;
+        const colors = this.getShiftPhotoCompareRecentTextColors();
+        container.hidden = !colors.length;
+        container.innerHTML = colors.map((color, index) => `<button type="button" style="--text-preset-color:${color}" onclick="app.applySelectedShiftPhotoPartialTextColorPreset('${color}')" title="最近の色 ${index + 1}: ${color}"><span class="sr-only">${color}</span></button>`).join('');
+    }
+
+    applySelectedShiftPhotoPartialTextColorPreset(value) {
+        const color = /^#[0-9a-f]{6}$/i.test(value || '') ? value.toLowerCase() : '#111827';
+        this.setSelectedShiftPhotoPartialTextColor(color);
+        this.finishSelectedShiftPhotoPartialTextColor();
+        this.showShiftPhotoCompareActionMessage('文字色を適用しました。');
+    }
+
+    clearSelectedShiftPhotoPartialTextColorRange() {
+        const mark = this._shiftPhotoCompareSelectedMark;
+        if (!mark || !['boxedText', 'callout'].includes(mark.dataset.mode || '') || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const editor = mark.querySelector(mark.dataset.mode === 'callout' ? '.shift-photo-callout-text' : '.shift-photo-boxed-text-editor');
+        const selection = mark._shiftPhotoCompareTextSelection;
+        const start = Math.max(0, Math.min(editor?.value?.length || 0, Number(selection?.start) || 0));
+        const end = Math.max(start, Math.min(editor?.value?.length || 0, Number(selection?.end) || 0));
+        if (!editor || end <= start) {
+            this.showShiftPhotoCompareActionMessage('部分色を消す文字を選択してください。');
+            return;
+        }
+        this.pushShiftPhotoCompareUndo();
+        const runs = this.normalizeShiftPhotoCompareTextColorRuns(mark.dataset.textColorRuns || '[]', editor.value.length);
+        const nextRuns = [];
+        runs.forEach(run => {
+            if (run.end <= start || run.start >= end) {
+                nextRuns.push(run);
+                return;
+            }
+            if (run.start < start) nextRuns.push({ start: run.start, end: start, color: run.color });
+            if (run.end > end) nextRuns.push({ start: end, end: run.end, color: run.color });
+        });
+        mark.dataset.textColorRuns = JSON.stringify(nextRuns);
+        mark.dataset.hasPartialTextColor = nextRuns.length ? '1' : '0';
+        this.updateShiftPhotoCompareRichTextColorMirror(mark);
+        this.syncShiftPhotoCompareTextOutlineMirror(mark);
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        if (wrap?.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+        else if (wrap) this.syncShiftPhotoCompareMarks(wrap);
+        this.refreshShiftPhotoCompareMarkList();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.autoSaveShiftNotebook(true);
+        requestAnimationFrame(() => this.restoreRememberedShiftPhotoCompareTextSelection());
+        this.showShiftPhotoCompareActionMessage('選択範囲の部分色を解除しました。');
+    }
+
+    unifySelectedShiftPhotoTextColor() {
+        const mark = this._shiftPhotoCompareSelectedMark;
+        if (!mark || !['boxedText', 'callout'].includes(mark.dataset.mode || '') || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        this.pushShiftPhotoCompareUndo();
+        mark.dataset.textColorRuns = '[]';
+        mark.dataset.hasPartialTextColor = '0';
+        this.updateShiftPhotoCompareRichTextColorMirror(mark);
+        this.syncShiftPhotoCompareTextOutlineMirror(mark);
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        if (wrap?.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+        else if (wrap) this.syncShiftPhotoCompareMarks(wrap);
+        this.refreshShiftPhotoCompareMarkList();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage('枠内の文字色を統一しました。');
+    }
+
+    formatShiftPhotoComparePastedText(value = '') {
+        const normalized = String(value || '')
+            .replace(/\r\n?/g, '\n')
+            .replace(/[\t\u00a0]+/g, ' ')
+            .replace(/[ \u3000]{2,}/g, ' ')
+            .replace(/[ \u3000]+\n/g, '\n')
+            .replace(/\n[ \u3000]+/g, '\n');
+        return normalized
+            .split(/\n{2,}/)
+            .map(paragraph => {
+                const lines = paragraph.split('\n').map(line => line.trim()).filter(Boolean);
+                return lines.reduce((joined, line) => {
+                    if (!joined) return line;
+                    const needsSpace = /[A-Za-z0-9]$/.test(joined) && /^[A-Za-z0-9]/.test(line);
+                    return `${joined}${needsSpace ? ' ' : ''}${line}`;
+                }, '');
+            })
+            .filter(Boolean)
+            .join('\n\n')
+            .trim();
+    }
+
+    handleShiftPhotoCompareFormattedTextPaste(event, editor) {
+        const rawText = event?.clipboardData?.getData?.('text/plain');
+        if (!editor || typeof rawText !== 'string') return;
+        event.preventDefault();
+        event.stopPropagation();
+        const formatted = this.formatShiftPhotoComparePastedText(rawText);
+        const previousValue = String(editor.value || '');
+        const start = Number.isFinite(editor.selectionStart) ? editor.selectionStart : previousValue.length;
+        const end = Number.isFinite(editor.selectionEnd) ? editor.selectionEnd : start;
+        const maxLength = Number(editor.maxLength) > 0 ? Number(editor.maxLength) : Infinity;
+        const nextValue = `${previousValue.slice(0, start)}${formatted}${previousValue.slice(end)}`.slice(0, maxLength);
+        const caret = Math.min(nextValue.length, start + formatted.length);
+        const mark = editor.closest?.('.shift-photo-compare-mark') || this._shiftPhotoCompareSelectedMark || null;
+        if (mark && document.contains(mark)) {
+            this.pushShiftPhotoCompareUndo();
+            this._shiftPhotoCompareTextEditingMark = mark;
+        }
+        this._shiftPhotoComparePasteFormatUndo = {
+            editor,
+            mark: mark && document.contains(mark) ? mark : null,
+            before: previousValue,
+            after: nextValue,
+            selectionStart: start,
+            selectionEnd: end
+        };
+        this._shiftPhotoCompareApplyingFormattedPaste = true;
+        editor.value = nextValue;
+        editor.setSelectionRange?.(caret, caret);
+        if (editor.classList.contains('shift-photo-callout-text')) this.updateShiftPhotoCompareCalloutText(editor);
+        else if (editor.classList.contains('shift-photo-boxed-text-editor')) this.updateShiftPhotoCompareBoxedText(editor);
+        else if (editor.classList.contains('shift-photo-plain-text-editor')) this.updateShiftPhotoComparePlainText(editor);
+        else this.setShiftPhotoCompareTextValue(nextValue);
+        this._shiftPhotoCompareApplyingFormattedPaste = false;
+        this.updateShiftPhotoCompareMiniToolbar();
+        const shortened = nextValue.length < previousValue.length - (end - start) + formatted.length;
+        this.showShiftPhotoCompareActionMessage(shortened
+            ? '文章を整形して貼り付けました。文字数上限を超えた部分は省略しました。'
+            : '不要な改行と連続空白を整えて貼り付けました。');
+    }
+
+    canUndoShiftPhotoCompareFormattedPaste(mark = this._shiftPhotoCompareSelectedMark) {
+        const undo = this._shiftPhotoComparePasteFormatUndo;
+        if (!undo?.editor || !document.contains(undo.editor)) return false;
+        if (undo.mark && undo.mark !== mark) return false;
+        return String(undo.editor.value || '') === String(undo.after || '');
+    }
+
+    undoShiftPhotoCompareFormattedPaste() {
+        const undo = this._shiftPhotoComparePasteFormatUndo;
+        if (!undo || !this.canUndoShiftPhotoCompareFormattedPaste(undo.mark || this._shiftPhotoCompareSelectedMark)) {
+            this._shiftPhotoComparePasteFormatUndo = null;
+            this.updateShiftPhotoCompareMiniToolbar();
+            this.showShiftPhotoCompareActionMessage('戻せる貼り付け整形がありません。');
+            return;
+        }
+        const editor = undo.editor;
+        this._shiftPhotoCompareApplyingFormattedPaste = true;
+        editor.value = undo.before;
+        if (editor.classList.contains('shift-photo-callout-text')) this.updateShiftPhotoCompareCalloutText(editor);
+        else if (editor.classList.contains('shift-photo-boxed-text-editor')) this.updateShiftPhotoCompareBoxedText(editor);
+        else if (editor.classList.contains('shift-photo-plain-text-editor')) this.updateShiftPhotoComparePlainText(editor);
+        else this.setShiftPhotoCompareTextValue(undo.before);
+        this._shiftPhotoCompareApplyingFormattedPaste = false;
+        this._shiftPhotoComparePasteFormatUndo = null;
+        editor.focus?.();
+        editor.setSelectionRange?.(undo.selectionStart, undo.selectionEnd);
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.showShiftPhotoCompareActionMessage('貼り付け前の文章へ戻しました。');
+    }
+
+    handleShiftPhotoCompareBoxedTextPointerDown(event, editor) {
+        event.stopPropagation();
+        const mark = editor?.closest?.('.shift-photo-compare-mark.boxedText');
+        if (!mark || event.button !== 0) return;
+        // The editor owns drag gestures so multiline text can be selected normally.
+        // Moving the mark remains available from the surrounding frame.
+        if (!mark.classList.contains('selected')) this.selectShiftPhotoCompareMark(mark);
+    }
+
+    handleShiftPhotoCompareBoxedTextWheel(event, editor) {
+        const mark = editor?.closest?.('.shift-photo-compare-mark.boxedText');
+        if (!mark || document.activeElement !== editor) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const current = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
+        const delta = event.deltaY < 0 ? 0.05 : -0.05;
+        const next = Math.max(0.5, Math.min(3, Math.round((current + delta) * 100) / 100));
+        if (Math.abs(next - current) < 0.001) return;
+        const beforeEffectiveScale = this.getShiftPhotoCompareBoxedTextEffectiveScale(mark);
+        this.applyShiftPhotoCompareBoxedTextScale(mark, next);
+        const afterEffectiveScale = this.getShiftPhotoCompareBoxedTextEffectiveScale(mark);
+        const effectiveDelta = afterEffectiveScale - beforeEffectiveScale;
+        if ((delta > 0 && effectiveDelta < 0.004) || (delta < 0 && effectiveDelta > -0.004)) {
+            this.applyShiftPhotoCompareBoxedTextScale(mark, current);
+            this.showShiftPhotoCompareActionMessage(delta > 0 ? 'これ以上大きくできません。' : 'これ以上小さくできません。');
+            return;
+        }
+        this.showShiftPhotoCompareActionMessage(`文字サイズ ${Math.round(afterEffectiveScale * 100)}%`);
+    }
+
+    handleShiftPhotoCompareCalloutTextWheel(event, editor) {
+        const mark = editor?.closest?.('.shift-photo-compare-mark.callout');
+        if (!mark || document.activeElement !== editor || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const current = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
+        const delta = event.deltaY < 0 ? 0.05 : -0.05;
+        const next = Math.max(0.5, Math.min(3, Math.round((current + delta) * 100) / 100));
+        if (Math.abs(next - current) < 0.001) {
+            this.showShiftPhotoCompareActionMessage(delta > 0 ? 'これ以上大きくできません。' : 'これ以上小さくできません。');
+            return;
+        }
+        const beforeEffectiveScale = this.getShiftPhotoCompareCalloutEffectiveScale(mark);
+        this.applyShiftPhotoCompareCalloutTextScale(mark, next, { pushUndo: true, saveDefault: false, preserveFit: true });
+        const afterEffectiveScale = this.getShiftPhotoCompareCalloutEffectiveScale(mark);
+        const effectiveDelta = afterEffectiveScale - beforeEffectiveScale;
+        if ((delta > 0 && effectiveDelta < 0.004) || (delta < 0 && effectiveDelta > -0.004)) {
+            this.applyShiftPhotoCompareCalloutTextScale(mark, current, { pushUndo: false, saveDefault: false, preserveFit: true });
+            this.showShiftPhotoCompareActionMessage(delta > 0 ? 'これ以上大きくできません。' : 'これ以上小さくできません。');
+            return;
+        }
+        this.showShiftPhotoCompareActionMessage(`吹き出し文字 ${Math.round(afterEffectiveScale * 100)}%`);
+    }
+
+    handleShiftPhotoComparePlainTextWheel(event, editor) {
+        const mark = editor?.closest?.('.shift-photo-compare-mark.text');
+        if (!mark || document.activeElement !== editor || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const current = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
+        const delta = event.deltaY < 0 ? 0.05 : -0.05;
+        const next = Math.max(0.5, Math.min(3, Math.round((current + delta) * 100) / 100));
+        if (Math.abs(next - current) < 0.001) {
+            this.showShiftPhotoCompareActionMessage(delta > 0 ? 'これ以上大きくできません。' : 'これ以上小さくできません。');
+            return;
+        }
+        this.applyShiftPhotoComparePlainTextScale(mark, next, { pushUndo: true });
+        this.showShiftPhotoCompareActionMessage(`文字入力 ${Math.round(next * 100)}%`);
+    }
+
+    applyShiftPhotoCompareBoxedTextScale(mark, scale = 1) {
+        if (!mark || mark.dataset.mode !== 'boxedText') return;
+        const textScale = Math.max(0.5, Math.min(3, Number(scale) || 1));
+        mark.dataset.textScale = String(textScale);
+        mark.style.setProperty('--boxed-text-font-scale', String(textScale));
+        if (mark.dataset.regionComment === '1') this.fitShiftPhotoCompareRegionComment(mark);
+        this.syncShiftPhotoCompareTextOutlineMirror(mark);
+        this.scheduleShiftPhotoCompareTextOutlineMirrorSync(mark);
+        this.syncShiftPhotoCompareWrapForMark(mark);
+        this.refreshShiftPhotoCompareMarkList();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.scheduleShiftNotebookAutoSave();
+    }
+
+    applyShiftPhotoCompareCalloutTextScale(mark, scale = 1, options = {}) {
+        if (!mark || mark.dataset.mode !== 'callout') return;
+        if (options.pushUndo && this._shiftPhotoCompareTextScaleEditingMark !== mark) {
+            this.pushShiftPhotoCompareUndo();
+            this._shiftPhotoCompareTextScaleEditingMark = mark;
+        }
+        const textScale = Math.max(0.5, Math.min(3, Number(scale) || 1));
+        mark.dataset.textScale = String(textScale);
+        if (!options.preserveFit && (mark.dataset.textFit || 'shrink') === 'shrink') mark.dataset.textFit = 'wrap';
+        this.updateShiftPhotoCompareCalloutTypography(mark);
+        this.scheduleShiftPhotoCompareTextOutlineMirrorSync(mark);
+        if (options.saveDefault) {
+            this.saveShiftPhotoCompareTypographyDefault('callout', {
+                font: mark.dataset.font,
+                textScale
+            }, mark);
+        }
+        this.syncShiftPhotoCompareWrapForMark(mark);
+        this.refreshShiftPhotoCompareMarkList();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.scheduleShiftNotebookAutoSave();
+    }
+
+    applyShiftPhotoComparePlainTextScale(mark, scale = 1, options = {}) {
+        if (!mark || mark.dataset.mode !== 'text') return;
+        if (options.pushUndo && this._shiftPhotoCompareTextScaleEditingMark !== mark) {
+            this.pushShiftPhotoCompareUndo();
+            this._shiftPhotoCompareTextScaleEditingMark = mark;
+        }
+        const textScale = Math.max(0.5, Math.min(3, Number(scale) || 1));
+        mark.dataset.textScale = String(textScale);
+        mark.style.setProperty('--plain-text-font-scale', String(textScale));
+        this.updateShiftPhotoCompareSelectionBounds();
+        this.syncShiftPhotoCompareWrapForMark(mark);
+        this.refreshShiftPhotoCompareMarkList();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.updateShiftPhotoCompareSample();
+        this.scheduleShiftNotebookAutoSave();
+    }
+
+    getShiftPhotoCompareBoxedTextEffectiveScale(mark) {
+        if (!mark || mark.dataset.mode !== 'boxedText') return 1;
+        const manualScale = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
+        const autoScale = mark.dataset.regionComment === '1'
+            ? this.getShiftPhotoCompareRegionCommentAutoScale(mark)
+            : 1;
+        return Math.round(manualScale * autoScale * 1000) / 1000;
+    }
+
+    getShiftPhotoCompareCalloutEffectiveScale(mark) {
+        if (!mark || mark.dataset.mode !== 'callout') return 1;
+        return Math.round(this.getShiftPhotoCompareCalloutAutoScale(mark) * 1000) / 1000;
     }
 
     getShiftPhotoCompareArrowHtml(includeEnds = true) {
@@ -5665,7 +6331,8 @@
                 row + cell.rowSpan === safeRows && col + cell.colSpan === safeCols ? 'corner-br' : ''
             ].filter(Boolean).join(' ');
             const gridArea = `grid-column:${col + 1} / span ${cell.colSpan}; grid-row:${row + 1} / span ${cell.rowSpan};`;
-            return `<span class="shift-photo-table-cell ${cornerClasses}" data-cell-index="${index}" data-align="${cell.align}" data-vertical="${cell.vertical}" data-wrap="${cell.wrap ? '1' : '0'}" data-shrink="${cell.shrink ? '1' : '0'}" data-writing="${cell.writingMode}" data-outer-outline="${cell.outerOutline ? '1' : '0'}" data-inner-outline="${cell.innerOutline ? '1' : '0'}" onpointerenter="app.extendShiftPhotoCompareTableCellSelection(this, ${index})" style="${gridArea} --table-cell-fill:${cell.fillColor}; --table-cell-text:${cell.textColor}; --table-cell-font:${fontFamily}; --table-cell-font-size:${cell.fontSize}px; --table-cell-font-weight:${cell.bold ? 800 : 400}; --table-cell-padding:${cell.padding}px; --table-cell-outer-outline-width:${cell.outerOutlineWidth}px; --table-cell-inner-outline-width:${cell.innerOutlineWidth}px;"><span class="shift-photo-table-cell-text-stack"><textarea class="shift-photo-table-cell-outline-mirror" rows="1" tabindex="-1" aria-hidden="true" readonly>${this.escapeHtml(cell.text)}</textarea><textarea class="shift-photo-table-cell-editor" maxlength="120" rows="1" data-cell-index="${index}" onpointerdown="app.handleShiftPhotoCompareTableCellPointerDown(event, this.closest('.shift-photo-table-cell'), ${index})" onclick="event.stopPropagation(); this.focus()" onkeydown="app.handleShiftPhotoCompareTableCellKeydown(event, this, ${index})" oninput="app.updateShiftPhotoCompareTableCell(this, ${index})">${this.escapeHtml(cell.text)}</textarea></span></span>`;
+            const inputAttrs = this.getShiftPhotoCompareTextInputAttrs();
+            return `<span class="shift-photo-table-cell ${cornerClasses}" data-cell-index="${index}" data-align="${cell.align}" data-vertical="${cell.vertical}" data-wrap="${cell.wrap ? '1' : '0'}" data-shrink="${cell.shrink ? '1' : '0'}" data-writing="${cell.writingMode}" data-outer-outline="${cell.outerOutline ? '1' : '0'}" data-inner-outline="${cell.innerOutline ? '1' : '0'}" onpointerenter="app.extendShiftPhotoCompareTableCellSelection(this, ${index})" style="${gridArea} --table-cell-fill:${cell.fillColor}; --table-cell-text:${cell.textColor}; --table-cell-font:${fontFamily}; --table-cell-font-size:${cell.fontSize}px; --table-cell-font-weight:${cell.bold ? 800 : 400}; --table-cell-padding:${cell.padding}px; --table-cell-outer-outline-width:${cell.outerOutlineWidth}px; --table-cell-inner-outline-width:${cell.innerOutlineWidth}px;"><span class="shift-photo-table-cell-text-stack"><textarea class="shift-photo-table-cell-outline-mirror" rows="1" tabindex="-1" aria-hidden="true" readonly ${inputAttrs}>${this.escapeHtml(cell.text)}</textarea><textarea class="shift-photo-table-cell-editor" maxlength="120" rows="1" data-cell-index="${index}" ${inputAttrs} onpointerdown="app.handleShiftPhotoCompareTableCellPointerDown(event, this.closest('.shift-photo-table-cell'), ${index})" onclick="event.stopPropagation(); this.focus()" onkeydown="app.handleShiftPhotoCompareTableCellKeydown(event, this, ${index})" oninput="app.updateShiftPhotoCompareTableCell(this, ${index})">${this.escapeHtml(cell.text)}</textarea></span></span>`;
         }).join('');
         return `<span class="shift-photo-table-grid" style="${gridStyle}">${cellHtml}</span><span class="shift-photo-table-inner-lines" style="--table-border-width:${borderWidth}px">${innerLines}</span><span class="shift-photo-table-line-handles">${verticalHandles}${horizontalHandles}</span>`;
     }
@@ -5726,7 +6393,7 @@
         const tableHorizontalLineStyle = ['solid', 'dashed', 'dotted', 'none'].includes(mark.tableHorizontalLineStyle) ? mark.tableHorizontalLineStyle : 'solid';
         const tableCells = this.normalizeShiftPhotoCompareTableCells(mark.tableCells, tableRows, tableCols);
         const color = /^#[0-9a-f]{6}$/i.test(mark.color || '') ? mark.color : '#dc2626';
-        const text = String(mark.text || '').slice(0, 120);
+        const text = String(mark.text || '').slice(0, this.getShiftPhotoCompareMarkTextMaxLength(mark));
         const imageSrc = /^data:image\//i.test(mark.imageSrc || '') ? mark.imageSrc : '';
         const originalImageSrc = /^data:image\//i.test(mark.originalImageSrc || '') ? mark.originalImageSrc : '';
         const wallpaperSrc = /^data:image\//i.test(mark.wallpaperSrc || '') ? mark.wallpaperSrc : '';
@@ -5757,6 +6424,7 @@
         const regionCommentAnchorX = mark.regionCommentAnchorX !== null && mark.regionCommentAnchorX !== '' && Number.isFinite(Number(mark.regionCommentAnchorX)) ? Math.max(0, Math.min(100, Number(mark.regionCommentAnchorX))) : null;
         const regionCommentAnchorY = mark.regionCommentAnchorY !== null && mark.regionCommentAnchorY !== '' && Number.isFinite(Number(mark.regionCommentAnchorY)) ? Math.max(0, Math.min(100, Number(mark.regionCommentAnchorY))) : null;
         const textColor = /^#[0-9a-f]{6}$/i.test(mark.textColor || '') ? mark.textColor : (mode === 'boxedText' ? color : '#111827');
+        const textColorRuns = this.normalizeShiftPhotoCompareTextColorRuns(mark.textColorRuns, text.length);
         const textScale = Math.max(0.5, Math.min(3, Number(mark.textScale) || 1));
         const textFit = ['shrink', 'wrap', 'overflow', 'expand'].includes(mark.textFit) ? mark.textFit : 'shrink';
         let textPaddingX = Math.max(0, Math.min(35, Number.isFinite(Number(mark.textPaddingX)) ? Number(mark.textPaddingX) : 3));
@@ -5800,7 +6468,7 @@
         const xmarkOuterStroke = xmarkStroke + xmarkOuterUnits * 2;
         const xmarkOuterWithInnerStroke = xmarkStroke + (xmarkOuterUnits + xmarkInnerUnits) * 2;
         const xmarkInnerStroke = xmarkStroke + xmarkInnerUnits * 2;
-        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-outer-outline-width="${outerOutlineWidth}" data-inner-outline-width="${innerOutlineWidth}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-table-rows="${tableRows}" data-table-cols="${tableCols}" data-table-rounded="${tableRounded ? '1' : '0'}" data-table-cell-width="${tableCellWidth}" data-table-cell-height="${tableCellHeight}" data-table-col-widths="${this.escapeHtml(JSON.stringify(tableColWidths))}" data-table-row-heights="${this.escapeHtml(JSON.stringify(tableRowHeights))}" data-table-border-width="${tableBorderWidth}" data-table-vertical-line-style="${tableVerticalLineStyle}" data-table-horizontal-line-style="${tableHorizontalLineStyle}" data-table-cells="${this.escapeHtml(JSON.stringify(tableCells))}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-fill-color="${this.escapeHtml(fillColor)}" data-wallpaper-src="${this.escapeHtml(wallpaperSrc)}" data-polyline-fill="${polylineFill ? '1' : '0'}" data-polyline-fill-color="${this.escapeHtml(polylineFillColor)}" data-polyline-fill-opacity="${polylineFillOpacity}" data-polyline-region-fills="${this.escapeHtml(JSON.stringify(polylineRegionFills))}" data-region-comment="${regionComment ? '1' : '0'}" data-region-comment-width="${regionCommentWidth}" data-region-comment-height="${regionCommentHeight}" data-region-comment-link-id="${this.escapeHtml(regionCommentLinkId)}" data-region-comment-region-id="${this.escapeHtml(regionCommentRegionId)}" data-region-comment-index="${regionCommentIndex}" data-region-comment-anchor-x="${regionCommentAnchorX ?? ''}" data-region-comment-anchor-y="${regionCommentAnchorY ?? ''}" data-text-color="${this.escapeHtml(textColor)}" data-text-scale="${textScale}" data-text-fit="${textFit}" data-text-padding-x="${textPaddingX}" data-text-padding-y="${textPaddingY}" data-tail-enabled="${tailEnabled ? '1' : '0'}" data-tail-pos="${tailPos}" data-tail-side="${tailSide}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-image-shape="${imageShape}" data-image-zoom="${imageZoom}" data-image-offset-x="${imageOffsetX}" data-image-offset-y="${imageOffsetY}" data-circle-library-id="${this.escapeHtml(circleLibraryId)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-text-vertical="${textVertical}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-group-icon-hidden="${groupIconHidden ? '1' : '0'}" data-locked="${locked ? '1' : '0'}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-image-x="${imageX ?? ''}" data-image-y="${imageY ?? ''}" data-image-display-width="${imageDisplayWidth}" data-image-display-height="${imageDisplayHeight}" data-points="${this.escapeHtml(JSON.stringify(points))}"`;
+        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-outer-outline-width="${outerOutlineWidth}" data-inner-outline-width="${innerOutlineWidth}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-table-rows="${tableRows}" data-table-cols="${tableCols}" data-table-rounded="${tableRounded ? '1' : '0'}" data-table-cell-width="${tableCellWidth}" data-table-cell-height="${tableCellHeight}" data-table-col-widths="${this.escapeHtml(JSON.stringify(tableColWidths))}" data-table-row-heights="${this.escapeHtml(JSON.stringify(tableRowHeights))}" data-table-border-width="${tableBorderWidth}" data-table-vertical-line-style="${tableVerticalLineStyle}" data-table-horizontal-line-style="${tableHorizontalLineStyle}" data-table-cells="${this.escapeHtml(JSON.stringify(tableCells))}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-fill-color="${this.escapeHtml(fillColor)}" data-wallpaper-src="${this.escapeHtml(wallpaperSrc)}" data-polyline-fill="${polylineFill ? '1' : '0'}" data-polyline-fill-color="${this.escapeHtml(polylineFillColor)}" data-polyline-fill-opacity="${polylineFillOpacity}" data-polyline-region-fills="${this.escapeHtml(JSON.stringify(polylineRegionFills))}" data-region-comment="${regionComment ? '1' : '0'}" data-region-comment-width="${regionCommentWidth}" data-region-comment-height="${regionCommentHeight}" data-region-comment-link-id="${this.escapeHtml(regionCommentLinkId)}" data-region-comment-region-id="${this.escapeHtml(regionCommentRegionId)}" data-region-comment-index="${regionCommentIndex}" data-region-comment-anchor-x="${regionCommentAnchorX ?? ''}" data-region-comment-anchor-y="${regionCommentAnchorY ?? ''}" data-text-color="${this.escapeHtml(textColor)}" data-text-color-runs="${this.escapeHtml(JSON.stringify(textColorRuns))}" data-has-partial-text-color="${textColorRuns.length ? '1' : '0'}" data-text-scale="${textScale}" data-text-fit="${textFit}" data-text-padding-x="${textPaddingX}" data-text-padding-y="${textPaddingY}" data-tail-enabled="${tailEnabled ? '1' : '0'}" data-tail-pos="${tailPos}" data-tail-side="${tailSide}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-image-shape="${imageShape}" data-image-zoom="${imageZoom}" data-image-offset-x="${imageOffsetX}" data-image-offset-y="${imageOffsetY}" data-circle-library-id="${this.escapeHtml(circleLibraryId)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-text-vertical="${textVertical}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-group-icon-hidden="${groupIconHidden ? '1' : '0'}" data-locked="${locked ? '1' : '0'}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-image-x="${imageX ?? ''}" data-image-y="${imageY ?? ''}" data-image-display-width="${imageDisplayWidth}" data-image-display-height="${imageDisplayHeight}" data-points="${this.escapeHtml(JSON.stringify(points))}"`;
         if (mode === 'freehand') {
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)};">${this.getShiftPhotoCompareFreehandSvg(pointsText)}</div>`;
         }
@@ -5814,7 +6482,7 @@
         if (mode === 'callout') {
             const inverseX = 1 / Math.max(0.05, stretch);
             const inverseY = 1 / Math.max(0.05, stretchY);
-            return `<div class="shift-photo-compare-mark callout${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --callout-font-size:${size * 0.34 * textScale}px; --mark-font:${fontFamily}; --callout-tail-pos:${tailPos}%; --callout-tail-inverse-x:${inverseX}; --callout-tail-inverse-y:${inverseY}; --callout-tail-offset-x:${126 * inverseX}px; --callout-tail-offset-y:${126 * inverseY}px; --callout-tail-seam-x:${8 * inverseX}px; --callout-tail-seam-y:${8 * inverseY}px; --callout-border-overlap-x:${0.1 * inverseX}px; --callout-border-overlap-y:${0.1 * inverseY}px; --callout-tail-extra-x:0.1px; --callout-tail-extra-y:0.1px; --callout-text-width:${stretch * (100 - textPaddingX * 2)}%; --callout-text-height:${stretchY * (100 - textPaddingY * 2)}%; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px;">${wallpaperSrc ? `<img class="shift-photo-mark-wallpaper" src="${this.escapeHtml(wallpaperSrc)}" alt="">` : ''}${this.getShiftPhotoCompareCalloutTextEditorHtml(text)}<span class="shift-photo-callout-tail" aria-hidden="true"></span><i class="shift-photo-callout-tail-handle" onpointerdown="app.startShiftPhotoCompareCalloutTailDrag(event, this)" title="ドラッグして先端位置を移動"></i></div>`;
+            return `<div class="shift-photo-compare-mark callout${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --callout-font-size:${size * 0.34 * textScale}px; --mark-font:${fontFamily}; --callout-border-inverse-x:${inverseX}; --callout-border-inverse-y:${inverseY}; --callout-tail-pos:${tailPos}%; --callout-tail-inverse-x:${inverseX}; --callout-tail-inverse-y:${inverseY}; --callout-tail-offset-x:${126 * inverseX}px; --callout-tail-offset-y:${126 * inverseY}px; --callout-tail-seam-x:${8 * inverseX}px; --callout-tail-seam-y:${8 * inverseY}px; --callout-border-overlap-x:${0.1 * inverseX}px; --callout-border-overlap-y:${0.1 * inverseY}px; --callout-tail-extra-x:0.1px; --callout-tail-extra-y:0.1px; --callout-text-width:${stretch * (100 - textPaddingX * 2)}%; --callout-text-height:${stretchY * (100 - textPaddingY * 2)}%; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px;">${wallpaperSrc ? `<img class="shift-photo-mark-wallpaper" src="${this.escapeHtml(wallpaperSrc)}" alt="">` : ''}${this.getShiftPhotoCompareCalloutTextEditorHtml(text, { textColorRuns, textColor })}<span class="shift-photo-callout-tail" aria-hidden="true"></span><i class="shift-photo-callout-tail-handle" onpointerdown="app.startShiftPhotoCompareCalloutTailDrag(event, this)" title="ドラッグして先端位置を移動"></i></div>`;
         }
         if (mode === 'table') {
             return `<div class="shift-photo-compare-mark table${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-font:${fontFamily};">${this.getShiftPhotoCompareTableHtml(tableRows, tableCols, tableCells, { cellWidth: tableCellWidth, cellHeight: tableCellHeight, colWidths: tableColWidths, rowHeights: tableRowHeights, borderWidth: tableBorderWidth, verticalLineStyle: tableVerticalLineStyle, horizontalLineStyle: tableHorizontalLineStyle, stretch, stretchY })}</div>`;
@@ -5822,9 +6490,9 @@
         const xmarkHtml = this.getShiftPhotoCompareXMarkHtml();
         const dimensionHtml = `<span class="shift-photo-dimension-line"></span><span class="shift-photo-dimension-extension start"></span><span class="shift-photo-dimension-extension end"></span><span class="shift-photo-dimension-head start"></span><span class="shift-photo-dimension-head end"></span><span class="shift-photo-dimension-value">${this.escapeHtml(text || '100 mm')}</span><span class="shift-photo-arrow-end start" data-arrow-end="start"></span><span class="shift-photo-arrow-end end" data-arrow-end="end"></span>`;
         const boxedTextHtml = mode === 'boxedText'
-            ? `${wallpaperSrc ? `<img class="shift-photo-mark-wallpaper" src="${this.escapeHtml(wallpaperSrc)}" alt="">` : ''}${this.getShiftPhotoCompareBoxedTextEditorHtml(text)}${regionComment ? this.getShiftPhotoCompareRegionInfoButtonHtml() : ''}`
+            ? `${wallpaperSrc ? `<img class="shift-photo-mark-wallpaper" src="${this.escapeHtml(wallpaperSrc)}" alt="">` : ''}${this.getShiftPhotoCompareBoxedTextEditorHtml(text, { regionComment, textColorRuns, textColor })}${regionComment ? this.getShiftPhotoCompareRegionInfoButtonHtml() : ''}`
             : '';
-        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --boxed-text-inverse-x:${1 / stretch}; --boxed-text-inverse-y:${1 / stretchY}; --region-comment-width:${regionCommentWidth}px; --region-comment-height:${regionCommentHeight}px; --rect-dot-inverse-x:${1 / stretch}; --rect-dot-inverse-y:${1 / stretchY}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkStroke}; --xmark-outer-stroke:${xmarkOuterStroke}; --xmark-outer-with-inner-stroke:${xmarkOuterWithInnerStroke}; --xmark-inner-stroke:${xmarkInnerStroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px;">${mode === 'arrow' ? this.getShiftPhotoCompareArrowHtml(true) : (mode === 'dimension' ? dimensionHtml : (mode === 'rect' ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY) : (mode === 'xmark' ? xmarkHtml : (mode === 'boxedText' ? boxedTextHtml : (mode === 'text' ? this.getShiftPhotoComparePlainTextEditorHtml(text) : (mode === 'number' ? this.escapeHtml(text) : ''))))))}</div>`;
+        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --boxed-text-font-scale:${textScale}; --plain-text-font-scale:${textScale}; --boxed-text-inverse-x:${1 / stretch}; --boxed-text-inverse-y:${1 / stretchY}; --boxed-text-border-inverse-x:${1 / stretch}; --boxed-text-border-inverse-y:${1 / stretchY}; --region-comment-width:${regionCommentWidth}px; --region-comment-height:${regionCommentHeight}px; --rect-dot-inverse-x:${1 / stretch}; --rect-dot-inverse-y:${1 / stretchY}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkStroke}; --xmark-outer-stroke:${xmarkOuterStroke}; --xmark-outer-with-inner-stroke:${xmarkOuterWithInnerStroke}; --xmark-inner-stroke:${xmarkInnerStroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px;">${mode === 'arrow' ? this.getShiftPhotoCompareArrowHtml(true) : (mode === 'dimension' ? dimensionHtml : (mode === 'rect' ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY) : (mode === 'xmark' ? xmarkHtml : (mode === 'boxedText' ? boxedTextHtml : (mode === 'text' ? this.getShiftPhotoComparePlainTextEditorHtml(text) : (mode === 'number' ? this.escapeHtml(text) : ''))))))}</div>`;
     }
 
     readShiftPhotoCompareMarksFromWrap(wrap) {
@@ -5858,7 +6526,7 @@
             tableHorizontalLineStyle: ['solid', 'dashed', 'dotted', 'none'].includes(mark.dataset.tableHorizontalLineStyle) ? mark.dataset.tableHorizontalLineStyle : 'solid',
             tableCells: this.normalizeShiftPhotoCompareTableCells(mark.dataset.tableCells || '[]', mark.dataset.tableRows, mark.dataset.tableCols),
             color: /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626',
-            text: String(mark.dataset.text || mark.textContent || '').slice(0, 120),
+            text: String(mark.dataset.text || mark.textContent || '').slice(0, this.getShiftPhotoCompareMarkTextMaxLength(mark)),
             imageSrc: /^data:image\//i.test(mark.dataset.imageSrc || '') ? mark.dataset.imageSrc : '',
             originalImageSrc: /^data:image\//i.test(mark.dataset.originalImageSrc || '') ? mark.dataset.originalImageSrc : '',
             wallpaperSrc: /^data:image\//i.test(mark.dataset.wallpaperSrc || '') ? mark.dataset.wallpaperSrc : '',
@@ -5888,6 +6556,7 @@
             regionCommentAnchorX: Number.isFinite(Number(mark.dataset.regionCommentAnchorX)) && mark.dataset.regionCommentAnchorX !== '' ? Math.max(0, Math.min(100, Number(mark.dataset.regionCommentAnchorX))) : null,
             regionCommentAnchorY: Number.isFinite(Number(mark.dataset.regionCommentAnchorY)) && mark.dataset.regionCommentAnchorY !== '' ? Math.max(0, Math.min(100, Number(mark.dataset.regionCommentAnchorY))) : null,
             textColor: /^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '') ? mark.dataset.textColor : (mark.dataset.mode === 'boxedText' ? (mark.dataset.color || '#dc2626') : '#111827'),
+            textColorRuns: this.normalizeShiftPhotoCompareTextColorRuns(mark.dataset.textColorRuns || '[]', String(mark.dataset.text || '').length),
             textScale: Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1)),
             textFit: ['shrink', 'wrap', 'overflow', 'expand'].includes(mark.dataset.textFit) ? mark.dataset.textFit : 'shrink',
             textPaddingX: Math.max(0, Math.min(35, Number.isFinite(Number(mark.dataset.textPaddingX)) ? Number(mark.dataset.textPaddingX) : 3)),
@@ -6482,7 +7151,7 @@
                             </div>
                             <label class="shift-photo-compare-text">
                                 <span>文字</span>
-                                <textarea id="shift-photo-compare-text-input" maxlength="120" rows="2" placeholder="入力" oninput="app.setShiftPhotoCompareTextValue(this.value)"></textarea>
+                                <textarea id="shift-photo-compare-text-input" maxlength="120" rows="2" placeholder="入力" ${this.getShiftPhotoCompareTextInputAttrs()} onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" oninput="app.setShiftPhotoCompareTextValue(this.value)"></textarea>
                             </label>
                             <label class="shift-photo-compare-font">
                                 <span>書体</span>
@@ -6659,13 +7328,50 @@
                     <button type="button" class="shift-photo-compare-number-text-btn" onclick="app.addTextNextToSelectedShiftPhotoNumber()" title="番号の右に文字を追加"><i class="fa-solid fa-font"></i><span>+</span></button>
                     <button type="button" class="shift-photo-compare-pair-gap-btn" onclick="app.adjustSelectedShiftPhotoNumberTextGap(-4)" title="文字を番号に近づける"><i class="fa-solid fa-compress"></i></button>
                     <button type="button" class="shift-photo-compare-pair-gap-btn" onclick="app.adjustSelectedShiftPhotoNumberTextGap(4)" title="文字を番号から離す"><i class="fa-solid fa-expand"></i></button>
-                    <button type="button" class="shift-photo-compare-plain-text-align-btn" onclick="app.toggleSelectedShiftPhotoPlainTextAlign()" title="文字入力の横揃えを切替">横：中</button>
-                    <button type="button" class="shift-photo-compare-plain-text-vertical-btn" onclick="app.toggleSelectedShiftPhotoPlainTextVertical()" title="文字入力の縦揃えを切替">縦：中</button>
-                    <button type="button" class="shift-photo-compare-boxed-text-align-btn" onclick="app.toggleSelectedShiftPhotoBoxedTextAlign()" title="枠付き文字の揃えを切替">揃</button>
-                    <button type="button" class="shift-photo-compare-boxed-text-vertical-btn" onclick="app.toggleSelectedShiftPhotoRegionCommentVertical()" title="区画テキストの縦揃えを切替">縦：中</button>
-                    <button type="button" class="shift-photo-compare-region-font-size-btn" onclick="app.adjustSelectedShiftPhotoRegionCommentTextSize(-0.1)" title="区画内の文字を小さく">A−</button>
-                    <span class="shift-photo-compare-region-font-size-value">100%</span>
-                    <button type="button" class="shift-photo-compare-region-font-size-btn" onclick="app.adjustSelectedShiftPhotoRegionCommentTextSize(0.1)" title="区画内の文字を大きく">A＋</button>
+                    <button type="button" class="shift-photo-compare-text-settings-btn" onpointerdown="app.preserveShiftPhotoCompareTextSelectionOnControl(event)" onclick="app.toggleShiftPhotoCompareMiniTextSettings()" title="文字サイズ・配置・フォントをまとめて設定"><i class="fa-solid fa-font"></i><span>文字設定</span></button>
+                    <div class="shift-photo-compare-text-settings-panel" hidden onpointerdown="app.handleShiftPhotoCompareTextSettingsPointerDown(event)">
+                        <span class="shift-photo-compare-text-settings-title">文字設定</span>
+                        <button type="button" class="shift-photo-compare-plain-text-align-btn" onclick="app.toggleSelectedShiftPhotoPlainTextAlign()" title="文字入力の横揃えを切替">横：中</button>
+                        <button type="button" class="shift-photo-compare-plain-text-vertical-btn" onclick="app.toggleSelectedShiftPhotoPlainTextVertical()" title="文字入力の縦揃えを切替">縦：中</button>
+                        <button type="button" class="shift-photo-compare-boxed-text-align-btn" onclick="app.toggleSelectedShiftPhotoBoxedTextAlign()" title="枠付き文字の揃えを切替">横：中</button>
+                        <button type="button" class="shift-photo-compare-boxed-text-vertical-btn" onclick="app.toggleSelectedShiftPhotoRegionCommentVertical()" title="区画テキストの縦揃えを切替">縦：中</button>
+                        <button type="button" class="shift-photo-compare-region-font-size-btn" onclick="app.adjustSelectedShiftPhotoRegionCommentTextSize(-0.1)" title="区画内の文字を小さく">A−</button>
+                        <span class="shift-photo-compare-region-font-size-value">100%</span>
+                        <button type="button" class="shift-photo-compare-region-font-size-btn" onclick="app.adjustSelectedShiftPhotoRegionCommentTextSize(0.1)" title="区画内の文字を大きく">A＋</button>
+                        <button type="button" class="shift-photo-compare-callout-text-align-btn horizontal" onclick="app.toggleSelectedShiftPhotoCalloutTextAlign()" title="文字の横揃えを切替">横：中</button>
+                        <button type="button" class="shift-photo-compare-callout-text-align-btn vertical" onclick="app.toggleSelectedShiftPhotoCalloutTextVertical()" title="文字の縦揃えを切替">縦：中</button>
+                        <button type="button" class="shift-photo-compare-callout-font-size-btn" onclick="app.adjustSelectedShiftPhotoTextScale(-0.1)" title="文字を小さく">A−</button>
+                        <span class="shift-photo-compare-callout-font-size-value">100%</span>
+                        <button type="button" class="shift-photo-compare-callout-font-size-btn" onclick="app.adjustSelectedShiftPhotoTextScale(0.1)" title="文字を大きく">A＋</button>
+                        <button type="button" class="shift-photo-compare-text-scale-reset-btn" onclick="app.resetSelectedShiftPhotoTextScale()" title="選択中の文字サイズを100%に戻す">100%</button>
+                        <button type="button" class="shift-photo-compare-text-fit-frame-btn" onclick="app.fitSelectedShiftPhotoTextToFrame()" title="全行が収まる最大の文字サイズに調整"><i class="fa-solid fa-compress"></i><span>枠に合わせる</span></button>
+                        <label class="shift-photo-compare-partial-text-color" title="文字を選択して色を変更。選択なしの場合は全体色を変更">
+                            <span>部分色</span><input type="color" value="#111827" oninput="app.setSelectedShiftPhotoPartialTextColor(this.value)" onchange="app.finishSelectedShiftPhotoPartialTextColor()" onblur="app.finishSelectedShiftPhotoPartialTextColor()">
+                        </label>
+                        <div class="shift-photo-compare-partial-text-presets" aria-label="基本の文字色" title="選択範囲へ基本色を適用">
+                            ${[
+                                ['#111827', '黒'], ['#ffffff', '白'], ['#dc2626', '赤'], ['#2563eb', '青'],
+                                ['#16a34a', '緑'], ['#eab308', '黄'], ['#f97316', '橙'], ['#7c3aed', '紫']
+                            ].map(([colorValue, colorLabel]) => `<button type="button" style="--text-preset-color:${colorValue}" onclick="app.applySelectedShiftPhotoPartialTextColorPreset('${colorValue}')" title="${colorLabel}"><span class="sr-only">${colorLabel}</span></button>`).join('')}
+                        </div>
+                        <div class="shift-photo-compare-recent-text-colors" aria-label="最近使った文字色" title="最近使った文字色" hidden></div>
+                        <button type="button" class="shift-photo-compare-text-color-clear-range-btn" onclick="app.clearSelectedShiftPhotoPartialTextColorRange()" title="選択範囲の部分色だけ解除"><i class="fa-solid fa-eraser"></i><span>部分色消す</span></button>
+                        <button type="button" class="shift-photo-compare-text-color-unify-btn" onclick="app.unifySelectedShiftPhotoTextColor()" title="部分的な色を解除して全体の文字色へ統一"><i class="fa-solid fa-droplet"></i><span>色統一</span></button>
+                        <button type="button" class="shift-photo-compare-paste-format-undo-btn" onclick="app.undoShiftPhotoCompareFormattedPaste()" title="自動整形する前の文章へ戻す"><i class="fa-solid fa-rotate-left"></i><span>貼付戻す</span></button>
+                        <select class="shift-photo-compare-callout-font-select" onpointerdown="event.stopPropagation()" onchange="app.setSelectedShiftPhotoCalloutFont(this.value)" title="文字のフォント">
+                            <option value="gothic">ゴシック</option>
+                            <option value="meiryo">メイリオ</option>
+                            <option value="mincho">明朝</option>
+                            <option value="maru">丸ゴシック</option>
+                            <option value="pop">ポップ</option>
+                            <option value="brush">筆文字</option>
+                            <option value="hand">手書き</option>
+                            <option value="digital">デジタル</option>
+                            <option value="engraving">機械彫刻</option>
+                            <option value="retro">レトロ</option>
+                            <option value="elegant">上品</option>
+                        </select>
+                    </div>
                     <label class="shift-photo-compare-mini-wallpaper-btn" title="選択した枠の背景に画像を設定" onpointerdown="event.stopPropagation()">
                         <i class="fa-regular fa-images"></i><span>壁紙</span>
                         <input type="file" class="shift-photo-input" data-shift-photo-wallpaper-picker="1" accept="image/*" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); if (!app.prepareShiftPhotoCompareWallpaperPicker(this)) event.preventDefault()" oninput="app.handleShiftPhotoCompareWallpaperInput(this)" onchange="app.handleShiftPhotoCompareWallpaperInput(this)">
@@ -6676,39 +7382,33 @@
                     <button type="button" class="shift-photo-compare-callout-side-btn" data-tail-side="right" onclick="app.setSelectedShiftPhotoCalloutTailSide('right')" title="先端を右へ">→</button>
                     <button type="button" class="shift-photo-compare-callout-side-btn" data-tail-side="bottom" onclick="app.setSelectedShiftPhotoCalloutTailSide('bottom')" title="先端を下へ">↓</button>
                     <button type="button" class="shift-photo-compare-callout-side-btn" data-tail-side="left" onclick="app.setSelectedShiftPhotoCalloutTailSide('left')" title="先端を左へ">←</button>
-                    <button type="button" class="shift-photo-compare-callout-text-align-btn horizontal" onclick="app.toggleSelectedShiftPhotoCalloutTextAlign()" title="文字の横揃えを切替">横：中</button>
-                    <button type="button" class="shift-photo-compare-callout-text-align-btn vertical" onclick="app.toggleSelectedShiftPhotoCalloutTextVertical()" title="文字の縦揃えを切替">縦：中</button>
-                    <button type="button" class="shift-photo-compare-callout-font-size-btn" onclick="app.adjustSelectedShiftPhotoCalloutTextSize(-0.1)" title="文字を小さく">A−</button>
-                    <span class="shift-photo-compare-callout-font-size-value">100%</span>
-                    <button type="button" class="shift-photo-compare-callout-font-size-btn" onclick="app.adjustSelectedShiftPhotoCalloutTextSize(0.1)" title="文字を大きく">A＋</button>
                     <button type="button" class="shift-photo-compare-table-font-size-btn" onclick="app.adjustSelectedShiftPhotoTableFontSize(-1)" title="選択セルの文字を小さく">A−</button>
                     <span class="shift-photo-compare-table-font-size-value">16px</span>
                     <button type="button" class="shift-photo-compare-table-font-size-btn" onclick="app.adjustSelectedShiftPhotoTableFontSize(1)" title="選択セルの文字を大きく">A＋</button>
                     <button type="button" class="shift-photo-compare-table-bold-btn" onclick="app.toggleSelectedShiftPhotoTableBold()" title="選択セルを太字にする"><b>B</b></button>
-                    <select class="shift-photo-compare-callout-font-select" onpointerdown="event.stopPropagation()" onchange="app.setSelectedShiftPhotoCalloutFont(this.value)" title="吹き出し文字のフォント">
-                        <option value="gothic">ゴシック</option>
-                        <option value="meiryo">メイリオ</option>
-                        <option value="mincho">明朝</option>
-                        <option value="maru">丸ゴシック</option>
-                        <option value="pop">ポップ</option>
-                        <option value="brush">筆文字</option>
-                        <option value="hand">手書き</option>
-                        <option value="digital">デジタル</option>
-                        <option value="engraving">機械彫刻</option>
-                        <option value="retro">レトロ</option>
-                        <option value="elegant">上品</option>
-                    </select>
                     <button type="button" class="shift-photo-compare-mini-select-range" data-mark-mode="selectRange" onclick="app.setShiftPhotoCompareMarkMode('selectRange')" title="範囲選択"><i class="fa-regular fa-object-group"></i></button>
-                    <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('left')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('left')" title="左揃え"><i class="fa-solid fa-align-left"></i></button>
-                    <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('top')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('top')" title="上揃え"><i class="fa-solid fa-align-left fa-rotate-90"></i></button>
-                    <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('centerX')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('centerX')" title="横中央揃え"><i class="fa-solid fa-align-center"></i></button>
-                    <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('centerY')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('centerY')" title="縦中央揃え"><i class="fa-solid fa-align-center fa-rotate-90"></i></button>
-                    <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('right')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('right')" title="右揃え"><i class="fa-solid fa-align-right"></i></button>
-                    <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('bottom')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('bottom')" title="下揃え"><i class="fa-solid fa-align-right fa-rotate-90"></i></button>
-                    <button type="button" onpointerenter="app.previewDistributeSelectedShiftPhotoCompareMarks('x')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.distributeSelectedShiftPhotoCompareMarks('x')" title="横に等間隔"><i class="fa-solid fa-arrows-left-right-to-line"></i></button>
-                    <button type="button" onpointerenter="app.previewDistributeSelectedShiftPhotoCompareMarks('y')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.distributeSelectedShiftPhotoCompareMarks('y')" title="縦に等間隔"><i class="fa-solid fa-arrows-up-down"></i></button>
-                    <button type="button" onclick="app.moveSelectedShiftPhotoCompareMarkLayer('front')" title="前面へ"><i class="fa-solid fa-arrow-up"></i></button>
-                    <button type="button" onclick="app.moveSelectedShiftPhotoCompareMarkLayer('back')" title="背面へ"><i class="fa-solid fa-arrow-down"></i></button>
+                    <div class="shift-photo-compare-symbol-align-wrap" title="記号そのものの位置・重なり順を調整します">
+                        <button type="button" class="shift-photo-compare-symbol-align-toggle" onclick="app.toggleShiftPhotoCompareMiniSymbolAlign()" title="記号揃えを開く"><i class="fa-solid fa-object-group"></i><span>記号揃え</span></button>
+                        <div class="shift-photo-compare-symbol-align-group" hidden onpointerdown="event.stopPropagation()">
+                            <span class="shift-photo-compare-mini-group-label">位置</span>
+                            <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('left')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('left')" title="記号の揃え：左揃え"><i class="fa-solid fa-align-left"></i></button>
+                            <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('top')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('top')" title="記号の揃え：上揃え"><i class="fa-solid fa-align-left fa-rotate-90"></i></button>
+                            <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('centerX')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('centerX')" title="記号の揃え：横中央揃え"><i class="fa-solid fa-align-center"></i></button>
+                            <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('centerY')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('centerY')" title="記号の揃え：縦中央揃え"><i class="fa-solid fa-align-center fa-rotate-90"></i></button>
+                            <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('right')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('right')" title="記号の揃え：右揃え"><i class="fa-solid fa-align-right"></i></button>
+                            <button type="button" onpointerenter="app.previewAlignSelectedShiftPhotoCompareMarks('bottom')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.alignSelectedShiftPhotoCompareMarks('bottom')" title="記号の揃え：下揃え"><i class="fa-solid fa-align-right fa-rotate-90"></i></button>
+                            <button type="button" onpointerenter="app.previewDistributeSelectedShiftPhotoCompareMarks('x')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.distributeSelectedShiftPhotoCompareMarks('x')" title="記号の揃え：横に等間隔"><i class="fa-solid fa-arrows-left-right-to-line"></i></button>
+                            <button type="button" onpointerenter="app.previewDistributeSelectedShiftPhotoCompareMarks('y')" onpointerleave="app.clearShiftPhotoCompareAlignPreview()" onclick="app.distributeSelectedShiftPhotoCompareMarks('y')" title="記号の揃え：縦に等間隔"><i class="fa-solid fa-arrows-up-down"></i></button>
+                            <span class="shift-photo-compare-mini-group-label shift-photo-compare-mini-group-label-layer">重なり順</span>
+                            <button type="button" class="shift-photo-compare-layer-order-btn" onclick="app.moveSelectedShiftPhotoCompareMarkLayer('front')" title="記号を最前面へ移動">最前</button>
+                            <button type="button" class="shift-photo-compare-layer-order-btn" onclick="app.moveSelectedShiftPhotoCompareMarkLayer('back')" title="記号を最背面へ移動">最背</button>
+                            <button type="button" class="shift-photo-compare-layer-linked-toggle" onclick="app.toggleShiftPhotoCompareLayerLinkedMove()" title="直線と区画テキストを一緒に前後移動">連動</button>
+                            <span class="shift-photo-compare-layer-position" title="選択中記号の重なり位置">重なり -/-</span>
+                            <button type="button" class="shift-photo-compare-layer-list-toggle" onclick="app.toggleShiftPhotoCompareMiniLayerList()" title="選択中レイヤーの重なり順リストを開く"><i class="fa-solid fa-list-ol"></i><span>順リスト</span></button>
+                        </div>
+                    </div>
+                    <div class="shift-photo-compare-mini-layer-list" hidden onpointerdown="event.stopPropagation()"></div>
+                    <button type="button" class="shift-photo-compare-mini-panel-reset-btn" onclick="app.resetShiftPhotoCompareMiniPanelOpenPreference()" title="文字設定・記号揃え・順リストを次回から閉じた状態に戻す"><i class="fa-solid fa-xmark"></i><span>閉</span></button>
                     <button type="button" class="shift-photo-compare-image-tool" onclick="app.flipSelectedShiftPhotoImage('x')" title="画像を左右反転"><i class="fa-solid fa-left-right"></i></button>
                     <button type="button" class="shift-photo-compare-image-tool" onclick="app.flipSelectedShiftPhotoImage('y')" title="画像を上下反転"><i class="fa-solid fa-up-down"></i></button>
                     <button type="button" class="shift-photo-compare-image-tool" onclick="app.rotateSelectedShiftPhotoImage90()" title="画像を90度回転"><i class="fa-solid fa-rotate-right"></i></button>
@@ -8050,7 +8750,10 @@
         }
         try {
             const rawText = await navigator.clipboard.readText();
-            const text = String(rawText || '').replace(/\r/g, '').slice(0, 120);
+            const textMaxLength = targetMark
+                ? this.getShiftPhotoCompareMarkTextMaxLength(targetMark)
+                : this.getShiftPhotoCompareCalloutTextMaxLength();
+            const text = this.formatShiftPhotoComparePastedText(rawText).slice(0, textMaxLength);
             if (!text) {
                 this.showShiftPhotoCompareActionMessage('クリップボードに文字がありません。');
                 return;
@@ -8065,9 +8768,19 @@
                 const hasSelection = editor && Number.isFinite(editor.selectionStart) && Number.isFinite(editor.selectionEnd);
                 const start = hasSelection ? editor.selectionStart : current.length;
                 const end = hasSelection ? editor.selectionEnd : current.length;
-                const nextText = `${current.slice(0, start)}${text}${current.slice(end)}`.slice(0, 120);
+                const nextText = `${current.slice(0, start)}${text}${current.slice(end)}`.slice(0, this.getShiftPhotoCompareCalloutTextMaxLength(targetMark));
                 this.pushShiftPhotoCompareUndo();
+                this.rebaseShiftPhotoCompareTextColorRuns(targetMark, current, nextText);
+                this._shiftPhotoComparePasteFormatUndo = {
+                    editor,
+                    mark: targetMark,
+                    before: current,
+                    after: nextText,
+                    selectionStart: start,
+                    selectionEnd: end
+                };
                 targetMark.dataset.text = nextText;
+                targetMark.dataset.textFit = 'shrink';
                 const outlineMirror = targetMark.querySelector('.shift-photo-callout-text-outline-mirror');
                 if (outlineMirror) outlineMirror.textContent = nextText;
                 if (editor) {
@@ -8077,6 +8790,7 @@
                     editor.style.height = 'auto';
                     const availableHeight = editor.closest('.shift-photo-callout-text-wrap')?.clientHeight || editor.scrollHeight;
                     editor.style.height = `${Math.min(editor.scrollHeight, availableHeight)}px`;
+                    this.fitShiftPhotoCompareCalloutText(targetMark);
                     this.syncShiftPhotoCompareTextOutlineMirror(targetMark);
                     editor.focus();
                 }
@@ -8095,13 +8809,22 @@
                 }
                 this.pushShiftPhotoCompareUndo();
                 let editor = targetMark.querySelector('.shift-photo-boxed-text-editor');
+                const previousText = String(editor?.value ?? targetMark.dataset.text ?? '');
                 if (!editor) {
-                    targetMark.innerHTML = this.getShiftPhotoCompareBoxedTextEditorHtml(text);
+                    targetMark.innerHTML = this.getShiftPhotoCompareBoxedTextEditorHtml(text, targetMark);
                     editor = targetMark.querySelector('.shift-photo-boxed-text-editor');
                 }
                 if (editor) {
                     editor.value = text;
                     this.commitShiftPhotoCompareBoxedTextValue(editor, text);
+                    this._shiftPhotoComparePasteFormatUndo = {
+                        editor,
+                        mark: targetMark,
+                        before: previousText,
+                        after: text,
+                        selectionStart: 0,
+                        selectionEnd: previousText.length
+                    };
                 }
                 this.selectShiftPhotoCompareMark(targetMark);
                 if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
@@ -8788,15 +9511,73 @@
         this.scheduleShiftNotebookAutoSave();
     }
 
+    applyShiftPhotoCompareRegionCommentAutoScale(mark) {
+        if (!mark || mark.dataset.mode !== 'boxedText' || mark.dataset.regionComment !== '1') return 1;
+        const content = mark.querySelector('.shift-photo-boxed-text-content');
+        const editor = mark.querySelector('.shift-photo-boxed-text-editor');
+        if (!content || !editor) return 1;
+        // rows="1" leaves a fixed-field textarea one line tall. Expand the real
+        // editor over every rendered line so selection and mirrors share an area.
+        const text = String(editor.value || mark.dataset.text || '');
+        const availableWidth = Math.max(0, content.clientWidth || mark.clientWidth || 0);
+        const availableHeight = Math.max(0, content.clientHeight || mark.clientHeight || 0);
+        const manualScale = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
+        const minimumScale = Math.max(0.16, Math.min(0.52, 0.52 / manualScale));
+        const tolerance = 1.5;
+        const setScale = scale => {
+            const normalized = Math.max(minimumScale, Math.min(1, Number(scale) || 1));
+            if (normalized >= 0.995) mark.style.removeProperty('--region-comment-auto-scale');
+            else mark.style.setProperty('--region-comment-auto-scale', normalized.toFixed(2));
+            return normalized;
+        };
+        if (!text.trim() || availableWidth <= 0 || availableHeight <= 0) {
+            setScale(1);
+            editor.scrollTop = 0;
+            editor.scrollLeft = 0;
+            return 1;
+        }
+        const fitsAt = scale => {
+            setScale(scale);
+            // Force layout so scrollHeight/scrollWidth reflect the temporary display scale.
+            editor.getBoundingClientRect();
+            return editor.scrollWidth <= availableWidth + tolerance
+                && editor.scrollHeight <= availableHeight + tolerance;
+        };
+        let fittedScale = 1;
+        if (!fitsAt(1)) {
+            let low = minimumScale;
+            let high = 1;
+            fittedScale = fitsAt(low) ? low : minimumScale;
+            for (let i = 0; i < 9; i += 1) {
+                const mid = (low + high) / 2;
+                if (fitsAt(mid)) {
+                    fittedScale = mid;
+                    low = mid;
+                } else {
+                    high = mid;
+                }
+            }
+        }
+        fittedScale = setScale(fittedScale);
+        editor.getBoundingClientRect();
+        const fittedEditorHeight = Math.max(0, Math.min(availableHeight, editor.scrollHeight));
+        if (fittedEditorHeight > 0) editor.style.height = `${fittedEditorHeight}px`;
+        editor.scrollTop = 0;
+        editor.scrollLeft = 0;
+        if (mark.classList.contains('selected')) this.updateShiftPhotoCompareMiniToolbar();
+        return fittedScale;
+    }
+
     syncShiftPhotoCompareTextOutlineMirror(mark) {
         if (!mark || !['callout', 'boxedText'].includes(mark.dataset.mode)) return;
         const editor = mark.querySelector(mark.dataset.mode === 'callout'
             ? '.shift-photo-callout-text'
             : '.shift-photo-boxed-text-editor');
         const mirrors = Array.from(mark.querySelectorAll(mark.dataset.mode === 'callout'
-            ? '.shift-photo-callout-text-outline-mirror, .shift-photo-callout-text-inner-outline-mirror'
-            : '.shift-photo-boxed-text-outline-mirror, .shift-photo-boxed-text-inner-outline-mirror'));
+            ? '.shift-photo-callout-text-outline-mirror, .shift-photo-callout-text-inner-outline-mirror, .shift-photo-text-color-mirror'
+            : '.shift-photo-boxed-text-outline-mirror, .shift-photo-boxed-text-inner-outline-mirror, .shift-photo-text-color-mirror'));
         if (!editor || !mirrors.length) return;
+        this.updateShiftPhotoCompareRichTextColorMirror(mark);
         const isRegionComment = mark.dataset.mode === 'boxedText' && mark.dataset.regionComment === '1';
         if (typeof ResizeObserver === 'function' && mark._shiftPhotoCompareRegionTextEditor !== editor) {
             mark._shiftPhotoCompareRegionTextResizeObserver?.disconnect?.();
@@ -8809,26 +9590,39 @@
         if (mark.dataset.mode === 'callout') {
             editor.scrollLeft = 0;
             mirrors.forEach(mirror => {
-                mirror.textContent = editor.value;
+                if (!mirror.classList.contains('shift-photo-text-color-mirror')) mirror.textContent = editor.value;
                 ['left', 'top', 'right', 'bottom', 'width', 'height', 'padding', 'transform', 'margin-top', 'margin-left']
                     .forEach(property => mirror.style.removeProperty(property));
             });
             return;
         }
+        if (isRegionComment) {
+            this.applyShiftPhotoCompareRegionCommentAutoScale(mark);
+            editor.getBoundingClientRect();
+        }
         mirrors.forEach(mirror => {
-            mirror.textContent = editor.value;
-            mirror.style.left = `${isRegionComment ? editor.offsetLeft - editor.scrollLeft : 0}px`;
-            mirror.style.top = `${isRegionComment ? editor.offsetTop - editor.scrollTop : 0}px`;
+            if (!mirror.classList.contains('shift-photo-text-color-mirror')) mirror.textContent = editor.value;
+            const mirrorLeft = isRegionComment ? editor.offsetLeft - editor.scrollLeft : 0;
+            const mirrorTop = isRegionComment ? editor.offsetTop - editor.scrollTop : 0;
+            const mirrorWidth = isRegionComment ? editor.offsetWidth : editor.clientWidth;
+            const mirrorHeight = isRegionComment ? Math.max(editor.offsetHeight, editor.scrollHeight) : editor.clientHeight;
+            mirror.style.left = `${mirrorLeft}px`;
+            mirror.style.top = `${mirrorTop}px`;
             mirror.style.right = 'auto';
             mirror.style.bottom = 'auto';
-            mirror.style.width = `${editor.clientWidth}px`;
-            mirror.style.height = `${isRegionComment ? Math.max(editor.clientHeight, editor.scrollHeight) : editor.clientHeight}px`;
+            mirror.style.width = `${mirrorWidth}px`;
+            mirror.style.height = `${mirrorHeight}px`;
             if (isRegionComment) {
                 const editorStyle = getComputedStyle(editor);
                 mirror.style.paddingTop = editorStyle.paddingTop;
                 mirror.style.paddingRight = editorStyle.paddingRight;
                 mirror.style.paddingBottom = editorStyle.paddingBottom;
                 mirror.style.paddingLeft = editorStyle.paddingLeft;
+                mirror.style.whiteSpace = editorStyle.whiteSpace;
+                mirror.style.overflowWrap = editorStyle.overflowWrap;
+                mirror.style.wordBreak = editorStyle.wordBreak;
+                mirror.style.lineHeight = editorStyle.lineHeight;
+                mirror.style.letterSpacing = editorStyle.letterSpacing;
             } else {
                 mirror.style.padding = '0';
             }
@@ -8858,7 +9652,11 @@
         if (!editor || !textWrap) return;
         editor.style.height = 'auto';
         const availableHeight = Math.max(0, textWrap.clientHeight || editor.scrollHeight);
-        const textFit = ['shrink', 'wrap', 'overflow', 'expand'].includes(mark.dataset.textFit) ? mark.dataset.textFit : 'shrink';
+        let textFit = ['shrink', 'wrap', 'overflow', 'expand'].includes(mark.dataset.textFit) ? mark.dataset.textFit : 'shrink';
+        if (String(editor.value || mark.dataset.text || '').length > 120 && textFit !== 'shrink') {
+            textFit = 'shrink';
+            mark.dataset.textFit = 'shrink';
+        }
         editor.style.height = `${textFit === 'overflow' ? editor.scrollHeight : Math.min(editor.scrollHeight, availableHeight)}px`;
         editor.scrollTop = 0;
         editor.scrollLeft = 0;
@@ -8875,27 +9673,101 @@
         const textWrap = editor?.closest('.shift-photo-callout-text-wrap');
         if (!editor || !textWrap) return;
         const size = Math.max(24, Math.min(700, Number(mark.dataset.size) || 56));
-        const preferredScale = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
+        const minimumScale = 0.18;
+        const preferredScale = Math.max(minimumScale, Math.min(3, Number(mark.dataset.textScale) || 1));
         const textFit = ['shrink', 'wrap', 'overflow', 'expand'].includes(mark.dataset.textFit) ? mark.dataset.textFit : 'shrink';
         let fittedScale = preferredScale;
         if (textFit === 'shrink') {
-            for (let index = 0; index < 26; index += 1) {
-                mark.style.setProperty('--callout-font-size', `${size * 0.34 * fittedScale}px`);
+            const applyScale = scale => {
+                mark.style.setProperty('--callout-font-size', `${size * 0.34 * scale}px`);
                 this.refreshShiftPhotoCompareCalloutEditorSize(mark);
-                const fitsHeight = editor.scrollHeight <= textWrap.clientHeight + 1;
-                const fitsWidth = editor.scrollWidth <= textWrap.clientWidth + 1;
-                if (fitsHeight && fitsWidth) break;
-                const next = Math.max(0.5, Math.round((fittedScale - 0.1) * 10) / 10);
-                if (next === fittedScale) break;
-                fittedScale = next;
+                editor.getBoundingClientRect();
+            };
+            const fitsAt = scale => {
+                applyScale(scale);
+                return editor.scrollHeight <= textWrap.clientHeight + 1
+                    && editor.scrollWidth <= textWrap.clientWidth + 1;
+            };
+            if (!fitsAt(preferredScale)) {
+                let low = minimumScale;
+                let high = preferredScale;
+                fittedScale = fitsAt(low) ? low : minimumScale;
+                for (let index = 0; index < 10; index += 1) {
+                    const mid = (low + high) / 2;
+                    if (fitsAt(mid)) {
+                        fittedScale = mid;
+                        low = mid;
+                    } else {
+                        high = mid;
+                    }
+                }
             }
         }
-        mark.dataset.autoTextScale = String(fittedScale);
+        mark.dataset.autoTextScale = String(Math.round(fittedScale * 100) / 100);
         mark.style.setProperty('--callout-font-size', `${size * 0.34 * fittedScale}px`);
         this.refreshShiftPhotoCompareCalloutEditorSize(mark);
+        this.updateShiftPhotoCompareTextOverflowState(mark);
+        if (mark.classList.contains('selected')) this.updateShiftPhotoCompareMiniToolbar();
         if (textFit === 'expand' && !mark._shiftPhotoCompareAutoExpanding) {
             this.expandShiftPhotoCompareCalloutToFitText(mark);
         }
+    }
+
+    updateShiftPhotoCompareTextOverflowState(mark) {
+        if (!mark || !['callout', 'boxedText'].includes(mark.dataset?.mode || '')) return false;
+        const selector = mark.dataset.mode === 'callout' ? '.shift-photo-callout-text' : '.shift-photo-boxed-text-editor';
+        const areaSelector = mark.dataset.mode === 'callout' ? '.shift-photo-callout-text-wrap' : '.shift-photo-boxed-text-content';
+        const editor = mark.querySelector(selector);
+        const area = editor?.closest(areaSelector);
+        if (!editor || !area) return false;
+        const fixedBox = mark.dataset.mode === 'callout' || mark.dataset.regionComment === '1';
+        const overflow = fixedBox && (
+            editor.scrollHeight > area.clientHeight + 1
+            || editor.scrollWidth > area.clientWidth + 1
+        );
+        this.setShiftPhotoCompareTextOverflowWarning(mark, overflow);
+        return overflow;
+    }
+
+    setShiftPhotoCompareTextOverflowWarning(mark, overflow = false) {
+        if (!mark) return;
+        mark.dataset.textOverflow = overflow ? '1' : '0';
+        if (mark._shiftPhotoCompareOverflowWarningTimer) {
+            clearTimeout(mark._shiftPhotoCompareOverflowWarningTimer);
+            mark._shiftPhotoCompareOverflowWarningTimer = 0;
+        }
+        mark.classList.toggle('shift-photo-text-overflow', !!overflow);
+        if (!overflow) return;
+        mark._shiftPhotoCompareOverflowWarningTimer = setTimeout(() => {
+            mark._shiftPhotoCompareOverflowWarningTimer = 0;
+            mark.classList.remove('shift-photo-text-overflow');
+        }, 10000);
+    }
+
+    fitSelectedShiftPhotoTextToFrame() {
+        const marks = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks())
+            .filter(mark => mark.dataset.mode === 'callout');
+        if (!marks.length) return this.showShiftPhotoCompareActionMessage('枠に合わせる吹き出しを選択してください。');
+        this.pushShiftPhotoCompareUndo();
+        marks.forEach(mark => {
+            mark.dataset.textFit = 'shrink';
+            // Search from the supported maximum, then keep only the fitted
+            // size on this mark. This automatic result is not saved as the
+            // default for the next callout.
+            mark.dataset.textScale = '3';
+            this.fitShiftPhotoCompareCalloutText(mark);
+            const fitted = Math.max(0.18, Math.min(3, Number(mark.dataset.autoTextScale) || 1));
+            mark.dataset.textScale = String(fitted);
+            mark.dataset.autoTextScale = String(fitted);
+            this.fitShiftPhotoCompareCalloutText(mark);
+            this.scheduleShiftPhotoCompareTextOutlineMirrorSync(mark);
+        });
+        this.syncShiftPhotoCompareWrapForMark(marks[0]);
+        this.updateShiftPhotoCompareSelectionBounds();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`文字を枠内に収まる最大サイズに調整しました。`);
     }
 
     expandShiftPhotoCompareCalloutToFitText(mark) {
@@ -8930,8 +9802,12 @@
         if (mark.dataset.mode === 'boxedText') {
             mark.style.setProperty('--boxed-text-inverse-x', String(1 / stretch));
             mark.style.setProperty('--boxed-text-inverse-y', String(1 / stretchY));
+            mark.style.setProperty('--boxed-text-border-inverse-x', String(1 / stretch));
+            mark.style.setProperty('--boxed-text-border-inverse-y', String(1 / stretchY));
             return;
         }
+        mark.style.setProperty('--callout-border-inverse-x', String(1 / stretch));
+        mark.style.setProperty('--callout-border-inverse-y', String(1 / stretchY));
         mark.style.setProperty('--callout-tail-inverse-x', String(1 / stretch));
         mark.style.setProperty('--callout-tail-inverse-y', String(1 / stretchY));
         mark.style.setProperty('--callout-tail-offset-x', `${126 / stretch}px`);
@@ -9032,16 +9908,7 @@
         marks.forEach(mark => {
             const current = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
             const next = Math.max(0.5, Math.min(3, Math.round((current + Number(delta || 0)) * 10) / 10));
-            mark.dataset.textScale = String(next);
-            // ミニバーで明示的に文字サイズを指定した場合は、自動縮小で
-            // 指定倍率が直後に打ち消されないよう折り返し表示へ切り替える。
-            if ((mark.dataset.textFit || 'shrink') === 'shrink') mark.dataset.textFit = 'wrap';
-            this.updateShiftPhotoCompareCalloutTypography(mark);
-            this.scheduleShiftPhotoCompareTextOutlineMirrorSync(mark);
-            this.saveShiftPhotoCompareTypographyDefault('callout', {
-                font: mark.dataset.font,
-                textScale: next
-            }, mark);
+            this.applyShiftPhotoCompareCalloutTextScale(mark, next, { saveDefault: true });
         });
         this.syncShiftPhotoCompareWrapForMark(marks[0]);
         this.updateShiftPhotoCompareMiniToolbar();
@@ -9049,6 +9916,68 @@
         this.autoSaveShiftNotebook(true);
         const textScale = Math.max(0.5, Math.min(3, Number(marks[0].dataset.textScale) || 1));
         this.showShiftPhotoCompareActionMessage(`吹き出しの文字サイズを${Math.round(textScale * 100)}%にしました。`);
+    }
+
+    adjustSelectedShiftPhotoTextScale(delta = 0) {
+        const marks = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks())
+            .filter(mark => ['callout', 'text'].includes(mark.dataset.mode));
+        if (!marks.length) return this.showShiftPhotoCompareActionMessage('文字サイズを変える吹き出し・文字入力を選択してください。');
+        this.pushShiftPhotoCompareUndo();
+        marks.forEach(mark => {
+            const current = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
+            const next = Math.max(0.5, Math.min(3, Math.round((current + Number(delta || 0)) * 10) / 10));
+            if (mark.dataset.mode === 'callout') {
+                this.applyShiftPhotoCompareCalloutTextScale(mark, next, { saveDefault: false });
+            } else {
+                this.applyShiftPhotoComparePlainTextScale(mark, next);
+            }
+        });
+        this.syncShiftPhotoCompareWrapForMark(marks[0]);
+        this.updateShiftPhotoCompareSelectionBounds();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        const textScale = Math.max(0.5, Math.min(3, Number(marks[0].dataset.textScale) || 1));
+        this.showShiftPhotoCompareActionMessage(`文字サイズを${Math.round(textScale * 100)}%にしました。`);
+    }
+
+    resetSelectedShiftPhotoTextScale() {
+        const marks = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks())
+            .filter(mark => ['callout', 'text'].includes(mark.dataset.mode));
+        if (!marks.length) return this.showShiftPhotoCompareActionMessage('文字サイズを戻す吹き出し・文字入力を選択してください。');
+        this.pushShiftPhotoCompareUndo();
+        marks.forEach(mark => {
+            if (mark.dataset.mode === 'callout') {
+                this.applyShiftPhotoCompareCalloutTextScale(mark, 1, { saveDefault: false, preserveFit: true });
+            } else {
+                this.applyShiftPhotoComparePlainTextScale(mark, 1);
+            }
+        });
+        this.syncShiftPhotoCompareWrapForMark(marks[0]);
+        this.updateShiftPhotoCompareSelectionBounds();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`${marks.length}件の文字サイズを100%に戻しました。`);
+    }
+
+    getShiftPhotoCompareCalloutAutoScale(mark) {
+        if (!mark || mark.dataset.mode !== 'callout') return 1;
+        const manualScale = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
+        const autoScale = Number(mark.dataset.autoTextScale);
+        return Number.isFinite(autoScale) && autoScale > 0
+            ? Math.max(0.18, Math.min(3, autoScale))
+            : manualScale;
+    }
+
+    getShiftPhotoCompareRegionCommentAutoScale(mark) {
+        if (!mark || mark.dataset.mode !== 'boxedText' || mark.dataset.regionComment !== '1') return 1;
+        const inlineScale = Number(mark.style.getPropertyValue('--region-comment-auto-scale'));
+        if (Number.isFinite(inlineScale) && inlineScale > 0) return Math.max(0.18, Math.min(1, inlineScale));
+        const computedScale = Number(getComputedStyle(mark).getPropertyValue('--region-comment-auto-scale'));
+        return Number.isFinite(computedScale) && computedScale > 0
+            ? Math.max(0.18, Math.min(1, computedScale))
+            : 1;
     }
 
     adjustSelectedShiftPhotoTableFontSize(delta = 0) {
@@ -9273,13 +10202,18 @@
     updateShiftPhotoCompareCalloutText(editor) {
         const mark = editor?.closest?.('.shift-photo-compare-mark.callout');
         if (!mark) return;
+        if (!this._shiftPhotoCompareApplyingFormattedPaste) this._shiftPhotoComparePasteFormatUndo = null;
         if (this._shiftPhotoCompareTextEditingMark !== mark) {
             this.pushShiftPhotoCompareUndo();
             this._shiftPhotoCompareTextEditingMark = mark;
         }
         const isTextarea = editor.tagName === 'TEXTAREA';
         const rawText = isTextarea ? editor.value : editor.innerText;
-        const text = String(rawText || '').replace(/\n{3,}/g, '\n\n').slice(0, 120);
+        const maxLength = this.getShiftPhotoCompareCalloutTextMaxLength(mark);
+        if (isTextarea && editor.maxLength !== maxLength) editor.maxLength = maxLength;
+        const text = String(rawText || '').replace(/\n{3,}/g, '\n\n').slice(0, maxLength);
+        this.rebaseShiftPhotoCompareTextColorRuns(mark, mark.dataset.text || '', text);
+        mark.dataset.textFit = 'shrink';
         if (isTextarea) {
             if (editor.value !== text) editor.value = text;
             editor.style.height = 'auto';
@@ -9287,11 +10221,13 @@
             editor.style.height = `${Math.min(editor.scrollHeight, availableHeight)}px`;
         } else if (editor.innerText !== text) editor.innerText = text;
         mark.dataset.text = text;
+        this.updateShiftPhotoCompareRichTextColorMirror(mark);
         const mirror = editor.closest('.shift-photo-callout-text-wrap')?.querySelector('.shift-photo-callout-text-outline-mirror');
         if (mirror) {
             mirror.textContent = text;
         }
         this.fitShiftPhotoCompareCalloutText(mark);
+        this.updateShiftPhotoCompareTextOverflowState(mark);
         this.scheduleShiftPhotoCompareTextOutlineMirrorSync(mark);
         const input = document.getElementById('shift-photo-compare-text-input');
         if (input && this._shiftPhotoCompareSelectedMark === mark) input.value = text;
@@ -9308,12 +10244,14 @@
     updateShiftPhotoCompareBoxedText(editor) {
         const mark = editor?.closest?.('.shift-photo-compare-mark.boxedText');
         if (!mark) return;
+        if (!this._shiftPhotoCompareApplyingFormattedPaste) this._shiftPhotoComparePasteFormatUndo = null;
         if (this._shiftPhotoCompareTextEditingMark !== mark) {
             this.pushShiftPhotoCompareUndo();
             this._shiftPhotoCompareTextEditingMark = mark;
         }
         const text = this.commitShiftPhotoCompareBoxedTextValue(editor, editor.value);
         if (mark.dataset.regionComment === '1') this.fitShiftPhotoCompareRegionComment(mark);
+        this.updateShiftPhotoCompareTextOverflowState(mark);
         const input = document.getElementById('shift-photo-compare-text-input');
         if (input && this._shiftPhotoCompareSelectedMark === mark) input.value = text;
         this.updateShiftPhotoCompareSelectionBounds();
@@ -9330,14 +10268,18 @@
     commitShiftPhotoCompareBoxedTextValue(editor, value = '') {
         const mark = editor?.closest?.('.shift-photo-compare-mark.boxedText');
         if (!mark) return '';
+        const maxLength = this.getShiftPhotoCompareBoxedTextMaxLength(mark);
+        if (editor.maxLength !== maxLength) editor.maxLength = maxLength;
         const text = String(value || '')
             .replace(/\r\n?/g, '\n')
             .replace(/\n{3,}/g, '\n\n')
-            .slice(0, 120);
+            .slice(0, maxLength);
+        this.rebaseShiftPhotoCompareTextColorRuns(mark, mark.dataset.text || '', text);
         if (editor.value !== text) editor.value = text;
         editor.defaultValue = text;
         editor.placeholder = text ? '' : 'クリックして文字入力';
         mark.dataset.text = text;
+        this.updateShiftPhotoCompareRichTextColorMirror(mark);
         editor.closest('.shift-photo-boxed-text-content')
             ?.querySelectorAll('.shift-photo-boxed-text-outline-mirror, .shift-photo-boxed-text-inner-outline-mirror')
             .forEach(mirror => { mirror.textContent = text; });
@@ -9348,6 +10290,7 @@
     updateShiftPhotoComparePlainText(editor) {
         const mark = editor?.closest?.('.shift-photo-compare-mark.text');
         if (!mark) return;
+        if (!this._shiftPhotoCompareApplyingFormattedPaste) this._shiftPhotoComparePasteFormatUndo = null;
         if (this._shiftPhotoCompareTextEditingMark !== mark) {
             this.pushShiftPhotoCompareUndo();
             this._shiftPhotoCompareTextEditingMark = mark;
@@ -10245,7 +11188,7 @@
         const mode = source.dataset.mode;
         const size = Math.max(24, Number(source.dataset.size) || 56);
         const textScale = Math.max(0.5, Math.min(3, Number(source.dataset.textScale) || 1));
-        const fontSize = size * ({ text: 0.48, number: 0.62, boxedText: 0.42, callout: 0.34 }[mode] || 0.48) * (mode === 'callout' ? textScale : 1);
+        const fontSize = size * ({ text: 0.48, number: 0.62, boxedText: 0.42, callout: 0.34 }[mode] || 0.48) * (['callout', 'text'].includes(mode) ? textScale : 1);
         this._shiftPhotoCompareTextStyleClipboard = {
             font: this.getShiftPhotoCompareSafeFont(source.dataset.font || ''),
             fontSize,
@@ -10357,8 +11300,10 @@
     }
 
     setShiftPhotoCompareTextValue(value = '') {
-        const text = String(value || '').slice(0, 120);
+        if (!this._shiftPhotoCompareApplyingFormattedPaste) this._shiftPhotoComparePasteFormatUndo = null;
         const mark = this._shiftPhotoCompareSelectedMark;
+        const textMaxLength = this.getShiftPhotoCompareMarkTextMaxLength(mark || { mode: this._shiftPhotoCompareMarkMode });
+        const text = String(value || '').slice(0, textMaxLength);
         if (this._shiftPhotoCompareMarkMode === 'move'
             && mark
             && document.contains(mark)
@@ -10578,6 +11523,163 @@
         this.showShiftPhotoCompareActionMessage(`${targets.length}件のグループ化を解除しました。`);
     }
 
+    setShiftPhotoCompareMiniTextSettingsOpen(open = false, options = {}) {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        const panel = toolbar?.querySelector?.('.shift-photo-compare-text-settings-panel');
+        const button = toolbar?.querySelector?.('.shift-photo-compare-text-settings-btn');
+        const persist = options.persist !== false;
+        const shouldOpen = !!open && toolbar?.dataset?.hasTextSettingSelection === '1';
+        if (shouldOpen) {
+            this.setShiftPhotoCompareMiniSymbolAlignOpen(false, { persist });
+            this.setShiftPhotoCompareMiniLayerListOpen(false, { persist });
+        }
+        if (toolbar) toolbar.dataset.textSettingsOpen = shouldOpen ? '1' : '';
+        if (panel) panel.hidden = !shouldOpen;
+        if (button) {
+            button.classList.toggle('active', shouldOpen);
+            button.title = shouldOpen ? '文字設定を閉じる' : '文字サイズ・配置・フォントをまとめて設定';
+        }
+        if (persist) {
+            try {
+                localStorage.setItem('shift_photo_compare_mini_text_settings_open', shouldOpen ? '1' : '0');
+            } catch (_) {}
+        }
+        this.updateShiftPhotoCompareMiniPanelDirection();
+        this.updateShiftPhotoCompareMiniPanelOutsideClose();
+        if (shouldOpen) requestAnimationFrame(() => this.restoreRememberedShiftPhotoCompareTextSelection());
+    }
+
+    toggleShiftPhotoCompareMiniTextSettings() {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        this.setShiftPhotoCompareMiniTextSettingsOpen(toolbar?.dataset?.textSettingsOpen !== '1');
+    }
+
+    setShiftPhotoCompareMiniSymbolAlignOpen(open = false, options = {}) {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        const panel = toolbar?.querySelector?.('.shift-photo-compare-symbol-align-group');
+        const button = toolbar?.querySelector?.('.shift-photo-compare-symbol-align-toggle');
+        const persist = options.persist !== false;
+        const shouldOpen = !!open;
+        if (shouldOpen) {
+            this.setShiftPhotoCompareMiniTextSettingsOpen(false, { persist });
+            this.setShiftPhotoCompareMiniLayerListOpen(false, { persist });
+        }
+        if (toolbar) toolbar.dataset.symbolAlignOpen = shouldOpen ? '1' : '';
+        if (panel) panel.hidden = !shouldOpen;
+        if (button) {
+            button.classList.toggle('active', shouldOpen);
+            button.title = shouldOpen ? '記号揃えを閉じる' : '記号揃えを開く';
+        }
+        if (persist) {
+            try {
+                localStorage.setItem('shift_photo_compare_mini_symbol_align_open', shouldOpen ? '1' : '0');
+            } catch (_) {}
+        }
+        this.updateShiftPhotoCompareMiniPanelDirection();
+        this.updateShiftPhotoCompareMiniPanelOutsideClose();
+    }
+
+    toggleShiftPhotoCompareMiniSymbolAlign() {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        this.setShiftPhotoCompareMiniSymbolAlignOpen(toolbar?.dataset?.symbolAlignOpen !== '1');
+    }
+
+    setShiftPhotoCompareMiniLayerListOpen(open = false, options = {}) {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        const panel = toolbar?.querySelector?.('.shift-photo-compare-mini-layer-list');
+        const button = toolbar?.querySelector?.('.shift-photo-compare-layer-list-toggle');
+        const persist = options.persist !== false;
+        const shouldOpen = !!open && toolbar?.dataset?.canShowLayerList === '1';
+        if (shouldOpen) {
+            this.setShiftPhotoCompareMiniTextSettingsOpen(false, { persist });
+            this.setShiftPhotoCompareMiniSymbolAlignOpen(false, { persist });
+        }
+        if (toolbar) toolbar.dataset.layerListOpen = shouldOpen ? '1' : '';
+        if (panel) {
+            panel.hidden = !shouldOpen;
+            if (shouldOpen) this.renderShiftPhotoCompareMiniLayerList(panel);
+        }
+        if (button) {
+            button.classList.toggle('active', shouldOpen);
+            button.title = shouldOpen ? '重なり順リストを閉じる' : '選択中レイヤーの重なり順リストを開く';
+        }
+        if (persist) {
+            try {
+                localStorage.setItem('shift_photo_compare_mini_layer_list_open', shouldOpen ? '1' : '0');
+            } catch (_) {}
+        }
+        this.updateShiftPhotoCompareMiniPanelDirection();
+        this.updateShiftPhotoCompareMiniPanelOutsideClose();
+    }
+
+    toggleShiftPhotoCompareMiniLayerList() {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        this.setShiftPhotoCompareMiniLayerListOpen(toolbar?.dataset?.layerListOpen !== '1');
+    }
+
+    restoreShiftPhotoCompareMiniPanelState() {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        if (!toolbar) return;
+        let textOpen = false;
+        let alignOpen = false;
+        let layerListOpen = false;
+        try {
+            textOpen = localStorage.getItem('shift_photo_compare_mini_text_settings_open') === '1';
+            alignOpen = localStorage.getItem('shift_photo_compare_mini_symbol_align_open') === '1';
+            layerListOpen = localStorage.getItem('shift_photo_compare_mini_layer_list_open') === '1';
+        } catch (_) {}
+        this.setShiftPhotoCompareMiniTextSettingsOpen(textOpen, { persist: false });
+        this.setShiftPhotoCompareMiniSymbolAlignOpen(alignOpen, { persist: false });
+        this.setShiftPhotoCompareMiniLayerListOpen(layerListOpen, { persist: false });
+    }
+
+    updateShiftPhotoCompareMiniPanelDirection() {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        if (!toolbar || toolbar.hidden) return;
+        const hasOpenPanel = toolbar.dataset.textSettingsOpen === '1' || toolbar.dataset.symbolAlignOpen === '1' || toolbar.dataset.layerListOpen === '1';
+        if (!hasOpenPanel) {
+            toolbar.dataset.panelDirection = '';
+            return;
+        }
+        const rect = toolbar.getBoundingClientRect();
+        const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+        const spaceBelow = viewportHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        toolbar.dataset.panelDirection = spaceBelow < 150 && spaceAbove > spaceBelow ? 'up' : '';
+    }
+
+    updateShiftPhotoCompareMiniPanelOutsideClose() {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        const hasOpenPanel = toolbar && !toolbar.hidden && (toolbar.dataset.textSettingsOpen === '1' || toolbar.dataset.symbolAlignOpen === '1' || toolbar.dataset.layerListOpen === '1');
+        if (hasOpenPanel && !this.shiftPhotoCompareMiniPanelOutsideHandler) {
+            this.shiftPhotoCompareMiniPanelOutsideHandler = event => {
+                const currentToolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+                if (!currentToolbar || currentToolbar.hidden) return;
+                const target = event.target;
+                if (target && currentToolbar.contains(target)) return;
+                this.setShiftPhotoCompareMiniTextSettingsOpen(false);
+                this.setShiftPhotoCompareMiniSymbolAlignOpen(false);
+                this.setShiftPhotoCompareMiniLayerListOpen(false);
+            };
+            document.addEventListener('pointerdown', this.shiftPhotoCompareMiniPanelOutsideHandler, true);
+        } else if (!hasOpenPanel && this.shiftPhotoCompareMiniPanelOutsideHandler) {
+            document.removeEventListener('pointerdown', this.shiftPhotoCompareMiniPanelOutsideHandler, true);
+            this.shiftPhotoCompareMiniPanelOutsideHandler = null;
+        }
+    }
+
+    resetShiftPhotoCompareMiniPanelOpenPreference() {
+        try {
+            localStorage.setItem('shift_photo_compare_mini_text_settings_open', '0');
+            localStorage.setItem('shift_photo_compare_mini_symbol_align_open', '0');
+            localStorage.setItem('shift_photo_compare_mini_layer_list_open', '0');
+        } catch (_) {}
+        this.setShiftPhotoCompareMiniTextSettingsOpen(false, { persist: false });
+        this.setShiftPhotoCompareMiniSymbolAlignOpen(false, { persist: false });
+        this.setShiftPhotoCompareMiniLayerListOpen(false, { persist: false });
+        this.showShiftPhotoCompareActionMessage('文字設定・記号揃え・順リストを次回から閉じた状態にしました。');
+    }
+
     toggleSelectedShiftPhotoBoxedTextAlign() {
         const selected = this.getShiftPhotoCompareSelectedMarks().filter(mark => mark?.dataset?.mode === 'boxedText' && document.contains(mark) && !this.isShiftPhotoCompareMarkLocked(mark));
         if (!selected.length) {
@@ -10730,7 +11832,10 @@
         this._shiftPhotoCompareTextEditingMark = null;
         if (!mark) {
             const textInput = document.getElementById('shift-photo-compare-text-input');
-            if (textInput) textInput.value = '';
+            if (textInput) {
+                textInput.value = '';
+                textInput.maxLength = 120;
+            }
             this._shiftPhotoCompareSampleText = '';
             this.clearShiftPhotoCompareImageBrushMode({ silent: true });
             this.syncShiftPhotoCompareSelectionState();
@@ -10785,7 +11890,10 @@
         if (fillColorInput) fillColorInput.value = fillColor;
         if (textColorInput) textColorInput.value = textColor;
         if (fontInput) fontInput.value = font;
-        if (textInput && ['text', 'boxedText', 'callout', 'dimension'].includes(mark.dataset.mode)) textInput.value = mark.dataset.text || '';
+        if (textInput && ['text', 'boxedText', 'callout', 'dimension'].includes(mark.dataset.mode)) {
+            textInput.maxLength = this.getShiftPhotoCompareMarkTextMaxLength(mark);
+            textInput.value = mark.dataset.text || '';
+        }
         document.querySelector('.shift-photo-compare-outline')?.classList.toggle('active', outline);
         document.querySelector('.shift-photo-compare-inner-outline')?.classList.toggle('active', innerOutline);
         if (this.isShiftPhotoCompareOutlineMode(mark.dataset.mode)) {
@@ -10837,6 +11945,9 @@
         if (!toolbar) return;
         const selected = this.getShiftPhotoCompareSelectedMarks();
         if (!mark || !document.contains(mark) || !selected.length || this._shiftPhotoCompareMarkMode !== 'move') {
+            this.setShiftPhotoCompareMiniTextSettingsOpen(false, { persist: false });
+            this.setShiftPhotoCompareMiniSymbolAlignOpen(false, { persist: false });
+            this.setShiftPhotoCompareMiniLayerListOpen(false, { persist: false });
             toolbar.hidden = true;
             this._shiftPhotoCompareMiniToolbarPinned = false;
             this.updateShiftPhotoCompareSelectionBounds();
@@ -10844,7 +11955,11 @@
             return;
         }
         const layoutCount = this.getShiftPhotoCompareLayoutItemsInSameLayer().length;
+        const layerInfo = this.getShiftPhotoCompareSelectedLayerInfo();
         toolbar.dataset.selectedCount = layoutCount > 1 && layoutCount < selected.length ? `${layoutCount}組` : (selected.length > 1 ? `${selected.length}件` : '');
+        toolbar.dataset.canAlignSelection = layoutCount >= 2 ? '1' : '';
+        toolbar.dataset.canDistributeSelection = layoutCount >= 3 ? '1' : '';
+        toolbar.dataset.canShowLayerList = layerInfo?.marks?.length >= 2 ? '1' : '';
         toolbar.dataset.primaryMode = mark.dataset.mode || '';
         toolbar.dataset.hasNumberTextPair = this.getShiftPhotoCompareNumberTextPair(mark) ? '1' : '';
         toolbar.dataset.hasImageSelection = selected.some(item => item.dataset.mode === 'image') ? '1' : '';
@@ -10854,9 +11969,16 @@
         toolbar.dataset.hasBoxedTextSelection = selected.some(item => item.dataset.mode === 'boxedText') ? '1' : '';
         toolbar.dataset.hasRegionCommentSelection = selected.some(item => item.dataset.mode === 'boxedText' && item.dataset.regionComment === '1') ? '1' : '';
         toolbar.dataset.hasCalloutSelection = selected.some(item => item.dataset.mode === 'callout') ? '1' : '';
+        toolbar.dataset.hasRichTextSelection = selected.some(item => ['boxedText', 'callout'].includes(item.dataset.mode || '')) ? '1' : '';
+        toolbar.dataset.canUndoTextPaste = this.canUndoShiftPhotoCompareFormattedPaste(mark) ? '1' : '';
+        const hasTextSettingSelection = selected.some(item => ['text', 'boxedText', 'callout'].includes(item.dataset.mode || ''));
+        toolbar.dataset.hasTextSettingSelection = hasTextSettingSelection ? '1' : '';
+        if (!hasTextSettingSelection) this.setShiftPhotoCompareMiniTextSettingsOpen(false, { persist: false });
+        if (toolbar.dataset.canShowLayerList !== '1') this.setShiftPhotoCompareMiniLayerListOpen(false, { persist: false });
         toolbar.dataset.hasWallpaperSelection = selected.some(item => ['boxedText', 'callout'].includes(item.dataset.mode)) ? '1' : '';
         toolbar.dataset.hasTableSelection = selected.some(item => item.dataset.mode === 'table') ? '1' : '';
         toolbar.dataset.hasLockedSelection = selected.some(item => this.isShiftPhotoCompareMarkLocked(item)) ? '1' : '';
+        this.restoreShiftPhotoCompareMiniPanelState();
         const polylineState = toolbar.querySelector('.shift-photo-compare-polyline-state');
         if (polylineState) {
             const polyline = selected.find(item => item.dataset.mode === 'polyline');
@@ -10916,6 +12038,7 @@
             groupIconButton.title = hidden ? 'グループアイコンを表示' : 'グループ化したままアイコンを非表示';
             groupIconButton.innerHTML = hidden ? '<i class="fa-regular fa-eye-slash"></i>' : '<i class="fa-regular fa-eye"></i>';
         }
+        this.updateShiftPhotoCompareMiniLayerControls(toolbar, layerInfo);
         const plainTextAlignButton = toolbar.querySelector('.shift-photo-compare-plain-text-align-btn');
         if (plainTextAlignButton) {
             const plainTextMark = selected.find(item => item.dataset.mode === 'text');
@@ -10941,7 +12064,7 @@
                 center: '中央揃え',
                 right: '右揃え'
             };
-            boxedTextAlignButton.textContent = '揃';
+            boxedTextAlignButton.textContent = `横：${{ left: '左', center: '中', right: '右' }[align]}`;
             boxedTextAlignButton.title = `枠付き文字: ${labels[align]} / 押すと切替`;
             boxedTextAlignButton.dataset.align = align;
         }
@@ -10957,7 +12080,12 @@
         const regionFontSizeValue = toolbar.querySelector('.shift-photo-compare-region-font-size-value');
         if (regionFontSizeValue) {
             const size = Math.max(24, Math.min(700, Number(selectedRegionComment?.dataset?.size) || 56));
-            regionFontSizeValue.textContent = `${Math.round(size * 0.42)}px`;
+            const autoScale = selectedRegionComment ? this.getShiftPhotoCompareRegionCommentAutoScale(selectedRegionComment) : 1;
+            const autoLabel = autoScale < 0.995 ? ` / 自動${Math.round(autoScale * 100)}%` : '';
+            regionFontSizeValue.textContent = `${Math.round(size * 0.42)}px${autoLabel}`;
+            regionFontSizeValue.title = autoScale < 0.995
+                ? `手動文字サイズは約${Math.round(size * 0.42)}px、自動縮小後は${Math.round(autoScale * 100)}%表示です。`
+                : `区画内テキストの手動文字サイズは約${Math.round(size * 0.42)}pxです。`;
         }
         const calloutTailButton = toolbar.querySelector('.shift-photo-compare-callout-tail-btn');
         if (calloutTailButton) {
@@ -10967,6 +12095,32 @@
             calloutTailButton.title = enabled ? '吹き出しの先端を外す' : '吹き出しの先端を追加';
         }
         const selectedCallout = selected.find(item => item.dataset.mode === 'callout');
+        const richTextMark = selected.find(item => ['boxedText', 'callout'].includes(item.dataset.mode || ''));
+        const partialColorInput = toolbar.querySelector('.shift-photo-compare-partial-text-color input[type="color"]');
+        if (partialColorInput && richTextMark) {
+            const baseTextColor = /^#[0-9a-f]{6}$/i.test(richTextMark.dataset.textColor || '')
+                ? richTextMark.dataset.textColor
+                : (richTextMark.dataset.mode === 'boxedText' ? (richTextMark.dataset.color || '#dc2626') : '#111827');
+            const selectionStart = Number(richTextMark._shiftPhotoCompareTextSelection?.start);
+            const selectionColor = Number.isFinite(selectionStart)
+                ? this.normalizeShiftPhotoCompareTextColorRuns(richTextMark.dataset.textColorRuns || '[]', String(richTextMark.dataset.text || '').length)
+                    .find(run => selectionStart >= run.start && selectionStart < run.end)?.color
+                : '';
+            partialColorInput.value = selectionColor || baseTextColor;
+        }
+        const unifyColorButton = toolbar.querySelector('.shift-photo-compare-text-color-unify-btn');
+        const richTextRuns = richTextMark
+            ? this.normalizeShiftPhotoCompareTextColorRuns(richTextMark.dataset.textColorRuns || '[]', String(richTextMark.dataset.text || '').length)
+            : [];
+        if (unifyColorButton) unifyColorButton.disabled = !richTextMark || richTextRuns.length === 0;
+        const clearRangeButton = toolbar.querySelector('.shift-photo-compare-text-color-clear-range-btn');
+        if (clearRangeButton) {
+            const start = Number(richTextMark?._shiftPhotoCompareTextSelection?.start);
+            const end = Number(richTextMark?._shiftPhotoCompareTextSelection?.end);
+            clearRangeButton.disabled = !richTextMark || !Number.isFinite(start) || !Number.isFinite(end) || end <= start
+                || !richTextRuns.some(run => run.end > start && run.start < end);
+        }
+        this.renderShiftPhotoCompareRecentTextColors();
         const activeTailSide = ['top', 'right', 'bottom', 'left'].includes(selectedCallout?.dataset?.tailSide || '') ? selectedCallout.dataset.tailSide : 'bottom';
         toolbar.querySelectorAll('.shift-photo-compare-callout-side-btn').forEach(button => {
             button.classList.toggle('active', !!selectedCallout && selectedCallout.dataset.tailEnabled === '1' && button.dataset.tailSide === activeTailSide);
@@ -10979,8 +12133,17 @@
         if (verticalAlignButton) verticalAlignButton.textContent = `縦：${{ top: '上', middle: '中', bottom: '下' }[verticalAlign]}`;
         const fontSizeValue = toolbar.querySelector('.shift-photo-compare-callout-font-size-value');
         const calloutFontSelect = toolbar.querySelector('.shift-photo-compare-callout-font-select');
-        const textScale = Math.max(0.5, Math.min(3, Number(selectedCallout?.dataset?.textScale) || 1));
-        if (fontSizeValue) fontSizeValue.textContent = `${Math.round(textScale * 100)}%`;
+        const selectedPlainText = selected.find(item => item.dataset.mode === 'text');
+        const textScaleSource = selectedCallout || selectedPlainText;
+        const textScale = Math.max(0.5, Math.min(3, Number(textScaleSource?.dataset?.textScale) || 1));
+        if (fontSizeValue) {
+            const autoScale = selectedCallout ? this.getShiftPhotoCompareCalloutAutoScale(selectedCallout) : textScale;
+            const autoLabel = autoScale < textScale - 0.005 ? ` / 自動${Math.round(autoScale * 100)}%` : '';
+            fontSizeValue.textContent = `${Math.round(textScale * 100)}%${autoLabel}`;
+            fontSizeValue.title = autoScale < textScale - 0.005
+                ? `手動文字サイズは${Math.round(textScale * 100)}%、自動縮小後は${Math.round(autoScale * 100)}%表示です。`
+                : `${selectedCallout ? '吹き出し' : '文字入力'}の手動文字サイズは${Math.round(textScale * 100)}%です。`;
+        }
         if (calloutFontSelect && selectedCallout) calloutFontSelect.value = this.getShiftPhotoCompareSafeFont(selectedCallout.dataset.font || '');
         const selectedTable = selected.find(item => item.dataset.mode === 'table');
         const tableFontSizeValue = toolbar.querySelector('.shift-photo-compare-table-font-size-value');
@@ -10998,6 +12161,7 @@
             }
         }
         this.updateShiftPhotoCompareSelectionHint(selected);
+        if (toolbar.dataset.layerListOpen === '1') this.renderShiftPhotoCompareMiniLayerList();
         const panel = document.querySelector('.shift-photo-compare-panel');
         const selectedRects = selected.map(item => item.getBoundingClientRect()).filter(rect => rect.width || rect.height);
         const markRect = selectedRects.length > 1
@@ -11010,10 +12174,12 @@
         const panelRect = panel?.getBoundingClientRect();
         if (!panelRect?.width || !markRect?.width) {
             toolbar.hidden = true;
+            this.updateShiftPhotoCompareMiniPanelOutsideClose();
             return;
         }
         toolbar.hidden = false;
         if (this._shiftPhotoCompareMiniToolbarPinned) {
+            this.updateShiftPhotoCompareMiniPanelDirection();
             this.updateShiftPhotoCompareSelectionBounds();
             return;
         }
@@ -11021,6 +12187,7 @@
         const top = Math.max(48, Math.min(panelRect.height - toolbar.offsetHeight - 8, markRect.top - panelRect.top - toolbar.offsetHeight - 51));
         toolbar.style.left = `${left}px`;
         toolbar.style.top = `${top}px`;
+        this.updateShiftPhotoCompareMiniPanelDirection();
         this.updateShiftPhotoCompareSelectionBounds();
     }
 
@@ -11042,6 +12209,7 @@
                 : '画像：角の点で拡大、赤点で回転、透過チェックもできます';
         }
         if (mode === 'callout') return '吹き出し：枠内をクリックで文字入力、先端ボタンで方向変更できます';
+        if (mode === 'boxedText' && mark.dataset.regionComment === '1') return '直線区画テキスト：位置は区画内に固定、四隅・中点で枠サイズだけ調整できます';
         if (mode === 'boxedText') return '枠付き文字：枠内をクリックで文字入力、揃ボタンで位置変更できます';
         if (mode === 'arrow') return '矢印：端の丸をドラッグすると長さと向きを自由に変えられます';
         if (mode === 'dimension') return '寸法線：端の丸で長さと向きを変更、文字欄で寸法値を編集できます';
@@ -11108,6 +12276,7 @@
         if (!rects.length) return;
         const groupIds = [...new Set(selected.map(mark => this.getShiftPhotoCompareGroupId(mark)).filter(Boolean))];
         const groupIconHidden = !!groupIds.length && selected.every(mark => !this.getShiftPhotoCompareGroupId(mark) || mark.dataset.groupIconHidden === '1');
+        const regionCommentOnly = selected.length > 0 && selected.every(mark => mark.dataset.mode === 'boxedText' && mark.dataset.regionComment === '1');
         const left = Math.min(...rects.map(rect => rect.left)) - panelRect.left - 8;
         const top = Math.min(...rects.map(rect => rect.top)) - panelRect.top - 8;
         const right = Math.max(...rects.map(rect => rect.right)) - panelRect.left + 8;
@@ -11141,7 +12310,9 @@
         box.dataset.groupLabel = groupIds.length ? `グループ ${selected.length}件${groupIconHidden ? ' / アイコン非表示' : ''}` : '';
         box.dataset.hasImage = selected.some(mark => mark.dataset.mode === 'image') ? '1' : '';
         box.dataset.hasArrow = selected.some(mark => ['arrow', 'dimension'].includes(mark.dataset.mode)) ? '1' : '';
-        box.dataset.hasRotate = selected.some(mark => !['arrow', 'dimension'].includes(mark.dataset.mode || '')) ? '1' : '';
+        box.dataset.regionCommentOnly = regionCommentOnly ? '1' : '';
+        box.dataset.hasResize = regionCommentOnly ? '' : '1';
+        box.dataset.hasRotate = !regionCommentOnly && selected.some(mark => !['arrow', 'dimension'].includes(mark.dataset.mode || '')) ? '1' : '';
     }
 
     getShiftPhotoCompareMarkVisualRect(mark) {
@@ -11183,6 +12354,13 @@
         if (!box || event.button !== 0 || !selected.length) return;
         const handle = event.target?.closest?.('.shift-photo-compare-resize-handle');
         const rotateHandle = event.target?.closest?.('.shift-photo-compare-rotate-handle');
+        const regionCommentOnly = selected.length > 0 && selected.every(mark => mark.dataset.mode === 'boxedText' && mark.dataset.regionComment === '1');
+        if (regionCommentOnly && (handle || rotateHandle)) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.showShiftPhotoCompareActionMessage('直線区画のテキストは拡大・伸縮できません。直線枠側を調整してください。');
+            return;
+        }
         if (rotateHandle) {
             this.startShiftPhotoCompareSelectionRotate(event, box);
             return;
@@ -11196,11 +12374,17 @@
             this.startShiftPhotoCompareSelectionResize(event, box, handle.dataset.corner || 'se');
             return;
         }
-        if (selected.length < 2) return;
+        const movableSelected = selected.filter(mark => !(mark.dataset.mode === 'boxedText' && mark.dataset.regionComment === '1'));
+        if (movableSelected.length < 2) {
+            if (selected.length && !movableSelected.length) {
+                this.showShiftPhotoCompareActionMessage('直線区画のテキストは単独では移動できません。枠サイズのみ調整できます。');
+            }
+            return;
+        }
         event.preventDefault();
         if (this._shiftPhotoCompareMarkMode !== 'move') this.setShiftPhotoCompareMarkModeDirect('move');
         this.pushShiftPhotoCompareUndo();
-        const states = selected.map(mark => {
+        const states = movableSelected.map(mark => {
             const wrap = mark.closest('.shift-photo-compare-image-wrap') || mark.closest('.shift-photo-compare-global-layer');
             const rect = wrap?.getBoundingClientRect();
             return {
@@ -11252,9 +12436,11 @@
     startShiftPhotoCompareSelectionResize(event, box, corner = 'se') {
         const axis = ['e', 'w'].includes(corner) ? 'x' : (['n', 's'].includes(corner) ? 'y' : 'both');
         const selected = this.expandShiftPhotoCompareMarksWithPairs(this.getShiftPhotoCompareSelectedMarks())
-            .filter(mark => !this.isShiftPhotoCompareMarkLocked(mark));
+            .filter(mark => !this.isShiftPhotoCompareMarkLocked(mark))
+            .filter(mark => !(mark.dataset.mode === 'boxedText' && mark.dataset.regionComment === '1'));
         const targetMarks = selected;
         if (!targetMarks.length) {
+            this.showShiftPhotoCompareActionMessage('直線区画のテキストは拡大・伸縮できません。直線枠側を調整してください。');
             return;
         }
         box.dataset.resizeAxis = axis;
@@ -11300,6 +12486,8 @@
                 stretchY: parseFloat(mark.dataset.stretchY || '') || 1,
                 stroke: parseFloat(mark.dataset.stroke || '') || 1,
                 points: this.isShiftPhotoComparePointPathMode(mark.dataset.mode) ? this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]') : [],
+                regionCommentWidth: Number(mark.dataset.regionCommentWidth) || mark.getBoundingClientRect?.().width || 240,
+                regionCommentHeight: Number(mark.dataset.regionCommentHeight) || mark.getBoundingClientRect?.().height || 120,
                 centerX: wrapRect ? ((center.x - wrapRect.left) / wrapRect.width) * 100 : 50,
                 centerY: wrapRect ? ((center.y - wrapRect.top) / wrapRect.height) * 100 : 50,
                 originX: wrapRect ? ((origin.x - wrapRect.left) / wrapRect.width) * 100 : 50,
@@ -11340,6 +12528,7 @@
             states.forEach(item => {
                 const isMosaic = item.mark.dataset.mode === 'mosaic';
                 const isLockedImage = aspectLock && item.mark.dataset.mode === 'image';
+                const isRegionComment = item.mark.dataset.mode === 'boxedText' && item.mark.dataset.regionComment === '1';
                 const baseX = useCenter ? item.centerX : item.originX;
                 const baseY = useCenter ? item.centerY : item.originY;
                 if (this.isShiftPhotoComparePointPathMode(item.mark.dataset.mode)) {
@@ -11365,6 +12554,16 @@
                     return;
                 }
                 if (axis === 'x') {
+                    if (isRegionComment) {
+                        const width = Math.max(24, Math.min(10000, item.regionCommentWidth * scale));
+                        item.mark.dataset.regionCommentWidth = String(width);
+                        item.mark.style.setProperty('--region-comment-width', `${width}px`);
+                        item.mark.dataset.stretch = '1';
+                        item.mark.style.setProperty('--mark-scale-x', '1');
+                        item.mark.style.left = `${item.x}%`;
+                        item.mark.style.top = `${item.y}%`;
+                        return;
+                    }
                     const isArrow = ['arrow', 'dimension'].includes(item.mark.dataset.mode);
                     const nextStretch = Math.max(isMosaic ? 0.05 : 0.5, Math.min(isMosaic ? 12 : (isArrow ? 10 : 5), item.stretch * scale));
                     item.mark.dataset.stretch = String(nextStretch);
@@ -11382,6 +12581,16 @@
                     return;
                 }
                 if (axis === 'y') {
+                    if (isRegionComment) {
+                        const height = Math.max(24, Math.min(10000, item.regionCommentHeight * scale));
+                        item.mark.dataset.regionCommentHeight = String(height);
+                        item.mark.style.setProperty('--region-comment-height', `${height}px`);
+                        item.mark.dataset.stretchY = '1';
+                        item.mark.style.setProperty('--mark-scale-y', '1');
+                        item.mark.style.left = `${item.x}%`;
+                        item.mark.style.top = `${item.y}%`;
+                        return;
+                    }
                     const isArrow = ['arrow', 'dimension'].includes(item.mark.dataset.mode);
                     if (isArrow) {
                         const nextStroke = Math.max(0.35, Math.min(4, item.stroke * scale));
@@ -11408,6 +12617,21 @@
                     item.mark.style.left = `${Math.max(0, Math.min(100, item.centerX + (item.x - item.centerX) * scale))}%`;
                     item.mark.style.top = `${Math.max(0, Math.min(100, item.centerY + (item.y - item.centerY) * scale))}%`;
                     this.refreshShiftPhotoCompareTableLayout(item.mark);
+                    return;
+                }
+                if (isRegionComment) {
+                    const width = Math.max(24, Math.min(10000, item.regionCommentWidth * scale));
+                    const height = Math.max(24, Math.min(10000, item.regionCommentHeight * scale));
+                    item.mark.dataset.regionCommentWidth = String(width);
+                    item.mark.dataset.regionCommentHeight = String(height);
+                    item.mark.dataset.stretch = '1';
+                    item.mark.dataset.stretchY = '1';
+                    item.mark.style.setProperty('--region-comment-width', `${width}px`);
+                    item.mark.style.setProperty('--region-comment-height', `${height}px`);
+                    item.mark.style.setProperty('--mark-scale-x', '1');
+                    item.mark.style.setProperty('--mark-scale-y', '1');
+                    item.mark.style.left = `${item.x}%`;
+                    item.mark.style.top = `${item.y}%`;
                     return;
                 }
                 const nextSize = Math.max(24, Math.min(isMosaic ? 1200 : 700, item.size * scale));
@@ -11516,6 +12740,7 @@
                 this.rememberShiftPhotoCompareRecentImageSizePreset(item.mark);
                 if (['boxedText', 'callout'].includes(item.mark.dataset.mode || '')) {
                     this.syncShiftPhotoCompareTextOutlineMirror(item.mark);
+                    this.commitShiftPhotoCompareTextLayout(item.mark);
                     this.scheduleShiftPhotoCompareTextOutlineMirrorSync(item.mark);
                 }
                 if (item.mark.dataset.mode === 'boxedText' && item.mark.dataset.regionComment === '1') {
@@ -11727,6 +12952,7 @@
             const textColor = /^#[0-9a-f]{6}$/i.test(settings.textColor || '') ? settings.textColor : '#111827';
             mark.dataset.textColor = textColor;
             mark.style.setProperty('--callout-text-color', textColor);
+            this.updateShiftPhotoCompareRichTextColorMirror(mark);
         }
         if (settings.wallpaperSrc !== undefined
             && ['callout', 'boxedText'].includes(mark.dataset.mode)) {
@@ -11745,9 +12971,12 @@
                 wallpaper.src = wallpaperSrc;
             }
         }
-        if (settings.textScale !== undefined && mark.dataset.mode === 'callout') {
-            mark.dataset.textScale = String(Math.max(0.5, Math.min(3, Number(settings.textScale) || 1)));
-            this.updateShiftPhotoCompareCalloutTypography(mark);
+        if (settings.textScale !== undefined && ['callout', 'boxedText', 'text'].includes(mark.dataset.mode)) {
+            const textScale = Math.max(0.5, Math.min(3, Number(settings.textScale) || 1));
+            mark.dataset.textScale = String(textScale);
+            if (mark.dataset.mode === 'callout') this.updateShiftPhotoCompareCalloutTypography(mark);
+            else if (mark.dataset.mode === 'boxedText') this.applyShiftPhotoCompareBoxedTextScale(mark, textScale);
+            else this.applyShiftPhotoComparePlainTextScale(mark, textScale);
         }
         if (settings.textFit !== undefined && mark.dataset.mode === 'callout') {
             mark.dataset.textFit = ['shrink', 'wrap', 'overflow', 'expand'].includes(settings.textFit) ? settings.textFit : 'shrink';
@@ -11804,21 +13033,28 @@
             this.refreshShiftPhotoCompareTableLayout(mark);
         }
         if (settings.text !== undefined && ['text', 'boxedText', 'callout', 'dimension'].includes(mark.dataset.mode)) {
-            const text = String(settings.text || '').slice(0, 120);
+            const textMaxLength = this.getShiftPhotoCompareMarkTextMaxLength(mark);
+            const text = String(settings.text || '').slice(0, textMaxLength);
+            const previousText = String(mark.dataset.text || '');
+            this.rebaseShiftPhotoCompareTextColorRuns(mark, previousText, text);
             mark.dataset.text = text;
             if (mark.dataset.mode === 'callout') {
+                mark.dataset.textFit = 'shrink';
                 const editor = mark.querySelector('.shift-photo-callout-text');
+                const maxLength = this.getShiftPhotoCompareCalloutTextMaxLength(mark);
+                if (editor && editor.maxLength !== maxLength) editor.maxLength = maxLength;
                 if (editor) {
                     if (editor.tagName === 'TEXTAREA') editor.value = text;
                     else editor.innerText = text;
                 }
                 const mirror = editor?.closest('.shift-photo-callout-text-wrap')?.querySelector('.shift-photo-callout-text-outline-mirror');
                 if (mirror) mirror.textContent = text;
+                this.updateShiftPhotoCompareRichTextColorMirror(mark);
                 this.refreshShiftPhotoCompareCalloutEditorSize(mark);
             } else if (mark.dataset.mode === 'boxedText') {
                 let editor = mark.querySelector('.shift-photo-boxed-text-editor');
                 if (!editor) {
-                    mark.innerHTML = this.getShiftPhotoCompareBoxedTextEditorHtml(text);
+                    mark.innerHTML = this.getShiftPhotoCompareBoxedTextEditorHtml(text, mark);
                     editor = mark.querySelector('.shift-photo-boxed-text-editor');
                 }
                 if (editor) this.commitShiftPhotoCompareBoxedTextValue(editor, text);
@@ -15186,6 +16422,8 @@
     }
 
     closeShiftPhotoCompareImageContextMenu() {
+        document.querySelectorAll('.shift-photo-compare-mark.overlap-choice-preview')
+            .forEach(mark => mark.classList.remove('overlap-choice-preview'));
         document.querySelectorAll('.shift-photo-compare-image-context-menu').forEach(menu => menu.remove());
         document.querySelectorAll('.shift-photo-compare-table-menu').forEach(menu => menu.remove());
         document.querySelectorAll('.shift-photo-polyline-endpoint.connect-candidate')
@@ -15951,6 +17189,8 @@
         const region = regions[regionIndex] || null;
         const rect = wrap?.getBoundingClientRect?.();
         if (!polyline || !region?.points?.length || !rect?.width || !rect?.height) return false;
+        const editor = mark.querySelector('.shift-photo-boxed-text-editor');
+        if (editor) editor.maxLength = this.getShiftPhotoCompareBoxedTextMaxLength(mark);
         const stableAnchorX = Number.isFinite(Number(region.centerX)) ? Number(region.centerX) : anchor.x;
         const stableAnchorY = Number.isFinite(Number(region.centerY)) ? Number(region.centerY) : anchor.y;
         mark.dataset.regionCommentAnchorX = String(Math.max(0, Math.min(100, stableAnchorX)));
@@ -16410,6 +17650,7 @@
             ${outlineTextTarget ? '<button type="button" data-action="copy-text-style"><i class="fa-regular fa-clone"></i><span>文字スタイルをコピー</span></button>' : ''}
             ${outlineTextTarget && this._shiftPhotoCompareTextStyleClipboard ? '<button type="button" data-action="paste-text-style"><i class="fa-solid fa-paste"></i><span>文字スタイルを貼り付け</span></button>' : ''}
             ${isCallout ? '<button type="button" data-action="reset-callout-text-layout"><i class="fa-solid fa-rotate-left"></i><span>文字設定を標準に戻す</span></button>' : ''}
+            ${isCallout ? '<button type="button" data-action="fit-callout-text"><i class="fa-solid fa-compress"></i><span>文字を枠に合わせる</span></button>' : ''}
             ${isCallout || isBoxedText ? `<button type="button" data-action="paste-text"><i class="fa-solid fa-comment-dots"></i><span>${isCallout ? '吹き出し内へペースト' : '文字をペースト'}</span></button>` : ''}
             ${isImage || isBoxedText ? '<button type="button" data-action="paste-image"><i class="fa-solid fa-paste"></i><span>画像をペースト</span></button>' : ''}
             ${isImage || isBoxedText ? `<button type="button" data-action="save"><i class="fa-solid fa-bookmark"></i><span>${isBoxedText ? '枠を画像として写真管理へ保存' : '写真管理へ保存'}</span></button>` : ''}
@@ -16423,8 +17664,8 @@
             ${isTable ? '<button type="button" data-action="table-settings"><i class="fa-solid fa-table-cells"></i><span>表の行列・Rを再設定</span></button>' : ''}
             ${isImage ? '<button type="button" data-action="restore"><i class="fa-solid fa-clock-rotate-left"></i><span>元画像に戻す</span></button>' : ''}
             ${isImage || isBoxedText ? '<button type="button" data-action="cutout"><i class="fa-solid fa-wand-magic-sparkles"></i><span>透過候補チェック</span></button>' : ''}
-            <button type="button" data-action="front"><i class="fa-solid fa-arrow-up"></i><span>前面へ</span></button>
-            <button type="button" data-action="back"><i class="fa-solid fa-arrow-down"></i><span>背面へ</span></button>
+            <button type="button" data-action="front"><b>最前</b><span>最前面へ移動</span></button>
+            <button type="button" data-action="back"><b>最背</b><span>最背面へ移動</span></button>
             <button type="button" data-action="delete" class="danger"><i class="fa-solid fa-trash"></i><span>削除</span></button>
         `;
         menu.addEventListener('pointerdown', menuEvent => menuEvent.stopPropagation());
@@ -16691,6 +17932,7 @@
                 );
             }
             if (action === 'reset-callout-text-layout') this.resetSelectedShiftPhotoCalloutTextLayout();
+            if (action === 'fit-callout-text') this.fitSelectedShiftPhotoTextToFrame();
             if (action === 'copy-text-content') await this.copyShiftPhotoCompareMarkTextToClipboard(mark);
             if (action === 'copy-text-style') this.copySelectedShiftPhotoCompareTextStyle(outlineTextTarget);
             if (action === 'paste-text-style') this.pasteSelectedShiftPhotoCompareTextStyle();
@@ -18685,24 +19927,86 @@
         window.addEventListener('pointercancel', cancel, { once: true });
     }
 
-    getShiftPhotoCompareOverlappingImageMarks(event, wrap) {
+    getShiftPhotoCompareOverlappingMarks(event, wrap) {
         if (!wrap || !Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) return [];
         const marks = [];
         document.elementsFromPoint(event.clientX, event.clientY).forEach(element => {
-            const mark = element?.closest?.('.shift-photo-compare-mark.image');
+            const mark = element?.closest?.('.shift-photo-compare-mark');
             if (mark && wrap.contains(mark) && !marks.includes(mark)) marks.push(mark);
         });
         return marks;
+    }
+
+    getShiftPhotoCompareOverlappingImageMarks(event, wrap) {
+        return this.getShiftPhotoCompareOverlappingMarks(event, wrap)
+            .filter(mark => mark.dataset.mode === 'image');
+    }
+
+    openShiftPhotoCompareOverlapChooser(event, marks = [], wrap = null) {
+        const choices = [...new Set(marks)].filter(mark => mark && document.contains(mark) && (!wrap || wrap.contains(mark)));
+        if (choices.length < 2) return false;
+        this.closeShiftPhotoCompareImageContextMenu();
+        const panel = document.querySelector('.shift-photo-compare-panel');
+        const panelRect = panel?.getBoundingClientRect?.();
+        if (!panel || !panelRect?.width) return false;
+        const selected = new Set(this.getShiftPhotoCompareSelectedMarks());
+        const menu = document.createElement('div');
+        menu.className = 'shift-photo-compare-image-context-menu shift-photo-overlap-chooser';
+        menu.innerHTML = `
+            <div class="shift-photo-context-menu-grip"><i class="fa-solid fa-layer-group"></i><span>重なった記号 ${choices.length}件（上が最前面）</span></div>
+            ${choices.map((mark, index) => {
+                const active = selected.has(mark) ? ' active' : '';
+                const locked = this.isShiftPhotoCompareMarkLocked(mark) ? ' / ロック' : '';
+                const icon = this.getShiftPhotoCompareLayerIcon(mark);
+                const label = this.getShiftPhotoCompareMarkLabel(mark, index);
+                return `<button type="button" class="shift-photo-overlap-choice${active}" data-overlap-index="${index}"><i>${this.escapeHtml(icon)}</i><span>${this.escapeHtml(label)}</span><small>上から${index + 1}番目${locked}</small></button>`;
+            }).join('')}
+        `;
+        menu.addEventListener('pointerdown', menuEvent => menuEvent.stopPropagation());
+        menu.querySelectorAll('[data-overlap-index]').forEach(button => {
+            const mark = choices[Number(button.dataset.overlapIndex)];
+            button.addEventListener('pointerenter', () => mark?.classList.add('overlap-choice-preview'));
+            button.addEventListener('pointerleave', () => mark?.classList.remove('overlap-choice-preview'));
+        });
+        menu.addEventListener('click', menuEvent => {
+            const button = menuEvent.target.closest('[data-overlap-index]');
+            if (!button) return;
+            menuEvent.preventDefault();
+            menuEvent.stopPropagation();
+            const mark = choices[Number(button.dataset.overlapIndex)];
+            choices.forEach(item => item.classList.remove('overlap-choice-preview'));
+            if (!mark || !document.contains(mark)) return this.closeShiftPhotoCompareImageContextMenu();
+            this.selectShiftPhotoCompareMark(mark, false);
+            this.flashShiftPhotoCompareLayerMove([mark]);
+            this.refreshShiftPhotoCompareMarkList();
+            this.updateShiftPhotoCompareMiniToolbar();
+            this.closeShiftPhotoCompareImageContextMenu();
+            this.showShiftPhotoCompareActionMessage(`${this.getShiftPhotoCompareMarkLabel(mark, Number(button.dataset.overlapIndex))}を選択しました。`);
+        });
+        panel.appendChild(menu);
+        const menuRect = menu.getBoundingClientRect();
+        const requestedLeft = (Number(event?.clientX) || panelRect.left + 12) - panelRect.left + 8;
+        const requestedTop = (Number(event?.clientY) || panelRect.top + 12) - panelRect.top + 8;
+        menu.style.left = `${Math.max(4, Math.min(panelRect.width - menuRect.width - 4, requestedLeft))}px`;
+        menu.style.top = `${Math.max(4, Math.min(panelRect.height - menuRect.height - 4, requestedTop))}px`;
+        return true;
     }
 
     startShiftPhotoCompareExistingMarkMove(event, mark, wrap) {
         if (!mark || !wrap || !wrap.contains(mark)) return false;
         this.finishShiftPhotoCompareInlineTextEditing(mark);
         if (this._shiftPhotoCompareMarkMode !== 'move') this.setShiftPhotoCompareMarkMode('move');
+        const overlappingMarks = this.getShiftPhotoCompareOverlappingMarks(event, wrap);
         const overlappingImages = this.getShiftPhotoCompareOverlappingImageMarks(event, wrap);
         const selectedOverlap = overlappingImages.find(item => item.classList.contains('selected'));
         if (!event.shiftKey && mark.dataset.mode === 'image' && selectedOverlap) mark = selectedOverlap;
         const wasSelectedBefore = mark.classList.contains('selected');
+        if (event.altKey && overlappingMarks.length > 1) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.openShiftPhotoCompareOverlapChooser(event, overlappingMarks, wrap);
+            return true;
+        }
         const pointerStart = { x: event.clientX, y: event.clientY };
         let pointerMoved = false;
         if (event.shiftKey) {
@@ -18712,6 +20016,19 @@
         if (this.isShiftPhotoCompareMarkLocked(mark)) {
             this.selectShiftPhotoCompareMark(mark);
             this.showShiftPhotoCompareActionMessage('ロック中の記号です。ロック解除すると動かせます。');
+            return true;
+        }
+        if (mark.dataset.mode === 'boxedText' && mark.dataset.regionComment === '1') {
+            this.selectShiftPhotoCompareMark(mark);
+            const changed = this.fitShiftPhotoCompareRegionComment(mark);
+            if (changed) {
+                if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+                else this.syncShiftPhotoCompareMarks(wrap);
+                this.autoSaveShiftNotebook(true);
+            }
+            this.updateShiftPhotoCompareSelectionBounds();
+            this.updateShiftPhotoCompareMiniToolbar();
+            this.showShiftPhotoCompareActionMessage('直線区画のテキスト位置は区画内に固定しました。枠サイズは四隅・中点で調整できます。');
             return true;
         }
         if (this._shiftPhotoCompareImageBrushMode && mark.dataset.mode === 'image') {
@@ -18765,7 +20082,7 @@
             });
             this.updateShiftPhotoCompareMiniToolbar();
         };
-        const stop = () => {
+        const stop = (stopEvent = event) => {
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', stop);
             window.removeEventListener('pointercancel', stop);
@@ -18775,15 +20092,10 @@
             this.refreshShiftPhotoCompareMarkList();
             this.updateShiftPhotoCompareMiniToolbar();
             this.autoSaveShiftNotebook(true);
-            if (!pointerMoved && wasSelectedBefore && overlappingImages.length > 1 && mark.dataset.mode === 'image') {
-                const currentIndex = overlappingImages.indexOf(mark);
-                const next = overlappingImages[(currentIndex + 1 + overlappingImages.length) % overlappingImages.length];
-                if (next && next !== mark) {
-                    this.selectShiftPhotoCompareMark(next);
-                    this.refreshShiftPhotoCompareMarkList();
-                    this.updateShiftPhotoCompareMiniToolbar();
-                    this.showShiftPhotoCompareActionMessage(`重なった画像を切替えました（${overlappingImages.indexOf(next) + 1}/${overlappingImages.length}）。`);
-                }
+            if (!pointerMoved && wasSelectedBefore && overlappingMarks.length > 1) {
+                this.openShiftPhotoCompareOverlapChooser(stopEvent, overlappingMarks, wrap);
+            } else if (!pointerMoved && !wasSelectedBefore && overlappingMarks.length > 1) {
+                this.showShiftPhotoCompareActionMessage(`この位置には${overlappingMarks.length}件重なっています。もう一度クリックすると一覧から選べます。`);
             }
         };
         window.addEventListener('pointermove', move);
@@ -19295,8 +20607,9 @@
         const color = circleEdit && /^#[0-9a-f]{6}$/i.test(circleEdit.color || '') ? circleEdit.color : (this._shiftPhotoCompareMarkColor || '#dc2626');
         const placedImageSrc = circleEdit && /^data:image\//i.test(circleEdit.imageSrc || '') ? circleEdit.imageSrc : this._shiftPhotoCompareImageStampSrc;
         const font = this.getShiftPhotoCompareSafeFont(this._shiftPhotoCompareMarkFont || '');
+        const textMaxLength = this.getShiftPhotoCompareMarkTextMaxLength({ mode });
         const text = (mode === 'text' || mode === 'boxedText' || mode === 'callout' || mode === 'dimension')
-            ? ((document.getElementById('shift-photo-compare-text-input')?.value || (mode === 'dimension' ? '100 mm' : '')).trim().slice(0, 120))
+            ? ((document.getElementById('shift-photo-compare-text-input')?.value || (mode === 'dimension' ? '100 mm' : '')).trim().slice(0, textMaxLength))
             : (mode === 'number' ? this.getShiftPhotoCompareNumberText(this._shiftPhotoCompareNumberNext || 1) : '');
         if (mode === 'image' && !this._shiftPhotoCompareImageStampSrc) {
             document.getElementById('shift-photo-compare-image-stamp-input')?.click();
@@ -19361,6 +20674,10 @@
         mark.style.setProperty('--mark-scale-y', String(stretchY));
         mark.style.setProperty('--boxed-text-inverse-x', String(1 / Math.max(0.05, stretch)));
         mark.style.setProperty('--boxed-text-inverse-y', String(1 / Math.max(0.05, stretchY)));
+        mark.style.setProperty('--boxed-text-font-scale', mark.dataset.textScale);
+        mark.style.setProperty('--plain-text-font-scale', mark.dataset.textScale);
+        mark.style.setProperty('--boxed-text-border-inverse-x', String(1 / Math.max(0.05, stretch)));
+        mark.style.setProperty('--boxed-text-border-inverse-y', String(1 / Math.max(0.05, stretchY)));
         mark.style.setProperty('--rect-dot-inverse-x', String(1 / Math.max(0.5, stretch)));
         mark.style.setProperty('--rect-dot-inverse-y', String(1 / Math.max(0.5, stretchY)));
         mark.style.setProperty('--mark-stroke', String(stroke));
@@ -19373,6 +20690,8 @@
         mark.style.setProperty('--circle-image-offset-y', `${Number(mark.dataset.imageOffsetY) || 0}%`);
         mark.style.setProperty('--callout-text-color', mark.dataset.textColor || '#111827');
         mark.style.setProperty('--callout-font-size', `${size * 0.34 * (Number(mark.dataset.textScale) || 1)}px`);
+        mark.style.setProperty('--callout-border-inverse-x', String(1 / Math.max(0.05, stretch)));
+        mark.style.setProperty('--callout-border-inverse-y', String(1 / Math.max(0.05, stretchY)));
         mark.style.setProperty('--callout-tail-pos', '50%');
         mark.style.setProperty('--callout-tail-inverse-x', String(1 / Math.max(0.05, stretch)));
         mark.style.setProperty('--callout-tail-inverse-y', String(1 / Math.max(0.05, stretchY)));
@@ -19403,7 +20722,7 @@
                     : (mode === 'callout'
                         ? `${this.getShiftPhotoCompareCalloutTextEditorHtml(text)}<span class="shift-photo-callout-tail" aria-hidden="true"></span><i class="shift-photo-callout-tail-handle" onpointerdown="app.startShiftPhotoCompareCalloutTailDrag(event, this)" title="ドラッグして先端位置を移動"></i>`
                         : (mode === 'boxedText'
-                            ? this.getShiftPhotoCompareBoxedTextEditorHtml(text)
+                            ? this.getShiftPhotoCompareBoxedTextEditorHtml(text, mark)
                             : (mode === 'text'
                                 ? this.getShiftPhotoComparePlainTextEditorHtml(text)
                                 : (mode === 'number' ? this.escapeHtml(text) : ''))))))));
@@ -20144,7 +21463,27 @@
         };
     }
 
-    async renderSelectedShiftPhotoCompareMarksToCanvas(marks = []) {
+    prepareShiftPhotoCompareClipboardTextLayouts(marks = []) {
+        const layouts = new Map();
+        (marks || []).forEach(mark => {
+            if (!['callout', 'boxedText'].includes(mark?.dataset?.mode || '')) return;
+            const layout = this.commitShiftPhotoCompareTextLayout(mark);
+            if (layout) layouts.set(mark, layout);
+        });
+        return layouts;
+    }
+
+    validateShiftPhotoCompareClipboardTextLayouts(layouts = new Map()) {
+        const result = { checked: 0, overflow: 0, clipped: 0 };
+        layouts.forEach(layout => {
+            result.checked += 1;
+            if (layout.overflow) result.overflow += 1;
+            if (layout.sourceKey !== layout.renderedKey) result.clipped += 1;
+        });
+        return result;
+    }
+
+    async renderSelectedShiftPhotoCompareMarksToCanvas(marks = [], preparedTextLayouts = null) {
         const targets = (Array.isArray(marks) ? marks : []).filter(mark => mark && document.contains(mark));
         if (!targets.length) return null;
         if (document.fonts?.ready) await document.fonts.ready;
@@ -20170,10 +21509,7 @@
             const surfaceRect = surface?.getBoundingClientRect?.();
             if (!surfaceRect?.width || !surfaceRect?.height) continue;
             const clone = mark.cloneNode(true);
-            if (mark.dataset.mode === 'callout') {
-                const renderedLines = this.getShiftPhotoCompareRenderedCalloutLines(mark);
-                if (renderedLines) clone.dataset.exportLines = JSON.stringify(renderedLines);
-            }
+            this.setShiftPhotoCompareExportTextLines(mark, clone, preparedTextLayouts?.get?.(mark) || null);
             if (mark.dataset.mode === 'boxedText') {
                 const sourceWidth = mark.dataset.regionComment === '1'
                     ? Number(mark.dataset.regionCommentWidth)
@@ -20204,14 +21540,16 @@
             this.showShiftPhotoCompareActionMessage('このブラウザーでは画像のクリップボードコピーを利用できません。');
             return;
         }
-        const blobPromise = this.renderSelectedShiftPhotoCompareMarksToCanvas(marks)
+        const preparedTextLayouts = this.prepareShiftPhotoCompareClipboardTextLayouts(marks);
+        const textValidation = this.validateShiftPhotoCompareClipboardTextLayouts(preparedTextLayouts);
+        const blobPromise = this.renderSelectedShiftPhotoCompareMarksToCanvas(marks, preparedTextLayouts)
             .then(canvas => new Promise((resolve, reject) => {
                 if (!canvas) return reject(new Error('記号を画像化できませんでした。'));
                 canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNGを作成できませんでした。')), 'image/png');
             }));
         navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
             .then(() => this.showShiftPhotoCompareActionMessage(
-                `${marks.length}件の記号をクリップボードにコピーしました。Excel・PowerPointへ貼り付けできます。`
+                `${marks.length}件の記号をコピーしました。${textValidation.checked ? `画面で見えている文字${textValidation.checked}件の行・改行を一致確認済みです。` : ''}${textValidation.clipped ? ` 注意：枠で隠れた文字が${textValidation.clipped}件あり、見えている範囲だけをコピーしました。` : ' Excel・PowerPointへ貼り付けできます。'}`
             ))
             .catch(error => {
                 console.warn('Shift photo compare clipboard copy failed', error);
@@ -20333,10 +21671,26 @@
     }
 
     previewAlignSelectedShiftPhotoCompareMarks(axis = 'left') {
+        const items = this.getShiftPhotoCompareLayoutItemsInSameLayer();
+        const labels = {
+            left: '記号を左端に揃えます。',
+            right: '記号を右端に揃えます。',
+            top: '記号を上端に揃えます。',
+            bottom: '記号を下端に揃えます。',
+            centerX: '記号を横中央に揃えます。',
+            centerY: '記号を縦中央に揃えます。'
+        };
+        this.showShiftPhotoCompareActionMessage(items.length >= 2
+            ? (labels[axis] || '記号を揃えます。')
+            : '記号揃えは2つ以上選択すると使えます。');
         this.renderShiftPhotoCompareAlignPreview(this.getShiftPhotoCompareAlignPreviewPlans(axis));
     }
 
     previewDistributeSelectedShiftPhotoCompareMarks(axis = 'x') {
+        const items = this.getShiftPhotoCompareLayoutItemsInSameLayer();
+        this.showShiftPhotoCompareActionMessage(items.length >= 3
+            ? (axis === 'y' ? '記号を縦に等間隔で並べます。' : '記号を横に等間隔で並べます。')
+            : '等間隔配置は3つ以上選択すると使えます。');
         this.renderShiftPhotoCompareAlignPreview(this.getShiftPhotoCompareDistributePreviewPlans(axis));
     }
 
@@ -20347,7 +21701,10 @@
     alignSelectedShiftPhotoCompareMarks(axis = 'left') {
         this.clearShiftPhotoCompareAlignPreview();
         const items = this.getShiftPhotoCompareLayoutItemsInSameLayer();
-        if (items.length < 2) return;
+        if (items.length < 2) {
+            this.showShiftPhotoCompareActionMessage('記号揃えは2つ以上選択すると使えます。');
+            return;
+        }
         this.pushShiftPhotoCompareUndo();
         const isY = axis === 'top' || axis === 'bottom' || axis === 'centerY';
         const prop = isY ? 'top' : 'left';
@@ -20363,13 +21720,16 @@
         this.updateShiftPhotoCompareMiniToolbar();
         this.autoSaveShiftNotebook(true);
         const labels = { left: '左揃え', right: '右揃え', top: '上揃え', bottom: '下揃え', centerX: '横中央揃え', centerY: '縦中央揃え' };
-        this.showShiftPhotoCompareActionMessage(`${labels[axis] || '整列'}しました。`);
+        this.showShiftPhotoCompareActionMessage(`記号を${labels[axis] || '整列'}しました。`);
     }
 
     distributeSelectedShiftPhotoCompareMarks(axis = 'x') {
         this.clearShiftPhotoCompareAlignPreview();
         const items = this.getShiftPhotoCompareLayoutItemsInSameLayer();
-        if (items.length < 3) return;
+        if (items.length < 3) {
+            this.showShiftPhotoCompareActionMessage('等間隔配置は3つ以上選択すると使えます。');
+            return;
+        }
         this.pushShiftPhotoCompareUndo();
         const prop = axis === 'y' ? 'top' : 'left';
         const sorted = items.sort((a, b) => a[prop] - b[prop]);
@@ -20381,7 +21741,268 @@
         this.refreshShiftPhotoCompareMarkList();
         this.updateShiftPhotoCompareMiniToolbar();
         this.autoSaveShiftNotebook(true);
-        this.showShiftPhotoCompareActionMessage(axis === 'y' ? '縦に等間隔配置しました。' : '横に等間隔配置しました。');
+        this.showShiftPhotoCompareActionMessage(axis === 'y' ? '記号を縦に等間隔配置しました。' : '記号を横に等間隔配置しました。');
+    }
+
+    getShiftPhotoCompareSelectedLayerInfo() {
+        const mark = this._shiftPhotoCompareSelectedMark;
+        if (!mark || !document.contains(mark)) return null;
+        const layer = mark.closest('.shift-photo-compare-mark-layer, .shift-photo-compare-global-layer');
+        const wrap = mark.closest('.shift-photo-compare-image-wrap') || mark.closest('.shift-photo-compare-global-layer');
+        if (!layer || !wrap) return null;
+        const marks = Array.from(layer.querySelectorAll(':scope > .shift-photo-compare-mark'));
+        return { mark, layer, wrap, marks };
+    }
+
+    getShiftPhotoCompareLayerScopeLabel(wrap) {
+        if (!wrap) return '選択レイヤー';
+        if (wrap.classList?.contains('shift-photo-compare-global-layer')) return '全体レイヤー';
+        const index = Number(wrap.dataset?.photoIndex);
+        return Number.isFinite(index) ? `写真${index + 1}` : '写真レイヤー';
+    }
+
+    isShiftPhotoCompareLayerLinkedMoveEnabled() {
+        try {
+            const stored = localStorage.getItem('shift_photo_compare_layer_linked_move');
+            if (stored === '0') return false;
+            if (stored === '1') return true;
+        } catch (_) {}
+        return true;
+    }
+
+    toggleShiftPhotoCompareLayerLinkedMove() {
+        const next = !this.isShiftPhotoCompareLayerLinkedMoveEnabled();
+        try {
+            localStorage.setItem('shift_photo_compare_layer_linked_move', next ? '1' : '0');
+        } catch (_) {}
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.showShiftPhotoCompareActionMessage(next
+            ? '直線と区画テキストを一緒に前後移動します。'
+            : '選択した記号だけを前後移動します。');
+    }
+
+    updateShiftPhotoCompareMiniLayerControls(toolbar = null, layerInfo = null) {
+        const bar = toolbar || document.getElementById('shift-photo-compare-mini-toolbar');
+        if (!bar) return;
+        const linked = this.isShiftPhotoCompareLayerLinkedMoveEnabled();
+        const linkButton = bar.querySelector('.shift-photo-compare-layer-linked-toggle');
+        if (linkButton) {
+            linkButton.classList.toggle('active', linked);
+            linkButton.textContent = linked ? '連動ON' : '連動OFF';
+            linkButton.title = linked
+                ? '直線と区画テキストを一緒に前後移動中 / 押すと単体移動'
+                : '選択した記号だけを前後移動中 / 押すと直線と区画テキストも連動';
+        }
+        const label = bar.querySelector('.shift-photo-compare-layer-position');
+        if (!label) return;
+        const info = layerInfo || this.getShiftPhotoCompareSelectedLayerInfo();
+        if (!info?.marks?.length || !info.mark) {
+            label.textContent = '重なり -/-';
+            label.title = '選択中記号の重なり位置';
+            return;
+        }
+        const domIndex = info.marks.indexOf(info.mark);
+        const topIndex = domIndex >= 0 ? info.marks.length - domIndex : 0;
+        label.textContent = topIndex ? `重なり ${topIndex}/${info.marks.length}` : '重なり -/-';
+        label.title = '左が上から何番目かを表します。1が最前面です。';
+    }
+
+    getShiftPhotoCompareLayerIcon(mark) {
+        const icons = {
+            circle: '○',
+            arrow: '↗',
+            dimension: '寸',
+            table: '表',
+            rect: '□',
+            xmark: '×',
+            freehand: '線',
+            polyline: '直',
+            mosaic: 'モ',
+            image: '画',
+            text: '文',
+            boxedText: '枠',
+            callout: '吹',
+            number: '番'
+        };
+        return icons[mark?.dataset?.mode || ''] || '記';
+    }
+
+    getShiftPhotoCompareLayerMoveTargets(baseMarks = [], options = {}) {
+        const layer = options.layer || baseMarks.find(mark => mark && document.contains(mark))?.closest?.('.shift-photo-compare-mark-layer, .shift-photo-compare-global-layer');
+        const source = (Array.isArray(baseMarks) ? baseMarks : [baseMarks]).filter(mark => mark && document.contains(mark));
+        if (!layer || !source.length) return [];
+        const expanded = options.linked === false
+            ? source
+            : this.expandShiftPhotoCompareMarksWithRegionComments(source).marks;
+        const unique = [...new Set(expanded)]
+            .filter(mark => mark && document.contains(mark) && mark.closest('.shift-photo-compare-mark-layer, .shift-photo-compare-global-layer') === layer);
+        const order = Array.from(layer.querySelectorAll(':scope > .shift-photo-compare-mark'));
+        return unique.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    }
+
+    renderShiftPhotoCompareMiniLayerList(panel = null) {
+        const toolbar = document.getElementById('shift-photo-compare-mini-toolbar');
+        const list = panel || toolbar?.querySelector?.('.shift-photo-compare-mini-layer-list');
+        if (!list) return;
+        const info = this.getShiftPhotoCompareSelectedLayerInfo();
+        if (!info || info.marks.length < 2) {
+            list.innerHTML = '<span class="shift-photo-compare-layer-list-empty">重なり順を変える記号がありません。</span>';
+            return;
+        }
+        const selectedMarks = new Set(this.getShiftPhotoCompareSelectedMarks());
+        const scope = this.getShiftPhotoCompareLayerScopeLabel(info.wrap);
+        const ordered = info.marks.slice().reverse();
+        list.innerHTML = `
+            <div class="shift-photo-compare-layer-list-head">
+                <b>重なり順</b>
+                <span>${this.escapeHtml(scope)} / 上から順 / ドラッグ可</span>
+            </div>
+            ${ordered.map((mark, visualIndex) => {
+                const domIndex = info.marks.indexOf(mark);
+                mark.dataset.layerListIndex = String(domIndex);
+                const selected = selectedMarks.has(mark) ? ' selected' : '';
+                const locked = this.isShiftPhotoCompareMarkLocked(mark) ? ' locked' : '';
+                const color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
+                const label = this.getShiftPhotoCompareMarkLabel(mark, visualIndex);
+                const icon = this.getShiftPhotoCompareLayerIcon(mark);
+                const upDisabled = visualIndex === 0 ? ' disabled' : '';
+                const downDisabled = visualIndex === ordered.length - 1 ? ' disabled' : '';
+                return `
+                    <div class="shift-photo-compare-layer-list-row${selected}${locked}" data-layer-index="${domIndex}" draggable="true" ondragstart="app.startShiftPhotoCompareLayerListDrag(event, ${domIndex})" ondragover="app.dragOverShiftPhotoCompareLayerList(event, ${domIndex})" ondragleave="app.leaveShiftPhotoCompareLayerListDrop(event)" ondrop="app.dropShiftPhotoCompareLayerList(event, ${domIndex})" ondragend="app.endShiftPhotoCompareLayerListDrag()">
+                        <button type="button" class="shift-photo-compare-layer-list-select" onclick="app.selectShiftPhotoCompareMarkFromMiniLayerList(${domIndex})" title="この記号を選択">
+                            <i style="--item-color:${color}">${this.escapeHtml(icon)}</i>
+                            <b>${this.escapeHtml(label)}</b>
+                            <small>${selected ? '選択中' : (locked ? 'ロック' : '')}</small>
+                        </button>
+                        <button type="button" onclick="app.stepShiftPhotoCompareMarkLayerFromList(${domIndex}, 'up')" title="1つ上へ"${upDisabled}>↑</button>
+                        <button type="button" onclick="app.stepShiftPhotoCompareMarkLayerFromList(${domIndex}, 'down')" title="1つ下へ"${downDisabled}>↓</button>
+                    </div>
+                `;
+            }).join('')}
+        `;
+    }
+
+    getShiftPhotoCompareMarkByLayerIndex(index) {
+        const info = this.getShiftPhotoCompareSelectedLayerInfo();
+        if (!info) return null;
+        const mark = info.marks[Number(index)];
+        return mark && document.contains(mark) ? mark : null;
+    }
+
+    selectShiftPhotoCompareMarkFromMiniLayerList(index) {
+        const mark = this.getShiftPhotoCompareMarkByLayerIndex(index);
+        if (!mark) return;
+        if (this._shiftPhotoCompareMarkMode !== 'move') this.setShiftPhotoCompareMarkMode('move');
+        this.selectShiftPhotoCompareMark(mark, false);
+        this.flashShiftPhotoCompareLayerMove([mark]);
+        mark.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+        this.updateShiftPhotoCompareMiniToolbar();
+    }
+
+    stepShiftPhotoCompareMarkLayerFromList(index, direction = 'up') {
+        const info = this.getShiftPhotoCompareSelectedLayerInfo();
+        if (!info) return;
+        const mark = info.marks[Number(index)];
+        if (!mark || !document.contains(mark)) return;
+        const targets = this.getShiftPhotoCompareLayerMoveTargets([mark], {
+            layer: info.layer,
+            linked: this.isShiftPhotoCompareLayerLinkedMoveEnabled()
+        });
+        const targetSet = new Set(targets);
+        const sibling = direction === 'up'
+            ? targets[targets.length - 1]?.nextElementSibling
+            : targets[0]?.previousElementSibling;
+        if (!sibling || !sibling.classList?.contains('shift-photo-compare-mark')) return;
+        if (targetSet.has(sibling)) return;
+        this.pushShiftPhotoCompareUndo();
+        if (direction === 'up') {
+            const reference = sibling.nextElementSibling;
+            targets.forEach(item => info.layer.insertBefore(item, reference));
+        } else {
+            targets.forEach(item => info.layer.insertBefore(item, sibling));
+        }
+        this.selectShiftPhotoCompareMark(mark, false);
+        this.syncShiftPhotoCompareWrapForMark(mark);
+        this.flashShiftPhotoCompareLayerMove(targets);
+        this.refreshShiftPhotoCompareMarkList();
+        this.renderShiftPhotoCompareMiniLayerList();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(direction === 'up' ? '重なり順を1つ上げました。' : '重なり順を1つ下げました。');
+    }
+
+    startShiftPhotoCompareLayerListDrag(event, index) {
+        event.stopPropagation();
+        this._shiftPhotoCompareLayerListDragIndex = Number(index);
+        event.dataTransfer.effectAllowed = 'move';
+        try {
+            event.dataTransfer.setData('text/plain', String(index));
+        } catch (_) {}
+        event.currentTarget?.classList.add('dragging');
+    }
+
+    dragOverShiftPhotoCompareLayerList(event, index) {
+        if (!Number.isFinite(Number(this._shiftPhotoCompareLayerListDragIndex))) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        document.querySelectorAll('.shift-photo-compare-layer-list-row.drop-target')
+            .forEach(row => row.classList.remove('drop-target'));
+        event.currentTarget?.classList.add('drop-target');
+    }
+
+    leaveShiftPhotoCompareLayerListDrop(event) {
+        event.currentTarget?.classList.remove('drop-target');
+    }
+
+    dropShiftPhotoCompareLayerList(event, targetIndex) {
+        event.preventDefault();
+        event.stopPropagation();
+        const sourceIndex = Number(this._shiftPhotoCompareLayerListDragIndex ?? event.dataTransfer?.getData('text/plain'));
+        this.endShiftPhotoCompareLayerListDrag();
+        if (!Number.isFinite(sourceIndex) || !Number.isFinite(Number(targetIndex)) || sourceIndex === Number(targetIndex)) return;
+        const info = this.getShiftPhotoCompareSelectedLayerInfo();
+        if (!info) return;
+        const sourceMark = info.marks[sourceIndex];
+        const targetMark = info.marks[Number(targetIndex)];
+        if (!sourceMark || !targetMark || sourceMark === targetMark) return;
+        const targets = this.getShiftPhotoCompareLayerMoveTargets([sourceMark], {
+            layer: info.layer,
+            linked: this.isShiftPhotoCompareLayerLinkedMoveEnabled()
+        });
+        if (!targets.length || targets.includes(targetMark)) return;
+        this.pushShiftPhotoCompareUndo();
+        const sourceDomIndex = info.marks.indexOf(targets[targets.length - 1]);
+        const targetDomIndex = info.marks.indexOf(targetMark);
+        if (sourceDomIndex < targetDomIndex) {
+            const reference = targetMark.nextElementSibling;
+            targets.forEach(item => info.layer.insertBefore(item, reference));
+        } else {
+            targets.forEach(item => info.layer.insertBefore(item, targetMark));
+        }
+        this.selectShiftPhotoCompareMark(sourceMark, false);
+        this.syncShiftPhotoCompareWrapForMark(sourceMark);
+        this.flashShiftPhotoCompareLayerMove(targets);
+        this.refreshShiftPhotoCompareMarkList();
+        this.renderShiftPhotoCompareMiniLayerList();
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage('ドラッグで重なり順を変更しました。');
+    }
+
+    endShiftPhotoCompareLayerListDrag() {
+        this._shiftPhotoCompareLayerListDragIndex = null;
+        document.querySelectorAll('.shift-photo-compare-layer-list-row.dragging, .shift-photo-compare-layer-list-row.drop-target')
+            .forEach(row => row.classList.remove('dragging', 'drop-target'));
+    }
+
+    flashShiftPhotoCompareLayerMove(marks = []) {
+        const targets = (Array.isArray(marks) ? marks : [marks]).filter(mark => mark && document.contains(mark));
+        targets.forEach(mark => {
+            mark.classList.remove('layer-move-flash');
+            void mark.offsetWidth;
+            mark.classList.add('layer-move-flash');
+            window.setTimeout(() => mark.classList.remove('layer-move-flash'), 850);
+        });
     }
 
     moveSelectedShiftPhotoCompareMarkLayer(direction = 'front') {
@@ -20393,8 +22014,12 @@
         if (!layer || !wrap) return;
         const siblings = Array.from(layer.querySelectorAll('.shift-photo-compare-mark'));
         if (siblings.length < 2) return;
+        const targets = this.getShiftPhotoCompareLayerMoveTargets(marks.length ? marks : [mark], {
+            layer,
+            linked: this.isShiftPhotoCompareLayerLinkedMoveEnabled()
+        });
+        if (!targets.length) return;
         this.pushShiftPhotoCompareUndo();
-        const targets = marks.length ? marks : [mark];
         if (direction === 'back') {
             targets.slice().reverse().forEach(item => layer.insertBefore(item, layer.firstElementChild));
         } else {
@@ -20404,9 +22029,13 @@
         targets.forEach(item => this.selectShiftPhotoCompareMark(item, true));
         if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
         else this.syncShiftPhotoCompareMarks(wrap);
+        this.flashShiftPhotoCompareLayerMove(targets);
         this.refreshShiftPhotoCompareMarkList();
+        this.renderShiftPhotoCompareMiniLayerList();
+        this.updateShiftPhotoCompareMiniToolbar();
         this.autoSaveShiftNotebook(true);
-        this.showShiftPhotoCompareActionMessage(direction === 'back' ? '背面へ移動しました。' : '前面へ移動しました。');
+        const linkedNote = targets.length > (marks.length || 1) ? `（関連${targets.length}件）` : '';
+        this.showShiftPhotoCompareActionMessage(direction === 'back' ? `最背面へ移動しました。${linkedNote}` : `最前面へ移動しました。${linkedNote}`);
     }
 
     expandShiftPhotoCompareMarksWithRegionComments(marks = []) {
@@ -20637,17 +22266,93 @@
         ctx.putImageData(image, left, top);
     }
 
-    getShiftPhotoCompareRenderedCalloutLines(mark) {
-        const editor = mark?.querySelector?.('.shift-photo-callout-text');
+    getShiftPhotoCompareRenderedTextEditorLines(mark, selector = '') {
+        const editor = selector ? mark?.querySelector?.(selector) : null;
         if (!editor || !document.body || !editor.clientWidth) return null;
         const text = String(editor.value ?? mark.dataset.text ?? '');
+        if (['callout', 'boxedText'].includes(mark?.dataset?.mode || '')) {
+            this.syncShiftPhotoCompareTextOutlineMirror(mark);
+            const hasPartialColors = this.normalizeShiftPhotoCompareTextColorRuns(mark.dataset.textColorRuns || '[]', text.length).length > 0;
+            const liveMirror = hasPartialColors
+                ? mark.querySelector('.shift-photo-text-color-mirror')
+                : mark.querySelector(mark.dataset.mode === 'callout'
+                    ? '.shift-photo-callout-text-outline-mirror'
+                    : '.shift-photo-boxed-text-outline-mirror');
+            const walker = liveMirror ? document.createTreeWalker(liveMirror, NodeFilter.SHOW_TEXT) : null;
+            const textNodes = [];
+            let currentNode = walker?.nextNode?.();
+            while (currentNode) {
+                textNodes.push(currentNode);
+                currentNode = walker.nextNode();
+            }
+            if (textNodes.length && liveMirror.getClientRects().length) {
+                const clipElement = mark.dataset.mode === 'callout'
+                    ? editor.closest('.shift-photo-callout-text-wrap')
+                    : (mark.dataset.regionComment === '1' ? editor.closest('.shift-photo-boxed-text-content') : null);
+                const clipRect = clipElement?.getBoundingClientRect?.() || null;
+                const isVisibleRect = rect => !clipRect || !!rect && (
+                    rect.right > clipRect.left + 0.5
+                    && rect.left < clipRect.right - 0.5
+                    && rect.bottom > clipRect.top + 0.5
+                    && rect.top < clipRect.bottom - 0.5
+                );
+                const liveLines = [];
+                let line = '';
+                let lineTop = null;
+                for (const textNode of textNodes) {
+                    let offset = 0;
+                    for (const character of Array.from(textNode.nodeValue || '')) {
+                        if (character === '\n') {
+                            const newlineRange = document.createRange();
+                            newlineRange.setStart(textNode, offset);
+                            newlineRange.setEnd(textNode, offset + character.length);
+                            const newlineRects = newlineRange.getClientRects();
+                            const newlineRect = newlineRects.length ? newlineRects[newlineRects.length - 1] : null;
+                            if (lineTop !== null || !clipRect || isVisibleRect(newlineRect)) {
+                                liveLines.push(line.replace(/\s+$/u, ''));
+                            }
+                            line = '';
+                            lineTop = null;
+                            offset += character.length;
+                            continue;
+                        }
+                        const range = document.createRange();
+                        range.setStart(textNode, offset);
+                        range.setEnd(textNode, offset + character.length);
+                        const rects = range.getClientRects();
+                        const rect = rects.length ? rects[rects.length - 1] : null;
+                        if (!isVisibleRect(rect)) {
+                            if (lineTop !== null && line) liveLines.push(line.replace(/\s+$/u, ''));
+                            line = '';
+                            lineTop = null;
+                            offset += character.length;
+                            continue;
+                        }
+                        if (rect && lineTop !== null && Math.abs(rect.top - lineTop) > 0.5) {
+                            liveLines.push(line.replace(/\s+$/u, ''));
+                            line = character.replace(/^\s+/u, '');
+                            lineTop = rect.top;
+                        } else {
+                            line += character;
+                            if (rect && lineTop === null) lineTop = rect.top;
+                        }
+                        offset += character.length;
+                    }
+                }
+                if (lineTop !== null || !clipRect) liveLines.push(line.replace(/\s+$/u, ''));
+                if (liveLines.length || clipRect) return liveLines.length ? liveLines : [''];
+            }
+        }
         const computed = getComputedStyle(editor);
+        const paddingLeft = Number.parseFloat(computed.paddingLeft) || 0;
+        const paddingRight = Number.parseFloat(computed.paddingRight) || 0;
+        const wrapWidth = Math.max(1, editor.clientWidth - paddingLeft - paddingRight);
         const mirror = document.createElement('div');
         Object.assign(mirror.style, {
             position: 'fixed',
             left: '-10000px',
             top: '0',
-            width: `${editor.clientWidth}px`,
+            width: `${wrapWidth}px`,
             margin: '0',
             padding: '0',
             border: '0',
@@ -20702,6 +22407,73 @@
         return lines.length ? lines : [''];
     }
 
+    getShiftPhotoCompareRenderedCalloutLines(mark) {
+        return this.getShiftPhotoCompareRenderedTextEditorLines(mark, '.shift-photo-callout-text');
+    }
+
+    getShiftPhotoCompareRenderedBoxedTextLines(mark) {
+        return this.getShiftPhotoCompareRenderedTextEditorLines(mark, '.shift-photo-boxed-text-editor');
+    }
+
+    commitShiftPhotoCompareTextLayout(mark) {
+        if (!mark || !['callout', 'boxedText'].includes(mark.dataset?.mode || '')) return null;
+        if (mark.dataset.mode === 'callout') this.fitShiftPhotoCompareCalloutText(mark);
+        if (mark.dataset.mode === 'boxedText' && mark.dataset.regionComment === '1') this.fitShiftPhotoCompareRegionComment(mark);
+        this.syncShiftPhotoCompareTextOutlineMirror(mark);
+        const editor = mark.querySelector(mark.dataset.mode === 'callout' ? '.shift-photo-callout-text' : '.shift-photo-boxed-text-editor');
+        if (!editor?.clientWidth) return null;
+        const layoutArea = editor.closest(mark.dataset.mode === 'callout' ? '.shift-photo-callout-text-wrap' : '.shift-photo-boxed-text-content');
+        const computed = getComputedStyle(editor);
+        const lines = mark.dataset.mode === 'callout'
+            ? this.getShiftPhotoCompareRenderedCalloutLines(mark)
+            : this.getShiftPhotoCompareRenderedBoxedTextLines(mark);
+        const state = {
+            lines: lines || [''],
+            width: layoutArea?.clientWidth || editor.clientWidth,
+            height: layoutArea?.clientHeight || editor.clientHeight,
+            fontSize: Number.parseFloat(computed.fontSize) || 0,
+            lineHeight: Number.parseFloat(computed.lineHeight) || 0,
+            overflow: this.updateShiftPhotoCompareTextOverflowState(mark),
+            sourceKey: String(mark.dataset.text || '').replace(/\s/gu, ''),
+            renderedKey: String((lines || ['']).join('')).replace(/\s/gu, '')
+        };
+        if (state.sourceKey !== state.renderedKey) {
+            state.overflow = true;
+            this.setShiftPhotoCompareTextOverflowWarning(mark, true);
+        }
+        mark.dataset.renderedTextLines = JSON.stringify(state.lines);
+        mark.dataset.renderedTextWidth = String(state.width);
+        mark.dataset.renderedTextHeight = String(state.height);
+        mark.dataset.renderedTextFontSize = String(state.fontSize);
+        mark.dataset.renderedTextLineHeight = String(state.lineHeight);
+        return state;
+    }
+
+    applyShiftPhotoCompareExportTextLayout(mark, clone, layout) {
+        if (!mark || !clone || !layout) return null;
+        clone.dataset.exportLines = JSON.stringify(layout.lines);
+        clone.dataset.exportTextWidth = String(layout.width);
+        clone.dataset.exportTextHeight = String(layout.height);
+        clone.dataset.exportTextFontSize = String(layout.fontSize);
+        clone.dataset.exportTextLineHeight = String(layout.lineHeight);
+        clone.dataset.exportTextOverflow = layout.overflow ? '1' : '0';
+        ['size', 'stretch', 'stretchY', 'textScale', 'autoTextScale', 'textFit', 'textPaddingX', 'textPaddingY', 'textAlign', 'textVertical']
+            .forEach(key => {
+                if (mark.dataset[key] !== undefined) clone.dataset[key] = mark.dataset[key];
+            });
+        const regionAutoScale = mark.style.getPropertyValue('--region-comment-auto-scale');
+        if (regionAutoScale) clone.style.setProperty('--region-comment-auto-scale', regionAutoScale);
+        else clone.style.removeProperty('--region-comment-auto-scale');
+        return layout;
+    }
+
+    setShiftPhotoCompareExportTextLines(mark, clone, preparedLayout = null) {
+        if (!mark || !clone || !['callout', 'boxedText'].includes(mark.dataset?.mode || '')) return;
+        const layout = preparedLayout || this.commitShiftPhotoCompareTextLayout(mark);
+        if (!layout) return;
+        return this.applyShiftPhotoCompareExportTextLayout(mark, clone, layout);
+    }
+
     wrapShiftPhotoCompareCanvasText(ctx, text = '', maxWidth = 0) {
         const width = Math.max(1, Number(maxWidth) || 1);
         const result = [];
@@ -20743,6 +22515,55 @@
 
     drawShiftPhotoCompareWallpaperCover(ctx, image, x, y, width, height) {
         ctx.drawImage(image, x, y, width, height);
+    }
+
+    getShiftPhotoCompareCanvasLineSourceStarts(text = '', lines = []) {
+        const source = String(text || '');
+        let cursor = 0;
+        return (lines || []).map(lineValue => {
+            const line = String(lineValue || '');
+            let start = source.indexOf(line, cursor);
+            if (start < 0) start = cursor;
+            cursor = Math.min(source.length, start + line.length);
+            if (source[cursor] === '\n') cursor += 1;
+            return start;
+        });
+    }
+
+    drawShiftPhotoCompareRichCanvasLine(ctx, mark, lineValue, sourceStart, x, y, align = 'left', maxWidth = 0, baseColor = '#111827') {
+        const line = String(lineValue || '');
+        const runs = this.normalizeShiftPhotoCompareTextColorRuns(mark?.dataset?.textColorRuns || '[]', String(mark?.dataset?.text || '').length);
+        if (!runs.length || !line) {
+            ctx.fillStyle = baseColor;
+            if (maxWidth > 0) ctx.fillText(line, x, y, maxWidth);
+            else ctx.fillText(line, x, y);
+            return;
+        }
+        const colorAt = index => runs.find(run => index >= run.start && index < run.end)?.color || baseColor;
+        const segments = [];
+        let segmentStart = 0;
+        while (segmentStart < line.length) {
+            const color = colorAt(sourceStart + segmentStart);
+            let segmentEnd = segmentStart + 1;
+            while (segmentEnd < line.length && colorAt(sourceStart + segmentEnd) === color) segmentEnd += 1;
+            segments.push({ text: line.slice(segmentStart, segmentEnd), color });
+            segmentStart = segmentEnd;
+        }
+        const naturalWidth = Math.max(0.001, ctx.measureText(line).width);
+        const scaleX = maxWidth > 0 ? Math.min(1, maxWidth / naturalWidth) : 1;
+        const renderedWidth = naturalWidth * scaleX;
+        const left = align === 'right' ? x - renderedWidth : (align === 'center' ? x - renderedWidth / 2 : x);
+        ctx.save();
+        ctx.translate(left, y);
+        ctx.scale(scaleX, 1);
+        ctx.textAlign = 'left';
+        let offset = 0;
+        segments.forEach(segment => {
+            ctx.fillStyle = segment.color;
+            ctx.fillText(segment.text, offset, 0);
+            offset += ctx.measureText(segment.text).width;
+        });
+        ctx.restore();
     }
 
     async drawShiftPhotoCompareMark(ctx, mark, rect, sizeScale = 1) {
@@ -21273,9 +23094,23 @@
                     ctx.restore();
                 } catch (_) {}
             }
-            roundedPath(ctx, -bodyWidth / 2, -bodyHeight / 2, bodyWidth, bodyHeight, radius);
+            // CSS uses border-box, so its border is entirely contained in the
+            // callout dimensions. Canvas strokes are normally centered on the
+            // path; drawing on the outer edge made clipboard/Excel output grow
+            // by half the thick border on every side and changed its aspect
+            // ratio. Inset the path by half a stroke to keep the same outer box.
+            const canvasBorderWidth = borderWidth / Math.max(0.05, stretch, stretchY);
+            const canvasBorderInset = canvasBorderWidth / 2;
+            roundedPath(
+                ctx,
+                -bodyWidth / 2 + canvasBorderInset,
+                -bodyHeight / 2 + canvasBorderInset,
+                Math.max(0, bodyWidth - canvasBorderWidth),
+                Math.max(0, bodyHeight - canvasBorderWidth),
+                Math.max(0, radius - canvasBorderInset)
+            );
             ctx.strokeStyle = color;
-            ctx.lineWidth = borderWidth;
+            ctx.lineWidth = canvasBorderWidth;
             ctx.stroke();
             if (mark.dataset.tailEnabled === '1') {
                 // Draw the fill as one continuous bridge from inside the body
@@ -21323,11 +23158,12 @@
                 ctx.fill();
                 ctx.restore();
             }
-            const textScale = Math.max(0.5, Math.min(3, Number(mark.dataset.autoTextScale || mark.dataset.textScale) || 1));
+            const textScale = Math.max(0.18, Math.min(3, Number(mark.dataset.autoTextScale || mark.dataset.textScale) || 1));
             const textFit = ['shrink', 'wrap', 'overflow', 'expand'].includes(mark.dataset.textFit) ? mark.dataset.textFit : 'shrink';
             const textPaddingX = Math.max(0, Math.min(35, Number.isFinite(Number(mark.dataset.textPaddingX)) ? Number(mark.dataset.textPaddingX) : 3));
             const textPaddingY = Math.max(0, Math.min(35, Number.isFinite(Number(mark.dataset.textPaddingY)) ? Number(mark.dataset.textPaddingY) : 5));
-            const fontSize = Math.max(8, size * 0.34 * textScale);
+            const capturedFontSize = Math.max(0, Number(mark.dataset.exportTextFontSize) || 0) * (Number(sizeScale) || 1);
+            const fontSize = capturedFontSize > 0 ? capturedFontSize : Math.max(8, size * 0.34 * textScale);
             ctx.save();
             ctx.scale(1 / Math.max(0.05, stretch), 1 / Math.max(0.05, stretchY));
             ctx.fillStyle = calloutTextColor;
@@ -21336,9 +23172,16 @@
             ctx.textBaseline = 'middle';
             ctx.lineJoin = 'round';
             ctx.miterLimit = 2;
-            const lineHeight = fontSize * 1.28;
-            const contentWidth = bodyWidth * ((100 - textPaddingX * 2) / 100) * stretch;
-            const contentHeight = bodyHeight * ((100 - textPaddingY * 2) / 100) * stretchY;
+            const capturedLineHeight = Math.max(0, Number(mark.dataset.exportTextLineHeight) || 0) * (Number(sizeScale) || 1);
+            const lineHeight = capturedLineHeight > 0 ? capturedLineHeight : fontSize * 1.28;
+            const capturedContentWidth = Math.max(0, Number(mark.dataset.exportTextWidth) || 0) * (Number(sizeScale) || 1);
+            const capturedContentHeight = Math.max(0, Number(mark.dataset.exportTextHeight) || 0) * (Number(sizeScale) || 1);
+            const contentWidth = capturedContentWidth > 0
+                ? capturedContentWidth
+                : bodyWidth * ((100 - textPaddingX * 2) / 100) * stretch;
+            const contentHeight = capturedContentHeight > 0
+                ? capturedContentHeight
+                : bodyHeight * ((100 - textPaddingY * 2) / 100) * stretchY;
             const contentHalfWidth = contentWidth / 2;
             const contentHalfHeight = contentHeight / 2;
             const maxVisibleLines = textFit === 'overflow' ? Number.MAX_SAFE_INTEGER : Math.max(1, Math.floor(contentHeight / lineHeight));
@@ -21352,9 +23195,16 @@
                     renderedLines = null;
                 }
             }
-            const lines = (textFit === 'overflow'
-                ? String(text || '').split('\n')
-                : (renderedLines || this.wrapShiftPhotoCompareCanvasText(ctx, text, contentWidth))).slice(0, maxVisibleLines);
+            // Captured lines are the lines that are actually visible in the
+            // editor. Do not run that result through a second height/floor
+            // calculation: fractional browser line boxes can make it one line
+            // smaller and drop only the final line in clipboard/Excel output.
+            const lines = renderedLines
+                ? renderedLines
+                : (textFit === 'overflow'
+                    ? String(text || '').split('\n')
+                    : this.wrapShiftPhotoCompareCanvasText(ctx, text, contentWidth).slice(0, maxVisibleLines));
+            const lineSourceStarts = this.getShiftPhotoCompareCanvasLineSourceStarts(text, lines);
             const textX = calloutTextAlign === 'left' ? -contentHalfWidth : (calloutTextAlign === 'right' ? contentHalfWidth : 0);
             const centeredStartY = -((lines.length - 1) * lineHeight) / 2;
             const startY = calloutTextVertical === 'top'
@@ -21378,10 +23228,18 @@
                     else ctx.strokeText(line, textX, startY + index * lineHeight, contentWidth);
                 });
             }
-            ctx.fillStyle = calloutTextColor;
             lines.forEach((line, index) => {
-                if (textFit === 'overflow') ctx.fillText(line, textX, startY + index * lineHeight);
-                else ctx.fillText(line, textX, startY + index * lineHeight, contentWidth);
+                this.drawShiftPhotoCompareRichCanvasLine(
+                    ctx,
+                    mark,
+                    line,
+                    lineSourceStarts[index],
+                    textX,
+                    startY + index * lineHeight,
+                    calloutTextAlign,
+                    textFit === 'overflow' ? 0 : contentWidth,
+                    calloutTextColor
+                );
             });
             ctx.restore();
             ctx.restore();
@@ -21537,11 +23395,30 @@
                 ? 'transparent'
                 : (/^#[0-9a-f]{6}$/i.test(mark.dataset.fillColor || '') ? mark.dataset.fillColor : '#fff7fb');
             const boxedTextColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '') ? mark.dataset.textColor : color;
-            const fontSize = Math.max(14, size * 0.42);
-            const lineHeight = fontSize * 1.28;
+            const regionAutoScale = isRegionComment ? this.getShiftPhotoCompareRegionCommentAutoScale(mark) : 1;
+            const boxedTextScale = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
+            const calculatedFontSize = isRegionComment
+                ? Math.max(8 * (Number(sizeScale) || 1), size * 0.42 * boxedTextScale * regionAutoScale)
+                : Math.max(14, size * 0.42 * boxedTextScale);
+            const capturedFontSize = Math.max(0, Number(mark.dataset.exportTextFontSize) || 0) * (Number(sizeScale) || 1);
+            const fontSize = capturedFontSize > 0 ? capturedFontSize : calculatedFontSize;
+            const capturedLineHeight = Math.max(0, Number(mark.dataset.exportTextLineHeight) || 0) * (Number(sizeScale) || 1);
+            const lineHeight = capturedLineHeight > 0 ? capturedLineHeight : fontSize * 1.28;
             const paddingX = Math.max(12, fontSize * 0.68);
             const paddingY = Math.max(5, fontSize * 0.21);
-            const lines = String(text || (isRegionComment ? '' : '文字')).split(/\r?\n/);
+            let exportLines = null;
+            if (mark.dataset.exportLines) {
+                try {
+                    const parsedLines = JSON.parse(mark.dataset.exportLines);
+                    if (Array.isArray(parsedLines)) exportLines = parsedLines.map(line => String(line));
+                } catch (_) {
+                    exportLines = null;
+                }
+            }
+            const lines = (exportLines && exportLines.length)
+                ? exportLines
+                : String(text || (isRegionComment ? '' : '文字')).split(/\r?\n/);
+            const lineSourceStarts = this.getShiftPhotoCompareCanvasLineSourceStarts(text, lines);
             ctx.font = `900 ${fontSize}px ${fontFamily}`;
             const maxLineWidth = Math.max(fontSize * 2.4, ...lines.map(line => ctx.measureText(line || ' ').width));
             const assetBoxWidth = Number(mark.dataset.assetBoxWidth || 0);
@@ -21570,27 +23447,29 @@
             const x0 = -boxWidth / 2;
             const y0 = -boxHeight / 2;
             if (!isRegionComment) {
+                const visualBorderWidthX = borderWidth / Math.max(0.05, stretch);
+                const visualBorderWidthY = borderWidth / Math.max(0.05, stretchY);
                 ctx.fillStyle = color;
                 drawRoundedBox(x0, y0, boxWidth, boxHeight, radius);
                 ctx.fill();
                 ctx.fillStyle = boxedFillColor;
                 drawRoundedBox(
-                    x0 + borderWidth,
-                    y0 + borderWidth,
-                    Math.max(0, boxWidth - borderWidth * 2),
-                    Math.max(0, boxHeight - borderWidth * 2),
+                    x0 + visualBorderWidthX,
+                    y0 + visualBorderWidthY,
+                    Math.max(0, boxWidth - visualBorderWidthX * 2),
+                    Math.max(0, boxHeight - visualBorderWidthY * 2),
                     radius
                 );
                 ctx.fill();
                 if (wallpaperSrc) {
                     try {
                         const wallpaper = await this.loadShiftPhotoCompareImage(wallpaperSrc);
-                        const innerX = x0 + borderWidth;
-                        const innerY = y0 + borderWidth;
-                        const innerWidth = Math.max(0, boxWidth - borderWidth * 2);
-                        const innerHeight = Math.max(0, boxHeight - borderWidth * 2);
+                        const innerX = x0 + visualBorderWidthX;
+                        const innerY = y0 + visualBorderWidthY;
+                        const innerWidth = Math.max(0, boxWidth - visualBorderWidthX * 2);
+                        const innerHeight = Math.max(0, boxHeight - visualBorderWidthY * 2);
                         ctx.save();
-                        drawRoundedBox(innerX, innerY, innerWidth, innerHeight, Math.max(0, radius - borderWidth / 2));
+                        drawRoundedBox(innerX, innerY, innerWidth, innerHeight, Math.max(0, radius - Math.max(visualBorderWidthX, visualBorderWidthY) / 2));
                         ctx.clip();
                         this.drawShiftPhotoCompareWallpaperCover(ctx, wallpaper, innerX, innerY, innerWidth, innerHeight);
                         ctx.restore();
@@ -21608,19 +23487,22 @@
                 } catch (_) {}
             }
             ctx.save();
-            ctx.scale(1 / Math.max(0.05, stretch), 1 / Math.max(0.05, stretchY));
+            // The browser clips fixed/resized boxed text at its visible frame.
+            // Keep the clipboard canvas on the same rule so hidden paragraphs
+            // cannot appear below the frame after pasting into Excel.
+            ctx.beginPath();
+            ctx.rect(x0, y0, boxWidth, boxHeight);
+            ctx.clip();
             ctx.fillStyle = boxedTextColor;
             ctx.textAlign = textAlign;
             ctx.textBaseline = 'alphabetic';
-            const visualBoxWidth = boxWidth * stretch;
-            const effectivePaddingX = isRegionComment ? 8 * (Number(sizeScale) || 1) : paddingX;
+            const effectivePaddingX = isRegionComment ? 6 * (Number(sizeScale) || 1) : paddingX;
             const textX = textAlign === 'right'
-                ? visualBoxWidth / 2 - effectivePaddingX
-                : (textAlign === 'center' ? 0 : -visualBoxWidth / 2 + effectivePaddingX);
+                ? boxWidth / 2 - effectivePaddingX
+                : (textAlign === 'center' ? 0 : -boxWidth / 2 + effectivePaddingX);
             const textVertical = ['top', 'middle', 'bottom'].includes(mark.dataset.textVertical)
                 ? mark.dataset.textVertical
                 : 'middle';
-            const visualBoxHeight = boxHeight * stretchY;
             const effectivePaddingY = isRegionComment
                 ? 6 * (Number(sizeScale) || 1)
                 : paddingY;
@@ -21635,9 +23517,9 @@
             );
             const lineLeading = Math.max(0, lineHeight - textAscent - textDescent);
             const startY = textVertical === 'top'
-                ? -visualBoxHeight / 2 + effectivePaddingY + lineLeading / 2 + textAscent
+                ? -boxHeight / 2 + effectivePaddingY + lineLeading / 2 + textAscent
                 : (textVertical === 'bottom'
-                    ? visualBoxHeight / 2 - effectivePaddingY - lineLeading / 2 - textDescent - lineHeight * (lines.length - 1)
+                    ? boxHeight / 2 - effectivePaddingY - lineLeading / 2 - textDescent - lineHeight * (lines.length - 1)
                     : (textAscent - textDescent - lineHeight * (lines.length - 1)) / 2);
             if (outlineEnabled) {
                 ctx.lineWidth = outerOutlineWidth;
@@ -21649,12 +23531,22 @@
                 ctx.strokeStyle = '#111111';
                 lines.forEach((line, index) => ctx.strokeText(line, textX, startY + index * lineHeight));
             }
-            ctx.fillStyle = boxedTextColor;
-            lines.forEach((line, index) => ctx.fillText(line, textX, startY + index * lineHeight));
+            lines.forEach((line, index) => this.drawShiftPhotoCompareRichCanvasLine(
+                ctx,
+                mark,
+                line,
+                lineSourceStarts[index],
+                textX,
+                startY + index * lineHeight,
+                textAlign,
+                0,
+                boxedTextColor
+            ));
             ctx.restore();
         } else if (mode === 'text' || mode === 'number') {
             ctx.shadowBlur = outlineEnabled ? Math.max(5, size * 0.06) : 0;
-            const fontSize = Math.max(12, size * (mode === 'number' ? 0.62 : 0.48));
+            const textScale = mode === 'text' ? Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1)) : 1;
+            const fontSize = Math.max(12, size * (mode === 'number' ? 0.62 : 0.48 * textScale));
             const lineHeight = fontSize * 1.15;
             const lines = String(text || '').split(/\r?\n/);
             const startY = -((lines.length - 1) * lineHeight) / 2;
@@ -21715,10 +23607,7 @@
         const markX = wrapRect.left + ((parseFloat(mark.style.left) || 0) / 100) * wrapRect.width;
         const markY = wrapRect.top + ((parseFloat(mark.style.top) || 0) / 100) * wrapRect.height;
         const localMark = mark.cloneNode(true);
-        if (mark.dataset.mode === 'callout') {
-            const renderedLines = this.getShiftPhotoCompareRenderedCalloutLines(mark);
-            if (renderedLines) localMark.dataset.exportLines = JSON.stringify(renderedLines);
-        }
+        this.setShiftPhotoCompareExportTextLines(mark, localMark);
         if (this.isShiftPhotoComparePointPathMode(mark.dataset.mode)) {
             const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]')
                 .map(point => {
@@ -21760,10 +23649,7 @@
                 && markY - radiusY <= imageRect.bottom);
             if (!intersects) continue;
             const localMark = mark.cloneNode(true);
-            if (mark.dataset.mode === 'callout') {
-                const renderedLines = this.getShiftPhotoCompareRenderedCalloutLines(mark);
-                if (renderedLines) localMark.dataset.exportLines = JSON.stringify(renderedLines);
-            }
+            this.setShiftPhotoCompareExportTextLines(mark, localMark);
             if (this.isShiftPhotoComparePointPathMode(mark.dataset.mode)) {
                 const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]')
                     .map(point => {

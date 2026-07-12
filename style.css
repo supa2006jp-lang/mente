@@ -877,6 +877,1889 @@ body {
     text-align: center;
 }
 
+.outlook-assist-shell {
+    display: grid;
+    grid-template-columns: clamp(220px, 17vw, 280px) minmax(0, 1fr);
+    gap: clamp(10px, 1vw, 16px);
+    height: calc(100vh - 120px);
+    min-height: 640px;
+}
+
+.outlook-assist-people,
+.outlook-template-panel,
+.outlook-compose-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+}
+
+.outlook-assist-people {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.outlook-assist-panel-head,
+.outlook-template-head,
+.outlook-compose-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.outlook-assist-panel-head h3,
+.outlook-template-head h3,
+.outlook-compose-top h2 {
+    margin: 0;
+    color: var(--text-main);
+    font-weight: 900;
+}
+
+.outlook-assist-panel-head h3,
+.outlook-template-head h3 {
+    font-size: 0.95rem;
+}
+
+.outlook-compose-top h2 {
+    font-size: 1.12rem;
+}
+
+.outlook-assist-panel-head p,
+.outlook-template-head p {
+    margin: 4px 0 0;
+    color: var(--text-light);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.outlook-compose-label {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    margin-bottom: 5px;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #0369a1;
+    font-size: 0.68rem;
+    font-weight: 900;
+}
+
+.outlook-assist-search {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    margin: 12px;
+    padding: 8px 10px;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: var(--text-light);
+}
+
+.outlook-assist-search input,
+.outlook-template-title-input {
+    border: none;
+    outline: none;
+    background: transparent;
+    width: 100%;
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: var(--text-main);
+}
+
+.outlook-template-title-input {
+    width: calc(100% - 24px);
+    margin: 12px 12px 0;
+    padding: 9px 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-sm);
+    background: #eff6ff;
+}
+
+.outlook-assist-worker-list,
+.outlook-template-list {
+    min-height: 0;
+    overflow: auto;
+    padding: 0 10px 12px;
+}
+
+.outlook-assist-worker {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+    padding: 11px 12px;
+    margin-bottom: 6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+}
+
+.outlook-assist-worker:hover,
+.outlook-assist-worker.active {
+    border-color: var(--primary);
+    background: var(--primary-light);
+}
+
+.outlook-assist-worker span {
+    font-size: 0.86rem;
+    font-weight: 900;
+}
+
+.outlook-assist-worker small {
+    overflow: hidden;
+    color: var(--text-light);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-assist-worker em {
+    color: #0369a1;
+    font-size: 0.64rem;
+    font-style: normal;
+    font-weight: 900;
+}
+
+.outlook-assist-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(260px, 20vw, 320px);
+    gap: clamp(10px, 1vw, 16px);
+    min-width: 0;
+}
+
+.outlook-compose-card,
+.outlook-template-panel {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.outlook-compose-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.outlook-compose-card.body-focus .outlook-personal-io-options,
+.outlook-compose-card.body-focus .outlook-body-top-fold,
+.outlook-compose-card.body-focus .outlook-variable-bar,
+.outlook-compose-card.body-focus .outlook-quick-phrases {
+    display: none;
+}
+
+.outlook-compose-card.body-focus .outlook-mail-window {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.outlook-compose-card.body-focus .outlook-body-input {
+    flex: 1;
+    min-height: 620px;
+}
+
+.outlook-compose-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.outlook-personal-io-options {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px 0;
+    color: var(--text-light);
+    font-size: 0.68rem;
+    font-weight: 900;
+}
+
+.outlook-personal-io-options span {
+    color: #1d4ed8;
+}
+
+.outlook-personal-io-options label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 26px;
+    padding: 3px 8px;
+    border: 1px solid #dbeafe;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #334155;
+}
+
+.outlook-copy-checklist {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    background: #f8fafc;
+}
+
+.outlook-copy-checklist b {
+    color: var(--text-main);
+    font-size: 0.74rem;
+    font-weight: 950;
+}
+
+.outlook-copy-checklist span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: white;
+    color: var(--text-light);
+    font-size: 0.68rem;
+    font-weight: 900;
+}
+
+.outlook-copy-checklist span.done {
+    border-color: #86efac;
+    background: #f0fdf4;
+    color: #15803d;
+}
+
+.outlook-next-copy-guide,
+.outlook-recipient-check {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--border);
+    background: #ffffff;
+}
+
+.outlook-next-copy-guide b,
+.outlook-recipient-check b {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-main);
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
+.outlook-next-copy-guide span,
+.outlook-recipient-check span {
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 0.68rem;
+    font-weight: 900;
+}
+
+.outlook-next-copy-guide.done span,
+.outlook-recipient-check.ok span {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.outlook-recipient-check.warn span {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.outlook-mail-window {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    padding: 6px 12px 12px;
+}
+
+.outlook-mail-window label {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    align-items: center;
+    min-height: 32px;
+    gap: 8px;
+    padding: 3px 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.outlook-recipient-picker-btn {
+    min-height: 28px;
+    padding: 4px 10px;
+    border: 1px solid #38bdf8;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #0369a1;
+    font-size: 0.68rem;
+    font-weight: 950;
+    cursor: pointer;
+}
+
+.outlook-recipient-picker-btn:hover {
+    background: #bae6fd;
+}
+
+.outlook-recipient-delimiter-help {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0 5px 72px;
+    border-bottom: 1px solid #e5e7eb;
+    color: #64748b;
+    font-size: 0.66rem;
+    font-weight: 850;
+}
+
+.outlook-recipient-delimiter-help i {
+    color: #0284c7;
+}
+
+.outlook-recipient-entry {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    min-height: 28px;
+    padding: 3px 7px;
+    border: 1px solid #bfdbfe;
+    border-radius: 7px;
+    background: #eff6ff;
+}
+
+.outlook-recipient-entry input {
+    flex: 1 1 140px;
+    min-width: 120px !important;
+    min-height: 20px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.outlook-recipient-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-width: 0;
+}
+
+.outlook-recipient-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 210px;
+    padding: 3px 7px;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.68rem;
+    font-weight: 900;
+}
+
+.outlook-recipient-chip.unregistered {
+    border-color: #bfdbfe;
+    background: #ffffff;
+    color: #334155;
+}
+
+.outlook-recipient-chip b {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-recipient-chip em {
+    flex: 0 0 auto;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: rgba(251, 191, 36, 0.32);
+    font-size: 0.58rem;
+    font-style: normal;
+}
+
+.outlook-recipient-chip button {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.08);
+    color: inherit;
+    cursor: pointer;
+}
+
+.outlook-merge-wrap-control.active {
+    border-color: #0f766e !important;
+    background: #ccfbf1 !important;
+    color: #0f766e !important;
+    box-shadow: inset 0 0 0 2px rgba(20, 184, 166, 0.18);
+}
+
+.outlook-mail-window label span {
+    color: var(--text-light);
+    font-size: 0.76rem;
+    font-weight: 900;
+}
+
+.outlook-mail-window input {
+    min-width: 0;
+    min-height: 28px;
+    padding: 4px 9px;
+    border: 1px solid #bfdbfe;
+    border-radius: 7px;
+    outline: none;
+    color: var(--text-main);
+    background: #eff6ff;
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.outlook-mail-window .outlook-recipient-entry input {
+    border-radius: 0;
+}
+
+.outlook-mail-window input:focus,
+.outlook-subject-preset-editor input:focus,
+.outlook-quick-phrase-editor input:focus,
+.outlook-template-title-input:focus,
+.outlook-recipient-set-form input:focus {
+    border-color: #38bdf8;
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
+.outlook-body-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 0;
+}
+
+.outlook-body-toolbar .secondary-btn,
+.outlook-body-toolbar .primary-btn {
+    padding: 5px 9px;
+    font-size: 0.72rem;
+}
+
+.outlook-body-focus-toggle {
+    border-color: #ea580c !important;
+    background: #fb923c !important;
+    color: #ffffff !important;
+    box-shadow: 0 8px 18px rgba(249, 115, 22, 0.24);
+}
+
+.outlook-body-focus-toggle:hover {
+    border-color: #c2410c !important;
+    background: #f97316 !important;
+    color: #ffffff !important;
+}
+
+.outlook-body-focus-toggle.active {
+    border-color: #ea580c !important;
+    background: #fb923c !important;
+    color: #ffffff !important;
+}
+
+.outlook-compose-card.body-focus .outlook-body-focus-toggle {
+    border-color: #ea580c !important;
+    background: #fb923c !important;
+    color: #ffffff !important;
+    box-shadow: 0 8px 18px rgba(249, 115, 22, 0.24);
+}
+
+.outlook-compose-card.body-focus .outlook-body-focus-toggle:hover {
+    border-color: #c2410c !important;
+    background: #f97316 !important;
+    color: #ffffff !important;
+}
+
+.outlook-copy-btn {
+    border-color: #059669 !important;
+    background: #10b981 !important;
+    color: #ffffff !important;
+    box-shadow: 0 8px 18px rgba(16, 185, 129, 0.18);
+}
+
+.outlook-copy-btn:hover {
+    border-color: #047857 !important;
+    background: #059669 !important;
+}
+
+.outlook-subject-preset-bar,
+.outlook-quick-phrases {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 0;
+}
+
+.outlook-subject-preset-bar span,
+.outlook-quick-phrases span {
+    color: var(--text-light);
+    font-size: 0.7rem;
+    font-weight: 950;
+}
+
+.outlook-subject-preset-bar button,
+.outlook-quick-phrases button {
+    min-height: 28px;
+    max-width: 190px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: #f8fafc;
+    color: var(--text-main);
+    font-size: 0.68rem;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.outlook-subject-preset-bar button:hover,
+.outlook-quick-phrases button:hover {
+    border-color: #93c5fd;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.outlook-subject-preset-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-width: 0;
+}
+
+.outlook-subject-preset-chip,
+.outlook-quick-phrase-chip {
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: #f8fafc;
+}
+
+.outlook-subject-preset-chip.editing,
+.outlook-quick-phrase-chip.editing {
+    border-color: #10b981;
+    background: #ecfdf5;
+}
+
+.outlook-subject-preset-chip .preset-insert,
+.outlook-quick-phrase-chip .phrase-insert {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+}
+
+.outlook-subject-preset-chip .preset-edit,
+.outlook-subject-preset-chip .preset-delete,
+.outlook-quick-phrase-chip .phrase-toggle,
+.outlook-quick-phrase-chip .phrase-edit,
+.outlook-quick-phrase-chip .phrase-delete {
+    width: 25px;
+    min-height: 26px;
+    padding: 0;
+    border: none;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+}
+
+.outlook-subject-preset-chip .preset-delete,
+.outlook-quick-phrase-chip .phrase-delete {
+    color: #b91c1c;
+}
+
+.outlook-quick-phrase-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-width: 0;
+}
+
+.outlook-quick-phrase-restore {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.outlook-quick-phrase-restore > button {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    color: #475569;
+}
+
+.outlook-quick-phrase-hidden-list {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-width: 0;
+    padding: 4px 6px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 999px;
+    background: #f8fafc;
+}
+
+.outlook-quick-phrase-hidden-list button {
+    border-color: #bae6fd;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.outlook-quick-phrase-hidden-list small {
+    padding: 4px 8px;
+    color: var(--text-light);
+    font-size: 0.68rem;
+    font-weight: 900;
+}
+
+.outlook-subject-preset-editor,
+.outlook-quick-phrase-editor {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 220px;
+}
+
+.outlook-subject-preset-editor input,
+.outlook-quick-phrase-editor input {
+    width: 170px;
+    min-height: 28px;
+    padding: 4px 8px;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    background: #eff6ff;
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+
+.outlook-subject-preset-editor button,
+.outlook-quick-phrase-editor button {
+    min-height: 28px;
+    border-color: #10b981;
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.outlook-wrap-control {
+    display: inline-flex !important;
+    grid-template-columns: none !important;
+    align-items: center !important;
+    min-height: 30px !important;
+    gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid var(--border) !important;
+    border-radius: 999px;
+    background: #f8fafc;
+}
+
+.outlook-wrap-control input[type="number"] {
+    width: 58px;
+    padding: 2px 4px;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    background: #eff6ff;
+    text-align: right;
+}
+
+.outlook-body-input {
+    min-height: 420px;
+    resize: none;
+    border: 1px solid #a7f3d0;
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    outline: none;
+    color: #111827;
+    background: #f0fdf4;
+    font: 500 0.94rem/1.72 "Noto Sans JP", "Inter", sans-serif;
+    white-space: pre-wrap;
+}
+
+.outlook-template-diff {
+    display: grid;
+    gap: 8px;
+    margin: 10px 0;
+    padding: 10px;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-sm);
+    background: #eff6ff;
+}
+
+.outlook-address-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.35);
+}
+
+.outlook-address-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(980px, calc(100vw - 48px));
+    max-height: calc(100vh - 64px);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: #ffffff;
+    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
+}
+
+.outlook-address-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    background: #f8fafc;
+}
+
+.outlook-address-modal-head h3 {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 1rem;
+    font-weight: 950;
+}
+
+.outlook-address-modal-head p {
+    margin: 4px 0 0;
+    color: var(--text-light);
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.outlook-address-modal-head .outlook-address-close-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    border-radius: 12px;
+    font-size: 1.1rem;
+}
+
+.outlook-address-modal-body {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    overflow: auto;
+}
+
+.outlook-address-form {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) auto auto;
+    gap: 8px;
+    align-items: end;
+}
+
+.outlook-address-field {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.outlook-address-field span {
+    color: #475569;
+    font-size: 0.68rem;
+    font-weight: 950;
+    line-height: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-address-form input {
+    min-width: 0;
+    min-height: 34px;
+    padding: 7px 10px;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-sm);
+    background: #eff6ff;
+    color: var(--text-main);
+    font-size: 0.78rem;
+    font-weight: 850;
+}
+
+.outlook-address-form input:focus {
+    border-color: #38bdf8;
+    background: #ffffff;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
+.outlook-address-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-sm);
+    background: #eff6ff;
+    color: #64748b;
+}
+
+.outlook-address-search input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-main);
+    font-size: 0.78rem;
+    font-weight: 850;
+    outline: none;
+}
+
+.outlook-address-groups,
+.outlook-address-list {
+    display: grid;
+    gap: 8px;
+}
+
+.outlook-address-group,
+.outlook-address-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: #ffffff;
+}
+
+.outlook-address-group {
+    background: #f0f9ff;
+}
+
+.outlook-address-group.has-group-color {
+    box-shadow: inset 4px 0 0 rgba(15, 23, 42, 0.18);
+}
+
+.outlook-address-group.has-group-color b,
+.outlook-address-group.has-group-color small {
+    color: #0f172a;
+}
+
+.outlook-address-group.active {
+    border-color: #0284c7;
+    background: #e0f2fe;
+    box-shadow: inset 4px 0 0 #0284c7;
+}
+
+.outlook-address-group-main {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.outlook-address-group-main:hover b {
+    color: #0369a1;
+}
+
+.outlook-address-group-members {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 5px;
+    overflow: hidden;
+}
+
+.outlook-address-group-members em {
+    max-width: 84px;
+    padding: 2px 7px;
+    border: 1px solid #bae6fd;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #075985;
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 900;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-address-group b,
+.outlook-address-item b {
+    display: block;
+    color: var(--text-main);
+    font-size: 0.82rem;
+    font-weight: 950;
+}
+
+.outlook-address-group small,
+.outlook-address-item small,
+.outlook-address-item span {
+    display: block;
+    overflow: hidden;
+    color: var(--text-light);
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-address-item .outlook-address-email-row {
+    display: grid;
+    grid-template-columns: minmax(160px, max-content) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 14px;
+}
+
+.outlook-address-email-row em {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-light);
+    font-style: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-address-group-member .outlook-address-member-email-row {
+    display: grid;
+    grid-template-columns: minmax(140px, max-content) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 12px;
+}
+
+.outlook-address-member-email-row em {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-light);
+    font-style: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-address-note {
+    min-width: 0;
+    overflow: hidden;
+    justify-self: start;
+    max-width: 100%;
+    padding: 1px 7px;
+    border: 1px solid #dbeafe;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.66rem;
+    font-weight: 900;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-address-note.small {
+    font-size: 0.59rem;
+}
+
+.outlook-address-note.x-small {
+    font-size: 0.52rem;
+    letter-spacing: 0;
+}
+
+.outlook-address-item-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.outlook-address-group-manager {
+    display: grid;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid #bae6fd;
+    border-radius: var(--radius-sm);
+    background: #f8fafc;
+}
+
+.outlook-address-group-manager-head,
+.outlook-address-group-member {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.outlook-address-group-manager-head b {
+    display: block;
+    color: var(--text-main);
+    font-size: 0.86rem;
+    font-weight: 950;
+}
+
+.outlook-address-group-color {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 42px;
+    height: 36px;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-sm);
+    background: #ffffff;
+    color: #0369a1;
+    cursor: pointer;
+}
+
+.outlook-address-group-color input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.outlook-address-group-manager-head small,
+.outlook-address-group-member small {
+    display: block;
+    color: var(--text-light);
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
+.outlook-address-group-member-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.outlook-address-group-member-column {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+
+.outlook-address-group-member-column h4 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 0.76rem;
+    font-weight: 950;
+}
+
+.outlook-address-group-member {
+    min-width: 0;
+    padding: 7px 8px;
+    border: 1px solid #dbeafe;
+    border-radius: var(--radius-sm);
+    background: #ffffff;
+}
+
+.outlook-address-group-member span {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.outlook-address-group-member b {
+    display: block;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 0.76rem;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+    .outlook-address-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .outlook-address-item .outlook-address-email-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px;
+    }
+
+    .outlook-address-group-member .outlook-address-member-email-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px;
+    }
+
+    .outlook-address-group-member-list {
+        grid-template-columns: 1fr;
+    }
+}
+
+.outlook-template-diff > div:first-child {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: #1d4ed8;
+    font-size: 0.74rem;
+    font-weight: 950;
+}
+
+.outlook-template-diff-row {
+    display: grid;
+    gap: 4px;
+    padding: 8px;
+    border: 1px solid #dbeafe;
+    border-radius: var(--radius-sm);
+    background: white;
+}
+
+.outlook-template-diff-row b {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--text-main);
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
+.outlook-template-diff-row em {
+    color: #1d4ed8;
+    font-size: 0.66rem;
+    font-style: normal;
+}
+
+.outlook-template-diff-row small,
+.outlook-template-diff p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-light);
+    font-size: 0.66rem;
+    font-weight: 800;
+}
+
+.outlook-body-input:focus {
+    border-color: #10b981;
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16);
+}
+
+.outlook-variable-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border: 1px dashed #bae6fd;
+    border-radius: var(--radius-sm);
+    background: #f0f9ff;
+}
+
+.outlook-subject-variable-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 10px 72px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.outlook-variable-bar span {
+    color: #0369a1;
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.outlook-subject-variable-bar span {
+    color: var(--text-light);
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.outlook-variable-bar button {
+    padding: 5px 9px;
+    border: 1px solid #7dd3fc;
+    border-radius: 999px;
+    background: white;
+    color: #075985;
+    font-size: 0.72rem;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.outlook-subject-variable-bar button {
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: #f8fafc;
+    color: var(--primary);
+    font-size: 0.72rem;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.outlook-variable-bar button:hover {
+    border-color: #0284c7;
+    background: #e0f2fe;
+}
+
+.outlook-subject-variable-bar button:hover {
+    border-color: var(--primary);
+    background: var(--primary-light);
+}
+
+.outlook-insert-history {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 10px 72px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.outlook-insert-history span,
+.outlook-insert-history small {
+    color: var(--text-light);
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.outlook-insert-history button {
+    max-width: 150px;
+    overflow: hidden;
+    padding: 5px 9px;
+    border: 1px solid #bae6fd;
+    border-radius: 999px;
+    background: #f0f9ff;
+    color: #0369a1;
+    font-size: 0.72rem;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.outlook-insert-history button:hover {
+    border-color: #0284c7;
+    background: #e0f2fe;
+}
+
+.outlook-assist-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 9px 12px;
+    border: 1px solid #f59e0b;
+    border-radius: var(--radius-sm);
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 0.78rem;
+    font-weight: 900;
+}
+
+.outlook-assist-warning[hidden] {
+    display: none;
+}
+
+.outlook-assist-warning::before {
+    content: "!";
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    background: #f59e0b;
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
+.outlook-copy-preview {
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: #f8fafc;
+}
+
+.outlook-copy-preview > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-main);
+    font-size: 0.78rem;
+    font-weight: 900;
+}
+
+.outlook-copy-preview pre {
+    max-height: 170px;
+    margin: 0;
+    padding: 12px;
+    overflow: auto;
+    color: #111827;
+    background: white;
+    font: 500 0.8rem/1.6 "Noto Sans JP", "Inter", sans-serif;
+    white-space: pre-wrap;
+}
+
+.outlook-template-panel {
+    display: flex;
+    flex-direction: column;
+    background: #f8fafc;
+}
+
+.outlook-recipient-sets {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.outlook-recipient-set-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.outlook-recipient-set-form input {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-sm);
+    background: #eff6ff;
+    color: var(--text-main);
+    font-size: 0.78rem;
+    font-weight: 900;
+}
+
+.outlook-recipient-set-list {
+    display: grid;
+    gap: 8px;
+}
+
+.outlook-recipient-set-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 6px;
+    align-items: center;
+}
+
+.outlook-recipient-set-item > button:first-child {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: white;
+    text-align: left;
+    cursor: pointer;
+}
+
+.outlook-recipient-set-item b,
+.outlook-recipient-set-item span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-recipient-set-item b {
+    color: var(--text-main);
+    font-size: 0.78rem;
+    font-weight: 950;
+}
+
+.outlook-recipient-set-item span {
+    color: var(--text-light);
+    font-size: 0.66rem;
+    font-weight: 800;
+}
+
+.outlook-template-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 12px 12px 0;
+}
+
+.outlook-template-form .outlook-template-title-input {
+    width: 100%;
+    margin: 0;
+}
+
+.outlook-template-form select,
+.outlook-template-filter select {
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: white;
+    color: var(--text-main);
+    font-size: 0.78rem;
+    font-weight: 900;
+}
+
+.outlook-template-filter {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px 12px 0;
+}
+
+.outlook-template-color-toggle,
+.outlook-template-compact-toggle {
+    min-height: 34px;
+    padding: 7px 10px;
+    white-space: nowrap;
+}
+
+.outlook-template-color-toggle.active,
+.outlook-template-compact-toggle.active {
+    border-color: #2563eb;
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.outlook-template-edit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.outlook-template-edit-actions .primary-btn,
+.outlook-template-edit-actions .secondary-btn {
+    min-height: 32px;
+    padding: 6px 9px;
+    font-size: 0.7rem;
+}
+
+.outlook-template-edit-banner {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 10px 12px 0;
+    padding: 8px 10px;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-sm);
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.outlook-template-edit-banner span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-template-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.outlook-template-item.dragging {
+    opacity: 0.55;
+}
+
+.outlook-template-item.favorite > button:first-child {
+    border-color: #facc15;
+    background: #fefce8;
+}
+
+.outlook-template-item.has-card-color > button:first-child b,
+.outlook-template-item.has-card-color > button:first-child .outlook-template-subject,
+.outlook-template-item.has-card-color > button:first-child small {
+    color: inherit;
+}
+
+.outlook-template-item > button:first-child {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: white;
+    text-align: left;
+    cursor: pointer;
+}
+
+.outlook-template-item.compact {
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.outlook-template-item.compact > button:first-child {
+    gap: 3px;
+    padding: 8px 10px;
+}
+
+.outlook-template-item.compact .outlook-template-subject,
+.outlook-template-item.compact .outlook-template-color-presets {
+    display: none;
+}
+
+.outlook-template-item.compact b {
+    font-size: 0.78rem;
+}
+
+.outlook-template-item.compact small {
+    font-size: 0.58rem;
+}
+
+.outlook-template-item b,
+.outlook-template-item span,
+.outlook-template-item small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outlook-template-item b {
+    color: var(--text-main);
+    font-size: 0.82rem;
+    font-weight: 900;
+}
+
+.outlook-template-item span {
+    color: var(--text-light);
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.outlook-template-title-warning {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 12px 0;
+    padding: 7px 9px;
+    border: 1px solid #fbbf24;
+    border-radius: var(--radius-sm);
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 0.7rem;
+    font-weight: 900;
+}
+
+.outlook-template-item small {
+    color: #0369a1;
+    font-size: 0.64rem;
+    font-weight: 900;
+}
+
+.outlook-template-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.outlook-template-color-presets {
+    display: flex;
+    gap: 4px;
+    min-width: 0;
+}
+
+.outlook-template-color-presets i {
+    width: 16px;
+    height: 16px;
+    border: 1px solid rgba(15, 23, 42, 0.22);
+    border-radius: 999px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+    cursor: pointer;
+}
+
+.outlook-template-category-badge {
+    flex: 0 0 auto;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #0369a1;
+    font-size: 0.62rem;
+    font-style: normal;
+    font-weight: 900;
+}
+
+.outlook-template-category-badge.category-estimate {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.outlook-template-category-badge.category-order {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.outlook-template-category-badge.category-raw_order {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.outlook-template-category-badge.category-request {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.outlook-template-category-badge.category-report {
+    background: #ede9fe;
+    color: #5b21b6;
+}
+
+.outlook-template-category-badge.category-trouble {
+    background: #fce7f3;
+    color: #9d174d;
+}
+
+.outlook-template-category-badge.category-reminder {
+    background: #ccfbf1;
+    color: #0f766e;
+}
+
+.outlook-template-category-badge.category-thanks {
+    background: #f3e8ff;
+    color: #7e22ce;
+}
+
+.outlook-template-item.has-card-color .outlook-template-category-badge,
+.outlook-template-item.has-card-color .outlook-template-meta small {
+    border: 1px solid rgba(255, 255, 255, 0.62);
+    background: rgba(255, 255, 255, 0.88);
+    color: #0f172a;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+
+.outlook-template-item.has-card-color .outlook-template-meta small {
+    flex: 0 0 auto;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 0.62rem;
+}
+
+.outlook-template-item-actions {
+    display: grid;
+    grid-template-columns: repeat(4, 30px);
+    gap: 4px;
+    align-content: center;
+}
+
+.outlook-template-item-actions .icon-btn {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    font-size: 0.72rem;
+}
+
+.outlook-template-drag-handle {
+    cursor: grab;
+}
+
+.outlook-template-color-btn {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.outlook-template-color-btn input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.outlook-template-undo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid #bae6fd;
+    border-radius: var(--radius-sm);
+    background: #f0f9ff;
+}
+
+.outlook-template-undo span {
+    color: #0369a1;
+    font-size: 0.74rem;
+    font-weight: 900;
+}
+
+.outlook-template-undo button {
+    padding: 5px 10px;
+    border: 1px solid #0284c7;
+    border-radius: 999px;
+    background: white;
+    color: #0369a1;
+    font-size: 0.72rem;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.outlook-template-empty,
+.outlook-assist-empty,
+.outlook-assist-start {
+    display: grid;
+    place-items: center;
+    gap: 10px;
+    padding: 32px 16px;
+    color: var(--text-light);
+    text-align: center;
+    font-weight: 800;
+}
+
+.outlook-assist-start {
+    align-content: center;
+    min-height: 420px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    background: #f8fafc;
+}
+
+.outlook-assist-start i {
+    color: var(--primary);
+    font-size: 2.2rem;
+}
+
+@media (max-width: 1500px) {
+    .outlook-assist-shell {
+        grid-template-columns: clamp(200px, 16vw, 240px) minmax(0, 1fr);
+        gap: 10px;
+    }
+
+    .outlook-assist-main {
+        grid-template-columns: minmax(0, 1fr) clamp(240px, 19vw, 280px);
+        gap: 10px;
+    }
+
+    .outlook-assist-panel-head,
+    .outlook-template-head,
+    .outlook-compose-top {
+        padding: 8px 10px;
+    }
+
+    .outlook-compose-top h2 {
+        font-size: 1rem;
+    }
+
+    .outlook-compose-actions .primary-btn,
+    .outlook-compose-actions .secondary-btn,
+    .outlook-body-toolbar .primary-btn,
+    .outlook-body-toolbar .secondary-btn {
+        min-height: 30px;
+        padding: 5px 8px;
+        font-size: 0.68rem;
+    }
+
+    .outlook-mail-window {
+        padding: 5px 9px 10px;
+    }
+
+    .outlook-mail-window label {
+        grid-template-columns: 62px minmax(0, 1fr) auto;
+        gap: 6px;
+    }
+
+    .outlook-template-list,
+    .outlook-assist-worker-list {
+        padding-right: 8px;
+        padding-left: 8px;
+    }
+
+    .outlook-template-head p,
+    .outlook-assist-panel-head p,
+    .outlook-template-item small {
+        font-size: 0.6rem;
+    }
+}
+
+@media (max-width: 1280px) {
+    .outlook-assist-shell {
+        grid-template-columns: 190px minmax(0, 1fr);
+        min-height: 580px;
+    }
+
+    .outlook-assist-main {
+        grid-template-columns: minmax(0, 1fr) 230px;
+    }
+
+    .outlook-personal-io-options,
+    .outlook-template-form,
+    .outlook-template-filter,
+    .outlook-template-title-input,
+    .outlook-assist-search {
+        margin-left: 8px;
+        margin-right: 8px;
+    }
+
+    .outlook-template-form,
+    .outlook-template-filter {
+        padding-right: 8px;
+        padding-left: 8px;
+    }
+
+    .outlook-template-item {
+        grid-template-columns: minmax(0, 1fr) 132px;
+        gap: 5px;
+    }
+
+    .outlook-template-item-actions {
+        grid-template-columns: repeat(4, 30px);
+    }
+
+    .outlook-template-item > button:first-child {
+        padding: 8px 9px;
+    }
+
+    .outlook-template-meta {
+        gap: 4px;
+    }
+
+    .outlook-template-meta small:last-child {
+        display: none;
+    }
+}
+
+@media (max-width: 1100px) {
+    .outlook-assist-shell,
+    .outlook-assist-main {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+
+    .outlook-assist-people {
+        max-height: 280px;
+    }
+}
+
 .nav-divider {
     padding: 16px 13px 6px;
     font-size: 0.56rem;
@@ -939,6 +2822,86 @@ body {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
+}
+
+/* 履歴表は横スクロールにせず、使用可能な幅に合わせて
+   列を縮める。狭いノートPCでも部品と操作列を残す。 */
+#view-history .history-data-table {
+    width: 100%;
+    max-width: 100%;
+    table-layout: fixed;
+}
+
+#view-history .history-data-table th,
+#view-history .history-data-table td {
+    box-sizing: border-box;
+    min-width: 0 !important;
+    padding: clamp(3px, 0.55vw, 10px) clamp(3px, 0.6vw, 12px);
+    overflow: hidden;
+}
+
+#view-history .history-data-table th {
+    font-size: clamp(0.56rem, 0.7vw, 0.75rem);
+    white-space: nowrap;
+}
+
+#view-history .history-data-table td {
+    font-size: clamp(0.62rem, 0.78vw, 0.85rem);
+}
+
+#view-history .history-data-table th:nth-child(1) { width: 3.5% !important; }
+#view-history .history-data-table th:nth-child(2) { width: 5% !important; }
+#view-history .history-data-table th:nth-child(3) { width: 16% !important; }
+#view-history .history-data-table th:nth-child(4) { width: 29% !important; }
+#view-history .history-data-table th:nth-child(5) { width: 5% !important; }
+#view-history .history-data-table th:nth-child(6) { width: 5% !important; }
+#view-history .history-data-table th:nth-child(7) { width: 5.5% !important; }
+#view-history .history-data-table th:nth-child(8) { width: 7.5% !important; }
+#view-history .history-data-table th:nth-child(9) { width: 16.5% !important; }
+#view-history .history-data-table th:nth-child(10) { width: 7.5% !important; }
+
+#view-history .history-data-table td > * {
+    max-width: 100%;
+}
+
+#view-history .history-data-table .history-content-cell > div:first-child {
+    gap: clamp(3px, 0.5vw, 8px) !important;
+}
+
+#view-history .history-data-table .history-metric-cell {
+    min-width: 0;
+    gap: 1px;
+}
+
+#view-history .history-data-table .history-metric-cell b {
+    font-size: clamp(0.62rem, 0.78vw, 0.82rem);
+}
+
+#view-history .history-data-table .history-metric-cell small {
+    font-size: clamp(0.5rem, 0.62vw, 0.62rem);
+}
+
+#view-history .history-data-table .history-parts-btn,
+#view-history .history-data-table .history-guide-icon-btn,
+#view-history .history-data-table .icon-btn {
+    max-width: 100%;
+}
+
+@media (max-width: 1180px) {
+    #view-history .history-data-table th,
+    #view-history .history-data-table td {
+        padding: 4px 3px;
+    }
+
+    #view-history .history-data-table .img-box {
+        transform: scale(0.86);
+        transform-origin: center;
+    }
+
+    #view-history .history-data-table .history-date-cell.group-start {
+        margin-left: 0;
+        padding: 3px;
+    }
 }
 
 .history-bulk-bar {
@@ -2345,7 +4308,7 @@ body {
 
 .storage-center-summary {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 10px;
 }
 
@@ -15594,6 +17557,60 @@ select.history-assist-copied-value {
     font-size: 0.72rem;
 }
 
+.guide-photo-compress-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 8px;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    background: #f0fdf4;
+    color: #166534;
+    font-size: 0.72rem;
+    font-weight: 900;
+    line-height: 1.35;
+}
+
+.guide-photo-compress-note i {
+    color: #16a34a;
+}
+
+.guide-compress-preset {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.guide-compress-preset button {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    padding: 6px 5px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #ffffff;
+    color: #0f172a;
+    text-align: center;
+    cursor: pointer;
+}
+
+.guide-compress-preset button.active,
+.guide-compress-preset button:hover {
+    border-color: #16a34a;
+    background: #f0fdf4;
+}
+
+.guide-compress-preset b {
+    font-size: 0.7rem;
+    font-weight: 950;
+}
+
+.guide-compress-preset span {
+    color: #64748b;
+    font-size: 0.62rem;
+    font-weight: 850;
+}
+
 .guide-photo-previews {
     display: flex;
     flex-direction: column;
@@ -15653,6 +17670,14 @@ select.history-assist-copied-value {
     font-size: 0.72rem;
     font-weight: 900;
     text-align: right;
+}
+
+.guide-photo-byte-size {
+    display: block;
+    margin-top: 3px;
+    color: #0369a1;
+    font-size: 0.68rem;
+    font-weight: 950;
 }
 
 .guide-photo-insert-btn {
@@ -16929,8 +18954,10 @@ select.history-assist-copied-value {
     position: absolute;
     z-index: 24;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 4px;
+    max-width: min(92vw, 920px);
     border: 1px solid rgba(255, 255, 255, 0.28);
     border-radius: 8px;
     background: rgba(15, 23, 42, 0.94);
@@ -16939,6 +18966,146 @@ select.history-assist-copied-value {
     cursor: grab;
     user-select: none;
     touch-action: none;
+}
+
+.shift-photo-compare-mini-group-label {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 999px;
+    color: #e0e7ff;
+    background: rgba(99, 102, 241, 0.22);
+    border: 1px solid rgba(165, 180, 252, 0.34);
+    font-size: 0.66rem;
+    font-weight: 950;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.shift-photo-compare-symbol-align-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.shift-photo-compare-symbol-align-toggle {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+    width: auto !important;
+    min-width: 74px;
+    padding: 0 7px;
+    background: rgba(99, 102, 241, 0.22) !important;
+    border-color: rgba(165, 180, 252, 0.44) !important;
+}
+
+.shift-photo-compare-symbol-align-toggle.active {
+    color: #ffffff !important;
+    background: rgba(99, 102, 241, 0.52) !important;
+    border-color: rgba(199, 210, 254, 0.78) !important;
+}
+
+.shift-photo-compare-symbol-align-group {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 8px);
+    z-index: 6;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    max-width: min(92vw, 560px);
+    padding: 7px;
+    border: 1px solid rgba(165, 180, 252, 0.28);
+    border-radius: 12px;
+    background: rgba(30, 27, 75, 0.96);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.32);
+    backdrop-filter: blur(10px);
+}
+
+.shift-photo-compare-symbol-align-group[hidden] {
+    display: none !important;
+}
+
+.shift-photo-compare-mini-toolbar[data-panel-direction="up"] .shift-photo-compare-symbol-align-group {
+    top: auto;
+    bottom: calc(100% + 8px);
+}
+
+.shift-photo-compare-mini-toolbar[data-can-align-selection="1"] .shift-photo-compare-symbol-align-group {
+    background: rgba(30, 27, 75, 0.96);
+    box-shadow: inset 0 0 0 1px rgba(165, 180, 252, 0.22);
+}
+
+.shift-photo-compare-mini-toolbar:not([data-can-align-selection="1"]) .shift-photo-compare-symbol-align-toggle,
+.shift-photo-compare-mini-toolbar:not([data-can-align-selection="1"]) .shift-photo-compare-symbol-align-group {
+    opacity: 0.52;
+}
+
+.shift-photo-compare-mini-toolbar:not([data-can-align-selection="1"]) .shift-photo-compare-symbol-align-group button {
+    border-style: dashed;
+}
+
+.shift-photo-compare-mini-toolbar:not([data-can-distribute-selection="1"]) .shift-photo-compare-symbol-align-group button[title*="等間隔"] {
+    opacity: 0.56;
+}
+
+.shift-photo-compare-layer-order-btn {
+    width: 36px !important;
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-layer-list-toggle {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+    width: auto !important;
+    min-width: 64px;
+    padding: 0 7px;
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-layer-linked-toggle {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: auto !important;
+    min-width: 58px;
+    padding: 0 7px;
+    color: #fee2e2;
+    background: rgba(220, 38, 38, 0.18) !important;
+    border-color: rgba(248, 113, 113, 0.42) !important;
+    font-size: 0.68rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-layer-linked-toggle.active {
+    color: #dcfce7 !important;
+    background: rgba(34, 197, 94, 0.20) !important;
+    border-color: rgba(134, 239, 172, 0.56) !important;
+}
+
+.shift-photo-compare-layer-position {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid rgba(251, 191, 36, 0.46);
+    border-radius: 999px;
+    background: rgba(251, 191, 36, 0.14);
+    color: #fef3c7;
+    font-size: 0.68rem;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-mini-group-label-layer {
+    margin-left: 6px;
+    padding-left: 10px;
+    border-left: 1px solid rgba(199, 210, 254, 0.32);
 }
 
 .shift-photo-compare-mini-toolbar[hidden] {
@@ -16965,6 +19132,11 @@ select.history-assist-copied-value {
     color: #facc15;
     background: rgba(250, 204, 21, 0.16);
     border-color: rgba(250, 204, 21, 0.72);
+}
+
+.shift-photo-compare-mini-toolbar button:disabled {
+    opacity: 0.34;
+    cursor: not-allowed;
 }
 
 .shift-photo-compare-polyline-state {
@@ -17068,8 +19240,16 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-callout-font-size-btn,
 .shift-photo-compare-callout-font-size-value,
+.shift-photo-compare-text-scale-reset-btn,
+.shift-photo-compare-text-fit-frame-btn,
+.shift-photo-compare-partial-text-color,
+.shift-photo-compare-text-color-clear-range-btn,
+.shift-photo-compare-text-color-unify-btn,
+.shift-photo-compare-paste-format-undo-btn,
 .shift-photo-compare-region-font-size-btn,
 .shift-photo-compare-region-font-size-value,
+.shift-photo-compare-text-settings-btn,
+.shift-photo-compare-mini-panel-reset-btn,
 .shift-photo-compare-callout-font-select,
 .shift-photo-compare-table-font-size-btn,
 .shift-photo-compare-table-font-size-value,
@@ -17077,13 +19257,322 @@ select.history-assist-copied-value {
     display: none;
 }
 
+.shift-photo-compare-mini-toolbar[data-can-undo-text-paste="1"] .shift-photo-compare-paste-format-undo-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: auto;
+    min-width: 74px;
+    padding: 0 7px;
+    color: #fef3c7;
+    background: rgba(217, 119, 6, 0.24);
+    border-color: rgba(251, 191, 36, 0.58);
+    font-size: 0.68rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-text-settings-panel {
+    position: absolute;
+    left: 8px;
+    top: calc(100% + 8px);
+    z-index: 6;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    max-width: min(92vw, 680px);
+    padding: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.96);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.32);
+    backdrop-filter: blur(10px);
+}
+
+.shift-photo-compare-mini-toolbar[data-has-rich-text-selection="1"] .shift-photo-compare-partial-text-color {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 28px;
+    padding: 0 6px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 6px;
+    color: #ffffff;
+    font-size: 0.66rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-partial-text-color input[type="color"] {
+    width: 22px;
+    height: 22px;
+    padding: 1px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.shift-photo-compare-partial-text-presets {
+    display: none;
+    align-items: center;
+    gap: 3px;
+    height: 28px;
+    padding: 0 4px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.shift-photo-compare-recent-text-colors {
+    display: none;
+    align-items: center;
+    gap: 3px;
+    height: 28px;
+    padding: 0 4px;
+    border: 1px solid rgba(96, 165, 250, 0.34);
+    border-radius: 6px;
+    background: rgba(37, 99, 235, 0.10);
+}
+
+.shift-photo-compare-recent-text-colors::before {
+    content: "最近";
+    color: #bfdbfe;
+    font-size: 0.62rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-rich-text-selection="1"] .shift-photo-compare-partial-text-presets {
+    display: inline-flex;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-rich-text-selection="1"] .shift-photo-compare-recent-text-colors:not([hidden]) {
+    display: inline-flex;
+}
+
+.shift-photo-compare-mini-toolbar .shift-photo-compare-partial-text-presets > button,
+.shift-photo-compare-mini-toolbar .shift-photo-compare-recent-text-colors > button {
+    width: 19px;
+    height: 19px;
+    min-width: 19px;
+    padding: 0;
+    border: 2px solid rgba(255, 255, 255, 0.74);
+    border-radius: 50%;
+    background: var(--text-preset-color);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.45);
+}
+
+.shift-photo-compare-mini-toolbar .shift-photo-compare-partial-text-presets > button:hover,
+.shift-photo-compare-mini-toolbar .shift-photo-compare-recent-text-colors > button:hover {
+    background: var(--text-preset-color);
+    border-color: #facc15;
+    transform: scale(1.14);
+}
+
+.shift-photo-compare-mini-toolbar[data-has-rich-text-selection="1"] .shift-photo-compare-text-color-unify-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: auto;
+    min-width: 64px;
+    padding: 0 7px;
+    font-size: 0.66rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-rich-text-selection="1"] .shift-photo-compare-text-color-clear-range-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: auto;
+    min-width: 78px;
+    padding: 0 7px;
+    font-size: 0.66rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-text-settings-panel[hidden] {
+    display: none !important;
+}
+
+.shift-photo-compare-mini-toolbar[data-panel-direction="up"] .shift-photo-compare-text-settings-panel {
+    top: auto;
+    bottom: calc(100% + 8px);
+}
+
+.shift-photo-compare-mini-layer-list {
+    position: absolute;
+    left: 8px;
+    top: calc(100% + 8px);
+    z-index: 6;
+    display: grid;
+    gap: 5px;
+    width: min(92vw, 360px);
+    max-height: min(48vh, 420px);
+    padding: 8px;
+    overflow: auto;
+    border: 1px solid rgba(251, 191, 36, 0.34);
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.96);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.32);
+    backdrop-filter: blur(10px);
+}
+
+.shift-photo-compare-mini-layer-list[hidden] {
+    display: none !important;
+}
+
+.shift-photo-compare-mini-toolbar[data-panel-direction="up"] .shift-photo-compare-mini-layer-list {
+    top: auto;
+    bottom: calc(100% + 8px);
+}
+
+.shift-photo-compare-layer-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 4px 5px;
+    color: #fef3c7;
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-layer-list-head span {
+    color: #cbd5e1;
+    font-size: 0.66rem;
+}
+
+.shift-photo-compare-layer-list-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 28px 28px;
+    gap: 5px;
+    align-items: center;
+    border-radius: 8px;
+    cursor: grab;
+}
+
+.shift-photo-compare-layer-list-row:active {
+    cursor: grabbing;
+}
+
+.shift-photo-compare-layer-list-row.dragging {
+    opacity: 0.48;
+}
+
+.shift-photo-compare-layer-list-row.drop-target {
+    box-shadow: inset 0 0 0 2px rgba(250, 204, 21, 0.88);
+    background: rgba(250, 204, 21, 0.12);
+}
+
+.shift-photo-compare-layer-list-select {
+    width: auto !important;
+    min-width: 0;
+    display: grid !important;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    gap: 6px;
+    align-items: center;
+    justify-content: stretch;
+    padding: 0 8px !important;
+    text-align: left;
+}
+
+.shift-photo-compare-layer-list-select i {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid #ffffff;
+    border-radius: 999px;
+    background: var(--item-color, #dc2626);
+    color: #ffffff;
+    font-size: 0.62rem;
+    font-style: normal;
+    font-weight: 950;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(15, 23, 42, 0.55);
+}
+
+.shift-photo-compare-layer-list-select b {
+    min-width: 0;
+    overflow: hidden;
+    color: #ffffff;
+    font-size: 0.72rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-layer-list-select small {
+    color: #fde68a;
+    font-size: 0.62rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-layer-list-row.selected .shift-photo-compare-layer-list-select {
+    color: #111827;
+    background: rgba(250, 204, 21, 0.30);
+    border-color: rgba(250, 204, 21, 0.78);
+}
+
+.shift-photo-compare-layer-list-row.locked .shift-photo-compare-layer-list-select {
+    border-style: dashed;
+}
+
+.shift-photo-compare-layer-list-empty {
+    color: #e2e8f0;
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.shift-photo-compare-text-settings-title {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 6px;
+    color: #bfdbfe;
+    font-size: 0.72rem;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-text-setting-selection="1"] .shift-photo-compare-text-settings-btn {
+    background: rgba(37, 99, 235, 0.24);
+    border-color: rgba(147, 197, 253, 0.44);
+}
+
+.shift-photo-compare-mini-toolbar[data-has-text-setting-selection="1"] .shift-photo-compare-text-settings-btn.active {
+    color: #ffffff;
+    background: rgba(37, 99, 235, 0.52);
+    border-color: rgba(191, 219, 254, 0.78);
+}
+
+.shift-photo-compare-mini-toolbar[data-text-settings-open="1"] .shift-photo-compare-mini-panel-reset-btn,
+.shift-photo-compare-mini-toolbar[data-symbol-align-open="1"] .shift-photo-compare-mini-panel-reset-btn,
+.shift-photo-compare-mini-toolbar[data-layer-list-open="1"] .shift-photo-compare-mini-panel-reset-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    width: auto;
+    min-width: 34px;
+    padding: 0 7px;
+    color: #fee2e2;
+    background: rgba(220, 38, 38, 0.20);
+    border-color: rgba(248, 113, 113, 0.46);
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
 .shift-photo-compare-callout-font-size-value,
 .shift-photo-compare-region-font-size-value {
     min-width: 38px;
+    max-width: 112px;
+    padding: 0 3px;
     color: #ffffff;
     font-size: 0.7rem;
     font-weight: 900;
     text-align: center;
+    white-space: nowrap;
 }
 
 .shift-photo-compare-table-font-size-value {
@@ -17159,6 +19648,15 @@ select.history-assist-copied-value {
     place-items: center;
 }
 
+.shift-photo-compare-mini-toolbar[data-has-text-setting-selection="1"] .shift-photo-compare-text-settings-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: auto;
+    min-width: 66px;
+    padding: 0 7px;
+}
+
 .shift-photo-compare-mini-toolbar[data-has-region-comment-selection="1"] .shift-photo-compare-region-font-size-btn {
     display: inline-grid;
     place-items: center;
@@ -17188,12 +19686,31 @@ select.history-assist-copied-value {
     place-items: center;
 }
 
-.shift-photo-compare-mini-toolbar[data-has-callout-selection="1"] .shift-photo-compare-callout-font-size-btn {
+.shift-photo-compare-mini-toolbar[data-has-callout-selection="1"] .shift-photo-compare-callout-font-size-btn,
+.shift-photo-compare-mini-toolbar[data-has-plain-text-selection="1"] .shift-photo-compare-callout-font-size-btn,
+.shift-photo-compare-mini-toolbar[data-has-callout-selection="1"] .shift-photo-compare-text-scale-reset-btn,
+.shift-photo-compare-mini-toolbar[data-has-plain-text-selection="1"] .shift-photo-compare-text-scale-reset-btn {
     display: inline-grid;
     place-items: center;
 }
 
+.shift-photo-compare-mini-toolbar[data-has-callout-selection="1"] .shift-photo-compare-text-fit-frame-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: auto;
+    min-width: 92px;
+    padding: 0 7px;
+}
+
+.shift-photo-compare-mark.callout.shift-photo-text-overflow,
+.shift-photo-compare-mark.boxedText.shift-photo-text-overflow {
+    outline: 3px dashed #ef4444;
+    outline-offset: 5px;
+}
+
 .shift-photo-compare-mini-toolbar[data-has-callout-selection="1"] .shift-photo-compare-callout-font-size-value,
+.shift-photo-compare-mini-toolbar[data-has-plain-text-selection="1"] .shift-photo-compare-callout-font-size-value,
 .shift-photo-compare-mini-toolbar[data-has-callout-selection="1"] .shift-photo-compare-callout-font-select {
     display: inline-block;
 }
@@ -17584,6 +20101,15 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-selection-bounds:not([data-has-rotate="1"]) .shift-photo-compare-rotate-handle {
     display: none;
+}
+
+.shift-photo-compare-selection-bounds[data-region-comment-only="1"] .shift-photo-compare-resize-handle,
+.shift-photo-compare-selection-bounds[data-region-comment-only="1"] .shift-photo-compare-rotate-handle {
+    display: none !important;
+}
+
+.shift-photo-compare-selection-bounds[data-region-comment-only="1"] {
+    cursor: default;
 }
 
 .shift-photo-compare-stretch-reset.active,
@@ -18204,6 +20730,55 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-image-context-menu button.danger:hover {
     color: #b91c1c;
+}
+
+.shift-photo-compare-image-context-menu.shift-photo-overlap-chooser {
+    width: min(330px, calc(100% - 18px));
+    max-height: min(56vh, 430px);
+}
+
+.shift-photo-compare-image-context-menu .shift-photo-overlap-choice {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    gap: 7px;
+    height: 38px;
+    border: 1px solid transparent;
+}
+
+.shift-photo-compare-image-context-menu .shift-photo-overlap-choice > i {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: rgba(96, 165, 250, 0.20);
+    color: #bfdbfe;
+    font-style: normal;
+    font-weight: 950;
+}
+
+.shift-photo-compare-image-context-menu .shift-photo-overlap-choice > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-image-context-menu .shift-photo-overlap-choice > small {
+    color: #94a3b8;
+    font-size: 0.62rem;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-image-context-menu .shift-photo-overlap-choice.active {
+    border-color: rgba(250, 204, 21, 0.72);
+    background: rgba(250, 204, 21, 0.14);
+    color: #fef3c7;
+}
+
+.shift-photo-compare-mark.overlap-choice-preview {
+    filter: drop-shadow(0 0 4px #facc15) drop-shadow(0 0 8px #facc15);
 }
 
 .shift-photo-context-menu-grip {
@@ -19330,10 +21905,29 @@ select.history-assist-copied-value {
     --mark-font: "Yu Gothic", "Meiryo", sans-serif;
     --mark-color: #dc2626;
     position: absolute;
+    z-index: 0;
+    isolation: isolate;
     transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
     pointer-events: auto;
     cursor: pointer;
     transform-origin: center center;
+}
+
+.shift-photo-compare-mark.layer-move-flash {
+    animation: shift-photo-layer-move-flash 0.85s ease-out;
+}
+
+@keyframes shift-photo-layer-move-flash {
+    0% {
+        outline: 5px solid rgba(250, 204, 21, 0.98);
+        outline-offset: 8px;
+        filter: drop-shadow(0 0 12px rgba(250, 204, 21, 0.95));
+    }
+    100% {
+        outline: 0 solid transparent;
+        outline-offset: 0;
+        filter: none;
+    }
 }
 
 .shift-photo-compare-range-box {
@@ -20354,6 +22948,10 @@ select.history-assist-copied-value {
     isolation: isolate;
 }
 
+.shift-photo-compare-mark.text {
+    font-size: calc(var(--mark-size) * 0.48 * var(--plain-text-font-scale, 1));
+}
+
 .shift-photo-compare-mark.text[data-inner-outline="1"],
 .shift-photo-compare-mark.number[data-inner-outline="1"] {
     -webkit-text-stroke: var(--inner-outline-width, max(2px, calc(var(--mark-size) * 0.055))) #111111;
@@ -20594,17 +23192,25 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-mark.boxedText {
+    --boxed-text-border-width: max(6px, calc(var(--mark-size) * 0.12 * var(--mark-stroke)));
+    --boxed-text-border-inverse-x: 1;
+    --boxed-text-border-inverse-y: 1;
     box-sizing: border-box;
     width: max-content;
     min-width: 0;
     padding: calc(var(--mark-size) * 0.11) calc(var(--mark-size) * 0.34);
     color: var(--callout-text-color, var(--mark-color));
     background: var(--mark-fill, #fff7fb);
-    border: max(6px, calc(var(--mark-size) * 0.12 * var(--mark-stroke))) solid var(--mark-color);
+    border-style: solid;
+    border-color: var(--mark-color);
+    border-top-width: calc(var(--boxed-text-border-width) * var(--boxed-text-border-inverse-y));
+    border-right-width: calc(var(--boxed-text-border-width) * var(--boxed-text-border-inverse-x));
+    border-bottom-width: calc(var(--boxed-text-border-width) * var(--boxed-text-border-inverse-y));
+    border-left-width: calc(var(--boxed-text-border-width) * var(--boxed-text-border-inverse-x));
     border-radius: max(10px, calc(var(--mark-size) * 0.09));
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.72), 0 8px 20px rgba(15, 23, 42, 0.16);
     font-family: var(--mark-font);
-    font-size: calc(var(--mark-size) * 0.42);
+    font-size: calc(var(--mark-size) * 0.42 * var(--boxed-text-font-scale, 1));
     line-height: 1.28;
     font-weight: 950;
     letter-spacing: 0;
@@ -20614,7 +23220,6 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-mark.boxedText[data-region-comment="1"] {
     box-sizing: border-box;
-    z-index: 8;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -20626,6 +23231,7 @@ select.history-assist-copied-value {
     border-radius: 0;
     background: transparent;
     box-shadow: none;
+    font-size: calc(var(--mark-size) * 0.42 * var(--boxed-text-font-scale, 1) * var(--region-comment-auto-scale, 1));
     white-space: normal;
 }
 
@@ -20677,20 +23283,31 @@ select.history-assist-copied-value {
 .shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-outline-mirror,
 .shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-inner-outline-mirror {
     box-sizing: border-box;
+    display: block;
+    flex: 0 1 auto;
     width: 100%;
+    max-width: 100%;
     height: auto;
     max-height: 100%;
     min-width: 0;
     min-height: 0;
     padding: 6px;
+    font: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+    text-align: inherit;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
+    word-spacing: normal;
+    tab-size: 4;
 }
 
 .shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-editor {
+    field-sizing: fixed;
     overflow: auto;
     scrollbar-width: none;
+    align-self: auto;
 }
 
 .shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-boxed-text-editor::-webkit-scrollbar {
@@ -20729,7 +23346,7 @@ select.history-assist-copied-value {
 .shift-photo-boxed-text-content {
     position: relative;
     display: block;
-    transform: scale(var(--boxed-text-inverse-x, 1), var(--boxed-text-inverse-y, 1));
+    transform: none;
     transform-origin: center;
     white-space: pre;
 }
@@ -20758,6 +23375,9 @@ select.history-assist-copied-value {
     text-align: inherit;
     white-space: pre;
     cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+    touch-action: auto;
 }
 
 .shift-photo-text-outline-mirror,
@@ -20781,6 +23401,83 @@ select.history-assist-copied-value {
     pointer-events: none;
     user-select: none;
     paint-order: stroke fill;
+}
+
+.shift-photo-text-color-mirror {
+    position: absolute;
+    z-index: 1;
+    display: block;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--callout-text-color, var(--mark-color));
+    font: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+    text-align: inherit;
+    white-space: pre;
+    pointer-events: none;
+    user-select: none;
+    opacity: 0;
+}
+
+.shift-photo-compare-mark[data-has-partial-text-color="1"] .shift-photo-text-color-mirror {
+    opacity: 1;
+}
+
+.shift-photo-compare-mark[data-show-stored-text-selection="1"] .shift-photo-text-color-mirror {
+    opacity: 1;
+}
+
+.shift-photo-compare-mark[data-show-stored-text-selection="1"] .shift-photo-boxed-text-editor,
+.shift-photo-compare-mark[data-show-stored-text-selection="1"] .shift-photo-callout-text {
+    color: transparent !important;
+    -webkit-text-fill-color: transparent;
+}
+
+.shift-photo-text-color-mirror .stored-selection {
+    color: #ffffff !important;
+    background: #1677d2;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
+.shift-photo-compare-mark[data-has-partial-text-color="1"] .shift-photo-boxed-text-editor,
+.shift-photo-compare-mark[data-has-partial-text-color="1"] .shift-photo-callout-text {
+    color: transparent !important;
+    -webkit-text-fill-color: transparent;
+    caret-color: var(--callout-text-color, var(--mark-color));
+}
+
+.shift-photo-compare-mark[data-has-partial-text-color="1"] .shift-photo-boxed-text-editor::selection,
+.shift-photo-compare-mark[data-has-partial-text-color="1"] .shift-photo-callout-text::selection {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff;
+    background: #1677d2;
+}
+
+.shift-photo-boxed-text-content > .shift-photo-text-color-mirror {
+    min-width: calc(var(--mark-size) * 2.4);
+    min-height: 1.28em;
+}
+
+.shift-photo-compare-mark.boxedText[data-region-comment="1"] .shift-photo-text-color-mirror {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 0;
+    padding: 6px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    word-spacing: normal;
+    tab-size: 4;
 }
 
 .shift-photo-text-outline-mirror {
@@ -20836,6 +23533,8 @@ select.history-assist-copied-value {
 .shift-photo-compare-mark.callout {
     --mark-fill: #fff3a3;
     --callout-border-width: max(3px, calc(var(--mark-size) * 0.07 * var(--mark-stroke)));
+    --callout-border-inverse-x: 1;
+    --callout-border-inverse-y: 1;
     --callout-tail-pos: 50%;
     --callout-tail-inverse-x: 1;
     --callout-tail-inverse-y: 1;
@@ -20849,7 +23548,12 @@ select.history-assist-copied-value {
     padding: calc(var(--mark-size) * 0.18) calc(var(--mark-size) * 0.28);
     color: var(--callout-text-color, #111827);
     background: var(--mark-fill);
-    border: var(--callout-border-width) solid var(--mark-color);
+    border-style: solid;
+    border-color: var(--mark-color);
+    border-top-width: calc(var(--callout-border-width) * var(--callout-border-inverse-y));
+    border-right-width: calc(var(--callout-border-width) * var(--callout-border-inverse-x));
+    border-bottom-width: calc(var(--callout-border-width) * var(--callout-border-inverse-y));
+    border-left-width: calc(var(--callout-border-width) * var(--callout-border-inverse-x));
     border-radius: max(12px, calc(var(--mark-size) * 0.18));
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.20);
     font-family: var(--mark-font);
@@ -20935,6 +23639,46 @@ select.history-assist-copied-value {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
+}
+
+.shift-photo-callout-text-wrap > .shift-photo-text-color-mirror {
+    position: relative;
+    grid-area: 1 / 1;
+    align-self: start;
+    width: 100%;
+    height: auto;
+    min-width: 0;
+    min-height: 1.28em;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.shift-photo-compare-mark.callout[data-text-fit="overflow"] .shift-photo-text-color-mirror {
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+.shift-photo-compare-mark.callout[data-text-align="left"] .shift-photo-text-color-mirror {
+    justify-self: start;
+    text-align: left;
+}
+
+.shift-photo-compare-mark.callout[data-text-align="center"] .shift-photo-text-color-mirror,
+.shift-photo-compare-mark.callout:not([data-text-align]) .shift-photo-text-color-mirror {
+    justify-self: center;
+    text-align: center;
+}
+
+.shift-photo-compare-mark.callout[data-text-align="right"] .shift-photo-text-color-mirror {
+    justify-self: end;
+    text-align: right;
 }
 
 .shift-photo-compare-mark.callout[data-outline="1"] .shift-photo-callout-text-wrap,
@@ -26171,6 +28915,147 @@ select.history-assist-copied-value {
 .skill-chip.active[data-val="bad"],
 .skill-chip.active[data-val="✕"] { background: #dc2626; color: white; box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3); }
 
+.worker-radar-score-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    max-width: 720px;
+    margin: 18px auto 0;
+    text-align: left;
+}
+
+.worker-radar-score-list > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 8px;
+    padding: 9px 11px;
+    border: 1px solid #dbeafe;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.worker-radar-score-list > div.low-data {
+    border-color: #fde68a;
+    background: #fffbeb;
+}
+
+.worker-radar-score-list span {
+    color: #334155;
+    font-size: 0.76rem;
+    font-weight: 900;
+}
+
+.worker-radar-score-list b {
+    color: #1d4ed8;
+    font-size: 0.9rem;
+    font-weight: 950;
+}
+
+.worker-radar-score-list small {
+    grid-column: 1 / -1;
+    color: #64748b;
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
+.worker-radar-breakdown {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    max-width: 900px;
+    margin: 16px auto 0;
+    text-align: left;
+}
+
+.worker-radar-breakdown details {
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.worker-radar-breakdown summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 11px;
+    cursor: pointer;
+    color: #334155;
+    font-size: 0.78rem;
+    font-weight: 950;
+}
+
+.worker-radar-breakdown summary b {
+    color: #1d4ed8;
+}
+
+.worker-radar-breakdown ul {
+    display: grid;
+    gap: 6px;
+    max-height: 210px;
+    overflow: auto;
+    margin: 0;
+    padding: 0 10px 10px;
+    list-style: none;
+}
+
+.worker-radar-breakdown li {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 8px;
+    border-radius: 7px;
+    background: #f8fafc;
+}
+
+.worker-radar-breakdown li b {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 0.74rem;
+}
+
+.worker-radar-breakdown li.ok b {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.worker-radar-breakdown li.support b {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.worker-radar-breakdown li span {
+    color: #0f172a;
+    font-size: 0.74rem;
+    font-weight: 850;
+    min-width: 0;
+}
+
+.worker-radar-breakdown li em {
+    color: #64748b;
+    font-size: 0.66rem;
+    font-style: normal;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+    .worker-radar-score-list {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .worker-radar-breakdown {
+        grid-template-columns: 1fr;
+    }
+}
+
 .worktime-condition-bar {
     display: flex;
     align-items: center;
@@ -27279,6 +30164,515 @@ select.history-assist-copied-value {
 .app-toast-error i { color: #dc2626; }
 .app-toast-warning { border-color: #fcd34d; background: #fffbeb; }
 .app-toast-warning i { color: #d97706; }
+
+.app-settings-issue-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 8px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 900;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.system-log-item.restorable {
+    border-color: #93c5fd !important;
+    background: #eff6ff !important;
+}
+
+.system-log-undo-badge,
+.system-log-warning-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 900;
+}
+
+.system-log-undo-badge {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.system-log-warning-badge {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.system-log-detail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.system-log-detail span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.system-log-detail b {
+    color: #0f172a;
+}
+
+.unified-search-result-section {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 12px 0 8px;
+    padding: 8px 12px;
+    border: 1px solid #dbeafe;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #1e3a8a;
+    font-size: 0.82rem;
+    font-weight: 900;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.unified-search-result-section span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.unified-search-result-section b {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.five-s-condition-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #1e3a8a;
+}
+
+.five-s-condition-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.five-s-condition-period {
+    display: inline-grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 2px 7px;
+    min-width: max-content;
+}
+
+.five-s-condition-period i {
+    grid-row: span 2;
+}
+
+.five-s-condition-period span {
+    font-size: 0.68rem;
+    font-weight: 900;
+    opacity: 0.72;
+}
+
+.five-s-condition-period b {
+    font-size: 0.82rem;
+}
+
+.five-s-condition-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+}
+
+.five-s-condition-chips span {
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #ffffff;
+    border: 1px solid #dbeafe;
+    color: #1e40af;
+    font-size: 0.73rem;
+    font-weight: 900;
+}
+
+.five-s-condition-summary {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    font-weight: 900;
+}
+
+.five-s-condition-summary b {
+    font-size: 0.95rem;
+    color: #1d4ed8;
+}
+
+.five-s-condition-summary .secondary-btn {
+    padding: 5px 10px !important;
+    font-size: 0.72rem !important;
+}
+
+.storage-duplicate-panel {
+    display: grid;
+    gap: 16px;
+}
+
+.storage-duplicate-summary {
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #1e3a8a;
+}
+
+.storage-duplicate-summary > i {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 1.2rem;
+}
+
+.storage-duplicate-summary-warning {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.storage-duplicate-summary-warning > i {
+    background: #f59e0b;
+}
+
+.storage-duplicate-summary b {
+    display: block;
+    margin-bottom: 3px;
+    color: #0f172a;
+    font-size: 1rem;
+}
+
+.storage-duplicate-summary span {
+    display: block;
+    color: #475569;
+    font-size: 0.82rem;
+    font-weight: 800;
+    line-height: 1.5;
+}
+
+.storage-duplicate-summary strong {
+    color: #0369a1;
+    font-size: 1.25rem;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.storage-center-summary small {
+    display: block;
+    margin-top: 3px;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 850;
+}
+
+.storage-duplicate-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 0.82rem;
+    font-weight: 900;
+    line-height: 1.45;
+}
+
+.storage-state-list {
+    display: grid;
+    gap: 8px;
+}
+
+.storage-state-list > div {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 850;
+    line-height: 1.45;
+}
+
+.storage-state-list i {
+    color: #2563eb;
+}
+
+.storage-revision-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.storage-revision-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.storage-revision-options button {
+    display: grid;
+    gap: 3px;
+    padding: 10px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #0f172a;
+    text-align: left;
+    cursor: pointer;
+}
+
+.storage-revision-options button.active,
+.storage-revision-options button:hover {
+    border-color: #2563eb;
+    background: #eff6ff;
+}
+
+.storage-revision-options b {
+    font-size: 0.86rem;
+    font-weight: 950;
+}
+
+.storage-revision-options span {
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 850;
+}
+
+.storage-duplicate-list {
+    display: grid;
+    gap: 10px;
+    max-height: min(520px, 58vh);
+    overflow: auto;
+    padding-right: 4px;
+}
+
+.storage-duplicate-item {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.storage-duplicate-item img {
+    width: 76px;
+    height: 60px;
+    object-fit: contain;
+    border-radius: 6px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+.storage-duplicate-item b,
+.storage-duplicate-item span,
+.storage-duplicate-item small {
+    display: block;
+}
+
+.storage-duplicate-item b {
+    color: #0f172a;
+    font-size: 0.92rem;
+}
+
+.storage-duplicate-item span {
+    margin-top: 2px;
+    color: #0369a1;
+    font-size: 0.82rem;
+    font-weight: 900;
+}
+
+.storage-duplicate-item small {
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 750;
+    word-break: break-all;
+}
+
+.storage-duplicate-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.storage-duplicate-tags em {
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 900;
+}
+
+.storage-revision-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.storage-revision-item b,
+.storage-revision-item span,
+.storage-revision-item small {
+    display: block;
+}
+
+.storage-revision-item b {
+    color: #0f172a;
+    font-size: 0.86rem;
+    font-weight: 950;
+}
+
+.storage-revision-item span,
+.storage-revision-item small {
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 820;
+}
+
+.storage-revision-item strong {
+    color: #1d4ed8;
+    font-size: 0.82rem;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.storage-image-compress-item {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.storage-image-compress-item img {
+    width: 76px;
+    height: 60px;
+    object-fit: contain;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #f8fafc;
+}
+
+.storage-image-compress-item b,
+.storage-image-compress-item span,
+.storage-image-compress-item small {
+    display: block;
+}
+
+.storage-image-compress-item b {
+    color: #0f172a;
+    font-size: 0.88rem;
+    font-weight: 950;
+}
+
+.storage-image-compress-item span {
+    margin-top: 3px;
+    color: #0369a1;
+    font-size: 0.78rem;
+    font-weight: 950;
+}
+
+.storage-image-compress-item small {
+    margin-top: 5px;
+    color: #64748b;
+    font-size: 0.7rem;
+    font-weight: 820;
+}
+
+.modal-footer .primary-btn.danger {
+    border-color: #ef4444;
+    background: #dc2626;
+    color: #ffffff;
+}
+
+.modal-footer .primary-btn.danger:hover {
+    background: #b91c1c;
+}
+
+@media (max-width: 860px) {
+    .five-s-condition-bar,
+    .five-s-condition-main,
+    .five-s-condition-summary {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .five-s-condition-summary {
+        margin-left: 0;
+        white-space: normal;
+    }
+
+    .storage-revision-stats,
+    .storage-revision-options,
+    .storage-revision-item {
+        grid-template-columns: 1fr;
+    }
+}
 
 /* Compact status badges keep more of the thumbnail visible. */
 .photo-manager-thumb span,

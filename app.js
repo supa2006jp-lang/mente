@@ -531,6 +531,7 @@ class MaintenanceApp {
             'dashboard': 'ダッシュボード',
             'ranking': '不具合頻度ランキング',
             'workers': 'スキルマップ',
+            'outlookAssist': 'outlook入力補助',
             'guides': '手順書・ナレッジDB',
             'photos': '写真管理'
         };
@@ -869,6 +870,7 @@ class MaintenanceApp {
             case 'worktime': this.renderWorkTime(); break;
             case 'ranking': this.renderRanking(); break;
             case 'workers': this.renderWorkers(); break;
+            case 'outlookAssist': this.renderOutlookAssist(); break;
             case 'guides': this.renderGuides(); break;
             case 'photos': this.renderPhotoManager(); break;
         }

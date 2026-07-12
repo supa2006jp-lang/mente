@@ -2,7 +2,32 @@
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppSettingsMethods extends MaintenanceApp {
+    getAppSettingsIssueBadges() {
+        const health = this.getDataHealthCheckReport?.() || { totalIssues: 0 };
+        const storage = this.getStorageManagementReport?.() || {};
+        const diagnostics = this.getScheduledDataDiagnosticsReport?.() || { issueCount: 0 };
+        const fix = this.getDataFixCenterSummary?.() || { total: 0 };
+        const storageAttention = (storage.unusedCount || 0)
+            + (storage.trashCount || 0)
+            + (storage.originalSummary?.count || 0)
+            + ((storage.images?.duplicateBytes || 0) > 0 ? 1 : 0);
+        return {
+            health: health.totalIssues || 0,
+            fix: fix.total || 0,
+            storage: storageAttention,
+            diagnostics: diagnostics.issueCount || 0,
+            log: (store.activeData.systemActivityLogs || []).filter(log => log.restoreAction || log.level === 'warning').length
+        };
+    }
+
+    getAppSettingsBadgeHtml(count, label = '確認') {
+        const value = Number(count) || 0;
+        if (!value) return '';
+        return `<em class="app-settings-issue-badge">${value}${this.escapeHtml(label)}</em>`;
+    }
+
     openAppSettingsPanel() {
+        const badges = this.getAppSettingsIssueBadges();
         document.getElementById('app-settings-overlay')?.remove();
         document.body.insertAdjacentHTML('beforeend', `
             <div id="app-settings-overlay" class="shift-settings-overlay" data-action="close-app-settings-if-backdrop">
@@ -28,19 +53,19 @@
                             <i class="fa-solid fa-clipboard-list"></i><span>ToDo依頼管理</span><small>未完了依頼・期限切れ・担当者別一覧</small>
                         </button>
                         <button type="button" data-action="app-settings-open-activity-log">
-                            <i class="fa-solid fa-clock-rotate-left"></i><span>操作ログ</span><small>ToDo操作と最近のメンテ記録を確認</small>
+                            <i class="fa-solid fa-clock-rotate-left"></i><span>操作ログ${this.getAppSettingsBadgeHtml(badges.log, '注意')}</span><small>ToDo操作と最近のメンテ記録を確認</small>
                         </button>
                         <button type="button" onclick="app.closeAppSettingsPanel(); app.openDataHealthCheckPanel()">
-                            <i class="fa-solid fa-heart-pulse"></i><span>保存データ健康診断</span><small>未設定・文字化け・名寄せ候補をまとめて確認</small>
+                            <i class="fa-solid fa-heart-pulse"></i><span>保存データ健康診断${this.getAppSettingsBadgeHtml(badges.health)}</span><small>未設定・文字化け・名寄せ候補をまとめて確認</small>
                         </button>
                         <button type="button" onclick="app.closeAppSettingsPanel(); app.openDataFixCenterPanel()">
-                            <i class="fa-solid fa-screwdriver-wrench"></i><span>未入力・未設定の集中修正</span><small>原因・処置・単価・名寄せ候補を1画面で確認</small>
+                            <i class="fa-solid fa-screwdriver-wrench"></i><span>未入力・未設定の集中修正${this.getAppSettingsBadgeHtml(badges.fix)}</span><small>原因・処置・単価・名寄せ候補を1画面で確認</small>
                         </button>
                         <button type="button" onclick="app.closeAppSettingsPanel(); app.openStorageManagementCenter()">
-                            <i class="fa-solid fa-hard-drive"></i><span>容量管理センター</span><small>写真・ゴミ箱・元画像・JSON容量を確認して整理</small>
+                            <i class="fa-solid fa-hard-drive"></i><span>容量管理センター${this.getAppSettingsBadgeHtml(badges.storage)}</span><small>写真・ゴミ箱・元画像・JSON容量を確認して整理</small>
                         </button>
                         <button type="button" onclick="app.closeAppSettingsPanel(); app.openScheduledDataDiagnosticsPanel(true)">
-                            <i class="fa-solid fa-stethoscope"></i><span>画像・関連データ診断</span><small>孤立・重複・壊れた関連付けを自動検出</small>
+                            <i class="fa-solid fa-stethoscope"></i><span>画像・関連データ診断${this.getAppSettingsBadgeHtml(badges.diagnostics)}</span><small>孤立・重複・壊れた関連付けを自動検出</small>
                         </button>
                         <button type="button" data-action="app-settings-export-data">
                             <i class="fa-solid fa-download"></i><span>データ出力</span><small>バックアップ用に現在データを書き出し</small>
@@ -64,6 +89,136 @@
         return { ...analysis, trashCount: trash.length, trashBytes };
     }
 
+    getStorageImageStats(value) {
+        let count = 0;
+        let bytes = 0;
+        const visit = (node) => {
+            if (store.isImageDataUrl?.(node)) {
+                count += 1;
+                bytes += store.estimateDataUrlBytes?.(node) || 0;
+                return;
+            }
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) {
+                node.forEach(visit);
+                return;
+            }
+            Object.values(node).forEach(visit);
+        };
+        visit(value);
+        return { count, bytes };
+    }
+
+    getStoragePhotoManagerDuplicateSummary() {
+        const groups = typeof this.getPhotoManagerDuplicateGroups === 'function'
+            ? this.getPhotoManagerDuplicateGroups()
+            : [];
+        const bytes = groups.reduce((sum, group) => {
+            const items = group.items || [];
+            const oneBytes = store.estimateDataUrlBytes?.(group.src || items[0]?.src || '') || 0;
+            return sum + Math.max(0, items.length - 1) * oneBytes;
+        }, 0);
+        return {
+            groups: groups.length,
+            items: groups.reduce((sum, group) => sum + Math.max(0, (group.items || []).length - 1), 0),
+            bytes
+        };
+    }
+
+    collectStorageGuideRevisionCleanupTargets(keepCount = 0) {
+        const limit = Math.max(0, Number(keepCount) || 0);
+        const targets = [];
+        Object.entries(store.data.deptData || {}).forEach(([deptId, deptData]) => {
+            (deptData.history || []).forEach((history, historyIndex) => {
+                const revisions = history?.guide?.revisions;
+                if (!Array.isArray(revisions) || revisions.length <= limit) return;
+                const removeCount = revisions.length - limit;
+                const removable = revisions.slice(0, removeCount);
+                const stats = this.getStorageImageStats(removable);
+                targets.push({
+                    deptId,
+                    historyIndex,
+                    history,
+                    total: revisions.length,
+                    removeCount,
+                    keepCount: limit,
+                    imageCount: stats.count,
+                    bytes: stats.bytes
+                });
+            });
+        });
+        return targets;
+    }
+
+    getStorageGuideRevisionCleanupSummary(keepCount = 0) {
+        const targets = this.collectStorageGuideRevisionCleanupTargets(keepCount);
+        return {
+            keepCount: Math.max(0, Number(keepCount) || 0),
+            targets,
+            histories: targets.length,
+            revisions: targets.reduce((sum, target) => sum + target.removeCount, 0),
+            images: targets.reduce((sum, target) => sum + target.imageCount, 0),
+            bytes: targets.reduce((sum, target) => sum + target.bytes, 0)
+        };
+    }
+
+    collectStorageGuideImageCompressionItems() {
+        const items = [];
+        Object.entries(store.data.deptData || {}).forEach(([deptId, deptData]) => {
+            (deptData.history || []).forEach((history, historyIndex) => {
+                const photos = history?.guide?.photos;
+                if (!Array.isArray(photos)) return;
+                photos.forEach((rawPhoto, photoIndex) => {
+                    const photo = this.normalizeGuidePhoto?.(rawPhoto) || (typeof rawPhoto === 'string' ? { src: rawPhoto } : rawPhoto);
+                    if (!store.isImageDataUrl?.(photo?.src)) return;
+                    items.push({
+                        deptId,
+                        historyIndex,
+                        photoIndex,
+                        history,
+                        photo,
+                        src: photo.src,
+                        bytes: this.estimateGuideImageDataUrlBytes?.(photo.src) || store.estimateDataUrlBytes?.(photo.src) || 0,
+                        title: history?.guide?.title || history?.errorContent || history?.cause || history?.date || '手順書'
+                    });
+                });
+            });
+        });
+        return items.sort((a, b) => b.bytes - a.bytes);
+    }
+
+    async buildStorageGuideImageCompressionPlan(preset = this.getGuideImageCompressionPreset?.() || 'standard') {
+        const presets = this.getGuideImageCompressionPresetOptions?.() || {};
+        const options = presets[preset] || this.getGuideImageCompressionOptions?.() || { maxEdge: 1600, quality: 0.82 };
+        const items = this.collectStorageGuideImageCompressionItems();
+        const results = [];
+        for (const item of items) {
+            const result = await this.compressGuideImageDataUrl(item.src, options);
+            if (!result.changed) continue;
+            results.push({
+                ...item,
+                preset: options.key || preset,
+                maxEdge: options.maxEdge,
+                beforeBytes: result.beforeBytes,
+                afterBytes: result.afterBytes,
+                savedBytes: Math.max(0, result.beforeBytes - result.afterBytes),
+                nextSrc: result.src,
+                convertsPng: item.src.startsWith('data:image/png') && result.src.startsWith('data:image/jpeg')
+            });
+        }
+        return {
+            preset: options.key || preset,
+            label: options.label || '標準',
+            maxEdge: options.maxEdge,
+            quality: options.quality,
+            scanned: items.length,
+            beforeBytes: items.reduce((sum, item) => sum + item.bytes, 0),
+            afterBytes: items.reduce((sum, item) => sum + item.bytes, 0) - results.reduce((sum, item) => sum + item.savedBytes, 0),
+            savedBytes: results.reduce((sum, item) => sum + item.savedBytes, 0),
+            items: results
+        };
+    }
+
     openStorageManagementCenter() {
         const report = this.getStorageManagementReport();
         const categories = report.images?.categories || {};
@@ -81,6 +236,9 @@
                     <strong>${this.formatExportBytes?.(item.bytes) || item.bytes + 'B'}</strong>
                 </div>`;
         }).join('');
+        const duplicateReport = this.getStorageDuplicateReviewReport(store.data);
+        const photoDuplicate = this.getStoragePhotoManagerDuplicateSummary();
+        const revisionCleanup = this.getStorageGuideRevisionCleanupSummary(0);
         this.openModal('storage-management-center', '容量管理センター', () => {
             const content = document.getElementById('modal-content');
             content.innerHTML = `
@@ -88,12 +246,17 @@
                     <div class="storage-center-summary">
                         <div><i class="fa-solid fa-file-code"></i><span>現在のJSON</span><b>${this.formatExportBytes(report.rawJsonBytes)}</b></div>
                         <div><i class="fa-solid fa-images"></i><span>画像の実容量</span><b>${this.formatExportBytes(report.images.embeddedBytes)}</b></div>
-                        <div><i class="fa-solid fa-clone"></i><span>重複埋込み分</span><b>${this.formatExportBytes(report.images.duplicateBytes)}</b></div>
+                        <div><i class="fa-solid fa-trash-can"></i><span>削除できる重複</span><b>${photoDuplicate.groups}組</b><small>写真管理 約${this.formatExportBytes(photoDuplicate.bytes)}</small></div>
+                        <div><i class="fa-solid fa-feather-pointed"></i><span>出力で軽量化</span><b>${this.formatExportBytes(duplicateReport.activeBytes)}</b><small>同一画像を1回だけ格納</small></div>
+                        <div><i class="fa-solid fa-clock-rotate-left"></i><span>古い版履歴</span><b>${this.formatExportBytes(revisionCleanup.bytes)}</b><small>${revisionCleanup.histories}件 / ${revisionCleanup.revisions}版</small></div>
                     </div>
                     <div class="storage-center-list">${rows}</div>
                     <div class="storage-center-actions">
                         <button type="button" onclick="app.closeModal(); app.openUnusedImagesFromBackup?.()"><i class="fa-solid fa-image-circle-xmark"></i><b>未使用画像を確認</b><span>${report.unusedCount}件 / 約${this.formatExportBytes(report.unusedBytes)}</span></button>
-                        <button type="button" onclick="app.closeModal(); app.openPhotoManagerDuplicateReview?.()"><i class="fa-solid fa-clone"></i><b>重複画像を整理</b><span>削除前に残す画像を選択</span></button>
+                        <button type="button" onclick="app.openStorageDuplicateReviewFromCenter()"><i class="fa-solid fa-trash-can"></i><b>写真管理の重複削除候補</b><span>${photoDuplicate.groups}組 / 削除前に残す写真を選択</span></button>
+                        <button type="button" onclick="app.openStorageEmbeddedDuplicateReview()"><i class="fa-solid fa-clone"></i><b>JSON内の同一画像を確認</b><span>画面上の写真削除ではなく出力軽量化用</span></button>
+                        <button type="button" onclick="app.openStorageGuideRevisionCleanupReview(0)"><i class="fa-solid fa-clock-rotate-left"></i><b>古い手順書バージョンを削除</b><span>最新版のみ残す / 約${this.formatExportBytes(revisionCleanup.bytes)}</span></button>
+                        <button type="button" onclick="app.openStorageGuideImageCompressionReview()"><i class="fa-solid fa-gauge-high"></i><b>既存手順書画像を軽量化</b><span>実行前に削減見込みを確認</span></button>
                         <button type="button" onclick="app.closeModal(); app.openPhotoManagerTrashDialog?.()"><i class="fa-solid fa-trash-restore"></i><b>ゴミ箱を確認</b><span>${report.trashCount}件 / 約${this.formatExportBytes(report.trashBytes)}</span></button>
                         <button type="button" onclick="app.confirmRemoveStoredOriginalImages?.('all')"><i class="fa-solid fa-layer-group"></i><b>編集用元画像を整理</b><span>${report.originalSummary.count}件 / 約${this.formatExportBytes(report.originalSummary.bytes)}</span></button>
                         <button type="button" onclick="app.closeModal(); app.openScheduledDataDiagnosticsPanel(true)"><i class="fa-solid fa-stethoscope"></i><b>データ診断</b><span>孤立・参照切れを確認</span></button>
@@ -103,6 +266,452 @@
                 </div>`;
             const footer = document.querySelector('.modal-footer');
             if (footer) footer.innerHTML = '<button class="secondary-btn" onclick="app.closeModal()">閉じる</button>';
+        });
+    }
+
+    openStorageActionUnavailable(title = '確認画面を開けませんでした', message = '必要な機能を読み込めませんでした。', details = []) {
+        this.openModal('storage-action-unavailable', title, () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="storage-duplicate-panel">
+                    <div class="storage-duplicate-summary storage-duplicate-summary-warning">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <div>
+                            <b>${this.escapeHtml(message)}</b>
+                            <span>対象なし・読み込み未完了・機能ファイル未読込のどれかを下に表示します。</span>
+                        </div>
+                        <strong>確認</strong>
+                    </div>
+                    <div class="storage-state-list">
+                        ${(details.length ? details : ['ページを再読み込みしてからもう一度開いてください。']).map(detail => `<div><i class="fa-solid fa-circle-info"></i><span>${this.escapeHtml(detail)}</span></div>`).join('')}
+                    </div>
+                </div>`;
+            const footer = document.querySelector('.modal-footer');
+            if (footer) footer.innerHTML = '<button class="secondary-btn" onclick="app.openStorageManagementCenter()">容量管理へ戻る</button><button class="secondary-btn" onclick="app.closeModal()">閉じる</button>';
+        });
+    }
+
+    loadPhotoManagerMethodsForStorageCenter() {
+        if (typeof this.openPhotoManagerDuplicateReview === 'function') return Promise.resolve(true);
+        if (this._photoManagerMethodLoadPromise) return this._photoManagerMethodLoadPromise;
+        this._photoManagerMethodLoadPromise = new Promise(resolve => {
+            const script = document.createElement('script');
+            script.src = `app-photo-manager.js?v=20260710-storage-duplicate-review-fix-${Date.now()}`;
+            script.onload = () => resolve(typeof this.openPhotoManagerDuplicateReview === 'function');
+            script.onerror = () => resolve(false);
+            document.head.appendChild(script);
+        }).finally(() => {
+            this._photoManagerMethodLoadPromise = null;
+        });
+        return this._photoManagerMethodLoadPromise;
+    }
+
+    async openStorageDuplicateReviewFromCenter() {
+        await this.loadPhotoManagerMethodsForStorageCenter();
+        const report = this.getStorageManagementReport();
+        if (typeof this.openPhotoManagerDuplicateReview !== 'function') {
+            this.openStorageActionUnavailable('写真管理の重複削除候補', '写真管理の重複整理画面を読み込めませんでした。', [
+                '機能ファイル未読込: app-photo-manager.js の読み込みに失敗した可能性があります。',
+                `代わりにJSON内の同一画像は確認できます: 約${this.formatExportBytes(this.getStorageDuplicateReviewReport(store.data).activeBytes)}`
+            ]);
+            return;
+        }
+        const groups = typeof this.getPhotoManagerDuplicateGroups === 'function'
+            ? this.getPhotoManagerDuplicateGroups()
+            : [];
+        if (!groups.length) {
+            this.openStorageActionUnavailable('写真管理の重複削除候補', '削除対象にできる写真管理内の重複はありません。', [
+                '対象なし: 写真管理で同じ画像を複数持っている項目は見つかりませんでした。',
+                `JSON内の同一画像: 約${this.formatExportBytes(this.getStorageDuplicateReviewReport(store.data).activeBytes)}`,
+                `手順書の版履歴: 約${this.formatExportBytes(this.getStorageDuplicateReviewReport(store.data).revisionBytes)}`
+            ]);
+            return;
+        }
+        this.closeModal?.();
+        setTimeout(() => {
+            try {
+                this.openPhotoManagerDuplicateReview();
+            } catch (error) {
+                console.error(error);
+                this.openStorageActionUnavailable('写真管理の重複削除候補', '重複画像の確認画面を開けませんでした。', [
+                    `エラー発生: ${error?.message || '詳細不明'}`,
+                    'ページを再読み込みしてからもう一度開いてください。'
+                ]);
+            }
+        }, 60);
+    }
+
+    isStorageRevisionPath(path = []) {
+        return path.join('.').includes('.guide.revisions.');
+    }
+
+    collectStorageDuplicateImageGroups(value = store.data, options = {}) {
+        const includeRevisions = options.includeRevisions === true;
+        const groups = new Map();
+        const visit = (node, path = []) => {
+            if (store.isImageDataUrl?.(node)) {
+                if (!includeRevisions && this.isStorageRevisionPath(path)) return;
+                if (!groups.has(node)) groups.set(node, []);
+                groups.get(node).push({
+                    path: path.join('.'),
+                    category: store.getImageStorageCategory?.(path, path[path.length - 1] || '') || 'other',
+                    revision: this.isStorageRevisionPath(path),
+                    bytes: store.estimateDataUrlBytes?.(node) || 0
+                });
+                return;
+            }
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) {
+                node.forEach((item, index) => visit(item, [...path, String(index)]));
+                return;
+            }
+            Object.entries(node).forEach(([key, child]) => visit(child, [...path, key]));
+        };
+        visit(value);
+        return Array.from(groups.entries())
+            .map(([src, entries]) => ({
+                src,
+                entries,
+                count: entries.length,
+                bytes: entries[0]?.bytes || 0,
+                duplicateBytes: Math.max(0, (entries.length - 1) * (entries[0]?.bytes || 0)),
+                categories: [...new Set(entries.map(entry => entry.category))]
+            }))
+            .filter(group => group.count > 1)
+            .sort((a, b) => b.duplicateBytes - a.duplicateBytes || b.count - a.count);
+    }
+
+    getStorageDuplicateReviewReport(value = store.data) {
+        const activeGroups = this.collectStorageDuplicateImageGroups(value, { includeRevisions: false });
+        const allGroups = this.collectStorageDuplicateImageGroups(value, { includeRevisions: true });
+        const activeBytes = activeGroups.reduce((sum, group) => sum + group.duplicateBytes, 0);
+        const allBytes = allGroups.reduce((sum, group) => sum + group.duplicateBytes, 0);
+        return {
+            activeGroups,
+            allGroups,
+            activeBytes,
+            allBytes,
+            revisionBytes: Math.max(0, allBytes - activeBytes),
+            revisionGroups: allGroups.filter(group => group.entries.some(entry => entry.revision))
+        };
+    }
+
+    getStorageDuplicateCategoryLabel(category = '') {
+        return {
+            library: '写真管理',
+            history: '履歴・手順書',
+            notebook: '連絡帳・5S',
+            originals: '編集用の元画像',
+            recent: '最近使った画像',
+            trash: 'ゴミ箱',
+            other: 'その他'
+        }[category] || 'その他';
+    }
+
+    async openStorageGuideImageCompressionReview(preset = this.getGuideImageCompressionPreset?.() || 'standard') {
+        this.openModal('storage-guide-image-compression', '既存手順書画像の軽量化', () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="storage-duplicate-panel">
+                    <div class="storage-duplicate-summary">
+                        <i class="fa-solid fa-spinner fa-spin"></i>
+                        <div>
+                            <b>既存の手順書画像を確認しています</b>
+                            <span>画像を読み込み、圧縮後のサイズ見込みを計算しています。</span>
+                        </div>
+                        <strong>計算中</strong>
+                    </div>
+                </div>`;
+            const footer = document.querySelector('.modal-footer');
+            if (footer) footer.innerHTML = '<button class="secondary-btn" onclick="app.openStorageManagementCenter()">容量管理へ戻る</button>';
+        });
+        const plan = await this.buildStorageGuideImageCompressionPlan(preset);
+        this._storageGuideImageCompressionPlan = plan;
+        this.renderStorageGuideImageCompressionReview(plan);
+    }
+
+    renderStorageGuideImageCompressionReview(plan) {
+        const content = document.getElementById('modal-content');
+        if (!content) return;
+        const presetHtml = (() => {
+            const presets = Object.values(this.getGuideImageCompressionPresetOptions?.() || {});
+            return `
+                <div class="storage-revision-options">
+                    ${presets.map(option => `
+                        <button type="button" class="${plan.preset === option.key ? 'active' : ''}" onclick="app.openStorageGuideImageCompressionReview('${option.key}')">
+                            <b>${this.escapeHtml(option.label)}</b><span>長辺${option.maxEdge}px / 品質${Math.round(option.quality * 100)}%</span>
+                        </button>
+                    `).join('')}
+                </div>
+            `;
+        })();
+        if (!plan.items.length) {
+            content.innerHTML = `
+                <div class="storage-duplicate-panel">
+                    <div class="storage-duplicate-summary">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <div>
+                            <b>軽量化できる既存画像はありません</b>
+                            <span>${plan.scanned}件を確認しました。現在の設定では、置き換えても小さくなる画像は見つかりませんでした。</span>
+                        </div>
+                        <strong>0B</strong>
+                    </div>
+                    ${presetHtml}
+                </div>`;
+        } else {
+            const before = this.formatExportBytes(plan.beforeBytes);
+            const after = this.formatExportBytes(plan.afterBytes);
+            content.innerHTML = `
+                <div class="storage-duplicate-panel">
+                    <div class="storage-duplicate-summary">
+                        <i class="fa-solid fa-gauge-high"></i>
+                        <div>
+                            <b>既存の手順書画像を軽量化できます</b>
+                            <span>${plan.label}設定で ${before} → ${after}。透過なしPNGは確認後にJPEG化します。</span>
+                        </div>
+                        <strong>${this.formatExportBytes(plan.savedBytes)}</strong>
+                    </div>
+                    ${presetHtml}
+                    <div class="storage-state-list storage-revision-stats">
+                        <div><i class="fa-solid fa-image"></i><span>確認画像 ${plan.scanned}件</span></div>
+                        <div><i class="fa-solid fa-compress"></i><span>軽量化対象 ${plan.items.length}件</span></div>
+                        <div><i class="fa-solid fa-file-arrow-down"></i><span>${before} → ${after}</span></div>
+                    </div>
+                    <div class="storage-duplicate-note"><i class="fa-solid fa-shield-halved"></i> 実行前に対象を確認してください。画像の記号・印刷サイズは保持します。</div>
+                    <div class="storage-duplicate-list">
+                        ${plan.items.slice(0, 40).map(item => `
+                            <article class="storage-image-compress-item">
+                                <img src="${item.src}" alt="手順書画像">
+                                <div>
+                                    <b>${this.escapeHtml(item.title)}</b>
+                                    <span>${this.formatExportBytes(item.beforeBytes)} → ${this.formatExportBytes(item.afterBytes)} / 削減 ${this.formatExportBytes(item.savedBytes)}</span>
+                                    <small>${this.escapeHtml(item.history?.date || '')}${item.convertsPng ? ' / 透過なしPNGをJPEG化' : ''}</small>
+                                </div>
+                            </article>
+                        `).join('')}
+                    </div>
+                </div>`;
+        }
+        const footer = document.querySelector('.modal-footer');
+        if (footer) {
+            footer.innerHTML = plan.items.length
+                ? `<button class="secondary-btn" onclick="app.openStorageManagementCenter()">容量管理へ戻る</button>
+                   <button class="primary-btn" onclick="app.applyStorageGuideImageCompression()"><i class="fa-solid fa-gauge-high"></i> 既存画像を軽量化</button>
+                   <button class="secondary-btn" onclick="app.closeModal()">閉じる</button>`
+                : '<button class="secondary-btn" onclick="app.openStorageManagementCenter()">容量管理へ戻る</button><button class="secondary-btn" onclick="app.closeModal()">閉じる</button>';
+        }
+    }
+
+    applyStorageGuideImageCompression() {
+        const plan = this._storageGuideImageCompressionPlan;
+        if (!plan?.items?.length) {
+            this.openStorageGuideImageCompressionReview();
+            return;
+        }
+        const ok = window.confirm(`既存の手順書画像${plan.items.length}件を軽量化します。\n見込み: ${this.formatExportBytes(plan.beforeBytes)} → ${this.formatExportBytes(plan.afterBytes)}\n実行しますか？`);
+        if (!ok) return;
+        let changed = 0;
+        let savedBytes = 0;
+        plan.items.forEach(item => {
+            const photos = store.data.deptData?.[item.deptId]?.history?.[item.historyIndex]?.guide?.photos;
+            if (!Array.isArray(photos)) return;
+            const current = this.normalizeGuidePhoto?.(photos[item.photoIndex]) || photos[item.photoIndex];
+            if (!current?.src || current.src !== item.src) return;
+            photos[item.photoIndex] = { ...current, src: item.nextSrc };
+            changed += 1;
+            savedBytes += item.savedBytes;
+        });
+        store.save?.();
+        this.showToast?.(`既存手順書画像${changed}件を約${this.formatExportBytes(savedBytes)}軽量化しました`, 'success');
+        if (store.activeData) {
+            store.activeData.systemActivityLogs = store.activeData.systemActivityLogs || [];
+            store.activeData.systemActivityLogs.unshift({
+                id: `guide_image_compress_${Date.now()}`,
+                at: new Date().toISOString(),
+                level: 'info',
+                title: '既存手順書画像を軽量化',
+                detail: `${changed}件 / 約${this.formatExportBytes(savedBytes)}削減 / 設定: ${plan.label}`
+            });
+            store.save?.();
+        }
+        this._storageGuideImageCompressionPlan = null;
+        this.openStorageManagementCenter();
+    }
+
+    openStorageGuideRevisionCleanupReview(keepCount = 0) {
+        const summary = this.getStorageGuideRevisionCleanupSummary(keepCount);
+        const options = [
+            { count: 0, title: '最新版のみ', note: '古い版を保存しない' },
+            { count: 1, title: '直前1版', note: '保険を少し残す' },
+            { count: 3, title: '直近3版', note: '変更ログ重視' }
+        ].map(option => `
+            <button type="button" class="${summary.keepCount === option.count ? 'active' : ''}" onclick="app.openStorageGuideRevisionCleanupReview(${option.count})">
+                <b>${this.escapeHtml(option.title)}</b><span>${this.escapeHtml(option.note)}</span>
+            </button>
+        `).join('');
+        this.openModal('storage-guide-revision-cleanup', '手順書の版履歴を整理', () => {
+            const content = document.getElementById('modal-content');
+            if (!summary.targets.length) {
+                content.innerHTML = `
+                    <div class="storage-duplicate-panel">
+                        <div class="storage-duplicate-summary">
+                            <i class="fa-solid fa-circle-check"></i>
+                            <div>
+                                <b>整理できる古い版履歴はありません</b>
+                                <span>${summary.keepCount === 0 ? '現在は最新版だけを保持しています。' : `各手順書の版履歴は、直近${summary.keepCount}版以内に収まっています。`}</span>
+                            </div>
+                            <strong>0B</strong>
+                        </div>
+                        <div class="storage-revision-options">${options}</div>
+                    </div>`;
+                const footer = document.querySelector('.modal-footer');
+                if (footer) footer.innerHTML = '<button class="secondary-btn" onclick="app.openStorageManagementCenter()">容量管理へ戻る</button><button class="secondary-btn" onclick="app.closeModal()">閉じる</button>';
+                return;
+            }
+            content.innerHTML = `
+                <div class="storage-duplicate-panel">
+                    <div class="storage-duplicate-summary">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                        <div>
+                            <b>古い手順書の版履歴を整理します</b>
+                            <span>現在の手順書は残し、${summary.keepCount === 0 ? '古いバージョンはすべて削除します。' : `各手順書の直近${summary.keepCount}版だけを残します。`}実行前に対象と削減見込みを確認してください。</span>
+                        </div>
+                        <strong>${this.formatExportBytes(summary.bytes)}</strong>
+                    </div>
+                    <div class="storage-revision-options">${options}</div>
+                    <div class="storage-duplicate-note"><i class="fa-solid fa-shield-halved"></i> 実行すると古い版履歴はデータから外れます。必要なら先に「データ出力」でバックアップしてください。</div>
+                    <div class="storage-state-list storage-revision-stats">
+                        <div><i class="fa-solid fa-book-open"></i><span>対象手順書 ${summary.histories}件</span></div>
+                        <div><i class="fa-solid fa-clock-rotate-left"></i><span>整理する古い版 ${summary.revisions}版</span></div>
+                        <div><i class="fa-solid fa-image"></i><span>含まれる画像 ${summary.images}件</span></div>
+                    </div>
+                    <div class="storage-duplicate-list">
+                        ${summary.targets.slice(0, 30).map(target => {
+                            const title = target.history?.guide?.title || target.history?.errorContent || target.history?.cause || target.history?.date || '手順書';
+                            return `
+                                <article class="storage-revision-item">
+                                    <div>
+                                        <b>${this.escapeHtml(title)}</b>
+                                        <span>${this.escapeHtml(target.history?.date || '')}</span>
+                                    </div>
+                                        <strong>${target.total}版 → ${target.keepCount}版</strong>
+                                    <small>${target.removeCount}版 / 画像${target.imageCount}件 / 約${this.formatExportBytes(target.bytes)}</small>
+                                </article>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>`;
+            const footer = document.querySelector('.modal-footer');
+            if (footer) {
+                footer.innerHTML = `
+                    <button class="secondary-btn" onclick="app.openStorageManagementCenter()">容量管理へ戻る</button>
+                    <button class="primary-btn danger" onclick="app.applyStorageGuideRevisionCleanup(${summary.keepCount})"><i class="fa-solid fa-broom"></i> 古い版履歴を整理</button>
+                    <button class="secondary-btn" onclick="app.closeModal()">閉じる</button>
+                `;
+            }
+        });
+    }
+
+    applyStorageGuideRevisionCleanup(keepCount = 0) {
+        const summary = this.getStorageGuideRevisionCleanupSummary(keepCount);
+        if (!summary.targets.length) {
+            this.openStorageGuideRevisionCleanupReview(keepCount);
+            return;
+        }
+        const keepLabel = summary.keepCount === 0 ? '現在の手順書だけ' : `現在の手順書と直近${summary.keepCount}版`;
+        const ok = window.confirm(`手順書${summary.histories}件の古い版履歴${summary.revisions}版を整理します。${keepLabel}は残ります。実行しますか？`);
+        if (!ok) return;
+        let removedRevisions = 0;
+        let removedImages = 0;
+        summary.targets.forEach(target => {
+            const history = store.data.deptData?.[target.deptId]?.history?.[target.historyIndex];
+            const revisions = history?.guide?.revisions;
+            if (!Array.isArray(revisions) || revisions.length <= summary.keepCount) return;
+            const removeCount = revisions.length - summary.keepCount;
+            const removed = revisions.splice(0, removeCount);
+            const stats = this.getStorageImageStats(removed);
+            removedRevisions += removed.length;
+            removedImages += stats.count;
+        });
+        store.save?.();
+        this.showToast?.(`古い版履歴${removedRevisions}版を整理しました`, 'success');
+        this.openStorageManagementCenter();
+        if (store.activeData) {
+            store.activeData.systemActivityLogs = store.activeData.systemActivityLogs || [];
+            store.activeData.systemActivityLogs.unshift({
+                id: `storage_revision_cleanup_${Date.now()}`,
+                at: new Date().toISOString(),
+                level: 'info',
+                title: '手順書の版履歴を整理',
+                detail: `${summary.keepCount === 0 ? '最新版のみを残し' : `直近${summary.keepCount}版を残し`}、古い版履歴${removedRevisions}版・画像${removedImages}件を整理しました。`
+            });
+            store.save?.();
+        }
+    }
+
+    openStorageEmbeddedDuplicateReview(report = this.getStorageManagementReport(), reason = '') {
+        const duplicateReport = this.getStorageDuplicateReviewReport(store.data);
+        const groups = duplicateReport.activeGroups;
+        if (!groups.length) {
+            this.openModal('storage-embedded-duplicates', '重複埋込みの確認', () => {
+                const content = document.getElementById('modal-content');
+                content.innerHTML = `
+                    <div class="storage-duplicate-panel">
+                        <div class="storage-duplicate-summary">
+                            <i class="fa-solid fa-circle-check"></i>
+                            <div>
+                                <b>整理候補の重複はありません</b>
+                                <span>手順書の版履歴など、保存用の過去版にある重複は除外しました。版履歴分は約${this.formatExportBytes(duplicateReport.revisionBytes)}です。</span>
+                            </div>
+                            <strong>0B</strong>
+                        </div>
+                    </div>
+                `;
+                const footer = document.querySelector('.modal-footer');
+                if (footer) footer.innerHTML = '<button class="secondary-btn" onclick="app.openStorageManagementCenter()">容量管理へ戻る</button><button class="secondary-btn" onclick="app.closeModal()">閉じる</button>';
+            });
+            return;
+        }
+        const totalDuplicateBytes = duplicateReport.activeBytes;
+        this.openModal('storage-embedded-duplicates', `重複埋込みの確認 (${groups.length}組)`, () => {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="storage-duplicate-panel">
+                    <div class="storage-duplicate-summary">
+                        <i class="fa-solid fa-clone"></i>
+                        <div>
+                            <b>同じ画像データがJSON内に複数保存されています</b>
+                            <span>${reason ? `${this.escapeHtml(reason)} ` : ''}手順書の版履歴は除外しています。出力時に1回だけ格納して軽量化できる重複です。</span>
+                        </div>
+                        <strong>${this.formatExportBytes(totalDuplicateBytes || report.images?.duplicateBytes || 0)}</strong>
+                    </div>
+                    ${duplicateReport.revisionBytes ? `<div class="storage-duplicate-note"><i class="fa-solid fa-clock-rotate-left"></i> 手順書の版履歴にある重複 約${this.formatExportBytes(duplicateReport.revisionBytes)} は、過去版保存として別扱いにしました。</div>` : ''}
+                    <div class="storage-duplicate-list">
+                        ${groups.slice(0, 24).map(group => `
+                            <article class="storage-duplicate-item">
+                                <img src="${group.src}" alt="重複画像">
+                                <div>
+                                    <b>${group.count}カ所に同じ画像</b>
+                                    <span>重複分 約${this.formatExportBytes(group.duplicateBytes)}</span>
+                                    <div class="storage-duplicate-tags">
+                                        ${group.categories.map(category => `<em>${this.escapeHtml(this.getStorageDuplicateCategoryLabel(category))}</em>`).join('')}
+                                    </div>
+                                    <small>${group.entries.slice(0, 3).map(entry => this.escapeHtml(entry.path)).join(' / ')}${group.entries.length > 3 ? ` / 他${group.entries.length - 3}カ所` : ''}</small>
+                                </div>
+                            </article>
+                        `).join('')}
+                    </div>
+                    <p class="storage-center-note"><i class="fa-solid fa-circle-info"></i> 個別写真を削除したい場合は写真管理の重複整理、JSON容量を軽くしたい場合は軽量JSON出力を使います。</p>
+                </div>
+            `;
+            const footer = document.querySelector('.modal-footer');
+            if (footer) {
+                footer.innerHTML = `
+                    <button class="secondary-btn" onclick="app.openStorageManagementCenter()">容量管理へ戻る</button>
+                    <button class="primary-btn" onclick="app.closeModal(); app.openBackupExportModal?.('all')"><i class="fa-solid fa-feather-pointed"></i> 軽量JSONを出力</button>
+                    <button class="secondary-btn" onclick="app.closeModal()">閉じる</button>
+                `;
+            }
         });
     }
 
@@ -365,15 +974,34 @@
         this.openKanbanPanel('操作ログ', `
             <div class="system-log-list">
                 ${logs.map(log => `
-                    <div class="system-log-item ${log.level || ''}">
-                        <b>${this.escapeHtml(log.type)}</b>
+                    <div class="system-log-item ${log.level || ''} ${log.restoreAction ? 'restorable' : ''}">
+                        <b>${this.escapeHtml(log.type)}${log.restoreAction ? '<em class="system-log-undo-badge"><i class="fa-solid fa-rotate-left"></i> 復元可</em>' : ''}${log.level === 'warning' ? '<em class="system-log-warning-badge"><i class="fa-solid fa-triangle-exclamation"></i> 注意</em>' : ''}</b>
                         <span>${this.escapeHtml(this.formatKanbanTodoTime(log.time) || log.time || '-')}</span>
                         <p>${this.escapeHtml(log.title || '')}</p>
+                        ${this.getSystemActivityLogDetailHtml(log)}
                         ${log.restoreAction ? `<button type="button" class="secondary-btn system-log-restore" onclick="${log.restoreAction}"><i class="fa-solid fa-rotate-left"></i> 復元</button>` : ''}
                     </div>
                 `).join('') || '<p class="kt-muted">ログはありません</p>'}
             </div>
         `);
+    }
+
+    getSystemActivityLogDetailHtml(log = {}) {
+        const detail = log.detail || {};
+        if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return '';
+        const items = [];
+        if (detail.level) items.push(['レベル', detail.level]);
+        if (Array.isArray(detail.deletedParts)) items.push(['復元対象', `${detail.deletedParts.length}件`]);
+        if (detail.report?.issueCount !== undefined) items.push(['確認項目', `${detail.report.issueCount}件`]);
+        if (detail.report?.unusedCount !== undefined) items.push(['未使用画像', `${detail.report.unusedCount}件`]);
+        if (detail.report?.duplicateCount !== undefined) items.push(['重複画像', `${detail.report.duplicateCount}件`]);
+        if (detail.report?.brokenReferenceCount !== undefined) items.push(['壊れた関連付け', `${detail.report.brokenReferenceCount}件`]);
+        if (!items.length) return '';
+        return `
+            <div class="system-log-detail">
+                ${items.map(([label, value]) => `<span><b>${this.escapeHtml(label)}</b>${this.escapeHtml(value)}</span>`).join('')}
+            </div>
+        `;
     }
 
     addSystemActivityLog(type, title, detail = {}) {
@@ -414,6 +1042,22 @@
         this.closeKanbanTodoModal?.();
         this.renderAnalysis?.();
         this.showToast?.(`${restored}件の部品カードを復元しました`, 'success');
+    }
+
+    getDataFixCenterSummary() {
+        const histories = (store.activeData.history || []).filter(h => !h.isManualGuide);
+        const trouble = histories.filter(h => !h.taskId || h.isSudden || h.isDokatei || h.isNonProductionStop);
+        const causeCount = trouble.filter(h => !String(h.cause || '').trim()).length;
+        const notesCount = trouble.filter(h => !String(h.notes || '').trim()).length;
+        const priceCount = histories.flatMap(h => this.getHistoryMissingPartPrices?.(h) || []).length;
+        const aliasCount = this.findPartAliasCandidates().length;
+        return {
+            causeCount,
+            notesCount,
+            priceCount,
+            aliasCount,
+            total: causeCount + notesCount + priceCount + aliasCount
+        };
     }
 
     openDataFixCenterPanel() {

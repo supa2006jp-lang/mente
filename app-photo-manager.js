@@ -442,7 +442,7 @@
             return items;
         }
 
-        getFilteredPhotoManagerItems() {
+        getFilteredPhotoManagerItems(baseItems = null) {
             const source = document.getElementById('photo-manager-source')?.value || 'all';
             const period = document.getElementById('photo-manager-period')?.value || 'all';
             const markFilter = document.getElementById('photo-manager-mark-filter')?.value || 'all';
@@ -453,7 +453,7 @@
             const query = (document.getElementById('photo-manager-query')?.value || '').trim();
             const terms = this.getSearchTerms(query);
             const range = this.getNotebookSearchDateRange(period);
-            let items = this.collectPhotoManagerItems();
+            let items = baseItems ? [...baseItems] : this.collectPhotoManagerItems();
 
             if (source !== 'all') items = items.filter(item => item.source === source);
             if (period !== 'all') {
@@ -487,7 +487,9 @@
         addPhotoManagerPageOnlyCleanupButton() {
             const actions = document.querySelector('#photo-manager-bulk-bar .photo-manager-bulk-actions');
             if (!actions || actions.querySelector('.photo-manager-page-only-cleanup-btn')) return;
-            const count = this.getPhotoManagerPageOnlyItems().length;
+            const cachedPageOnlyItems = this._photoManagerRenderCache?.pageOnlyItems || this.getPhotoManagerPageOnlyItems(this._photoManagerRenderCache?.allItems);
+            if (this._photoManagerRenderCache) this._photoManagerRenderCache.pageOnlyItems = cachedPageOnlyItems;
+            const count = cachedPageOnlyItems.length;
             actions.insertAdjacentHTML('beforeend', `<button type="button" class="secondary-btn photo-manager-page-only-cleanup-btn" onclick="app.openPhotoManagerPageOnlyCleanupReview()"><i class="fa-solid fa-folder-minus"></i> ページ残り ${count ? `(${count})` : ''}</button>`);
         }
 
@@ -1176,9 +1178,9 @@
             this.showPhotoManagerNotice(`${unused.length}件の未使用取込画像を削除しました。`);
         }
 
-        getPhotoManagerDuplicateGroups() {
+        getPhotoManagerDuplicateGroups(items = null) {
             const groups = new Map();
-            this.collectPhotoManagerItems().forEach(item => {
+            (items || this.collectPhotoManagerItems()).forEach(item => {
                 if (!item?.src) return;
                 if (!groups.has(item.src)) groups.set(item.src, []);
                 groups.get(item.src).push(item);
@@ -1218,8 +1220,31 @@
             return [...baseUsages, ...this.getPhotoManagerStampUsageItemsForSrc(src, includeLibrary, items)];
         }
 
-        getPhotoManagerUsageSummary(item = {}) {
-            const usages = this.getPhotoManagerUsageItemsForSrc(item.src || '', false);
+        getPhotoManagerUsageIndex(items = this.collectPhotoManagerItems(), includeLibrary = false) {
+            const index = new Map();
+            (items || []).forEach(item => {
+                if (!item?.src) return;
+                if (includeLibrary || item.source !== 'library') {
+                    if (!index.has(item.src)) index.set(item.src, []);
+                    index.get(item.src).push({ ...item, usageKind: 'base' });
+                }
+                const marks = [...(item.marks || []), ...(item.globalMarks || []), ...(item.managerMarks || [])];
+                marks.forEach(mark => {
+                    const sources = [mark?.imageSrc, mark?.originalImageSrc].filter(Boolean);
+                    sources.forEach(src => {
+                        if (!src) return;
+                        if (!index.has(src)) index.set(src, []);
+                        index.get(src).push({ ...item, usageKind: 'stamp' });
+                    });
+                });
+            });
+            return index;
+        }
+
+        getPhotoManagerUsageSummary(item = {}, usageIndex = null) {
+            const usages = usageIndex
+                ? (usageIndex.get(item.src || '') || [])
+                : this.getPhotoManagerUsageItemsForSrc(item.src || '', false);
             const count = usages.length;
             const stampCount = usages.filter(usage => usage.usageKind === 'stamp').length;
             const baseCount = count - stampCount;
@@ -1270,8 +1295,8 @@
             this.openPhotoManagerReviewDialog('写真の使用先', body);
         }
 
-        getPhotoManagerPageOnlyItems() {
-            const items = this.collectPhotoManagerItems();
+        getPhotoManagerPageOnlyItems(items = null) {
+            items = items || this.collectPhotoManagerItems();
             const librarySrcs = new Set(items.filter(item => item.source === 'library' && item.src).map(item => item.src));
             return items.filter(item => item.source !== 'library' && item.src && !librarySrcs.has(item.src));
         }
@@ -3267,12 +3292,21 @@
             if (!list) return;
             this.updatePhotoManagerAlphaFilterButton();
             this.updatePhotoManagerTagFilterOptions();
-            const items = this.getFilteredPhotoManagerItems();
-            this._photoManagerVisibleIds = items.map(item => item.id);
             const allItems = this.collectPhotoManagerItems();
+            const items = this.getFilteredPhotoManagerItems(allItems);
+            this._photoManagerVisibleIds = items.map(item => item.id);
             this.prunePhotoManagerSelection(allItems.map(item => item.id));
             const selectedIds = this.ensurePhotoManagerSelectionStore();
-            const duplicateSrcs = new Set(this.getPhotoManagerDuplicateGroups().map(group => group.src));
+            const duplicateGroups = this.getPhotoManagerDuplicateGroups(allItems);
+            const duplicateSrcs = new Set(duplicateGroups.map(group => group.src));
+            const usageIndex = this.getPhotoManagerUsageIndex(allItems, false);
+            this._photoManagerRenderCache = {
+                allItems,
+                duplicateGroups,
+                usageIndex,
+                pageOnlyItems: null,
+                relationGroups: null
+            };
             if (summary) {
                 const marked = items.filter(item => item.annotated).length;
                 const compressed = items.filter(item => this.isPhotoManagerSourceCompressed(item.src)).length;
@@ -3295,7 +3329,7 @@
                 const thumbTitle = item.source === 'library' ? '写真を編集' : '元のページを開く';
                 const alphaStatus = this.getPhotoManagerAlphaStatus(item);
                 const checked = selectedIds.has(item.id) ? ' checked' : '';
-                const usageSummary = this.getPhotoManagerUsageSummary(item);
+                const usageSummary = this.getPhotoManagerUsageSummary(item, usageIndex);
                 const protectedPhoto = this.isPhotoManagerSourceProtected(item.src);
                 const compressedPhoto = this.isPhotoManagerSourceCompressed(item.src);
                 const sizeText = this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(item.src));
@@ -3374,9 +3408,13 @@
             const selectedIds = this.getSelectedPhotoManagerIds();
             const visibleCount = this._photoManagerVisibleIds?.length || 0;
             const unusedCount = this.getUnusedPhotoManagerLibraryItems().length;
-            const duplicateCount = this.getPhotoManagerDuplicateGroups().length;
-            const pageOnlyCount = this.getPhotoManagerPageOnlyItems().length;
-            const relationCount = this.getPhotoManagerRelationGroups().length;
+            const duplicateCount = this._photoManagerRenderCache?.duplicateGroups?.length ?? this.getPhotoManagerDuplicateGroups().length;
+            const pageOnlyItems = this._photoManagerRenderCache?.pageOnlyItems || this.getPhotoManagerPageOnlyItems(this._photoManagerRenderCache?.allItems);
+            if (this._photoManagerRenderCache) this._photoManagerRenderCache.pageOnlyItems = pageOnlyItems;
+            const relationGroups = this._photoManagerRenderCache?.relationGroups || this.getPhotoManagerRelationGroups(this._photoManagerRenderCache?.allItems);
+            if (this._photoManagerRenderCache) this._photoManagerRenderCache.relationGroups = relationGroups;
+            const pageOnlyCount = pageOnlyItems.length;
+            const relationCount = relationGroups.length;
             const trashBytes = (store.activeData.photoManagerTrash || []).reduce((sum, entry) => sum + this.estimatePhotoManagerImageBytes(entry.src), 0);
             bar.classList.toggle('has-selection', selectedIds.length > 0);
             bar.innerHTML = `
@@ -3407,9 +3445,9 @@
                 </div>`;
         }
 
-        getPhotoManagerRelationGroups() {
+        getPhotoManagerRelationGroups(items = null) {
             const groups = new Map();
-            this.collectPhotoManagerItems().forEach(item => {
+            (items || this.collectPhotoManagerItems()).forEach(item => {
                 if (!item?.src) return;
                 if (!groups.has(item.src)) groups.set(item.src, []);
                 groups.get(item.src).push(item);

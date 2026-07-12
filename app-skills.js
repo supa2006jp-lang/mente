@@ -437,6 +437,8 @@
                     <div style="width:100%; max-width:460px; margin:0 auto; height:400px; background:#fff; padding:15px; border-radius:16px; border:1px solid #e2e8h0; box-shadow:var(--shadow-sm);">
                         <canvas id="worker-radar-chart"></canvas>
                     </div>
+                    <div id="worker-radar-score-list" class="worker-radar-score-list"></div>
+                    <div id="worker-radar-breakdown" class="worker-radar-breakdown"></div>
                     <div style="margin-top:24px; font-size:0.85rem; color:var(--text-light); text-align:left; background:#eff6ff; padding:18px; border-radius:12px; border:1px solid #bae6fd;">
                         <p style="font-weight:900; color:var(--primary); margin-bottom:10px; font-size:0.9rem;"><i class="fa-solid fa-circle-info"></i> レーダーチャートの見方</p>
                         各項目のスコアは、その分野（作業区分）の全タスク数に対して、作業員がどれだけ習熟しているかを数値化したものです。<br>
@@ -456,7 +458,7 @@
         const ctx = document.getElementById(canvasId);
         if (!ctx) return;
 
-        const { workers, allTaskEntries, skillEvals } = this._lastSkillData || {};
+        const { workers, allTaskEntries, skillEvals, workerTasks } = this._lastSkillData || {};
         if (!allTaskEntries) return;
 
         const catLabels = { 
@@ -469,35 +471,104 @@
         };
         const categories = Object.keys(catLabels);
         
-        const scores = categories.map(cat => {
+        const getEffectiveVal = (targetWorker, taskKey) => {
+            const manual = (skillEvals[targetWorker] || {})[taskKey];
+            if (manual) return manual;
+            return workerTasks?.[targetWorker]?.[taskKey]?.count > 0 ? '○' : '';
+        };
+        const getPoint = (val) => {
+            if (val === '○') return 1.0;
+            if (val === '△') return 0.5;
+            return 0;
+        };
+        const getScoreForWorker = (targetWorker, catTasks) => {
+            if (!catTasks.length) return { score: 0, points: 0 };
+            const points = catTasks.reduce((sum, [tk]) => sum + getPoint(getEffectiveVal(targetWorker, tk)), 0);
+            return { score: Math.round((points / catTasks.length) * 100), points };
+        };
+
+        const scoreRows = categories.map(cat => {
             const catTasks = allTaskEntries.filter(([tk, info]) => info.category === cat);
-            if (catTasks.length === 0) return 0;
-            
-            const points = catTasks.reduce((sum, [tk]) => {
-                const val = (skillEvals[workerName] || {})[tk];
-                if (val === '○') return sum + 1.0;
-                if (val === '△') return sum + 0.5;
-                return sum;
-            }, 0);
-            
-            return Math.round((points / catTasks.length) * 100);
+            if (catTasks.length === 0) return { cat, score: 0, points: 0, total: 0 };
+            const result = getScoreForWorker(workerName, catTasks);
+            return { cat, score: result.score, points: result.points, total: catTasks.length };
         });
+        const scores = scoreRows.map(row => row.score);
+        const teamScores = categories.map(cat => {
+            const catTasks = allTaskEntries.filter(([tk, info]) => info.category === cat);
+            if (!catTasks.length || !workers?.length) return 0;
+            const totalScore = workers.reduce((sum, worker) => sum + getScoreForWorker(worker, catTasks).score, 0);
+            return Math.round(totalScore / workers.length);
+        });
+        const scoreList = document.getElementById('worker-radar-score-list');
+        if (scoreList) {
+            scoreList.innerHTML = scoreRows.map(row => `
+                <div class="${row.total > 0 && row.total < 3 ? 'low-data' : ''}">
+                    <span>${catLabels[row.cat]}</span>
+                    <b>${row.score}%</b>
+                    <small>${row.points}/${row.total}${row.total > 0 && row.total < 3 ? ' / データ少' : ''}</small>
+                </div>
+            `).join('');
+        }
+        const breakdown = document.getElementById('worker-radar-breakdown');
+        if (breakdown) {
+            breakdown.innerHTML = categories.map(cat => {
+                const catTasks = allTaskEntries.filter(([tk, info]) => info.category === cat);
+                if (!catTasks.length) return '';
+                const rows = catTasks.map(([tk, info]) => {
+                    const val = getEffectiveVal(workerName, tk);
+                    const manual = (skillEvals[workerName] || {})[tk];
+                    const source = manual ? '手入力' : (workerTasks?.[workerName]?.[tk]?.count > 0 ? '履歴経験' : '未記録');
+                    const label = info.label || tk.split('__')[0] || 'タスク';
+                    return `
+                        <li class="${val === '○' ? 'ok' : (val === '△' ? 'support' : 'none')}">
+                            <b>${val || '未'}</b>
+                            <span>${this.escapeHtml(label)}</span>
+                            <em>${source}</em>
+                        </li>
+                    `;
+                }).join('');
+                return `
+                    <details>
+                        <summary>
+                            <span>${catLabels[cat]}</span>
+                            <b>${scoreRows.find(row => row.cat === cat)?.score || 0}%</b>
+                        </summary>
+                        <ul>${rows}</ul>
+                    </details>
+                `;
+            }).join('');
+        }
 
         new Chart(ctx, {
             type: 'radar',
             data: {
                 labels: categories.map(c => catLabels[c]),
-                datasets: [{
-                    label: `${workerName} さんの習熟スコア (%)`,
-                    data: scores,
-                    backgroundColor: 'rgba(37, 99, 235, 0.15)',
-                    borderColor: 'rgb(37, 99, 235)',
-                    borderWidth: 3,
-                    pointBackgroundColor: 'rgb(37, 99, 235)',
-                    pointBorderColor: '#fff',
-                    pointRadius: 4,
-                    pointHoverRadius: 6
-                }]
+                datasets: [
+                    {
+                        label: `${workerName} さん`,
+                        data: scores,
+                        backgroundColor: 'rgba(37, 99, 235, 0.15)',
+                        borderColor: 'rgb(37, 99, 235)',
+                        borderWidth: 3,
+                        pointBackgroundColor: 'rgb(37, 99, 235)',
+                        pointBorderColor: '#fff',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    },
+                    {
+                        label: 'チーム平均',
+                        data: teamScores,
+                        backgroundColor: 'rgba(100, 116, 139, 0.06)',
+                        borderColor: 'rgba(100, 116, 139, 0.75)',
+                        borderWidth: 2,
+                        borderDash: [6, 4],
+                        pointBackgroundColor: 'rgba(100, 116, 139, 0.85)',
+                        pointBorderColor: '#fff',
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }
+                ]
             },
             options: {
                 responsive: true,
@@ -506,14 +577,14 @@
                     r: {
                         angleLines: { color: '#e2e8f0' },
                         grid: { color: '#e2e8f0' },
-                        suggestedMin: 0,
-                        suggestedMax: 100,
-                        ticks: { stepSize: 20, font: { size: 9, weight: '700' }, backdropColor: 'transparent' },
+                        min: 0,
+                        max: 100,
+                        ticks: { stepSize: 20, font: { size: 10, weight: '700' }, backdropColor: 'rgba(255,255,255,0.8)', color: '#475569' },
                         pointLabels: { font: { size: 12, weight: '900' }, color: '#475569' }
                     }
                 },
                 plugins: {
-                    legend: { display: false }
+                    legend: { display: true, position: 'bottom', labels: { boxWidth: 14, font: { size: 11, weight: '700' } } }
                 }
             }
         });

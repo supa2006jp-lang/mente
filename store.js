@@ -181,6 +181,28 @@ class MaintenanceStore {
             if (!d.shiftNotebookMemberOrder) d.shiftNotebookMemberOrder = [];
             if (!d.shiftNotebookTags) d.shiftNotebookTags = ['通常', '注意', '至急'];
             if (!d.shiftNotebookRowGroups) d.shiftNotebookRowGroups = ['4号L', '5号L'];
+            if (!d.outlookAssist || typeof d.outlookAssist !== 'object') {
+                d.outlookAssist = { selectedWorker: '', draftsByWorker: {}, templates: [] };
+            }
+            if (!d.outlookAssist.draftsByWorker || typeof d.outlookAssist.draftsByWorker !== 'object') d.outlookAssist.draftsByWorker = {};
+            if (!Array.isArray(d.outlookAssist.templates)) d.outlookAssist.templates = [];
+            if (!Array.isArray(d.outlookAssist.recipientSets)) d.outlookAssist.recipientSets = [];
+            if (!Array.isArray(d.outlookAssist.recipientContacts)) d.outlookAssist.recipientContacts = [];
+            if (!d.outlookAssist.recipientGroupUpdatedAt || typeof d.outlookAssist.recipientGroupUpdatedAt !== 'object') d.outlookAssist.recipientGroupUpdatedAt = {};
+            if (!Array.isArray(d.outlookAssist.insertHistory)) d.outlookAssist.insertHistory = [];
+            if (!Array.isArray(d.outlookAssist.subjectPresets)) {
+                d.outlookAssist.subjectPresets = ['[見積依頼]', '[注文]', '[発注]', '[確認依頼]', '[報告]'];
+            }
+            if (!Array.isArray(d.outlookAssist.quickPhrases)) {
+                d.outlookAssist.quickPhrases = [
+                    { text: 'お世話になっております。', visible: true },
+                    { text: 'ご確認お願いいたします。', visible: true },
+                    { text: 'ご対応お願いいたします。', visible: true },
+                    { text: '以上、よろしくお願いいたします。', visible: true }
+                ];
+            }
+            if (!d.outlookAssist.copyStatus || typeof d.outlookAssist.copyStatus !== 'object') d.outlookAssist.copyStatus = {};
+            if (typeof d.outlookAssist.templateFilterCategory !== 'string') d.outlookAssist.templateFilterCategory = 'all';
             if (!d.archivedSuggestions) d.archivedSuggestions = { errorNo: [], content: [], cause: [], notes: [], workers: [], partName: [], partModel: [], partSerial: [] };
             if (!d.dokateiCounters) d.dokateiCounters = [
                 { location: '', lastDate: '' },

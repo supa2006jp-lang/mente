@@ -1890,6 +1890,106 @@
         return this.normalizeGuidePhoto(photo).src;
     }
 
+    getGuideImageCompressionPreset() {
+        const saved = localStorage.getItem('guide_image_compression_preset') || 'standard';
+        return ['light', 'standard', 'high'].includes(saved) ? saved : 'standard';
+    }
+
+    getGuideImageCompressionPresetOptions() {
+        return {
+            light: { key: 'light', label: '軽量', maxEdge: 1280, quality: 0.78 },
+            standard: { key: 'standard', label: '標準', maxEdge: 1600, quality: 0.82 },
+            high: { key: 'high', label: '高画質', maxEdge: 2000, quality: 0.88 }
+        };
+    }
+
+    setGuideImageCompressionPreset(preset = 'standard') {
+        const options = this.getGuideImageCompressionPresetOptions();
+        const key = options[preset] ? preset : 'standard';
+        localStorage.setItem('guide_image_compression_preset', key);
+        this.updateGuideImageCompressionPresetControls?.();
+    }
+
+    getGuideImageCompressionOptions() {
+        const presets = this.getGuideImageCompressionPresetOptions();
+        return presets[this.getGuideImageCompressionPreset()] || presets.standard;
+    }
+
+    estimateGuideImageDataUrlBytes(src = '') {
+        return store.estimateDataUrlBytes?.(src) || Math.round(String(src || '').length * 0.75);
+    }
+
+    async compressGuideImageDataUrl(src = '', options = this.getGuideImageCompressionOptions()) {
+        if (!store.isImageDataUrl?.(src)) return { src, changed: false, beforeBytes: 0, afterBytes: 0 };
+        const beforeBytes = this.estimateGuideImageDataUrlBytes(src);
+        const img = new Image();
+        const loaded = new Promise(resolve => {
+            img.onload = () => resolve(true);
+            img.onerror = () => resolve(false);
+        });
+        img.src = src;
+        if (!await loaded) return { src, changed: false, beforeBytes, afterBytes: beforeBytes };
+        const width = img.naturalWidth || img.width || 1;
+        const height = img.naturalHeight || img.height || 1;
+        const maxEdge = Math.max(320, Number(options.maxEdge) || 1600);
+        const scale = Math.min(1, maxEdge / Math.max(width, height));
+        const nextWidth = Math.max(1, Math.round(width * scale));
+        const nextHeight = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const hasAlpha = MaintenanceStore.canvasHasTransparency?.(ctx, canvas.width, canvas.height);
+        const compressed = hasAlpha
+            ? canvas.toDataURL('image/png')
+            : canvas.toDataURL('image/jpeg', Math.max(0.5, Math.min(0.95, Number(options.quality) || 0.82)));
+        const afterBytes = this.estimateGuideImageDataUrlBytes(compressed);
+        if (afterBytes >= beforeBytes && scale >= 1) return { src, changed: false, beforeBytes, afterBytes: beforeBytes };
+        return { src: afterBytes < beforeBytes ? compressed : src, changed: afterBytes < beforeBytes, beforeBytes, afterBytes: Math.min(afterBytes, beforeBytes) };
+    }
+
+    async prepareGuidePhotoFromFile(file) {
+        const src = await MaintenanceStore.readImageAsDataUrl(file);
+        const result = await this.compressGuideImageDataUrl(src);
+        return {
+            photo: { src: result.src, marks: [], printSize: 72 },
+            beforeBytes: result.beforeBytes,
+            afterBytes: result.afterBytes,
+            changed: result.changed
+        };
+    }
+
+    showGuideImageCompressionNotice(results = []) {
+        const savedBytes = results.reduce((sum, result) => sum + Math.max(0, (result.beforeBytes || 0) - (result.afterBytes || 0)), 0);
+        if (savedBytes > 0) {
+            this.showToast?.(`手順書画像を約${this.formatExportBytes?.(savedBytes) || savedBytes + 'B'}軽量化しました`, 'success');
+        }
+    }
+
+    getGuideImageCompressionPresetHtml() {
+        const active = this.getGuideImageCompressionPreset();
+        const presets = Object.values(this.getGuideImageCompressionPresetOptions());
+        return `
+            <div class="guide-compress-preset" data-guide-compress-preset>
+                ${presets.map(preset => `
+                    <button type="button" class="${active === preset.key ? 'active' : ''}" onclick="app.setGuideImageCompressionPreset('${preset.key}')">
+                        <b>${this.escapeHtml(preset.label)}</b>
+                        <span>長辺${preset.maxEdge}px</span>
+                    </button>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    updateGuideImageCompressionPresetControls() {
+        const active = this.getGuideImageCompressionPreset();
+        document.querySelectorAll('[data-guide-compress-preset] button').forEach(button => {
+            button.classList.toggle('active', button.getAttribute('onclick')?.includes(`'${active}'`));
+        });
+    }
+
     async renderGuidePhotoPreviews() {
         const previewContainer = document.getElementById('g-photo-previews');
         if (!previewContainer) return;
@@ -1921,6 +2021,7 @@
                     <input type="number" min="20" max="100" step="5" value="${photo.printSize}">
                     <b>%</b>
                 </label>
+                <small class="guide-photo-byte-size">${this.formatExportBytes?.(this.estimateGuideImageDataUrlBytes(photo.src)) || this.estimateGuideImageDataUrlBytes(photo.src) + 'B'}</small>
                 <button type="button" class="guide-photo-insert-btn" title="本文に [[写真${index + 1}]] を挿入">[[写真${index + 1}]]</button>
                 <button type="button" class="rotate-btn" style="position:absolute; bottom:0; right:0; background:rgba(0,0,0,0.6); color:white; border:none; padding:2px 4px; font-size:12px; cursor:pointer; border-radius:2px;" title="回転"><i class="fa-solid fa-rotate-right"></i></button>
                 <button type="button" class="close-btn" style="position:absolute; top:-5px; right:-5px; background:white; padding:2px; font-size:12px; z-index:1000; cursor:pointer;" title="削除">×</button>
@@ -1949,7 +2050,9 @@
                 e.stopPropagation();
                 try {
                     const rotated = await MaintenanceStore.rotateImageBase64(photo.src, 90);
-                    this._tempPhotos[index] = { ...this.normalizeGuidePhoto(this._tempPhotos[index]), src: rotated };
+                    const compressed = await this.compressGuideImageDataUrl(rotated);
+                    this._tempPhotos[index] = { ...this.normalizeGuidePhoto(this._tempPhotos[index]), src: compressed.src };
+                    this.showGuideImageCompressionNotice([compressed]);
                     this.autoSaveGuideDraftFromModal();
                     this.renderGuidePhotoPreviews();
                 } catch (err) {
@@ -2079,7 +2182,8 @@
             photos: (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src),
             version: oldGuide.version || 'v1.0',
             updatedAt: new Date().toLocaleString(),
-            changeNote: oldGuide.changeNote || '自動保存'
+            changeNote: oldGuide.changeNote || '自動保存',
+            revisions: []
         };
         store.save();
         this.renderHistory?.();
@@ -3328,14 +3432,6 @@
             const index = store.activeData.history.findIndex(x => x.id === hId);
             if (index !== -1) {
                 const oldGuide = store.activeData.history[index].guide;
-                const revisions = Array.isArray(oldGuide?.revisions) ? [...oldGuide.revisions] : [];
-                if (oldGuide) {
-                    revisions.push(this.normalizeGuideRevision({
-                        ...oldGuide,
-                        version: this.getGuideVersionLabel(oldGuide),
-                        changeNote: oldGuide.changeNote || '保存前の版'
-                    }));
-                }
                 const version = oldGuide ? `v${this.getNextGuideVersion(oldGuide).toFixed(1)}` : 'v1.0';
                 store.activeData.history[index].guide = {
                     title,
@@ -3348,7 +3444,7 @@
                     updatedAt: new Date().toLocaleString(),
                     changeNote,
                     photos: (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src),
-                    revisions
+                    revisions: []
                 };
                 store.save();
             }
@@ -3672,6 +3768,8 @@
                     <aside class="guide-photo-side">
                         <label>手順写真・参考画像</label>
                         <input type="file" id="g-photos" accept="image/*" multiple>
+                        <div class="guide-photo-compress-note"><i class="fa-solid fa-gauge-high"></i> 追加画像は選択中の設定で自動軽量化します。</div>
+                        ${this.getGuideImageCompressionPresetHtml()}
                         <div id="g-photo-previews" class="guide-photo-previews"></div>
                     </aside>
                 </div>
@@ -3685,10 +3783,13 @@
             const photoIn = document.getElementById('g-photos');
             photoIn.onchange = async (e) => {
                 const files = Array.from(e.target.files);
+                const compressionResults = [];
                 for (const file of files) {
-                    const base64 = await MaintenanceStore.readImageAsDataUrl(file);
-                    this._tempPhotos.push({ src: base64, marks: [], printSize: 72 });
+                    const result = await this.prepareGuidePhotoFromFile(file);
+                    this._tempPhotos.push(result.photo);
+                    compressionResults.push(result);
                 }
+                this.showGuideImageCompressionNotice(compressionResults);
                 this.autoSaveGuideDraftFromModal();
                 this.renderGuidePhotoPreviews();
                 e.target.value = '';
@@ -4012,6 +4113,12 @@
             const content = document.getElementById('modal-content');
             content.innerHTML = `
                 <div class="guide-version-list">
+                    ${revisions.length <= 1 ? `
+                        <div class="storage-duplicate-note">
+                            <i class="fa-solid fa-circle-info"></i>
+                            容量を抑えるため、古い手順書バージョンは保存しない設定です。現在の最新版だけを保持しています。
+                        </div>
+                    ` : ''}
                     ${revisions.map((rev, idx) => {
                         const isCurrent = idx === 0;
                         return `
@@ -4046,16 +4153,10 @@
         if (!h?.guide) return;
         const target = (h.guide.revisions || []).find(r => String(r.version) === String(version));
         if (!target) return alert('指定した版が見つかりません。');
-        if (!confirm(`${version} の内容へ戻しますか？\n現在の内容は変更ログに残します。`)) return;
+        if (!confirm(`${version} の内容へ戻しますか？\n容量を抑えるため、現在の内容は古い版として保存しません。`)) return;
 
         const currentGuide = h.guide;
         const nextVersion = this.getNextGuideVersion(currentGuide);
-        const revisions = Array.isArray(currentGuide.revisions) ? [...currentGuide.revisions] : [];
-        revisions.push(this.normalizeGuideRevision({
-            ...currentGuide,
-            version: this.getGuideVersionLabel(currentGuide),
-            changeNote: 'ロールバック前の版'
-        }));
 
         h.guide = {
             title: target.title || currentGuide.title || '',
@@ -4067,7 +4168,7 @@
             version: `v${nextVersion.toFixed(1)}`,
             updatedAt: new Date().toLocaleString(),
             changeNote: `${version} へロールバック`,
-            revisions
+            revisions: []
         };
         store.save();
         this.closeModal();
