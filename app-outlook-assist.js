@@ -2764,4 +2764,1132 @@ document.addEventListener('pointerdown', event => {
     event.stopImmediatePropagation();
     outlookApp.openOutlookAssistRecipientPicker(field);
 }, true);
+
+MaintenanceApp.prototype.parseOutlookAssistNameEmailEntries = function (value) {
+    const text = String(value || '').replace(/\r\n?/g, '\n');
+    const entries = [];
+    const nameEmailPattern = /([^<>\n;,]+?)\s*<\s*([^<>\s;,]+@[^<>\s;,]+)\s*>/g;
+    let match;
+    let lastIndex = 0;
+    while ((match = nameEmailPattern.exec(text)) !== null) {
+        entries.push({
+            displayName: String(match[1] || '').trim(),
+            email: String(match[2] || '').trim()
+        });
+        lastIndex = nameEmailPattern.lastIndex;
+    }
+    const remainder = text.slice(lastIndex);
+    remainder.split(/[;,\n]+/).map(item => item.trim()).filter(Boolean).forEach(item => {
+        const emailMatch = item.match(/[^\s<>;,]+@[^\s<>;,]+/);
+        if (emailMatch) {
+            entries.push({
+                displayName: item.replace(emailMatch[0], '').replace(/[<>]/g, '').trim(),
+                email: emailMatch[0].trim()
+            });
+        } else {
+            entries.push({
+                displayName: item,
+                email: ''
+            });
+        }
+    });
+    return entries;
+};
+
+MaintenanceApp.prototype.splitOutlookAssistRecipients = function (value) {
+    const text = String(value || '').trim();
+    if (!text) return [];
+    const parsed = this.parseOutlookAssistNameEmailEntries(text);
+    if (parsed.some(entry => entry.email)) {
+        return parsed.map(entry => entry.email || entry.displayName).filter(Boolean);
+    }
+    return text.split(/[;,\n]+/).map(item => item.trim()).filter(Boolean);
+};
+
+MaintenanceApp.prototype.bulkRegisterOutlookAssistNameEmailGroup = function () {
+    const groupName = prompt('登録するグループ名を入力してください');
+    if (!groupName) return;
+    const pasted = prompt('Outlookからコピーした「名前 <メールアドレス>」を貼り付けてください。複数件まとめて貼り付けできます。');
+    if (!pasted) return;
+    const entries = this.parseOutlookAssistNameEmailEntries(pasted).filter(entry => entry.email);
+    if (!entries.length) {
+        alert('メールアドレスを読み取れませんでした。例: 山田 太郎 <taro@example.com>');
+        return;
+    }
+    const state = this.getOutlookAssistState();
+    const contacts = state.recipientContacts || [];
+    const group = String(groupName || '').trim();
+    entries.forEach(entry => {
+        const emailKey = MaintenanceApp.toHalfWidthLower(entry.email);
+        const existing = contacts.find(contact => MaintenanceApp.toHalfWidthLower(contact.email || '') === emailKey);
+        const nameParts = String(entry.displayName || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+        const familyName = nameParts[0] || entry.displayName || entry.email;
+        const givenName = nameParts.slice(1).join(' ');
+        if (existing) {
+            existing.familyName = existing.familyName || familyName;
+            existing.givenName = existing.givenName || givenName;
+            const groups = Array.isArray(existing.groups)
+                ? existing.groups
+                : String(existing.group || '').split(/[;,、\n]+/).map(item => item.trim()).filter(Boolean);
+            if (!groups.includes(group) && groups.length < 7) groups.push(group);
+            existing.groups = groups;
+            existing.group = groups.join(', ');
+            existing.updatedAt = new Date().toISOString();
+            return;
+        }
+        contacts.push({
+            id: `contact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            familyName,
+            givenName,
+            email: entry.email,
+            groups: [group],
+            group,
+            note: '',
+            updatedAt: new Date().toISOString()
+        });
+    });
+    state.recipientContacts = contacts;
+    store.save();
+    alert(`${entries.length}件を「${group}」に登録しました。`);
+    if (typeof this.renderOutlookAssist === 'function') {
+        this.renderOutlookAssist();
+    }
+};
+
+const enhanceOutlookAssistBulkNameEmailImport = () => {
+    const outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
+    if (!outlookApp?.bulkRegisterOutlookAssistNameEmailGroup) return;
+    document.querySelectorAll('button').forEach(button => {
+        if (!String(button.textContent || '').includes('宛先管理')) return;
+        const area = button.parentElement;
+        if (!area || area.querySelector('.outlook-bulk-name-email-import')) return;
+        const importButton = document.createElement('button');
+        importButton.type = 'button';
+        importButton.className = 'outlook-bulk-name-email-import';
+        importButton.innerHTML = '<i class="fa-solid fa-address-book"></i> 名前メール一括登録';
+        importButton.addEventListener('click', () => outlookApp.bulkRegisterOutlookAssistNameEmailGroup());
+        button.insertAdjacentElement('afterend', importButton);
+    });
+};
+
+const outlookAssistBulkNameEmailImportStyle = document.createElement('style');
+outlookAssistBulkNameEmailImportStyle.textContent = `
+    .outlook-bulk-name-email-import {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+        padding: 0 16px;
+        margin-left: 8px;
+        border: 1px solid #f59e0b;
+        border-radius: 12px;
+        background: #fff7ed;
+        color: #c2410c;
+        font-weight: 800;
+        cursor: pointer;
+    }
+    .outlook-bulk-name-email-import:hover {
+        background: #fed7aa;
+        color: #7c2d12;
+    }
+`;
+document.head.appendChild(outlookAssistBulkNameEmailImportStyle);
+document.addEventListener('DOMContentLoaded', enhanceOutlookAssistBulkNameEmailImport);
+new MutationObserver(enhanceOutlookAssistBulkNameEmailImport).observe(document.documentElement, {
+    childList: true,
+    subtree: true
+});
+
+const OUTLOOK_ASSIST_DATE_FORMAT_KEY = 'outlookAssistDateFormat';
+const getOutlookAssistDateFormat = () => localStorage.getItem(OUTLOOK_ASSIST_DATE_FORMAT_KEY) || 'slash';
+const formatOutlookAssistDateByPreference = (month, day) => {
+    const m = Number(month);
+    const d = Number(day);
+    const format = getOutlookAssistDateFormat();
+    if (!m || !d) return `${month}/${day}`;
+    if (format === 'jp') return `${m}月${d}日`;
+    if (format === 'weekday') {
+        const now = new Date();
+        const date = new Date(now.getFullYear(), m - 1, d);
+        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        return `${m}/${d}(${weekdays[date.getDay()]})`;
+    }
+    return `${m}/${d}`;
+};
+const normalizeOutlookAssistPreferredDateText = value => String(value || '')
+    .replace(/\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])(?:\([日月火水木金土]\))?\b/g, (_, month, day) => formatOutlookAssistDateByPreference(month, day))
+    .replace(/\b(0?[1-9]|1[0-2])月(0?[1-9]|[12]\d|3[01])日\b/g, (_, month, day) => formatOutlookAssistDateByPreference(month, day));
+
+const normalizeOutlookAssistPreferredDateNow = () => {
+    return;
+    document.querySelectorAll('input, textarea').forEach(field => {
+        const id = String(field.id || '');
+        const area = field.closest?.('[data-view="outlook-assist"], .outlook-assist, [class*="outlook"]');
+        if (!id.includes('outlook-assist') && !area) return;
+        const current = field.value;
+        const normalized = normalizeOutlookAssistPreferredDateText(current);
+        if (current !== normalized) field.value = normalized;
+    });
+    document.querySelectorAll('[class*="outlook"], [id*="outlook"]').forEach(element => {
+        if (element.children.length || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(element.tagName)) return;
+        const current = element.textContent;
+        const normalized = normalizeOutlookAssistPreferredDateText(current);
+        if (current !== normalized) element.textContent = normalized;
+    });
+};
+
+const getOutlookAssistRecipientDuplicateSummary = outlookApp => {
+    if (!outlookApp?.getCurrentOutlookAssistDraft || !outlookApp?.splitOutlookAssistRecipients) return [];
+    const draft = outlookApp.getCurrentOutlookAssistDraft();
+    const labels = { to: '宛先', cc: 'CC', bcc: 'BCC' };
+    const contacts = outlookApp.getOutlookAssistState?.().recipientContacts || [];
+    const contactByEmail = new Map(contacts.map(contact => [MaintenanceApp.toHalfWidthLower(contact.email || ''), contact]));
+    const bucket = new Map();
+    ['to', 'cc', 'bcc'].forEach(field => {
+        outlookApp.splitOutlookAssistRecipients(draft[field] || '').forEach(item => {
+            const key = MaintenanceApp.toHalfWidthLower(item);
+            if (!key) return;
+            const contact = contactByEmail.get(key);
+            const name = contact ? (contact.familyName || outlookApp.getOutlookAssistContactName(contact)) : item;
+            if (!bucket.has(key)) bucket.set(key, { name, fields: [] });
+            bucket.get(key).fields.push(labels[field]);
+        });
+    });
+    return [...bucket.values()].filter(item => new Set(item.fields).size > 1 || item.fields.length > 1);
+};
+
+const enhanceOutlookAssistDuplicateWarning = () => {
+    const outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
+    if (!outlookApp) return;
+    const copyButton = [...document.querySelectorAll('button')].find(button => String(button.textContent || '').includes('全文コピー'));
+    const anchor = copyButton?.closest?.('[class*="outlook"]') || copyButton?.parentElement;
+    if (!anchor) return;
+    let panel = document.getElementById('outlook-assist-duplicate-detail');
+    const duplicates = getOutlookAssistRecipientDuplicateSummary(outlookApp);
+    if (!duplicates.length) {
+        panel?.remove();
+        return;
+    }
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'outlook-assist-duplicate-detail';
+        anchor.insertAdjacentElement('afterend', panel);
+    }
+    panel.innerHTML = `<strong><i class="fa-solid fa-triangle-exclamation"></i> 宛先重複</strong>${duplicates.map(item => `<span>${item.name}: ${[...new Set(item.fields)].join(' / ')}</span>`).join('')}`;
+};
+
+const enhanceOutlookAssistDateFormatControl = () => {
+    const insertArea = [...document.querySelectorAll('button')].find(button => String(button.textContent || '').includes('本文を大きく'))?.parentElement;
+    if (!insertArea || insertArea.querySelector('.outlook-date-format-control')) return;
+    const control = document.createElement('label');
+    control.className = 'outlook-date-format-control';
+    control.innerHTML = `<i class="fa-solid fa-calendar-day"></i><select aria-label="日付形式">
+        <option value="slash">7/14</option>
+        <option value="jp">7月14日</option>
+        <option value="weekday">7/14(火)</option>
+    </select>`;
+    const select = control.querySelector('select');
+    select.value = getOutlookAssistDateFormat();
+    select.addEventListener('change', event => {
+        localStorage.setItem(OUTLOOK_ASSIST_DATE_FORMAT_KEY, event.target.value);
+        normalizeOutlookAssistPreferredDateNow();
+        const outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
+        outlookApp?.renderOutlookAssistPreview?.();
+    });
+    insertArea.appendChild(control);
+};
+
+MaintenanceApp.prototype.openOutlookAssistBulkNameEmailImportDialog = function () {
+    document.getElementById('outlook-bulk-name-email-modal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'outlook-bulk-name-email-modal';
+    modal.className = 'is-open';
+    modal.innerHTML = `
+        <div class="outlook-bulk-modal-backdrop"></div>
+        <section class="outlook-bulk-modal-panel">
+            <button type="button" class="outlook-bulk-modal-close" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+            <h2>名前メール一括登録</h2>
+            <label>グループ名<input id="outlook-bulk-group-name" placeholder="例: プラント"></label>
+            <label>Outlookからコピーした宛先<textarea id="outlook-bulk-name-email-text" placeholder="山田 太郎 <taro@example.com>"></textarea></label>
+            <div class="outlook-bulk-modal-actions">
+                <button type="button" id="outlook-bulk-preview-button"><i class="fa-solid fa-eye"></i> プレビュー</button>
+                <button type="button" id="outlook-bulk-register-button"><i class="fa-solid fa-address-book"></i> 登録</button>
+            </div>
+            <div id="outlook-bulk-name-email-preview">貼り付け後にプレビューできます。</div>
+        </section>`;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    modal.querySelector('.outlook-bulk-modal-backdrop').addEventListener('click', close);
+    modal.querySelector('.outlook-bulk-modal-close').addEventListener('click', close);
+    const renderPreview = () => {
+        const entries = this.parseOutlookAssistNameEmailEntries(modal.querySelector('#outlook-bulk-name-email-text').value).filter(entry => entry.email);
+        modal.querySelector('#outlook-bulk-name-email-preview').innerHTML = entries.length
+            ? entries.map(entry => `<div><b>${this.escapeHtml(entry.displayName || entry.email)}</b><span>${this.escapeHtml(entry.email)}</span></div>`).join('')
+            : 'メールアドレスを読み取れませんでした。';
+        return entries;
+    };
+    modal.querySelector('#outlook-bulk-preview-button').addEventListener('click', renderPreview);
+    modal.querySelector('#outlook-bulk-register-button').addEventListener('click', () => {
+        const group = modal.querySelector('#outlook-bulk-group-name').value.trim();
+        const entries = renderPreview();
+        if (!group) {
+            alert('グループ名を入力してください。');
+            return;
+        }
+        if (!entries.length) return;
+        const state = this.getOutlookAssistState();
+        const contacts = state.recipientContacts || [];
+        entries.forEach(entry => {
+            const emailKey = MaintenanceApp.toHalfWidthLower(entry.email);
+            const existing = contacts.find(contact => MaintenanceApp.toHalfWidthLower(contact.email || '') === emailKey);
+            const nameParts = String(entry.displayName || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+            const familyName = nameParts[0] || entry.email;
+            const givenName = nameParts.slice(1).join(' ');
+            if (existing) {
+                const groups = Array.isArray(existing.groups) ? existing.groups : String(existing.group || '').split(/[;,、\n]+/).map(item => item.trim()).filter(Boolean);
+                if (!groups.includes(group) && groups.length < 7) groups.push(group);
+                existing.groups = groups;
+                existing.group = groups.join(', ');
+                existing.updatedAt = new Date().toISOString();
+            } else {
+                contacts.push({ id: `contact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, familyName, givenName, email: entry.email, groups: [group], group, note: '', updatedAt: new Date().toISOString() });
+            }
+        });
+        state.recipientContacts = contacts;
+        store.save();
+        close();
+        this.renderOutlookAssist?.();
+    });
+};
+
+MaintenanceApp.prototype.bulkRegisterOutlookAssistNameEmailGroup = function () {
+    this.openOutlookAssistBulkNameEmailImportDialog();
+};
+
+const enhanceOutlookAssistChecklistToggle = () => {
+    return;
+    const panel = [...document.querySelectorAll('[class*="outlook"], div, section')].find(element => String(element.textContent || '').includes('宛先チェック') && !element.querySelector?.('.outlook-checklist-toggle'));
+    if (!panel) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'outlook-checklist-toggle';
+    button.innerHTML = '<i class="fa-solid fa-list-check"></i> チェック表示';
+    button.addEventListener('click', () => panel.classList.toggle('outlook-checklist-collapsed'));
+    panel.insertAdjacentElement('afterbegin', button);
+    panel.classList.add('outlook-checklist-collapsed');
+};
+
+const enhanceOutlookAssistTemplateSearch = () => {
+    const search = [...document.querySelectorAll('input')].find(input => String(input.placeholder || '').includes('テンプレート検索'));
+    if (!search || search.dataset.outlookEnhancedSearch === '1') return;
+    search.dataset.outlookEnhancedSearch = '1';
+    search.placeholder = 'テンプレート検索（題名・分類・本文）';
+    search.addEventListener('input', () => {
+        const query = MaintenanceApp.toHalfWidthLower(search.value || '');
+        document.querySelectorAll('[class*="template"]').forEach(card => {
+            if (card === search || card.contains(search)) return;
+            const text = MaintenanceApp.toHalfWidthLower(card.textContent || '');
+            card.style.display = !query || text.includes(query) ? '' : 'none';
+        });
+    });
+};
+
+const outlookAssistEnhancementStyle = document.createElement('style');
+outlookAssistEnhancementStyle.textContent = `
+    #outlook-assist-duplicate-detail {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        margin: 8px 0;
+        border: 1px solid #f59e0b;
+        border-radius: 10px;
+        background: #fff7ed;
+        color: #9a3412;
+        font-weight: 800;
+    }
+    #outlook-assist-duplicate-detail span {
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #ffedd5;
+    }
+    .outlook-date-format-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 0 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        background: #ffffff;
+        color: #0f172a;
+        font-weight: 800;
+    }
+    .outlook-date-format-control select {
+        border: 0;
+        background: transparent;
+        font-weight: 800;
+    }
+    #outlook-bulk-name-email-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+    }
+    .outlook-bulk-modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.42);
+    }
+    .outlook-bulk-modal-panel {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: min(720px, calc(100vw - 32px));
+        max-height: calc(100vh - 48px);
+        overflow: auto;
+        transform: translate(-50%, -50%);
+        padding: 20px;
+        border-radius: 16px;
+        background: #ffffff;
+        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+    }
+    .outlook-bulk-modal-panel label {
+        display: grid;
+        gap: 6px;
+        margin: 12px 0;
+        font-weight: 800;
+    }
+    .outlook-bulk-modal-panel input,
+    .outlook-bulk-modal-panel textarea {
+        width: 100%;
+        border: 1px solid #bfdbfe;
+        border-radius: 10px;
+        background: #eff6ff;
+        padding: 10px 12px;
+        font: inherit;
+    }
+    .outlook-bulk-modal-panel textarea {
+        min-height: 160px;
+        resize: vertical;
+    }
+    .outlook-bulk-modal-close {
+        float: right;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+    }
+    .outlook-bulk-modal-actions {
+        display: flex;
+        gap: 10px;
+        margin: 12px 0;
+    }
+    .outlook-bulk-modal-actions button {
+        min-height: 44px;
+        padding: 0 16px;
+        border-radius: 12px;
+        border: 1px solid #10b981;
+        background: #ecfdf5;
+        color: #047857;
+        font-weight: 800;
+    }
+    #outlook-bulk-name-email-preview div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 10px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .outlook-checklist-toggle {
+        min-height: 36px;
+        padding: 0 12px;
+        border: 1px solid #f59e0b;
+        border-radius: 999px;
+        background: #fff7ed;
+        color: #c2410c;
+        font-weight: 800;
+    }
+    .outlook-checklist-collapsed > *:not(.outlook-checklist-toggle) {
+        display: none !important;
+    }
+`;
+document.head.appendChild(outlookAssistEnhancementStyle);
+
+const runOutlookAssistEnhancements = () => {
+    return;
+    enhanceOutlookAssistDuplicateWarning();
+    enhanceOutlookAssistDateFormatControl();
+    enhanceOutlookAssistChecklistToggle();
+    enhanceOutlookAssistTemplateSearch();
+    normalizeOutlookAssistPreferredDateNow();
+};
+
+document.addEventListener('DOMContentLoaded', runOutlookAssistEnhancements);
+document.addEventListener('input', () => setTimeout(runOutlookAssistEnhancements, 0), true);
+document.addEventListener('click', event => {
+    if (event.target?.closest?.('button, input, textarea, select, a, label')) return;
+    setTimeout(runOutlookAssistEnhancements, 0);
+}, true);
+new MutationObserver(runOutlookAssistEnhancements).observe(document.documentElement, {
+    childList: true,
+    subtree: true
+});
+
+try {
+    if (navigator.clipboard?.writeText && !navigator.clipboard.writeText.outlookAssistPreferredDateNormalized) {
+        const previousWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+        const preferredWriteText = text => previousWriteText(normalizeOutlookAssistPreferredDateText(text));
+        preferredWriteText.outlookAssistPreferredDateNormalized = true;
+        navigator.clipboard.writeText = preferredWriteText;
+    }
+} catch (error) {
+    // Clipboard methods may be read-only in some browser contexts.
+}
+
+const outlookAssistChecklistRecoveryStyle = document.createElement('style');
+outlookAssistChecklistRecoveryStyle.textContent = `
+    .outlook-checklist-collapsed > *:not(.outlook-checklist-toggle) {
+        display: revert !important;
+    }
+    .outlook-checklist-toggle {
+        width: auto !important;
+        height: 36px !important;
+        min-height: 36px !important;
+        padding: 0 12px !important;
+        border-radius: 999px !important;
+    }
+    #outlook-bulk-name-email-modal:not(.is-open) {
+        display: none !important;
+        pointer-events: none !important;
+    }
+    body > .outlook-bulk-modal-backdrop,
+    body > .outlook-bulk-modal-panel {
+        display: none !important;
+        pointer-events: none !important;
+    }
+`;
+document.head.appendChild(outlookAssistChecklistRecoveryStyle);
+
+const recoverOutlookAssistChecklistLayout = () => {
+    return;
+    document.querySelectorAll('#outlook-bulk-name-email-modal:not(.is-open)').forEach(modal => modal.remove());
+    document.querySelectorAll('.outlook-checklist-toggle').forEach(button => button.remove());
+    document.querySelectorAll('.outlook-checklist-collapsed').forEach(element => {
+        element.classList.remove('outlook-checklist-collapsed');
+    });
+};
+
+document.addEventListener('DOMContentLoaded', recoverOutlookAssistChecklistLayout);
+new MutationObserver(recoverOutlookAssistChecklistLayout).observe(document.documentElement, {
+    childList: true,
+    subtree: true
+});
+
+var outlookAssistDateFormatSafeKey = 'outlookAssistDateFormat';
+var getOutlookAssistDateFormatSafe = function () {
+    return localStorage.getItem(outlookAssistDateFormatSafeKey) || 'slash';
+};
+var formatOutlookAssistDateSafe = function (month, day) {
+    var m = Number(month);
+    var d = Number(day);
+    if (!m || !d) return String(month || '') + '/' + String(day || '');
+    var format = getOutlookAssistDateFormatSafe();
+    if (format === 'jp') return m + '月' + d + '日';
+    if (format === 'weekday') {
+        var now = new Date();
+        var date = new Date(now.getFullYear(), m - 1, d);
+        var weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        return m + '/' + d + '(' + weekdays[date.getDay()] + ')';
+    }
+    return m + '/' + d;
+};
+var normalizeOutlookAssistDateSafeText = function (value) {
+    return String(value || '')
+        .replace(/\b(0?[1-9]|1[0-2])\/([12]\d|3[01]|0?[1-9])(?:\([日月火水木金土]\))*/g, function (_, month, day) {
+            return formatOutlookAssistDateSafe(month, day);
+        })
+        .replace(/\b(0?[1-9]|1[0-2])月([12]\d|3[01]|0?[1-9])日\b/g, function (_, month, day) {
+            return formatOutlookAssistDateSafe(month, day);
+        });
+};
+var normalizeOutlookAssistDateSafeFields = function () {
+    document.querySelectorAll('input, textarea').forEach(function (field) {
+        var id = String(field.id || '');
+        var area = field.closest?.('[data-view="outlook-assist"], .outlook-assist, [class*="outlook"]');
+        if (!id.includes('outlook-assist') && !area) return;
+        var current = field.value;
+        var normalized = normalizeOutlookAssistDateSafeText(current);
+        if (current !== normalized) field.value = normalized;
+    });
+    document.querySelectorAll('[class*="outlook"], [id*="outlook"]').forEach(function (element) {
+        if (element.children.length || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(element.tagName)) return;
+        var current = element.textContent;
+        var normalized = normalizeOutlookAssistDateSafeText(current);
+        if (current !== normalized) element.textContent = normalized;
+    });
+};
+var installOutlookAssistDateFormatControlSafe = function () {
+    if (document.getElementById('outlook-assist-date-format-safe')) return;
+    var anchor = [...document.querySelectorAll('button')].find(function (button) {
+        return String(button.textContent || '').includes('本文を大きく');
+    }) || [...document.querySelectorAll('button')].find(function (button) {
+        return String(button.textContent || '').includes('本文コピー');
+    });
+    var area = anchor?.parentElement;
+    if (!area) return;
+    var label = document.createElement('label');
+    label.id = 'outlook-assist-date-format-safe';
+    label.className = 'outlook-date-format-control';
+    label.innerHTML = '<i class="fa-solid fa-calendar-day"></i><span>日付形式</span><select aria-label="日付形式"><option value="slash">7/4</option><option value="jp">7月4日</option><option value="weekday">7/4(火)</option></select>';
+    var select = label.querySelector('select');
+    select.value = getOutlookAssistDateFormatSafe();
+    select.addEventListener('change', function (event) {
+        localStorage.setItem(outlookAssistDateFormatSafeKey, event.target.value);
+        normalizeOutlookAssistDateSafeFields();
+        var outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
+        outlookApp?.renderOutlookAssistPreview?.();
+    });
+    area.appendChild(label);
+};
+var refreshOutlookAssistDateFeatureSafe = function () {
+    installOutlookAssistDateFormatControlSafe();
+    normalizeOutlookAssistDateSafeFields();
+};
+document.addEventListener('DOMContentLoaded', function () {
+    setTimeout(refreshOutlookAssistDateFeatureSafe, 0);
+});
+document.addEventListener('click', function (event) {
+    var text = String(event.target?.textContent || '');
+    if (text.includes('{日付}') || event.target?.closest?.('#outlook-assist-date-format-safe')) {
+        setTimeout(refreshOutlookAssistDateFeatureSafe, 0);
+    }
+}, true);
+if (MaintenanceApp?.prototype?.renderOutlookAssist && !MaintenanceApp.prototype.renderOutlookAssist.outlookDateSafeControl) {
+    var originalRenderOutlookAssistForDateSafe = MaintenanceApp.prototype.renderOutlookAssist;
+    var renderOutlookAssistWithDateSafe = function () {
+        var result = originalRenderOutlookAssistForDateSafe.apply(this, arguments);
+        setTimeout(refreshOutlookAssistDateFeatureSafe, 0);
+        return result;
+    };
+    renderOutlookAssistWithDateSafe.outlookDateSafeControl = true;
+    MaintenanceApp.prototype.renderOutlookAssist = renderOutlookAssistWithDateSafe;
+}
+if (MaintenanceApp?.prototype?.renderOutlookAssistPreview && !MaintenanceApp.prototype.renderOutlookAssistPreview.outlookDateSafeControl) {
+    var originalRenderOutlookAssistPreviewForDateSafe = MaintenanceApp.prototype.renderOutlookAssistPreview;
+    var renderOutlookAssistPreviewWithDateSafe = function () {
+        var result = originalRenderOutlookAssistPreviewForDateSafe.apply(this, arguments);
+        setTimeout(normalizeOutlookAssistDateSafeFields, 0);
+        return result;
+    };
+    renderOutlookAssistPreviewWithDateSafe.outlookDateSafeControl = true;
+    MaintenanceApp.prototype.renderOutlookAssistPreview = renderOutlookAssistPreviewWithDateSafe;
+}
+
+var getOutlookAssistTodayInsertTextSafe = function () {
+    var now = new Date();
+    return formatOutlookAssistDateSafe(now.getMonth() + 1, now.getDate());
+};
+
+var replaceOutlookAssistDateTokenAtSourceSafe = function (value) {
+    return String(value || '')
+        .replace(/\{日付\}/g, getOutlookAssistTodayInsertTextSafe())
+        .replace(/\{date\}/gi, getOutlookAssistTodayInsertTextSafe());
+};
+
+[
+    'replaceOutlookAssistTokens',
+    'applyOutlookAssistMergeValues',
+    'getOutlookAssistCopyText',
+    'getOutlookAssistPreviewText',
+    'buildOutlookAssistCopyText',
+    'buildOutlookAssistPreviewText'
+].forEach(function (methodName) {
+    var original = MaintenanceApp?.prototype?.[methodName];
+    if (typeof original !== 'function' || original.outlookDateSourceIntegrated) return;
+    var wrapped = function () {
+        var args = Array.from(arguments).map(function (arg) {
+            return typeof arg === 'string' ? replaceOutlookAssistDateTokenAtSourceSafe(arg) : arg;
+        });
+        var result = original.apply(this, args);
+        return typeof result === 'string'
+            ? normalizeOutlookAssistDateSafeText(replaceOutlookAssistDateTokenAtSourceSafe(result))
+            : result;
+    };
+    wrapped.outlookDateSourceIntegrated = true;
+    MaintenanceApp.prototype[methodName] = wrapped;
+});
+
+var integrateOutlookAssistDateTokenButtonsSafe = function () {
+    document.addEventListener('click', function (event) {
+        var button = event.target?.closest?.('button');
+        if (!button || String(button.textContent || '').trim() !== '{日付}') return;
+        setTimeout(function () {
+            var active = document.activeElement;
+            if (active && ['INPUT', 'TEXTAREA'].includes(active.tagName)) {
+                active.value = replaceOutlookAssistDateTokenAtSourceSafe(active.value);
+            }
+            var outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
+            outlookApp?.renderOutlookAssistPreview?.();
+        }, 0);
+    }, true);
+};
+
+if (!window.outlookAssistDateTokenButtonsIntegrated) {
+    window.outlookAssistDateTokenButtonsIntegrated = true;
+    integrateOutlookAssistDateTokenButtonsSafe();
+}
+
+var getOutlookAssistDuplicateRecipientsSafe = function (outlookApp) {
+    if (!outlookApp?.getCurrentOutlookAssistDraft || !outlookApp?.splitOutlookAssistRecipients) return [];
+    var draft = outlookApp.getCurrentOutlookAssistDraft();
+    var labels = { to: '宛先', cc: 'CC', bcc: 'BCC' };
+    var contacts = outlookApp.getOutlookAssistState?.().recipientContacts || [];
+    var contactByEmail = new Map(contacts.map(function (contact) {
+        return [MaintenanceApp.toHalfWidthLower(contact.email || ''), contact];
+    }));
+    var rows = new Map();
+    ['to', 'cc', 'bcc'].forEach(function (field) {
+        outlookApp.splitOutlookAssistRecipients(draft[field] || '').forEach(function (item) {
+            var key = MaintenanceApp.toHalfWidthLower(item);
+            if (!key) return;
+            var contact = contactByEmail.get(key);
+            var label = contact ? (contact.familyName || outlookApp.getOutlookAssistContactName(contact)) : item;
+            if (!rows.has(key)) rows.set(key, { label: label, fields: [] });
+            rows.get(key).fields.push(labels[field]);
+        });
+    });
+    return Array.from(rows.values()).filter(function (row) {
+        return new Set(row.fields).size > 1 || row.fields.length > 1;
+    }).map(function (row) {
+        return {
+            label: row.label,
+            fields: Array.from(new Set(row.fields))
+        };
+    });
+};
+
+var renderOutlookAssistDuplicateWarningSafe = function () {
+    var outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
+    var existing = document.getElementById('outlook-assist-duplicate-warning-safe');
+    if (!outlookApp) {
+        existing?.remove();
+        return;
+    }
+    var duplicates = getOutlookAssistDuplicateRecipientsSafe(outlookApp);
+    if (!duplicates.length) {
+        existing?.remove();
+        return;
+    }
+    var anchor = document.querySelector('#outlook-assist-bcc')?.closest?.('.outlook-recipient-field')
+        || document.querySelector('#outlook-assist-bcc')?.parentElement
+        || document.querySelector('#outlook-assist-to')?.parentElement;
+    if (!anchor) return;
+    var panel = existing || document.createElement('div');
+    panel.id = 'outlook-assist-duplicate-warning-safe';
+    panel.innerHTML = '<strong><i class="fa-solid fa-triangle-exclamation"></i> 宛先重複</strong>' + duplicates.map(function (item) {
+        return '<span>' + outlookApp.escapeHtml(item.label) + ': ' + outlookApp.escapeHtml(item.fields.join(' / ')) + '</span>';
+    }).join('');
+    if (!existing) anchor.insertAdjacentElement('afterend', panel);
+};
+
+var scheduleOutlookAssistDuplicateWarningSafe = function () {
+    setTimeout(renderOutlookAssistDuplicateWarningSafe, 0);
+};
+
+[
+    'commitOutlookAssistRecipientField',
+    'appendOutlookAssistEmailsToField',
+    'removeOutlookAssistRecipientChip',
+    'saveOutlookAssistDraftFromForm',
+    'renderOutlookAssist'
+].forEach(function (methodName) {
+    var original = MaintenanceApp?.prototype?.[methodName];
+    if (typeof original !== 'function' || original.outlookDuplicateSafeWrapped) return;
+    var wrapped = function () {
+        var result = original.apply(this, arguments);
+        scheduleOutlookAssistDuplicateWarningSafe();
+        return result;
+    };
+    wrapped.outlookDuplicateSafeWrapped = true;
+    MaintenanceApp.prototype[methodName] = wrapped;
+});
+
+var outlookAssistDuplicateWarningSafeStyle = document.createElement('style');
+outlookAssistDuplicateWarningSafeStyle.textContent = `
+    #outlook-assist-duplicate-warning-safe {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0 8px;
+        padding: 8px 10px;
+        border: 1px solid #f59e0b;
+        border-radius: 10px;
+        background: #fff7ed;
+        color: #9a3412;
+        font-weight: 800;
+    }
+    #outlook-assist-duplicate-warning-safe span {
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #ffedd5;
+    }
+`;
+document.head.appendChild(outlookAssistDuplicateWarningSafeStyle);
+
+var OUTLOOK_ASSIST_DATE_FORMAT_BY_WORKER_KEY = 'outlookAssistDateFormatByWorker';
+var getOutlookAssistSelectedWorkerForDateSafe = function () {
+    var outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
+    return outlookApp?.getOutlookAssistState?.().selectedWorker || '';
+};
+var getOutlookAssistDateFormatMapSafe = function () {
+    try {
+        return JSON.parse(localStorage.getItem(OUTLOOK_ASSIST_DATE_FORMAT_BY_WORKER_KEY) || '{}') || {};
+    } catch (error) {
+        return {};
+    }
+};
+var saveOutlookAssistDateFormatForWorkerSafe = function (format) {
+    var worker = getOutlookAssistSelectedWorkerForDateSafe();
+    var map = getOutlookAssistDateFormatMapSafe();
+    if (worker) map[worker] = format;
+    localStorage.setItem(OUTLOOK_ASSIST_DATE_FORMAT_BY_WORKER_KEY, JSON.stringify(map));
+    localStorage.setItem(outlookAssistDateFormatSafeKey, format);
+};
+getOutlookAssistDateFormatSafe = function () {
+    var worker = getOutlookAssistSelectedWorkerForDateSafe();
+    var map = getOutlookAssistDateFormatMapSafe();
+    return (worker && map[worker]) || localStorage.getItem(outlookAssistDateFormatSafeKey) || 'slash';
+};
+
+var installOutlookAssistInlineBulkPanelSafe = function () {
+    document.getElementById('outlook-bulk-name-email-modal')?.remove();
+    var outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
+    if (!outlookApp?.parseOutlookAssistNameEmailEntries) return null;
+    var anchor = document.querySelector('.outlook-bulk-name-email-import')
+        || [...document.querySelectorAll('button')].find(function (button) {
+            return String(button.textContent || '').includes('名前メール一括登録') || String(button.textContent || '').includes('宛先管理');
+        });
+    if (!anchor) return null;
+    var area = anchor.closest?.('[class*="outlook"]') || anchor.parentElement;
+    if (!area) return null;
+    var panel = document.getElementById('outlook-inline-bulk-name-email-panel');
+    if (panel) return panel;
+    panel = document.createElement('section');
+    panel.id = 'outlook-inline-bulk-name-email-panel';
+    panel.hidden = true;
+    panel.innerHTML = `
+        <div class="outlook-inline-bulk-head">
+            <strong><i class="fa-solid fa-address-book"></i> 名前メール一括登録</strong>
+            <button type="button" class="outlook-inline-bulk-close" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="outlook-inline-bulk-grid">
+            <label>グループ名<input id="outlook-inline-bulk-group" placeholder="例: プラント"></label>
+            <label>名前 &lt;メールアドレス&gt;<textarea id="outlook-inline-bulk-text" placeholder="山田 太郎 <taro@example.com>"></textarea></label>
+        </div>
+        <div class="outlook-inline-bulk-actions">
+            <button type="button" id="outlook-inline-bulk-preview"><i class="fa-solid fa-eye"></i> プレビュー</button>
+            <button type="button" id="outlook-inline-bulk-register"><i class="fa-solid fa-address-book"></i> 登録</button>
+        </div>
+        <div id="outlook-inline-bulk-preview-list">貼り付け後にプレビューできます。</div>
+    `;
+    area.insertAdjacentElement('afterend', panel);
+    var renderPreview = function () {
+        var entries = outlookApp.parseOutlookAssistNameEmailEntries(panel.querySelector('#outlook-inline-bulk-text').value).filter(function (entry) {
+            return entry.email;
+        });
+        panel.querySelector('#outlook-inline-bulk-preview-list').innerHTML = entries.length
+            ? entries.map(function (entry) {
+                return '<div><b>' + outlookApp.escapeHtml(entry.displayName || entry.email) + '</b><span>' + outlookApp.escapeHtml(entry.email) + '</span></div>';
+            }).join('')
+            : 'メールアドレスを読み取れませんでした。';
+        return entries;
+    };
+    panel.querySelector('.outlook-inline-bulk-close').addEventListener('click', function () {
+        panel.hidden = true;
+    });
+    panel.querySelector('#outlook-inline-bulk-preview').addEventListener('click', renderPreview);
+    panel.querySelector('#outlook-inline-bulk-register').addEventListener('click', function () {
+        var group = panel.querySelector('#outlook-inline-bulk-group').value.trim();
+        var entries = renderPreview();
+        if (!group) {
+            alert('グループ名を入力してください。');
+            return;
+        }
+        if (!entries.length) return;
+        var state = outlookApp.getOutlookAssistState();
+        var contacts = state.recipientContacts || [];
+        entries.forEach(function (entry) {
+            var emailKey = MaintenanceApp.toHalfWidthLower(entry.email);
+            var existing = contacts.find(function (contact) {
+                return MaintenanceApp.toHalfWidthLower(contact.email || '') === emailKey;
+            });
+            var nameParts = String(entry.displayName || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+            var familyName = nameParts[0] || entry.email;
+            var givenName = nameParts.slice(1).join(' ');
+            if (existing) {
+                existing.familyName = existing.familyName || familyName;
+                existing.givenName = existing.givenName || givenName;
+                var groups = Array.isArray(existing.groups)
+                    ? existing.groups
+                    : String(existing.group || '').split(/[;,、\n]+/).map(function (item) { return item.trim(); }).filter(Boolean);
+                if (!groups.includes(group) && groups.length < 7) groups.push(group);
+                existing.groups = groups;
+                existing.group = groups.join(', ');
+                existing.updatedAt = new Date().toISOString();
+            } else {
+                contacts.push({
+                    id: 'contact-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                    familyName: familyName,
+                    givenName: givenName,
+                    email: entry.email,
+                    groups: [group],
+                    group: group,
+                    note: '',
+                    updatedAt: new Date().toISOString()
+                });
+            }
+        });
+        state.recipientContacts = contacts;
+        store.save();
+        panel.querySelector('#outlook-inline-bulk-text').value = '';
+        panel.querySelector('#outlook-inline-bulk-preview-list').textContent = entries.length + '件を「' + group + '」に登録しました。';
+        outlookApp.renderOutlookAssist?.();
+    });
+    return panel;
+};
+
+MaintenanceApp.prototype.bulkRegisterOutlookAssistNameEmailGroup = function () {
+    var panel = installOutlookAssistInlineBulkPanelSafe();
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) panel.querySelector('#outlook-inline-bulk-group')?.focus();
+};
+
+var outlookAssistInlineBulkPanelStyle = document.createElement('style');
+outlookAssistInlineBulkPanelStyle.textContent = `
+    #outlook-inline-bulk-name-email-panel {
+        margin: 10px 0;
+        padding: 12px;
+        border: 1px solid #fed7aa;
+        border-radius: 12px;
+        background: #fff7ed;
+        color: #0f172a;
+    }
+    .outlook-inline-bulk-head,
+    .outlook-inline-bulk-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    .outlook-inline-bulk-grid {
+        display: grid;
+        gap: 10px;
+    }
+    #outlook-inline-bulk-name-email-panel label {
+        display: grid;
+        gap: 6px;
+        font-weight: 800;
+    }
+    #outlook-inline-bulk-name-email-panel input,
+    #outlook-inline-bulk-name-email-panel textarea {
+        width: 100%;
+        border: 1px solid #bfdbfe;
+        border-radius: 10px;
+        background: #eff6ff;
+        padding: 9px 10px;
+        font: inherit;
+    }
+    #outlook-inline-bulk-name-email-panel textarea {
+        min-height: 110px;
+        resize: vertical;
+    }
+    .outlook-inline-bulk-close,
+    .outlook-inline-bulk-actions button {
+        min-height: 38px;
+        padding: 0 12px;
+        border: 1px solid #f59e0b;
+        border-radius: 10px;
+        background: #ffffff;
+        color: #c2410c;
+        font-weight: 800;
+        cursor: pointer;
+    }
+    #outlook-inline-bulk-preview-list {
+        max-height: 180px;
+        overflow: auto;
+        border-radius: 10px;
+        background: #ffffff;
+    }
+    #outlook-inline-bulk-preview-list div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 10px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+`;
+document.head.appendChild(outlookAssistInlineBulkPanelStyle);
+
+if (!window.outlookAssistDateFormatSelectPerWorkerIntegrated) {
+    window.outlookAssistDateFormatSelectPerWorkerIntegrated = true;
+    document.addEventListener('change', function (event) {
+        var select = event.target?.closest?.('#outlook-assist-date-format-safe select');
+        if (!select) return;
+        saveOutlookAssistDateFormatForWorkerSafe(select.value);
+    }, true);
+}
+
+var showOutlookAssistCopyDoneSafe = function (label) {
+    var notice = document.getElementById('outlook-assist-copy-done-safe');
+    if (!notice) {
+        notice = document.createElement('div');
+        notice.id = 'outlook-assist-copy-done-safe';
+        document.body.appendChild(notice);
+    }
+    notice.textContent = label + 'をコピーしました';
+    notice.classList.add('is-visible');
+    clearTimeout(notice._hideTimer);
+    notice._hideTimer = setTimeout(function () {
+        notice.classList.remove('is-visible');
+    }, 1400);
+};
+
+document.addEventListener('click', function (event) {
+    var button = event.target?.closest?.('button');
+    if (!button) return;
+    var text = String(button.textContent || '').replace(/\s+/g, '');
+    var label = '';
+    if (text.includes('全文コピー')) label = '全文';
+    else if (text.includes('本文コピー')) label = '本文';
+    else if (text.includes('件名コピー')) label = '件名';
+    else if (text.includes('宛先コピー')) label = '宛先';
+    else if (text.includes('CCコピー')) label = 'CC';
+    else if (text.includes('BCCコピー')) label = 'BCC';
+    if (!label) return;
+    setTimeout(function () {
+        showOutlookAssistCopyDoneSafe(label);
+    }, 80);
+}, true);
+
+var outlookAssistCopyDoneSafeStyle = document.createElement('style');
+outlookAssistCopyDoneSafeStyle.textContent = `
+    #outlook-assist-copy-done-safe {
+        position: fixed;
+        right: 24px;
+        bottom: 24px;
+        z-index: 99999;
+        transform: translateY(12px);
+        opacity: 0;
+        pointer-events: none;
+        padding: 12px 16px;
+        border-radius: 999px;
+        background: #10b981;
+        color: #ffffff;
+        font-weight: 900;
+        box-shadow: 0 14px 32px rgba(16, 185, 129, 0.28);
+        transition: opacity 0.16s ease, transform 0.16s ease;
+    }
+    #outlook-assist-copy-done-safe.is-visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    #outlook-assist-date-format-safe span {
+        font-weight: 900;
+        white-space: nowrap;
+    }
+`;
+document.head.appendChild(outlookAssistCopyDoneSafeStyle);
+
+const normalizeOutlookAssistShortDateText = value => String(value || '').replace(/\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\b/g, (_, month, day) => {
+    return `${Number(month)}/${Number(day)}`;
+});
+
+const normalizeOutlookAssistShortDateFields = () => {
+    document.querySelectorAll('input[id^="outlook-assist-"], textarea[id^="outlook-assist-"]').forEach(field => {
+        const current = field.value;
+        const normalized = normalizeOutlookAssistShortDateText(current);
+        if (current !== normalized) field.value = normalized;
+    });
+};
+
+document.addEventListener('DOMContentLoaded', normalizeOutlookAssistShortDateFields);
+new MutationObserver(normalizeOutlookAssistShortDateFields).observe(document.documentElement, {
+    childList: true,
+    subtree: true
+});
+
+try {
+    if (navigator.clipboard?.writeText && !navigator.clipboard.writeText.outlookAssistShortDateNormalized) {
+        const originalOutlookAssistClipboardWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+        const normalizedWriteText = text => originalOutlookAssistClipboardWriteText(normalizeOutlookAssistShortDateText(text));
+        normalizedWriteText.outlookAssistShortDateNormalized = true;
+        navigator.clipboard.writeText = normalizedWriteText;
+    }
+} catch (error) {
+    // Some browsers do not allow replacing clipboard methods.
+}
+
+const normalizeOutlookAssistShortDateFieldsNow = () => {
+    return;
+    const active = document.activeElement;
+    document.querySelectorAll('input, textarea').forEach(field => {
+        const id = String(field.id || '');
+        const area = field.closest?.('[data-view="outlook-assist"], .outlook-assist, [class*="outlook"]');
+        if (!id.includes('outlook-assist') && !area) return;
+        const current = field.value;
+        const normalized = normalizeOutlookAssistShortDateText(current);
+        if (current === normalized) return;
+        const start = field.selectionStart;
+        const end = field.selectionEnd;
+        field.value = normalized;
+        if (field === active && typeof start === 'number' && typeof end === 'number') {
+            const diff = current.length - normalized.length;
+            field.setSelectionRange(Math.max(0, start - diff), Math.max(0, end - diff));
+        }
+    });
+    document.querySelectorAll('[class*="outlook"], [id*="outlook"]').forEach(element => {
+        if (element.children.length || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(element.tagName)) return;
+        const current = element.textContent;
+        const normalized = normalizeOutlookAssistShortDateText(current);
+        if (current !== normalized) element.textContent = normalized;
+    });
+};
+
+document.addEventListener('click', () => setTimeout(normalizeOutlookAssistShortDateFieldsNow, 0), true);
+document.addEventListener('input', () => setTimeout(normalizeOutlookAssistShortDateFieldsNow, 0), true);
+document.addEventListener('keyup', () => setTimeout(normalizeOutlookAssistShortDateFieldsNow, 0), true);
+document.addEventListener('focusout', normalizeOutlookAssistShortDateFieldsNow, true);
+setInterval(normalizeOutlookAssistShortDateFieldsNow, 800);
+
+if (document.execCommand && !document.execCommand.outlookAssistShortDateNormalized) {
+    const originalOutlookAssistExecCommand = document.execCommand.bind(document);
+    const normalizedExecCommand = (command, showUi, value) => {
+        normalizeOutlookAssistShortDateFieldsNow();
+        return originalOutlookAssistExecCommand(command, showUi, value);
+    };
+    normalizedExecCommand.outlookAssistShortDateNormalized = true;
+    document.execCommand = normalizedExecCommand;
+}
+
+[
+    'getOutlookAssistTokenValue',
+    'resolveOutlookAssistToken',
+    'replaceOutlookAssistTokens',
+    'applyOutlookAssistMergeValues',
+    'getOutlookAssistCopyText',
+    'getOutlookAssistPreviewText'
+].forEach(methodName => {
+    const original = MaintenanceApp.prototype[methodName];
+    if (typeof original !== 'function' || original.outlookAssistShortDateNormalized) return;
+    const wrapped = function (...args) {
+        return normalizeOutlookAssistShortDateText(original.apply(this, args));
+    };
+    wrapped.outlookAssistShortDateNormalized = true;
+    MaintenanceApp.prototype[methodName] = wrapped;
+});
 })();
