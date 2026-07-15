@@ -903,6 +903,14 @@
             item.open?.();
         }
 
+        openPhotoManagerBlankShiftPhotoCompare() {
+            this.openShiftPhotoCompareWithPhotos?.([], {
+                source: 'photoManagerBlank',
+                title: '写真比較 - 白紙',
+                globalMarks: []
+            });
+        }
+
         openPhotoManagerEditor(id) {
             const item = this.findPhotoManagerItem(id);
             if (!item) return alert('写真が見つかりませんでした。');
@@ -3434,6 +3442,7 @@
                     <button type="button" class="secondary-btn" onclick="app.autoTagSelectedPhotoManagerItems()"><i class="fa-solid fa-tags"></i> タグ自動作成</button>
                     <button type="button" class="secondary-btn" onclick="app.compressSelectedPhotoManagerImages()"><i class="fa-solid fa-compress"></i> 一括圧縮</button>
                     <button type="button" class="secondary-btn" onclick="app.createTransparentSelectedPhotoManagerImages()"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過作成</button>
+                    <button type="button" class="secondary-btn photo-manager-blank-compare-btn" onclick="app.openPhotoManagerBlankShiftPhotoCompare()" style="background:#10b981;color:#ffffff;border-color:#059669;box-shadow:0 10px 22px rgba(16,185,129,.22);"><i class="fa-solid fa-file"></i> 白紙</button>
                     <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()"><i class="fa-solid fa-file-export"></i> 出力</button>
                     <button type="button" class="secondary-btn" onclick="app.openPhotoManagerRelationMap()"><i class="fa-solid fa-diagram-project"></i> 関係図 ${relationCount ? `(${relationCount})` : ''}</button>
                     <button type="button" class="secondary-btn photo-manager-page-only-cleanup-btn" onclick="app.openPhotoManagerPageOnlyCleanupReview()"><i class="fa-solid fa-folder-minus"></i> ページ残り ${pageOnlyCount ? `(${pageOnlyCount})` : ''}</button>

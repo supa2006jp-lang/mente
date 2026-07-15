@@ -19242,6 +19242,8 @@ select.history-assist-copied-value {
 .shift-photo-compare-callout-font-size-value,
 .shift-photo-compare-text-scale-reset-btn,
 .shift-photo-compare-text-fit-frame-btn,
+.shift-photo-compare-remove-empty-lines-btn,
+.shift-photo-compare-merge-wrap-control,
 .shift-photo-compare-partial-text-color,
 .shift-photo-compare-text-color-clear-range-btn,
 .shift-photo-compare-text-color-unify-btn,
@@ -19643,6 +19645,36 @@ select.history-assist-copied-value {
     place-items: center;
 }
 
+.shift-photo-compare-boxed-border-width-control {
+    display: none;
+    align-items: center;
+    gap: 5px;
+    height: 32px;
+    padding: 0 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.shift-photo-compare-boxed-border-width-control input {
+    width: 52px;
+    height: 24px;
+    border: 1px solid #bfdbfe;
+    border-radius: 7px;
+    background: #eff6ff;
+    color: #0f172a;
+    font: inherit;
+    text-align: center;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-boxed-text-selection="1"]:not([data-has-region-comment-selection="1"]) .shift-photo-compare-boxed-border-width-control,
+.shift-photo-compare-mini-toolbar[data-has-callout-selection="1"] .shift-photo-compare-boxed-border-width-control {
+    display: inline-flex;
+}
+
 .shift-photo-compare-mini-toolbar[data-has-region-comment-selection="1"] .shift-photo-compare-boxed-text-vertical-btn {
     display: inline-grid;
     place-items: center;
@@ -19701,6 +19733,44 @@ select.history-assist-copied-value {
     width: auto;
     min-width: 92px;
     padding: 0 7px;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-plain-text-selection="1"] .shift-photo-compare-remove-empty-lines-btn,
+.shift-photo-compare-mini-toolbar[data-has-boxed-text-selection="1"] .shift-photo-compare-remove-empty-lines-btn,
+.shift-photo-compare-mini-toolbar[data-has-callout-selection="1"] .shift-photo-compare-remove-empty-lines-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: auto;
+    min-width: 92px;
+    padding: 0 7px;
+}
+
+.shift-photo-compare-mini-toolbar[data-has-boxed-text-selection="1"] .shift-photo-compare-merge-wrap-control,
+.shift-photo-compare-mini-toolbar[data-has-callout-selection="1"] .shift-photo-compare-merge-wrap-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    width: auto;
+    min-width: 112px;
+    padding: 0 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.shift-photo-compare-merge-wrap-control.active {
+    border-color: #14b8a6;
+    background: #ccfbf1;
+    color: #0f766e;
+}
+
+.shift-photo-compare-merge-wrap-control input {
+    width: 16px;
+    height: 16px;
 }
 
 .shift-photo-compare-mark.callout.shift-photo-text-overflow,
@@ -21671,6 +21741,10 @@ select.history-assist-copied-value {
     cursor: zoom-in;
 }
 
+.shift-photo-compare-alpha-stage.cutout-pick {
+    cursor: crosshair;
+}
+
 .shift-photo-compare-alpha-stage.checker {
     background-color: #ffffff;
     background-image:
@@ -22981,6 +23055,8 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-mark.text[data-inner-outline="1"][data-outline="1"]::before {
     inset: 2px 4px;
+    transform: scale(calc(1 / var(--mark-scale-x, 1)), calc(1 / var(--mark-scale-y, 1)));
+    transform-origin: center;
 }
 
 .shift-photo-compare-mark.arrow[data-dashed="1"] > .shift-photo-arrow-line,
@@ -23075,6 +23151,8 @@ select.history-assist-copied-value {
     -webkit-text-stroke: inherit;
     paint-order: inherit;
     text-shadow: inherit;
+    transform: scale(calc(1 / var(--mark-scale-x, 1)), calc(1 / var(--mark-scale-y, 1)));
+    transform-origin: center;
 }
 
 .shift-photo-plain-text-display {
@@ -23094,6 +23172,8 @@ select.history-assist-copied-value {
     -webkit-text-stroke: inherit;
     paint-order: inherit;
     text-shadow: inherit;
+    transform: scale(calc(1 / var(--mark-scale-x, 1)), calc(1 / var(--mark-scale-y, 1)));
+    transform-origin: center;
 }
 
 .shift-photo-compare-mark.text[data-text=""] .shift-photo-plain-text-display,
@@ -23192,7 +23272,8 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-mark.boxedText {
-    --boxed-text-border-width: max(6px, calc(var(--mark-size) * 0.12 * var(--mark-stroke)));
+    --boxed-text-border-width-default: max(6px, calc(var(--mark-size) * 0.12 * var(--mark-stroke)));
+    --boxed-text-border-width: var(--boxed-text-border-width-custom, var(--boxed-text-border-width-default));
     --boxed-text-border-inverse-x: 1;
     --boxed-text-border-inverse-y: 1;
     box-sizing: border-box;
@@ -23349,6 +23430,10 @@ select.history-assist-copied-value {
     transform: none;
     transform-origin: center;
     white-space: pre;
+}
+
+.shift-photo-compare-mark.boxedText:not([data-region-comment="1"]) > .shift-photo-boxed-text-content {
+    transform: scale(var(--boxed-text-inverse-x, 1), var(--boxed-text-inverse-y, 1));
 }
 
 .shift-photo-boxed-text-editor {
@@ -23532,7 +23617,15 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-mark.callout {
     --mark-fill: #fff3a3;
-    --callout-border-width: max(3px, calc(var(--mark-size) * 0.07 * var(--mark-stroke)));
+    --callout-border-width-default: max(3px, calc(var(--mark-size) * 0.07 * var(--mark-stroke)));
+    --callout-border-width: var(--callout-border-width-custom, var(--callout-border-width-default));
+    --callout-tail-outer-half: 54px;
+    --callout-tail-outer-length: 84px;
+    --callout-tail-border-gap: var(--callout-border-width);
+    --callout-tail-inner-gap: min(24px, var(--callout-tail-border-gap));
+    --callout-tail-inner-half: max(0px, calc(var(--callout-tail-outer-half) - var(--callout-tail-inner-gap)));
+    --callout-tail-inner-length: max(0px, calc(var(--callout-tail-outer-length) - var(--callout-tail-inner-gap) * 1.2));
+    --callout-tail-inner-edge: calc(var(--callout-tail-outer-length) - var(--callout-tail-inner-gap) * 0.1);
     --callout-border-inverse-x: 1;
     --callout-border-inverse-y: 1;
     --callout-tail-pos: 50%;
@@ -23837,74 +23930,95 @@ select.history-assist-copied-value {
 .shift-photo-compare-mark.callout:not([data-tail-side]) .shift-photo-callout-tail {
     left: var(--callout-tail-pos);
     top: calc(100% - 1px);
-    border-left: 54px solid transparent;
-    border-right: 54px solid transparent;
-    border-top: 84px solid var(--mark-color);
+    border-left: var(--callout-tail-outer-half) solid transparent;
+    border-right: var(--callout-tail-outer-half) solid transparent;
+    border-top: var(--callout-tail-outer-length) solid var(--mark-color);
     transform: translateX(-50%) scale(var(--callout-tail-inverse-x), var(--callout-tail-inverse-y));
     transform-origin: top center;
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="bottom"] .shift-photo-callout-tail::after,
 .shift-photo-compare-mark.callout:not([data-tail-side]) .shift-photo-callout-tail::after {
-    left: -42px;
-    top: -82px;
-    border-left: 42px solid transparent;
-    border-right: 42px solid transparent;
-    border-top: 66px solid var(--mark-fill);
+    left: calc(var(--callout-tail-inner-half) * -1);
+    top: calc(var(--callout-tail-inner-edge) * -1);
+    border-left: var(--callout-tail-inner-half) solid transparent;
+    border-right: var(--callout-tail-inner-half) solid transparent;
+    border-top: var(--callout-tail-inner-length) solid var(--mark-fill);
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="top"] .shift-photo-callout-tail {
     left: var(--callout-tail-pos);
     bottom: calc(100% - 1px);
-    border-left: 54px solid transparent;
-    border-right: 54px solid transparent;
-    border-bottom: 84px solid var(--mark-color);
+    border-left: var(--callout-tail-outer-half) solid transparent;
+    border-right: var(--callout-tail-outer-half) solid transparent;
+    border-bottom: var(--callout-tail-outer-length) solid var(--mark-color);
     transform: translateX(-50%) scale(var(--callout-tail-inverse-x), var(--callout-tail-inverse-y));
     transform-origin: bottom center;
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="top"] .shift-photo-callout-tail::after {
-    left: -42px;
-    bottom: -82px;
-    border-left: 42px solid transparent;
-    border-right: 42px solid transparent;
-    border-bottom: 66px solid var(--mark-fill);
+    left: calc(var(--callout-tail-inner-half) * -1);
+    bottom: calc(var(--callout-tail-inner-edge) * -1);
+    border-left: var(--callout-tail-inner-half) solid transparent;
+    border-right: var(--callout-tail-inner-half) solid transparent;
+    border-bottom: var(--callout-tail-inner-length) solid var(--mark-fill);
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="right"] .shift-photo-callout-tail {
     left: calc(100% - 1px);
     top: var(--callout-tail-pos);
-    border-top: 54px solid transparent;
-    border-bottom: 54px solid transparent;
-    border-left: 84px solid var(--mark-color);
+    border-top: var(--callout-tail-outer-half) solid transparent;
+    border-bottom: var(--callout-tail-outer-half) solid transparent;
+    border-left: var(--callout-tail-outer-length) solid var(--mark-color);
     transform: translateY(-50%) scale(var(--callout-tail-inverse-x), var(--callout-tail-inverse-y));
     transform-origin: left center;
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="right"] .shift-photo-callout-tail::after {
-    left: -82px;
-    top: -42px;
-    border-top: 42px solid transparent;
-    border-bottom: 42px solid transparent;
-    border-left: 66px solid var(--mark-fill);
+    left: calc(var(--callout-tail-inner-edge) * -1);
+    top: calc(var(--callout-tail-inner-half) * -1);
+    border-top: var(--callout-tail-inner-half) solid transparent;
+    border-bottom: var(--callout-tail-inner-half) solid transparent;
+    border-left: var(--callout-tail-inner-length) solid var(--mark-fill);
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="left"] .shift-photo-callout-tail {
     right: calc(100% - 1px);
     top: var(--callout-tail-pos);
-    border-top: 54px solid transparent;
-    border-bottom: 54px solid transparent;
-    border-right: 84px solid var(--mark-color);
+    border-top: var(--callout-tail-outer-half) solid transparent;
+    border-bottom: var(--callout-tail-outer-half) solid transparent;
+    border-right: var(--callout-tail-outer-length) solid var(--mark-color);
     transform: translateY(-50%) scale(var(--callout-tail-inverse-x), var(--callout-tail-inverse-y));
     transform-origin: right center;
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="left"] .shift-photo-callout-tail::after {
-    right: -82px;
-    top: -42px;
-    border-top: 42px solid transparent;
-    border-bottom: 42px solid transparent;
-    border-right: 66px solid var(--mark-fill);
+    right: calc(var(--callout-tail-inner-edge) * -1);
+    top: calc(var(--callout-tail-inner-half) * -1);
+    border-top: var(--callout-tail-inner-half) solid transparent;
+    border-bottom: var(--callout-tail-inner-half) solid transparent;
+    border-right: var(--callout-tail-inner-length) solid var(--mark-fill);
+}
+
+.shift-photo-compare-mark.callout[data-callout-border-width="0"][data-tail-side="bottom"] .shift-photo-callout-tail,
+.shift-photo-compare-mark.callout[data-callout-border-width="0"]:not([data-tail-side]) .shift-photo-callout-tail {
+    border-top-color: var(--mark-fill);
+}
+
+.shift-photo-compare-mark.callout[data-callout-border-width="0"][data-tail-side="top"] .shift-photo-callout-tail {
+    border-bottom-color: var(--mark-fill);
+}
+
+.shift-photo-compare-mark.callout[data-callout-border-width="0"][data-tail-side="right"] .shift-photo-callout-tail {
+    border-left-color: var(--mark-fill);
+}
+
+.shift-photo-compare-mark.callout[data-callout-border-width="0"][data-tail-side="left"] .shift-photo-callout-tail {
+    border-right-color: var(--mark-fill);
+}
+
+.shift-photo-compare-mark.callout[data-callout-border-width="0"] .shift-photo-callout-tail::after {
+    display: none;
 }
 
 .shift-photo-compare-mark.callout[data-tail-enabled="1"] .shift-photo-callout-tail {
@@ -23980,10 +24094,10 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-mark.callout[data-tail-side="bottom"] .shift-photo-callout-tail::after,
 .shift-photo-compare-mark.callout:not([data-tail-side]) .shift-photo-callout-tail::after {
-    left: 7.5px;
+    left: var(--callout-tail-border-gap);
     top: 0;
-    width: 50px;
-    height: calc(99px + var(--callout-tail-extra-y));
+    width: max(0px, calc(65px - var(--callout-tail-border-gap) - var(--callout-tail-border-gap)));
+    height: max(0px, calc(126px - var(--callout-tail-border-gap) + var(--callout-tail-extra-y)));
     clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
 
@@ -23996,10 +24110,10 @@ select.history-assist-copied-value {
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="top"] .shift-photo-callout-tail::after {
-    left: 7.5px;
+    left: var(--callout-tail-border-gap);
     bottom: 0;
-    width: 50px;
-    height: calc(99px + var(--callout-tail-extra-y));
+    width: max(0px, calc(65px - var(--callout-tail-border-gap) - var(--callout-tail-border-gap)));
+    height: max(0px, calc(126px - var(--callout-tail-border-gap) + var(--callout-tail-extra-y)));
     clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 
@@ -24013,9 +24127,9 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-mark.callout[data-tail-side="right"] .shift-photo-callout-tail::after {
     left: 0;
-    top: 7.5px;
-    width: calc(99px + var(--callout-tail-extra-x));
-    height: 50px;
+    top: var(--callout-tail-border-gap);
+    width: max(0px, calc(126px - var(--callout-tail-border-gap) + var(--callout-tail-extra-x)));
+    height: max(0px, calc(65px - var(--callout-tail-border-gap) - var(--callout-tail-border-gap)));
     clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 
@@ -24029,10 +24143,18 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-mark.callout[data-tail-side="left"] .shift-photo-callout-tail::after {
     right: 0;
-    top: 7.5px;
-    width: calc(99px + var(--callout-tail-extra-x));
-    height: 50px;
+    top: var(--callout-tail-border-gap);
+    width: max(0px, calc(126px - var(--callout-tail-border-gap) + var(--callout-tail-extra-x)));
+    height: max(0px, calc(65px - var(--callout-tail-border-gap) - var(--callout-tail-border-gap)));
     clip-path: polygon(100% 0, 100% 100%, 0 50%);
+}
+
+.shift-photo-compare-mark.callout[data-callout-border-width="0"] .shift-photo-callout-tail {
+    background: var(--mark-fill);
+}
+
+.shift-photo-compare-mark.callout[data-callout-border-width="0"] .shift-photo-callout-tail::after {
+    display: none;
 }
 
 .shift-photo-compare-mark.callout[data-tail-side="bottom"] .shift-photo-callout-tail-handle,
