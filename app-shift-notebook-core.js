@@ -18406,22 +18406,46 @@
                     <div class="shift-photo-compare-alpha-bg" aria-label="背景確認">
                         <span>背景確認</span>
                         <button type="button" data-bg="checker" class="active" onclick="app.setShiftPhotoCompareAlphaPreviewBg('checker')">格子</button>
+                        <button type="button" data-bg="white" onclick="app.setShiftPhotoCompareAlphaPreviewBg('white')">白</button>
+                        <button type="button" data-bg="yellow" onclick="app.setShiftPhotoCompareAlphaPreviewBg('yellow')">黄</button>
+                        <button type="button" data-bg="green" onclick="app.setShiftPhotoCompareAlphaPreviewBg('green')">緑</button>
                         <button type="button" data-bg="red" onclick="app.setShiftPhotoCompareAlphaPreviewBg('red')">赤</button>
                         <button type="button" data-bg="blue" onclick="app.setShiftPhotoCompareAlphaPreviewBg('blue')">青</button>
                         <button type="button" data-bg="black" onclick="app.setShiftPhotoCompareAlphaPreviewBg('black')">黒</button>
+                    </div>
+                    <div class="shift-photo-compare-alpha-manual" aria-label="クリック透過">
+                        <span>クリック透過</span>
+                        <label title="クリック透過で同じ色として扱う広さ">
+                            範囲
+                            <input type="range" min="8" max="160" step="1" value="${this.getShiftPhotoCompareAlphaManualCutTolerance(strength)}" oninput="app.setShiftPhotoCompareAlphaManualTolerance(this.value)">
+                            <input type="number" min="8" max="160" step="1" value="${this.getShiftPhotoCompareAlphaManualCutTolerance(strength)}" oninput="app.setShiftPhotoCompareAlphaManualTolerance(this.value)">
+                            <b id="shift-photo-compare-alpha-manual-tolerance">${this.getShiftPhotoCompareAlphaManualCutTolerance(strength)}</b>
+                        </label>
+                        <button type="button" id="shift-photo-compare-alpha-undo-cut" onclick="app.undoShiftPhotoCompareAlphaOperation()" disabled><i class="fa-solid fa-rotate-left"></i> 戻す</button>
+                        <button type="button" id="shift-photo-compare-alpha-highlight" onclick="app.toggleShiftPhotoCompareAlphaHighlight()"><i class="fa-solid fa-highlighter"></i> 赤表示</button>
+                        <span>補正</span>
+                        <button type="button" data-fix-strength="weak" onclick="app.setShiftPhotoCompareAlphaFixStrength('weak')">弱</button>
+                        <button type="button" data-fix-strength="standard" class="active" onclick="app.setShiftPhotoCompareAlphaFixStrength('standard')">標</button>
+                        <button type="button" data-fix-strength="strong" onclick="app.setShiftPhotoCompareAlphaFixStrength('strong')">強</button>
+                        <button type="button" onclick="app.previewShiftPhotoCompareAlphaSmallOpaqueSpecks()"><i class="fa-solid fa-eye"></i> 点確認</button>
+                        <button type="button" onclick="app.removeShiftPhotoCompareAlphaSmallOpaqueSpecks()"><i class="fa-solid fa-broom"></i> 点削除</button>
+                        <button type="button" onclick="app.previewShiftPhotoCompareAlphaSmallTransparentHoles()"><i class="fa-solid fa-eye"></i> 穴確認</button>
+                        <button type="button" onclick="app.restoreShiftPhotoCompareAlphaSmallTransparentHoles()"><i class="fa-solid fa-bandage"></i> 穴復元</button>
                     </div>
                 </div>
                 <div class="shift-photo-compare-alpha-grid">
                     <figure>
                         <figcaption>元画像</figcaption>
-                        <button type="button" class="shift-photo-compare-alpha-stage cutout-pick" onclick="app.addShiftPhotoCompareAlphaPreviewCut(event, 'original')" title="クリックした単色部分を追加で透過">
+                        <button type="button" class="shift-photo-compare-alpha-stage cutout-pick" onpointermove="app.previewShiftPhotoCompareAlphaManualCut(event, 'original')" onpointerleave="app.clearShiftPhotoCompareAlphaManualPreview()" onclick="app.addShiftPhotoCompareAlphaPreviewCut(event, 'original')" title="クリックした単色部分を追加で透過">
                             <img src="${this.escapeHtml(originalSrc)}" alt="元画像">
+                            <img class="shift-photo-compare-alpha-hover-preview" alt="クリック透過の予測">
                         </button>
                     </figure>
                     <figure>
                         <figcaption>透過後</figcaption>
-                        <button type="button" class="shift-photo-compare-alpha-stage checker cutout-pick" onclick="app.addShiftPhotoCompareAlphaPreviewCut(event, 'transparent')" title="クリックした単色部分を追加で透過">
+                        <button type="button" class="shift-photo-compare-alpha-stage checker cutout-pick" onpointermove="app.previewShiftPhotoCompareAlphaManualCut(event, 'transparent')" onpointerleave="app.clearShiftPhotoCompareAlphaManualPreview()" onclick="app.addShiftPhotoCompareAlphaPreviewCut(event, 'transparent')" title="クリックした単色部分を追加で透過">
                             <img src="${this.escapeHtml(transparentSrc)}" alt="透過後">
+                            <img class="shift-photo-compare-alpha-hover-preview" alt="クリック透過の予測">
                         </button>
                     </figure>
                 </div>
@@ -18455,9 +18479,14 @@
             imageFit: options.imageFit === 'fill' ? 'fill' : '',
             targetMark: options.targetMark || null,
             initialImportItemId: options.initialImportItemId || '',
-            manualCuts: []
+            manualCuts: [],
+            manualTolerance: this.getShiftPhotoCompareAlphaManualCutTolerance(strength),
+            fixStrength: 'standard',
+            undoStack: [],
+            highlightTransparent: false
         };
         document.body.appendChild(overlay);
+        this.updateShiftPhotoCompareAlphaManualControls();
     }
 
     closeShiftPhotoCompareBaseImageTransparencyPreview() {
@@ -18523,7 +18552,7 @@
     }
 
     setShiftPhotoCompareAlphaPreviewBg(mode = 'checker') {
-        const allowed = ['checker', 'red', 'blue', 'black'];
+        const allowed = ['checker', 'white', 'yellow', 'green', 'red', 'blue', 'black'];
         const next = allowed.includes(mode) ? mode : 'checker';
         if (!this._shiftPhotoCompareAlphaPreview) return;
         this._shiftPhotoCompareAlphaPreview.bgMode = next;
@@ -18532,12 +18561,12 @@
             button.classList.toggle('active', button.dataset.bg === next);
         });
         overlay?.querySelectorAll('.shift-photo-compare-alpha-stage.checker').forEach(stage => {
-            stage.classList.remove('bg-checker', 'bg-red', 'bg-blue', 'bg-black');
+            stage.classList.remove('bg-checker', 'bg-white', 'bg-yellow', 'bg-green', 'bg-red', 'bg-blue', 'bg-black');
             stage.classList.add(`bg-${next}`);
         });
         const zoomStage = document.querySelector('#shift-photo-compare-alpha-zoom .shift-photo-compare-alpha-zoom-stage.checker');
         if (zoomStage) {
-            zoomStage.classList.remove('bg-checker', 'bg-red', 'bg-blue', 'bg-black');
+            zoomStage.classList.remove('bg-checker', 'bg-white', 'bg-yellow', 'bg-green', 'bg-red', 'bg-blue', 'bg-black');
             zoomStage.classList.add(`bg-${next}`);
         }
     }
@@ -18549,6 +18578,43 @@
 
     getShiftPhotoCompareAlphaGapSealRadius(mode = 'standard') {
         return ({ none: 0, standard: 1, strong: 2 })[mode] ?? 1;
+    }
+
+    async createShiftPhotoCompareAlphaHighlightSource(src = '') {
+        if (!/^data:image\//i.test(src || '')) return src;
+        const { canvas, ctx } = await this.drawImageToWorkCanvas(src);
+        const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = image.data;
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] <= 8) {
+                data[i] = 239;
+                data[i + 1] = 68;
+                data[i + 2] = 68;
+                data[i + 3] = 205;
+            }
+        }
+        ctx.putImageData(image, 0, 0);
+        return canvas.toDataURL('image/png');
+    }
+
+    updateShiftPhotoCompareAlphaManualControls() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        const overlay = document.getElementById('shift-photo-compare-alpha-preview');
+        const range = overlay?.querySelector('.shift-photo-compare-alpha-manual input[type="range"]');
+        const number = overlay?.querySelector('.shift-photo-compare-alpha-manual input[type="number"]');
+        const value = document.getElementById('shift-photo-compare-alpha-manual-tolerance');
+        const undo = document.getElementById('shift-photo-compare-alpha-undo-cut');
+        const highlight = document.getElementById('shift-photo-compare-alpha-highlight');
+        const fixStrength = preview?.fixStrength || 'standard';
+        const tolerance = preview ? String(Number(preview.manualTolerance) || this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard')) : '';
+        if (range && tolerance) range.value = tolerance;
+        if (number && tolerance) number.value = tolerance;
+        if (value && tolerance) value.textContent = tolerance;
+        if (undo) undo.disabled = !(preview?.undoStack?.length);
+        if (highlight) highlight.classList.toggle('active', preview?.highlightTransparent === true);
+        overlay?.querySelectorAll('.shift-photo-compare-alpha-manual button[data-fix-strength]').forEach(button => {
+            button.classList.toggle('active', button.dataset.fixStrength === fixStrength);
+        });
     }
 
     updateShiftPhotoCompareAlphaPreviewImage(src = '', message = '') {
@@ -18563,13 +18629,90 @@
         }
     }
 
+    createShiftPhotoCompareAlphaOperationSnapshot(label = '') {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.src) return null;
+        return {
+            label,
+            src: preview.src,
+            compressed: !!preview.compressed,
+            alreadyTransparent: !!preview.alreadyTransparent,
+            clearInnerHoles: !!preview.clearInnerHoles,
+            preset: preview.preset || 'custom',
+            manualCuts: Array.isArray(preview.manualCuts) ? preview.manualCuts.map(cut => ({ ...cut })) : [],
+            manualTolerance: Number(preview.manualTolerance) || this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard'),
+            fixStrength: preview.fixStrength || 'standard',
+            preInnerSnapshot: preview.preInnerSnapshot ? { ...preview.preInnerSnapshot } : null
+        };
+    }
+
+    pushShiftPhotoCompareAlphaOperationUndo(label = '') {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        const snapshot = this.createShiftPhotoCompareAlphaOperationSnapshot(label);
+        if (!preview || !snapshot) return;
+        preview.undoStack = Array.isArray(preview.undoStack) ? preview.undoStack : [];
+        preview.undoStack.push(snapshot);
+        if (preview.undoStack.length > 20) preview.undoStack.shift();
+        this.updateShiftPhotoCompareAlphaManualControls();
+    }
+
+    undoShiftPhotoCompareAlphaOperation() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.undoStack?.length) return this.showShiftPhotoCompareActionMessage('戻せる透過操作がありません。');
+        const snapshot = preview.undoStack.pop();
+        preview.src = snapshot.src;
+        preview.compressed = !!snapshot.compressed;
+        preview.alreadyTransparent = !!snapshot.alreadyTransparent;
+        preview.clearInnerHoles = !!snapshot.clearInnerHoles;
+        preview.preset = snapshot.preset || 'custom';
+        preview.manualCuts = Array.isArray(snapshot.manualCuts) ? snapshot.manualCuts.map(cut => ({ ...cut })) : [];
+        preview.manualTolerance = Number(snapshot.manualTolerance) || this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard');
+        preview.fixStrength = snapshot.fixStrength || 'standard';
+        preview.preInnerSnapshot = snapshot.preInnerSnapshot ? { ...snapshot.preInnerSnapshot } : null;
+        preview.refreshRequestId = (Number(preview.refreshRequestId) || 0) + 1;
+        this.clearShiftPhotoCompareAlphaManualPreview();
+        this.refreshShiftPhotoCompareAlphaDisplayedImage('1つ前の透過操作へ戻しました。');
+        const inner = document.querySelector('#shift-photo-compare-alpha-preview .shift-photo-compare-alpha-inner input');
+        if (inner) inner.checked = preview.clearInnerHoles === true;
+        document.querySelectorAll('#shift-photo-compare-alpha-preview .shift-photo-compare-alpha-presets button[data-preset]').forEach(button => {
+            button.classList.toggle('active', button.dataset.preset === preview.preset);
+        });
+        this.showShiftPhotoCompareActionMessage('1つ前の透過操作へ戻しました。');
+    }
+
+    refreshShiftPhotoCompareAlphaDisplayedImage(message = '') {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.src) return;
+        const requestId = (Number(preview.displayRequestId) || 0) + 1;
+        preview.displayRequestId = requestId;
+        if (preview.highlightTransparent !== true) {
+            this.updateShiftPhotoCompareAlphaPreviewImage(preview.src, message);
+            this.updateShiftPhotoCompareAlphaManualControls();
+            return;
+        }
+        this.createShiftPhotoCompareAlphaHighlightSource(preview.src)
+            .then(src => {
+                if (this._shiftPhotoCompareAlphaPreview !== preview || preview.displayRequestId !== requestId) return;
+                this.updateShiftPhotoCompareAlphaPreviewImage(src, message || '透過される部分を赤で表示しています。');
+                this.updateShiftPhotoCompareAlphaManualControls();
+            })
+            .catch(error => {
+                console.warn('Alpha highlight preview failed.', error);
+                if (this._shiftPhotoCompareAlphaPreview === preview) {
+                    this.updateShiftPhotoCompareAlphaPreviewImage(preview.src, message);
+                    this.updateShiftPhotoCompareAlphaManualControls();
+                }
+            });
+    }
+
     rememberShiftPhotoCompareAlphaBeforeInner(preview = this._shiftPhotoCompareAlphaPreview) {
         if (!preview || preview.clearInnerHoles === true || preview.preInnerSnapshot) return;
         preview.preInnerSnapshot = {
             src: preview.src,
             compressed: !!preview.compressed,
             alreadyTransparent: !!preview.alreadyTransparent,
-            manualCuts: Array.isArray(preview.manualCuts) ? preview.manualCuts.map(cut => ({ ...cut })) : []
+            manualCuts: Array.isArray(preview.manualCuts) ? preview.manualCuts.map(cut => ({ ...cut })) : [],
+            manualTolerance: Number(preview.manualTolerance) || this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard')
         };
     }
 
@@ -18578,7 +18721,7 @@
         return Math.max(18, Math.min(58, Math.round(base * 0.62)));
     }
 
-    makeConnectedPointTransparentOnCanvas(canvas, ctx, x = 0, y = 0, options = {}) {
+    collectConnectedPointRegionOnCanvas(canvas, ctx, x = 0, y = 0, options = {}) {
         const width = Math.max(1, canvas?.width || 1);
         const height = Math.max(1, canvas?.height || 1);
         const startX = Math.max(0, Math.min(width - 1, Math.round(x)));
@@ -18587,15 +18730,15 @@
         const data = image.data;
         const startIndex = startY * width + startX;
         const startOffset = startIndex * 4;
-        if (data[startOffset + 3] <= 0) return { changed: 0, total: width * height };
+        if (data[startOffset + 3] <= 0) return { changed: 0, total: width * height, image, data, indexes: [] };
         const target = [data[startOffset], data[startOffset + 1], data[startOffset + 2]];
         const tolerance = Math.max(0, Number.isFinite(options.tolerance) ? Number(options.tolerance) : 34);
         const total = width * height;
         const visited = new Uint8Array(total);
         const queue = new Int32Array(total);
+        const indexes = [];
         let head = 0;
         let tail = 0;
-        let changed = 0;
         const matches = (index) => {
             if (index < 0 || index >= total || visited[index]) return false;
             const i = index * 4;
@@ -18613,19 +18756,51 @@
         enqueue(startIndex);
         while (head < tail) {
             const index = queue[head++];
-            const i = index * 4;
-            if (data[i + 3] > 0) {
-                data[i + 3] = 0;
-                changed += 1;
-            }
+            indexes.push(index);
             const px = index % width;
             if (px > 0) enqueue(index - 1);
             if (px < width - 1) enqueue(index + 1);
             if (index >= width) enqueue(index - width);
             if (index < total - width) enqueue(index + width);
         }
-        if (changed) ctx.putImageData(image, 0, 0);
-        return { changed, total };
+        return { changed: indexes.length, total, image, data, indexes };
+    }
+
+    makeConnectedPointTransparentOnCanvas(canvas, ctx, x = 0, y = 0, options = {}) {
+        const region = this.collectConnectedPointRegionOnCanvas(canvas, ctx, x, y, options);
+        const data = region.data;
+        let changed = 0;
+        region.indexes.forEach(index => {
+            const i = index * 4;
+            if (data[i + 3] > 0) {
+                data[i + 3] = 0;
+                changed += 1;
+            }
+        });
+        if (changed) ctx.putImageData(region.image, 0, 0);
+        return { changed, total: region.total };
+    }
+
+    async createShiftPhotoCompareAlphaPointPreviewSource(src = '', xRatio = 0, yRatio = 0, tolerance = 34) {
+        if (!/^data:image\//i.test(src || '')) return { src: '', changed: 0 };
+        const { canvas, ctx } = await this.drawImageToWorkCanvas(src);
+        const region = this.collectConnectedPointRegionOnCanvas(
+            canvas,
+            ctx,
+            Number(xRatio || 0) * canvas.width,
+            Number(yRatio || 0) * canvas.height,
+            { tolerance }
+        );
+        if (!region.changed) return { src: '', changed: 0 };
+        region.indexes.forEach(index => {
+            const i = index * 4;
+            region.data[i] = 239;
+            region.data[i + 1] = 68;
+            region.data[i + 2] = 68;
+            region.data[i + 3] = 210;
+        });
+        ctx.putImageData(region.image, 0, 0);
+        return { src: canvas.toDataURL('image/png'), changed: region.changed };
     }
 
     async applyShiftPhotoCompareAlphaManualCuts(src = '', cuts = []) {
@@ -18648,47 +18823,395 @@
         };
     }
 
+    setShiftPhotoCompareAlphaManualTolerance(value = '') {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview) return;
+        const next = Math.max(8, Math.min(160, Math.round(Number(value) || this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard'))));
+        preview.manualTolerance = next;
+        this.clearShiftPhotoCompareAlphaManualPreview();
+        this.updateShiftPhotoCompareAlphaManualControls();
+    }
+
+    setShiftPhotoCompareAlphaFixStrength(strength = 'standard') {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview) return;
+        preview.fixStrength = ['weak', 'standard', 'strong'].includes(strength) ? strength : 'standard';
+        this.clearShiftPhotoCompareAlphaManualPreview();
+        this.updateShiftPhotoCompareAlphaManualControls();
+    }
+
+    getShiftPhotoCompareAlphaFixPatchLimit(total = 0, strength = '') {
+        const base = this.getShiftPhotoCompareAlphaSmallPatchLimit(total);
+        const mode = strength || this._shiftPhotoCompareAlphaPreview?.fixStrength || 'standard';
+        const scale = ({ weak: 0.45, standard: 1, strong: 2.2 })[mode] || 1;
+        return Math.max(4, Math.round(base * scale));
+    }
+
+    getShiftPhotoCompareAlphaStagePointRatio(event) {
+        const stage = event?.currentTarget;
+        const img = stage?.querySelector?.('img:not(.shift-photo-compare-alpha-hover-preview)');
+        if (!img) return null;
+        const rect = img.getBoundingClientRect();
+        if (!rect.width || !rect.height) return null;
+        const xRatio = (event.clientX - rect.left) / rect.width;
+        const yRatio = (event.clientY - rect.top) / rect.height;
+        if (xRatio < 0 || xRatio > 1 || yRatio < 0 || yRatio > 1) return null;
+        return { xRatio, yRatio, stage };
+    }
+
+    previewShiftPhotoCompareAlphaManualCut(event, kind = 'transparent') {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        const point = this.getShiftPhotoCompareAlphaStagePointRatio(event);
+        if (!preview?.src || !point) return this.clearShiftPhotoCompareAlphaManualPreview();
+        const tolerance = Number(preview.manualTolerance) || this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard');
+        const key = `${kind}:${Math.round(point.xRatio * 300)}:${Math.round(point.yRatio * 300)}:${tolerance}:${preview.src.length}`;
+        if (preview.hoverPreviewKey === key) return;
+        preview.hoverPreviewKey = key;
+        const requestId = (Number(preview.hoverPreviewRequestId) || 0) + 1;
+        preview.hoverPreviewRequestId = requestId;
+        this.createShiftPhotoCompareAlphaPointPreviewSource(preview.src, point.xRatio, point.yRatio, tolerance)
+            .then(result => {
+                if (this._shiftPhotoCompareAlphaPreview !== preview || preview.hoverPreviewRequestId !== requestId) return;
+                const hover = point.stage.querySelector('.shift-photo-compare-alpha-hover-preview');
+                if (!hover) return;
+                if (!result.changed || !result.src) {
+                    hover.classList.remove('visible');
+                    hover.removeAttribute('src');
+                    return;
+                }
+                hover.src = result.src;
+                hover.classList.add('visible');
+            })
+            .catch(error => {
+                console.warn('Alpha hover preview failed.', error);
+                this.clearShiftPhotoCompareAlphaManualPreview();
+            });
+    }
+
+    clearShiftPhotoCompareAlphaManualPreview() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (preview) {
+            preview.hoverPreviewRequestId = (Number(preview.hoverPreviewRequestId) || 0) + 1;
+            preview.hoverPreviewKey = '';
+        }
+        document.querySelectorAll('#shift-photo-compare-alpha-preview .shift-photo-compare-alpha-hover-preview').forEach(img => {
+            img.classList.remove('visible');
+            img.removeAttribute('src');
+        });
+    }
+
+    toggleShiftPhotoCompareAlphaHighlight() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview) return;
+        preview.highlightTransparent = preview.highlightTransparent !== true;
+        this.refreshShiftPhotoCompareAlphaDisplayedImage(preview.highlightTransparent
+            ? '透過される部分を赤で表示しています。もう一度押すと通常表示に戻ります。'
+            : '通常の透過プレビューに戻しました。');
+    }
+
+    undoShiftPhotoCompareAlphaManualCut() {
+        this.undoShiftPhotoCompareAlphaOperation();
+    }
+
+    getShiftPhotoCompareAlphaSmallPatchLimit(total = 0) {
+        return Math.max(12, Math.min(900, Math.round((Number(total) || 0) * 0.00065)));
+    }
+
+    removeSmallOpaqueSpecksOnCanvas(canvas, ctx, options = {}) {
+        const width = Math.max(1, canvas?.width || 1);
+        const height = Math.max(1, canvas?.height || 1);
+        const total = width * height;
+        const limit = Math.max(1, Math.round(Number(options.limit) || this.getShiftPhotoCompareAlphaSmallPatchLimit(total)));
+        const image = ctx.getImageData(0, 0, width, height);
+        const data = image.data;
+        const seen = new Uint8Array(total);
+        const queue = new Int32Array(total);
+        let removed = 0;
+        const isOpaque = index => data[index * 4 + 3] > 8;
+        for (let start = 0; start < total; start += 1) {
+            if (seen[start] || !isOpaque(start)) continue;
+            let head = 0;
+            let tail = 0;
+            let touchesTransparent = false;
+            const component = [];
+            seen[start] = 1;
+            queue[tail++] = start;
+            while (head < tail) {
+                const index = queue[head++];
+                component.push(index);
+                const x = index % width;
+                const neighbors = [
+                    x > 0 ? index - 1 : -1,
+                    x < width - 1 ? index + 1 : -1,
+                    index >= width ? index - width : -1,
+                    index < total - width ? index + width : -1
+                ];
+                neighbors.forEach(next => {
+                    if (next < 0) return;
+                    if (!isOpaque(next)) {
+                        touchesTransparent = true;
+                        return;
+                    }
+                    if (!seen[next]) {
+                        seen[next] = 1;
+                        queue[tail++] = next;
+                    }
+                });
+                if (component.length > limit) {
+                    // Finish marking this component, but it is too large to remove.
+                }
+            }
+            if (component.length <= limit && touchesTransparent) {
+                component.forEach(index => {
+                    const i = index * 4;
+                    if (data[i + 3] > 0) {
+                        data[i + 3] = 0;
+                        removed += 1;
+                    }
+                });
+            }
+        }
+        if (removed) ctx.putImageData(image, 0, 0);
+        return { changed: removed, total };
+    }
+
+    async removeShiftPhotoCompareAlphaSmallOpaqueSpecks() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.src) return;
+        try {
+            this.clearShiftPhotoCompareAlphaManualPreview();
+            preview.refreshRequestId = (Number(preview.refreshRequestId) || 0) + 1;
+            const { canvas, ctx } = await this.drawImageToWorkCanvas(preview.src);
+            if (this._shiftPhotoCompareAlphaPreview !== preview) return;
+            const result = this.removeSmallOpaqueSpecksOnCanvas(canvas, ctx, {
+                limit: this.getShiftPhotoCompareAlphaFixPatchLimit(canvas.width * canvas.height)
+            });
+            if (!result.changed) return this.showShiftPhotoCompareActionMessage('削除できる小さい抜け残りは見つかりませんでした。');
+            this.pushShiftPhotoCompareAlphaOperationUndo('点削除');
+            preview.src = canvas.toDataURL('image/png');
+            preview.compressed = false;
+            preview.alreadyTransparent = false;
+            preview.preset = 'custom';
+            this.refreshShiftPhotoCompareAlphaDisplayedImage(`${result.changed}px分の小さい抜け残りを透過しました。`);
+            this.showShiftPhotoCompareActionMessage('小さい抜け残りを削除しました。');
+        } catch (error) {
+            console.error(error);
+            this.showShiftPhotoCompareActionMessage('小さい抜け残りの削除に失敗しました。');
+        }
+    }
+
+    showShiftPhotoCompareAlphaActionPreview(src = '', message = '') {
+        const overlay = document.getElementById('shift-photo-compare-alpha-preview');
+        const stage = overlay?.querySelector('.shift-photo-compare-alpha-stage.checker');
+        const hover = stage?.querySelector('.shift-photo-compare-alpha-hover-preview');
+        if (!hover || !src) return;
+        hover.src = src;
+        hover.classList.add('visible');
+        const summary = overlay?.querySelector('.shift-photo-compare-alpha-summary');
+        if (summary && message) summary.textContent = message;
+    }
+
+    async createShiftPhotoCompareAlphaSmallOpaqueSpecksPreviewSource(src = '') {
+        if (!/^data:image\//i.test(src || '')) return { src: '', changed: 0 };
+        const { canvas, ctx } = await this.drawImageToWorkCanvas(src);
+        const before = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const result = this.removeSmallOpaqueSpecksOnCanvas(canvas, ctx, {
+            limit: this.getShiftPhotoCompareAlphaFixPatchLimit(canvas.width * canvas.height)
+        });
+        if (!result.changed) return { src: '', changed: 0 };
+        const after = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = after.data;
+        for (let i = 0; i < data.length; i += 4) {
+            const removed = before.data[i + 3] > 8 && data[i + 3] <= 8;
+            if (removed) {
+                data[i] = 239;
+                data[i + 1] = 68;
+                data[i + 2] = 68;
+                data[i + 3] = 220;
+            } else {
+                data[i + 3] = 0;
+            }
+        }
+        ctx.putImageData(after, 0, 0);
+        return { src: canvas.toDataURL('image/png'), changed: result.changed };
+    }
+
+    async previewShiftPhotoCompareAlphaSmallOpaqueSpecks() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.src) return;
+        try {
+            const result = await this.createShiftPhotoCompareAlphaSmallOpaqueSpecksPreviewSource(preview.src);
+            if (!result.changed) return this.showShiftPhotoCompareActionMessage('削除候補の小さい抜け残りは見つかりませんでした。');
+            this.showShiftPhotoCompareAlphaActionPreview(result.src, `${result.changed}px分の点削除候補を赤で表示しています。`);
+        } catch (error) {
+            console.error(error);
+            this.showShiftPhotoCompareActionMessage('点削除候補の確認に失敗しました。');
+        }
+    }
+
+    async restoreSmallTransparentHolesOnCanvas(canvas, ctx, originalSrc = '', options = {}) {
+        const width = Math.max(1, canvas?.width || 1);
+        const height = Math.max(1, canvas?.height || 1);
+        const total = width * height;
+        const limit = Math.max(1, Math.round(Number(options.limit) || this.getShiftPhotoCompareAlphaSmallPatchLimit(total)));
+        const image = ctx.getImageData(0, 0, width, height);
+        const data = image.data;
+        const originalImage = await this.loadShiftPhotoCompareImage(originalSrc);
+        const originalCanvas = document.createElement('canvas');
+        originalCanvas.width = width;
+        originalCanvas.height = height;
+        const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
+        originalCtx.drawImage(originalImage, 0, 0, width, height);
+        const originalData = originalCtx.getImageData(0, 0, width, height).data;
+        const seen = new Uint8Array(total);
+        const queue = new Int32Array(total);
+        let restored = 0;
+        const isTransparent = index => data[index * 4 + 3] <= 8;
+        for (let start = 0; start < total; start += 1) {
+            if (seen[start] || !isTransparent(start)) continue;
+            let head = 0;
+            let tail = 0;
+            let touchesEdge = false;
+            let touchesOpaque = false;
+            const component = [];
+            seen[start] = 1;
+            queue[tail++] = start;
+            while (head < tail) {
+                const index = queue[head++];
+                component.push(index);
+                const x = index % width;
+                const y = Math.floor(index / width);
+                if (x === 0 || y === 0 || x === width - 1 || y === height - 1) touchesEdge = true;
+                const neighbors = [
+                    x > 0 ? index - 1 : -1,
+                    x < width - 1 ? index + 1 : -1,
+                    y > 0 ? index - width : -1,
+                    y < height - 1 ? index + width : -1
+                ];
+                neighbors.forEach(next => {
+                    if (next < 0) return;
+                    if (!isTransparent(next)) {
+                        touchesOpaque = true;
+                        return;
+                    }
+                    if (!seen[next]) {
+                        seen[next] = 1;
+                        queue[tail++] = next;
+                    }
+                });
+            }
+            if (!touchesEdge && touchesOpaque && component.length <= limit) {
+                component.forEach(index => {
+                    const i = index * 4;
+                    data[i] = originalData[i];
+                    data[i + 1] = originalData[i + 1];
+                    data[i + 2] = originalData[i + 2];
+                    data[i + 3] = originalData[i + 3] || 255;
+                    restored += 1;
+                });
+            }
+        }
+        if (restored) ctx.putImageData(image, 0, 0);
+        return { changed: restored, total };
+    }
+
+    async createShiftPhotoCompareAlphaSmallTransparentHolesPreviewSource(src = '', originalSrc = '') {
+        if (!/^data:image\//i.test(src || '') || !/^data:image\//i.test(originalSrc || '')) return { src: '', changed: 0 };
+        const { canvas, ctx } = await this.drawImageToWorkCanvas(src);
+        const before = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const result = await this.restoreSmallTransparentHolesOnCanvas(canvas, ctx, originalSrc, {
+            limit: this.getShiftPhotoCompareAlphaFixPatchLimit(canvas.width * canvas.height)
+        });
+        if (!result.changed) return { src: '', changed: 0 };
+        const after = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = after.data;
+        for (let i = 0; i < data.length; i += 4) {
+            const restored = before.data[i + 3] <= 8 && data[i + 3] > 8;
+            if (restored) {
+                data[i] = 34;
+                data[i + 1] = 197;
+                data[i + 2] = 94;
+                data[i + 3] = 220;
+            } else {
+                data[i + 3] = 0;
+            }
+        }
+        ctx.putImageData(after, 0, 0);
+        return { src: canvas.toDataURL('image/png'), changed: result.changed };
+    }
+
+    async previewShiftPhotoCompareAlphaSmallTransparentHoles() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.src || !preview.originalSrc) return;
+        try {
+            const result = await this.createShiftPhotoCompareAlphaSmallTransparentHolesPreviewSource(preview.src, preview.originalSrc);
+            if (!result.changed) return this.showShiftPhotoCompareActionMessage('復元候補の小さい穴は見つかりませんでした。');
+            this.showShiftPhotoCompareAlphaActionPreview(result.src, `${result.changed}px分の穴復元候補を緑で表示しています。`);
+        } catch (error) {
+            console.error(error);
+            this.showShiftPhotoCompareActionMessage('穴復元候補の確認に失敗しました。');
+        }
+    }
+
+    async restoreShiftPhotoCompareAlphaSmallTransparentHoles() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        if (!preview?.src || !preview.originalSrc) return;
+        try {
+            this.clearShiftPhotoCompareAlphaManualPreview();
+            preview.refreshRequestId = (Number(preview.refreshRequestId) || 0) + 1;
+            const { canvas, ctx } = await this.drawImageToWorkCanvas(preview.src);
+            if (this._shiftPhotoCompareAlphaPreview !== preview) return;
+            const result = await this.restoreSmallTransparentHolesOnCanvas(canvas, ctx, preview.originalSrc, {
+                limit: this.getShiftPhotoCompareAlphaFixPatchLimit(canvas.width * canvas.height)
+            });
+            if (this._shiftPhotoCompareAlphaPreview !== preview) return;
+            if (!result.changed) return this.showShiftPhotoCompareActionMessage('復元できる小さい穴は見つかりませんでした。');
+            this.pushShiftPhotoCompareAlphaOperationUndo('穴復元');
+            preview.src = canvas.toDataURL('image/png');
+            preview.compressed = false;
+            preview.alreadyTransparent = false;
+            preview.preset = 'custom';
+            this.refreshShiftPhotoCompareAlphaDisplayedImage(`${result.changed}px分の小さい抜けすぎを元画像から復元しました。`);
+            this.showShiftPhotoCompareActionMessage('小さい抜けすぎを復元しました。');
+        } catch (error) {
+            console.error(error);
+            this.showShiftPhotoCompareActionMessage('小さい穴の復元に失敗しました。');
+        }
+    }
+
     async addShiftPhotoCompareAlphaPreviewCut(event, kind = 'transparent') {
         event?.preventDefault?.();
         event?.stopPropagation?.();
         const preview = this._shiftPhotoCompareAlphaPreview;
-        const stage = event?.currentTarget;
-        const img = stage?.querySelector?.('img');
-        if (!preview?.src || !img) return;
-        const rect = img.getBoundingClientRect();
-        if (!rect.width || !rect.height) return;
-        const xRatio = (event.clientX - rect.left) / rect.width;
-        const yRatio = (event.clientY - rect.top) / rect.height;
-        if (xRatio < 0 || xRatio > 1 || yRatio < 0 || yRatio > 1) return;
+        const point = this.getShiftPhotoCompareAlphaStagePointRatio(event);
+        if (!preview?.src || !point) return;
         try {
+            this.clearShiftPhotoCompareAlphaManualPreview();
             preview.refreshRequestId = (Number(preview.refreshRequestId) || 0) + 1;
-            const tolerance = this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard');
+            const tolerance = Number(preview.manualTolerance) || this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard');
             const { canvas, ctx } = await this.drawImageToWorkCanvas(preview.src);
             if (this._shiftPhotoCompareAlphaPreview !== preview) return;
             const result = this.makeConnectedPointTransparentOnCanvas(
                 canvas,
                 ctx,
-                xRatio * canvas.width,
-                yRatio * canvas.height,
+                point.xRatio * canvas.width,
+                point.yRatio * canvas.height,
                 { tolerance }
             );
             if (!result.changed) {
                 this.showShiftPhotoCompareActionMessage('クリックした場所はすでに透過済み、または透過できる単色部分ではありません。');
                 return;
             }
+            this.pushShiftPhotoCompareAlphaOperationUndo('クリック透過');
             preview.src = canvas.toDataURL('image/png');
             preview.compressed = false;
             preview.alreadyTransparent = false;
             preview.preset = 'custom';
             preview.manualCuts = Array.isArray(preview.manualCuts) ? preview.manualCuts : [];
-            preview.manualCuts.push({ xRatio, yRatio, tolerance, strength: preview.strength || 'standard' });
+            preview.manualCuts.push({ xRatio: point.xRatio, yRatio: point.yRatio, tolerance, strength: preview.strength || 'standard' });
+            this.refreshShiftPhotoCompareAlphaDisplayedImage(`クリックした${kind === 'original' ? '元画像の位置' : '透過後の位置'}から、つながった単色部分を追加で透過しました。`);
+            this.updateShiftPhotoCompareAlphaManualControls();
             const overlay = document.getElementById('shift-photo-compare-alpha-preview');
-            const transparentImg = overlay?.querySelector('.shift-photo-compare-alpha-stage.checker img');
-            if (transparentImg) transparentImg.src = preview.src;
-            const zoomImg = document.querySelector('#shift-photo-compare-alpha-zoom .shift-photo-compare-alpha-zoom-stage.checker img');
-            if (zoomImg) zoomImg.src = preview.src;
-            const summary = overlay?.querySelector('.shift-photo-compare-alpha-summary');
-            if (summary) summary.textContent = `クリックした${kind === 'original' ? '元画像の位置' : '透過後の位置'}から、つながった単色部分を追加で透過しました。`;
             overlay?.querySelectorAll('.shift-photo-compare-alpha-presets button[data-preset]').forEach(button => button.classList.remove('active'));
             this.showShiftPhotoCompareActionMessage('クリックした単色部分を追加で透過しました。');
         } catch (error) {
@@ -18737,8 +19260,11 @@
         const config = this.getShiftPhotoCompareAlphaPresetConfig(preset);
         if (config.clearInnerHoles === true) this.rememberShiftPhotoCompareAlphaBeforeInner(preview);
         if (config.clearInnerHoles !== true) preview.preInnerSnapshot = null;
+        const wasDefaultManualTolerance = !preview.manualTolerance
+            || preview.manualTolerance === this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard');
         preview.preset = preset;
         preview.strength = config.strength;
+        if (wasDefaultManualTolerance) preview.manualTolerance = this.getShiftPhotoCompareAlphaManualCutTolerance(config.strength);
         preview.gapProtection = config.gapProtection;
         preview.clearInnerHoles = config.clearInnerHoles;
         preview.backgroundTarget = config.backgroundTarget;
@@ -18771,20 +19297,23 @@
         if (!preview) return;
         const nextEnabled = enabled === true;
         if (nextEnabled && preview.clearInnerHoles !== true) {
+            this.pushShiftPhotoCompareAlphaOperationUndo('輪郭内側透過');
             this.rememberShiftPhotoCompareAlphaBeforeInner(preview);
         }
         if (!nextEnabled && preview.clearInnerHoles === true && preview.preInnerSnapshot?.src) {
+            this.pushShiftPhotoCompareAlphaOperationUndo('輪郭内側解除');
             const snapshot = preview.preInnerSnapshot;
             preview.clearInnerHoles = false;
             preview.src = snapshot.src;
             preview.compressed = !!snapshot.compressed;
             preview.alreadyTransparent = !!snapshot.alreadyTransparent;
             preview.manualCuts = Array.isArray(snapshot.manualCuts) ? snapshot.manualCuts.map(cut => ({ ...cut })) : [];
+            preview.manualTolerance = Number(snapshot.manualTolerance) || this.getShiftPhotoCompareAlphaManualCutTolerance(preview.strength || 'standard');
             preview.preInnerSnapshot = null;
             preview.preset = 'custom';
             preview.refreshRequestId = (Number(preview.refreshRequestId) || 0) + 1;
             document.querySelectorAll('#shift-photo-compare-alpha-preview .shift-photo-compare-alpha-presets button[data-preset]').forEach(button => button.classList.remove('active'));
-            this.updateShiftPhotoCompareAlphaPreviewImage(preview.src, '輪郭内側の透過を外し、チェック前の状態へ戻しました。');
+            this.refreshShiftPhotoCompareAlphaDisplayedImage('輪郭内側の透過を外し、チェック前の状態へ戻しました。');
             this.showShiftPhotoCompareActionMessage('輪郭内側の透過を外し、チェック前の状態へ戻しました。');
             return;
         }
@@ -18802,7 +19331,7 @@
         this.refreshShiftPhotoCompareAlphaPreview(strength);
     }
 
-    async refreshShiftPhotoCompareAlphaPreview(strength = 'standard') {
+    async refreshShiftPhotoCompareAlphaPreview(strength = 'standard', options = {}) {
         const preview = this._shiftPhotoCompareAlphaPreview;
         if (!preview?.originalSrc || typeof this.createTransparentPhotoManagerSource !== 'function') return;
         const requestId = (Number(preview.refreshRequestId) || 0) + 1;
@@ -18828,6 +19357,7 @@
             }
             preview.src = nextSrc;
             preview.strength = strength;
+            if (!preview.manualTolerance) preview.manualTolerance = this.getShiftPhotoCompareAlphaManualCutTolerance(strength);
             preview.preset = preview.preset || 'custom';
             preview.alreadyTransparent = false;
             preview.compressed = !!result.compressed && !manualChanged;
@@ -18840,14 +19370,13 @@
             }
             const summary = overlay?.querySelector('.shift-photo-compare-alpha-summary');
             if (summary) {
-                summary.textContent = changed
+                summary.textContent = options.message || (changed
                     ? `${preview.backgroundTarget === 'white' ? '白背景' : (preview.clearInnerHoles ? '外側背景と輪郭内側' : '外側背景')}として ${ratio}% を透明化したプレビューです。${manualChanged ? ' クリック透過も反映しています。' : ''}`
                     : manualChanged
                         ? 'クリック透過を反映したプレビューです。'
-                        : '透明化できそうな外側背景は見つかりませんでした。';
+                        : '透明化できそうな外側背景は見つかりませんでした。');
             }
-            const transparentImg = overlay?.querySelector('.shift-photo-compare-alpha-stage.checker img');
-            if (transparentImg) transparentImg.src = preview.src;
+            this.refreshShiftPhotoCompareAlphaDisplayedImage(options.message || summary?.textContent || '');
         } catch (error) {
             console.error(error);
             this.showShiftPhotoCompareActionMessage('透過プレビューの更新に失敗しました。');

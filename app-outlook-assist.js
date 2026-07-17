@@ -6,6 +6,8 @@
     const DEFAULT_WRAP_AT = 38;
     const TXT = {
         noCore: '\u57fa\u5e79\u793e\u54e1\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093',
+        guestWorker: '\u30b2\u30b9\u30c8',
+        guestWorkerNote: '\u57fa\u5e79\u793e\u54e1\u306a\u3057\u3067\u4f7f\u7528',
         openMemberManage: '\u4eba\u540d\u7ba1\u7406\u3092\u958b\u304f',
         noDraft: '\u4e0b\u66f8\u304d\u672a\u8a2d\u5b9a',
         name: '\u540d\u524d',
@@ -69,6 +71,24 @@
         chars: '\u6587\u5b57\u6570',
         wrapNow: '\u6539\u884c\u3092\u6574\u3048\u308b',
         unwrapNow: '\u6539\u884c\u3092\u5168\u90e8\u623b\u3059',
+        removeBlankLines: '\u7a7a\u884c\u524a\u9664',
+        undoBody: '\u623b\u308b',
+        redoBody: '\u9032\u3080',
+        pageName: '\u30da\u30fc\u30b8\u540d',
+        draftPageCount: '\u4e0b\u66f8\u304d',
+        duplicateDraftPage: '\u30da\u30fc\u30b8\u8907\u88fd',
+        deleteDraftPage: '\u30da\u30fc\u30b8\u524a\u9664',
+        draftPageDeleteAsk: '\u3053\u306e\u4e0b\u66f8\u304d\u30da\u30fc\u30b8\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f',
+        templateApplyChoice: '\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u3092\u3069\u3053\u306b\u53cd\u6620\u3057\u307e\u3059\u304b\uff1f\n1: \u4eca\u306e\u30da\u30fc\u30b8\u306b\u53cd\u6620\n2: \u65b0\u898f\u30da\u30fc\u30b8\u3092\u4f5c\u3063\u3066\u53cd\u6620\n3: \u30ad\u30e3\u30f3\u30bb\u30eb',
+        pageList: '\u30da\u30fc\u30b8\u4e00\u89a7',
+        pageColor: '\u30da\u30fc\u30b8\u8272',
+        movePageUp: '\u4e0a\u3078',
+        movePageDown: '\u4e0b\u3078',
+        pageTitleLock: '\u56fa\u5b9a',
+        applyCurrentPage: '\u4eca\u306e\u30da\u30fc\u30b8',
+        applyNewPage: '\u65b0\u898f\u30da\u30fc\u30b8',
+        templatePreview: '\u53cd\u6620\u30d7\u30ec\u30d3\u30e5\u30fc',
+        cancel: '\u30ad\u30e3\u30f3\u30bb\u30eb',
         copyBody: '\u672c\u6587\u30b3\u30d4\u30fc',
         copySubject: '\u4ef6\u540d\u30b3\u30d4\u30fc',
         quickPhrases: '\u5b9a\u578b\u53e5',
@@ -259,6 +279,10 @@
         { id: 'blue', label: TXT.colorBlue, color: '#bfdbfe' },
         { id: 'gray', label: TXT.colorGray, color: '#e2e8f0' }
     ];
+    const DRAFT_PAGE_COLOR_PRESETS = [
+        { id: 'none', label: TXT.colorNone, color: '' },
+        ...TEMPLATE_COLOR_PRESETS
+    ];
 
     function getState() {
         const data = store.activeData;
@@ -266,6 +290,8 @@
             data.outlookAssist = { selectedWorker: '', draftsByWorker: {}, templates: [] };
         }
         if (!data.outlookAssist.draftsByWorker || typeof data.outlookAssist.draftsByWorker !== 'object') data.outlookAssist.draftsByWorker = {};
+        if (!data.outlookAssist.draftPagesByWorker || typeof data.outlookAssist.draftPagesByWorker !== 'object') data.outlookAssist.draftPagesByWorker = {};
+        if (!data.outlookAssist.draftPageIndexByWorker || typeof data.outlookAssist.draftPageIndexByWorker !== 'object') data.outlookAssist.draftPageIndexByWorker = {};
         if (!Array.isArray(data.outlookAssist.templates)) data.outlookAssist.templates = [];
         if (!Array.isArray(data.outlookAssist.recipientSets)) data.outlookAssist.recipientSets = [];
         if (!Array.isArray(data.outlookAssist.recipientContacts)) data.outlookAssist.recipientContacts = [];
@@ -318,13 +344,16 @@
     }
 
     function createEmptyDraft() {
-        return { to: '', cc: '', bcc: '', subject: '', body: '', wrapAt: DEFAULT_WRAP_AT, autoWrap: true, insertLabel: TXT.machine };
+        return { pageTitle: '', pageTitleLocked: false, pageColor: '', to: '', cc: '', bcc: '', subject: '', body: '', wrapAt: DEFAULT_WRAP_AT, autoWrap: true, insertLabel: TXT.machine };
     }
 
     function normalizeOutlookAssistDraftRecord(value = {}) {
         const source = value && typeof value === 'object' ? value : {};
         return {
             ...createEmptyDraft(),
+            pageTitle: String(source.pageTitle || ''),
+            pageTitleLocked: !!source.pageTitleLocked,
+            pageColor: normalizeOutlookAssistTemplateColor(source.pageColor || ''),
             to: String(source.to || ''),
             cc: String(source.cc || ''),
             bcc: String(source.bcc || ''),
@@ -425,13 +454,39 @@
         return lines.join('\n');
     }
 
+    function setTextareaValuePreservingCursor(textarea, nextValue, transformPrefix) {
+        if (!textarea || textarea.value === nextValue) return;
+        const current = textarea.value;
+        const start = textarea.selectionStart ?? current.length;
+        const end = textarea.selectionEnd ?? start;
+        textarea.value = nextValue;
+        if (typeof textarea.setSelectionRange !== 'function') return;
+        const mapCursor = position => {
+            const prefix = current.slice(0, Math.max(0, position));
+            return Math.max(0, Math.min(nextValue.length, transformPrefix(prefix).length));
+        };
+        textarea.setSelectionRange(mapCursor(start), mapCursor(end));
+    }
+
     Object.assign(MaintenanceApp.prototype, {
         getOutlookAssistState: getState,
 
+        getOutlookAssistCopyStatusKey(worker = this.getOutlookAssistState().selectedWorker || '') {
+            const key = String(worker || '').trim();
+            if (!key) return '';
+            return `${key}::${this.getOutlookAssistDraftPageIndex(key)}`;
+        },
+
         getOutlookAssistCopyStatus(worker = this.getOutlookAssistState().selectedWorker || '') {
             const state = this.getOutlookAssistState();
-            if (!state.copyStatus[worker] || typeof state.copyStatus[worker] !== 'object') state.copyStatus[worker] = {};
-            return state.copyStatus[worker];
+            const key = this.getOutlookAssistCopyStatusKey(worker);
+            const pageIndex = this.getOutlookAssistDraftPageIndex(worker);
+            if (!state.copyStatus[key] || typeof state.copyStatus[key] !== 'object') {
+                state.copyStatus[key] = pageIndex === 0 && state.copyStatus[worker] && typeof state.copyStatus[worker] === 'object'
+                    ? { ...state.copyStatus[worker] }
+                    : {};
+            }
+            return state.copyStatus[key];
         },
 
         getNextOutlookAssistTemplateOrder() {
@@ -585,11 +640,11 @@
             const items = this.splitOutlookAssistRecipients(draft[field] || '');
             items.splice(index, 1);
             if (worker) {
-                state.draftsByWorker[worker] = {
+                this.setCurrentOutlookAssistDraft({
                     ...draft,
                     [field]: items.join('; '),
                     updatedAt: new Date().toISOString()
-                };
+                });
                 store.save();
             }
             this.renderOutlookAssist();
@@ -755,6 +810,28 @@
                     ${rows || `<p>${TXT.diffNoChange}</p>`}
                 </div>
             `;
+        },
+
+        hasOutlookAssistTemplateEditChanges(template = this.getOutlookAssistEditingTemplate()) {
+            if (!template) return false;
+            this.saveOutlookAssistDraftFromForm();
+            const draft = this.getCurrentOutlookAssistDraft();
+            const title = (document.getElementById('outlook-template-title')?.value || '').trim();
+            const category = document.getElementById('outlook-template-category')?.value || 'other';
+            const insertLabel = (document.getElementById('outlook-template-insert-label')?.value || TXT.machine).trim();
+            const checks = [
+                [template.title || '', title || template.title || ''],
+                [this.getOutlookAssistTemplateCategoryId(template.category || 'other'), category],
+                [template.insertLabel || TXT.machine, insertLabel || TXT.machine],
+                [template.to || '', draft.to || ''],
+                [template.cc || '', draft.cc || ''],
+                [template.bcc || '', draft.bcc || ''],
+                [template.subject || '', draft.subject || ''],
+                [template.machineName || '', draft.machineName || ''],
+                [template.body || '', draft.body || ''],
+                [String(template.wrapAt || DEFAULT_WRAP_AT), String(draft.wrapAt || DEFAULT_WRAP_AT)]
+            ];
+            return checks.some(([before, after]) => String(before) !== String(after));
         },
 
         getOutlookAssistCopyChecklistHtml() {
@@ -1012,9 +1089,14 @@
             return names.filter(name => types[name] !== 'support');
         },
 
+        getOutlookAssistSelectableWorkers() {
+            const workers = this.getOutlookAssistCoreWorkers();
+            return workers.length ? workers : [TXT.guestWorker];
+        },
+
         renderOutlookAssist() {
             const state = this.getOutlookAssistState();
-            const workers = this.getOutlookAssistCoreWorkers();
+            const workers = this.getOutlookAssistSelectableWorkers();
             if (!state.selectedWorker || !workers.includes(state.selectedWorker)) state.selectedWorker = workers[0] || '';
             this.renderOutlookAssistWorkers();
             this.renderOutlookAssistComposer();
@@ -1025,16 +1107,23 @@
             if (!list) return;
             const state = this.getOutlookAssistState();
             const q = MaintenanceApp.toHalfWidthLower(query).trim();
-            const workers = this.getOutlookAssistCoreWorkers().filter(name => !q || MaintenanceApp.toHalfWidthLower(name).includes(q));
+            const coreWorkers = this.getOutlookAssistCoreWorkers();
+            const workers = this.getOutlookAssistSelectableWorkers().filter(name => !q || MaintenanceApp.toHalfWidthLower(name).includes(q));
             if (!workers.length) {
                 list.innerHTML = `<div class="outlook-assist-empty"><i class="fa-regular fa-address-card"></i><span>${TXT.noCore}</span><button type="button" class="secondary-btn" onclick="app.openShiftMemberTypeManageModal?.()">${TXT.openMemberManage}</button></div>`;
                 return;
             }
             list.innerHTML = workers.map(name => {
-                const draft = state.draftsByWorker[name] || {};
+                const pages = this.getOutlookAssistDraftPages(name);
+                const pageIndex = this.getOutlookAssistDraftPageIndex(name);
+                const draft = pages[pageIndex] || {};
                 const active = state.selectedWorker === name;
                 const updated = formatUpdatedAt(draft.updatedAt);
-                return `<button type="button" class="outlook-assist-worker ${active ? 'active' : ''}" onclick="app.selectOutlookAssistWorker('${this.escapeJs(name)}')"><span>${this.escapeHtml(name)}</span><small>${this.escapeHtml(draft.subject || TXT.noDraft)}</small>${updated ? `<em>${this.escapeHtml(updated)}</em>` : ''}</button>`;
+                const title = draft.pageTitle || draft.subject || TXT.noDraft;
+                const pageCount = pages.length > 1 ? `${TXT.draftPageCount}${pages.length}\u4ef6 ${pageIndex + 1}/${pages.length}` : '';
+                const guestNote = !coreWorkers.length ? `<small>${TXT.guestWorkerNote}</small>` : '';
+                const pageColor = normalizeOutlookAssistTemplateColor(draft.pageColor || '');
+                return `<button type="button" class="outlook-assist-worker ${active ? 'active' : ''}" style="${pageColor ? `--page-color:${this.escapeHtml(pageColor)}` : ''}" onclick="app.selectOutlookAssistWorker('${this.escapeJs(name)}')"><span>${pageColor ? '<i class="outlook-page-color-dot"></i>' : ''}${this.escapeHtml(name)}</span>${guestNote}<small>${this.escapeHtml(title)}</small>${pageCount ? `<small>${this.escapeHtml(pageCount)}</small>` : ''}${updated ? `<em>${this.escapeHtml(updated)}</em>` : ''}</button>`;
             }).join('');
         },
 
@@ -1045,7 +1134,273 @@
         selectOutlookAssistWorker(name) {
             const state = this.getOutlookAssistState();
             state.selectedWorker = String(name || '').trim();
-            if (!state.draftsByWorker[state.selectedWorker]) state.draftsByWorker[state.selectedWorker] = createEmptyDraft();
+            this.getOutlookAssistDraftPages(state.selectedWorker);
+            store.save();
+            this.renderOutlookAssist();
+        },
+
+        getOutlookAssistDraftPages(worker = this.getOutlookAssistState().selectedWorker || '') {
+            const state = this.getOutlookAssistState();
+            const key = String(worker || '').trim();
+            if (!key) return [createEmptyDraft()];
+            let pages = state.draftPagesByWorker[key];
+            if (!Array.isArray(pages) || !pages.length) {
+                pages = [normalizeOutlookAssistDraftRecord(state.draftsByWorker[key] || createEmptyDraft())];
+            } else {
+                pages = pages.map(page => normalizeOutlookAssistDraftRecord(page));
+            }
+            state.draftPagesByWorker[key] = pages;
+            let index = Number(state.draftPageIndexByWorker[key]);
+            if (!Number.isFinite(index)) index = 0;
+            index = Math.max(0, Math.min(pages.length - 1, Math.floor(index)));
+            state.draftPageIndexByWorker[key] = index;
+            state.draftsByWorker[key] = pages[index];
+            return pages;
+        },
+
+        getOutlookAssistDraftPageIndex(worker = this.getOutlookAssistState().selectedWorker || '') {
+            const state = this.getOutlookAssistState();
+            this.getOutlookAssistDraftPages(worker);
+            return Math.max(0, Number(state.draftPageIndexByWorker[String(worker || '').trim()]) || 0);
+        },
+
+        setCurrentOutlookAssistDraft(nextDraft) {
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker || '';
+            if (!worker) return null;
+            const pages = this.getOutlookAssistDraftPages(worker);
+            const index = this.getOutlookAssistDraftPageIndex(worker);
+            const record = normalizeOutlookAssistDraftRecord({
+                ...nextDraft,
+                updatedAt: nextDraft?.updatedAt || new Date().toISOString()
+            });
+            pages[index] = record;
+            state.draftPagesByWorker[worker] = pages;
+            state.draftsByWorker[worker] = record;
+            return record;
+        },
+
+        isOutlookAssistDraftBlank(draft = {}) {
+            return ['to', 'cc', 'bcc', 'subject', 'body', 'machineName', 'pageTitle']
+                .every(field => !String(draft[field] || '').trim());
+        },
+
+        getUniqueOutlookAssistDraftPageTitle(baseTitle, pages = []) {
+            const base = String(baseTitle || '').replace(/\s+\u30b3\u30d4\u30fc\d*$/u, '').trim();
+            if (!base) return '';
+            const used = new Set((pages || []).map(page => String(page?.pageTitle || '').trim()).filter(Boolean));
+            let candidate = `${base} \u30b3\u30d4\u30fc`;
+            let index = 2;
+            while (used.has(candidate)) {
+                candidate = `${base} \u30b3\u30d4\u30fc${index}`;
+                index += 1;
+            }
+            return candidate;
+        },
+
+        getUniqueOutlookAssistDraftPageTitleExact(baseTitle, pages = []) {
+            const base = String(baseTitle || '').trim();
+            if (!base) return '';
+            const used = new Set((pages || []).map(page => String(page?.pageTitle || '').trim()).filter(Boolean));
+            if (!used.has(base)) return base;
+            let index = 2;
+            let candidate = `${base}${index}`;
+            while (used.has(candidate)) {
+                index += 1;
+                candidate = `${base}${index}`;
+            }
+            return candidate;
+        },
+
+        toggleOutlookAssistDraftPageList() {
+            this._outlookAssistShowDraftPageList = !this._outlookAssistShowDraftPageList;
+            this.renderOutlookAssistComposer();
+        },
+
+        closeOutlookAssistDraftPageList() {
+            if (!this._outlookAssistShowDraftPageList) return;
+            this._outlookAssistShowDraftPageList = false;
+            this.renderOutlookAssistComposer();
+        },
+
+        jumpOutlookAssistDraftPage(index) {
+            this.saveOutlookAssistDraftFromForm();
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker || '';
+            if (!worker) return;
+            const pages = this.getOutlookAssistDraftPages(worker);
+            const nextIndex = Math.max(0, Math.min(pages.length - 1, Number(index) || 0));
+            const changed = nextIndex !== this.getOutlookAssistDraftPageIndex(worker);
+            state.draftPageIndexByWorker[worker] = nextIndex;
+            state.draftsByWorker[worker] = pages[nextIndex] || createEmptyDraft();
+            this._outlookAssistShowDraftPageList = false;
+            store.save();
+            this.renderOutlookAssist();
+            if (changed) this.showOutlookAssistDraftPageSwitchNotice();
+        },
+
+        showOutlookAssistDraftPageSwitchNotice() {
+            document.getElementById('outlook-draft-page-switch-notice')?.remove();
+            if (this._outlookDraftPageSwitchNoticeTimer) clearTimeout(this._outlookDraftPageSwitchNoticeTimer);
+            const notice = document.createElement('div');
+            notice.id = 'outlook-draft-page-switch-notice';
+            notice.className = 'outlook-draft-page-switch-notice';
+            notice.innerHTML = '<i class="fa-solid fa-layer-group"></i><span>下書きページを切り替えました</span>';
+            document.body.appendChild(notice);
+            requestAnimationFrame(() => notice.classList.add('show'));
+            this._outlookDraftPageSwitchNoticeTimer = setTimeout(() => {
+                notice.classList.remove('show');
+                setTimeout(() => notice.remove(), 260);
+            }, 3000);
+        },
+
+        getOutlookAssistDraftPageListHtml(pages, currentIndex) {
+            if (!this._outlookAssistShowDraftPageList) return '';
+            return `<div class="outlook-draft-page-list-backdrop" onclick="app.closeOutlookAssistDraftPageList()"></div><div class="outlook-draft-page-list" onclick="event.stopPropagation()">${(pages || []).map((page, index) => {
+                const title = page.pageTitle || page.subject || TXT.noDraft;
+                const body = normalizePlainText(page.body || '').slice(0, 34);
+                const pageColor = normalizeOutlookAssistTemplateColor(page.pageColor || '');
+                return `<div class="outlook-draft-page-list-row ${index === currentIndex ? 'active' : ''}" style="${pageColor ? `--page-color:${this.escapeHtml(pageColor)}` : ''}">
+                    <button type="button" class="outlook-draft-page-list-main" onclick="app.jumpOutlookAssistDraftPage(${index})"><i class="outlook-draft-page-list-dot"></i><span><b>${index + 1}. ${this.escapeHtml(title)}</b>${body ? `<small>${this.escapeHtml(body)}</small>` : ''}</span></button>
+                    <div class="outlook-draft-page-list-actions">
+                        <label title="${TXT.pageColor}" class="outlook-draft-page-list-color" style="${pageColor ? `--page-color:${this.escapeHtml(pageColor)}` : ''}"><i class="fa-solid fa-palette"></i><input type="color" value="${this.escapeHtml(pageColor || '#ffffff')}" oninput="app.setOutlookAssistDraftPageColor(${index}, this.value)"></label>
+                        ${this.getOutlookAssistDraftPageColorPresetHtml(index, pageColor)}
+                        <button type="button" title="${TXT.movePageUp}" onclick="app.moveOutlookAssistDraftPage(${index}, -1)" ${index <= 0 ? 'disabled' : ''}><i class="fa-solid fa-arrow-up"></i></button>
+                        <button type="button" title="${TXT.movePageDown}" onclick="app.moveOutlookAssistDraftPage(${index}, 1)" ${index >= pages.length - 1 ? 'disabled' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                        <button type="button" title="${TXT.duplicateDraftPage}" onclick="app.duplicateOutlookAssistDraftPage(${index})"><i class="fa-regular fa-copy"></i></button>
+                        <button type="button" title="${TXT.deleteDraftPage}" onclick="app.deleteOutlookAssistDraftPage(${index})" ${pages.length <= 1 ? 'disabled' : ''}><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
+                </div>`;
+            }).join('')}</div>`;
+        },
+
+        getOutlookAssistDraftPageColorPresetHtml(index = null, selectedColor = '') {
+            const normalizedSelectedColor = normalizeOutlookAssistTemplateColor(selectedColor || '');
+            return `<div class="outlook-page-color-presets">${DRAFT_PAGE_COLOR_PRESETS.map(item => {
+                const isSelected = item.color ? item.color === normalizedSelectedColor : !normalizedSelectedColor;
+                const style = item.color ? `--preset-color:${this.escapeHtml(item.color)}` : '';
+                const onclick = index === null
+                    ? `app.setOutlookAssistCurrentDraftPageColor('${this.escapeJs(item.color || '')}')`
+                    : `app.setOutlookAssistDraftPageColor(${index}, '${this.escapeJs(item.color || '')}')`;
+                return `<button type="button" class="${isSelected ? 'selected' : ''}" title="${this.escapeHtml(item.label)}" style="${style}" onclick="${onclick}">${isSelected ? '<i class="fa-solid fa-check"></i>' : ''}</button>`;
+            }).join('')}</div>`;
+        },
+
+        setOutlookAssistCurrentDraftPageColor(color) {
+            this.saveOutlookAssistDraftFromForm();
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker || '';
+            if (!worker) return;
+            this.setOutlookAssistDraftPageColor(this.getOutlookAssistDraftPageIndex(worker), color);
+        },
+
+        setOutlookAssistDraftPageColor(index, color) {
+            this.saveOutlookAssistDraftFromForm();
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker || '';
+            if (!worker) return;
+            const pages = this.getOutlookAssistDraftPages(worker);
+            const targetIndex = Math.max(0, Math.min(pages.length - 1, Number(index) || 0));
+            const pageColor = normalizeOutlookAssistTemplateColor(color || '');
+            pages[targetIndex] = {
+                ...normalizeOutlookAssistDraftRecord(pages[targetIndex] || createEmptyDraft()),
+                pageColor: pageColor === '#ffffff' ? '' : pageColor,
+                updatedAt: new Date().toISOString()
+            };
+            state.draftPagesByWorker[worker] = pages;
+            state.draftsByWorker[worker] = pages[this.getOutlookAssistDraftPageIndex(worker)] || pages[0] || createEmptyDraft();
+            store.save();
+            this.renderOutlookAssistComposer();
+            this.renderOutlookAssistWorkers();
+        },
+
+        moveOutlookAssistDraftPage(index, direction) {
+            this.saveOutlookAssistDraftFromForm();
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker || '';
+            if (!worker) return;
+            const pages = this.getOutlookAssistDraftPages(worker);
+            const from = Math.max(0, Math.min(pages.length - 1, Number(index) || 0));
+            const to = from + (direction < 0 ? -1 : 1);
+            if (to < 0 || to >= pages.length) return;
+            const [page] = pages.splice(from, 1);
+            pages.splice(to, 0, page);
+            const current = this.getOutlookAssistDraftPageIndex(worker);
+            let nextCurrent = current;
+            if (current === from) nextCurrent = to;
+            else if (from < current && to >= current) nextCurrent = current - 1;
+            else if (from > current && to <= current) nextCurrent = current + 1;
+            state.draftPagesByWorker[worker] = pages;
+            state.draftPageIndexByWorker[worker] = nextCurrent;
+            state.draftsByWorker[worker] = pages[nextCurrent] || createEmptyDraft();
+            store.save();
+            this.renderOutlookAssist();
+        },
+
+        switchOutlookAssistDraftPage(direction) {
+            this.saveOutlookAssistDraftFromForm();
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker || '';
+            if (!worker) return;
+            const pages = this.getOutlookAssistDraftPages(worker);
+            let index = Math.max(0, Math.min(pages.length - 1, Number(state.draftPageIndexByWorker[worker]) || 0));
+            const previousIndex = index;
+            if (direction > 0) {
+                if (index >= pages.length - 1) pages.push(createEmptyDraft());
+                index += 1;
+            } else {
+                index = Math.max(0, index - 1);
+            }
+            state.draftPagesByWorker[worker] = pages;
+            state.draftPageIndexByWorker[worker] = Math.max(0, Math.min(pages.length - 1, index));
+            state.draftsByWorker[worker] = pages[state.draftPageIndexByWorker[worker]];
+            store.save();
+            this.renderOutlookAssist();
+            if (state.draftPageIndexByWorker[worker] !== previousIndex) this.showOutlookAssistDraftPageSwitchNotice();
+        },
+
+        deleteOutlookAssistDraftPage(targetIndex = null) {
+            this.saveOutlookAssistDraftFromForm();
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker || '';
+            if (!worker) return;
+            const pages = this.getOutlookAssistDraftPages(worker);
+            if (pages.length <= 1) return;
+            if (!confirm(TXT.draftPageDeleteAsk)) return;
+            const currentIndex = Math.max(0, Math.min(pages.length - 1, Number(state.draftPageIndexByWorker[worker]) || 0));
+            const index = targetIndex === null ? currentIndex : Math.max(0, Math.min(pages.length - 1, Number(targetIndex) || 0));
+            pages.splice(index, 1);
+            let nextIndex = currentIndex;
+            if (index === currentIndex) nextIndex = Math.max(0, Math.min(pages.length - 1, index - 1));
+            else if (index < currentIndex) nextIndex = Math.max(0, currentIndex - 1);
+            nextIndex = Math.max(0, Math.min(pages.length - 1, nextIndex));
+            state.draftPagesByWorker[worker] = pages;
+            state.draftPageIndexByWorker[worker] = nextIndex;
+            state.draftsByWorker[worker] = pages[nextIndex] || createEmptyDraft();
+            store.save();
+            this.renderOutlookAssist();
+        },
+
+        duplicateOutlookAssistDraftPage(targetIndex = null) {
+            this.saveOutlookAssistDraftFromForm();
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker || '';
+            if (!worker) return;
+            const pages = this.getOutlookAssistDraftPages(worker);
+            const index = targetIndex === null
+                ? Math.max(0, Math.min(pages.length - 1, Number(state.draftPageIndexByWorker[worker]) || 0))
+                : Math.max(0, Math.min(pages.length - 1, Number(targetIndex) || 0));
+            const current = normalizeOutlookAssistDraftRecord(pages[index] || this.getCurrentOutlookAssistDraft());
+            const baseTitle = current.pageTitle || current.subject || '';
+            const copied = normalizeOutlookAssistDraftRecord({
+                ...current,
+                pageTitle: this.getUniqueOutlookAssistDraftPageTitle(baseTitle, pages),
+                updatedAt: new Date().toISOString()
+            });
+            pages.splice(index + 1, 0, copied);
+            state.draftPagesByWorker[worker] = pages;
+            state.draftPageIndexByWorker[worker] = index + 1;
+            state.draftsByWorker[worker] = copied;
             store.save();
             this.renderOutlookAssist();
         },
@@ -1054,13 +1409,18 @@
             const state = this.getOutlookAssistState();
             const worker = state.selectedWorker || '';
             if (!worker) return createEmptyDraft();
-            if (!state.draftsByWorker[worker]) state.draftsByWorker[worker] = createEmptyDraft();
-            const draft = state.draftsByWorker[worker];
+            const pages = this.getOutlookAssistDraftPages(worker);
+            const draft = pages[this.getOutlookAssistDraftPageIndex(worker)] || createEmptyDraft();
             if (!draft.wrapAt) draft.wrapAt = DEFAULT_WRAP_AT;
             if (typeof draft.autoWrap !== 'boolean') draft.autoWrap = true;
             if (typeof draft.machineName !== 'string') draft.machineName = '';
             if (typeof draft.insertLabel !== 'string') draft.insertLabel = TXT.machine;
             return draft;
+        },
+
+        markOutlookAssistPageTitleLocked() {
+            const checkbox = document.getElementById('outlook-assist-page-title-lock');
+            if (checkbox) checkbox.checked = true;
         },
 
         renderOutlookAssistComposer() {
@@ -1080,12 +1440,32 @@
             const templateFormInsertLabel = editingTemplate ? (editingTemplate.insertLabel || TXT.machine) : this.getOutlookAssistInsertLabel();
             const templateFormCategory = editingTemplate ? this.getOutlookAssistTemplateCategoryId(editingTemplate.category || 'other') : 'request';
             const bodyTopCollapsed = !!state.bodyTopCollapsed;
+            const draftPages = this.getOutlookAssistDraftPages(worker);
+            const draftPageIndex = this.getOutlookAssistDraftPageIndex(worker);
+            const draftPageColor = normalizeOutlookAssistTemplateColor(draft.pageColor || '');
+            const pageControlsDisabled = editingTemplate ? 'disabled' : '';
+            const pageControlsTitle = editingTemplate ? '\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u7de8\u96c6\u4e2d\u306f\u4e0b\u66f8\u304d\u30da\u30fc\u30b8\u3092\u5207\u308a\u66ff\u3048\u3067\u304d\u307e\u305b\u3093' : '';
             container.innerHTML = `
-                <div class="outlook-compose-card ${bodyTopCollapsed ? 'body-focus' : ''}">
+                <div class="outlook-compose-card ${bodyTopCollapsed ? 'body-focus' : ''} ${editingTemplate ? 'template-editing' : ''}">
                     <div class="outlook-compose-top">
-                        <div><span class="outlook-compose-label">${TXT.composing}</span><h2>${this.escapeHtml(worker)}${TXT.draftSuffix}</h2></div>
+                        <div class="outlook-compose-title-area">
+                            <div class="outlook-compose-worker-name">${this.escapeHtml(worker)}</div>
+                        </div>
                         <div class="outlook-compose-actions">
+                            <div class="outlook-draft-page-switcher" style="${draftPageColor ? `--page-color:${this.escapeHtml(draftPageColor)}` : ''}">
+                                <button type="button" class="secondary-btn" title="${pageControlsTitle}" onclick="app.switchOutlookAssistDraftPage(-1)" ${pageControlsDisabled || (draftPageIndex <= 0 ? 'disabled' : '')}>&#9664;</button>
+                                <button type="button" class="outlook-draft-page-count" title="${pageControlsTitle || TXT.pageList}" onclick="app.toggleOutlookAssistDraftPageList()" ${pageControlsDisabled}>${draftPageIndex + 1}/${draftPages.length}</button>
+                                <button type="button" class="secondary-btn" title="${pageControlsTitle}" onclick="app.switchOutlookAssistDraftPage(1)" ${pageControlsDisabled}>&#9654;</button>
+                                <input id="outlook-assist-page-title" value="${this.escapeHtml(draft.pageTitle || '')}" placeholder="${TXT.pageName}" oninput="app.markOutlookAssistPageTitleLocked(); app.saveOutlookAssistDraftFromForm()" ${pageControlsDisabled}>
+                                <label class="outlook-page-color-picker ${editingTemplate ? 'disabled' : ''}" title="${pageControlsTitle || TXT.pageColor}" style="${draftPageColor ? `--page-color:${this.escapeHtml(draftPageColor)}` : ''}"><i class="fa-solid fa-palette"></i><input id="outlook-assist-page-color" type="color" value="${this.escapeHtml(draftPageColor || '#ffffff')}" oninput="app.saveOutlookAssistDraftFromForm(); app.renderOutlookAssistWorkers()" ${pageControlsDisabled}></label>
+                                ${editingTemplate ? '' : this.getOutlookAssistDraftPageColorPresetHtml(null, draftPageColor)}
+                                <label class="outlook-page-title-lock"><input id="outlook-assist-page-title-lock" type="checkbox" ${draft.pageTitleLocked ? 'checked' : ''} onchange="app.saveOutlookAssistDraftFromForm()" ${pageControlsDisabled}> ${TXT.pageTitleLock}</label>
+                                <button type="button" class="secondary-btn" title="${pageControlsTitle || TXT.duplicateDraftPage}" onclick="app.duplicateOutlookAssistDraftPage()" ${pageControlsDisabled}><i class="fa-regular fa-copy"></i></button>
+                                <button type="button" class="secondary-btn outlook-draft-page-delete" title="${pageControlsTitle || TXT.deleteDraftPage}" onclick="app.deleteOutlookAssistDraftPage()" ${pageControlsDisabled || (draftPages.length <= 1 ? 'disabled' : '')}><i class="fa-solid fa-trash-can"></i></button>
+                                ${this.getOutlookAssistDraftPageListHtml(draftPages, draftPageIndex)}
+                            </div>
                             <button type="button" class="secondary-btn" onclick="app.openOutlookAssistAddressBook('manage')"><i class="fa-solid fa-address-book"></i> ${TXT.addressBook}</button>
+                            ${editingTemplate ? `<div class="outlook-template-edit-top-indicator"><span><i class="fa-solid fa-pen-to-square"></i> \u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u7de8\u96c6\u753b\u9762: ${this.escapeHtml(editingTitle || TXT.unnamed)}</span><button type="button" class="save" onclick="app.saveOutlookAssistTemplate('overwrite')"><i class="fa-solid fa-floppy-disk"></i> \u4e0a\u66f8\u304d</button><button type="button" onclick="app.saveOutlookAssistTemplate('copy')"><i class="fa-regular fa-copy"></i> \u5225\u540d</button><button type="button" onclick="app.clearOutlookAssistTemplateEditMode()"><i class="fa-solid fa-arrow-left"></i> \u4e0b\u66f8\u304d\u306b\u623b\u308b</button></div>` : ''}
                             <button type="button" class="secondary-btn" onclick="app.exportOutlookAssistPersonalData()"><i class="fa-solid fa-file-export"></i> ${TXT.exportPersonal}</button>
                             <button type="button" class="secondary-btn" onclick="document.getElementById('outlook-personal-import-file')?.click()"><i class="fa-solid fa-file-import"></i> ${TXT.importPersonal}</button>
                             <input id="outlook-personal-import-file" type="file" accept="application/json,.json" hidden onchange="app.importOutlookAssistPersonalDataFromFile(this.files?.[0]); this.value = '';">
@@ -1118,11 +1498,14 @@
                         </div>
                         <div class="outlook-body-toolbar">
                             <button type="button" class="secondary-btn outlook-body-focus-toggle ${bodyTopCollapsed ? 'active' : ''}" onclick="app.toggleOutlookAssistBodyTop()"><i class="fa-solid ${bodyTopCollapsed ? 'fa-compress' : 'fa-expand'}"></i> ${bodyTopCollapsed ? TXT.expandBodyTop : TXT.collapseBodyTop}</button>
+                            <button type="button" id="outlook-body-undo-btn" class="secondary-btn" onclick="app.undoOutlookAssistBody()" disabled><i class="fa-solid fa-rotate-left"></i> ${TXT.undoBody}</button>
+                            <button type="button" id="outlook-body-redo-btn" class="secondary-btn" onclick="app.redoOutlookAssistBody()" disabled><i class="fa-solid fa-rotate-right"></i> ${TXT.redoBody}</button>
                             <label class="outlook-wrap-control"><i class="fa-solid fa-align-left"></i><span>${TXT.autoWrap}</span><input id="outlook-assist-auto-wrap" type="checkbox" ${draft.autoWrap ? 'checked' : ''} onchange="app.saveOutlookAssistDraftFromForm(); app.applyOutlookAssistWrap()"></label>
                             <label class="outlook-wrap-control outlook-merge-wrap-control ${draft.mergeWrap ? 'active' : ''}" title="${TXT.mergeWrapHelp}"><i class="fa-solid fa-link"></i><span>${TXT.mergeWrap}</span><input id="outlook-assist-merge-wrap" type="checkbox" ${draft.mergeWrap ? 'checked' : ''} onchange="app.toggleOutlookAssistMergeWrap(this.checked)"></label>
                             <label class="outlook-wrap-control"><span>${TXT.chars}</span><input id="outlook-assist-wrap-at" type="number" min="10" max="120" value="${this.escapeHtml(draft.wrapAt)}" oninput="app.saveOutlookAssistDraftFromForm(); app.applyOutlookAssistWrap()"></label>
                             <button type="button" class="secondary-btn" onclick="app.applyOutlookAssistWrap(true)"><i class="fa-solid fa-align-left"></i> ${TXT.wrapNow}</button>
                             <button type="button" class="secondary-btn" onclick="app.unwrapOutlookAssistBody()"><i class="fa-solid fa-arrow-rotate-left"></i> ${TXT.unwrapNow}</button>
+                            <button type="button" class="secondary-btn" onclick="app.removeOutlookAssistBlankLines()"><i class="fa-solid fa-compress-lines"></i> ${TXT.removeBlankLines}</button>
                             <button type="button" class="secondary-btn outlook-copy-btn" onclick="app.copyOutlookAssistField('to')"><i class="fa-regular fa-copy"></i> ${TXT.copyTo}</button>
                             <button type="button" class="secondary-btn outlook-copy-btn" onclick="app.copyOutlookAssistField('cc')"><i class="fa-regular fa-copy"></i> ${TXT.copyCc}</button>
                             <button type="button" class="secondary-btn outlook-copy-btn" onclick="app.copyOutlookAssistField('bcc')"><i class="fa-regular fa-copy"></i> ${TXT.copyBcc}</button>
@@ -1136,7 +1519,7 @@
                             <button type="button" onclick="app.insertOutlookAssistVariable('${TXT.varMachine}')">${TXT.varMachine}</button>
                         </div>
                         ${this.getOutlookAssistQuickPhrasesHtml()}
-                        <textarea id="outlook-assist-body" class="outlook-body-input" placeholder="${TXT.bodyPlaceholder}" onkeydown="app.handleOutlookAssistBodyKeydown(event)" oninput="app.onOutlookAssistBodyInput()" onpaste="app.pastePlainTextIntoOutlookBody(event)">${this.escapeHtml(draft.body)}</textarea>
+                        <textarea id="outlook-assist-body" class="outlook-body-input" placeholder="${TXT.bodyPlaceholder}" onkeydown="app.handleOutlookAssistBodyKeydown(event)" oncompositionstart="this.dataset.composing = 'true'" oncompositionend="this.dataset.composing = 'false'; app.onOutlookAssistBodyInput(event)" oninput="app.onOutlookAssistBodyInput(event)" onpaste="app.pastePlainTextIntoOutlookBody(event)">${this.escapeHtml(draft.body)}</textarea>
                         <div id="outlook-assist-warning" class="outlook-assist-warning" hidden></div>
                         ${this.getOutlookAssistTemplateDiffHtml()}
                         <div class="outlook-copy-preview">
@@ -1180,6 +1563,8 @@
                 ${this.getOutlookAssistAddressBookModalHtml()}
             `;
             this.attachOutlookAssistPlainPasteHandlers();
+            this.syncOutlookAssistBodyHistory(draft.body || '');
+            this.updateOutlookAssistBodyHistoryButtons();
             this.renderOutlookAssistPreview();
         },
 
@@ -1407,18 +1792,106 @@
             this.onOutlookAssistBodyInput();
         },
 
-        onOutlookAssistBodyInput() {
+        getOutlookAssistBodyHistory() {
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker || '';
+            if (!worker) return null;
+            if (!this._outlookAssistBodyHistoryByWorker) this._outlookAssistBodyHistoryByWorker = {};
+            const key = `${worker}::${this.getOutlookAssistDraftPageIndex(worker)}`;
+            if (!this._outlookAssistBodyHistoryByWorker[key]) {
+                this._outlookAssistBodyHistoryByWorker[key] = {
+                    undo: [],
+                    redo: [],
+                    current: String(this.getCurrentOutlookAssistDraft().body || '')
+                };
+            }
+            return this._outlookAssistBodyHistoryByWorker[key];
+        },
+
+        syncOutlookAssistBodyHistory(value) {
+            const history = this.getOutlookAssistBodyHistory();
+            if (!history) return;
+            const next = String(value || '');
+            if (typeof history.current !== 'string') {
+                history.current = next;
+                return;
+            }
+            if (history.current === next) return;
+            history.undo.push(history.current);
+            if (history.undo.length > 80) history.undo.shift();
+            history.redo = [];
+            history.current = next;
+        },
+
+        recordOutlookAssistBodyHistory(nextValue) {
+            const history = this.getOutlookAssistBodyHistory();
+            if (!history) return;
+            const next = String(nextValue || '');
+            if (history.current === next) {
+                this.updateOutlookAssistBodyHistoryButtons();
+                return;
+            }
+            history.undo.push(history.current);
+            if (history.undo.length > 80) history.undo.shift();
+            history.redo = [];
+            history.current = next;
+            this.updateOutlookAssistBodyHistoryButtons();
+        },
+
+        updateOutlookAssistBodyHistoryButtons() {
+            const history = this.getOutlookAssistBodyHistory();
+            const undoBtn = document.getElementById('outlook-body-undo-btn');
+            const redoBtn = document.getElementById('outlook-body-redo-btn');
+            if (undoBtn) undoBtn.disabled = !history?.undo?.length;
+            if (redoBtn) redoBtn.disabled = !history?.redo?.length;
+        },
+
+        applyOutlookAssistBodyHistoryValue(value) {
+            const body = document.getElementById('outlook-assist-body');
+            if (!body) return;
+            body.value = String(value || '');
+            body.selectionStart = body.selectionEnd = body.value.length;
+            this.saveOutlookAssistDraftFromForm();
+            this.updateOutlookAssistBodyHistoryButtons();
+            body.focus();
+        },
+
+        undoOutlookAssistBody() {
+            const body = document.getElementById('outlook-assist-body');
+            const history = this.getOutlookAssistBodyHistory();
+            if (!body || !history?.undo?.length) return;
+            const current = body.value;
+            const previous = history.undo.pop();
+            history.redo.push(current);
+            history.current = previous;
+            this.applyOutlookAssistBodyHistoryValue(previous);
+        },
+
+        redoOutlookAssistBody() {
+            const body = document.getElementById('outlook-assist-body');
+            const history = this.getOutlookAssistBodyHistory();
+            if (!body || !history?.redo?.length) return;
+            const current = body.value;
+            const next = history.redo.pop();
+            history.undo.push(current);
+            history.current = next;
+            this.applyOutlookAssistBodyHistoryValue(next);
+        },
+
+        onOutlookAssistBodyInput(event) {
             const draft = this.getCurrentOutlookAssistDraft();
             const body = document.getElementById('outlook-assist-body');
             if (!body) return;
+            if (event?.isComposing || body.dataset.composing === 'true') {
+                this.saveOutlookAssistDraftFromForm();
+                return;
+            }
             if (draft.autoWrap) {
                 const mergeWrap = !!document.getElementById('outlook-assist-merge-wrap')?.checked || !!draft.mergeWrap;
-                const wrapped = mergeWrap ? wrapTextByMergingNextLine(body.value, draft.wrapAt) : wrapText(body.value, draft.wrapAt);
-                if (wrapped !== body.value) {
-                    body.value = wrapped;
-                    body.selectionStart = body.selectionEnd = body.value.length;
-                }
+                const transform = value => mergeWrap ? wrapTextByMergingNextLine(value, draft.wrapAt) : wrapText(value, draft.wrapAt);
+                setTextareaValuePreservingCursor(body, transform(body.value), transform);
             }
+            this.recordOutlookAssistBodyHistory(body.value);
             this.saveOutlookAssistDraftFromForm();
         },
 
@@ -1426,7 +1899,11 @@
             const draft = this.getCurrentOutlookAssistDraft();
             const body = document.getElementById('outlook-assist-body');
             const mergeWrap = !!document.getElementById('outlook-assist-merge-wrap')?.checked || !!draft.mergeWrap;
-            if (body && (draft.autoWrap || force)) body.value = mergeWrap ? wrapTextByMergingNextLine(body.value, draft.wrapAt) : wrapText(body.value, draft.wrapAt);
+            if (body && (draft.autoWrap || force)) {
+                const transform = value => mergeWrap ? wrapTextByMergingNextLine(value, draft.wrapAt) : wrapText(value, draft.wrapAt);
+                setTextareaValuePreservingCursor(body, transform(body.value), transform);
+            }
+            if (body) this.recordOutlookAssistBodyHistory(body.value);
             this.saveOutlookAssistDraftFromForm();
         },
 
@@ -1437,7 +1914,7 @@
             const worker = state.selectedWorker;
             if (!worker) return;
             const draft = this.getCurrentOutlookAssistDraft();
-            state.draftsByWorker[worker] = { ...draft, mergeWrap: !!checked, updatedAt: new Date().toISOString() };
+            this.setCurrentOutlookAssistDraft({ ...draft, mergeWrap: !!checked, updatedAt: new Date().toISOString() });
             store.save();
             this.applyOutlookAssistWrap();
         },
@@ -1446,6 +1923,29 @@
             const body = document.getElementById('outlook-assist-body');
             if (!body) return;
             body.value = unwrapText(body.value);
+            this.recordOutlookAssistBodyHistory(body.value);
+            this.saveOutlookAssistDraftFromForm();
+            body.focus();
+        },
+
+        removeOutlookAssistBlankLines() {
+            const body = document.getElementById('outlook-assist-body');
+            if (!body) return;
+            const removeBlankLines = value => normalizePlainText(value)
+                .split('\n')
+                .filter(line => line.trim() !== '')
+                .join('\n');
+            const value = body.value;
+            const start = body.selectionStart ?? 0;
+            const end = body.selectionEnd ?? start;
+            if (start !== end) {
+                const cleaned = removeBlankLines(value.slice(start, end));
+                body.value = value.slice(0, start) + cleaned + value.slice(end);
+                body.setSelectionRange(start, start + cleaned.length);
+            } else {
+                setTextareaValuePreservingCursor(body, removeBlankLines(value), removeBlankLines);
+            }
+            this.recordOutlookAssistBodyHistory(body.value);
             this.saveOutlookAssistDraftFromForm();
             body.focus();
         },
@@ -1610,12 +2110,22 @@
             const state = this.getOutlookAssistState();
             const worker = state.selectedWorker;
             if (!worker) return;
-            const previous = state.draftsByWorker[worker] || {};
+            const previous = this.getCurrentOutlookAssistDraft();
+            const pageTitleInput = normalizePlainText(getFieldValue('outlook-assist-page-title')).replace(/\n+/g, ' ').trim();
+            const subjectInput = normalizePlainText(getFieldValue('outlook-assist-subject')).replace(/\n+/g, ' ');
+            const pageTitleLocked = !!document.getElementById('outlook-assist-page-title-lock')?.checked;
+            const pageColorInput = normalizeOutlookAssistTemplateColor(document.getElementById('outlook-assist-page-color')?.value || '');
+            const previousPageTitle = String(previous.pageTitle || '').trim();
+            const previousSubject = String(previous.subject || '').trim();
+            const shouldAutoPageTitle = !pageTitleLocked && (!pageTitleInput || (pageTitleInput === previousPageTitle && previousPageTitle === previousSubject));
             const nextDraft = {
+                pageTitle: shouldAutoPageTitle ? subjectInput.trim() : pageTitleInput,
+                pageTitleLocked,
+                pageColor: pageColorInput === '#ffffff' ? '' : pageColorInput,
                 to: normalizePlainText(getFieldValue('outlook-assist-to')).replace(/\n+/g, ' '),
                 cc: normalizePlainText(getFieldValue('outlook-assist-cc')).replace(/\n+/g, ' '),
                 bcc: normalizePlainText(getFieldValue('outlook-assist-bcc')).replace(/\n+/g, ' '),
-                subject: normalizePlainText(getFieldValue('outlook-assist-subject')).replace(/\n+/g, ' '),
+                subject: subjectInput,
                 machineName: normalizePlainText(getFieldValue('outlook-assist-machine')).replace(/\n+/g, ' '),
                 insertLabel: this.getOutlookAssistInsertLabel(),
                 body: normalizePlainText(getFieldValue('outlook-assist-body')),
@@ -1632,9 +2142,7 @@
                     if (`${previous[field] || ''}\n${nextDraft[field] || ''}`.includes(TXT.varMachine)) status[field] = false;
                 });
             }
-            state.draftsByWorker[worker] = {
-                ...nextDraft
-            };
+            this.setCurrentOutlookAssistDraft(nextDraft);
             clearTimeout(this._outlookAssistSaveTimer);
             this.renderOutlookAssistPreview();
             this.renderOutlookAssistCopyChecklist();
@@ -1732,13 +2240,13 @@
             const worker = state.selectedWorker;
             if (!set || !worker) return;
             const draft = this.getCurrentOutlookAssistDraft();
-            state.draftsByWorker[worker] = {
+            this.setCurrentOutlookAssistDraft({
                 ...draft,
                 to: set.to || '',
                 cc: set.cc || '',
                 bcc: set.bcc || '',
                 updatedAt: new Date().toISOString()
-            };
+            });
             const status = this.getOutlookAssistCopyStatus(worker);
             status.to = false;
             status.cc = false;
@@ -1954,8 +2462,33 @@
             const template = state.templates.find(t => t.id === id);
             const worker = state.selectedWorker;
             if (!template || !worker) return;
+            if (this._outlookAssistEditingTemplateId === id) {
+                this.clearOutlookAssistTemplateEditMode();
+                return;
+            }
+            if (this._outlookAssistEditingTemplateId && this._outlookAssistTemplateEditDraftBackup) {
+                const currentEditing = this.getOutlookAssistEditingTemplate();
+                if (currentEditing && this.hasOutlookAssistTemplateEditChanges(currentEditing)) {
+                    const saveAndSwitch = confirm('\u7de8\u96c6\u4e2d\u306e\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u306b\u5909\u66f4\u304c\u3042\u308a\u307e\u3059\u3002\n\u4fdd\u5b58\u3057\u3066\u304b\u3089\u5225\u306e\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u3092\u7de8\u96c6\u3057\u307e\u3059\u304b\uff1f');
+                    if (saveAndSwitch) {
+                        this.saveOutlookAssistTemplate('overwrite', { skipOverwriteConfirm: true });
+                    } else if (!confirm('\u4fdd\u5b58\u305b\u305a\u306b\u5225\u306e\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u7de8\u96c6\u3078\u5207\u308a\u66ff\u3048\u307e\u3059\u304b\uff1f')) {
+                        return;
+                    }
+                }
+                this.restoreOutlookAssistDraftAfterTemplateEdit();
+                this._outlookAssistEditingTemplateId = '';
+            } else {
+                this.saveOutlookAssistDraftFromForm();
+            }
+            const draftIndex = this.getOutlookAssistDraftPageIndex(worker);
+            this._outlookAssistTemplateEditDraftBackup = {
+                worker,
+                index: draftIndex,
+                draft: normalizeOutlookAssistDraftRecord(this.getCurrentOutlookAssistDraft())
+            };
             this._outlookAssistEditingTemplateId = id;
-            state.draftsByWorker[worker] = {
+            this.setCurrentOutlookAssistDraft({
                 ...this.getCurrentOutlookAssistDraft(),
                 to: template.to || '',
                 cc: template.cc || '',
@@ -1965,10 +2498,10 @@
                 insertLabel: template.insertLabel || TXT.machine,
                 body: template.body || '',
                 wrapAt: template.wrapAt || DEFAULT_WRAP_AT,
-            autoWrap: true,
-            mergeWrap: false,
+                autoWrap: true,
+                mergeWrap: false,
                 updatedAt: new Date().toISOString()
-            };
+            });
             const status = this.getOutlookAssistCopyStatus(worker);
             ['to', 'cc', 'bcc', 'subject', 'body'].forEach(field => { status[field] = false; });
             store.save();
@@ -1977,8 +2510,33 @@
             this.showToast(TXT.editLoaded, 'success');
         },
 
-        clearOutlookAssistTemplateEditMode() {
+        restoreOutlookAssistDraftAfterTemplateEdit() {
+            const backup = this._outlookAssistTemplateEditDraftBackup;
+            this._outlookAssistTemplateEditDraftBackup = null;
+            if (!backup?.worker || !backup?.draft) return;
+            const state = this.getOutlookAssistState();
+            const pages = this.getOutlookAssistDraftPages(backup.worker);
+            const index = Math.max(0, Math.min(pages.length - 1, Number(backup.index) || 0));
+            pages[index] = normalizeOutlookAssistDraftRecord(backup.draft);
+            state.draftPagesByWorker[backup.worker] = pages;
+            state.draftPageIndexByWorker[backup.worker] = index;
+            state.draftsByWorker[backup.worker] = pages[index];
+        },
+
+        clearOutlookAssistTemplateEditMode(options = {}) {
+            const editing = this.getOutlookAssistEditingTemplate();
+            if (editing && !options.skipConfirm && this.hasOutlookAssistTemplateEditChanges(editing)) {
+                const saveAndReturn = confirm('\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u306b\u5909\u66f4\u304c\u3042\u308a\u307e\u3059\u3002\n\u4fdd\u5b58\u3057\u3066\u4e0b\u66f8\u304d\u306b\u623b\u308a\u307e\u3059\u304b\uff1f');
+                if (saveAndReturn) {
+                    this.saveOutlookAssistTemplate('overwrite', { skipOverwriteConfirm: true, returnAfterSave: true });
+                    return;
+                }
+                const discardAndReturn = confirm('\u4fdd\u5b58\u305b\u305a\u306b\u4e0b\u66f8\u304d\u306b\u623b\u308a\u307e\u3059\u304b\uff1f');
+                if (!discardAndReturn) return;
+            }
+            this.restoreOutlookAssistDraftAfterTemplateEdit();
             this._outlookAssistEditingTemplateId = '';
+            store.save();
             this.renderOutlookAssist();
         },
 
@@ -2015,7 +2573,7 @@
             return candidate;
         },
 
-        saveOutlookAssistTemplate(mode = 'normal') {
+        saveOutlookAssistTemplate(mode = 'normal', options = {}) {
             this.saveOutlookAssistDraftFromForm();
             const state = this.getOutlookAssistState();
             const draft = this.getCurrentOutlookAssistDraft();
@@ -2030,6 +2588,7 @@
             let finalTitle = title;
             if (mode === 'overwrite' && editing) {
                 existing = editing;
+                if (!options.skipOverwriteConfirm && !confirm(`\u4e0a\u66f8\u304d\u4fdd\u5b58\u5148\n\n\u300c${title}\u300d\n\n\u3053\u306e\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u3092\u4e0a\u66f8\u304d\u3057\u307e\u3059\u304b\uff1f`)) return;
                 const sameTitleOther = state.templates.find(t => t.id !== editingId && t.title === title);
                 if (sameTitleOther && !confirm(`${TXT.templateOverwriteAskA}${title}${TXT.templateOverwriteAskB}`)) return;
             } else if (mode === 'copy' && editing) {
@@ -2042,7 +2601,12 @@
             const record = this.buildOutlookAssistTemplateRecord(existing, finalTitle, category, insertLabel, cardColor, draft);
             if (existing) Object.assign(existing, record);
             else state.templates.push(record);
-            if (mode === 'copy') this._outlookAssistEditingTemplateId = '';
+            if (editing) {
+                this.restoreOutlookAssistDraftAfterTemplateEdit();
+                this._outlookAssistEditingTemplateId = '';
+            } else if (mode === 'copy') {
+                this._outlookAssistEditingTemplateId = '';
+            }
             store.save();
             this.renderOutlookAssist();
             this.showToast(`${TXT.templateSavedA}${finalTitle}${TXT.templateSavedB}`, 'success');
@@ -2106,12 +2670,64 @@
             const worker = state.selectedWorker;
             if (!worker) return;
             const current = this.getCurrentOutlookAssistDraft();
+            if (!this.isOutlookAssistDraftBlank(current)) {
+                this.openOutlookAssistTemplateApplyChoice(id);
+                return;
+            }
+            this.applyOutlookAssistTemplateToTarget(id, 'current');
+        },
+
+        openOutlookAssistTemplateApplyChoice(id) {
+            const template = this.getOutlookAssistState().templates.find(t => t.id === id);
+            if (!template) return;
+            document.getElementById('outlook-template-apply-choice')?.remove();
+            const current = this.getCurrentOutlookAssistDraft();
+            const machineName = template.machineName || current.machineName || '';
+            const previewSubject = this.applyOutlookAssistVariables(template.subject || '', { machineName });
+            const previewBody = wrapText(this.applyOutlookAssistVariables(template.body || '', { machineName }), template.wrapAt || current.wrapAt || DEFAULT_WRAP_AT).slice(0, 120);
+            const modal = document.createElement('div');
+            modal.id = 'outlook-template-apply-choice';
+            modal.innerHTML = `
+                <div class="outlook-template-apply-backdrop" onclick="app.closeOutlookAssistTemplateApplyChoice()"></div>
+                <section class="outlook-template-apply-panel">
+                    <button type="button" class="outlook-template-apply-close" onclick="app.closeOutlookAssistTemplateApplyChoice()"><i class="fa-solid fa-xmark"></i></button>
+                    <h3>${this.escapeHtml(template.title || TXT.templates)}</h3>
+                    <p>${this.escapeHtml(TXT.templateApplyChoice.split('\n')[0])}</p>
+                    <div class="outlook-template-apply-preview">
+                        <b>${TXT.templatePreview}</b>
+                        <span>${TXT.subject}: ${this.escapeHtml(previewSubject || TXT.noSubject)}</span>
+                        <pre>${this.escapeHtml(previewBody || TXT.previewNoBody)}</pre>
+                    </div>
+                    <div class="outlook-template-apply-actions">
+                        <button type="button" onclick="app.applyOutlookAssistTemplateToTarget('${this.escapeJs(id)}', 'current')"><i class="fa-solid fa-file-pen"></i> ${TXT.applyCurrentPage}</button>
+                        <button type="button" onclick="app.applyOutlookAssistTemplateToTarget('${this.escapeJs(id)}', 'new')"><i class="fa-solid fa-file-circle-plus"></i> ${TXT.applyNewPage}</button>
+                        <button type="button" onclick="app.closeOutlookAssistTemplateApplyChoice()">${TXT.cancel}</button>
+                    </div>
+                </section>
+            `;
+            document.body.appendChild(modal);
+        },
+
+        closeOutlookAssistTemplateApplyChoice() {
+            document.getElementById('outlook-template-apply-choice')?.remove();
+        },
+
+        applyOutlookAssistTemplateToTarget(id, target = 'current') {
+            const template = this.getOutlookAssistState().templates.find(t => t.id === id);
+            if (!template) return;
+            this.closeOutlookAssistTemplateApplyChoice();
+            const state = this.getOutlookAssistState();
+            const worker = state.selectedWorker;
+            if (!worker) return;
+            const current = this.getCurrentOutlookAssistDraft();
+            const applyToNewPage = target === 'new';
             const machineName = template.machineName || current.machineName || '';
             const insertLabel = template.insertLabel || current.insertLabel || TXT.machine;
             template.useCount = Math.max(0, Number(template.useCount) || 0) + 1;
             template.lastUsedAt = new Date().toISOString();
-            state.draftsByWorker[worker] = {
+            const appliedDraft = normalizeOutlookAssistDraftRecord({
                 ...current,
+                pageTitle: current.pageTitle || template.title || '',
                 to: template.to || '',
                 cc: template.cc || '',
                 bcc: template.bcc || '',
@@ -2123,7 +2739,20 @@
                 autoWrap: current.autoWrap !== false,
                 mergeWrap: !!current.mergeWrap,
                 updatedAt: new Date().toISOString()
-            };
+            });
+            if (applyToNewPage) {
+                const pages = this.getOutlookAssistDraftPages(worker);
+                const index = this.getOutlookAssistDraftPageIndex(worker);
+                pages.splice(index + 1, 0, {
+                    ...appliedDraft,
+                    pageTitle: this.getUniqueOutlookAssistDraftPageTitleExact(template.title || appliedDraft.pageTitle || appliedDraft.subject, pages) || (template.title || '')
+                });
+                state.draftPagesByWorker[worker] = pages;
+                state.draftPageIndexByWorker[worker] = index + 1;
+                state.draftsByWorker[worker] = pages[index + 1];
+            } else {
+                this.setCurrentOutlookAssistDraft(appliedDraft);
+            }
             const status = this.getOutlookAssistCopyStatus(worker);
             ['to', 'cc', 'bcc', 'subject', 'body'].forEach(field => { status[field] = false; });
             store.save();
@@ -2186,8 +2815,8 @@
                 worker,
                 includes: { draft: includeDraft, copyStatus: includeCopyStatus, templates: includeTemplates, addressBook: includeAddressBook }
             };
-            if (includeDraft) payload.draft = normalizeOutlookAssistDraftRecord(state.draftsByWorker[worker] || {});
-            if (includeCopyStatus) payload.copyStatus = { ...(state.copyStatus?.[worker] || {}) };
+            if (includeDraft) payload.draft = normalizeOutlookAssistDraftRecord(this.getCurrentOutlookAssistDraft());
+            if (includeCopyStatus) payload.copyStatus = { ...this.getOutlookAssistCopyStatus(worker) };
             if (includeTemplates) payload.templates = JSON.parse(JSON.stringify(state.templates || []));
             if (includeAddressBook) {
                 payload.recipientContacts = JSON.parse(JSON.stringify(state.recipientContacts || []));
@@ -2313,10 +2942,15 @@
                     ...normalizeOutlookAssistDraftRecord(payload.draft),
                     updatedAt: new Date().toISOString()
                 };
+                const pages = this.getOutlookAssistDraftPages(targetWorker);
+                const index = this.getOutlookAssistDraftPageIndex(targetWorker);
+                pages[index] = state.draftsByWorker[targetWorker];
+                state.draftPagesByWorker[targetWorker] = pages;
             }
             if (payload.copyStatus) {
-                if (!state.copyStatus[targetWorker] || typeof state.copyStatus[targetWorker] !== 'object') state.copyStatus[targetWorker] = {};
-                state.copyStatus[targetWorker] = {
+                const copyStatusKey = this.getOutlookAssistCopyStatusKey(targetWorker);
+                if (!state.copyStatus[copyStatusKey] || typeof state.copyStatus[copyStatusKey] !== 'object') state.copyStatus[copyStatusKey] = {};
+                state.copyStatus[copyStatusKey] = {
                     to: !!payload.copyStatus?.to,
                     cc: !!payload.copyStatus?.cc,
                     bcc: !!payload.copyStatus?.bcc,
@@ -2435,7 +3069,7 @@
             const worker = state.selectedWorker;
             if (!worker) return;
             if (!confirm(`${worker}${TXT.draftClearAsk}`)) return;
-            state.draftsByWorker[worker] = createEmptyDraft();
+            this.setCurrentOutlookAssistDraft(createEmptyDraft());
             store.save();
             this.renderOutlookAssist();
         }
@@ -2519,11 +3153,11 @@ MaintenanceApp.prototype.commitOutlookAssistRecipientField = function (field, sh
         ...this.splitOutlookAssistRecipients(base),
         ...this.splitOutlookAssistRecipients(added)
     ]);
-    state.draftsByWorker[worker] = {
+    this.setCurrentOutlookAssistDraft({
         ...draft,
         [field]: unique.join('; '),
         updatedAt: new Date().toISOString()
-    };
+    });
     store.save();
     input.value = '';
     input.dataset.baseRecipients = unique.join('; ');
@@ -2738,11 +3372,11 @@ MaintenanceApp.prototype.appendOutlookAssistEmailsToField = function (field, ema
         ...pendingItems,
         ...addedItems
     ]);
-    state.draftsByWorker[worker] = {
+    this.setCurrentOutlookAssistDraft({
         ...draft,
         [field]: merged.join('; '),
         updatedAt: new Date().toISOString()
-    };
+    });
     store.save();
     if (input) {
         input.value = '';
@@ -2878,13 +3512,15 @@ outlookAssistBulkNameEmailImportStyle.textContent = `
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        min-height: 44px;
-        padding: 0 16px;
-        margin-left: 8px;
+        min-height: 36px;
+        padding: 6px 13px;
+        margin-left: 4px;
         border: 1px solid #f59e0b;
         border-radius: 12px;
         background: #fff7ed;
         color: #c2410c;
+        font-size: 0.78rem;
+        line-height: 1.12;
         font-weight: 800;
         cursor: pointer;
     }
@@ -3804,6 +4440,19 @@ outlookAssistCopyDoneSafeStyle.textContent = `
     }
 `;
 document.head.appendChild(outlookAssistCopyDoneSafeStyle);
+
+document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    var outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
+    if (!outlookApp) return;
+    if (document.getElementById('outlook-template-apply-choice')) {
+        outlookApp.closeOutlookAssistTemplateApplyChoice?.();
+        return;
+    }
+    if (outlookApp._outlookAssistShowDraftPageList) {
+        outlookApp.closeOutlookAssistDraftPageList?.();
+    }
+}, true);
 
 const normalizeOutlookAssistShortDateText = value => String(value || '').replace(/\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\b/g, (_, month, day) => {
     return `${Number(month)}/${Number(day)}`;
