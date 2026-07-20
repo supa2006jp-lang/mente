@@ -171,6 +171,7 @@ class MaintenanceStore {
             if (!d.machineCategories) d.machineCategories = [];
             if (!d.archivedMachineCategories) d.archivedMachineCategories = [];
             if (!d.memos) d.memos = {};
+            if (!Array.isArray(d.tipsNotes)) d.tipsNotes = [];
             if (!d.localTodos) d.localTodos = [];
             if (!d.localTodoWorkers) d.localTodoWorkers = [{ id: 'default', name: '共通・未設定' }];
             if (!d.localTodoLogs) d.localTodoLogs = [];

@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260717-outlook-template-edit-guard">
+    <link rel="stylesheet" href="style.css?v=20260719-image-picker-bg-switch1">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -235,6 +235,9 @@
                 </button>
                 <button class="nav-btn" data-view="guides" data-nav-bg="guides">
                     <i class="fa-solid fa-book-open"></i> <span>手順書・ナレッジDB</span>
+                </button>
+                <button class="nav-btn" data-view="tips" data-nav-bg="guides">
+                    <i class="fa-solid fa-note-sticky"></i> <span>TIPS</span>
                 </button>
                 <div class="nav-divider">分析</div>
                 <button class="nav-btn" data-view="photos" data-nav-bg="photos">
@@ -632,6 +635,113 @@
                     </div>
                 </section>
 
+                <section id="view-tips" class="view">
+                    <div class="tips-shell">
+                        <section class="tips-compose-panel" id="tips-compose-panel" ondragover="app.onTipsFileDragOver(event)" ondragleave="app.onTipsFileDragLeave(event)" ondrop="app.dropTipsFilesToForm(event)">
+                            <div class="tips-compose-head">
+                                <div>
+                                    <h3><i class="fa-solid fa-note-sticky"></i> TIPS登録</h3>
+                                    <p>ちょっとした記憶を、グループ名と一緒に残します</p>
+                                </div>
+                                <span class="tips-count-pill" id="tips-count-pill">0件</span>
+                            </div>
+                            <div class="tips-form-grid">
+                                <label>
+                                    <span>グループ名</span>
+                                    <input type="text" id="tips-group-input" list="tips-group-list" placeholder="例: 連絡先 / 装置メモ / 注意点">
+                                </label>
+                                <label>
+                                    <span>グループ内分岐（任意）</span>
+                                    <input type="text" id="tips-branch-input" list="tips-branch-list" placeholder="例: 電気 / 機械 / Aライン">
+                                </label>
+                                <label class="tips-body-field">
+                                    <span>本文</span>
+                                    <textarea id="tips-body-input" placeholder="忘れたくない内容を入力"></textarea>
+                                </label>
+                                <label class="tips-file-field">
+                                    <span>添付ファイル</span>
+                                    <input type="file" id="tips-file-input" multiple>
+                                </label>
+                                <input type="file" id="tips-photo-manager-input" accept="image/*" multiple hidden>
+                                <button type="button" class="tips-photo-manager-btn" onclick="app.openTipsPhotoManagerPicker()">
+                                    <i class="fa-solid fa-images"></i> 写真管理から添付
+                                </button>
+                            </div>
+                            <div class="tips-drop-hint">
+                                <i class="fa-solid fa-file-arrow-down"></i>
+                                <span>ここへファイルをドラッグして添付</span>
+                            </div>
+                            <div id="tips-existing-files" class="tips-existing-files" hidden></div>
+                            <div id="tips-selected-files" class="tips-selected-files"></div>
+                            <div id="tips-editing-hint" class="tips-editing-hint" hidden></div>
+                            <div class="tips-compose-actions">
+                                <button type="button" id="tips-cancel-edit-btn" class="secondary-btn" onclick="app.cancelTipsEdit()" hidden>
+                                    <i class="fa-solid fa-xmark"></i> 編集取消
+                                </button>
+                                <button type="button" class="secondary-btn" onclick="app.clearTipsForm()">
+                                    <i class="fa-solid fa-eraser"></i> クリア
+                                </button>
+                                <button type="button" id="tips-save-btn" class="primary-btn" onclick="app.saveTipsNote()">
+                                    <i class="fa-solid fa-plus"></i> 登録
+                                </button>
+                            </div>
+                            <datalist id="tips-group-list"></datalist>
+                            <datalist id="tips-branch-list"></datalist>
+                        </section>
+
+                        <section class="tips-board-panel">
+                            <div class="tips-toolbar">
+                                <div class="tips-view-toggle" role="group" aria-label="TIPS表示切替">
+                                    <button type="button" id="tips-view-group" onclick="app.setTipsDisplayMode('group')">
+                                        <i class="fa-solid fa-layer-group"></i> グループ別
+                                    </button>
+                                    <button type="button" id="tips-view-time" onclick="app.setTipsDisplayMode('time')">
+                                        <i class="fa-solid fa-clock"></i> 日時順
+                                    </button>
+                                </div>
+                                <button type="button" id="tips-compact-toggle" class="tips-compact-toggle" onclick="app.toggleTipsCompactMode()">
+                                    <i class="fa-solid fa-compress"></i> コンパクト
+                                </button>
+                                <button type="button" class="tips-compact-toggle" onclick="app.openTipsLabelManager()">
+                                    <i class="fa-solid fa-tags"></i> 表記統一
+                                </button>
+                                <div class="tips-search-inline">
+                                    <i class="fa-solid fa-magnifying-glass"></i>
+                                    <input type="search" id="tips-search-input" placeholder="TIPSを検索" oninput="app.renderTips()">
+                                </div>
+                                <select id="tips-filter-group" class="tips-filter-select" onchange="app.renderTips()" title="グループで絞り込み">
+                                    <option value="">全グループ</option>
+                                </select>
+                                <select id="tips-filter-branch" class="tips-filter-select" onchange="app.renderTips()" title="分岐で絞り込み">
+                                    <option value="">全分岐</option>
+                                </select>
+                                <select id="tips-filter-attachment" class="tips-filter-select" onchange="app.renderTips()" title="添付種別で絞り込み">
+                                    <option value="all">添付すべて</option>
+                                    <option value="with">添付あり</option>
+                                    <option value="none">添付なし</option>
+                                    <option value="image">画像</option>
+                                    <option value="pdf">PDF</option>
+                                    <option value="office">Office</option>
+                                    <option value="other">その他</option>
+                                </select>
+                                <select id="tips-sort-select" class="tips-filter-select" onchange="app.renderTips()" title="並び順">
+                                    <option value="createdDesc">登録 新しい順</option>
+                                    <option value="createdAsc">登録 古い順</option>
+                                    <option value="updatedDesc">更新 新しい順</option>
+                                    <option value="sizeDesc">容量 重い順</option>
+                                    <option value="group">グループ順</option>
+                                </select>
+                                <div id="tips-trash" class="tips-trash" ondragover="app.onTipsTrashDragOver(event)" ondragleave="app.onTipsTrashDragLeave(event)" ondrop="app.dropTipsNoteToTrash(event)">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                    <span>ここへドラッグで削除</span>
+                                </div>
+                            </div>
+                            <div id="tips-storage-summary" class="tips-storage-summary"></div>
+                            <div id="tips-list" class="tips-list"></div>
+                        </section>
+                    </div>
+                </section>
+
                 <section id="view-photos" class="view">
                     <div class="view-header" style="justify-content:space-between; align-items:center;">
                         <div class="title-group">
@@ -698,10 +808,9 @@
                         <button type="button" class="secondary-btn" onclick="app.choosePhotoManagerStampSheetFile()"><i class="fa-solid fa-table-cells-large"></i> スタンプ集を分割取込</button>
                         <button type="button" class="secondary-btn" onclick="app.selectVisiblePhotoManagerItems()"><i class="fa-solid fa-check-double"></i> &#34920;&#31034;&#20998;&#12434;&#20840;&#36984;&#25246;</button>
                         <button type="button" class="secondary-btn" onclick="app.clearVisiblePhotoManagerSelection()"><i class="fa-regular fa-square"></i> &#20840;&#35299;&#38500;</button>
-                        <button type="button" class="secondary-btn" onclick="app.createTransparentSelectedPhotoManagerImages()"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過作成</button>
                         <button type="button" class="secondary-btn" onclick="app.compressSelectedPhotoManagerImages()"><i class="fa-solid fa-compress"></i> 画像圧縮</button>
-                        <button type="button" class="secondary-btn" onclick="app.autoTagSelectedPhotoManagerItems()"><i class="fa-solid fa-tags"></i> タグ自動作成</button>
-                        <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()"><i class="fa-solid fa-file-export"></i> &#20986;&#21147;</button>
+                        <button type="button" class="secondary-btn" onclick="app.autoTagSelectedPhotoManagerItems()" title="画像内の文字を読める場合はタグ化し、読めない場合はタイトル・写真名・メモからタグを作成"><i class="fa-solid fa-tags"></i> タグ自動作成</button>
+                        <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()" title="表示中または選択中の画像を出力します。5枚以上は1つのZIPファイルにまとめて出力します。"><i class="fa-solid fa-file-export"></i> &#20986;&#21147;</button>
                         <button type="button" class="danger-btn" onclick="app.deleteSelectedPhotoManagerItems()"><i class="fa-solid fa-trash-can"></i> &#36984;&#25246;&#12434;&#23436;&#20840;&#21066;&#38500;</button>
                     </div>
                     <div id="photo-manager-summary" class="photo-manager-summary"></div>
@@ -979,7 +1088,7 @@
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js?v=20260710-overflow-warning-timeout"></script>
+    <script src="app-shift-notebook-core.js?v=20260719-shift-photo-triangle-equilateral1"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js?v=20260623-dept-switch-import-fix"></script>
     <script src="app-machines.js"></script>
@@ -987,6 +1096,7 @@
     <script src="app-history.js?v=20260623-history-popover-click-only"></script>
     <script src="app-analysis-dashboard.js?v=20260613-dashboard-hide-mtbf"></script>
     <script src="app-ranking-guides.js?v=20260613-guide-title-candidates"></script>
+    <script src="app-tips.js?v=20260720-tips-notes"></script>
     <script src="app-skills.js?v=20260711-worker-radar-compare"></script>
     <script src="app-outlook-assist.js?v=20260717-outlook-template-edit-guard"></script>
     <script src="app-worktime.js?v=20260611-alias-health-common-complete"></script>
@@ -995,7 +1105,7 @@
     <script src="app-persistence.js?v=20260625-dept-import-warning"></script>
     <script src="app-csv.js?v=20260625-history-import-worker-name"></script>
     <script src="app-misc-analysis.js"></script>
-    <script src="app-photo-manager.js?v=20260711-photo-manager-open-fast"></script>
+    <script src="app-photo-manager.js?v=20260719-photo-tags-ocr-no-contrast1"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js?v=20260619-remove-auto-backup"></script>
 </body>

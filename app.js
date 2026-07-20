@@ -32,6 +32,7 @@ class MaintenanceApp {
         this.kanbanOverdueOnly = localStorage.getItem('kanban_overdue_only') === 'true';
         this.kanbanTodoCompactCards = localStorage.getItem('kanban_todo_compact_cards') === 'true';
         this.kanbanTodoPriorityFilter = localStorage.getItem('kanban_todo_priority_filter') || 'all';
+        this.tipsDisplayMode = localStorage.getItem('tips_display_mode') || 'group';
         this._shiftNotebookImportantOnly = localStorage.getItem('shift_notebook_important_only') === 'true';
         this._shiftNotebookHideChecked = localStorage.getItem('shift_notebook_hide_checked') === 'true';
         this._shiftNotebookCompactRows = localStorage.getItem('shift_notebook_compact_rows') === 'true';
@@ -385,6 +386,8 @@ class MaintenanceApp {
                     this.renderWorkTime(query);
                 } else if (this.currentView === 'guides') {
                     this.renderGuides();
+                } else if (this.currentView === 'tips') {
+                    this.renderTips();
                 }
             });
         }
@@ -407,6 +410,8 @@ class MaintenanceApp {
                         this.renderWorkTime('');
                     } else if (this.currentView === 'guides') {
                         this.renderGuides();
+                    } else if (this.currentView === 'tips') {
+                        this.renderTips();
                     }
                 }
             });
@@ -533,6 +538,7 @@ class MaintenanceApp {
             'workers': 'スキルマップ',
             'outlookAssist': 'outlook入力補助',
             'guides': '手順書・ナレッジDB',
+            'tips': 'TIPS',
             'photos': '写真管理'
         };
         const titleEl = document.getElementById('view-title');
@@ -872,6 +878,7 @@ class MaintenanceApp {
             case 'workers': this.renderWorkers(); break;
             case 'outlookAssist': this.renderOutlookAssist(); break;
             case 'guides': this.renderGuides(); break;
+            case 'tips': this.renderTips(); break;
             case 'photos': this.renderPhotoManager(); break;
         }
         this.updateContextualHelp(viewName);

@@ -50,6 +50,9 @@
             if (!store.activeData.photoManagerCompressedSources || typeof store.activeData.photoManagerCompressedSources !== 'object') {
                 store.activeData.photoManagerCompressedSources = {};
             }
+            if (!['ask', 'auto', 'compress', 'original'].includes(store.activeData.photoManagerNormalCompressionMode)) {
+                store.activeData.photoManagerNormalCompressionMode = 'ask';
+            }
             return store.activeData.photoManagerNames;
         }
 
@@ -124,13 +127,13 @@
             this.renderPhotoManager();
         }
 
-        getPhotoManagerAutoTagCandidates(item = {}) {
+        getPhotoManagerAutoTagCandidates(item = {}, extraText = '') {
             const stopWords = new Set([
                 '写真', '画像', '取込', '取込み', 'クリップボード', 'ファイル', 'データ', '写真管理',
                 '圧縮', '圧縮済み', '非圧縮', '透過', '透過済み', '透過候補', '編集', '元', 'なし',
                 'jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'img', 'image', 'photo'
             ]);
-            const raw = [this.getPhotoManagerName(item), item.title, item.caption]
+            const raw = [this.getPhotoManagerName(item), item.title, item.caption, extraText]
                 .filter(Boolean)
                 .join(' ')
                 .normalize('NFKC')
@@ -159,35 +162,295 @@
             return result.slice(0, 8);
         }
 
-        autoTagPhotoManagerItem(id = '') {
+        canReadPhotoManagerImageText() {
+            return typeof window !== 'undefined'
+                && (typeof window.TextDetector === 'function' || typeof window.Tesseract !== 'undefined');
+        }
+
+        loadPhotoManagerTesseract() {
+            if (typeof window === 'undefined') return Promise.resolve(null);
+            if (window.Tesseract) return Promise.resolve(window.Tesseract);
+            if (this._photoManagerTesseractPromise) return this._photoManagerTesseractPromise;
+            this._photoManagerTesseractPromise = new Promise(resolve => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+                script.async = true;
+                script.onload = () => resolve(window.Tesseract || null);
+                script.onerror = () => {
+                    this._lastPhotoManagerOcrError = 'OCRエンジンを読み込めませんでした';
+                    resolve(null);
+                };
+                document.head.appendChild(script);
+            });
+            return this._photoManagerTesseractPromise;
+        }
+
+        async createPhotoManagerOcrImageSrc(src = '', options = {}) {
+            const img = await this.loadPhotoManagerImage(src);
+            const naturalW = img.naturalWidth || img.width || 1;
+            const naturalH = img.naturalHeight || img.height || 1;
+            const maxSide = Number(options.maxSide) || 1800;
+            const maxScale = Number(options.maxScale) || 4;
+            const scale = Math.min(maxScale, Math.max(1, maxSide / Math.max(naturalW, naturalH)));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(naturalW * scale));
+            canvas.height = Math.max(1, Math.round(naturalH * scale));
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (options.whiteBackground !== false) {
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            } else {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            if (options.mode !== 'contrast' && options.mode !== 'binary') return canvas.toDataURL('image/png');
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            const darkBoost = Number.isFinite(Number(options.darkBoost)) ? Number(options.darkBoost) : 45;
+            const lightBoost = Number.isFinite(Number(options.lightBoost)) ? Number(options.lightBoost) : 25;
+            const threshold = Number.isFinite(Number(options.threshold)) ? Number(options.threshold) : 170;
+            const binary = options.mode === 'binary';
+            const invert = options.invert === true;
+            const contrastFactor = Number.isFinite(Number(options.contrastFactor)) ? Math.max(1, Number(options.contrastFactor)) : 1;
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
+                let value = binary
+                    ? (gray < threshold ? 0 : 255)
+                    : (gray < threshold ? Math.max(0, gray - darkBoost) : Math.min(255, gray + lightBoost));
+                if (!binary && contrastFactor > 1) {
+                    value = Math.max(0, Math.min(255, ((value - 128) * contrastFactor) + 128));
+                }
+                if (invert) value = 255 - value;
+                data[i] = value;
+                data[i + 1] = value;
+                data[i + 2] = value;
+                data[i + 3] = 255;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            return canvas.toDataURL('image/png');
+        }
+
+        getPhotoManagerOcrVariants() {
+            return [
+                { name: '超強補正', mode: 'contrast', maxSide: 2600, maxScale: 6, threshold: 205, darkBoost: 125, lightBoost: 60, contrastFactor: 2.15 },
+                { name: '濃い白黒', mode: 'binary', maxSide: 2600, maxScale: 6, threshold: 190 },
+                { name: '薄文字強調', mode: 'contrast', maxSide: 2600, maxScale: 6, threshold: 215, darkBoost: 80, lightBoost: 85, contrastFactor: 2.35 },
+                { name: '原画像', mode: 'original', maxSide: 1800, maxScale: 3 },
+                { name: '標準補正', mode: 'contrast', maxSide: 1800, maxScale: 4, threshold: 170, darkBoost: 45, lightBoost: 25 },
+                { name: '弱補正', mode: 'contrast', maxSide: 1800, maxScale: 4, threshold: 150, darkBoost: 22, lightBoost: 12 },
+                { name: '強補正', mode: 'contrast', maxSide: 2200, maxScale: 5, threshold: 190, darkBoost: 75, lightBoost: 35 },
+                { name: '白黒強調', mode: 'binary', maxSide: 2200, maxScale: 5, threshold: 165 },
+                { name: '反転白黒', mode: 'binary', maxSide: 2200, maxScale: 5, threshold: 165, invert: true }
+            ];
+        }
+
+        getPhotoManagerOcrTextScore(text = '') {
+            const normalized = String(text || '').replace(/\s+/g, '');
+            if (!normalized) return 0;
+            const useful = (normalized.match(/[\p{L}\p{N}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu) || []).length;
+            const noise = (normalized.match(/[^\p{L}\p{N}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu) || []).length;
+            return useful * 3 + Math.min(normalized.length, 80) - noise * 2;
+        }
+
+        getPhotoManagerOcrVariants() {
+            return [
+                { name: '原画像', mode: 'plain', maxSide: 1800, maxScale: 3, whiteBackground: false },
+                { name: '白背景拡大', mode: 'plain', maxSide: 2200, maxScale: 5, whiteBackground: true },
+                { name: '大きく拡大', mode: 'plain', maxSide: 2800, maxScale: 7, whiteBackground: true }
+            ];
+        }
+
+        async readPhotoManagerImageTextWithTextDetector(item = {}) {
+            if (typeof window === 'undefined' || typeof window.TextDetector !== 'function' || !item?.src) return '';
+            try {
+                if (!this._photoManagerTextDetector) {
+                    this._photoManagerTextDetector = new window.TextDetector();
+                }
+                const img = await this.loadPhotoManagerImage(item.src);
+                const detected = await this._photoManagerTextDetector.detect(img);
+                return (detected || [])
+                    .map(entry => String(entry?.rawValue || '').trim())
+                    .filter(Boolean)
+                    .join(' ');
+            } catch (error) {
+                console.warn('Photo manager TextDetector failed', error);
+                return '';
+            }
+        }
+
+        async readPhotoManagerImageTextWithTesseract(item = {}) {
+            if (!item?.src) return '';
+            let worker = null;
+            try {
+                const Tesseract = await this.loadPhotoManagerTesseract();
+                if (!Tesseract?.createWorker) {
+                    this._lastPhotoManagerOcrError = this._lastPhotoManagerOcrError || 'OCRエンジンが使えませんでした';
+                    return '';
+                }
+                worker = await Tesseract.createWorker('jpn+eng', 1);
+                await worker.setParameters({
+                    preserve_interword_spaces: '1',
+                    tessedit_pageseg_mode: '6'
+                });
+                let bestText = '';
+                let bestScore = 0;
+                let bestVariant = '';
+                for (const variant of this.getPhotoManagerOcrVariants()) {
+                    const ocrSrc = await this.createPhotoManagerOcrImageSrc(item.src, variant);
+                    const result = await worker.recognize(ocrSrc);
+                    const text = String(result?.data?.text || '').trim();
+                    const score = this.getPhotoManagerOcrTextScore(text);
+                    if (score > bestScore) {
+                        bestText = text;
+                        bestScore = score;
+                        bestVariant = variant.name;
+                    }
+                    if (score >= 90) break;
+                }
+                if (bestVariant) this._lastPhotoManagerOcrVariant = bestVariant;
+                return bestText;
+            } catch (error) {
+                console.warn('Photo manager Tesseract OCR failed', error);
+                this._lastPhotoManagerOcrError = error?.message || 'OCR処理に失敗しました';
+                return '';
+            } finally {
+                if (worker) {
+                    try {
+                        await worker.terminate();
+                    } catch (error) {
+                        console.warn('Photo manager Tesseract terminate failed', error);
+                    }
+                }
+            }
+        }
+
+        async getPhotoManagerImageText(item = {}) {
+            this._lastPhotoManagerOcrText = '';
+            this._lastPhotoManagerOcrSource = '';
+            this._lastPhotoManagerOcrError = '';
+            this._lastPhotoManagerOcrVariant = '';
+            if (!item?.src) return '';
+            const quickText = await this.readPhotoManagerImageTextWithTextDetector(item);
+            if (quickText.trim()) {
+                this._lastPhotoManagerOcrText = quickText.trim();
+                this._lastPhotoManagerOcrSource = 'TextDetector';
+                return quickText;
+            }
+            const tesseractText = await this.readPhotoManagerImageTextWithTesseract(item);
+            this._lastPhotoManagerOcrText = tesseractText.trim();
+            this._lastPhotoManagerOcrSource = tesseractText.trim() ? 'Tesseract' : '';
+            return tesseractText;
+        }
+
+        getPhotoManagerOcrNoticeSuffix() {
+            const text = String(this._lastPhotoManagerOcrText || '').replace(/\s+/g, ' ').trim();
+            if (!text) return '画像文字は読めませんでした。';
+            return `画像から読めた文字: ${text.slice(0, 60)}${text.length > 60 ? '...' : ''}`;
+        }
+
+        getPhotoManagerOcrNoticeSuffix() {
+            const text = String(this._lastPhotoManagerOcrText || '').replace(/\s+/g, ' ').trim();
+            if (!text) {
+                const error = String(this._lastPhotoManagerOcrError || '').trim();
+                return error ? `画像文字は読めませんでした（${error}）。` : '画像文字は読めませんでした。';
+            }
+            const variant = String(this._lastPhotoManagerOcrVariant || '').trim();
+            return `画像から読めた文字${variant ? `（${variant}）` : ''}: ${text.slice(0, 60)}${text.length > 60 ? '...' : ''}`;
+        }
+
+        getPhotoManagerOcrNoticeSuffix() {
+            const text = String(this._lastPhotoManagerOcrText || '').replace(/\s+/g, ' ').trim();
+            if (!text) {
+                const error = String(this._lastPhotoManagerOcrError || '').trim();
+                return error ? `画像文字は読めませんでした（${error}）。` : '画像文字は読めませんでした。';
+            }
+            return `画像から読めた文字: ${text.slice(0, 60)}${text.length > 60 ? '...' : ''}`;
+        }
+
+        getPhotoManagerOcrTagCandidates(text = '') {
+            const source = String(text || '')
+                .normalize('NFKC')
+                .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
+                .replace(/\.(jpg|jpeg|png|webp|gif|svg)\b/gi, ' ');
+            const pieces = [];
+            source.split(/\r?\n/).forEach(line => {
+                const cleanLine = line.trim().replace(/\s+/g, ' ');
+                if (cleanLine) pieces.push(cleanLine);
+                cleanLine.split(/[,\s、，。・/／|｜()[\]【】「」『』]+/).forEach(part => {
+                    const cleanPart = part.trim();
+                    if (cleanPart) pieces.push(cleanPart);
+                });
+            });
+            if (!pieces.length) {
+                const compact = source.replace(/\s+/g, '').trim();
+                if (compact) pieces.push(compact);
+            }
+            const seen = new Set();
+            const tags = [];
+            pieces.forEach(piece => {
+                let tag = piece.replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, '').trim();
+                if (!tag || tag.length < 2 || /^\d+(?:\.\d+)?$/.test(tag)) return;
+                if (tag.length > 18) tag = tag.slice(0, 18);
+                const key = tag.toLocaleLowerCase('ja');
+                if (seen.has(key)) return;
+                seen.add(key);
+                tags.push(tag);
+            });
+            return tags.slice(0, 12);
+        }
+
+        async getPhotoManagerAutoTagCandidatesWithImageText(item = {}) {
+            const imageText = await this.getPhotoManagerImageText(item);
+            if (String(imageText || '').trim()) {
+                return this.getPhotoManagerOcrTagCandidates(imageText);
+            }
+            return this.getPhotoManagerAutoTagCandidates(item);
+        }
+
+        async autoTagPhotoManagerItem(id = '') {
             const item = this.findPhotoManagerItem(id);
             if (!item) return this.showPhotoManagerNotice('写真が見つかりませんでした。');
-            const candidates = this.getPhotoManagerAutoTagCandidates(item);
-            if (!candidates.length) return this.showPhotoManagerNotice('タイトルから有効なタグ候補を作れませんでした。');
+            this.showPhotoManagerNotice('画像内の文字を確認しています...');
+            const candidates = await this.getPhotoManagerAutoTagCandidatesWithImageText(item);
+            if (!candidates.length) return this.showPhotoManagerNotice(`タイトルから有効なタグ候補を作れませんでした。${this.getPhotoManagerOcrNoticeSuffix()}`);
             const existing = this.getPhotoManagerTags(item);
-            const merged = [...new Set([...existing, ...candidates])].slice(0, 12);
+            const ocrRecognized = String(this._lastPhotoManagerOcrText || '').trim().length > 0;
+            const merged = ocrRecognized
+                ? [...new Set(candidates)].slice(0, 12)
+                : [...new Set([...existing, ...candidates])].slice(0, 12);
             store.activeData.photoManagerTags[item.id] = merged;
             store.save();
             this.renderPhotoManager();
-            this.showPhotoManagerNotice(`${merged.length - existing.length}件のタグを追加しました。`);
+            this.showPhotoManagerNotice(`${merged.length - existing.length}件のタグを追加しました。${this.getPhotoManagerOcrNoticeSuffix()}`);
         }
 
-        autoTagSelectedPhotoManagerItems() {
+        async autoTagSelectedPhotoManagerItems() {
             const ids = new Set(this.getSelectedPhotoManagerIds());
             if (!ids.size) return this.showPhotoManagerNotice('タグを作る写真を選択してください。');
+            this.showPhotoManagerNotice('選択画像の文字を確認しています...');
             let addedCount = 0;
-            this.collectPhotoManagerItems().filter(item => ids.has(item.id)).forEach(item => {
+            let ocrReadCount = 0;
+            const items = this.collectPhotoManagerItems().filter(item => ids.has(item.id));
+            for (const item of items) {
                 const existing = this.getPhotoManagerTags(item);
-                const merged = [...new Set([...existing, ...this.getPhotoManagerAutoTagCandidates(item)])].slice(0, 12);
-                if (merged.length > existing.length) {
+                const candidates = await this.getPhotoManagerAutoTagCandidatesWithImageText(item);
+                const ocrRecognized = String(this._lastPhotoManagerOcrText || '').trim().length > 0;
+                const merged = ocrRecognized
+                    ? [...new Set(candidates)].slice(0, 12)
+                    : [...new Set([...existing, ...candidates])].slice(0, 12);
+                if (ocrRecognized) ocrReadCount += 1;
+                const changed = merged.length !== existing.length || merged.some((tag, index) => tag !== existing[index]);
+                if (changed) {
                     store.activeData.photoManagerTags[item.id] = merged;
-                    addedCount += merged.length - existing.length;
+                    addedCount += ocrRecognized ? merged.length : Math.max(0, merged.length - existing.length);
                 }
-            });
-            if (!addedCount) return this.showPhotoManagerNotice('追加できる新しいタグ候補がありませんでした。');
+            }
+            if (!addedCount) return this.showPhotoManagerNotice(`追加できる新しいタグ候補がありませんでした。画像文字を読めた画像: ${ocrReadCount}/${items.length}`);
             store.save();
             this.renderPhotoManager();
-            this.showPhotoManagerNotice(`選択画像へ${addedCount}件のタグを追加しました。`);
+            this.showPhotoManagerNotice(`選択画像へ${addedCount}件のタグを追加しました。画像文字を読めた画像: ${ocrReadCount}/${items.length}`);
         }
 
         setPhotoManagerName(id, value) {
@@ -661,14 +924,653 @@
             alert(text);
         }
 
+        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
+            const fallback = { src, compressed: false, transparent: false, status: 'original' };
+            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
+            try {
+                const result = await this.createCompressedPhotoManagerSource(src);
+                fallback.transparent = !!result?.transparent;
+                if (result?.transparent) {
+                    fallback.status = 'transparent-original';
+                    return fallback;
+                }
+                if (!result?.changed || !result.src) return fallback;
+                const before = this.formatPhotoManagerBytes(result.beforeBytes || 0);
+                const after = this.formatPhotoManagerBytes(result.afterBytes || 0);
+                const title = String(name || '画像').trim() || '画像';
+                this.ensurePhotoManagerData();
+                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+                if (mode === 'auto') {
+                    mode = await this.shouldCompressPhotoManagerImageAutomatically(src, result) ? 'compress' : 'original';
+                    if (mode === 'original') {
+                        return { ...fallback, status: 'original', reason: '自動判定で画質優先', before, after };
+                    }
+                }
+                if (mode === 'ask') {
+                    const answer = prompt(`${title}\n\n圧縮して保存できます。\n${before} → ${after}\n\n1：今回だけ圧縮\n2：今後は常に圧縮\n3：今回はそのまま\n4：今後は常にそのまま`, '1');
+                    if (answer === '2') {
+                        store.activeData.photoManagerNormalCompressionMode = 'compress';
+                        store.save();
+                        mode = 'compress';
+                    } else if (answer === '4') {
+                        store.activeData.photoManagerNormalCompressionMode = 'original';
+                        store.save();
+                        mode = 'original';
+                    } else if (answer === '1') {
+                        mode = 'compress';
+                    } else {
+                        mode = 'original';
+                    }
+                }
+                const useCompressed = mode === 'compress';
+                if (useCompressed) {
+                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', before, after };
+                }
+            } catch (error) {
+                console.warn('Normal image compression choice was skipped.', error);
+            }
+            return fallback;
+        }
+
+        openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '', originalSrc = '', compressedSrc = '' } = {}) {
+            return new Promise(resolve => {
+                this._photoManagerNormalCompressionChoiceResolve = resolve;
+                const body = `
+                    <div class="photo-manager-review-summary">
+                        <b>${this.escapeHtml(title)}</b>
+                        <span>保存前 ${this.escapeHtml(before)} / 圧縮後 ${this.escapeHtml(after)} / 現在設定 ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
+                    </div>
+                    <div class="photo-manager-compression-compare compact">
+                        <figure>
+                            <figcaption><b>そのまま</b><span>${this.escapeHtml(before)}</span></figcaption>
+                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(originalSrc)}" alt="そのまま"></div>
+                        </figure>
+                        <figure>
+                            <figcaption><b>圧縮後</b><span>${this.escapeHtml(after)}</span></figcaption>
+                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(compressedSrc)}" alt="圧縮後"></div>
+                        </figure>
+                    </div>
+                    <div class="photo-manager-compression-choice">
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
+                    </div>`;
+                this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
+            });
+        }
+
+        async shouldCompressPhotoManagerImageAutomatically(src = '', result = null) {
+            if (!src || result?.transparent) return false;
+            if (/^data:image\/jpe?g;/i.test(src)) return true;
+            try {
+                const img = await this.loadPhotoManagerImage(src);
+                const naturalW = img.naturalWidth || img.width || 1;
+                const naturalH = img.naturalHeight || img.height || 1;
+                const sampleW = Math.max(1, Math.min(48, naturalW));
+                const sampleH = Math.max(1, Math.min(48, naturalH));
+                const canvas = document.createElement('canvas');
+                canvas.width = sampleW;
+                canvas.height = sampleH;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, 0, 0, sampleW, sampleH);
+                const data = ctx.getImageData(0, 0, sampleW, sampleH).data;
+                const colors = new Set();
+                let softTransitions = 0;
+                let checkedTransitions = 0;
+                for (let y = 0; y < sampleH; y += 1) {
+                    for (let x = 0; x < sampleW; x += 1) {
+                        const i = (y * sampleW + x) * 4;
+                        if (data[i + 3] < 240) return false;
+                        colors.add(`${data[i] >> 4},${data[i + 1] >> 4},${data[i + 2] >> 4}`);
+                        if (x > 0) {
+                            const left = i - 4;
+                            const diff = Math.abs(data[i] - data[left]) + Math.abs(data[i + 1] - data[left + 1]) + Math.abs(data[i + 2] - data[left + 2]);
+                            if (diff > 8 && diff < 90) softTransitions += 1;
+                            checkedTransitions += 1;
+                        }
+                    }
+                }
+                const colorRatio = colors.size / Math.max(1, sampleW * sampleH);
+                const softRatio = softTransitions / Math.max(1, checkedTransitions);
+                const beforeBytes = Number(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src) || 0);
+                const afterBytes = Number(result?.afterBytes || 0);
+                const savedRatio = afterBytes > 0 ? 1 - (afterBytes / Math.max(1, beforeBytes)) : 0;
+
+                // 写真は色数と中間階調が多い。文字・図面は色数が少なくエッジが強いので画質を優先する。
+                if (beforeBytes > 900000 && savedRatio > 0.18 && colorRatio > 0.18) return true;
+                if (colorRatio > 0.32 && softRatio > 0.28 && savedRatio > 0.08) return true;
+                return false;
+            } catch (error) {
+                console.warn('Automatic compression judgment was skipped.', error);
+                return false;
+            }
+        }
+
+        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
+            const fallback = {
+                src,
+                compressed: false,
+                transparent: false,
+                status: 'original',
+                reason: 'そのまま保存',
+                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
+            };
+            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
+            try {
+                const result = await this.createCompressedPhotoManagerSource(src);
+                const before = this.formatPhotoManagerBytes(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src));
+                const after = this.formatPhotoManagerBytes(result?.afterBytes || 0);
+                fallback.transparent = !!result?.transparent;
+                fallback.before = before;
+                if (result?.transparent) {
+                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
+                }
+                if (!result?.changed || !result.src) {
+                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
+                }
+                this.ensurePhotoManagerData();
+                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+                if (mode === 'auto') {
+                    mode = await this.shouldCompressPhotoManagerImageAutomatically(src, result) ? 'compress' : 'original';
+                    if (mode === 'original') {
+                        return { ...fallback, status: 'original', reason: '自動判定で画質優先', before, after };
+                    }
+                }
+                if (mode === 'ask') {
+                    const title = String(name || '画像').trim() || '画像';
+                    const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({
+                        title,
+                        before,
+                        after,
+                        originalSrc: src,
+                        compressedSrc: result.src
+                    });
+                    if (answer === 'always-compress') {
+                        store.activeData.photoManagerNormalCompressionMode = 'compress';
+                        store.save();
+                        mode = 'compress';
+                    } else if (answer === 'always-original') {
+                        store.activeData.photoManagerNormalCompressionMode = 'original';
+                        store.save();
+                        mode = 'original';
+                    } else if (answer === 'compress') {
+                        mode = 'compress';
+                    } else {
+                        mode = 'original';
+                    }
+                }
+                if (mode === 'compress') {
+                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', reason: '圧縮して保存', before, after };
+                }
+                return { ...fallback, status: 'original', reason: '選択によりそのまま保存', before, after };
+            } catch (error) {
+                console.warn('Normal image compression choice was skipped.', error);
+            }
+            return fallback;
+        }
+
+        openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '', originalSrc = '', compressedSrc = '' } = {}) {
+            return new Promise(resolve => {
+                this._photoManagerNormalCompressionChoiceResolve = resolve;
+                const body = `
+                    <div class="photo-manager-review-summary">
+                        <b>${this.escapeHtml(title)}</b>
+                        <span>保存前 ${this.escapeHtml(before)} / 圧縮後 ${this.escapeHtml(after)} / 現在設定 ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
+                    </div>
+                    <div class="photo-manager-compression-compare compact">
+                        <figure>
+                            <figcaption><b>そのまま</b><span>${this.escapeHtml(before)}</span></figcaption>
+                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(originalSrc)}" alt="そのまま"></div>
+                        </figure>
+                        <figure>
+                            <figcaption><b>圧縮後</b><span>${this.escapeHtml(after)}</span></figcaption>
+                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(compressedSrc)}" alt="圧縮後"></div>
+                        </figure>
+                    </div>
+                    <div class="photo-manager-compression-choice">
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
+                    </div>`;
+                this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
+            });
+        }
+
+        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
+            const fallback = {
+                src,
+                compressed: false,
+                transparent: false,
+                status: 'original',
+                reason: 'そのまま保存',
+                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
+            };
+            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
+            try {
+                const result = await this.createCompressedPhotoManagerSource(src);
+                const before = this.formatPhotoManagerBytes(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src));
+                const after = this.formatPhotoManagerBytes(result?.afterBytes || 0);
+                fallback.transparent = !!result?.transparent;
+                fallback.before = before;
+                if (result?.transparent) {
+                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
+                }
+                if (!result?.changed || !result.src) {
+                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
+                }
+                this.ensurePhotoManagerData();
+                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+                if (mode === 'auto') {
+                    mode = await this.shouldCompressPhotoManagerImageAutomatically(src, result) ? 'compress' : 'original';
+                    if (mode === 'original') {
+                        return { ...fallback, status: 'original', reason: '自動判定で画質優先', before, after };
+                    }
+                }
+                if (mode === 'ask') {
+                    const title = String(name || '画像').trim() || '画像';
+                    const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({
+                        title,
+                        before,
+                        after,
+                        originalSrc: src,
+                        compressedSrc: result.src
+                    });
+                    if (answer === 'always-compress') {
+                        store.activeData.photoManagerNormalCompressionMode = 'compress';
+                        store.save();
+                        mode = 'compress';
+                    } else if (answer === 'always-original') {
+                        store.activeData.photoManagerNormalCompressionMode = 'original';
+                        store.save();
+                        mode = 'original';
+                    } else if (answer === 'compress') {
+                        mode = 'compress';
+                    } else {
+                        mode = 'original';
+                    }
+                }
+                if (mode === 'compress') {
+                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', reason: '圧縮して保存', before, after };
+                }
+                return { ...fallback, status: 'original', reason: '選択によりそのまま保存', before, after };
+            } catch (error) {
+                console.warn('Normal image compression choice was skipped.', error);
+            }
+            return fallback;
+        }
+
+        getPhotoManagerNormalCompressionModeLabel() {
+            this.ensurePhotoManagerData();
+            const mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+            if (mode === 'compress') return '常に圧縮';
+            if (mode === 'original') return '常にそのまま';
+            return '毎回確認';
+        }
+
+        getPhotoManagerNormalCompressionModeLabel() {
+            this.ensurePhotoManagerData();
+            const mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+            if (mode === 'compress') return '常に圧縮';
+            if (mode === 'original') return '常にそのまま';
+            return '毎回確認';
+        }
+
+        openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '', originalSrc = '', compressedSrc = '' } = {}) {
+            return new Promise(resolve => {
+                this._photoManagerNormalCompressionChoiceResolve = resolve;
+                const body = `
+                    <div class="photo-manager-review-summary">
+                        <b>${this.escapeHtml(title)}</b>
+                        <span>保存前 ${this.escapeHtml(before)} / 圧縮後 ${this.escapeHtml(after)} / 現在設定 ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
+                    </div>
+                    <div class="photo-manager-compression-compare compact">
+                        <figure>
+                            <figcaption><b>そのまま</b><span>${this.escapeHtml(before)}</span></figcaption>
+                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(originalSrc)}" alt="そのまま"></div>
+                        </figure>
+                        <figure>
+                            <figcaption><b>圧縮後</b><span>${this.escapeHtml(after)}</span></figcaption>
+                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(compressedSrc)}" alt="圧縮後"></div>
+                        </figure>
+                    </div>
+                    <div class="photo-manager-compression-choice">
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
+                    </div>`;
+                this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
+            });
+        }
+
+        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
+            const fallback = {
+                src,
+                compressed: false,
+                transparent: false,
+                status: 'original',
+                reason: 'そのまま保存',
+                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
+            };
+            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
+            try {
+                const result = await this.createCompressedPhotoManagerSource(src);
+                const before = this.formatPhotoManagerBytes(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src));
+                const after = this.formatPhotoManagerBytes(result?.afterBytes || 0);
+                fallback.transparent = !!result?.transparent;
+                fallback.before = before;
+                if (result?.transparent) {
+                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
+                }
+                if (!result?.changed || !result.src) {
+                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
+                }
+                this.ensurePhotoManagerData();
+                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+                if (mode === 'ask') {
+                    const title = String(name || '画像').trim() || '画像';
+                    const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({
+                        title,
+                        before,
+                        after,
+                        originalSrc: src,
+                        compressedSrc: result.src
+                    });
+                    if (answer === 'always-compress') {
+                        store.activeData.photoManagerNormalCompressionMode = 'compress';
+                        store.save();
+                        mode = 'compress';
+                    } else if (answer === 'always-original') {
+                        store.activeData.photoManagerNormalCompressionMode = 'original';
+                        store.save();
+                        mode = 'original';
+                    } else if (answer === 'compress') {
+                        mode = 'compress';
+                    } else {
+                        mode = 'original';
+                    }
+                }
+                if (mode === 'compress') {
+                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', reason: '圧縮して保存', before, after };
+                }
+                return { ...fallback, status: 'original', reason: '選択によりそのまま保存', before, after };
+            } catch (error) {
+                console.warn('Normal image compression choice was skipped.', error);
+            }
+            return fallback;
+        }
+
+        summarizePhotoManagerNormalSaveResults(results = []) {
+            const list = Array.isArray(results) ? results.filter(Boolean) : [];
+            const compressed = list.filter(item => item.status === 'compressed').length;
+            const transparentOriginal = list.filter(item => item.status === 'transparent-original').length;
+            const original = list.length - compressed - transparentOriginal;
+            const parts = [];
+            if (compressed) parts.push(`圧縮保存 ${compressed}件`);
+            if (transparentOriginal) parts.push(`透過画像のためそのまま ${transparentOriginal}件`);
+            if (original) parts.push(`そのまま保存 ${original}件`);
+            return parts.join(' / ');
+        }
+
+        resetPhotoManagerNormalCompressionChoice() {
+            this.ensurePhotoManagerData();
+            store.activeData.photoManagerNormalCompressionMode = 'ask';
+            store.save();
+            this.showPhotoManagerNotice('通常画像の保存時圧縮を、毎回確認に戻しました。');
+        }
+
+        openPhotoManagerCompressionSettingDialog() {
+            const body = `
+                <div class="photo-manager-review-summary">
+                    <b>保存時圧縮</b>
+                    <span>現在設定: ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
+                </div>
+                <div class="photo-manager-compression-choice">
+                    <button type="button" class="primary-btn" onclick="app.setPhotoManagerNormalCompressionMode('ask')"><i class="fa-solid fa-circle-question"></i> 毎回確認</button>
+                    <button type="button" class="primary-btn" onclick="app.setPhotoManagerNormalCompressionMode('auto')"><i class="fa-solid fa-wand-magic-sparkles"></i> おすすめ自動</button>
+                    <button type="button" class="primary-btn" onclick="app.setPhotoManagerNormalCompressionMode('compress')"><i class="fa-solid fa-compress"></i> 常に圧縮</button>
+                    <button type="button" class="secondary-btn" onclick="app.setPhotoManagerNormalCompressionMode('original')"><i class="fa-regular fa-image"></i> 常にそのまま</button>
+                    <button type="button" class="secondary-btn" onclick="app.closePhotoManagerReviewDialog()"><i class="fa-solid fa-xmark"></i> 閉じる</button>
+                </div>`;
+            this.openPhotoManagerReviewDialog('写真管理の圧縮設定', body);
+        }
+
+        setPhotoManagerNormalCompressionMode(mode = 'ask') {
+            this.ensurePhotoManagerData();
+            store.activeData.photoManagerNormalCompressionMode = ['ask', 'auto', 'compress', 'original'].includes(mode) ? mode : 'ask';
+            store.save();
+            this.closePhotoManagerReviewDialog();
+            this.renderPhotoManager?.();
+            this.showPhotoManagerNotice(`保存時圧縮を「${this.getPhotoManagerNormalCompressionModeLabel()}」にしました。`);
+        }
+
+        getPhotoManagerNormalCompressionModeLabel() {
+            this.ensurePhotoManagerData();
+            const mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+            if (mode === 'auto') return 'おすすめ自動';
+            if (mode === 'compress') return '常に圧縮';
+            if (mode === 'original') return '常にそのまま';
+            return '毎回確認';
+        }
+
+        openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '' } = {}) {
+            return new Promise(resolve => {
+                this._photoManagerNormalCompressionChoiceResolve = resolve;
+                const body = `
+                    <div class="photo-manager-review-summary">
+                        <b>${this.escapeHtml(title)}</b>
+                        <span>保存前 ${this.escapeHtml(before)} / 圧縮後 ${this.escapeHtml(after)} / 現在設定 ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
+                    </div>
+                    <div class="photo-manager-compression-choice">
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
+                    </div>`;
+                this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
+            });
+        }
+
+        resolvePhotoManagerNormalCompressionChoice(choice = 'original') {
+            const resolver = this._photoManagerNormalCompressionChoiceResolve;
+            this._photoManagerNormalCompressionChoiceResolve = null;
+            this.closePhotoManagerReviewDialog();
+            if (typeof resolver === 'function') resolver(choice || 'original');
+        }
+
+        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
+            const fallback = {
+                src,
+                compressed: false,
+                transparent: false,
+                status: 'original',
+                reason: 'そのまま保存',
+                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
+            };
+            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
+            try {
+                const result = await this.createCompressedPhotoManagerSource(src);
+                const before = this.formatPhotoManagerBytes(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src));
+                const after = this.formatPhotoManagerBytes(result?.afterBytes || 0);
+                fallback.transparent = !!result?.transparent;
+                fallback.before = before;
+                if (result?.transparent) {
+                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
+                }
+                if (!result?.changed || !result.src) {
+                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
+                }
+                this.ensurePhotoManagerData();
+                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+                if (mode === 'ask') {
+                    const title = String(name || '画像').trim() || '画像';
+                    const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({ title, before, after });
+                    if (answer === 'always-compress') {
+                        store.activeData.photoManagerNormalCompressionMode = 'compress';
+                        store.save();
+                        mode = 'compress';
+                    } else if (answer === 'always-original') {
+                        store.activeData.photoManagerNormalCompressionMode = 'original';
+                        store.save();
+                        mode = 'original';
+                    } else if (answer === 'compress') {
+                        mode = 'compress';
+                    } else {
+                        mode = 'original';
+                    }
+                }
+                if (mode === 'compress') {
+                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', reason: '圧縮して保存', before, after };
+                }
+                return { ...fallback, status: 'original', reason: '選択によりそのまま保存', before, after };
+            } catch (error) {
+                console.warn('Normal image compression choice was skipped.', error);
+            }
+            return fallback;
+        }
+
+        summarizePhotoManagerNormalSaveResults(results = []) {
+            const list = Array.isArray(results) ? results.filter(Boolean) : [];
+            if (!list.length) return '';
+            const compressed = list.filter(item => item.status === 'compressed').length;
+            const transparentOriginal = list.filter(item => item.status === 'transparent-original').length;
+            const original = list.filter(item => item.status === 'original').length;
+            const parts = [];
+            if (compressed) parts.push(`圧縮保存 ${compressed}件`);
+            if (transparentOriginal) parts.push(`透過画像のためそのまま ${transparentOriginal}件`);
+            if (original) {
+                const ineffective = list.filter(item => item.reason === '圧縮しても小さくならないためそのまま保存').length;
+                parts.push(ineffective ? `そのまま保存 ${original}件（うち小さくならない ${ineffective}件）` : `そのまま保存 ${original}件`);
+            }
+            return parts.join(' / ');
+        }
+
+        summarizePhotoManagerNormalSaveResults(results = []) {
+            const list = Array.isArray(results) ? results.filter(Boolean) : [];
+            if (!list.length) return '';
+            const compressed = list.filter(item => item.status === 'compressed').length;
+            const transparentOriginal = list.filter(item => item.status === 'transparent-original').length;
+            const original = list.filter(item => item.status === 'original').length;
+            const parts = [];
+            if (compressed) parts.push(`圧縮保存 ${compressed}件`);
+            if (transparentOriginal) parts.push(`透過画像のためそのまま ${transparentOriginal}件`);
+            if (original) {
+                const ineffective = list.filter(item => item.reason === '圧縮しても小さくならないためそのまま保存').length;
+                parts.push(ineffective ? `そのまま保存 ${original}件（うち小さくならない ${ineffective}件）` : `そのまま保存 ${original}件`);
+            }
+            return parts.join(' / ');
+        }
+
+        openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '', originalSrc = '', compressedSrc = '' } = {}) {
+            return new Promise(resolve => {
+                this._photoManagerNormalCompressionChoiceResolve = resolve;
+                const body = `
+                    <div class="photo-manager-review-summary">
+                        <b>${this.escapeHtml(title)}</b>
+                        <span>保存前 ${this.escapeHtml(before)} / 圧縮後 ${this.escapeHtml(after)} / 現在設定 ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
+                    </div>
+                    <div class="photo-manager-compression-compare compact">
+                        <figure>
+                            <figcaption><b>そのまま</b><span>${this.escapeHtml(before)}</span></figcaption>
+                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(originalSrc)}" alt="そのまま"></div>
+                        </figure>
+                        <figure>
+                            <figcaption><b>圧縮後</b><span>${this.escapeHtml(after)}</span></figcaption>
+                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(compressedSrc)}" alt="圧縮後"></div>
+                        </figure>
+                    </div>
+                    <div class="photo-manager-compression-choice">
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
+                    </div>`;
+                this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
+            });
+        }
+
+        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
+            const fallback = {
+                src,
+                compressed: false,
+                transparent: false,
+                status: 'original',
+                reason: 'そのまま保存',
+                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
+            };
+            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
+            try {
+                const result = await this.createCompressedPhotoManagerSource(src);
+                const before = this.formatPhotoManagerBytes(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src));
+                const after = this.formatPhotoManagerBytes(result?.afterBytes || 0);
+                fallback.transparent = !!result?.transparent;
+                fallback.before = before;
+                if (result?.transparent) {
+                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
+                }
+                if (!result?.changed || !result.src) {
+                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
+                }
+                this.ensurePhotoManagerData();
+                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+                if (mode === 'auto') {
+                    mode = await this.shouldCompressPhotoManagerImageAutomatically(src, result) ? 'compress' : 'original';
+                    if (mode === 'original') {
+                        return { ...fallback, status: 'original', reason: '自動判定で画質優先', before, after };
+                    }
+                }
+                if (mode === 'ask') {
+                    const title = String(name || '画像').trim() || '画像';
+                    const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({
+                        title,
+                        before,
+                        after,
+                        originalSrc: src,
+                        compressedSrc: result.src
+                    });
+                    if (answer === 'always-compress') {
+                        store.activeData.photoManagerNormalCompressionMode = 'compress';
+                        store.save();
+                        mode = 'compress';
+                    } else if (answer === 'always-original') {
+                        store.activeData.photoManagerNormalCompressionMode = 'original';
+                        store.save();
+                        mode = 'original';
+                    } else if (answer === 'compress') {
+                        mode = 'compress';
+                    } else {
+                        mode = 'original';
+                    }
+                }
+                if (mode === 'compress') {
+                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', reason: '圧縮して保存', before, after };
+                }
+                return { ...fallback, status: 'original', reason: '選択によりそのまま保存', before, after };
+            } catch (error) {
+                console.warn('Normal image compression choice was skipped.', error);
+            }
+            return fallback;
+        }
+
         async importPhotoManagerFiles(fileList) {
             const files = Array.from(fileList || []).filter(file => /^image\//i.test(file.type || ''));
             if (!files.length) return;
             const library = this.getPhotoManagerLibrary();
             const today = this.getPhotoManagerToday();
+            const saveResults = [];
             for (const file of files) {
                 try {
-                    const src = await this.readPhotoManagerFileAsDataUrl(file);
+                    const originalSrc = await this.readPhotoManagerFileAsDataUrl(file);
+                    const prepared = await this.preparePhotoManagerNormalSaveSource(
+                        originalSrc,
+                        file.name ? file.name.replace(/\.[^.]+$/, '') : ''
+                    );
+                    const src = prepared.src || originalSrc;
+                    saveResults.push(prepared);
                     library.unshift({
                         id: this.createPhotoManagerLibraryId(),
                         src,
@@ -678,7 +1580,9 @@
                         marks: [],
                         createdAt: Date.now()
                     });
-                    await this.detectAndRememberPhotoManagerTransparency(src, false);
+                    if (prepared.compressed) this.rememberPhotoManagerCompressedSource(src, true);
+                    if (prepared.transparent) this.rememberPhotoManagerTransparentSource(src, true);
+                    else await this.detectAndRememberPhotoManagerTransparency(src, false);
                 } catch (error) {
                     console.error(error);
                 }
@@ -687,6 +1591,8 @@
             const sourceSelect = document.getElementById('photo-manager-source');
             if (sourceSelect && sourceSelect.value !== 'library') sourceSelect.value = 'library';
             this.renderPhotoManager();
+            const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
+            if (summary) this.showPhotoManagerNotice(`${files.length}枚の画像を登録しました。${summary}`);
         }
 
         async splitPhotoManagerStampSheet(src = '') {
@@ -842,9 +1748,16 @@
 
         async importPhotoManagerClipboardBlob(blob) {
             if (!blob || !/^image\//i.test(blob.type || '')) return false;
-            const src = await this.readPhotoManagerFileAsDataUrl(blob);
+            const originalSrc = await this.readPhotoManagerFileAsDataUrl(blob);
+            const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, 'クリップボード画像');
+            const src = prepared.src || originalSrc;
             const added = this.addPhotoManagerLibraryImage(src, 'クリップボード画像');
-            if (added) await this.detectAndRememberPhotoManagerTransparency(src, false);
+            if (added) {
+                this._photoManagerClipboardSaveResults?.push(prepared);
+                if (prepared.compressed) this.rememberPhotoManagerCompressedSource(src, true);
+                if (prepared.transparent) this.rememberPhotoManagerTransparentSource(src, true);
+                else await this.detectAndRememberPhotoManagerTransparency(src, false);
+            }
             return !!added;
         }
 
@@ -856,6 +1769,7 @@
             try {
                 const items = await navigator.clipboard.read();
                 let count = 0;
+                this._photoManagerClipboardSaveResults = [];
                 for (const item of items) {
                     const type = item.types?.find(value => /^image\//i.test(value));
                     if (!type) continue;
@@ -1986,6 +2900,11 @@
         }
 
         closePhotoManagerReviewDialog() {
+            if (typeof this._photoManagerNormalCompressionChoiceResolve === 'function') {
+                const resolver = this._photoManagerNormalCompressionChoiceResolve;
+                this._photoManagerNormalCompressionChoiceResolve = null;
+                resolver('original');
+            }
             document.getElementById('photo-manager-review-overlay')?.remove();
         }
 
@@ -2128,6 +3047,11 @@
             const item = this.findPhotoManagerItem(id);
             if (!item?.src || typeof item.replacePhoto !== 'function') return this.showPhotoManagerNotice('圧縮できる写真が見つかりませんでした。');
             try {
+                const transparent = this.isKnownPhotoManagerTransparentSource(item.src)
+                    || (typeof this.imageHasTransparentPixels === 'function' && await this.imageHasTransparentPixels(item.src));
+                if (transparent && !confirm('この画像は透過画像です。\n通常保存ではPNG維持にしていますが、手動でWebP圧縮しますか？')) {
+                    return this.showPhotoManagerNotice('透過画像の手動圧縮をキャンセルしました。');
+                }
                 const result = await this.createCompressedPhotoManagerSource(item.src);
                 if (!result.changed) return this.showPhotoManagerNotice('この画像はすでに十分小さいため、画質を保てる範囲では圧縮できませんでした。');
                 this.openPhotoManagerCompressionPreview(item, result);
@@ -2548,6 +3472,12 @@
                         <button type="button" class="primary-btn" onclick="app.chooseImageSourceDirectFile()"><i class="fa-solid fa-file-import"></i> 直接ファイル</button>
                         <button type="button" class="image-source-choice-filter clipboard" onclick="app.importImageSourceChoiceFromClipboard()" title="クリップボードの画像を写真管理へ登録して選択"><i class="fa-solid fa-clipboard"></i> クリップボードから取込</button>
                         <button type="button" class="image-source-choice-filter" id="image-source-choice-transparent-filter" onclick="app.toggleImageSourceTransparentFilter()" title="透過画像だけ表示"><i class="fa-solid fa-layer-group"></i> 透過のみ</button>
+                        <div class="image-source-choice-bg-switch" role="group" aria-label="透過画像の背景">
+                            <span>背景</span>
+                            <button type="button" data-bg-mode="checker" onclick="app.setImageSourceChoiceBackgroundMode('checker')" title="格子背景で確認">格子</button>
+                            <button type="button" data-bg-mode="white" onclick="app.setImageSourceChoiceBackgroundMode('white')" title="白背景で確認">白</button>
+                            <button type="button" data-bg-mode="black" onclick="app.setImageSourceChoiceBackgroundMode('black')" title="黒背景で確認">黒</button>
+                        </div>
                         <label class="image-source-choice-search">
                             <i class="fa-solid fa-magnifying-glass"></i>
                             <input type="search" id="image-source-choice-query" placeholder="タイトル・名前・タグを検索（ローマ字でも反応）" oninput="app.renderImageSourceChoiceList(this.value)">
@@ -2576,6 +3506,7 @@
             this._imageSourceChoiceInput = input;
             this._imageSourceTransparentOnly = false;
             this.updateImageSourceTransparentFilterButton();
+            this.applyImageSourceChoiceBackgroundMode();
             this.renderImageSourceChoiceList('');
             setTimeout(() => document.getElementById('image-source-choice-query')?.focus(), 0);
         }
@@ -2603,16 +3534,24 @@
             if (!input || !selectedFiles.length) return;
             try {
                 const imported = [];
+                const saveResults = [];
                 for (const file of selectedFiles) {
-                    const src = await this.readPhotoManagerFileAsDataUrl(file);
+                    const originalSrc = await this.readPhotoManagerFileAsDataUrl(file);
+                    const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, file.name || '');
+                    const src = prepared.src || originalSrc;
                     const added = this.addPhotoManagerLibraryImage(src, file.name || '直接ファイル画像');
                     if (added) {
-                        await this.detectAndRememberPhotoManagerTransparency(src, false);
+                        saveResults.push(prepared);
+                        if (prepared.compressed) this.rememberPhotoManagerCompressedSource(src, true);
+                        if (prepared.transparent) this.rememberPhotoManagerTransparentSource(src, true);
+                        else await this.detectAndRememberPhotoManagerTransparency(src, false);
                         imported.push(added);
                     }
                 }
                 if (!imported.length) return;
                 this._imageSourceInitialImportIds = new Set(imported.map(item => item.id));
+                const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
+                if (summary) this.showPhotoManagerNotice(summary);
                 store.save();
                 if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
                 this.openImageSourceChoice(input);
@@ -2640,14 +3579,20 @@
             try {
                 const items = await navigator.clipboard.read();
                 const imported = [];
+                const saveResults = [];
                 for (const item of items) {
                     const type = item.types?.find(value => /^image\//i.test(value));
                     if (!type) continue;
                     const blob = await item.getType(type);
-                    const src = await this.readPhotoManagerFileAsDataUrl(blob);
+                    const originalSrc = await this.readPhotoManagerFileAsDataUrl(blob);
+                    const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, 'クリップボード画像');
+                    const src = prepared.src || originalSrc;
                     const added = this.addPhotoManagerLibraryImage(src, 'クリップボード画像');
                     if (added) {
-                        await this.detectAndRememberPhotoManagerTransparency(src, false);
+                        saveResults.push(prepared);
+                        if (prepared.compressed) this.rememberPhotoManagerCompressedSource(src, true);
+                        if (prepared.transparent) this.rememberPhotoManagerTransparentSource(src, true);
+                        else await this.detectAndRememberPhotoManagerTransparency(src, false);
                         imported.push(added);
                     }
                 }
@@ -2656,6 +3601,8 @@
                     return;
                 }
                 this._imageSourceInitialImportIds = new Set(imported.map(item => item.id));
+                const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
+                if (summary) this.showPhotoManagerNotice(summary);
                 store.save();
                 if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
                 this._imageSourceTransparentOnly = false;
@@ -2721,6 +3668,29 @@
             button.classList.toggle('active', !!this._imageSourceTransparentOnly);
         }
 
+        getImageSourceChoiceBackgroundMode() {
+            try {
+                const saved = localStorage.getItem('image_source_choice_background_mode');
+                if (['checker', 'white', 'black'].includes(saved)) return saved;
+            } catch {}
+            return 'checker';
+        }
+
+        setImageSourceChoiceBackgroundMode(mode = 'checker') {
+            const next = ['checker', 'white', 'black'].includes(mode) ? mode : 'checker';
+            try { localStorage.setItem('image_source_choice_background_mode', next); } catch {}
+            this.applyImageSourceChoiceBackgroundMode(next);
+        }
+
+        applyImageSourceChoiceBackgroundMode(mode = this.getImageSourceChoiceBackgroundMode()) {
+            const next = ['checker', 'white', 'black'].includes(mode) ? mode : 'checker';
+            const overlay = document.getElementById('image-source-choice-overlay');
+            if (overlay) overlay.dataset.bgMode = next;
+            document.querySelectorAll('.image-source-choice-bg-switch button').forEach(button => {
+                button.classList.toggle('active', button.dataset.bgMode === next);
+            });
+        }
+
         renderImageSourceChoiceList(query = '') {
             const list = document.getElementById('image-source-choice-list');
             if (!list) return;
@@ -2728,6 +3698,13 @@
             const multiple = !!input?.multiple;
             const items = this.getImageSourceChoiceItems(query);
             const usageCounts = this.getPhotoManagerSearchUsageCounts(this.collectPhotoManagerItems());
+            const summary = null;
+            if (summary) {
+                summary.insertAdjacentHTML('beforeend', ' <button type="button" class="secondary-btn" onclick="app.resetPhotoManagerNormalCompressionChoice()" title="通常画像を保存するときの圧縮選択を毎回確認に戻す"><i class="fa-solid fa-rotate-left"></i> 保存時圧縮:確認</button>');
+            }
+            if (summary) {
+                summary.insertAdjacentHTML('beforeend', ` <span class="photo-manager-compression-mode">保存時圧縮: ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span><button type="button" class="secondary-btn" onclick="app.resetPhotoManagerNormalCompressionChoice()" title="通常画像を保存するときの圧縮選択を毎回確認に戻す"><i class="fa-solid fa-rotate-left"></i> 確認に戻す</button>`);
+            }
             if (!items.length) {
                 list.innerHTML = '<div class="image-source-choice-empty">写真管理に該当する画像がありません</div>';
                 return;
@@ -2871,6 +3848,30 @@
             } catch (error) {
                 console.error(error);
                 this.showPhotoManagerNotice('透過チェックに失敗しました');
+            }
+        }
+
+        async reopenPhotoManagerTransparentImageForCutout(id = '') {
+            const item = this.findPhotoManagerItem(id);
+            if (!item?.src) return this.showPhotoManagerNotice('再透過する画像が見つかりませんでした。');
+            if (typeof this.openShiftPhotoCompareBaseImageTransparencyPreview !== 'function') {
+                return this.showPhotoManagerNotice('再透過画面を開けませんでした。');
+            }
+            try {
+                this.openShiftPhotoCompareBaseImageTransparencyPreview(item.src, item.src, {
+                    name: `${this.getPhotoManagerName(item) || item.defaultName || item.title || '画像'} 再透過`,
+                    changed: 0,
+                    total: 0,
+                    alreadyTransparent: true,
+                    sizePreset: item.sizePreset || null,
+                    imageFit: item.imageFit === 'fill' ? 'fill' : '',
+                    overwritePhotoManagerItemId: item.id,
+                    compressOnSave: true
+                });
+                this.showPhotoManagerNotice('再透過画面を開きました。残った部分をクリックして追加で透過できます。');
+            } catch (error) {
+                console.error(error);
+                this.showPhotoManagerNotice('再透過画面を開けませんでした。');
             }
         }
 
@@ -3043,6 +4044,10 @@
                     if (this.addPhotoManagerLibraryImage(item.src, this.getPhotoManagerName(item) || item.defaultName || item.title || '写真管理画像')) count += 1;
                 });
                 this.finishPhotoManagerImport(count, `${count}枚の写真管理画像を登録しました`);
+                return;
+            }
+            if (id === 'tips-photo-manager-input') {
+                this.addTipsPhotoManagerAttachments?.(selected);
                 return;
             }
             if (id === 'shift-photo-compare-image-stamp-input') {
@@ -3233,6 +4238,162 @@
             link.remove();
         }
 
+        downloadPhotoManagerBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        getPhotoManagerExportZipFileName() {
+            const now = new Date();
+            const stamp = [
+                now.getFullYear(),
+                String(now.getMonth() + 1).padStart(2, '0'),
+                String(now.getDate()).padStart(2, '0')
+            ].join('');
+            return `photo_manager_${stamp}.zip`;
+        }
+
+        getPhotoManagerUniqueExportFileName(name, used) {
+            const clean = String(name || 'photo').replace(/[\\/:*?"<>|]/g, '_') || 'photo';
+            const dot = clean.lastIndexOf('.');
+            const base = dot > 0 ? clean.slice(0, dot) : clean;
+            const ext = dot > 0 ? clean.slice(dot) : '';
+            let candidate = clean;
+            let count = 2;
+            while (used.has(candidate.toLowerCase())) {
+                candidate = `${base}_${count}${ext}`;
+                count += 1;
+            }
+            used.add(candidate.toLowerCase());
+            return candidate;
+        }
+
+        dataUrlToPhotoManagerBytes(src = '') {
+            const text = String(src || '');
+            const comma = text.indexOf(',');
+            if (!text.startsWith('data:') || comma < 0) throw new Error('画像データを読み込めませんでした');
+            const header = text.slice(0, comma);
+            const body = text.slice(comma + 1);
+            if (/;base64/i.test(header)) {
+                const binary = atob(body);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+                return bytes;
+            }
+            return new TextEncoder().encode(decodeURIComponent(body));
+        }
+
+        getPhotoManagerCrc32(bytes) {
+            if (!this._photoManagerCrcTable) {
+                this._photoManagerCrcTable = new Uint32Array(256);
+                for (let i = 0; i < 256; i += 1) {
+                    let c = i;
+                    for (let j = 0; j < 8; j += 1) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+                    this._photoManagerCrcTable[i] = c >>> 0;
+                }
+            }
+            let crc = 0xffffffff;
+            for (let i = 0; i < bytes.length; i += 1) {
+                crc = this._photoManagerCrcTable[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+            }
+            return (crc ^ 0xffffffff) >>> 0;
+        }
+
+        pushPhotoManagerZip16(parts, value) {
+            parts.push(value & 0xff, (value >>> 8) & 0xff);
+        }
+
+        pushPhotoManagerZip32(parts, value) {
+            parts.push(value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff);
+        }
+
+        createPhotoManagerZipBlob(files) {
+            const encoder = new TextEncoder();
+            const chunks = [];
+            const central = [];
+            let offset = 0;
+            const now = new Date();
+            const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+            const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+
+            files.forEach(file => {
+                const nameBytes = encoder.encode(file.name);
+                const data = file.bytes;
+                const crc = this.getPhotoManagerCrc32(data);
+                const local = [];
+                this.pushPhotoManagerZip32(local, 0x04034b50);
+                this.pushPhotoManagerZip16(local, 20);
+                this.pushPhotoManagerZip16(local, 0x0800);
+                this.pushPhotoManagerZip16(local, 0);
+                this.pushPhotoManagerZip16(local, dosTime);
+                this.pushPhotoManagerZip16(local, dosDate);
+                this.pushPhotoManagerZip32(local, crc);
+                this.pushPhotoManagerZip32(local, data.length);
+                this.pushPhotoManagerZip32(local, data.length);
+                this.pushPhotoManagerZip16(local, nameBytes.length);
+                this.pushPhotoManagerZip16(local, 0);
+                chunks.push(new Uint8Array(local), nameBytes, data);
+
+                const entryOffset = offset;
+                offset += local.length + nameBytes.length + data.length;
+
+                const header = [];
+                this.pushPhotoManagerZip32(header, 0x02014b50);
+                this.pushPhotoManagerZip16(header, 20);
+                this.pushPhotoManagerZip16(header, 20);
+                this.pushPhotoManagerZip16(header, 0x0800);
+                this.pushPhotoManagerZip16(header, 0);
+                this.pushPhotoManagerZip16(header, dosTime);
+                this.pushPhotoManagerZip16(header, dosDate);
+                this.pushPhotoManagerZip32(header, crc);
+                this.pushPhotoManagerZip32(header, data.length);
+                this.pushPhotoManagerZip32(header, data.length);
+                this.pushPhotoManagerZip16(header, nameBytes.length);
+                this.pushPhotoManagerZip16(header, 0);
+                this.pushPhotoManagerZip16(header, 0);
+                this.pushPhotoManagerZip16(header, 0);
+                this.pushPhotoManagerZip16(header, 0);
+                this.pushPhotoManagerZip32(header, 0);
+                this.pushPhotoManagerZip32(header, entryOffset);
+                central.push(new Uint8Array(header), nameBytes);
+            });
+
+            const centralSize = central.reduce((sum, chunk) => sum + chunk.length, 0);
+            const end = [];
+            this.pushPhotoManagerZip32(end, 0x06054b50);
+            this.pushPhotoManagerZip16(end, 0);
+            this.pushPhotoManagerZip16(end, 0);
+            this.pushPhotoManagerZip16(end, files.length);
+            this.pushPhotoManagerZip16(end, files.length);
+            this.pushPhotoManagerZip32(end, centralSize);
+            this.pushPhotoManagerZip32(end, offset);
+            this.pushPhotoManagerZip16(end, 0);
+            return new Blob([...chunks, ...central, new Uint8Array(end)], { type: 'application/zip' });
+        }
+
+        async exportPhotoManagerItemsAsZip(items) {
+            const used = new Set();
+            const files = [];
+            for (let index = 0; index < items.length; index += 1) {
+                const item = items[index];
+                const src = await this.getPhotoManagerDownloadSrc(item);
+                const name = this.getPhotoManagerUniqueExportFileName(
+                    this.getPhotoManagerSafeFileName(item, index + 1, src),
+                    used
+                );
+                files.push({ name, bytes: this.dataUrlToPhotoManagerBytes(src) });
+            }
+            const blob = this.createPhotoManagerZipBlob(files);
+            this.downloadPhotoManagerBlob(blob, this.getPhotoManagerExportZipFileName());
+            this.showToast?.(`${items.length}枚をZIPで出力しました`, 'success');
+        }
+
         getPhotoManagerSourceLabel(item = {}) {
             const labels = {
                 library: '写真管理',
@@ -3364,7 +4525,7 @@
                                 <button type="button" onclick="app.autoTagPhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-tags"></i> タグ自動</button>
                                 <button type="button" onclick="app.compressPhotoManagerImage('${this.escapeJs(item.id)}')"><i class="fa-solid fa-compress"></i> 圧縮</button>
                                 <button type="button" onclick="app.togglePhotoManagerSourceProtection('${this.escapeJs(item.id)}')"><i class="fa-solid ${protectedPhoto ? 'fa-lock' : 'fa-lock-open'}"></i> ${protectedPhoto ? 'ロック解除' : 'ロック'}</button>
-                                <button type="button" onclick="app.createTransparentPhotoManagerImage('${this.escapeJs(item.id)}')"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過作成</button>
+                                <button type="button" onclick="app.reopenPhotoManagerTransparentImageForCutout('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 再透過</button>
                                 <button type="button" class="danger" onclick="app.deletePhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-trash-can"></i> 削除</button>
                             </div>
                         </details>
@@ -3394,15 +4555,18 @@
                             <button type="button" class="secondary-btn" onclick="app.openPhotoManagerEditor('${this.escapeJs(item.id)}')"><i class="fa-solid fa-pen"></i> 編集</button>
                             ${item.source === 'library' ? '' : `<button type="button" class="secondary-btn" onclick="app.openPhotoManagerSource('${this.escapeJs(item.id)}')"><i class="fa-solid fa-up-right-from-square"></i> 元を開く</button>`}
                             <button type="button" class="secondary-btn" onclick="app.downloadPhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-download"></i> 出力</button>
-                            <button type="button" class="secondary-btn" onclick="app.autoTagPhotoManagerItem('${this.escapeJs(item.id)}')" title="タイトル・写真名・メモからタグを作成"><i class="fa-solid fa-tags"></i> タグ自動</button>
+                            <button type="button" class="secondary-btn" onclick="app.autoTagPhotoManagerItem('${this.escapeJs(item.id)}')" title="画像内の文字を読める場合はタグ化し、読めない場合はタイトル・写真名・メモからタグを作成"><i class="fa-solid fa-tags"></i> タグ自動</button>
                             <button type="button" class="secondary-btn" onclick="app.compressPhotoManagerImage('${this.escapeJs(item.id)}')" title="見た目を大きく損なわない範囲でWebP圧縮"><i class="fa-solid fa-compress"></i> 圧縮</button>
                             <button type="button" class="secondary-btn ${protectedPhoto ? 'active' : ''}" onclick="app.togglePhotoManagerSourceProtection('${this.escapeJs(item.id)}')" title="連絡帳・5S写真の1カ月自動削除から保護"><i class="fa-solid ${protectedPhoto ? 'fa-lock' : 'fa-lock-open'}"></i> ${protectedPhoto ? '保護中' : 'ロック'}</button>
-                            <button type="button" class="secondary-btn photo-manager-cutout-btn" onclick="app.createTransparentPhotoManagerImage('${this.escapeJs(item.id)}')" title="背景色を簡易的に透明化して写真管理へ追加"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過作成</button>
+                            <button type="button" class="secondary-btn photo-manager-recutout-btn" onclick="app.reopenPhotoManagerTransparentImageForCutout('${this.escapeJs(item.id)}')" title="保存済み画像をもう一度透過チェックにかけ、残った単色部分をクリックで追加透過"><i class="fa-solid fa-layer-group"></i> 再透過</button>
                             <button type="button" class="danger-btn" onclick="app.deletePhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-trash-can"></i> 削除</button>
                         </div>
                     </div>
                 </article>`;
             }).join('');
+            if (summary && !summary.querySelector('.photo-manager-compression-settings-btn')) {
+                summary.insertAdjacentHTML('beforeend', ` <button type="button" class="secondary-btn photo-manager-compression-settings-btn" onclick="app.openPhotoManagerCompressionSettingDialog()" title="保存時圧縮: ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}"><i class="fa-solid fa-gear"></i> 圧縮設定</button>`);
+            }
             this.enhancePhotoManagerCards(items);
             this.updatePhotoManagerBulkBar();
             this.addPhotoManagerPageOnlyCleanupButton();
@@ -3439,11 +4603,10 @@
                         <input type="text" id="photo-manager-bulk-title-input" placeholder="選択中へ一括設定">
                     </label>
                     <button type="button" class="primary-btn" onclick="app.renameSelectedPhotoManagerItems()"><i class="fa-solid fa-pen-to-square"></i> 一括変更</button>
-                    <button type="button" class="secondary-btn" onclick="app.autoTagSelectedPhotoManagerItems()"><i class="fa-solid fa-tags"></i> タグ自動作成</button>
+                    <button type="button" class="secondary-btn" onclick="app.autoTagSelectedPhotoManagerItems()" title="画像内の文字を読める場合はタグ化し、読めない場合はタイトル・写真名・メモからタグを作成"><i class="fa-solid fa-tags"></i> タグ自動作成</button>
                     <button type="button" class="secondary-btn" onclick="app.compressSelectedPhotoManagerImages()"><i class="fa-solid fa-compress"></i> 一括圧縮</button>
-                    <button type="button" class="secondary-btn" onclick="app.createTransparentSelectedPhotoManagerImages()"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過作成</button>
                     <button type="button" class="secondary-btn photo-manager-blank-compare-btn" onclick="app.openPhotoManagerBlankShiftPhotoCompare()" style="background:#10b981;color:#ffffff;border-color:#059669;box-shadow:0 10px 22px rgba(16,185,129,.22);"><i class="fa-solid fa-file"></i> 白紙</button>
-                    <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()"><i class="fa-solid fa-file-export"></i> 出力</button>
+                    <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()" title="表示中または選択中の画像を出力します。5枚以上は1つのZIPファイルにまとめて出力します。"><i class="fa-solid fa-file-export"></i> 出力</button>
                     <button type="button" class="secondary-btn" onclick="app.openPhotoManagerRelationMap()"><i class="fa-solid fa-diagram-project"></i> 関係図 ${relationCount ? `(${relationCount})` : ''}</button>
                     <button type="button" class="secondary-btn photo-manager-page-only-cleanup-btn" onclick="app.openPhotoManagerPageOnlyCleanupReview()"><i class="fa-solid fa-folder-minus"></i> ページ残り ${pageOnlyCount ? `(${pageOnlyCount})` : ''}</button>
                     <button type="button" class="secondary-btn" onclick="app.openPhotoManagerDuplicateReview()"><i class="fa-solid fa-clone"></i> 重複整理 ${duplicateCount ? `(${duplicateCount})` : ''}</button>
@@ -3502,10 +4665,14 @@
             this.openPhotoManagerReviewDialog('写真の関係図', body);
         }
 
-        exportPhotoManagerItems() {
+        async exportPhotoManagerItems() {
             const selected = new Set(this.getSelectedPhotoManagerIds());
             const items = this.getFilteredPhotoManagerItems().filter(item => !selected.size || selected.has(item.id));
             if (!items.length) return alert('出力する写真がありません。');
+            if (items.length >= 5) {
+                await this.exportPhotoManagerItemsAsZip(items);
+                return;
+            }
             items.forEach((item, index) => {
                 setTimeout(() => this.downloadPhotoManagerImage(item, index + 1), index * 160);
             });

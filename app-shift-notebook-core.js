@@ -5072,7 +5072,7 @@
 
     expandShiftPhotoCompareMarkImageRefs(marks = []) {
         const list = Array.isArray(marks) ? marks.map(mark => ({ ...mark })) : [];
-        const fields = ['imageSrc', 'originalImageSrc'];
+        const fields = ['imageSrc', 'originalImageSrc', 'wallpaperSrc'];
         const assets = new Map();
         list.forEach(mark => {
             fields.forEach(field => {
@@ -5100,7 +5100,7 @@
             if (!Array.isArray(parsedMarks)) return [];
             const marks = this.expandShiftPhotoCompareMarkImageRefs(parsedMarks);
             return marks.map(mark => ({
-                mode: ['circle', 'arrow', 'dimension', 'rect', 'table', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'mosaic', 'image'].includes(mark.mode) ? mark.mode : 'circle',
+                mode: ['circle', 'triangle', 'arrow', 'dimension', 'rect', 'table', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'mosaic', 'image'].includes(mark.mode) ? mark.mode : 'circle',
                 x: Math.max(0, Math.min(100, Number(mark.x) || 0)),
                 y: Math.max(0, Math.min(100, Number(mark.y) || 0)),
                 size: Math.max(24, Math.min(mark.mode === 'mosaic' ? 1200 : 700, Number(mark.size) || 56)),
@@ -5313,20 +5313,20 @@
         const placeholder = safeText ? '' : 'クリックして文字入力';
         const maxLength = this.getShiftPhotoCompareBoxedTextMaxLength(options);
         const inputAttrs = this.getShiftPhotoCompareTextInputAttrs();
-        return `<span class="shift-photo-boxed-text-content"><span class="shift-photo-text-outline-mirror shift-photo-boxed-text-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><span class="shift-photo-text-inner-outline-mirror shift-photo-boxed-text-inner-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span>${this.getShiftPhotoCompareRichTextColorMirrorHtml(safeText, options)}<textarea class="shift-photo-boxed-text-editor" maxlength="${maxLength}" rows="1" placeholder="${placeholder}" ${inputAttrs} onpointerdown="app.handleShiftPhotoCompareBoxedTextPointerDown(event, this)" onwheel="app.handleShiftPhotoCompareBoxedTextWheel(event, this)" onclick="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark')); this.focus()" onkeydown="app.handleShiftPhotoCompareTextMergeKeydown(event, this)" onselect="app.rememberShiftPhotoCompareTextSelection(this)" onkeyup="app.rememberShiftPhotoCompareTextSelection(this)" onmouseup="app.rememberShiftPhotoCompareTextSelection(this)" onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" onscroll="app.scheduleShiftPhotoCompareTextOutlineMirrorSync(this.closest('.shift-photo-compare-mark'))" oninput="app.updateShiftPhotoCompareBoxedText(this)">${this.escapeHtml(safeText)}</textarea></span>`;
+        return `<span class="shift-photo-boxed-text-content"><span class="shift-photo-text-outline-mirror shift-photo-boxed-text-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><span class="shift-photo-text-inner-outline-mirror shift-photo-boxed-text-inner-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span>${this.getShiftPhotoCompareRichTextColorMirrorHtml(safeText, options)}<textarea class="shift-photo-boxed-text-editor" maxlength="${maxLength}" rows="1" placeholder="${placeholder}" ${inputAttrs} onpointerdown="app.handleShiftPhotoCompareBoxedTextPointerDown(event, this)" onwheel="app.handleShiftPhotoCompareBoxedTextWheel(event, this)" onclick="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark')); this.focus()" onfocus="app.updateShiftPhotoCompareMiniToolbar()" onblur="app.updateShiftPhotoCompareMiniToolbar()" onkeydown="app.handleShiftPhotoCompareTextMergeKeydown(event, this)" onselect="app.rememberShiftPhotoCompareTextSelection(this)" onkeyup="app.rememberShiftPhotoCompareTextSelection(this)" onmouseup="app.rememberShiftPhotoCompareTextSelection(this)" onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" onscroll="app.scheduleShiftPhotoCompareTextOutlineMirrorSync(this.closest('.shift-photo-compare-mark'))" oninput="app.updateShiftPhotoCompareBoxedText(this)">${this.escapeHtml(safeText)}</textarea></span>`;
     }
 
     getShiftPhotoCompareCalloutTextEditorHtml(text = '', options = {}) {
         const safeText = String(text || '');
         const maxLength = this.getShiftPhotoCompareCalloutTextMaxLength();
         const inputAttrs = this.getShiftPhotoCompareTextInputAttrs();
-        return `<span class="shift-photo-callout-text-wrap"><span class="shift-photo-text-outline-mirror shift-photo-callout-text-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><span class="shift-photo-text-inner-outline-mirror shift-photo-callout-text-inner-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span>${this.getShiftPhotoCompareRichTextColorMirrorHtml(safeText, options)}<textarea class="shift-photo-callout-text" maxlength="${maxLength}" rows="1" placeholder="クリックして文字入力" ${inputAttrs} onpointerdown="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark'))" onwheel="app.handleShiftPhotoCompareCalloutTextWheel(event, this)" onclick="event.stopPropagation(); this.focus()" onkeydown="app.handleShiftPhotoCompareTextMergeKeydown(event, this)" onselect="app.rememberShiftPhotoCompareTextSelection(this)" onkeyup="app.rememberShiftPhotoCompareTextSelection(this)" onmouseup="app.rememberShiftPhotoCompareTextSelection(this)" onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" onscroll="app.scheduleShiftPhotoCompareTextOutlineMirrorSync(this.closest('.shift-photo-compare-mark'))" oninput="app.updateShiftPhotoCompareCalloutText(this)">${this.escapeHtml(safeText)}</textarea></span>`;
+        return `<span class="shift-photo-callout-text-wrap"><span class="shift-photo-text-outline-mirror shift-photo-callout-text-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span><span class="shift-photo-text-inner-outline-mirror shift-photo-callout-text-inner-outline-mirror" aria-hidden="true">${this.escapeHtml(safeText)}</span>${this.getShiftPhotoCompareRichTextColorMirrorHtml(safeText, options)}<textarea class="shift-photo-callout-text" maxlength="${maxLength}" rows="1" placeholder="クリックして文字入力" ${inputAttrs} onpointerdown="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark'))" onwheel="app.handleShiftPhotoCompareCalloutTextWheel(event, this)" onclick="event.stopPropagation(); this.focus()" onfocus="app.updateShiftPhotoCompareMiniToolbar()" onblur="app.updateShiftPhotoCompareMiniToolbar()" onkeydown="app.handleShiftPhotoCompareTextMergeKeydown(event, this)" onselect="app.rememberShiftPhotoCompareTextSelection(this)" onkeyup="app.rememberShiftPhotoCompareTextSelection(this)" onmouseup="app.rememberShiftPhotoCompareTextSelection(this)" onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" onscroll="app.scheduleShiftPhotoCompareTextOutlineMirrorSync(this.closest('.shift-photo-compare-mark'))" oninput="app.updateShiftPhotoCompareCalloutText(this)">${this.escapeHtml(safeText)}</textarea></span>`;
     }
 
     getShiftPhotoComparePlainTextEditorHtml(text = '') {
         const safeText = String(text || '');
         const inputAttrs = this.getShiftPhotoCompareTextInputAttrs();
-        return `<button type="button" class="shift-photo-plain-text-move-handle" title="掴んで文字を移動" onpointerdown="app.startShiftPhotoComparePlainTextMove(event, this)"><i class="fa-solid fa-up-down-left-right"></i></button><textarea class="shift-photo-plain-text-editor" maxlength="120" rows="1" placeholder="文字入力" ${inputAttrs} onpointerdown="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark'))" onwheel="app.handleShiftPhotoComparePlainTextWheel(event, this)" onclick="event.stopPropagation(); this.focus()" onfocus="this.closest('.shift-photo-compare-mark')?.classList.add('plain-text-editing')" onblur="app.finishShiftPhotoComparePlainTextEditing(this)" onkeydown="event.stopPropagation()" onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" oninput="app.updateShiftPhotoComparePlainText(this)">${this.escapeHtml(safeText)}</textarea><span class="shift-photo-plain-text-display" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); app.startShiftPhotoComparePlainTextEditing(this)">${this.escapeHtml(safeText)}</span>`;
+        return `<button type="button" class="shift-photo-plain-text-move-handle" title="掴んで文字を移動" onpointerdown="app.startShiftPhotoComparePlainTextMove(event, this)"><i class="fa-solid fa-up-down-left-right"></i></button><textarea class="shift-photo-plain-text-editor" maxlength="120" rows="1" placeholder="文字入力" ${inputAttrs} onpointerdown="event.stopPropagation(); app.selectShiftPhotoCompareMark(this.closest('.shift-photo-compare-mark'))" onwheel="app.handleShiftPhotoComparePlainTextWheel(event, this)" onclick="event.stopPropagation(); this.focus()" onfocus="this.closest('.shift-photo-compare-mark')?.classList.add('plain-text-editing'); app.updateShiftPhotoCompareMiniToolbar()" onblur="app.finishShiftPhotoComparePlainTextEditing(this); app.updateShiftPhotoCompareMiniToolbar()" onkeydown="event.stopPropagation()" onpaste="app.handleShiftPhotoCompareFormattedTextPaste(event, this)" oninput="app.updateShiftPhotoComparePlainText(this)">${this.escapeHtml(safeText)}</textarea><span class="shift-photo-plain-text-display" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); app.startShiftPhotoComparePlainTextEditing(this)">${this.escapeHtml(safeText)}</span>`;
     }
 
     rememberShiftPhotoCompareTextSelection(editor) {
@@ -5675,9 +5675,19 @@
     }
 
     handleShiftPhotoCompareBoxedTextPointerDown(event, editor) {
-        event.stopPropagation();
         const mark = editor?.closest?.('.shift-photo-compare-mark.boxedText');
         if (!mark || event.button !== 0) return;
+        const regionImageTarget = this.getShiftPhotoCompareRegionCommentImageTarget(mark);
+        if (regionImageTarget?.polyline?.classList?.contains('selected')
+            && this.startShiftPhotoComparePolylineRegionImageDrag(
+                event,
+                regionImageTarget.polyline,
+                regionImageTarget.wrap,
+                regionImageTarget.regionIndex
+            )) {
+            return;
+        }
+        event.stopPropagation();
         // The editor owns drag gestures so multiline text can be selected normally.
         // Moving the mark remains available from the surrounding frame.
         if (!mark.classList.contains('selected')) this.selectShiftPhotoCompareMark(mark);
@@ -5685,9 +5695,52 @@
 
     handleShiftPhotoCompareBoxedTextWheel(event, editor) {
         const mark = editor?.closest?.('.shift-photo-compare-mark.boxedText');
+        const regionImageTarget = this.getShiftPhotoCompareRegionCommentImageTarget(mark);
+        if (regionImageTarget?.polyline?.classList?.contains('selected')
+            && this.zoomShiftPhotoComparePolylineRegionImageAtPoint(
+                event,
+                regionImageTarget.polyline,
+                regionImageTarget.wrap,
+                regionImageTarget.regionIndex
+            )) {
+            event.stopPropagation();
+            return;
+        }
         if (!mark || document.activeElement !== editor) return;
         event.preventDefault();
         event.stopPropagation();
+        if (mark.dataset.regionComment === '1') {
+            const currentSize = Math.max(24, Math.min(700, Number(mark.dataset.size) || 56));
+            const factor = event.deltaY < 0 ? 1.05 : 0.95;
+            const nextSize = Math.max(24, Math.min(700, Math.round(currentSize * factor)));
+            if (Math.abs(nextSize - currentSize) < 0.001) {
+                this.showShiftPhotoCompareActionMessage(event.deltaY < 0 ? 'これ以上大きくできません。' : 'これ以上小さくできません。');
+                return;
+            }
+            mark.dataset.size = String(nextSize);
+            mark.style.setProperty('--mark-size', `${nextSize}px`);
+            this.fitShiftPhotoCompareRegionComment(mark);
+            const fitScale = this.applyShiftPhotoCompareRegionCommentAutoScale(mark);
+            if (event.deltaY < 0 && fitScale < 0.995) {
+                mark.dataset.size = String(currentSize);
+                mark.style.setProperty('--mark-size', `${currentSize}px`);
+                this.fitShiftPhotoCompareRegionComment(mark);
+                this.syncShiftPhotoCompareTextOutlineMirror(mark);
+                this.scheduleShiftPhotoCompareTextOutlineMirrorSync(mark);
+                this.showShiftPhotoCompareActionMessage('枠内に収まる最大サイズです。');
+                return;
+            }
+            this.syncShiftPhotoCompareTextOutlineMirror(mark);
+            this.scheduleShiftPhotoCompareTextOutlineMirrorSync(mark);
+            this.syncShiftPhotoCompareWrapForMark(mark);
+            this.updateShiftPhotoCompareSelectionBounds();
+            this.updateShiftPhotoCompareMiniToolbar();
+            this.refreshShiftPhotoCompareMarkList();
+            this.scheduleShiftNotebookAutoSave();
+            const fontSize = Math.round(nextSize * 0.42);
+            this.showShiftPhotoCompareActionMessage(`区画内の文字サイズ 約${fontSize}px`);
+            return;
+        }
         const current = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
         const delta = event.deltaY < 0 ? 0.05 : -0.05;
         const next = Math.max(0.5, Math.min(3, Math.round((current + delta) * 100) / 100));
@@ -5826,6 +5879,11 @@
         return `<svg viewBox="0 0 100 100" aria-hidden="true"><path class="shift-photo-xmark-outline outer" d="${path}"></path><path class="shift-photo-xmark-outline inner" d="${path}"></path><path class="shift-photo-xmark-main" d="${path}"></path></svg>`;
     }
 
+    getShiftPhotoCompareTriangleHtml() {
+        const path = 'M50 16 L88 82 L12 82 Z';
+        return `<svg viewBox="0 0 100 100" aria-hidden="true"><path class="shift-photo-triangle-outline outer" d="${path}"></path><path class="shift-photo-triangle-outline inner" d="${path}"></path><path class="shift-photo-triangle-main" d="${path}" fill="none" stroke="currentColor" stroke-width="8"></path></svg>`;
+    }
+
     getShiftPhotoCompareFreehandSvg(pointsText = '') {
         const points = this.escapeHtml(String(pointsText || ''));
         return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline class="shift-photo-freehand-hit" points="${points}"></polyline><polyline class="shift-photo-freehand-line" points="${points}"></polyline></svg>`;
@@ -5873,15 +5931,19 @@
             const maxY = Math.max(...region.points.map(point => point.y));
             const width = Math.max(0.01, maxX - minX);
             const height = Math.max(0.01, maxY - minY);
-            const zoom = Math.max(1, Math.min(4, Number(fill.imageZoom) || 1));
-            const offsetX = Math.max(-100, Math.min(100, Number(fill.imageOffsetX) || 0));
-            const offsetY = Math.max(-100, Math.min(100, Number(fill.imageOffsetY) || 0));
+            const zoom = Math.max(1, Math.min(6, Number(fill.imageZoom) || 1));
+            const offsetX = Math.max(-150, Math.min(150, Number(fill.imageOffsetX) || 0));
+            const offsetY = Math.max(-150, Math.min(150, Number(fill.imageOffsetY) || 0));
+            const stretchImage = fill.imageFit === 'stretch';
             const clipPoints = region.points.map(point => {
                 const x = (point.x - minX) / width * 100;
                 const y = (point.y - minY) / height * 100;
                 return `${x.toFixed(3)}% ${y.toFixed(3)}%`;
             }).join(',');
-            return `<span class="shift-photo-polyline-region-image" data-region-index="${index}" style="left:${minX.toFixed(3)}%;top:${minY.toFixed(3)}%;width:${width.toFixed(3)}%;height:${height.toFixed(3)}%;clip-path:polygon(${this.escapeHtml(clipPoints)})"><img src="${this.escapeHtml(fill.imageSrc)}" alt="" style="left:${(50 + offsetX).toFixed(3)}%;top:${(50 + offsetY).toFixed(3)}%;width:${(zoom * 100).toFixed(3)}%;height:${(zoom * 100).toFixed(3)}%;transform:translate(-50%,-50%) scaleX(${fill.imageFlipX ? -1 : 1})"></span>`;
+            const imageStyle = stretchImage
+                ? `left:50%;top:50%;width:100%;height:100%;object-fit:fill;transform:translate(-50%,-50%) scaleX(${fill.imageFlipX ? -1 : 1})`
+                : `left:${(50 + offsetX).toFixed(3)}%;top:${(50 + offsetY).toFixed(3)}%;width:${(zoom * 100).toFixed(3)}%;height:${(zoom * 100).toFixed(3)}%;transform:translate(-50%,-50%) scaleX(${fill.imageFlipX ? -1 : 1})`;
+            return `<span class="shift-photo-polyline-region-image${stretchImage ? ' stretch-image' : ''}" data-region-index="${index}" style="left:${minX.toFixed(3)}%;top:${minY.toFixed(3)}%;width:${width.toFixed(3)}%;height:${height.toFixed(3)}%;clip-path:polygon(${this.escapeHtml(clipPoints)})"><img src="${this.escapeHtml(fill.imageSrc)}" alt="" style="${imageStyle}"></span>`;
         }).join('');
     }
 
@@ -5929,9 +5991,10 @@
             color: /^#[0-9a-f]{6}$/i.test(fill?.color || '') ? fill.color : '#dc2626',
             opacity: Math.max(0.05, Math.min(1, Number(fill?.opacity) || 1)),
             imageSrc: /^data:image\//i.test(fill?.imageSrc || '') ? fill.imageSrc : '',
-            imageZoom: Math.max(1, Math.min(4, Number(fill?.imageZoom) || 1)),
-            imageOffsetX: Math.max(-100, Math.min(100, Number(fill?.imageOffsetX) || 0)),
-            imageOffsetY: Math.max(-100, Math.min(100, Number(fill?.imageOffsetY) || 0)),
+            imageFit: fill?.imageFit === 'stretch' ? 'stretch' : '',
+            imageZoom: Math.max(1, Math.min(6, Number(fill?.imageZoom) || 1)),
+            imageOffsetX: Math.max(-150, Math.min(150, Number(fill?.imageOffsetX) || 0)),
+            imageOffsetY: Math.max(-150, Math.min(150, Number(fill?.imageOffsetY) || 0)),
             imageFlipX: fill?.imageFlipX === true || fill?.imageFlipX === '1',
             centerX: Number.isFinite(Number(fill?.centerX)) ? Math.max(0, Math.min(100, Number(fill.centerX))) : null,
             centerY: Number.isFinite(Number(fill?.centerY)) ? Math.max(0, Math.min(100, Number(fill.centerY))) : null,
@@ -5980,6 +6043,7 @@
                 color: matched?.color || defaultColor,
                 opacity: matched?.opacity || defaultOpacity,
                 imageSrc: matched?.imageSrc || '',
+                imageFit: matched?.imageFit || '',
                 imageZoom: matched?.imageZoom || 1,
                 imageOffsetX: matched?.imageOffsetX || 0,
                 imageOffsetY: matched?.imageOffsetY || 0,
@@ -6373,7 +6437,7 @@
     }
 
     getShiftPhotoCompareMarkHtml(mark = {}) {
-        const mode = ['circle', 'arrow', 'dimension', 'rect', 'table', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'mosaic', 'image'].includes(mark.mode) ? mark.mode : 'circle';
+        const mode = ['circle', 'triangle', 'arrow', 'dimension', 'rect', 'table', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'mosaic', 'image'].includes(mark.mode) ? mark.mode : 'circle';
         const x = Math.max(0, Math.min(100, Number(mark.x) || 0));
         const y = Math.max(0, Math.min(100, Number(mark.y) || 0));
         const size = Math.max(24, Math.min(mode === 'mosaic' ? 1200 : 700, Number(mark.size) || 56));
@@ -6478,6 +6542,10 @@
         const xmarkOuterStroke = xmarkStroke + xmarkOuterUnits * 2;
         const xmarkOuterWithInnerStroke = xmarkStroke + (xmarkOuterUnits + xmarkInnerUnits) * 2;
         const xmarkInnerStroke = xmarkStroke + xmarkInnerUnits * 2;
+        const triangleStroke = 8 * stroke;
+        const triangleOuterStroke = triangleStroke + xmarkOuterUnits * 2;
+        const triangleOuterWithInnerStroke = triangleStroke + (xmarkOuterUnits + xmarkInnerUnits) * 2;
+        const triangleInnerStroke = triangleStroke + xmarkInnerUnits * 2;
         const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-boxed-border-width="${boxedBorderWidth}" data-callout-border-width="${calloutBorderWidth}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-outer-outline-width="${outerOutlineWidth}" data-inner-outline-width="${innerOutlineWidth}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-table-rows="${tableRows}" data-table-cols="${tableCols}" data-table-rounded="${tableRounded ? '1' : '0'}" data-table-cell-width="${tableCellWidth}" data-table-cell-height="${tableCellHeight}" data-table-col-widths="${this.escapeHtml(JSON.stringify(tableColWidths))}" data-table-row-heights="${this.escapeHtml(JSON.stringify(tableRowHeights))}" data-table-border-width="${tableBorderWidth}" data-table-vertical-line-style="${tableVerticalLineStyle}" data-table-horizontal-line-style="${tableHorizontalLineStyle}" data-table-cells="${this.escapeHtml(JSON.stringify(tableCells))}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-fill-color="${this.escapeHtml(fillColor)}" data-wallpaper-src="${this.escapeHtml(wallpaperSrc)}" data-polyline-fill="${polylineFill ? '1' : '0'}" data-polyline-fill-color="${this.escapeHtml(polylineFillColor)}" data-polyline-fill-opacity="${polylineFillOpacity}" data-polyline-region-fills="${this.escapeHtml(JSON.stringify(polylineRegionFills))}" data-region-comment="${regionComment ? '1' : '0'}" data-region-comment-width="${regionCommentWidth}" data-region-comment-height="${regionCommentHeight}" data-region-comment-link-id="${this.escapeHtml(regionCommentLinkId)}" data-region-comment-region-id="${this.escapeHtml(regionCommentRegionId)}" data-region-comment-index="${regionCommentIndex}" data-region-comment-anchor-x="${regionCommentAnchorX ?? ''}" data-region-comment-anchor-y="${regionCommentAnchorY ?? ''}" data-text-color="${this.escapeHtml(textColor)}" data-text-color-runs="${this.escapeHtml(JSON.stringify(textColorRuns))}" data-has-partial-text-color="${textColorRuns.length ? '1' : '0'}" data-text-scale="${textScale}" data-text-fit="${textFit}" data-text-padding-x="${textPaddingX}" data-text-padding-y="${textPaddingY}" data-tail-enabled="${tailEnabled ? '1' : '0'}" data-tail-pos="${tailPos}" data-tail-side="${tailSide}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-image-shape="${imageShape}" data-image-zoom="${imageZoom}" data-image-offset-x="${imageOffsetX}" data-image-offset-y="${imageOffsetY}" data-circle-library-id="${this.escapeHtml(circleLibraryId)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-text-vertical="${textVertical}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-group-icon-hidden="${groupIconHidden ? '1' : '0'}" data-locked="${locked ? '1' : '0'}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-image-x="${imageX ?? ''}" data-image-y="${imageY ?? ''}" data-image-display-width="${imageDisplayWidth}" data-image-display-height="${imageDisplayHeight}" data-points="${this.escapeHtml(JSON.stringify(points))}"`;
         if (mode === 'freehand') {
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)};">${this.getShiftPhotoCompareFreehandSvg(pointsText)}</div>`;
@@ -6502,7 +6570,7 @@
         const boxedTextHtml = mode === 'boxedText'
             ? `${wallpaperSrc ? `<img class="shift-photo-mark-wallpaper" src="${this.escapeHtml(wallpaperSrc)}" alt="">` : ''}${this.getShiftPhotoCompareBoxedTextEditorHtml(text, { regionComment, textColorRuns, textColor })}${regionComment ? this.getShiftPhotoCompareRegionInfoButtonHtml() : ''}`
             : '';
-        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --boxed-text-font-scale:${textScale}; --plain-text-font-scale:${textScale}; --boxed-text-inverse-x:${1 / stretch}; --boxed-text-inverse-y:${1 / stretchY}; --boxed-text-border-inverse-x:${1 / stretch}; --boxed-text-border-inverse-y:${1 / stretchY}; ${hasBoxedBorderWidth ? `--boxed-text-border-width-custom:${boxedBorderWidth}px;` : ''} --region-comment-width:${regionCommentWidth}px; --region-comment-height:${regionCommentHeight}px; --rect-dot-inverse-x:${1 / stretch}; --rect-dot-inverse-y:${1 / stretchY}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkStroke}; --xmark-outer-stroke:${xmarkOuterStroke}; --xmark-outer-with-inner-stroke:${xmarkOuterWithInnerStroke}; --xmark-inner-stroke:${xmarkInnerStroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px;">${mode === 'arrow' ? this.getShiftPhotoCompareArrowHtml(true) : (mode === 'dimension' ? dimensionHtml : (mode === 'rect' ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY) : (mode === 'xmark' ? xmarkHtml : (mode === 'boxedText' ? boxedTextHtml : (mode === 'text' ? this.getShiftPhotoComparePlainTextEditorHtml(text) : (mode === 'number' ? this.escapeHtml(text) : ''))))))}</div>`;
+        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --boxed-text-font-scale:${textScale}; --plain-text-font-scale:${textScale}; --boxed-text-inverse-x:${1 / stretch}; --boxed-text-inverse-y:${1 / stretchY}; --boxed-text-border-inverse-x:${1 / stretch}; --boxed-text-border-inverse-y:${1 / stretchY}; ${hasBoxedBorderWidth ? `--boxed-text-border-width-custom:${boxedBorderWidth}px;` : ''} --region-comment-width:${regionCommentWidth}px; --region-comment-height:${regionCommentHeight}px; --rect-dot-inverse-x:${1 / stretch}; --rect-dot-inverse-y:${1 / stretchY}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkStroke}; --xmark-outer-stroke:${xmarkOuterStroke}; --xmark-outer-with-inner-stroke:${xmarkOuterWithInnerStroke}; --xmark-inner-stroke:${xmarkInnerStroke}; --triangle-stroke:${triangleStroke}; --triangle-outer-stroke:${triangleOuterStroke}; --triangle-outer-with-inner-stroke:${triangleOuterWithInnerStroke}; --triangle-inner-stroke:${triangleInnerStroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px;">${mode === 'arrow' ? this.getShiftPhotoCompareArrowHtml(true) : (mode === 'dimension' ? dimensionHtml : (mode === 'triangle' ? this.getShiftPhotoCompareTriangleHtml() : (mode === 'rect' ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY) : (mode === 'xmark' ? xmarkHtml : (mode === 'boxedText' ? boxedTextHtml : (mode === 'text' ? this.getShiftPhotoComparePlainTextEditorHtml(text) : (mode === 'number' ? this.escapeHtml(text) : '')))))))}</div>`;
     }
 
     readShiftPhotoCompareMarksFromWrap(wrap) {
@@ -7145,6 +7213,9 @@
                             <button type="button" class="shift-photo-compare-mark-btn" data-mark-mode="circle" onclick="app.setShiftPhotoCompareMarkMode('circle')" title="丸で指示">
                                 <i class="fa-regular fa-circle"></i>
                             </button>
+                            <button type="button" class="shift-photo-compare-mark-btn" data-mark-mode="triangle" onclick="app.setShiftPhotoCompareMarkMode('triangle')" title="三角で指示">
+                                <i class="fa-solid fa-caret-up"></i>
+                            </button>
                             <button type="button" class="shift-photo-compare-mark-btn" data-mark-mode="arrow" onclick="app.setShiftPhotoCompareMarkMode('arrow')" title="矢印で指示">
                                 <i class="fa-solid fa-arrow-right"></i>
                             </button>
@@ -7405,6 +7476,7 @@
                 <div class="shift-photo-compare-mini-toolbar" id="shift-photo-compare-mini-toolbar" hidden onpointerdown="app.startShiftPhotoCompareMiniToolbarDrag(event, this)">
                     <button type="button" onclick="app.copySelectedShiftPhotoCompareMark()" title="コピー"><i class="fa-regular fa-copy"></i></button>
                     <button type="button" onclick="app.clearShiftPhotoCompareSelection()" title="選択解除"><i class="fa-solid fa-ban"></i></button>
+                    <span class="shift-photo-compare-operation-mode" id="shift-photo-compare-operation-mode" hidden></span>
                     <span class="shift-photo-compare-polyline-state" hidden></span>
                     <button type="button" class="shift-photo-compare-lock-btn" onclick="app.toggleSelectedShiftPhotoCompareMarkLock()" title="選択中の記号をロック/解除"><i class="fa-solid fa-lock-open"></i></button>
                     <button type="button" class="shift-photo-compare-group-btn" onclick="app.toggleSelectedShiftPhotoCompareMarkGroup()" title="選択中の記号をグループ化/解除"><i class="fa-solid fa-link"></i></button>
@@ -7615,6 +7687,8 @@
         });
         document.body.appendChild(overlay);
         overlay.querySelectorAll('.shift-photo-compare-mark.callout').forEach(mark => this.fitShiftPhotoCompareCalloutText(mark));
+        overlay.querySelectorAll('.shift-photo-compare-mark.polyline[data-region-comment-link-id]')
+            .forEach(mark => this.syncShiftPhotoCompareRegionCommentsForPolyline(mark));
         overlay.querySelectorAll('.shift-photo-compare-mark.boxedText').forEach(mark => {
             if (mark.dataset.regionComment === '1') {
                 this.ensureShiftPhotoCompareRegionInfoButton(mark);
@@ -8004,7 +8078,7 @@
     }
 
     isShiftPhotoComparePlacementTool(mode = '') {
-        return ['circle', 'arrow', 'dimension', 'rect', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'image'].includes(mode);
+        return ['circle', 'triangle', 'arrow', 'dimension', 'rect', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'image'].includes(mode);
     }
 
     getShiftPhotoComparePlacementToolKey(mode = this._shiftPhotoCompareMarkMode, src = this._shiftPhotoCompareImageStampSrc) {
@@ -8482,7 +8556,7 @@
     }
 
     isShiftPhotoCompareShapeToolMode(mode = this._shiftPhotoCompareMarkMode) {
-        return ['circle', 'arrow', 'dimension', 'rect', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline'].includes(mode || '');
+        return ['circle', 'triangle', 'arrow', 'dimension', 'rect', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline'].includes(mode || '');
     }
 
     captureShiftPhotoCompareShapeSizeDefaults() {
@@ -8970,6 +9044,7 @@
                 ? '直線引き中: 45度・平行・青点のX/Y位置へ吸着します。右クリックで選択、青点右クリックで始点変更できます。'
                 : '直線引き中: 吸着OFF。自由な角度で引けます。右クリックで選択できます。',
             circle: '丸モード中: 写真上をドラッグして丸を置けます。',
+            triangle: '三角モード中: 写真上をドラッグして三角を置けます。',
             arrow: '矢印モード中: 写真上をドラッグして矢印を置けます。',
             dimension: '寸法線モード中: 測りたい区間を始点から終点までドラッグします。寸法値は文字欄で変更できます。',
             rect: '四角モード中: 写真上をドラッグして四角を置けます。',
@@ -9002,6 +9077,7 @@
                 freehand: '線',
                 polyline: '直線',
                 circle: '丸',
+                triangle: '三角',
                 arrow: '矢印',
                 dimension: '寸法線',
                 rect: '四角',
@@ -9125,7 +9201,7 @@
         if (mode === 'boxedText' && (mark?.dataset?.regionComment === '1' || mark?.regionComment === true || mark?.regionComment === '1')) {
             return 'polylineText';
         }
-        return ['circle', 'arrow', 'dimension', 'rect', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'image', 'table', 'polylineText'].includes(mode)
+        return ['circle', 'triangle', 'arrow', 'dimension', 'rect', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'image', 'table', 'polylineText'].includes(mode)
             ? mode
             : '';
     }
@@ -11212,6 +11288,7 @@
     isShiftPhotoCompareOutlineMode(mode = '') {
         return [
             'circle',
+            'triangle',
             'arrow',
             'dimension',
             'rect',
@@ -11327,8 +11404,23 @@
         document.querySelector('.shift-photo-compare-inner-outline')?.classList.toggle('active', enabled.inner);
     }
 
+    applyShiftPhotoCompareTriangleStrokeStyles(mark) {
+        if (!mark || mark.dataset.mode !== 'triangle') return;
+        const size = Math.max(24, Number(mark.dataset.size) || 56);
+        const stroke = Number(mark.dataset.stroke) || 1;
+        const outerWidth = Math.max(1, Math.min(40, Number(mark.dataset.outerOutlineWidth) || Math.max(5, size * 0.11)));
+        const innerWidth = Math.max(1, Math.min(30, Number(mark.dataset.innerOutlineWidth) || Math.max(2, size * 0.055)));
+        const baseStroke = 8 * stroke;
+        const outerUnits = outerWidth / size * 100;
+        const innerUnits = innerWidth / size * 100;
+        mark.style.setProperty('--triangle-stroke', String(baseStroke));
+        mark.style.setProperty('--triangle-outer-stroke', String(baseStroke + outerUnits * 2));
+        mark.style.setProperty('--triangle-outer-with-inner-stroke', String(baseStroke + (outerUnits + innerUnits) * 2));
+        mark.style.setProperty('--triangle-inner-stroke', String(baseStroke + innerUnits * 2));
+    }
+
     applyShiftPhotoCompareOutlineWidthStyles(mark) {
-        if (!mark || !['text', 'number', 'boxedText', 'callout', 'circle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode)) return;
+        if (!mark || !['text', 'number', 'boxedText', 'callout', 'circle', 'triangle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode)) return;
         const size = Math.max(24, Number(mark.dataset.size) || 56);
         const outerWidth = Math.max(1, Math.min(40, Number(mark.dataset.outerOutlineWidth) || Math.max(5, size * 0.11)));
         const innerWidth = Math.max(1, Math.min(30, Number(mark.dataset.innerOutlineWidth) || Math.max(2, size * 0.055)));
@@ -11344,11 +11436,12 @@
             mark.style.setProperty('--xmark-outer-with-inner-stroke', String(baseStroke + (outerUnits + innerUnits) * 2));
             mark.style.setProperty('--xmark-inner-stroke', String(baseStroke + innerUnits * 2));
         }
+        if (mark.dataset.mode === 'triangle') this.applyShiftPhotoCompareTriangleStrokeStyles(mark);
     }
 
     setSelectedShiftPhotoCompareOutlineEnabled(outerEnabled, innerEnabled, options = {}) {
         const selected = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks())
-            .filter(mark => ['text', 'number', 'boxedText', 'callout', 'circle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode));
+            .filter(mark => ['text', 'number', 'boxedText', 'callout', 'circle', 'triangle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode));
         if (!selected.length) return;
         const outline = outerEnabled !== false;
         const innerOutline = innerEnabled === true;
@@ -11368,7 +11461,7 @@
 
     setSelectedShiftPhotoCompareOutlineWidths(outerValue, innerValue, options = {}) {
         const selected = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks())
-            .filter(mark => ['text', 'number', 'boxedText', 'callout', 'circle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode));
+            .filter(mark => ['text', 'number', 'boxedText', 'callout', 'circle', 'triangle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode));
         if (!selected.length) return;
         const innerOutlineWidth = Math.max(1, Math.min(30, Number(innerValue) || 1));
         const outerOutlineWidth = Math.max(1, Math.min(40, Number(outerValue) || 1));
@@ -11528,7 +11621,7 @@
     }
 
     isShiftPhotoCompareDashableMode(mode = '') {
-        return ['circle', 'rect', 'xmark', 'arrow', 'dimension', 'freehand', 'polyline'].includes(mode);
+        return ['circle', 'triangle', 'rect', 'xmark', 'arrow', 'dimension', 'freehand', 'polyline'].includes(mode);
     }
 
     updateShiftPhotoCompareDashedButton(mark = null) {
@@ -12227,6 +12320,7 @@
             this._shiftPhotoCompareMiniToolbarPinned = false;
             this.updateShiftPhotoCompareSelectionBounds();
             this.updateShiftPhotoCompareSelectionHint([]);
+            this.updateShiftPhotoCompareOperationMode([]);
             return;
         }
         const layoutCount = this.getShiftPhotoCompareLayoutItemsInSameLayer().length;
@@ -12458,6 +12552,7 @@
             }
         }
         this.updateShiftPhotoCompareSelectionHint(selected);
+        this.updateShiftPhotoCompareOperationMode(selected);
         if (toolbar.dataset.layerListOpen === '1') this.renderShiftPhotoCompareMiniLayerList();
         const panel = document.querySelector('.shift-photo-compare-panel');
         const selectedRects = selected.map(item => item.getBoundingClientRect()).filter(rect => rect.width || rect.height);
@@ -12516,6 +12611,95 @@
         if (mode === 'freehand') return '手描き：移動・拡大・回転できます';
         if (mode === 'polyline') return '直線：線全体を掴んで移動、四隅で拡大縮小できます';
         return '記号：角の点で拡大、赤点で角度変更。空白ドラッグで範囲選択できます';
+    }
+
+    getShiftPhotoCompareOperationMode(selected = []) {
+        const marks = (selected || []).filter(Boolean);
+        if (!marks.length) return null;
+        const active = document.activeElement;
+        const activeMark = active?.closest?.('.shift-photo-compare-mark');
+        const editingSelector = '.shift-photo-plain-text-editor, .shift-photo-boxed-text-editor, .shift-photo-callout-text, .shift-photo-table-cell-editor';
+        if (active?.matches?.(editingSelector) && activeMark && marks.includes(activeMark)) {
+            return {
+                label: '操作：文字編集中',
+                tone: 'text',
+                title: '文字入力欄にカーソルがあります。文字編集を優先しています。'
+            };
+        }
+        if (marks.length > 1) {
+            return {
+                label: `操作：複数選択 ${marks.length}件`,
+                tone: 'multi',
+                title: '複数の記号を選択中です。整列・前後移動・グループ化が使えます。'
+            };
+        }
+        const mark = marks[0];
+        const mode = mark.dataset.mode || '';
+        if (mode === 'polyline') {
+            return {
+                label: '操作：直線・区画選択',
+                tone: 'region',
+                title: '直線枠を選択中です。右クリックや区画ボタンから塗り・画像・区画設定を変更できます。'
+            };
+        }
+        if (mode === 'boxedText' && mark.dataset.regionComment === '1') {
+            return {
+                label: '操作：区画内テキスト',
+                tone: 'text',
+                title: '直線区画内のテキストを選択中です。位置は区画内に固定されています。'
+            };
+        }
+        if (['boxedText', 'callout'].includes(mode) && mark.dataset.wallpaperSrc) {
+            return {
+                label: '操作：背景画像あり',
+                tone: 'wallpaper',
+                title: 'この文字枠には背景画像があります。壁紙ボタンで差し替え、画像消しボタンで解除できます。'
+            };
+        }
+        if (mode === 'boxedText' || mode === 'callout') {
+            return {
+                label: '操作：文字枠選択',
+                tone: 'text',
+                title: '文字枠を選択中です。枠内クリックで文字編集、文字設定で調整できます。'
+            };
+        }
+        if (mode === 'image') {
+            return {
+                label: mark.dataset.imageShape === 'circle' ? '操作：丸画像選択' : '操作：画像選択',
+                tone: 'image',
+                title: '画像を選択中です。角で拡大、赤点で回転、ミニバーで反転や透明度を変更できます。'
+            };
+        }
+        if (mode === 'table') {
+            return {
+                label: '操作：表選択',
+                tone: 'table',
+                title: '表を選択中です。セルをクリックして入力、右クリックで表設定を変更できます。'
+            };
+        }
+        if (mode === 'text' || mode === 'number') {
+            return {
+                label: '操作：文字選択',
+                tone: 'text',
+                title: '文字を選択中です。入力欄で内容変更、文字設定でサイズや配置を調整できます。'
+            };
+        }
+        return {
+            label: '操作：記号選択',
+            tone: 'mark',
+            title: '記号を選択中です。角で拡大、赤点で回転できます。'
+        };
+    }
+
+    updateShiftPhotoCompareOperationMode(selected = null) {
+        const badge = document.getElementById('shift-photo-compare-operation-mode');
+        if (!badge) return;
+        const marks = Array.isArray(selected) ? selected : this.getShiftPhotoCompareSelectedMarks();
+        const mode = this.getShiftPhotoCompareOperationMode(marks);
+        badge.hidden = !mode;
+        badge.textContent = mode?.label || '';
+        badge.title = mode?.title || '';
+        badge.dataset.tone = mode?.tone || '';
     }
 
     updateShiftPhotoCompareSelectionHint(selected = null) {
@@ -13244,6 +13428,7 @@
             mark.style.setProperty('--mark-stroke', String(stroke));
             mark.style.setProperty('--xmark-stroke', String(9.5 * stroke));
             if (mark.dataset.mode === 'xmark') this.applyShiftPhotoCompareOutlineWidthStyles(mark);
+            if (mark.dataset.mode === 'triangle') this.applyShiftPhotoCompareTriangleStrokeStyles(mark);
             if (mark.dataset.mode === 'image') mark.style.setProperty('--circle-border-width', `${4 * stroke}px`);
         }
         if (settings.color !== undefined) {
@@ -13315,13 +13500,13 @@
         if (settings.outline !== undefined) {
             mark.dataset.outline = settings.outline ? '1' : '0';
         }
-        if (settings.innerOutline !== undefined && ['text', 'number', 'boxedText', 'callout', 'circle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode)) {
+        if (settings.innerOutline !== undefined && ['text', 'number', 'boxedText', 'callout', 'circle', 'triangle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode)) {
             mark.dataset.innerOutline = settings.innerOutline ? '1' : '0';
         }
-        if (settings.outerOutlineWidth !== undefined && ['text', 'number', 'boxedText', 'callout', 'circle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode)) {
+        if (settings.outerOutlineWidth !== undefined && ['text', 'number', 'boxedText', 'callout', 'circle', 'triangle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode)) {
             mark.dataset.outerOutlineWidth = String(Math.max(1, Math.min(40, Number(settings.outerOutlineWidth) || 1)));
         }
-        if (settings.innerOutlineWidth !== undefined && ['text', 'number', 'boxedText', 'callout', 'circle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode)) {
+        if (settings.innerOutlineWidth !== undefined && ['text', 'number', 'boxedText', 'callout', 'circle', 'triangle', 'arrow', 'polyline', 'xmark'].includes(mark.dataset.mode)) {
             mark.dataset.innerOutlineWidth = String(Math.max(1, Math.min(30, Number(settings.innerOutlineWidth) || 1)));
         }
         if (settings.outerOutlineWidth !== undefined || settings.innerOutlineWidth !== undefined) {
@@ -13333,6 +13518,9 @@
         }
         if (settings.dashed !== undefined && this.isShiftPhotoCompareDashableMode(mark.dataset.mode)) {
             mark.dataset.dashed = settings.dashed ? '1' : '0';
+        }
+        if (mark.dataset.mode === 'triangle' && (settings.size !== undefined || settings.stroke !== undefined || settings.outerOutlineWidth !== undefined || settings.innerOutlineWidth !== undefined)) {
+            this.applyShiftPhotoCompareTriangleStrokeStyles(mark);
         }
         if (mark.dataset.mode === 'rect' && (settings.size !== undefined || settings.stroke !== undefined || settings.stretch !== undefined || settings.stretchY !== undefined || settings.dashed !== undefined)) {
             this.refreshShiftPhotoCompareRectDashDots(mark);
@@ -14402,14 +14590,18 @@
             imageSrc: /^data:image\//i.test(changes.imageSrc ?? current.imageSrc ?? '')
                 ? (changes.imageSrc ?? current.imageSrc)
                 : '',
-            imageZoom: Math.max(1, Math.min(4, Number(changes.imageZoom ?? current.imageZoom) || 1)),
-            imageOffsetX: Math.max(-100, Math.min(100, Number(changes.imageOffsetX ?? current.imageOffsetX) || 0)),
-            imageOffsetY: Math.max(-100, Math.min(100, Number(changes.imageOffsetY ?? current.imageOffsetY) || 0)),
+            imageFit: changes.imageFit === undefined
+                ? (current.imageFit === 'stretch' ? 'stretch' : '')
+                : (changes.imageFit === 'stretch' ? 'stretch' : ''),
+            imageZoom: Math.max(1, Math.min(6, Number(changes.imageZoom ?? current.imageZoom) || 1)),
+            imageOffsetX: Math.max(-150, Math.min(150, Number(changes.imageOffsetX ?? current.imageOffsetX) || 0)),
+            imageOffsetY: Math.max(-150, Math.min(150, Number(changes.imageOffsetY ?? current.imageOffsetY) || 0)),
             imageFlipX: changes.imageFlipX === undefined ? !!current.imageFlipX : !!changes.imageFlipX
         };
         mark.dataset.polylineRegionFills = JSON.stringify(fills);
         this.refreshShiftPhotoComparePolylineRegions(mark);
-        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        const syncedComments = this.syncShiftPhotoCompareRegionCommentsForPolyline(mark) || [];
+        this.syncShiftPhotoCompareChangedMarkWraps([mark, ...syncedComments]);
         this.refreshShiftPhotoCompareMarkList();
         this.autoSaveShiftNotebook(true);
         if (message) this.showShiftPhotoCompareActionMessage(message);
@@ -14428,6 +14620,7 @@
             input.remove();
             const updated = this.updateShiftPhotoComparePolylineRegionImage(mark, regionIndex, {
                 imageSrc: src,
+                imageFit: '',
                 imageZoom: 1,
                 imageOffsetX: 0,
                 imageOffsetY: 0,
@@ -14475,15 +14668,17 @@
         const fill = fills[index];
         if (!fill?.imageSrc) return false;
         const changes = {};
-        if (action === 'zoom-in') changes.imageZoom = fill.imageZoom + 0.1;
-        if (action === 'zoom-out') changes.imageZoom = fill.imageZoom - 0.1;
+        if (action === 'zoom-in') Object.assign(changes, { imageFit: '', imageZoom: fill.imageZoom + 0.1 });
+        if (action === 'zoom-out') Object.assign(changes, { imageFit: '', imageZoom: fill.imageZoom - 0.1 });
         if (action === 'flip-x') changes.imageFlipX = !fill.imageFlipX;
+        if (action === 'fit-stretch') Object.assign(changes, { imageFit: fill.imageFit === 'stretch' ? '' : 'stretch', imageZoom: 1, imageOffsetX: 0, imageOffsetY: 0 });
         if (action === 'reset') Object.assign(changes, { imageZoom: 1, imageOffsetX: 0, imageOffsetY: 0 });
         if (action === 'remove') changes.imageSrc = '';
         const labels = {
             'zoom-in': '画像を拡大しました。',
             'zoom-out': '画像を縮小しました。',
             'flip-x': '画像を左右反転しました。',
+            'fit-stretch': fill.imageFit === 'stretch' ? '画像の枠いっぱい表示を解除しました。' : '画像を枠いっぱいに表示しました。',
             reset: '画像の位置と倍率を戻しました。',
             remove: '区画から画像を外しました。'
         };
@@ -14498,9 +14693,9 @@
         const fill = fills[index];
         if (!fill?.imageSrc) return false;
         event.preventDefault();
-        const nextZoom = Math.round(Math.max(1, Math.min(4, fill.imageZoom + (event.deltaY < 0 ? 0.1 : -0.1))) * 10) / 10;
+        const nextZoom = Math.round(Math.max(1, Math.min(6, fill.imageZoom + (event.deltaY < 0 ? 0.1 : -0.1))) * 10) / 10;
         if (nextZoom === fill.imageZoom) return true;
-        return this.updateShiftPhotoComparePolylineRegionImage(mark, index, { imageZoom: nextZoom });
+        return this.updateShiftPhotoComparePolylineRegionImage(mark, index, { imageFit: '', imageZoom: nextZoom });
     }
 
     startShiftPhotoComparePolylineRegionImageDrag(event, mark, wrap, regionIndex) {
@@ -14518,18 +14713,30 @@
         const start = {
             x: event.clientX,
             y: event.clientY,
-            offsetX: fill.imageOffsetX,
-            offsetY: fill.imageOffsetY
+            offsetX: fill.imageFit === 'stretch' ? 0 : fill.imageOffsetX,
+            offsetY: fill.imageFit === 'stretch' ? 0 : fill.imageOffsetY
         };
         event.preventDefault();
         event.stopPropagation();
         this.pushShiftPhotoCompareUndo();
+        if (fill.imageFit === 'stretch') {
+            fills[index] = {
+                ...fills[index],
+                imageFit: '',
+                imageZoom: 1,
+                imageOffsetX: 0,
+                imageOffsetY: 0
+            };
+            mark.dataset.polylineRegionFills = JSON.stringify(fills);
+            this.refreshShiftPhotoComparePolylineRegions(mark);
+        }
         const move = moveEvent => {
             moveEvent.preventDefault();
             fills[index] = {
                 ...fills[index],
-                imageOffsetX: Math.max(-100, Math.min(100, start.offsetX + (moveEvent.clientX - start.x) / width * 100)),
-                imageOffsetY: Math.max(-100, Math.min(100, start.offsetY + (moveEvent.clientY - start.y) / height * 100))
+                imageFit: '',
+                imageOffsetX: Math.max(-150, Math.min(150, start.offsetX + (moveEvent.clientX - start.x) / width * 100)),
+                imageOffsetY: Math.max(-150, Math.min(150, start.offsetY + (moveEvent.clientY - start.y) / height * 100))
             };
             mark.dataset.polylineRegionFills = JSON.stringify(fills);
             this.refreshShiftPhotoComparePolylineRegions(mark);
@@ -17529,13 +17736,97 @@
         return true;
     }
 
-    syncShiftPhotoCompareRegionCommentsForPolyline(polyline) {
-        if (!polyline || polyline.dataset.mode !== 'polyline') return;
+    syncShiftPhotoCompareRegionCommentImagesForPolyline(polyline, regionFills = null) {
+        if (!polyline || polyline.dataset.mode !== 'polyline') return { marks: [], fillsChanged: false };
         const wrap = polyline.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
         const linkId = polyline.dataset.regionCommentLinkId || '';
-        if (!wrap || !linkId) return;
+        if (!wrap || !linkId) return { marks: [], fillsChanged: false };
+        const points = this.parseShiftPhotoCompareFreehandPoints(polyline.dataset.points || '[]');
+        const fills = Array.isArray(regionFills)
+            ? regionFills.map(fill => ({ ...(fill || {}) }))
+            : this.reconcileShiftPhotoComparePolylineRegionFills(
+                points,
+                polyline.dataset.polylineRegionFills || '[]',
+                {
+                    enabled: polyline.dataset.polylineFill === '1',
+                    color: polyline.dataset.polylineFillColor || polyline.dataset.color,
+                    opacity: polyline.dataset.polylineFillOpacity
+                }
+            );
+        const synced = [];
+        let fillsChanged = false;
         wrap.querySelectorAll(`.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-region-comment-link-id="${linkId}"]`)
-            .forEach(mark => this.fitShiftPhotoCompareRegionComment(mark));
+            .forEach(mark => {
+                const regionId = mark.dataset.regionCommentRegionId || '';
+                const savedIndex = Number(mark.dataset.regionCommentIndex);
+                let regionIndex = regionId ? fills.findIndex(fill => fill.id === regionId) : -1;
+                if (regionIndex < 0 && Number.isInteger(savedIndex) && savedIndex >= 0 && savedIndex < fills.length) {
+                    regionIndex = savedIndex;
+                }
+                if (regionIndex < 0 || !fills[regionIndex]) return;
+                const commentWallpaperSrc = /^data:image\//i.test(mark.dataset.wallpaperSrc || '') ? mark.dataset.wallpaperSrc : '';
+                const regionImageSrc = /^data:image\//i.test(fills[regionIndex]?.imageSrc || '') ? fills[regionIndex].imageSrc : '';
+                if (!regionImageSrc && commentWallpaperSrc) {
+                    fills[regionIndex] = {
+                        ...fills[regionIndex],
+                        imageSrc: commentWallpaperSrc,
+                        imageFit: 'stretch',
+                        imageZoom: 1,
+                        imageOffsetX: 0,
+                        imageOffsetY: 0,
+                        imageFlipX: false
+                    };
+                    fillsChanged = true;
+                }
+                if (commentWallpaperSrc) {
+                    this.applyShiftPhotoCompareSettingsToMark(mark, { wallpaperSrc: '' });
+                    synced.push(mark);
+                }
+            });
+        if (fillsChanged) {
+            polyline.dataset.polylineRegionFills = JSON.stringify(fills);
+        }
+        return { marks: synced, fillsChanged };
+    }
+
+    syncShiftPhotoCompareRegionCommentsForPolyline(polyline) {
+        if (!polyline || polyline.dataset.mode !== 'polyline') return [];
+        const wrap = polyline.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const linkId = polyline.dataset.regionCommentLinkId || '';
+        if (!wrap || !linkId) return [];
+        const imageSync = this.syncShiftPhotoCompareRegionCommentImagesForPolyline(polyline);
+        if (imageSync.fillsChanged) this.refreshShiftPhotoComparePolylineRegions(polyline);
+        const synced = imageSync.marks || [];
+        wrap.querySelectorAll(`.shift-photo-compare-mark.boxedText[data-region-comment="1"][data-region-comment-link-id="${linkId}"]`)
+            .forEach(mark => {
+                this.fitShiftPhotoCompareRegionComment(mark);
+                if (!synced.includes(mark)) synced.push(mark);
+            });
+        return synced;
+    }
+
+    getShiftPhotoCompareRegionCommentImageTarget(mark) {
+        if (!mark || mark.dataset?.mode !== 'boxedText' || mark.dataset?.regionComment !== '1') return null;
+        const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const linkId = mark.dataset.regionCommentLinkId || '';
+        if (!wrap || !linkId) return null;
+        const polyline = Array.from(wrap.querySelectorAll('.shift-photo-compare-mark.polyline'))
+            .find(item => item.dataset.regionCommentLinkId === linkId);
+        if (!polyline || this.isShiftPhotoCompareMarkLocked(polyline)) return null;
+        const points = this.parseShiftPhotoCompareFreehandPoints(polyline.dataset.points || '[]');
+        const fills = this.reconcileShiftPhotoComparePolylineRegionFills(
+            points,
+            polyline.dataset.polylineRegionFills || '[]',
+            {}
+        );
+        const regionId = mark.dataset.regionCommentRegionId || '';
+        const savedIndex = Number(mark.dataset.regionCommentIndex);
+        let regionIndex = regionId ? fills.findIndex(fill => fill.id === regionId) : -1;
+        if (regionIndex < 0 && Number.isInteger(savedIndex) && savedIndex >= 0 && savedIndex < fills.length) {
+            regionIndex = savedIndex;
+        }
+        if (regionIndex < 0 || !fills[regionIndex]?.imageSrc) return null;
+        return { polyline, wrap, regionIndex };
     }
 
     ensureShiftPhotoCompareRegionInfoButton(mark) {
@@ -17691,6 +17982,44 @@
         this.showShiftPhotoCompareActionMessage(`区画 ${index + 1} にコメントを追加しました。`);
     }
 
+    removeShiftPhotoComparePolylineRegionComment(polyline, regionIndex = -1) {
+        if (!polyline || polyline.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(polyline)) return false;
+        const wrap = polyline.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const linkId = polyline.dataset.regionCommentLinkId || '';
+        if (!wrap || !linkId) {
+            this.showShiftPhotoCompareActionMessage('削除する枠内テキストが見つかりません。');
+            return false;
+        }
+        const points = this.parseShiftPhotoCompareFreehandPoints(polyline.dataset.points || '[]');
+        const fills = this.reconcileShiftPhotoComparePolylineRegionFills(points, polyline.dataset.polylineRegionFills || '[]', {});
+        const index = Math.max(0, Math.min(fills.length - 1, Number(regionIndex) || 0));
+        const regionId = fills[index]?.id || '';
+        const comments = Array.from(wrap.querySelectorAll('.shift-photo-compare-mark.boxedText[data-region-comment="1"]'))
+            .filter(comment => comment.dataset.regionCommentLinkId === linkId)
+            .filter(comment => {
+                if (regionId && comment.dataset.regionCommentRegionId === regionId) return true;
+                return Number(comment.dataset.regionCommentIndex) === index;
+            });
+        if (!comments.length) {
+            this.showShiftPhotoCompareActionMessage('この区画に枠内テキストはありません。');
+            return false;
+        }
+        const unlocked = this.getShiftPhotoCompareUnlockedMarks(comments);
+        if (!unlocked.length) {
+            this.showShiftPhotoCompareActionMessage('枠内テキストがロック中です。ロック解除すると消去できます。');
+            return false;
+        }
+        this.pushShiftPhotoCompareUndo();
+        unlocked.forEach(comment => comment.remove());
+        this.selectShiftPhotoCompareMark(polyline);
+        if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+        else this.syncShiftPhotoCompareMarks(wrap);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`区画 ${index + 1} の枠内テキストを消去しました。`);
+        return true;
+    }
+
     clearShiftPhotoComparePolylineRegionHover() {
         document.querySelectorAll('.shift-photo-polyline-region.region-hover')
             .forEach(region => region.classList.remove('region-hover'));
@@ -17770,12 +18099,25 @@
             && document.contains(options.regionComment)
             ? options.regionComment
             : null;
+        const polylineWrapRect = isPolyline ? mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer')?.getBoundingClientRect?.() : null;
         let regionAspectInfoHtml = '';
-        if (regionInfoComment) {
-            const baseWidth = Math.max(1, Number(regionInfoComment.dataset.regionCommentWidth) || regionInfoComment.offsetWidth || 1);
-            const baseHeight = Math.max(1, Number(regionInfoComment.dataset.regionCommentHeight) || regionInfoComment.offsetHeight || 1);
-            const currentWidth = baseWidth * Math.max(0.05, Math.abs(Number(regionInfoComment.dataset.stretch) || 1));
-            const currentHeight = baseHeight * Math.max(0.05, Math.abs(Number(regionInfoComment.dataset.stretchY) || 1));
+        if (regionInfoComment || (polylineRegionIndex >= 0 && polylineRegions[polylineRegionIndex]?.points?.length && polylineWrapRect?.width && polylineWrapRect?.height)) {
+            let currentWidth = 1;
+            let currentHeight = 1;
+            if (regionInfoComment) {
+                const baseWidth = Math.max(1, Number(regionInfoComment.dataset.regionCommentWidth) || regionInfoComment.offsetWidth || 1);
+                const baseHeight = Math.max(1, Number(regionInfoComment.dataset.regionCommentHeight) || regionInfoComment.offsetHeight || 1);
+                currentWidth = baseWidth * Math.max(0.05, Math.abs(Number(regionInfoComment.dataset.stretch) || 1));
+                currentHeight = baseHeight * Math.max(0.05, Math.abs(Number(regionInfoComment.dataset.stretchY) || 1));
+            } else {
+                const region = polylineRegions[polylineRegionIndex];
+                const minX = Math.min(...region.points.map(point => point.x));
+                const maxX = Math.max(...region.points.map(point => point.x));
+                const minY = Math.min(...region.points.map(point => point.y));
+                const maxY = Math.max(...region.points.map(point => point.y));
+                currentWidth = Math.max(1, (maxX - minX) / 100 * polylineWrapRect.width);
+                currentHeight = Math.max(1, (maxY - minY) / 100 * polylineWrapRect.height);
+            }
             const aspect = currentWidth / currentHeight;
             const ratioText = aspect >= 1
                 ? `${Number(aspect.toFixed(2))} : 1`
@@ -17788,7 +18130,6 @@
                     <strong>${ratioText}</strong>
                 </div>`;
         }
-        const polylineWrapRect = isPolyline ? mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer')?.getBoundingClientRect?.() : null;
         const polylineRegionAnchor = polylineWrapRect?.width && polylineWrapRect?.height
             ? {
                 x: Math.max(0, Math.min(100, (event.clientX - polylineWrapRect.left) / polylineWrapRect.width * 100)),
@@ -17806,6 +18147,7 @@
         );
         const regionFill = polylineRegionIndex >= 0 ? polylineRegionFills[polylineRegionIndex] : null;
         const polylineRegionImageSrc = /^data:image\//i.test(regionFill?.imageSrc || '') ? regionFill.imageSrc : '';
+        const polylineRegionImageStretch = regionFill?.imageFit === 'stretch';
         const polylineFillEnabled = isClosedPolyline && (regionFill
             ? regionFill.enabled
             : mark.dataset.polylineFill === '1');
@@ -17820,7 +18162,7 @@
         const arrowHeadHidden = isArrow && mark.dataset.arrowHeadHidden === '1';
         const selected = this.getShiftPhotoCompareSelectedMarks();
         const outlineTextModes = ['text', 'number', 'boxedText', 'callout'];
-        const outlineWidthModes = [...outlineTextModes, 'circle', 'arrow', 'polyline', 'xmark'];
+        const outlineWidthModes = [...outlineTextModes, 'circle', 'triangle', 'arrow', 'polyline', 'xmark'];
         const outlineTextTarget = selected.find(item => outlineTextModes.includes(item.dataset.mode)) || (outlineTextModes.includes(mode) ? mark : null);
         const outlineWidthTarget = selected.find(item => outlineWidthModes.includes(item.dataset.mode)) || (outlineWidthModes.includes(mode) ? mark : null);
         const outlineTargetSize = Math.max(24, Number(outlineWidthTarget?.dataset?.size) || 56);
@@ -17922,6 +18264,7 @@
                 ${polylineRegionImageSrc ? `<span class="shift-photo-polyline-region-image-preview" style="background-image:url('${this.escapeHtml(polylineRegionImageSrc)}')"></span>` : ''}
                 <button type="button" data-action="polyline-region-image-file"><i class="fa-solid fa-folder-open"></i><span>${polylineRegionImageSrc ? '画像を入れ替え' : '画像を挿入'}</span></button>
                 ${polylineRegionImageSrc ? `
+                    <button type="button" data-action="polyline-region-image-fit-stretch" title="枠いっぱいに表示"><i class="fa-solid fa-arrows-left-right-to-line"></i><span>${polylineRegionImageStretch ? '通常表示' : '枠いっぱい'}</span></button>
                     <button type="button" data-action="polyline-region-image-zoom-in" title="拡大"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
                     <button type="button" data-action="polyline-region-image-zoom-out" title="縮小"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
                     <button type="button" data-action="polyline-region-image-flip" title="左右反転"><i class="fa-solid fa-left-right"></i></button>
@@ -17929,7 +18272,8 @@
                     <button type="button" data-action="polyline-region-image-remove" class="danger"><i class="fa-solid fa-image-slash"></i><span>画像を外す</span></button>
                 ` : ''}
             </div>` : ''}
-            ${polylineRegionIndex >= 0 ? '<button type="button" data-action="polyline-region-comment"><i class="fa-solid fa-comment"></i><span>枠内にコメントを挿入</span></button>' : ''}
+            ${polylineRegionIndex >= 0 ? '<button type="button" data-action="polyline-region-comment"><i class="fa-solid fa-comment"></i><span>枠内テキストを挿入</span></button>' : ''}
+            ${polylineRegionIndex >= 0 ? '<button type="button" data-action="polyline-region-comment-remove" class="danger"><i class="fa-solid fa-comment-slash"></i><span>枠内テキストを消去</span></button>' : ''}
             ${polylineRegionSummaryHtml}
             <button type="button" data-action="polyline-fill-copy"><i class="fa-regular fa-copy"></i><span>${polylineRegionIndex >= 0 ? `区画 ${polylineRegionIndex + 1}` : '区画'}の塗り設定をコピー</span></button>
             ${this._shiftPhotoComparePolylineFillClipboard ? `<button type="button" data-action="polyline-fill-paste"><i class="fa-solid fa-paste"></i><span>${polylineRegionIndex >= 0 ? `区画 ${polylineRegionIndex + 1}` : '全区画'}へ塗り設定を貼付</span></button>` : ''}
@@ -18124,6 +18468,7 @@
                 this.chooseShiftPhotoComparePolylineRegionImage(mark, polylineRegionIndex);
                 return;
             }
+            if (action === 'polyline-region-image-fit-stretch') this.adjustShiftPhotoComparePolylineRegionImage(mark, polylineRegionIndex, 'fit-stretch');
             if (action === 'polyline-region-image-zoom-in') this.adjustShiftPhotoComparePolylineRegionImage(mark, polylineRegionIndex, 'zoom-in');
             if (action === 'polyline-region-image-zoom-out') this.adjustShiftPhotoComparePolylineRegionImage(mark, polylineRegionIndex, 'zoom-out');
             if (action === 'polyline-region-image-flip') this.adjustShiftPhotoComparePolylineRegionImage(mark, polylineRegionIndex, 'flip-x');
@@ -18131,6 +18476,10 @@
             if (action === 'polyline-region-image-remove') this.adjustShiftPhotoComparePolylineRegionImage(mark, polylineRegionIndex, 'remove');
             if (action === 'polyline-region-comment') {
                 this.createShiftPhotoComparePolylineRegionComment(mark, polylineRegionIndex, polylineRegionAnchor);
+                return;
+            }
+            if (action === 'polyline-region-comment-remove') {
+                this.removeShiftPhotoComparePolylineRegionComment(mark, polylineRegionIndex);
                 return;
             }
             if (action === 'polyline-region-toggle') {
@@ -18320,7 +18669,8 @@
                     name: this.getShiftPhotoCompareBaseImageName(wrap),
                     changed: 0,
                     total: 0,
-                    alreadyTransparent: true
+                    alreadyTransparent: true,
+                    sourceWrap: wrap
                 });
                 return;
             }
@@ -18334,7 +18684,8 @@
                 name: this.getShiftPhotoCompareBaseImageName(wrap),
                 changed: result.changed || 0,
                 total: result.total || 0,
-                ratio
+                ratio,
+                sourceWrap: wrap
             });
             if (result.changed && ratio > 0.005) {
                 this.showShiftPhotoCompareActionMessage(`透過プレビューを表示しました。背景候補 ${Math.round(ratio * 100)}% を透明化できます。`);
@@ -18367,6 +18718,8 @@
         const transparentApplyLabel = options.targetMark ? '透過画像を反映' : '透過画像を編集へ貼る';
         const canPasteOriginalToNotebook = !!this._imageSourceChoiceInput?.classList?.contains('shift-photo-input')
             && typeof this._imageSourceChoiceInput?._shiftPhotoAddSrc === 'function';
+        const canOverwritePhotoManager = !!options.overwritePhotoManagerItemId
+            && typeof this.findPhotoManagerItem === 'function';
         const overlay = document.createElement('div');
         overlay.id = 'shift-photo-compare-alpha-preview';
         overlay.className = 'shift-photo-compare-alpha-preview';
@@ -18455,7 +18808,8 @@
                     ${canPasteOriginalToNotebook ? '<button type="button" class="secondary" onclick="app.useShiftPhotoCompareOriginalInNotebook()"><i class="fa-solid fa-book-open"></i> 元画像を連絡帳へ貼る</button>' : ''}
                     <button type="button" class="secondary" onclick="app.useShiftPhotoCompareAlphaPreviewAsStamp('original')"><i class="fa-regular fa-image"></i> ${this.escapeHtml(originalApplyLabel)}</button>
                     <button type="button" class="secondary" onclick="app.useShiftPhotoCompareAlphaPreviewAsStamp('transparent')"><i class="fa-solid fa-layer-group"></i> ${this.escapeHtml(transparentApplyLabel)}</button>
-                    <button type="button" onclick="app.saveShiftPhotoCompareAlphaPreviewToManager()"><i class="fa-solid fa-bookmark"></i> 透過版を写真管理へ保存</button>
+                    ${canOverwritePhotoManager ? '<button type="button" class="secondary" onclick="app.overwriteShiftPhotoCompareAlphaPreviewToManager()"><i class="fa-solid fa-floppy-disk"></i> 上書き保存</button>' : ''}
+                    <button type="button" onclick="app.saveShiftPhotoCompareAlphaPreviewToManager()"><i class="fa-solid fa-bookmark"></i> 記号込みを写真管理へ保存</button>
                 </div>
             </div>
         `;
@@ -18479,6 +18833,9 @@
             imageFit: options.imageFit === 'fill' ? 'fill' : '',
             targetMark: options.targetMark || null,
             initialImportItemId: options.initialImportItemId || '',
+            overwritePhotoManagerItemId: options.overwritePhotoManagerItemId || '',
+            sourceWrap: options.sourceWrap || null,
+            compressOnSave: options.compressOnSave !== false,
             manualCuts: [],
             manualTolerance: this.getShiftPhotoCompareAlphaManualCutTolerance(strength),
             fixStrength: 'standard',
@@ -19546,84 +19903,111 @@
         document.getElementById('shift-photo-compare-alpha-zoom')?.remove();
     }
 
-    saveShiftPhotoCompareAlphaPreviewToManager() {
+    async prepareShiftPhotoCompareAlphaPreviewSaveSource(src = '', preview = null) {
+        if (!src) return { src: '', compressed: false };
+        if (preview && preview.compressOnSave === false) {
+            return { src, compressed: !!preview.compressed };
+        }
+        if (typeof this.createCompressedPhotoManagerSource !== 'function') {
+            return { src, compressed: !!preview?.compressed };
+        }
+        try {
+            const result = await this.createCompressedPhotoManagerSource(src);
+            if (result?.changed && result.src) {
+                return { src: result.src, compressed: true };
+            }
+        } catch (error) {
+            console.warn('Transparent preview compression was skipped.', error);
+        }
+        return { src, compressed: !!preview?.compressed };
+    }
+
+    rememberShiftPhotoCompareAlphaPreviewSavedSource(src = '', compressed = false) {
+        if (!src) return;
+        if (!this._imageSourceTransparencyCache) this._imageSourceTransparencyCache = new Map();
+        this._imageSourceTransparencyCache.set(src, true);
+        this.rememberPhotoManagerTransparentSource?.(src, true);
+        if (compressed) this.rememberPhotoManagerCompressedSource?.(src, true);
+    }
+
+    async overwriteShiftPhotoCompareAlphaPreviewToManager() {
         const preview = this._shiftPhotoCompareAlphaPreview;
         if (!preview?.src) return this.showShiftPhotoCompareActionMessage('保存する透過プレビューがありません。');
+        if (!preview.overwritePhotoManagerItemId || typeof this.findPhotoManagerItem !== 'function') {
+            return this.showShiftPhotoCompareActionMessage('上書きする写真が見つかりません。');
+        }
+        const item = this.findPhotoManagerItem(preview.overwritePhotoManagerItemId);
+        if (!item?.src || typeof item.replacePhoto !== 'function') {
+            return this.showShiftPhotoCompareActionMessage('この写真には上書き保存できません。');
+        }
+        const prepared = await this.prepareShiftPhotoCompareAlphaPreviewSaveSource(preview.src, preview);
+        const saveSrc = prepared.src || preview.src;
+        if (typeof this.migratePhotoManagerItemMetadataAfterSourceChange === 'function') {
+            this.migratePhotoManagerItemMetadataAfterSourceChange(item, saveSrc);
+        } else {
+            item.replacePhoto(saveSrc);
+        }
+        if (preview.sizePreset) item.sizePreset = preview.sizePreset;
+        if (preview.imageFit === 'fill') item.imageFit = 'fill';
+        this.rememberShiftPhotoCompareAlphaPreviewSavedSource(saveSrc, prepared.compressed);
+        store.save();
+        if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
+        if (document.getElementById('image-source-choice-overlay')) this.refreshImageSourceChoiceAfterLibraryChange?.(item);
+        this.closeShiftPhotoCompareBaseImageTransparencyPreview();
+        this.showShiftPhotoCompareActionMessage(prepared.compressed
+            ? '再透過画像を圧縮して上書き保存しました。'
+            : '再透過画像を上書き保存しました。');
+    }
+
+    async saveShiftPhotoCompareAlphaPreviewToManager() {
+        const preview = this._shiftPhotoCompareAlphaPreview;
+        const sourceWrap = preview?.sourceWrap?.isConnected ? preview.sourceWrap : null;
+        if (!sourceWrap) return this.showShiftPhotoCompareActionMessage('保存する写真比較枠が見つかりません。');
+        const renderedSrc = sourceWrap ? await this.renderShiftPhotoCompareWrapWithMarks(sourceWrap) : '';
+        const saveSrc = renderedSrc || '';
+        if (!saveSrc) return this.showShiftPhotoCompareActionMessage('保存する画像がありません。');
         if (typeof this.addPhotoManagerLibraryImage !== 'function') {
             return this.showShiftPhotoCompareActionMessage('写真管理が利用できません。');
         }
         const alreadyRegistered = typeof this.collectPhotoManagerItems === 'function'
-            ? this.collectPhotoManagerItems().find(item => item.source === 'library' && item.src === preview.src)
+            ? this.collectPhotoManagerItems().find(item => item.source === 'library' && item.src === saveSrc)
             : null;
         if (alreadyRegistered) {
-            if (!this._imageSourceTransparencyCache) this._imageSourceTransparencyCache = new Map();
-            this._imageSourceTransparencyCache.set(preview.src, true);
-            this.rememberPhotoManagerTransparentSource?.(preview.src, true);
-            if (preview.compressed) this.rememberPhotoManagerCompressedSource?.(preview.src, true);
-            const removedInitialOriginal = this.removePhotoManagerInitialImportOriginal?.(preview.initialImportItemId, preview.src) || false;
-            if (!removedInitialOriginal && preview.initialImportItemId) this._imageSourceInitialImportIds?.delete(preview.initialImportItemId);
+            if (preview.initialImportItemId) this._imageSourceInitialImportIds?.delete(preview.initialImportItemId);
             store.save();
             if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
             this.refreshImageSourceChoiceAfterLibraryChange?.(alreadyRegistered);
             this.closeShiftPhotoCompareBaseImageTransparencyPreview();
-            return this.showShiftPhotoCompareActionMessage(removedInitialOriginal
-                ? '同じ透過画像が登録済みだったため重複登録せず、初回取込の元画像を削除しました。'
-                : '同じ透過画像はすでに写真管理へ登録済みのため、重複登録しませんでした。');
+            return this.showShiftPhotoCompareActionMessage('同じ記号込み画像はすでに写真管理へ登録済みのため、重複登録しませんでした。');
         }
-        const added = this.addPhotoManagerLibraryImage(preview.src, preview.name || 'ベース画像 透過');
+        const added = this.addPhotoManagerLibraryImage(saveSrc, `${preview.baseName || preview.name || 'ベース画像'} 記号込み`);
         if (!added) return;
         if (preview.sizePreset) added.sizePreset = preview.sizePreset;
         if (preview.imageFit === 'fill') added.imageFit = 'fill';
-        if (!this._imageSourceTransparencyCache) this._imageSourceTransparencyCache = new Map();
-        this._imageSourceTransparencyCache.set(preview.src, true);
-        this.rememberPhotoManagerTransparentSource?.(preview.src, true);
-        if (preview.compressed) this.rememberPhotoManagerCompressedSource?.(preview.src, true);
-        const removedInitialOriginal = this.removePhotoManagerInitialImportOriginal?.(preview.initialImportItemId, preview.src) || false;
+        if (preview.initialImportItemId) this._imageSourceInitialImportIds?.delete(preview.initialImportItemId);
         store.save();
         if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
         this.refreshImageSourceChoiceAfterLibraryChange?.(added);
         this.closeShiftPhotoCompareBaseImageTransparencyPreview();
-        this.showShiftPhotoCompareActionMessage(removedInitialOriginal
-            ? '透過版を写真管理へ保存し、初回取込の元画像を削除しました。'
-            : '透過版を写真管理へ保存しました。');
+        this.showShiftPhotoCompareActionMessage('現在の記号込み画像を透過せず写真管理へ保存しました。');
     }
 
     async saveTransparentShiftPhotoCompareBaseImageToManager(wrap) {
-        const src = this.getShiftPhotoCompareBaseImageSource(wrap);
-        if (!src) return this.showShiftPhotoCompareActionMessage('透過化するベース画像が見つかりません。');
-        if (typeof this.addPhotoManagerLibraryImage !== 'function' || typeof this.createTransparentPhotoManagerSource !== 'function') {
-            return this.showShiftPhotoCompareActionMessage('写真管理または透過作成が利用できません。');
+        if (!wrap) return this.showShiftPhotoCompareActionMessage('保存する写真比較枠が見つかりません。');
+        if (typeof this.addPhotoManagerLibraryImage !== 'function') {
+            return this.showShiftPhotoCompareActionMessage('写真管理が利用できません。');
         }
         try {
-            const alreadyTransparent = typeof this.imageHasTransparentPixels === 'function'
-                ? await this.imageHasTransparentPixels(src)
-                : false;
-            const result = await this.createTransparentPhotoManagerSource(src);
-            if (!result.changed && alreadyTransparent) {
-                const added = this.addPhotoManagerLibraryImage(src, `${this.getShiftPhotoCompareBaseImageName(wrap)} 透過`);
-                if (added) {
-                    store.save();
-                    if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
-                    this.showShiftPhotoCompareActionMessage('透過済みのベース画像を写真管理へ登録しました。');
-                }
-                return;
-            }
-            if (!result.changed) {
-                this.showShiftPhotoCompareActionMessage('透明化できそうな背景色が見つかりませんでした。');
-                return;
-            }
-            const added = this.addPhotoManagerLibraryImage(result.src, `${this.getShiftPhotoCompareBaseImageName(wrap)} 透過`);
-            if (!added) return;
-            if (!this._imageSourceTransparencyCache) this._imageSourceTransparencyCache = new Map();
-            this._imageSourceTransparencyCache.set(result.src, true);
-            this.rememberPhotoManagerTransparentSource?.(result.src, true);
-            if (result.compressed) this.rememberPhotoManagerCompressedSource?.(result.src, true);
+            const renderedSrc = await this.renderShiftPhotoCompareWrapWithMarks(wrap);
+            if (!renderedSrc) return this.showShiftPhotoCompareActionMessage('記号込み画像を作成できませんでした。');
+            const item = this.addPhotoManagerLibraryImage(renderedSrc, `${this.getShiftPhotoCompareBaseImageName(wrap)} 記号込み`);
+            if (!item) return;
             store.save();
             if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
-            this.showShiftPhotoCompareActionMessage('ベース画像の透過版を写真管理へ保存しました。');
+            this.showShiftPhotoCompareActionMessage('現在の記号込み画像を透過せず写真管理へ保存しました。');
         } catch (error) {
             console.error(error);
-            this.showShiftPhotoCompareActionMessage('ベース画像の透過版保存に失敗しました。');
+            this.showShiftPhotoCompareActionMessage('記号込み画像の保存に失敗しました。');
         }
     }
 
@@ -19646,7 +20030,7 @@
             <button type="button" data-action="search-image"><i class="fa-solid fa-magnifying-glass"></i><span>画像を検索</span></button>
             <button type="button" data-action="save-base"><i class="fa-solid fa-bookmark"></i><span>ベース画像を写真管理へ登録</span></button>
             <button type="button" data-action="check-alpha"><i class="fa-solid fa-layer-group"></i><span>透過候補チェック</span></button>
-            <button type="button" data-action="save-alpha"><i class="fa-solid fa-wand-magic-sparkles"></i><span>透過版を写真管理へ保存</span></button>
+            <button type="button" data-action="save-alpha"><i class="fa-solid fa-bookmark"></i><span>記号込みを写真管理へ保存</span></button>
         `;
         menu.addEventListener('pointerdown', menuEvent => menuEvent.stopPropagation());
         menu.addEventListener('click', menuEvent => {
@@ -19769,7 +20153,7 @@
         if (selectedMark) {
             this._shiftPhotoCompareSampleMode = selectedMark.dataset.mode || 'circle';
             this._shiftPhotoCompareSampleText = selectedMark.dataset.text || selectedMark.textContent || '';
-        } else if (['circle', 'arrow', 'dimension', 'rect', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'image'].includes(this._shiftPhotoCompareMarkMode)) {
+        } else if (['circle', 'triangle', 'arrow', 'dimension', 'rect', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'image'].includes(this._shiftPhotoCompareMarkMode)) {
             this._shiftPhotoCompareSampleMode = this._shiftPhotoCompareMarkMode;
             this._shiftPhotoCompareSampleText = '';
         }
@@ -19801,6 +20185,8 @@
             ? this.getShiftPhotoCompareArrowHtml(false)
             : (mode === 'dimension'
                 ? `<span class="shift-photo-dimension-line"></span><span class="shift-photo-dimension-extension start"></span><span class="shift-photo-dimension-extension end"></span><span class="shift-photo-dimension-head start"></span><span class="shift-photo-dimension-head end"></span><span class="shift-photo-dimension-value">${this.escapeHtml(text === '文字' ? '100 mm' : text)}</span>`
+            : (mode === 'triangle'
+                ? this.getShiftPhotoCompareTriangleHtml()
             : (mode === 'rect'
                 ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY)
             : (mode === 'freehand'
@@ -19811,7 +20197,7 @@
                     ? (sampleImageSrc ? `<img src="${this.escapeHtml(sampleImageSrc)}" alt="">` : '<i class="fa-regular fa-image"></i>')
                 : (mode === 'xmark'
                     ? this.getShiftPhotoCompareXMarkHtml()
-                    : (mode === 'text' || mode === 'boxedText' || mode === 'callout' || mode === 'number' ? this.escapeHtml(text) : '')))))));
+                    : (mode === 'text' || mode === 'boxedText' || mode === 'callout' || mode === 'number' ? this.escapeHtml(text) : ''))))))));
         const textAlign = ['text', 'boxedText', 'callout'].includes(mode)
             ? (selectedMark && ['left', 'center', 'right'].includes(selectedMark.dataset.textAlign) ? selectedMark.dataset.textAlign : 'center')
             : 'left';
@@ -19822,7 +20208,8 @@
         const xmarkBaseStroke = 9.5 * stroke;
         const xmarkOuterUnits = outerOutlineWidth / Math.max(1, size) * 100;
         const xmarkInnerUnits = innerOutlineWidth / Math.max(1, size) * 100;
-        box.innerHTML = `<div class="shift-photo-compare-mark ${mode} sample" data-font="${font}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-text="${this.escapeHtml(text)}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-text-align="${textAlign}" data-image-fit="${imageFit}" data-flip-x="${flipX}" data-flip-y="${flipY}" style="--mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --rect-dot-inverse-x:${1 / Math.max(0.5, stretch)}; --rect-dot-inverse-y:${1 / Math.max(0.5, stretchY)}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkBaseStroke}; --xmark-outer-stroke:${xmarkBaseStroke + xmarkOuterUnits * 2}; --xmark-outer-with-inner-stroke:${xmarkBaseStroke + (xmarkOuterUnits + xmarkInnerUnits) * 2}; --xmark-inner-stroke:${xmarkBaseStroke + xmarkInnerUnits * 2}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --mark-opacity:${opacity}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px;">${sampleContent}</div>`;
+        const triangleBaseStroke = 8 * stroke;
+        box.innerHTML = `<div class="shift-photo-compare-mark ${mode} sample" data-font="${font}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-text="${this.escapeHtml(text)}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-text-align="${textAlign}" data-image-fit="${imageFit}" data-flip-x="${flipX}" data-flip-y="${flipY}" style="--mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --rect-dot-inverse-x:${1 / Math.max(0.5, stretch)}; --rect-dot-inverse-y:${1 / Math.max(0.5, stretchY)}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkBaseStroke}; --xmark-outer-stroke:${xmarkBaseStroke + xmarkOuterUnits * 2}; --xmark-outer-with-inner-stroke:${xmarkBaseStroke + (xmarkOuterUnits + xmarkInnerUnits) * 2}; --xmark-inner-stroke:${xmarkBaseStroke + xmarkInnerUnits * 2}; --triangle-stroke:${triangleBaseStroke}; --triangle-outer-stroke:${triangleBaseStroke + xmarkOuterUnits * 2}; --triangle-outer-with-inner-stroke:${triangleBaseStroke + (xmarkOuterUnits + xmarkInnerUnits) * 2}; --triangle-inner-stroke:${triangleBaseStroke + xmarkInnerUnits * 2}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --mark-opacity:${opacity}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px;">${sampleContent}</div>`;
     }
 
     getShiftPhotoCompareMarkPosition(event, wrap) {
@@ -21695,6 +22082,15 @@
             mark.style.setProperty('--xmark-outer-with-inner-stroke', String(baseStroke + (outerUnits + innerUnits) * 2));
             mark.style.setProperty('--xmark-inner-stroke', String(baseStroke + innerUnits * 2));
         }
+        if (mode === 'triangle') {
+            const baseStroke = 8 * stroke;
+            const outerUnits = outerOutlineWidth / size * 100;
+            const innerUnits = innerOutlineWidth / size * 100;
+            mark.style.setProperty('--triangle-stroke', String(baseStroke));
+            mark.style.setProperty('--triangle-outer-stroke', String(baseStroke + outerUnits * 2));
+            mark.style.setProperty('--triangle-outer-with-inner-stroke', String(baseStroke + (outerUnits + innerUnits) * 2));
+            mark.style.setProperty('--triangle-inner-stroke', String(baseStroke + innerUnits * 2));
+        }
         mark.dataset.textAlign = ['text', 'boxedText', 'callout'].includes(mode) ? typography.textAlign : 'left';
         mark.dataset.textVertical = ['text', 'boxedText', 'callout'].includes(mode) ? typography.textVertical : 'middle';
         mark.style.setProperty('--mark-size', `${size}px`);
@@ -21742,6 +22138,8 @@
             ? this.getShiftPhotoCompareArrowHtml(true)
             : (mode === 'dimension'
                 ? `<span class="shift-photo-dimension-line"></span><span class="shift-photo-dimension-extension start"></span><span class="shift-photo-dimension-extension end"></span><span class="shift-photo-dimension-head start"></span><span class="shift-photo-dimension-head end"></span><span class="shift-photo-dimension-value">${this.escapeHtml(text || '100 mm')}</span><span class="shift-photo-arrow-end start" data-arrow-end="start"></span><span class="shift-photo-arrow-end end" data-arrow-end="end"></span>`
+            : (mode === 'triangle'
+                ? this.getShiftPhotoCompareTriangleHtml()
             : (mode === 'rect'
                 ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY)
             : (mode === 'xmark'
@@ -21754,7 +22152,7 @@
                             ? this.getShiftPhotoCompareBoxedTextEditorHtml(text, mark)
                             : (mode === 'text'
                                 ? this.getShiftPhotoComparePlainTextEditorHtml(text)
-                                : (mode === 'number' ? this.escapeHtml(text) : ''))))))));
+                                : (mode === 'number' ? this.escapeHtml(text) : '')))))))));
         this.positionShiftPhotoCompareMark(mark, event, wrap);
         layer.appendChild(mark);
         this._shiftPhotoCompareLastPlacementToolKey = this.getShiftPhotoComparePlacementToolKey(mode, placedImageSrc);
@@ -21988,6 +22386,7 @@
     getShiftPhotoCompareTemplateModeSummary(marks = []) {
         const labels = {
             circle: '丸',
+            triangle: '三角',
             arrow: '矢印',
             dimension: '寸法線',
             rect: '四角',
@@ -22266,6 +22665,50 @@
         return true;
     }
 
+    renderShiftPhotoCompareMarkTemplateInlinePreview(templateId = '', container = null) {
+        const template = this.getShiftPhotoCompareMarkTemplates().find(item => item?.id === templateId);
+        if (!template || !container) return false;
+        const marks = this.parseShiftPhotoCompareMarks(JSON.stringify(template.marks || []));
+        if (!marks.length) {
+            container.innerHTML = '<span>プレビューなし</span>';
+            return false;
+        }
+        const sourceWidth = Math.max(240, Math.min(5000, Number(marks.find(mark => Number(mark.wrapWidth) > 0)?.wrapWidth) || 1200));
+        const sourceHeight = Math.max(120, Math.min(5000, Number(marks.find(mark => Number(mark.wrapHeight) > 0)?.wrapHeight) || 720));
+        const bounds = this.getShiftPhotoCompareTemplateBounds(marks);
+        const padX = Math.max(5, (bounds.maxX - bounds.minX) * 0.24);
+        const padY = Math.max(5, (bounds.maxY - bounds.minY) * 0.32);
+        const minX = Math.max(0, bounds.minX - padX);
+        const maxX = Math.min(100, bounds.maxX + padX);
+        const minY = Math.max(0, bounds.minY - padY);
+        const maxY = Math.min(100, bounds.maxY + padY);
+        const viewWidth = Math.max(1, (maxX - minX) / 100 * sourceWidth);
+        const viewHeight = Math.max(1, (maxY - minY) / 100 * sourceHeight);
+        container.innerHTML = `
+            <div class="shift-photo-mark-template-inline-stage">
+                <div class="shift-photo-compare-mark-layer shift-photo-mark-template-inline-canvas" style="width:${sourceWidth}px;height:${sourceHeight}px;">
+                    ${marks.map(mark => this.getShiftPhotoCompareMarkHtml(mark)).join('')}
+                </div>
+            </div>
+        `;
+        const stage = container.querySelector('.shift-photo-mark-template-inline-stage');
+        const canvas = container.querySelector('.shift-photo-mark-template-inline-canvas');
+        canvas?.querySelectorAll('.shift-photo-compare-mark').forEach(mark => {
+            this.applyShiftPhotoCompareOutlineWidthStyles(mark);
+            if (['boxedText', 'callout'].includes(mark.dataset.mode)) this.syncShiftPhotoCompareTextOutlineMirror(mark);
+        });
+        requestAnimationFrame(() => {
+            if (!stage || !canvas || !document.contains(container)) return;
+            const stageWidth = Math.max(1, stage.clientWidth);
+            const stageHeight = Math.max(1, stage.clientHeight);
+            const scale = Math.max(0.02, Math.min(1.2, stageWidth / viewWidth, stageHeight / viewHeight));
+            canvas.style.left = `${-(minX / 100 * sourceWidth) * scale}px`;
+            canvas.style.top = `${-(minY / 100 * sourceHeight) * scale}px`;
+            canvas.style.transform = `scale(${scale})`;
+        });
+        return true;
+    }
+
     openShiftPhotoCompareMarkTemplateMenu(event, wrap, pastePoint = {}, options = {}) {
         this.closeShiftPhotoCompareImageContextMenu();
         const panel = document.querySelector('.shift-photo-compare-panel');
@@ -22281,7 +22724,7 @@
                 ${templates.length ? templates.slice().reverse().map(template => `
                     <div class="shift-photo-mark-template-item">
                         <button type="button" data-action="${overwriteMode ? 'overwrite-template' : 'place-template'}" data-template-id="${this.escapeHtml(template.id || '')}" title="${overwriteMode ? 'このテンプレートへ上書き' : 'このテンプレートを配置'}">
-                            <i class="fa-solid ${overwriteMode ? 'fa-arrows-rotate' : 'fa-shapes'}"></i>
+                            <div class="shift-photo-mark-template-card-preview" data-template-preview-id="${this.escapeHtml(template.id || '')}"><i class="fa-solid ${overwriteMode ? 'fa-arrows-rotate' : 'fa-shapes'}"></i></div>
                             <span><b>${this.escapeHtml(template.name || '名称未設定')}</b><small>${this.escapeHtml(template.summary || `${template.count || template.marks?.length || 0}件`)}</small></span>
                         </button>
                         <button type="button" data-action="preview-template" data-template-id="${this.escapeHtml(template.id || '')}" title="プレビュー"><i class="fa-solid fa-eye"></i></button>
@@ -22351,6 +22794,9 @@
         const top = Math.max(8, Math.min(panelRect.height - menu.offsetHeight - 8, event.clientY - panelRect.top));
         menu.style.left = `${left}px`;
         menu.style.top = `${top}px`;
+        menu.querySelectorAll('.shift-photo-mark-template-card-preview[data-template-preview-id]').forEach(container => {
+            this.renderShiftPhotoCompareMarkTemplateInlinePreview(container.dataset.templatePreviewId || '', container);
+        });
     }
 
     copySelectedShiftPhotoCompareMark() {
@@ -22839,6 +23285,7 @@
     getShiftPhotoCompareLayerIcon(mark) {
         const icons = {
             circle: '○',
+            triangle: '△',
             arrow: '↗',
             dimension: '寸',
             table: '表',
@@ -23165,6 +23612,7 @@
     getShiftPhotoCompareMarkLabel(mark, index) {
         const labels = {
             circle: '丸',
+            triangle: '三角',
             arrow: '矢印',
             dimension: '寸法線',
             table: '表',
@@ -23674,16 +24122,17 @@
                         const maxY = Math.max(...region.points.map(point => rect.y + point.y / 100 * rect.height));
                         const regionWidth = Math.max(1, maxX - minX);
                         const regionHeight = Math.max(1, maxY - minY);
-                        const zoom = Math.max(1, Math.min(4, Number(fill.imageZoom) || 1));
-                        const availableWidth = regionWidth * zoom;
-                        const availableHeight = regionHeight * zoom;
+                        const zoom = Math.max(1, Math.min(6, Number(fill.imageZoom) || 1));
                         const imageWidth = image.naturalWidth || image.width || 1;
                         const imageHeight = image.naturalHeight || image.height || 1;
+                        const stretchImage = fill.imageFit === 'stretch';
+                        const availableWidth = regionWidth * zoom;
+                        const availableHeight = regionHeight * zoom;
                         const containScale = Math.min(availableWidth / imageWidth, availableHeight / imageHeight);
-                        const drawWidth = imageWidth * containScale;
-                        const drawHeight = imageHeight * containScale;
-                        const centerX = minX + regionWidth * (0.5 + Math.max(-100, Math.min(100, Number(fill.imageOffsetX) || 0)) / 100);
-                        const centerY = minY + regionHeight * (0.5 + Math.max(-100, Math.min(100, Number(fill.imageOffsetY) || 0)) / 100);
+                        const drawWidth = stretchImage ? regionWidth : imageWidth * containScale;
+                        const drawHeight = stretchImage ? regionHeight : imageHeight * containScale;
+                        const centerX = stretchImage ? minX + regionWidth / 2 : minX + regionWidth * (0.5 + Math.max(-150, Math.min(150, Number(fill.imageOffsetX) || 0)) / 100);
+                        const centerY = stretchImage ? minY + regionHeight / 2 : minY + regionHeight * (0.5 + Math.max(-150, Math.min(150, Number(fill.imageOffsetY) || 0)) / 100);
                         ctx.save();
                         ctx.beginPath();
                         region.points.forEach((point, pointIndex) => {
@@ -24299,7 +24748,7 @@
                 ctx.save();
                 ctx.shadowBlur = 0;
                 ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = width + (['circle', 'arrow', 'xmark'].includes(mode)
+                ctx.lineWidth = width + (['circle', 'triangle', 'arrow', 'xmark'].includes(mode)
                     ? Math.max(2, outerOutlineWidth) * 2 + (innerOutlineEnabled ? Math.max(1, innerOutlineWidth) * 2 : 0)
                     : Math.max(5, size * 0.12));
                 if (customLineCap) ctx.lineCap = customLineCap;
@@ -24308,7 +24757,7 @@
                 ctx.stroke();
                 ctx.restore();
             }
-            if (['circle', 'arrow', 'xmark'].includes(mode) && innerOutlineEnabled) {
+            if (['circle', 'triangle', 'arrow', 'xmark'].includes(mode) && innerOutlineEnabled) {
                 ctx.save();
                 ctx.shadowBlur = 0;
                 ctx.strokeStyle = '#111111';
@@ -24333,6 +24782,15 @@
                 ctx.beginPath();
                 ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
             });
+        } else if (mode === 'triangle') {
+            const drawTriangle = () => {
+                ctx.beginPath();
+                ctx.moveTo(0, -size * 0.44);
+                ctx.lineTo(size * 0.44, size * 0.38);
+                ctx.lineTo(-size * 0.44, size * 0.38);
+                ctx.closePath();
+            };
+            drawOutlinedStroke(drawTriangle);
         } else if (mode === 'rect') {
             if (dashed) {
                 const dotSize = ctx.lineWidth;
@@ -24820,6 +25278,37 @@
             document.body.removeChild(link);
         }
         this.autoSaveShiftNotebook(true);
+    }
+
+    async renderShiftPhotoCompareWrapWithMarks(wrap) {
+        if (!wrap) return '';
+        if (document.fonts?.ready) await document.fonts.ready;
+        this.syncShiftPhotoCompareGlobalMarks();
+        this.syncShiftPhotoCompareMarks(wrap);
+        const imgEl = wrap.querySelector('img');
+        if (!imgEl?.src) return '';
+        const img = await this.loadShiftPhotoCompareImage(imgEl.src);
+        const naturalW = img.naturalWidth || img.width || 1;
+        const naturalH = img.naturalHeight || img.height || 1;
+        const maxSide = 3200;
+        const scale = Math.min(1, maxSide / Math.max(naturalW, naturalH));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(naturalW * scale));
+        canvas.height = Math.max(1, Math.round(naturalH * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const rect = { x: 0, y: 0, width: canvas.width, height: canvas.height };
+        const orderedMarks = Array.from(wrap.querySelectorAll('.shift-photo-compare-mark'))
+            .sort((left, right) => Number(left.dataset.mode === 'mosaic') - Number(right.dataset.mode === 'mosaic'));
+        for (const mark of orderedMarks) {
+            await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect);
+        }
+        await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, rect);
+        return canvas.toDataURL('image/jpeg', 0.92);
     }
 
     getShiftPhotoCompareDisplayItems(photos, labels) {
