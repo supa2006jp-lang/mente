@@ -944,6 +944,7 @@
                     <div class="outlook-address-group-manager-head">
                         <div><b>${TXT.groupManage}: ${this.escapeHtml(managingGroup)}</b><small>${TXT.members}: ${groupMembers.length}</small></div>
                         ${managingGroup !== TXT.noGroup ? `<label class="outlook-address-group-color" title="${TXT.groupColor}"><i class="fa-solid fa-palette"></i><input type="color" value="${this.escapeHtml(managingGroupColor || '#e0f2fe')}" onchange="app.setOutlookAssistGroupColor('${this.escapeJs(managingGroup)}', this.value)"></label>` : ''}
+                        ${managingGroup !== TXT.noGroup ? `<button type="button" class="secondary-btn" onclick="app.prepareOutlookAssistNewContactForGroup('${this.escapeJs(managingGroup)}')"><i class="fa-solid fa-user-plus"></i> このグループへ新規追加</button>` : ''}
                         ${managingGroup !== TXT.noGroup ? `<button type="button" class="secondary-btn danger" onclick="app.deleteOutlookAssistRecipientGroup('${this.escapeJs(managingGroup)}')"><i class="fa-solid fa-trash-can"></i> ${TXT.deleteGroup}</button>` : ''}
                     </div>
                     <div class="outlook-address-group-member-list">
@@ -979,6 +980,7 @@
                 </section>
             ` : '';
             const editingContact = contacts.find(contact => contact.id === this._outlookAssistEditingRecipientContactId) || null;
+            const newContactGroupValue = managingGroup && managingGroup !== TXT.noGroup ? managingGroup : '';
             return `
                 <div class="outlook-address-modal-backdrop" onclick="app.closeOutlookAssistAddressBook()">
                     <section class="outlook-address-modal" onclick="event.stopPropagation()">
@@ -991,7 +993,7 @@
                                 <label class="outlook-address-field"><span>${TXT.familyName}</span><input id="outlook-address-family" placeholder="${TXT.familyName}" value="${this.escapeHtml(editingContact?.familyName || '')}"></label>
                                 <label class="outlook-address-field"><span>${TXT.givenName}</span><input id="outlook-address-given" placeholder="${TXT.givenName}" value="${this.escapeHtml(editingContact?.givenName || '')}"></label>
                                 <label class="outlook-address-field"><span>${TXT.email}</span><input id="outlook-address-email" placeholder="${TXT.email}" value="${this.escapeHtml(editingContact?.email || '')}"></label>
-                                <label class="outlook-address-field"><span>${TXT.group}</span><input id="outlook-address-group" placeholder="${TXT.groupPlaceholder}" value="${this.escapeHtml(normalizeOutlookAssistGroups(editingContact?.groups || editingContact?.group).join(', '))}"></label>
+                                <label class="outlook-address-field"><span>${TXT.group}</span><input id="outlook-address-group" placeholder="${TXT.groupPlaceholder}" value="${this.escapeHtml(editingContact ? normalizeOutlookAssistGroups(editingContact.groups || editingContact.group).join(', ') : newContactGroupValue)}"></label>
                                 <label class="outlook-address-field"><span>${TXT.note}</span><input id="outlook-address-note" placeholder="${TXT.note}" value="${this.escapeHtml(editingContact?.note || '')}"></label>
                                 <button type="submit" class="primary-btn"><i class="fa-solid ${editingContact ? 'fa-floppy-disk' : 'fa-plus'}"></i> ${editingContact ? TXT.update : TXT.register}</button>
                                 ${editingContact ? `<button type="button" class="secondary-btn" onclick="app.clearOutlookAssistRecipientContactEdit()"><i class="fa-solid fa-xmark"></i> ${TXT.cancelEdit}</button>` : ''}
@@ -2309,6 +2311,19 @@
         openOutlookAssistGroupManager(group) {
             this._outlookAssistManagingGroup = String(group || '').trim();
             this.renderOutlookAssist();
+        },
+
+        prepareOutlookAssistNewContactForGroup(group) {
+            const groupName = String(group || '').trim();
+            if (!groupName || groupName === TXT.noGroup) return;
+            this._outlookAssistEditingRecipientContactId = '';
+            this._outlookAssistManagingGroup = groupName;
+            this.renderOutlookAssist();
+            setTimeout(() => {
+                const groupInput = document.getElementById('outlook-address-group');
+                if (groupInput) groupInput.value = groupName;
+                document.getElementById('outlook-address-family')?.focus();
+            }, 0);
         },
 
         addOutlookAssistContactToGroup(id, group) {
@@ -4200,6 +4215,50 @@ getOutlookAssistDateFormatSafe = function () {
     return (worker && map[worker]) || localStorage.getItem(outlookAssistDateFormatSafeKey) || 'slash';
 };
 
+var openOutlookAssistBulkTextExpandSafe = function (sourceTextarea) {
+    if (!sourceTextarea) return;
+    document.getElementById('outlook-bulk-text-expand-modal')?.remove();
+    var modal = document.createElement('div');
+    modal.id = 'outlook-bulk-text-expand-modal';
+    modal.innerHTML = `
+        <div class="outlook-bulk-text-expand-backdrop"></div>
+        <section class="outlook-bulk-text-expand-panel" role="dialog" aria-modal="true" aria-label="名前メールを拡大編集">
+            <div class="outlook-bulk-text-expand-head">
+                <strong><i class="fa-solid fa-up-right-and-down-left-from-center"></i> 名前メールを拡大編集</strong>
+                <button type="button" class="outlook-bulk-text-expand-close" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <textarea id="outlook-bulk-text-expand-input" placeholder="山田 太郎 <taro@example.com>"></textarea>
+            <div class="outlook-bulk-text-expand-footer">
+                <span>ここで編集した内容は元の入力欄へ反映されます。</span>
+                <button type="button" class="outlook-bulk-text-expand-done"><i class="fa-solid fa-check"></i> 戻る</button>
+            </div>
+        </section>
+    `;
+    document.body.appendChild(modal);
+    var expanded = modal.querySelector('#outlook-bulk-text-expand-input');
+    var close = function () {
+        sourceTextarea.value = expanded.value;
+        sourceTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        modal.remove();
+        sourceTextarea.focus();
+    };
+    expanded.value = sourceTextarea.value || '';
+    expanded.addEventListener('input', function () {
+        sourceTextarea.value = expanded.value;
+        sourceTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    modal.querySelector('.outlook-bulk-text-expand-backdrop').addEventListener('click', close);
+    modal.querySelector('.outlook-bulk-text-expand-close').addEventListener('click', close);
+    modal.querySelector('.outlook-bulk-text-expand-done').addEventListener('click', close);
+    modal.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') close();
+    });
+    setTimeout(function () {
+        expanded.focus();
+        expanded.setSelectionRange(expanded.value.length, expanded.value.length);
+    }, 0);
+};
+
 var installOutlookAssistInlineBulkPanelSafe = function () {
     document.getElementById('outlook-bulk-name-email-modal')?.remove();
     var outlookApp = window.app || (typeof app !== 'undefined' ? app : null);
@@ -4223,7 +4282,10 @@ var installOutlookAssistInlineBulkPanelSafe = function () {
         </div>
         <div class="outlook-inline-bulk-grid">
             <label>グループ名<input id="outlook-inline-bulk-group" placeholder="例: プラント"></label>
-            <label>名前 &lt;メールアドレス&gt;<textarea id="outlook-inline-bulk-text" placeholder="山田 太郎 <taro@example.com>"></textarea></label>
+            <label class="outlook-inline-bulk-text-label">
+                <span class="outlook-inline-bulk-label-row">名前 &lt;メールアドレス&gt;<button type="button" id="outlook-inline-bulk-expand"><i class="fa-solid fa-up-right-and-down-left-from-center"></i> 拡大</button></span>
+                <textarea id="outlook-inline-bulk-text" placeholder="山田 太郎 <taro@example.com>"></textarea>
+            </label>
         </div>
         <div class="outlook-inline-bulk-actions">
             <button type="button" id="outlook-inline-bulk-preview"><i class="fa-solid fa-eye"></i> プレビュー</button>
@@ -4245,6 +4307,9 @@ var installOutlookAssistInlineBulkPanelSafe = function () {
     };
     panel.querySelector('.outlook-inline-bulk-close').addEventListener('click', function () {
         panel.hidden = true;
+    });
+    panel.querySelector('#outlook-inline-bulk-expand').addEventListener('click', function () {
+        openOutlookAssistBulkTextExpandSafe(panel.querySelector('#outlook-inline-bulk-text'));
     });
     panel.querySelector('#outlook-inline-bulk-preview').addEventListener('click', renderPreview);
     panel.querySelector('#outlook-inline-bulk-register').addEventListener('click', function () {
@@ -4301,7 +4366,14 @@ MaintenanceApp.prototype.bulkRegisterOutlookAssistNameEmailGroup = function () {
     var panel = installOutlookAssistInlineBulkPanelSafe();
     if (!panel) return;
     panel.hidden = !panel.hidden;
-    if (!panel.hidden) panel.querySelector('#outlook-inline-bulk-group')?.focus();
+    if (!panel.hidden) {
+        var groupInput = panel.querySelector('#outlook-inline-bulk-group');
+        var managingGroup = String(this._outlookAssistManagingGroup || '').trim();
+        if (groupInput && managingGroup && managingGroup !== TXT.noGroup && !groupInput.value.trim()) {
+            groupInput.value = managingGroup;
+        }
+        groupInput?.focus();
+    }
 };
 
 var outlookAssistInlineBulkPanelStyle = document.createElement('style');
@@ -4330,6 +4402,31 @@ outlookAssistInlineBulkPanelStyle.textContent = `
         display: grid;
         gap: 6px;
         font-weight: 800;
+    }
+    .outlook-inline-bulk-label-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+    #outlook-inline-bulk-expand {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 32px;
+        padding: 0 10px;
+        border: 1px solid #f59e0b;
+        border-radius: 999px;
+        background: #fff7ed;
+        color: #c2410c;
+        font-size: 0.74rem;
+        font-weight: 900;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    #outlook-inline-bulk-expand:hover {
+        background: #fed7aa;
+        color: #7c2d12;
     }
     #outlook-inline-bulk-name-email-panel input,
     #outlook-inline-bulk-name-email-panel textarea {
@@ -4367,6 +4464,85 @@ outlookAssistInlineBulkPanelStyle.textContent = `
         gap: 12px;
         padding: 7px 10px;
         border-bottom: 1px solid #e2e8f0;
+    }
+    #outlook-bulk-text-expand-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 12000;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+    }
+    .outlook-bulk-text-expand-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.46);
+    }
+    .outlook-bulk-text-expand-panel {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: min(980px, calc(100vw - 48px));
+        height: min(720px, calc(100vh - 64px));
+        padding: 16px;
+        border: 2px solid #f59e0b;
+        border-radius: 16px;
+        background: #fff7ed;
+        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.26);
+    }
+    .outlook-bulk-text-expand-head,
+    .outlook-bulk-text-expand-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+    .outlook-bulk-text-expand-head strong {
+        color: #0f172a;
+        font-size: 1.05rem;
+        font-weight: 950;
+    }
+    .outlook-bulk-text-expand-close,
+    .outlook-bulk-text-expand-done {
+        min-height: 42px;
+        padding: 0 14px;
+        border: 1px solid #f59e0b;
+        border-radius: 12px;
+        background: #ffffff;
+        color: #c2410c;
+        font-weight: 900;
+        cursor: pointer;
+    }
+    .outlook-bulk-text-expand-close {
+        width: 46px;
+        padding: 0;
+        font-size: 1.1rem;
+    }
+    #outlook-bulk-text-expand-input {
+        flex: 1;
+        width: 100%;
+        min-height: 0;
+        resize: none;
+        padding: 14px;
+        border: 2px solid #bfdbfe;
+        border-radius: 14px;
+        background: #eff6ff;
+        color: #0f172a;
+        font: inherit;
+        font-size: 1rem;
+        line-height: 1.55;
+    }
+    #outlook-bulk-text-expand-input:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+    }
+    .outlook-bulk-text-expand-footer span {
+        color: #64748b;
+        font-size: 0.78rem;
+        font-weight: 850;
     }
 `;
 document.head.appendChild(outlookAssistInlineBulkPanelStyle);

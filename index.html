@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260719-image-picker-bg-switch1">
+    <link rel="stylesheet" href="style.css?v=20260726-outlook-page-notice1">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -52,6 +52,21 @@
     </style>
 </head>
 <body style="margin: 0;">
+    <svg class="app-svg-filters" width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute;left:-9999px;top:-9999px;overflow:hidden;">
+        <filter id="shift-rubber-stamp-distress" x="-8%" y="-18%" width="116%" height="136%" color-interpolation-filters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency="0.045 0.16" numOctaves="4" seed="27" result="coarseNoise"/>
+            <feColorMatrix in="coarseNoise" type="matrix"
+                values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 3.8 -2.15" result="coarseCut"/>
+            <feComposite in="SourceGraphic" in2="coarseCut" operator="out" result="rough1"/>
+            <feTurbulence type="fractalNoise" baseFrequency="0.23 0.42" numOctaves="2" seed="81" result="fineNoise"/>
+            <feColorMatrix in="fineNoise" type="matrix"
+                values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 2.5 -1.85" result="fineCut"/>
+            <feComposite in="rough1" in2="fineCut" operator="out" result="rough2"/>
+            <feComponentTransfer in="rough2">
+                <feFuncA type="linear" slope="1.15" intercept="-0.02"/>
+            </feComponentTransfer>
+        </filter>
+    </svg>
     <!-- Login Overlay -->
     <div class="login-overlay" id="login-overlay">
         <div class="login-card-container">
@@ -393,7 +408,7 @@
                                 </div>
                                 <div class="kt-worker-controls">
                                     <select id="kt-worker-select" onchange="app.changeKanbanTodoWorker(this.value)"></select>
-                                    <button type="button" onclick="app.openKanbanWorkerPanel()" title="作業員管理">⚙</button>
+                                    <button type="button" onclick="app.openKanbanWorkerPanel()" title="作業員管理">?</button>
                                 </div>
                             </div>
                             <div class="kt-log-box">
@@ -557,7 +572,7 @@
                                 </th>
                                 <th style="width: 84px;">
                                     <div class="history-cost-head">
-                                        <button type="button" id="history-visible-cost-total" class="history-visible-cost-total" onclick="app.toggleHistoryMetricSort('cost')" title="金額で並び替え">¥0</button>
+                                        <button type="button" id="history-visible-cost-total" class="history-visible-cost-total" onclick="app.toggleHistoryMetricSort('cost')" title="金額で並び替え">\0</button>
                                     </div>
                                 </th>
                                 <th style="width: 110px;">部品</th>
@@ -654,6 +669,10 @@
                                     <span>グループ内分岐（任意）</span>
                                     <input type="text" id="tips-branch-input" list="tips-branch-list" placeholder="例: 電気 / 機械 / Aライン">
                                 </label>
+                                <label>
+                                    <span>下位分岐（任意）</span>
+                                    <input type="text" id="tips-sub-branch-input" list="tips-sub-branch-list" placeholder="例: センサー / リフト / 設定値">
+                                </label>
                                 <label class="tips-body-field">
                                     <span>本文</span>
                                     <textarea id="tips-body-input" placeholder="忘れたくない内容を入力"></textarea>
@@ -674,6 +693,7 @@
                             <div id="tips-existing-files" class="tips-existing-files" hidden></div>
                             <div id="tips-selected-files" class="tips-selected-files"></div>
                             <div id="tips-editing-hint" class="tips-editing-hint" hidden></div>
+                            <div id="tips-editing-meta" class="tips-editing-meta" hidden></div>
                             <div class="tips-compose-actions">
                                 <button type="button" id="tips-cancel-edit-btn" class="secondary-btn" onclick="app.cancelTipsEdit()" hidden>
                                     <i class="fa-solid fa-xmark"></i> 編集取消
@@ -687,6 +707,7 @@
                             </div>
                             <datalist id="tips-group-list"></datalist>
                             <datalist id="tips-branch-list"></datalist>
+                            <datalist id="tips-sub-branch-list"></datalist>
                         </section>
 
                         <section class="tips-board-panel">
@@ -697,6 +718,9 @@
                                     </button>
                                     <button type="button" id="tips-view-time" onclick="app.setTipsDisplayMode('time')">
                                         <i class="fa-solid fa-clock"></i> 日時順
+                                    </button>
+                                    <button type="button" id="tips-view-map" onclick="app.setTipsDisplayMode('map')">
+                                        <i class="fa-solid fa-diagram-project"></i> 記憶マップ
                                     </button>
                                 </div>
                                 <button type="button" id="tips-compact-toggle" class="tips-compact-toggle" onclick="app.toggleTipsCompactMode()">
@@ -1088,7 +1112,7 @@
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js?v=20260719-shift-photo-triangle-equilateral1"></script>
+    <script src="app-shift-notebook-core.js?v=20260725-crt-align1"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js?v=20260623-dept-switch-import-fix"></script>
     <script src="app-machines.js"></script>
@@ -1096,9 +1120,9 @@
     <script src="app-history.js?v=20260623-history-popover-click-only"></script>
     <script src="app-analysis-dashboard.js?v=20260613-dashboard-hide-mtbf"></script>
     <script src="app-ranking-guides.js?v=20260613-guide-title-candidates"></script>
-    <script src="app-tips.js?v=20260720-tips-notes"></script>
+    <script src="app-tips.js?v=20260722-tips-note-preview-filter-preview1"></script>
     <script src="app-skills.js?v=20260711-worker-radar-compare"></script>
-    <script src="app-outlook-assist.js?v=20260717-outlook-template-edit-guard"></script>
+    <script src="app-outlook-assist.js?v=20260725-outlook-group-add-contact1"></script>
     <script src="app-worktime.js?v=20260611-alias-health-common-complete"></script>
     <script src="app-archives.js?v=20260606-admin-log-targets"></script>
     <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
@@ -1110,5 +1134,6 @@
     <script src="app-boot.js?v=20260619-remove-auto-backup"></script>
 </body>
 </html>
+
 
 
