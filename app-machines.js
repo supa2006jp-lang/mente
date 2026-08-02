@@ -157,8 +157,11 @@
                 const body = (h.errorContent || h.notes || '内容なし').replace(/"/g, '&quot;').replace(/'/g, "\\'").replace(/\n/g, ' ');
                 
                 let photosHtml = '';
-                if (h.photos && h.photos.length > 0) {
-                    photosHtml = `<div style="display:flex; gap:4px; margin-left:8px; flex-shrink:0;">${h.photos.slice(0, 3).map(p => `<div class="img-box" style="width:40px; height:30px; border-radius:4px; border:1px solid var(--border);"><img src="${p}" style="width:100%; height:100%; object-fit:cover;"></div>`).join('')}</div>`;
+                const photoSources = this.getResolvedHistoryPhotoSources
+                    ? this.getResolvedHistoryPhotoSources(h.photos || [])
+                    : (h.photos || []).map(p => typeof p === 'string' ? p : (p?.src || '')).filter(Boolean);
+                if (photoSources.length > 0) {
+                    photosHtml = `<div style="display:flex; gap:4px; margin-left:8px; flex-shrink:0;">${photoSources.slice(0, 3).map(src => `<div class="img-box" style="width:40px; height:30px; border-radius:4px; border:1px solid var(--border);"><img src="${this.escapeHtml(src)}" style="width:100%; height:100%; object-fit:cover;"></div>`).join('')}</div>`;
                 }
                 
                 return `

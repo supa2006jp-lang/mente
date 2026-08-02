@@ -794,9 +794,12 @@
                         const wTime = this.formatHistoryWorkTime(h);
                         const workers = (h.workers || []).join(', ') || '未設定';
                         
+                        const resolvedPhotos = this.getResolvedHistoryPhotoSources
+                            ? this.getResolvedHistoryPhotoSources(h.photos || [])
+                            : (h.photos || []).map(p => typeof p === 'string' ? p : (p?.src || '')).filter(Boolean);
                         let rPhotosHtml = '';
-                        if (h.photos && h.photos.length > 0) {
-                            rPhotosHtml = h.photos.map(p => '<div class="img-box" style="width:60px; height:60px; border-radius:6px; border:1px solid var(--border); box-shadow:0 1px 3px rgba(0,0,0,0.1); flex-shrink:0;"><img src="' + p + '" alt="添付画像" style="object-fit:cover; width:100%; height:100%;"></div>').join('');
+                        if (resolvedPhotos.length > 0) {
+                            rPhotosHtml = resolvedPhotos.map(src => '<div class="img-box" style="width:60px; height:60px; border-radius:6px; border:1px solid var(--border); box-shadow:0 1px 3px rgba(0,0,0,0.1); flex-shrink:0;"><img src="' + this.escapeHtml(src) + '" alt="添付画像" style="object-fit:cover; width:100%; height:100%;"></div>').join('');
                         }
                         
                         const lineInfo = h.lineNo || m?.lineNo;
@@ -965,12 +968,15 @@
                         const lineBadge = this.getLineBadge(lineInfo);
                         const catText = h.machineCategory || m?.category;
                         const categoryBadge = catText ? `<span style="background:var(--primary-light); color:var(--primary); padding:1px 6px; border-radius:3px; font-size:0.6rem; font-weight:900; margin-right:4px;">${catText}</span>` : '';
-                        const photoIcon = (h.photos && h.photos.length > 0) ? '<i class="fa-solid fa-camera" style="color:var(--primary); margin-left:5px; font-size:0.7rem;"></i>' : '';
+                        const resolvedPhotos = this.getResolvedHistoryPhotoSources
+                            ? this.getResolvedHistoryPhotoSources(h.photos || [])
+                            : (h.photos || []).map(p => typeof p === 'string' ? p : (p?.src || '')).filter(Boolean);
+                        const photoIcon = resolvedPhotos.length > 0 ? '<i class="fa-solid fa-camera" style="color:var(--primary); margin-left:5px; font-size:0.7rem;"></i>' : '';
                         const workers = (h.workers || []).join(', ') || '未設定';
 
                         let recordPhotosHtml = '';
-                        if (h.photos && h.photos.length > 0) {
-                            recordPhotosHtml = h.photos.map(p => `<div class="img-box" style="width:60px; height:60px; border-radius:6px; border:1px solid var(--border); box-shadow:0 1px 3px rgba(0,0,0,0.1); flex-shrink:0;"><img src="${p}" alt="添付画像" style="object-fit:cover; width:100%; height:100%;"></div>`).join('');
+                        if (resolvedPhotos.length > 0) {
+                            recordPhotosHtml = resolvedPhotos.map(src => `<div class="img-box" style="width:60px; height:60px; border-radius:6px; border:1px solid var(--border); box-shadow:0 1px 3px rgba(0,0,0,0.1); flex-shrink:0;"><img src="${this.escapeHtml(src)}" alt="添付画像" style="object-fit:cover; width:100%; height:100%;"></div>`).join('');
                         }
                         
                         return `

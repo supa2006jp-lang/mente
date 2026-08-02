@@ -402,6 +402,7 @@
         if (!workerName || workerName === '旧作業者合計') return;
 
         const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const jumpPeriod = 'all';
         const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
         const histPeriod = document.getElementById('hist-filter-period');
         const histLine = document.getElementById('hist-filter-line');
@@ -409,7 +410,7 @@
         const histType = document.getElementById('hist-filter-type');
         const searchIn = document.getElementById('global-search');
 
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histMachine) histMachine.value = '';
         if (histType) histType.value = '';
@@ -420,8 +421,9 @@
         this.historyReturnContext = this.buildWorkTimeReturnContext(`作業者: ${workerName}`);
 
         this.switchView('history');
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
+        this.renderCommonFilterBadgeSlot?.('history');
         this.renderHistory('');
     }
 
@@ -436,6 +438,7 @@
         if (!histTypeValue) return;
 
         const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const jumpPeriod = 'all';
         const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
         const histPeriod = document.getElementById('hist-filter-period');
         const histLine = document.getElementById('hist-filter-line');
@@ -443,7 +446,7 @@
         const histType = document.getElementById('hist-filter-type');
         const searchIn = document.getElementById('global-search');
 
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histMachine) histMachine.value = '';
         if (histType) histType.value = histTypeValue;
@@ -455,9 +458,10 @@
         this.historyReturnContext = this.buildWorkTimeReturnContext(`種別: ${typeLabel}`);
 
         this.switchView('history');
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histType) histType.value = histTypeValue;
+        this.renderCommonFilterBadgeSlot?.('history');
         this.renderHistory('');
     }
 
@@ -465,6 +469,7 @@
         if (!troubleLabel) return;
 
         const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const jumpPeriod = 'all';
         const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
         const histPeriod = document.getElementById('hist-filter-period');
         const histLine = document.getElementById('hist-filter-line');
@@ -472,7 +477,7 @@
         const histType = document.getElementById('hist-filter-type');
         const searchIn = document.getElementById('global-search');
 
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histMachine) histMachine.value = '';
         if (histType) histType.value = histTypeValue || '';
@@ -483,10 +488,11 @@
         this.historyReturnContext = this.buildWorkTimeReturnContext(`内容: ${troubleLabel}`);
 
         this.switchView('history');
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histType) histType.value = histTypeValue || '';
         if (searchIn) searchIn.value = troubleLabel;
+        this.renderCommonFilterBadgeSlot?.('history');
         this.renderHistory(troubleLabel.toLowerCase());
     }
 
@@ -589,6 +595,7 @@
         if (!troubleLabel) return;
 
         const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const jumpPeriod = 'all';
         const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
         const histPeriod = document.getElementById('hist-filter-period');
         const histLine = document.getElementById('hist-filter-line');
@@ -596,7 +603,7 @@
         const histType = document.getElementById('hist-filter-type');
         const searchIn = document.getElementById('global-search');
 
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histMachine) histMachine.value = '';
         if (histType) histType.value = histTypeValue || '';
@@ -607,10 +614,11 @@
         this.historyReturnContext = this.buildWorkTimeReturnContext(`${groupName}: ${troubleLabel}`);
 
         this.switchView('history');
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histType) histType.value = histTypeValue || '';
         if (searchIn) searchIn.value = troubleLabel;
+        this.renderCommonFilterBadgeSlot?.('history');
         this.renderHistory(troubleLabel.toLowerCase());
     }
 
@@ -618,6 +626,7 @@
         if (!machineId) return;
 
         const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const jumpPeriod = 'all';
         const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
         const histPeriod = document.getElementById('hist-filter-period');
         const histLine = document.getElementById('hist-filter-line');
@@ -625,7 +634,7 @@
         const histType = document.getElementById('hist-filter-type');
         const searchIn = document.getElementById('global-search');
 
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histMachine) histMachine.value = machineId;
         if (histType) histType.value = '';
@@ -636,10 +645,11 @@
         this.historyReturnContext = this.buildWorkTimeReturnContext('機械別履歴');
 
         this.switchView('history');
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histMachine) histMachine.value = machineId;
         if (histType) histType.value = '';
+        this.renderCommonFilterBadgeSlot?.('history');
         this.renderHistory('');
     }
 
@@ -647,6 +657,7 @@
         if (!machineCategory) return;
 
         const workPeriod = document.getElementById('worktime-filter-period')?.value || 'this_month';
+        const jumpPeriod = 'all';
         const workLine = document.getElementById('worktime-filter-line')?.value || 'all';
         const histPeriod = document.getElementById('hist-filter-period');
         const histLine = document.getElementById('hist-filter-line');
@@ -654,7 +665,7 @@
         const histType = document.getElementById('hist-filter-type');
         const searchIn = document.getElementById('global-search');
 
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histMachine) histMachine.value = '';
         if (histType) histType.value = '';
@@ -665,11 +676,12 @@
         this.historyReturnContext = this.buildWorkTimeReturnContext(`装置区分: ${machineCategory}`);
 
         this.switchView('history');
-        if (histPeriod) histPeriod.value = workPeriod;
+        if (histPeriod) histPeriod.value = jumpPeriod;
         if (histLine) histLine.value = workLine;
         if (histMachine) histMachine.value = '';
         if (histType) histType.value = '';
         if (searchIn) searchIn.value = '';
+        this.renderCommonFilterBadgeSlot?.('history');
         this.renderHistory('');
     }
 
