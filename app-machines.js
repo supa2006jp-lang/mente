@@ -42,10 +42,20 @@
         const recurrenceCountMap = {};
         const recurrenceCountThisYearMap = {};
         const recurrenceHistoryMap = {};
+        const machineCostMap = {};
         const currentYearStr = new Date().getFullYear().toString();
         
         allHistory.forEach(h => {
              if (h.machineId) {
+                 if (!h.isManualGuide) {
+                     const cost = typeof this.calculateHistoryCost === 'function'
+                         ? this.calculateHistoryCost(h)
+                         : { total: 0, labor: 0, parts: 0 };
+                     if (!machineCostMap[h.machineId]) machineCostMap[h.machineId] = { total: 0, labor: 0, parts: 0 };
+                     machineCostMap[h.machineId].total += cost.total || 0;
+                     machineCostMap[h.machineId].labor += cost.labor || 0;
+                     machineCostMap[h.machineId].parts += cost.parts || 0;
+                 }
                  // Total trouble rank (Sudden + Dokatei)
                  if (!h.taskId || h.isDokatei) {
                      troubleCountMap[h.machineId] = (troubleCountMap[h.machineId] || 0) + 1;
@@ -67,6 +77,8 @@
             machines.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ja'));
         } else if (this.machineSort === 'newest') {
             machines.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        } else if (this.machineSort === 'cost') {
+            machines.sort((a, b) => (machineCostMap[b.id]?.total || 0) - (machineCostMap[a.id]?.total || 0));
         } else {
             // Default: Rank
             machines.sort((a, b) => (troubleCountMap[b.id] || 0) - (troubleCountMap[a.id] || 0));
@@ -83,12 +95,40 @@
             count: recurrenceCountMap[m.id] || 0
         })).sort((a,b) => b.count - a.count);
 
+        const costRankBasis = store.getMachines(true).map(m => ({
+            id: m.id,
+            total: machineCostMap[m.id]?.total || 0
+        })).sort((a,b) => b.total - a.total);
+        const priorityRankLimit = Math.max(1, Math.ceil(costRankBasis.length * 0.25));
+
         machines.forEach(m => {
             const mId = m.id;
             const mTasks = store.getTasks(mId) || [];
-            const mHistory = allHistory.filter(h => h.machineId === mId && (!h.taskId || h.isDokatei));
+            const mHistory = allHistory
+                .filter(h => h.machineId === mId && (!h.taskId || h.isDokatei))
+                .sort((a, b) => this.compareMachineHistoryDateDesc(a, b));
+            const maintenanceHistory = allHistory
+                .filter(h => h.machineId === mId && h.taskId && !h.isDokatei && !h.isNonProductionStop)
+                .sort((a, b) => this.compareMachineHistoryDateDesc(a, b));
             const troubleCount = mHistory.length;
             const rank = rankBasis.findIndex(x => x.id === mId) + 1;
+            const lastTrouble = mHistory[0] || null;
+            const lastMaintenance = maintenanceHistory[0] || null;
+            const lastTroubleText = this.getMachineHistoryDateTimeText(lastTrouble);
+            const lastMaintenanceText = this.getMachineHistoryDateTimeText(lastMaintenance);
+            const lastMaintenanceTone = this.getMachineLastMaintenanceTone(lastMaintenance);
+            const needsMaintenanceCheck = ['missing', 'warning-old', 'danger-old'].includes(lastMaintenanceTone);
+            const machineCost = machineCostMap[mId] || { total: 0, labor: 0, parts: 0 };
+            const machineCostTotalText = typeof this.formatCurrency === 'function' ? this.formatCurrency(machineCost.total) : `${Math.round(machineCost.total || 0).toLocaleString()}円`;
+            const machineCostLaborText = typeof this.formatCurrency === 'function' ? this.formatCurrency(machineCost.labor) : `${Math.round(machineCost.labor || 0).toLocaleString()}円`;
+            const machineCostPartsText = typeof this.formatCurrency === 'function' ? this.formatCurrency(machineCost.parts) : `${Math.round(machineCost.parts || 0).toLocaleString()}円`;
+            const costRank = costRankBasis.findIndex(x => x.id === mId) + 1;
+            const isPriorityMachine = troubleCount > 0
+                && machineCost.total > 0
+                && rank > 0
+                && costRank > 0
+                && rank <= priorityRankLimit
+                && costRank <= priorityRankLimit;
             
             const recurrenceCount = recurrenceCountMap[mId] || 0;
             const recurrenceCountThisYear = recurrenceCountThisYearMap[mId] || 0;
@@ -158,11 +198,11 @@
             const normName = MaintenanceApp.toFullWidthUpper(m.name || '');
 
             card.innerHTML = `
-                <div class="card-header" style="gap:16px; align-items: flex-start;">
-                    <div class="img-box" style="width:64px; height:64px; border-radius:10px;">
-                        ${m.photo ? `<img src="${m.photo}">` : `<button type="button" class="machine-photo-placeholder" onclick="app.openMachinePhotoChoice('${this.escapeJs(mId)}', event)" title="画像を選択"><i class="fa-solid fa-industry"></i></button>`}
+                <div class="card-header machine-card-header">
+                    <div class="img-box machine-photo-thumb" style="width:64px; height:64px; border-radius:0; border:1px solid var(--border);">
+                        ${m.photo ? `<img src="${m.photo}" style="object-fit:contain; border-radius:0;">` : `<button type="button" class="machine-photo-placeholder" onclick="app.openMachinePhotoChoice('${this.escapeJs(mId)}', event)" title="画像を選択"><i class="fa-solid fa-industry"></i></button>`}
                     </div>
-                    <div style="flex:1">
+                    <div class="machine-card-main">
                         <h4 style="margin:0">${this.highlightText(normName, query)}</h4>
                         <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:4px;">
                             ${m.lineNo ? this.getLineBadge(m.lineNo) : ''}
@@ -171,7 +211,9 @@
                                 [${this.highlightText(MaintenanceApp.isModelBlank(m.model) ? '型式未登録' : normModel, query)}]
                             </span>
                             ${m.manufacturer ? `<span style="font-size:0.7rem; color:var(--text-light); margin-left:8px;"><i class="fa-solid fa-industry" style="font-size:0.6rem; margin-right:2px;"></i> ${m.manufacturer}</span>` : ''}
-                            ${recurrenceCount > 0 ? `<span style="display:inline-block; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; padding:2px 8px; border-radius:4px; font-weight:900; margin-left:4px; font-size:0.75rem;"><i class="fa-solid fa-redo" style="font-size:0.65rem; margin-right:4px;"></i> 再発: 累計 ${recurrenceCount}回 / 今年 ${recurrenceCountThisYear}回 (第 ${recurrenceRank} 位)</span>` : ''}
+                            ${isPriorityMachine ? `<span class="machine-priority-badge" title="不具合頻度 第${rank}位 / コスト 第${costRank}位"><i class="fa-solid fa-bullseye"></i>重点管理</span>` : ''}
+                            ${needsMaintenanceCheck ? `<span class="machine-maintenance-alert-badge ${lastMaintenanceTone}" title="${lastMaintenanceTone === 'missing' ? 'メンテ記録がありません' : `最終メンテ日: ${this.escapeHtml(this.getMachineHistoryDateTimeWithElapsedText(lastMaintenance, lastMaintenanceText))}`}"><i class="fa-solid fa-screwdriver-wrench"></i>メンテ要確認</span>` : ''}
+                            ${recurrenceCount > 0 ? `<span class="machine-recurrence-badge"><i class="fa-solid fa-redo"></i>再発:累計${recurrenceCount}回/今年${recurrenceCountThisYear}回(第${recurrenceRank}位)</span>` : ''}
                             ${modelGuides.length > 0 ? `
                                 <div class="card-inline-guides" style="display:inline-flex; gap:4px; margin-left:4px;">
                                     ${modelGuides.slice(0, 5).map(g => `
@@ -187,8 +229,18 @@
                                 </div>
                             ` : ''}
                         </div>
+                        <div class="machine-last-history-info">
+                            <div class="machine-last-history-row trouble">
+                                <span class="label"><i class="fa-solid fa-triangle-exclamation"></i> 最終トラブル</span>
+                                ${this.getMachineLastHistoryValueHtml(lastTrouble, lastTroubleText, 'このトラブル履歴を表示')}
+                            </div>
+                            <div class="machine-last-history-row maintenance ${lastMaintenanceTone}">
+                                <span class="label"><i class="fa-solid fa-screwdriver-wrench"></i> 最終メンテ日</span>
+                                ${this.getMachineLastHistoryValueHtml(lastMaintenance, lastMaintenanceText, 'このメンテ履歴を表示', '定期メンテの完了記録がまだありません')}
+                            </div>
+                        </div>
                     </div>
-                    <div class="actions" style="display:flex; gap:6px; flex-shrink:0;">
+                    <div class="actions machine-card-actions">
                         <button class="icon-btn edit-btn" title="編集"><i class="fa-solid fa-pen"></i></button>
                         <button class="icon-btn delete-btn" style="color:var(--danger)" title="削除"><i class="fa-solid fa-trash"></i></button>
                     </div>
@@ -197,6 +249,10 @@
                     <p class="remarks" style="font-size:0.8rem; margin:8px 0 12px 0;">${this.highlightText(m.remarks || '備考なし', query)}</p>
                     
                     <div class="machine-trouble-info" style="margin-bottom:12px;">
+                        <div class="trouble-stat-row machine-total-cost-row" title="人件費: ${this.escapeHtml(machineCostLaborText)} / 部品交換費: ${this.escapeHtml(machineCostPartsText)}">
+                            <span class="label"><i class="fa-solid fa-yen-sign"></i> トータルコスト</span>
+                            <span class="value">${this.escapeHtml(machineCostTotalText)}${machineCost.total > 0 ? ` <small>第${costRank}位</small>` : ''}</span>
+                        </div>
                         <div class="trouble-stat-row">
                             <span class="label"><i class="fa-solid fa-ranking-star"></i> 不具合頻度順位</span>
                             <span class="value">${troubleCount > 0 ? `第 ${rank} 位 (${troubleCount}回)` : '記録なし'}</span>
@@ -222,6 +278,97 @@
             card.querySelector('.delete-btn').onclick = () => this.deleteMachine(mId);
             container.appendChild(card);
         });
+    }
+
+    compareMachineHistoryDateDesc(a = {}, b = {}) {
+        const aKey = `${a.date || ''} ${a.startTime || a.endTime || ''}`;
+        const bKey = `${b.date || ''} ${b.startTime || b.endTime || ''}`;
+        return bKey.localeCompare(aKey);
+    }
+
+    getMachineHistoryDateTimeText(history = null) {
+        if (!history?.date) return '記録なし';
+        const time = history.startTime || history.endTime || '';
+        return time ? `${history.date} ${time}` : history.date;
+    }
+
+    getMachineHistoryElapsedDays(history = null) {
+        if (!history?.date) return null;
+        const target = new Date(`${history.date}T00:00:00`);
+        if (Number.isNaN(target.getTime())) return null;
+        const today = new Date(`${this.getLocalDateString()}T00:00:00`);
+        const diff = Math.floor((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
+        return diff >= 0 ? diff : null;
+    }
+
+    getMachineHistoryDateTimeWithElapsedText(history = null, text = '') {
+        const baseText = text || this.getMachineHistoryDateTimeText(history);
+        const days = this.getMachineHistoryElapsedDays(history);
+        if (days === null) return baseText;
+        if (days === 0) return `${baseText}（今日）`;
+        return `${baseText}（${days}日前）`;
+    }
+
+    getMachineLastMaintenanceTone(history = null) {
+        const days = this.getMachineHistoryElapsedDays(history);
+        if (days === null) return 'missing';
+        if (days >= 180) return 'danger-old';
+        if (days >= 90) return 'warning-old';
+        return '';
+    }
+
+    getMachineLastHistoryValueHtml(history = null, text = '', linkTitle = 'この履歴を表示', emptyTitle = '記録がありません') {
+        const displayText = history?.id ? this.getMachineHistoryDateTimeWithElapsedText(history, text) : (text || '記録なし');
+        const safeText = this.escapeHtml(displayText);
+        if (!history?.id) return `<span class="value muted" title="${this.escapeHtml(emptyTitle)}">${safeText}</span>`;
+        return `<button type="button" class="value machine-last-history-link" onclick="event.stopPropagation(); app.openMachineLastHistoryInHistoryList('${this.escapeJs(history.id)}')" title="${this.escapeHtml(linkTitle)}">${safeText}</button>`;
+    }
+
+    openMachineLastHistoryInHistoryList(historyId) {
+        const history = (store.activeData.history || []).find(h => String(h.id) === String(historyId));
+        if (!history) return;
+
+        const globalSearch = document.getElementById('global-search');
+        const machineFilter = document.getElementById('hist-filter-machine');
+        const lineFilter = document.getElementById('hist-filter-line');
+        const typeFilter = document.getElementById('hist-filter-type');
+        const periodFilter = document.getElementById('hist-filter-period');
+        const partsFilter = document.getElementById('hist-filter-parts');
+        const photosFilter = document.getElementById('hist-filter-photos');
+        const guideFilter = document.getElementById('hist-filter-guide');
+
+        if (globalSearch) globalSearch.value = '';
+        if (machineFilter) {
+            const hasOption = Array.from(machineFilter.options || []).some(option => String(option.value) === String(history.machineId));
+            if (!hasOption && history.machineId) {
+                const machine = store.getMachines(true).find(m => String(m.id) === String(history.machineId));
+                const option = document.createElement('option');
+                option.value = history.machineId;
+                option.textContent = machine?.name || history.machineId;
+                machineFilter.appendChild(option);
+            }
+            machineFilter.value = history.machineId || '';
+        }
+        if (lineFilter) lineFilter.value = 'all';
+        if (typeFilter) typeFilter.value = '';
+        if (periodFilter) periodFilter.value = 'all';
+        if (partsFilter) partsFilter.checked = false;
+        if (photosFilter) photosFilter.checked = false;
+        if (guideFilter) guideFilter.checked = false;
+
+        this.modelFilter = null;
+        this.workerFilter = null;
+        this.machineCategoryFilter = null;
+        this.historyMissingDetailFilter = null;
+        this.historyReturnContext = null;
+        this.historyRecurrenceFrequencyFilter = {
+            ids: [String(history.id)],
+            label: `${history.date || '日付なし'} ${this.getHistoryDisplayText(history)}`,
+            kind: 'single'
+        };
+        this.pendingHistoryHighlightId = String(history.id);
+
+        this.switchView('history', { force: true });
     }
 
     toggleMachineMaintenanceListMode() {
@@ -564,7 +711,10 @@
         if (!machine) return;
         store.updateMachine(machine.id, { photo: src });
         store.save?.();
-        this.renderMachines();
+        this.renderMachines?.();
+        this.renderHistory?.();
+        this.renderMaintenanceList?.();
+        this.renderDashboard?.();
         this.renderPhotoManager?.();
         this.showPhotoManagerNotice?.('機械写真を設定しました。');
     }

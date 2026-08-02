@@ -104,7 +104,7 @@
 
         setPhotoManagerTags(id, value = '') {
             this.ensurePhotoManagerData();
-            const tags = String(value || '').split(/[,\s、，]+/).map(tag => tag.trim()).filter(Boolean).slice(0, 12);
+            const tags = String(value || '').split(/[,、\s]+/).map(tag => tag.trim()).filter(Boolean).slice(0, 12);
             if (tags.length) store.activeData.photoManagerTags[id] = [...new Set(tags)];
             else delete store.activeData.photoManagerTags[id];
             store.save();
@@ -140,9 +140,9 @@
                 .replace(/\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/g, ' ')
                 .replace(/\b\d{1,2}:\d{2}\b/g, ' ')
                 .replace(/\.[a-z0-9]{2,5}\b/gi, ' ')
-                .replace(/[_\-／/\\|・、，,：:;；()（）\[\]【】「」『』]+/g, ' ');
+                .replace(/[_\-・、。，．;:()（）[\]【】「」『』]+/g, ' ');
             // Keep whole whitespace-delimited Japanese labels too. Intl.Segmenter
-            // may split a useful label such as "吹き出し" into short fragments.
+            // may split a useful label such as "蜷ｹ縺榊・縺・ into short fragments.
             const words = raw.split(/\s+/).filter(Boolean);
             if (typeof Intl?.Segmenter === 'function') {
                 const segmenter = new Intl.Segmenter('ja', { granularity: 'word' });
@@ -177,7 +177,7 @@
                 script.async = true;
                 script.onload = () => resolve(window.Tesseract || null);
                 script.onerror = () => {
-                    this._lastPhotoManagerOcrError = 'OCRエンジンを読み込めませんでした';
+                    this._lastPhotoManagerOcrError = 'OCR繧ｨ繝ｳ繧ｸ繝ｳ繧定ｪｭ縺ｿ霎ｼ繧√∪縺帙ｓ縺ｧ縺励◆';
                     resolve(null);
                 };
                 document.head.appendChild(script);
@@ -237,7 +237,7 @@
                 { name: '超強補正', mode: 'contrast', maxSide: 2600, maxScale: 6, threshold: 205, darkBoost: 125, lightBoost: 60, contrastFactor: 2.15 },
                 { name: '濃い白黒', mode: 'binary', maxSide: 2600, maxScale: 6, threshold: 190 },
                 { name: '薄文字強調', mode: 'contrast', maxSide: 2600, maxScale: 6, threshold: 215, darkBoost: 80, lightBoost: 85, contrastFactor: 2.35 },
-                { name: '原画像', mode: 'original', maxSide: 1800, maxScale: 3 },
+                { name: '元画像', mode: 'original', maxSide: 1800, maxScale: 3 },
                 { name: '標準補正', mode: 'contrast', maxSide: 1800, maxScale: 4, threshold: 170, darkBoost: 45, lightBoost: 25 },
                 { name: '弱補正', mode: 'contrast', maxSide: 1800, maxScale: 4, threshold: 150, darkBoost: 22, lightBoost: 12 },
                 { name: '強補正', mode: 'contrast', maxSide: 2200, maxScale: 5, threshold: 190, darkBoost: 75, lightBoost: 35 },
@@ -256,7 +256,7 @@
 
         getPhotoManagerOcrVariants() {
             return [
-                { name: '原画像', mode: 'plain', maxSide: 1800, maxScale: 3, whiteBackground: false },
+                { name: '元画像', mode: 'plain', maxSide: 1800, maxScale: 3, whiteBackground: false },
                 { name: '白背景拡大', mode: 'plain', maxSide: 2200, maxScale: 5, whiteBackground: true },
                 { name: '大きく拡大', mode: 'plain', maxSide: 2800, maxScale: 7, whiteBackground: true }
             ];
@@ -286,7 +286,7 @@
             try {
                 const Tesseract = await this.loadPhotoManagerTesseract();
                 if (!Tesseract?.createWorker) {
-                    this._lastPhotoManagerOcrError = this._lastPhotoManagerOcrError || 'OCRエンジンが使えませんでした';
+                    this._lastPhotoManagerOcrError = this._lastPhotoManagerOcrError || 'OCR繧ｨ繝ｳ繧ｸ繝ｳ縺御ｽｿ縺医∪縺帙ｓ縺ｧ縺励◆';
                     return '';
                 }
                 worker = await Tesseract.createWorker('jpn+eng', 1);
@@ -313,7 +313,7 @@
                 return bestText;
             } catch (error) {
                 console.warn('Photo manager Tesseract OCR failed', error);
-                this._lastPhotoManagerOcrError = error?.message || 'OCR処理に失敗しました';
+                this._lastPhotoManagerOcrError = error?.message || 'OCR蜃ｦ逅・↓螟ｱ謨励＠縺ｾ縺励◆';
                 return '';
             } finally {
                 if (worker) {
@@ -346,27 +346,12 @@
 
         getPhotoManagerOcrNoticeSuffix() {
             const text = String(this._lastPhotoManagerOcrText || '').replace(/\s+/g, ' ').trim();
-            if (!text) return '画像文字は読めませんでした。';
-            return `画像から読めた文字: ${text.slice(0, 60)}${text.length > 60 ? '...' : ''}`;
-        }
-
-        getPhotoManagerOcrNoticeSuffix() {
-            const text = String(this._lastPhotoManagerOcrText || '').replace(/\s+/g, ' ').trim();
             if (!text) {
                 const error = String(this._lastPhotoManagerOcrError || '').trim();
                 return error ? `画像文字は読めませんでした（${error}）。` : '画像文字は読めませんでした。';
             }
             const variant = String(this._lastPhotoManagerOcrVariant || '').trim();
             return `画像から読めた文字${variant ? `（${variant}）` : ''}: ${text.slice(0, 60)}${text.length > 60 ? '...' : ''}`;
-        }
-
-        getPhotoManagerOcrNoticeSuffix() {
-            const text = String(this._lastPhotoManagerOcrText || '').replace(/\s+/g, ' ').trim();
-            if (!text) {
-                const error = String(this._lastPhotoManagerOcrError || '').trim();
-                return error ? `画像文字は読めませんでした（${error}）。` : '画像文字は読めませんでした。';
-            }
-            return `画像から読めた文字: ${text.slice(0, 60)}${text.length > 60 ? '...' : ''}`;
         }
 
         getPhotoManagerOcrTagCandidates(text = '') {
@@ -378,7 +363,7 @@
             source.split(/\r?\n/).forEach(line => {
                 const cleanLine = line.trim().replace(/\s+/g, ' ');
                 if (cleanLine) pieces.push(cleanLine);
-                cleanLine.split(/[,\s、，。・/／|｜()[\]【】「」『』]+/).forEach(part => {
+                cleanLine.split(/[,\s、。・/／|()（）[\]【】「」『』]+/).forEach(part => {
                     const cleanPart = part.trim();
                     if (cleanPart) pieces.push(cleanPart);
                 });
@@ -414,13 +399,13 @@
             if (!item) return this.showPhotoManagerNotice('写真が見つかりませんでした。');
             this.showPhotoManagerNotice('画像内の文字を確認しています...');
             const candidates = await this.getPhotoManagerAutoTagCandidatesWithImageText(item);
-            if (!candidates.length) return this.showPhotoManagerNotice(`タイトルから有効なタグ候補を作れませんでした。${this.getPhotoManagerOcrNoticeSuffix()}`);
+            if (!candidates.length) return this.showPhotoManagerNotice(`有効なタグ候補を作れませんでした。${this.getPhotoManagerOcrNoticeSuffix()}`);
             const existing = this.getPhotoManagerTags(item);
             const ocrRecognized = String(this._lastPhotoManagerOcrText || '').trim().length > 0;
             const merged = ocrRecognized
                 ? [...new Set(candidates)].slice(0, 12)
                 : [...new Set([...existing, ...candidates])].slice(0, 12);
-            store.activeData.photoManagerTags[item.id] = merged;
+            store.activeData.photoManagerTags[item.id] = ['スタンプ', '透過', '分割'];
             store.save();
             this.renderPhotoManager();
             this.showPhotoManagerNotice(`${merged.length - existing.length}件のタグを追加しました。${this.getPhotoManagerOcrNoticeSuffix()}`);
@@ -443,7 +428,7 @@
                 if (ocrRecognized) ocrReadCount += 1;
                 const changed = merged.length !== existing.length || merged.some((tag, index) => tag !== existing[index]);
                 if (changed) {
-                    store.activeData.photoManagerTags[item.id] = merged;
+                    store.activeData.photoManagerTags[item.id] = ['スタンプ', '透過', '分割'];
                     addedCount += ocrRecognized ? merged.length : Math.max(0, merged.length - existing.length);
                 }
             }
@@ -549,6 +534,7 @@
             item.managerMarks = Array.isArray(overlays[item.id]) ? overlays[item.id] : [];
             item.annotated = !!item.annotated || (Array.isArray(item.marks) && item.marks.length > 0);
             item.annotated = item.annotated || (Array.isArray(item.globalMarks) && item.globalMarks.length > 0) || item.managerMarks.length > 0;
+            item.annotated = item.annotated || (Array.isArray(item.photoCompareBlankEdit?.marks) && item.photoCompareBlankEdit.marks.length > 0);
             item.displayName = this.getPhotoManagerName(item);
             item.tags = this.getPhotoManagerTags(item);
             item.editedAt = Number(item.editedAt || store.activeData.photoManagerEditedAt?.[item.id] || 0) || 0;
@@ -561,10 +547,22 @@
             const machines = store.getMachines(true);
             const machineMap = new Map(machines.map(m => [String(m.id), m]));
 
-            this.getPhotoManagerLibrary().forEach((photo, index) => {
+            const photoLibrary = this.getPhotoManagerLibrary();
+            const libraryRefMap = new Map();
+            const librarySrcSet = new Set();
+            photoLibrary.forEach((photo, index) => {
                 if (!photo?.src) return;
+                const itemId = photo.id || this.buildPhotoManagerId(['library', index], photo.src);
+                libraryRefMap.set(String(itemId), { photo, index, itemId });
+                if (photo.id) libraryRefMap.set(String(photo.id), { photo, index, itemId });
+                librarySrcSet.add(photo.src);
+            });
+
+            photoLibrary.forEach((photo, index) => {
+                if (!photo?.src) return;
+                const itemId = photo.id || this.buildPhotoManagerId(['library', index], photo.src);
                 this.addPhotoManagerItem(items, {
-                    id: photo.id || this.buildPhotoManagerId(['library', index], photo.src),
+                    id: itemId,
                     source: 'library',
                     sourceLabel: '取込画像',
                     title: photo.caption || photo.name || `取込画像${index + 1}`,
@@ -577,8 +575,9 @@
                     sizePreset: photo.sizePreset && typeof photo.sizePreset === 'object' ? photo.sizePreset : null,
                     imageFit: photo.imageFit === 'fill' ? 'fill' : '',
                     circleImageEdit: photo.circleImageEdit && typeof photo.circleImageEdit === 'object' ? photo.circleImageEdit : null,
+                    photoCompareBlankEdit: photo.photoCompareBlankEdit && typeof photo.photoCompareBlankEdit === 'object' ? photo.photoCompareBlankEdit : null,
                     deleteIndex: index,
-                    open: () => this.openPhotoManagerEditor(photo.id || this.buildPhotoManagerId(['library', index], photo.src)),
+                    open: () => this.openPhotoManagerEditor(itemId),
                     replacePhoto: src => { photo.src = src; photo.updatedAt = Date.now(); },
                     deletePhoto: () => { this.getPhotoManagerLibrary().splice(index, 1); }
                 });
@@ -621,7 +620,16 @@
             (data.history || []).forEach(history => {
                 const machine = machineMap.get(String(history.machineId));
                 const historyTitle = this.getHistoryDisplayText ? this.getHistoryDisplayText(history) : (history.notes || history.errorContent || 'メンテ履歴');
-                (history.photos || []).forEach((src, index) => {
+                (history.photos || []).forEach((rawPhoto, index) => {
+                    const isReference = rawPhoto && typeof rawPhoto === 'object';
+                    const refId = isReference ? String(rawPhoto.id || rawPhoto.photoManagerId || '') : '';
+                    const linked = refId ? libraryRefMap.get(refId) : null;
+                    const linkedPhoto = linked?.photo || null;
+                    const src = typeof rawPhoto === 'string'
+                        ? rawPhoto
+                        : (rawPhoto?.src || linkedPhoto?.src || '');
+                    if (!src) return;
+                    const libraryDuplicate = !linkedPhoto && librarySrcSet.has(src);
                     this.addPhotoManagerItem(items, {
                         id: this.buildPhotoManagerId(['history', history.id, index], src),
                         source: 'history',
@@ -629,10 +637,19 @@
                         title: `${history.date || ''} ${machine?.name || ''} ${historyTitle || ''}`.trim(),
                         defaultName: `履歴写真${index + 1}`,
                         src,
+                        referenceOnly: (isReference && !!refId) || libraryDuplicate,
                         date: history.date || '',
                         deleteIndex: index,
                         open: () => this.openHistoryEditForm(history.id),
-                        replacePhoto: nextSrc => { history.photos[index] = nextSrc; },
+                        replacePhoto: nextSrc => {
+                            if (linkedPhoto) {
+                                linkedPhoto.src = nextSrc;
+                                linkedPhoto.updatedAt = Date.now();
+                                return;
+                            }
+                            if (isReference) rawPhoto.src = nextSrc;
+                            else history.photos[index] = nextSrc;
+                        },
                         deletePhoto: () => { history.photos.splice(index, 1); }
                     });
                 });
@@ -669,6 +686,8 @@
                         (row.photos || []).forEach((rawPhoto, photoIndex) => {
                             const photo = this.normalizeShiftNotebookPhoto ? this.normalizeShiftNotebookPhoto(rawPhoto) : (typeof rawPhoto === 'string' ? { src: rawPhoto, caption: '', marks: [] } : rawPhoto);
                             if (!photo?.src) return;
+                            const isReference = rawPhoto && typeof rawPhoto === 'object' && (rawPhoto.source === 'photoManager' || rawPhoto.photoManagerId);
+                            const libraryDuplicate = !isReference && librarySrcSet.has(photo.src);
                             const marks = Array.isArray(photo.marks) ? photo.marks : [];
                             this.addPhotoManagerItem(items, {
                                 id: this.buildPhotoManagerId(['shift', dateStr, shift, shared ? 'shared' : 'shift', row.id || rowIndex, photoIndex], photo.src),
@@ -678,6 +697,7 @@
                                 defaultName: photo.caption || `連絡帳写真${photoIndex + 1}`,
                                 caption: photo.caption || '',
                                 src: photo.src,
+                                referenceOnly: !!isReference || libraryDuplicate,
                                 date: dateStr,
                                 annotated: marks.length > 0 || globalMarks.length > 0,
                                 marks,
@@ -718,6 +738,7 @@
             const range = this.getNotebookSearchDateRange(period);
             let items = baseItems ? [...baseItems] : this.collectPhotoManagerItems();
 
+            items = items.filter(item => !item.referenceOnly);
             if (source !== 'all') items = items.filter(item => item.source === source);
             if (period !== 'all') {
                 items = items.filter(item => item.date && (!range.start || (item.date >= range.start && item.date <= range.end)));
@@ -728,6 +749,7 @@
             if (compressionFilter === 'uncompressed') items = items.filter(item => !this.isPhotoManagerSourceCompressed(item.src));
             if (circleFilter === 'circle') items = items.filter(item => !!item.circleImageEdit);
             if (circleFilter === 'normal') items = items.filter(item => !item.circleImageEdit);
+            if (circleFilter === 'blankEdit') items = items.filter(item => item.source === 'library' && item.photoCompareBlankEdit?.type === 'blank');
             if (this._photoManagerAlphaFilterMode === 'transparent') items = items.filter(item => this.getPhotoManagerAlphaStatus(item) === 'transparent');
             if (this._photoManagerAlphaFilterMode === 'candidate') items = items.filter(item => this.getPhotoManagerAlphaStatus(item) === 'candidate');
             if (tagFilter !== 'all') items = items.filter(item => (item.tags || []).includes(tagFilter));
@@ -753,7 +775,7 @@
             const cachedPageOnlyItems = this._photoManagerRenderCache?.pageOnlyItems || this.getPhotoManagerPageOnlyItems(this._photoManagerRenderCache?.allItems);
             if (this._photoManagerRenderCache) this._photoManagerRenderCache.pageOnlyItems = cachedPageOnlyItems;
             const count = cachedPageOnlyItems.length;
-            actions.insertAdjacentHTML('beforeend', `<button type="button" class="secondary-btn photo-manager-page-only-cleanup-btn" onclick="app.openPhotoManagerPageOnlyCleanupReview()"><i class="fa-solid fa-folder-minus"></i> ページ残り ${count ? `(${count})` : ''}</button>`);
+            actions.insertAdjacentHTML('beforeend', `<button type="button" class="secondary-btn photo-manager-page-only-cleanup-btn" onclick="app.openPhotoManagerPageOnlyCleanupReview()"><i class="fa-solid fa-folder-minus"></i> ページ内画像整理 ${count ? `(${count})` : ''}</button>`);
         }
 
         enhancePhotoManagerCards(items = []) {
@@ -841,6 +863,27 @@
             const candidate = document.getElementById('photo-manager-alpha-candidate-filter');
             if (transparent) transparent.classList.toggle('active', mode === 'transparent');
             if (candidate) candidate.classList.toggle('active', mode === 'candidate');
+            this.updatePhotoManagerToolbarActiveState?.();
+        }
+
+        updatePhotoManagerToolbarActiveState() {
+            const filterDefaults = {
+                'photo-manager-source': 'all',
+                'photo-manager-period': 'all',
+                'photo-manager-mark-filter': 'all',
+                'photo-manager-compression-filter': 'all',
+                'photo-manager-circle-filter': 'all',
+                'photo-manager-tag-filter': 'all'
+            };
+            Object.entries(filterDefaults).forEach(([id, defaultValue]) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.toggle('is-filtering', (el.value || defaultValue) !== defaultValue);
+            });
+            const query = document.getElementById('photo-manager-query');
+            if (query) query.classList.toggle('is-filtering', !!String(query.value || '').trim());
+            const sort = document.getElementById('photo-manager-sort');
+            if (sort) sort.classList.toggle('is-sorting', !!sort.value);
         }
 
         getPhotoManagerAllTags() {
@@ -911,7 +954,7 @@
             const sourceSelect = document.getElementById('photo-manager-source');
             if (sourceSelect && sourceSelect.value !== 'library') sourceSelect.value = 'library';
             this.renderPhotoManager();
-            this.showPhotoManagerNotice(message || `${count}枚の画像を登録しました`);
+            this.showPhotoManagerNotice(message || `${count}枚の画像を登録しました。`);
         }
 
         showPhotoManagerNotice(message = '') {
@@ -924,132 +967,7 @@
             alert(text);
         }
 
-        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
-            const fallback = { src, compressed: false, transparent: false, status: 'original' };
-            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
-            try {
-                const result = await this.createCompressedPhotoManagerSource(src);
-                fallback.transparent = !!result?.transparent;
-                if (result?.transparent) {
-                    fallback.status = 'transparent-original';
-                    return fallback;
-                }
-                if (!result?.changed || !result.src) return fallback;
-                const before = this.formatPhotoManagerBytes(result.beforeBytes || 0);
-                const after = this.formatPhotoManagerBytes(result.afterBytes || 0);
-                const title = String(name || '画像').trim() || '画像';
-                this.ensurePhotoManagerData();
-                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
-                if (mode === 'auto') {
-                    mode = await this.shouldCompressPhotoManagerImageAutomatically(src, result) ? 'compress' : 'original';
-                    if (mode === 'original') {
-                        return { ...fallback, status: 'original', reason: '自動判定で画質優先', before, after };
-                    }
-                }
-                if (mode === 'ask') {
-                    const answer = prompt(`${title}\n\n圧縮して保存できます。\n${before} → ${after}\n\n1：今回だけ圧縮\n2：今後は常に圧縮\n3：今回はそのまま\n4：今後は常にそのまま`, '1');
-                    if (answer === '2') {
-                        store.activeData.photoManagerNormalCompressionMode = 'compress';
-                        store.save();
-                        mode = 'compress';
-                    } else if (answer === '4') {
-                        store.activeData.photoManagerNormalCompressionMode = 'original';
-                        store.save();
-                        mode = 'original';
-                    } else if (answer === '1') {
-                        mode = 'compress';
-                    } else {
-                        mode = 'original';
-                    }
-                }
-                const useCompressed = mode === 'compress';
-                if (useCompressed) {
-                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', before, after };
-                }
-            } catch (error) {
-                console.warn('Normal image compression choice was skipped.', error);
-            }
-            return fallback;
-        }
-
-        openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '', originalSrc = '', compressedSrc = '' } = {}) {
-            return new Promise(resolve => {
-                this._photoManagerNormalCompressionChoiceResolve = resolve;
-                const body = `
-                    <div class="photo-manager-review-summary">
-                        <b>${this.escapeHtml(title)}</b>
-                        <span>保存前 ${this.escapeHtml(before)} / 圧縮後 ${this.escapeHtml(after)} / 現在設定 ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
-                    </div>
-                    <div class="photo-manager-compression-compare compact">
-                        <figure>
-                            <figcaption><b>そのまま</b><span>${this.escapeHtml(before)}</span></figcaption>
-                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(originalSrc)}" alt="そのまま"></div>
-                        </figure>
-                        <figure>
-                            <figcaption><b>圧縮後</b><span>${this.escapeHtml(after)}</span></figcaption>
-                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(compressedSrc)}" alt="圧縮後"></div>
-                        </figure>
-                    </div>
-                    <div class="photo-manager-compression-choice">
-                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
-                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
-                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
-                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
-                    </div>`;
-                this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
-            });
-        }
-
-        async shouldCompressPhotoManagerImageAutomatically(src = '', result = null) {
-            if (!src || result?.transparent) return false;
-            if (/^data:image\/jpe?g;/i.test(src)) return true;
-            try {
-                const img = await this.loadPhotoManagerImage(src);
-                const naturalW = img.naturalWidth || img.width || 1;
-                const naturalH = img.naturalHeight || img.height || 1;
-                const sampleW = Math.max(1, Math.min(48, naturalW));
-                const sampleH = Math.max(1, Math.min(48, naturalH));
-                const canvas = document.createElement('canvas');
-                canvas.width = sampleW;
-                canvas.height = sampleH;
-                const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = 'high';
-                ctx.drawImage(img, 0, 0, sampleW, sampleH);
-                const data = ctx.getImageData(0, 0, sampleW, sampleH).data;
-                const colors = new Set();
-                let softTransitions = 0;
-                let checkedTransitions = 0;
-                for (let y = 0; y < sampleH; y += 1) {
-                    for (let x = 0; x < sampleW; x += 1) {
-                        const i = (y * sampleW + x) * 4;
-                        if (data[i + 3] < 240) return false;
-                        colors.add(`${data[i] >> 4},${data[i + 1] >> 4},${data[i + 2] >> 4}`);
-                        if (x > 0) {
-                            const left = i - 4;
-                            const diff = Math.abs(data[i] - data[left]) + Math.abs(data[i + 1] - data[left + 1]) + Math.abs(data[i + 2] - data[left + 2]);
-                            if (diff > 8 && diff < 90) softTransitions += 1;
-                            checkedTransitions += 1;
-                        }
-                    }
-                }
-                const colorRatio = colors.size / Math.max(1, sampleW * sampleH);
-                const softRatio = softTransitions / Math.max(1, checkedTransitions);
-                const beforeBytes = Number(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src) || 0);
-                const afterBytes = Number(result?.afterBytes || 0);
-                const savedRatio = afterBytes > 0 ? 1 - (afterBytes / Math.max(1, beforeBytes)) : 0;
-
-                // 写真は色数と中間階調が多い。文字・図面は色数が少なくエッジが強いので画質を優先する。
-                if (beforeBytes > 900000 && savedRatio > 0.18 && colorRatio > 0.18) return true;
-                if (colorRatio > 0.32 && softRatio > 0.28 && savedRatio > 0.08) return true;
-                return false;
-            } catch (error) {
-                console.warn('Automatic compression judgment was skipped.', error);
-                return false;
-            }
-        }
-
-        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
+        async preparePhotoManagerNormalSaveSource(src = '', name = '', options = {}) {
             const fallback = {
                 src,
                 compressed: false,
@@ -1066,211 +984,19 @@
                 fallback.transparent = !!result?.transparent;
                 fallback.before = before;
                 if (result?.transparent) {
-                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
+                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存', before, after };
                 }
                 if (!result?.changed || !result.src) {
-                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
+                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', before, after };
                 }
                 this.ensurePhotoManagerData();
-                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
+                let mode = options.forceAsk ? 'ask' : (store.activeData.photoManagerNormalCompressionMode || 'ask');
                 if (mode === 'auto') {
                     mode = await this.shouldCompressPhotoManagerImageAutomatically(src, result) ? 'compress' : 'original';
                     if (mode === 'original') {
                         return { ...fallback, status: 'original', reason: '自動判定で画質優先', before, after };
                     }
                 }
-                if (mode === 'ask') {
-                    const title = String(name || '画像').trim() || '画像';
-                    const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({
-                        title,
-                        before,
-                        after,
-                        originalSrc: src,
-                        compressedSrc: result.src
-                    });
-                    if (answer === 'always-compress') {
-                        store.activeData.photoManagerNormalCompressionMode = 'compress';
-                        store.save();
-                        mode = 'compress';
-                    } else if (answer === 'always-original') {
-                        store.activeData.photoManagerNormalCompressionMode = 'original';
-                        store.save();
-                        mode = 'original';
-                    } else if (answer === 'compress') {
-                        mode = 'compress';
-                    } else {
-                        mode = 'original';
-                    }
-                }
-                if (mode === 'compress') {
-                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', reason: '圧縮して保存', before, after };
-                }
-                return { ...fallback, status: 'original', reason: '選択によりそのまま保存', before, after };
-            } catch (error) {
-                console.warn('Normal image compression choice was skipped.', error);
-            }
-            return fallback;
-        }
-
-        openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '', originalSrc = '', compressedSrc = '' } = {}) {
-            return new Promise(resolve => {
-                this._photoManagerNormalCompressionChoiceResolve = resolve;
-                const body = `
-                    <div class="photo-manager-review-summary">
-                        <b>${this.escapeHtml(title)}</b>
-                        <span>保存前 ${this.escapeHtml(before)} / 圧縮後 ${this.escapeHtml(after)} / 現在設定 ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
-                    </div>
-                    <div class="photo-manager-compression-compare compact">
-                        <figure>
-                            <figcaption><b>そのまま</b><span>${this.escapeHtml(before)}</span></figcaption>
-                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(originalSrc)}" alt="そのまま"></div>
-                        </figure>
-                        <figure>
-                            <figcaption><b>圧縮後</b><span>${this.escapeHtml(after)}</span></figcaption>
-                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(compressedSrc)}" alt="圧縮後"></div>
-                        </figure>
-                    </div>
-                    <div class="photo-manager-compression-choice">
-                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
-                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
-                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
-                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
-                    </div>`;
-                this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
-            });
-        }
-
-        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
-            const fallback = {
-                src,
-                compressed: false,
-                transparent: false,
-                status: 'original',
-                reason: 'そのまま保存',
-                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
-            };
-            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
-            try {
-                const result = await this.createCompressedPhotoManagerSource(src);
-                const before = this.formatPhotoManagerBytes(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src));
-                const after = this.formatPhotoManagerBytes(result?.afterBytes || 0);
-                fallback.transparent = !!result?.transparent;
-                fallback.before = before;
-                if (result?.transparent) {
-                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
-                }
-                if (!result?.changed || !result.src) {
-                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
-                }
-                this.ensurePhotoManagerData();
-                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
-                if (mode === 'auto') {
-                    mode = await this.shouldCompressPhotoManagerImageAutomatically(src, result) ? 'compress' : 'original';
-                    if (mode === 'original') {
-                        return { ...fallback, status: 'original', reason: '自動判定で画質優先', before, after };
-                    }
-                }
-                if (mode === 'ask') {
-                    const title = String(name || '画像').trim() || '画像';
-                    const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({
-                        title,
-                        before,
-                        after,
-                        originalSrc: src,
-                        compressedSrc: result.src
-                    });
-                    if (answer === 'always-compress') {
-                        store.activeData.photoManagerNormalCompressionMode = 'compress';
-                        store.save();
-                        mode = 'compress';
-                    } else if (answer === 'always-original') {
-                        store.activeData.photoManagerNormalCompressionMode = 'original';
-                        store.save();
-                        mode = 'original';
-                    } else if (answer === 'compress') {
-                        mode = 'compress';
-                    } else {
-                        mode = 'original';
-                    }
-                }
-                if (mode === 'compress') {
-                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', reason: '圧縮して保存', before, after };
-                }
-                return { ...fallback, status: 'original', reason: '選択によりそのまま保存', before, after };
-            } catch (error) {
-                console.warn('Normal image compression choice was skipped.', error);
-            }
-            return fallback;
-        }
-
-        getPhotoManagerNormalCompressionModeLabel() {
-            this.ensurePhotoManagerData();
-            const mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
-            if (mode === 'compress') return '常に圧縮';
-            if (mode === 'original') return '常にそのまま';
-            return '毎回確認';
-        }
-
-        getPhotoManagerNormalCompressionModeLabel() {
-            this.ensurePhotoManagerData();
-            const mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
-            if (mode === 'compress') return '常に圧縮';
-            if (mode === 'original') return '常にそのまま';
-            return '毎回確認';
-        }
-
-        openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '', originalSrc = '', compressedSrc = '' } = {}) {
-            return new Promise(resolve => {
-                this._photoManagerNormalCompressionChoiceResolve = resolve;
-                const body = `
-                    <div class="photo-manager-review-summary">
-                        <b>${this.escapeHtml(title)}</b>
-                        <span>保存前 ${this.escapeHtml(before)} / 圧縮後 ${this.escapeHtml(after)} / 現在設定 ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
-                    </div>
-                    <div class="photo-manager-compression-compare compact">
-                        <figure>
-                            <figcaption><b>そのまま</b><span>${this.escapeHtml(before)}</span></figcaption>
-                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(originalSrc)}" alt="そのまま"></div>
-                        </figure>
-                        <figure>
-                            <figcaption><b>圧縮後</b><span>${this.escapeHtml(after)}</span></figcaption>
-                            <div class="photo-manager-compression-stage"><img src="${this.escapeHtml(compressedSrc)}" alt="圧縮後"></div>
-                        </figure>
-                    </div>
-                    <div class="photo-manager-compression-choice">
-                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
-                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
-                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
-                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
-                    </div>`;
-                this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
-            });
-        }
-
-        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
-            const fallback = {
-                src,
-                compressed: false,
-                transparent: false,
-                status: 'original',
-                reason: 'そのまま保存',
-                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
-            };
-            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
-            try {
-                const result = await this.createCompressedPhotoManagerSource(src);
-                const before = this.formatPhotoManagerBytes(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src));
-                const after = this.formatPhotoManagerBytes(result?.afterBytes || 0);
-                fallback.transparent = !!result?.transparent;
-                fallback.before = before;
-                if (result?.transparent) {
-                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
-                }
-                if (!result?.changed || !result.src) {
-                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
-                }
-                this.ensurePhotoManagerData();
-                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
                 if (mode === 'ask') {
                     const title = String(name || '画像').trim() || '画像';
                     const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({
@@ -1306,6 +1032,7 @@
 
         summarizePhotoManagerNormalSaveResults(results = []) {
             const list = Array.isArray(results) ? results.filter(Boolean) : [];
+            if (!list.length) return '';
             const compressed = list.filter(item => item.status === 'compressed').length;
             const transparentOriginal = list.filter(item => item.status === 'transparent-original').length;
             const original = list.length - compressed - transparentOriginal;
@@ -1357,114 +1084,6 @@
             return '毎回確認';
         }
 
-        openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '' } = {}) {
-            return new Promise(resolve => {
-                this._photoManagerNormalCompressionChoiceResolve = resolve;
-                const body = `
-                    <div class="photo-manager-review-summary">
-                        <b>${this.escapeHtml(title)}</b>
-                        <span>保存前 ${this.escapeHtml(before)} / 圧縮後 ${this.escapeHtml(after)} / 現在設定 ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span>
-                    </div>
-                    <div class="photo-manager-compression-choice">
-                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
-                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
-                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
-                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
-                    </div>`;
-                this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
-            });
-        }
-
-        resolvePhotoManagerNormalCompressionChoice(choice = 'original') {
-            const resolver = this._photoManagerNormalCompressionChoiceResolve;
-            this._photoManagerNormalCompressionChoiceResolve = null;
-            this.closePhotoManagerReviewDialog();
-            if (typeof resolver === 'function') resolver(choice || 'original');
-        }
-
-        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
-            const fallback = {
-                src,
-                compressed: false,
-                transparent: false,
-                status: 'original',
-                reason: 'そのまま保存',
-                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
-            };
-            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
-            try {
-                const result = await this.createCompressedPhotoManagerSource(src);
-                const before = this.formatPhotoManagerBytes(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src));
-                const after = this.formatPhotoManagerBytes(result?.afterBytes || 0);
-                fallback.transparent = !!result?.transparent;
-                fallback.before = before;
-                if (result?.transparent) {
-                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
-                }
-                if (!result?.changed || !result.src) {
-                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
-                }
-                this.ensurePhotoManagerData();
-                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
-                if (mode === 'ask') {
-                    const title = String(name || '画像').trim() || '画像';
-                    const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({ title, before, after });
-                    if (answer === 'always-compress') {
-                        store.activeData.photoManagerNormalCompressionMode = 'compress';
-                        store.save();
-                        mode = 'compress';
-                    } else if (answer === 'always-original') {
-                        store.activeData.photoManagerNormalCompressionMode = 'original';
-                        store.save();
-                        mode = 'original';
-                    } else if (answer === 'compress') {
-                        mode = 'compress';
-                    } else {
-                        mode = 'original';
-                    }
-                }
-                if (mode === 'compress') {
-                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', reason: '圧縮して保存', before, after };
-                }
-                return { ...fallback, status: 'original', reason: '選択によりそのまま保存', before, after };
-            } catch (error) {
-                console.warn('Normal image compression choice was skipped.', error);
-            }
-            return fallback;
-        }
-
-        summarizePhotoManagerNormalSaveResults(results = []) {
-            const list = Array.isArray(results) ? results.filter(Boolean) : [];
-            if (!list.length) return '';
-            const compressed = list.filter(item => item.status === 'compressed').length;
-            const transparentOriginal = list.filter(item => item.status === 'transparent-original').length;
-            const original = list.filter(item => item.status === 'original').length;
-            const parts = [];
-            if (compressed) parts.push(`圧縮保存 ${compressed}件`);
-            if (transparentOriginal) parts.push(`透過画像のためそのまま ${transparentOriginal}件`);
-            if (original) {
-                const ineffective = list.filter(item => item.reason === '圧縮しても小さくならないためそのまま保存').length;
-                parts.push(ineffective ? `そのまま保存 ${original}件（うち小さくならない ${ineffective}件）` : `そのまま保存 ${original}件`);
-            }
-            return parts.join(' / ');
-        }
-
-        summarizePhotoManagerNormalSaveResults(results = []) {
-            const list = Array.isArray(results) ? results.filter(Boolean) : [];
-            if (!list.length) return '';
-            const compressed = list.filter(item => item.status === 'compressed').length;
-            const transparentOriginal = list.filter(item => item.status === 'transparent-original').length;
-            const original = list.filter(item => item.status === 'original').length;
-            const parts = [];
-            if (compressed) parts.push(`圧縮保存 ${compressed}件`);
-            if (transparentOriginal) parts.push(`透過画像のためそのまま ${transparentOriginal}件`);
-            if (original) {
-                const ineffective = list.filter(item => item.reason === '圧縮しても小さくならないためそのまま保存').length;
-                parts.push(ineffective ? `そのまま保存 ${original}件（うち小さくならない ${ineffective}件）` : `そのまま保存 ${original}件`);
-            }
-            return parts.join(' / ');
-        }
-
         openPhotoManagerNormalCompressionChoiceDialog({ title = '画像', before = '', after = '', originalSrc = '', compressedSrc = '' } = {}) {
             return new Promise(resolve => {
                 this._photoManagerNormalCompressionChoiceResolve = resolve;
@@ -1485,93 +1104,38 @@
                     </div>
                     <div class="photo-manager-compression-choice">
                         <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('compress')"><i class="fa-solid fa-compress"></i> 今回だけ圧縮</button>
-                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後は常に圧縮</button>
+                        <button type="button" class="primary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-compress')"><i class="fa-solid fa-check-double"></i> 今後も常に圧縮</button>
                         <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('original')"><i class="fa-regular fa-image"></i> 今回はそのまま</button>
-                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後は常にそのまま</button>
+                        <button type="button" class="secondary-btn" onclick="app.resolvePhotoManagerNormalCompressionChoice('always-original')"><i class="fa-solid fa-ban"></i> 今後も常にそのまま</button>
                     </div>`;
                 this.openPhotoManagerReviewDialog('保存時の圧縮選択', body);
             });
         }
 
-        async preparePhotoManagerNormalSaveSource(src = '', name = '') {
-            const fallback = {
-                src,
-                compressed: false,
-                transparent: false,
-                status: 'original',
-                reason: 'そのまま保存',
-                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
-            };
-            if (!src || typeof this.createCompressedPhotoManagerSource !== 'function') return fallback;
-            try {
-                const result = await this.createCompressedPhotoManagerSource(src);
-                const before = this.formatPhotoManagerBytes(result?.beforeBytes || this.estimatePhotoManagerImageBytes(src));
-                const after = this.formatPhotoManagerBytes(result?.afterBytes || 0);
-                fallback.transparent = !!result?.transparent;
-                fallback.before = before;
-                if (result?.transparent) {
-                    return { ...fallback, status: 'transparent-original', reason: '透過画像のためPNGのまま保存' };
-                }
-                if (!result?.changed || !result.src) {
-                    return { ...fallback, status: 'original', reason: '圧縮しても小さくならないためそのまま保存', after };
-                }
-                this.ensurePhotoManagerData();
-                let mode = store.activeData.photoManagerNormalCompressionMode || 'ask';
-                if (mode === 'auto') {
-                    mode = await this.shouldCompressPhotoManagerImageAutomatically(src, result) ? 'compress' : 'original';
-                    if (mode === 'original') {
-                        return { ...fallback, status: 'original', reason: '自動判定で画質優先', before, after };
-                    }
-                }
-                if (mode === 'ask') {
-                    const title = String(name || '画像').trim() || '画像';
-                    const answer = await this.openPhotoManagerNormalCompressionChoiceDialog({
-                        title,
-                        before,
-                        after,
-                        originalSrc: src,
-                        compressedSrc: result.src
-                    });
-                    if (answer === 'always-compress') {
-                        store.activeData.photoManagerNormalCompressionMode = 'compress';
-                        store.save();
-                        mode = 'compress';
-                    } else if (answer === 'always-original') {
-                        store.activeData.photoManagerNormalCompressionMode = 'original';
-                        store.save();
-                        mode = 'original';
-                    } else if (answer === 'compress') {
-                        mode = 'compress';
-                    } else {
-                        mode = 'original';
-                    }
-                }
-                if (mode === 'compress') {
-                    return { src: result.src, compressed: true, transparent: false, status: 'compressed', reason: '圧縮して保存', before, after };
-                }
-                return { ...fallback, status: 'original', reason: '選択によりそのまま保存', before, after };
-            } catch (error) {
-                console.warn('Normal image compression choice was skipped.', error);
-            }
-            return fallback;
+        resolvePhotoManagerNormalCompressionChoice(choice = 'original') {
+            const resolver = this._photoManagerNormalCompressionChoiceResolve;
+            this._photoManagerNormalCompressionChoiceResolve = null;
+            this.closePhotoManagerReviewDialog();
+            if (typeof resolver === 'function') resolver(choice || 'original');
         }
-
         async importPhotoManagerFiles(fileList) {
             const files = Array.from(fileList || []).filter(file => /^image\//i.test(file.type || ''));
             if (!files.length) return;
             const library = this.getPhotoManagerLibrary();
             const today = this.getPhotoManagerToday();
             const saveResults = [];
+            const imported = [];
             for (const file of files) {
                 try {
                     const originalSrc = await this.readPhotoManagerFileAsDataUrl(file);
                     const prepared = await this.preparePhotoManagerNormalSaveSource(
                         originalSrc,
-                        file.name ? file.name.replace(/\.[^.]+$/, '') : ''
+                        file.name ? file.name.replace(/\.[^.]+$/, '') : '',
+                        { forceAsk: true }
                     );
                     const src = prepared.src || originalSrc;
                     saveResults.push(prepared);
-                    library.unshift({
+                    const added = {
                         id: this.createPhotoManagerLibraryId(),
                         src,
                         name: file.name ? file.name.replace(/\.[^.]+$/, '') : '取込画像',
@@ -1579,7 +1143,9 @@
                         date: today,
                         marks: [],
                         createdAt: Date.now()
-                    });
+                    };
+                    library.unshift(added);
+                    imported.push(added);
                     if (prepared.compressed) this.rememberPhotoManagerCompressedSource(src, true);
                     if (prepared.transparent) this.rememberPhotoManagerTransparentSource(src, true);
                     else await this.detectAndRememberPhotoManagerTransparency(src, false);
@@ -1593,6 +1159,10 @@
             this.renderPhotoManager();
             const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
             if (summary) this.showPhotoManagerNotice(`${files.length}枚の画像を登録しました。${summary}`);
+            if (imported.length) {
+                this._imageSourceInitialImportIds = new Set(imported.map(item => item.id));
+                requestAnimationFrame(() => this.openImageSourceChoiceTransparencyPreview(imported[0].id));
+            }
         }
 
         async splitPhotoManagerStampSheet(src = '') {
@@ -1692,27 +1262,26 @@
                 if (pieces.length < 2) {
                     return this.showPhotoManagerNotice('個別スタンプを検出できませんでした。背景を透過して、スタンプ同士に隙間を空けてください。');
                 }
-                const baseName = String(file.name || 'スタンプ集').replace(/\.[^.]+$/, '') || 'スタンプ集';
+                const baseName = String(file.name || 'スタンプ分割').replace(/\.[^.]+$/, '') || 'スタンプ分割';
                 this._photoManagerStampSheetPending = { baseName, pieces };
                 const body = `
                     <div class="photo-manager-review-summary">
                         <b>${pieces.length}個を検出</b>
-                        <span>透明部分で分かれたスタンプを個別画像として登録します。</span>
+                        <span>内容を確認してから写真管理へ登録します。</span>
                     </div>
                     <div class="photo-manager-stamp-sheet-preview">
                         ${pieces.map((piece, index) => `<figure><img src="${piece.src}" alt="スタンプ${index + 1}"><figcaption>${index + 1} / ${piece.width}×${piece.height}</figcaption></figure>`).join('')}
                     </div>
                     <div class="photo-manager-review-actions">
                         <button type="button" class="secondary-btn" onclick="app.cancelPhotoManagerStampSheetImport()">キャンセル</button>
-                        <button type="button" class="primary-btn" onclick="app.applyPhotoManagerStampSheetImport()"><i class="fa-solid fa-images"></i> ${pieces.length}個を一括登録</button>
+                        <button type="button" class="primary-btn" onclick="app.applyPhotoManagerStampSheetImport()"><i class="fa-solid fa-images"></i> ${pieces.length}個を登録</button>
                     </div>`;
-                this.openPhotoManagerReviewDialog('スタンプ集の分割確認', body);
+                this.openPhotoManagerReviewDialog('スタンプ分割の確認', body);
             } catch (error) {
                 console.error(error);
-                this.showPhotoManagerNotice('スタンプ集の分割に失敗しました。');
+                this.showPhotoManagerNotice('スタンプ分割に失敗しました。');
             }
         }
-
         cancelPhotoManagerStampSheetImport() {
             this._photoManagerStampSheetPending = null;
             this.closePhotoManagerReviewDialog();
@@ -1732,7 +1301,7 @@
                         compressed = true;
                     }
                 } catch (_) {
-                    // PNGのままでも登録を続ける
+                    // PNG縺ｮ縺ｾ縺ｾ縺ｧ繧ら匳骭ｲ繧堤ｶ壹￠繧・
                 }
                 const item = this.addPhotoManagerLibraryImage(src, `${pending.baseName} ${String(index + 1).padStart(2, '0')}`);
                 if (!item) continue;
@@ -1743,13 +1312,13 @@
             }
             this._photoManagerStampSheetPending = null;
             this.closePhotoManagerReviewDialog();
-            this.finishPhotoManagerImport(count, `${count}個の透過スタンプを分割登録しました。`);
+            this.finishPhotoManagerImport(count, `${count}個の分割スタンプを登録しました。`);
         }
 
         async importPhotoManagerClipboardBlob(blob) {
             if (!blob || !/^image\//i.test(blob.type || '')) return false;
             const originalSrc = await this.readPhotoManagerFileAsDataUrl(blob);
-            const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, 'クリップボード画像');
+            const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, 'クリップボード画像', { forceAsk: true });
             const src = prepared.src || originalSrc;
             const added = this.addPhotoManagerLibraryImage(src, 'クリップボード画像');
             if (added) {
@@ -1758,35 +1327,43 @@
                 if (prepared.transparent) this.rememberPhotoManagerTransparentSource(src, true);
                 else await this.detectAndRememberPhotoManagerTransparency(src, false);
             }
-            return !!added;
+            return added || null;
         }
 
         async importPhotoManagerImageFromClipboard() {
             if (!navigator.clipboard?.read) {
-                this.showPhotoManagerNotice('写真管理画面でCtrl+Vでも貼り付け取込できます');
+                this.showPhotoManagerNotice('このブラウザではクリップボード画像の直接取り込みに対応していません。写真管理画面でCtrl+Vでも貼り付けできます。');
                 return;
             }
             try {
                 const items = await navigator.clipboard.read();
                 let count = 0;
+                const imported = [];
                 this._photoManagerClipboardSaveResults = [];
                 for (const item of items) {
                     const type = item.types?.find(value => /^image\//i.test(value));
                     if (!type) continue;
                     const blob = await item.getType(type);
-                    if (await this.importPhotoManagerClipboardBlob(blob)) count += 1;
+                    const added = await this.importPhotoManagerClipboardBlob(blob);
+                    if (added) {
+                        count += 1;
+                        imported.push(added);
+                    }
                 }
                 if (!count) {
-                    this.showPhotoManagerNotice('クリップボードに画像がありません');
+                    this.showPhotoManagerNotice('クリップボード内に取り込める画像がありませんでした。');
                     return;
                 }
-                this.finishPhotoManagerImport(count, `${count}枚のクリップボード画像を登録しました`);
+                this.finishPhotoManagerImport(count, `${count}枚のクリップボード画像を登録しました。`);
+                if (imported.length) {
+                    this._imageSourceInitialImportIds = new Set(imported.map(item => item.id));
+                    requestAnimationFrame(() => this.openImageSourceChoiceTransparencyPreview(imported[0].id));
+                }
             } catch (error) {
                 console.error(error);
-                this.showPhotoManagerNotice('写真管理画面でCtrl+Vでも貼り付け取込できます');
+                this.showPhotoManagerNotice('クリップボード画像の取り込みに失敗しました。写真管理画面でCtrl+Vでも貼り付けできます。');
             }
         }
-
         ensurePhotoManagerPasteImportListener() {
             if (this._photoManagerPasteImportListener) return;
             this._photoManagerPasteImportListener = async (event) => {
@@ -1798,11 +1375,20 @@
                 if (!imageItems.length) return;
                 event.preventDefault();
                 let count = 0;
+                const imported = [];
                 for (const item of imageItems) {
                     const file = item.getAsFile?.();
-                    if (file && await this.importPhotoManagerClipboardBlob(file)) count += 1;
+                    const added = file ? await this.importPhotoManagerClipboardBlob(file) : null;
+                    if (added) {
+                        count += 1;
+                        imported.push(added);
+                    }
                 }
-                this.finishPhotoManagerImport(count, `${count}枚のクリップボード画像を登録しました`);
+                this.finishPhotoManagerImport(count, `${count}枚のクリップボード画像を登録しました。`);
+                if (imported.length) {
+                    this._imageSourceInitialImportIds = new Set(imported.map(item => item.id));
+                    requestAnimationFrame(() => this.openImageSourceChoiceTransparencyPreview(imported[0].id));
+                }
             };
             document.addEventListener('paste', this._photoManagerPasteImportListener);
         }
@@ -1813,16 +1399,138 @@
 
         openPhotoManagerSource(id) {
             const item = this.findPhotoManagerItem(id);
-            if (!item) return alert('元の写真が見つかりませんでした。');
+            if (!item) return alert('写真が見つかりませんでした。');
             item.open?.();
         }
 
         openPhotoManagerBlankShiftPhotoCompare() {
             this.openShiftPhotoCompareWithPhotos?.([], {
                 source: 'photoManagerBlank',
-                title: '写真比較 - 白紙',
+                title: '白紙 - 写真比較',
                 globalMarks: []
             });
+        }
+
+        openPhotoManagerBlankEdit(id = '') {
+            const item = this.findPhotoManagerItem(id);
+            if (!item || item.source !== 'library') return this.showPhotoManagerNotice('白紙再編集の元画像が見つかりませんでした。');
+            const libraryPhoto = this.getPhotoManagerLibrary().find(photo => photo.id === item.id);
+            const edit = libraryPhoto?.photoCompareBlankEdit || item.photoCompareBlankEdit || null;
+            if (!edit || edit.type !== 'blank') return this.showPhotoManagerNotice('この画像には白紙再編集データがありません。');
+            const color = /^#[0-9a-f]{6}$/i.test(edit.blankBaseColor || '') ? edit.blankBaseColor : '#ffffff';
+            const photo = this.createShiftPhotoCompareBlankBasePhoto?.(color);
+            if (!photo) return this.showPhotoManagerNotice('白紙編集画面を開けませんでした。');
+            photo.caption = edit.caption || '白紙';
+            photo.marks = this.parseShiftPhotoCompareMarks?.(JSON.stringify(edit.marks || [])) || [];
+            this.openShiftPhotoCompareWithPhotos?.([photo], {
+                source: 'photoManagerBlankEdit',
+                title: `写真編集 ${this.getPhotoManagerName(item) || item.defaultName || "写真"}`,
+                globalMarks: [],
+                photoManagerBlankEditItemId: item.id,
+                onClose: () => {
+                    if (document.getElementById('photo-manager-list')) setTimeout(() => this.renderPhotoManager(), 0);
+                }
+            });
+        }
+
+        getPhotoManagerBlankTemplates() {
+            if (!Array.isArray(store.activeData.photoManagerBlankTemplates)) store.activeData.photoManagerBlankTemplates = [];
+            return store.activeData.photoManagerBlankTemplates;
+        }
+
+        clonePhotoManagerBlankEdit(edit = null) {
+            if (!edit || edit.type !== 'blank') return null;
+            return JSON.parse(JSON.stringify(edit));
+        }
+
+        duplicatePhotoManagerBlankEdit(id = '') {
+            const item = this.findPhotoManagerItem(id);
+            if (!item || item.source !== 'library' || item.photoCompareBlankEdit?.type !== 'blank') return this.showPhotoManagerNotice('白紙編集データが見つかりません。');
+            const added = this.addPhotoManagerLibraryImage(item.src, `${this.getPhotoManagerName(item) || item.defaultName || '白紙編集'} コピー`);
+            if (!added) return;
+            added.photoCompareBlankEdit = this.clonePhotoManagerBlankEdit(item.photoCompareBlankEdit);
+            added.annotated = item.annotated;
+            added.tags = Array.isArray(item.tags) ? [...item.tags] : [];
+            store.save();
+            this.renderPhotoManager?.();
+            this.showPhotoManagerNotice('白紙編集を複製しました。');
+        }
+
+        savePhotoManagerBlankTemplate(id = '') {
+            const item = this.findPhotoManagerItem(id);
+            if (!item || item.source !== 'library' || item.photoCompareBlankEdit?.type !== 'blank') return this.showPhotoManagerNotice('白紙編集データが見つかりません。');
+            const templates = this.getPhotoManagerBlankTemplates();
+            const createdAt = Date.now();
+            templates.unshift({
+                id: `blankTemplate_${createdAt}_${Math.random().toString(36).slice(2, 8)}`,
+                name: this.getPhotoManagerName(item) || item.defaultName || '白紙テンプレート',
+                src: item.src,
+                edit: this.clonePhotoManagerBlankEdit(item.photoCompareBlankEdit),
+                createdAt,
+                updatedAt: createdAt
+            });
+            store.save();
+            this.showPhotoManagerNotice('白紙テンプレートを保存しました。');
+        }
+
+        openPhotoManagerBlankTemplateDialog() {
+            const templates = this.getPhotoManagerBlankTemplates();
+            document.getElementById('photo-manager-blank-template-modal')?.remove();
+            const html = `
+                <div id="photo-manager-blank-template-modal" class="photo-manager-blank-template-modal" onclick="app.closePhotoManagerBlankTemplateDialog(event)">
+                    <div class="photo-manager-blank-template-card" onclick="event.stopPropagation()">
+                        <header>
+                            <div>
+                                <h3><i class="fa-regular fa-clone"></i> 白紙テンプレート</h3>
+                                <p>保存済みの白紙編集から開始できます。</p>
+                            </div>
+                            <button type="button" class="icon-btn" onclick="app.closePhotoManagerBlankTemplateDialog()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+                        </header>
+                        <div class="photo-manager-blank-template-list">
+                            ${templates.length ? templates.map(template => `
+                                <article>
+                                    <img src="${template.src || this.createShiftPhotoCompareBlankBaseSrc?.(template.edit?.blankBaseColor || '#ffffff') || ''}" alt="${this.escapeHtml(template.name || '白紙テンプレート')}">
+                                    <div>
+                                        <b>${this.escapeHtml(template.name || '白紙テンプレート')}</b>
+                                        <small>${template.createdAt ? this.escapeHtml(new Date(template.createdAt).toLocaleString('ja-JP')) : ''}</small>
+                                    </div>
+                                    <button type="button" class="primary-btn" onclick="app.openPhotoManagerBlankTemplate('${this.escapeJs(template.id)}')"><i class="fa-solid fa-file-import"></i> 開く</button>
+                                    <button type="button" class="danger-btn icon-only" onclick="app.deletePhotoManagerBlankTemplate('${this.escapeJs(template.id)}')" title="削除"><i class="fa-solid fa-trash-can"></i></button>
+                                </article>
+                            `).join('') : '<div class="photo-manager-blank-template-empty">白紙編集カードの「テンプレ保存」から登録できます。</div>'}
+                        </div>
+                    </div>
+                </div>`;
+            document.body.insertAdjacentHTML('beforeend', html);
+        }
+
+        openPhotoManagerBlankTemplate(templateId = '') {
+            const template = this.getPhotoManagerBlankTemplates().find(item => item.id === templateId);
+            if (!template?.edit || template.edit.type !== 'blank') return this.showPhotoManagerNotice('白紙テンプレートが見つかりません。');
+            const color = /^#[0-9a-f]{6}$/i.test(template.edit.blankBaseColor || '') ? template.edit.blankBaseColor : '#ffffff';
+            const photo = this.createShiftPhotoCompareBlankBasePhoto?.(color);
+            if (!photo) return this.showPhotoManagerNotice('白紙テンプレートを開けませんでした。');
+            photo.caption = template.edit.caption || '白紙';
+            photo.marks = this.parseShiftPhotoCompareMarks?.(JSON.stringify(template.edit.marks || [])) || [];
+            this.closePhotoManagerBlankTemplateDialog();
+            this.openShiftPhotoCompareWithPhotos?.([photo], {
+                source: 'photoManagerBlankTemplate',
+                title: `白紙テンプレート - ${template.name || '白紙'}`,
+                globalMarks: []
+            });
+        }
+
+        deletePhotoManagerBlankTemplate(templateId = '') {
+            const templates = this.getPhotoManagerBlankTemplates();
+            const next = templates.filter(item => item.id !== templateId);
+            store.activeData.photoManagerBlankTemplates = next;
+            store.save();
+            this.openPhotoManagerBlankTemplateDialog();
+        }
+
+        closePhotoManagerBlankTemplateDialog(event = null) {
+            if (event && event.target?.id !== 'photo-manager-blank-template-modal') return;
+            document.getElementById('photo-manager-blank-template-modal')?.remove();
         }
 
         openPhotoManagerEditor(id) {
@@ -1893,7 +1601,7 @@
             let editorSemanticChanged = false;
             this.openShiftPhotoCompareWithPhotos([photo], {
                 source: 'photoManager',
-                title: `写真管理編集: ${this.getPhotoManagerName(item) || item.defaultName || '写真'}`,
+                title: `写真編集 ${this.getPhotoManagerName(item) || item.defaultName || "写真"}`,
                 globalMarks: [],
                 onSync: (context) => {
                     const edited = context.photos?.[0] || {};
@@ -1953,7 +1661,7 @@
             const ids = this.getSelectedPhotoManagerIds();
             const text = (document.getElementById('photo-manager-bulk-title-input')?.value || '').trim();
             if (!ids.length) return this.showPhotoManagerNotice('タイトルを変更する写真を選択してください。');
-            if (!text) return this.showPhotoManagerNotice('一括設定するタイトルを入力してください。');
+            if (!text) return this.showPhotoManagerNotice('新しいタイトルを入力してください。');
             const names = this.ensurePhotoManagerData();
             ids.forEach((id, index) => {
                 names[id] = ids.length > 1 ? `${text} ${index + 1}` : text;
@@ -1978,7 +1686,7 @@
 
         deleteUnusedPhotoManagerLibraryItems() {
             const unused = this.getUnusedPhotoManagerLibraryItems();
-            if (!unused.length) return this.showPhotoManagerNotice('削除できる未使用の取込画像はありません。');
+            if (!unused.length) return this.showPhotoManagerNotice('削除できる未使用画像はありません。');
             this.openPhotoManagerDeleteReview('unused', unused);
         }
 
@@ -2020,6 +1728,16 @@
             this.showPhotoManagerNotice('画像を復元しました。');
         }
 
+        formatPhotoManagerTrashDate(value = Date.now()) {
+            const date = new Date(value || Date.now());
+            if (Number.isNaN(date.getTime())) return '';
+            const month = date.getMonth() + 1;
+            const day = date.getDate();
+            const hour = String(date.getHours()).padStart(2, '0');
+            const minute = String(date.getMinutes()).padStart(2, '0');
+            return `${month}/${day} ${hour}:${minute}`;
+        }
+
         openPhotoManagerTrashDialog() {
             this.ensurePhotoManagerData();
             const trash = store.activeData.photoManagerTrash || [];
@@ -2031,20 +1749,20 @@
                     <p>連絡帳・機械・部品・メンテ履歴・手順書に貼っただけの画像は、写真管理に登録した画像とは別扱いなので、このゴミ箱の対象外です。完全削除した画像や、上限15件から古くなって消えた画像も復元できません。</p>
                 </div>
             `;
-            const trashBytes = trash.reduce((sum, entry) => sum + this.estimatePhotoManagerImageBytes(entry.src), 0);
+            const trashBytes = trash.reduce((sum, entry) => sum + (this.estimatePhotoManagerImageBytes?.(entry.src) || 0), 0);
             const body = trash.length ? `
                 <div class="photo-manager-review-summary">
                     <b>${trash.length}件</b>
-                    <span>約${this.formatPhotoManagerBytes(trashBytes)}を保持中。ここに残る画像もJSON容量に含まれます。</span>
+                    <span>約${this.formatPhotoManagerBytes?.(trashBytes) || '0KB'}を保持中。ここに残る画像もJSON容量に含まれます。</span>
                 </div>
                 ${help}
                 <div class="photo-manager-review-list">
                     ${trash.map(entry => `
                         <article class="photo-manager-review-item">
-                            <img src="${entry.src}" alt="${this.escapeHtml(entry.name || '画像')}">
+                            <img src="${this.escapeHtml(entry.src)}" alt="${this.escapeHtml(entry.name || '画像')}">
                             <div>
                                 <b>${this.escapeHtml(entry.name || '画像')}</b>
-                                <span>${entry.deletedAt ? new Date(entry.deletedAt).toLocaleString('ja-JP') : ''} / 約${this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(entry.src))}</span>
+                                <span>${this.escapeHtml(this.formatPhotoManagerTrashDate(entry.deletedAt || Date.now()))} / 約${this.formatPhotoManagerBytes?.(this.estimatePhotoManagerImageBytes?.(entry.src) || 0) || '0KB'}</span>
                                 <small>${this.escapeHtml((entry.tags || []).join(' '))}</small>
                             </div>
                             <button type="button" class="primary-btn" onclick="app.restorePhotoManagerTrashItem('${this.escapeJs(entry.trashId)}')">復元</button>
@@ -2067,11 +1785,10 @@
             `;
             this.openPhotoManagerReviewDialog('写真管理のゴミ箱', body);
         }
-
         clearPhotoManagerTrash() {
             this.ensurePhotoManagerData();
             if (!(store.activeData.photoManagerTrash || []).length) return;
-            if (!confirm('ゴミ箱内の画像を完全削除します。よろしいですか？')) return;
+            if (!confirm('削除済み画像を完全に空にします。よろしいですか？')) return;
             store.activeData.photoManagerTrash = [];
             store.save();
             this.closePhotoManagerReviewDialog();
@@ -2082,7 +1799,7 @@
             const unused = this.getUnusedPhotoManagerLibraryItems();
             if (!unused.length) {
                 this.closePhotoManagerReviewDialog();
-                return this.showPhotoManagerNotice('削除できる未使用の取込画像はありません。');
+                return this.showPhotoManagerNotice('削除できる未使用画像はありません。');
             }
             const names = this.ensurePhotoManagerData();
             const overlays = this.getPhotoManagerOverlays();
@@ -2097,7 +1814,7 @@
             store.save();
             this.closePhotoManagerReviewDialog();
             this.renderPhotoManager();
-            this.showPhotoManagerNotice(`${unused.length}件の未使用取込画像を削除しました。`);
+            this.showPhotoManagerNotice(`${unused.length}件の未使用画像を削除しました。`);
         }
 
         getPhotoManagerDuplicateGroups(items = null) {
@@ -2118,11 +1835,10 @@
 
         getPhotoManagerDuplicateRecommendation(target = {}, usages = []) {
             if (target.source !== 'library') return '';
-            if ((usages || []).some(item => item.source !== 'library')) return '削除推奨: 機械・履歴・連絡帳など本来の使用先に同じ画像が残ります。';
-            if ((usages || []).some(item => item.source === 'library')) return '削除候補: 同じ取込画像が複数あります。残す画像を確認してください。';
+            if ((usages || []).some(item => item.source !== 'library')) return '使用中の画像です';
+            if ((usages || []).some(item => item.source === 'library')) return '同じ画像が写真管理にあります';
             return '';
         }
-
         getPhotoManagerStampUsageItemsForSrc(src = '', includeLibrary = false, items = null) {
             if (!src) return [];
             return (items || this.collectPhotoManagerItems()).filter(item => {
@@ -2164,9 +1880,8 @@
         }
 
         getPhotoManagerUsageSummary(item = {}, usageIndex = null) {
-            const usages = usageIndex
-                ? (usageIndex.get(item.src || '') || [])
-                : this.getPhotoManagerUsageItemsForSrc(item.src || '', false);
+            usageIndex = usageIndex || this.getPhotoManagerUsageIndex();
+            const usages = usageIndex.get(item.src) || [];
             const count = usages.length;
             const stampCount = usages.filter(usage => usage.usageKind === 'stamp').length;
             const baseCount = count - stampCount;
@@ -2175,12 +1890,12 @@
                 usages,
                 stampCount,
                 baseCount,
-                label: stampCount && !baseCount ? 'スタンプ使用' : (count ? `${count}か所で使用中` : '未使用')
+                label: stampCount && !baseCount ? 'スタンプで使用中' : (count ? `${count}カ所で使用中` : '未使用')
             };
         }
 
         getPhotoManagerUsageKindLabel(usage = {}) {
-            return usage.usageKind === 'stamp' ? 'スタンプ使用' : '写真として使用';
+            return usage.usageKind === 'stamp' ? 'スタンプで使用中' : '画像として使用中';
         }
 
         openPhotoManagerUsageList(id = '') {
@@ -2193,7 +1908,7 @@
             const body = `
                 <div class="photo-manager-review-summary">
                     <b>${this.escapeHtml(title)}</b>
-                    <span>使用先 ${usages.length}件 / 写真として ${summary.baseCount}件 / スタンプ ${summary.stampCount}件</span>
+                    <span>使用先 ${usages.length}件 / 画像 ${summary.baseCount}件 / スタンプ ${summary.stampCount}件</span>
                 </div>
                 <div class="photo-manager-relation-list">
                     ${usages.map(usage => `
@@ -2204,7 +1919,7 @@
                                 <small>${this.escapeHtml([usage.date || '', usage.title || usage.defaultName || ''].filter(Boolean).join(' / '))}</small>
                                 <div class="photo-manager-relation-chips">
                                     <button type="button" onclick="app.openPhotoManagerUsageSource('${this.escapeJs(usage.id)}')">
-                                        <i class="fa-solid fa-up-right-from-square"></i> この使用先を開く
+                                        <i class="fa-solid fa-up-right-from-square"></i> 使用先を開く
                                     </button>
                                 </div>
                             </div>
@@ -2216,7 +1931,6 @@
                 </div>`;
             this.openPhotoManagerReviewDialog('写真の使用先', body);
         }
-
         getPhotoManagerPageOnlyItems(items = null) {
             items = items || this.collectPhotoManagerItems();
             const librarySrcs = new Set(items.filter(item => item.source === 'library' && item.src).map(item => item.src));
@@ -2282,9 +1996,9 @@
 
         executePhotoManagerPageOnlyCleanup() {
             const targets = this.getPhotoManagerPageOnlyItems().filter(item => this.getPhotoManagerPageOnlyDeleteChoice(item.id));
-            if (!targets.length) return this.showPhotoManagerNotice('削除する写真が選択されていません。');
+            if (!targets.length) return this.showPhotoManagerNotice('削除するページ内画像を選択してください。');
             const bytes = targets.reduce((sum, item) => sum + this.estimatePhotoManagerImageBytes(item.src), 0);
-            if (!confirm(`${targets.length}件の個別ページ側写真を削除します。\n約${this.formatPhotoManagerBytes(bytes)}削減予定です。\n\nこの削除は写真管理ゴミ箱では復元できません。実行しますか？`)) return;
+            if (!confirm(`${targets.length}件のページ内画像を削除します。\n目安: ${this.formatPhotoManagerBytes(bytes)}\n\n写真管理に登録済みの画像は削除されません。`)) return;
             const overlays = this.getPhotoManagerOverlays();
             targets.sort((a, b) => (b.deleteIndex || 0) - (a.deleteIndex || 0)).forEach(item => {
                 item.deletePhoto?.();
@@ -2296,7 +2010,7 @@
             store.save();
             this.closePhotoManagerReviewDialog();
             this.renderPhotoManager();
-            this.showPhotoManagerNotice(`個別ページ側だけの写真を${targets.length}件削除しました。`);
+            this.showPhotoManagerNotice(`ページ内だけの画像を${targets.length}件削除しました。`);
         }
 
         getPhotoManagerPageOnlyAgeCutoff(age = 'all') {
@@ -2336,7 +2050,7 @@
 
         openPhotoManagerPageOnlyCleanupReview() {
             const allItems = this.getPhotoManagerPageOnlyItems();
-            if (!allItems.length) return this.showPhotoManagerNotice('写真管理に無い個別ページ側だけの写真は見つかりませんでした。');
+            if (!allItems.length) return this.showPhotoManagerNotice('写真管理に未登録のページ内画像はありません。');
             const items = this.getFilteredPhotoManagerPageOnlyItems();
             const selected = allItems.filter(item => this.getPhotoManagerPageOnlyDeleteChoice(item.id));
             const selectedBytes = selected.reduce((sum, item) => sum + this.estimatePhotoManagerImageBytes(item.src), 0);
@@ -2345,32 +2059,21 @@
             const sort = this._photoManagerPageOnlySort || 'old';
             const age = this._photoManagerPageOnlyAgeFilter || 'all';
             const sourceOptions = [
-                ['all', 'すべて'],
-                ['shift', '連絡帳'],
-                ['history', 'メンテ履歴'],
-                ['guide', '手順書'],
-                ['machine', '機械'],
-                ['part', '部品']
+                ['all', '全分類'], ['shift', '連絡帳'], ['history', 'メンテ履歴'], ['guide', '手順書'], ['machine', '機械'], ['part', '部品']
             ];
-            const ageOptions = [
-                ['all', 'すべて'],
-                ['3m', '3か月以上前'],
-                ['6m', '半年以上前'],
-                ['1y', '1年以上前'],
-                ['2y', '2年以上前']
-            ];
+            const ageOptions = [['all', '全期間'], ['3m', '3カ月以上'], ['6m', '6カ月以上'], ['1y', '1年以上'], ['2y', '2年以上']];
             const body = `
                 <div class="photo-manager-review-summary danger">
                     <b>${items.length}件</b>
-                    <span>写真管理には登録されておらず、個別ページ側にだけ残っている写真です。選択中 ${selected.length}件 / 約${this.formatPhotoManagerBytes(selectedBytes)}削減予定。</span>
+                    <span>写真管理に登録されていないページ内画像です。選択中 ${selected.length}件 / ${this.formatPhotoManagerBytes(selectedBytes)}</span>
                 </div>
                 <div class="photo-manager-page-only-actions">
-                    <label>場所
+                    <label>分類
                         <select onchange="app.setPhotoManagerPageOnlyFilter(this.value)">
                             ${sourceOptions.map(([value, label]) => `<option value="${value}" ${source === value ? 'selected' : ''}>${label}</option>`).join('')}
                         </select>
                     </label>
-                    <label>古さ
+                    <label>期間
                         <select onchange="app.setPhotoManagerPageOnlyAgeFilter(this.value)">
                             ${ageOptions.map(([value, label]) => `<option value="${value}" ${age === value ? 'selected' : ''}>${label}</option>`).join('')}
                         </select>
@@ -2381,47 +2084,31 @@
                             <option value="new" ${sort === 'new' ? 'selected' : ''}>新しい順</option>
                             <option value="size_desc" ${sort === 'size_desc' ? 'selected' : ''}>大きい順</option>
                             <option value="size_asc" ${sort === 'size_asc' ? 'selected' : ''}>小さい順</option>
-                            <option value="source" ${sort === 'source' ? 'selected' : ''}>場所順</option>
+                            <option value="source" ${sort === 'source' ? 'selected' : ''}>分類順</option>
                         </select>
                     </label>
-                    <button type="button" class="secondary-btn" onclick="app.setAllPhotoManagerPageOnlyDeleteChoices(true)">すべて消す</button>
-                    <button type="button" class="secondary-btn" onclick="app.setAllPhotoManagerPageOnlyDeleteChoices(false)">すべて残す</button>
-                    <span>表示 ${items.length}件 / 約${this.formatPhotoManagerBytes(visibleBytes)}</span>
+                    <button type="button" class="secondary-btn" onclick="app.setAllPhotoManagerPageOnlyDeleteChoices(true)">全選択</button>
+                    <button type="button" class="secondary-btn" onclick="app.setAllPhotoManagerPageOnlyDeleteChoices(false)">解除</button>
+                    <span>表示 ${items.length}件 / ${this.formatPhotoManagerBytes(visibleBytes)}</span>
                 </div>
                 <div class="photo-manager-review-list">
-                    ${items.map(item => {
-                        const checked = this.getPhotoManagerPageOnlyDeleteChoice(item.id);
-                        const label = this.getPhotoManagerSourceLabel(item);
-                        const title = this.getPhotoManagerName(item) || item.defaultName || item.title || label;
-                        const sizeText = this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(item.src));
-                        return `
-                            <article class="photo-manager-review-item photo-manager-page-only-item ${checked ? 'delete' : 'keep'}">
-                                <img src="${item.src}" alt="${this.escapeHtml(title)}">
-                                <div>
-                                    <b>${this.escapeHtml(label)}: ${this.escapeHtml(String(title).slice(0, 60))}</b>
-                                    <span>${item.date ? this.escapeHtml(item.date) : '日付なし'} / 約${sizeText}</span>
-                                    <small>写真管理には登録されていません。消すとこのページから削除され、写真管理のゴミ箱では復元できません。</small>
-                                </div>
-                                <div class="photo-manager-page-only-row-actions">
-                                    <button type="button" class="secondary-btn" onclick="app.registerPhotoManagerPageOnlyItem('${this.escapeJs(item.id)}')">写真管理へ登録</button>
-                                    <div class="photo-manager-duplicate-choice-buttons wide">
-                                        <button type="button" class="${!checked ? 'active' : ''}" onclick="app.setPhotoManagerPageOnlyDeleteChoice('${this.escapeJs(item.id)}', false)">残す</button>
-                                        <button type="button" class="${checked ? 'active' : ''}" onclick="app.setPhotoManagerPageOnlyDeleteChoice('${this.escapeJs(item.id)}', true)">消す</button>
-                                    </div>
-                                </div>
-                            </article>
-                        `;
-                    }).join('')}
+                    ${items.map(item => `
+                        <article class="photo-manager-delete-review-card ${this.getPhotoManagerPageOnlyDeleteChoice(item.id) ? 'is-selected' : ''}">
+                            <label class="photo-manager-delete-review-check">
+                                <input type="checkbox" ${this.getPhotoManagerPageOnlyDeleteChoice(item.id) ? 'checked' : ''} onchange="app.setPhotoManagerPageOnlyDeleteChoice('${this.escapeJs(item.id)}', this.checked)">
+                                削除
+                            </label>
+                            <img src="${this.escapeHtml(item.src)}" alt="${this.escapeHtml(item.title || '')}">
+                            <div><b>${this.escapeHtml(this.getPhotoManagerName(item) || item.defaultName || item.title || '画像')}</b><small>${this.escapeHtml(this.getPhotoManagerSourceLabel(item))} / ${this.escapeHtml(item.date || '')}</small></div>
+                            <button type="button" class="secondary-btn" onclick="app.registerPhotoManagerPageOnlyItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-bookmark"></i> 写真管理に登録</button>
+                        </article>`).join('')}
                 </div>
                 <div class="photo-manager-review-actions">
-                    <span class="photo-manager-review-restore-note"><i class="fa-solid fa-triangle-exclamation"></i> 個別ページ側だけの写真は写真管理ゴミ箱の復元対象外です。</span>
                     <button type="button" class="secondary-btn" onclick="app.closePhotoManagerReviewDialog()">閉じる</button>
-                    <button type="button" class="danger-btn" ${selected.length ? '' : 'disabled'} onclick="app.executePhotoManagerPageOnlyCleanup()">選択した写真を削除 ${selected.length ? `(${selected.length})` : ''}</button>
-                </div>
-            `;
-            this.openPhotoManagerReviewDialog('個別ページだけに残った写真の整理', body);
+                    <button type="button" class="danger-btn" onclick="app.executePhotoManagerPageOnlyCleanup()"><i class="fa-solid fa-trash"></i> 選択を削除</button>
+                </div>`;
+            this.openPhotoManagerReviewDialog('ページ内だけの画像整理', body);
         }
-
         openPhotoManagerUsageSource(id = '') {
             const item = this.findPhotoManagerItem(id);
             if (!item) return this.showPhotoManagerNotice?.('使用先が見つかりませんでした。');
@@ -2487,7 +2174,7 @@
             group.items.forEach(item => selected.add(item.id));
             this.closePhotoManagerReviewDialog();
             this.renderPhotoManager();
-            this.showPhotoManagerNotice(`${group.items.length}件の重複グループを選択しました。`);
+            this.showPhotoManagerNotice(`${group.items.length}件の重複候補を選択しました。`);
         }
 
         getPhotoManagerDuplicatePageKeepChoice(id = '') {
@@ -2503,13 +2190,10 @@
 
         getPhotoManagerDuplicatePageDeleteTargets(groups = this.getPhotoManagerDuplicateGroups()) {
             const targets = [];
-            const seen = new Set();
-            (groups || []).forEach(group => {
-                (group.items || []).forEach(item => {
-                    if (item.source === 'library' || seen.has(item.id)) return;
-                    if (this.getPhotoManagerDuplicatePageKeepChoice(item.id)) return;
-                    seen.add(item.id);
-                    targets.push(item);
+            groups.forEach(group => {
+                group.items.forEach(item => {
+                    if (item.source === 'library') return;
+                    if (this.getPhotoManagerDuplicatePageKeepChoice(item.id) === false) targets.push(item);
                 });
             });
             return targets;
@@ -2517,97 +2201,41 @@
 
         openPhotoManagerDuplicateReview() {
             const groups = this.getPhotoManagerDuplicateGroups();
-            if (!groups.length) return this.showPhotoManagerNotice('重複画像は見つかりませんでした。');
-            const candidateTargets = this.getPhotoManagerDuplicateDeleteTargets(groups, { ignoreChoices: true });
-            const libraryTargets = this.getPhotoManagerDuplicateDeleteTargets(groups);
-            const pageTargets = this.getPhotoManagerDuplicatePageDeleteTargets(groups);
-            const totalTargets = libraryTargets.length + pageTargets.length;
+            if (!groups.length) return this.showPhotoManagerNotice('重複画像はありません。');
+            this._photoManagerDuplicateReviewGroups = groups;
+            const deleteTargets = this.getPhotoManagerDuplicateDeleteTargets(groups);
             const body = `
-                <div class="photo-manager-review-summary danger">
+                <div class="photo-manager-review-summary warning">
                     <b>${groups.length}組</b>
-                    <span>取込画像と、連絡帳など個別ページ側の写真を別々に残す/消すできます。ページ側写真は初期状態では残します。</span>
+                    <span>同じ画像が複数あります。削除対象 ${deleteTargets.length}件</span>
                 </div>
                 <div class="photo-manager-review-list">
-                    ${groups.map((group, groupIndex) => {
-                        const title = this.getPhotoManagerName(group.items[0]) || group.items[0].defaultName || group.items[0].title || '画像';
-                        const deleteCandidates = candidateTargets.filter(item => item.src === group.src);
-                        const pageItems = group.items.filter(item => item.source !== 'library');
-                        return `
-                            <article class="photo-manager-review-item">
-                                <img src="${group.src}" alt="${this.escapeHtml(title)}">
-                                <div>
-                                    <b>${this.escapeHtml(title)}</b>
-                                    <span>${group.items.length}件 / 取込 ${group.libraryItems.length}件 / 個別ページ ${pageItems.length}件</span>
-                                    <small>${group.items.map(item => this.escapeHtml(this.getPhotoManagerSourceLabel(item))).join(' / ')}</small>
-                                    ${deleteCandidates.length ? `
-                                        <div class="photo-manager-duplicate-delete-choices">
-                                            ${deleteCandidates.map(item => {
-                                                const checked = this.getPhotoManagerDuplicateDeleteChoice(item.id);
-                                                const usages = this.getPhotoManagerDuplicateUsageItems(item, groups);
-                                                const recommendation = this.getPhotoManagerDuplicateRecommendation(item, usages);
-                                                return `
-                                                    <div class="photo-manager-duplicate-delete-choice ${checked ? 'delete' : 'keep'}">
-                                                        <div>
-                                                            <b>写真管理の取込画像</b>
-                                                            ${recommendation ? `<em>${this.escapeHtml(recommendation)}</em>` : ''}
-                                                            <span>${checked ? 'この取込画像は削除します。ゴミ箱から復元できます。' : 'この取込画像は残します。'}</span>
-                                                        </div>
-                                                        <div class="photo-manager-duplicate-choice-buttons">
-                                                            <button type="button" class="${checked ? 'active' : ''}" onclick="app.setPhotoManagerDuplicateDeleteChoice('${this.escapeJs(item.id)}', true)">〇</button>
-                                                            <button type="button" class="${!checked ? 'active' : ''}" onclick="app.setPhotoManagerDuplicateDeleteChoice('${this.escapeJs(item.id)}', false)">×</button>
-                                                        </div>
-                                                    </div>
-                                                `;
-                                            }).join('')}
-                                        </div>
-                                    ` : ''}
-                                    ${pageItems.length ? `
-                                        <div class="photo-manager-duplicate-page-choices">
-                                            <b>個別ページ側の写真</b>
-                                            <small>連絡帳・機械・部品・履歴・手順書側の写真です。消すを選ぶとそのページから削除され、写真管理のゴミ箱では復元できません。</small>
-                                            ${pageItems.map(item => {
-                                                const keep = this.getPhotoManagerDuplicatePageKeepChoice(item.id);
-                                                const label = this.getPhotoManagerSourceLabel(item);
-                                                const itemTitle = this.getPhotoManagerName(item) || item.defaultName || item.title || label;
-                                                return `
-                                                    <div class="photo-manager-duplicate-page-choice ${keep ? 'keep' : 'delete'}">
-                                                        <button type="button" class="photo-manager-duplicate-page-open" onclick="app.openPhotoManagerUsageSource('${this.escapeJs(item.id)}')" title="${this.escapeHtml(item.title || '')}">
-                                                            ${this.escapeHtml(label)}: ${this.escapeHtml(String(itemTitle).slice(0, 36))}
-                                                        </button>
-                                                        <div class="photo-manager-duplicate-choice-buttons wide">
-                                                            <button type="button" class="${keep ? 'active' : ''}" onclick="app.setPhotoManagerDuplicatePageKeepChoice('${this.escapeJs(item.id)}', true)">残す</button>
-                                                            <button type="button" class="${!keep ? 'active' : ''}" onclick="app.setPhotoManagerDuplicatePageKeepChoice('${this.escapeJs(item.id)}', false)">消す</button>
-                                                        </div>
-                                                    </div>
-                                                `;
-                                            }).join('')}
-                                        </div>
-                                    ` : ''}
-                                </div>
-                                <button type="button" class="secondary-btn" onclick="app.selectPhotoManagerDuplicateGroup(${groupIndex})">この組を選択</button>
-                            </article>
-                        `;
-                    }).join('')}
+                    ${groups.map((group, index) => `
+                        <article class="photo-manager-review-item">
+                            <img src="${this.escapeHtml(group.src)}" alt="">
+                            <div>
+                                <b>${group.items.length}件の重複</b>
+                                <small>${group.items.map(item => this.escapeHtml(this.getPhotoManagerSourceLabel(item))).join(' / ')}</small>
+                                <button type="button" class="secondary-btn" onclick="app.selectPhotoManagerDuplicateGroup(${index})">この組を選択</button>
+                            </div>
+                        </article>`).join('')}
                 </div>
                 <div class="photo-manager-review-actions">
-                    <span class="photo-manager-review-restore-note"><i class="fa-solid fa-trash-restore"></i> 取込画像はゴミ箱から復元可。個別ページ側は復元対象外です。</span>
                     <button type="button" class="secondary-btn" onclick="app.closePhotoManagerReviewDialog()">閉じる</button>
-                    <button type="button" class="danger-btn" ${totalTargets ? '' : 'disabled'} onclick="app.executePhotoManagerDuplicateCleanup()">選択した画像を削除 ${totalTargets ? `(${totalTargets})` : ''}</button>
-                </div>
-            `;
-            this._photoManagerDuplicateReviewGroups = groups;
+                    <button type="button" class="danger-btn" onclick="app.executePhotoManagerDuplicateCleanup()"><i class="fa-solid fa-trash"></i> 重複を整理</button>
+                </div>`;
+            this.openPhotoManagerReviewDialog('重複画像の整理', body);
             setTimeout(() => this.enhancePhotoManagerDuplicateReview(groups), 0);
-            this.openPhotoManagerReviewDialog('重複画像の確認', body);
         }
 
         executePhotoManagerDuplicateCleanup() {
             const groups = this.getPhotoManagerDuplicateGroups();
-            const libraryTargets = this.getPhotoManagerDuplicateDeleteTargets(groups);
-            const pageTargets = this.getPhotoManagerDuplicatePageDeleteTargets(groups);
-            if (!libraryTargets.length && !pageTargets.length) return this.showPhotoManagerNotice('削除する画像が選択されていません。');
+            const deleteTargets = this.getPhotoManagerDuplicateDeleteTargets(groups);
+            if (!deleteTargets.length) return this.showPhotoManagerNotice('削除対象がありません。');
+            if (!confirm(`${deleteTargets.length}件の重複画像を削除します。よろしいですか？`)) return;
             const names = this.ensurePhotoManagerData();
             const overlays = this.getPhotoManagerOverlays();
-            libraryTargets.sort((a, b) => (b.deleteIndex || 0) - (a.deleteIndex || 0)).forEach(item => {
+            deleteTargets.sort((a, b) => (b.deleteIndex || 0) - (a.deleteIndex || 0)).forEach(item => {
                 this.movePhotoManagerItemToTrash(item, 'duplicate');
                 item.deletePhoto?.();
                 delete names[item.id];
@@ -2615,63 +2243,11 @@
                 this.ensurePhotoManagerSelectionStore().delete(item.id);
                 this.removePhotoManagerSourceFromRecentCachesIfUnused(item.src);
             });
-            pageTargets.sort((a, b) => (b.deleteIndex || 0) - (a.deleteIndex || 0)).forEach(item => {
-                item.deletePhoto?.();
-                delete overlays[item.id];
-                this.ensurePhotoManagerSelectionStore().delete(item.id);
-                this.removePhotoManagerSourceFromRecentCachesIfUnused(item.src);
-            });
             store.save();
             this.closePhotoManagerReviewDialog();
             this.renderPhotoManager();
-            const pageText = pageTargets.length ? ` 個別ページ側${pageTargets.length}件も削除しました。` : '';
-            this.showPhotoManagerNotice(`取込画像${libraryTargets.length}件を削除しました。${pageText}`);
+            this.showPhotoManagerNotice(`${deleteTargets.length}件の重複画像を削除しました。`);
         }
-
-        async createPhotoManagerVisualSignature(src = '') {
-            if (!this._photoManagerVisualSignatureCache) this._photoManagerVisualSignatureCache = new Map();
-            if (this._photoManagerVisualSignatureCache.has(src)) return this._photoManagerVisualSignatureCache.get(src);
-            const img = await this.loadPhotoManagerImage(src);
-            const width = img.naturalWidth || img.width || 1;
-            const height = img.naturalHeight || img.height || 1;
-            const canvas = document.createElement('canvas');
-            canvas.width = 16;
-            canvas.height = 16;
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, 16, 16);
-            const scale = Math.min(16 / width, 16 / height);
-            const drawW = Math.max(1, width * scale);
-            const drawH = Math.max(1, height * scale);
-            ctx.drawImage(img, (16 - drawW) / 2, (16 - drawH) / 2, drawW, drawH);
-            const pixels = ctx.getImageData(0, 0, 16, 16).data;
-            const gray = [];
-            let red = 0;
-            let green = 0;
-            let blue = 0;
-            for (let index = 0; index < pixels.length; index += 4) {
-                const r = pixels[index];
-                const g = pixels[index + 1];
-                const b = pixels[index + 2];
-                red += r;
-                green += g;
-                blue += b;
-                gray.push(Math.round(r * 0.299 + g * 0.587 + b * 0.114));
-            }
-            const hash = [];
-            for (let y = 0; y < 8; y += 1) {
-                for (let x = 0; x < 8; x += 1) hash.push(gray[y * 16 + x] > gray[y * 16 + x + 1] ? 1 : 0);
-            }
-            const signature = {
-                gray,
-                hash,
-                aspect: width / height,
-                average: [red / 256, green / 256, blue / 256]
-            };
-            this._photoManagerVisualSignatureCache.set(src, signature);
-            return signature;
-        }
-
         comparePhotoManagerVisualSignatures(first, second) {
             if (!first || !second) return null;
             const aspectDifference = Math.abs(first.aspect - second.aspect) / Math.max(first.aspect, second.aspect, 0.001);
@@ -2708,7 +2284,7 @@
                     try { variant.signature = await this.createPhotoManagerVisualSignature(variant.src); }
                     catch (error) { variant.signature = null; }
                 }));
-                this.showPhotoManagerNotice?.(`類似画像を解析中… ${Math.min(start + chunk.length, variants.length)}/${variants.length}`);
+                this.showPhotoManagerNotice?.(`鬘樔ｼｼ逕ｻ蜒上ｒ隗｣譫蝉ｸｭ窶ｦ ${Math.min(start + chunk.length, variants.length)}/${variants.length}`);
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
             const parent = variants.map((_, index) => index);
@@ -2758,11 +2334,10 @@
         }
 
         async openPhotoManagerSimilarReview() {
-            this.showPhotoManagerNotice('類似画像を解析しています…');
-            const groups = await this.findPhotoManagerSimilarGroups();
-            this._photoManagerSimilarGroups = groups;
-            if (!this._photoManagerSimilarDeleteChoices) this._photoManagerSimilarDeleteChoices = {};
-            if (!groups.length) return this.showPhotoManagerNotice('圧縮・縮小違いの類似画像は見つかりませんでした。');
+            const groups = await this.findPhotoManagerSimilarGroups?.();
+            this._photoManagerSimilarGroups = Array.isArray(groups) ? groups : [];
+            this._photoManagerSimilarDeleteChoices = {};
+            if (!this._photoManagerSimilarGroups.length) return this.showPhotoManagerNotice('似ている画像は見つかりませんでした。');
             this.renderPhotoManagerSimilarReview();
         }
 
@@ -2773,63 +2348,48 @@
         }
 
         getPhotoManagerSimilarDeleteTargets() {
-            const selected = [];
-            (this._photoManagerSimilarGroups || []).forEach(group => {
-                group.variants.forEach(variant => variant.libraryItems.forEach(item => {
-                    if (this._photoManagerSimilarDeleteChoices?.[item.id]) selected.push(item);
-                }));
-            });
-            return Array.from(new Map(selected.map(item => [item.id, item])).values());
+            const groups = this._photoManagerSimilarGroups || [];
+            const choices = this._photoManagerSimilarDeleteChoices || {};
+            const targets = [];
+            groups.forEach(group => (group.items || []).forEach(item => {
+                if (choices[item.id] && item.source === 'library') targets.push(item);
+            }));
+            return targets;
         }
 
         renderPhotoManagerSimilarReview() {
             const groups = this._photoManagerSimilarGroups || [];
             const targets = this.getPhotoManagerSimilarDeleteTargets();
-            const bytes = targets.reduce((sum, item) => sum + this.estimatePhotoManagerImageBytes(item.src), 0);
             const body = `
-                <div class="photo-manager-review-summary">
+                <div class="photo-manager-review-summary warning">
                     <b>${groups.length}組</b>
-                    <span>見た目が近い画像です。圧縮率や大きさが違う画像も含みます。削除する取込画像だけを選んでください。</span>
+                    <span>似ている画像候補です。削除対象 ${targets.length}件</span>
                 </div>
-                <div class="photo-manager-similar-list">
+                <div class="photo-manager-review-list">
                     ${groups.map(group => `
-                        <section class="photo-manager-similar-group">
-                            <header><b>類似度 約${group.score}%</b><span>${group.variants.length}種類</span></header>
-                            <div class="photo-manager-similar-variants">
-                                ${group.variants.map(variant => {
-                                    const first = variant.items[0] || {};
-                                    const title = this.getPhotoManagerName(first) || first.defaultName || first.title || '画像';
-                                    return `
-                                        <article>
-                                            <img src="${variant.src}" alt="${this.escapeHtml(title)}">
-                                            <b>${this.escapeHtml(String(title).slice(0, 36))}</b>
-                                            <span>${variant.items.length}か所 / ${this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(variant.src))}</span>
-                                            <small>${variant.items.map(item => this.escapeHtml(this.getPhotoManagerSourceLabel(item))).join(' / ')}</small>
-                                            ${variant.libraryItems.map(item => {
-                                                const checked = !!this._photoManagerSimilarDeleteChoices?.[item.id];
-                                                return `<button type="button" class="photo-manager-similar-delete ${checked ? 'active' : ''}" onclick="app.setPhotoManagerSimilarDeleteChoice('${this.escapeJs(item.id)}', ${checked ? 'false' : 'true'})"><i class="fa-solid ${checked ? 'fa-trash-can' : 'fa-box-archive'}"></i> ${checked ? '削除する' : '残す'}</button>`;
-                                            }).join('') || '<em>使用先の画像（ここでは削除しません）</em>'}
-                                        </article>
-                                    `;
-                                }).join('')}
-                            </div>
-                        </section>
-                    `).join('')}
+                        <article class="photo-manager-review-item">
+                            ${(group.items || []).map(item => {
+                                const checked = !!this._photoManagerSimilarDeleteChoices?.[item.id];
+                                return `<div class="photo-manager-similar-item">
+                                    <img src="${this.escapeHtml(item.src)}" alt="">
+                                    <b>${this.escapeHtml(this.getPhotoManagerName(item) || item.defaultName || '画像')}</b>
+                                    <small>${this.escapeHtml(this.getPhotoManagerSourceLabel(item))}</small>
+                                    ${item.source === 'library' ? `<button type="button" class="photo-manager-similar-delete ${checked ? 'active' : ''}" onclick="app.setPhotoManagerSimilarDeleteChoice('${this.escapeJs(item.id)}', ${checked ? 'false' : 'true'})"><i class="fa-solid ${checked ? 'fa-trash-can' : 'fa-box-archive'}"></i> ${checked ? '削除する' : '残す'}</button>` : ''}
+                                </div>`;
+                            }).join('')}
+                        </article>`).join('')}
                 </div>
                 <div class="photo-manager-review-actions">
-                    <span>選択 ${targets.length}件 / 約${this.formatPhotoManagerBytes(bytes)}</span>
                     <button type="button" class="secondary-btn" onclick="app.closePhotoManagerReviewDialog()">閉じる</button>
-                    <button type="button" class="danger-btn" ${targets.length ? '' : 'disabled'} onclick="app.executePhotoManagerSimilarCleanup()">選択画像をゴミ箱へ ${targets.length ? `(${targets.length})` : ''}</button>
-                </div>
-            `;
-            this.openPhotoManagerReviewDialog('類似画像の確認', body);
+                    <button type="button" class="danger-btn" ${targets.length ? '' : 'disabled'} onclick="app.executePhotoManagerSimilarCleanup()">選択画像を削除 ${targets.length ? `(${targets.length})` : ''}</button>
+                </div>`;
+            this.openPhotoManagerReviewDialog('似ている画像の確認', body);
         }
 
         executePhotoManagerSimilarCleanup() {
             const targets = this.getPhotoManagerSimilarDeleteTargets();
-            if (!targets.length) return;
-            const bytes = targets.reduce((sum, item) => sum + this.estimatePhotoManagerImageBytes(item.src), 0);
-            if (!confirm(`選択した類似画像 ${targets.length}件（約${this.formatPhotoManagerBytes(bytes)}）をゴミ箱へ移動します。よろしいですか？`)) return;
+            if (!targets.length) return this.showPhotoManagerNotice('削除する画像を選択してください。');
+            if (!confirm(`${targets.length}件の画像を削除します。よろしいですか？`)) return;
             const names = this.ensurePhotoManagerData();
             const overlays = this.getPhotoManagerOverlays();
             targets.sort((a, b) => (b.deleteIndex || 0) - (a.deleteIndex || 0)).forEach(item => {
@@ -2840,45 +2400,32 @@
                 this.ensurePhotoManagerSelectionStore().delete(item.id);
                 this.removePhotoManagerSourceFromRecentCachesIfUnused(item.src);
             });
-            this._photoManagerSimilarGroups = [];
-            this._photoManagerSimilarDeleteChoices = {};
             store.save();
             this.closePhotoManagerReviewDialog();
             this.renderPhotoManager();
-            this.showPhotoManagerNotice(`類似画像 ${targets.length}件をゴミ箱へ移動しました。`);
+            this.showPhotoManagerNotice(`${targets.length}件の画像を削除しました。`);
         }
 
         openPhotoManagerDeleteReview(kind = 'unused', items = []) {
-            const safeItems = (items || []).filter(item => item?.src);
-            if (!safeItems.length) return;
+            if (!items.length) return this.showPhotoManagerNotice('削除対象がありません。');
             const body = `
                 <div class="photo-manager-review-summary danger">
-                    <b>${safeItems.length}件</b>
-                    <span>削除予定の画像です。内容を確認してから実行してください。</span>
+                    <b>${items.length}件</b>
+                    <span>削除前に対象を確認してください。</span>
                 </div>
                 <div class="photo-manager-review-list">
-                    ${safeItems.map(item => {
-                        const title = this.getPhotoManagerName(item) || item.defaultName || item.title || '画像';
-                        return `
-                            <article class="photo-manager-review-item">
-                                <img src="${item.src}" alt="${this.escapeHtml(title)}">
-                                <div>
-                                    <b>${this.escapeHtml(title)}</b>
-                                    <span>${this.escapeHtml(item.sourceLabel || '')}${item.date ? ` / ${this.escapeHtml(item.date)}` : ''}</span>
-                                    <small>${this.escapeHtml(item.title || '')}</small>
-                                </div>
-                            </article>
-                        `;
-                    }).join('')}
+                    ${items.map(item => `
+                        <article class="photo-manager-delete-review-card">
+                            <img src="${this.escapeHtml(item.src)}" alt="">
+                            <div><b>${this.escapeHtml(this.getPhotoManagerName(item) || item.defaultName || item.title || '画像')}</b><small>${this.escapeHtml(this.getPhotoManagerSourceLabel(item))}</small></div>
+                        </article>`).join('')}
                 </div>
                 <div class="photo-manager-review-actions">
-                    <button type="button" class="secondary-btn" onclick="app.closePhotoManagerReviewDialog()">キャンセル</button>
-                    <button type="button" class="danger-btn" onclick="app.executeDeleteUnusedPhotoManagerLibraryItems()">この内容で削除</button>
-                </div>
-            `;
+                    <button type="button" class="secondary-btn" onclick="app.closePhotoManagerReviewDialog()">閉じる</button>
+                    <button type="button" class="danger-btn" onclick="app.executeDeleteUnusedPhotoManagerLibraryItems()"><i class="fa-solid fa-trash"></i> 削除する</button>
+                </div>`;
             this.openPhotoManagerReviewDialog(kind === 'unused' ? '未使用画像の削除確認' : '削除確認', body);
         }
-
         openPhotoManagerReviewDialog(title = '確認', body = '') {
             document.getElementById('photo-manager-review-overlay')?.remove();
             const overlay = document.createElement('div');
@@ -2911,7 +2458,7 @@
         deleteSelectedPhotoManagerItems() {
             const ids = this.getSelectedPhotoManagerIds();
             if (!ids.length) return alert('削除する写真を選択してください。');
-            if (!confirm(`選択した${ids.length}枚の写真を元データから完全削除します。よろしいですか？`)) return;
+            if (!confirm(`${ids.length}枚の写真を削除します。よろしいですか？`)) return;
             const names = this.ensurePhotoManagerData();
             const overlays = this.getPhotoManagerOverlays();
             const selectedItems = this.collectPhotoManagerItems()
@@ -2945,7 +2492,6 @@
             store.save();
             this.renderPhotoManager();
         }
-
         downloadPhotoManagerItem(id) {
             const item = this.findPhotoManagerItem(id);
             if (!item) return alert('写真が見つかりませんでした。');
@@ -2956,14 +2502,13 @@
             return new Promise((resolve, reject) => {
                 const img = new Image();
                 img.onload = () => resolve(img);
-                img.onerror = () => reject(new Error('画像を読み込めませんでした'));
+                img.onerror = () => reject(new Error('画像を読み込めませんでした。'));
                 img.src = src;
             });
         }
 
         async createCompressedPhotoManagerSource(src = '') {
-            if (!/^data:image\//i.test(src || '')) throw new Error('画像データがありません');
-            if (/^data:image\/(svg\+xml|gif);/i.test(src)) throw new Error('SVG・GIFは圧縮対象外です');
+            if (!/^data:image\//i.test(src || '')) throw new Error('画像データではありません。');
             const img = await this.loadPhotoManagerImage(src);
             const naturalW = img.naturalWidth || img.width || 1;
             const naturalH = img.naturalHeight || img.height || 1;
@@ -3049,11 +2594,11 @@
             try {
                 const transparent = this.isKnownPhotoManagerTransparentSource(item.src)
                     || (typeof this.imageHasTransparentPixels === 'function' && await this.imageHasTransparentPixels(item.src));
-                if (transparent && !confirm('この画像は透過画像です。\n通常保存ではPNG維持にしていますが、手動でWebP圧縮しますか？')) {
-                    return this.showPhotoManagerNotice('透過画像の手動圧縮をキャンセルしました。');
+                if (transparent && !confirm('この画像は透過画像です。圧縮すると透明部分の品質が変わる場合があります。続けますか？')) {
+                    return this.showPhotoManagerNotice('透過画像の圧縮をキャンセルしました。');
                 }
                 const result = await this.createCompressedPhotoManagerSource(item.src);
-                if (!result.changed) return this.showPhotoManagerNotice('この画像はすでに十分小さいため、画質を保てる範囲では圧縮できませんでした。');
+                if (!result.changed) return this.showPhotoManagerNotice('圧縮しても小さくならないため、変更しませんでした。');
                 this.openPhotoManagerCompressionPreview(item, result);
             } catch (error) {
                 console.error(error);
@@ -3074,18 +2619,18 @@
                 </div>
                 <div class="photo-manager-compression-compare">
                     <figure>
-                        <figcaption><b>元の画像</b><span>${before}</span></figcaption>
-                        <div class="photo-manager-compression-stage"><img src="${item.src}" alt="元の画像"></div>
+                        <figcaption><b>元画像</b><span>${before}</span></figcaption>
+                        <div class="photo-manager-compression-stage"><img src="${item.src}" alt="元画像"></div>
                     </figure>
                     <figure>
-                        <figcaption><b>圧縮後の画像</b><span>${after} / ${result.width}×${result.height}px</span></figcaption>
-                        <div class="photo-manager-compression-stage"><img src="${result.src}" alt="圧縮後の画像"></div>
+                        <figcaption><b>圧縮後</b><span>${after} / ${result.width}×${result.height}px</span></figcaption>
+                        <div class="photo-manager-compression-stage"><img src="${result.src}" alt="圧縮後"></div>
                     </figure>
                 </div>
                 <div class="photo-manager-review-actions">
-                    <span class="photo-manager-compression-note"><i class="fa-solid fa-circle-info"></i> OK後は元画像を削除し、圧縮後画像へ置き換えます。</span>
+                    <span class="photo-manager-compression-note"><i class="fa-solid fa-circle-info"></i> OK後に元画像を圧縮後の画像へ置き換えます。</span>
                     <button type="button" class="secondary-btn" onclick="app.cancelPhotoManagerCompressionPreview()">元画像を残す</button>
-                    <button type="button" class="danger-btn" onclick="app.applyPhotoManagerCompressionPreview()"><i class="fa-solid fa-trash-can"></i> 元画像を削除して置換</button>
+                    <button type="button" class="danger-btn" onclick="app.applyPhotoManagerCompressionPreview()"><i class="fa-solid fa-trash-can"></i> 圧縮後に置き換える</button>
                 </div>`;
             this.openPhotoManagerReviewDialog('画像圧縮プレビュー', body);
         }
@@ -3098,7 +2643,7 @@
         applyPhotoManagerCompressionPreview() {
             const pending = this._photoManagerCompressionPreview;
             if (!pending?.item || !pending?.result?.src) return this.closePhotoManagerReviewDialog();
-            if (!confirm('元の画像を削除し、圧縮後の画像へ置き換えます。よろしいですか？')) return;
+            if (!confirm('元画像を圧縮後の画像に置き換えます。よろしいですか？')) return;
             this.migratePhotoManagerItemMetadataAfterSourceChange(pending.item, pending.result.src);
             this.rememberPhotoManagerCompressedSource(pending.result.src, true);
             if (pending.result.transparent) this.rememberPhotoManagerTransparentSource(pending.result.src, true);
@@ -3125,10 +2670,10 @@
                     skipped += 1;
                 }
             }
-            if (!prepared.length) return this.showPhotoManagerNotice('選択画像はすでに十分小さいか、圧縮対象外でした。');
+            if (!prepared.length) return this.showPhotoManagerNotice('圧縮できる画像はありませんでした。');
             const beforeBytes = prepared.reduce((sum, entry) => sum + entry.result.beforeBytes, 0);
             const afterBytes = prepared.reduce((sum, entry) => sum + entry.result.afterBytes, 0);
-            if (!confirm(`${prepared.length}枚の元画像を削除し、圧縮後画像へ置き換えますか？\n\n約${this.formatPhotoManagerBytes(beforeBytes)} → 約${this.formatPhotoManagerBytes(afterBytes)}\n${skipped ? `\n${skipped}枚は十分小さいか対象外のため変更しません。` : ''}\n\n［OK］元画像を削除して置換\n［キャンセル］元画像を残して変更しない`)) return;
+            if (!confirm(`${prepared.length}枚の画像を圧縮後の画像へ置き換えます。\n${this.formatPhotoManagerBytes(beforeBytes)} → ${this.formatPhotoManagerBytes(afterBytes)}${skipped ? `\n${skipped}枚は対象外です。` : ''}`)) return;
             prepared.forEach(({ item, result }) => {
                 this.migratePhotoManagerItemMetadataAfterSourceChange(item, result.src);
                 this.rememberPhotoManagerCompressedSource(result.src, true);
@@ -3137,11 +2682,10 @@
             store.save();
             this.clearVisiblePhotoManagerSelection();
             this.renderPhotoManager();
-            this.showPhotoManagerNotice(`${prepared.length}枚を圧縮しました。約${this.formatPhotoManagerBytes(beforeBytes - afterBytes)}削減しました。`);
+            this.showPhotoManagerNotice(`${prepared.length}枚を圧縮しました。${this.formatPhotoManagerBytes(beforeBytes - afterBytes)}削減しました。`);
         }
-
         async createTransparentPhotoManagerSource(src = '', options = {}) {
-            if (!/^data:image\//i.test(src || '')) throw new Error('画像データがありません');
+            if (!/^data:image\//i.test(src || '')) throw new Error('画像データではありません。');
             const img = await this.loadPhotoManagerImage(src);
             const naturalW = img.naturalWidth || img.width || 1;
             const naturalH = img.naturalHeight || img.height || 1;
@@ -3184,7 +2728,7 @@
                     return;
                 }
                 if (!result.changed) {
-                    this.showPhotoManagerNotice('透明化できそうな背景色が見つかりませんでした。');
+                    this.showPhotoManagerNotice('透過できる背景部分が見つかりませんでした。');
                     return;
                 }
                 const baseName = this.getPhotoManagerName(item) || item.defaultName || item.title || '画像';
@@ -3194,7 +2738,7 @@
                 this._imageSourceTransparencyCache.set(result.src, true);
                 this.rememberPhotoManagerTransparentSource(result.src, true);
                 if (result.compressed) this.rememberPhotoManagerCompressedSource(result.src, true);
-                const deleteOriginal = confirm('透過画像を作成しました。\n元の画像は今後使用しない場合、元画像を削除できます。\n\n元の画像を削除しますか？');
+                const deleteOriginal = confirm('透過画像を登録しました。元画像を削除しますか？');
                 if (deleteOriginal) {
                     item.deletePhoto?.();
                     delete this.ensurePhotoManagerData()[item.id];
@@ -3206,7 +2750,7 @@
                 const sourceSelect = document.getElementById('photo-manager-source');
                 if (sourceSelect && sourceSelect.value !== 'library') sourceSelect.value = 'library';
                 this.renderPhotoManager();
-                this.showPhotoManagerNotice(deleteOriginal ? '透過画像を追加し、確認済みの元画像を削除しました。' : '透過画像を写真管理へ追加しました。元画像は残しています。');
+                this.showPhotoManagerNotice(deleteOriginal ? '透過画像を登録し、元画像を削除しました。' : '透過画像を写真管理へ登録しました。');
             } catch (error) {
                 console.error(error);
                 this.showPhotoManagerNotice('透過画像の作成に失敗しました。');
@@ -3220,7 +2764,7 @@
                 return;
             }
             const items = this.collectPhotoManagerItems().filter(item => ids.includes(item.id));
-            const deleteOriginals = confirm('透過画像の作成に成功した写真について、元画像も削除しますか？\n「キャンセル」なら元画像を残したまま透過画像を追加します。');
+            const deleteOriginals = confirm('作成後に元画像を削除しますか？');
             let created = 0;
             let skipped = 0;
             for (const item of items) {
@@ -3260,10 +2804,9 @@
                 this.renderPhotoManager();
             }
             this.showPhotoManagerNotice(created
-                ? `透過画像を${created}枚追加しました。${skipped ? `（${skipped}枚は作成対象外）` : ''}`
-                : '透過画像を作れそうな写真がありませんでした。');
+                ? `透過画像を${created}枚登録しました。${skipped ? `${skipped}枚は対象外でした。` : ''}`
+                : '透過画像を作成できる写真がありませんでした。');
         }
-
         getPhotoManagerImageExtension(src = '') {
             const match = String(src || '').match(/^data:image\/([a-zA-Z0-9.+-]+);/);
             if (!match) return 'jpg';
@@ -3349,12 +2892,11 @@
             const tagText = (item.tags || []).join(' ');
             const fullText = this.getPhotoManagerImageSearchText(item);
             const readingText = `${this.getPhotoManagerReading(item)} ${this._photoManagerReadingAliasCache?.get?.(fullText) || ''} ${this.getPhotoManagerRomanSearchAliases(fullText)}`;
-            if (this.matchesSearchTerms(titleText, terms)) reasons.push('タイトル・名前');
+            if (this.matchesSearchTerms(titleText, terms)) reasons.push('題名・説明');
             if (this.matchesSearchTerms(tagText, terms)) reasons.push('タグ');
             if (this.matchesSearchTerms(readingText, terms)) reasons.push('読み');
             return reasons;
         }
-
         getPhotoManagerSearchUsageCounts(items = []) {
             const counts = new Map();
             const add = src => { if (src) counts.set(src, (counts.get(src) || 0) + 1); };
@@ -3422,7 +2964,7 @@
         getImageSourceChoiceItems(query = '') {
             const terms = this.getSearchTerms(String(query || '').trim());
             const recent = this.getImageSourceChoiceRecentSrcRank();
-            const allItems = this.collectPhotoManagerItems();
+            const allItems = this.collectPhotoManagerItems().filter(item => !item.referenceOnly);
             const usageCounts = this.getPhotoManagerSearchUsageCounts(allItems);
             return allItems.filter(item => {
                 if (!terms.length) return true;
@@ -3454,8 +2996,10 @@
 
         openImageSourceChoice(input) {
             if (!input) return;
-            document.getElementById('image-source-choice-overlay')?.remove();
+            this.ensurePhotoManagerData();
+            this._imageSourceChoiceMultiple = !!input.multiple;
             const multiple = !!input.multiple;
+            document.getElementById('image-source-choice-overlay')?.remove();
             const overlay = document.createElement('div');
             overlay.id = 'image-source-choice-overlay';
             overlay.className = 'image-source-choice-overlay';
@@ -3470,17 +3014,17 @@
                     </div>
                     <div class="image-source-choice-actions">
                         <button type="button" class="primary-btn" onclick="app.chooseImageSourceDirectFile()"><i class="fa-solid fa-file-import"></i> 直接ファイル</button>
-                        <button type="button" class="image-source-choice-filter clipboard" onclick="app.importImageSourceChoiceFromClipboard()" title="クリップボードの画像を写真管理へ登録して選択"><i class="fa-solid fa-clipboard"></i> クリップボードから取込</button>
+                        <button type="button" class="image-source-choice-filter clipboard" onclick="app.importImageSourceChoiceFromClipboard()" title="クリップボード内の画像を写真管理へ登録して選択します"><i class="fa-solid fa-clipboard"></i> クリップボードから取込</button>
                         <button type="button" class="image-source-choice-filter" id="image-source-choice-transparent-filter" onclick="app.toggleImageSourceTransparentFilter()" title="透過画像だけ表示"><i class="fa-solid fa-layer-group"></i> 透過のみ</button>
-                        <div class="image-source-choice-bg-switch" role="group" aria-label="透過画像の背景">
-                            <span>背景</span>
-                            <button type="button" data-bg-mode="checker" onclick="app.setImageSourceChoiceBackgroundMode('checker')" title="格子背景で確認">格子</button>
+                        <div class="image-source-choice-bg-switch" role="group" aria-label="背景確認">
+                            <span>背景確認</span>
+                            <button type="button" data-bg-mode="checker" onclick="app.setImageSourceChoiceBackgroundMode('checker')" title="格子で確認">格子</button>
                             <button type="button" data-bg-mode="white" onclick="app.setImageSourceChoiceBackgroundMode('white')" title="白背景で確認">白</button>
                             <button type="button" data-bg-mode="black" onclick="app.setImageSourceChoiceBackgroundMode('black')" title="黒背景で確認">黒</button>
                         </div>
                         <label class="image-source-choice-search">
                             <i class="fa-solid fa-magnifying-glass"></i>
-                            <input type="search" id="image-source-choice-query" placeholder="タイトル・名前・タグを検索（ローマ字でも反応）" oninput="app.renderImageSourceChoiceList(this.value)">
+                            <input type="search" id="image-source-choice-query" placeholder="検索フレーズを入力（ローマ字でも反応）" oninput="app.renderImageSourceChoiceList(this.value)">
                         </label>
                     </div>
                     <div class="image-source-choice-main">
@@ -3490,7 +3034,7 @@
                                 <i class="fa-regular fa-image"></i>
                             </div>
                             <b>プレビュー</b>
-                            <span>画像に触れると大きく確認できます</span>
+                            <span>画像を選ぶと大きく確認できます</span>
                         </aside>
                     </div>
                     <div class="image-source-choice-foot">
@@ -3510,7 +3054,6 @@
             this.renderImageSourceChoiceList('');
             setTimeout(() => document.getElementById('image-source-choice-query')?.focus(), 0);
         }
-
         closeImageSourceChoice() {
             document.getElementById('image-source-choice-overlay')?.remove();
             if (this._imageSourceChoiceInput?._shiftPhotoSearchInsertAt) {
@@ -3537,7 +3080,7 @@
                 const saveResults = [];
                 for (const file of selectedFiles) {
                     const originalSrc = await this.readPhotoManagerFileAsDataUrl(file);
-                    const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, file.name || '');
+                    const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, file.name || '直接ファイル画像', { forceAsk: true });
                     const src = prepared.src || originalSrc;
                     const added = this.addPhotoManagerLibraryImage(src, file.name || '直接ファイル画像');
                     if (added) {
@@ -3551,7 +3094,7 @@
                 if (!imported.length) return;
                 this._imageSourceInitialImportIds = new Set(imported.map(item => item.id));
                 const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
-                if (summary) this.showPhotoManagerNotice(summary);
+                if (summary) this.showPhotoManagerNotice(`${imported.length}枚の画像を登録しました。${summary}`);
                 store.save();
                 if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
                 this.openImageSourceChoice(input);
@@ -3564,16 +3107,16 @@
                     this.updateImageSourceChoicePreview(imported[0]);
                     this.openImageSourceChoiceTransparencyPreview(imported[0].id);
                 });
-                this.showPhotoManagerNotice(`${imported.length}枚の直接ファイル画像を取り込みました`);
+                this.showPhotoManagerNotice(`${imported.length}枚を選択候補に追加しました。`);
             } catch (error) {
                 console.error(error);
-                this.showPhotoManagerNotice('直接ファイル画像を取り込めませんでした');
+                this.showPhotoManagerNotice('直接ファイル画像の取り込みに失敗しました。');
             }
         }
 
         async importImageSourceChoiceFromClipboard() {
             if (!navigator.clipboard?.read) {
-                this.showPhotoManagerNotice('この画面ではCtrl+Vでも画像を取り込めます');
+                this.showPhotoManagerNotice('この画面ではCtrl+Vでも画像を取り込めます。');
                 return;
             }
             try {
@@ -3585,7 +3128,7 @@
                     if (!type) continue;
                     const blob = await item.getType(type);
                     const originalSrc = await this.readPhotoManagerFileAsDataUrl(blob);
-                    const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, 'クリップボード画像');
+                    const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, 'クリップボード画像', { forceAsk: true });
                     const src = prepared.src || originalSrc;
                     const added = this.addPhotoManagerLibraryImage(src, 'クリップボード画像');
                     if (added) {
@@ -3597,12 +3140,12 @@
                     }
                 }
                 if (!imported.length) {
-                    this.showPhotoManagerNotice('クリップボードに画像がありません');
+                    this.showPhotoManagerNotice('クリップボード内に取り込める画像がありませんでした。');
                     return;
                 }
                 this._imageSourceInitialImportIds = new Set(imported.map(item => item.id));
                 const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
-                if (summary) this.showPhotoManagerNotice(summary);
+                if (summary) this.showPhotoManagerNotice(`${imported.length}枚の画像を登録しました。${summary}`);
                 store.save();
                 if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
                 this._imageSourceTransparentOnly = false;
@@ -3619,13 +3162,12 @@
                     this.updateImageSourceChoicePreview(imported[0]);
                     this.openImageSourceChoiceTransparencyPreview(imported[0].id);
                 });
-                this.showPhotoManagerNotice(`${imported.length}枚のクリップボード画像を取り込みました`);
+                this.showPhotoManagerNotice(`${imported.length}枚を選択候補に追加しました。`);
             } catch (error) {
                 console.error(error);
-                this.showPhotoManagerNotice('クリップボード画像を取り込めませんでした。Ctrl+Vも試せます。');
+                this.showPhotoManagerNotice('クリップボード画像の取り込みに失敗しました。Ctrl+Vも試してください。');
             }
         }
-
         getImageSourceChoiceRecentSrcRank() {
             const ordered = [];
             this.ensurePhotoManagerData();
@@ -3699,18 +3241,12 @@
             const items = this.getImageSourceChoiceItems(query);
             const usageCounts = this.getPhotoManagerSearchUsageCounts(this.collectPhotoManagerItems());
             const summary = null;
-            if (summary) {
-                summary.insertAdjacentHTML('beforeend', ' <button type="button" class="secondary-btn" onclick="app.resetPhotoManagerNormalCompressionChoice()" title="通常画像を保存するときの圧縮選択を毎回確認に戻す"><i class="fa-solid fa-rotate-left"></i> 保存時圧縮:確認</button>');
-            }
-            if (summary) {
-                summary.insertAdjacentHTML('beforeend', ` <span class="photo-manager-compression-mode">保存時圧縮: ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}</span><button type="button" class="secondary-btn" onclick="app.resetPhotoManagerNormalCompressionChoice()" title="通常画像を保存するときの圧縮選択を毎回確認に戻す"><i class="fa-solid fa-rotate-left"></i> 確認に戻す</button>`);
-            }
             if (!items.length) {
                 list.innerHTML = '<div class="image-source-choice-empty">写真管理に該当する画像がありません</div>';
                 return;
             }
             list.innerHTML = items.map(item => {
-                const title = this.getPhotoManagerName(item) || item.defaultName || item.title || '写真';
+                const title = this.getPhotoManagerName(item) || item.defaultName || item.title || '画像';
                 const sub = [item.sourceLabel, item.date, item.title].filter(Boolean).join(' / ');
                 const canHaveAlpha = this.canImageSourceHaveAlpha(item.src);
                 const matchReasons = this.getImageSourceChoiceMatchReasons(item, query);
@@ -3785,7 +3321,7 @@
                 preview.innerHTML = `
                     <div class="image-source-choice-preview-stage"><i class="fa-regular fa-image"></i></div>
                     <b>プレビュー</b>
-                    <span>画像に触れると大きく確認できます</span>
+                    <span>画像を選ぶと大きく確認できます</span>
                 `;
                 return;
             }
@@ -3795,7 +3331,7 @@
             preview.innerHTML = `
                 <div class="image-source-choice-preview-stage">
                     <img src="${item.src}" alt="${this.escapeHtml(title)}">
-                    ${canHaveAlpha ? `<button type="button" onclick="event.preventDefault(); event.stopPropagation(); app.openImageSourceChoiceTransparencyPreview('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 透過候補</button>` : ''}
+                    ${canHaveAlpha ? `<button type="button" onclick="event.preventDefault(); event.stopPropagation(); app.openImageSourceChoiceTransparencyPreview('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 透過チェック</button>` : ''}
                 </div>
                 <b>${this.escapeHtml(title)}</b>
                 <span>${this.escapeHtml(sub || '写真管理')}</span>
@@ -3804,10 +3340,10 @@
 
         async openImageSourceChoiceTransparencyPreview(id = '') {
             const item = this.collectPhotoManagerItems().find(entry => entry.id === id);
-            if (!item?.src) return this.showPhotoManagerNotice('透過チェックする画像が見つかりません');
+            if (!item?.src) return this.showPhotoManagerNotice('透過確認する画像が見つかりませんでした。');
             if (typeof this.openShiftPhotoCompareBaseImageTransparencyPreview !== 'function'
                 || typeof this.createTransparentPhotoManagerSource !== 'function') {
-                return this.showPhotoManagerNotice('透過チェック画面を開けませんでした');
+                return this.showPhotoManagerNotice('透過確認画面を開けませんでした。');
             }
             try {
                 const alreadyTransparent = typeof this.imageHasTransparentPixels === 'function'
@@ -3847,7 +3383,7 @@
                 });
             } catch (error) {
                 console.error(error);
-                this.showPhotoManagerNotice('透過チェックに失敗しました');
+                this.showPhotoManagerNotice('透過確認に失敗しました。');
             }
         }
 
@@ -3868,13 +3404,12 @@
                     overwritePhotoManagerItemId: item.id,
                     compressOnSave: true
                 });
-                this.showPhotoManagerNotice('再透過画面を開きました。残った部分をクリックして追加で透過できます。');
+                this.showPhotoManagerNotice('再透過画面を開きました。保存すると上書きできます。');
             } catch (error) {
                 console.error(error);
                 this.showPhotoManagerNotice('再透過画面を開けませんでした。');
             }
         }
-
         removePhotoManagerInitialImportOriginal(id = '', replacementSrc = '') {
             if (!id || !this._imageSourceInitialImportIds?.has(id)) return false;
             const item = this.findPhotoManagerItem(id);
@@ -3983,7 +3518,6 @@
                     : '<i class="fa-solid fa-layer-group"></i> 透過候補';
             });
         }
-
         applySelectedImageSourceChoice() {
             const input = this._imageSourceChoiceInput;
             const ids = Array.from(document.querySelectorAll('#image-source-choice-list input:checked')).map(item => item.value);
@@ -4006,36 +3540,35 @@
                 }
                 return;
             }
-            if (id === 's-photos' || id === 'e-photos') {
-                const preview = document.getElementById(id === 's-photos' ? 's-photo-previews' : 'e-photo-previews');
-                if (!this._tempPhotos) this._tempPhotos = [];
-                selected.forEach(item => {
-                    this._tempPhotos.push(item.src);
-                    preview?.appendChild(this.createPhotoPreviewElement(
-                        item.src,
-                        (removedSrc) => { this._tempPhotos = this._tempPhotos.filter(p => p !== removedSrc); },
-                        (oldSrc, newSrc) => { this._tempPhotos = this._tempPhotos.map(p => p === oldSrc ? newSrc : p); },
-                        80
-                    ));
-                });
+            if (id === 'machine-photo-input' && input._machinePhotoTargetId) {
+                this.applyMachinePhotoFromSource?.(input._machinePhotoTargetId, selected[0].src);
                 return;
             }
-            if (id === 'f-machine-photo' || id === 'pm-photo') {
-                const isPart = id === 'pm-photo';
-                const hidden = document.getElementById(isPart ? 'pm-photo-base64' : 'f-machine-photo-base64');
-                const preview = document.getElementById(isPart ? 'pm-photo-preview' : 'f-machine-photo-preview');
-                const src = selected[0].src;
-                if (hidden) hidden.value = src;
-                if (preview) preview.innerHTML = `<img src="${src}" style="width:100%; height:100%; object-fit:cover;">`;
-                input.parentElement?.querySelector('.f-rotate-btn')?.style?.setProperty('display', 'inline-block');
-                input.parentElement?.querySelector('.f-delete-photo-btn')?.style?.setProperty('display', 'inline-block');
+            if (id === 'part-photo-input' && input._partPhotoTargetId) {
+                this.applyPartPhotoFromSource?.(input._partPhotoTargetId, selected[0].src);
                 return;
             }
-            if (id === 'g-photos') {
-                if (!Array.isArray(this._tempPhotos)) this._tempPhotos = [];
-                selected.forEach(item => this._tempPhotos.push({ src: item.src, marks: [], printSize: 72 }));
+            if (id === 'guide-photo-input' && input._guidePhotoTargetId) {
+                selected.forEach(item => this.addGuidePhotoFromSource?.(input._guidePhotoTargetId, item.src));
                 this.autoSaveGuideDraftFromModal?.();
                 this.renderGuidePhotoPreviews?.();
+                return;
+            }
+            if (id === 's-photos' || id === 'e-photos') {
+                const preview = document.getElementById(id === 's-photos' ? 's-photo-previews' : 'e-photo-previews');
+                if (!Array.isArray(this._tempPhotos)) this._tempPhotos = [];
+                selected.forEach(item => {
+                    const photo = this.createHistoryPhotoReference?.(item) || item.src;
+                    this._tempPhotos.push(photo);
+                    if (typeof this.appendHistoryPhotoPreview === 'function') {
+                        this.appendHistoryPhotoPreview(preview, photo, 80);
+                    } else {
+                        preview?.appendChild(this.createPhotoPreviewElement(item.src, () => {
+                            this._tempPhotos = this._tempPhotos.filter(p => p !== photo);
+                        }, null, 80));
+                    }
+                });
+                this.updateSaveStatus?.('dirty');
                 return;
             }
             if (id === 'photo-manager-import-input') {
@@ -4043,7 +3576,7 @@
                 selected.forEach(item => {
                     if (this.addPhotoManagerLibraryImage(item.src, this.getPhotoManagerName(item) || item.defaultName || item.title || '写真管理画像')) count += 1;
                 });
-                this.finishPhotoManagerImport(count, `${count}枚の写真管理画像を登録しました`);
+                this.finishPhotoManagerImport(count, `${count}件の画像を登録しました。`);
                 return;
             }
             if (id === 'tips-photo-manager-input') {
@@ -4078,14 +3611,60 @@
                     insertAt(selected[0]);
                     return;
                 }
-                this.showShiftPhotoCompareActionMessage?.('写真管理の画像を読み込みました。写真上をクリックして配置できます。');
+                this.showShiftPhotoCompareActionMessage?.('写真管理の画像を選択しました。キャンバス上でクリックして配置できます。');
                 return;
             }
             if (input.classList?.contains('shift-photo-input') && typeof input._shiftPhotoAddSrc === 'function') {
-                selected.forEach(item => input._shiftPhotoAddSrc(item.src));
+                const useReference = !!input.closest?.('.shift-notebook-row');
+                selected.forEach(item => {
+                    const ref = useReference
+                        ? (this.createPhotoManagerImageReference?.(item) || this.createHistoryPhotoReference?.(item))
+                        : null;
+                    input._shiftPhotoAddSrc(ref || item.src);
+                });
             }
         }
 
+        getPhotoManagerLibraryReferenceById(id = '') {
+            const targetId = String(id || '');
+            if (!targetId) return null;
+            const library = this.getPhotoManagerLibrary?.() || [];
+            for (let index = 0; index < library.length; index += 1) {
+                const photo = library[index];
+                if (!photo?.src) continue;
+                const itemId = photo.id || this.buildPhotoManagerId(['library', index], photo.src);
+                if (String(itemId) === targetId || (photo.id && String(photo.id) === targetId)) {
+                    return { photo, index, itemId };
+                }
+            }
+            return null;
+        }
+
+        getPhotoManagerLibraryReferenceBySrc(src = '') {
+            const targetSrc = String(src || '');
+            if (!targetSrc) return null;
+            const library = this.getPhotoManagerLibrary?.() || [];
+            for (let index = 0; index < library.length; index += 1) {
+                const photo = library[index];
+                if (!photo?.src || photo.src !== targetSrc) continue;
+                const itemId = photo.id || this.buildPhotoManagerId(['library', index], photo.src);
+                return { photo, index, itemId };
+            }
+            return null;
+        }
+
+        createPhotoManagerImageReference(item = {}) {
+            if (!item?.id) return null;
+            const linked = item.source === 'library'
+                ? this.getPhotoManagerLibraryReferenceById(item.id)
+                : (this.getPhotoManagerLibraryReferenceBySrc(item.src) || this.getPhotoManagerLibraryReferenceById(item.id));
+            if (!linked?.itemId) return null;
+            return {
+                source: 'photoManager',
+                id: linked.itemId,
+                name: this.getPhotoManagerName?.(item) || item.defaultName || item.title || item.name || linked.photo?.name || ''
+            };
+        }
         async getPhotoManagerDownloadSrc(item) {
             if (this.getPhotoManagerExportMode() !== 'withMarks' || !item?.annotated) return item.src;
             return await this.renderPhotoManagerImageWithMarks(item);
@@ -4277,7 +3856,7 @@
         dataUrlToPhotoManagerBytes(src = '') {
             const text = String(src || '');
             const comma = text.indexOf(',');
-            if (!text.startsWith('data:') || comma < 0) throw new Error('画像データを読み込めませんでした');
+            if (!text.startsWith('data:') || comma < 0) throw new Error('逕ｻ蜒上ョ繝ｼ繧ｿ繧定ｪｭ縺ｿ霎ｼ繧√∪縺帙ｓ縺ｧ縺励◆');
             const header = text.slice(0, comma);
             const body = text.slice(comma + 1);
             if (/;base64/i.test(header)) {
@@ -4391,7 +3970,7 @@
             }
             const blob = this.createPhotoManagerZipBlob(files);
             this.downloadPhotoManagerBlob(blob, this.getPhotoManagerExportZipFileName());
-            this.showToast?.(`${items.length}枚をZIPで出力しました`, 'success');
+            this.showToast?.(`${items.length}件の画像をZIPで出力しました。`, 'success');
         }
 
         getPhotoManagerSourceLabel(item = {}) {
@@ -4399,13 +3978,12 @@
                 library: '写真管理',
                 machine: '機械',
                 part: '部品',
-                history: 'メンテ履歴',
+                history: '履歴',
                 guide: '手順書',
                 shift: '連絡帳'
             };
             return labels[item.source] || item.sourceLabel || item.source || '画像';
         }
-
         async cleanupExpiredShiftNotebookPhotos() {
             this.ensurePhotoManagerData();
             const today = this.getPhotoManagerToday();
@@ -4432,12 +4010,10 @@
                         for (const rawPhoto of row.photos) {
                             const photo = this.normalizeShiftNotebookPhoto ? this.normalizeShiftNotebookPhoto(rawPhoto) : (typeof rawPhoto === 'string' ? { src: rawPhoto } : rawPhoto);
                             const src = photo?.src || '';
-                            let protectedPhoto = this.isPhotoManagerSourceProtected(src) || this.isKnownPhotoManagerTransparentSource(src);
-                            if (!protectedPhoto && this.canImageSourceHaveAlpha(src)) {
-                                protectedPhoto = await this.detectAndRememberPhotoManagerTransparency(src, false);
-                            }
-                            if (protectedPhoto) kept.push(rawPhoto);
-                            else {
+                            const protectedPhoto = this.isPhotoManagerSourceProtected(src) || this.isKnownPhotoManagerTransparentSource(src);
+                            if (protectedPhoto) {
+                                kept.push(rawPhoto);
+                            } else {
                                 removed += 1;
                                 if (src) removedSources.add(src);
                             }
@@ -4446,86 +4022,92 @@
                     }
                 }
             }
-            removedSources.forEach(src => this.removePhotoManagerSourceFromRecentCachesIfUnused(src));
+            removedSources.forEach(src => this.removePhotoManagerSourceFromRecentCachesIfUnused?.(src));
             store.activeData.photoManagerLastAutoCleanup = today;
             store.activeData.photoManagerLastAutoCleanupCount = removed;
             store.save();
-            if (removed) this.showPhotoManagerNotice(`${removed}枚の連絡帳・5S写真を1カ月自動削除しました。ロック済み・透過画像は保護されています。`);
+            if (removed) this.showPhotoManagerNotice?.(`${removed} old images were cleaned up.`);
         }
-
         renderPhotoManager() {
-            this.ensurePhotoManagerPasteImportListener();
-            this.ensureImageSourceChoiceListener();
+            this.ensurePhotoManagerPasteImportListener?.();
+            this.ensureImageSourceChoiceListener?.();
             const list = document.getElementById('photo-manager-list');
             const summary = document.getElementById('photo-manager-summary');
             if (!list) return;
-            this.updatePhotoManagerAlphaFilterButton();
-            this.updatePhotoManagerTagFilterOptions();
-            const allItems = this.collectPhotoManagerItems();
-            const items = this.getFilteredPhotoManagerItems(allItems);
-            this._photoManagerVisibleIds = items.map(item => item.id);
-            this.prunePhotoManagerSelection(allItems.map(item => item.id));
-            const selectedIds = this.ensurePhotoManagerSelectionStore();
-            const duplicateGroups = this.getPhotoManagerDuplicateGroups(allItems);
+            this.updatePhotoManagerAlphaFilterButton?.();
+            this.updatePhotoManagerToolbarActiveState?.();
+            this.updatePhotoManagerTagFilterOptions?.();
+            const allItems = this.collectPhotoManagerItems?.() || [];
+            const items = this.getFilteredPhotoManagerItems ? this.getFilteredPhotoManagerItems(allItems) : allItems;
+            this._photoManagerVisibleIds = items.map(item => item.id).filter(Boolean);
+            this.prunePhotoManagerSelection?.(allItems.map(item => item.id));
+            const selectedIds = this.ensurePhotoManagerSelectionStore?.() || new Set();
+            const duplicateGroups = this.getPhotoManagerDuplicateGroups?.(allItems) || [];
             const duplicateSrcs = new Set(duplicateGroups.map(group => group.src));
-            const usageIndex = this.getPhotoManagerUsageIndex(allItems, false);
-            this._photoManagerRenderCache = {
-                allItems,
-                duplicateGroups,
-                usageIndex,
-                pageOnlyItems: null,
-                relationGroups: null
-            };
+            const usageIndex = this.getPhotoManagerUsageIndex?.(allItems, false) || new Map();
+            this._photoManagerRenderCache = { allItems, duplicateGroups, usageIndex, pageOnlyItems: null, relationGroups: null };
             if (summary) {
                 const marked = items.filter(item => item.annotated).length;
-                const compressed = items.filter(item => this.isPhotoManagerSourceCompressed(item.src)).length;
-                const visibleBytes = items.reduce((sum, item) => sum + this.estimatePhotoManagerImageBytes(item.src), 0);
-                const trashBytes = (store.activeData.photoManagerTrash || []).reduce((sum, entry) => sum + this.estimatePhotoManagerImageBytes(entry.src), 0);
-                summary.innerHTML = `<b>${items.length}</b> / ${allItems.length}件表示 <span>表示容量 約${this.formatPhotoManagerBytes(visibleBytes)}</span><span>圧縮済み ${compressed}件</span><span>注記あり ${marked}件</span>${trashBytes ? `<span>ゴミ箱 約${this.formatPhotoManagerBytes(trashBytes)}</span>` : ''}`;
+                const compressed = items.filter(item => this.isPhotoManagerSourceCompressed?.(item.src)).length;
+                const visibleBytes = items.reduce((sum, item) => sum + (this.estimatePhotoManagerImageBytes?.(item.src) || 0), 0);
+                const trashBytes = (store.activeData.photoManagerTrash || []).reduce((sum, entry) => sum + (this.estimatePhotoManagerImageBytes?.(entry.src) || 0), 0);
+                const parts = [
+                    '<b>' + items.length + '</b> / ' + allItems.length + '枚',
+                    '<span>容量 ' + (this.formatPhotoManagerBytes?.(visibleBytes) || '0KB') + '</span>',
+                    '<span>圧縮 ' + compressed + '</span>',
+                    '<span>注記 ' + marked + '</span>'
+                ];
+                if (trashBytes) parts.push('<span>ゴミ箱 ' + (this.formatPhotoManagerBytes?.(trashBytes) || '0KB') + '</span>');
+                summary.innerHTML = parts.join(' ');
             }
             if (!items.length) {
-                list.innerHTML = '<div class="photo-manager-empty">条件に合う写真はありません。ファイル読込やクリップボード登録で写真管理に追加できます。</div>';
-                this.updatePhotoManagerBulkBar();
-                this.addPhotoManagerPageOnlyCleanupButton();
+                list.innerHTML = '<div class="photo-manager-empty">条件に合う写真はありません。</div>';
+                this.updatePhotoManagerBulkBar?.();
+                this.addPhotoManagerPageOnlyCleanupButton?.();
                 return;
             }
             list.innerHTML = items.map(item => {
-                const name = this.getPhotoManagerName(item) || item.defaultName || item.title || '写真';
-                const sourceLabel = this.getPhotoManagerSourceLabel(item);
+                const name = this.getPhotoManagerName?.(item) || item.defaultName || item.title || '画像';
+                const sourceLabel = this.getPhotoManagerSourceLabel?.(item) || '画像';
+                const alphaStatus = this.getPhotoManagerAlphaStatus?.(item);
+                const checked = selectedIds.has(item.id) ? ' checked' : '';
+                const usageSummary = this.getPhotoManagerUsageSummary?.(item, usageIndex) || { count: 0, label: '未使用' };
+                const compressedPhoto = this.isPhotoManagerSourceCompressed?.(item.src);
+                const protectedPhoto = this.isPhotoManagerSourceProtected?.(item.src);
+                const sizeText = this.formatPhotoManagerBytes?.(this.estimatePhotoManagerImageBytes?.(item.src) || 0) || '';
+                const hasBlankEdit = !!(item.source === 'library' && item.photoCompareBlankEdit?.type === 'blank');
                 const thumbAction = item.source === 'library'
                     ? `app.openPhotoManagerEditor('${this.escapeJs(item.id)}')`
                     : `app.openPhotoManagerSource('${this.escapeJs(item.id)}')`;
-                const thumbTitle = item.source === 'library' ? '写真を編集' : '元のページを開く';
-                const alphaStatus = this.getPhotoManagerAlphaStatus(item);
-                const checked = selectedIds.has(item.id) ? ' checked' : '';
-                const usageSummary = this.getPhotoManagerUsageSummary(item, usageIndex);
-                const protectedPhoto = this.isPhotoManagerSourceProtected(item.src);
-                const compressedPhoto = this.isPhotoManagerSourceCompressed(item.src);
-                const sizeText = this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(item.src));
                 return `
                 <article class="photo-manager-card" data-photo-id="${this.escapeHtml(item.id)}">
                     <label class="photo-manager-check">
                         <input type="checkbox" class="photo-manager-select" value="${this.escapeHtml(item.id)}"${checked} onchange="app.syncPhotoManagerSelection(this.value, this.checked)">
                     </label>
-                    <button type="button" class="photo-manager-thumb" onclick="${thumbAction}" title="${this.escapeHtml(thumbTitle)}">
+                    <button type="button" class="photo-manager-thumb" onclick="${thumbAction}" title="画像を開く">
                         <img src="${item.src}" alt="${this.escapeHtml(name)}">
                         ${duplicateSrcs.has(item.src) ? '<span class="photo-manager-duplicate-badge"><i class="fa-solid fa-clone"></i> 重複</span>' : ''}
-                        ${item.annotated ? '<span class="photo-manager-mark-badge"><i class="fa-solid fa-pen"></i> 注記あり</span>' : ''}
+                        ${item.annotated ? '<span class="photo-manager-mark-badge"><i class="fa-solid fa-pen"></i> 注記</span>' : ''}
+                        ${hasBlankEdit ? '<span class="photo-manager-blank-edit-badge"><i class="fa-regular fa-file-lines"></i> 白紙編集</span>' : ''}
                         ${alphaStatus ? `<span class="photo-manager-alpha-badge ${alphaStatus}" role="button" tabindex="0" onpointerdown="event.preventDefault(); event.stopPropagation();" onclick="event.preventDefault(); event.stopPropagation(); app.openImageSourceChoiceTransparencyPreview('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> ${alphaStatus === 'transparent' ? '透過' : '透過候補'}</span>` : ''}
-                        ${item.circleImageEdit ? '<span class="photo-manager-circle-image-badge"><i class="fa-solid fa-circle-user"></i> 丸画像</span>' : ''}
+                        ${item.circleImageEdit ? '<span class="photo-manager-circle-image-badge"><i class="fa-solid fa-circle-user"></i> 丸編集</span>' : ''}
                         ${compressedPhoto ? '<span class="photo-manager-compressed-badge"><i class="fa-solid fa-compress"></i> 圧縮済み</span>' : ''}
-                        <span class="photo-manager-usage-badge ${usageSummary.count ? 'used' : 'unused'} ${usageSummary.stampCount && !usageSummary.baseCount ? 'stamp' : ''}"><i class="fa-solid ${usageSummary.stampCount && !usageSummary.baseCount ? 'fa-stamp' : (usageSummary.count ? 'fa-link' : 'fa-circle-minus')}"></i> ${this.escapeHtml(usageSummary.label.replace('縺区園縺ｧ菴ｿ逕ｨ荳ｭ', 'か所で使用中').replace('譛ｪ菴ｿ逕ｨ', '未使用'))}</span>
+                        <span class="photo-manager-usage-badge ${usageSummary.count ? 'used' : 'unused'}"><i class="fa-solid ${usageSummary.count ? 'fa-link' : 'fa-circle-minus'}"></i> ${this.escapeHtml(usageSummary.label || '未使用')}</span>
                     </button>
                     <div class="photo-manager-side-actions">
                         <button type="button" class="secondary-btn icon-only" onclick="app.openPhotoManagerEditor('${this.escapeJs(item.id)}')" title="編集" aria-label="編集"><i class="fa-solid fa-pen"></i></button>
+                        ${hasBlankEdit ? `<button type="button" class="secondary-btn icon-only photo-manager-blank-edit-btn" onclick="app.openPhotoManagerBlankEdit('${this.escapeJs(item.id)}')" title="白紙再編集" aria-label="白紙再編集"><i class="fa-regular fa-file-lines"></i></button>` : ''}
+                        ${hasBlankEdit ? `<button type="button" class="secondary-btn icon-only photo-manager-blank-copy-btn" onclick="app.duplicatePhotoManagerBlankEdit('${this.escapeJs(item.id)}')" title="白紙編集を複製" aria-label="白紙編集を複製"><i class="fa-solid fa-copy"></i></button>` : ''}
                         <button type="button" class="secondary-btn icon-only" onclick="app.downloadPhotoManagerItem('${this.escapeJs(item.id)}')" title="出力" aria-label="出力"><i class="fa-solid fa-download"></i></button>
                         <details class="photo-manager-more-actions">
-                            <summary><i class="fa-solid fa-ellipsis"></i> その他</summary>
+                            <summary><i class="fa-solid fa-ellipsis"></i></summary>
                             <div>
                                 <button type="button" onclick="app.autoTagPhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-tags"></i> タグ自動</button>
                                 <button type="button" onclick="app.compressPhotoManagerImage('${this.escapeJs(item.id)}')"><i class="fa-solid fa-compress"></i> 圧縮</button>
-                                <button type="button" onclick="app.togglePhotoManagerSourceProtection('${this.escapeJs(item.id)}')"><i class="fa-solid ${protectedPhoto ? 'fa-lock' : 'fa-lock-open'}"></i> ${protectedPhoto ? 'ロック解除' : 'ロック'}</button>
-                                <button type="button" onclick="app.reopenPhotoManagerTransparentImageForCutout('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 再透過</button>
+                                ${hasBlankEdit ? `<button type="button" onclick="app.savePhotoManagerBlankTemplate('${this.escapeJs(item.id)}')"><i class="fa-regular fa-clone"></i> テンプレ保存</button>` : ''}
+                                ${hasBlankEdit ? `<button type="button" onclick="app.duplicatePhotoManagerBlankEdit('${this.escapeJs(item.id)}')"><i class="fa-solid fa-copy"></i> 複製</button>` : ''}
+                                <button type="button" onclick="app.togglePhotoManagerSourceProtection?.('${this.escapeJs(item.id)}')"><i class="fa-solid ${protectedPhoto ? 'fa-lock-open' : 'fa-lock'}"></i> ${protectedPhoto ? 'ロック解除' : 'ロック'}</button>
+                                <button type="button" onclick="app.createTransparentPhotoManagerImage('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 再透過</button>
                                 <button type="button" class="danger" onclick="app.deletePhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-trash-can"></i> 削除</button>
                             </div>
                         </details>
@@ -4534,13 +4116,13 @@
                         <div class="photo-manager-meta">
                             <span>${this.escapeHtml(sourceLabel)}</span>
                             ${item.date ? `<span>${this.escapeHtml(item.date)}</span>` : '<span>日付なし</span>'}
-                            <span class="photo-manager-size"><i class="fa-solid fa-database"></i> 約${this.escapeHtml(sizeText)}</span>
+                            ${sizeText ? `<span class="photo-manager-size"><i class="fa-solid fa-database"></i> ${this.escapeHtml(sizeText)}</span>` : ''}
                             ${compressedPhoto ? '<span class="photo-manager-compressed-meta"><i class="fa-solid fa-circle-check"></i> 圧縮済み</span>' : '<span class="photo-manager-uncompressed-meta">非圧縮</span>'}
-                            ${protectedPhoto ? '<span class="photo-manager-protected"><i class="fa-solid fa-lock"></i> 自動削除から保護</span>' : ''}
+                            ${protectedPhoto ? '<span class="photo-manager-protected"><i class="fa-solid fa-lock"></i> 保護中</span>' : ''}
                         </div>
                         <input type="text" value="${this.escapeHtml(item.displayName || '')}" placeholder="写真管理用の名前" onchange="app.setPhotoManagerName('${this.escapeJs(item.id)}', this.value)">
                         <p title="${this.escapeHtml(item.title || '')}">${this.escapeHtml(item.title || '元データなし')}</p>
-                        ${usageSummary.usages.length ? `
+                        ${usageSummary.usages?.length ? `
                             <div class="photo-manager-usage-links">
                                 ${usageSummary.usages.slice(0, 4).map(usage => `
                                     <button type="button" onclick="app.openPhotoManagerUsageSource('${this.escapeJs(usage.id)}')" title="${this.escapeHtml(usage.title || '')}">
@@ -4551,69 +4133,29 @@
                                 <button type="button" onclick="app.openPhotoManagerUsageList('${this.escapeJs(item.id)}')"><i class="fa-solid fa-list"></i> 使用先一覧</button>
                             </div>
                         ` : '<div class="photo-manager-usage-links empty">使用先なし</div>'}
-                        <div class="photo-manager-actions">
-                            <button type="button" class="secondary-btn" onclick="app.openPhotoManagerEditor('${this.escapeJs(item.id)}')"><i class="fa-solid fa-pen"></i> 編集</button>
-                            ${item.source === 'library' ? '' : `<button type="button" class="secondary-btn" onclick="app.openPhotoManagerSource('${this.escapeJs(item.id)}')"><i class="fa-solid fa-up-right-from-square"></i> 元を開く</button>`}
-                            <button type="button" class="secondary-btn" onclick="app.downloadPhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-download"></i> 出力</button>
-                            <button type="button" class="secondary-btn" onclick="app.autoTagPhotoManagerItem('${this.escapeJs(item.id)}')" title="画像内の文字を読める場合はタグ化し、読めない場合はタイトル・写真名・メモからタグを作成"><i class="fa-solid fa-tags"></i> タグ自動</button>
-                            <button type="button" class="secondary-btn" onclick="app.compressPhotoManagerImage('${this.escapeJs(item.id)}')" title="見た目を大きく損なわない範囲でWebP圧縮"><i class="fa-solid fa-compress"></i> 圧縮</button>
-                            <button type="button" class="secondary-btn ${protectedPhoto ? 'active' : ''}" onclick="app.togglePhotoManagerSourceProtection('${this.escapeJs(item.id)}')" title="連絡帳・5S写真の1カ月自動削除から保護"><i class="fa-solid ${protectedPhoto ? 'fa-lock' : 'fa-lock-open'}"></i> ${protectedPhoto ? '保護中' : 'ロック'}</button>
-                            <button type="button" class="secondary-btn photo-manager-recutout-btn" onclick="app.reopenPhotoManagerTransparentImageForCutout('${this.escapeJs(item.id)}')" title="保存済み画像をもう一度透過チェックにかけ、残った単色部分をクリックで追加透過"><i class="fa-solid fa-layer-group"></i> 再透過</button>
-                            <button type="button" class="danger-btn" onclick="app.deletePhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-trash-can"></i> 削除</button>
-                        </div>
                     </div>
                 </article>`;
             }).join('');
-            if (summary && !summary.querySelector('.photo-manager-compression-settings-btn')) {
-                summary.insertAdjacentHTML('beforeend', ` <button type="button" class="secondary-btn photo-manager-compression-settings-btn" onclick="app.openPhotoManagerCompressionSettingDialog()" title="保存時圧縮: ${this.escapeHtml(this.getPhotoManagerNormalCompressionModeLabel())}"><i class="fa-solid fa-gear"></i> 圧縮設定</button>`);
-            }
-            this.enhancePhotoManagerCards(items);
-            this.updatePhotoManagerBulkBar();
-            this.addPhotoManagerPageOnlyCleanupButton();
-            this.updatePhotoManagerTransparencyBadges(items);
-            this.updateContextualHelp?.('photos');
+            this.updatePhotoManagerTransparencyBadges?.(items);
+            this.updatePhotoManagerBulkBar?.();
+            this.addPhotoManagerPageOnlyCleanupButton?.();
+            this.enhancePhotoManagerCards?.(items);
         }
-
         updatePhotoManagerBulkBar() {
-            const bar = this.ensurePhotoManagerBulkBar();
+            const bar = document.getElementById('photo-manager-bulk-bar');
             if (!bar) return;
-            const selectedIds = this.getSelectedPhotoManagerIds();
-            const visibleCount = this._photoManagerVisibleIds?.length || 0;
-            const unusedCount = this.getUnusedPhotoManagerLibraryItems().length;
-            const duplicateCount = this._photoManagerRenderCache?.duplicateGroups?.length ?? this.getPhotoManagerDuplicateGroups().length;
-            const pageOnlyItems = this._photoManagerRenderCache?.pageOnlyItems || this.getPhotoManagerPageOnlyItems(this._photoManagerRenderCache?.allItems);
-            if (this._photoManagerRenderCache) this._photoManagerRenderCache.pageOnlyItems = pageOnlyItems;
-            const relationGroups = this._photoManagerRenderCache?.relationGroups || this.getPhotoManagerRelationGroups(this._photoManagerRenderCache?.allItems);
-            if (this._photoManagerRenderCache) this._photoManagerRenderCache.relationGroups = relationGroups;
-            const pageOnlyCount = pageOnlyItems.length;
-            const relationCount = relationGroups.length;
-            const trashBytes = (store.activeData.photoManagerTrash || []).reduce((sum, entry) => sum + this.estimatePhotoManagerImageBytes(entry.src), 0);
-            bar.classList.toggle('has-selection', selectedIds.length > 0);
+            const selected = this.getSelectedPhotoManagerIds?.() || [];
+            const items = this.collectPhotoManagerItems?.() || [];
+            const duplicateCount = this.getPhotoManagerDuplicateGroups?.(items)?.length || 0;
+            const trashCount = (store.activeData.photoManagerTrash || []).length;
             bar.innerHTML = `
-                <div class="photo-manager-bulk-status">
-                    <b>${selectedIds.length}</b>
-                    <span>選択中</span>
-                    <small>表示 ${visibleCount}件 / 未使用取込 ${unusedCount}件</small>
-                </div>
+                <div class="photo-manager-bulk-info"><b>${selected.length}</b>枚選択中</div>
                 <div class="photo-manager-bulk-actions">
-                    <button type="button" class="secondary-btn" onclick="app.selectVisiblePhotoManagerItems()"><i class="fa-solid fa-check-double"></i> 表示中を選択</button>
-                    <button type="button" class="secondary-btn" onclick="app.clearVisiblePhotoManagerSelection()"><i class="fa-regular fa-square"></i> 解除</button>
-                    <label class="photo-manager-bulk-title">
-                        <span>タイトル</span>
-                        <input type="text" id="photo-manager-bulk-title-input" placeholder="選択中へ一括設定">
-                    </label>
-                    <button type="button" class="primary-btn" onclick="app.renameSelectedPhotoManagerItems()"><i class="fa-solid fa-pen-to-square"></i> 一括変更</button>
-                    <button type="button" class="secondary-btn" onclick="app.autoTagSelectedPhotoManagerItems()" title="画像内の文字を読める場合はタグ化し、読めない場合はタイトル・写真名・メモからタグを作成"><i class="fa-solid fa-tags"></i> タグ自動作成</button>
-                    <button type="button" class="secondary-btn" onclick="app.compressSelectedPhotoManagerImages()"><i class="fa-solid fa-compress"></i> 一括圧縮</button>
-                    <button type="button" class="secondary-btn photo-manager-blank-compare-btn" onclick="app.openPhotoManagerBlankShiftPhotoCompare()" style="background:#10b981;color:#ffffff;border-color:#059669;box-shadow:0 10px 22px rgba(16,185,129,.22);"><i class="fa-solid fa-file"></i> 白紙</button>
-                    <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()" title="表示中または選択中の画像を出力します。5枚以上は1つのZIPファイルにまとめて出力します。"><i class="fa-solid fa-file-export"></i> 出力</button>
-                    <button type="button" class="secondary-btn" onclick="app.openPhotoManagerRelationMap()"><i class="fa-solid fa-diagram-project"></i> 関係図 ${relationCount ? `(${relationCount})` : ''}</button>
-                    <button type="button" class="secondary-btn photo-manager-page-only-cleanup-btn" onclick="app.openPhotoManagerPageOnlyCleanupReview()"><i class="fa-solid fa-folder-minus"></i> ページ残り ${pageOnlyCount ? `(${pageOnlyCount})` : ''}</button>
-                    <button type="button" class="secondary-btn" onclick="app.openPhotoManagerDuplicateReview()"><i class="fa-solid fa-clone"></i> 重複整理 ${duplicateCount ? `(${duplicateCount})` : ''}</button>
-                    <button type="button" class="secondary-btn" onclick="app.openPhotoManagerSimilarReview()"><i class="fa-solid fa-object-group"></i> 類似画像</button>
-                    <button type="button" class="secondary-btn" onclick="app.openPhotoManagerTrashDialog()"><i class="fa-solid fa-trash-restore"></i> ゴミ箱 ${(store.activeData.photoManagerTrash || []).length ? `(${store.activeData.photoManagerTrash.length} / 約${this.formatPhotoManagerBytes(trashBytes)})` : ''}</button>
-                    <button type="button" class="danger-btn" onclick="app.deleteUnusedPhotoManagerLibraryItems()"><i class="fa-solid fa-broom"></i> 未使用削除</button>
-                    <button type="button" class="danger-btn" onclick="app.deleteSelectedPhotoManagerItems()"><i class="fa-solid fa-trash-can"></i> 選択削除</button>
+                    <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()" title="5枚以上はZIPでまとめて出力します"><i class="fa-solid fa-file-export"></i> 出力</button>
+                    <button type="button" class="secondary-btn" onclick="app.openPhotoManagerRelationMap?.()"><i class="fa-solid fa-link"></i> 関連</button>
+                    <button type="button" class="secondary-btn" onclick="app.openPhotoManagerDuplicateReview?.()"><i class="fa-solid fa-clone"></i> 重複 ${duplicateCount ? `(${duplicateCount})` : ''}</button>
+                    <button type="button" class="secondary-btn" onclick="app.openPhotoManagerTrashDialog?.()"><i class="fa-solid fa-trash-restore"></i> ゴミ箱 ${trashCount ? `(${trashCount})` : ''}</button>
+                    <button type="button" class="danger-btn" onclick="app.deleteSelectedPhotoManagerItems?.()"><i class="fa-solid fa-trash-can"></i> 選択削除</button>
                 </div>`;
         }
 
@@ -4624,35 +4166,31 @@
                 if (!groups.has(item.src)) groups.set(item.src, []);
                 groups.get(item.src).push(item);
             });
-            return Array.from(groups.entries()).map(([src, items]) => {
-                const sources = [...new Set(items.map(item => item.source))];
-                const bytes = this.estimatePhotoManagerImageBytes(src);
-                return { src, items, sources, bytes };
+            return Array.from(groups.entries()).map(([src, groupItems]) => {
+                const sources = [...new Set(groupItems.map(item => item.source))];
+                const bytes = this.estimatePhotoManagerImageBytes?.(src) || 0;
+                return { src, items: groupItems, sources, bytes };
             }).filter(group => group.items.length > 1 || group.sources.length > 1)
                 .sort((a, b) => b.items.length - a.items.length || b.bytes - a.bytes);
         }
 
         openPhotoManagerRelationMap() {
             const groups = this.getPhotoManagerRelationGroups();
-            if (!groups.length) return this.showPhotoManagerNotice('複数の場所にまたがる写真は見つかりませんでした。');
+            if (!groups.length) return this.showPhotoManagerNotice?.('No related images found.');
             const totalBytes = groups.reduce((sum, group) => sum + group.bytes, 0);
             const body = `
                 <div class="photo-manager-review-summary">
-                    <b>${groups.length}組</b>
-                    <span>同じ画像が写真管理・連絡帳・履歴など、どこにまたがっているかを表示します。合計 約${this.formatPhotoManagerBytes(totalBytes)}。</span>
+                    <b>${groups.length} groups</b>
+                    <span>Total ${this.formatPhotoManagerBytes?.(totalBytes) || '0KB'}</span>
                 </div>
                 <div class="photo-manager-relation-list">
                     ${groups.map(group => `
                         <article class="photo-manager-relation-item">
-                            <img src="${group.src}" alt="関係画像">
+                            <img src="${group.src}" alt="related image">
                             <div>
-                                <b>${group.items.length}件で共有 / 約${this.formatPhotoManagerBytes(group.bytes)}</b>
+                                <b>${group.items.length} items / ${this.formatPhotoManagerBytes?.(group.bytes) || '0KB'}</b>
                                 <div class="photo-manager-relation-chips">
-                                    ${group.items.map(item => `
-                                        <button type="button" onclick="app.openPhotoManagerUsageSource('${this.escapeJs(item.id)}')" title="${this.escapeHtml(item.title || '')}">
-                                            ${this.escapeHtml(this.getPhotoManagerSourceLabel(item))}
-                                        </button>
-                                    `).join('')}
+                                    ${group.items.map(item => `<button type="button" onclick="app.openPhotoManagerUsageSource('${this.escapeJs(item.id)}')">${this.escapeHtml(this.getPhotoManagerSourceLabel(item))}</button>`).join('')}
                                 </div>
                                 <small>${this.escapeHtml(group.items.map(item => item.title || item.defaultName || this.getPhotoManagerSourceLabel(item)).slice(0, 4).join(' / '))}</small>
                             </div>
@@ -4660,15 +4198,17 @@
                     `).join('')}
                 </div>
                 <div class="photo-manager-review-actions">
-                    <button type="button" class="secondary-btn" onclick="app.closePhotoManagerReviewDialog()">閉じる</button>
+                    <button type="button" class="secondary-btn" onclick="app.closePhotoManagerReviewDialog()">Close</button>
                 </div>`;
-            this.openPhotoManagerReviewDialog('写真の関係図', body);
+            this.openPhotoManagerReviewDialog?.('Image relations', body);
         }
 
         async exportPhotoManagerItems() {
-            const selected = new Set(this.getSelectedPhotoManagerIds());
-            const items = this.getFilteredPhotoManagerItems().filter(item => !selected.size || selected.has(item.id));
-            if (!items.length) return alert('出力する写真がありません。');
+            const selected = new Set(this.getSelectedPhotoManagerIds?.() || []);
+            const allItems = this.collectPhotoManagerItems?.() || [];
+            const filtered = this.getFilteredPhotoManagerItems ? this.getFilteredPhotoManagerItems(allItems) : allItems;
+            const items = filtered.filter(item => !selected.size || selected.has(item.id));
+            if (!items.length) return alert('No images to export.');
             if (items.length >= 5) {
                 await this.exportPhotoManagerItemsAsZip(items);
                 return;
@@ -4685,3 +4225,4 @@
         }
     }
 })();
+

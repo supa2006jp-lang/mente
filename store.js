@@ -504,6 +504,7 @@ class MaintenanceStore {
             workTime: parseInt(record.workTime) || 0,
             startTime: record.startTime || '',
             endTime: record.endTime || '',
+            isSingleMaintenance: !!record.isSingleMaintenance,
             isDokatei: !!record.isDokatei,
             isNonProductionStop: !!record.isNonProductionStop,
             category: record.category || 'other',

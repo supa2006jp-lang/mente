@@ -260,13 +260,7 @@
             const previewContainer = document.getElementById('e-photo-previews');
             previewContainer.innerHTML = '';
             this._tempPhotos.forEach(p => {
-                const div = this.createPhotoPreviewElement(
-                    p,
-                    (removedSrc) => { this._tempPhotos = this._tempPhotos.filter(img => img !== removedSrc); },
-                    (oldSrc, newSrc) => { this._tempPhotos = this._tempPhotos.map(img => img === oldSrc ? newSrc : img); },
-                    80
-                );
-                previewContainer.appendChild(div);
+                this.appendHistoryPhotoPreview(previewContainer, p, 80);
             });
 
             // Custom footer for edit
@@ -300,6 +294,7 @@
                 timeRow.insertAdjacentHTML('afterend', '<div id="e-time-status" class="maintenance-time-status"></div>');
                 this.setupEditHistoryTimeAutoCalc();
             }
+            this.applySuddenRecordWideLayout?.('e');
             this.setupAutoResizeTextareas('#edit-history-form .sudden-detail-textarea');
 
             // Trigger initial suggestions for the selected machine
@@ -425,8 +420,8 @@
         const workTime = history?.workTime || 0;
         if (history?.startTime && history?.endTime) {
             return `
-                <b>${this.escapeHtml(`${history.startTime}-${history.endTime}`)}</b>
-                <small>${this.escapeHtml(`${workTime}分`)}</small>
+                <b title="${this.escapeHtml(`${history.startTime}-${history.endTime}`)}">${this.escapeHtml(`${workTime}分`)}</b>
+                <small>${this.escapeHtml(`${history.startTime}-${history.endTime}`)}</small>
             `;
         }
         return `<b>${this.escapeHtml(`${workTime}分`)}</b>`;
@@ -458,7 +453,7 @@
         this.renderHistory();
     }
 
-    renderHistoryPrioritySigns(history, recurrenceGroup, cost) {
+    getHistoryPrioritySignItems(history, recurrenceGroup, cost) {
         const signs = [];
         const workMinutes = parseFloat(history?.workTime) || 0;
         if (recurrenceGroup?.count >= 3 || (recurrenceGroup?.count >= 2 && recurrenceGroup.avgIntervalDays && recurrenceGroup.avgIntervalDays <= 14)) {
@@ -474,12 +469,61 @@
         if (workMinutes >= 60) {
             signs.push({ cls: 'time', icon: 'fa-clock', label: '長時間' });
         }
+        return { signs, missingPartPrices };
+    }
+
+    renderHistoryPrioritySigns(history, recurrenceGroup, cost) {
+        const { signs, missingPartPrices } = this.getHistoryPrioritySignItems(history, recurrenceGroup, cost);
         if (!signs.length) return '';
         return `<span class="history-priority-signs">${signs.map(sign => `
             <span class="history-priority-sign ${sign.cls}" title="${this.escapeHtml(sign.label)}"${sign.cls === 'part-price' && missingPartPrices[0] ? ` onclick="app.openMissingPartPriceMaster('${this.escapeJs(missingPartPrices[0].name)}', '${this.escapeJs(missingPartPrices[0].model)}', event)"` : ''}>
                 <i class="fa-solid ${sign.icon}"></i>${this.escapeHtml(sign.label)}
             </span>
         `).join('')}</span>`;
+    }
+
+    toggleHistoryBadgeFold(historyId, event = null) {
+        if (event) event.stopPropagation();
+        if (!this.expandedHistoryBadgeRows) this.expandedHistoryBadgeRows = new Set();
+        const key = String(historyId || '');
+        if (!key) return;
+        if (this.expandedHistoryBadgeRows.has(key)) {
+            this.expandedHistoryBadgeRows.delete(key);
+        } else {
+            this.expandedHistoryBadgeRows.add(key);
+        }
+        this.renderHistory();
+    }
+
+    renderHistoryFoldableBadges(history, recurrenceFrequency, cost) {
+        const badgeHtml = [];
+        const badgeLabels = [];
+        badgeLabels.push(history.isFirstTime !== false ? '初回' : '再発');
+        badgeHtml.push(history.isFirstTime !== false 
+            ? `<span class="badge-occurrence first">初回</span>`
+            : `<span class="badge-occurrence recurrence">再発</span>`
+        );
+        const frequencyHtml = this.renderHistoryRecurrenceFrequencyChip(recurrenceFrequency);
+        if (frequencyHtml) {
+            badgeHtml.push(frequencyHtml);
+            badgeLabels.push(recurrenceFrequency?.frequencyLabel || '発生頻度');
+        }
+        const priorityHtml = this.renderHistoryPrioritySigns(history, recurrenceFrequency, cost);
+        if (priorityHtml) badgeHtml.push(priorityHtml);
+        const priorityItems = this.getHistoryPrioritySignItems(history, recurrenceFrequency, cost).signs;
+        priorityItems.forEach(sign => badgeLabels.push(sign.label));
+        const prioritySignCount = priorityItems.length;
+        const totalBadges = 1 + (frequencyHtml ? 1 : 0) + prioritySignCount;
+        const shouldFold = totalBadges >= 3;
+        const key = String(history?.id || '');
+        const isExpanded = !shouldFold || this.expandedHistoryBadgeRows?.has(key);
+        const tooltip = badgeLabels.join(' / ');
+        return `
+            <span class="history-foldable-badges ${isExpanded ? 'expanded' : 'collapsed'}">
+                ${isExpanded ? badgeHtml.join('') : ''}
+                ${shouldFold ? `<button type="button" class="history-badge-fold-toggle" data-badge-tooltip="${this.escapeHtml(tooltip)}" onclick="app.toggleHistoryBadgeFold('${this.escapeJs(key)}', event)" title="${isExpanded ? 'バッジを折りたたむ' : this.escapeHtml(tooltip)}">${isExpanded ? '隠す' : `バッジ ${totalBadges}`}</button>` : ''}
+            </span>
+        `;
     }
 
     openMissingPartPriceMaster(name, model = '', event = null) {
@@ -524,7 +568,7 @@
         if (this._historySortReady) return;
         const savedMode = localStorage.getItem('history_sort_mode');
         const savedDateDir = localStorage.getItem('history_date_sort_dir');
-        this.historyMetricSortMode = ['date', 'time', 'cost'].includes(savedMode) ? savedMode : (this.historyMetricSortMode || 'date');
+        this.historyMetricSortMode = ['date', 'time', 'cost', 'type'].includes(savedMode) ? savedMode : (this.historyMetricSortMode || 'date');
         this.historyDateSortDir = ['asc', 'desc'].includes(savedDateDir) ? savedDateDir : (this.historyDateSortDir || 'desc');
         this._historySortReady = true;
     }
@@ -537,7 +581,36 @@
     getHistorySortLabel() {
         if (this.historyMetricSortMode === 'time') return '並び替え: 作業時間 多い順';
         if (this.historyMetricSortMode === 'cost') return '並び替え: コスト 高い順';
+        if (this.historyMetricSortMode === 'type') return '並び替え: 区分順';
         return `並び替え: 日付 ${this.historyDateSortDir === 'asc' ? '古い順' : '新しい順'}`;
+    }
+
+    getHistorySortSelectValue() {
+        if (this.historyMetricSortMode === 'time') return 'time_desc';
+        if (this.historyMetricSortMode === 'cost') return 'cost_desc';
+        if (this.historyMetricSortMode === 'type') return 'type_asc';
+        return this.historyDateSortDir === 'asc' ? 'date_asc' : 'date_desc';
+    }
+
+    setHistorySortMode(value = 'date_desc') {
+        if (value === 'date_asc') {
+            this.historyMetricSortMode = 'date';
+            this.historyDateSortDir = 'asc';
+        } else if (value === 'time_desc') {
+            this.historyMetricSortMode = 'time';
+            this.historyDateSortDir = 'desc';
+        } else if (value === 'cost_desc') {
+            this.historyMetricSortMode = 'cost';
+            this.historyDateSortDir = 'desc';
+        } else if (value === 'type_asc') {
+            this.historyMetricSortMode = 'type';
+            this.historyDateSortDir = 'desc';
+        } else {
+            this.historyMetricSortMode = 'date';
+            this.historyDateSortDir = 'desc';
+        }
+        this.saveHistorySortState();
+        this.renderHistory();
     }
 
     toggleHistoryMetricSort(mode) {
@@ -565,6 +638,8 @@
         if (timeBtn) timeBtn.classList.toggle('active', this.historyMetricSortMode === 'time');
         if (costBtn) costBtn.classList.toggle('active', this.historyMetricSortMode === 'cost');
         document.getElementById('history-visible-cost-total')?.classList.toggle('active', this.historyMetricSortMode === 'cost');
+        const sortSelect = document.getElementById('hist-sort-mode');
+        if (sortSelect) sortSelect.value = this.getHistorySortSelectValue();
         if (timeIcon) timeIcon.className = 'fa-solid fa-arrow-down-wide-short history-sort-dir-icon';
         if (costIcon) costIcon.className = 'fa-solid fa-arrow-down-wide-short history-sort-dir-icon';
     }
@@ -584,6 +659,18 @@
         }
         if (this.historyMetricSortMode === 'cost') {
             rows.sort((a, b) => this.calculateHistoryCost(b).total - this.calculateHistoryCost(a).total || new Date(b.date || '') - new Date(a.date || ''));
+            return;
+        }
+        if (this.historyMetricSortMode === 'type') {
+            const rank = (h) => {
+                if (h.isDokatei) return 1;
+                if (!h.taskId && !h.isSingleMaintenance && !h.isNonProductionStop) return 2;
+                if (h.isNonProductionStop) return 3;
+                if (h.isSingleMaintenance) return 4;
+                if (h.taskId) return 5;
+                return 9;
+            };
+            rows.sort((a, b) => rank(a) - rank(b) || new Date(b.date || '') - new Date(a.date || ''));
             return;
         }
         sortByDate();
@@ -1130,6 +1217,56 @@
         this.historyDetailPopoverKey = null;
     }
 
+    getHistoryTitleOutlineEnabled() {
+        return this.historyTitleOutlineEnabled ?? (localStorage.getItem('history_title_outline_enabled') !== '0');
+    }
+
+    getHistoryTitleOutlineWeight() {
+        const weight = this.historyTitleOutlineWeight || localStorage.getItem('history_title_outline_weight') || 'standard';
+        return ['thin', 'standard', 'bold'].includes(weight) ? weight : 'standard';
+    }
+
+    getHistoryColorPreset() {
+        const preset = this.historyColorPreset || localStorage.getItem('history_color_preset') || 'standard';
+        return ['soft', 'standard', 'strong'].includes(preset) ? preset : 'standard';
+    }
+
+    getHistoryTypePalette() {
+        const palettes = {
+            soft: {
+                periodicBg: '#eaf3ff',
+                periodicTitle: '#2563eb',
+                singleBg: '#ecfeff',
+                singleTitle: '#0284c7',
+                suddenBg: '#dcfce7',
+                suddenTitle: '#059669',
+                nonProductionBg: '#fff7d6',
+                dokateiBg: '#ffe4e6'
+            },
+            standard: {
+                periodicBg: '#cfe4ff',
+                periodicTitle: '#2563eb',
+                singleBg: '#dff6ff',
+                singleTitle: '#0284c7',
+                suddenBg: '#bbf7d0',
+                suddenTitle: '#10b981',
+                nonProductionBg: '#fef3c7',
+                dokateiBg: '#fee2e2'
+            },
+            strong: {
+                periodicBg: '#bfdbfe',
+                periodicTitle: '#1d4ed8',
+                singleBg: '#bae6fd',
+                singleTitle: '#0369a1',
+                suddenBg: '#86efac',
+                suddenTitle: '#047857',
+                nonProductionBg: '#fde68a',
+                dokateiBg: '#fecaca'
+            }
+        };
+        return palettes[this.getHistoryColorPreset()] || palettes.standard;
+    }
+
     renderHistory(searchQuery = '') {
         const body = document.getElementById('history-list-body');
         if (!body) return;
@@ -1137,6 +1274,12 @@
         this.initializeHistorySortState();
         const density = this.historyDensityMode || localStorage.getItem('history_density_mode') || 'standard';
         this.historyDensityMode = density;
+        const titlePriorityMode = this.historyTitlePriorityMode ?? (localStorage.getItem('history_title_priority_mode') === '1');
+        this.historyTitlePriorityMode = titlePriorityMode;
+        this.historyTitleOutlineEnabled = this.getHistoryTitleOutlineEnabled();
+        this.historyTitleOutlineWeight = this.getHistoryTitleOutlineWeight();
+        this.historyColorPreset = this.getHistoryColorPreset();
+        const typePalette = this.getHistoryTypePalette();
         document.querySelectorAll('#hist-density-mode [data-density-mode]').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.densityMode === density);
         });
@@ -1144,6 +1287,25 @@
         if (table) {
             table.classList.remove('history-density-standard', 'history-density-detail', 'history-density-compact');
             table.classList.add(`history-density-${density}`);
+            table.classList.toggle('history-title-priority-mode', titlePriorityMode);
+        }
+        const titlePriorityToggle = document.getElementById('hist-title-priority-toggle');
+        if (titlePriorityToggle) {
+            titlePriorityToggle.classList.toggle('active', titlePriorityMode);
+            titlePriorityToggle.title = titlePriorityMode ? '件名優先表示を解除' : '件名を広く表示する';
+        }
+        const titleOutlineToggle = document.getElementById('hist-title-outline-toggle');
+        if (titleOutlineToggle) {
+            titleOutlineToggle.checked = this.historyTitleOutlineEnabled;
+        }
+        const titleOutlineWeightSelect = document.getElementById('hist-title-outline-weight');
+        if (titleOutlineWeightSelect) {
+            titleOutlineWeightSelect.value = this.historyTitleOutlineWeight;
+            titleOutlineWeightSelect.disabled = !this.historyTitleOutlineEnabled;
+        }
+        const colorPresetSelect = document.getElementById('hist-color-preset');
+        if (colorPresetSelect) {
+            colorPresetSelect.value = this.historyColorPreset;
         }
         const densityLabel = document.getElementById('hist-density-current-label');
         if (densityLabel) {
@@ -1171,7 +1333,9 @@
                         : (this.machineCategoryFilter
                             ? `装置区分: ${this.machineCategoryFilter}`
                             : (this.historyRecurrenceFrequencyFilter
-                                ? `再発グループ: ${this.historyRecurrenceFrequencyFilter.label || '同じグループ'}`
+                                ? (this.historyRecurrenceFrequencyFilter.kind === 'single'
+                                    ? `該当履歴: ${this.historyRecurrenceFrequencyFilter.label || '選択した履歴'}`
+                                    : `再発グループ: ${this.historyRecurrenceFrequencyFilter.label || '同じグループ'}`)
                                 : (this.historyMissingDetailFilter === 'cause'
                                     ? '原因未入力'
                                     : (this.historyMissingDetailFilter === 'notes' ? '処置未入力' : '作業時間集計からの絞り込み')))));
@@ -1264,8 +1428,11 @@
         }
 
         if (type === 'periodic') {
-            filtered = filtered.filter(h => !!h.taskId);
+            filtered = filtered.filter(h => !!h.taskId && !h.isSingleMaintenance);
             filterSteps.push({ label: '区分: 定期のみ', count: filtered.length });
+        } else if (type === 'singleMaintenance') {
+            filtered = filtered.filter(h => !!h.isSingleMaintenance);
+            filterSteps.push({ label: '区分: 単発メンテのみ', count: filtered.length });
         } else if (type === 'suddenBundle') {
             filtered = filtered.filter(h => this.isCalendarSuddenResponseHistory
                 ? this.isCalendarSuddenResponseHistory(h)
@@ -1287,7 +1454,7 @@
             filterSteps.push({ label: '部品有', count: filtered.length });
         }
         if (photosOnly) {
-            filtered = filtered.filter(h => (h.photos || []).length > 0);
+            filtered = filtered.filter(h => this.getResolvedHistoryPhotoSources?.(h.photos || []).length > 0);
             filterSteps.push({ label: '写真有', count: filtered.length });
         }
         if (guideOnly) {
@@ -1304,7 +1471,10 @@
         if (this.historyRecurrenceFrequencyFilter?.ids?.length) {
             const idSet = new Set(this.historyRecurrenceFrequencyFilter.ids.map(String));
             filtered = filtered.filter(h => idSet.has(String(h.id)));
-            filterSteps.push({ label: `再発グループ: ${this.historyRecurrenceFrequencyFilter.label || '同じグループ'}`, count: filtered.length });
+            const historyFilterLabel = this.historyRecurrenceFrequencyFilter.kind === 'single'
+                ? `該当履歴: ${this.historyRecurrenceFrequencyFilter.label || '選択した履歴'}`
+                : `再発グループ: ${this.historyRecurrenceFrequencyFilter.label || '同じグループ'}`;
+            filterSteps.push({ label: historyFilterLabel, count: filtered.length });
         }
 
         if (this.historyRecurrenceFrequencyFilter?.ids?.length && activeFiltersArea) {
@@ -1313,11 +1483,12 @@
             const dates = groupRows.map(h => h.date).filter(Boolean).sort();
             const minutes = groupRows.reduce((sum, h) => sum + (parseFloat(h.workTime) || 0), 0);
             const costTotal = groupRows.reduce((sum, h) => sum + this.calculateHistoryCost(h).total, 0);
-            const label = this.historyRecurrenceFrequencyFilter.label || '同じグループ';
+            const isSingleHistoryFilter = this.historyRecurrenceFrequencyFilter.kind === 'single';
+            const label = this.historyRecurrenceFrequencyFilter.label || (isSingleHistoryFilter ? '選択した履歴' : '同じグループ');
             activeFiltersArea.innerHTML = `
                 <div class="history-recurrence-filter-banner">
                     <div>
-                        <span><i class="fa-solid fa-repeat"></i> 再発グループで絞り込み中</span>
+                        <span><i class="fa-solid ${isSingleHistoryFilter ? 'fa-clock-rotate-left' : 'fa-repeat'}"></i> ${isSingleHistoryFilter ? '該当履歴を表示中' : '再発グループで絞り込み中'}</span>
                         <b>${this.escapeHtml(label)}</b>
                     </div>
                     <div class="history-recurrence-filter-stats">
@@ -1385,28 +1556,37 @@
         displayRows.forEach((h, index) => {
             const machine = store.getMachines(true).find(m => m.id === h.machineId);
             const tr = document.createElement('tr');
+            tr.dataset.historyId = String(h.id);
             const isSameDateAsPrevious = index > 0 && displayRows[index - 1]?.date === h.date;
             const isDateGroupStart = index === 0 || !isSameDateAsPrevious;
             if (index > 0 && !isSameDateAsPrevious) tr.classList.add('history-date-group-start');
+            if (this.pendingHistoryHighlightId && String(h.id) === String(this.pendingHistoryHighlightId)) {
+                tr.classList.add('history-row-focus-highlight');
+            }
             
             let rowBg = '#ffffff';
             const typeInfo = this.getHistoryTypeInfo(h);
-            let badgeClass = h.taskId ? 'badge-periodic' : 'badge-sudden';
+            let badgeClass = h.isSingleMaintenance ? 'badge-single-maintenance' : (h.taskId ? 'badge-periodic' : 'badge-sudden');
             let badgeText = typeInfo.label;
             let titleColor = typeInfo.color;
             
             if (h.isDokatei) {
-                rowBg = '#fee2e2'; // Stronger Pink
+                rowBg = typePalette.dokateiBg;
                 badgeClass = 'badge-dokatei';
                 badgeText = 'ドカ停';
                 titleColor = 'var(--danger)';
+            } else if (h.isSingleMaintenance) {
+                rowBg = typePalette.singleBg;
+                titleColor = typePalette.singleTitle;
             } else if (h.taskId) {
-                rowBg = '#eff6ff'; // Light Blue
+                rowBg = typePalette.periodicBg;
+                titleColor = typePalette.periodicTitle;
             } else if (h.isNonProductionStop) {
-                rowBg = '#fef3c7'; // Stronger Amber
+                rowBg = typePalette.nonProductionBg;
                 badgeClass = 'badge-sudden';
             } else {
-                rowBg = '#dcfce7'; // Stronger Green
+                rowBg = typePalette.suddenBg;
+                titleColor = typePalette.suddenTitle;
             }
             tr.style.backgroundColor = rowBg;
 
@@ -1427,6 +1607,8 @@
             const notesText = String(h.notes || '').trim();
             const recurrenceFrequency = recurrenceFrequencyByHistoryId.get(String(h.id));
             const isDateCollapsed = collapsedDates.has(h.date || '');
+            const historyPhotoSources = this.getResolvedHistoryPhotoSources?.(h.photos || [])
+                || (h.photos || []).map(p => this.getHistoryPhotoSrc?.(p) || '').filter(Boolean);
 
             tr.innerHTML = `
                 <td style="text-align:center;">
@@ -1435,8 +1617,8 @@
                 <td style="font-weight:700">${this.renderHistoryDateCell(h.date, isSameDateAsPrevious, isDateGroupStart, historyDateCounts[h.date] || 1, isDateCollapsed)}</td>
                 <td style="font-size:0.85rem">
                     <div style="display:flex; gap:10px; align-items:center;">
-                        <div class="img-box" style="width:36px; height:36px; border-radius:8px; flex-shrink:0;">
-                            ${machine?.photo ? `<img src="${machine.photo}">` : (machine ? `<button type="button" class="machine-photo-placeholder small" onclick="app.openMachinePhotoChoice('${this.escapeJs(machine.id)}', event)" title="画像を選択"><i class="fa-solid fa-industry"></i></button>` : '<i class="fa-solid fa-industry" style="font-size:0.8rem; color:#cbd5e1;"></i>')}
+                        <div class="img-box history-machine-thumb" style="width:36px; height:36px; border-radius:0; border:1px solid #dbe3ef; flex-shrink:0; background:#ffffff;">
+                            ${machine?.photo ? `<img src="${machine.photo}" style="object-fit:contain; border-radius:0;">` : (machine ? `<button type="button" class="machine-photo-placeholder small" onclick="app.openMachinePhotoChoice('${this.escapeJs(machine.id)}', event)" title="画像を選択"><i class="fa-solid fa-industry"></i></button>` : '<i class="fa-solid fa-industry" style="font-size:0.8rem; color:#cbd5e1;"></i>')}
                         </div>
                         <div style="flex:1; min-width:0;">
                             <div style="display:flex; gap:4px; align-items:center; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
@@ -1466,13 +1648,8 @@
                 <td class="history-content-cell" onclick="app.openHistoryEditForm('${this.escapeJs(h.id)}')" title="クリックして編集">
                     <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
                         <div style="font-weight:900; color:${titleColor}; flex:1; display:flex; align-items:center; min-width:0; gap:6px;">
-                            <span class="history-main-content" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${this.getHistoryDisplayText(h)}" onclick="event.stopPropagation(); app.openHistoryEditForm('${this.escapeJs(h.id)}', 'symptom')">${this.highlightText(this.getHistoryDisplayText(h), query)}</span>
-                            ${h.isFirstTime !== false 
-                                ? `<span class="badge-occurrence first" style="font-size:0.65rem; padding:2px 6px; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; border-radius:4px; font-weight:800; flex-shrink:0;">初回</span>`
-                                : `<span class="badge-occurrence recurrence" style="font-size:0.65rem; padding:2px 6px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:4px; font-weight:800; flex-shrink:0;">再発</span>`
-                            }
-                            ${this.renderHistoryRecurrenceFrequencyChip(recurrenceFrequency)}
-                            ${this.renderHistoryPrioritySigns(h, recurrenceFrequency, cost)}
+                            <span class="history-main-content ${this.historyTitleOutlineEnabled ? `history-main-content-outline outline-${this.historyTitleOutlineWeight}` : ''}" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${this.getHistoryDisplayText(h)}" onclick="event.stopPropagation(); app.openHistoryEditForm('${this.escapeJs(h.id)}', 'symptom')">${this.highlightText(this.getHistoryDisplayText(h), query)}</span>
+                            ${this.renderHistoryFoldableBadges(h, recurrenceFrequency, cost)}
                         </div>
                         <div style="font-size:0.85rem; color:var(--text-light); font-weight:700; white-space:nowrap; display:flex; gap:4px; align-items:center; flex-shrink:0;">
                             <i class="fa-solid fa-user-gear" style="font-size:0.75rem; opacity:0.8;"></i> 
@@ -1500,14 +1677,14 @@
                     ` : ''}
                 </td>
                 <td>
-                    ${h.photos && h.photos.length > 0 ? `
+                    ${historyPhotoSources.length > 0 ? `
                         <div style="display:flex; flex-wrap:wrap; gap:4px; max-width:64px;">
-                            ${h.photos.slice(0, 2).map(p => `
-                                <div class="img-box" style="width:28px; height:28px; border-radius:4px; border:1px solid var(--border); box-shadow:0 1px 2px rgba(0,0,0,0.05); flex-shrink:0;">
-                                    <img src="${p}" alt="添付画像" style="object-fit:cover; width:100%; height:100%;">
+                            ${historyPhotoSources.slice(0, 2).map(src => `
+                                <div class="img-box history-attachment-thumb" style="width:30px; height:30px; border-radius:0; border:1px solid #dbe3ef; box-shadow:none; flex-shrink:0; background:#ffffff;">
+                                    <img src="${src}" alt="添付画像" style="object-fit:contain; width:100%; height:100%; border-radius:0;">
                                 </div>
                             `).join('')}
-                            ${h.photos.length > 2 ? `<div style="font-size:0.6rem; color:var(--text-light); width:100%; text-align:center;">+${h.photos.length-2}</div>` : ''}
+                            ${historyPhotoSources.length > 2 ? `<div style="font-size:0.6rem; color:var(--text-light); width:100%; text-align:center;">+${historyPhotoSources.length-2}</div>` : ''}
                         </div>
                     ` : '<span style="color:var(--text-light); font-size:0.75rem;">-</span>'}
                 </td>
@@ -1562,6 +1739,18 @@
             `;
             body.appendChild(tr);
         });
+        if (this.pendingHistoryHighlightId) {
+            const highlightId = String(this.pendingHistoryHighlightId);
+            setTimeout(() => {
+                const target = Array.from(document.querySelectorAll('tr[data-history-id]'))
+                    .find(row => row.dataset.historyId === highlightId);
+                target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+            }, 80);
+            setTimeout(() => {
+                document.querySelectorAll('.history-row-focus-highlight').forEach(row => row.classList.remove('history-row-focus-highlight'));
+                if (String(this.pendingHistoryHighlightId) === highlightId) this.pendingHistoryHighlightId = null;
+            }, 3200);
+        }
         this.updateHistoryBulkBar();
     }
 
@@ -1611,9 +1800,11 @@
     renderHistoryFilterSummary(filtered, filters) {
         const area = document.getElementById('hist-filter-summary');
         if (!area) return;
+        const typePalette = this.getHistoryTypePalette();
         const machine = filters.machineId ? store.getMachines(true).find(m => String(m.id) === String(filters.machineId)) : null;
         const typeLabels = {
             periodic: '定期のみ',
+            singleMaintenance: '単発メンテのみ',
             suddenBundle: '突発+ドカ停+非生産停止',
             sudden: '突発のみ',
             nonProductionStop: '非生産停止のみ',
@@ -1651,9 +1842,11 @@
                 <div class="history-filter-chips">
                     ${commonBadge}
                     ${chips.length ? chips.map(chip => `<span>${this.escapeHtml(chip)}</span>`).join('') : '<span>絞り込みなし</span>'}
-                    <span class="history-row-color-legend sudden ${filters.type === 'sudden' ? 'active' : ''}" onclick="app.toggleTypeFilter('sudden', event)" title="突発で抽出"><i></i> 突発</span>
-                    <span class="history-row-color-legend non-production ${filters.type === 'nonProductionStop' ? 'active' : ''}" onclick="app.toggleTypeFilter('nonProductionStop', event)" title="非生産停止で抽出"><i></i> 非生産停止</span>
-                    <span class="history-row-color-legend dokatei ${filters.type === 'dokatei' ? 'active' : ''}" onclick="app.toggleTypeFilter('dokatei', event)" title="ドカ停で抽出"><i></i> ドカ停</span>
+                    <span class="history-row-color-legend periodic ${filters.type === 'periodic' ? 'active' : ''}" onclick="app.toggleTypeFilter('periodic', event)" title="定期で抽出"><i style="background:${typePalette.periodicBg}"></i> 定期</span>
+                    <span class="history-row-color-legend single-maintenance ${filters.type === 'singleMaintenance' ? 'active' : ''}" onclick="app.toggleTypeFilter('singleMaintenance', event)" title="単発メンテで抽出"><i style="background:${typePalette.singleBg}"></i> 単発メンテ</span>
+                    <span class="history-row-color-legend sudden ${filters.type === 'sudden' ? 'active' : ''}" onclick="app.toggleTypeFilter('sudden', event)" title="突発で抽出"><i style="background:${typePalette.suddenBg}"></i> 突発</span>
+                    <span class="history-row-color-legend non-production ${filters.type === 'nonProductionStop' ? 'active' : ''}" onclick="app.toggleTypeFilter('nonProductionStop', event)" title="非生産停止で抽出"><i style="background:${typePalette.nonProductionBg}"></i> 非生産停止</span>
+                    <span class="history-row-color-legend dokatei ${filters.type === 'dokatei' ? 'active' : ''}" onclick="app.toggleTypeFilter('dokatei', event)" title="ドカ停で抽出"><i style="background:${typePalette.dokateiBg}"></i> ドカ停</span>
                     <span class="history-guide-legend has-guide"><i class="fa-solid fa-file-invoice"></i> 手順有</span>
                     <span class="history-guide-legend no-guide"><i class="fa-solid fa-file-invoice"></i> 手順無</span>
                     <span class="history-guide-legend ref-guide"><i class="fa-solid fa-file-invoice"></i> 関連手順</span>
@@ -2096,6 +2289,30 @@
     setHistoryDensityMode(mode = 'standard') {
         this.historyDensityMode = ['standard', 'detail', 'compact'].includes(mode) ? mode : 'standard';
         localStorage.setItem('history_density_mode', this.historyDensityMode);
+        this.renderHistory();
+    }
+
+    toggleHistoryTitlePriorityMode() {
+        this.historyTitlePriorityMode = !(this.historyTitlePriorityMode ?? (localStorage.getItem('history_title_priority_mode') === '1'));
+        localStorage.setItem('history_title_priority_mode', this.historyTitlePriorityMode ? '1' : '0');
+        this.renderHistory();
+    }
+
+    toggleHistoryTitleOutline(enabled) {
+        this.historyTitleOutlineEnabled = !!enabled;
+        localStorage.setItem('history_title_outline_enabled', this.historyTitleOutlineEnabled ? '1' : '0');
+        this.renderHistory();
+    }
+
+    setHistoryTitleOutlineWeight(weight = 'standard') {
+        this.historyTitleOutlineWeight = ['thin', 'standard', 'bold'].includes(weight) ? weight : 'standard';
+        localStorage.setItem('history_title_outline_weight', this.historyTitleOutlineWeight);
+        this.renderHistory();
+    }
+
+    setHistoryColorPreset(preset = 'standard') {
+        this.historyColorPreset = ['soft', 'standard', 'strong'].includes(preset) ? preset : 'standard';
+        localStorage.setItem('history_color_preset', this.historyColorPreset);
         this.renderHistory();
     }
 

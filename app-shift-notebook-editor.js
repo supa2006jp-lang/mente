@@ -289,6 +289,51 @@
         return true;
     }
 
+    getShiftNoteAdjacentInlineStamp(editor, key) {
+        if (!editor || !['Backspace', 'Delete'].includes(key)) return null;
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return null;
+        const range = selection.getRangeAt(0);
+        if (!editor.contains(range.commonAncestorContainer)) return null;
+
+        const isBackspace = key === 'Backspace';
+        const findStamp = (node) => {
+            if (!node) return null;
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.classList?.contains('shift-note-member-stamp') || node.classList?.contains('shift-note-shift-stamp')) {
+                    return node;
+                }
+                return isBackspace
+                    ? node.querySelector?.('.shift-note-member-stamp:last-of-type, .shift-note-shift-stamp:last-of-type')
+                    : node.querySelector?.('.shift-note-member-stamp, .shift-note-shift-stamp');
+            }
+            return null;
+        };
+        const isIgnorableText = (node) => node?.nodeType === Node.TEXT_NODE && !node.textContent;
+
+        if (range.startContainer.nodeType === Node.TEXT_NODE) {
+            const text = range.startContainer.textContent || '';
+            if ((isBackspace && range.startOffset > 0) || (!isBackspace && range.startOffset < text.length)) return null;
+            let node = isBackspace ? range.startContainer.previousSibling : range.startContainer.nextSibling;
+            while (isIgnorableText(node)) node = isBackspace ? node.previousSibling : node.nextSibling;
+            return findStamp(node);
+        }
+
+        const container = range.startContainer;
+        if (container.nodeType !== Node.ELEMENT_NODE) return null;
+        let node = isBackspace
+            ? container.childNodes[range.startOffset - 1]
+            : container.childNodes[range.startOffset];
+        while (isIgnorableText(node)) node = isBackspace ? node.previousSibling : node.nextSibling;
+        return findStamp(node);
+    }
+
+    removeAdjacentShiftNoteInlineStamp(editor, key) {
+        const stamp = this.getShiftNoteAdjacentInlineStamp(editor, key);
+        if (!stamp) return false;
+        return this.removeShiftNoteInlineStamp(stamp, editor);
+    }
+
     removeSelectedShiftNoteInlineStamp(editor) {
         const stamp = editor?.querySelector('.shift-note-inline-stamp-selected');
         if (!stamp) return false;
@@ -422,6 +467,213 @@
         this.saveShiftNoteFormats();
         this._activeShiftNoteEditor = null;
         document.querySelectorAll('.shift-notebook-row').forEach(r => this._updateShiftNoteFormatIndicator(r));
+    }
+
+    loadShiftNoteRowSettingPresets() {
+        try {
+            const saved = JSON.parse(localStorage.getItem('shift_note_row_setting_presets') || '[]');
+            if (!Array.isArray(saved)) return [];
+            return saved.map(item => ({
+                id: typeof item?.id === 'string' ? item.id : `preset-${Date.now()}`,
+                name: typeof item?.name === 'string' && item.name.trim() ? item.name.trim() : '設定プリセット',
+                formats: {
+                    color: typeof item?.formats?.color === 'string' ? item.formats.color : null,
+                    size: typeof item?.formats?.size === 'string' ? this.normalizeShiftNoteSize(item.formats.size) : null,
+                    font: typeof item?.formats?.font === 'string' ? item.formats.font : null
+                },
+                mergeLineBreak: !!item?.mergeLineBreak
+            }));
+        } catch (e) {
+            return [];
+        }
+    }
+
+    saveShiftNoteRowSettingPresets(presets = []) {
+        try {
+            localStorage.setItem('shift_note_row_setting_presets', JSON.stringify(presets.slice(0, 20)));
+        } catch (e) {}
+    }
+
+    getShiftNoteRowPresetSummary(preset = {}) {
+        const formatText = this.getShiftNoteFormatSummary(preset.formats || {});
+        return `${formatText} / 結合${preset.mergeLineBreak ? 'ON' : 'OFF'}`;
+    }
+
+    getCurrentShiftNoteRowSettingPreset(row) {
+        return {
+            formats: {
+                color: this._activeShiftNoteFormats?.color || null,
+                size: this._activeShiftNoteFormats?.size || null,
+                font: this._activeShiftNoteFormats?.font || null
+            },
+            mergeLineBreak: row?.dataset?.mergeLineBreak === 'true'
+        };
+    }
+
+    getLastShiftNoteRowSettingPresetId() {
+        try {
+            return localStorage.getItem('shift_note_row_setting_last_preset') || '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    setLastShiftNoteRowSettingPresetId(presetId = '') {
+        try {
+            if (presetId) localStorage.setItem('shift_note_row_setting_last_preset', presetId);
+        } catch (e) {}
+    }
+
+    closeShiftNoteRowPresetMenus(except = null) {
+        document.querySelectorAll('.shift-row-preset-menu.open').forEach(menu => {
+            if (menu !== except) menu.remove();
+        });
+    }
+
+    toggleShiftNoteRowPresetMenu(button) {
+        const row = button?.closest('.shift-notebook-row');
+        const actions = button?.closest('.shift-row-actions');
+        if (!row || !actions) return;
+        let menu = actions.querySelector('.shift-row-preset-menu');
+        const willOpen = !menu?.classList.contains('open');
+        this.closeShiftNoteRowPresetMenus(menu || null);
+        if (!willOpen) {
+            menu?.remove();
+            return;
+        }
+        if (!menu) {
+            menu = document.createElement('div');
+            menu.className = 'shift-row-preset-menu';
+            actions.appendChild(menu);
+        }
+        this.renderShiftNoteRowPresetMenu(menu);
+        menu.classList.add('open');
+    }
+
+    renderShiftNoteRowPresetMenu(menu) {
+        if (!menu) return;
+        const row = menu.closest('.shift-notebook-row');
+        const presets = this.loadShiftNoteRowSettingPresets();
+        const currentSummary = this.getShiftNoteRowPresetSummary(this.getCurrentShiftNoteRowSettingPreset(row));
+        const lastPresetId = this.getLastShiftNoteRowSettingPresetId();
+        const lastPreset = presets.find(item => item.id === lastPresetId) || presets[0] || null;
+        const itemsHtml = presets.length
+            ? presets.map(preset => `
+                <div class="shift-row-preset-item">
+                    <button type="button" class="shift-row-preset-apply" data-preset-id="${this.escapeHtml(preset.id)}" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteRowSettingPreset(this)">
+                        <span class="shift-row-preset-name">${this.escapeHtml(preset.name)}</span>
+                        <span class="shift-row-preset-summary">${this.escapeHtml(this.getShiftNoteRowPresetSummary(preset))}</span>
+                    </button>
+                    <button type="button" class="shift-row-preset-delete" data-preset-id="${this.escapeHtml(preset.id)}" title="このプリセットを削除" onmousedown="event.preventDefault()" onclick="app.deleteShiftNoteRowSettingPreset(this)">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            `).join('')
+            : '<div class="shift-row-preset-empty">登録済みプリセットなし</div>';
+        menu.innerHTML = `
+            <div class="shift-row-preset-head">行設定プリセット</div>
+            <div class="shift-row-preset-current">
+                <span>現在の設定</span>
+                <strong>${this.escapeHtml(currentSummary)}</strong>
+            </div>
+            ${lastPreset ? `
+                <button type="button" class="shift-row-preset-last" data-preset-id="${this.escapeHtml(lastPreset.id)}" onmousedown="event.preventDefault()" onclick="app.applyShiftNoteRowSettingPreset(this)">
+                    <i class="fa-solid fa-bolt"></i> 最後の設定を反映
+                    <span>${this.escapeHtml(lastPreset.name)}</span>
+                </button>
+            ` : ''}
+            <button type="button" class="shift-row-preset-register" onmousedown="event.preventDefault()" onclick="app.registerShiftNoteRowSettingPreset(this)">
+                <i class="fa-solid fa-bookmark"></i> 今の設定を登録
+            </button>
+            <div class="shift-row-preset-list">${itemsHtml}</div>
+        `;
+    }
+
+    registerShiftNoteRowSettingPreset(button) {
+        const row = button?.closest('.shift-notebook-row');
+        const menu = button?.closest('.shift-row-preset-menu');
+        if (!row) return;
+        const currentPreset = this.getCurrentShiftNoteRowSettingPreset(row);
+        const current = currentPreset.formats;
+        const mergeLineBreak = currentPreset.mergeLineBreak;
+        const defaultName = this.getShiftNoteRowPresetSummary({ formats: current, mergeLineBreak });
+        const name = (prompt('プリセット名を入力してください', defaultName) || '').trim();
+        if (!name) return;
+        const presets = this.loadShiftNoteRowSettingPresets();
+        const existingIndex = presets.findIndex(p => p.name === name);
+        const preset = {
+            id: existingIndex >= 0 ? presets[existingIndex].id : `preset-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            name,
+            formats: current,
+            mergeLineBreak
+        };
+        if (existingIndex >= 0) presets[existingIndex] = preset;
+        else presets.unshift(preset);
+        this.saveShiftNoteRowSettingPresets(presets);
+        this.setLastShiftNoteRowSettingPresetId(preset.id);
+        this.renderShiftNoteRowPresetMenu(menu);
+        this.setShiftNotebookStatus(existingIndex >= 0 ? '行設定プリセットを上書きしました' : '行設定プリセットを登録しました', 'saved');
+    }
+
+    applyShiftNoteRowSettingPreset(button) {
+        const row = button?.closest('.shift-notebook-row');
+        const presetId = button?.dataset?.presetId || '';
+        const preset = this.loadShiftNoteRowSettingPresets().find(item => item.id === presetId);
+        if (!row || !preset) return;
+        this.applyShiftNoteRowSettingPresetToRow(row, preset);
+    }
+
+    applyLastShiftNoteRowSettingPreset(button) {
+        const row = button?.closest('.shift-notebook-row');
+        if (!row) return;
+        const presets = this.loadShiftNoteRowSettingPresets();
+        const lastPresetId = this.getLastShiftNoteRowSettingPresetId();
+        const preset = presets.find(item => item.id === lastPresetId) || presets[0];
+        if (!preset) {
+            this.setShiftNotebookStatus('行設定プリセットが未登録です', 'error');
+            this.toggleShiftNoteRowPresetMenu(button);
+            return;
+        }
+        this.applyShiftNoteRowSettingPresetToRow(row, preset);
+    }
+
+    applyShiftNoteRowSettingPresetToRow(row, preset) {
+        if (!row || !preset) return;
+        const editor = row.querySelector('.shift-note-text');
+        this._activeShiftNoteFormats = { ...(preset.formats || {}) };
+        this.saveShiftNoteFormats();
+        this.setLastShiftNoteRowSettingPresetId(preset.id);
+        if (editor) {
+            this.applyShiftNoteFormatsToWholeEditor(editor, this._activeShiftNoteFormats, false);
+            this.cleanupShiftNoteEmptySpans(editor);
+            this.resizeShiftNoteEditor(editor);
+        }
+        row.dataset.mergeLineBreak = preset.mergeLineBreak ? 'true' : 'false';
+        row.classList.toggle('shift-row-merge-line-active', !!preset.mergeLineBreak);
+        const mergeButton = row.querySelector('.shift-row-merge-line-toggle');
+        if (mergeButton) {
+            mergeButton.classList.toggle('active', !!preset.mergeLineBreak);
+            mergeButton.setAttribute('aria-pressed', preset.mergeLineBreak ? 'true' : 'false');
+            mergeButton.title = preset.mergeLineBreak
+                ? '改行時結合ON: 文中Enterは後ろの文字を次行へ結合 / 行末Enterは通常改行'
+                : '改行時結合OFF: 通常の改行';
+        }
+        this._updateShiftNoteFormatIndicator(row);
+        this.closeShiftNoteRowPresetMenus();
+        this.scheduleShiftNotebookAutoSave();
+        this.setShiftNotebookStatus(`行設定プリセット「${preset.name}」を反映しました`, 'saved');
+    }
+
+    deleteShiftNoteRowSettingPreset(button) {
+        const presetId = button?.dataset?.presetId || '';
+        const menu = button?.closest('.shift-row-preset-menu');
+        const presets = this.loadShiftNoteRowSettingPresets();
+        const target = presets.find(item => item.id === presetId);
+        if (!target) return;
+        if (!confirm(`行設定プリセット「${target.name}」を削除しますか？`)) return;
+        this.saveShiftNoteRowSettingPresets(presets.filter(item => item.id !== presetId));
+        this.renderShiftNoteRowPresetMenu(menu);
+        this.setShiftNotebookStatus('行設定プリセットを削除しました', 'moved');
     }
 
     syncShiftNoteFormatControls(menu) {
@@ -900,41 +1152,12 @@
 
     ensureShiftNoteActiveFormat(editor) {
         if (!editor) return;
-        const f = this._activeShiftNoteFormats;
-        if (!f || (!f.color && !f.size && !f.font)) return;
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0) return;
         const range = sel.getRangeAt(0);
         if (!editor.contains(range.commonAncestorContainer)) return;
-        if (!range.collapsed) return;
-
-        let node = range.startContainer;
-        if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
-        
-        if (node.nodeName === 'SPAN') {
-            const temp = document.createElement('span');
-            if (f.color) temp.style.color = f.color;
-            if (f.size) temp.style.fontSize = f.size;
-            if (f.font) temp.style.fontFamily = f.font;
-            let colorMatch = !f.color || (node.style.color === temp.style.color);
-            let sizeMatch = !f.size || (node.style.fontSize === temp.style.fontSize);
-            let fontMatch = !f.font || (node.style.fontFamily === temp.style.fontFamily);
-            if (colorMatch && sizeMatch && fontMatch) return;
-        }
-
-        const span = document.createElement('span');
-        if (f.color) span.style.color = f.color;
-        if (f.size) span.style.fontSize = f.size;
-        if (f.font) span.style.fontFamily = f.font;
-        span.innerHTML = '&#8203;';
-
-        range.insertNode(span);
-        const newRange = document.createRange();
-        newRange.setStart(span.firstChild, 1);
-        newRange.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(newRange);
-        editor._savedRange = newRange.cloneRange();
+        this.cleanupShiftNoteEmptySpans(editor);
+        this.saveShiftNoteSelection(editor);
     }
 
     cleanupShiftNoteEmptySpans(editor) {

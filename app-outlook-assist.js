@@ -994,7 +994,7 @@
                                 <label class="outlook-address-field"><span>${TXT.givenName}</span><input id="outlook-address-given" placeholder="${TXT.givenName}" value="${this.escapeHtml(editingContact?.givenName || '')}"></label>
                                 <label class="outlook-address-field"><span>${TXT.email}</span><input id="outlook-address-email" placeholder="${TXT.email}" value="${this.escapeHtml(editingContact?.email || '')}"></label>
                                 <label class="outlook-address-field"><span>${TXT.group}</span><input id="outlook-address-group" placeholder="${TXT.groupPlaceholder}" value="${this.escapeHtml(editingContact ? normalizeOutlookAssistGroups(editingContact.groups || editingContact.group).join(', ') : newContactGroupValue)}"></label>
-                                <label class="outlook-address-field"><span>${TXT.note}</span><input id="outlook-address-note" placeholder="${TXT.note}" value="${this.escapeHtml(editingContact?.note || '')}"></label>
+                                <label class="outlook-address-field outlook-address-note-field"><span>${TXT.note}</span><textarea id="outlook-address-note" placeholder="${TXT.note}">${this.escapeHtml(editingContact?.note || '')}</textarea></label>
                                 <button type="submit" class="primary-btn"><i class="fa-solid ${editingContact ? 'fa-floppy-disk' : 'fa-plus'}"></i> ${editingContact ? TXT.update : TXT.register}</button>
                                 ${editingContact ? `<button type="button" class="secondary-btn" onclick="app.clearOutlookAssistRecipientContactEdit()"><i class="fa-solid fa-xmark"></i> ${TXT.cancelEdit}</button>` : ''}
                             </form>
@@ -1256,14 +1256,35 @@
             }, 3000);
         },
 
+        getOutlookAssistDraftPageCopySummary(page = {}, index = 0, worker = this.getOutlookAssistState().selectedWorker || '') {
+            const state = this.getOutlookAssistState();
+            const workerKey = String(worker || '').trim();
+            const statusKey = workerKey ? `${workerKey}::${Math.max(0, Number(index) || 0)}` : '';
+            const status = statusKey && state.copyStatus?.[statusKey]
+                ? state.copyStatus[statusKey]
+                : (index === 0 && workerKey && state.copyStatus?.[workerKey] ? state.copyStatus[workerKey] : {});
+            const targets = [
+                ['to', TXT.to, true],
+                ['cc', 'CC', !!String(page.cc || '').trim()],
+                ['bcc', 'BCC', !!String(page.bcc || '').trim()],
+                ['subject', TXT.subject, true],
+                ['body', '\u672c\u6587', true]
+            ].filter(([, , required]) => required);
+            if (!targets.length) return { text: '\u30b3\u30d4\u30fc\u5bfe\u8c61\u306a\u3057', state: 'empty' };
+            const pending = targets.filter(([field]) => !status?.[field]).map(([, label]) => label);
+            if (!pending.length) return { text: '\u5168\u30b3\u30d4\u30fc\u6e08\u307f', state: 'done' };
+            return { text: `\u672a\u30b3\u30d4\u30fc: ${pending.join('\u30fb')}`, state: 'pending' };
+        },
+
         getOutlookAssistDraftPageListHtml(pages, currentIndex) {
             if (!this._outlookAssistShowDraftPageList) return '';
             return `<div class="outlook-draft-page-list-backdrop" onclick="app.closeOutlookAssistDraftPageList()"></div><div class="outlook-draft-page-list" onclick="event.stopPropagation()">${(pages || []).map((page, index) => {
                 const title = page.pageTitle || page.subject || TXT.noDraft;
                 const body = normalizePlainText(page.body || '').slice(0, 34);
                 const pageColor = normalizeOutlookAssistTemplateColor(page.pageColor || '');
+                const copySummary = this.getOutlookAssistDraftPageCopySummary(page, index);
                 return `<div class="outlook-draft-page-list-row ${index === currentIndex ? 'active' : ''}" style="${pageColor ? `--page-color:${this.escapeHtml(pageColor)}` : ''}">
-                    <button type="button" class="outlook-draft-page-list-main" onclick="app.jumpOutlookAssistDraftPage(${index})"><i class="outlook-draft-page-list-dot"></i><span><b>${index + 1}. ${this.escapeHtml(title)}</b>${body ? `<small>${this.escapeHtml(body)}</small>` : ''}</span></button>
+                    <button type="button" class="outlook-draft-page-list-main" onclick="app.jumpOutlookAssistDraftPage(${index})"><i class="outlook-draft-page-list-dot"></i><span><b>${index + 1}. ${this.escapeHtml(title)}</b>${body ? `<small>${this.escapeHtml(body)}</small>` : ''}<em class="outlook-draft-page-copy-summary ${this.escapeHtml(copySummary.state)}">${this.escapeHtml(copySummary.text)}</em></span></button>
                     <div class="outlook-draft-page-list-actions">
                         <label title="${TXT.pageColor}" class="outlook-draft-page-list-color" style="${pageColor ? `--page-color:${this.escapeHtml(pageColor)}` : ''}"><i class="fa-solid fa-palette"></i><input type="color" value="${this.escapeHtml(pageColor || '#ffffff')}" oninput="app.setOutlookAssistDraftPageColor(${index}, this.value)"></label>
                         ${this.getOutlookAssistDraftPageColorPresetHtml(index, pageColor)}
@@ -2389,7 +2410,7 @@
             const email = normalizePlainText(document.getElementById('outlook-address-email')?.value || '').replace(/\n+/g, ' ').trim();
             const groupText = normalizePlainText(document.getElementById('outlook-address-group')?.value || '').trim();
             const groups = normalizeOutlookAssistGroups(groupText);
-            const note = normalizePlainText(document.getElementById('outlook-address-note')?.value || '').replace(/\n+/g, ' ').trim();
+            const note = normalizePlainText(document.getElementById('outlook-address-note')?.value || '').trim();
             if (!familyName) return this.showToast(TXT.familyRequired, 'warning');
             if (!email) return this.showToast(TXT.emailRequired, 'warning');
             if (groupText.split(/[,\u3001;\n]+/).map(item => item.trim()).filter(Boolean).length > 7) return this.showToast(TXT.groupLimit, 'warning');
@@ -4715,6 +4736,101 @@ if (document.execCommand && !document.execCommand.outlookAssistShortDateNormaliz
         return normalizeOutlookAssistShortDateText(original.apply(this, args));
     };
     wrapped.outlookAssistShortDateNormalized = true;
+    MaintenanceApp.prototype[methodName] = wrapped;
+});
+
+const getOutlookAssistRecipientDedupeKey = (outlookApp, item) => {
+    const resolved = outlookApp?.resolveOutlookAssistRecipientItem
+        ? outlookApp.resolveOutlookAssistRecipientItem(item)
+        : String(item || '').trim();
+    const text = String(resolved || item || '').trim();
+    const email = text.match(/[^\s<>;,]+@[^\s<>;,]+/)?.[0] || '';
+    if (email) return `email:${MaintenanceApp.toHalfWidthLower(email)}`;
+    const name = MaintenanceApp.toHalfWidthLower(text);
+    return name ? `name:${name}` : '';
+};
+
+const dedupeOutlookAssistRecipientList = (outlookApp, value, seenKeys = new Set()) => {
+    const result = [];
+    const changedSource = String(value || '');
+    (outlookApp?.splitOutlookAssistRecipients?.(value) || []).forEach(item => {
+        const resolved = outlookApp.resolveOutlookAssistRecipientItem(item);
+        const key = getOutlookAssistRecipientDedupeKey(outlookApp, resolved || item);
+        if (!key || seenKeys.has(key)) return;
+        seenKeys.add(key);
+        result.push(resolved || item);
+    });
+    return {
+        value: result.join('; '),
+        changed: changedSource.trim() !== result.join('; ').trim()
+    };
+};
+
+const dedupeOutlookAssistCurrentDraftRecipients = (outlookApp, render = false) => {
+    if (!outlookApp?.getOutlookAssistState || !outlookApp?.getCurrentOutlookAssistDraft) return false;
+    const state = outlookApp.getOutlookAssistState();
+    const worker = state.selectedWorker || '';
+    if (!worker) return false;
+    const draft = outlookApp.getCurrentOutlookAssistDraft();
+    const seen = new Set();
+    const next = {};
+    const changedFields = [];
+    ['to', 'cc', 'bcc'].forEach(field => {
+        const normalized = dedupeOutlookAssistRecipientList(outlookApp, draft[field] || '', seen);
+        next[field] = normalized.value;
+        if (String(draft[field] || '').trim() !== normalized.value.trim()) changedFields.push(field);
+    });
+    if (!changedFields.length) return false;
+    const status = outlookApp.getOutlookAssistCopyStatus(worker);
+    changedFields.forEach(field => { status[field] = false; });
+    outlookApp.setCurrentOutlookAssistDraft({
+        ...draft,
+        ...next,
+        updatedAt: new Date().toISOString()
+    });
+    store.save();
+    if (render) {
+        outlookApp.renderOutlookAssist();
+    } else {
+        outlookApp.renderOutlookAssistPreview?.();
+        outlookApp.renderOutlookAssistCopyChecklist?.();
+        outlookApp.renderOutlookAssistAssistPanels?.();
+        outlookApp.renderOutlookAssistWorkers?.();
+    }
+    return true;
+};
+
+[
+    'copyOutlookAssistAll',
+    'copyOutlookAssistField'
+].forEach(methodName => {
+    const original = MaintenanceApp.prototype[methodName];
+    if (typeof original !== 'function' || original.outlookRecipientDedupeBeforeWrapped) return;
+    const wrapped = function (...args) {
+        dedupeOutlookAssistCurrentDraftRecipients(this, false);
+        return original.apply(this, args);
+    };
+    wrapped.outlookRecipientDedupeBeforeWrapped = true;
+    MaintenanceApp.prototype[methodName] = wrapped;
+});
+
+[
+    'saveOutlookAssistDraftFromForm',
+    'commitOutlookAssistRecipientField',
+    'applyOutlookAssistRecipientSet',
+    'addOutlookAssistRecipientContactToField',
+    'addOutlookAssistRecipientGroupToField',
+    'removeOutlookAssistRecipientChip'
+].forEach(methodName => {
+    const original = MaintenanceApp.prototype[methodName];
+    if (typeof original !== 'function' || original.outlookRecipientDedupeAfterWrapped) return;
+    const wrapped = function (...args) {
+        const result = original.apply(this, args);
+        const needsFullRender = ['commitOutlookAssistRecipientField', 'applyOutlookAssistRecipientSet', 'addOutlookAssistRecipientContactToField', 'addOutlookAssistRecipientGroupToField', 'removeOutlookAssistRecipientChip'].includes(methodName);
+        dedupeOutlookAssistCurrentDraftRecipients(this, needsFullRender);
+        return result;
+    };
+    wrapped.outlookRecipientDedupeAfterWrapped = true;
     MaintenanceApp.prototype[methodName] = wrapped;
 });
 })();

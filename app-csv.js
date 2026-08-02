@@ -55,6 +55,7 @@
 
     getHistoryTypeInfo(h) {
         if (h.isDokatei) return { key: 'dokatei', label: 'ドカ停', color: 'var(--danger)', chartColor: '#ef4444' };
+        if (h.isSingleMaintenance) return { key: 'singleMaintenance', label: '単発', color: '#0f766e', chartColor: '#14b8a6' };
         if (h.taskId) return { key: 'periodic', label: '定期', color: 'var(--primary)', chartColor: '#3b82f6' };
         if (h.isNonProductionStop) return { key: 'nonProductionStop', label: '非停止', color: '#d97706', chartColor: '#f59e0b' };
         return { key: 'sudden', label: '突発', color: 'var(--success)', chartColor: '#10b981' };
@@ -899,7 +900,8 @@
         let history = store.getHistory({ machineId, search: query }).filter(h => !h.isManualGuide);
         history = this.filterHistoryByPeriod(history, period);
         if (type) {
-            if (type === 'periodic') history = history.filter(h => !!h.taskId);
+            if (type === 'periodic') history = history.filter(h => !!h.taskId && !h.isSingleMaintenance);
+            else if (type === 'singleMaintenance') history = history.filter(h => !!h.isSingleMaintenance);
             else if (type === 'sudden') history = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
             else if (type === 'nonProductionStop') history = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop);
             else if (type === 'dokatei') history = history.filter(h => h.isDokatei);

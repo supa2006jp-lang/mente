@@ -22,7 +22,7 @@ class MaintenanceApp {
         this.calLineFilter = 'all'; // Currently selected line in calendar view
         this.calendarCompactMode = localStorage.getItem('calendar_compact_mode') === 'true';
         this.expandedCompactMemos = new Set();
-        this.machineSort = 'rank'; // 'rank' or 'name' or 'newest'
+        this.machineSort = 'rank'; // 'rank' or 'cost' or 'name' or 'newest'
         this.analysisMode = 'parts'; // 'parts' or 'machines'
         this.laborRate = parseFloat(localStorage.getItem('maintenance_labor_rate')) || 3500; // Hourly rate for labor cost calculation
         this.costFilter = 'all'; // 'all', 'periodic', 'sudden'

@@ -634,6 +634,13 @@
             const content = document.getElementById('modal-content');
             content.innerHTML = `
                 <form id="sudden-form">
+                    <div class="single-maintenance-toggle-panel">
+                        <label>
+                            <input type="checkbox" id="s-is-single-maintenance" style="width:auto;" onchange="app.toggleSuddenSingleMaintenanceMode()">
+                            <span><i class="fa-solid fa-screwdriver-wrench"></i> 単発メンテ登録</span>
+                        </label>
+                        <small>チェックすると、突発トラブルではなく1回きりのメンテ完了記録として保存します。</small>
+                    </div>
                     <div class="form-group" style="background:#f1f5f9; padding:12px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:15px;">
                         <label style="font-weight:900; color:#475569;"><i class="fa-solid fa-list-ol"></i> 対応ライン番号 <span style="color:var(--danger)">*</span></label>
                         <select id="s-line-no" required style="height:44px; font-weight:900; color:var(--text-main); font-size:1rem; border:2.5px solid var(--border-dark);">
@@ -754,7 +761,7 @@
                     </div>
 
                     <div class="form-group">
-                        <label>症状・故障内容 <span style="color:var(--danger)">*</span></label>
+                        <label id="s-content-label">症状・故障内容 <span style="color:var(--danger)">*</span></label>
                         <textarea id="s-content" class="sudden-detail-textarea" rows="6" placeholder="どのような異常が発生したか記入してください" required oninput="app.updateHistorySmartAssist('s-', false)"></textarea>
                         <div id="s-content-suggestions" class="suggestion-area"></div>
                     </div>
@@ -823,6 +830,7 @@
             `;
             this.setupAutoResizeTextareas('#sudden-form .sudden-detail-textarea');
             this.setupSuddenTimeAutoCalc();
+            this.toggleSuddenSingleMaintenanceMode();
             if (prefill?.content) {
                 const content = document.getElementById('s-content');
                 if (content) {
@@ -831,6 +839,77 @@
                     content.dispatchEvent(new Event('input', { bubbles: true }));
                 }
             }
+            this.applySuddenRecordWideLayout('s');
+        });
+    }
+
+    toggleSuddenSingleMaintenanceMode() {
+        const enabled = !!document.getElementById('s-is-single-maintenance')?.checked;
+        const mutedIds = ['s-is-dokatei', 's-is-non-production-stop', 's-error-no'];
+        const mutedGroups = mutedIds.map(id => document.getElementById(id)?.closest('.form-group')).filter(Boolean);
+        const occurrenceGroup = document.querySelector('input[name="s-occurrence"]')?.closest('.form-group');
+        const causeGroup = document.getElementById('s-cause')?.closest('.form-group');
+        if (occurrenceGroup) mutedGroups.push(occurrenceGroup);
+        if (causeGroup) mutedGroups.push(causeGroup);
+
+        mutedGroups.forEach(group => {
+            group.classList.toggle('single-maintenance-muted', enabled);
+            group.querySelectorAll('input, textarea, select, button').forEach(control => {
+                if (control.id === 's-is-single-maintenance') return;
+                control.disabled = enabled;
+            });
+        });
+
+        if (enabled) {
+            const dokatei = document.getElementById('s-is-dokatei');
+            const nonProduction = document.getElementById('s-is-non-production-stop');
+            const errorNo = document.getElementById('s-error-no');
+            const cause = document.getElementById('s-cause');
+            if (dokatei) dokatei.checked = false;
+            if (nonProduction) nonProduction.checked = false;
+            if (errorNo) errorNo.value = '';
+            if (cause) cause.value = '';
+        }
+
+        const contentLabel = document.getElementById('s-content-label');
+        const content = document.getElementById('s-content');
+        if (contentLabel) {
+            contentLabel.innerHTML = enabled
+                ? 'メンテ内容 <span style="color:var(--danger)">*</span>'
+                : '症状・故障内容 <span style="color:var(--danger)">*</span>';
+        }
+        if (content) {
+            content.placeholder = enabled
+                ? '実施した単発メンテ内容を記入してください'
+                : 'どのような異常が発生したか記入してください';
+        }
+        this.updateHistorySmartAssist('s-');
+    }
+
+    applySuddenRecordWideLayout(prefix = 's') {
+        const formId = prefix === 'e' ? 'edit-history-form' : 'sudden-form';
+        const startFieldId = prefix === 'e' ? 'e-symptom' : 's-content';
+        const form = document.getElementById(formId);
+        const startGroup = document.getElementById(startFieldId)?.closest('.form-group');
+        if (!form || !startGroup || form.querySelector('.sudden-record-wide-layout')) return;
+
+        const layout = document.createElement('div');
+        layout.className = 'sudden-record-wide-layout';
+        const left = document.createElement('div');
+        left.className = 'sudden-record-wide-column sudden-record-wide-left';
+        const right = document.createElement('div');
+        right.className = 'sudden-record-wide-column sudden-record-wide-right';
+        layout.append(left, right);
+
+        const children = Array.from(form.children);
+        let isRightSide = false;
+        children.forEach(child => {
+            if (child === startGroup) isRightSide = true;
+            (isRightSide ? right : left).appendChild(child);
+        });
+        form.appendChild(layout);
+        requestAnimationFrame(() => {
+            form.querySelectorAll('.sudden-detail-textarea').forEach(textarea => this.autoResizeTextarea(textarea));
         });
     }
 
@@ -1103,111 +1182,171 @@
     getHistoryAssistHtml(prefix, machineId, symptomText = '', currentId = '') {
         const { candidates, recurrence } = this.getHistoryAssistCandidates(machineId, symptomText, currentId);
         if (!machineId || machineId === 'NEW_MACHINE') return '';
-        if (!candidates.length && !recurrence) return '';
-        const latest = recurrence?.latest?.history;
+        const hideRecurrence = prefix === 's-' && !!document.getElementById('s-is-single-maintenance')?.checked;
+        const visibleRecurrence = hideRecurrence ? null : recurrence;
+        if (!candidates.length && !visibleRecurrence) return '';
+        const assistCollapsed = this.historyAssistCandidateCollapsed?.[prefix] !== false;
+        const recurrenceCollapsed = this.historyRecurrenceCollapsed?.[prefix] !== false;
+        const latest = visibleRecurrence?.latest?.history;
         const latestTreatment = latest?.notes || '';
         const latestCause = latest?.cause || '';
-        const mostTreatment = recurrence?.mostTreatment?.value || '';
-        const mostCause = recurrence?.mostCause?.value || '';
-        const mostWorkTime = recurrence?.mostWorkTime?.value || '';
-        const mostCategory = recurrence?.mostCategory?.value || '';
-        const mostWorkers = recurrence?.mostWorkers?.value || '';
+        const mostTreatment = visibleRecurrence?.mostTreatment?.value || '';
+        const mostCause = visibleRecurrence?.mostCause?.value || '';
+        const mostWorkTime = visibleRecurrence?.mostWorkTime?.value || '';
+        const mostCategory = visibleRecurrence?.mostCategory?.value || '';
+        const mostWorkers = visibleRecurrence?.mostWorkers?.value || '';
+        const recurrenceTitle = visibleRecurrence ? (visibleRecurrence.title || this.getHistoryDisplayText(latest) || '内容なし') : '';
         return `
             <div class="history-assist-panel">
-                ${recurrence ? `
-                    <div class="history-recurrence-card ${recurrence.count >= 3 ? 'strong' : ''}">
+                ${visibleRecurrence ? `
+                    <div class="history-recurrence-card ${visibleRecurrence.count >= 3 ? 'strong' : ''} ${recurrenceCollapsed ? 'is-collapsed' : ''}">
                         <div class="history-assist-head">
-                            <span><i class="fa-solid fa-repeat"></i> 再発管理（最多内容）</span>
-                            <b>${recurrence.count}件 / 合計 ${recurrence.totalTime}分</b>
-                        </div>
-                        <input type="hidden" id="${this.escapeHtml(prefix)}recurrence-group-id" value="${this.escapeHtml(recurrence.id || '')}">
-                        <input type="hidden" id="${this.escapeHtml(prefix)}recurrence-group-title" value="${this.escapeHtml(recurrence.title || '')}">
-                        <div class="history-recurrence-meta">
-                            <span class="${this.escapeHtml(recurrence.strength)}">${this.escapeHtml(recurrence.strengthLabel)} / ${recurrence.avgScore}点</span>
-                            <span>最多内容 ${recurrence.titleStat?.count || recurrence.count}/${recurrence.titleStat?.total || recurrence.count}件</span>
-                            <span>最多原因 ${recurrence.mostCause?.count || 0}/${recurrence.mostCause?.total || recurrence.count}件</span>
-                            <span>最多処置 ${recurrence.mostTreatment?.count || 0}/${recurrence.mostTreatment?.total || recurrence.count}件</span>
-                        </div>
-                        <div class="history-recurrence-title">
-                            <strong>一番多い内容</strong>
-                            ${this.escapeHtml(recurrence.title || this.getHistoryDisplayText(latest) || '内容なし')}
-                            ${recurrence.groups?.length > 1 ? `<small>他 ${recurrence.groups.length - 1}グループあり</small>` : ''}
-                        </div>
-                        <div class="history-recurrence-body">
-                            <div>
-                                <strong>前回履歴</strong>
-                                ${this.escapeHtml(latest?.date || '-')} ${this.escapeHtml(this.getHistoryDisplayText(latest) || '内容なし')}
-                            </div>
-                            <div>
-                                <strong>前回処置</strong>
-                                ${this.escapeHtml(latestTreatment || '未入力')}
-                            </div>
-                            <div>
-                                <strong>最多原因</strong>
-                                ${this.escapeHtml(mostCause || '未入力')}
-                            </div>
-                            <div>
-                                <strong>最多処置</strong>
-                                ${this.escapeHtml(mostTreatment || '未入力')}
+                            <span class="history-recurrence-head-main">
+                                <span><i class="fa-solid fa-repeat"></i> 再発管理（最多内容）</span>
+                                <span class="history-recurrence-head-summary" title="${this.escapeHtml(recurrenceTitle)}">
+                                    <em class="${this.escapeHtml(visibleRecurrence.strength)}">${this.escapeHtml(visibleRecurrence.strengthLabel)} / ${visibleRecurrence.avgScore}点</em>
+                                    <em class="latest">前回 ${this.escapeHtml(latest?.date || '-')}</em>
+                                    <span>最多内容: ${this.escapeHtml(recurrenceTitle)}</span>
+                                </span>
+                            </span>
+                            <div class="history-assist-head-actions">
+                                <b>${visibleRecurrence.count}件 / 合計 ${visibleRecurrence.totalTime}分</b>
+                                <button type="button" class="history-assist-toggle-btn history-recurrence-toggle-btn" data-history-recurrence-toggle aria-expanded="${recurrenceCollapsed ? 'false' : 'true'}" onclick="app.toggleHistoryRecurrenceCard('${this.escapeJs(prefix)}', event)">
+                                    <i class="fa-solid fa-chevron-${recurrenceCollapsed ? 'down' : 'up'}"></i> ${recurrenceCollapsed ? '開く' : '閉じる'}
+                                </button>
                             </div>
                         </div>
-                        <details class="history-recurrence-details">
-                            <summary><i class="fa-solid fa-list-ul"></i> この再発グループの内訳を見る</summary>
-                            <div class="history-recurrence-list">
-                                ${recurrence.items.map(item => {
-                                    const h = item.history;
-                                    return `
-                                        <button type="button" onclick="app.openHistoryEditForm('${this.escapeJs(h.id)}')">
-                                            <b>${this.escapeHtml(h.date || '日付なし')} ${this.escapeHtml(this.getHistoryDisplayText(h) || '内容なし')}</b>
-                                            <small>${parseInt(h.workTime, 10) || 0}分 / ${item.score}点 / ${this.escapeHtml(h.notes || '処置未入力')}</small>
-                                        </button>
-                                        <button type="button" class="exclude" onclick="app.excludeHistoryFromRecurrenceGroup('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', '${this.escapeJs(currentId)}')">
-                                            <i class="fa-solid fa-ban"></i> これは違う
-                                        </button>
-                                    `;
-                                }).join('')}
+                        <input type="hidden" id="${this.escapeHtml(prefix)}recurrence-group-id" value="${this.escapeHtml(visibleRecurrence.id || '')}">
+                        <input type="hidden" id="${this.escapeHtml(prefix)}recurrence-group-title" value="${this.escapeHtml(visibleRecurrence.title || '')}">
+                        <div class="history-recurrence-collapsible">
+                            <div class="history-recurrence-meta">
+                                <span class="${this.escapeHtml(visibleRecurrence.strength)}">${this.escapeHtml(visibleRecurrence.strengthLabel)} / ${visibleRecurrence.avgScore}点</span>
+                                <span>最多内容 ${visibleRecurrence.titleStat?.count || visibleRecurrence.count}/${visibleRecurrence.titleStat?.total || visibleRecurrence.count}件</span>
+                                <span>最多原因 ${visibleRecurrence.mostCause?.count || 0}/${visibleRecurrence.mostCause?.total || visibleRecurrence.count}件</span>
+                                <span>最多処置 ${visibleRecurrence.mostTreatment?.count || 0}/${visibleRecurrence.mostTreatment?.total || visibleRecurrence.count}件</span>
                             </div>
-                        </details>
-                        <div class="history-assist-actions">
-                            <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(latest?.id || '')}', '${this.escapeJs(prefix)}', 'recurrence')">
-                                <i class="fa-solid fa-clock-rotate-left"></i> 前回一式を使う
-                            </button>
-                            <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistText('${this.escapeJs(mostCause)}', '${this.escapeJs(mostTreatment)}', '${this.escapeJs(prefix)}', 'most', { content: '${this.escapeJs(recurrence.title || '')}', workTime: '${this.escapeJs(mostWorkTime)}', category: '${this.escapeJs(mostCategory)}', workers: '${this.escapeJs(mostWorkers)}' })">
-                                <i class="fa-solid fa-ranking-star"></i> 最多一式を使う
-                            </button>
-                            <button type="button" class="secondary-btn" onclick="app.openHistoryEditForm('${this.escapeJs(latest?.id || '')}')">
-                                <i class="fa-solid fa-clock-rotate-left"></i> 前回を開く
-                            </button>
+                            <div class="history-recurrence-title">
+                                <strong>一番多い内容</strong>
+                                ${this.escapeHtml(recurrenceTitle)}
+                                ${visibleRecurrence.groups?.length > 1 ? `<small>他 ${visibleRecurrence.groups.length - 1}グループあり</small>` : ''}
+                            </div>
+                            <div class="history-recurrence-body">
+                                <div>
+                                    <strong>前回履歴</strong>
+                                    ${this.escapeHtml(latest?.date || '-')} ${this.escapeHtml(this.getHistoryDisplayText(latest) || '内容なし')}
+                                </div>
+                                <div>
+                                    <strong>前回処置</strong>
+                                    ${this.escapeHtml(latestTreatment || '未入力')}
+                                </div>
+                                <div>
+                                    <strong>最多原因</strong>
+                                    ${this.escapeHtml(mostCause || '未入力')}
+                                </div>
+                                <div>
+                                    <strong>最多処置</strong>
+                                    ${this.escapeHtml(mostTreatment || '未入力')}
+                                </div>
+                            </div>
+                            <details class="history-recurrence-details">
+                                <summary><i class="fa-solid fa-list-ul"></i> この再発グループの内訳を見る</summary>
+                                <div class="history-recurrence-list">
+                                    ${visibleRecurrence.items.map(item => {
+                                        const h = item.history;
+                                        return `
+                                            <button type="button" onclick="app.openHistoryEditForm('${this.escapeJs(h.id)}')">
+                                                <b>${this.escapeHtml(h.date || '日付なし')} ${this.escapeHtml(this.getHistoryDisplayText(h) || '内容なし')}</b>
+                                                <small>${parseInt(h.workTime, 10) || 0}分 / ${item.score}点 / ${this.escapeHtml(h.notes || '処置未入力')}</small>
+                                            </button>
+                                            <button type="button" class="exclude" onclick="app.excludeHistoryFromRecurrenceGroup('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', '${this.escapeJs(currentId)}')">
+                                                <i class="fa-solid fa-ban"></i> これは違う
+                                            </button>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </details>
+                            <div class="history-assist-actions">
+                                <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(latest?.id || '')}', '${this.escapeJs(prefix)}', 'recurrence')">
+                                    <i class="fa-solid fa-clock-rotate-left"></i> 前回一式を使う
+                                </button>
+                                <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistText('${this.escapeJs(mostCause)}', '${this.escapeJs(mostTreatment)}', '${this.escapeJs(prefix)}', 'most', { content: '${this.escapeJs(visibleRecurrence.title || '')}', workTime: '${this.escapeJs(mostWorkTime)}', category: '${this.escapeJs(mostCategory)}', workers: '${this.escapeJs(mostWorkers)}' })">
+                                    <i class="fa-solid fa-ranking-star"></i> 最多一式を使う
+                                </button>
+                                <button type="button" class="secondary-btn" onclick="app.openHistoryEditForm('${this.escapeJs(latest?.id || '')}')">
+                                    <i class="fa-solid fa-clock-rotate-left"></i> 前回を開く
+                                </button>
+                            </div>
                         </div>
                     </div>
                 ` : ''}
                 ${candidates.length ? `
-                    <div class="history-assist-candidates">
+                    <div class="history-assist-candidates ${assistCollapsed ? 'is-collapsed' : ''}">
                         <div class="history-assist-head">
                             <span><i class="fa-solid fa-wand-magic-sparkles"></i> 似た過去履歴から入力候補</span>
-                            <b>${candidates.length}件</b>
+                            <div class="history-assist-head-actions">
+                                <b>${candidates.length}件</b>
+                                <button type="button" class="history-assist-toggle-btn" data-history-assist-toggle aria-expanded="${assistCollapsed ? 'false' : 'true'}" onclick="app.toggleHistoryAssistCandidates('${this.escapeJs(prefix)}', event)">
+                                    <i class="fa-solid fa-chevron-${assistCollapsed ? 'down' : 'up'}"></i> ${assistCollapsed ? '開く' : '閉じる'}
+                                </button>
+                            </div>
                         </div>
-                        ${candidates.map(item => {
-                            const h = item.history;
-                            return `
-                                <article class="history-assist-candidate">
-                                    <div class="history-assist-candidate-main">
-                                        <b>${this.escapeHtml(h.date || '日付なし')} ${this.escapeHtml(this.getHistoryDisplayText(h) || '内容なし')}</b>
-                                        <small>${this.escapeHtml(item.machine?.name || '機械不明')}${item.machine?.model ? ` [${this.escapeHtml(item.machine.model)}]` : ''} / ${parseInt(h.workTime, 10) || 0}分</small>
-                                        <div><span>原因</span>${this.escapeHtml(h.cause || '未入力')}</div>
-                                        <div><span>処置</span>${this.escapeHtml(h.notes || '未入力')}</div>
-                                    </div>
-                                    <div class="history-assist-actions vertical">
-                                        <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', 'detail')">原因・処置</button>
-                                        <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', 'full')">一式反映</button>
-                                    </div>
-                                </article>
-                            `;
-                        }).join('')}
+                        <div class="history-assist-candidate-list">
+                            ${candidates.map(item => {
+                                const h = item.history;
+                                return `
+                                    <article class="history-assist-candidate">
+                                        <div class="history-assist-candidate-main">
+                                            <b>${this.escapeHtml(h.date || '日付なし')} ${this.escapeHtml(this.getHistoryDisplayText(h) || '内容なし')}</b>
+                                            <small>${this.escapeHtml(item.machine?.name || '機械不明')}${item.machine?.model ? ` [${this.escapeHtml(item.machine.model)}]` : ''} / ${parseInt(h.workTime, 10) || 0}分</small>
+                                            <div><span>原因</span>${this.escapeHtml(h.cause || '未入力')}</div>
+                                            <div><span>処置</span>${this.escapeHtml(h.notes || '未入力')}</div>
+                                        </div>
+                                        <div class="history-assist-actions vertical">
+                                            <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', 'detail')">原因・処置</button>
+                                            <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', 'full')">一式反映</button>
+                                        </div>
+                                    </article>
+                                `;
+                            }).join('')}
+                        </div>
                     </div>
                 ` : ''}
             </div>
         `;
+    }
+
+    toggleHistoryRecurrenceCard(prefix = 's-', event = null) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const panel = document.getElementById(`${prefix}history-assist-panel`);
+        const section = panel?.querySelector('.history-recurrence-card');
+        if (!section) return;
+        const nextCollapsed = !section.classList.contains('is-collapsed');
+        this.historyRecurrenceCollapsed = this.historyRecurrenceCollapsed || {};
+        this.historyRecurrenceCollapsed[prefix] = nextCollapsed;
+        section.classList.toggle('is-collapsed', nextCollapsed);
+        const toggleButton = section.querySelector('[data-history-recurrence-toggle]');
+        if (toggleButton) {
+            toggleButton.setAttribute('aria-expanded', String(!nextCollapsed));
+            toggleButton.innerHTML = `<i class="fa-solid fa-chevron-${nextCollapsed ? 'down' : 'up'}"></i> ${nextCollapsed ? '開く' : '閉じる'}`;
+        }
+    }
+
+    toggleHistoryAssistCandidates(prefix = 's-', event = null) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const panel = document.getElementById(`${prefix}history-assist-panel`);
+        const section = panel?.querySelector('.history-assist-candidates');
+        if (!section) return;
+        const nextCollapsed = !section.classList.contains('is-collapsed');
+        this.historyAssistCandidateCollapsed = this.historyAssistCandidateCollapsed || {};
+        this.historyAssistCandidateCollapsed[prefix] = nextCollapsed;
+        section.classList.toggle('is-collapsed', nextCollapsed);
+        const toggleButton = section.querySelector('[data-history-assist-toggle]');
+        if (toggleButton) {
+            toggleButton.setAttribute('aria-expanded', String(!nextCollapsed));
+            toggleButton.innerHTML = `<i class="fa-solid fa-chevron-${nextCollapsed ? 'down' : 'up'}"></i> ${nextCollapsed ? '開く' : '閉じる'}`;
+        }
     }
 
     updateHistorySmartAssist(prefix = 's-', isEdit = false, currentId = '') {
@@ -1791,33 +1930,7 @@
         
         // Photo listener for modals
         if (type === 'sudden' || type === 'edit-history') {
-            const photoInput = document.getElementById(type === 'sudden' ? 's-photos' : 'e-photos');
-            const preview = document.getElementById(type === 'sudden' ? 's-photo-previews' : 'e-photo-previews');
-            if (photoInput && preview) {
-                // Initialize for sudden records since they don't have predefined tempPhotos
-                if (type === 'sudden') {
-                    this._tempPhotos = [];
-                    preview.innerHTML = '';
-                }
-
-                photoInput.addEventListener('change', async (e) => {
-                    const files = Array.from(e.target.files);
-                    if (!this._tempPhotos) this._tempPhotos = [];
-
-                    for (const file of files) {
-                        const base64 = await MaintenanceStore.resizeImage(file);
-                        this._tempPhotos.push(base64);
-                        const div = this.createPhotoPreviewElement(
-                            base64,
-                            (removedSrc) => { this._tempPhotos = this._tempPhotos.filter(p => p !== removedSrc); },
-                            (oldSrc, newSrc) => { this._tempPhotos = this._tempPhotos.map(p => p === oldSrc ? newSrc : p); },
-                            80
-                        );
-                        preview.appendChild(div);
-                    }
-                    e.target.value = ''; // Reset input to allow adding the same file again
-                });
-            }
+            this.setupHistoryPhotoInput(type);
         } else if (type === 'machine' || type === 'part-master') {
             const isPart = (type === 'part-master');
             const photoInput = document.getElementById(isPart ? 'pm-photo' : 'f-machine-photo');
@@ -1842,13 +1955,55 @@
         overlay.classList.remove('hidden');
     }
 
+    setupHistoryPhotoInput(type) {
+        const isSudden = type === 'sudden';
+        const photoInput = document.getElementById(isSudden ? 's-photos' : 'e-photos');
+        const preview = document.getElementById(isSudden ? 's-photo-previews' : 'e-photo-previews');
+        if (!photoInput || !preview || photoInput.dataset.historyPhotoReady === '1') return;
+
+        if (isSudden) {
+            this._tempPhotos = [];
+            preview.innerHTML = '';
+        }
+
+        photoInput.dataset.historyPhotoReady = '1';
+        photoInput.addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files || []);
+            if (files.length === 0) return;
+            if (!this._tempPhotos) this._tempPhotos = [];
+
+            photoInput.disabled = true;
+            const previousLabel = photoInput.dataset.loadingLabel || '';
+            photoInput.dataset.loadingLabel = '写真を読み込み中...';
+
+            try {
+                for (const file of files) {
+                    if (!file.type?.startsWith('image/')) continue;
+                    const src = await MaintenanceStore.readImageAsDataUrl(file);
+                    const item = this.collectPhotoManagerItems?.().find(photo => photo?.src === src) || this.addPhotoManagerLibraryImage?.(src, file.name || '突発対応添付');
+                    const photo = item ? this.createHistoryPhotoReference(item) : src;
+                    this._tempPhotos.push(photo);
+                    this.appendHistoryPhotoPreview(preview, photo, 80);
+                }
+                store.save();
+            } catch (err) {
+                console.error('History photo attach failed', err);
+                alert('写真の添付に失敗しました。別の画像で試すか、画像を小さくしてから添付してください。');
+            } finally {
+                photoInput.disabled = false;
+                photoInput.dataset.loadingLabel = previousLabel;
+                e.target.value = '';
+            }
+        });
+    }
+
     createPhotoPreviewElement(base64, onRemove, onRotate, size = 80) {
         const div = document.createElement('div');
         div.style.position = 'relative';
         div.style.display = 'inline-block';
         div.innerHTML = `
-            <div class="img-box" style="width:${size}px; height:${size}px; border-radius:4px; overflow:hidden;">
-                <img src="${base64}" style="width:100%; height:100%; object-fit:cover;">
+            <div class="img-box" style="display:inline-flex; align-items:center; justify-content:center; min-width:${size}px; max-width:${Math.round(size * 2.2)}px; max-height:${size}px; border-radius:4px; overflow:hidden; background:#f8fafc; border:1px solid #e2e8f0;">
+                <img src="${base64}" style="display:block; width:auto; height:auto; max-width:${Math.round(size * 2.2)}px; max-height:${size}px; object-fit:contain;">
             </div>
             <button type="button" class="rotate-btn" style="position:absolute; bottom:0; right:0; background:rgba(0,0,0,0.6); color:white; border:none; padding:2px 4px; font-size:12px; cursor:pointer; border-radius:2px;" title="回転"><i class="fa-solid fa-rotate-right"></i></button>
             <button type="button" class="close-btn" style="position:absolute; top:-5px; right:-5px; background:white; padding:2px; font-size:12px; z-index:1000; cursor:pointer;" title="削除">×</button>
@@ -1875,6 +2030,77 @@
         };
 
         return div;
+    }
+
+    getPhotoManagerItemById(id = '') {
+        const targetId = String(id || '');
+        if (!targetId || typeof this.collectPhotoManagerItems !== 'function') return null;
+        return this.collectPhotoManagerItems().find(item => String(item.id || '') === targetId) || null;
+    }
+
+    createHistoryPhotoReference(item = {}) {
+        const libraryRef = this.createPhotoManagerImageReference?.(item);
+        if (libraryRef) return libraryRef;
+        if (!item?.id) return null;
+        return {
+            source: 'photoManager',
+            id: item.id,
+            name: this.getPhotoManagerName?.(item) || item.defaultName || item.title || item.name || ''
+        };
+    }
+
+    getHistoryPhotoSrc(photo) {
+        if (!photo) return '';
+        if (typeof photo === 'string') return photo;
+        if (photo.src) return photo.src;
+        const id = photo.id || photo.photoManagerId;
+        if (photo.source === 'photoManager' || photo.photoManagerId) {
+            return this.getPhotoManagerLibraryReferenceById?.(id)?.photo?.src
+                || this.getPhotoManagerItemById(id)?.src
+                || '';
+        }
+        return '';
+    }
+
+    getResolvedHistoryPhotoSources(photos = []) {
+        return (photos || [])
+            .map(photo => this.getHistoryPhotoSrc?.(photo) || '')
+            .filter(Boolean);
+    }
+
+    getHistoryPhotosForSave() {
+        return (this._tempPhotos || []).filter(photo => {
+            if (typeof photo === 'string') return !!photo;
+            if (!photo || typeof photo !== 'object') return false;
+            if (photo.source === 'photoManager' && photo.id) return true;
+            if (photo.photoManagerId) return true;
+            return !!photo.src;
+        });
+    }
+
+    appendHistoryPhotoPreview(preview, photo, size = 80) {
+        if (!preview) return;
+        const src = this.getHistoryPhotoSrc(photo);
+        if (!src) return;
+        const entry = photo;
+        const div = this.createPhotoPreviewElement(
+            src,
+            () => { this._tempPhotos = (this._tempPhotos || []).filter(p => p !== entry); },
+            (_oldSrc, newSrc) => {
+                if (entry && typeof entry === 'object' && (entry.source === 'photoManager' || entry.photoManagerId)) {
+                    const item = this.getPhotoManagerItemById(entry.id || entry.photoManagerId);
+                    if (item?.replacePhoto) {
+                        item.replacePhoto(newSrc);
+                        store.save();
+                        return;
+                    }
+                }
+                const index = (this._tempPhotos || []).indexOf(entry);
+                if (index >= 0) this._tempPhotos[index] = newSrc;
+            },
+            size
+        );
+        preview.appendChild(div);
     }
 
     normalizeGuidePhoto(photo) {
@@ -2255,19 +2481,31 @@
         const img = document.getElementById('global-image-target');
         if (!preview || !img) return;
         this.imagePreviewLocked = false;
+        this.currentGlobalPreviewBox = null;
+        const storageKey = 'maintenanceGlobalImagePreviewSize';
+        const clampPreviewSize = (value) => Math.min(1200, Math.max(120, Number(value) || 320));
+        const getPreviewSize = () => clampPreviewSize(localStorage.getItem(storageKey));
+        const setPreviewSize = (value) => {
+            const size = clampPreviewSize(value);
+            localStorage.setItem(storageKey, String(size));
+            return size;
+        };
 
         const showPreview = (imgBox) => {
             if (!imgBox) return;
             const targetImg = imgBox.querySelector('img');
             if (!targetImg || !targetImg.src) return;
             const rect = targetImg.getBoundingClientRect();
+            const naturalW = targetImg.naturalWidth || rect.width || 1;
+            const naturalH = targetImg.naturalHeight || rect.height || 1;
             img.src = targetImg.src;
+            this.currentGlobalPreviewBox = imgBox;
 
             preview.style.left = rect.left + 'px';
             preview.style.top = rect.top + 'px';
             preview.style.width = rect.width + 'px';
             preview.style.height = rect.height + 'px';
-            preview.style.transform = 'scale(1)';
+            preview.style.transform = 'none';
 
             const isShiftNotebookPhoto = !!imgBox.closest('.shift-photo-previews') || !!imgBox.closest('.guide-photo-previews') || !!imgBox.closest('.notebook-search-photos') || !!imgBox.closest('.shift-fullscreen-photos-wrapper');
             if (isShiftNotebookPhoto) {
@@ -2275,15 +2513,18 @@
             } else {
                 preview.classList.remove('contain-mode');
             }
-            const scale = isShiftNotebookPhoto ? Math.min(26, Math.max(12, 980 / Math.max(rect.width, rect.height))) : 9;
-            const zoomedW = rect.width * scale;
-            const zoomedH = rect.height * scale;
-
-            let centerX = rect.left + rect.width / 2;
-            let centerY = rect.top + rect.height / 2;
+            const targetMax = getPreviewSize();
             const margin = 20;
             const winW = window.innerWidth;
             const winH = window.innerHeight;
+            const maxW = Math.max(120, Math.min(targetMax, winW - margin * 2));
+            const maxH = Math.max(120, Math.min(targetMax, winH - margin * 2));
+            const fitScale = Math.min(maxW / naturalW, maxH / naturalH);
+            const zoomedW = Math.max(90, Math.round(naturalW * fitScale));
+            const zoomedH = Math.max(60, Math.round(naturalH * fitScale));
+
+            let centerX = rect.left + rect.width / 2;
+            let centerY = rect.top + rect.height / 2;
 
             if (centerX - zoomedW / 2 < margin) centerX = zoomedW / 2 + margin;
             if (centerX + zoomedW / 2 > winW - margin) centerX = winW - zoomedW / 2 - margin;
@@ -2292,24 +2533,34 @@
 
             preview.classList.remove('hidden');
             requestAnimationFrame(() => {
-                preview.style.left = (centerX - rect.width / 2) + 'px';
-                preview.style.top = (centerY - rect.height / 2) + 'px';
-                preview.style.transform = `scale(${scale})`;
+                preview.style.left = (centerX - zoomedW / 2) + 'px';
+                preview.style.top = (centerY - zoomedH / 2) + 'px';
+                preview.style.width = zoomedW + 'px';
+                preview.style.height = zoomedH + 'px';
+                preview.style.transform = 'none';
             });
         };
 
         const hidePreview = () => {
             preview.classList.add('hidden');
             preview.classList.remove('locked');
-            preview.style.transform = 'scale(1)';
+            preview.style.transform = 'none';
             this.imagePreviewLocked = false;
+            this.currentGlobalPreviewBox = null;
         };
+
+        document.addEventListener('wheel', (e) => {
+            if (preview.classList.contains('hidden') || !this.currentGlobalPreviewBox) return;
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 60 : -60;
+            setPreviewSize(getPreviewSize() + delta);
+            showPreview(this.currentGlobalPreviewBox);
+        }, { passive: false });
 
         document.addEventListener('mouseover', (e) => {
             if (this.imagePreviewLocked) return;
             const imgBox = e.target.closest('.img-box');
             if (!imgBox) return;
-                if (imgBox.closest('.shift-photo-previews') || imgBox.closest('.guide-photo-previews')) return;
             showPreview(imgBox);
         });
 
@@ -2322,13 +2573,14 @@
         });
 
         document.addEventListener('click', (e) => {
+            if (e.target.closest('#global-image-preview-close')) {
+                e.stopPropagation();
+                hidePreview();
+                return;
+            }
             const imgBox = e.target.closest('.img-box');
             if (imgBox) {
                 e.stopPropagation();
-                if (imgBox.closest('.shift-photo-previews') || imgBox.closest('.guide-photo-previews')) {
-                    this.openShiftPhotoCompare?.(imgBox);
-                    return;
-                }
                 showPreview(imgBox);
                 this.imagePreviewLocked = true;
                 preview.classList.add('locked');
@@ -3158,8 +3410,9 @@
             const startTime = document.getElementById('s-start-time')?.value || '';
             const endTime = document.getElementById('s-end-time')?.value || '';
             const workerText = document.getElementById('s-workers').value;
-            const isDokatei = document.getElementById('s-is-dokatei').checked;
-            const isNonProductionStop = !isDokatei && !!document.getElementById('s-is-non-production-stop')?.checked;
+            const isSingleMaintenance = !!document.getElementById('s-is-single-maintenance')?.checked;
+            const isDokatei = !isSingleMaintenance && document.getElementById('s-is-dokatei').checked;
+            const isNonProductionStop = !isSingleMaintenance && !isDokatei && !!document.getElementById('s-is-non-production-stop')?.checked;
             const category = document.getElementById('s-category').value;
             const machineCategory = this.getCategoryFromModalInput('s-');
             if (!this.confirmPartialMaintenanceTime('s')) return;
@@ -3176,7 +3429,7 @@
             }
 
             if (!machineId || !symptom) {
-                alert('機械と症状の内容は必須です。');
+                alert(isSingleMaintenance ? '機械とメンテ内容は必須です。' : '機械と症状の内容は必須です。');
                 return;
             }
 
@@ -3213,28 +3466,59 @@
                 // already handled above
             }
 
-            const newSuddenRecord = store.addHistoryRecord({
-                machineId,
-                date,
-                notes: treatment,
-                cause: cause,
-                errorContent: symptom,
-                errorNo,
-                workTime,
-                startTime,
-                endTime,
-                workers,
-                replacedParts,
-                photos: this._tempPhotos || [],
-                isSudden: true,
-                isDokatei,
-                isNonProductionStop,
-                category,
-                machineCategory,
-                lineNo,
-                isFirstTime: document.querySelector('input[name="s-occurrence"]:checked')?.value === 'first',
-                recurrenceGroup: this.getCurrentRecurrenceMeta('s-')
-            });
+            let newSuddenRecord = null;
+            if (isSingleMaintenance) {
+                const oneOffTask = store.addTask(machineId, symptom, 0, date);
+                oneOffTask.deleted = true;
+                oneOffTask.singleMaintenanceFromSudden = true;
+                newSuddenRecord = store.addHistoryRecord({
+                    taskId: oneOffTask.id,
+                    taskContent: symptom,
+                    machineId,
+                    date,
+                    notes: treatment || symptom,
+                    cause: '',
+                    errorContent: '',
+                    errorNo: '',
+                    workTime,
+                    startTime,
+                    endTime,
+                    workers,
+                    replacedParts,
+                    photos: this.getHistoryPhotosForSave(),
+                    isSingleMaintenance: true,
+                    isSudden: false,
+                    isDokatei: false,
+                    isNonProductionStop: false,
+                    category,
+                    machineCategory,
+                    lineNo,
+                    isFirstTime: false
+                });
+            } else {
+                newSuddenRecord = store.addHistoryRecord({
+                    machineId,
+                    date,
+                    notes: treatment,
+                    cause: cause,
+                    errorContent: symptom,
+                    errorNo,
+                    workTime,
+                    startTime,
+                    endTime,
+                    workers,
+                    replacedParts,
+                    photos: this.getHistoryPhotosForSave(),
+                    isSudden: true,
+                    isDokatei,
+                    isNonProductionStop,
+                    category,
+                    machineCategory,
+                    lineNo,
+                    isFirstTime: document.querySelector('input[name="s-occurrence"]:checked')?.value === 'first',
+                    recurrenceGroup: this.getCurrentRecurrenceMeta('s-')
+                });
+            }
             this.markShiftNotebookRowSuddenRegistered(newSuddenRecord?.id || '');
 
             // Update Master Category if it's missing or different (Sync back)
@@ -3400,7 +3684,7 @@
                     machineId, date, notes, cause, errorContent: symptom, errorNo, workTime, startTime, endTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
                     isFirstTime: document.querySelector('input[name="e-occurrence"]:checked')?.value === 'first',
                     recurrenceGroup: this.getCurrentRecurrenceMeta('e-'),
-                    photos: this._tempPhotos
+                    photos: this.getHistoryPhotosForSave()
                 };
 
                 // Update Master Category (Sync back)

@@ -38,8 +38,42 @@
         return 'other';
     };
 
-    proto.getTipsCardColors = function (note = {}) {
-        const seed = this.normalizeTipsLabel(note.group || '未分類');
+    proto.ensureTipsGroupColorStore = function () {
+        const d = store.activeData || {};
+        if (!d.tipsGroupColors || typeof d.tipsGroupColors !== 'object' || Array.isArray(d.tipsGroupColors)) d.tipsGroupColors = {};
+        return d.tipsGroupColors;
+    };
+
+    proto.normalizeTipsColor = function (value = '') {
+        const color = String(value || '').trim();
+        return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : '';
+    };
+
+    proto.hexToTipsRgb = function (hex = '') {
+        const color = this.normalizeTipsColor(hex);
+        if (!color) return null;
+        return { r: parseInt(color.slice(1, 3), 16), g: parseInt(color.slice(3, 5), 16), b: parseInt(color.slice(5, 7), 16) };
+    };
+
+    proto.rgbToTipsHex = function (rgb = {}) {
+        const clamp = value => Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+        return `#${[clamp(rgb.r), clamp(rgb.g), clamp(rgb.b)].map(value => value.toString(16).padStart(2, '0')).join('')}`;
+    };
+
+    proto.mixTipsColor = function (first = '#000000', second = '#ffffff', firstWeight = 0.5) {
+        const a = this.hexToTipsRgb(first);
+        const b = this.hexToTipsRgb(second);
+        if (!a || !b) return first;
+        const weight = Math.max(0, Math.min(1, Number(firstWeight)));
+        return this.rgbToTipsHex({ r: a.r * weight + b.r * (1 - weight), g: a.g * weight + b.g * (1 - weight), b: a.b * weight + b.b * (1 - weight) });
+    };
+
+    proto.getTipsReadableTextColor = function (hex = '#2563eb') {
+        return this.normalizeTipsColor(hex) ? this.mixTipsColor(hex, '#111827', 0.58) : '#1d4ed8';
+    };
+
+    proto.getTipsAutoCardColors = function (group = '') {
+        const seed = this.normalizeTipsLabel(group || 'unclassified');
         let hash = 0;
         for (let i = 0; i < seed.length; i += 1) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
         const palettes = [
@@ -53,6 +87,21 @@
         return palettes[Math.abs(hash) % palettes.length];
     };
 
+    proto.getTipsGroupBaseColor = function (group = '') {
+        const key = this.normalizeTipsLabel(group || 'unclassified');
+        return this.normalizeTipsColor(this.ensureTipsGroupColorStore()[key] || '');
+    };
+
+    proto.getTipsPaletteFromBaseColor = function (base = '') {
+        const edge = this.normalizeTipsColor(base);
+        if (!edge) return null;
+        return { bg: this.mixTipsColor(edge, '#ffffff', 0.10), edge, chip: this.mixTipsColor(edge, '#ffffff', 0.22), text: this.getTipsReadableTextColor(edge) };
+    };
+
+    proto.getTipsCardColors = function (note = {}) {
+        const group = note.group || 'unclassified';
+        return this.getTipsPaletteFromBaseColor(this.getTipsGroupBaseColor(group)) || this.getTipsAutoCardColors(group);
+    };
     proto.getTipsCardStyle = function (note = {}) {
         const c = this.getTipsCardColors(note);
         return `--tips-card-bg:${c.bg};--tips-card-edge:${c.edge};--tips-chip-bg:${c.chip};--tips-chip-text:${c.text};`;
@@ -446,7 +495,7 @@
                     </div>
                     <time>${this.escapeHtml(this.formatTipsDateTime(note.createdAt))}</time>
                 </div>
-                <p class="tips-note-body">${this.escapeHtml(note.body || '').replace(/\n/g, '<br>')}</p>
+                <p class="tips-note-body">${this.renderTipsBodyHtml(note.body || '')}</p>
                 ${attachments.length ? `
                     <div class="tips-note-file-meta">
                         <span><i class="fa-solid fa-database"></i>${this.escapeHtml(this.formatTipsFileSize(totalBytes))}</span>
@@ -647,6 +696,7 @@
                             <small>${group.notes.length}件 / ${branches.length}分岐 / ${this.escapeHtml(this.formatTipsFileSize(groupBytes))}</small>
                         </div>
                         <div class="tips-map-label-actions">
+                            <button type="button" class="tips-map-color-btn" onclick="app.openTipsGroupColorDialog('${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="系統色を変更"><i class="fa-solid fa-palette"></i></button>
                             <button type="button" onclick="app.renameTipsMapLabel('group', '${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="グループ名を変更"><i class="fa-solid fa-pen"></i></button>
                             <button type="button" onclick="app.toggleTipsMapGroup('${this.escapeJs(group.key)}')" title="${groupCollapsed ? '開く' : '折りたたむ'}"><i class="fa-solid ${groupCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'}"></i></button>
                         </div>
@@ -869,6 +919,7 @@
                             <small>${group.notes.length}件 / ${branches.length}分岐 / ${this.escapeHtml(this.formatTipsFileSize(groupBytes))}</small>
                         </div>
                         <div class="tips-map-label-actions">
+                            <button type="button" class="tips-map-color-btn" onclick="app.openTipsGroupColorDialog('${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="系統色を変更"><i class="fa-solid fa-palette"></i></button>
                             <button type="button" onclick="app.renameTipsMapLabel('group', '${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="グループ名を変更"><i class="fa-solid fa-pen"></i></button>
                             <button type="button" onclick="app.toggleTipsMapGroup('${this.escapeJs(group.key)}')" title="${groupCollapsed ? '開く' : '折りたたむ'}"><i class="fa-solid ${groupCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'}"></i></button>
                         </div>
@@ -983,6 +1034,7 @@
                         <b>${this.escapeHtml(group.label || '未分類')}</b>
                         <small>${group.notes?.length || 0}件 / ${branches.length}分岐</small>
                         <div class="tips-map-label-actions">
+                            <button type="button" class="tips-map-color-btn" onclick="app.openTipsGroupColorDialog('${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="系統色を変更"><i class="fa-solid fa-palette"></i></button>
                             <button type="button" onclick="app.renameTipsMapLabel('group', '${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="グループ名を変更"><i class="fa-solid fa-pen"></i></button>
                         </div>
                     </div>
@@ -1044,6 +1096,7 @@
                         <b>${this.escapeHtml(group.label || '未分類')}</b>
                         <small>${group.notes?.length || 0}件 / ${branches.length}分岐</small>
                         <div class="tips-map-label-actions">
+                            <button type="button" class="tips-map-color-btn" onclick="app.openTipsGroupColorDialog('${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="系統色を変更"><i class="fa-solid fa-palette"></i></button>
                             <button type="button" onclick="app.renameTipsMapLabelV2('group', '${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="グループ名を変更"><i class="fa-solid fa-pen"></i></button>
                         </div>
                     </div>
@@ -1067,6 +1120,7 @@
                             <small>${group.notes.length}件 / ${branches.length}分岐 / ${this.escapeHtml(this.formatTipsFileSize(groupBytes))}</small>
                         </div>
                         <div class="tips-map-label-actions">
+                            <button type="button" class="tips-map-color-btn" onclick="event.stopPropagation(); app.openTipsGroupColorDialog('${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="系統色を変更"><i class="fa-solid fa-palette"></i></button>
                             <button type="button" onclick="event.stopPropagation(); app.renameTipsMapLabel('group', '${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="グループ名を変更"><i class="fa-solid fa-pen"></i></button>
                             <button type="button" onclick="event.stopPropagation(); app.toggleTipsMapGroup('${this.escapeJs(group.key)}')" title="${groupCollapsed ? '開く' : '折りたたむ'}"><i class="fa-solid ${groupCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'}"></i></button>
                         </div>
@@ -1111,6 +1165,91 @@
                 `).join('')}
             </div>
         ` : '';
+    };
+
+    proto.openTipsGroupColorDialog = function (groupKey = '', label = '') {
+        const normalized = groupKey || this.normalizeTipsLabel(label || 'unclassified');
+        const notes = this.ensureTipsState();
+        const sample = notes.find(note => this.normalizeTipsLabel(note.group || '') === normalized) || { group: label };
+        const current = this.getTipsGroupBaseColor(label) || this.getTipsAutoCardColors(label).edge;
+        const swatches = ['#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#22c55e', '#84cc16', '#64748b', '#111827'];
+        document.getElementById('tips-group-color-modal')?.remove();
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="tips-group-color-modal" class="tips-group-color-modal" onclick="app.closeTipsGroupColorDialog(event)">
+                <div class="tips-group-color-card" style="${this.getTipsHierarchyStyle('group', label, sample)}" onclick="event.stopPropagation()">
+                    <header>
+                        <div>
+                            <b><i class="fa-solid fa-palette"></i> 系統色を変更</b>
+                            <span>${this.escapeHtml(label || 'グループ')}</span>
+                        </div>
+                        <button type="button" onclick="app.closeTipsGroupColorDialog()" title="閉じる"><i class="fa-solid fa-xmark"></i></button>
+                    </header>
+                    <div class="tips-group-color-preview" id="tips-group-color-preview" style="${this.getTipsGroupColorPreviewStyle(current)}">
+                        <span class="tips-map-hub-icon"><i class="fa-solid fa-layer-group"></i></span>
+                        <b>${this.escapeHtml(label || 'グループ')}</b>
+                        <small>この色を基準に階層の濃淡を作ります</small>
+                    </div>
+                    <label class="tips-group-color-picker">
+                        <span>基準色</span>
+                        <input type="color" id="tips-group-color-input" value="${this.escapeHtml(current)}" oninput="app.previewTipsGroupColor(this.value)">
+                    </label>
+                    <div class="tips-group-color-swatches">
+                        ${swatches.map(color => `<button type="button" style="--swatch:${color}" onclick="app.setTipsGroupColorInput('${color}')" title="${color}"></button>`).join('')}
+                    </div>
+                    <footer>
+                        <button type="button" class="secondary-btn" onclick="app.resetTipsGroupColor('${this.escapeJs(normalized)}')">
+                            <i class="fa-solid fa-rotate-left"></i> 自動色に戻す
+                        </button>
+                        <button type="button" class="primary-btn" onclick="app.saveTipsGroupColor('${this.escapeJs(normalized)}')">
+                            <i class="fa-solid fa-check"></i> 保存
+                        </button>
+                    </footer>
+                </div>
+            </div>
+        `);
+    };
+
+    proto.getTipsGroupColorPreviewStyle = function (color = '') {
+        const c = this.getTipsPaletteFromBaseColor(color) || this.getTipsAutoCardColors('preview');
+        return `--tips-card-bg:${c.bg};--tips-card-edge:${c.edge};--tips-chip-bg:${c.chip};--tips-chip-text:${c.text};`;
+    };
+
+    proto.previewTipsGroupColor = function (color = '') {
+        const preview = document.getElementById('tips-group-color-preview');
+        if (preview) preview.setAttribute('style', this.getTipsGroupColorPreviewStyle(color));
+    };
+
+    proto.setTipsGroupColorInput = function (color = '') {
+        const input = document.getElementById('tips-group-color-input');
+        const safe = this.normalizeTipsColor(color);
+        if (!input || !safe) return;
+        input.value = safe;
+        this.previewTipsGroupColor(safe);
+    };
+
+    proto.saveTipsGroupColor = function (groupKey = '') {
+        const input = document.getElementById('tips-group-color-input');
+        const color = this.normalizeTipsColor(input?.value || '');
+        if (!groupKey || !color) return;
+        this.ensureTipsGroupColorStore()[groupKey] = color;
+        store.save();
+        this.closeTipsGroupColorDialog();
+        this.renderTips();
+        this.showToast?.('系統色を変更しました', 'success');
+    };
+
+    proto.resetTipsGroupColor = function (groupKey = '') {
+        if (!groupKey) return;
+        delete this.ensureTipsGroupColorStore()[groupKey];
+        store.save();
+        this.closeTipsGroupColorDialog();
+        this.renderTips();
+        this.showToast?.('自動色に戻しました', 'success');
+    };
+
+    proto.closeTipsGroupColorDialog = function (event = null) {
+        if (event && event.target?.id !== 'tips-group-color-modal') return;
+        document.getElementById('tips-group-color-modal')?.remove();
     };
 
     proto.scrollToTipsMapGroup = function (groupKey = '') {
@@ -1254,10 +1393,24 @@
                         </div>
                         <button type="button" ${nextId ? '' : 'disabled'} onclick="app.openTipsNotePreview('${this.escapeJs(nextId)}')">次へ <i class="fa-solid fa-chevron-right"></i></button>
                     </div>
-                    <div class="tips-note-preview-body ${longBody ? 'collapsed' : ''}" id="tips-note-preview-body">${this.escapeHtml(note.body || '本文なし')}</div>
+                    <div class="tips-note-preview-body ${longBody ? 'collapsed' : ''}" id="tips-note-preview-body">${this.renderTipsBodyHtml(note.body || '本文なし')}</div>
                     ${longBody ? '<button type="button" class="tips-note-preview-expand" onclick="app.toggleTipsNotePreviewFull()"><i class="fa-solid fa-up-right-and-down-left-from-center"></i> 全文表示</button>' : ''}
                     ${attachments.length ? `
                         ${attachments.some(file => this.getTipsFileType(file) === 'image' && file.dataUrl) ? `
+                            <div class="tips-note-preview-image-panel">
+                                <div class="tips-note-preview-image-panel-head">
+                                    <b><i class="fa-solid fa-images"></i> 添付画像プレビュー</b>
+                                    <span>画像を押すとさらに拡大</span>
+                                </div>
+                                <div class="tips-note-preview-image-grid">
+                                    ${attachments.map((file, index) => this.getTipsFileType(file) === 'image' && file.dataUrl ? `
+                                        <button type="button" onclick="app.openTipsAttachment('${this.escapeJs(note.id)}', ${index})" title="${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}">
+                                            <img src="${this.escapeHtml(file.dataUrl)}" alt="${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}">
+                                            <span>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}</span>
+                                        </button>
+                                    ` : '').join('')}
+                                </div>
+                            </div>
                             <div class="tips-note-preview-thumbs">
                                 ${attachments.map((file, index) => this.getTipsFileType(file) === 'image' && file.dataUrl ? `
                                     <button type="button" onclick="app.openTipsAttachment('${this.escapeJs(note.id)}', ${index})" title="${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}">
@@ -1823,6 +1976,45 @@
         });
     };
 
+    proto.getTipsEditingImageAttachments = async function () {
+        const editingNote = this._editingTipsId ? this.ensureTipsState().find(note => note.id === this._editingTipsId) : null;
+        const existing = Array.isArray(editingNote?.attachments) ? editingNote.attachments : [];
+        const photoAttachments = Array.isArray(this._tipsPhotoManagerAttachments) ? this._tipsPhotoManagerAttachments : [];
+        const fileInput = document.getElementById('tips-file-input');
+        const files = Array.from(fileInput?.files || []).filter(file => this.getTipsFileType(file) === 'image');
+        const pendingFiles = [];
+        for (const file of files) {
+            try {
+                pendingFiles.push(await this.readTipsFile(file));
+            } catch (error) {
+                console.warn('Failed to preview tips image attachment', error);
+            }
+        }
+        return [...existing, ...photoAttachments, ...pendingFiles].filter(file => this.getTipsFileType(file) === 'image' && file.dataUrl);
+    };
+
+    proto.renderTipsBodyEditorImagePreview = async function () {
+        const box = document.getElementById('tips-body-editor-image-preview');
+        if (!box) return;
+        const images = await this.getTipsEditingImageAttachments();
+        if (!document.getElementById('tips-body-editor-image-preview')) return;
+        box.hidden = !images.length;
+        box.innerHTML = images.length ? `
+            <div class="tips-body-editor-image-preview-head">
+                <b><i class="fa-solid fa-images"></i> 添付画像プレビュー</b>
+                <span>webpも表示します</span>
+            </div>
+            <div class="tips-body-editor-image-preview-grid">
+                ${images.map((file, index) => `
+                    <figure>
+                        <img src="${this.escapeHtml(file.dataUrl)}" alt="${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}">
+                        <figcaption>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}</figcaption>
+                    </figure>
+                `).join('')}
+            </div>
+        ` : '';
+    };
+
     proto.saveTipsNote = async function () {
         const groupInput = document.getElementById('tips-group-input');
         const branchInput = document.getElementById('tips-branch-input');
@@ -1880,6 +2072,162 @@
 
     proto.addTipsNote = function () {
         return this.saveTipsNote();
+    };
+
+    proto.getTipsTimestampPattern = function () {
+        return /(\(\d{4}\/\d{1,2}\/\d{1,2}(?: \d{1,2}:\d{2})?\)|\(\d{1,2}\/\d{1,2} \d{1,2}:\d{2}\)|\(\d{1,2}:\d{2}\))/g;
+    };
+
+    proto.renderTipsBodyHtml = function (body = '') {
+        const safeLines = this.escapeHtml(body).split(/\n/);
+        return safeLines.map(line => {
+            const hasTimestamp = this.getTipsTimestampPattern().test(line);
+            const highlighted = line.replace(this.getTipsTimestampPattern(), '<span class="tips-body-timestamp">$1</span>');
+            return hasTimestamp ? `<span class="tips-body-timestamp-line">${highlighted}</span>` : highlighted;
+        }).join('<br>');
+    };
+
+    proto.getTipsTimestampFormat = function () {
+        const select = document.getElementById('tips-timestamp-format') || document.getElementById('tips-timestamp-format-editor');
+        const value = select?.value || localStorage.getItem('tips_timestamp_format') || 'full';
+        return ['full', 'short', 'time'].includes(value) ? value : 'full';
+    };
+
+    proto.setTipsTimestampFormat = function (value) {
+        const safeValue = ['full', 'short', 'time'].includes(value) ? value : 'full';
+        localStorage.setItem('tips_timestamp_format', safeValue);
+        document.querySelectorAll('#tips-timestamp-format, #tips-timestamp-format-editor').forEach(select => {
+            select.value = safeValue;
+        });
+    };
+
+    proto.getTipsTimestampPosition = function () {
+        const select = document.getElementById('tips-timestamp-position') || document.getElementById('tips-timestamp-position-editor');
+        const value = select?.value || localStorage.getItem('tips_timestamp_position') || 'cursor';
+        return ['cursor', 'line', 'end'].includes(value) ? value : 'cursor';
+    };
+
+    proto.setTipsTimestampPosition = function (value) {
+        const safeValue = ['cursor', 'line', 'end'].includes(value) ? value : 'cursor';
+        localStorage.setItem('tips_timestamp_position', safeValue);
+        document.querySelectorAll('#tips-timestamp-position, #tips-timestamp-position-editor').forEach(select => {
+            select.value = safeValue;
+        });
+    };
+
+    proto.syncTipsTimestampControls = function () {
+        this.setTipsTimestampFormat(this.getTipsTimestampFormat());
+        this.setTipsTimestampPosition(this.getTipsTimestampPosition());
+    };
+
+    proto.getTipsTimestampText = function (format = null) {
+        const now = new Date();
+        const pad = (value) => String(value).padStart(2, '0');
+        const minute = pad(now.getMinutes());
+        const selectedFormat = format || this.getTipsTimestampFormat();
+        if (selectedFormat === 'time') return `(${now.getHours()}:${minute})`;
+        if (selectedFormat === 'short') return `(${now.getMonth() + 1}/${now.getDate()} ${now.getHours()}:${minute})`;
+        return `(${now.getFullYear()}/${pad(now.getMonth() + 1)}/${pad(now.getDate())} ${now.getHours()}:${minute})`;
+    };
+
+    proto.insertTipsTimestamp = function (textareaId = 'tips-body-input') {
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        const stamp = this.getTipsTimestampText();
+        const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : textarea.value.length;
+        const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : textarea.value.length;
+        const before = textarea.value.slice(0, start);
+        const after = textarea.value.slice(end);
+        const position = this.getTipsTimestampPosition();
+        let inserted = `　${stamp}`;
+        let nextBefore = before;
+        let nextAfter = after;
+        if (position === 'end') {
+            nextBefore = textarea.value;
+            nextAfter = '';
+            inserted = `${nextBefore && !nextBefore.endsWith('\n') ? '\n' : ''}　${stamp}`;
+        } else if (position === 'line') {
+            inserted = `${before && !before.endsWith('\n') ? '\n' : ''}　${stamp}${after && !after.startsWith('\n') ? '\n' : ''}`;
+        } else {
+            inserted = `　${stamp}${after && !/^[\s\n]/.test(after) ? ' ' : ''}`;
+        }
+        textarea.value = `${nextBefore}${inserted}${nextAfter}`;
+        const caret = nextBefore.length + inserted.length;
+        textarea.focus();
+        if (typeof textarea.setSelectionRange === 'function') {
+            textarea.setSelectionRange(caret, caret);
+        }
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    proto.openTipsBodyEditor = function () {
+        const bodyInput = document.getElementById('tips-body-input');
+        if (!bodyInput) return;
+        document.getElementById('tips-body-editor-modal')?.remove();
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="tips-body-editor-modal" class="tips-body-editor-modal" onclick="app.closeTipsBodyEditor(event)">
+                <div class="tips-body-editor-card" onclick="event.stopPropagation()">
+                    <header>
+                        <div>
+                            <b><i class="fa-regular fa-note-sticky"></i> TIPS本文を拡大</b>
+                            <span>大きな入力欄で本文を編集できます</span>
+                        </div>
+                        <div class="tips-body-editor-actions">
+                            <select class="tips-body-timestamp-select" id="tips-timestamp-format-editor" onchange="app.setTipsTimestampFormat(this.value)" title="日時の形式">
+                                <option value="full">年月日 時刻</option>
+                                <option value="short">月日 時刻</option>
+                                <option value="time">時刻のみ</option>
+                            </select>
+                            <select class="tips-body-timestamp-select" id="tips-timestamp-position-editor" onchange="app.setTipsTimestampPosition(this.value)" title="日時の入れ方">
+                                <option value="cursor">カーソル</option>
+                                <option value="line">新しい行</option>
+                                <option value="end">末尾</option>
+                            </select>
+                            <button type="button" class="tips-body-timestamp-btn" onclick="app.insertTipsTimestamp('tips-body-editor-textarea')" title="現在日時を挿入">
+                                <i class="fa-regular fa-clock"></i> 日時
+                            </button>
+                            <button type="button" class="tips-body-editor-close" onclick="app.closeTipsBodyEditor()" title="閉じる">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                    </header>
+                    <textarea id="tips-body-editor-textarea" placeholder="忘れたくない内容を入力">${this.escapeHtml(bodyInput.value || '')}</textarea>
+                    <div id="tips-body-editor-image-preview" class="tips-body-editor-image-preview" hidden></div>
+                    <footer>
+                        <button type="button" class="secondary-btn" onclick="app.closeTipsBodyEditor()">
+                            <i class="fa-solid fa-xmark"></i> 閉じる
+                        </button>
+                        <button type="button" class="primary-btn" onclick="app.applyTipsBodyEditor()">
+                            <i class="fa-solid fa-check"></i> 反映して閉じる
+                        </button>
+                    </footer>
+                </div>
+            </div>
+        `);
+        const editor = document.getElementById('tips-body-editor-textarea');
+        this.syncTipsTimestampControls();
+        this.renderTipsBodyEditorImagePreview();
+        window.setTimeout(() => {
+            editor?.focus();
+            const length = editor?.value?.length || 0;
+            editor?.setSelectionRange?.(length, length);
+        }, 60);
+    };
+
+    proto.applyTipsBodyEditor = function () {
+        const bodyInput = document.getElementById('tips-body-input');
+        const editor = document.getElementById('tips-body-editor-textarea');
+        if (bodyInput && editor) {
+            bodyInput.value = editor.value;
+            bodyInput.dispatchEvent(new Event('input', { bubbles: true }));
+            bodyInput.focus();
+        }
+        this.closeTipsBodyEditor();
+    };
+
+    proto.closeTipsBodyEditor = function (event = null) {
+        if (event && event.target?.id !== 'tips-body-editor-modal') return;
+        document.getElementById('tips-body-editor-modal')?.remove();
     };
 
     proto.clearTipsForm = function () {
@@ -2215,6 +2563,11 @@
     document.addEventListener('change', event => {
         if (event.target?.id === 'tips-file-input') {
             window.app?.renderTipsSelectedFiles?.();
+            window.app?.renderTipsBodyEditorImagePreview?.();
         }
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        window.setTimeout(() => window.app?.syncTipsTimestampControls?.(), 0);
     });
 })();

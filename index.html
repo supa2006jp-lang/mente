@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260726-outlook-page-notice1">
+    <link rel="stylesheet" href="style.css?v=20260803-photo-card-title-hide1">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -477,6 +477,7 @@
                         <div class="filter-bar" style="margin:0; padding:0; background:none;">
                             <select id="machine-sort-select" onchange="app.machineSort = this.value; app.renderMachines();" style="font-size:0.75rem; padding:6px 12px;">
                                 <option value="rank">不具合頻度順 (重要度)</option>
+                                <option value="cost">トータルコスト順</option>
                                 <option value="name">名称順 (五十音順)</option>
                                 <option value="newest">登録が新しい順</option>
                             </select>
@@ -508,10 +509,18 @@
                         <select id="hist-filter-type">
                             <option value="">全タイプ</option>
                             <option value="periodic">定期のみ</option>
+                            <option value="singleMaintenance">単発メンテのみ</option>
                             <option value="suddenBundle">突発+ドカ停+非生産停止</option>
                             <option value="sudden">突発のみ</option>
                             <option value="nonProductionStop">非生産停止のみ</option>
                             <option value="dokatei">ドカ停のみ</option>
+                        </select>
+                        <select id="hist-sort-mode" class="history-sort-mode-select" onchange="app.setHistorySortMode(this.value)" title="履歴の並び替え">
+                            <option value="date_desc">日付 新しい順</option>
+                            <option value="date_asc">日付 古い順</option>
+                            <option value="type_asc">区分順</option>
+                            <option value="time_desc">作業時間 多い順</option>
+                            <option value="cost_desc">コスト 高い順</option>
                         </select>
                         <button type="button" id="history-filter-details-toggle" class="secondary-btn history-toolbar-btn history-filter-details-toggle" onclick="app.toggleHistoryFilterDetails()">
                             <i class="fa-solid fa-sliders"></i> 詳細
@@ -523,6 +532,20 @@
                             <option value="standard">標準表示</option>
                             <option value="detail">詳細表示</option>
                             <option value="compact">コンパクト</option>
+                        </select>
+                        <button type="button" id="hist-title-priority-toggle" class="secondary-btn history-toolbar-btn history-collapsible-filter" style="padding: 6px 14px; font-size: 0.75rem;" onclick="app.toggleHistoryTitlePriorityMode()" title="件名を広く表示する">
+                            <i class="fa-solid fa-heading"></i> 件名優先
+                        </button>
+                        <label class="history-extra-filter history-collapsible-filter history-title-outline-box" title="履歴タイトルの黒縁を切り替えます"><input type="checkbox" id="hist-title-outline-toggle" onchange="app.toggleHistoryTitleOutline(this.checked)"> 黒縁</label>
+                        <select id="hist-title-outline-weight" class="history-collapsible-filter history-outline-weight-select" onchange="app.setHistoryTitleOutlineWeight(this.value)" title="履歴タイトルの黒縁の太さ">
+                            <option value="thin">縁: 細</option>
+                            <option value="standard">縁: 標準</option>
+                            <option value="bold">縁: 太</option>
+                        </select>
+                        <select id="hist-color-preset" class="history-collapsible-filter history-color-preset-select" onchange="app.setHistoryColorPreset(this.value)" title="定期・突発などの行色の濃さ">
+                            <option value="soft">色: 淡い</option>
+                            <option value="standard">色: 標準</option>
+                            <option value="strong">色: 濃い</option>
                         </select>
                         <label class="history-labor-rate-box history-collapsible-filter" title="作業時間から人件費を計算する単価です">
                             <span><i class="fa-solid fa-user-clock"></i> 人件費</span>
@@ -674,7 +697,27 @@
                                     <input type="text" id="tips-sub-branch-input" list="tips-sub-branch-list" placeholder="例: センサー / リフト / 設定値">
                                 </label>
                                 <label class="tips-body-field">
-                                    <span>本文</span>
+                                    <div class="tips-body-label-row">
+                                        <span>本文</span>
+                                        <div class="tips-body-label-actions">
+                                            <select class="tips-body-timestamp-select" id="tips-timestamp-format" onchange="app.setTipsTimestampFormat(this.value)" title="日時の形式">
+                                                <option value="full">年月日 時刻</option>
+                                                <option value="short">月日 時刻</option>
+                                                <option value="time">時刻のみ</option>
+                                            </select>
+                                            <select class="tips-body-timestamp-select" id="tips-timestamp-position" onchange="app.setTipsTimestampPosition(this.value)" title="日時の入れ方">
+                                                <option value="cursor">カーソル</option>
+                                                <option value="line">新しい行</option>
+                                                <option value="end">末尾</option>
+                                            </select>
+                                            <button type="button" class="tips-body-timestamp-btn" onclick="app.insertTipsTimestamp('tips-body-input')" title="現在日時を本文に挿入">
+                                                <i class="fa-regular fa-clock"></i> 日時
+                                            </button>
+                                            <button type="button" class="tips-body-expand-btn" onclick="app.openTipsBodyEditor()" title="本文を大きく表示して編集">
+                                                <i class="fa-solid fa-up-right-and-down-left-from-center"></i> 拡大
+                                            </button>
+                                        </div>
+                                    </div>
                                     <textarea id="tips-body-input" placeholder="忘れたくない内容を入力"></textarea>
                                 </label>
                                 <label class="tips-file-field">
@@ -806,6 +849,7 @@
                             <option value="all">画像形状すべて</option>
                             <option value="circle">丸画像のみ</option>
                             <option value="normal">通常画像のみ</option>
+                            <option value="blankEdit">白紙編集のみ</option>
                         </select>
                         <button type="button" class="secondary-btn photo-manager-alpha-filter" id="photo-manager-alpha-transparent-filter" onclick="app.togglePhotoManagerAlphaFilter('transparent')"><i class="fa-solid fa-layer-group"></i> 透過済み</button>
                         <button type="button" class="secondary-btn photo-manager-alpha-filter" id="photo-manager-alpha-candidate-filter" onclick="app.togglePhotoManagerAlphaFilter('candidate')"><i class="fa-solid fa-wand-magic-sparkles"></i> 透過候補</button>
@@ -829,13 +873,17 @@
                         <input type="file" id="photo-manager-stamp-sheet-input" accept="image/*" hidden onchange="app.importPhotoManagerStampSheet(this.files); this.value=''">
                         <button type="button" class="primary-btn" onclick="document.getElementById('photo-manager-import-input')?.click()"><i class="fa-solid fa-file-import"></i> 画像取込</button>
                         <button type="button" class="secondary-btn" onclick="app.importPhotoManagerImageFromClipboard()"><i class="fa-solid fa-paste"></i> 貼付取込</button>
+                        <button type="button" class="secondary-btn photo-manager-blank-compare-btn" onclick="app.openPhotoManagerBlankShiftPhotoCompare()" title="画像なしで写真比較を開き、白紙から編集できます" style="background:#10b981;color:#ffffff;border-color:#059669;box-shadow:0 10px 22px rgba(16,185,129,.22);"><i class="fa-solid fa-file"></i> 白紙</button>
+                        <button type="button" class="secondary-btn photo-manager-blank-template-open-btn" onclick="app.openPhotoManagerBlankTemplateDialog()" title="保存した白紙テンプレートから開始"><i class="fa-regular fa-clone"></i> 白紙テンプレ</button>
                         <button type="button" class="secondary-btn" onclick="app.choosePhotoManagerStampSheetFile()"><i class="fa-solid fa-table-cells-large"></i> スタンプ集を分割取込</button>
                         <button type="button" class="secondary-btn" onclick="app.selectVisiblePhotoManagerItems()"><i class="fa-solid fa-check-double"></i> &#34920;&#31034;&#20998;&#12434;&#20840;&#36984;&#25246;</button>
                         <button type="button" class="secondary-btn" onclick="app.clearVisiblePhotoManagerSelection()"><i class="fa-regular fa-square"></i> &#20840;&#35299;&#38500;</button>
                         <button type="button" class="secondary-btn" onclick="app.compressSelectedPhotoManagerImages()"><i class="fa-solid fa-compress"></i> 画像圧縮</button>
                         <button type="button" class="secondary-btn" onclick="app.autoTagSelectedPhotoManagerItems()" title="画像内の文字を読める場合はタグ化し、読めない場合はタイトル・写真名・メモからタグを作成"><i class="fa-solid fa-tags"></i> タグ自動作成</button>
                         <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()" title="表示中または選択中の画像を出力します。5枚以上は1つのZIPファイルにまとめて出力します。"><i class="fa-solid fa-file-export"></i> &#20986;&#21147;</button>
-                        <button type="button" class="danger-btn" onclick="app.deleteSelectedPhotoManagerItems()"><i class="fa-solid fa-trash-can"></i> &#36984;&#25246;&#12434;&#23436;&#20840;&#21066;&#38500;</button>
+                        <button type="button" class="secondary-btn" onclick="app.openPhotoManagerTrashDialog()" title="削除した写真を一時保管したゴミ箱を開きます"><i class="fa-solid fa-trash-restore"></i> ゴミ箱</button>
+                        <button type="button" class="danger-btn photo-manager-unused-delete-btn" onclick="app.deleteUnusedPhotoManagerLibraryItems()" title="どこからも使われていない取込画像を確認して削除します"><i class="fa-solid fa-broom"></i> 未使用削除</button>
+                        <button type="button" class="danger-btn" onclick="app.deleteSelectedPhotoManagerItems()" title="選択中の写真を削除します"><i class="fa-solid fa-trash-can"></i> 選択削除</button>
                     </div>
                     <div id="photo-manager-summary" class="photo-manager-summary"></div>
                     <div id="photo-manager-list" class="photo-manager-list"></div>
@@ -1070,6 +1118,7 @@
 
     <!-- Global Image Preview (Popping out of everything) -->
     <div id="global-image-preview" class="global-preview-container hidden">
+        <button type="button" id="global-image-preview-close" class="global-preview-close" aria-label="プレビューを閉じる">×</button>
         <img id="global-image-target" src="" alt="preview">
     </div>
 
@@ -1104,32 +1153,32 @@
     <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
-    <script src="store.js?v=20260623-transparent-rotate-fix"></script>
+    <script src="store.js?v=20260803-single-maintenance1"></script>
     <script src="app.js?v=20260618-photo-capacity-expiry-alpha"></script>
     <script src="app-settings.js?v=20260711-guide-bulk-compress"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
-    <script src="app-shift-notebook-editor.js"></script>
-    <script src="app-shift-notebook-core.js?v=20260725-crt-align1"></script>
+    <script src="app-shift-notebook-editor.js?v=20260802-shift-stamp-backspace1"></script>
+    <script src="app-shift-notebook-core.js?v=20260803-shift-photo-reference2"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js?v=20260623-dept-switch-import-fix"></script>
-    <script src="app-machines.js"></script>
-    <script src="app-maintenance-forms.js?v=20260711-guide-bulk-compress"></script>
-    <script src="app-history.js?v=20260623-history-popover-click-only"></script>
+    <script src="app-machines.js?v=20260803-global-preview-wheel1"></script>
+    <script src="app-maintenance-forms.js?v=20260803-history-photo-ref1"></script>
+    <script src="app-history.js?v=20260803-history-photo-ref1"></script>
     <script src="app-analysis-dashboard.js?v=20260613-dashboard-hide-mtbf"></script>
     <script src="app-ranking-guides.js?v=20260613-guide-title-candidates"></script>
-    <script src="app-tips.js?v=20260722-tips-note-preview-filter-preview1"></script>
+    <script src="app-tips.js?v=20260802-tips-editor-webp-preview1"></script>
     <script src="app-skills.js?v=20260711-worker-radar-compare"></script>
-    <script src="app-outlook-assist.js?v=20260725-outlook-group-add-contact1"></script>
+    <script src="app-outlook-assist.js?v=20260727-outlook-address-note-newline1"></script>
     <script src="app-worktime.js?v=20260611-alias-health-common-complete"></script>
     <script src="app-archives.js?v=20260606-admin-log-targets"></script>
     <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
     <script src="app-persistence.js?v=20260625-dept-import-warning"></script>
-    <script src="app-csv.js?v=20260625-history-import-worker-name"></script>
+    <script src="app-csv.js?v=20260803-single-maintenance1"></script>
     <script src="app-misc-analysis.js"></script>
-    <script src="app-photo-manager.js?v=20260719-photo-tags-ocr-no-contrast1"></script>
+    <script src="app-photo-manager.js?v=20260803-photo-reference-only3"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js?v=20260619-remove-auto-backup"></script>
 </body>

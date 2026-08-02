@@ -2166,7 +2166,7 @@
                 document.querySelector('#shift-notebook-rows .shift-notebook-row:last-child')?.remove();
                 const sortableRows = rows.map((row, index) => ({ ...row, _sourceIndex: index }));
                 this.sortShiftNotebookRows(sortableRows).forEach(row => {
-                    const rowEl = this.addShiftNotebookRow(rowContainerId, row.text || '', row.photos || [], row.tag || '通常', row.group || '未設定', row.html || '', !!row.hidden, true, row.id || '', row.replyTo || '', !!row.important, row.pasteFormat || null, !!row.suddenRegistered, row.suddenHistoryId || '', !!row.fiveS, row.photoCompareMarks || [], row.fiveSAssigneeId || '');
+                    const rowEl = this.addShiftNotebookRow(rowContainerId, row.text || '', row.photos || [], row.tag || '通常', row.group || '未設定', row.html || '', !!row.hidden, true, row.id || '', row.replyTo || '', !!row.important, row.pasteFormat || null, !!row.suddenRegistered, row.suddenHistoryId || '', !!row.fiveS, row.photoCompareMarks || [], row.fiveSAssigneeId || '', !!row.mergeLineBreak);
                     if (rowEl) rowEl.dataset.shiftSourceIndex = String(row._sourceIndex);
                     if (rowEl && row.suddenRegistered) {
                         rowEl.classList.add('shift-row-sudden-registered');
@@ -2448,7 +2448,13 @@
             const caption = item.querySelector('.shift-photo-caption')?.value.trim() || '';
             const marks = this.compactShiftPhotoCompareMarkImages(this.parseShiftPhotoCompareMarks(item.dataset.shiftPhotoMarks || '[]'));
             return (caption || marks.length) ? { src, caption, marks } : src;
-        }).filter(photo => typeof photo === 'string' ? !!photo : !!photo.src);
+        }).filter(photo => {
+            if (typeof photo === 'string') return !!photo;
+            if (!photo || typeof photo !== 'object') return false;
+            if (photo.source === 'photoManager' && photo.id) return true;
+            if (photo.photoManagerId) return true;
+            return !!photo.src;
+        });
         return {
             id: row.dataset.shiftRowId || '',
             replyTo: row.dataset.replyTo || '',
@@ -2462,6 +2468,7 @@
             important: row.classList.contains('shift-row-important'),
             fiveS: row.classList.contains('shift-row-5s'),
             fiveSAssigneeId: row.dataset.fiveSAssigneeId || '',
+            mergeLineBreak: row.dataset.mergeLineBreak === 'true',
             suddenRegistered: row.dataset.suddenRegistered === 'true',
             suddenHistoryId: row.dataset.suddenHistoryId || '',
             pasteFormat
@@ -3441,9 +3448,17 @@
 
     normalizeShiftNotebookPhoto(photo) {
         if (typeof photo === 'string') return { src: photo, caption: '', marks: [] };
+        const refId = photo?.source === 'photoManager' || photo?.photoManagerId
+            ? String(photo.photoManagerId || photo.id || '')
+            : '';
+        const linked = refId ? this.getPhotoManagerLibraryReferenceById?.(refId) : null;
         return {
-            src: photo?.src || photo?.url || photo?.data || '',
+            src: photo?.src || photo?.url || photo?.data || linked?.photo?.src || '',
             caption: photo?.caption || '',
+            source: refId ? 'photoManager' : (photo?.source || ''),
+            id: refId || photo?.id || '',
+            photoManagerId: photo?.photoManagerId || '',
+            name: photo?.name || linked?.photo?.name || linked?.photo?.caption || '',
             marks: Array.isArray(photo?.marks)
                 ? this.parseShiftPhotoCompareMarks(JSON.stringify(photo.marks))
                 : []
@@ -3914,7 +3929,7 @@
         this.removeOnlyBlankUnsetShiftNotebookRow();
         if (template.isRowSet) {
             const rows = Array.isArray(template.rows) && template.rows.length > 0 ? template.rows : [{ group: template.group || '未設定', tag: template.tag || '通常' }];
-            const addedRows = rows.map(row => this.addShiftNotebookRow('shift-notebook-rows', row.text || '', row.photos || [], row.tag || '通常', row.group || this.lastShiftNotebookRowGroup || '未設定', row.html || '', false, true, '', '', !!row.important, null, false, '', !!row.fiveS, row.photoCompareMarks || [], row.fiveSAssigneeId || ''))
+            const addedRows = rows.map(row => this.addShiftNotebookRow('shift-notebook-rows', row.text || '', row.photos || [], row.tag || '通常', row.group || this.lastShiftNotebookRowGroup || '未設定', row.html || '', false, true, '', '', !!row.important, null, false, '', !!row.fiveS, row.photoCompareMarks || [], row.fiveSAssigneeId || '', !!row.mergeLineBreak))
                 .filter(Boolean);
             addedRows.forEach((rowEl, index) => this.setShiftNoteRowPasteFormatSettings(rowEl, rows[index]?.pasteFormat || {}));
             this.sortShiftNotebookRowsInDom();
@@ -3924,7 +3939,7 @@
             return;
         }
         const isBlankRow = !!template.isBlankRow;
-        this.addShiftNotebookRow('shift-notebook-rows', isBlankRow ? '' : (template.text || ''), isBlankRow ? [] : (template.photos || []), template.tag || '通常', template.group || this.lastShiftNotebookRowGroup || '未設定', isBlankRow ? '' : (template.html || ''), false, true, '', '', !!template.important, null, false, '', !!template.fiveS, template.photoCompareMarks || [], template.fiveSAssigneeId || '');
+        this.addShiftNotebookRow('shift-notebook-rows', isBlankRow ? '' : (template.text || ''), isBlankRow ? [] : (template.photos || []), template.tag || '通常', template.group || this.lastShiftNotebookRowGroup || '未設定', isBlankRow ? '' : (template.html || ''), false, true, '', '', !!template.important, null, false, '', !!template.fiveS, template.photoCompareMarks || [], template.fiveSAssigneeId || '', !!template.mergeLineBreak);
         const row = document.querySelector('#shift-notebook-rows .shift-notebook-row:last-child');
         if (row && !isBlankRow) this.setShiftNoteRowPasteFormatSettings(row, template.pasteFormat || {});
         row?.querySelector('.shift-note-text')?.focus();
@@ -4403,7 +4418,7 @@
                 return;
             }
             existingKeys.add(key);
-            this.addShiftNotebookRow('shift-notebook-rows', row.text || '', row.photos || [], row.tag || '通常', row.group || this.lastShiftNotebookRowGroup || '未設定', row.html || '');
+            this.addShiftNotebookRow('shift-notebook-rows', row.text || '', row.photos || [], row.tag || '通常', row.group || this.lastShiftNotebookRowGroup || '未設定', row.html || '', false, true, '', '', !!row.important, row.pasteFormat || null, !!row.suddenRegistered, row.suddenHistoryId || '', !!row.fiveS, row.photoCompareMarks || [], row.fiveSAssigneeId || '', !!row.mergeLineBreak);
             addedCount++;
         });
         panel.classList.add('hidden');
@@ -4423,7 +4438,217 @@
         return `${text}__${photos}`;
     }
 
-    addShiftNotebookRow(containerId, text = '', photos = [], tag = '通常', group = '未設定', html = '', hidden = false, preserveBlank = true, savedRowId = '', replyTo = '', important = false, pasteFormat = null, suddenRegistered = false, suddenHistoryId = '', fiveS = false, photoCompareMarks = [], fiveSAssigneeId = '') {
+    getShiftNoteEditorCaretTextOffset(editor) {
+        const selection = window.getSelection();
+        if (!editor || !selection || selection.rangeCount === 0) return -1;
+        const range = selection.getRangeAt(0);
+        if (!editor.contains(range.startContainer)) return -1;
+        return this.getShiftNoteTextOffsetForNode(editor, range.startContainer, range.startOffset);
+    }
+
+    getShiftNoteNodePlainTextLength(node) {
+        if (!node) return 0;
+        if (node.nodeType === Node.TEXT_NODE) return node.nodeValue?.length || 0;
+        if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'BR') return 1;
+        return Array.from(node.childNodes || []).reduce((sum, child) => sum + this.getShiftNoteNodePlainTextLength(child), 0);
+    }
+
+    getShiftNoteTextOffsetForNode(root, targetNode, targetOffset) {
+        let offset = 0;
+        let found = false;
+        const walk = (node) => {
+            if (!node || found) return;
+            if (node === targetNode) {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    offset += Math.max(0, Math.min(targetOffset, node.nodeValue?.length || 0));
+                } else {
+                    Array.from(node.childNodes || []).slice(0, targetOffset).forEach(child => {
+                        offset += this.getShiftNoteNodePlainTextLength(child);
+                    });
+                }
+                found = true;
+                return;
+            }
+            if (node.nodeType === Node.TEXT_NODE) {
+                offset += node.nodeValue?.length || 0;
+                return;
+            }
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'BR') {
+                offset += 1;
+                return;
+            }
+            Array.from(node.childNodes || []).some(child => {
+                walk(child);
+                return found;
+            });
+        };
+        walk(root);
+        return found ? offset : -1;
+    }
+
+    getShiftNoteEditorPlainText(editor) {
+        if (!editor) return '';
+        const walk = (node) => {
+            if (!node) return '';
+            if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'BR') return '\n';
+            return Array.from(node.childNodes || []).map(walk).join('');
+        };
+        return walk(editor);
+    }
+
+    getShiftNoteTextPointAtOffset(root, targetOffset) {
+        let remaining = Math.max(0, Number(targetOffset) || 0);
+        let point = null;
+        const walk = (node) => {
+            if (!node || point) return;
+            if (node.nodeType === Node.TEXT_NODE) {
+                const len = node.nodeValue?.length || 0;
+                if (remaining <= len) {
+                    point = { node, offset: remaining };
+                    return;
+                }
+                remaining -= len;
+                return;
+            }
+            Array.from(node.childNodes || []).some((child, index) => {
+                if (child.nodeType === Node.ELEMENT_NODE && child.tagName === 'BR') {
+                    if (remaining === 0) {
+                        point = { node, offset: index };
+                        return true;
+                    }
+                    remaining -= 1;
+                    if (remaining === 0) {
+                        point = { node, offset: index + 1 };
+                        return true;
+                    }
+                    return false;
+                }
+                walk(child);
+                return !!point;
+            });
+        };
+        walk(root);
+        return point || { node: root, offset: root.childNodes.length };
+    }
+
+    getShiftNoteHtmlFragmentByTextOffsets(editor, startOffset, endOffset) {
+        const start = this.getShiftNoteTextPointAtOffset(editor, startOffset);
+        const end = this.getShiftNoteTextPointAtOffset(editor, endOffset);
+        const range = document.createRange();
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset);
+        const holder = document.createElement('div');
+        holder.appendChild(range.cloneContents());
+        return holder.innerHTML;
+    }
+
+    getShiftNoteRangeByTextOffsets(editor, startOffset, endOffset) {
+        const start = this.getShiftNoteTextPointAtOffset(editor, startOffset);
+        const end = this.getShiftNoteTextPointAtOffset(editor, endOffset);
+        const range = document.createRange();
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset);
+        return range;
+    }
+
+    setShiftNoteEditorCaretTextOffset(editor, targetOffset) {
+        if (!editor) return;
+        const selection = window.getSelection();
+        const range = document.createRange();
+        let remaining = Math.max(0, Number(targetOffset) || 0);
+        let found = false;
+        const walk = (node) => {
+            if (!node || found) return;
+            if (node.nodeType === Node.TEXT_NODE) {
+                const len = node.nodeValue?.length || 0;
+                if (remaining <= len) {
+                    range.setStart(node, remaining);
+                    found = true;
+                    return;
+                }
+                remaining -= len;
+                return;
+            }
+            Array.from(node.childNodes || []).some(child => {
+                if (child.nodeType === Node.ELEMENT_NODE && child.tagName === 'BR') {
+                    if (remaining === 0) {
+                        range.setStartBefore(child);
+                        found = true;
+                        return true;
+                    }
+                    remaining -= 1;
+                    if (remaining === 0) {
+                        range.setStartAfter(child);
+                        found = true;
+                        return true;
+                    }
+                    return false;
+                }
+                walk(child);
+                return found;
+            });
+        };
+        walk(editor);
+        if (!found) {
+            range.selectNodeContents(editor);
+            range.collapse(false);
+        } else {
+            range.collapse(true);
+        }
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        editor._savedRange = range.cloneRange();
+    }
+
+    insertShiftNoteMergedLineBreak(editor) {
+        if (!editor) return false;
+        const offset = this.getShiftNoteEditorCaretTextOffset(editor);
+        if (offset < 0) return false;
+        const text = this.getShiftNoteEditorPlainText(editor);
+        const before = text.slice(0, offset);
+        const after = text.slice(offset);
+        const nextBreak = after.indexOf('\n');
+        const tail = nextBreak >= 0 ? after.slice(0, nextBreak) : after;
+        if (nextBreak === 0 || (nextBreak < 0 && tail.length === 0)) {
+            document.execCommand('insertLineBreak');
+            return true;
+        }
+        const tailRange = this.getShiftNoteRangeByTextOffsets(editor, offset, offset + tail.length);
+        const tailFragment = tailRange.extractContents();
+        if (nextBreak >= 0) {
+            const breakRange = this.getShiftNoteRangeByTextOffsets(editor, offset, offset + 1);
+            breakRange.deleteContents();
+        }
+        const insertPoint = this.getShiftNoteTextPointAtOffset(editor, offset);
+        const insertRange = document.createRange();
+        insertRange.setStart(insertPoint.node, insertPoint.offset);
+        insertRange.collapse(true);
+        const br = document.createElement('br');
+        insertRange.insertNode(br);
+        insertRange.setStartAfter(br);
+        insertRange.collapse(true);
+        insertRange.insertNode(tailFragment);
+        this.setShiftNoteEditorCaretTextOffset(editor, before.length + 1);
+        return true;
+    }
+
+    toggleShiftNotebookRowMergeLineBreak(button) {
+        const row = button?.closest('.shift-notebook-row');
+        if (!row) return;
+        const active = row.dataset.mergeLineBreak !== 'true';
+        row.dataset.mergeLineBreak = active ? 'true' : 'false';
+        row.classList.toggle('shift-row-merge-line-active', active);
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        button.title = active
+            ? '改行時結合ON: 文中Enterは後ろの文字を次行へ結合 / 行末Enterは通常改行'
+            : '改行時結合OFF: 通常の改行';
+        this.setShiftNotebookStatus(active ? '改行時結合をONにしました' : '改行時結合をOFFにしました', 'saved');
+        this.scheduleShiftNotebookAutoSave();
+    }
+
+    addShiftNotebookRow(containerId, text = '', photos = [], tag = '通常', group = '未設定', html = '', hidden = false, preserveBlank = true, savedRowId = '', replyTo = '', important = false, pasteFormat = null, suddenRegistered = false, suddenHistoryId = '', fiveS = false, photoCompareMarks = [], fiveSAssigneeId = '', mergeLineBreak = false) {
         const container = document.getElementById(containerId);
         if (!container) return;
         if (group) this.lastShiftNotebookRowGroup = group;
@@ -4435,6 +4660,8 @@
         if (suddenRegistered) row.classList.add('shift-row-sudden-registered');
         row.dataset.shiftRowId = rowId;
         row.dataset.shiftPhotoGlobalMarks = JSON.stringify(this.compactShiftPhotoCompareMarkImages(photoCompareMarks));
+        row.dataset.mergeLineBreak = mergeLineBreak ? 'true' : 'false';
+        row.classList.toggle('shift-row-merge-line-active', !!mergeLineBreak);
         if (fiveSAssigneeId) row.dataset.fiveSAssigneeId = fiveSAssigneeId;
         if (suddenRegistered) row.dataset.suddenRegistered = 'true';
         if (suddenHistoryId) row.dataset.suddenHistoryId = suddenHistoryId;
@@ -4516,7 +4743,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="shift-note-text" contenteditable="true" spellcheck="false" data-placeholder="連絡内容を入力（Alt+Enterで改行）">${html ? this.sanitizeShiftNoteHtml(html) : this.shiftNoteTextToHtml(text)}</div>
+                <div class="shift-note-text" contenteditable="true" spellcheck="false" data-placeholder="連絡内容を入力（Enterで改行）">${html ? this.sanitizeShiftNoteHtml(html) : this.shiftNoteTextToHtml(text)}</div>
                 <div class="shift-row-actions">
                     <div class="shift-row-action-strip">
                         <button type="button" class="shift-row-shift-stamp early" title="カーソル位置に早番スタンプ" onmousedown="event.preventDefault(); app.rememberShiftNoteSelection(this)" onclick="app.insertShiftNoteShiftStamp(this, 'early')">早</button>
@@ -4534,7 +4761,9 @@
                         <button type="button" class="icon-btn shift-row-add-below shift-action-structure" title="この行の下に新規行を追加" onclick="app.addShiftNotebookRowBelow(this)"><i class="fa-solid fa-plus"></i></button>
                         <button type="button" class="icon-btn shift-row-fullscreen shift-action-view" title="フルスクリーン表示" onclick="app.openShiftNoteFullscreen(this)"><i class="fa-solid fa-expand"></i></button>
                         <button type="button" class="icon-btn shift-row-paste-settings shift-action-organize" title="この行の貼り付け整形" onclick="app.openShiftNoteRowPasteSettings(this)"><i class="fa-solid fa-paste"></i></button>
+                        <button type="button" class="icon-btn shift-row-setting-preset shift-action-organize" title="クリック: プリセット一覧 / ダブルクリック: 最後に使った行設定を反映" onclick="app.toggleShiftNoteRowPresetMenu(this)" ondblclick="event.preventDefault(); app.applyLastShiftNoteRowSettingPreset(this)"><i class="fa-solid fa-sliders"></i></button>
                         <button type="button" class="icon-btn shift-row-break-line-toggle shift-action-view" title="改行ラインを非表示" onclick="app.toggleShiftNotebookBreakLine()"><i class="fa-solid fa-eye-slash"></i></button>
+                        <button type="button" class="icon-btn shift-row-merge-line-toggle shift-action-organize ${mergeLineBreak ? 'active' : ''}" title="${mergeLineBreak ? '改行時結合ON: 文中Enterは後ろの文字を次行へ結合 / 行末Enterは通常改行' : '改行時結合OFF: 通常の改行'}" aria-pressed="${mergeLineBreak ? 'true' : 'false'}" onclick="app.toggleShiftNotebookRowMergeLineBreak(this)"><i class="fa-solid fa-link"></i></button>
                         <button type="button" class="icon-btn shift-row-trim-blank-lines shift-action-organize" title="空白行を削除" onclick="app.removeShiftNoteBlankLines(this)"><i class="fa-solid fa-align-justify"></i></button>
                         <button type="button" class="icon-btn shift-photo-collapse-btn shift-action-view" title="写真一覧を折りたたみ" onclick="app.toggleShiftPhotoPreviews(this)" aria-label="写真一覧を折りたたみ">
                             <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>
@@ -4766,6 +4995,11 @@
                     resizeEditor();
                     return;
                 }
+                if (this.removeAdjacentShiftNoteInlineStamp?.(editor, e.key)) {
+                    e.preventDefault();
+                    resizeEditor();
+                    return;
+                }
                 requestAnimationFrame(() => {
                     this.cleanupShiftNoteEmptySpans(editor);
                     this.saveShiftNoteSelection(editor);
@@ -4801,14 +5035,17 @@
                 }
                 return;
             }
-            if (e.altKey) {
-                e.preventDefault();
-                document.execCommand('insertLineBreak');
-                resizeEditor();
-                this.scheduleShiftNotebookAutoSave();
+            if (e.isComposing || editor._isComposing || e.key === 'Process') return;
+            e.preventDefault();
+            const row = editor.closest('.shift-notebook-row');
+            if (row?.dataset.mergeLineBreak === 'true') {
+                if (!this.insertShiftNoteMergedLineBreak(editor)) document.execCommand('insertLineBreak');
             } else {
-                e.preventDefault();
+                document.execCommand('insertLineBreak');
             }
+            resizeEditor();
+            this.saveShiftNoteSelection(editor);
+            this.scheduleShiftNotebookAutoSave();
         });
         // アクティブ装飾モードのインジケーターを初期反映
         this._updateShiftNoteFormatIndicator(row);
@@ -4820,6 +5057,13 @@
             const div = this.createPhotoPreviewElement(photoData.src, null, null, 74);
             div.classList.add('shift-photo-item');
             div.dataset.shiftPhotoMarks = JSON.stringify(this.compactShiftPhotoCompareMarkImages(photoData.marks));
+            if (photoData.source === 'photoManager' && photoData.id) {
+                div.dataset.shiftPhotoReference = JSON.stringify({
+                    source: 'photoManager',
+                    id: photoData.id,
+                    name: photoData.name || ''
+                });
+            }
             div.insertAdjacentHTML('beforeend', `
                 <span class="shift-photo-mark-badge" title="写真比較で記号・文字の注記があります"><i class="fa-solid fa-pen"></i></span>
                 <div class="shift-photo-caption-row">
@@ -4963,8 +5207,8 @@
         this.updateShiftPhotoToolState(row);
         const shiftPhotoInput = row.querySelector('.shift-photo-input');
         if (shiftPhotoInput) {
-            shiftPhotoInput._shiftPhotoAddSrc = (src) => {
-                appendPreview(src);
+            shiftPhotoInput._shiftPhotoAddSrc = (photo) => {
+                appendPreview(photo);
                 this.updateShiftPhotoToolState(row);
                 this.updateUnusedBlankShiftNotebookRowCount();
                 this.autoSaveShiftNotebook(true);
@@ -4988,7 +5232,7 @@
                 this.autoSaveShiftNotebook(true);
                 this.showShiftNotebookUndoNotice('行を空にしました', () => {
                     if (!rowData) return;
-                    this.addShiftNotebookRow(containerId, rowData.text, rowData.photos, rowData.tag, rowData.group, rowData.html, rowData.hidden, true, rowData.id, rowData.replyTo, !!rowData.important, rowData.pasteFormat || null, !!rowData.suddenRegistered, rowData.suddenHistoryId || '', !!rowData.fiveS, rowData.photoCompareMarks || [], rowData.fiveSAssigneeId || '');
+                    this.addShiftNotebookRow(containerId, rowData.text, rowData.photos, rowData.tag, rowData.group, rowData.html, rowData.hidden, true, rowData.id, rowData.replyTo, !!rowData.important, rowData.pasteFormat || null, !!rowData.suddenRegistered, rowData.suddenHistoryId || '', !!rowData.fiveS, rowData.photoCompareMarks || [], rowData.fiveSAssigneeId || '', !!rowData.mergeLineBreak);
                     const restored = container.lastElementChild;
                     if (restored && row.parentNode) {
                         row.replaceWith(restored);
@@ -7157,7 +7401,7 @@
     }
 
     setShiftPhotoCompareBlankBaseColor(color = '#ffffff') {
-        const safeColor = /^#[0-9a-fA-F]{6}$/.test(String(color || '')) ? color : '#ffffff';
+        const safeColor = /^#[0-9a-fA-F]{6}$/.test(String(color || '')) ? String(color).toLowerCase() : '#ffffff';
         const src = this.createShiftPhotoCompareBlankBaseSrc(safeColor);
         const context = this._shiftPhotoCompareContext;
         const photos = Array.isArray(context?.photos) ? context.photos : [];
@@ -7176,8 +7420,92 @@
         document.querySelectorAll('.shift-photo-compare-blank-bg-color input[type="color"]').forEach(input => {
             input.value = safeColor;
         });
+        this.updateShiftPhotoCompareBlankBgPresetSelection(safeColor);
         this.showShiftPhotoCompareActionMessage?.('白紙の背景色を変更しました。');
         this.syncShiftPhotoCompareContext?.();
+    }
+
+    getShiftPhotoCompareBlankBaseColor() {
+        const context = this._shiftPhotoCompareContext;
+        const photos = Array.isArray(context?.photos) ? context.photos : [];
+        const color = photos.find(photo => photo?.isBlankBase)?.blankBaseColor
+            || document.querySelector('.shift-photo-compare-blank-bg-color input[type="color"]')?.value
+            || '#ffffff';
+        return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : '#ffffff';
+    }
+
+    getShiftPhotoCompareBlankBgPresetColors() {
+        const defaults = ['#ffffff', '#e5e7eb', '#fef3c7', '#dcfce7', '#dbeafe', '#fee2e2'];
+        try {
+            const raw = localStorage.getItem('shift_photo_compare_blank_bg_presets');
+            if (raw === null) return defaults;
+            const parsed = JSON.parse(raw || '[]');
+            const colors = Array.isArray(parsed)
+                ? parsed.map(color => String(color || '').toLowerCase()).filter(color => /^#[0-9a-f]{6}$/i.test(color))
+                : [];
+            return [...new Set(colors)].slice(0, 12);
+        } catch (error) {
+            return defaults;
+        }
+    }
+
+    saveShiftPhotoCompareBlankBgPresetColors(colors = []) {
+        const normalized = [...new Set((Array.isArray(colors) ? colors : [])
+            .map(color => String(color || '').toLowerCase())
+            .filter(color => /^#[0-9a-f]{6}$/i.test(color)))].slice(0, 12);
+        localStorage.setItem('shift_photo_compare_blank_bg_presets', JSON.stringify(normalized));
+        this.refreshShiftPhotoCompareBlankBgPresets();
+    }
+
+    getShiftPhotoCompareBlankBgPresetsHtml(currentColor = this.getShiftPhotoCompareBlankBaseColor()) {
+        const colors = this.getShiftPhotoCompareBlankBgPresetColors();
+        const safeCurrent = /^#[0-9a-f]{6}$/i.test(currentColor || '') ? currentColor.toLowerCase() : '#ffffff';
+        if (!colors.length) return '<span class="shift-photo-compare-blank-bg-empty">未登録</span>';
+        return colors.map(color => `
+            <span class="shift-photo-compare-blank-bg-preset-item${color === safeCurrent ? ' selected' : ''}" data-blank-bg-preset="${color}">
+                <button type="button" class="shift-photo-compare-blank-bg-preset" style="--preset-color:${color}" onclick="app.setShiftPhotoCompareBlankBaseColor('${color}')" aria-label="${color}" title="${color}"></button>
+                <button type="button" class="shift-photo-compare-blank-bg-preset-remove" onclick="app.removeShiftPhotoCompareBlankBgPresetColor('${color}')" title="${color} を削除"><i class="fa-solid fa-xmark"></i></button>
+            </span>
+        `).join('');
+    }
+
+    refreshShiftPhotoCompareBlankBgPresets() {
+        const list = document.querySelector('.shift-photo-compare-blank-bg-preset-list');
+        if (!list) return;
+        list.innerHTML = this.getShiftPhotoCompareBlankBgPresetsHtml();
+        this.updateShiftPhotoCompareBlankBgPresetSelection();
+    }
+
+    updateShiftPhotoCompareBlankBgPresetSelection(color = this.getShiftPhotoCompareBlankBaseColor()) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(color || '') ? color.toLowerCase() : '#ffffff';
+        document.querySelectorAll('.shift-photo-compare-blank-bg-preset-item').forEach(item => {
+            item.classList.toggle('selected', item.dataset.blankBgPreset === safeColor);
+        });
+    }
+
+    addShiftPhotoCompareBlankBgPresetColor(color = '') {
+        const nextColor = /^#[0-9a-f]{6}$/i.test(color || '')
+            ? color.toLowerCase()
+            : this.getShiftPhotoCompareBlankBaseColor();
+        const current = this.getShiftPhotoCompareBlankBgPresetColors();
+        const existed = current.includes(nextColor);
+        const colors = current.filter(existing => existing !== nextColor);
+        colors.unshift(nextColor);
+        this.saveShiftPhotoCompareBlankBgPresetColors(colors);
+        this.showShiftPhotoCompareActionMessage?.(existed
+            ? `${nextColor} は背景プリセット登録済みだったため先頭へ移動しました。`
+            : `背景プリセットに ${nextColor} を追加しました。`);
+    }
+
+    removeShiftPhotoCompareBlankBgPresetColor(color = '') {
+        const normalized = String(color || '').toLowerCase();
+        this.saveShiftPhotoCompareBlankBgPresetColors(this.getShiftPhotoCompareBlankBgPresetColors().filter(existing => existing !== normalized));
+        this.showShiftPhotoCompareActionMessage?.('背景プリセットから削除しました。');
+    }
+
+    resetShiftPhotoCompareBlankBaseColor() {
+        this.setShiftPhotoCompareBlankBaseColor('#ffffff');
+        this.showShiftPhotoCompareActionMessage?.('背景色を白に戻しました。');
     }
 
     openShiftPhotoCompareWithPhotos(photos = [], options = {}) {
@@ -7198,6 +7526,7 @@
             photos,
             source: options.source || 'shift',
             globalMarks: Array.isArray(options.globalMarks) ? options.globalMarks : [],
+            photoManagerBlankEditItemId: options.photoManagerBlankEditItemId || '',
             onSync: options.onSync || null,
             onClose: options.onClose || null
         };
@@ -7291,10 +7620,17 @@
                             <label class="shift-photo-compare-color" title="記号の色">
                                 <span>色</span>
                                 <input type="color" value="#dc2626" oninput="app.setShiftPhotoCompareMarkColor(this.value)">
-                                <button type="button" class="shift-photo-compare-eyedropper" onclick="app.pickShiftPhotoCompareScreenColor('active')" title="画面上から色を取得"><i class="fa-solid fa-eye-dropper"></i></button>
+                                <button type="button" class="shift-photo-compare-eyedropper" onclick="app.pickShiftPhotoCompareScreenColor('choose')" title="画面上から色を取得して反映先を選ぶ"><i class="fa-solid fa-eye-dropper"></i></button>
                             </label>
-                            <div class="shift-photo-compare-color-presets" title="色プリセット">
-                                ${['#dc2626', '#2563eb', '#16a34a', '#eab308', '#111827', '#ffffff'].map(color => `<button type="button" style="--preset-color:${color}" onclick="app.setShiftPhotoCompareMarkColor('${color}')" aria-label="${color}"></button>`).join('')}
+                            <button type="button" class="shift-photo-compare-palette-toggle" id="shift-photo-compare-palette-toggle" onclick="app.toggleShiftPhotoComparePickerPalette()" title="スポイトで拾うための色パレットを画像の外側に表示">
+                                <i class="fa-solid fa-palette"></i><span>パレット</span>
+                            </button>
+                            <div class="shift-photo-compare-color-presets shift-photo-compare-mark-color-presets" title="記号色プリセット">
+                                <div class="shift-photo-compare-mark-color-preset-list">
+                                    ${this.getShiftPhotoCompareMarkColorPresetsHtml(this._shiftPhotoCompareMarkColor || '#dc2626')}
+                                </div>
+                                <button type="button" class="shift-photo-compare-mark-color-action" onclick="app.addShiftPhotoCompareMarkColorPresetColor()" title="現在の記号色をプリセットに追加"><i class="fa-solid fa-plus"></i></button>
+                                <button type="button" class="shift-photo-compare-mark-color-action" onclick="app.resetShiftPhotoCompareMarkColor()" title="記号色を赤へ戻す"><i class="fa-solid fa-rotate-left"></i></button>
                             </div>
                             ${displayPhotos.some(photo => photo.isBlankBase) ? `
                             <label class="shift-photo-compare-color shift-photo-compare-blank-bg-color" title="白紙ベースの背景色">
@@ -7303,7 +7639,11 @@
                                 <button type="button" class="shift-photo-compare-eyedropper" onclick="app.pickShiftPhotoCompareScreenColor('blank')" title="画面上から背景色を取得"><i class="fa-solid fa-eye-dropper"></i></button>
                             </label>
                             <div class="shift-photo-compare-color-presets shift-photo-compare-blank-bg-presets" title="白紙背景色プリセット">
-                                ${['#ffffff', '#f8fafc', '#fef3c7', '#dcfce7', '#dbeafe', '#fee2e2'].map(color => `<button type="button" style="--preset-color:${color}" onclick="app.setShiftPhotoCompareBlankBaseColor('${color}')" aria-label="${color}"></button>`).join('')}
+                                <div class="shift-photo-compare-blank-bg-preset-list">
+                                    ${this.getShiftPhotoCompareBlankBgPresetsHtml(displayPhotos.find(photo => photo.isBlankBase)?.blankBaseColor || '#ffffff')}
+                                </div>
+                                <button type="button" class="shift-photo-compare-blank-bg-action" onclick="app.addShiftPhotoCompareBlankBgPresetColor()" title="現在の背景色をプリセットに追加"><i class="fa-solid fa-plus"></i></button>
+                                <button type="button" class="shift-photo-compare-blank-bg-action" onclick="app.resetShiftPhotoCompareBlankBaseColor()" title="背景色を白へ戻す"><i class="fa-solid fa-rotate-left"></i></button>
                             </div>
                             ` : ''}
                             <label class="shift-photo-compare-color shift-photo-compare-fill-color" title="吹き出しの中の色">
@@ -7512,6 +7852,7 @@
                     <div class="shift-photo-compare-global-layer" onpointerdown="app.startShiftPhotoCompareGlobalMarkDrag(event, this)" ondragover="app.handleShiftPhotoCompareRecentImageDragOver(event)" ondrop="app.dropShiftPhotoCompareRecentImageStamp(event, this)">
                         ${this.getShiftPhotoCompareInitialGlobalMarks(contextRow, options).map(mark => this.getShiftPhotoCompareMarkHtml(mark)).join('')}
                     </div>
+                    ${this.getShiftPhotoComparePickerPaletteHtml()}
                 </div>
                 <div class="shift-photo-compare-mini-toolbar" id="shift-photo-compare-mini-toolbar" hidden onpointerdown="app.startShiftPhotoCompareMiniToolbarDrag(event, this)">
                     <div class="shift-photo-compare-mini-copy-wrap" onpointerdown="event.stopPropagation()">
@@ -10462,16 +10803,146 @@
         this.rememberShiftPhotoCompareBorderColorForActiveMarks(color);
         const colorInput = document.querySelector('.shift-photo-compare-color input[type="color"]');
         if (colorInput) colorInput.value = this._shiftPhotoCompareMarkColor;
+        this.updateShiftPhotoCompareMarkColorPresetSelection(this._shiftPhotoCompareMarkColor);
         this.applyShiftPhotoCompareSettingsToSelectedMark({ color: this._shiftPhotoCompareMarkColor });
         this.updateShiftPhotoCompareSample();
     }
 
+    getShiftPhotoCompareCurrentMarkColor() {
+        const mark = this._shiftPhotoCompareSelectedMark;
+        const color = mark && /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '')
+            ? mark.dataset.color
+            : (document.querySelector('.shift-photo-compare-color input[type="color"]')?.value || this._shiftPhotoCompareMarkColor || '#dc2626');
+        return /^#[0-9a-f]{6}$/i.test(color || '') ? color.toLowerCase() : '#dc2626';
+    }
+
+    getShiftPhotoCompareMarkColorPresetColors() {
+        const defaults = ['#dc2626', '#2563eb', '#16a34a', '#eab308', '#111827', '#ffffff'];
+        try {
+            const raw = localStorage.getItem('shift_photo_compare_mark_color_presets');
+            if (raw === null) return defaults;
+            const parsed = JSON.parse(raw || '[]');
+            const colors = Array.isArray(parsed)
+                ? parsed.map(color => String(color || '').toLowerCase()).filter(color => /^#[0-9a-f]{6}$/i.test(color))
+                : [];
+            return [...new Set(colors)].slice(0, 12);
+        } catch (error) {
+            return defaults;
+        }
+    }
+
+    saveShiftPhotoCompareMarkColorPresetColors(colors = []) {
+        const normalized = [...new Set((Array.isArray(colors) ? colors : [])
+            .map(color => String(color || '').toLowerCase())
+            .filter(color => /^#[0-9a-f]{6}$/i.test(color)))].slice(0, 12);
+        localStorage.setItem('shift_photo_compare_mark_color_presets', JSON.stringify(normalized));
+        this.refreshShiftPhotoCompareMarkColorPresets();
+    }
+
+    getShiftPhotoCompareMarkColorPresetsHtml(currentColor = this.getShiftPhotoCompareCurrentMarkColor()) {
+        const colors = this.getShiftPhotoCompareMarkColorPresetColors();
+        const safeCurrent = /^#[0-9a-f]{6}$/i.test(currentColor || '') ? currentColor.toLowerCase() : '#dc2626';
+        if (!colors.length) return '<span class="shift-photo-compare-mark-color-empty">未登録</span>';
+        return colors.map(color => `
+            <span class="shift-photo-compare-mark-color-preset-item${color === safeCurrent ? ' selected' : ''}" draggable="true" data-mark-color-preset="${color}" ondragstart="app.startShiftPhotoCompareMarkColorPresetDrag(event)" ondragover="app.allowShiftPhotoCompareMarkColorPresetDrop(event)" ondrop="app.dropShiftPhotoCompareMarkColorPreset(event)" ondragend="app.endShiftPhotoCompareMarkColorPresetDrag()">
+                <button type="button" class="shift-photo-compare-mark-color-preset" draggable="true" style="--preset-color:${color}" ondragstart="app.startShiftPhotoCompareMarkColorPresetDrag(event)" onclick="app.setShiftPhotoCompareMarkColor('${color}')" aria-label="${color}" title="${color}"></button>
+                <button type="button" class="shift-photo-compare-mark-color-preset-remove" draggable="false" ondragstart="event.preventDefault()" onclick="app.removeShiftPhotoCompareMarkColorPresetColor('${color}')" title="${color} を削除"><i class="fa-solid fa-xmark"></i></button>
+            </span>
+        `).join('');
+    }
+
+    refreshShiftPhotoCompareMarkColorPresets() {
+        const list = document.querySelector('.shift-photo-compare-mark-color-preset-list');
+        if (!list) return;
+        list.innerHTML = this.getShiftPhotoCompareMarkColorPresetsHtml();
+        this.updateShiftPhotoCompareMarkColorPresetSelection();
+    }
+
+    updateShiftPhotoCompareMarkColorPresetSelection(color = this.getShiftPhotoCompareCurrentMarkColor()) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(color || '') ? color.toLowerCase() : '#dc2626';
+        document.querySelectorAll('.shift-photo-compare-mark-color-preset-item').forEach(item => {
+            item.classList.toggle('selected', item.dataset.markColorPreset === safeColor);
+        });
+    }
+
+    addShiftPhotoCompareMarkColorPresetColor(color = '') {
+        const nextColor = /^#[0-9a-f]{6}$/i.test(color || '')
+            ? color.toLowerCase()
+            : this.getShiftPhotoCompareCurrentMarkColor();
+        const current = this.getShiftPhotoCompareMarkColorPresetColors();
+        const existed = current.includes(nextColor);
+        const colors = current.filter(existing => existing !== nextColor);
+        colors.unshift(nextColor);
+        this.saveShiftPhotoCompareMarkColorPresetColors(colors);
+        this.showShiftPhotoCompareActionMessage?.(existed
+            ? `${nextColor} は記号色プリセット登録済みだったため先頭へ移動しました。`
+            : `記号色プリセットに ${nextColor} を追加しました。`);
+    }
+
+    removeShiftPhotoCompareMarkColorPresetColor(color = '') {
+        const normalized = String(color || '').toLowerCase();
+        this.saveShiftPhotoCompareMarkColorPresetColors(this.getShiftPhotoCompareMarkColorPresetColors().filter(existing => existing !== normalized));
+        this.showShiftPhotoCompareActionMessage?.('記号色プリセットから削除しました。');
+    }
+
+    resetShiftPhotoCompareMarkColor() {
+        this.setShiftPhotoCompareMarkColor('#dc2626');
+        this.showShiftPhotoCompareActionMessage?.('記号色を赤に戻しました。');
+    }
+
+    startShiftPhotoCompareMarkColorPresetDrag(event) {
+        const item = event?.currentTarget?.closest?.('.shift-photo-compare-mark-color-preset-item') || event?.currentTarget;
+        const color = item?.dataset?.markColorPreset || '';
+        if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+        const safeColor = color.toLowerCase();
+        this._shiftPhotoCompareMarkColorPresetDrag = safeColor;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', safeColor);
+        const swatch = item.querySelector?.('.shift-photo-compare-mark-color-preset');
+        if (swatch && event.dataTransfer.setDragImage) {
+            event.dataTransfer.setDragImage(swatch, swatch.offsetWidth / 2, swatch.offsetHeight / 2);
+        }
+        item.classList.add('dragging');
+    }
+
+    allowShiftPhotoCompareMarkColorPresetDrop(event) {
+        if (!this._shiftPhotoCompareMarkColorPresetDrag) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+    }
+
+    dropShiftPhotoCompareMarkColorPreset(event) {
+        event.preventDefault();
+        const fromColor = String(this._shiftPhotoCompareMarkColorPresetDrag || event.dataTransfer.getData('text/plain') || '').toLowerCase();
+        const item = event?.currentTarget?.closest?.('.shift-photo-compare-mark-color-preset-item') || event?.currentTarget;
+        const toColor = String(item?.dataset?.markColorPreset || '').toLowerCase();
+        this.endShiftPhotoCompareMarkColorPresetDrag();
+        if (!/^#[0-9a-f]{6}$/i.test(fromColor) || !/^#[0-9a-f]{6}$/i.test(toColor) || fromColor === toColor) return;
+        const colors = this.getShiftPhotoCompareMarkColorPresetColors();
+        const without = colors.filter(color => color !== fromColor);
+        const insertIndex = Math.max(0, without.indexOf(toColor));
+        without.splice(insertIndex, 0, fromColor);
+        this.saveShiftPhotoCompareMarkColorPresetColors(without);
+        this.showShiftPhotoCompareActionMessage?.('記号色プリセットの順番を変更しました。');
+    }
+
+    endShiftPhotoCompareMarkColorPresetDrag() {
+        document.querySelectorAll('.shift-photo-compare-mark-color-preset-item.dragging').forEach(item => item.classList.remove('dragging'));
+        this._shiftPhotoCompareMarkColorPresetDrag = '';
+    }
+
     pickShiftPhotoCompareScreenColor(target = 'active') {
-        const safeTarget = ['active', 'blank', 'fill', 'text', 'border'].includes(target) ? target : 'active';
+        const safeTarget = ['active', 'blank', 'fill', 'text', 'border', 'favorite', 'choose'].includes(target) ? target : 'active';
         this._shiftPhotoCompareEyedropperTarget = safeTarget;
         document.getElementById('shift-photo-compare-overlay')?.classList.add('eyedropper-picking');
         this.bindShiftPhotoCompareEyedropperPreview();
-        this.showShiftPhotoCompareActionMessage?.('スポイト中: 写真比較内の取りたい色をクリックしてください。');
+        this.updateShiftPhotoComparePaletteEyedropperState();
+        const message = safeTarget === 'favorite'
+            ? 'よく使う色に登録する色を、写真比較内またはパレットからクリックしてください。'
+            : safeTarget === 'choose'
+                ? 'スポイト中: 色を拾うと、反映先を選べます。'
+                : 'スポイト中: 写真比較内の取りたい色をクリックしてください。';
+        this.showShiftPhotoCompareActionMessage?.(message);
     }
 
     cancelShiftPhotoCompareEyedropper() {
@@ -10479,13 +10950,21 @@
         document.getElementById('shift-photo-compare-overlay')?.classList.remove('eyedropper-picking');
         this.unbindShiftPhotoCompareEyedropperPreview();
         document.getElementById('shift-photo-eyedropper-preview')?.remove();
+        this.closeShiftPhotoComparePickedColorMenu();
+        this.updateShiftPhotoComparePaletteEyedropperState();
     }
 
-    applyShiftPhotoComparePickedColor(color = '', target = 'active') {
+    applyShiftPhotoComparePickedColor(color = '', target = 'active', event = null) {
         if (!/^#[0-9a-f]{6}$/i.test(color || '')) return;
         const normalizedColor = color.toLowerCase();
-        const safeTarget = ['active', 'blank', 'fill', 'text', 'border'].includes(target) ? target : 'active';
-        if (safeTarget === 'blank') {
+        const safeTarget = ['active', 'blank', 'fill', 'text', 'border', 'favorite', 'choose'].includes(target) ? target : 'active';
+        if (safeTarget === 'choose') {
+            this.showShiftPhotoComparePickedColorMenu(normalizedColor, event);
+            return;
+        }
+        if (safeTarget === 'favorite') {
+            this.addShiftPhotoCompareFavoritePickerColor(normalizedColor);
+        } else if (safeTarget === 'blank') {
             this.setShiftPhotoCompareBlankBaseColor(normalizedColor);
         } else if (safeTarget === 'fill') {
             this.setShiftPhotoCompareCalloutFillColor(normalizedColor);
@@ -10499,6 +10978,521 @@
             this.setShiftPhotoCompareColorTarget(before);
         } else {
             this.setShiftPhotoCompareMarkColor(normalizedColor);
+        }
+    }
+
+    showShiftPhotoComparePickedColorMenu(color = '', event = null) {
+        if (!/^#[0-9a-f]{6}$/i.test(color || '')) return;
+        this.closeShiftPhotoComparePickedColorMenu();
+        this._shiftPhotoComparePickedColorMenuColor = color.toLowerCase();
+        this._shiftPhotoComparePickedColorMenuOriginalColor = this._shiftPhotoComparePickedColorMenuColor;
+        const menu = document.createElement('div');
+        menu.id = 'shift-photo-picked-color-menu';
+        menu.className = 'shift-photo-picked-color-menu';
+        menu.innerHTML = `
+            <div class="shift-photo-picked-color-head">
+                <span class="shift-photo-picked-color-swatch" style="--picked-color:${this._shiftPhotoComparePickedColorMenuColor}"></span>
+                <strong class="shift-photo-picked-color-value">${this._shiftPhotoComparePickedColorMenuColor}</strong>
+                <button type="button" onclick="app.closeShiftPhotoComparePickedColorMenu()" title="閉じる"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="shift-photo-picked-color-compare">
+                <span><i style="--picked-color:${this._shiftPhotoComparePickedColorMenuOriginalColor}"></i><b>元</b></span>
+                <span><i class="shift-photo-picked-color-current-chip" style="--picked-color:${this._shiftPhotoComparePickedColorMenuColor}"></i><b>調整後</b></span>
+            </div>
+            <div class="shift-photo-picked-color-adjust">
+                <button type="button" onclick="app.adjustShiftPhotoComparePickedColorMenu(-12)" title="少し暗くする"><i class="fa-solid fa-moon"></i><span>暗く</span></button>
+                <button type="button" onclick="app.adjustShiftPhotoComparePickedColorMenu(12)" title="少し明るくする"><i class="fa-solid fa-sun"></i><span>明るく</span></button>
+                <button type="button" class="restore" onclick="app.restoreShiftPhotoComparePickedColorMenuOriginal()" title="拾った直後の色に戻す"><i class="fa-solid fa-rotate-left"></i><span>元に戻す</span></button>
+            </div>
+            <button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction('mark')"><i class="fa-solid fa-shapes"></i><span>記号色に適用</span></button>
+            <button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction('blank')"><i class="fa-solid fa-fill-drip"></i><span>背景色に適用</span></button>
+            <button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction('favorite')"><i class="fa-solid fa-star"></i><span>よく使う色へ追加</span></button>
+            <button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction('markPreset')"><i class="fa-solid fa-plus"></i><span>記号色プリセットに追加</span></button>
+        `;
+        document.body.appendChild(menu);
+        const x = Number.isFinite(event?.clientX) ? event.clientX : (window.innerWidth / 2);
+        const y = Number.isFinite(event?.clientY) ? event.clientY : (window.innerHeight / 2);
+        const rect = menu.getBoundingClientRect();
+        menu.style.left = `${Math.max(8, Math.min(window.innerWidth - rect.width - 8, x + 12))}px`;
+        menu.style.top = `${Math.max(8, Math.min(window.innerHeight - rect.height - 8, y + 12))}px`;
+    }
+
+    closeShiftPhotoComparePickedColorMenu() {
+        document.getElementById('shift-photo-picked-color-menu')?.remove();
+        this._shiftPhotoComparePickedColorMenuColor = '';
+        this._shiftPhotoComparePickedColorMenuOriginalColor = '';
+    }
+
+    adjustShiftPhotoCompareHexColor(color = '', amount = 0) {
+        const normalized = String(color || '').toLowerCase();
+        if (!/^#[0-9a-f]{6}$/i.test(normalized)) return '';
+        const value = normalized.slice(1);
+        const clamp = channel => Math.max(0, Math.min(255, channel + amount));
+        const next = [0, 2, 4].map(index => {
+            const channel = parseInt(value.slice(index, index + 2), 16);
+            return clamp(channel).toString(16).padStart(2, '0');
+        }).join('');
+        return `#${next}`;
+    }
+
+    adjustShiftPhotoComparePickedColorMenu(amount = 0) {
+        const color = this._shiftPhotoComparePickedColorMenuColor || '';
+        const nextColor = this.adjustShiftPhotoCompareHexColor(color, Number(amount) || 0);
+        if (!nextColor) return;
+        this.updateShiftPhotoComparePickedColorMenuColor(nextColor);
+    }
+
+    restoreShiftPhotoComparePickedColorMenuOriginal() {
+        const originalColor = this._shiftPhotoComparePickedColorMenuOriginalColor || '';
+        if (!/^#[0-9a-f]{6}$/i.test(originalColor)) return;
+        this.updateShiftPhotoComparePickedColorMenuColor(originalColor);
+    }
+
+    updateShiftPhotoComparePickedColorMenuColor(nextColor = '') {
+        if (!/^#[0-9a-f]{6}$/i.test(nextColor || '')) return;
+        this._shiftPhotoComparePickedColorMenuColor = nextColor;
+        const menu = document.getElementById('shift-photo-picked-color-menu');
+        if (!menu) return;
+        const swatch = menu.querySelector('.shift-photo-picked-color-swatch');
+        const value = menu.querySelector('.shift-photo-picked-color-value');
+        const currentChip = menu.querySelector('.shift-photo-picked-color-current-chip');
+        if (swatch) swatch.style.setProperty('--picked-color', nextColor);
+        if (value) value.textContent = nextColor;
+        if (currentChip) currentChip.style.setProperty('--picked-color', nextColor);
+    }
+
+    applyShiftPhotoComparePickedColorMenuAction(action = 'mark') {
+        const color = this._shiftPhotoComparePickedColorMenuColor || '';
+        if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+        if (action === 'blank') {
+            this.setShiftPhotoCompareBlankBaseColor(color);
+            this.showShiftPhotoCompareActionMessage?.(`背景色に ${color} を反映しました。`);
+        } else if (action === 'favorite') {
+            this.addShiftPhotoCompareFavoritePickerColor(color);
+        } else if (action === 'markPreset') {
+            this.addShiftPhotoCompareMarkColorPresetColor(color);
+        } else {
+            this.setShiftPhotoCompareMarkColor(color);
+            this.showShiftPhotoCompareActionMessage?.(`記号色に ${color} を反映しました。`);
+        }
+        this.closeShiftPhotoComparePickedColorMenu();
+    }
+
+    getShiftPhotoComparePickerPaletteHtml() {
+        const colorRows = [
+            ['#0f172a', '#1e3a8a', '#1d4ed8', '#0284c7', '#06b6d4', '#14b8a6', '#22c55e', '#84cc16', '#facc15'],
+            ['#14532d', '#16a34a', '#4ade80', '#86efac', '#bbf7d0', '#bae6fd', '#93c5fd', '#60a5fa', '#4f46e5'],
+            ['#3f6212', '#65a30d', '#a3e635', '#d9f99d', '#fef9c3', '#fecdd3', '#fda4af', '#fb7185', '#be123c'],
+            ['#713f12', '#ca8a04', '#f59e0b', '#fb923c', '#f97316', '#ef4444', '#dc2626', '#b91c1c', '#7f1d1d'],
+            ['#581c87', '#7c3aed', '#a855f7', '#c084fc', '#f0abfc', '#f472b6', '#db2777', '#9d174d', '#500724']
+        ];
+        const grayRow = ['#ffffff', '#f8fafc', '#e2e8f0', '#cbd5e1', '#94a3b8', '#64748b', '#334155', '#1e293b', '#020617'];
+        const matrix = [
+            '#000000', '#7f1d1d', '#854d0e', '#365314', '#064e3b', '#083344', '#1e3a8a', '#312e81', '#581c87',
+            '#ffffff', '#dc2626', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#2563eb', '#7c3aed', '#db2777',
+            '#fef2f2', '#fee2e2', '#ffedd5', '#fef3c7', '#dcfce7', '#ccfbf1', '#dbeafe', '#ede9fe', '#fce7f3'
+        ];
+        const swatch = (color, extraClass = '') => (
+            `<button type="button" class="shift-photo-compare-picker-swatch ${extraClass}" data-color="${color}" style="--palette-color:${color}" title="${color}" aria-label="${color}"></button>`
+        );
+        const favoriteColors = this.getShiftPhotoCompareFavoritePickerColors();
+        return `
+            <div class="shift-photo-compare-picker-palette" id="shift-photo-compare-picker-palette" data-size="${this.getShiftPhotoComparePickerPaletteSize()}" hidden onpointerdown="app.handleShiftPhotoComparePalettePointerDown(event)">
+                <div class="shift-photo-compare-picker-palette-head" onpointerdown="app.startShiftPhotoComparePickerPaletteDrag(event)" title="ドラッグでパレットを移動">
+                    <span><i class="fa-solid fa-palette"></i> スポイト用パレット</span>
+                    <button type="button" class="shift-photo-compare-picker-close" onclick="app.toggleShiftPhotoComparePickerPalette(false)" title="パレットを閉じる"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="shift-photo-compare-picker-size-row" aria-label="パレットサイズ">
+                    ${['small', 'normal', 'large'].map(size => `<button type="button" data-palette-size="${size}" onclick="app.setShiftPhotoComparePickerPaletteSize('${size}')" title="パレットを${size === 'small' ? '小さく' : size === 'large' ? '大きく' : '標準サイズに'}する">${size === 'small' ? '小' : size === 'large' ? '大' : '標準'}</button>`).join('')}
+                </div>
+                <div class="shift-photo-compare-picker-status">
+                    <span><i class="fa-solid fa-eye-dropper"></i> 反映先</span>
+                    <strong class="shift-photo-compare-picker-target">未使用</strong>
+                </div>
+                <div class="shift-photo-compare-picker-hint">パレットの色をクリックして反映できます。</div>
+                <div class="shift-photo-compare-picker-favorites">
+                    <div class="shift-photo-compare-picker-favorites-head">
+                        <span><i class="fa-solid fa-star"></i> よく使う色</span>
+                        <span class="shift-photo-compare-picker-favorite-actions">
+                            <button type="button" onclick="app.pickShiftPhotoCompareScreenColor('favorite')" title="画面上から色を採取して登録"><i class="fa-solid fa-eye-dropper"></i></button>
+                            <button type="button" onclick="app.addShiftPhotoCompareFavoritePickerColor()" title="現在の色をよく使う色に追加"><i class="fa-solid fa-plus"></i></button>
+                            <button type="button" onclick="app.clearShiftPhotoCompareFavoritePickerColors()" title="よく使う色を全て削除"><i class="fa-solid fa-trash-can"></i></button>
+                        </span>
+                    </div>
+                    <div class="shift-photo-compare-picker-favorite-list">
+                        ${this.getShiftPhotoCompareFavoritePickerColorsHtml(favoriteColors)}
+                    </div>
+                </div>
+                <button type="button" class="shift-photo-compare-picker-stop-eyedropper" onclick="app.stopShiftPhotoComparePaletteEyedropper()" title="スポイトだけ終了してパレットは残す">
+                    <i class="fa-solid fa-eye-slash"></i><span>スポイト終了</span>
+                </button>
+                <div class="shift-photo-compare-picker-wheel" aria-label="色相パレット">
+                    ${colorRows.map((row, rowIndex) => `<div class="shift-photo-compare-picker-wheel-row" style="--row-offset:${rowIndex % 2 ? 10 : 0}px">${row.map(color => swatch(color, 'hex')).join('')}</div>`).join('')}
+                </div>
+                <div class="shift-photo-compare-picker-gray" aria-label="白黒パレット">
+                    ${grayRow.map(color => swatch(color, 'hex small')).join('')}
+                </div>
+                <div class="shift-photo-compare-picker-matrix" aria-label="基本色パレット">
+                    ${matrix.map(color => swatch(color)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    getShiftPhotoComparePickerPaletteSize() {
+        const size = localStorage.getItem('shift_photo_compare_picker_palette_size') || 'normal';
+        return ['small', 'normal', 'large'].includes(size) ? size : 'normal';
+    }
+
+    setShiftPhotoComparePickerPaletteSize(size = 'normal') {
+        const safeSize = ['small', 'normal', 'large'].includes(size) ? size : 'normal';
+        localStorage.setItem('shift_photo_compare_picker_palette_size', safeSize);
+        const palette = document.getElementById('shift-photo-compare-picker-palette');
+        if (palette) {
+            palette.dataset.size = safeSize;
+            palette.querySelectorAll('[data-palette-size]').forEach(button => {
+                button.classList.toggle('active', button.dataset.paletteSize === safeSize);
+            });
+            const wrap = palette.closest('.shift-photo-compare-image-wrap');
+            if (wrap) {
+                const left = parseFloat(palette.style.left || '12') || 12;
+                const top = parseFloat(palette.style.top || '12') || 12;
+                const clamped = this.clampShiftPhotoComparePickerPalettePosition(palette, wrap, left, top);
+                palette.style.left = `${clamped.left}px`;
+                palette.style.top = `${clamped.top}px`;
+            }
+        }
+    }
+
+    getShiftPhotoCompareFavoritePickerColors() {
+        const fallback = ['#dc2626', '#2563eb', '#16a34a', '#f59e0b', '#111827', '#ffffff'];
+        try {
+            const raw = localStorage.getItem('shift_photo_compare_picker_favorite_colors');
+            if (raw === null) return fallback;
+            const parsed = JSON.parse(raw || '[]');
+            const colors = Array.isArray(parsed)
+                ? parsed.map(color => String(color || '').toLowerCase()).filter(color => /^#[0-9a-f]{6}$/i.test(color))
+                : [];
+            return [...new Set(colors)].slice(0, 12);
+        } catch (error) {
+            return fallback;
+        }
+    }
+
+    saveShiftPhotoCompareFavoritePickerColors(colors = []) {
+        const normalized = [...new Set((Array.isArray(colors) ? colors : [])
+            .map(color => String(color || '').toLowerCase())
+            .filter(color => /^#[0-9a-f]{6}$/i.test(color)))].slice(0, 12);
+        localStorage.setItem('shift_photo_compare_picker_favorite_colors', JSON.stringify(normalized));
+        this.refreshShiftPhotoCompareFavoritePickerColors();
+    }
+
+    getShiftPhotoCompareCurrentApplyColor() {
+        const target = this.getShiftPhotoCompareCurrentColorTarget();
+        const input = document.querySelector('.shift-photo-compare-color input[type="color"]');
+        if (input && /^#[0-9a-f]{6}$/i.test(input.value || '')) return input.value.toLowerCase();
+        if (target === 'fill') return (this._shiftPhotoCompareCalloutFill || '#fff3a3').toLowerCase();
+        if (target === 'text') return (this._shiftPhotoCompareCalloutTextColor || '#111827').toLowerCase();
+        return (this._shiftPhotoCompareMarkColor || '#dc2626').toLowerCase();
+    }
+
+    addShiftPhotoCompareFavoritePickerColor(color = '') {
+        const nextColor = /^#[0-9a-f]{6}$/i.test(color || '') ? color.toLowerCase() : this.getShiftPhotoCompareCurrentApplyColor();
+        const currentColors = this.getShiftPhotoCompareFavoritePickerColors();
+        const existed = currentColors.includes(nextColor);
+        const colors = currentColors.filter(existing => existing !== nextColor);
+        colors.unshift(nextColor);
+        this.saveShiftPhotoCompareFavoritePickerColors(colors);
+        this.showShiftPhotoCompareActionMessage?.(existed
+            ? `${nextColor} は登録済みだったため先頭へ移動しました。`
+            : `よく使う色に ${nextColor} を追加しました。`);
+        return { color: nextColor, existed };
+    }
+
+    removeShiftPhotoCompareFavoritePickerColor(color = '') {
+        const normalized = String(color || '').toLowerCase();
+        this.saveShiftPhotoCompareFavoritePickerColors(this.getShiftPhotoCompareFavoritePickerColors().filter(existing => existing !== normalized));
+        this.showShiftPhotoCompareActionMessage?.('よく使う色から削除しました。');
+    }
+
+    clearShiftPhotoCompareFavoritePickerColors() {
+        if (!confirm('よく使う色を全て削除しますか？')) return;
+        this.saveShiftPhotoCompareFavoritePickerColors([]);
+        this.showShiftPhotoCompareActionMessage?.('よく使う色を全て削除しました。');
+    }
+
+    getShiftPhotoCompareFavoritePickerColorsHtml(colors = this.getShiftPhotoCompareFavoritePickerColors()) {
+        if (!colors.length) {
+            return '<span class="shift-photo-compare-picker-favorite-empty">未登録</span>';
+        }
+        const swatch = color => `<button type="button" class="shift-photo-compare-picker-swatch favorite" data-color="${color}" style="--palette-color:${color}" title="${color}" aria-label="${color}"></button>`;
+        return colors.map(color => `
+            <span class="shift-photo-compare-picker-favorite-item" draggable="true" data-favorite-color="${color}" ondragstart="app.startShiftPhotoCompareFavoriteColorDrag(event)" ondragover="app.allowShiftPhotoCompareFavoriteColorDrop(event)" ondrop="app.dropShiftPhotoCompareFavoriteColor(event)" ondragend="app.endShiftPhotoCompareFavoriteColorDrag()">
+                ${swatch(color)}
+                <button type="button" onclick="app.removeShiftPhotoCompareFavoritePickerColor('${color}')" title="${color} を削除"><i class="fa-solid fa-xmark"></i></button>
+            </span>
+        `).join('');
+    }
+
+    refreshShiftPhotoCompareFavoritePickerColors() {
+        const list = document.querySelector('.shift-photo-compare-picker-favorite-list');
+        if (!list) return;
+        list.innerHTML = this.getShiftPhotoCompareFavoritePickerColorsHtml();
+    }
+
+    startShiftPhotoCompareFavoriteColorDrag(event) {
+        const color = event?.currentTarget?.dataset?.favoriteColor || '';
+        if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+        this._shiftPhotoCompareFavoriteColorDrag = color.toLowerCase();
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', color.toLowerCase());
+        event.currentTarget.classList.add('dragging');
+    }
+
+    allowShiftPhotoCompareFavoriteColorDrop(event) {
+        if (!this._shiftPhotoCompareFavoriteColorDrag) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+    }
+
+    dropShiftPhotoCompareFavoriteColor(event) {
+        event.preventDefault();
+        const fromColor = this._shiftPhotoCompareFavoriteColorDrag || event.dataTransfer.getData('text/plain');
+        const toColor = event.currentTarget?.dataset?.favoriteColor || '';
+        this.endShiftPhotoCompareFavoriteColorDrag();
+        if (!/^#[0-9a-f]{6}$/i.test(fromColor || '') || !/^#[0-9a-f]{6}$/i.test(toColor || '') || fromColor === toColor) return;
+        const colors = this.getShiftPhotoCompareFavoritePickerColors();
+        const without = colors.filter(color => color !== fromColor.toLowerCase());
+        const insertIndex = Math.max(0, without.indexOf(toColor.toLowerCase()));
+        without.splice(insertIndex, 0, fromColor.toLowerCase());
+        this.saveShiftPhotoCompareFavoritePickerColors(without);
+        this.showShiftPhotoCompareActionMessage?.('よく使う色の順番を変更しました。');
+    }
+
+    endShiftPhotoCompareFavoriteColorDrag() {
+        document.querySelectorAll('.shift-photo-compare-picker-favorite-item.dragging').forEach(item => item.classList.remove('dragging'));
+        this._shiftPhotoCompareFavoriteColorDrag = '';
+    }
+
+    toggleShiftPhotoComparePickerPalette(force = null) {
+        const palette = document.getElementById('shift-photo-compare-picker-palette');
+        if (!palette) return;
+        const shouldShow = force === null ? palette.hidden : !!force;
+        palette.hidden = !shouldShow;
+        document.getElementById('shift-photo-compare-palette-toggle')?.classList.toggle('active', shouldShow);
+        if (!shouldShow) {
+            if (this._shiftPhotoCompareEyedropperTarget) this.cancelShiftPhotoCompareEyedropper();
+            if (this._shiftPhotoCompareFallbackEyedropper) this.stopShiftPhotoCompareFallbackEyedropper();
+            return;
+        }
+        this.positionShiftPhotoComparePickerPalette();
+        this.updateShiftPhotoComparePaletteEyedropperState();
+        this.showShiftPhotoCompareActionMessage?.('パレットを表示しました。スポイト中に色をクリックできます。');
+    }
+
+    stopShiftPhotoComparePaletteEyedropper() {
+        const wasPicking = !!this._shiftPhotoCompareEyedropperTarget || !!this._shiftPhotoCompareFallbackEyedropper;
+        if (this._shiftPhotoCompareEyedropperTarget) this.cancelShiftPhotoCompareEyedropper();
+        if (this._shiftPhotoCompareFallbackEyedropper) this.stopShiftPhotoCompareFallbackEyedropper();
+        this.updateShiftPhotoComparePaletteEyedropperState();
+        this.showShiftPhotoCompareActionMessage?.(wasPicking ? 'スポイトを終了しました。' : 'スポイトは使用中ではありません。');
+    }
+
+    updateShiftPhotoComparePaletteEyedropperState() {
+        const palette = document.getElementById('shift-photo-compare-picker-palette');
+        if (!palette) return;
+        const picking = !!this._shiftPhotoCompareEyedropperTarget || !!this._shiftPhotoCompareFallbackEyedropper;
+        palette.classList.toggle('eyedropper-active', picking);
+        palette.classList.toggle('favorite-picking', this._shiftPhotoCompareEyedropperTarget === 'favorite');
+        palette.querySelectorAll('[data-palette-size]').forEach(button => {
+            button.classList.toggle('active', button.dataset.paletteSize === this.getShiftPhotoComparePickerPaletteSize());
+        });
+        const targetLabel = palette.querySelector('.shift-photo-compare-picker-target');
+        if (targetLabel) {
+            targetLabel.textContent = picking ? this.getShiftPhotoComparePaletteEyedropperLabel() : '未使用';
+        }
+        const hint = palette.querySelector('.shift-photo-compare-picker-hint');
+        if (hint) {
+            hint.textContent = this._shiftPhotoCompareEyedropperTarget === 'choose'
+                ? '色をクリックすると、反映先を選ぶ小メニューが開きます。'
+                : picking ? '色をクリックで取得。右クリック・Esc・終了ボタンで解除できます。' : 'パレットの色をクリックして現在の色に反映できます。';
+        }
+        const button = palette.querySelector('.shift-photo-compare-picker-stop-eyedropper');
+        if (button) {
+            button.disabled = !picking;
+            button.title = picking ? 'スポイトを終了' : 'スポイトは使用中ではありません';
+        }
+        this.updateShiftPhotoCompareEyedropperTargetHighlight();
+    }
+
+    updateShiftPhotoCompareEyedropperTargetHighlight() {
+        const target = this._shiftPhotoCompareEyedropperTarget || this._shiftPhotoCompareFallbackEyedropper?.paletteTargetKind || '';
+        const targetMap = {
+            active: '.shift-photo-compare-color',
+            border: '.shift-photo-compare-color',
+            fill: '.shift-photo-compare-fill-color',
+            text: '.shift-photo-compare-callout-text-color',
+            blank: '.shift-photo-compare-blank-bg-color',
+            regionFill: '.shift-photo-compare-color',
+            outline: '.shift-photo-compare-color'
+        };
+        document.querySelectorAll('.shift-photo-compare-color, .shift-photo-compare-fill-color, .shift-photo-compare-callout-text-color, .shift-photo-compare-blank-bg-color, .shift-photo-compare-color-target').forEach(element => {
+            element.classList.remove('eyedropper-target-active');
+        });
+        const selector = targetMap[target];
+        if (!selector || (!this._shiftPhotoCompareEyedropperTarget && !this._shiftPhotoCompareFallbackEyedropper)) return;
+        document.querySelectorAll(selector).forEach(element => element.classList.add('eyedropper-target-active'));
+        if (target === 'active' || target === 'border' || target === 'regionFill' || target === 'outline') {
+            document.querySelector('.shift-photo-compare-color-target')?.classList.add('eyedropper-target-active');
+        }
+    }
+
+    getShiftPhotoComparePaletteEyedropperLabel() {
+        const fallbackLabel = this._shiftPhotoCompareFallbackEyedropper?.paletteTargetLabel;
+        if (fallbackLabel) return fallbackLabel;
+        const target = this._shiftPhotoCompareEyedropperTarget || '';
+        const labels = {
+            active: '選択中の色',
+            border: '枠線',
+            fill: '塗り',
+            text: '文字',
+            blank: '白紙背景',
+            favorite: 'よく使う色へ登録',
+            choose: '取得後に選択'
+        };
+        return labels[target] || '選択中の色';
+    }
+
+    positionShiftPhotoComparePickerPalette() {
+        const palette = document.getElementById('shift-photo-compare-picker-palette');
+        const wraps = Array.from(document.querySelectorAll('.shift-photo-compare-image-wrap'));
+        const wrap = wraps[1] || wraps[0];
+        if (!palette || !wrap) return;
+        palette.dataset.size = this.getShiftPhotoComparePickerPaletteSize();
+        const movedToNewWrap = palette.parentElement !== wrap;
+        if (movedToNewWrap) {
+            wrap.appendChild(palette);
+            palette.dataset.manualPosition = '';
+        }
+        palette.hidden = false;
+        const savedPosition = this.getShiftPhotoComparePickerPalettePosition();
+        if (savedPosition && !palette.dataset.manualPosition) {
+            palette.dataset.manualPosition = '1';
+            palette.style.left = `${savedPosition.left}px`;
+            palette.style.top = `${savedPosition.top}px`;
+        }
+        if (palette.dataset.manualPosition === '1') {
+            const currentLeft = parseFloat(palette.style.left || '12') || 12;
+            const currentTop = parseFloat(palette.style.top || '12') || 12;
+            const clamped = this.clampShiftPhotoComparePickerPalettePosition(palette, wrap, currentLeft, currentTop);
+            palette.style.left = `${clamped.left}px`;
+            palette.style.top = `${clamped.top}px`;
+            return;
+        }
+        const imageRect = this.getShiftPhotoCompareDisplayImageRect(wrap);
+        const wrapRect = wrap.getBoundingClientRect();
+        const paletteWidth = palette.offsetWidth || 280;
+        const paletteHeight = palette.offsetHeight || 230;
+        let left = imageRect ? imageRect.right - wrapRect.left + 8 : 12;
+        let top = imageRect ? imageRect.top - wrapRect.top + 8 : 12;
+        if (left + paletteWidth > wrap.clientWidth - 8) {
+            left = imageRect ? imageRect.left - wrapRect.left - paletteWidth - 8 : wrap.clientWidth - paletteWidth - 12;
+        }
+        if (left < 8) left = Math.max(8, wrap.clientWidth - paletteWidth - 12);
+        if (top + paletteHeight > wrap.clientHeight - 8) top = wrap.clientHeight - paletteHeight - 12;
+        const clamped = this.clampShiftPhotoComparePickerPalettePosition(palette, wrap, left, top);
+        palette.style.left = `${clamped.left}px`;
+        palette.style.top = `${clamped.top}px`;
+    }
+
+    getShiftPhotoComparePickerPalettePosition() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem('shift_photo_compare_picker_palette_position') || 'null');
+            if (!parsed || typeof parsed !== 'object') return null;
+            const left = Number(parsed.left);
+            const top = Number(parsed.top);
+            return Number.isFinite(left) && Number.isFinite(top) ? { left, top } : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    saveShiftPhotoComparePickerPalettePosition(left, top) {
+        if (!Number.isFinite(left) || !Number.isFinite(top)) return;
+        localStorage.setItem('shift_photo_compare_picker_palette_position', JSON.stringify({ left: Math.round(left), top: Math.round(top) }));
+    }
+
+    clampShiftPhotoComparePickerPalettePosition(palette, wrap, left, top) {
+        const width = palette?.offsetWidth || 288;
+        const height = palette?.offsetHeight || 230;
+        const maxLeft = Math.max(8, (wrap?.clientWidth || width + 16) - width - 8);
+        const maxTop = Math.max(8, (wrap?.clientHeight || height + 16) - height - 8);
+        return {
+            left: Math.min(Math.max(8, left), maxLeft),
+            top: Math.min(Math.max(8, top), maxTop)
+        };
+    }
+
+    startShiftPhotoComparePickerPaletteDrag(event) {
+        if (event?.button !== 0 || event?.target?.closest?.('button')) return;
+        const palette = document.getElementById('shift-photo-compare-picker-palette');
+        const wrap = palette?.closest?.('.shift-photo-compare-image-wrap');
+        if (!palette || !wrap) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const paletteRect = palette.getBoundingClientRect();
+        const wrapRect = wrap.getBoundingClientRect();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const startLeft = paletteRect.left - wrapRect.left;
+        const startTop = paletteRect.top - wrapRect.top;
+        palette.classList.add('dragging');
+        const move = moveEvent => {
+            moveEvent.preventDefault();
+            const next = this.clampShiftPhotoComparePickerPalettePosition(
+                palette,
+                wrap,
+                startLeft + moveEvent.clientX - startX,
+                startTop + moveEvent.clientY - startY
+            );
+            palette.style.left = `${next.left}px`;
+            palette.style.top = `${next.top}px`;
+            palette.dataset.manualPosition = '1';
+            this.saveShiftPhotoComparePickerPalettePosition(next.left, next.top);
+        };
+        const stop = () => {
+            window.removeEventListener('pointermove', move, true);
+            window.removeEventListener('pointerup', stop, true);
+            window.removeEventListener('pointercancel', stop, true);
+            palette.classList.remove('dragging');
+        };
+        window.addEventListener('pointermove', move, true);
+        window.addEventListener('pointerup', stop, true);
+        window.addEventListener('pointercancel', stop, true);
+    }
+
+    getShiftPhotoComparePaletteColorFromEvent(event) {
+        const swatch = event?.target?.closest?.('.shift-photo-compare-picker-swatch');
+        const color = swatch?.dataset?.color || '';
+        return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : '';
+    }
+
+    handleShiftPhotoComparePalettePointerDown(event) {
+        if (event?.target?.closest?.('button') && !event?.target?.closest?.('.shift-photo-compare-picker-swatch')) return;
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const color = this.getShiftPhotoComparePaletteColorFromEvent(event);
+        if (!color) return;
+        const target = this._shiftPhotoCompareEyedropperTarget || 'active';
+        this.applyShiftPhotoComparePickedColor(color, target, event);
+        if (target === 'choose') {
+            this.showShiftPhotoCompareActionMessage?.(`スポイト色 ${color} の反映先を選んでください。`);
+            return;
+        }
+        if (this._shiftPhotoCompareEyedropperTarget) {
+            this.showShiftPhotoCompareActionMessage?.(`スポイト色 ${color} を反映しました。続けて色を拾えます。`);
+        } else {
+            this.showShiftPhotoCompareActionMessage?.(`色 ${color} を反映しました。`);
         }
     }
 
@@ -10534,7 +11528,8 @@
         clearTimeout(this._shiftPhotoCompareEyedropperPreviewTimer);
         this._shiftPhotoCompareEyedropperPreviewTimer = setTimeout(async () => {
             const wrap = this.findShiftPhotoCompareImageWrapAtPoint(event.clientX, event.clientY);
-            const color = wrap ? await this.getShiftPhotoCompareColorAtPoint(wrap, event.clientX, event.clientY) : '';
+            const paletteColor = this.getShiftPhotoComparePaletteColorFromEvent(event);
+            const color = paletteColor || (wrap ? await this.getShiftPhotoCompareColorAtPoint(wrap, event.clientX, event.clientY) : '');
             if (!this._shiftPhotoCompareEyedropperTarget || this._shiftPhotoCompareEyedropperPreviewSeq !== seq) return;
             const dot = preview.querySelector('i');
             const label = preview.querySelector('span');
@@ -10561,22 +11556,33 @@
         if (!this._shiftPhotoCompareEyedropperTarget) return false;
         event?.preventDefault?.();
         event?.stopPropagation?.();
+        const paletteColor = this.getShiftPhotoComparePaletteColorFromEvent(event);
+        if (paletteColor) {
+            this.applyShiftPhotoComparePickedColor(paletteColor, this._shiftPhotoCompareEyedropperTarget, event);
+            if (this._shiftPhotoCompareEyedropperTarget === 'favorite') return true;
+            if (this._shiftPhotoCompareEyedropperTarget === 'choose') return true;
+            const verb = this._shiftPhotoCompareEyedropperTarget === 'favorite' ? 'よく使う色に登録しました' : '反映しました';
+            this.showShiftPhotoCompareActionMessage?.(`スポイト色 ${paletteColor} を${verb}。続けて色を拾えます。`);
+            return true;
+        }
         const wrap = surface?.classList?.contains('shift-photo-compare-image-wrap')
             ? surface
             : this.findShiftPhotoCompareImageWrapAtPoint(event.clientX, event.clientY);
         if (!wrap) {
-            this.showShiftPhotoCompareActionMessage?.('写真比較の画像内をクリックしてください。');
+            this.showShiftPhotoCompareActionMessage?.('写真比較の画像内、またはパレットをクリックしてください。');
             return true;
         }
         try {
             const color = await this.getShiftPhotoCompareColorAtPoint(wrap, event.clientX, event.clientY);
             if (!color) {
-                this.showShiftPhotoCompareActionMessage?.('この位置の色を取得できませんでした。画像内をクリックしてください。');
+                this.showShiftPhotoCompareActionMessage?.('この位置の色を取得できませんでした。画像内、またはパレットをクリックしてください。');
                 return true;
             }
-            this.applyShiftPhotoComparePickedColor(color, this._shiftPhotoCompareEyedropperTarget);
-            this.cancelShiftPhotoCompareEyedropper();
-            this.showShiftPhotoCompareActionMessage?.(`スポイト色 ${color} を反映しました。`);
+            this.applyShiftPhotoComparePickedColor(color, this._shiftPhotoCompareEyedropperTarget, event);
+            if (this._shiftPhotoCompareEyedropperTarget === 'favorite') return true;
+            if (this._shiftPhotoCompareEyedropperTarget === 'choose') return true;
+            const verb = this._shiftPhotoCompareEyedropperTarget === 'favorite' ? 'よく使う色に登録しました' : '反映しました';
+            this.showShiftPhotoCompareActionMessage?.(`スポイト色 ${color} を${verb}。続けて色を拾えます。`);
         } catch (error) {
             console.warn('Internal eyedropper failed', error);
             this.showShiftPhotoCompareActionMessage?.('スポイトで色を取得できませんでした。');
@@ -10599,6 +11605,7 @@
         };
         const input = document.querySelector('.shift-photo-compare-color input[type="color"]');
         if (input) input.value = colors[this._shiftPhotoCompareColorTarget];
+        this.updateShiftPhotoCompareEyedropperTargetHighlight();
     }
 
     updateShiftPhotoCompareExtendedColorControls() {
@@ -16608,24 +17615,8 @@
     }
 
     async pickShiftPhotoComparePolylineFillColor(mark, regionIndex = -1, transparencyPercent = 0) {
-        if (typeof window.EyeDropper !== 'function') {
-            this.startShiftPhotoCompareFallbackEyedropper(mark, regionIndex, transparencyPercent);
-            return;
-        }
-        try {
-            const result = await new window.EyeDropper().open();
-            const color = result?.sRGBHex || '';
-            if (!/^#[0-9a-f]{6}$/i.test(color)) return;
-            if (Number(regionIndex) >= 0) {
-                this.setShiftPhotoComparePolylineRegionFill(mark, regionIndex, color, transparencyPercent);
-            } else {
-                this.setSelectedShiftPhotoComparePolylineFill(color, transparencyPercent, { mark });
-            }
-        } catch (error) {
-            if (error?.name !== 'AbortError') {
-                this.showShiftPhotoCompareActionMessage('スポイトで色を取得できませんでした。');
-            }
-        }
+        this.toggleShiftPhotoComparePickerPalette(true);
+        this.startShiftPhotoCompareFallbackEyedropper(mark, regionIndex, transparencyPercent);
     }
 
     async pickShiftPhotoCompareOutlineColor(mark, target = 'outer') {
@@ -16647,18 +17638,7 @@
             this.setSelectedShiftPhotoCompareOutlineColors(outerColor, innerColor, { silent: true });
             this.showShiftPhotoCompareActionMessage(`${label}色に ${color.toLowerCase()} を反映しました。`);
         };
-        if (typeof window.EyeDropper === 'function') {
-            try {
-                const result = await new window.EyeDropper().open();
-                const color = result?.sRGBHex || '';
-                if (/^#[0-9a-f]{6}$/i.test(color)) applyColor(color.toLowerCase());
-            } catch (error) {
-                if (error?.name !== 'AbortError') {
-                    this.showShiftPhotoCompareActionMessage('スポイトで色を取得できませんでした。');
-                }
-            }
-            return;
-        }
+        this.toggleShiftPhotoComparePickerPalette(true);
         this.startShiftPhotoCompareOutlineFallbackEyedropper(applyColor, label);
     }
 
@@ -16670,24 +17650,42 @@
             this.showShiftPhotoCompareActionMessage('スポイト対象の画面が見つかりません。');
             return;
         }
-        this.showShiftPhotoCompareActionMessage(`スポイト: 写真上をクリックすると${label}色に反映します。Escでキャンセルできます。`);
+        this.showShiftPhotoCompareActionMessage(`スポイト: 写真またはパレットをクリックすると${label}色に反映します。Escまたは右クリックで終了できます。`);
         overlay.classList.add('eyedropper-picking');
         const cleanup = () => this.stopShiftPhotoCompareFallbackEyedropper();
         const previewMove = event => this.updateShiftPhotoCompareFallbackEyedropperPreview(event);
         const applyColor = async event => {
+            if (event.target?.closest?.('.shift-photo-compare-picker-stop-eyedropper')) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                cleanup();
+                this.showShiftPhotoCompareActionMessage('スポイトを終了しました。');
+                return;
+            }
+            if (event.target?.closest?.('.shift-photo-compare-picker-close')) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                cleanup();
+                this.toggleShiftPhotoComparePickerPalette(false);
+                this.showShiftPhotoCompareActionMessage('スポイトを終了しました。');
+                return;
+            }
             if (event.button !== 0) {
                 cleanup();
                 return;
             }
+            if (event.target?.closest?.('.shift-photo-compare-picker-palette') && !this.getShiftPhotoComparePaletteColorFromEvent(event)) {
+                return;
+            }
             event.preventDefault();
             event.stopImmediatePropagation();
-            const color = await this.getShiftPhotoCompareColorAtPoint(event);
-            cleanup();
+            const color = this.getShiftPhotoComparePaletteColorFromEvent(event) || await this.getShiftPhotoCompareColorAtPoint(event);
             if (!/^#[0-9a-f]{6}$/i.test(color || '')) {
-                this.showShiftPhotoCompareActionMessage('この場所の色を取得できませんでした。画像の上をクリックしてください。');
+                this.showShiftPhotoCompareActionMessage('この場所の色を取得できませんでした。写真またはパレットをクリックしてください。');
                 return;
             }
             applyPickedColor(color.toLowerCase());
+            this.showShiftPhotoCompareActionMessage(`${label}色に ${color.toLowerCase()} を反映しました。続けて色を拾えます。`);
         };
         const keydown = event => {
             if (event.key !== 'Escape') return;
@@ -16696,10 +17694,11 @@
             cleanup();
             this.showShiftPhotoCompareActionMessage('スポイトをキャンセルしました。');
         };
-        this._shiftPhotoCompareFallbackEyedropper = { overlay, applyColor, keydown, previewMove };
+        this._shiftPhotoCompareFallbackEyedropper = { overlay, applyColor, keydown, previewMove, paletteTargetLabel: `${label}色`, paletteTargetKind: 'outline' };
         window.addEventListener('pointerdown', applyColor, true);
         window.addEventListener('pointermove', previewMove, true);
         window.addEventListener('keydown', keydown, true);
+        this.updateShiftPhotoComparePaletteEyedropperState();
     }
 
     startShiftPhotoCompareFallbackEyedropper(mark, regionIndex = -1, transparencyPercent = 0) {
@@ -16710,21 +17709,38 @@
             this.showShiftPhotoCompareActionMessage('スポイト対象の画面が見つかりません。');
             return;
         }
-        this.showShiftPhotoCompareActionMessage('スポイト: 写真上をクリックすると、その場所の色を拾います。Escでキャンセルできます。');
+        this.showShiftPhotoCompareActionMessage('スポイト: 写真またはパレットをクリックすると、その場所の色を拾います。Escまたは右クリックで終了できます。');
         overlay.classList.add('eyedropper-picking');
         const cleanup = () => this.stopShiftPhotoCompareFallbackEyedropper();
         const previewMove = event => this.updateShiftPhotoCompareFallbackEyedropperPreview(event);
         const applyColor = async event => {
+            if (event.target?.closest?.('.shift-photo-compare-picker-stop-eyedropper')) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                cleanup();
+                this.showShiftPhotoCompareActionMessage('スポイトを終了しました。');
+                return;
+            }
+            if (event.target?.closest?.('.shift-photo-compare-picker-close')) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                cleanup();
+                this.toggleShiftPhotoComparePickerPalette(false);
+                this.showShiftPhotoCompareActionMessage('スポイトを終了しました。');
+                return;
+            }
             if (event.button !== 0) {
                 cleanup();
                 return;
             }
+            if (event.target?.closest?.('.shift-photo-compare-picker-palette') && !this.getShiftPhotoComparePaletteColorFromEvent(event)) {
+                return;
+            }
             event.preventDefault();
             event.stopImmediatePropagation();
-            const color = await this.getShiftPhotoCompareColorAtPoint(event);
-            cleanup();
+            const color = this.getShiftPhotoComparePaletteColorFromEvent(event) || await this.getShiftPhotoCompareColorAtPoint(event);
             if (!/^#[0-9a-f]{6}$/i.test(color || '')) {
-                this.showShiftPhotoCompareActionMessage('この場所の色を取得できませんでした。画像の上をクリックしてください。');
+                this.showShiftPhotoCompareActionMessage('この場所の色を取得できませんでした。写真またはパレットをクリックしてください。');
                 return;
             }
             if (Number(regionIndex) >= 0) {
@@ -16732,7 +17748,7 @@
             } else {
                 this.setSelectedShiftPhotoComparePolylineFill(color, transparencyPercent, { mark });
             }
-            this.showShiftPhotoCompareActionMessage(`スポイトで ${color} を反映しました。`);
+            this.showShiftPhotoCompareActionMessage(`スポイトで ${color} を反映しました。続けて色を拾えます。`);
         };
         const keydown = event => {
             if (event.key !== 'Escape') return;
@@ -16741,11 +17757,13 @@
             cleanup();
             this.showShiftPhotoCompareActionMessage('スポイトをキャンセルしました。');
         };
-        this._shiftPhotoCompareFallbackEyedropper = { overlay, applyColor, keydown };
+        const paletteTargetLabel = Number(regionIndex) >= 0 ? '区画の塗り' : '直線区画の塗り';
+        this._shiftPhotoCompareFallbackEyedropper = { overlay, applyColor, keydown, paletteTargetLabel, paletteTargetKind: 'regionFill' };
         window.addEventListener('pointerdown', applyColor, true);
         window.addEventListener('pointermove', previewMove, true);
         window.addEventListener('keydown', keydown, true);
         this._shiftPhotoCompareFallbackEyedropper.previewMove = previewMove;
+        this.updateShiftPhotoComparePaletteEyedropperState();
     }
 
     stopShiftPhotoCompareFallbackEyedropper() {
@@ -16757,6 +17775,7 @@
         picker.overlay?.classList?.remove('eyedropper-picking');
         document.getElementById('shift-photo-eyedropper-preview')?.remove();
         this._shiftPhotoCompareFallbackEyedropper = null;
+        this.updateShiftPhotoComparePaletteEyedropperState();
     }
 
     updateShiftPhotoCompareFallbackEyedropperPreview(event) {
@@ -16776,7 +17795,7 @@
         picker.previewSeq = seq;
         clearTimeout(picker.previewTimer);
         picker.previewTimer = setTimeout(async () => {
-            const color = await this.getShiftPhotoCompareColorAtPoint(event);
+            const color = this.getShiftPhotoComparePaletteColorFromEvent(event) || await this.getShiftPhotoCompareColorAtPoint(event);
             if (!this._shiftPhotoCompareFallbackEyedropper || this._shiftPhotoCompareFallbackEyedropper.previewSeq !== seq) return;
             const dot = preview.querySelector('i');
             const label = preview.querySelector('span');
@@ -20516,6 +21535,46 @@
         return caption || `ベース画像${Number.isFinite(index) ? index + 1 : ''}`.trim();
     }
 
+    getShiftPhotoCompareBlankEditAutoName(wrap) {
+        const photo = this.getShiftPhotoComparePhotoByWrap(wrap);
+        if (!photo?.isBlankBase) return '';
+        const now = new Date();
+        const month = now.getMonth() + 1;
+        const day = now.getDate();
+        const hour = String(now.getHours()).padStart(2, '0');
+        const minute = String(now.getMinutes()).padStart(2, '0');
+        return `白紙編集 ${month}/${day} ${hour}:${minute}`;
+    }
+
+    getShiftPhotoComparePhotoByWrap(wrap) {
+        const index = Number(wrap?.dataset?.photoIndex);
+        if (!Number.isFinite(index)) return null;
+        return this._shiftPhotoCompareContext?.photos?.[index] || null;
+    }
+
+    getShiftPhotoCompareBlankEditData(wrap) {
+        const photo = this.getShiftPhotoComparePhotoByWrap(wrap);
+        if (!photo?.isBlankBase) return null;
+        this.syncShiftPhotoCompareMarks(wrap);
+        const baseColor = /^#[0-9a-f]{6}$/i.test(photo.blankBaseColor || '') ? photo.blankBaseColor : '#ffffff';
+        return {
+            version: 1,
+            type: 'blank',
+            blankBaseColor: baseColor,
+            caption: photo.caption || '白紙',
+            marks: this.compactShiftPhotoCompareMarkImages(photo.marks || []),
+            updatedAt: Date.now()
+        };
+    }
+
+    applyShiftPhotoCompareBlankEditMetadata(item, wrap) {
+        const edit = this.getShiftPhotoCompareBlankEditData(wrap);
+        if (!item || !edit) return false;
+        item.photoCompareBlankEdit = edit;
+        item.updatedAt = Date.now();
+        return true;
+    }
+
     saveShiftPhotoCompareBaseImageToManager(wrap) {
         const src = this.getShiftPhotoCompareBaseImageSource(wrap);
         if (!src) return this.showShiftPhotoCompareActionMessage('登録するベース画像が見つかりません。');
@@ -21845,6 +22904,10 @@
             ? this.collectPhotoManagerItems().find(item => item.source === 'library' && item.src === saveSrc)
             : null;
         if (alreadyRegistered) {
+            const registeredLibraryItem = alreadyRegistered.source === 'library'
+                ? this.getPhotoManagerLibrary?.().find(photo => photo.id === alreadyRegistered.id)
+                : null;
+            if (registeredLibraryItem && sourceWrap) this.applyShiftPhotoCompareBlankEditMetadata(registeredLibraryItem, sourceWrap);
             if (preview.initialImportItemId) this._imageSourceInitialImportIds?.delete(preview.initialImportItemId);
             store.save();
             if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
@@ -21852,8 +22915,25 @@
             this.closeShiftPhotoCompareBaseImageTransparencyPreview();
             return this.showShiftPhotoCompareActionMessage('同じ記号込み画像はすでに写真管理へ登録済みのため、重複登録しませんでした。');
         }
-        const added = this.addPhotoManagerLibraryImage(saveSrc, `${preview.baseName || preview.name || 'ベース画像'} 記号込み`);
+        const overwriteId = this._shiftPhotoCompareContext?.photoManagerBlankEditItemId || '';
+        const overwriteItem = overwriteId && typeof this.findPhotoManagerItem === 'function'
+            ? this.findPhotoManagerItem(overwriteId)
+            : null;
+        let added = null;
+        let overwritten = false;
+        if (overwriteItem?.source === 'library' && typeof overwriteItem.replacePhoto === 'function') {
+            if (typeof this.migratePhotoManagerItemMetadataAfterSourceChange === 'function') {
+                this.migratePhotoManagerItemMetadataAfterSourceChange(overwriteItem, saveSrc);
+            } else {
+                overwriteItem.replacePhoto(saveSrc);
+            }
+            added = this.getPhotoManagerLibrary?.().find(photo => photo.id === overwriteId) || overwriteItem;
+            overwritten = true;
+        } else {
+            added = this.addPhotoManagerLibraryImage(saveSrc, this.getShiftPhotoCompareBlankEditAutoName(sourceWrap) || `${preview.baseName || preview.name || 'ベース画像'} 記号込み`);
+        }
         if (!added) return;
+        if (sourceWrap) this.applyShiftPhotoCompareBlankEditMetadata(added, sourceWrap);
         if (preview.sizePreset) added.sizePreset = preview.sizePreset;
         if (preview.imageFit === 'fill') added.imageFit = 'fill';
         if (preview.initialImportItemId) this._imageSourceInitialImportIds?.delete(preview.initialImportItemId);
@@ -21861,7 +22941,9 @@
         if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
         this.refreshImageSourceChoiceAfterLibraryChange?.(added);
         this.closeShiftPhotoCompareBaseImageTransparencyPreview();
-        this.showShiftPhotoCompareActionMessage('現在の記号込み画像を透過せず写真管理へ保存しました。');
+        this.showShiftPhotoCompareActionMessage(overwritten
+            ? '白紙編集を写真管理へ上書き保存しました。'
+            : '現在の記号込み画像を透過せず写真管理へ保存しました。');
     }
 
     async saveTransparentShiftPhotoCompareBaseImageToManager(wrap) {
@@ -21872,11 +22954,30 @@
         try {
             const renderedSrc = await this.renderShiftPhotoCompareWrapWithMarks(wrap);
             if (!renderedSrc) return this.showShiftPhotoCompareActionMessage('記号込み画像を作成できませんでした。');
-            const item = this.addPhotoManagerLibraryImage(renderedSrc, `${this.getShiftPhotoCompareBaseImageName(wrap)} 記号込み`);
+            const overwriteId = this._shiftPhotoCompareContext?.photoManagerBlankEditItemId || '';
+            const overwriteItem = overwriteId && typeof this.findPhotoManagerItem === 'function'
+                ? this.findPhotoManagerItem(overwriteId)
+                : null;
+            let item = null;
+            let overwritten = false;
+            if (overwriteItem?.source === 'library' && typeof overwriteItem.replacePhoto === 'function') {
+                if (typeof this.migratePhotoManagerItemMetadataAfterSourceChange === 'function') {
+                    this.migratePhotoManagerItemMetadataAfterSourceChange(overwriteItem, renderedSrc);
+                } else {
+                    overwriteItem.replacePhoto(renderedSrc);
+                }
+                item = this.getPhotoManagerLibrary?.().find(photo => photo.id === overwriteId) || overwriteItem;
+                overwritten = true;
+            } else {
+                item = this.addPhotoManagerLibraryImage(renderedSrc, this.getShiftPhotoCompareBlankEditAutoName(wrap) || `${this.getShiftPhotoCompareBaseImageName(wrap)} 記号込み`);
+            }
             if (!item) return;
+            this.applyShiftPhotoCompareBlankEditMetadata(item, wrap);
             store.save();
             if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
-            this.showShiftPhotoCompareActionMessage('現在の記号込み画像を透過せず写真管理へ保存しました。');
+            this.showShiftPhotoCompareActionMessage(overwritten
+                ? '白紙編集を写真管理へ上書き保存しました。'
+                : '現在の記号込み画像を透過せず写真管理へ保存しました。');
         } catch (error) {
             console.error(error);
             this.showShiftPhotoCompareActionMessage('記号込み画像の保存に失敗しました。');
@@ -28656,7 +29757,7 @@
         if (!container || !Array.isArray(rowsData)) return;
         const restoredRows = [];
         rowsData.forEach(data => {
-            const restored = this.addShiftNotebookRow(containerId, data.text, data.photos, data.tag, data.group, data.html, data.hidden, true, data.id, data.replyTo, !!data.important, data.pasteFormat || null, !!data.suddenRegistered, data.suddenHistoryId || '', !!data.fiveS, data.photoCompareMarks || [], data.fiveSAssigneeId || '');
+            const restored = this.addShiftNotebookRow(containerId, data.text, data.photos, data.tag, data.group, data.html, data.hidden, true, data.id, data.replyTo, !!data.important, data.pasteFormat || null, !!data.suddenRegistered, data.suddenHistoryId || '', !!data.fiveS, data.photoCompareMarks || [], data.fiveSAssigneeId || '', !!data.mergeLineBreak);
             if (restored) restoredRows.push(restored);
         });
         const anchor = beforeNode && beforeNode.parentNode === container ? beforeNode : null;
@@ -29191,13 +30292,32 @@
             const src = item.querySelector('img')?.src || '';
             const caption = item.querySelector('.shift-photo-caption')?.value.trim() || '';
             const marks = this.parseShiftPhotoCompareMarks(item.dataset.shiftPhotoMarks || '[]');
+            let reference = null;
+            try {
+                reference = item.dataset.shiftPhotoReference ? JSON.parse(item.dataset.shiftPhotoReference) : null;
+            } catch (error) {
+                reference = null;
+            }
+            if (reference?.source === 'photoManager' && reference.id) {
+                const photo = { source: 'photoManager', id: reference.id, name: reference.name || '' };
+                if (caption) photo.caption = caption;
+                if (marks.length) photo.marks = marks;
+                return photo;
+            }
             return (caption || marks.length) ? { src, caption, marks } : src;
-        }).filter(photo => typeof photo === 'string' ? !!photo : !!photo.src);
+        }).filter(photo => {
+            if (typeof photo === 'string') return !!photo;
+            if (!photo || typeof photo !== 'object') return false;
+            if (photo.source === 'photoManager' && photo.id) return true;
+            if (photo.photoManagerId) return true;
+            return !!photo.src;
+        });
             const suddenRegistered = row.dataset.suddenRegistered === 'true';
             const suddenHistoryId = row.dataset.suddenHistoryId || '';
             const fiveSAssigneeId = row.dataset.fiveSAssigneeId || '';
+            const mergeLineBreak = row.dataset.mergeLineBreak === 'true';
             const photoCompareMarks = this.parseShiftPhotoCompareMarks(row.dataset.shiftPhotoGlobalMarks || '[]');
-            return { id: row.dataset.shiftRowId || '', replyTo: row.dataset.replyTo || '', group, tag, text, html, photos, photoCompareMarks, hidden, important, fiveS, fiveSAssigneeId, suddenRegistered, suddenHistoryId, pasteFormat, index, element: row };
+            return { id: row.dataset.shiftRowId || '', replyTo: row.dataset.replyTo || '', group, tag, text, html, photos, photoCompareMarks, hidden, important, fiveS, fiveSAssigneeId, mergeLineBreak, suddenRegistered, suddenHistoryId, pasteFormat, index, element: row };
         }).filter(row => row.text || row.photos.length > 0 || row.important || row.fiveS || row.suddenRegistered || row.element.dataset.preserveBlank === 'true' || row.element.querySelector('.shift-note-text') === document.activeElement);
     }
 
