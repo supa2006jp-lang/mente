@@ -1366,8 +1366,9 @@
         const workTimeField = document.getElementById(`${prefix}work-time`);
         const categoryField = document.getElementById(`${prefix}category`);
         const workersField = document.getElementById(`${prefix}workers`);
-        if ((mode === 'full' || mode === 'recurrence') && source.errorContent && contentField) {
-            contentField.value = source.errorContent;
+        const sourceContent = this.getHistoryDisplayText(source) || source.errorContent || '';
+        if ((mode === 'full' || mode === 'recurrence') && sourceContent && contentField) {
+            contentField.value = sourceContent;
             this.markHistoryAssistCopiedField(contentField);
         }
         if (source.cause && causeField) {
@@ -1397,7 +1398,8 @@
             field?.dispatchEvent(new Event('input', { bubbles: true }));
         });
         const panel = document.getElementById(`${prefix}history-assist-panel`);
-        this.showHistoryAssistAppliedNotice(prefix, mode === 'recurrence' ? ['症状', '原因', '処置', '作業時間', '対応区分', '作業者'] : (mode === 'full' ? ['症状', '原因', '処置', '作業時間', '対応区分', '作業者'] : ['原因', '処置']));
+        const contentLabel = prefix === 'e-' ? 'メンテナンス項目' : '症状';
+        this.showHistoryAssistAppliedNotice(prefix, mode === 'recurrence' ? [contentLabel, '原因', '処置', '作業時間', '対応区分', '作業者'] : (mode === 'full' ? [contentLabel, '原因', '処置', '作業時間', '対応区分', '作業者'] : ['原因', '処置']));
         panel?.classList.add('applied');
         setTimeout(() => panel?.classList.remove('applied'), 800);
     }
@@ -1441,7 +1443,7 @@
         });
         const panel = document.getElementById(`${prefix}history-assist-panel`);
         const copied = [];
-        if (extras?.content) copied.push('症状');
+        if (extras?.content) copied.push(prefix === 'e-' ? 'メンテナンス項目' : '症状');
         if (cause) copied.push('原因');
         if (notes) copied.push('処置');
         if (extras?.workTime) copied.push('作業時間');

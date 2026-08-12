@@ -19259,6 +19259,25 @@ select.history-assist-copied-value {
     background: rgba(255, 255, 255, 0.08);
 }
 
+.shift-photo-compare-animation-play-btn {
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 10px;
+    border: 1px solid rgba(251, 146, 60, 0.72);
+    border-radius: 7px;
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    color: #fff7ed;
+    font-weight: 950;
+    cursor: pointer;
+    box-shadow: 0 8px 18px rgba(249, 115, 22, 0.26);
+}
+
+.shift-photo-compare-animation-play-btn:hover {
+    filter: brightness(1.05);
+}
+
 .shift-photo-compare-recent-images {
     grid-area: recent;
     width: 100%;
@@ -19674,6 +19693,30 @@ select.history-assist-copied-value {
     color: #16a34a;
     background: #ffffff;
     border-color: #bbf7d0;
+}
+
+.shift-photo-compare-video-insert-btn {
+    width: auto;
+    min-width: 62px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 9px;
+    border-color: #10b981;
+    background: #059669;
+    color: #ffffff;
+    font-size: 0.76rem;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-mark-btn.shift-photo-compare-video-insert-btn:hover,
+.shift-photo-compare-mark-btn.shift-photo-compare-video-insert-btn.active {
+    border-color: #6ee7b7;
+    background: #047857;
+    color: #ffffff;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
 }
 
 .shift-photo-compare-default-reset,
@@ -21408,6 +21451,47 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-polyline-state[hidden] {
     display: none;
+}
+
+.shift-photo-compare-page-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 28px;
+    padding: 0 5px;
+    border: 1px solid rgba(45, 212, 191, 0.58);
+    border-radius: 8px;
+    background: rgba(20, 184, 166, 0.18);
+    color: #ccfbf1;
+}
+
+.shift-photo-compare-page-state[hidden] {
+    display: none;
+}
+
+.shift-photo-compare-page-state input {
+    width: 38px;
+    height: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    border-radius: 5px;
+    background: rgba(15, 23, 42, 0.56);
+    color: #ffffff;
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-page-state b {
+    min-width: 28px;
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-page-state button {
+    width: 24px;
+    height: 24px;
 }
 
 .shift-photo-compare-operation-mode {
@@ -25036,7 +25120,7 @@ select.history-assist-copied-value {
     font-weight: 900;
     font-size: 0.62rem;
     line-height: 1;
-    transform: rotate(calc(-1 * var(--mark-rotate))) scale(calc(1 / max(0.5, var(--mark-scale-x))), calc(1 / max(0.5, var(--mark-scale-y))));
+    transform: rotate(calc(-1 * var(--mark-rotate)));
     box-shadow: 0 2px 8px rgba(15, 23, 42, 0.35);
     pointer-events: none;
 }
@@ -25067,7 +25151,7 @@ select.history-assist-copied-value {
     font-weight: 900;
     font-size: 0.62rem;
     line-height: 1;
-    transform: rotate(calc(-1 * var(--mark-rotate))) scale(calc(1 / max(0.5, var(--mark-scale-x))), calc(1 / max(0.5, var(--mark-scale-y))));
+    transform: rotate(calc(-1 * var(--mark-rotate)));
     box-shadow: 0 2px 8px rgba(15, 23, 42, 0.35);
     pointer-events: none;
 }
@@ -25126,6 +25210,1989 @@ select.history-assist-copied-value {
     pointer-events: auto;
     cursor: pointer;
     transform-origin: center center;
+}
+
+.shift-photo-compare-animation-order-badge {
+    position: absolute;
+    top: -15px;
+    right: -15px;
+    z-index: 40;
+    min-width: 26px;
+    height: 26px;
+    padding: 0 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #ffffff;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 950;
+    line-height: 1;
+    box-shadow: 0 8px 18px rgba(249, 115, 22, 0.34), 0 0 0 1px rgba(124, 45, 18, 0.18);
+    pointer-events: auto;
+    cursor: pointer;
+    appearance: none;
+    transform: rotate(calc(-1 * var(--mark-rotate)));
+    transform-origin: center center;
+}
+
+.shift-photo-compare-animation-order-badge:hover {
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    transform: rotate(calc(-1 * var(--mark-rotate))) scale(1.08);
+}
+
+.shift-photo-compare-mark > .shift-photo-compare-animation-order-badge.shift-photo-compare-animation-path-order-badge {
+    top: var(--animation-badge-anchor-y, 0%);
+    right: auto;
+    left: var(--animation-badge-anchor-x, 0%);
+    transform: translate(48px, -50%);
+}
+
+.shift-photo-compare-mark > .shift-photo-compare-animation-order-badge.shift-photo-compare-animation-path-order-badge.anchor-left {
+    transform: translate(calc(-100% - 48px), -50%);
+}
+
+.shift-photo-compare-mark > .shift-photo-compare-animation-order-badge.shift-photo-compare-animation-path-order-badge:hover {
+    transform: translate(48px, -50%) scale(1.08);
+}
+
+.shift-photo-compare-mark > .shift-photo-compare-animation-order-badge.shift-photo-compare-animation-path-order-badge.anchor-left:hover {
+    transform: translate(calc(-100% - 48px), -50%) scale(1.08);
+}
+
+.shift-photo-compare-animation-badge-host {
+    position: relative;
+}
+
+.shift-photo-compare-mark[data-animation-ghost="1"] .shift-photo-compare-animation-order-badge:not(.shift-photo-compare-animation-end-order-badge) {
+    display: none !important;
+}
+
+.shift-photo-compare-animation-end-order-badge {
+    position: absolute;
+    top: 0;
+    right: auto;
+    left: 0;
+    bottom: auto;
+    margin: 0;
+    z-index: 9000 !important;
+    pointer-events: auto !important;
+    min-width: 40px;
+    height: 40px;
+    padding: 0 11px;
+    border-width: 3px;
+    font-size: 18px;
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    box-shadow:
+        0 10px 22px rgba(249, 115, 22, 0.42),
+        0 0 0 4px rgba(255, 255, 255, 0.88),
+        0 0 0 7px rgba(251, 146, 60, 0.20);
+    opacity: 1 !important;
+    visibility: visible !important;
+    filter: none !important;
+    transform: none !important;
+}
+
+.shift-photo-compare-animation-end-order-badge:hover {
+    background: linear-gradient(135deg, #fdba74, #f97316);
+    transform: scale(1.08) !important;
+}
+
+.shift-photo-compare-animation-badge-menu {
+    position: fixed;
+    z-index: 100050;
+    width: 292px;
+    padding: 12px;
+    border: 1px solid rgba(251, 146, 60, 0.45);
+    border-radius: 16px;
+    background: rgba(255, 247, 237, 0.98);
+    color: #1f2937;
+    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.24);
+}
+
+.shift-photo-compare-animation-badge-menu-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: #c2410c;
+    font-weight: 950;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+
+.shift-photo-compare-animation-badge-menu-title:active {
+    cursor: grabbing;
+}
+
+.shift-photo-compare-animation-order-edit,
+.shift-photo-compare-animation-menu-section {
+    display: grid;
+    gap: 7px;
+    margin-top: 10px;
+}
+
+.shift-photo-compare-animation-order-edit span,
+.shift-photo-compare-animation-menu-section > span {
+    color: #64748b;
+    font-size: 0.82rem;
+    font-weight: 900;
+}
+
+.shift-photo-compare-animation-order-edit input {
+    width: 100%;
+    height: 42px;
+    padding: 0 12px;
+    border: 1px solid #fdba74;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #111827;
+    font-weight: 950;
+}
+
+.shift-photo-compare-animation-effect-list,
+.shift-photo-compare-animation-motion-actions,
+.shift-photo-compare-video-end-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.shift-photo-compare-animation-effect-list button,
+.shift-photo-compare-animation-motion-actions button,
+.shift-photo-compare-video-end-actions button {
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid rgba(251, 146, 60, 0.36);
+    border-radius: 999px;
+    background: #ffffff;
+    color: #334155;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-effect-list button.active,
+.shift-photo-compare-video-end-actions button.active,
+.shift-photo-compare-animation-motion-actions button:not(.muted):hover,
+.shift-photo-compare-video-end-actions button:hover,
+.shift-photo-compare-animation-effect-list button:hover {
+    border-color: #f97316;
+    background: #ffedd5;
+    color: #c2410c;
+}
+
+.shift-photo-compare-animation-motion-actions button.muted {
+    color: #94a3b8;
+}
+
+.shift-photo-compare-animation-effect-list button.shift-photo-compare-animation-effect-clear {
+    border-style: dashed;
+    color: #64748b;
+}
+
+.shift-photo-compare-animation-effect-list button.shift-photo-compare-animation-effect-clear.active {
+    border-style: solid;
+    border-color: #64748b;
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.shift-photo-compare-animation-end-ghost {
+    opacity: 0.72;
+    outline: 4px dashed #f97316;
+    outline-offset: 10px;
+    filter: saturate(0.92) contrast(0.96) drop-shadow(0 0 12px rgba(249, 115, 22, 0.55));
+    box-shadow:
+        0 0 0 7px rgba(249, 115, 22, 0.18),
+        0 0 26px rgba(249, 115, 22, 0.58),
+        0 10px 26px rgba(15, 23, 42, 0.24) !important;
+    z-index: 1200 !important;
+    pointer-events: auto;
+}
+
+.shift-photo-compare-animation-end-ghost::after {
+    content: "終点";
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 12px);
+    transform: translateX(-50%) rotate(calc(-1 * var(--mark-rotate)));
+    transform-origin: center center;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: #f97316;
+    color: #ffffff;
+    border: 2px solid #ffffff;
+    font-size: 14px;
+    font-weight: 950;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow:
+        0 4px 12px rgba(15, 23, 42, 0.24),
+        0 0 0 4px rgba(249, 115, 22, 0.20);
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-end-ghost.saved {
+    outline-color: #10b981;
+    filter: saturate(0.92) contrast(0.96) drop-shadow(0 0 12px rgba(16, 185, 129, 0.55));
+    box-shadow:
+        0 0 0 7px rgba(16, 185, 129, 0.18),
+        0 0 26px rgba(16, 185, 129, 0.58),
+        0 10px 26px rgba(15, 23, 42, 0.24) !important;
+}
+
+.shift-photo-compare-animation-end-ghost.saved::after {
+    content: "保存済み終点";
+    background: #10b981;
+    box-shadow:
+        0 4px 12px rgba(15, 23, 42, 0.24),
+        0 0 0 4px rgba(16, 185, 129, 0.20);
+}
+
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-order-btn,
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-order-clear-btn {
+    display: inline-grid;
+    place-items: center;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-order-btn > span,
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-order-clear-btn > span {
+    display: none;
+}
+
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-order-btn {
+    border-color: rgba(251, 146, 60, 0.78);
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-order-clear-btn {
+    border-color: rgba(148, 163, 184, 0.64);
+    background: #f8fafc;
+    color: #475569;
+}
+
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-end-save-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    width: auto;
+    min-width: 86px;
+    padding: 0 8px;
+    border-color: rgba(16, 185, 129, 0.82);
+    background: #10b981;
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-end-save-btn:hover {
+    border-color: #6ee7b7;
+    background: #059669;
+    color: #ffffff;
+}
+
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-end-save-btn[hidden] {
+    display: none !important;
+}
+
+.shift-photo-compare-animation-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: flex;
+    flex-direction: column;
+    background: radial-gradient(circle at 50% 20%, #111827, #020617 62%);
+    color: #e5e7eb;
+}
+
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation {
+    cursor: pointer;
+    background: #000000;
+}
+
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-topbar,
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-timeline,
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-timeline-toggle,
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-controls,
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-last-page-label {
+    display: none !important;
+}
+
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-main,
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-stage {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+}
+
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-stage {
+    padding: 0;
+    background: #000000;
+}
+
+.shift-photo-compare-animation-topbar {
+    height: 58px;
+    flex: 0 0 58px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 22px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(15, 23, 42, 0.86);
+    backdrop-filter: blur(12px);
+}
+
+.shift-photo-compare-animation-topbar strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #fed7aa;
+    font-size: 1.05rem;
+    font-weight: 950;
+}
+
+.shift-photo-compare-animation-page-settings {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.shift-photo-compare-animation-page-settings label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(248, 250, 252, 0.82);
+    font-size: 0.78rem;
+    font-weight: 900;
+}
+
+.shift-photo-compare-animation-page-settings input {
+    width: 150px;
+    height: 34px;
+    padding: 0 9px;
+    border: 1px solid rgba(251, 146, 60, 0.42);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.96);
+    color: #111827;
+    font-weight: 850;
+}
+
+.shift-photo-compare-animation-page-settings .shift-photo-compare-animation-page-input {
+    width: 68px;
+    text-align: right;
+}
+
+.shift-photo-compare-animation-page-settings .shift-photo-compare-animation-page-save {
+    width: auto;
+    min-width: 74px;
+    padding: 0 10px;
+    display: inline-flex;
+    place-items: initial;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 6px;
+    border-color: rgba(74, 222, 128, 0.55);
+    background: rgba(22, 163, 74, 0.24);
+}
+
+.shift-photo-compare-animation-page-settings .shift-photo-compare-animation-page-clear {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    border-color: rgba(248, 113, 113, 0.5);
+    background: rgba(220, 38, 38, 0.2);
+}
+
+.shift-photo-compare-animation-counter {
+    margin-left: auto;
+    padding: 5px 12px;
+    border: 1px solid rgba(251, 146, 60, 0.44);
+    border-radius: 999px;
+    background: rgba(124, 45, 18, 0.28);
+    color: #ffedd5;
+    font-weight: 950;
+}
+
+.shift-photo-compare-animation-topbar button {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(248, 250, 252, 0.22);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc;
+    cursor: pointer;
+}
+
+@media (max-width: 820px) {
+    .shift-photo-compare-animation-topbar {
+        height: auto;
+        min-height: 58px;
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        gap: 8px;
+    }
+
+    .shift-photo-compare-animation-topbar strong {
+        flex: 1 1 auto;
+    }
+
+    .shift-photo-compare-animation-page-settings {
+        order: 3;
+        width: 100%;
+    }
+
+    .shift-photo-compare-animation-page-settings label:first-child {
+        flex: 1 1 auto;
+    }
+
+    .shift-photo-compare-animation-page-settings label:first-child input {
+        width: 100%;
+    }
+
+    .shift-photo-compare-animation-counter {
+        margin-left: 0;
+    }
+}
+
+.shift-photo-compare-animation-main {
+    --animation-timeline-width: 450px;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+}
+
+.shift-photo-compare-animation-stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 12px 72px;
+    overflow: hidden;
+}
+
+.shift-photo-compare-animation-timeline {
+    position: relative;
+    z-index: 30;
+    flex: 0 0 var(--animation-timeline-width);
+    width: var(--animation-timeline-width);
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid rgba(148, 163, 184, 0.28);
+    background: rgba(8, 15, 28, 0.96);
+    color: #f8fafc;
+    transition: transform 180ms ease, opacity 120ms ease;
+}
+
+.shift-photo-compare-animation-timeline > header {
+    flex: 0 0 76px;
+    display: grid;
+    grid-template-rows: 30px 30px;
+    align-content: center;
+    gap: 2px;
+    padding: 5px 48px 5px 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    color: #fed7aa;
+    overflow: hidden;
+}
+
+.shift-photo-compare-animation-timeline-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-timeline-save-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: #86efac;
+    font-size: 9px;
+    font-weight: 800;
+}
+
+.shift-photo-compare-animation-timeline-save-state.pending {
+    color: #fdba74;
+}
+
+.shift-photo-compare-animation-timeline-actions {
+    width: 100%;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    justify-content: flex-start;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-timeline-actions > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-timeline-icon-btn,
+.shift-photo-compare-animation-timeline-copy {
+    min-width: 28px;
+    height: 28px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0 6px;
+    border: 1px solid rgba(96, 165, 250, 0.5);
+    border-radius: 5px;
+    background: rgba(30, 64, 175, 0.28);
+    color: #bfdbfe;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-timeline-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.shift-photo-compare-animation-timeline-reset,
+.shift-photo-compare-animation-timeline-initialize,
+.shift-photo-compare-animation-timeline-copy {
+    width: auto;
+    min-width: 0;
+    padding: 0 7px;
+    justify-content: center;
+    gap: 4px;
+}
+
+.shift-photo-compare-animation-timeline-reset > span,
+.shift-photo-compare-animation-timeline-initialize > span,
+.shift-photo-compare-animation-timeline-copy > span {
+    display: inline;
+}
+
+.shift-photo-compare-animation-timeline-icon-btn:disabled {
+    border-color: rgba(100, 116, 139, 0.3);
+    background: rgba(30, 41, 59, 0.45);
+    color: #475569;
+    cursor: default;
+}
+
+.shift-photo-compare-animation-timeline-save {
+    min-width: 0;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 7px;
+    border: 1px solid rgba(74, 222, 128, 0.62);
+    border-radius: 5px;
+    background: rgba(20, 83, 45, 0.62);
+    color: #dcfce7;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-timeline-save.pending {
+    border-color: #fb923c;
+    background: #9a3412;
+    color: #fff7ed;
+}
+
+.shift-photo-compare-animation-timeline-save:disabled {
+    border-color: rgba(100, 116, 139, 0.4);
+    background: rgba(30, 41, 59, 0.58);
+    color: #64748b;
+    cursor: default;
+}
+
+.shift-photo-compare-animation-timeline-save-notice {
+    position: absolute;
+    z-index: 3;
+    top: 80px;
+    left: 8px;
+    right: 8px;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    padding: 5px 8px;
+    border: 1px solid rgba(74, 222, 128, 0.72);
+    border-radius: 5px;
+    background: rgba(20, 83, 45, 0.96);
+    color: #dcfce7;
+    font-size: 10px;
+    font-weight: 800;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+}
+
+.shift-photo-compare-animation-timeline-save-notice.error {
+    border-color: rgba(248, 113, 113, 0.82);
+    background: rgba(127, 29, 29, 0.97);
+    color: #fee2e2;
+}
+
+.shift-photo-compare-animation-timeline-save-notice.hidden {
+    display: none;
+}
+
+.shift-photo-compare-animation-timeline-issues {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 2px;
+    margin: 0 0 7px;
+    padding: 6px 7px;
+    border: 1px solid rgba(251, 191, 36, 0.58);
+    border-radius: 5px;
+    background: rgba(120, 53, 15, 0.42);
+    color: #fef3c7;
+    font-size: 10px;
+    line-height: 1.35;
+}
+
+.shift-photo-compare-animation-timeline-issues strong {
+    color: #fbbf24;
+}
+
+.shift-photo-compare-animation-timeline-issues span {
+    overflow-wrap: anywhere;
+}
+
+.shift-photo-compare-animation-timeline-reset,
+.shift-photo-compare-animation-timeline-initialize {
+    min-width: 0;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 7px;
+    border: 1px solid rgba(251, 146, 60, 0.52);
+    border-radius: 5px;
+    background: rgba(124, 45, 18, 0.35);
+    color: #fed7aa;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-timeline-reset:hover {
+    background: rgba(154, 52, 18, 0.58);
+}
+
+.shift-photo-compare-animation-timeline-initialize {
+    border-color: rgba(248, 113, 113, 0.58);
+    background: rgba(127, 29, 29, 0.36);
+    color: #fecaca;
+}
+
+.shift-photo-compare-animation-timeline-initialize:hover {
+    background: rgba(153, 27, 27, 0.62);
+}
+
+.shift-photo-compare-animation-timeline-body {
+    min-height: 0;
+    overflow: auto;
+    padding: 8px 4px 90px;
+}
+
+.shift-photo-compare-animation-timeline-batch {
+    position: sticky;
+    z-index: 5;
+    top: 0;
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: -2px 0 8px;
+    padding: 4px 6px;
+    border: 1px solid rgba(56, 189, 248, 0.42);
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.98);
+    box-shadow: 0 5px 14px rgba(0, 0, 0, 0.28);
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-timeline-batch.hidden {
+    display: none;
+}
+
+.shift-photo-compare-animation-timeline-batch strong {
+    margin-right: 2px;
+    color: #7dd3fc;
+    font-size: 10px;
+}
+
+.shift-photo-compare-animation-timeline-batch button {
+    min-width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 0 6px;
+    border: 1px solid rgba(148, 163, 184, 0.42);
+    border-radius: 5px;
+    background: #1e293b;
+    color: #f8fafc;
+    font-size: 9px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-timeline-batch button.danger {
+    border-color: rgba(248, 113, 113, 0.62);
+    background: rgba(127, 29, 29, 0.72);
+    color: #fee2e2;
+}
+
+.shift-photo-compare-animation-timeline-lanes {
+    min-width: 390px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+}
+
+.shift-photo-compare-animation-timeline-lane {
+    --timeline-badge-width: 92px;
+    min-width: 0;
+    padding: 0 4px;
+}
+
+.shift-photo-compare-animation-timeline-lane.symbol-lane {
+    --timeline-badge-width: 104px;
+}
+
+.shift-photo-compare-animation-timeline-lane + .shift-photo-compare-animation-timeline-lane {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    border-left: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.shift-photo-compare-animation-timeline-lane h3 {
+    margin: 0 0 5px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    letter-spacing: 0;
+    color: #e2e8f0;
+}
+
+.shift-photo-compare-animation-timeline-lane h3 i {
+    width: 16px;
+    color: #fb923c;
+    text-align: center;
+}
+
+.shift-photo-compare-animation-timeline-route {
+    position: relative;
+    margin-left: 4px;
+    padding-left: 16px;
+}
+
+.shift-photo-compare-animation-timeline-route::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 2px;
+    background: rgba(148, 163, 184, 0.34);
+}
+
+.shift-photo-compare-animation-timeline-route > p {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.shift-photo-compare-animation-timeline-node {
+    position: relative;
+    min-height: 32px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 2px;
+    padding: 2px 0;
+    width: min(var(--timeline-badge-width), 100%);
+}
+
+.shift-photo-compare-animation-timeline-node + .shift-photo-compare-animation-timeline-node {
+    margin-top: 2px;
+}
+
+.shift-photo-compare-animation-timeline-dot {
+    position: absolute;
+    left: -16px;
+    top: 10px;
+    width: 11px;
+    height: 11px;
+    border: 2px solid #64748b;
+    border-radius: 50%;
+    background: #0f172a;
+    box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.92);
+}
+
+.shift-photo-compare-animation-timeline-node.passed .shift-photo-compare-animation-timeline-dot {
+    border-color: #38bdf8;
+    background: #38bdf8;
+}
+
+.shift-photo-compare-animation-timeline-node.active .shift-photo-compare-animation-timeline-dot {
+    border-color: #ffffff;
+    background: #d946ef;
+    box-shadow: 0 0 0 4px rgba(217, 70, 239, 0.3);
+}
+
+.shift-photo-compare-animation-timeline-node.playback-current .shift-photo-compare-animation-symbol-badge,
+.shift-photo-compare-animation-timeline-node.playback-current .shift-photo-compare-animation-timeline-badge {
+    position: relative;
+    z-index: 2;
+    border-color: #ffffff;
+    outline: 2px solid #e879f9;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(217, 70, 239, 0.22), 0 0 18px rgba(232, 121, 249, 0.72);
+    filter: brightness(1.18);
+    animation: shift-photo-compare-timeline-current-pulse 850ms ease-in-out infinite alternate;
+}
+
+.shift-photo-compare-animation-timeline-node.playback-current .shift-photo-compare-animation-symbol-badge strong,
+.shift-photo-compare-animation-timeline-node.playback-current .shift-photo-compare-animation-timeline-badge strong {
+    color: #ffffff;
+}
+
+.shift-photo-compare-animation-timeline-node.next .shift-photo-compare-animation-timeline-dot {
+    border-color: #facc15;
+    background: #0f172a;
+    box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.18);
+}
+
+.shift-photo-compare-animation-timeline-node.next .shift-photo-compare-animation-symbol-badge,
+.shift-photo-compare-animation-timeline-node.next .shift-photo-compare-animation-timeline-badge {
+    outline: 2px solid rgba(250, 204, 21, 0.72);
+    outline-offset: 1px;
+}
+
+.shift-photo-compare-animation-timeline-node.inserted.boxed .shift-photo-compare-animation-timeline-dot {
+    border-color: #22c55e;
+}
+
+.shift-photo-compare-animation-timeline-node.inserted.callout .shift-photo-compare-animation-timeline-dot {
+    border-color: #facc15;
+}
+
+.shift-photo-compare-animation-timeline-node-main {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+}
+
+.shift-photo-compare-animation-timeline-node-main strong {
+    flex: 0 0 auto;
+    color: #f8fafc;
+    font-size: 12px;
+}
+
+.shift-photo-compare-animation-timeline-node-main span {
+    min-width: 0;
+    overflow: hidden;
+    color: #94a3b8;
+    font-size: 11px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.shift-photo-compare-animation-timeline-badge,
+.shift-photo-compare-animation-symbol-badge {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    min-height: 25px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 5px;
+    border: 1px solid rgba(148, 163, 184, 0.38);
+    border-radius: 999px;
+    background: rgba(30, 41, 59, 0.96);
+    color: #f8fafc;
+    text-align: left;
+}
+
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-standard {
+    border-color: rgba(59, 130, 246, 0.78);
+    background: rgba(30, 64, 110, 0.94);
+}
+
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-direct {
+    border-color: rgba(45, 212, 191, 0.75);
+    background: rgba(19, 78, 74, 0.9);
+}
+
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-callout {
+    border-color: rgba(245, 158, 11, 0.82);
+    background: rgba(113, 63, 18, 0.88);
+}
+
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-mixed {
+    border-color: rgba(94, 234, 212, 0.82);
+    background: linear-gradient(90deg, rgba(19, 78, 74, 0.92) 0 50%, rgba(113, 63, 18, 0.9) 50% 100%);
+}
+
+.shift-photo-compare-animation-timeline-lane.boxed-lane .shift-photo-compare-animation-timeline-badge {
+    border-color: rgba(45, 212, 191, 0.75);
+    background: rgba(19, 78, 74, 0.9);
+}
+
+.shift-photo-compare-animation-timeline-lane.callout-lane .shift-photo-compare-animation-timeline-badge {
+    border-color: rgba(245, 158, 11, 0.82);
+    background: rgba(113, 63, 18, 0.88);
+}
+
+button.shift-photo-compare-animation-timeline-badge {
+    cursor: grab;
+}
+
+button.shift-photo-compare-animation-symbol-badge {
+    cursor: grab;
+}
+
+button.shift-photo-compare-animation-timeline-badge:active,
+button.shift-photo-compare-animation-timeline-badge.dragging,
+button.shift-photo-compare-animation-symbol-badge:active,
+button.shift-photo-compare-animation-symbol-badge.dragging {
+    cursor: grabbing;
+    opacity: 0.55;
+}
+
+.shift-photo-compare-animation-timeline-badge strong,
+.shift-photo-compare-animation-symbol-badge strong {
+    flex: 0 0 auto;
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-timeline-badge span {
+    min-width: 0;
+    overflow: hidden;
+    color: #cbd5e1;
+    font-size: 9px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.shift-photo-compare-animation-timeline-badge.inserted {
+    border-color: rgba(34, 197, 94, 0.72);
+    background: rgba(20, 83, 45, 0.78);
+}
+
+[data-timeline-mode="calloutPage"] .shift-photo-compare-animation-timeline-badge,
+.shift-photo-compare-animation-timeline-node.inserted.callout .shift-photo-compare-animation-timeline-badge {
+    border-color: rgba(250, 204, 21, 0.7);
+    background: rgba(113, 63, 18, 0.76);
+}
+
+.shift-photo-compare-animation-symbol-badge {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    border-radius: 6px;
+}
+
+.shift-photo-compare-animation-symbol-badge small {
+    color: #94a3b8;
+    font-size: 9px;
+}
+
+.shift-photo-compare-animation-timeline-node.symbol-node:not(.motion-node) {
+    padding-right: 18px;
+}
+
+.shift-photo-compare-animation-timeline-node.page-node,
+.shift-photo-compare-animation-timeline-node.inserted {
+    padding-right: 18px;
+}
+
+.shift-photo-compare-animation-symbol-name-edit {
+    position: absolute;
+    right: -1px;
+    top: 5px;
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(148, 163, 184, 0.42);
+    border-radius: 50%;
+    background: #0f172a;
+    color: #cbd5e1;
+    font-size: 8px;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-symbol-name-edit:hover {
+    border-color: #60a5fa;
+    color: #ffffff;
+}
+
+.shift-photo-compare-animation-timeline-select-btn {
+    position: absolute;
+    right: -1px;
+    bottom: 4px;
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(148, 163, 184, 0.48);
+    border-radius: 4px;
+    background: #0f172a;
+    color: transparent;
+    font-size: 8px;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-timeline-node.timeline-selected .shift-photo-compare-animation-timeline-select-btn {
+    border-color: #38bdf8;
+    background: #0284c7;
+    color: #ffffff;
+}
+
+.shift-photo-compare-animation-timeline-node.timeline-selected .shift-photo-compare-animation-symbol-badge,
+.shift-photo-compare-animation-timeline-node.timeline-selected .shift-photo-compare-animation-timeline-badge {
+    outline: 2px solid rgba(56, 189, 248, 0.82);
+    outline-offset: 1px;
+}
+
+.shift-photo-compare-animation-timeline-node.timeline-selected.playback-current .shift-photo-compare-animation-symbol-badge,
+.shift-photo-compare-animation-timeline-node.timeline-selected.playback-current .shift-photo-compare-animation-timeline-badge {
+    outline-color: #e879f9;
+    outline-offset: 2px;
+}
+
+.shift-photo-compare-animation-timeline .shift-photo-compare-animation-timeline-node.playback-current .shift-photo-compare-animation-symbol-badge,
+.shift-photo-compare-animation-timeline .shift-photo-compare-animation-timeline-node.playback-current .shift-photo-compare-animation-timeline-badge {
+    border-color: #f5d0fe;
+    background: #86198f;
+}
+
+@keyframes shift-photo-compare-timeline-current-pulse {
+    from {
+        box-shadow: 0 0 0 3px rgba(217, 70, 239, 0.18), 0 0 10px rgba(232, 121, 249, 0.5);
+    }
+    to {
+        box-shadow: 0 0 0 5px rgba(217, 70, 239, 0.3), 0 0 22px rgba(232, 121, 249, 0.84);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .shift-photo-compare-animation-timeline-node.playback-current .shift-photo-compare-animation-symbol-badge,
+    .shift-photo-compare-animation-timeline-node.playback-current .shift-photo-compare-animation-timeline-badge {
+        animation: none;
+    }
+}
+
+.shift-photo-compare-animation-timeline-dialog {
+    position: fixed;
+    z-index: 1200;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(2, 6, 23, 0.68);
+}
+
+.shift-photo-compare-animation-timeline-dialog-panel {
+    width: min(420px, calc(100vw - 32px));
+    padding: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.42);
+    border-radius: 7px;
+    background: #0f172a;
+    color: #f8fafc;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.48);
+}
+
+.shift-photo-compare-animation-timeline-dialog-panel header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.shift-photo-compare-animation-timeline-dialog-panel header button {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    background: transparent;
+    color: #cbd5e1;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-timeline-dialog-panel label {
+    display: grid;
+    gap: 6px;
+    color: #cbd5e1;
+    font-size: 12px;
+}
+
+.shift-photo-compare-animation-timeline-dialog-panel input,
+.shift-photo-compare-animation-timeline-dialog-panel select {
+    width: 100%;
+    min-width: 0;
+    height: 38px;
+    padding: 0 10px;
+    border: 1px solid #475569;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #111827;
+    font-size: 14px;
+}
+
+.shift-photo-compare-animation-timeline-dialog-panel p {
+    margin: 10px 0 0;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.shift-photo-compare-animation-timeline-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.shift-photo-compare-animation-timeline-dialog-actions button {
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid #2563eb;
+    border-radius: 5px;
+    background: #1d4ed8;
+    color: #ffffff;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-timeline-dialog-actions button.secondary {
+    border-color: #475569;
+    background: #1e293b;
+}
+
+.shift-photo-compare-animation-timeline-dialog-actions button.danger {
+    border-color: #dc2626;
+    background: #991b1b;
+}
+
+.shift-photo-compare-animation-timeline-dialog-actions.three-actions {
+    flex-wrap: wrap;
+}
+
+.shift-photo-compare-animation-timeline-drop-zone {
+    min-height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 1px 0 2px;
+    padding: 1px 3px;
+    border: 1px dashed transparent;
+    border-radius: 5px;
+    color: transparent;
+    font-size: 8px;
+    font-weight: 800;
+    transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+    width: min(var(--timeline-badge-width), 100%);
+}
+
+.shift-photo-compare-animation-timeline-drop-zone.symbol-drop-zone {
+    min-height: 4px;
+    margin: 0;
+    padding: 0;
+}
+
+.shift-photo-compare-animation-timeline-drop-zone.page-drop-zone {
+    min-height: 4px;
+    margin: 0;
+    padding: 0;
+}
+
+.shift-photo-compare-animation-timeline-drop-zone.standalone {
+    margin: 0 0 8px;
+}
+
+.shift-photo-compare-animation-overlay.timeline-page-dragging .shift-photo-compare-animation-timeline-drop-zone.page-drop-zone,
+.shift-photo-compare-animation-overlay.timeline-page-dragging .shift-photo-compare-animation-timeline-drop-zone.standalone,
+.shift-photo-compare-animation-overlay.timeline-symbol-dragging .shift-photo-compare-animation-timeline-drop-zone.symbol-drop-zone {
+    min-height: 18px;
+    padding: 1px 3px;
+    border-color: rgba(56, 189, 248, 0.5);
+    color: #7dd3fc;
+}
+
+.shift-photo-compare-animation-timeline-drop-zone.drop-allowed {
+    border-color: #22c55e !important;
+    background: rgba(34, 197, 94, 0.18);
+    color: #bbf7d0 !important;
+}
+
+.shift-photo-compare-animation-timeline-drop-zone.drop-blocked {
+    border-color: #ef4444 !important;
+    background: rgba(239, 68, 68, 0.14);
+    color: #fecaca !important;
+}
+
+.shift-photo-compare-animation-timeline-drop-zone.drop-preview {
+    min-height: 30px !important;
+    padding: 3px !important;
+    color: transparent !important;
+}
+
+.shift-photo-compare-animation-timeline-drop-zone.drop-preview::after {
+    content: attr(data-drop-preview);
+    width: 100%;
+    min-width: 0;
+    min-height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 5px;
+    border: 1px solid #86efac;
+    border-radius: 999px;
+    background: rgba(22, 101, 52, 0.94);
+    color: #f0fdf4;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+    font-size: 8px;
+    font-weight: 900;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-timeline-node small {
+    color: #64748b;
+    font-size: 10px;
+}
+
+.shift-photo-compare-animation-timeline-toggle {
+    position: absolute;
+    z-index: 40;
+    right: 8px;
+    top: 6px;
+    width: 34px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(148, 163, 184, 0.36);
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.94);
+    color: #f8fafc;
+    cursor: pointer;
+    transition: right 180ms ease;
+}
+
+.shift-photo-compare-animation-overlay.timeline-collapsed .shift-photo-compare-animation-timeline {
+    flex-basis: var(--animation-timeline-width);
+    width: var(--animation-timeline-width);
+    transform: translateX(100%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-overlay.timeline-collapsed .shift-photo-compare-animation-timeline-toggle {
+    right: 8px;
+}
+
+.shift-photo-compare-animation-overlay.timeline-collapsed .shift-photo-compare-animation-timeline-toggle i {
+    transform: rotate(180deg);
+}
+
+@media (max-width: 900px) {
+    .shift-photo-compare-animation-main {
+        --animation-timeline-width: 420px;
+    }
+}
+
+@media (max-width: 700px) {
+    .shift-photo-compare-animation-main {
+        --animation-timeline-width: min(92vw, 450px);
+    }
+
+    .shift-photo-compare-animation-timeline {
+        position: absolute;
+        inset: 0 0 0 auto;
+        width: var(--animation-timeline-width);
+        flex-basis: auto;
+        box-shadow: -18px 0 34px rgba(0, 0, 0, 0.34);
+    }
+
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-grid {
+    flex: 0 0 auto;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-overlay .shift-photo-polyline-region-labels,
+.shift-photo-compare-animation-overlay .shift-photo-polyline-endpoint,
+.shift-photo-compare-animation-overlay .shift-photo-polyline-vertex,
+.shift-photo-compare-animation-overlay .shift-photo-compare-snap-guide,
+.shift-photo-compare-animation-overlay .shift-photo-compare-parallel-guide,
+.shift-photo-compare-animation-overlay .shift-photo-compare-snap-status,
+.shift-photo-compare-animation-overlay .shift-photo-compare-width-match-guide,
+.shift-photo-compare-animation-overlay .shift-photo-compare-resize-guide {
+    display: none !important;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-mark.shift-photo-compare-animation-paged.shift-photo-compare-animation-visible {
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-mark.shift-photo-compare-animation-paged :is(input, textarea, select, button) {
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-mark.boxedText.shift-photo-compare-animation-region-pinned {
+    left: var(--animation-region-left) !important;
+    top: var(--animation-region-top) !important;
+    width: var(--animation-region-width) !important;
+    height: var(--animation-region-height) !important;
+    transform: translate(-50%, -50%) rotate(var(--mark-rotate)) !important;
+}
+
+.shift-photo-compare-animation-last-page-label {
+    position: absolute;
+    right: 24px;
+    bottom: 84px;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 26px;
+    padding: 3px 9px;
+    border: 2px solid #ffffff;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.92);
+    color: #ffffff;
+    font-family: "Yu Gothic", "Meiryo", sans-serif;
+    font-size: 13px;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.28);
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-item {
+    margin: 0;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-animation-grid-cropped .shift-photo-compare-item {
+    gap: 0;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-animation-grid-cropped .shift-photo-compare-image-wrap {
+    flex: 0 0 auto;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-meta,
+.shift-photo-compare-animation-stage .shift-photo-compare-role,
+.shift-photo-compare-animation-stage .shift-photo-compare-caption,
+.shift-photo-compare-animation-stage .shift-photo-compare-animation-order-badge {
+    display: none !important;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-selection-bounds,
+.shift-photo-compare-animation-stage .shift-photo-compare-animation-end-ghost,
+.shift-photo-compare-animation-stage .shift-photo-compare-mini-toolbar,
+.shift-photo-compare-animation-stage .shift-photo-compare-context-menu,
+.shift-photo-compare-animation-stage .shift-photo-compare-animation-badge-menu,
+.shift-photo-compare-animation-stage .shift-photo-region-info-btn {
+    display: none !important;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-mark.selected {
+    outline: 0 !important;
+    outline-offset: 0 !important;
+}
+
+.shift-photo-compare-animation-controls {
+    position: absolute;
+    z-index: 10000;
+    left: 50%;
+    bottom: 20px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    max-width: calc(100vw - 28px);
+    border: 1px solid rgba(251, 146, 60, 0.26);
+    border-radius: 24px;
+    background: rgba(15, 23, 42, 0.88);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
+}
+
+.shift-photo-compare-animation-controls button {
+    min-width: 42px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid rgba(226, 232, 240, 0.24);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc;
+    font-weight: 950;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-controls button:hover {
+    border-color: rgba(251, 146, 60, 0.78);
+    background: rgba(249, 115, 22, 0.32);
+}
+
+.shift-photo-compare-animation-controls .shift-photo-compare-animation-fullscreen-btn {
+    min-width: 96px;
+    border-color: #67e8f9;
+    background: #0891b2;
+    color: #ffffff;
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2), 0 6px 18px rgba(8, 145, 178, 0.42);
+}
+
+.shift-photo-compare-animation-controls .shift-photo-compare-animation-fullscreen-btn:hover {
+    border-color: #cffafe;
+    background: #06b6d4;
+    box-shadow: 0 0 0 4px rgba(103, 232, 249, 0.26), 0 8px 22px rgba(6, 182, 212, 0.5);
+}
+
+.shift-photo-compare-animation-controls .shift-photo-compare-animation-fullscreen-btn i {
+    color: #ecfeff;
+}
+
+.shift-photo-compare-animation-controls button.recording {
+    border-color: rgba(248, 113, 113, 0.96);
+    background: rgba(220, 38, 38, 0.78);
+    color: #ffffff;
+    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18);
+}
+
+.shift-photo-compare-animation-controls button.recording i {
+    color: #ffffff;
+}
+
+.shift-photo-compare-animation-speed-control {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    border: 1px solid rgba(226, 232, 240, 0.24);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc;
+    font-weight: 950;
+}
+
+.shift-photo-compare-animation-speed-control select,
+.shift-photo-compare-animation-speed-control input {
+    height: 30px;
+    padding: 0 26px 0 8px;
+    border: 1px solid rgba(251, 146, 60, 0.38);
+    border-radius: 999px;
+    background: rgba(255, 247, 237, 0.95);
+    color: #9a3412;
+    font-weight: 950;
+}
+
+.shift-photo-compare-animation-speed-control input {
+    width: 78px;
+    padding: 0 8px;
+    text-align: right;
+}
+
+.shift-photo-compare-animation-speed-control span {
+    color: rgba(248, 250, 252, 0.86);
+    font-size: 0.86rem;
+}
+
+.shift-photo-compare-animation-hidden {
+    visibility: hidden !important;
+    opacity: 0 !important;
+}
+
+.shift-photo-compare-animation-visible {
+    visibility: visible !important;
+    opacity: 1 !important;
+    animation-duration: 0.34s;
+    animation-timing-function: ease-out;
+    animation-fill-mode: both;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-pop {
+    animation-name: shift-photo-compare-animation-pop;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-fade {
+    animation-name: shift-photo-compare-animation-fade;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-zoom {
+    animation-name: shift-photo-compare-animation-zoom;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-slide {
+    animation-name: shift-photo-compare-animation-slide;
+    animation-duration: 0.62s;
+    animation-timing-function: cubic-bezier(0.16, 0.84, 0.24, 1);
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-bounce {
+    animation-name: shift-photo-compare-animation-bounce;
+    animation-duration: 0.48s;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-spin {
+    animation-name: shift-photo-compare-animation-spin;
+    animation-duration: 0.56s;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-swing {
+    animation-name: shift-photo-compare-animation-swing;
+    animation-duration: 0.62s;
+    transform-origin: 50% 72%;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-shake {
+    animation-name: shift-photo-compare-animation-shake;
+    animation-duration: 0.42s;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-flash {
+    animation-name: shift-photo-compare-animation-flash;
+    animation-duration: 0.58s;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-jelly {
+    animation-name: shift-photo-compare-animation-jelly;
+    animation-duration: 0.58s;
+}
+
+.shift-photo-compare-animation-visible:is(.arrow, .dimension).shift-photo-compare-animation-effect-pop {
+    animation-name: shift-photo-compare-animation-pop-line;
+}
+
+.shift-photo-compare-animation-visible:is(.arrow, .dimension).shift-photo-compare-animation-effect-zoom {
+    animation-name: shift-photo-compare-animation-zoom-line;
+}
+
+.shift-photo-compare-animation-visible:is(.arrow, .dimension).shift-photo-compare-animation-effect-slide {
+    animation-name: shift-photo-compare-animation-slide-line;
+}
+
+.shift-photo-compare-animation-visible:is(.arrow, .dimension).shift-photo-compare-animation-effect-bounce {
+    animation-name: shift-photo-compare-animation-bounce-line;
+}
+
+.shift-photo-compare-animation-visible:is(.arrow, .dimension).shift-photo-compare-animation-effect-spin {
+    animation-name: shift-photo-compare-animation-spin-line;
+}
+
+.shift-photo-compare-animation-visible:is(.arrow, .dimension).shift-photo-compare-animation-effect-swing {
+    animation-name: shift-photo-compare-animation-swing-line;
+}
+
+.shift-photo-compare-animation-visible:is(.arrow, .dimension).shift-photo-compare-animation-effect-shake {
+    animation-name: shift-photo-compare-animation-shake-line;
+}
+
+.shift-photo-compare-animation-visible:is(.arrow, .dimension).shift-photo-compare-animation-effect-jelly {
+    animation-name: shift-photo-compare-animation-jelly-line;
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-motion {
+    animation-name: shift-photo-compare-animation-motion;
+    animation-duration: var(--shift-photo-compare-animation-motion-duration, 700ms);
+}
+
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-motion:is(.arrow, .dimension) {
+    animation-name: shift-photo-compare-animation-motion-line;
+}
+
+.shift-photo-compare-animation-visible:is(.freehand, .polyline):is(
+    .shift-photo-compare-animation-effect-pop,
+    .shift-photo-compare-animation-effect-zoom,
+    .shift-photo-compare-animation-effect-slide,
+    .shift-photo-compare-animation-effect-bounce,
+    .shift-photo-compare-animation-effect-spin,
+    .shift-photo-compare-animation-effect-swing,
+    .shift-photo-compare-animation-effect-shake,
+    .shift-photo-compare-animation-effect-jelly,
+    .shift-photo-compare-animation-motion
+) {
+    animation-name: shift-photo-compare-animation-path-reveal;
+}
+
+.shift-photo-compare-animation-motion-trails {
+    display: none !important;
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-motion-trail-line {
+    stroke: rgba(249, 115, 22, 0.82);
+    stroke-width: 0.42;
+    stroke-linecap: round;
+    stroke-dasharray: 1.3 1.1;
+    vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 0 4px rgba(251, 146, 60, 0.58));
+}
+
+.shift-photo-compare-animation-motion-trail-dot {
+    fill: rgba(249, 115, 22, 0.92);
+    stroke: #ffffff;
+    stroke-width: 0.22;
+    vector-effect: non-scaling-stroke;
+}
+
+@keyframes shift-photo-compare-animation-pop {
+    from {
+        opacity: 0;
+        filter: drop-shadow(0 0 14px rgba(251, 146, 60, 0.88));
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(calc(var(--mark-scale-x) * 0.92), calc(var(--mark-scale-y) * 0.92));
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-pop-line {
+    from {
+        opacity: 0;
+        filter: drop-shadow(0 0 14px rgba(251, 146, 60, 0.88));
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(calc(var(--mark-scale-y) * 0.92));
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes shift-photo-compare-animation-path-reveal {
+    from {
+        opacity: 0;
+        filter: drop-shadow(0 0 10px rgba(251, 146, 60, 0.72));
+    }
+    to {
+        opacity: 1;
+        filter: none;
+    }
+}
+
+@keyframes shift-photo-compare-animation-zoom {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(calc(var(--mark-scale-x) * 0.35), calc(var(--mark-scale-y) * 0.35));
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-zoom-line {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(calc(var(--mark-scale-y) * 0.35));
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-slide {
+    from {
+        opacity: 1;
+        transform: translate(calc(-50% - 110vw), -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-slide-line {
+    from {
+        opacity: 1;
+        transform: translate(calc(-50% - 110vw), -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-bounce {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(calc(var(--mark-scale-x) * 0.45), calc(var(--mark-scale-y) * 0.45));
+    }
+    62% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(calc(var(--mark-scale-x) * 1.12), calc(var(--mark-scale-y) * 1.12));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-bounce-line {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(calc(var(--mark-scale-y) * 0.45));
+    }
+    62% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(calc(var(--mark-scale-y) * 1.12));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-spin {
+    0% {
+        opacity: 0;
+        filter: drop-shadow(0 0 16px rgba(59, 130, 246, 0.65));
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) - 190deg)) scale(calc(var(--mark-scale-x) * 0.52), calc(var(--mark-scale-y) * 0.52));
+    }
+    72% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) + 10deg)) scale(calc(var(--mark-scale-x) * 1.04), calc(var(--mark-scale-y) * 1.04));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-spin-line {
+    0% {
+        opacity: 0;
+        filter: drop-shadow(0 0 16px rgba(59, 130, 246, 0.65));
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) - 190deg)) scaleY(calc(var(--mark-scale-y) * 0.52));
+    }
+    72% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) + 10deg)) scaleY(calc(var(--mark-scale-y) * 1.04));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-swing {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) - 18deg)) scale(calc(var(--mark-scale-x) * 0.86), calc(var(--mark-scale-y) * 0.86));
+    }
+    38% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) + 13deg)) scale(calc(var(--mark-scale-x) * 1.03), calc(var(--mark-scale-y) * 1.03));
+    }
+    67% {
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) - 7deg)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-swing-line {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) - 11deg)) scaleY(calc(var(--mark-scale-y) * 0.9));
+    }
+    38% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) + 8deg)) scaleY(calc(var(--mark-scale-y) * 1.03));
+    }
+    67% {
+        transform: translate(-50%, -50%) rotate(calc(var(--mark-rotate) - 4deg)) scaleY(var(--mark-scale-y));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-shake {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(calc(var(--mark-scale-x) * 0.96), calc(var(--mark-scale-y) * 0.96));
+    }
+    20% {
+        opacity: 1;
+        transform: translate(calc(-50% - 8px), -50%) rotate(calc(var(--mark-rotate) - 3deg)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+    42% {
+        transform: translate(calc(-50% + 7px), -50%) rotate(calc(var(--mark-rotate) + 3deg)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+    64% {
+        transform: translate(calc(-50% - 4px), -50%) rotate(calc(var(--mark-rotate) - 2deg)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-shake-line {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(calc(var(--mark-scale-y) * 0.96));
+    }
+    20% {
+        opacity: 1;
+        transform: translate(calc(-50% - 8px), -50%) rotate(calc(var(--mark-rotate) - 2deg)) scaleY(var(--mark-scale-y));
+    }
+    42% {
+        transform: translate(calc(-50% + 7px), -50%) rotate(calc(var(--mark-rotate) + 2deg)) scaleY(var(--mark-scale-y));
+    }
+    64% {
+        transform: translate(calc(-50% - 4px), -50%) rotate(calc(var(--mark-rotate) - 1deg)) scaleY(var(--mark-scale-y));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-flash {
+    0% { opacity: 0; filter: brightness(1.4) drop-shadow(0 0 16px rgba(250, 204, 21, 0.86)); }
+    18% { opacity: 1; filter: brightness(1.7) drop-shadow(0 0 20px rgba(250, 204, 21, 0.92)); }
+    34% { opacity: 0.25; filter: brightness(1); }
+    52% { opacity: 1; filter: brightness(1.55) drop-shadow(0 0 14px rgba(250, 204, 21, 0.82)); }
+    70% { opacity: 0.48; }
+    100% { opacity: 1; filter: none; }
+}
+
+@keyframes shift-photo-compare-animation-jelly {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(calc(var(--mark-scale-x) * 0.55), calc(var(--mark-scale-y) * 0.55));
+    }
+    46% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(calc(var(--mark-scale-x) * 1.18), calc(var(--mark-scale-y) * 0.82));
+    }
+    68% {
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(calc(var(--mark-scale-x) * 0.9), calc(var(--mark-scale-y) * 1.12));
+    }
+    84% {
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(calc(var(--mark-scale-x) * 1.04), calc(var(--mark-scale-y) * 0.96));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scale(var(--mark-scale-x), var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-jelly-line {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(calc(var(--mark-scale-y) * 0.55));
+    }
+    46% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(calc(var(--mark-scale-y) * 1.18));
+    }
+    68% {
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(calc(var(--mark-scale-y) * 0.9));
+    }
+    84% {
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(calc(var(--mark-scale-y) * 1.04));
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--mark-rotate)) scaleY(var(--mark-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-motion {
+    from {
+        left: var(--animation-from-left);
+        top: var(--animation-from-top);
+        width: var(--animation-from-width, var(--animation-from-size));
+        height: var(--animation-from-height, var(--animation-from-size));
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--animation-from-rotate)) scale(var(--animation-from-scale-x), var(--animation-from-scale-y));
+    }
+    to {
+        left: var(--animation-to-left);
+        top: var(--animation-to-top);
+        width: var(--animation-to-width, var(--animation-to-size));
+        height: var(--animation-to-height, var(--animation-to-size));
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--animation-to-rotate)) scale(var(--animation-to-scale-x), var(--animation-to-scale-y));
+    }
+}
+
+@keyframes shift-photo-compare-animation-motion-line {
+    from {
+        left: var(--animation-from-left);
+        top: var(--animation-from-top);
+        width: var(--animation-from-width, var(--animation-from-size));
+        height: var(--animation-from-height, var(--animation-from-size));
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(var(--animation-from-rotate));
+    }
+    to {
+        left: var(--animation-to-left);
+        top: var(--animation-to-top);
+        width: var(--animation-to-width, var(--animation-to-size));
+        height: var(--animation-to-height, var(--animation-to-size));
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(var(--animation-to-rotate));
+    }
 }
 
 .shift-photo-compare-mark.layer-move-flash {
@@ -38683,4 +40750,796 @@ select.history-assist-copied-value {
 
 .photo-manager-thumb .photo-manager-usage-badge.stamp {
     background: rgba(2, 132, 199, 0.96);
+}
+
+.shift-photo-compare-animation-badge-host {
+    position: relative;
+}
+
+.shift-photo-compare-animation-end-label-order-badge {
+    position: fixed !important;
+    z-index: 2147483647 !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    min-height: 42px;
+    border: 3px solid #ffffff;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #fb923c 0%, #ea580c 100%);
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 950;
+    line-height: 1;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    box-shadow: 0 10px 22px rgba(234, 88, 12, 0.32), 0 0 0 2px rgba(234, 88, 12, 0.18);
+    transform: none !important;
+}
+
+/* Video library and video marks */
+.photo-manager-toolbar .photo-manager-video-open-btn {
+    border-color: #0f766e;
+    background: #0f766e;
+    color: #ffffff;
+    font-weight: 900;
+}
+
+.photo-manager-video-modal,
+.shift-photo-compare-video-picker {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483600;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    background: rgba(2, 6, 23, 0.76);
+}
+
+.photo-manager-video-panel {
+    display: flex;
+    flex-direction: column;
+    width: min(980px, 96vw);
+    max-height: 92vh;
+    overflow: hidden;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #0f172a;
+    color: #f8fafc;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+}
+
+.photo-manager-video-panel > header,
+.shift-photo-compare-video-picker section > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #334155;
+}
+
+.photo-manager-video-panel > header strong,
+.photo-manager-video-panel > header small {
+    display: block;
+}
+
+.photo-manager-video-panel > header small {
+    margin-top: 3px;
+    color: #94a3b8;
+}
+
+.photo-manager-video-header-actions,
+.photo-manager-video-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.photo-manager-video-storage {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid #1e293b;
+    background: #111c30;
+}
+
+.photo-manager-video-storage span,
+.photo-manager-video-storage small {
+    color: #94a3b8;
+}
+
+.photo-manager-video-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+    overflow: auto;
+    padding: 16px;
+}
+
+.photo-manager-video-card {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #182338;
+}
+
+.photo-manager-video-preview {
+    position: relative;
+    width: 104px;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 6px;
+    background: #020617;
+}
+
+.photo-manager-video-preview video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.photo-manager-video-preview img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.photo-manager-video-url-toggle,
+.photo-manager-video-url-register,
+.photo-manager-video-local-link {
+    min-height: 38px;
+    padding: 0 13px;
+    border: 1px solid #10b981;
+    border-radius: 7px;
+    background: #047857;
+    color: #ffffff;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.photo-manager-video-local-link {
+    border-color: #22d3ee;
+    background: #0e7490;
+}
+
+.photo-manager-video-reconnect,
+.photo-manager-video-editor-reconnect,
+.photo-manager-video-reselect {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid #fbbf24;
+    border-radius: 6px;
+    background: rgba(120, 53, 15, 0.94);
+    color: #fef3c7;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.photo-manager-video-reselect {
+    justify-self: start;
+    display: inline-flex;
+    min-height: 40px;
+    padding: 0 12px;
+}
+
+.photo-manager-video-reconnect {
+    position: absolute;
+    inset: auto 5px 5px;
+    z-index: 3;
+    min-height: 28px;
+    padding: 0 7px;
+    font-size: 11px;
+}
+
+.photo-manager-video-editor-reconnect {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    z-index: 3;
+    min-height: 42px;
+    padding: 0 14px;
+    transform: translate(-50%, -50%);
+}
+
+.photo-manager-video-card.local-video-permission-needed .photo-manager-video-reconnect,
+.photo-manager-video-url-editor.local-video-permission-needed .photo-manager-video-editor-reconnect {
+    display: inline-flex;
+}
+
+.photo-manager-video-card.local-video-permission-needed .photo-manager-video-preview > i {
+    display: none;
+}
+
+.shift-photo-compare-mark.video.video-local-permission-needed .shift-photo-compare-video-play {
+    z-index: 4;
+    background: rgba(180, 83, 9, 0.94);
+}
+
+.photo-manager-video-url-form {
+    display: none;
+    grid-template-columns: minmax(240px, 2fr) minmax(150px, 1fr) auto;
+    align-items: end;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #1e293b;
+    background: #0b2f2e;
+}
+
+.photo-manager-video-panel.show-url-form .photo-manager-video-url-form {
+    display: grid;
+}
+
+.photo-manager-video-url-form label {
+    display: grid;
+    gap: 5px;
+    color: #ccfbf1;
+    font-weight: 800;
+}
+
+.photo-manager-video-url-form input,
+.photo-manager-video-url-editor input {
+    min-width: 0;
+    height: 40px;
+    padding: 0 10px;
+    border: 1px solid #2dd4bf;
+    border-radius: 6px;
+    background: #0f172a;
+    color: #f8fafc;
+}
+
+.photo-manager-video-url-form > small {
+    grid-column: 1 / -1;
+    color: #99f6e4;
+}
+
+.photo-manager-video-url-editor .photo-manager-video-editor-preview {
+    aspect-ratio: 16 / 9;
+}
+
+.photo-manager-video-url-editor iframe,
+.photo-manager-video-url-editor .photo-manager-video-editor-player {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 320px;
+    border: 0;
+    border-radius: 8px;
+    background: #000000;
+}
+
+.photo-manager-video-preview > i {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    color: #ffffff;
+    font-size: 22px;
+    filter: drop-shadow(0 2px 4px #000000);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+
+.photo-manager-video-info {
+    min-width: 0;
+}
+
+.photo-manager-video-info strong,
+.photo-manager-video-info span,
+.photo-manager-video-info small {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.photo-manager-video-info span,
+.photo-manager-video-info small {
+    margin-top: 4px;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.photo-manager-video-empty {
+    grid-column: 1 / -1;
+    padding: 54px 20px;
+    color: #94a3b8;
+    text-align: center;
+}
+
+.photo-manager-video-empty i {
+    font-size: 38px;
+}
+
+.photo-manager-video-editor {
+    display: grid;
+    gap: 16px;
+    overflow: auto;
+    padding: 16px;
+}
+
+.photo-manager-video-editor-preview {
+    position: relative;
+    width: min(760px, 100%);
+    margin: 0 auto;
+}
+
+.photo-manager-video-editor-player {
+    display: block;
+    width: 100%;
+    max-height: 46vh;
+    border-radius: 8px;
+    background: #000000;
+}
+
+.photo-manager-video-trim-preview-label {
+    position: absolute;
+    left: 50%;
+    bottom: 48px;
+    z-index: 2;
+    padding: 7px 11px;
+    border: 1px solid rgba(255, 255, 255, 0.76);
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.88);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 900;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%);
+    transition: opacity 120ms ease;
+}
+
+.photo-manager-video-trim-preview-label.show {
+    opacity: 1;
+}
+
+.photo-manager-video-editor > label,
+.photo-manager-video-trim label {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+}
+
+.photo-manager-video-editor input[type="text"] {
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    background: #111827;
+    color: #ffffff;
+}
+
+.photo-manager-video-trim,
+.photo-manager-video-click-mode {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+}
+
+.photo-manager-video-trim > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.photo-manager-video-trim-output {
+    color: #5eead4;
+    font-weight: 800;
+}
+
+.photo-manager-video-click-mode label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.photo-manager-video-destructive-trim {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px;
+    border: 1px solid #b45309;
+    border-radius: 8px;
+    background: rgba(120, 53, 15, 0.2);
+}
+
+.photo-manager-video-destructive-trim strong,
+.photo-manager-video-destructive-trim small {
+    display: block;
+}
+
+.photo-manager-video-destructive-trim small {
+    margin-top: 4px;
+    color: #cbd5e1;
+    line-height: 1.55;
+}
+
+.photo-manager-video-cut-btn {
+    flex: 0 0 auto;
+    padding: 9px 12px;
+    border: 1px solid #f59e0b;
+    border-radius: 6px;
+    background: #78350f;
+    color: #fef3c7;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.photo-manager-video-cut-btn:hover {
+    background: #92400e;
+}
+
+.photo-manager-video-cut-btn:disabled {
+    cursor: wait;
+    opacity: 0.55;
+}
+
+.photo-manager-video-cut-progress {
+    display: grid;
+    grid-template-columns: auto minmax(120px, 1fr) 48px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: #111c30;
+    color: #e2e8f0;
+}
+
+.photo-manager-video-cut-progress[hidden] {
+    display: none;
+}
+
+.photo-manager-video-cut-progress progress {
+    width: 100%;
+    accent-color: #14b8a6;
+}
+
+.photo-manager-video-cut-progress output {
+    color: #5eead4;
+    font-weight: 900;
+    text-align: right;
+}
+
+.photo-manager-video-cut-progress.error {
+    border: 1px solid #ef4444;
+    background: rgba(127, 29, 29, 0.42);
+    color: #fecaca;
+}
+
+.photo-manager-video-cut-progress.error progress {
+    display: none;
+}
+
+.photo-manager-video-cut-progress.error output {
+    color: #fecaca;
+}
+
+.photo-manager-video-cut-source {
+    position: fixed;
+    left: -2px;
+    bottom: -2px;
+    width: 1px;
+    height: 1px;
+    opacity: 0.01;
+    pointer-events: none;
+}
+
+.photo-manager-video-editor-actions {
+    justify-content: flex-end;
+}
+
+.shift-photo-compare-video-picker section {
+    width: min(560px, 94vw);
+    max-height: 82vh;
+    overflow: hidden;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #0f172a;
+    color: #ffffff;
+}
+
+.shift-photo-compare-video-picker section > div {
+    display: grid;
+    gap: 8px;
+    max-height: 66vh;
+    overflow: auto;
+    padding: 12px;
+}
+
+.shift-photo-compare-video-picker section > div > button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    background: #182338;
+    color: #ffffff;
+    text-align: left;
+}
+
+.shift-photo-compare-video-picker section > div > button:hover {
+    border-color: #2dd4bf;
+    background: #134e4a;
+}
+
+.shift-photo-compare-video-picker section span,
+.shift-photo-compare-video-picker section b,
+.shift-photo-compare-video-picker section small {
+    display: block;
+}
+
+.shift-photo-compare-video-picker section small {
+    margin-top: 3px;
+    color: #94a3b8;
+}
+
+.shift-photo-compare-mark.video {
+    width: var(--mark-size);
+    height: var(--mark-size);
+    overflow: visible;
+    border: 2px solid rgba(255, 255, 255, 0.88);
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: 0 5px 16px rgba(15, 23, 42, 0.3);
+}
+
+.shift-photo-compare-mark.video video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+    object-fit: fill;
+    background: transparent;
+}
+
+.shift-photo-compare-youtube-player {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 4px;
+    background: #000000;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-youtube-player {
+    pointer-events: none;
+}
+
+.shift-photo-compare-video-play {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    background: rgba(15, 118, 110, 0.9);
+    color: #ffffff;
+    transform: translate(-50%, -50%);
+}
+
+.shift-photo-compare-video-missing {
+    position: absolute;
+    inset: 0;
+    display: none;
+    place-items: center;
+    padding: 8px;
+    color: #fecaca;
+    font-size: 11px;
+    text-align: center;
+}
+
+.shift-photo-compare-mark.video.video-missing .shift-photo-compare-video-missing {
+    display: grid;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-video-play {
+    display: none;
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-mark.video.shift-photo-compare-animation-video-user-paused .shift-photo-compare-video-play {
+    display: grid;
+    z-index: 5;
+    pointer-events: none;
+    background: rgba(190, 24, 93, 0.92);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.38);
+}
+
+.shift-photo-compare-mark.video.shift-photo-compare-animation-video-expanding {
+    transition:
+        left 0.34s ease,
+        top 0.34s ease,
+        width 0.34s ease,
+        height 0.34s ease,
+        transform 0.34s ease;
+}
+
+.shift-photo-compare-mark.video.shift-photo-compare-animation-video-expanded {
+    box-shadow: 0 12px 34px rgba(15, 23, 42, 0.38);
+}
+
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-video {
+    border-color: rgba(192, 132, 252, 0.84);
+    background: rgba(88, 28, 135, 0.9);
+}
+
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.video-playback {
+    border-color: rgba(244, 114, 182, 0.9);
+    background: rgba(131, 24, 67, 0.94);
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-timeline-node.video-playback-node .shift-photo-compare-animation-timeline-dot {
+    border-color: #f472b6;
+}
+
+@media (max-width: 680px) {
+    .photo-manager-video-url-form {
+        grid-template-columns: 1fr;
+    }
+
+    .photo-manager-video-url-form > small {
+        grid-column: 1;
+    }
+
+    .photo-manager-video-url-editor iframe,
+    .photo-manager-video-url-editor .photo-manager-video-editor-player {
+        min-height: 200px;
+    }
+
+    .photo-manager-video-modal {
+        padding: 6px;
+    }
+
+    .photo-manager-video-card {
+        grid-template-columns: 88px minmax(0, 1fr);
+    }
+
+    .photo-manager-video-card > button {
+        grid-column: 1 / -1;
+    }
+
+    .photo-manager-video-storage,
+    .photo-manager-video-trim > div {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .photo-manager-video-editor > label,
+    .photo-manager-video-trim label {
+        grid-template-columns: 1fr;
+    }
+
+    .photo-manager-video-destructive-trim {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
+.photo-manager-video-convert {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #0f766e;
+    border-radius: 8px;
+    background: rgba(6, 78, 59, 0.2);
+}
+
+.photo-manager-video-convert > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.photo-manager-video-convert > header > div {
+    display: grid;
+    gap: 3px;
+}
+
+.photo-manager-video-convert > header strong {
+    color: #ecfdf5;
+}
+
+.photo-manager-video-convert > header small {
+    color: #a7f3d0;
+}
+
+.photo-manager-video-convert-estimate {
+    flex: 0 0 auto;
+    color: #5eead4;
+    font-weight: 800;
+}
+
+.photo-manager-video-convert-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.photo-manager-video-convert-options label {
+    display: grid;
+    gap: 5px;
+    color: #ccfbf1;
+    font-weight: 700;
+}
+
+.photo-manager-video-convert-options select {
+    min-width: 0;
+    height: 40px;
+    padding: 0 10px;
+    border: 1px solid #2dd4bf;
+    border-radius: 6px;
+    color: #f8fafc;
+    background: #0f172a;
+}
+
+.photo-manager-video-convert-save-mode {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: #e2e8f0;
+}
+
+.photo-manager-video-convert-save-mode label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.photo-manager-video-convert-btn {
+    justify-self: end;
+    min-height: 42px;
+    padding: 0 16px;
+    border: 1px solid #34d399;
+    border-radius: 7px;
+    color: #ecfdf5;
+    background: #047857;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.photo-manager-video-convert-btn:hover {
+    background: #059669;
+}
+
+.photo-manager-video-convert-btn:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
+@media (max-width: 680px) {
+    .photo-manager-video-convert > header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .photo-manager-video-convert-options {
+        grid-template-columns: 1fr;
+    }
+
+    .photo-manager-video-convert-btn {
+        justify-self: stretch;
+    }
 }

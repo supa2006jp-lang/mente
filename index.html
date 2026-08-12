@@ -1,6 +1,7 @@
 ﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -11,7 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260803-photo-card-title-hide1">
+    <link rel="stylesheet" href="style.css?v=20260812-local-video-link64">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -870,8 +871,10 @@
                         </select>
                         <input type="search" id="photo-manager-query" placeholder="&#26908;&#32034;" oninput="app.renderPhotoManager()">
                         <input type="file" id="photo-manager-import-input" accept="image/*" multiple hidden onchange="app.importPhotoManagerFiles(this.files); this.value=''">
+                        <input type="file" id="photo-manager-video-import-input" accept="video/mp4,video/webm,video/quicktime,video/*" multiple hidden onchange="app.importPhotoManagerVideos(this.files); this.value=''">
                         <input type="file" id="photo-manager-stamp-sheet-input" accept="image/*" hidden onchange="app.importPhotoManagerStampSheet(this.files); this.value=''">
                         <button type="button" class="primary-btn" onclick="document.getElementById('photo-manager-import-input')?.click()"><i class="fa-solid fa-file-import"></i> 画像取込</button>
+                        <button type="button" class="secondary-btn photo-manager-video-open-btn" onclick="app.openPhotoManagerVideos()"><i class="fa-solid fa-video"></i> 動画</button>
                         <button type="button" class="secondary-btn" onclick="app.importPhotoManagerImageFromClipboard()"><i class="fa-solid fa-paste"></i> 貼付取込</button>
                         <button type="button" class="secondary-btn photo-manager-blank-compare-btn" onclick="app.openPhotoManagerBlankShiftPhotoCompare()" title="画像なしで写真比較を開き、白紙から編集できます" style="background:#10b981;color:#ffffff;border-color:#059669;box-shadow:0 10px 22px rgba(16,185,129,.22);"><i class="fa-solid fa-file"></i> 白紙</button>
                         <button type="button" class="secondary-btn photo-manager-blank-template-open-btn" onclick="app.openPhotoManagerBlankTemplateDialog()" title="保存した白紙テンプレートから開始"><i class="fa-regular fa-clone"></i> 白紙テンプレ</button>
@@ -1153,7 +1156,7 @@
     <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
-    <script src="store.js?v=20260803-single-maintenance1"></script>
+    <script src="store.js?v=20260812-local-video-handle2"></script>
     <script src="app.js?v=20260618-photo-capacity-expiry-alpha"></script>
     <script src="app-settings.js?v=20260711-guide-bulk-compress"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
@@ -1161,12 +1164,12 @@
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js?v=20260802-shift-stamp-backspace1"></script>
-    <script src="app-shift-notebook-core.js?v=20260803-shift-photo-reference2"></script>
+<script src="app-shift-notebook-core.js?v=20260812-local-video-link60"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js?v=20260623-dept-switch-import-fix"></script>
     <script src="app-machines.js?v=20260803-machine-recent-photo-ref1"></script>
-    <script src="app-maintenance-forms.js?v=20260803-history-photo-ref1"></script>
-    <script src="app-history.js?v=20260803-history-photo-ref1"></script>
+    <script src="app-maintenance-forms.js?v=20260808-maintenance-item-title1"></script>
+    <script src="app-history.js?v=20260808-history-maintenance-color1"></script>
     <script src="app-analysis-dashboard.js?v=20260803-dashboard-photo-ref1"></script>
     <script src="app-ranking-guides.js?v=20260613-guide-title-candidates"></script>
     <script src="app-tips.js?v=20260802-tips-editor-webp-preview1"></script>
@@ -1178,7 +1181,8 @@
     <script src="app-persistence.js?v=20260625-dept-import-warning"></script>
     <script src="app-csv.js?v=20260803-single-maintenance1"></script>
     <script src="app-misc-analysis.js"></script>
-    <script src="app-photo-manager.js?v=20260803-photo-reference-only3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <script src="app-photo-manager.js?v=20260812-local-video-link19"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js?v=20260619-remove-auto-backup"></script>
 </body>

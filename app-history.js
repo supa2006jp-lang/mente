@@ -170,8 +170,8 @@
                     </div>
 
                     <div class="form-group">
-                        <label>症状・故障内容 <span style="color:var(--danger)">*</span></label>
-                        <textarea id="e-symptom" class="sudden-detail-textarea" rows="6" placeholder="どのような異常が発生したか記入してください" required oninput="app.updateHistorySmartAssist('e-', true, '${this.escapeJs(historyId)}')">${h.errorContent || ''}</textarea>
+                        <label>メンテナンス項目 <span style="color:var(--danger)">*</span></label>
+                        <textarea id="e-symptom" class="sudden-detail-textarea" rows="6" placeholder="メンテナンス項目を入力してください" required oninput="app.updateHistorySmartAssist('e-', true, '${this.escapeJs(historyId)}')">${this.escapeHtml(h.errorContent || this.getHistoryDisplayText(h) || '')}</textarea>
                     </div>
                     <div id="e-history-assist-panel"></div>
 
@@ -1234,8 +1234,8 @@
     getHistoryTypePalette() {
         const palettes = {
             soft: {
-                periodicBg: '#eaf3ff',
-                periodicTitle: '#2563eb',
+                periodicBg: '#ecfeff',
+                periodicTitle: '#0284c7',
                 singleBg: '#ecfeff',
                 singleTitle: '#0284c7',
                 suddenBg: '#dcfce7',
@@ -1244,8 +1244,8 @@
                 dokateiBg: '#ffe4e6'
             },
             standard: {
-                periodicBg: '#cfe4ff',
-                periodicTitle: '#2563eb',
+                periodicBg: '#dff6ff',
+                periodicTitle: '#0284c7',
                 singleBg: '#dff6ff',
                 singleTitle: '#0284c7',
                 suddenBg: '#bbf7d0',
@@ -1254,8 +1254,8 @@
                 dokateiBg: '#fee2e2'
             },
             strong: {
-                periodicBg: '#bfdbfe',
-                periodicTitle: '#1d4ed8',
+                periodicBg: '#bae6fd',
+                periodicTitle: '#0369a1',
                 singleBg: '#bae6fd',
                 singleTitle: '#0369a1',
                 suddenBg: '#86efac',
@@ -2422,7 +2422,10 @@
     }
 
     getHistoryDisplayText(h) {
-        if (!h.taskId) return h.errorContent || h.notes || '突発対応';
+        if (!h) return '';
+        const recordItem = String(h?.errorContent || '').trim();
+        if (recordItem) return recordItem;
+        if (!h.taskId) return h.notes || '突発対応';
         const task = store.activeData.tasks.find(t => String(t.id) === String(h.taskId));
         return task ? task.content : (h.taskContent || '定期メンテナンス');
     }

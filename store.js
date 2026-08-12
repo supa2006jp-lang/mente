@@ -4,8 +4,9 @@
 class MaintenanceStore {
     constructor() {
         this.DB_NAME = 'FactoryMaintenanceDB';
-        this.DB_VERSION = 1;
+        this.DB_VERSION = 2;
         this.STORE_NAME = 'state';
+        this.MEDIA_STORE_NAME = 'media';
         this.STORAGE_KEY = 'factory_maintenance_next_data_v2'; // Versioning for department support
         this.data = {
             currentDepartmentId: 'dept_default',
@@ -53,6 +54,9 @@ class MaintenanceStore {
                 const db = e.target.result;
                 if (!db.objectStoreNames.contains(this.STORE_NAME)) {
                     db.createObjectStore(this.STORE_NAME);
+                }
+                if (!db.objectStoreNames.contains(this.MEDIA_STORE_NAME)) {
+                    db.createObjectStore(this.MEDIA_STORE_NAME);
                 }
             };
             
@@ -265,6 +269,68 @@ class MaintenanceStore {
                 notify('error', { error: e });
                 reject(e);
             };
+        });
+    }
+
+    saveMediaBlob(id, blob) {
+        if (!this.db || !id || !(blob instanceof Blob)) return Promise.reject(new Error('動画保存領域を利用できません。'));
+        if (blob.size > 100 * 1024 * 1024) return Promise.reject(new Error('動画は100MBまで保存できます。'));
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readwrite');
+            const request = tx.objectStore(this.MEDIA_STORE_NAME).put({
+                blob,
+                size: blob.size,
+                type: blob.type || 'video/mp4',
+                updatedAt: Date.now()
+            }, String(id));
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => reject(request.error || new Error('動画を保存できませんでした。'));
+        });
+    }
+
+    loadMediaBlob(id) {
+        if (!this.db || !id) return Promise.resolve(null);
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readonly');
+            const request = tx.objectStore(this.MEDIA_STORE_NAME).get(String(id));
+            request.onsuccess = () => resolve(request.result?.blob || null);
+            request.onerror = () => reject(request.error || new Error('動画を読み込めませんでした。'));
+        });
+    }
+
+    saveMediaFileHandle(id, handle) {
+        if (!this.db || !id || !handle || handle.kind !== 'file') {
+            return Promise.reject(new Error('PC動画のリンク情報を保存できません。'));
+        }
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readwrite');
+            const request = tx.objectStore(this.MEDIA_STORE_NAME).put({
+                handle,
+                kind: 'file-handle',
+                updatedAt: Date.now()
+            }, String(id));
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => reject(request.error || new Error('PC動画のリンク情報を保存できません。'));
+        });
+    }
+
+    loadMediaFileHandle(id) {
+        if (!this.db || !id) return Promise.resolve(null);
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readonly');
+            const request = tx.objectStore(this.MEDIA_STORE_NAME).get(String(id));
+            request.onsuccess = () => resolve(request.result?.handle || null);
+            request.onerror = () => reject(request.error || new Error('PC動画のリンク情報を読み込めません。'));
+        });
+    }
+
+    deleteMediaBlob(id) {
+        if (!this.db || !id) return Promise.resolve(false);
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readwrite');
+            const request = tx.objectStore(this.MEDIA_STORE_NAME).delete(String(id));
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => reject(request.error || new Error('動画を削除できませんでした。'));
         });
     }
 

@@ -53,6 +53,9 @@
             if (!['ask', 'auto', 'compress', 'original'].includes(store.activeData.photoManagerNormalCompressionMode)) {
                 store.activeData.photoManagerNormalCompressionMode = 'ask';
             }
+            if (!Array.isArray(store.activeData.photoManagerVideos)) {
+                store.activeData.photoManagerVideos = [];
+            }
             return store.activeData.photoManagerNames;
         }
 
@@ -64,6 +67,1245 @@
         getPhotoManagerOverlays() {
             this.ensurePhotoManagerData();
             return store.activeData.photoManagerOverlays;
+        }
+
+        getPhotoManagerVideos() {
+            this.ensurePhotoManagerData();
+            return store.activeData.photoManagerVideos;
+        }
+
+        getPhotoManagerVideo(id = '') {
+            return this.getPhotoManagerVideos().find(video => video.id === String(id)) || null;
+        }
+
+        getPhotoManagerVideoMediaKey(id = '') {
+            return `video:${store.data.currentDepartmentId || 'dept_default'}:${String(id)}`;
+        }
+
+        getPhotoManagerVideoMaxBytes() {
+            return 100 * 1024 * 1024;
+        }
+
+        formatPhotoManagerVideoDuration(seconds = 0) {
+            const value = Math.max(0, Number(seconds) || 0);
+            const minutes = Math.floor(value / 60);
+            const remain = value - minutes * 60;
+            return `${minutes}:${remain.toFixed(1).padStart(4, '0')}`;
+        }
+
+        readPhotoManagerVideoMetadata(file) {
+            return new Promise((resolve, reject) => {
+                const url = URL.createObjectURL(file);
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.onloadedmetadata = () => {
+                    const result = {
+                        duration: Math.max(0, Number(video.duration) || 0),
+                        width: Math.max(0, Number(video.videoWidth) || 0),
+                        height: Math.max(0, Number(video.videoHeight) || 0)
+                    };
+                    URL.revokeObjectURL(url);
+                    resolve(result);
+                };
+                video.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    reject(new Error('動画情報を読み込めませんでした。'));
+                };
+                video.src = url;
+            });
+        }
+
+        normalizePhotoManagerVideoUrl(value = '') {
+            const raw = String(value || '').trim();
+            let url;
+            try { url = new URL(raw); } catch { return null; }
+            if (!['http:', 'https:'].includes(url.protocol)) return null;
+            const host = url.hostname.toLowerCase().replace(/^www\./, '');
+            let youtubeId = '';
+            if (host === 'youtu.be') youtubeId = url.pathname.split('/').filter(Boolean)[0] || '';
+            else if (host.endsWith('youtube.com')) {
+                if (url.pathname === '/watch') youtubeId = url.searchParams.get('v') || '';
+                else youtubeId = url.pathname.match(/^\/(?:shorts|embed|live)\/([^/?#]+)/)?.[1] || '';
+            }
+            if (/^[a-zA-Z0-9_-]{6,20}$/.test(youtubeId)) {
+                return {
+                    sourceType: 'youtube',
+                    sourceUrl: `https://www.youtube.com/watch?v=${youtubeId}`,
+                    youtubeId,
+                    thumbnailUrl: `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`
+                };
+            }
+            return {
+                sourceType: 'url',
+                sourceUrl: url.href,
+                youtubeId: '',
+                thumbnailUrl: ''
+            };
+        }
+
+        getPhotoManagerYouTubeEmbedUrl(videoId = '', enableApi = false) {
+            const id = String(videoId || '').replace(/[^a-zA-Z0-9_-]/g, '');
+            if (!id) return '';
+            const params = new URLSearchParams({
+                playsinline: '1',
+                rel: '0'
+            });
+            if (enableApi) params.set('enablejsapi', '1');
+            const origin = window.location?.origin;
+            if (origin && origin !== 'null' && /^https?:\/\//i.test(origin)) {
+                params.set('origin', origin);
+                params.set('widget_referrer', window.location.href.split('#')[0]);
+            }
+            return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?${params.toString()}`;
+        }
+
+        readPhotoManagerVideoUrlMetadata(sourceUrl = '') {
+            return new Promise(resolve => {
+                const video = document.createElement('video');
+                let settled = false;
+                const finish = metadata => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    video.removeAttribute('src');
+                    resolve(metadata);
+                };
+                const timer = window.setTimeout(() => finish({ duration: 0, width: 1280, height: 720 }), 6000);
+                video.preload = 'metadata';
+                video.onloadedmetadata = () => finish({
+                    duration: Math.max(0, Number(video.duration) || 0),
+                    width: Math.max(0, Number(video.videoWidth) || 1280),
+                    height: Math.max(0, Number(video.videoHeight) || 720)
+                });
+                video.onerror = () => finish({ duration: 0, width: 1280, height: 720 });
+                video.src = sourceUrl;
+            });
+        }
+
+        async registerPhotoManagerVideoUrl() {
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            const urlInput = panel?.querySelector('.photo-manager-video-url-input');
+            const nameInput = panel?.querySelector('.photo-manager-video-url-name');
+            const normalized = this.normalizePhotoManagerVideoUrl(urlInput?.value || '');
+            if (!normalized) {
+                this.showPhotoManagerNotice('YouTubeまたは動画の有効なURLを入力してください。');
+                urlInput?.focus();
+                return;
+            }
+            const button = panel.querySelector('.photo-manager-video-url-register');
+            if (button) button.disabled = true;
+            try {
+                const metadata = normalized.sourceType === 'youtube'
+                    ? { duration: 0, width: 1280, height: 720 }
+                    : await this.readPhotoManagerVideoUrlMetadata(normalized.sourceUrl);
+                const now = Date.now();
+                const id = `pmv-${now.toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+                const fallbackName = normalized.sourceType === 'youtube' ? 'YouTube動画' : 'URL動画';
+                this.getPhotoManagerVideos().unshift({
+                    id,
+                    name: String(nameInput?.value || fallbackName).trim().slice(0, 100) || fallbackName,
+                    fileName: '',
+                    type: normalized.sourceType === 'youtube' ? 'video/youtube' : 'video/url',
+                    size: 0,
+                    duration: metadata.duration,
+                    width: metadata.width,
+                    height: metadata.height,
+                    trimStart: 0,
+                    trimEnd: metadata.duration,
+                    animationClickMode: 'continue',
+                    audioRemovedByTrim: false,
+                    ...normalized,
+                    createdAt: now,
+                    updatedAt: now
+                });
+                await store.save();
+                this.openPhotoManagerVideos();
+                this.showPhotoManagerNotice('URL動画を登録しました。');
+            } finally {
+                if (button && document.contains(button)) button.disabled = false;
+            }
+        }
+
+        async importPhotoManagerVideos(files = []) {
+            const targets = Array.from(files || []).filter(file => file?.type?.startsWith?.('video/'));
+            if (!targets.length) return;
+            const maxBytes = this.getPhotoManagerVideoMaxBytes();
+            let saved = 0;
+            const rejected = [];
+            for (const file of targets) {
+                if (file.size > maxBytes) {
+                    rejected.push(`${file.name}（${this.formatPhotoManagerBytes(file.size)}）`);
+                    continue;
+                }
+                try {
+                    const metadata = await this.readPhotoManagerVideoMetadata(file);
+                    const id = `pmv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+                    await store.saveMediaBlob(this.getPhotoManagerVideoMediaKey(id), file);
+                    const now = Date.now();
+                    this.getPhotoManagerVideos().unshift({
+                        id,
+                        name: String(file.name || '動画').replace(/\.[^.]+$/, '').slice(0, 100),
+                        fileName: String(file.name || 'video').slice(0, 180),
+                        type: file.type || 'video/mp4',
+                        size: file.size,
+                        duration: metadata.duration,
+                        width: metadata.width,
+                        height: metadata.height,
+                        trimStart: 0,
+                        trimEnd: metadata.duration,
+                        animationClickMode: 'continue',
+                        audioRemovedByTrim: false,
+                        createdAt: now,
+                        updatedAt: now
+                    });
+                    saved += 1;
+                } catch (error) {
+                    console.warn('Video import failed', error);
+                    rejected.push(file.name || '動画');
+                }
+            }
+            if (saved) await store.save();
+            this.openPhotoManagerVideos();
+            if (rejected.length) {
+                this.showPhotoManagerNotice(`100MBを超える、または読み込めない動画は登録できません: ${rejected.join('、')}`);
+            } else if (saved) {
+                this.showPhotoManagerNotice(`${saved}本の動画を登録しました。`);
+            }
+        }
+
+        async hasPhotoManagerLocalVideoPermission(handle, request = false) {
+            if (!handle) return false;
+            const options = { mode: 'read' };
+            try {
+                if (typeof handle.queryPermission !== 'function') return true;
+                if (await handle.queryPermission(options) === 'granted') return true;
+                return request && typeof handle.requestPermission === 'function'
+                    ? await handle.requestPermission(options) === 'granted'
+                    : false;
+            } catch {
+                return false;
+            }
+        }
+
+        async loadPhotoManagerLinkedVideoFile(item, requestPermission = false) {
+            if (!item || item.sourceType !== 'local-handle') return null;
+            const handle = await store.loadMediaFileHandle(this.getPhotoManagerVideoMediaKey(item.id));
+            if (!handle || !(await this.hasPhotoManagerLocalVideoPermission(handle, requestPermission))) return null;
+            const file = await handle.getFile();
+            return file?.type?.startsWith?.('video/') ? file : null;
+        }
+
+        async linkPhotoManagerLocalVideos() {
+            if (typeof window.showOpenFilePicker !== 'function') {
+                this.showPhotoManagerNotice('このブラウザーはPC動画へのリンク登録に対応していません。ChromeまたはEdgeで開いてください。');
+                return;
+            }
+            let handles;
+            try {
+                handles = await window.showOpenFilePicker({
+                    multiple: true,
+                    types: [{ description: '動画', accept: { 'video/*': ['.mp4', '.webm', '.mov', '.m4v', '.ogv'] } }]
+                });
+            } catch (error) {
+                if (error?.name !== 'AbortError') this.showPhotoManagerNotice('PC動画を選択できませんでした。');
+                return;
+            }
+            let saved = 0;
+            for (const handle of handles || []) {
+                try {
+                    const file = await handle.getFile();
+                    if (!file?.type?.startsWith?.('video/')) continue;
+                    const metadata = await this.readPhotoManagerVideoMetadata(file);
+                    const now = Date.now();
+                    const id = `pmv-${now.toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+                    await store.saveMediaFileHandle(this.getPhotoManagerVideoMediaKey(id), handle);
+                    this.getPhotoManagerVideos().unshift({
+                        id,
+                        sourceType: 'local-handle',
+                        name: String(file.name || 'PC動画').replace(/\.[^.]+$/, '').slice(0, 100),
+                        fileName: String(file.name || 'video').slice(0, 180),
+                        type: file.type || 'video/mp4',
+                        size: 0,
+                        linkedFileSize: file.size,
+                        duration: metadata.duration,
+                        width: metadata.width,
+                        height: metadata.height,
+                        trimStart: 0,
+                        trimEnd: metadata.duration,
+                        animationClickMode: 'continue',
+                        audioRemovedByTrim: false,
+                        createdAt: now,
+                        updatedAt: now
+                    });
+                    saved += 1;
+                } catch (error) {
+                    console.warn('Local linked video registration failed', error);
+                }
+            }
+            if (saved) await store.save();
+            this.openPhotoManagerVideos();
+            this.showPhotoManagerNotice(saved ? `${saved}本のPC動画をリンク登録しました。動画本体はコピーしていません。` : 'リンク登録できる動画がありませんでした。');
+        }
+
+        async hydratePhotoManagerLinkedVideoElement(item, element, requestPermission = false) {
+            if (!item || !element) return false;
+            try {
+                const file = await this.loadPhotoManagerLinkedVideoFile(item, requestPermission);
+                if (!file || !document.contains(element)) return false;
+                const url = URL.createObjectURL(file);
+                this._photoManagerVideoObjectUrls = this._photoManagerVideoObjectUrls || [];
+                this._photoManagerVideoObjectUrls.push(url);
+                element.src = url;
+                element.currentTime = Math.max(0, Number(item.trimStart) || 0);
+                element.closest('.photo-manager-video-card, .photo-manager-video-url-editor')?.classList.remove('local-video-permission-needed');
+                return true;
+            } catch {
+                return false;
+            }
+        }
+
+        async reconnectPhotoManagerLocalVideo(id = '') {
+            const item = this.getPhotoManagerVideo(id);
+            if (!item || item.sourceType !== 'local-handle') return;
+            const target = document.querySelector(`#photo-manager-video-modal video[data-video-id="${CSS.escape(item.id)}"], #photo-manager-video-modal .photo-manager-video-editor-player`);
+            const connected = await this.hydratePhotoManagerLinkedVideoElement(item, target, true);
+            if (!connected) {
+                this.showPhotoManagerNotice('PC動画へのアクセスを許可できませんでした。元ファイルが移動・削除されていないか確認してください。');
+                return;
+            }
+            document.querySelectorAll(`.shift-photo-compare-mark.video[data-video-id="${CSS.escape(item.id)}"] video`).forEach(video => {
+                delete video.dataset.videoHydrated;
+            });
+            this.hydrateShiftPhotoCompareVideoMarks?.(document);
+            this.showPhotoManagerNotice('PC動画へ再接続しました。');
+        }
+
+        async reselectPhotoManagerLocalVideo(id = '') {
+            const item = this.getPhotoManagerVideo(id);
+            if (!item || item.sourceType !== 'local-handle') return;
+            if (typeof window.showOpenFilePicker !== 'function') {
+                this.showPhotoManagerNotice('元ファイルの選び直しはChromeまたはEdgeで利用できます。');
+                return;
+            }
+            let handle;
+            try {
+                [handle] = await window.showOpenFilePicker({
+                    multiple: false,
+                    types: [{ description: '動画', accept: { 'video/*': ['.mp4', '.webm', '.mov', '.m4v', '.ogv'] } }]
+                });
+            } catch (error) {
+                if (error?.name !== 'AbortError') this.showPhotoManagerNotice('元ファイルを選び直せませんでした。');
+                return;
+            }
+            try {
+                const file = await handle.getFile();
+                if (!file?.type?.startsWith?.('video/')) throw new Error('動画ファイルではありません。');
+                const metadata = await this.readPhotoManagerVideoMetadata(file);
+                await store.saveMediaFileHandle(this.getPhotoManagerVideoMediaKey(id), handle);
+                item.fileName = String(file.name || item.fileName || 'video').slice(0, 180);
+                item.type = file.type || item.type || 'video/mp4';
+                item.linkedFileSize = file.size;
+                item.duration = metadata.duration;
+                item.width = metadata.width;
+                item.height = metadata.height;
+                item.trimStart = 0;
+                item.trimEnd = metadata.duration;
+                item.updatedAt = Date.now();
+                await store.save();
+                await this.openPhotoManagerVideoEditor(id);
+                this.showPhotoManagerNotice('PC動画の元ファイルを更新しました。');
+            } catch (error) {
+                this.showPhotoManagerNotice(error?.message || '元ファイルを更新できませんでした。');
+            }
+        }
+
+        revokePhotoManagerVideoObjectUrls() {
+            (this._photoManagerVideoObjectUrls || []).forEach(url => URL.revokeObjectURL(url));
+            this._photoManagerVideoObjectUrls = [];
+        }
+
+        closePhotoManagerVideos(event = null) {
+            if (event && event.target?.id !== 'photo-manager-video-modal') return;
+            this.revokePhotoManagerVideoObjectUrls();
+            document.getElementById('photo-manager-video-modal')?.remove();
+        }
+
+        async updatePhotoManagerVideoStorageSummary() {
+            const target = document.querySelector('#photo-manager-video-modal .photo-manager-video-storage');
+            if (!target) return;
+            const total = this.getPhotoManagerVideos().reduce((sum, video) => sum + Math.max(0, Number(video.size) || 0), 0);
+            let storageText = '';
+            try {
+                const estimate = await navigator.storage?.estimate?.();
+                if (estimate?.quota) {
+                    storageText = ` / ブラウザー全体 ${this.formatPhotoManagerBytes(estimate.usage || 0)} / ${this.formatPhotoManagerBytes(estimate.quota)}`;
+                }
+            } catch {}
+            target.innerHTML = `<strong>動画 ${this.getPhotoManagerVideos().length}本</strong><span>登録容量 ${this.formatPhotoManagerBytes(total)}${storageText}</span><small>1本100MBまで</small>`;
+        }
+
+        async hydratePhotoManagerVideoCards() {
+            const modal = document.getElementById('photo-manager-video-modal');
+            if (!modal) return;
+            this.revokePhotoManagerVideoObjectUrls();
+            for (const video of this.getPhotoManagerVideos()) {
+                if (video.sourceType === 'youtube') continue;
+                const element = modal.querySelector(`video[data-video-id="${CSS.escape(video.id)}"]`);
+                if (!element) continue;
+                try {
+                    if (video.sourceType === 'local-handle') {
+                        const connected = await this.hydratePhotoManagerLinkedVideoElement(video, element, false);
+                        if (!connected) element.closest('.photo-manager-video-card')?.classList.add('local-video-permission-needed');
+                        continue;
+                    }
+                    if (video.sourceType === 'url' && video.sourceUrl) {
+                        element.src = video.sourceUrl;
+                        element.currentTime = 0;
+                        continue;
+                    }
+                    const blob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey(video.id));
+                    if (!blob || !document.contains(element)) continue;
+                    const url = URL.createObjectURL(blob);
+                    this._photoManagerVideoObjectUrls.push(url);
+                    element.src = url;
+                    element.currentTime = Math.max(0, Number(video.trimStart) || 0);
+                } catch {}
+            }
+        }
+
+        openPhotoManagerVideos() {
+            this.revokePhotoManagerVideoObjectUrls();
+            document.getElementById('photo-manager-video-modal')?.remove();
+            const videos = this.getPhotoManagerVideos();
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="photo-manager-video-modal" class="photo-manager-video-modal" onclick="app.closePhotoManagerVideos(event)">
+                    <section class="photo-manager-video-panel" onclick="event.stopPropagation()">
+                        <header>
+                            <div><strong><i class="fa-solid fa-video"></i> 動画管理</strong><small>登録動画のトリミングと容量確認</small></div>
+                            <div class="photo-manager-video-header-actions">
+                                <button type="button" class="primary-btn" onclick="document.getElementById('photo-manager-video-import-input')?.click()"><i class="fa-solid fa-plus"></i> 動画登録</button>
+                                <button type="button" class="photo-manager-video-local-link" onclick="app.linkPhotoManagerLocalVideos()"><i class="fa-solid fa-folder-open"></i> PC動画リンク</button>
+                                <button type="button" class="photo-manager-video-url-toggle" onclick="this.closest('.photo-manager-video-panel').classList.toggle('show-url-form')"><i class="fa-brands fa-youtube"></i> YouTube・URL</button>
+                                <button type="button" class="secondary-btn" onclick="app.closePhotoManagerVideos()"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                        </header>
+                        <section class="photo-manager-video-url-form">
+                            <label><span>動画アドレス</span><input class="photo-manager-video-url-input" type="url" placeholder="YouTube共有URL または .mp4 / .webm のURL"></label>
+                            <label><span>表示名</span><input class="photo-manager-video-url-name" type="text" maxlength="100" placeholder="省略可"></label>
+                            <button type="button" class="photo-manager-video-url-register" onclick="app.registerPhotoManagerVideoUrl()"><i class="fa-solid fa-link"></i> URLを登録</button>
+                            <small>YouTubeと、ブラウザーで直接再生できる動画URLに対応します。URL動画は保存容量を使用しません。</small>
+                        </section>
+                        <div class="photo-manager-video-storage"></div>
+                        <div class="photo-manager-video-list">
+                            ${videos.length ? videos.map(video => `
+                                <article class="photo-manager-video-card">
+                                    <div class="photo-manager-video-preview">
+                                        ${video.sourceType === 'youtube'
+                                            ? `<img src="${this.escapeHtml(video.thumbnailUrl || '')}" alt="">`
+                                            : `<video data-video-id="${this.escapeHtml(video.id)}" muted preload="metadata" playsinline></video>`}
+                                        <i class="fa-solid fa-play"></i>
+                                        ${video.sourceType === 'local-handle' ? `<button type="button" class="photo-manager-video-reconnect" onclick="app.reconnectPhotoManagerLocalVideo('${this.escapeJs(video.id)}')"><i class="fa-solid fa-link"></i> 再接続</button>` : ''}
+                                    </div>
+                                    <div class="photo-manager-video-info">
+                                        <strong>${this.escapeHtml(video.name || video.fileName || '動画')}</strong>
+                                        <span>${video.sourceType === 'local-handle' ? `PCリンク・容量不要（元動画 ${this.formatPhotoManagerBytes(video.linkedFileSize || 0)}）` : (video.sourceType ? 'URL動画・容量不要' : this.formatPhotoManagerBytes(video.size))}${video.duration > 0 ? ` / ${this.formatPhotoManagerVideoDuration(video.trimEnd - video.trimStart)}` : ''}</span>
+                                        <small>${video.animationClickMode === 'stop' ? '次クリックで停止' : '再生しながら進行'}${video.audioRemovedByTrim ? ' / 音声なし' : ''}</small>
+                                    </div>
+                                    <button type="button" class="primary-btn" onclick="app.openPhotoManagerVideoEditor('${this.escapeJs(video.id)}')"><i class="fa-solid ${video.sourceType ? 'fa-pen' : 'fa-scissors'}"></i> 編集</button>
+                                </article>
+                            `).join('') : '<div class="photo-manager-video-empty"><i class="fa-solid fa-video-slash"></i><p>登録動画はありません。</p></div>'}
+                        </div>
+                    </section>
+                </div>`);
+            this.updatePhotoManagerVideoStorageSummary();
+            this.hydratePhotoManagerVideoCards();
+        }
+
+        async openPhotoManagerVideoEditor(id = '') {
+            const item = this.getPhotoManagerVideo(id);
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            if (!item || !panel) return;
+            if (item.sourceType) {
+                this.revokePhotoManagerVideoObjectUrls();
+                panel.innerHTML = `
+                    <header>
+                        <div><strong><i class="fa-solid fa-link"></i> ${item.sourceType === 'local-handle' ? 'PCリンク動画編集' : 'URL動画編集'}</strong><small>${item.sourceType === 'youtube' ? 'YouTube' : (item.sourceType === 'local-handle' ? 'PC内の元ファイルを直接再生' : '動画URL')} / 保存容量を使用しません</small></div>
+                        <button type="button" class="secondary-btn" onclick="app.openPhotoManagerVideos()"><i class="fa-solid fa-arrow-left"></i> 一覧</button>
+                    </header>
+                    <div class="photo-manager-video-editor photo-manager-video-url-editor">
+                        <div class="photo-manager-video-editor-preview">
+                            ${item.sourceType === 'youtube'
+                                ? `<iframe src="${this.escapeHtml(this.getPhotoManagerYouTubeEmbedUrl(item.youtubeId, false))}" title="${this.escapeHtml(item.name || 'YouTube動画')}" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`
+                                : `<video class="photo-manager-video-editor-player" ${item.sourceType === 'url' ? `src="${this.escapeHtml(item.sourceUrl || '')}"` : `data-video-id="${this.escapeHtml(item.id)}"`} controls playsinline preload="metadata"></video>`}
+                            ${item.sourceType === 'local-handle' ? `<button type="button" class="photo-manager-video-editor-reconnect" onclick="app.reconnectPhotoManagerLocalVideo('${this.escapeJs(item.id)}')"><i class="fa-solid fa-folder-open"></i> PC動画へ再接続</button>` : ''}
+                        </div>
+                        <label><span>動画名</span><input class="photo-manager-video-name" type="text" maxlength="100" value="${this.escapeHtml(item.name || '')}"></label>
+                        <label><span>${item.sourceType === 'local-handle' ? '元ファイル' : '動画アドレス'}</span><input type="text" value="${this.escapeHtml(item.sourceType === 'local-handle' ? item.fileName : (item.sourceUrl || ''))}" readonly></label>
+                        ${item.sourceType === 'local-handle' ? `<button type="button" class="photo-manager-video-reselect" onclick="app.reselectPhotoManagerLocalVideo('${this.escapeJs(item.id)}')"><i class="fa-solid fa-arrows-rotate"></i> 元ファイルを選び直す</button>` : ''}
+                        <fieldset class="photo-manager-video-click-mode">
+                            <legend>アニメ中、次をクリックした時</legend>
+                            <label><input type="radio" name="photo-manager-video-click-mode" value="continue" ${item.animationClickMode !== 'stop' ? 'checked' : ''}> 動画を再生したまま次へ進む</label>
+                            <label><input type="radio" name="photo-manager-video-click-mode" value="stop" ${item.animationClickMode === 'stop' ? 'checked' : ''}> 動画を停止して次へ進む</label>
+                        </fieldset>
+                    </div>
+                    <div class="photo-manager-video-editor-actions">
+                        <button type="button" class="danger-btn" onclick="app.deletePhotoManagerVideo('${this.escapeJs(item.id)}')"><i class="fa-solid fa-trash"></i> 削除</button>
+                        <button type="button" class="primary-btn" onclick="app.savePhotoManagerVideoEdits('${this.escapeJs(item.id)}')"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                    </div>`;
+                if (item.sourceType === 'local-handle') {
+                    const player = panel.querySelector('.photo-manager-video-editor-player');
+                    const connected = await this.hydratePhotoManagerLinkedVideoElement(item, player, false);
+                    if (!connected) panel.querySelector('.photo-manager-video-url-editor')?.classList.add('local-video-permission-needed');
+                }
+                return;
+            }
+            this.revokePhotoManagerVideoObjectUrls();
+            panel.innerHTML = `
+                <header>
+                    <div><strong><i class="fa-solid fa-scissors"></i> 動画編集</strong><small>${this.formatPhotoManagerBytes(item.size)} / 元の長さ ${this.formatPhotoManagerVideoDuration(item.duration)}${item.audioRemovedByTrim ? ' / 音声なし' : ''}</small></div>
+                    <button type="button" class="secondary-btn" onclick="app.openPhotoManagerVideos()"><i class="fa-solid fa-arrow-left"></i> 一覧</button>
+                </header>
+                <div class="photo-manager-video-editor">
+                    <div class="photo-manager-video-editor-preview">
+                        <video class="photo-manager-video-editor-player" controls playsinline preload="metadata"></video>
+                        <output class="photo-manager-video-trim-preview-label"></output>
+                    </div>
+                    <label><span>動画名</span><input class="photo-manager-video-name" type="text" maxlength="100" value="${this.escapeHtml(item.name || '')}"></label>
+                    <div class="photo-manager-video-trim">
+                        <div><strong>使用範囲</strong><output class="photo-manager-video-trim-output"></output></div>
+                        <label><span>開始</span><input class="photo-manager-video-trim-start" type="range" min="0" max="${item.duration}" step="0.1" value="${item.trimStart || 0}" oninput="app.updatePhotoManagerVideoTrimPreview()"><button type="button" onclick="app.setPhotoManagerVideoTrimFromCurrent('start')">現在位置</button></label>
+                        <label><span>終了</span><input class="photo-manager-video-trim-end" type="range" min="0" max="${item.duration}" step="0.1" value="${item.trimEnd || item.duration}" oninput="app.updatePhotoManagerVideoTrimPreview()"><button type="button" onclick="app.setPhotoManagerVideoTrimFromCurrent('end')">現在位置</button></label>
+                    </div>
+                    <fieldset class="photo-manager-video-click-mode">
+                        <legend>アニメ中、次をクリックした時</legend>
+                        <label><input type="radio" name="photo-manager-video-click-mode" value="continue" ${item.animationClickMode !== 'stop' ? 'checked' : ''}> 動画を再生したまま次へ進む</label>
+                        <label><input type="radio" name="photo-manager-video-click-mode" value="stop" ${item.animationClickMode === 'stop' ? 'checked' : ''}> 動画を停止して次へ進む</label>
+                    </fieldset>
+                    <div class="photo-manager-video-destructive-trim">
+                        <div>
+                            <strong><i class="fa-solid fa-compress"></i> 容量を減らす</strong>
+                            <small>現在の使用範囲だけを新しい動画として保存し、範囲外を削除します。処理には使用範囲と同程度の時間がかかります。</small>
+                        </div>
+                        <button type="button" class="photo-manager-video-cut-btn" onclick="app.cutPhotoManagerVideoToTrim('${this.escapeJs(item.id)}')"><i class="fa-solid fa-scissors"></i> 使用範囲だけ残す</button>
+                    </div>
+                    <section class="photo-manager-video-convert">
+                        <header>
+                            <div><strong><i class="fa-solid fa-file-export"></i> 変換・圧縮</strong><small>画質をできるだけ維持しながら容量を削減します。</small></div>
+                            <output class="photo-manager-video-convert-estimate"></output>
+                        </header>
+                        <div class="photo-manager-video-convert-options">
+                            <label><span>形式</span><select class="photo-manager-video-convert-format" onchange="app.updatePhotoManagerVideoCompressionEstimate()"><option value="webm">WebM（VP9 / Opus）</option><option value="mp4">MP4（H.264 / AAC）</option></select></label>
+                            <label><span>品質</span><select class="photo-manager-video-convert-quality" onchange="app.updatePhotoManagerVideoCompressionEstimate()"><option value="high">高画質</option><option value="standard">標準</option><option value="compact">容量優先</option></select></label>
+                            <label><span>解像度</span><select class="photo-manager-video-convert-resolution" onchange="app.updatePhotoManagerVideoCompressionEstimate()"><option value="original">元のまま</option><option value="1080">最大1080p</option><option value="720">最大720p</option></select></label>
+                        </div>
+                        <fieldset class="photo-manager-video-convert-save-mode">
+                            <label><input type="radio" name="photo-manager-video-convert-save-mode" value="copy" checked> 変換後を別動画として保存</label>
+                            <label><input type="radio" name="photo-manager-video-convert-save-mode" value="replace"> 元動画を変換後で置き換える</label>
+                        </fieldset>
+                        <button type="button" class="photo-manager-video-convert-btn" onclick="app.convertPhotoManagerVideo('${this.escapeJs(item.id)}')"><i class="fa-solid fa-wand-magic-sparkles"></i> 変換・圧縮する</button>
+                    </section>
+                    <div class="photo-manager-video-cut-progress" hidden>
+                        <span><i class="fa-solid fa-spinner fa-spin"></i> 切り出し中</span>
+                        <progress max="100" value="0"></progress>
+                        <output>0%</output>
+                    </div>
+                    <div class="photo-manager-video-editor-actions">
+                        <button type="button" class="danger-btn" onclick="app.deletePhotoManagerVideo('${this.escapeJs(item.id)}')"><i class="fa-solid fa-trash"></i> 削除</button>
+                        <button type="button" class="primary-btn" onclick="app.savePhotoManagerVideoEdits('${this.escapeJs(item.id)}')"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                    </div>
+                </div>`;
+            this._photoManagerEditingVideoId = item.id;
+            try {
+                const blob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey(item.id));
+                const player = panel.querySelector('.photo-manager-video-editor-player');
+                if (blob && player) {
+                    const url = URL.createObjectURL(blob);
+                    this._photoManagerVideoObjectUrls.push(url);
+                    player.src = url;
+                    player.currentTime = Math.max(0, Number(item.trimStart) || 0);
+                    player.ontimeupdate = () => {
+                        if (player._photoManagerTrimPreviewing) return;
+                        const end = Number(panel.querySelector('.photo-manager-video-trim-end')?.value) || item.duration;
+                        if (player.currentTime >= end) {
+                            player.pause();
+                            player.currentTime = Math.max(0, Number(panel.querySelector('.photo-manager-video-trim-start')?.value) || 0);
+                        }
+                    };
+                }
+            } catch {}
+            this.updatePhotoManagerVideoTrimPreview();
+            this.updatePhotoManagerVideoCompressionEstimate();
+        }
+
+        getPhotoManagerVideoConversionOptions(panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel')) {
+            return {
+                format: panel?.querySelector('.photo-manager-video-convert-format')?.value === 'mp4' ? 'mp4' : 'webm',
+                quality: ['standard', 'compact'].includes(panel?.querySelector('.photo-manager-video-convert-quality')?.value)
+                    ? panel.querySelector('.photo-manager-video-convert-quality').value
+                    : 'high',
+                resolution: ['1080', '720'].includes(panel?.querySelector('.photo-manager-video-convert-resolution')?.value)
+                    ? panel.querySelector('.photo-manager-video-convert-resolution').value
+                    : 'original',
+                saveMode: panel?.querySelector('input[name="photo-manager-video-convert-save-mode"]:checked')?.value === 'replace' ? 'replace' : 'copy'
+            };
+        }
+
+        updatePhotoManagerVideoCompressionEstimate() {
+            const item = this.getPhotoManagerVideo(this._photoManagerEditingVideoId);
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            const output = panel?.querySelector('.photo-manager-video-convert-estimate');
+            if (!item || !output) return;
+            const options = this.getPhotoManagerVideoConversionOptions(panel);
+            const qualityFactor = ({ high: 0.72, standard: 0.48, compact: 0.3 })[options.quality];
+            const sourcePixels = Math.max(1, (Number(item.width) || 1920) * (Number(item.height) || 1080));
+            const maxHeight = options.resolution === 'original' ? Number(item.height) || 1080 : Number(options.resolution);
+            const scale = Math.min(1, maxHeight / Math.max(1, Number(item.height) || maxHeight));
+            const pixelFactor = Math.max(0.18, (sourcePixels * scale * scale) / sourcePixels);
+            const formatFactor = options.format === 'webm' ? 0.88 : 1;
+            const estimate = Math.max(128 * 1024, Number(item.size) * qualityFactor * pixelFactor * formatFactor);
+            output.value = `推定 ${this.formatPhotoManagerBytes(estimate)} 前後`;
+            output.title = '映像内容によって実際の容量は変わります。';
+        }
+
+        updatePhotoManagerVideoTrimPreview() {
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            const start = panel?.querySelector('.photo-manager-video-trim-start');
+            const end = panel?.querySelector('.photo-manager-video-trim-end');
+            const output = panel?.querySelector('.photo-manager-video-trim-output');
+            if (!start || !end || !output) return;
+            let startValue = Math.max(0, Number(start.value) || 0);
+            let endValue = Math.max(0, Number(end.value) || 0);
+            if (startValue > endValue - 0.1) {
+                if (document.activeElement === start) startValue = Math.max(0, endValue - 0.1);
+                else endValue = Math.min(Number(end.max) || endValue, startValue + 0.1);
+            }
+            start.value = String(startValue);
+            end.value = String(endValue);
+            output.value = `${this.formatPhotoManagerVideoDuration(startValue)} ～ ${this.formatPhotoManagerVideoDuration(endValue)}（${this.formatPhotoManagerVideoDuration(endValue - startValue)}）`;
+            const active = document.activeElement;
+            const isStart = active === start;
+            const isEnd = active === end;
+            const player = panel.querySelector('.photo-manager-video-editor-player');
+            const previewLabel = panel.querySelector('.photo-manager-video-trim-preview-label');
+            if ((isStart || isEnd) && player?.src) {
+                const selectedValue = isStart ? startValue : endValue;
+                const previewTime = isEnd
+                    ? Math.max(startValue, selectedValue - Math.min(0.04, Math.max(0, selectedValue - startValue) / 2))
+                    : selectedValue;
+                player.pause();
+                player._photoManagerTrimPreviewing = true;
+                clearTimeout(player._photoManagerTrimPreviewTimer);
+                try { player.currentTime = previewTime; } catch {}
+                player._photoManagerTrimPreviewTimer = setTimeout(() => {
+                    player._photoManagerTrimPreviewing = false;
+                }, 350);
+                if (previewLabel) {
+                    previewLabel.value = `${isStart ? '開始' : '終了'}プレビュー ${this.formatPhotoManagerVideoDuration(selectedValue)}`;
+                    previewLabel.classList.add('show');
+                    clearTimeout(previewLabel._hideTimer);
+                    previewLabel._hideTimer = setTimeout(() => previewLabel.classList.remove('show'), 900);
+                }
+            }
+        }
+
+        setPhotoManagerVideoTrimFromCurrent(side = 'start') {
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            const player = panel?.querySelector('.photo-manager-video-editor-player');
+            const input = panel?.querySelector(side === 'end' ? '.photo-manager-video-trim-end' : '.photo-manager-video-trim-start');
+            if (!player || !input) return;
+            input.value = String(Math.max(0, Math.min(Number(input.max) || player.duration || 0, player.currentTime || 0)));
+            this.updatePhotoManagerVideoTrimPreview();
+        }
+
+        getPhotoManagerVideoRecordingMimeType() {
+            if (typeof MediaRecorder === 'undefined') return '';
+            return [
+                'video/webm;codecs=vp9,opus',
+                'video/webm;codecs=vp8,opus',
+                'video/webm'
+            ].find(type => MediaRecorder.isTypeSupported?.(type)) || '';
+        }
+
+        updatePhotoManagerVideoCutProgress(percent = 0, message = '切り出し中') {
+            const box = document.querySelector('#photo-manager-video-modal .photo-manager-video-cut-progress');
+            if (!box) return;
+            const value = Math.max(0, Math.min(100, Number(percent) || 0));
+            box.hidden = false;
+            box.classList.remove('error');
+            const label = box.querySelector('span');
+            const progress = box.querySelector('progress');
+            const output = box.querySelector('output');
+            if (label) label.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${this.escapeHtml(message)}`;
+            if (progress) progress.value = value;
+            if (output) output.value = `${Math.round(value)}%`;
+        }
+
+        formatPhotoManagerVideoProgressElapsed(milliseconds = 0) {
+            const totalSeconds = Math.max(0, Math.floor((Number(milliseconds) || 0) / 1000));
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return `${minutes}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        startPhotoManagerVideoOperationProgress(message = '処理を準備中', percent = 1) {
+            this.stopPhotoManagerVideoOperationProgress();
+            this._photoManagerVideoProgressOperation = 'convert';
+            this._photoManagerVideoProgressStartedAt = Date.now();
+            this._photoManagerVideoProgressMessage = message;
+            this._photoManagerVideoProgressValue = percent;
+            const refresh = () => {
+                const elapsed = this.formatPhotoManagerVideoProgressElapsed(Date.now() - this._photoManagerVideoProgressStartedAt);
+                this.updatePhotoManagerVideoCutProgress(
+                    this._photoManagerVideoProgressValue,
+                    `${this._photoManagerVideoProgressMessage}（経過 ${elapsed}）`
+                );
+            };
+            refresh();
+            this._photoManagerVideoProgressTimer = window.setInterval(refresh, 500);
+        }
+
+        setPhotoManagerVideoOperationProgress(percent = 0, message = '') {
+            this._photoManagerVideoProgressValue = Math.max(0, Math.min(100, Number(percent) || 0));
+            if (message) this._photoManagerVideoProgressMessage = message;
+            const elapsed = this.formatPhotoManagerVideoProgressElapsed(Date.now() - (this._photoManagerVideoProgressStartedAt || Date.now()));
+            this.updatePhotoManagerVideoCutProgress(
+                this._photoManagerVideoProgressValue,
+                `${this._photoManagerVideoProgressMessage || '処理中'}（経過 ${elapsed}）`
+            );
+        }
+
+        stopPhotoManagerVideoOperationProgress() {
+            if (this._photoManagerVideoProgressTimer) window.clearInterval(this._photoManagerVideoProgressTimer);
+            this._photoManagerVideoProgressTimer = null;
+            this._photoManagerVideoProgressOperation = '';
+        }
+
+        remapPhotoManagerVideoTrimReferences(videoId = '', removedStart = 0, duration = 0) {
+            const seen = new WeakSet();
+            const visit = value => {
+                if (!value || typeof value !== 'object' || seen.has(value)) return;
+                seen.add(value);
+                if (String(value.videoId || '') === String(videoId)) {
+                    const previousStart = Math.max(0, Number(value.videoTrimStart) || 0);
+                    const previousEnd = Math.max(previousStart, Number(value.videoTrimEnd) || duration + removedStart);
+                    let nextStart = Math.max(0, Math.min(duration, previousStart - removedStart));
+                    let nextEnd = Math.max(0, Math.min(duration, previousEnd - removedStart));
+                    if (nextEnd <= nextStart) {
+                        nextStart = 0;
+                        nextEnd = duration;
+                    }
+                    value.videoTrimStart = nextStart;
+                    value.videoTrimEnd = nextEnd;
+                }
+                if (Array.isArray(value)) value.forEach(visit);
+                else Object.values(value).forEach(visit);
+            };
+            visit(store.activeData);
+            document.querySelectorAll(`.shift-photo-compare-mark.video[data-video-id="${CSS.escape(String(videoId))}"]`).forEach(mark => {
+                const previousStart = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
+                const previousEnd = Math.max(previousStart, Number(mark.dataset.videoTrimEnd) || duration + removedStart);
+                let nextStart = Math.max(0, Math.min(duration, previousStart - removedStart));
+                let nextEnd = Math.max(0, Math.min(duration, previousEnd - removedStart));
+                if (nextEnd <= nextStart) {
+                    nextStart = 0;
+                    nextEnd = duration;
+                }
+                mark.dataset.videoTrimStart = String(nextStart);
+                mark.dataset.videoTrimEnd = String(nextEnd);
+                const video = mark.querySelector('video');
+                if (video) delete video.dataset.videoHydrated;
+            });
+        }
+
+        async getPhotoManagerVideoFFmpeg() {
+            if (this._photoManagerVideoFFmpegLoading) return this._photoManagerVideoFFmpegLoading;
+            if (!window.FFmpeg?.createFFmpeg) throw new Error('動画切り出しエンジンを読み込めませんでした。');
+            if (this._photoManagerVideoProgressOperation === 'convert') {
+                this.setPhotoManagerVideoOperationProgress(6, '変換エンジンを読み込み中');
+            } else {
+                this.updatePhotoManagerVideoCutProgress(0, '切り出しエンジンを読み込み中');
+            }
+            this._photoManagerVideoFFmpegLoading = (async () => {
+                const ffmpeg = window.FFmpeg.createFFmpeg({
+                    log: false,
+                    mainName: 'main',
+                    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+                    progress: ({ ratio }) => {
+                        const value = Math.max(0, Math.min(0.99, Number(ratio) || 0));
+                        if (this._photoManagerVideoProgressOperation === 'convert') {
+                            this.setPhotoManagerVideoOperationProgress(18 + value * 76, '動画を変換・圧縮中');
+                        } else {
+                            this.updatePhotoManagerVideoCutProgress(value * 100, '動画を切り出し中');
+                        }
+                    }
+                });
+                await ffmpeg.load();
+                this._photoManagerVideoFFmpeg = ffmpeg;
+                return ffmpeg;
+            })();
+            try {
+                return await this._photoManagerVideoFFmpegLoading;
+            } finally {
+                this._photoManagerVideoFFmpegLoading = null;
+            }
+        }
+
+        getPhotoManagerVideoInputExtension(blob) {
+            const type = String(blob?.type || '').toLowerCase();
+            if (type.includes('mp4')) return 'mp4';
+            if (type.includes('quicktime')) return 'mov';
+            if (type.includes('ogg')) return 'ogv';
+            if (type.includes('avi')) return 'avi';
+            return 'webm';
+        }
+
+        async cutPhotoManagerVideoWithFFmpeg(blob, start = 0, end = 0) {
+            const ffmpeg = await this.getPhotoManagerVideoFFmpeg();
+            const duration = Math.max(0.1, Number(end) - Number(start));
+            const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+            const inputName = `input-${token}.${this.getPhotoManagerVideoInputExtension(blob)}`;
+            const outputName = `output-${token}.webm`;
+            try {
+                this.updatePhotoManagerVideoCutProgress(0, '元動画を準備中');
+                ffmpeg.FS('writeFile', inputName, new Uint8Array(await blob.arrayBuffer()));
+                await ffmpeg.run(
+                    '-ss', Number(start).toFixed(3),
+                    '-i', inputName,
+                    '-t', duration.toFixed(3),
+                    '-map', '0:v:0',
+                    '-map', '0:a?',
+                    '-c:v', 'libvpx',
+                    '-deadline', 'good',
+                    '-cpu-used', '2',
+                    '-b:v', '8000k',
+                    '-c:a', 'libopus',
+                    '-b:a', '128k',
+                    '-avoid_negative_ts', 'make_zero',
+                    outputName
+                );
+                const data = ffmpeg.FS('readFile', outputName);
+                const bytes = data instanceof Uint8Array ? data.slice() : new Uint8Array(data);
+                if (!bytes.byteLength) throw new Error('FFmpegから動画データを取得できませんでした。');
+                return {
+                    blob: new Blob([bytes], { type: 'video/webm' }),
+                    duration,
+                    start: Number(start) || 0,
+                    end: Number(end) || duration,
+                    audioRemoved: false
+                };
+            } finally {
+                try { ffmpeg.FS('unlink', inputName); } catch {}
+                try { ffmpeg.FS('unlink', outputName); } catch {}
+                try { ffmpeg.exit?.(); } catch {}
+                if (this._photoManagerVideoFFmpeg === ffmpeg) this._photoManagerVideoFFmpeg = null;
+            }
+        }
+
+        getPhotoManagerVideoConvertedDimensions(item, resolution = 'original') {
+            const width = Math.max(2, Number(item?.width) || 1920);
+            const height = Math.max(2, Number(item?.height) || 1080);
+            const maxHeight = resolution === 'original' ? height : Math.max(2, Number(resolution) || height);
+            const scale = Math.min(1, maxHeight / height);
+            const even = value => Math.max(2, Math.round(value / 2) * 2);
+            return { width: even(width * scale), height: even(height * scale) };
+        }
+
+        async convertPhotoManagerVideoWithFFmpeg(blob, item, options = {}) {
+            const ffmpeg = await this.getPhotoManagerVideoFFmpeg();
+            const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+            const inputName = `convert-input-${token}.${this.getPhotoManagerVideoInputExtension(blob)}`;
+            const format = options.format === 'mp4' ? 'mp4' : 'webm';
+            const outputName = `convert-output-${token}.${format}`;
+            const quality = ['standard', 'compact'].includes(options.quality) ? options.quality : 'high';
+            const dimensions = this.getPhotoManagerVideoConvertedDimensions(item, options.resolution);
+            const sourceWidth = Math.max(2, Number(item?.width) || dimensions.width);
+            const sourceHeight = Math.max(2, Number(item?.height) || dimensions.height);
+            const resizeArgs = dimensions.width !== sourceWidth || dimensions.height !== sourceHeight
+                ? ['-vf', `scale=${dimensions.width}:${dimensions.height}:flags=lanczos`]
+                : [];
+            const codecArgs = format === 'mp4'
+                ? ['-c:v', 'libx264', '-preset', 'medium', '-crf', ({ high: '19', standard: '23', compact: '28' })[quality], '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', quality === 'compact' ? '96k' : '128k', '-movflags', '+faststart']
+                : ['-c:v', 'libvpx-vp9', '-deadline', 'good', '-cpu-used', '2', '-crf', ({ high: '24', standard: '30', compact: '36' })[quality], '-b:v', '0', '-c:a', 'libopus', '-b:a', quality === 'compact' ? '96k' : '128k'];
+            try {
+                this.setPhotoManagerVideoOperationProgress(9, '元動画を読み込み中');
+                const sourceBytes = new Uint8Array(await blob.arrayBuffer());
+                this.setPhotoManagerVideoOperationProgress(14, '元動画を変換エンジンへ準備中');
+                await new Promise(resolve => window.setTimeout(resolve, 0));
+                ffmpeg.FS('writeFile', inputName, sourceBytes);
+                this.setPhotoManagerVideoOperationProgress(18, '動画を変換・圧縮中');
+                await ffmpeg.run(
+                    '-i', inputName,
+                    '-map', '0:v:0',
+                    '-map', '0:a?',
+                    ...resizeArgs,
+                    ...codecArgs,
+                    outputName
+                );
+                this.setPhotoManagerVideoOperationProgress(95, '変換結果を取り出し中');
+                const data = ffmpeg.FS('readFile', outputName);
+                const bytes = data instanceof Uint8Array ? data.slice() : new Uint8Array(data);
+                if (!bytes.byteLength) throw new Error('変換後の動画データを取得できませんでした。');
+                return {
+                    blob: new Blob([bytes], { type: format === 'mp4' ? 'video/mp4' : 'video/webm' }),
+                    format,
+                    width: dimensions.width,
+                    height: dimensions.height
+                };
+            } finally {
+                try { ffmpeg.FS('unlink', inputName); } catch {}
+                try { ffmpeg.FS('unlink', outputName); } catch {}
+                try { ffmpeg.exit?.(); } catch {}
+                if (this._photoManagerVideoFFmpeg === ffmpeg) this._photoManagerVideoFFmpeg = null;
+            }
+        }
+
+        async convertPhotoManagerVideo(id = '') {
+            const item = this.getPhotoManagerVideo(id);
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            if (!item || !panel || this._photoManagerVideoCutting) return;
+            const options = this.getPhotoManagerVideoConversionOptions(panel);
+            const formatLabel = options.format === 'mp4' ? 'MP4（H.264）' : 'WebM（VP9）';
+            const saveLabel = options.saveMode === 'replace' ? '元動画を置き換えます。元に戻せません。' : '元動画を残して別動画として保存します。';
+            if (!confirm(`${formatLabel}へ変換・圧縮します。\n${saveLabel}\n処理には動画の長さ以上の時間がかかる場合があります。続けますか？`)) return;
+            const button = panel.querySelector('.photo-manager-video-convert-btn');
+            let createdMediaKey = '';
+            this._photoManagerVideoCutting = true;
+            if (button) button.disabled = true;
+            try {
+                this.startPhotoManagerVideoOperationProgress('元動画を保管場所から読み込み中', 2);
+                const sourceBlob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey(id));
+                if (!sourceBlob) throw new Error('元動画が見つかりません。');
+                const previousSize = Number(item.size) || sourceBlob.size;
+                this.setPhotoManagerVideoOperationProgress(4, '変換処理を準備中');
+                const result = await this.convertPhotoManagerVideoWithFFmpeg(sourceBlob, item, options);
+                if (result.blob.size > this.getPhotoManagerVideoMaxBytes()) throw new Error('変換後の動画が100MBを超えました。');
+                this.setPhotoManagerVideoOperationProgress(98, '変換後の動画を保存中');
+                const now = Date.now();
+                const extension = result.format;
+                if (options.saveMode === 'replace') {
+                    await store.saveMediaBlob(this.getPhotoManagerVideoMediaKey(id), result.blob);
+                    item.size = result.blob.size;
+                    item.type = result.blob.type;
+                    item.fileName = `${String(item.fileName || 'video').replace(/\.[^.]+$/, '')}.${extension}`;
+                    item.width = result.width;
+                    item.height = result.height;
+                    item.updatedAt = now;
+                } else {
+                    const newId = `pmv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+                    createdMediaKey = this.getPhotoManagerVideoMediaKey(newId);
+                    await store.saveMediaBlob(createdMediaKey, result.blob);
+                    this.getPhotoManagerVideos().unshift({
+                        ...item,
+                        id: newId,
+                        name: `${String(item.name || '動画').slice(0, 86)}（圧縮）`,
+                        fileName: `${String(item.fileName || 'video').replace(/\.[^.]+$/, '')}-compressed.${extension}`,
+                        type: result.blob.type,
+                        size: result.blob.size,
+                        width: result.width,
+                        height: result.height,
+                        createdAt: now,
+                        updatedAt: now
+                    });
+                }
+                await store.save();
+                this.setPhotoManagerVideoOperationProgress(100, '完了');
+                createdMediaKey = '';
+                const difference = previousSize - result.blob.size;
+                this.openPhotoManagerVideos();
+                this.showPhotoManagerNotice(difference > 0
+                    ? `${this.formatPhotoManagerBytes(difference)}削減しました。変換後は${this.formatPhotoManagerBytes(result.blob.size)}です。`
+                    : `変換しました。容量は${this.formatPhotoManagerBytes(result.blob.size)}です。`);
+            } catch (error) {
+                if (createdMediaKey) {
+                    try { await store.deleteMediaBlob(createdMediaKey); } catch {}
+                }
+                console.warn('Video conversion failed', error);
+                this.showPhotoManagerNotice(error?.message || '動画を変換できませんでした。');
+                const progress = panel.querySelector('.photo-manager-video-cut-progress');
+                if (progress) {
+                    progress.hidden = false;
+                    progress.classList.add('error');
+                    const label = progress.querySelector('span');
+                    const output = progress.querySelector('output');
+                    if (label) label.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${this.escapeHtml(error?.message || '動画変換に失敗しました。')}`;
+                    if (output) output.value = '失敗';
+                }
+            } finally {
+                this.stopPhotoManagerVideoOperationProgress();
+                this._photoManagerVideoCutting = false;
+                if (button && document.contains(button)) button.disabled = false;
+            }
+        }
+
+        async recordPhotoManagerVideoTrim(blob, start = 0, end = 0, onProgress = null, sourceVideo = null, forceCanvas = false) {
+            const mimeType = this.getPhotoManagerVideoRecordingMimeType();
+            if (!mimeType) throw new Error('このブラウザーは動画の切り出しに対応していません。');
+            const ownsVideo = !sourceVideo;
+            const sourceUrl = ownsVideo ? URL.createObjectURL(blob) : '';
+            const video = sourceVideo || document.createElement('video');
+            let activeStream = null;
+            let activeRecorder = null;
+            let drawTimer = null;
+            const previousMuted = video.muted;
+            const previousTimeUpdate = video.ontimeupdate;
+            const previousError = video.onerror;
+            const previousSeeked = video.onseeked;
+            const previousEnded = video.onended;
+            const previousCurrentTime = Number(video.currentTime) || 0;
+            if (ownsVideo) {
+                video.preload = 'auto';
+                video.playsInline = true;
+                video.className = 'photo-manager-video-cut-source';
+                document.body.appendChild(video);
+            }
+            video.muted = true;
+            video.ontimeupdate = null;
+            const cleanup = () => {
+                video.pause();
+                if (activeRecorder?.state && activeRecorder.state !== 'inactive') {
+                    try { activeRecorder.stop(); } catch {}
+                }
+                activeRecorder = null;
+                clearInterval(drawTimer);
+                drawTimer = null;
+                activeStream?.getTracks?.().forEach(track => track.stop());
+                activeStream = null;
+                if (ownsVideo) {
+                    URL.revokeObjectURL(sourceUrl);
+                    video.removeAttribute('src');
+                    video.load();
+                    video.remove();
+                } else {
+                    video.muted = previousMuted;
+                    video.ontimeupdate = previousTimeUpdate;
+                    video.onerror = previousError;
+                    video.onseeked = previousSeeked;
+                    video.onended = previousEnded;
+                    try { video.currentTime = previousCurrentTime; } catch {}
+                }
+            };
+            try {
+                await new Promise((resolve, reject) => {
+                    if (video.readyState >= 1) return resolve();
+                    video.onloadedmetadata = resolve;
+                    video.onerror = () => reject(new Error('元動画を読み込めませんでした。'));
+                    if (ownsVideo) video.src = sourceUrl;
+                });
+                const safeStart = Math.max(0, Math.min(video.duration, Number(start) || 0));
+                const safeEnd = Math.max(safeStart + 0.1, Math.min(video.duration, Number(end) || video.duration));
+                await new Promise((resolve, reject) => {
+                    if (Math.abs(video.currentTime - safeStart) < 0.01) return resolve();
+                    video.onseeked = resolve;
+                    video.onerror = () => reject(new Error('切り出し位置へ移動できませんでした。'));
+                    video.currentTime = safeStart;
+                });
+                if (forceCanvas) {
+                    const canvas = document.createElement('canvas');
+                    const sourceWidth = Math.max(2, Number(video.videoWidth) || 1280);
+                    const sourceHeight = Math.max(2, Number(video.videoHeight) || 720);
+                    const renderScale = Math.min(1, 1280 / sourceWidth, 720 / sourceHeight);
+                    canvas.width = Math.max(2, Math.round(sourceWidth * renderScale));
+                    canvas.height = Math.max(2, Math.round(sourceHeight * renderScale));
+                    const context = canvas.getContext('2d', { alpha: false });
+                    if (!context || typeof canvas.captureStream !== 'function') {
+                        throw new Error('このブラウザーは動画の互換切り出しに対応していません。');
+                    }
+                    const drawFrame = () => {
+                        try { context.drawImage(video, 0, 0, canvas.width, canvas.height); } catch {}
+                    };
+                    drawFrame();
+                    drawTimer = setInterval(drawFrame, 50);
+                    activeStream = canvas.captureStream(20);
+                    onProgress?.(0, '互換方式で再試行中');
+                } else {
+                    activeStream = video.captureStream?.() || video.mozCaptureStream?.() || null;
+                    if (!activeStream) {
+                        cleanup();
+                        return this.recordPhotoManagerVideoTrim(blob, start, end, onProgress, sourceVideo, true);
+                    }
+                }
+                const sourceBitrate = Math.max(500000, Math.round((blob.size * 8) / Math.max(1, video.duration)));
+                activeRecorder = new MediaRecorder(activeStream, {
+                    mimeType,
+                    videoBitsPerSecond: Math.min(4000000, sourceBitrate),
+                    audioBitsPerSecond: 128000
+                });
+                const chunks = [];
+                activeRecorder.ondataavailable = event => {
+                    if (event.data?.size) chunks.push(event.data);
+                };
+                let recordingError = null;
+                const stopped = new Promise(resolve => {
+                    activeRecorder.onerror = () => {
+                        recordingError = activeRecorder?.error || new Error('動画を切り出せませんでした。');
+                        resolve();
+                    };
+                    activeRecorder.onstop = resolve;
+                });
+                activeRecorder.start(500);
+                await new Promise(resolve => setTimeout(resolve, 250));
+                await video.play();
+                await new Promise((resolve, reject) => {
+                    let lastTime = video.currentTime;
+                    let lastAdvanceAt = Date.now();
+                    const hardLimitAt = Date.now() + Math.max(30000, (safeEnd - safeStart) * 3000 + 15000);
+                    const finish = () => {
+                        clearInterval(timer);
+                        video.onended = null;
+                        resolve();
+                    };
+                    const fail = message => {
+                        clearInterval(timer);
+                        video.onended = null;
+                        reject(new Error(message));
+                    };
+                    const timer = setInterval(() => {
+                        const ratio = Math.max(0, Math.min(1, (video.currentTime - safeStart) / (safeEnd - safeStart)));
+                        onProgress?.(ratio * 100, forceCanvas ? '互換方式で切り出し中' : '切り出し中');
+                        if (video.currentTime > lastTime + 0.01) {
+                            lastTime = video.currentTime;
+                            lastAdvanceAt = Date.now();
+                        }
+                        if (video.currentTime >= safeEnd - 0.03 || video.ended) {
+                            video.pause();
+                            finish();
+                            return;
+                        }
+                        if (Date.now() >= hardLimitAt || Date.now() - lastAdvanceAt > 10000) {
+                            fail('動画の再生が停止したため、切り出しを中止しました。');
+                            return;
+                        }
+                        if (video.paused) video.play().catch(() => {});
+                    }, 200);
+                    video.onended = finish;
+                });
+                if (activeRecorder.state === 'recording') {
+                    try { activeRecorder.requestData(); } catch {}
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                if (activeRecorder.state !== 'inactive') {
+                    try { activeRecorder.stop(); } catch {}
+                }
+                await Promise.race([
+                    stopped,
+                    new Promise(resolve => setTimeout(resolve, 5000))
+                ]);
+                if (recordingError) throw recordingError;
+                const result = new Blob(chunks, { type: mimeType.split(';')[0] });
+                cleanup();
+                if (!result.size && !forceCanvas) {
+                    return this.recordPhotoManagerVideoTrim(blob, start, end, onProgress, sourceVideo, true);
+                }
+                if (!result.size) throw new Error('互換方式でも切り出しデータを取得できませんでした。');
+                return { blob: result, duration: safeEnd - safeStart, start: safeStart, end: safeEnd, audioRemoved: forceCanvas };
+            } catch (error) {
+                cleanup();
+                throw error;
+            }
+        }
+
+        async cutPhotoManagerVideoToTrim(id = '') {
+            const item = this.getPhotoManagerVideo(id);
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            if (!item || !panel || this._photoManagerVideoCutting) return;
+            const start = Math.max(0, Number(panel.querySelector('.photo-manager-video-trim-start')?.value) || 0);
+            const end = Math.max(start + 0.1, Math.min(item.duration, Number(panel.querySelector('.photo-manager-video-trim-end')?.value) || item.duration));
+            if (start <= 0.01 && end >= item.duration - 0.01) {
+                this.showPhotoManagerNotice('削除する範囲がありません。開始または終了位置を変更してください。');
+                return;
+            }
+            if (!confirm(`使用範囲 ${this.formatPhotoManagerVideoDuration(start)} ～ ${this.formatPhotoManagerVideoDuration(end)} だけを残します。\n範囲外の元動画は削除され、元に戻せません。続けますか？`)) return;
+            const button = panel.querySelector('.photo-manager-video-cut-btn');
+            this._photoManagerVideoCutting = true;
+            if (button) button.disabled = true;
+            try {
+                const sourceBlob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey(id));
+                if (!sourceBlob) throw new Error('元動画が見つかりません。');
+                this.updatePhotoManagerVideoCutProgress(0, '切り出し中');
+                const result = await this.cutPhotoManagerVideoWithFFmpeg(sourceBlob, start, end);
+                if (result.blob.size > this.getPhotoManagerVideoMaxBytes()) throw new Error('切り出し後の動画が100MBを超えました。');
+                this.updatePhotoManagerVideoCutProgress(100, '保存中');
+                await store.saveMediaBlob(this.getPhotoManagerVideoMediaKey(id), result.blob);
+                const previousSize = Number(item.size) || sourceBlob.size;
+                item.size = result.blob.size;
+                item.type = result.blob.type || 'video/webm';
+                item.fileName = String(item.fileName || 'video').replace(/\.[^.]+$/, '') + '.webm';
+                item.duration = result.duration;
+                item.trimStart = 0;
+                item.trimEnd = result.duration;
+                item.audioRemovedByTrim = !!result.audioRemoved;
+                item.name = String(panel.querySelector('.photo-manager-video-name')?.value || item.name || '動画').trim().slice(0, 100);
+                item.animationClickMode = panel.querySelector('input[name="photo-manager-video-click-mode"]:checked')?.value === 'stop' ? 'stop' : 'continue';
+                item.updatedAt = Date.now();
+                this.remapPhotoManagerVideoTrimReferences(id, result.start, result.duration);
+                await store.save();
+                const difference = previousSize - result.blob.size;
+                this.openPhotoManagerVideos();
+                const audioNote = result.audioRemoved ? ' 互換方式のため音声は含まれません。' : '';
+                this.showPhotoManagerNotice((difference > 0
+                    ? `${this.formatPhotoManagerBytes(difference)}削減しました。`
+                    : `範囲外を削除しました。容量は${this.formatPhotoManagerBytes(Math.abs(difference))}増えました。`) + audioNote);
+            } catch (error) {
+                console.warn('Video destructive trim failed', error);
+                this.showPhotoManagerNotice(error?.message || '動画を切り出せませんでした。');
+                const progress = panel.querySelector('.photo-manager-video-cut-progress');
+                if (progress) {
+                    progress.hidden = false;
+                    progress.classList.add('error');
+                    const label = progress.querySelector('span');
+                    const output = progress.querySelector('output');
+                    if (label) label.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${this.escapeHtml(error?.message || '切り出し保存に失敗しました。')}`;
+                    if (output) output.value = '失敗';
+                }
+            } finally {
+                this._photoManagerVideoCutting = false;
+                if (button && document.contains(button)) button.disabled = false;
+            }
+        }
+
+        async savePhotoManagerVideoEdits(id = '') {
+            const item = this.getPhotoManagerVideo(id);
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            if (!item || !panel || item.size > this.getPhotoManagerVideoMaxBytes()) return;
+            item.name = String(panel.querySelector('.photo-manager-video-name')?.value || item.name || '動画').trim().slice(0, 100);
+            if (item.sourceType) {
+                item.animationClickMode = panel.querySelector('input[name="photo-manager-video-click-mode"]:checked')?.value === 'stop' ? 'stop' : 'continue';
+                item.updatedAt = Date.now();
+                await store.save();
+                this.openPhotoManagerVideos();
+                this.showPhotoManagerNotice('URL動画の設定を保存しました。');
+                return;
+            }
+            item.trimStart = Math.max(0, Number(panel.querySelector('.photo-manager-video-trim-start')?.value) || 0);
+            item.trimEnd = Math.max(item.trimStart + 0.1, Math.min(item.duration, Number(panel.querySelector('.photo-manager-video-trim-end')?.value) || item.duration));
+            item.animationClickMode = panel.querySelector('input[name="photo-manager-video-click-mode"]:checked')?.value === 'stop' ? 'stop' : 'continue';
+            item.updatedAt = Date.now();
+            await store.save();
+            this.openPhotoManagerVideos();
+            this.showPhotoManagerNotice('動画設定を保存しました。');
+        }
+
+        async deletePhotoManagerVideo(id = '') {
+            const item = this.getPhotoManagerVideo(id);
+            if (!item || !confirm(`「${item.name || '動画'}」を削除しますか？\n写真編集に配置済みの動画も再生できなくなります。`)) return;
+            store.activeData.photoManagerVideos = this.getPhotoManagerVideos().filter(video => video.id !== id);
+            if (!item.sourceType || item.sourceType === 'local-handle') await store.deleteMediaBlob(this.getPhotoManagerVideoMediaKey(id));
+            await store.save();
+            this.openPhotoManagerVideos();
+        }
+
+        openShiftPhotoCompareVideoPicker() {
+            document.getElementById('shift-photo-compare-video-picker')?.remove();
+            const videos = this.getPhotoManagerVideos();
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="shift-photo-compare-video-picker" class="shift-photo-compare-video-picker" onclick="if(event.target===this)this.remove()">
+                    <section onclick="event.stopPropagation()">
+                        <header><strong><i class="fa-solid fa-video"></i> 動画を挿入</strong><button type="button" onclick="this.closest('#shift-photo-compare-video-picker').remove()"><i class="fa-solid fa-xmark"></i></button></header>
+                        <div>
+                            ${videos.length ? videos.map(video => `<button type="button" onclick="app.insertShiftPhotoCompareVideo('${this.escapeJs(video.id)}')"><i class="${video.sourceType === 'youtube' ? 'fa-brands fa-youtube' : (video.sourceType === 'local-handle' ? 'fa-solid fa-folder-open' : 'fa-solid fa-circle-play')}"></i><span><b>${this.escapeHtml(video.name || '動画')}</b><small>${video.sourceType === 'local-handle' ? 'PCリンク・容量不要' : (video.sourceType ? 'URL動画・容量不要' : `${this.formatPhotoManagerBytes(video.size)} / ${this.formatPhotoManagerVideoDuration(video.trimEnd - video.trimStart)}`)}</small></span></button>`).join('') : '<p>写真管理の「動画」から登録してください。</p>'}
+                        </div>
+                    </section>
+                </div>`);
         }
 
         getPhotoManagerToday() {
@@ -1441,6 +2683,71 @@
         clonePhotoManagerBlankEdit(edit = null) {
             if (!edit || edit.type !== 'blank') return null;
             return JSON.parse(JSON.stringify(edit));
+        }
+
+        hasPhotoManagerBlankEditContent(edit = null) {
+            if (!edit || edit.type !== 'blank') return false;
+            const baseColor = String(edit.blankBaseColor || '#ffffff').toLowerCase();
+            const hasMarks = Array.isArray(edit.marks) && edit.marks.length > 0;
+            return hasMarks || (baseColor && baseColor !== '#ffffff');
+        }
+
+        getPhotoManagerBlankEditName(edit = null) {
+            const updatedAt = Number(edit?.updatedAt || Date.now()) || Date.now();
+            const date = new Date(updatedAt);
+            const month = date.getMonth() + 1;
+            const day = date.getDate();
+            const hour = date.getHours();
+            const minute = String(date.getMinutes()).padStart(2, '0');
+            return `${month}/${day} ${hour}:${minute} 白紙編集`;
+        }
+
+        async syncPhotoManagerBlankEditFromCompare(context = {}) {
+            if (!context || !String(context.source || '').startsWith('photoManagerBlank')) return null;
+            const wrap = document.querySelector('.shift-photo-compare-image-wrap[data-photo-index="0"]')
+                || document.querySelector('.shift-photo-compare-image-wrap');
+            if (!wrap || typeof this.getShiftPhotoCompareBlankEditData !== 'function') return null;
+            const edit = this.getShiftPhotoCompareBlankEditData(wrap);
+            if (!edit) return null;
+
+            const library = this.getPhotoManagerLibrary?.();
+            if (!Array.isArray(library)) return null;
+            const existingId = context.photoManagerBlankEditItemId || '';
+            const existingItem = existingId ? this.findPhotoManagerItem?.(existingId) : null;
+            const libraryItem = existingId ? library.find(photo => photo.id === existingId) : null;
+            if (!existingItem && !libraryItem && !this.hasPhotoManagerBlankEditContent(edit)) return null;
+
+            let renderedSrc = '';
+            try {
+                renderedSrc = await this.renderShiftPhotoCompareWrapWithMarks?.(wrap);
+            } catch (error) {
+                console.warn('Failed to render blank edit preview.', error);
+            }
+            const fallbackSrc = this.createShiftPhotoCompareBlankBaseSrc?.(edit.blankBaseColor || '#ffffff') || '';
+            const saveSrc = renderedSrc || fallbackSrc;
+            if (!saveSrc) return null;
+
+            let savedItem = libraryItem || null;
+            if (existingItem?.source === 'library' && typeof existingItem.replacePhoto === 'function') {
+                existingItem.replacePhoto(saveSrc);
+                savedItem = library.find(photo => photo.id === existingId) || savedItem;
+            }
+            if (!savedItem) {
+                savedItem = this.addPhotoManagerLibraryImage(saveSrc, this.getPhotoManagerBlankEditName(edit));
+                context.photoManagerBlankEditItemId = savedItem?.id || context.photoManagerBlankEditItemId || '';
+            } else {
+                savedItem.src = saveSrc;
+                savedItem.updatedAt = Date.now();
+            }
+            if (!savedItem) return null;
+
+            savedItem.photoCompareBlankEdit = edit;
+            savedItem.annotated = this.hasPhotoManagerBlankEditContent(edit);
+            savedItem.caption = savedItem.caption || '';
+            savedItem.name = savedItem.name || this.getPhotoManagerBlankEditName(edit);
+            store.save();
+            if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
+            return savedItem;
         }
 
         duplicatePhotoManagerBlankEdit(id = '') {
@@ -4076,9 +5383,11 @@
                 const protectedPhoto = this.isPhotoManagerSourceProtected?.(item.src);
                 const sizeText = this.formatPhotoManagerBytes?.(this.estimatePhotoManagerImageBytes?.(item.src) || 0) || '';
                 const hasBlankEdit = !!(item.source === 'library' && item.photoCompareBlankEdit?.type === 'blank');
-                const thumbAction = item.source === 'library'
-                    ? `app.openPhotoManagerEditor('${this.escapeJs(item.id)}')`
-                    : `app.openPhotoManagerSource('${this.escapeJs(item.id)}')`;
+                const thumbAction = hasBlankEdit
+                    ? `app.openPhotoManagerBlankEdit('${this.escapeJs(item.id)}')`
+                    : (item.source === 'library'
+                        ? `app.openPhotoManagerEditor('${this.escapeJs(item.id)}')`
+                        : `app.openPhotoManagerSource('${this.escapeJs(item.id)}')`);
                 return `
                 <article class="photo-manager-card" data-photo-id="${this.escapeHtml(item.id)}">
                     <label class="photo-manager-check">
