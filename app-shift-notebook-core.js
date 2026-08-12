@@ -6922,7 +6922,7 @@
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --circle-border-width:${4 * stroke}px; --mark-font:${fontFamily}; --mark-opacity:${opacity}; --circle-image-size:${imageZoom * 100}%; --circle-image-offset-x:${imageOffsetX}%; --circle-image-offset-y:${imageOffsetY}%;"><img src="${this.escapeHtml(imageSrc)}" alt="">${orderBadgeHtml}</div>`;
         }
         if (mode === 'video') {
-            return `<div class="shift-photo-compare-mark video${lockedClass}" ${common} data-video-id="${this.escapeHtml(videoId)}" data-video-trim-start="${videoTrimStart}" data-video-trim-end="${videoTrimEnd}" data-video-click-mode="${videoClickMode}" data-video-end-behavior="${videoEndBehavior}" style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY};"><video preload="metadata" playsinline ontimeupdate="app.handleShiftPhotoCompareVideoTimeUpdate(this)" onended="app.handleShiftPhotoCompareVideoEnded(this)"></video><span class="shift-photo-compare-video-click-catcher" aria-hidden="true"></span><button type="button" class="shift-photo-compare-video-play" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareVideoMark(this.closest('.shift-photo-compare-mark'))" title="動画を再生・停止"><i class="fa-solid fa-play"></i></button><span class="shift-photo-compare-video-missing"><i class="fa-solid fa-video-slash"></i>動画なし</span>${orderBadgeHtml}</div>`;
+            return `<div class="shift-photo-compare-mark video${lockedClass}" ${common} data-video-id="${this.escapeHtml(videoId)}" data-video-trim-start="${videoTrimStart}" data-video-trim-end="${videoTrimEnd}" data-video-click-mode="${videoClickMode}" data-video-end-behavior="${videoEndBehavior}" style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY};"><video preload="metadata" playsinline ontimeupdate="app.handleShiftPhotoCompareVideoTimeUpdate(this)" onended="app.handleShiftPhotoCompareVideoEnded(this)"></video><span class="shift-photo-compare-video-click-catcher" aria-hidden="true"></span><button type="button" class="shift-photo-compare-video-finish" title="動画を最後まで再生した状態にする" aria-label="動画を終了"><i class="fa-solid fa-xmark"></i></button><button type="button" class="shift-photo-compare-video-play" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareVideoMark(this.closest('.shift-photo-compare-mark'))" title="動画を再生・停止"><i class="fa-solid fa-play"></i></button><span class="shift-photo-compare-video-missing"><i class="fa-solid fa-video-slash"></i>動画なし</span>${orderBadgeHtml}</div>`;
         }
         if (mode === 'callout') {
             const inverseX = 1 / Math.max(0.05, stretch);
@@ -10333,7 +10333,21 @@
         this.hydrateShiftPhotoCompareVideoMarks(currentPage.grid);
         this.refreshShiftPhotoCompareTextLayout(currentPage.grid);
         this.pinShiftPhotoCompareAnimationRegionLayouts(currentPage.grid);
+        animationOverlay.addEventListener('pointerdown', event => {
+            const finishControl = event.target.closest('.shift-photo-compare-video-finish');
+            if (!finishControl) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.finishShiftPhotoCompareAnimationVideoFromControl(finishControl);
+        }, true);
         animationOverlay.addEventListener('click', event => {
+            const finishControl = event.target.closest('.shift-photo-compare-video-finish');
+            if (finishControl) {
+                event.preventDefault();
+                event.stopPropagation();
+                this.finishShiftPhotoCompareAnimationVideoFromControl(finishControl);
+                return;
+            }
             if (event.target.closest('.shift-photo-compare-animation-controls, .shift-photo-compare-animation-topbar, .shift-photo-compare-animation-timeline, .shift-photo-compare-animation-timeline-toggle, .shift-photo-compare-animation-timeline-dialog')) return;
             const animationState = this._shiftPhotoCompareAnimationState;
             const videoMark = event.target.closest('.shift-photo-compare-mark.video');
@@ -10434,6 +10448,8 @@
         requestAnimationFrame(() => {
             animationOverlay.querySelectorAll('.shift-photo-compare-mark.video.shift-photo-compare-animation-video-expanded')
                 .forEach(mark => this.positionShiftPhotoCompareAnimationExpandedVideo(mark));
+            animationOverlay.querySelectorAll('.shift-photo-compare-video-finish.shift-photo-compare-video-finish-active')
+                .forEach(control => this.positionShiftPhotoCompareAnimationVideoFinishControl(control));
         });
     }
 
@@ -12840,6 +12856,29 @@
                 clickCatcher.setAttribute('aria-hidden', 'true');
                 mark.insertBefore(clickCatcher, mark.querySelector('.shift-photo-compare-video-play'));
             }
+            let finishButton = mark.querySelector('.shift-photo-compare-video-finish');
+            if (!finishButton) {
+                finishButton = document.createElement('button');
+                finishButton.type = 'button';
+                finishButton.className = 'shift-photo-compare-video-finish';
+                finishButton.title = '動画を最後まで再生した状態にする';
+                finishButton.setAttribute('aria-label', '動画を終了');
+                finishButton.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                mark.insertBefore(finishButton, mark.querySelector('.shift-photo-compare-video-play'));
+            }
+            delete finishButton.dataset.animationFinishBound;
+            if (!finishButton._shiftPhotoCompareAnimationFinishBound) {
+                finishButton.addEventListener('click', event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.completeShiftPhotoCompareAnimationVideoFromControl(mark, finishButton);
+                });
+                finishButton.addEventListener('pointerdown', event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                });
+                finishButton._shiftPhotoCompareAnimationFinishBound = true;
+            }
             try {
                 const item = this.getPhotoManagerVideo?.(id);
                 if (item?.sourceType === 'youtube' && item.youtubeId) {
@@ -13114,6 +13153,7 @@
             : 'return';
         if (behavior === 'loop') {
             this.restoreShiftPhotoCompareAnimationVideo(mark);
+            requestAnimationFrame(() => this.positionShiftPhotoCompareAnimationVideoFinishControl(mark._shiftPhotoCompareVideoFinishControl));
             video.currentTime = Math.min(start, video.duration || start);
             video.play()
                 .then(() => this.scheduleShiftPhotoCompareAnimationVideoFinish(video))
@@ -13127,6 +13167,8 @@
             video.currentTime = Math.max(start, Math.min(configuredEnd, video.duration) - 0.04);
         }
         delete video.dataset.animationPlaying;
+        delete mark.dataset.animationPlaying;
+        this.hideShiftPhotoCompareAnimationVideoFinishControl(mark);
         mark.classList.remove('shift-photo-compare-animation-video-user-paused');
         this.restoreShiftPhotoCompareAnimationVideo(mark);
         mark.querySelector('.shift-photo-compare-video-play i')?.classList.replace('fa-pause', 'fa-play');
@@ -13145,6 +13187,7 @@
             : 'return';
         if (behavior === 'loop') {
             this.restoreShiftPhotoCompareAnimationVideo(mark);
+            requestAnimationFrame(() => this.positionShiftPhotoCompareAnimationVideoFinishControl(mark._shiftPhotoCompareVideoFinishControl));
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'playVideo');
             iframe.dataset.youtubeState = '1';
@@ -13153,11 +13196,142 @@
         this.sendShiftPhotoCompareYouTubeCommand(iframe, 'pauseVideo');
         if (behavior === 'return') this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
         delete iframe.dataset.animationPlaying;
+        delete mark.dataset.animationPlaying;
+        this.hideShiftPhotoCompareAnimationVideoFinishControl(mark);
         iframe.dataset.youtubeState = '2';
         mark.classList.remove('shift-photo-compare-animation-video-user-paused');
         this.restoreShiftPhotoCompareAnimationVideo(mark);
         mark.querySelector('.shift-photo-compare-video-play i')?.classList.replace('fa-pause', 'fa-play');
         this.scheduleShiftPhotoComparePresentationExitAfterVideo(mark);
+    }
+
+    finishShiftPhotoCompareAnimationVideoFromControl(control) {
+        const mark = control?._shiftPhotoCompareVideoMark || control?.closest?.('.shift-photo-compare-mark.video');
+        return this.completeShiftPhotoCompareAnimationVideoFromControl(mark, control);
+    }
+
+    completeShiftPhotoCompareAnimationVideoFromControl(mark, control = null) {
+        if (!mark) return false;
+        const originalBehavior = mark.dataset.videoEndBehavior || 'return';
+        const video = mark.querySelector('video');
+        const iframe = mark.querySelector('.shift-photo-compare-youtube-player');
+        clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
+        clearTimeout(mark._shiftPhotoCompareVideoPlaybackTimer);
+        delete mark._shiftPhotoCompareVideoStartTimer;
+        delete mark._shiftPhotoCompareVideoPlaybackTimer;
+        delete mark.dataset.animationPlaybackPending;
+        delete mark.dataset.animationPlaybackAttempts;
+
+        if (video) {
+            video.pause();
+            if (originalBehavior === 'hold' && Number.isFinite(video.duration) && video.duration > 0) {
+                const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
+                const configuredEnd = Math.max(start, Number(mark.dataset.videoTrimEnd) || video.duration);
+                video.currentTime = Math.max(start, Math.min(configuredEnd, video.duration) - 0.04);
+            } else if (Number.isFinite(video.duration) && video.duration > 0) {
+                video.currentTime = Math.min(Math.max(0, Number(mark.dataset.videoTrimStart) || 0), video.duration);
+            }
+            delete video.dataset.animationPlaying;
+        }
+        if (iframe) {
+            const configuredEnd = Number(mark.dataset.videoTrimEnd);
+            if (originalBehavior === 'hold' && Number.isFinite(configuredEnd) && configuredEnd > 0) {
+                this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [configuredEnd, true]);
+            } else {
+                this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
+            }
+            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'pauseVideo');
+            delete iframe.dataset.animationPlaying;
+            iframe.dataset.youtubeState = '2';
+        }
+        delete mark.dataset.animationPlaying;
+        mark.classList.remove('shift-photo-compare-animation-video-user-paused');
+        this.hideShiftPhotoCompareAnimationVideoFinishControl(mark);
+        this.restoreShiftPhotoCompareAnimationVideo(mark, true);
+        mark.querySelector('.shift-photo-compare-video-play i')?.classList.replace('fa-pause', 'fa-play');
+        this.scheduleShiftPhotoComparePresentationExitAfterVideo(mark);
+        return Boolean(video || iframe || control);
+    }
+
+    positionShiftPhotoCompareAnimationVideoFinishControl(control) {
+        const mark = control?._shiftPhotoCompareVideoMark;
+        const stage = control?._shiftPhotoCompareVideoControlState?.stage;
+        if (!mark || !stage || control.parentElement !== stage) return false;
+        const markRect = mark.getBoundingClientRect();
+        const stageRect = stage.getBoundingClientRect();
+        if (!markRect.width || !stageRect.width || !stageRect.height) return false;
+        const size = 32;
+        const gap = 6;
+        const left = Math.max(4, Math.min(stageRect.width - size - 4, markRect.right - stageRect.left - size));
+        let top = markRect.top - stageRect.top - size - gap;
+        if (top < 4) top = markRect.bottom - stageRect.top + gap;
+        top = Math.max(4, Math.min(stageRect.height - size - 4, top));
+        control.style.left = `${left}px`;
+        control.style.top = `${top}px`;
+        return true;
+    }
+
+    showShiftPhotoCompareAnimationVideoFinishControl(mark) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const stage = state?.overlay?.querySelector?.('.shift-photo-compare-animation-stage');
+        const control = mark?.querySelector?.('.shift-photo-compare-video-finish') || mark?._shiftPhotoCompareVideoFinishControl;
+        if (!mark || !control || !stage) return;
+        control.onpointerdown = event => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.completeShiftPhotoCompareAnimationVideoFromControl(mark, control);
+            return false;
+        };
+        control.onclick = event => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.completeShiftPhotoCompareAnimationVideoFromControl(mark, control);
+            return false;
+        };
+        if (!control._shiftPhotoCompareVideoControlState) {
+            const placeholder = document.createComment('shift-photo-compare-video-finish-position');
+            control.parentNode?.insertBefore(placeholder, control);
+            control._shiftPhotoCompareVideoControlState = { stage, placeholder, parent: control.parentNode };
+            control._shiftPhotoCompareVideoMark = mark;
+            mark._shiftPhotoCompareVideoFinishControl = control;
+            stage.appendChild(control);
+        }
+        control.classList.add('shift-photo-compare-video-finish-active');
+        this.positionShiftPhotoCompareAnimationVideoFinishControl(control);
+        cancelAnimationFrame(control._shiftPhotoCompareVideoControlTrackFrame);
+        const startedAt = performance.now();
+        const trackPosition = now => {
+            if (!control._shiftPhotoCompareVideoControlState || !mark.isConnected) return;
+            this.positionShiftPhotoCompareAnimationVideoFinishControl(control);
+            if (now - startedAt < 520) {
+                control._shiftPhotoCompareVideoControlTrackFrame = requestAnimationFrame(trackPosition);
+            } else {
+                delete control._shiftPhotoCompareVideoControlTrackFrame;
+            }
+        };
+        control._shiftPhotoCompareVideoControlTrackFrame = requestAnimationFrame(trackPosition);
+    }
+
+    hideShiftPhotoCompareAnimationVideoFinishControl(mark) {
+        const control = mark?._shiftPhotoCompareVideoFinishControl || mark?.querySelector?.('.shift-photo-compare-video-finish');
+        const controlState = control?._shiftPhotoCompareVideoControlState;
+        if (!control) return;
+        control.onpointerdown = null;
+        control.onclick = null;
+        cancelAnimationFrame(control._shiftPhotoCompareVideoControlTrackFrame);
+        delete control._shiftPhotoCompareVideoControlTrackFrame;
+        control.classList.remove('shift-photo-compare-video-finish-active');
+        control.style.removeProperty('left');
+        control.style.removeProperty('top');
+        if (controlState?.placeholder?.parentNode) {
+            controlState.placeholder.parentNode.insertBefore(control, controlState.placeholder);
+            controlState.placeholder.remove();
+        } else if (controlState?.parent?.isConnected) {
+            controlState.parent.appendChild(control);
+        }
+        delete control._shiftPhotoCompareVideoControlState;
+        delete control._shiftPhotoCompareVideoMark;
+        if (mark) delete mark._shiftPhotoCompareVideoFinishControl;
     }
 
     getShiftPhotoCompareAnimationVideoBoundsRect(mark) {
@@ -13305,9 +13479,11 @@
             delete mark.dataset.animationPlaybackAttempts;
             mark.classList.remove('shift-photo-compare-animation-video-user-paused');
             iframe.dataset.animationPlaying = '1';
+            mark.dataset.animationPlaying = '1';
             iframe.dataset.youtubeState = '1';
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
             if (item.effect === 'videoExpand') this.expandShiftPhotoCompareAnimationVideo(mark);
+            this.showShiftPhotoCompareAnimationVideoFinishControl(mark);
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'playVideo');
             return;
         }
@@ -13329,7 +13505,9 @@
         const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
         video.currentTime = start;
         video.dataset.animationPlaying = '1';
+        mark.dataset.animationPlaying = '1';
         if (item.effect === 'videoExpand') this.expandShiftPhotoCompareAnimationVideo(mark);
+        this.showShiftPhotoCompareAnimationVideoFinishControl(mark);
         video.play()
             .then(() => this.scheduleShiftPhotoCompareAnimationVideoFinish(video))
             .catch(() => this.finishShiftPhotoCompareAnimationVideo(video, true));
@@ -13400,6 +13578,8 @@
                 this.sendShiftPhotoCompareYouTubeCommand(iframe, 'pauseVideo');
                 if (!onlyStopOnClick) this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
                 delete iframe.dataset.animationPlaying;
+                delete mark.dataset.animationPlaying;
+                this.hideShiftPhotoCompareAnimationVideoFinishControl(mark);
                 iframe.dataset.youtubeState = '2';
                 mark.classList.remove('shift-photo-compare-animation-video-user-paused');
                 this.restoreShiftPhotoCompareAnimationVideo(mark, !onlyStopOnClick);
@@ -13412,6 +13592,8 @@
             if (mark) delete mark._shiftPhotoCompareVideoPlaybackTimer;
             video.pause();
             delete video.dataset.animationPlaying;
+            delete mark.dataset.animationPlaying;
+            this.hideShiftPhotoCompareAnimationVideoFinishControl(mark);
             mark?.classList.remove('shift-photo-compare-animation-video-user-paused');
             this.restoreShiftPhotoCompareAnimationVideo(mark, !onlyStopOnClick);
             if (!onlyStopOnClick) video.currentTime = Math.max(0, Number(mark?.dataset?.videoTrimStart) || 0);

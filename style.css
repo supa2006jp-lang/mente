@@ -41326,6 +41326,32 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     display: none;
 }
 
+.shift-photo-compare-video-finish {
+    display: none;
+}
+
+.shift-photo-compare-animation-stage > .shift-photo-compare-video-finish.shift-photo-compare-video-finish-active {
+    position: absolute;
+    top: -38px;
+    right: 0;
+    z-index: 80;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    background: #dc2626;
+    color: #ffffff;
+    box-shadow: 0 5px 14px rgba(15, 23, 42, 0.38);
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-stage > .shift-photo-compare-video-finish.shift-photo-compare-video-finish-active:hover {
+    background: #b91c1c;
+}
+
 .shift-photo-compare-animation-stage .shift-photo-compare-mark.video .shift-photo-compare-video-click-catcher {
     position: absolute;
     inset: 0;
