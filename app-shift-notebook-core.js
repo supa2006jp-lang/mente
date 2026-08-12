@@ -6922,7 +6922,7 @@
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --circle-border-width:${4 * stroke}px; --mark-font:${fontFamily}; --mark-opacity:${opacity}; --circle-image-size:${imageZoom * 100}%; --circle-image-offset-x:${imageOffsetX}%; --circle-image-offset-y:${imageOffsetY}%;"><img src="${this.escapeHtml(imageSrc)}" alt="">${orderBadgeHtml}</div>`;
         }
         if (mode === 'video') {
-            return `<div class="shift-photo-compare-mark video${lockedClass}" ${common} data-video-id="${this.escapeHtml(videoId)}" data-video-trim-start="${videoTrimStart}" data-video-trim-end="${videoTrimEnd}" data-video-click-mode="${videoClickMode}" data-video-end-behavior="${videoEndBehavior}" style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY};"><video preload="metadata" playsinline ontimeupdate="app.handleShiftPhotoCompareVideoTimeUpdate(this)" onended="app.handleShiftPhotoCompareVideoEnded(this)"></video><button type="button" class="shift-photo-compare-video-play" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareVideoMark(this.closest('.shift-photo-compare-mark'))" title="動画を再生・停止"><i class="fa-solid fa-play"></i></button><span class="shift-photo-compare-video-missing"><i class="fa-solid fa-video-slash"></i>動画なし</span>${orderBadgeHtml}</div>`;
+            return `<div class="shift-photo-compare-mark video${lockedClass}" ${common} data-video-id="${this.escapeHtml(videoId)}" data-video-trim-start="${videoTrimStart}" data-video-trim-end="${videoTrimEnd}" data-video-click-mode="${videoClickMode}" data-video-end-behavior="${videoEndBehavior}" style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY};"><video preload="metadata" playsinline ontimeupdate="app.handleShiftPhotoCompareVideoTimeUpdate(this)" onended="app.handleShiftPhotoCompareVideoEnded(this)"></video><span class="shift-photo-compare-video-click-catcher" aria-hidden="true"></span><button type="button" class="shift-photo-compare-video-play" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareVideoMark(this.closest('.shift-photo-compare-mark'))" title="動画を再生・停止"><i class="fa-solid fa-play"></i></button><span class="shift-photo-compare-video-missing"><i class="fa-solid fa-video-slash"></i>動画なし</span>${orderBadgeHtml}</div>`;
         }
         if (mode === 'callout') {
             const inverseX = 1 / Math.max(0.05, stretch);
@@ -10431,6 +10431,10 @@
         grid.dataset.animationScale = String(safeScale);
         grid.dataset.animationStageWidth = String(Math.round(stageRect.width));
         grid.dataset.animationStageHeight = String(Math.round(stageRect.height));
+        requestAnimationFrame(() => {
+            animationOverlay.querySelectorAll('.shift-photo-compare-mark.video.shift-photo-compare-animation-video-expanded')
+                .forEach(mark => this.positionShiftPhotoCompareAnimationExpandedVideo(mark));
+        });
     }
 
     activateShiftPhotoCompareAnimationPage(pageIndex = 0) {
@@ -10517,7 +10521,7 @@
         if (direction > 0
             && state.presentationMode
             && state.index >= currentSteps.length - 1
-            && state.grid?.querySelector?.('video[data-animation-playing="1"]')) {
+            && this.hasShiftPhotoCompareAnimationVideoPlaying(state.overlay)) {
             return;
         }
         if (direction !== 0) this.stopShiftPhotoCompareAnimationVideos(state.grid, true);
@@ -10590,7 +10594,7 @@
             && nextIndex >= steps.length - 1;
         if (isPresentationComplete) {
             clearTimeout(state.presentationExitTimer);
-            if (!(activeStep?.videoPlayback && state.grid?.querySelector?.('video[data-animation-playing="1"]'))) {
+            if (!(activeStep?.videoPlayback && this.hasShiftPhotoCompareAnimationVideoPlaying(state.overlay))) {
                 state.presentationExitTimer = setTimeout(() => {
                     if (this._shiftPhotoCompareAnimationState === state) this.exitShiftPhotoCompareAnimationFullscreenMode();
                 }, 700);
@@ -12830,6 +12834,12 @@
             const video = mark.querySelector('video');
             const id = String(mark.dataset.videoId || '');
             if (!video || !id) continue;
+            if (!mark.querySelector('.shift-photo-compare-video-click-catcher')) {
+                const clickCatcher = document.createElement('span');
+                clickCatcher.className = 'shift-photo-compare-video-click-catcher';
+                clickCatcher.setAttribute('aria-hidden', 'true');
+                mark.insertBefore(clickCatcher, mark.querySelector('.shift-photo-compare-video-play'));
+            }
             try {
                 const item = this.getPhotoManagerVideo?.(id);
                 if (item?.sourceType === 'youtube' && item.youtubeId) {
@@ -12870,7 +12880,7 @@
                     this.ensureShiftPhotoCompareYouTubeBridge();
                     continue;
                 }
-                if (video.dataset.videoHydrated === id) continue;
+                if (video.dataset.videoHydrated === id && video.src) continue;
                 if (item?.sourceType === 'local-handle') {
                     mark.dataset.videoSourceType = 'local-handle';
                     const connected = await this.connectShiftPhotoCompareLocalLinkedVideoMark(mark, false);
@@ -13045,10 +13055,10 @@
 
     scheduleShiftPhotoComparePresentationExitAfterVideo(mark) {
         const state = this._shiftPhotoCompareAnimationState;
-        if (!state?.presentationMode || !state.grid?.contains?.(mark)) return;
+        if (!state?.presentationMode || !state.overlay?.contains?.(mark)) return;
         if (state.pageIndex < (state.pages?.length || 1) - 1) return;
         if (state.index < (state.steps?.length || 1) - 1) return;
-        if (state.grid.querySelector('video[data-animation-playing="1"], .shift-photo-compare-youtube-player[data-animation-playing="1"]')) return;
+        if (this.hasShiftPhotoCompareAnimationVideoPlaying(state.overlay)) return;
         clearTimeout(state.presentationExitTimer);
         state.presentationExitTimer = setTimeout(() => {
             if (this._shiftPhotoCompareAnimationState === state && state.presentationMode) {
@@ -13057,9 +13067,43 @@
         }, 1000);
     }
 
+    hasShiftPhotoCompareAnimationVideoPlaying(root) {
+        return Boolean(root?.querySelector?.(
+            'video[data-animation-playing="1"], .shift-photo-compare-youtube-player[data-animation-playing="1"], .shift-photo-compare-mark.video[data-animation-playback-pending="1"]'
+        ));
+    }
+
+    queueShiftPhotoCompareAnimationVideoStart(item) {
+        const mark = item?.mark;
+        const state = this._shiftPhotoCompareAnimationState;
+        if (!mark || !state?.overlay?.contains?.(mark)) return;
+        clearTimeout(state.presentationExitTimer);
+        mark.dataset.animationPlaybackPending = '1';
+        const attempts = Math.max(0, Number(mark.dataset.animationPlaybackAttempts) || 0) + 1;
+        mark.dataset.animationPlaybackAttempts = String(attempts);
+        clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
+        this.hydrateShiftPhotoCompareVideoMarks(mark).finally(() => {
+            mark._shiftPhotoCompareVideoStartTimer = setTimeout(() => {
+                if (this._shiftPhotoCompareAnimationState !== state || !state.overlay.contains(mark)) return;
+                if (attempts >= 40) {
+                    delete mark.dataset.animationPlaybackPending;
+                    delete mark.dataset.animationPlaybackAttempts;
+                    delete mark._shiftPhotoCompareVideoStartTimer;
+                    this.scheduleShiftPhotoComparePresentationExitAfterVideo(mark);
+                    return;
+                }
+                this.startShiftPhotoCompareAnimationVideo(item);
+            }, 250);
+        });
+    }
+
     finishShiftPhotoCompareAnimationVideo(video, forceReturn = false) {
         const mark = video?.closest?.('.shift-photo-compare-mark.video');
         if (!mark) return;
+        clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
+        delete mark._shiftPhotoCompareVideoStartTimer;
+        delete mark.dataset.animationPlaybackPending;
+        delete mark.dataset.animationPlaybackAttempts;
         clearTimeout(mark._shiftPhotoCompareVideoPlaybackTimer);
         delete mark._shiftPhotoCompareVideoPlaybackTimer;
         video.pause();
@@ -13092,6 +13136,10 @@
     finishShiftPhotoCompareAnimationYouTube(mark, forceReturn = false) {
         const iframe = mark?.querySelector?.('.shift-photo-compare-youtube-player');
         if (!iframe) return;
+        clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
+        delete mark._shiftPhotoCompareVideoStartTimer;
+        delete mark.dataset.animationPlaybackPending;
+        delete mark.dataset.animationPlaybackAttempts;
         const behavior = !forceReturn && iframe.dataset.animationPlaying === '1' && ['hold', 'loop'].includes(mark.dataset.videoEndBehavior)
             ? mark.dataset.videoEndBehavior
             : 'return';
@@ -13112,41 +13160,48 @@
         this.scheduleShiftPhotoComparePresentationExitAfterVideo(mark);
     }
 
-    expandShiftPhotoCompareAnimationVideo(mark) {
-        if (!mark || mark.dataset.mode !== 'video' || mark._shiftPhotoCompareVideoExpandState) return;
-        clearTimeout(mark._shiftPhotoCompareVideoExpandTimer);
-        delete mark._shiftPhotoCompareVideoExpandTimer;
-        const wrap = mark.closest('.shift-photo-compare-image-wrap');
-        const parent = mark.offsetParent;
-        const imageRect = this.getShiftPhotoCompareDisplayImageRect(wrap);
-        const parentRect = parent?.getBoundingClientRect?.();
-        if (!wrap || !parent || !imageRect?.width || !imageRect?.height || !parentRect?.width || !parentRect?.height) return;
+    getShiftPhotoCompareAnimationVideoBoundsRect(mark) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const stage = state?.overlay?.querySelector?.('.shift-photo-compare-animation-stage')
+            || mark?.closest?.('.shift-photo-compare-animation-stage');
+        const grid = state?.grid || mark?.closest?.('.shift-photo-compare-animation-grid');
+        const stageRect = stage?.getBoundingClientRect?.();
+        const gridRect = grid?.getBoundingClientRect?.();
+        if (!stageRect?.width || !stageRect?.height) return null;
+        if (!gridRect?.width || !gridRect?.height) return stageRect;
+        const left = Math.max(stageRect.left, gridRect.left);
+        const top = Math.max(stageRect.top, gridRect.top);
+        const right = Math.min(stageRect.right, gridRect.right);
+        const bottom = Math.min(stageRect.bottom, gridRect.bottom);
+        return right > left && bottom > top
+            ? { left, top, right, bottom, width: right - left, height: bottom - top }
+            : stageRect;
+    }
 
-        const parentWidth = parent.clientWidth || parent.offsetWidth;
-        const parentHeight = parent.clientHeight || parent.offsetHeight;
-        if (!parentWidth || !parentHeight) return;
-        const scaleX = parentRect.width / parentWidth;
-        const scaleY = parentRect.height / parentHeight;
-        if (!scaleX || !scaleY) return;
+    positionShiftPhotoCompareAnimationExpandedVideo(mark) {
+        const expandState = mark?._shiftPhotoCompareVideoExpandState;
+        if (!expandState) return false;
+        const stage = expandState.stage;
+        const boundsRect = this.getShiftPhotoCompareAnimationVideoBoundsRect(mark);
+        const stageRect = stage?.getBoundingClientRect?.();
+        if (!stage || mark.parentElement !== stage || !boundsRect?.width || !boundsRect?.height || !stageRect?.width || !stageRect?.height) return false;
 
         const video = mark.querySelector('video');
-        const fallbackAspect = Math.max(0.05, (Number(mark.dataset.stretch) || 1) / (Number(mark.dataset.stretchY) || 1));
-        const aspect = video?.videoWidth > 0 && video?.videoHeight > 0
+        const libraryItem = this.getPhotoManagerVideo?.(String(mark.dataset.videoId || ''));
+        const libraryAspect = Number(libraryItem?.width) > 0 && Number(libraryItem?.height) > 0
+            ? Number(libraryItem.width) / Number(libraryItem.height)
+            : 0;
+        const fallbackAspect = Math.max(0.05, expandState.originalRect?.width / expandState.originalRect?.height || 1);
+        const aspect = libraryAspect || (video?.videoWidth > 0 && video?.videoHeight > 0
             ? video.videoWidth / video.videoHeight
-            : fallbackAspect;
-        const availableWidth = Math.max(24, imageRect.width / scaleX - 24);
-        const availableHeight = Math.max(24, imageRect.height / scaleY - 24);
+            : fallbackAspect);
+        const availableWidth = Math.max(24, boundsRect.width - 24);
+        const availableHeight = Math.max(24, boundsRect.height - 24);
         const targetWidth = Math.min(availableWidth, availableHeight * aspect);
         const targetHeight = targetWidth / aspect;
-        const centerX = (imageRect.left + imageRect.width / 2 - parentRect.left) / scaleX;
-        const centerY = (imageRect.top + imageRect.height / 2 - parentRect.top) / scaleY;
+        const centerX = boundsRect.left + boundsRect.width / 2 - stageRect.left;
+        const centerY = boundsRect.top + boundsRect.height / 2 - stageRect.top;
 
-        const properties = ['left', 'top', 'width', 'height', 'z-index', '--mark-rotate', '--mark-scale-x', '--mark-scale-y'];
-        mark._shiftPhotoCompareVideoExpandState = Object.fromEntries(
-            properties.map(property => [property, mark.style.getPropertyValue(property)])
-        );
-        mark.classList.add('shift-photo-compare-animation-video-expanding');
-        void mark.offsetWidth;
         mark.style.left = `${centerX}px`;
         mark.style.top = `${centerY}px`;
         mark.style.width = `${targetWidth}px`;
@@ -13155,39 +13210,99 @@
         mark.style.setProperty('--mark-rotate', '0deg');
         mark.style.setProperty('--mark-scale-x', '1');
         mark.style.setProperty('--mark-scale-y', '1');
+        return true;
+    }
+
+    expandShiftPhotoCompareAnimationVideo(mark) {
+        if (!mark || mark.dataset.mode !== 'video' || mark._shiftPhotoCompareVideoExpandState) return;
+        const animationState = this._shiftPhotoCompareAnimationState;
+        const stage = animationState?.overlay?.querySelector?.('.shift-photo-compare-animation-stage');
+        const parent = mark.parentNode;
+        const originalRect = mark.getBoundingClientRect();
+        const stageRect = stage?.getBoundingClientRect?.();
+        if (!stage || !parent || !originalRect.width || !originalRect.height || !stageRect?.width || !stageRect?.height) return;
+        clearTimeout(mark._shiftPhotoCompareVideoExpandTimer);
+        delete mark._shiftPhotoCompareVideoExpandTimer;
+
+        const properties = ['left', 'top', 'width', 'height', 'z-index', '--mark-rotate', '--mark-scale-x', '--mark-scale-y'];
+        const placeholder = document.createComment('shift-photo-compare-video-position');
+        parent.insertBefore(placeholder, mark);
+        mark._shiftPhotoCompareVideoExpandState = {
+            stage,
+            parent,
+            placeholder,
+            originalRect,
+            properties: Object.fromEntries(properties.map(property => [property, mark.style.getPropertyValue(property)]))
+        };
+        stage.appendChild(mark);
+        mark.classList.add('shift-photo-compare-animation-video-portaled');
+        mark.style.left = `${originalRect.left + originalRect.width / 2 - stageRect.left}px`;
+        mark.style.top = `${originalRect.top + originalRect.height / 2 - stageRect.top}px`;
+        mark.style.width = `${originalRect.width}px`;
+        mark.style.height = `${originalRect.height}px`;
+        mark.style.zIndex = '35';
+        mark.style.setProperty('--mark-rotate', '0deg');
+        mark.style.setProperty('--mark-scale-x', '1');
+        mark.style.setProperty('--mark-scale-y', '1');
+        mark.classList.add('shift-photo-compare-animation-video-expanding');
+        void mark.offsetWidth;
+        this.positionShiftPhotoCompareAnimationExpandedVideo(mark);
         mark.classList.add('shift-photo-compare-animation-video-expanded');
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            this.positionShiftPhotoCompareAnimationExpandedVideo(mark);
+        }));
+        clearTimeout(mark._shiftPhotoCompareVideoPositionTimer);
+        mark._shiftPhotoCompareVideoPositionTimer = setTimeout(() => {
+            this.positionShiftPhotoCompareAnimationExpandedVideo(mark);
+            delete mark._shiftPhotoCompareVideoPositionTimer;
+        }, 240);
     }
 
     restoreShiftPhotoCompareAnimationVideo(mark, immediate = false) {
         const state = mark?._shiftPhotoCompareVideoExpandState;
         if (!mark || !state) return;
+        clearTimeout(mark._shiftPhotoCompareVideoPositionTimer);
+        delete mark._shiftPhotoCompareVideoPositionTimer;
         const properties = ['left', 'top', 'width', 'height', 'z-index', '--mark-rotate', '--mark-scale-x', '--mark-scale-y'];
+        if (state.placeholder?.parentNode) {
+            state.placeholder.parentNode.insertBefore(mark, state.placeholder);
+            state.placeholder.remove();
+        } else if (state.parent?.isConnected) {
+            state.parent.appendChild(mark);
+        }
         properties.forEach(property => {
-            if (state[property]) mark.style.setProperty(property, state[property]);
+            const value = state.properties?.[property];
+            if (value) mark.style.setProperty(property, value);
             else mark.style.removeProperty(property);
         });
-        mark.classList.remove('shift-photo-compare-animation-video-expanded');
+        mark.classList.remove(
+            'shift-photo-compare-animation-video-expanded',
+            'shift-photo-compare-animation-video-expanding',
+            'shift-photo-compare-animation-video-portaled'
+        );
         delete mark._shiftPhotoCompareVideoExpandState;
-        if (immediate) {
-            mark.classList.remove('shift-photo-compare-animation-video-expanding');
-        } else {
-            clearTimeout(mark._shiftPhotoCompareVideoExpandTimer);
-            mark._shiftPhotoCompareVideoExpandTimer = setTimeout(() => {
-                mark.classList.remove('shift-photo-compare-animation-video-expanding');
-                delete mark._shiftPhotoCompareVideoExpandTimer;
-            }, 360);
-        }
+        clearTimeout(mark._shiftPhotoCompareVideoExpandTimer);
+        delete mark._shiftPhotoCompareVideoExpandTimer;
     }
 
     startShiftPhotoCompareAnimationVideo(item) {
         const mark = item?.mark;
         if (mark?.dataset?.mode !== 'video') return;
-        if (mark.dataset.videoSourceType === 'youtube') {
+        const libraryItem = this.getPhotoManagerVideo?.(String(mark.dataset.videoId || ''));
+        const isYouTube = mark.dataset.videoSourceType === 'youtube' || libraryItem?.sourceType === 'youtube';
+        if (isYouTube) {
             const iframe = mark.querySelector('.shift-photo-compare-youtube-player');
-            if (!iframe) return;
+            if (!iframe) {
+                this.queueShiftPhotoCompareAnimationVideoStart(item);
+                return;
+            }
             const state = this._shiftPhotoCompareAnimationState;
             if (state?.presentationMode) clearTimeout(state.presentationExitTimer);
             this.restoreShiftPhotoCompareAnimationVideo(mark, true);
+            clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
+            delete mark._shiftPhotoCompareVideoStartTimer;
+            delete mark.dataset.animationPlaybackPending;
+            delete mark.dataset.animationPlaybackAttempts;
             mark.classList.remove('shift-photo-compare-animation-video-user-paused');
             iframe.dataset.animationPlaying = '1';
             iframe.dataset.youtubeState = '1';
@@ -13197,12 +13312,19 @@
             return;
         }
         const video = mark.querySelector('video');
-        if (!video?.src) return;
+        if (!video?.src) {
+            this.queueShiftPhotoCompareAnimationVideoStart(item);
+            return;
+        }
         const state = this._shiftPhotoCompareAnimationState;
         if (state?.presentationMode) clearTimeout(state.presentationExitTimer);
         clearTimeout(mark._shiftPhotoCompareVideoPlaybackTimer);
         delete mark._shiftPhotoCompareVideoPlaybackTimer;
         this.restoreShiftPhotoCompareAnimationVideo(mark, true);
+        clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
+        delete mark._shiftPhotoCompareVideoStartTimer;
+        delete mark.dataset.animationPlaybackPending;
+        delete mark.dataset.animationPlaybackAttempts;
         mark.classList.remove('shift-photo-compare-animation-video-user-paused');
         const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
         video.currentTime = start;
@@ -13214,6 +13336,17 @@
     }
 
     toggleShiftPhotoCompareAnimationVideoPause(mark) {
+        const expandedLayout = mark?._shiftPhotoCompareVideoExpandState
+            ? Object.fromEntries(['left', 'top', 'width', 'height', 'z-index', '--mark-rotate', '--mark-scale-x', '--mark-scale-y']
+                .map(property => [property, mark.style.getPropertyValue(property)]))
+            : null;
+        const preserveExpandedLayout = () => {
+            if (!expandedLayout || !mark?._shiftPhotoCompareVideoExpandState) return;
+            Object.entries(expandedLayout).forEach(([property, value]) => {
+                if (value) mark.style.setProperty(property, value);
+            });
+            mark.classList.add('shift-photo-compare-animation-video-expanded');
+        };
         if (mark?.dataset?.videoSourceType === 'youtube') {
             const iframe = mark.querySelector('.shift-photo-compare-youtube-player');
             if (!iframe || iframe.dataset.animationPlaying !== '1') return false;
@@ -13224,6 +13357,8 @@
             const icon = mark.querySelector('.shift-photo-compare-video-play i');
             if (playing) icon?.classList.replace('fa-pause', 'fa-play');
             else icon?.classList.replace('fa-play', 'fa-pause');
+            preserveExpandedLayout();
+            requestAnimationFrame(preserveExpandedLayout);
             return true;
         }
         const video = mark?.querySelector?.('video');
@@ -13242,11 +13377,23 @@
             mark.classList.add('shift-photo-compare-animation-video-user-paused');
             icon?.classList.replace('fa-pause', 'fa-play');
         }
+        preserveExpandedLayout();
+        requestAnimationFrame(preserveExpandedLayout);
         return true;
     }
 
     stopShiftPhotoCompareAnimationVideos(root, onlyStopOnClick = false) {
-        root?.querySelectorAll?.('.shift-photo-compare-mark.video').forEach(mark => {
+        const marks = new Set(root?.querySelectorAll?.('.shift-photo-compare-mark.video') || []);
+        const state = this._shiftPhotoCompareAnimationState;
+        if (root === state?.grid) {
+            state.overlay?.querySelectorAll?.('.shift-photo-compare-mark.video.shift-photo-compare-animation-video-portaled')
+                .forEach(mark => marks.add(mark));
+        }
+        marks.forEach(mark => {
+            clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
+            delete mark._shiftPhotoCompareVideoStartTimer;
+            delete mark.dataset.animationPlaybackPending;
+            delete mark.dataset.animationPlaybackAttempts;
             const iframe = mark.querySelector('.shift-photo-compare-youtube-player');
             if (iframe) {
                 if (onlyStopOnClick && mark.dataset.videoClickMode !== 'stop') return;
