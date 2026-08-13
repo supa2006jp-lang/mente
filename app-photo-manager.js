@@ -152,7 +152,7 @@
             };
         }
 
-        getPhotoManagerYouTubeEmbedUrl(videoId = '', enableApi = false) {
+        getPhotoManagerYouTubeEmbedUrl(videoId = '', enableApi = false, showControls = true) {
             const id = String(videoId || '').replace(/[^a-zA-Z0-9_-]/g, '');
             if (!id) return '';
             const params = new URLSearchParams({
@@ -160,6 +160,7 @@
                 rel: '0'
             });
             if (enableApi) params.set('enablejsapi', '1');
+            if (!showControls) params.set('controls', '0');
             const origin = window.location?.origin;
             if (origin && origin !== 'null' && /^https?:\/\//i.test(origin)) {
                 params.set('origin', origin);
@@ -583,6 +584,7 @@
             const endLabel = values.hasEnd ? this.formatPhotoManagerVideoTimeInput(values.end) : '動画の最後';
             const lengthLabel = values.hasEnd ? `（${this.formatPhotoManagerVideoTimeInput(values.end - values.start)}）` : '';
             output.value = `${this.formatPhotoManagerVideoTimeInput(values.start)} ～ ${endLabel}${lengthLabel}`;
+            this.updatePhotoManagerExternalVideoSeekControls();
         }
 
         setPhotoManagerExternalVideoTrimFromCurrent(side = 'start') {
@@ -623,6 +625,113 @@
             player.play().catch(() => {});
         }
 
+        getPhotoManagerExternalVideoPlaybackBounds(item, panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel')) {
+            const values = this.getPhotoManagerExternalVideoTrimValues(item, panel);
+            const player = panel?.querySelector?.('.photo-manager-video-editor-player');
+            const iframe = panel?.querySelector?.('.photo-manager-video-editor-youtube');
+            const mediaDuration = Math.max(0, Number(player?.duration) || Number(iframe?.dataset.youtubeDuration) || values.duration || 0);
+            const start = Number.isFinite(values.start) ? Math.max(0, values.start) : 0;
+            const end = values.hasEnd && Number.isFinite(values.end)
+                ? (mediaDuration > 0 ? Math.min(values.end, mediaDuration) : values.end)
+                : mediaDuration;
+            return { start, end, duration: Math.max(0, end - start), hasKnownEnd: end > start };
+        }
+
+        updatePhotoManagerExternalVideoSeekControls() {
+            const item = this.getPhotoManagerVideo(this._photoManagerEditingVideoId);
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            const range = panel?.querySelector?.('.photo-manager-video-clip-seek');
+            const label = panel?.querySelector?.('.photo-manager-video-clip-time');
+            if (!item || !range || !label) return;
+            const bounds = this.getPhotoManagerExternalVideoPlaybackBounds(item, panel);
+            const player = panel.querySelector('.photo-manager-video-editor-player');
+            const iframe = panel.querySelector('.photo-manager-video-editor-youtube');
+            const current = player?.src ? Number(player.currentTime) || bounds.start : Number(iframe?.dataset.youtubeCurrentTime) || bounds.start;
+            const relative = Math.max(0, Math.min(bounds.duration || 0, current - bounds.start));
+            range.min = '0';
+            range.max = String(Math.max(0.1, bounds.duration || 0.1));
+            range.value = String(relative);
+            range.disabled = !bounds.hasKnownEnd;
+            label.textContent = bounds.hasKnownEnd
+                ? `${this.formatPhotoManagerVideoTimeInput(relative)} / ${this.formatPhotoManagerVideoTimeInput(bounds.duration)}`
+                : `${this.formatPhotoManagerVideoTimeInput(relative)} / 読込中`;
+        }
+
+        seekPhotoManagerExternalVideoClip(value = 0) {
+            const item = this.getPhotoManagerVideo(this._photoManagerEditingVideoId);
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            if (!item || !panel) return;
+            const bounds = this.getPhotoManagerExternalVideoPlaybackBounds(item, panel);
+            const target = bounds.start + Math.max(0, Math.min(bounds.duration || 0, Number(value) || 0));
+            const player = panel.querySelector('.photo-manager-video-editor-player');
+            const iframe = panel.querySelector('.photo-manager-video-editor-youtube');
+            if (player?.src) player.currentTime = Math.min(target, player.duration || target);
+            if (iframe) {
+                iframe.dataset.youtubeCurrentTime = String(target);
+                this.sendShiftPhotoCompareYouTubeCommand?.(iframe, 'seekTo', [target, true]);
+            }
+            this.updatePhotoManagerExternalVideoSeekControls();
+        }
+
+        togglePhotoManagerExternalVideoPlayback() {
+            const item = this.getPhotoManagerVideo(this._photoManagerEditingVideoId);
+            const panel = document.querySelector('#photo-manager-video-modal .photo-manager-video-panel');
+            if (!item || !panel) return;
+            const bounds = this.getPhotoManagerExternalVideoPlaybackBounds(item, panel);
+            const button = panel.querySelector('.photo-manager-video-clip-play');
+            const icon = button?.querySelector('i');
+            const player = panel.querySelector('.photo-manager-video-editor-player');
+            if (player?.src) {
+                if (player.paused) {
+                    if (player.currentTime < bounds.start || (bounds.hasKnownEnd && player.currentTime >= bounds.end)) player.currentTime = bounds.start;
+                    player.play().catch(() => {});
+                    icon?.classList.replace('fa-play', 'fa-pause');
+                } else {
+                    player.pause();
+                    icon?.classList.replace('fa-pause', 'fa-play');
+                }
+                return;
+            }
+            const iframe = panel.querySelector('.photo-manager-video-editor-youtube');
+            if (!iframe) return;
+            const playing = iframe.dataset.youtubeState === '1';
+            const current = Number(iframe.dataset.youtubeCurrentTime) || bounds.start;
+            if (!playing && (current < bounds.start || (bounds.hasKnownEnd && current >= bounds.end))) {
+                iframe.dataset.youtubeCurrentTime = String(bounds.start);
+                this.sendShiftPhotoCompareYouTubeCommand?.(iframe, 'seekTo', [bounds.start, true]);
+            }
+            this.sendShiftPhotoCompareYouTubeCommand?.(iframe, playing ? 'pauseVideo' : 'playVideo');
+            iframe.dataset.youtubeState = playing ? '2' : '1';
+            if (playing) icon?.classList.replace('fa-pause', 'fa-play');
+            else icon?.classList.replace('fa-play', 'fa-pause');
+        }
+
+        handlePhotoManagerYouTubePreviewMessage(iframe, payload) {
+            const panel = iframe?.closest?.('.photo-manager-video-panel');
+            if (!panel) return;
+            if (payload?.event === 'infoDelivery' && payload.info && typeof payload.info === 'object') {
+                if (Number.isFinite(Number(payload.info.currentTime))) iframe.dataset.youtubeCurrentTime = String(payload.info.currentTime);
+                if (Number.isFinite(Number(payload.info.duration)) && Number(payload.info.duration) > 0) iframe.dataset.youtubeDuration = String(payload.info.duration);
+                this.updatePhotoManagerExternalVideoSeekControls();
+                const item = this.getPhotoManagerVideo(this._photoManagerEditingVideoId);
+                const bounds = this.getPhotoManagerExternalVideoPlaybackBounds(item, panel);
+                const current = Number(iframe.dataset.youtubeCurrentTime) || bounds.start;
+                if (bounds.hasKnownEnd && current >= bounds.end - 0.05 && iframe.dataset.youtubeState === '1') {
+                    this.sendShiftPhotoCompareYouTubeCommand?.(iframe, 'pauseVideo');
+                    iframe.dataset.youtubeState = '2';
+                    panel.querySelector('.photo-manager-video-clip-play i')?.classList.replace('fa-pause', 'fa-play');
+                    iframe.dataset.youtubeCurrentTime = String(bounds.end);
+                    this.updatePhotoManagerExternalVideoSeekControls();
+                }
+                return;
+            }
+            if (payload?.event !== 'onStateChange') return;
+            const state = Number(payload.info);
+            iframe.dataset.youtubeState = String(state);
+            const icon = panel.querySelector('.photo-manager-video-clip-play i');
+            if (state === 1) icon?.classList.replace('fa-play', 'fa-pause');
+            if (state === 0 || state === 2) icon?.classList.replace('fa-pause', 'fa-play');
+        }
         syncPhotoManagerVideoTrimReferences(videoId = '', start = 0, end = 0) {
             const safeStart = Math.max(0, Number(start) || 0);
             const safeEnd = Math.max(0, Number(end) || 0);
@@ -662,9 +771,14 @@
                     <div class="photo-manager-video-editor photo-manager-video-url-editor">
                         <div class="photo-manager-video-editor-preview">
                             ${item.sourceType === 'youtube'
-                                ? `<iframe class="photo-manager-video-editor-youtube" src="${this.escapeHtml(this.getPhotoManagerYouTubeEmbedUrl(item.youtubeId, true))}" title="${this.escapeHtml(item.name || 'YouTube動画')}" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`
-                                : `<video class="photo-manager-video-editor-player" ${item.sourceType === 'url' ? `src="${this.escapeHtml(item.sourceUrl || '')}"` : `data-video-id="${this.escapeHtml(item.id)}"`} controls playsinline preload="metadata"></video>`}
+                                ? `<iframe class="photo-manager-video-editor-youtube" src="${this.escapeHtml(this.getPhotoManagerYouTubeEmbedUrl(item.youtubeId, true, false))}" title="${this.escapeHtml(item.name || 'YouTube動画')}" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`
+                                : `<video class="photo-manager-video-editor-player" ${item.sourceType === 'url' ? `src="${this.escapeHtml(item.sourceUrl || '')}"` : `data-video-id="${this.escapeHtml(item.id)}"`} playsinline preload="metadata"></video>`}
                             ${item.sourceType === 'local-handle' ? `<button type="button" class="photo-manager-video-editor-reconnect" onclick="app.reconnectPhotoManagerLocalVideo('${this.escapeJs(item.id)}')"><i class="fa-solid fa-folder-open"></i> PC動画へ再接続</button>` : ''}
+                        </div>
+                        <div class="photo-manager-video-clip-controls">
+                            <button type="button" class="photo-manager-video-clip-play" onclick="app.togglePhotoManagerExternalVideoPlayback()" title="再生・一時停止" aria-label="再生・一時停止"><i class="fa-solid fa-play"></i></button>
+                            <input class="photo-manager-video-clip-seek" type="range" min="0" max="1" step="0.1" value="0" oninput="app.seekPhotoManagerExternalVideoClip(this.value)" aria-label="使用範囲内の再生位置">
+                            <output class="photo-manager-video-clip-time">0:00 / 0:00</output>
                         </div>
                         <label><span>動画名</span><input class="photo-manager-video-name" type="text" maxlength="100" value="${this.escapeHtml(item.name || '')}"></label>
                         <label><span>${item.sourceType === 'local-handle' ? '元ファイル' : '動画アドレス'}</span><input type="text" value="${this.escapeHtml(item.sourceType === 'local-handle' ? item.fileName : (item.sourceUrl || ''))}" readonly></label>
@@ -687,6 +801,16 @@
                         <button type="button" class="danger-btn" onclick="app.deletePhotoManagerVideo('${this.escapeJs(item.id)}')"><i class="fa-solid fa-trash"></i> 削除</button>
                         <button type="button" class="primary-btn" onclick="app.savePhotoManagerVideoEdits('${this.escapeJs(item.id)}')"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                     </div>`;
+                const youtubePlayer = panel.querySelector('.photo-manager-video-editor-youtube');
+                if (youtubePlayer) {
+                    this.ensureShiftPhotoCompareYouTubeBridge?.();
+                    const connectYouTubePreview = () => {
+                        this.sendShiftPhotoCompareYouTubeCommand?.(youtubePlayer, 'addEventListener', ['onStateChange']);
+                        youtubePlayer.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: youtubePlayer.id || '' }), '*');
+                        this.updatePhotoManagerExternalVideoSeekControls();
+                    };
+                    youtubePlayer.addEventListener('load', connectYouTubePreview, { once: true });
+                }
                 const player = panel.querySelector('.photo-manager-video-editor-player');
                 if (item.sourceType === 'local-handle') {
                     const connected = await this.hydratePhotoManagerLinkedVideoElement(item, player, false);
@@ -696,15 +820,19 @@
                     const applyPlaybackRange = () => {
                         const values = this.getPhotoManagerExternalVideoTrimValues(item, panel);
                         if (Number.isFinite(values.start)) player.currentTime = Math.min(values.start, player.duration || values.start);
+                        this.updatePhotoManagerExternalVideoSeekControls();
                     };
                     if (player.readyState >= 1) applyPlaybackRange();
                     else player.addEventListener('loadedmetadata', applyPlaybackRange, { once: true });
+                    player.onplay = () => panel.querySelector('.photo-manager-video-clip-play i')?.classList.replace('fa-play', 'fa-pause');
+                    player.onpause = () => panel.querySelector('.photo-manager-video-clip-play i')?.classList.replace('fa-pause', 'fa-play');
                     player.ontimeupdate = () => {
                         const values = this.getPhotoManagerExternalVideoTrimValues(item, panel);
                         if (values.hasEnd && Number.isFinite(values.end) && player.currentTime >= values.end) {
                             player.pause();
-                            player.currentTime = Math.min(values.start || 0, player.duration || values.start || 0);
+                            player.currentTime = Math.min(values.end, player.duration || values.end);
                         }
+                        this.updatePhotoManagerExternalVideoSeekControls();
                     };
                 }
                 this.updatePhotoManagerExternalVideoTrimPreview();

@@ -41668,7 +41668,52 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     line-height: 1.5;
 }
 
+.photo-manager-video-clip-controls {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 112px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #111827;
+}
+.photo-manager-video-clip-play {
+    width: 40px;
+    height: 40px;
+    display: inline-grid;
+    place-items: center;
+    border: 1px solid #2dd4bf;
+    border-radius: 6px;
+    background: #134e4a;
+    color: #f0fdfa;
+    cursor: pointer;
+}
+.photo-manager-video-clip-seek {
+    width: 100%;
+    min-width: 0;
+    accent-color: #2dd4bf;
+    cursor: pointer;
+}
+.photo-manager-video-clip-seek:disabled {
+    cursor: wait;
+    opacity: 0.55;
+}
+.photo-manager-video-clip-time {
+    color: #e2e8f0;
+    font-variant-numeric: tabular-nums;
+    font-weight: 800;
+    text-align: right;
+    white-space: nowrap;
+}
 @media (max-width: 680px) {
+    .photo-manager-video-clip-controls {
+        grid-template-columns: 40px minmax(0, 1fr);
+    }
+    .photo-manager-video-clip-time {
+        grid-column: 2;
+        text-align: left;
+    }
     .photo-manager-video-time-fields {
         grid-template-columns: 1fr;
     }
@@ -42051,8 +42096,14 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     text-align: center;
 }
 
-.shift-photo-compare-mark.video.video-missing .shift-photo-compare-video-missing {
+.shift-photo-compare-mark.video.video-missing .shift-photo-compare-video-missing,
+.shift-photo-compare-mark.video.video-loading .shift-photo-compare-video-missing {
     display: grid;
+}
+
+.shift-photo-compare-mark.video.video-loading .shift-photo-compare-video-missing {
+    color: #ffffff;
+    background: rgba(15, 23, 42, 0.72);
 }
 
 .shift-photo-compare-animation-stage .shift-photo-compare-video-play {

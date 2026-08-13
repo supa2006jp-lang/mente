@@ -13685,15 +13685,27 @@
         }));
         const mark = layer.lastElementChild;
         if (!mark) return;
-        if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
-        else this.syncShiftPhotoCompareMarks(wrap);
-        await this.hydrateShiftPhotoCompareVideoMarks(mark);
+
+        // Show the placed mark before loading the video so one click always gives immediate feedback.
+        mark.classList.add('video-loading');
+        const loadingLabel = mark.querySelector('.shift-photo-compare-video-missing');
+        if (loadingLabel) loadingLabel.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>読込中';
+        document.getElementById('shift-photo-compare-video-picker')?.remove();
         this.setShiftPhotoCompareMarkModeDirect('move');
         this.selectShiftPhotoCompareMark(mark);
         this.refreshShiftPhotoCompareMarkList();
+        if (wrap.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
+        else this.syncShiftPhotoCompareMarks(wrap);
         this.autoSaveShiftNotebook(true);
-        document.getElementById('shift-photo-compare-video-picker')?.remove();
-        this.showShiftPhotoCompareActionMessage('動画を配置しました。');
+        this.showShiftPhotoCompareActionMessage('動画を読み込んでいます…');
+
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        await this.hydrateShiftPhotoCompareVideoMarks(mark);
+        mark.classList.remove('video-loading');
+        this.refreshShiftPhotoCompareMarkList();
+        this.showShiftPhotoCompareActionMessage(
+            mark.classList.contains('video-missing') ? '動画を配置しました。元動画を再接続してください。' : '動画を配置しました。'
+        );
     }
 
     async hydrateShiftPhotoCompareVideoMarks(root = document) {
@@ -13859,6 +13871,11 @@
             let payload = event.data;
             if (typeof payload === 'string') {
                 try { payload = JSON.parse(payload); } catch { return; }
+            }
+            const editorIframe = Array.from(document.querySelectorAll('.photo-manager-video-editor-youtube')).find(node => node.contentWindow === event.source);
+            if (editorIframe) {
+                this.handlePhotoManagerYouTubePreviewMessage?.(editorIframe, payload);
+                return;
             }
             const iframe = Array.from(document.querySelectorAll('.shift-photo-compare-youtube-player')).find(node => node.contentWindow === event.source);
             const mark = iframe?.closest('.shift-photo-compare-mark.video');
