@@ -13867,6 +13867,19 @@
                 if (Number.isFinite(Number(payload.info.currentTime))) iframe.dataset.youtubeCurrentTime = String(payload.info.currentTime);
                 if (Number.isFinite(Number(payload.info.duration)) && Number(payload.info.duration) > 0) iframe.dataset.youtubeDuration = String(payload.info.duration);
                 this.updateShiftPhotoCompareAnimationVideoSeekControls(mark);
+                const currentTime = Number(iframe.dataset.youtubeCurrentTime) || 0;
+                const trimStart = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
+                const trimEnd = Math.max(0, Number(mark.dataset.videoTrimEnd) || 0);
+                if (trimEnd > trimStart && currentTime >= trimEnd - 0.05 && iframe.dataset.youtubeState === '1') {
+                    if (iframe.dataset.animationPlaying === '1') {
+                        this.finishShiftPhotoCompareAnimationYouTube(mark);
+                    } else {
+                        this.sendShiftPhotoCompareYouTubeCommand(iframe, 'pauseVideo');
+                        this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [trimStart, true]);
+                        iframe.dataset.youtubeState = '2';
+                        mark.querySelector('.shift-photo-compare-video-play i')?.classList.replace('fa-pause', 'fa-play');
+                    }
+                }
                 return;
             }
             if (!payload || payload.event !== 'onStateChange') return;
@@ -13894,6 +13907,13 @@
         const iframe = mark?.querySelector?.('.shift-photo-compare-youtube-player');
         if (!iframe) return false;
         const playing = iframe.dataset.youtubeState === '1';
+        const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
+        const end = Math.max(0, Number(mark.dataset.videoTrimEnd) || 0);
+        const current = Math.max(0, Number(iframe.dataset.youtubeCurrentTime) || 0);
+        if (!playing && (current < start || (end > start && current >= end))) {
+            iframe.dataset.youtubeCurrentTime = String(start);
+            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
+        }
         this.sendShiftPhotoCompareYouTubeCommand(iframe, playing ? 'pauseVideo' : 'playVideo');
         iframe.dataset.youtubeState = playing ? '2' : '1';
         const icon = mark.querySelector('.shift-photo-compare-video-play i');
@@ -14205,20 +14225,22 @@
         delete mark._shiftPhotoCompareVideoStartTimer;
         delete mark.dataset.animationPlaybackPending;
         delete mark.dataset.animationPlaybackAttempts;
+        const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
         const behavior = !forceReturn && iframe.dataset.animationPlaying === '1' && ['hold', 'loop'].includes(mark.dataset.videoEndBehavior)
             ? mark.dataset.videoEndBehavior
             : 'return';
         if (behavior === 'loop') {
             this.restoreShiftPhotoCompareAnimationVideo(mark);
             requestAnimationFrame(() => this.positionShiftPhotoCompareAnimationVideoFinishControl(mark._shiftPhotoCompareVideoFinishControl));
-            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
+            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'playVideo');
             iframe.dataset.youtubeState = '1';
             const playbackRate = Number(mark.dataset.videoPlaybackRate) || 1;
+            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'setPlaybackRate', [playbackRate]);
             return;
         }
         this.sendShiftPhotoCompareYouTubeCommand(iframe, 'pauseVideo');
-        if (behavior === 'return') this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
+        if (behavior === 'return') this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
         delete iframe.dataset.animationPlaying;
         delete mark.dataset.animationPlaying;
         this.hideShiftPhotoCompareAnimationVideoFinishControl(mark);
@@ -14258,11 +14280,12 @@
             delete video.dataset.animationPlaying;
         }
         if (iframe) {
+            const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
             const configuredEnd = Number(mark.dataset.videoTrimEnd);
             if (originalBehavior === 'hold' && Number.isFinite(configuredEnd) && configuredEnd > 0) {
                 this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [configuredEnd, true]);
             } else {
-                this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
+                this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
             }
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'pauseVideo');
             delete iframe.dataset.animationPlaying;
@@ -14506,7 +14529,10 @@
             iframe.dataset.animationPlaying = '1';
             mark.dataset.animationPlaying = '1';
             iframe.dataset.youtubeState = '1';
-            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
+            const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
+            const playbackRate = Number(mark.dataset.videoPlaybackRate) || 1;
+            iframe.dataset.youtubeCurrentTime = String(start);
+            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
             if (item.effect === 'videoExpand') this.expandShiftPhotoCompareAnimationVideo(mark);
             this.showShiftPhotoCompareAnimationVideoFinishControl(mark);
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'playVideo');
@@ -14604,8 +14630,9 @@
             const iframe = mark.querySelector('.shift-photo-compare-youtube-player');
             if (iframe) {
                 if (onlyStopOnClick && mark.dataset.videoClickMode !== 'stop') return;
+                const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
                 this.sendShiftPhotoCompareYouTubeCommand(iframe, 'pauseVideo');
-                if (!onlyStopOnClick) this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [0, true]);
+                if (!onlyStopOnClick) this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
                 delete iframe.dataset.animationPlaying;
                 delete mark.dataset.animationPlaying;
                 this.hideShiftPhotoCompareAnimationVideoFinishControl(mark);

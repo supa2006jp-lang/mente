@@ -41587,6 +41587,98 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     font-weight: 800;
 }
 
+.photo-manager-video-time-trim {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.46);
+}
+
+.photo-manager-video-time-trim > div:first-child,
+.photo-manager-video-time-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.photo-manager-video-time-trim strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #f8fafc;
+}
+
+.photo-manager-video-time-output {
+    color: #5eead4;
+    font-weight: 850;
+}
+
+.photo-manager-video-time-output.error {
+    color: #fca5a5;
+}
+
+.photo-manager-video-time-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.photo-manager-video-time-fields label {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    color: #cbd5e1;
+    font-weight: 800;
+}
+
+.photo-manager-video-time-fields input {
+    min-width: 0;
+    height: 38px;
+    padding: 0 9px;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    background: #111827;
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
+}
+
+.photo-manager-video-time-fields button,
+.photo-manager-video-time-actions button {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 10px;
+    border: 1px solid #2dd4bf;
+    border-radius: 6px;
+    background: #134e4a;
+    color: #f0fdfa;
+    font-weight: 850;
+    cursor: pointer;
+}
+
+.photo-manager-video-time-actions small {
+    color: #94a3b8;
+    line-height: 1.5;
+}
+
+@media (max-width: 680px) {
+    .photo-manager-video-time-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .photo-manager-video-time-trim > div:first-child,
+    .photo-manager-video-time-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
 .photo-manager-video-click-mode label {
     display: flex;
     align-items: center;
