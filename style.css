@@ -1,4 +1,4 @@
-﻿/* Design Tokens */
+/* Design Tokens */
 @font-face {
     font-family: "fkKikaiChokoku";
     src: url("assets/fonts/fk-kikaichokoku/fkKikaiChokoku.otf") format("opentype");
@@ -19237,10 +19237,10 @@ select.history-assist-copied-value {
 .shift-photo-compare-header-actions {
     grid-column: 1 / -1;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-columns: minmax(0, 1fr) max-content 34px;
     grid-template-areas:
-        "tools close"
-        "recent recent";
+        "tools save close"
+        "recent recent recent";
     align-items: start;
     gap: 8px;
 }
@@ -19259,6 +19259,23 @@ select.history-assist-copied-value {
     background: rgba(255, 255, 255, 0.08);
 }
 
+.shift-photo-compare-animation-auto-order-btn {
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 9px;
+    border: 1px solid rgba(96, 165, 250, 0.72);
+    border-radius: 7px;
+    background: rgba(30, 64, 175, 0.78);
+    color: #eff6ff;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-auto-order-btn:hover {
+    background: #1d4ed8;
+}
 .shift-photo-compare-animation-play-btn {
     min-height: 30px;
     display: inline-flex;
@@ -21006,6 +21023,50 @@ select.history-assist-copied-value {
     position: relative;
     display: grid;
     gap: 8px;
+}
+
+.shift-photo-compare-save {
+    grid-area: save;
+    min-width: 104px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 14px;
+    border: 1px solid #6ee7b7;
+    border-radius: 7px;
+    background: #059669;
+    color: #ffffff;
+    font-weight: 950;
+    cursor: pointer;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2), 0 7px 18px rgba(5, 150, 105, 0.4);
+}
+
+.shift-photo-compare-save span {
+    margin: 0;
+    color: #ffffff;
+    font-size: 0.8rem;
+}
+
+.shift-photo-compare-save:hover:not(:disabled) {
+    border-color: #d1fae5;
+    background: #10b981;
+}
+
+.shift-photo-compare-save.saving {
+    background: #047857;
+    cursor: wait;
+}
+
+.shift-photo-compare-save.saved {
+    border-color: #a7f3d0;
+    background: #16a34a;
+}
+
+.shift-photo-compare-save.failed {
+    border-color: #fecaca;
+    background: #dc2626;
 }
 
 .shift-photo-compare-mini-toolbar {
@@ -25355,7 +25416,8 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-animation-effect-list,
 .shift-photo-compare-animation-motion-actions,
-.shift-photo-compare-video-end-actions {
+.shift-photo-compare-video-end-actions,
+.shift-photo-compare-speech-mark-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 7px;
@@ -25363,7 +25425,8 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-animation-effect-list button,
 .shift-photo-compare-animation-motion-actions button,
-.shift-photo-compare-video-end-actions button {
+.shift-photo-compare-video-end-actions button,
+.shift-photo-compare-speech-mark-actions button {
     min-height: 36px;
     padding: 6px 10px;
     border: 1px solid rgba(251, 146, 60, 0.36);
@@ -25372,6 +25435,86 @@ select.history-assist-copied-value {
     color: #334155;
     font-weight: 900;
     cursor: pointer;
+}
+
+.shift-photo-compare-speech-mark-actions button.active {
+    border-color: #10b981;
+    background: #047857;
+    color: #ffffff;
+}
+
+.shift-photo-compare-speech-mark-section > span small {
+    margin-left: 5px;
+    color: #94a3b8;
+    font-size: 0.68rem;
+}
+
+.shift-photo-compare-mark-speech-voice {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.shift-photo-compare-mark-speech-voice select,
+.shift-photo-compare-mark-speech-numbers input {
+    min-width: 0;
+    height: 30px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #1e293b;
+    font-weight: 800;
+}
+
+.shift-photo-compare-mark-speech-voice select {
+    width: 100%;
+}
+
+.shift-photo-compare-mark-speech-presets {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+}
+
+.shift-photo-compare-mark-speech-presets button {
+    min-width: 0;
+    min-height: 30px;
+    padding: 3px 4px;
+    font-size: 0.7rem;
+}
+
+.shift-photo-compare-mark-speech-presets button.active {
+    border-color: #10b981;
+    background: #047857;
+    color: #ffffff;
+}
+
+.shift-photo-compare-mark-speech-numbers {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.shift-photo-compare-mark-speech-numbers label {
+    display: grid;
+    gap: 3px;
+    color: #64748b;
+    font-size: 0.68rem;
+    font-weight: 900;
+}
+
+.shift-photo-compare-mark-speech-numbers input {
+    width: 100%;
+    padding: 0 5px;
+}
+
+.shift-photo-compare-mark-speech-reset {
+    width: 100%;
+    min-height: 30px;
 }
 
 .shift-photo-compare-animation-effect-list button.active,
@@ -25452,6 +25595,42 @@ select.history-assist-copied-value {
         0 0 0 4px rgba(16, 185, 129, 0.20);
 }
 
+.shift-photo-compare-animation-end-ghost.polyline {
+    outline: 0;
+    box-shadow: none !important;
+    background: transparent;
+}
+
+.shift-photo-compare-animation-end-ghost.polyline::after {
+    left: var(--animation-path-center-x, 50%);
+    top: calc(var(--animation-path-label-y, 50%) - 12px);
+    bottom: auto;
+    transform: translate(-50%, -100%);
+}
+
+.shift-photo-compare-animation-end-ghost.polyline .shift-photo-polyline-line {
+    stroke: #f97316;
+    filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.72));
+}
+
+.shift-photo-compare-animation-end-ghost.polyline.saved .shift-photo-polyline-line {
+    stroke: #10b981;
+    filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.72));
+}
+
+.shift-photo-compare-animation-end-ghost.polyline.saved {
+    pointer-events: none !important;
+}
+
+.shift-photo-compare-animation-linked-end-ghost::after {
+    display: none !important;
+}
+
+.shift-photo-compare-animation-linked-end-ghost {
+    pointer-events: none !important;
+}
+
+
 .shift-photo-compare-mini-toolbar .shift-photo-compare-animation-order-btn,
 .shift-photo-compare-mini-toolbar .shift-photo-compare-animation-order-clear-btn {
     display: inline-grid;
@@ -25522,6 +25701,7 @@ select.history-assist-copied-value {
 .shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-timeline,
 .shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-timeline-toggle,
 .shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-controls,
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-speech-settings,
 .shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-last-page-label {
     display: none !important;
 }
@@ -25667,6 +25847,111 @@ select.history-assist-copied-value {
     }
 }
 
+.shift-photo-compare-animation-progress {
+    flex: 1 1 260px;
+    min-width: 210px;
+    max-width: 430px;
+    display: grid;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.shift-photo-compare-animation-progress-text {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(80px, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75rem;
+}
+
+.shift-photo-compare-animation-current-page {
+    color: #fed7aa !important;
+    font-size: 0.78rem !important;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-current-step {
+    min-width: 0;
+    overflow: hidden;
+    color: #f8fafc;
+    font-weight: 850;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.shift-photo-compare-animation-counter {
+    margin-left: 0;
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-progress-track {
+    height: 5px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: rgba(148, 163, 184, 0.28);
+}
+
+.shift-photo-compare-animation-progress-track > span {
+    display: block;
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: #38bdf8;
+    transition: width 180ms ease;
+}
+
+.shift-photo-compare-animation-page-settings .shift-photo-compare-animation-save-all {
+    min-width: 104px;
+}
+
+.shift-photo-compare-animation-page-settings .shift-photo-compare-animation-save-all.pending {
+    border-color: #fb923c;
+    background: #9a3412;
+    color: #fff7ed;
+}
+
+.shift-photo-compare-animation-timeline-auto-order {
+    min-width: 58px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 7px;
+    border: 1px solid rgba(96, 165, 250, 0.62);
+    border-radius: 5px;
+    background: rgba(30, 64, 175, 0.48);
+    color: #dbeafe;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-timeline-auto-order:hover {
+    background: rgba(37, 99, 235, 0.72);
+}
+
+@media (max-width: 1100px) {
+    .shift-photo-compare-animation-progress {
+        flex-basis: 210px;
+        max-width: 300px;
+    }
+}
+
+@media (max-width: 820px) {
+    .shift-photo-compare-animation-progress {
+        order: 2;
+        max-width: none;
+        margin-left: 0;
+    }
+
+    .shift-photo-compare-animation-page-settings {
+        order: 4;
+    }
+}
 .shift-photo-compare-animation-main {
     --animation-timeline-width: 450px;
     position: relative;
@@ -26572,11 +26857,14 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
 }
 
 .shift-photo-compare-animation-stage .shift-photo-compare-mark.boxedText.shift-photo-compare-animation-region-pinned {
-    left: var(--animation-region-left) !important;
-    top: var(--animation-region-top) !important;
     width: var(--animation-region-width) !important;
     height: var(--animation-region-height) !important;
-    transform: translate(-50%, -50%) rotate(var(--mark-rotate)) !important;
+    transform: translate(-50%, -50%) rotate(var(--mark-rotate));
+}
+
+.shift-photo-compare-animation-stage .shift-photo-compare-mark.boxedText.shift-photo-compare-animation-region-pinned:not(.shift-photo-compare-animation-motion) {
+    left: var(--animation-region-left);
+    top: var(--animation-region-top);
 }
 
 .shift-photo-compare-animation-last-page-label {
@@ -26674,6 +26962,128 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     background: rgba(249, 115, 22, 0.32);
 }
 
+.shift-photo-compare-animation-controls .shift-photo-compare-animation-speech-toggle.active {
+    border-color: #6ee7b7;
+    background: #047857;
+    color: #ffffff;
+}
+
+.shift-photo-compare-animation-controls .shift-photo-compare-animation-speech-settings-btn {
+    min-width: 42px;
+}
+
+.shift-photo-compare-speech-settings {
+    position: absolute;
+    z-index: 10020;
+    right: 20px;
+    bottom: 82px;
+    width: min(390px, calc(100vw - 32px));
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid rgba(110, 231, 183, 0.55);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.97);
+    color: #f8fafc;
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+}
+
+.shift-photo-compare-speech-settings.hidden {
+    display: none;
+}
+
+.shift-photo-compare-speech-settings header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #6ee7b7;
+}
+
+.shift-photo-compare-speech-settings header button {
+    width: 32px;
+    height: 32px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 50%;
+    background: transparent;
+    color: #f8fafc;
+    cursor: pointer;
+}
+
+.shift-photo-compare-speech-settings > label,
+.shift-photo-compare-speech-number-row label {
+    display: grid;
+    gap: 5px;
+    color: #cbd5e1;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.shift-photo-compare-speech-presets {
+    display: grid;
+    gap: 5px;
+    color: #cbd5e1;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.shift-photo-compare-speech-presets > div {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.shift-photo-compare-speech-presets button {
+    min-height: 34px;
+    padding: 4px 6px;
+    border: 1px solid rgba(110, 231, 183, 0.32);
+    border-radius: 6px;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.shift-photo-compare-speech-presets button.active {
+    border-color: #6ee7b7;
+    background: #047857;
+    color: #ffffff;
+}
+
+.shift-photo-compare-speech-settings select,
+.shift-photo-compare-speech-settings input {
+    width: 100%;
+    height: 38px;
+    padding: 0 9px;
+    border: 1px solid rgba(110, 231, 183, 0.42);
+    border-radius: 6px;
+    background: #111827;
+    color: #f8fafc;
+}
+
+.shift-photo-compare-speech-number-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.shift-photo-compare-speech-preview {
+    min-height: 38px;
+    border: 1px solid #34d399;
+    border-radius: 6px;
+    background: #047857;
+    color: #ffffff;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+@media (max-width: 680px) {
+    .shift-photo-compare-speech-settings {
+        right: 8px;
+        bottom: 112px;
+        width: calc(100vw - 16px);
+    }
+}
+
 .shift-photo-compare-animation-controls .shift-photo-compare-animation-fullscreen-btn {
     min-width: 96px;
     border-color: #67e8f9;
@@ -26745,7 +27155,7 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
 
 .shift-photo-compare-animation-visible {
     visibility: visible !important;
-    opacity: 1 !important;
+    opacity: 1;
     animation-duration: 0.34s;
     animation-timing-function: ease-out;
     animation-fill-mode: both;
@@ -26837,6 +27247,10 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     animation-duration: var(--shift-photo-compare-animation-motion-duration, 700ms);
 }
 
+.shift-photo-compare-animation-visible.boxedText[data-region-comment="1"].shift-photo-compare-animation-motion {
+    animation-name: shift-photo-compare-animation-region-motion;
+}
+
 .shift-photo-compare-animation-visible.shift-photo-compare-animation-motion:is(.arrow, .dimension) {
     animation-name: shift-photo-compare-animation-motion-line;
 }
@@ -26853,6 +27267,10 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     .shift-photo-compare-animation-motion
 ) {
     animation-name: shift-photo-compare-animation-path-reveal;
+}
+
+.shift-photo-compare-animation-visible.polyline.shift-photo-compare-animation-motion {
+    animation-name: shift-photo-compare-animation-path-motion;
 }
 
 .shift-photo-compare-animation-motion-trails {
@@ -27176,6 +27594,23 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     }
 }
 
+@keyframes shift-photo-compare-animation-region-motion {
+    from {
+        left: var(--animation-from-left);
+        top: var(--animation-from-top);
+        width: var(--animation-from-width, var(--animation-from-size));
+        height: var(--animation-from-height, var(--animation-from-size));
+        opacity: 1;
+    }
+    to {
+        left: var(--animation-to-left);
+        top: var(--animation-to-top);
+        width: var(--animation-to-width, var(--animation-to-size));
+        height: var(--animation-to-height, var(--animation-to-size));
+        opacity: 1;
+    }
+}
+
 @keyframes shift-photo-compare-animation-motion-line {
     from {
         left: var(--animation-from-left);
@@ -27192,6 +27627,17 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
         height: var(--animation-to-height, var(--animation-to-size));
         opacity: 1;
         transform: translate(-50%, -50%) rotate(var(--animation-to-rotate));
+    }
+}
+
+@keyframes shift-photo-compare-animation-path-motion {
+    from {
+        opacity: 1;
+        transform: translate(0, 0);
+    }
+    to {
+        opacity: 1;
+        transform: translate(var(--animation-path-dx, 0%), var(--animation-path-dy, 0%));
     }
 }
 
@@ -41336,9 +41782,10 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
 
 .shift-photo-compare-animation-stage .shift-photo-compare-mark.video.shift-photo-compare-animation-video-user-paused .shift-photo-compare-video-seek-controls {
     position: absolute;
-    left: 6px;
-    right: 6px;
-    bottom: 7px;
+    left: 0;
+    right: 0;
+    top: calc(100% + 8px);
+    bottom: auto;
     z-index: 7;
     display: grid;
     grid-template-columns: 28px 28px minmax(32px, 1fr) minmax(54px, auto) 28px 28px;
@@ -41353,6 +41800,7 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     color: #ffffff;
     box-shadow: 0 5px 16px rgba(15, 23, 42, 0.38);
     transform: rotate(calc(-1 * var(--mark-rotate)));
+    transform-origin: top center;
     pointer-events: auto !important;
     touch-action: none;
 }
@@ -41520,11 +41968,7 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
 }
 
 .shift-photo-compare-animation-stage .shift-photo-compare-mark.video.shift-photo-compare-animation-video-user-paused .shift-photo-compare-video-play {
-    display: grid;
-    z-index: 5;
-    pointer-events: none;
-    background: rgba(190, 24, 93, 0.92);
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.38);
+    display: none;
 }
 
 .shift-photo-compare-mark.video.shift-photo-compare-animation-video-expanding {
