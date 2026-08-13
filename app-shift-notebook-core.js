@@ -2444,6 +2444,9 @@
         const text = this.stripShiftNoteHtml(html).trim();
         const pasteFormat = this.getShiftNoteRowPasteFormatSettings(row);
         const photos = Array.from(row.querySelectorAll('.shift-photo-previews .shift-photo-item')).map(item => {
+            if (item.dataset.shiftVideoReference) {
+                try { return JSON.parse(item.dataset.shiftVideoReference); } catch { return null; }
+            }
             const src = item.querySelector('img')?.src || '';
             const caption = item.querySelector('.shift-photo-caption')?.value.trim() || '';
             const marks = this.compactShiftPhotoCompareMarkImages(this.parseShiftPhotoCompareMarks(item.dataset.shiftPhotoMarks || '[]'));
@@ -2451,6 +2454,7 @@
         }).filter(photo => {
             if (typeof photo === 'string') return !!photo;
             if (!photo || typeof photo !== 'object') return false;
+            if (photo.source === 'photoManagerVideo' && photo.videoId) return true;
             if (photo.source === 'photoManager' && photo.id) return true;
             if (photo.photoManagerId) return true;
             return !!photo.src;
@@ -3448,6 +3452,21 @@
 
     normalizeShiftNotebookPhoto(photo) {
         if (typeof photo === 'string') return { src: photo, caption: '', marks: [] };
+        const videoId = photo?.source === 'photoManagerVideo' || photo?.videoId
+            ? String(photo.videoId || photo.id || '')
+            : '';
+        if (videoId) {
+            const video = this.getPhotoManagerVideo?.(videoId);
+            return {
+                src: '',
+                caption: photo?.caption || '',
+                source: 'photoManagerVideo',
+                videoId,
+                name: photo?.name || video?.name || video?.fileName || '動画',
+                thumbnailUrl: photo?.thumbnailUrl || video?.thumbnailUrl || '',
+                marks: []
+            };
+        }
         const refId = photo?.source === 'photoManager' || photo?.photoManagerId
             ? String(photo.photoManagerId || photo.id || '')
             : '';
@@ -4785,6 +4804,9 @@
                     <label class="shift-photo-btn" for="${rowId}-photo" title="写真を追加" aria-label="写真を追加">
                         <i class="fa-solid fa-camera" aria-hidden="true"></i>
                     </label>
+                    <button type="button" class="shift-photo-video-btn" title="登録動画を添付" onclick="app.openRegisteredVideoAttachmentPicker('shift', this.closest('.shift-notebook-row'))" aria-label="登録動画を添付">
+                        <i class="fa-solid fa-video" aria-hidden="true"></i>
+                    </button>
                     <button type="button" class="shift-photo-compare-btn" title="複数写真を並べて拡大表示" onclick="app.openShiftPhotoCompare(this)" aria-label="複数写真を並べて拡大表示">
                         <i class="fa-solid fa-images" aria-hidden="true"></i>
                     </button>
@@ -5055,6 +5077,23 @@
 
         const appendPreview = (photo) => {
             const photoData = this.normalizeShiftNotebookPhoto(photo);
+            if (photoData.source === 'photoManagerVideo' && photoData.videoId) {
+                const div = this.createRegisteredVideoAttachmentPreview?.(photoData, () => {
+                    requestAnimationFrame(() => this.updateShiftPhotoToolState(row));
+                    this.autoSaveShiftNotebook(true);
+                }, 74);
+                if (!div) return;
+                div.classList.add('shift-photo-item');
+                div.dataset.shiftVideoReference = JSON.stringify({
+                    source: 'photoManagerVideo',
+                    videoId: photoData.videoId,
+                    name: photoData.name || '',
+                    thumbnailUrl: photoData.thumbnailUrl || ''
+                });
+                preview.appendChild(div);
+                this.updateShiftPhotoToolState(row);
+                return;
+            }
             if (!photoData.src) return;
             const div = this.createPhotoPreviewElement(photoData.src, null, null, 74);
             div.classList.add('shift-photo-item');
@@ -36541,6 +36580,9 @@
             const fiveS = row.classList.contains('shift-row-5s');
             const pasteFormat = this.getShiftNoteRowPasteFormatSettings(row);
         const photos = Array.from(row.querySelectorAll('.shift-photo-previews .shift-photo-item')).map(item => {
+            if (item.dataset.shiftVideoReference) {
+                try { return JSON.parse(item.dataset.shiftVideoReference); } catch { return null; }
+            }
             const src = item.querySelector('img')?.src || '';
             const caption = item.querySelector('.shift-photo-caption')?.value.trim() || '';
             const marks = this.parseShiftPhotoCompareMarks(item.dataset.shiftPhotoMarks || '[]');
@@ -36560,6 +36602,7 @@
         }).filter(photo => {
             if (typeof photo === 'string') return !!photo;
             if (!photo || typeof photo !== 'object') return false;
+            if (photo.source === 'photoManagerVideo' && photo.videoId) return true;
             if (photo.source === 'photoManager' && photo.id) return true;
             if (photo.photoManagerId) return true;
             return !!photo.src;

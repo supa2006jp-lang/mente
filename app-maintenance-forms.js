@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppMaintenanceFormMethods extends MaintenanceApp {
@@ -814,8 +814,11 @@
                     </div>
 
                     <div class="form-group">
-                        <label>写真の添付 (複数可 / 自動で圧縮保存されます)</label>
-                        <input type="file" id="s-photos" accept="image/*" multiple style="margin-bottom:8px;">
+                        <label>添付資料 (写真・登録動画)</label>
+                        <div class="attachment-input-actions">
+                            <input type="file" id="s-photos" accept="image/*" multiple>
+                            <button type="button" class="secondary-btn registered-video-attach-btn" onclick="app.openRegisteredVideoAttachmentPicker('history', 's-photo-previews')"><i class="fa-solid fa-video"></i> 登録動画</button>
+                        </div>
                         <div id="s-photo-previews" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
                     </div>
 
@@ -2074,6 +2077,7 @@
         return (this._tempPhotos || []).filter(photo => {
             if (typeof photo === 'string') return !!photo;
             if (!photo || typeof photo !== 'object') return false;
+            if (photo.source === 'photoManagerVideo' && photo.videoId) return true;
             if (photo.source === 'photoManager' && photo.id) return true;
             if (photo.photoManagerId) return true;
             return !!photo.src;
@@ -2082,6 +2086,15 @@
 
     appendHistoryPhotoPreview(preview, photo, size = 80) {
         if (!preview) return;
+        if (photo?.source === 'photoManagerVideo' && photo?.videoId) {
+            const entry = photo;
+            const div = this.createRegisteredVideoAttachmentPreview?.(photo, () => {
+                this._tempPhotos = (this._tempPhotos || []).filter(p => p !== entry);
+                this.updateSaveStatus?.('dirty');
+            }, size);
+            if (div) preview.appendChild(div);
+            return;
+        }
         const src = this.getHistoryPhotoSrc(photo);
         if (!src) return;
         const entry = photo;
@@ -2107,6 +2120,19 @@
 
     normalizeGuidePhoto(photo) {
         if (typeof photo === 'string') return { src: photo, marks: [] };
+        if (photo?.source === 'photoManagerVideo' || photo?.videoId) {
+            const videoId = String(photo.videoId || photo.id || '');
+            const video = this.getPhotoManagerVideo?.(videoId);
+            return {
+                src: '',
+                source: 'photoManagerVideo',
+                videoId,
+                name: photo?.name || video?.name || video?.fileName || '動画',
+                thumbnailUrl: photo?.thumbnailUrl || video?.thumbnailUrl || '',
+                marks: [],
+                printSize: 72
+            };
+        }
         return {
             src: photo?.src || photo?.url || photo?.data || '',
             marks: Array.isArray(photo?.marks) ? photo.marks : [],
@@ -2221,7 +2247,7 @@
     async renderGuidePhotoPreviews() {
         const previewContainer = document.getElementById('g-photo-previews');
         if (!previewContainer) return;
-        this._tempPhotos = (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src);
+        this._tempPhotos = (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src || photo.videoId);
         previewContainer.innerHTML = '';
         if (this._tempPhotos.length > 1) {
             const alignPanel = document.createElement('label');
@@ -2233,6 +2259,19 @@
             previewContainer.appendChild(alignPanel);
         }
         this._tempPhotos.forEach((photo, index) => {
+            if (photo.source === 'photoManagerVideo' && photo.videoId) {
+                const videoDiv = this.createRegisteredVideoAttachmentPreview?.(photo, () => {
+                    this._tempPhotos.splice(index, 1);
+                    this.autoSaveGuideDraftFromModal();
+                    this.renderGuidePhotoPreviews();
+                }, 100);
+                if (videoDiv) {
+                    videoDiv.classList.add('guide-photo-item', 'guide-video-item');
+                    videoDiv.dataset.guidePhotoIndex = String(index);
+                    previewContainer.appendChild(videoDiv);
+                }
+                return;
+            }
             const div = document.createElement('div');
             div.className = `guide-photo-item${photo.marks?.length ? ' has-photo-marks' : ''}`;
             div.dataset.guidePhotoIndex = String(index);
@@ -2360,7 +2399,8 @@
             this.renderGuidePhotoPreviews();
             return;
         }
-        const photos = (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src);
+        const attachments = (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src || photo.videoId);
+        const photos = attachments.filter(photo => photo.src);
         if (photos.length < 2) return;
         const sizes = await Promise.all(photos.map(photo => this.getImageNaturalSize(photo.src)));
         const renderedHeights = photos.map((photo, index) => {
@@ -2370,8 +2410,10 @@
         });
         const targetHeight = Math.min(...renderedHeights.filter(value => Number.isFinite(value) && value > 0));
         if (!Number.isFinite(targetHeight) || targetHeight <= 0) return;
-        this._tempPhotos = photos.map((photo, index) => {
-            const size = sizes[index];
+        let imageIndex = 0;
+        this._tempPhotos = attachments.map(photo => {
+            if (!photo.src) return photo;
+            const size = sizes[imageIndex++];
             const nextSize = size.height > 0 ? targetHeight * Math.max(1, size.width) / size.height : Number(photo.printSize) || 72;
             return {
                 ...photo,
@@ -2407,7 +2449,7 @@
             author,
             tags,
             fontSize,
-            photos: (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src),
+            photos: (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src || photo.videoId),
             version: oldGuide.version || 'v1.0',
             updatedAt: new Date().toLocaleString(),
             changeNote: oldGuide.changeNote || '自動保存',
@@ -3729,7 +3771,7 @@
                     version,
                     updatedAt: new Date().toLocaleString(),
                     changeNote,
-                    photos: (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src),
+                    photos: (this._tempPhotos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src || photo.videoId),
                     revisions: []
                 };
                 store.save();
@@ -3952,7 +3994,7 @@
         const versionLabel = this.getGuideVersionLabel(guide);
         const guideTitle = this.getGuideDisplayTitle?.(h, guide) || this.getHistoryDisplayText(h);
         const guideTitleCandidates = this.getGuideTitleCandidates?.(h, machine) || [];
-        this._tempPhotos = (guide.photos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src);
+        this._tempPhotos = (guide.photos || []).map(photo => this.normalizeGuidePhoto(photo)).filter(photo => photo.src || photo.videoId);
 
         this.openModal('guide', '作業手順書（ナレッジベース）', () => {
             const content = document.getElementById('modal-content');
@@ -4052,8 +4094,11 @@
                     </div>
 
                     <aside class="guide-photo-side">
-                        <label>手順写真・参考画像</label>
-                        <input type="file" id="g-photos" accept="image/*" multiple>
+                        <label>手順写真・参考資料</label>
+                        <div class="attachment-input-actions">
+                            <input type="file" id="g-photos" accept="image/*" multiple>
+                            <button type="button" class="secondary-btn registered-video-attach-btn" onclick="app.openRegisteredVideoAttachmentPicker('guide')"><i class="fa-solid fa-video"></i> 登録動画</button>
+                        </div>
                         <div class="guide-photo-compress-note"><i class="fa-solid fa-gauge-high"></i> 追加画像は選択中の設定で自動軽量化します。</div>
                         ${this.getGuideImageCompressionPresetHtml()}
                         <div id="g-photo-previews" class="guide-photo-previews"></div>

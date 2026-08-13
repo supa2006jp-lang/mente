@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppHistoryMethods extends MaintenanceApp {
@@ -223,8 +223,11 @@
                     <datalist id="e-list-model-treatments"></datalist>
 
                     <div class="form-group">
-                        <label>写真の添付</label>
-                        <input type="file" id="e-photos" accept="image/*" multiple style="margin-bottom:8px;">
+                        <label>添付資料 (写真・登録動画)</label>
+                        <div class="attachment-input-actions">
+                            <input type="file" id="e-photos" accept="image/*" multiple>
+                            <button type="button" class="secondary-btn registered-video-attach-btn" onclick="app.openRegisteredVideoAttachmentPicker('history', 'e-photo-previews')"><i class="fa-solid fa-video"></i> 登録動画</button>
+                        </div>
                         <div id="e-photo-previews" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
                     </div>
 
@@ -1454,8 +1457,8 @@
             filterSteps.push({ label: '部品有', count: filtered.length });
         }
         if (photosOnly) {
-            filtered = filtered.filter(h => this.getResolvedHistoryPhotoSources?.(h.photos || []).length > 0);
-            filterSteps.push({ label: '写真有', count: filtered.length });
+            filtered = filtered.filter(h => (h.photos || []).some(photo => (photo?.source === 'photoManagerVideo' && photo?.videoId) || !!this.getHistoryPhotoSrc?.(photo)));
+            filterSteps.push({ label: '添付有', count: filtered.length });
         }
         if (guideOnly) {
             filtered = filtered.filter(h => this.hasHistoryGuide(h));
@@ -1607,8 +1610,14 @@
             const notesText = String(h.notes || '').trim();
             const recurrenceFrequency = recurrenceFrequencyByHistoryId.get(String(h.id));
             const isDateCollapsed = collapsedDates.has(h.date || '');
-            const historyPhotoSources = this.getResolvedHistoryPhotoSources?.(h.photos || [])
-                || (h.photos || []).map(p => this.getHistoryPhotoSrc?.(p) || '').filter(Boolean);
+            const historyAttachments = (h.photos || []).map(photo => {
+                if (photo?.source === 'photoManagerVideo' && photo?.videoId) {
+                    const video = this.getPhotoManagerVideo?.(photo.videoId);
+                    return video ? { type: 'video', id: photo.videoId, name: photo.name || video.name || video.fileName || '動画', thumbnailUrl: photo.thumbnailUrl || video.thumbnailUrl || '' } : null;
+                }
+                const src = this.getHistoryPhotoSrc?.(photo) || '';
+                return src ? { type: 'image', src } : null;
+            }).filter(Boolean);
 
             tr.innerHTML = `
                 <td style="text-align:center;">
@@ -1677,14 +1686,18 @@
                     ` : ''}
                 </td>
                 <td>
-                    ${historyPhotoSources.length > 0 ? `
+                    ${historyAttachments.length > 0 ? `
                         <div style="display:flex; flex-wrap:wrap; gap:4px; max-width:64px;">
-                            ${historyPhotoSources.slice(0, 2).map(src => `
+                            ${historyAttachments.slice(0, 2).map(item => item.type === 'video' ? `
+                                <button type="button" class="registered-video-history-thumb" onclick="event.stopPropagation(); app.openRegisteredVideoAttachment('${this.escapeJs(item.id)}')" title="${this.escapeHtml(item.name)}">
+                                    ${item.thumbnailUrl ? `<img src="${this.escapeHtml(item.thumbnailUrl)}" alt="">` : '<i class="fa-solid fa-play"></i>'}
+                                </button>
+                            ` : `
                                 <div class="img-box history-attachment-thumb" style="width:30px; height:30px; border-radius:0; border:1px solid #dbe3ef; box-shadow:none; flex-shrink:0; background:#ffffff;">
-                                    <img src="${src}" alt="添付画像" style="object-fit:contain; width:100%; height:100%; border-radius:0;">
+                                    <img src="${item.src}" alt="添付画像" style="object-fit:contain; width:100%; height:100%; border-radius:0;">
                                 </div>
                             `).join('')}
-                            ${historyPhotoSources.length > 2 ? `<div style="font-size:0.6rem; color:var(--text-light); width:100%; text-align:center;">+${historyPhotoSources.length-2}</div>` : ''}
+                            ${historyAttachments.length > 2 ? `<div style="font-size:0.6rem; color:var(--text-light); width:100%; text-align:center;">+${historyAttachments.length-2}</div>` : ''}
                         </div>
                     ` : '<span style="color:var(--text-light); font-size:0.75rem;">-</span>'}
                 </td>
@@ -1821,7 +1834,7 @@
         if (this.workerFilter) chips.push(`作業者: ${this.workerFilter}`);
         if (filters.machineCategory) chips.push(`装置区分: ${filters.machineCategory}`);
         if (filters.partsOnly) chips.push('部品有');
-        if (filters.photosOnly) chips.push('写真有');
+        if (filters.photosOnly) chips.push('添付有');
         if (filters.guideOnly) chips.push('手順有');
         if (filters.query) chips.push(`検索: ${filters.query}`);
         if (filters.missingDetail === 'cause') chips.push('原因未入力');

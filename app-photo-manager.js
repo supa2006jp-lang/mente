@@ -1607,6 +1607,278 @@
                 </div>`);
         }
 
+        createPhotoManagerVideoAttachmentReference(video = {}) {
+            const id = String(video?.id || '');
+            if (!id) return null;
+            return {
+                source: 'photoManagerVideo',
+                videoId: id,
+                name: video.name || video.fileName || '動画',
+                thumbnailUrl: video.thumbnailUrl || ''
+            };
+        }
+
+        createRegisteredVideoAttachmentPreview(reference = {}, onRemove = null, size = 80) {
+            const id = String(reference.videoId || reference.id || '');
+            if (!id) return null;
+            const video = this.getPhotoManagerVideo(id);
+            const name = reference.name || video?.name || video?.fileName || '動画';
+            const thumbnailUrl = reference.thumbnailUrl || video?.thumbnailUrl || '';
+            const div = document.createElement('div');
+            div.className = 'registered-video-attachment';
+            div.style.setProperty('--attachment-size', `${Math.max(56, Number(size) || 80)}px`);
+            div.innerHTML = `
+                <button type="button" class="registered-video-attachment-open" title="${this.escapeHtml(name)}" aria-label="${this.escapeHtml(name)}を再生">
+                    ${thumbnailUrl ? `<img src="${this.escapeHtml(thumbnailUrl)}" alt="">` : '<span class="registered-video-attachment-placeholder"><i class="fa-solid fa-video"></i></span>'}
+                    <span class="registered-video-attachment-play"><i class="fa-solid fa-play"></i></span>
+                </button>
+                <small>${this.escapeHtml(name)}</small>
+                <button type="button" class="close-btn registered-video-attachment-remove" title="削除" aria-label="削除"><i class="fa-solid fa-xmark"></i></button>
+            `;
+            div.querySelector('.registered-video-attachment-open').onclick = event => {
+                event.stopPropagation();
+                this.openRegisteredVideoAttachment(id);
+            };
+            div.querySelector('.registered-video-attachment-remove').onclick = event => {
+                event.stopPropagation();
+                div.remove();
+                onRemove?.();
+            };
+            return div;
+        }
+
+        openRegisteredVideoAttachmentPicker(kind = '', target = null) {
+            document.getElementById('registered-video-attachment-picker')?.remove();
+            this._registeredVideoAttachmentTarget = { kind, target };
+            const videos = this.getPhotoManagerVideos();
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="registered-video-attachment-picker" class="registered-video-picker" onclick="if(event.target===this)app.closeRegisteredVideoAttachmentPicker()">
+                    <section role="dialog" aria-modal="true" aria-label="登録動画を選択" onclick="event.stopPropagation()">
+                        <header>
+                            <strong><i class="fa-solid fa-video"></i> 登録動画を選択</strong>
+                            <button type="button" onclick="app.closeRegisteredVideoAttachmentPicker()" title="閉じる" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+                        </header>
+                        <div class="registered-video-picker-list">
+                            ${videos.length ? videos.map(video => `
+                                <button type="button" class="registered-video-picker-item" onclick="app.selectRegisteredVideoAttachment('${this.escapeJs(video.id)}')">
+                                    <span class="registered-video-picker-preview">
+                                        ${video.thumbnailUrl ? `<img src="${this.escapeHtml(video.thumbnailUrl)}" alt="">` : `<i class="${video.sourceType === 'youtube' ? 'fa-brands fa-youtube' : 'fa-solid fa-video'}"></i>`}
+                                        <i class="fa-solid fa-play"></i>
+                                    </span>
+                                    <span>
+                                        <b>${this.escapeHtml(video.name || video.fileName || '動画')}</b>
+                                        <small>${video.sourceType === 'local-handle' ? 'PCリンク' : (video.sourceType ? 'URL動画' : this.formatPhotoManagerBytes(video.size))}${this.getPhotoManagerVideoTrimSummary(video) ? ` / 使用 ${this.getPhotoManagerVideoTrimSummary(video)}` : ''}</small>
+                                    </span>
+                                </button>
+                            `).join('') : '<div class="registered-video-picker-empty"><i class="fa-solid fa-video-slash"></i><p>写真管理に登録された動画はありません。</p></div>'}
+                        </div>
+                    </section>
+                </div>
+            `);
+        }
+
+        closeRegisteredVideoAttachmentPicker() {
+            document.getElementById('registered-video-attachment-picker')?.remove();
+            this._registeredVideoAttachmentTarget = null;
+        }
+
+        selectRegisteredVideoAttachment(id = '') {
+            const video = this.getPhotoManagerVideo(id);
+            const destination = this._registeredVideoAttachmentTarget;
+            if (!video || !destination) return;
+            const reference = this.createPhotoManagerVideoAttachmentReference(video);
+            if (!reference) return;
+            if (destination.kind === 'shift') {
+                const input = destination.target?.querySelector?.('.shift-photo-input');
+                input?._shiftPhotoAddSrc?.(reference);
+            } else if (destination.kind === 'history') {
+                const preview = document.getElementById(String(destination.target || ''));
+                if (!Array.isArray(this._tempPhotos)) this._tempPhotos = [];
+                this._tempPhotos.push(reference);
+                this.appendHistoryPhotoPreview?.(preview, reference, 80);
+                this.updateSaveStatus?.('dirty');
+            } else if (destination.kind === 'guide') {
+                if (!Array.isArray(this._tempPhotos)) this._tempPhotos = [];
+                this._tempPhotos.push(this.normalizeGuidePhoto?.(reference) || reference);
+                this.renderGuidePhotoPreviews?.();
+                this.autoSaveGuideDraftFromModal?.();
+            }
+            this.closeRegisteredVideoAttachmentPicker();
+            this.showToast?.('登録動画を添付しました。', 'success');
+        }
+
+        getRegisteredVideoAttachmentWidth() {
+            try {
+                return Math.max(360, Math.min(1400, Number(localStorage.getItem('registeredVideoAttachmentWidth')) || 900));
+            } catch {
+                return 900;
+            }
+        }
+
+        setRegisteredVideoAttachmentWidth(width = 900) {
+            const next = Math.max(360, Math.min(1400, Math.round(Number(width) || 900)));
+            const card = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-card');
+            card?.style.setProperty('--video-viewer-width', `${next}px`);
+            const output = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-zoom');
+            if (output) output.textContent = `${Math.round(next / 9)}%`;
+            try { localStorage.setItem('registeredVideoAttachmentWidth', String(next)); } catch {}
+        }
+
+        async openRegisteredVideoAttachment(id = '') {
+            const video = this.getPhotoManagerVideo(id);
+            if (!video) {
+                this.showToast?.('登録元の動画が見つかりません。', 'warning');
+                return;
+            }
+            this.closeRegisteredVideoAttachment();
+            const start = Math.max(0, Number(video.trimStart) || 0);
+            const duration = Math.max(0, Number(video.duration) || 0);
+            const end = Math.max(start, Number(video.trimEnd) || duration || 0);
+            let playerHtml = '';
+            if (video.sourceType === 'youtube' && video.youtubeId) {
+                let embedUrl = this.getPhotoManagerYouTubeEmbedUrl(video.youtubeId, false, true);
+                try {
+                    const url = new URL(embedUrl);
+                    if (start > 0) url.searchParams.set('start', String(Math.floor(start)));
+                    if (end > start) url.searchParams.set('end', String(Math.ceil(end)));
+                    url.searchParams.set('autoplay', '1');
+                    embedUrl = url.href;
+                } catch {}
+                playerHtml = `<iframe src="${this.escapeHtml(embedUrl)}" title="${this.escapeHtml(video.name || '動画')}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+            } else {
+                playerHtml = `
+                    <video class="registered-video-viewer-player" data-video-id="${this.escapeHtml(video.id)}" playsinline preload="metadata"></video>
+                    <button type="button" class="registered-video-viewer-reconnect" onclick="app.reconnectRegisteredVideoAttachment('${this.escapeJs(video.id)}')"><i class="fa-solid fa-folder-open"></i> 再接続</button>
+                `;
+            }
+            const width = this.getRegisteredVideoAttachmentWidth();
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="registered-video-attachment-viewer" class="registered-video-viewer" onclick="if(event.target===this)app.closeRegisteredVideoAttachment()">
+                    <section class="registered-video-viewer-card" style="--video-viewer-width:${width}px" role="dialog" aria-modal="true" aria-label="${this.escapeHtml(video.name || '動画')}" onclick="event.stopPropagation()">
+                        <header>
+                            <strong>${this.escapeHtml(video.name || video.fileName || '動画')}</strong>
+                            <div>
+                                <output class="registered-video-viewer-zoom">${Math.round(width / 9)}%</output>
+                                <button type="button" onclick="app.closeRegisteredVideoAttachment()" title="閉じる" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                        </header>
+                        <div class="registered-video-viewer-stage">${playerHtml}</div>
+                        ${video.sourceType === 'youtube' ? '' : `
+                            <div class="registered-video-viewer-controls">
+                                <button type="button" onclick="app.toggleRegisteredVideoAttachmentPlayback()" title="再生・一時停止" aria-label="再生・一時停止"><i class="fa-solid fa-play"></i></button>
+                                <input type="range" min="0" max="1" step="0.05" value="0" oninput="app.seekRegisteredVideoAttachment(this.value)" aria-label="再生位置">
+                                <output>0:00 / 0:00</output>
+                            </div>
+                        `}
+                    </section>
+                </div>
+            `);
+            const overlay = document.getElementById('registered-video-attachment-viewer');
+            overlay.addEventListener('wheel', event => {
+                event.preventDefault();
+                this.setRegisteredVideoAttachmentWidth(this.getRegisteredVideoAttachmentWidth() + (event.deltaY < 0 ? 80 : -80));
+            }, { passive: false });
+            this._registeredVideoAttachmentKeyHandler = event => {
+                if (event.key === 'Escape') this.closeRegisteredVideoAttachment();
+            };
+            document.addEventListener('keydown', this._registeredVideoAttachmentKeyHandler);
+            if (video.sourceType !== 'youtube') await this.hydrateRegisteredVideoAttachmentPlayer(video, false);
+        }
+
+        async hydrateRegisteredVideoAttachmentPlayer(video, requestPermission = false) {
+            const overlay = document.getElementById('registered-video-attachment-viewer');
+            const player = overlay?.querySelector('.registered-video-viewer-player');
+            if (!overlay || !player || !video) return false;
+            try {
+                let source = '';
+                if (video.sourceType === 'url' && video.sourceUrl) {
+                    source = video.sourceUrl;
+                } else if (video.sourceType === 'local-handle') {
+                    const file = await this.loadPhotoManagerLinkedVideoFile(video, requestPermission);
+                    if (!file) {
+                        overlay.classList.add('needs-video-reconnect');
+                        return false;
+                    }
+                    source = URL.createObjectURL(file);
+                    this._registeredVideoAttachmentObjectUrl = source;
+                } else {
+                    const blob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey(video.id));
+                    if (!blob) throw new Error('Video blob not found');
+                    source = URL.createObjectURL(blob);
+                    this._registeredVideoAttachmentObjectUrl = source;
+                }
+                player.src = source;
+                overlay.classList.remove('needs-video-reconnect');
+                const start = Math.max(0, Number(video.trimStart) || 0);
+                const configuredEnd = Math.max(start, Number(video.trimEnd) || 0);
+                const controls = overlay.querySelector('.registered-video-viewer-controls');
+                const range = controls?.querySelector('input');
+                const output = controls?.querySelector('output');
+                const playIcon = controls?.querySelector('button i');
+                const update = () => {
+                    const actualEnd = configuredEnd > start ? configuredEnd : Math.max(start, Number(player.duration) || start);
+                    const clipDuration = Math.max(0.1, actualEnd - start);
+                    const relative = Math.max(0, Math.min(clipDuration, (Number(player.currentTime) || start) - start));
+                    if (range) {
+                        range.max = String(clipDuration);
+                        if (!range.matches(':active')) range.value = String(relative);
+                    }
+                    if (output) output.textContent = `${this.formatPhotoManagerVideoDuration(relative)} / ${this.formatPhotoManagerVideoDuration(clipDuration)}`;
+                    if (player.currentTime >= actualEnd - 0.03) {
+                        player.pause();
+                        player.currentTime = start;
+                    }
+                    playIcon?.classList.toggle('fa-play', player.paused);
+                    playIcon?.classList.toggle('fa-pause', !player.paused);
+                };
+                player.onloadedmetadata = () => {
+                    player.currentTime = Math.min(start, Math.max(0, (Number(player.duration) || start) - 0.05));
+                    update();
+                };
+                player.ontimeupdate = update;
+                player.onplay = update;
+                player.onpause = update;
+                player.play().catch(() => update());
+                return true;
+            } catch (error) {
+                console.warn('Attached video could not be opened.', error);
+                overlay.classList.add('needs-video-reconnect');
+                return false;
+            }
+        }
+
+        async reconnectRegisteredVideoAttachment(id = '') {
+            const video = this.getPhotoManagerVideo(id);
+            if (video) await this.hydrateRegisteredVideoAttachmentPlayer(video, true);
+        }
+
+        toggleRegisteredVideoAttachmentPlayback() {
+            const player = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-player');
+            if (!player?.src) return;
+            if (player.paused) player.play().catch(() => {});
+            else player.pause();
+        }
+
+        seekRegisteredVideoAttachment(value = 0) {
+            const player = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-player');
+            const video = this.getPhotoManagerVideo(player?.dataset.videoId || '');
+            if (!player || !video) return;
+            player.currentTime = Math.max(0, Number(video.trimStart) || 0) + Math.max(0, Number(value) || 0);
+        }
+
+        closeRegisteredVideoAttachment() {
+            const player = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-player');
+            player?.pause?.();
+            document.getElementById('registered-video-attachment-viewer')?.remove();
+            if (this._registeredVideoAttachmentObjectUrl) {
+                URL.revokeObjectURL(this._registeredVideoAttachmentObjectUrl);
+                this._registeredVideoAttachmentObjectUrl = '';
+            }
+            if (this._registeredVideoAttachmentKeyHandler) {
+                document.removeEventListener('keydown', this._registeredVideoAttachmentKeyHandler);
+                this._registeredVideoAttachmentKeyHandler = null;
+            }
+        }
         getPhotoManagerToday() {
             const d = new Date();
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
