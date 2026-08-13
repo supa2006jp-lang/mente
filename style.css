@@ -41874,22 +41874,14 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
 }
 
 .shift-photo-compare-mark.video {
-    width: var(--mark-size);
-    height: var(--mark-size);
+    width: calc(var(--mark-size) * var(--mark-scale-x));
+    height: calc(var(--mark-size) * var(--mark-scale-y));
     overflow: visible;
     border: 2px solid rgba(255, 255, 255, 0.88);
     border-radius: 6px;
     background: transparent;
     box-shadow: 0 5px 16px rgba(15, 23, 42, 0.3);
-}
-
-.shift-photo-compare-video-viewport {
-    position: absolute;
-    inset: 0;
-    display: block;
-    overflow: hidden;
-    border-radius: 4px;
-    background: transparent;
+    transform: translate(-50%, -50%) rotate(var(--mark-rotate));
 }
 
 .shift-photo-compare-mark.video video {
@@ -41899,8 +41891,6 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     border-radius: 4px;
     object-fit: fill;
     background: transparent;
-    transform: scale(var(--video-letterbox-scale, 1));
-    transform-origin: center center;
 }
 
 .shift-photo-compare-youtube-player {
@@ -41910,8 +41900,6 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     border: 0;
     border-radius: 4px;
     background: #000000;
-    transform: scale(var(--video-letterbox-scale, 1));
-    transform-origin: center center;
 }
 
 .shift-photo-compare-animation-stage .shift-photo-compare-youtube-player {
