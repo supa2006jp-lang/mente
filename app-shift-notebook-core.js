@@ -6941,7 +6941,7 @@
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --circle-border-width:${4 * stroke}px; --mark-font:${fontFamily}; --mark-opacity:${opacity}; --circle-image-size:${imageZoom * 100}%; --circle-image-offset-x:${imageOffsetX}%; --circle-image-offset-y:${imageOffsetY}%;"><img src="${this.escapeHtml(imageSrc)}" alt="">${orderBadgeHtml}</div>`;
         }
         if (mode === 'video') {
-            return `<div class="shift-photo-compare-mark video${lockedClass}" ${common} data-video-id="${this.escapeHtml(videoId)}" data-video-trim-start="${videoTrimStart}" data-video-trim-end="${videoTrimEnd}" data-video-click-mode="${videoClickMode}" data-video-end-behavior="${videoEndBehavior}" style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY};"><video preload="metadata" playsinline ontimeupdate="app.handleShiftPhotoCompareVideoTimeUpdate(this)" onended="app.handleShiftPhotoCompareVideoEnded(this)"></video><span class="shift-photo-compare-video-click-catcher" aria-hidden="true"></span><div class="shift-photo-compare-video-seek-controls"><button type="button" class="seek-ten-back" data-video-seek-step="-10" title="10秒戻る"><i class="fa-solid fa-rotate-left"></i><span>10</span></button><input type="range" class="shift-photo-compare-video-seek" min="0" max="1" step="0.1" value="0" aria-label="再生位置"><span class="shift-photo-compare-video-seek-time">0:00 / 0:00</span><button type="button" class="seek-ten-forward" data-video-seek-step="10" title="10秒進む"><i class="fa-solid fa-rotate-right"></i><span>10</span></button><button type="button" class="seek-frame-back" data-video-frame-step="-1" title="1コマ戻る"><i class="fa-solid fa-backward-step"></i></button><div class="shift-photo-compare-video-speed-options" role="group" aria-label="再生速度"><button type="button" data-video-playback-rate="0.25">.25</button><button type="button" data-video-playback-rate="0.5">.5</button><button type="button" data-video-playback-rate="1" class="active">1x</button><button type="button" data-video-playback-rate="1.5">1.5</button><button type="button" data-video-playback-rate="2">2x</button></div><button type="button" class="seek-frame-forward" data-video-frame-step="1" title="1コマ進む"><i class="fa-solid fa-forward-step"></i></button></div><button type="button" class="shift-photo-compare-video-finish" title="動画を最後まで再生した状態にする" aria-label="動画を終了"><i class="fa-solid fa-xmark"></i></button><button type="button" class="shift-photo-compare-video-play" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareVideoMark(this.closest('.shift-photo-compare-mark'))" title="動画を再生・停止"><i class="fa-solid fa-play"></i></button><span class="shift-photo-compare-video-missing"><i class="fa-solid fa-video-slash"></i>動画なし</span>${orderBadgeHtml}</div>`;
+            return `<div class="shift-photo-compare-mark video${lockedClass}" ${common} data-video-id="${this.escapeHtml(videoId)}" data-video-trim-start="${videoTrimStart}" data-video-trim-end="${videoTrimEnd}" data-video-click-mode="${videoClickMode}" data-video-end-behavior="${videoEndBehavior}" style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY};"><span class="shift-photo-compare-video-viewport"><video preload="metadata" playsinline ontimeupdate="app.handleShiftPhotoCompareVideoTimeUpdate(this)" onended="app.handleShiftPhotoCompareVideoEnded(this)"></video></span><span class="shift-photo-compare-video-click-catcher" aria-hidden="true"></span><div class="shift-photo-compare-video-seek-controls"><button type="button" class="seek-ten-back" data-video-seek-step="-10" title="10秒戻る"><i class="fa-solid fa-rotate-left"></i><span>10</span></button><input type="range" class="shift-photo-compare-video-seek" min="0" max="1" step="0.1" value="0" aria-label="再生位置"><span class="shift-photo-compare-video-seek-time">0:00 / 0:00</span><button type="button" class="seek-ten-forward" data-video-seek-step="10" title="10秒進む"><i class="fa-solid fa-rotate-right"></i><span>10</span></button><button type="button" class="seek-frame-back" data-video-frame-step="-1" title="1コマ戻る"><i class="fa-solid fa-backward-step"></i></button><div class="shift-photo-compare-video-speed-options" role="group" aria-label="再生速度"><button type="button" data-video-playback-rate="0.25">.25</button><button type="button" data-video-playback-rate="0.5">.5</button><button type="button" data-video-playback-rate="1" class="active">1x</button><button type="button" data-video-playback-rate="1.5">1.5</button><button type="button" data-video-playback-rate="2">2x</button></div><button type="button" class="seek-frame-forward" data-video-frame-step="1" title="1コマ進む"><i class="fa-solid fa-forward-step"></i></button></div><button type="button" class="shift-photo-compare-video-finish" title="動画を最後まで再生した状態にする" aria-label="動画を終了"><i class="fa-solid fa-xmark"></i></button><button type="button" class="shift-photo-compare-video-play" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareVideoMark(this.closest('.shift-photo-compare-mark'))" title="動画を再生・停止"><i class="fa-solid fa-play"></i></button><span class="shift-photo-compare-video-missing"><i class="fa-solid fa-video-slash"></i>動画なし</span>${orderBadgeHtml}</div>`;
         }
         if (mode === 'callout') {
             const inverseX = 1 / Math.max(0.05, stretch);
@@ -13708,6 +13708,88 @@
         );
     }
 
+    async applyShiftPhotoCompareVideoLetterboxCrop(mark, item, media = null) {
+        if (!mark || !item) return;
+        const id = String(item.id || mark.dataset.videoId || '');
+        if (!id) return;
+        if (!this._shiftPhotoCompareVideoCropCache) this._shiftPhotoCompareVideoCropCache = new Map();
+
+        const applyCrop = crop => {
+            const scale = Number(crop?.scale) || 1;
+            document.querySelectorAll('.shift-photo-compare-mark.video[data-video-id="' + CSS.escape(id) + '"]').forEach(target => {
+                target.style.setProperty('--video-letterbox-scale', String(scale));
+                target.classList.toggle('video-letterbox-cropped', scale > 1.01);
+            });
+        };
+
+        if (this._shiftPhotoCompareVideoCropCache.has(id)) {
+            applyCrop(this._shiftPhotoCompareVideoCropCache.get(id));
+            return;
+        }
+        if (this._shiftPhotoCompareVideoCropPending?.has(id)) return;
+        if (!this._shiftPhotoCompareVideoCropPending) this._shiftPhotoCompareVideoCropPending = new Set();
+        this._shiftPhotoCompareVideoCropPending.add(id);
+
+        try {
+            let source = media;
+            if (item.sourceType === 'youtube' && item.youtubeId) {
+                source = await new Promise((resolve, reject) => {
+                    const image = new Image();
+                    image.crossOrigin = 'anonymous';
+                    image.onload = () => resolve(image);
+                    image.onerror = reject;
+                    image.src = 'https://i.ytimg.com/vi/' + encodeURIComponent(item.youtubeId) + '/mqdefault.jpg';
+                });
+            } else if (source?.tagName === 'VIDEO' && source.readyState < 2) {
+                await new Promise(resolve => {
+                    const done = () => resolve();
+                    source.addEventListener('loadeddata', done, { once: true });
+                    setTimeout(done, 1800);
+                });
+            }
+
+            const sourceWidth = Number(source?.videoWidth || source?.naturalWidth || source?.width) || 0;
+            const sourceHeight = Number(source?.videoHeight || source?.naturalHeight || source?.height) || 0;
+            if (!source || sourceWidth < 32 || sourceHeight < 18) throw new Error('Video frame is not ready');
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 160;
+            canvas.height = Math.max(36, Math.min(120, Math.round(canvas.width * sourceHeight / sourceWidth)));
+            const context = canvas.getContext('2d', { willReadFrequently: true });
+            context.drawImage(source, 0, 0, canvas.width, canvas.height);
+            const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+            const rowIsBlack = y => {
+                let black = 0;
+                for (let x = 0; x < canvas.width; x += 1) {
+                    const offset = (y * canvas.width + x) * 4;
+                    const r = pixels[offset];
+                    const g = pixels[offset + 1];
+                    const b = pixels[offset + 2];
+                    if (r <= 24 && g <= 24 && b <= 24) black += 1;
+                }
+                return black / canvas.width >= 0.92;
+            };
+
+            let top = 0;
+            let bottom = 0;
+            while (top < canvas.height * 0.42 && rowIsBlack(top)) top += 1;
+            while (bottom < canvas.height * 0.42 && rowIsBlack(canvas.height - 1 - bottom)) bottom += 1;
+            const croppedRows = top + bottom;
+            const fraction = croppedRows / canvas.height;
+            const balanced = top > 0 && bottom > 0 && Math.max(top, bottom) <= Math.max(3, Math.min(top, bottom) * 2.5);
+            const scale = balanced && fraction >= 0.08 && fraction <= 0.56
+                ? Math.min(2.25, 1 / (1 - fraction))
+                : 1;
+            const crop = { scale };
+            this._shiftPhotoCompareVideoCropCache.set(id, crop);
+            applyCrop(crop);
+        } catch {
+            this._shiftPhotoCompareVideoCropCache.set(id, { scale: 1 });
+            applyCrop({ scale: 1 });
+        } finally {
+            this._shiftPhotoCompareVideoCropPending.delete(id);
+        }
+    }
     async hydrateShiftPhotoCompareVideoMarks(root = document) {
         const marks = root?.matches?.('.shift-photo-compare-mark.video')
             ? [root]
@@ -13761,7 +13843,7 @@
                         iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
                         iframe.referrerPolicy = 'strict-origin-when-cross-origin';
                         iframe.setAttribute('allowfullscreen', '');
-                        mark.insertBefore(iframe, mark.firstChild);
+                        (mark.querySelector('.shift-photo-compare-video-viewport') || mark).appendChild(iframe);
                     }
                     iframe.dataset.videoId = id;
                     iframe.onload = () => {
@@ -13784,6 +13866,7 @@
                     mark.classList.add('video-external', 'video-youtube');
                     mark.classList.remove('video-missing');
                     this.ensureShiftPhotoCompareYouTubeBridge();
+                    this.applyShiftPhotoCompareVideoLetterboxCrop(mark, item);
                     continue;
                 }
                 if (video.dataset.videoHydrated === id && video.src) continue;
@@ -13794,6 +13877,8 @@
                         mark.classList.add('video-missing', 'video-local-permission-needed');
                         const missing = mark.querySelector('.shift-photo-compare-video-missing');
                         if (missing) missing.innerHTML = '<i class="fa-solid fa-folder-open"></i>クリックして再接続';
+                    } else {
+                        this.applyShiftPhotoCompareVideoLetterboxCrop(mark, item, video);
                     }
                     continue;
                 }
@@ -13804,6 +13889,7 @@
                     mark.dataset.videoSourceType = 'url';
                     mark.classList.add('video-external');
                     mark.classList.remove('video-youtube', 'video-missing');
+                    this.applyShiftPhotoCompareVideoLetterboxCrop(mark, item, video);
                     continue;
                 }
                 const blob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey?.(id) || id);
@@ -13826,6 +13912,7 @@
                         mark.dataset.videoTrimEnd = String(item?.trimEnd || video.duration || 0);
                     }
                     video.currentTime = Math.min(start, video.duration || start);
+                    this.applyShiftPhotoCompareVideoLetterboxCrop(mark, item, video);
                 };
                 mark.classList.remove('video-missing');
             } catch (error) {

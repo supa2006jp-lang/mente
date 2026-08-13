@@ -41883,6 +41883,15 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     box-shadow: 0 5px 16px rgba(15, 23, 42, 0.3);
 }
 
+.shift-photo-compare-video-viewport {
+    position: absolute;
+    inset: 0;
+    display: block;
+    overflow: hidden;
+    border-radius: 4px;
+    background: transparent;
+}
+
 .shift-photo-compare-mark.video video {
     display: block;
     width: 100%;
@@ -41890,6 +41899,8 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     border-radius: 4px;
     object-fit: fill;
     background: transparent;
+    transform: scale(var(--video-letterbox-scale, 1));
+    transform-origin: center center;
 }
 
 .shift-photo-compare-youtube-player {
@@ -41899,6 +41910,8 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     border: 0;
     border-radius: 4px;
     background: #000000;
+    transform: scale(var(--video-letterbox-scale, 1));
+    transform-origin: center center;
 }
 
 .shift-photo-compare-animation-stage .shift-photo-compare-youtube-player {
