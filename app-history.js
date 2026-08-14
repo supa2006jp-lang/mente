@@ -1613,7 +1613,13 @@
             const historyAttachments = (h.photos || []).map(photo => {
                 if (photo?.source === 'photoManagerVideo' && photo?.videoId) {
                     const video = this.getPhotoManagerVideo?.(photo.videoId);
-                    return video ? { type: 'video', id: photo.videoId, name: photo.name || video.name || video.fileName || '動画', thumbnailUrl: photo.thumbnailUrl || video.thumbnailUrl || '' } : null;
+                    return {
+                        type: 'video',
+                        id: photo.videoId,
+                        name: video?.name || photo.name || video?.fileName || '動画',
+                        thumbnailUrl: video?.thumbnailUrl || photo.thumbnailUrl || '',
+                        missing: !video
+                    };
                 }
                 const src = this.getHistoryPhotoSrc?.(photo) || '';
                 return src ? { type: 'image', src } : null;
@@ -1689,8 +1695,8 @@
                     ${historyAttachments.length > 0 ? `
                         <div style="display:flex; flex-wrap:wrap; gap:4px; max-width:64px;">
                             ${historyAttachments.slice(0, 2).map(item => item.type === 'video' ? `
-                                <button type="button" class="registered-video-history-thumb" onclick="event.stopPropagation(); app.openRegisteredVideoAttachment('${this.escapeJs(item.id)}')" title="${this.escapeHtml(item.name)}">
-                                    ${item.thumbnailUrl ? `<img src="${this.escapeHtml(item.thumbnailUrl)}" alt="">` : '<i class="fa-solid fa-play"></i>'}
+                                <button type="button" class="registered-video-history-thumb ${item.missing ? 'video-source-unavailable' : ''}" onclick="event.stopPropagation(); app.openRegisteredVideoAttachment('${this.escapeJs(item.id)}')" title="${this.escapeHtml(item.missing ? '登録元の動画が見つかりません' : item.name)}">
+                                    ${item.thumbnailUrl ? `<img src="${this.escapeHtml(item.thumbnailUrl)}" alt="" data-video-thumbnail-id="${this.escapeHtml(item.id)}">` : `<i class="fa-solid ${item.missing ? 'fa-triangle-exclamation' : 'fa-play'}"></i>`}
                                 </button>
                             ` : `
                                 <div class="img-box history-attachment-thumb" style="width:30px; height:30px; border-radius:0; border:1px solid #dbe3ef; box-shadow:none; flex-shrink:0; background:#ffffff;">

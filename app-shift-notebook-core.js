@@ -3463,7 +3463,7 @@
                 source: 'photoManagerVideo',
                 videoId,
                 name: photo?.name || video?.name || video?.fileName || '動画',
-                thumbnailUrl: photo?.thumbnailUrl || video?.thumbnailUrl || '',
+                thumbnailUrl: video?.thumbnailUrl || photo?.thumbnailUrl || '',
                 marks: []
             };
         }
@@ -5447,6 +5447,22 @@
             speechVolume: Number.isFinite(Number(page.speechVolume)) && page.speechVolume !== ''
                 ? Math.max(0, Math.min(1, Number(page.speechVolume)))
                 : '',
+            recordedAudioKey: typeof page.recordedAudioKey === 'string' ? page.recordedAudioKey.slice(0, 240) : '',
+            recordedAudioType: typeof page.recordedAudioType === 'string' ? page.recordedAudioType.slice(0, 100) : '',
+            recordedAudioName: typeof page.recordedAudioName === 'string' ? page.recordedAudioName.slice(0, 180) : '',
+            recordedAudioSource: page.recordedAudioSource === 'file' ? 'file' : (page.recordedAudioKey ? 'recording' : ''),
+            recordedAudioSize: Number.isFinite(Number(page.recordedAudioSize))
+                ? Math.max(0, Number(page.recordedAudioSize))
+                : 0,
+            recordedAudioDuration: Number.isFinite(Number(page.recordedAudioDuration))
+                ? Math.max(0, Math.min(3600, Number(page.recordedAudioDuration)))
+                : 0,
+            recordedAudioTrimStart: Number.isFinite(Number(page.recordedAudioTrimStart))
+                ? Math.max(0, Math.min(3600, Number(page.recordedAudioTrimStart)))
+                : 0,
+            recordedAudioTrimEnd: Number.isFinite(Number(page.recordedAudioTrimEnd))
+                ? Math.max(0, Math.min(3600, Number(page.recordedAudioTrimEnd)))
+                : 0,
             animationInsertAfter: Number.isFinite(Number(page.animationInsertAfter))
                 ? Math.max(-1, Math.min(999, Math.round(Number(page.animationInsertAfter))))
                 : -1
@@ -8341,67 +8357,213 @@
         return Math.max(0.5, Math.min(2, Number(basePitch) + change * strength));
     }
 
-    cancelShiftPhotoCompareSpeech() {
-        this._shiftPhotoCompareSpeechGeneration = (Number(this._shiftPhotoCompareSpeechGeneration) || 0) + 1;
-        this._shiftPhotoCompareSpeechPendingCount = 0;
-        if (!('speechSynthesis' in window)) return;
-        window.speechSynthesis.cancel();
+    getShiftPhotoComparePageRecordedAudio(mark) {
+        if (!this.supportsShiftPhotoComparePages(mark)) return null;
+        const pages = this.getShiftPhotoCompareMarkPagesFromDataset(mark);
+        const index = Math.max(0, Math.min(pages.length - 1, Math.round(Number(mark.dataset.currentPage) || 0)));
+        const page = pages[index];
+        return page?.recordedAudioKey ? {
+            key: String(page.recordedAudioKey),
+            type: String(page.recordedAudioType || ''),
+            duration: Math.max(0, Number(page.recordedAudioDuration) || 0),
+            trimStart: Math.max(0, Number(page.recordedAudioTrimStart) || 0),
+            trimEnd: Math.max(0, Number(page.recordedAudioTrimEnd) || 0)
+        } : null;
     }
 
-    isShiftPhotoCompareSpeechInProgress() {
-        return Math.max(0, Number(this._shiftPhotoCompareSpeechPendingCount) || 0) > 0;
-    }
-
-    speakShiftPhotoCompareAnimationMarks(marks = [], options = {}) {
-        if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
-            if (options.force) this.showToast?.('このブラウザーでは音声読み上げを利用できません。');
-            return false;
-        }
-        const commonSettings = this.getShiftPhotoCompareSpeechSettings();
-        if (!options.force && !commonSettings.enabled) return false;
-        const speechParts = marks.flatMap(mark => {
-            const settings = this.getShiftPhotoCompareMarkSpeechSettings(mark);
-            if (!options.force && !settings.enabled) return [];
-            return this.getShiftPhotoCompareSpeechSegments(this.getShiftPhotoCompareSpeechText(mark))
-                .map(text => ({ text, settings }));
-        });
-        if (!speechParts.length) {
-            if (options.force) this.showToast?.('読み上げるテキストがありません。');
-            return false;
-        }
-        const voices = window.speechSynthesis.getVoices?.() || [];
-        this.cancelShiftPhotoCompareSpeech();
-        const speechGeneration = this._shiftPhotoCompareSpeechGeneration;
-        this._shiftPhotoCompareSpeechPendingCount = speechParts.length;
-        speechParts.forEach(({ text, settings }) => {
-            const voice = voices.find(item => item.voiceURI === settings.voiceURI)
-                || voices.find(item => String(item.lang || '').toLowerCase().startsWith('ja'))
-                || voices.find(item => item.default)
-                || voices[0];
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = voice?.lang || 'ja-JP';
-            if (voice) utterance.voice = voice;
-            utterance.rate = settings.rate;
-            utterance.pitch = this.getShiftPhotoCompareSpeechSegmentPitch(text, settings.pitch, settings.intonation);
-            utterance.volume = settings.volume;
-            let settled = false;
-            const finish = () => {
-                if (settled) return;
-                settled = true;
-                if (this._shiftPhotoCompareSpeechGeneration !== speechGeneration) return;
-                this._shiftPhotoCompareSpeechPendingCount = Math.max(0, (Number(this._shiftPhotoCompareSpeechPendingCount) || 0) - 1);
-            };
-            utterance.onend = finish;
-            utterance.onerror = finish;
-            try {
-                window.speechSynthesis.speak(utterance);
-            } catch (_) {
-                finish();
+    prepareShiftPhotoCompareRecordedAudioContext() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return null;
+        try {
+            if (!this._shiftPhotoCompareRecordedAudioContext
+                || this._shiftPhotoCompareRecordedAudioContext.state === 'closed') {
+                this._shiftPhotoCompareRecordedAudioContext = new AudioContextClass();
             }
+            const context = this._shiftPhotoCompareRecordedAudioContext;
+            if (context.state === 'suspended') context.resume().catch(() => {});
+            return context;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    playShiftPhotoCompareRecordedAudio(key = '', options = {}) {
+        if (!key) return false;
+        const audioContext = this.prepareShiftPhotoCompareRecordedAudioContext();
+        const trimStart = Math.max(0, Number(options.trimStart) || 0);
+        const trimEnd = Math.max(0, Number(options.trimEnd) || 0);
+        const generation = Number.isFinite(Number(options.generation))
+            ? Number(options.generation)
+            : (Number(this._shiftPhotoCompareSpeechGeneration) || 0);
+        this._shiftPhotoCompareRecordedSpeechPendingCount = Math.max(0, Number(this._shiftPhotoCompareRecordedSpeechPendingCount) || 0) + 1;
+        const playback = { audio: null, source: null, url: '', settled: false, generation };
+        if (!Array.isArray(this._shiftPhotoCompareRecordedSpeechPlayers)) this._shiftPhotoCompareRecordedSpeechPlayers = [];
+        this._shiftPhotoCompareRecordedSpeechPlayers.push(playback);
+        const finish = () => {
+            if (playback.settled) return;
+            playback.settled = true;
+            if (playback.url) URL.revokeObjectURL(playback.url);
+            this._shiftPhotoCompareRecordedSpeechPlayers = (this._shiftPhotoCompareRecordedSpeechPlayers || [])
+                .filter(item => item !== playback);
+            if (this._shiftPhotoCompareSpeechGeneration === generation) {
+                this._shiftPhotoCompareRecordedSpeechPendingCount = Math.max(
+                    0,
+                    (Number(this._shiftPhotoCompareRecordedSpeechPendingCount) || 0) - 1
+                );
+            }
+        };
+        const playWithAudioElement = blob => {
+            playback.url = URL.createObjectURL(blob);
+            playback.audio = new Audio();
+            playback.audio.preload = 'auto';
+            playback.audio.src = playback.url;
+            playback.audio.onended = finish;
+            playback.audio.onerror = finish;
+            playback.audio.onloadedmetadata = () => {
+                const duration = Math.max(0, Number(playback.audio.duration) || 0);
+                playback.audio.currentTime = Math.min(trimStart, Math.max(0, duration - 0.05));
+            };
+            playback.audio.ontimeupdate = () => {
+                if (trimEnd > trimStart && playback.audio.currentTime >= trimEnd) {
+                    playback.audio.pause();
+                    finish();
+                }
+            };
+            const playResult = playback.audio.play();
+            if (playResult?.catch) {
+                playResult.catch(() => {
+                    if (options.notifyError) this.showToast?.('音声を再生できませんでした。ブラウザーの音声許可を確認してください。');
+                    finish();
+                });
+            }
+        };
+        store.loadMediaBlob(key).then(async blob => {
+            if (this._shiftPhotoCompareSpeechGeneration !== generation) return finish();
+            if (!blob) throw new Error('設定中の音声が見つかりません。');
+            if (audioContext) {
+                try {
+                    if (audioContext.state === 'suspended') await audioContext.resume();
+                    const arrayBuffer = await blob.arrayBuffer();
+                    if (this._shiftPhotoCompareSpeechGeneration !== generation) return finish();
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+                    if (this._shiftPhotoCompareSpeechGeneration !== generation) return finish();
+                    const source = audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioContext.destination);
+                    source.onended = finish;
+                    playback.source = source;
+                    const boundedStart = Math.min(trimStart, Math.max(0, audioBuffer.duration - 0.01));
+                    const boundedEnd = trimEnd > boundedStart
+                        ? Math.min(trimEnd, audioBuffer.duration)
+                        : audioBuffer.duration;
+                    const playDuration = Math.max(0.01, boundedEnd - boundedStart);
+                    source.start(0, boundedStart, playDuration);
+                    return;
+                } catch (_) {
+                    if (this._shiftPhotoCompareSpeechGeneration !== generation) return finish();
+                }
+            }
+            playWithAudioElement(blob);
+        }).catch(() => {
+            if (options.notifyError) this.showToast?.('設定中の音声を読み込めませんでした。');
+            finish();
         });
         return true;
     }
 
+    cancelShiftPhotoCompareSpeech() {
+        this._shiftPhotoCompareSpeechGeneration = (Number(this._shiftPhotoCompareSpeechGeneration) || 0) + 1;
+        this._shiftPhotoCompareSpeechPendingCount = 0;
+        this._shiftPhotoCompareRecordedSpeechPendingCount = 0;
+        (this._shiftPhotoCompareRecordedSpeechPlayers || []).forEach(playback => {
+            playback.settled = true;
+            try {
+                if (playback.source) {
+                    playback.source.onended = null;
+                    playback.source.stop(0);
+                    playback.source.disconnect?.();
+                }
+                playback.audio?.pause?.();
+                if (playback.audio) playback.audio.currentTime = 0;
+            } catch (_) {}
+            if (playback.url) URL.revokeObjectURL(playback.url);
+        });
+        this._shiftPhotoCompareRecordedSpeechPlayers = [];
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    }
+    isShiftPhotoCompareSpeechInProgress() {
+        return Math.max(0, Number(this._shiftPhotoCompareSpeechPendingCount) || 0)
+            + Math.max(0, Number(this._shiftPhotoCompareRecordedSpeechPendingCount) || 0) > 0;
+    }
+
+    speakShiftPhotoCompareAnimationMarks(marks = [], options = {}) {
+        const commonSettings = this.getShiftPhotoCompareSpeechSettings();
+        if (!options.force && !commonSettings.enabled) return false;
+        const candidates = marks.flatMap(mark => {
+            const settings = this.getShiftPhotoCompareMarkSpeechSettings(mark);
+            if (!options.force && !settings.enabled) return [];
+            return [{ mark, settings, recording: this.getShiftPhotoComparePageRecordedAudio(mark) }];
+        });
+        const recordings = candidates.filter(item => item.recording?.key);
+        const speechParts = candidates.flatMap(({ mark, settings, recording }) => {
+            if (recording?.key) return [];
+            return this.getShiftPhotoCompareSpeechSegments(this.getShiftPhotoCompareSpeechText(mark))
+                .map(text => ({ text, settings }));
+        });
+        if (!recordings.length && !speechParts.length) {
+            if (options.force) this.showToast?.('読み上げるテキストまたは録音音声がありません。');
+            return false;
+        }
+
+        const speechSupported = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+        if (!speechSupported && !recordings.length) {
+            if (options.force) this.showToast?.('このブラウザーでは音声読み上げを利用できません。');
+            return false;
+        }
+
+        this.cancelShiftPhotoCompareSpeech();
+        const speechGeneration = this._shiftPhotoCompareSpeechGeneration;
+        recordings.forEach(({ recording }) => {
+            this.playShiftPhotoCompareRecordedAudio(recording.key, {
+                generation: speechGeneration,
+                notifyError: options.force,
+                trimStart: recording.trimStart,
+                trimEnd: recording.trimEnd
+            });
+        });
+
+        if (speechSupported && speechParts.length) {
+            const voices = window.speechSynthesis.getVoices?.() || [];
+            this._shiftPhotoCompareSpeechPendingCount = speechParts.length;
+            speechParts.forEach(({ text, settings }) => {
+                const voice = voices.find(item => item.voiceURI === settings.voiceURI)
+                    || voices.find(item => String(item.lang || '').toLowerCase().startsWith('ja'))
+                    || voices.find(item => item.default)
+                    || voices[0];
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = voice?.lang || 'ja-JP';
+                if (voice) utterance.voice = voice;
+                utterance.rate = settings.rate;
+                utterance.pitch = this.getShiftPhotoCompareSpeechSegmentPitch(text, settings.pitch, settings.intonation);
+                utterance.volume = settings.volume;
+                let settled = false;
+                const finish = () => {
+                    if (settled) return;
+                    settled = true;
+                    if (this._shiftPhotoCompareSpeechGeneration !== speechGeneration) return;
+                    this._shiftPhotoCompareSpeechPendingCount = Math.max(0, (Number(this._shiftPhotoCompareSpeechPendingCount) || 0) - 1);
+                };
+                utterance.onend = finish;
+                utterance.onerror = finish;
+                try {
+                    window.speechSynthesis.speak(utterance);
+                } catch (_) {
+                    finish();
+                }
+            });
+        }
+        return recordings.length > 0 || (speechSupported && speechParts.length > 0);
+    }
     toggleShiftPhotoCompareAnimationSpeech() {
         const current = this.getShiftPhotoCompareSpeechSettings();
         const settings = this.saveShiftPhotoCompareSpeechSettings({ enabled: !current.enabled });
@@ -9472,6 +9634,46 @@
         });
     }
 
+    getShiftPhotoComparePageAudioSavedSettings(audioKey = '') {
+        const key = String(audioKey || '');
+        if (!key) return null;
+        try {
+            const settings = JSON.parse(localStorage.getItem('shiftPhotoComparePageAudioSettingsV1') || '{}');
+            const saved = settings?.[key];
+            if (!saved || typeof saved !== 'object') return null;
+            return {
+                name: typeof saved.name === 'string' ? saved.name.slice(0, 180) : '',
+                trimStart: Number.isFinite(Number(saved.trimStart)) ? Math.max(0, Number(saved.trimStart)) : 0,
+                trimEnd: Number.isFinite(Number(saved.trimEnd)) ? Math.max(0, Number(saved.trimEnd)) : 0
+            };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    saveShiftPhotoComparePageAudioSavedSettings(audioKey = '', values = null) {
+        const key = String(audioKey || '');
+        if (!key) return;
+        try {
+            const settings = JSON.parse(localStorage.getItem('shiftPhotoComparePageAudioSettingsV1') || '{}');
+            if (values && typeof values === 'object') {
+                settings[key] = {
+                    name: String(values.name || '').slice(0, 180),
+                    trimStart: Math.max(0, Number(values.trimStart) || 0),
+                    trimEnd: Math.max(0, Number(values.trimEnd) || 0),
+                    updatedAt: Date.now()
+                };
+                const entries = Object.entries(settings)
+                    .sort((a, b) => (Number(b[1]?.updatedAt) || 0) - (Number(a[1]?.updatedAt) || 0))
+                    .slice(0, 1000);
+                localStorage.setItem('shiftPhotoComparePageAudioSettingsV1', JSON.stringify(Object.fromEntries(entries)));
+            } else {
+                delete settings[key];
+                localStorage.setItem('shiftPhotoComparePageAudioSettingsV1', JSON.stringify(settings));
+            }
+        } catch (_) {}
+    }
+
     getShiftPhotoCompareAnimationTimelinePageEntries(allItems = []) {
         const entries = [];
         let entryIndex = 0;
@@ -9489,6 +9691,7 @@
                 const savedInsertAfter = Number.isFinite(Number(page.animationInsertAfter))
                     ? Math.max(-1, Math.round(Number(page.animationInsertAfter)))
                     : -1;
+                const savedAudioSettings = this.getShiftPhotoComparePageAudioSavedSettings(page.recordedAudioKey);
                 entries.push({
                     id: `timeline-page-${entryIndex++}`,
                     type: mode === 'boxedText' ? 'boxedTextPage' : 'calloutPage',
@@ -9498,6 +9701,14 @@
                     pageIndex,
                     pageNumber: pageIndex + 1,
                     label: text ? text.slice(0, 18) : `${pageIndex + 1}ページ`,
+                    recordedAudioKey: String(page.recordedAudioKey || ''),
+                    recordedAudioType: String(page.recordedAudioType || ''),
+                    recordedAudioName: String(savedAudioSettings?.name ?? page.recordedAudioName ?? ''),
+                    recordedAudioSource: page.recordedAudioSource === 'file' ? 'file' : (page.recordedAudioKey ? 'recording' : ''),
+                    recordedAudioSize: Math.max(0, Number(page.recordedAudioSize) || 0),
+                    recordedAudioDuration: Math.max(0, Number(page.recordedAudioDuration) || 0),
+                    recordedAudioTrimStart: Math.max(0, Number(savedAudioSettings?.trimStart ?? page.recordedAudioTrimStart) || 0),
+                    recordedAudioTrimEnd: Math.max(0, Number(savedAudioSettings?.trimEnd ?? page.recordedAudioTrimEnd) || 0),
                     insertAfter: savedInsertAfter >= item.order ? savedInsertAfter : -1
                 });
             });
@@ -9839,9 +10050,10 @@
         const nodes = entries.map(entry => `
             <div class="shift-photo-compare-animation-timeline-node page-node ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-entry-id="${entry.id}" data-timeline-mode="${entry.type}">
                 <span class="shift-photo-compare-animation-timeline-dot"></span>
-                <button type="button" class="shift-photo-compare-animation-timeline-badge ${entry.insertAfter >= 0 ? 'inserted' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineEntry('${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、ドラッグで記号路線へ差し込み">
+                <button type="button" class="shift-photo-compare-animation-timeline-badge ${entry.insertAfter >= 0 ? 'inserted' : ''} ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineEntry('${entry.id}')" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageAudioMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックでページ音声、ドラッグで記号路線へ差し込み">
                     <strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong>
                     <span>${this.escapeHtml(entry.label)}</span>
+                    ${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}
                 </button>
                 <button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button>
                 <small>${entry.insertAfter >= 0 ? `記号 ${entry.insertAfter} の後` : '独立'}</small>
@@ -9897,7 +10109,7 @@
                 const entry = step.pageEntry;
                 const laneClass = entry.type === 'boxedTextPage' ? 'boxed' : 'callout';
                 const suffix = entry.type === 'boxedTextPage' ? '（直）' : '（吹）';
-                const node = `<div class="shift-photo-compare-animation-timeline-node inserted ${laneClass} ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-timeline-entry-id="${entry.id}"><span class="shift-photo-compare-animation-timeline-dot"></span><button type="button" class="shift-photo-compare-animation-timeline-badge inserted" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)"><strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong><span>${this.escapeHtml(entry.label)}</span></button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
+                const node = `<div class="shift-photo-compare-animation-timeline-node inserted ${laneClass} ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-timeline-entry-id="${entry.id}"><span class="shift-photo-compare-animation-timeline-dot"></span><button type="button" class="shift-photo-compare-animation-timeline-badge inserted ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageAudioMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックでページ音声"><strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong><span>${this.escapeHtml(entry.label)}</span>${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}</button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
                 const nextOrder = steps[index + 1]?.order;
                 return nextOrder === step.order ? node : `${node}<div class="shift-photo-compare-animation-timeline-drop-zone page-drop-zone" data-drop-order="${step.order}" ondragover="app.dragOverShiftPhotoCompareAnimationTimeline(event, ${step.order})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationTimeline(event, ${step.order})">記号 ${step.order} の後</div>`;
             }
@@ -10000,6 +10212,1490 @@
         if (stepIndex < 0) this.applyShiftPhotoCompareAnimationTimelineEntry(entry);
     }
 
+    collectShiftPhotoCompareReferencedAudioKeys() {
+        const keys = new Set();
+        const collectKey = key => {
+            const value = String(key || '');
+            if (value.startsWith('shift-page-audio-')) keys.add(value);
+        };
+        const seen = new WeakSet();
+        const visit = value => {
+            if (typeof value === 'string') {
+                (value.match(/shift-page-audio-[a-z0-9-]+/gi) || []).forEach(collectKey);
+                return;
+            }
+            if (!value || typeof value !== 'object' || seen.has(value)) return;
+            seen.add(value);
+            if (typeof value.recordedAudioKey === 'string') collectKey(value.recordedAudioKey);
+            if (Array.isArray(value)) {
+                value.forEach(visit);
+                return;
+            }
+            Object.values(value).forEach(visit);
+        };
+        visit(store.data);
+        document.querySelectorAll?.('.shift-photo-compare-mark[data-pages]')?.forEach(mark => {
+            try {
+                const pages = JSON.parse(mark.dataset.pages || '[]');
+                if (Array.isArray(pages)) pages.forEach(page => collectKey(page?.recordedAudioKey));
+            } catch (_) {}
+        });
+        (this._shiftPhotoCompareAnimationState?.pages || []).forEach(page => {
+            (page.timelineEntries || []).forEach(entry => {
+                collectKey(entry.recordedAudioKey);
+                this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark)
+                    .forEach(markPage => collectKey(markPage.recordedAudioKey));
+            });
+        });
+        return keys;
+    }
+
+    async cleanupUnusedShiftPhotoComparePageAudio() {
+        if (typeof store.listMediaEntries !== 'function') {
+            this.showToast?.('音声保存領域を確認できませんでした。');
+            return;
+        }
+        const state = this._shiftPhotoCompareAnimationState;
+        const button = state?.overlay?.querySelector?.('.shift-photo-compare-animation-audio-cleanup');
+        if (button) button.disabled = true;
+        try {
+            await Promise.resolve(store.save());
+            const entries = await store.listMediaEntries('shift-page-audio-');
+            const referenced = this.collectShiftPhotoCompareReferencedAudioKeys();
+            const unused = entries.filter(entry => !referenced.has(entry.key));
+            const bytes = unused.reduce((sum, entry) => sum + entry.size, 0);
+            if (!unused.length) {
+                this.showToast?.('未使用のページ音声はありません。');
+                return;
+            }
+            const approved = confirm(
+                `全部署を確認した結果、未使用のページ音声が${unused.length}件あります。\n`
+                + `削減できる容量: ${this.formatShiftPhotoCompareAudioBytes(bytes)}\n\n`
+                + 'どこからも参照されていない音声データを完全に削除しますか？'
+            );
+            if (!approved) return;
+            const results = await Promise.allSettled(unused.map(entry => store.deleteMediaBlob(entry.key)));
+            let deleted = 0;
+            let deletedBytes = 0;
+            results.forEach((result, index) => {
+                if (result.status !== 'fulfilled' || result.value !== true) return;
+                deleted += 1;
+                deletedBytes += unused[index]?.size || 0;
+            });
+            const failed = unused.length - deleted;
+            this.showToast?.(
+                failed
+                    ? `${deleted}件を整理しました（${this.formatShiftPhotoCompareAudioBytes(deletedBytes)}削減）。${failed}件は削除できませんでした。`
+                    : `未使用のページ音声を${deleted}件整理しました（${this.formatShiftPhotoCompareAudioBytes(deletedBytes)}削減）。`
+            );
+            await this.updateShiftPhotoCompareAnimationAudioStorageSummary();
+        } catch (error) {
+            this.showToast?.(error?.message || '未使用音声を整理できませんでした。');
+        } finally {
+            if (button?.isConnected) button.disabled = false;
+        }
+    }
+    async updateShiftPhotoCompareAnimationAudioStorageSummary() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const target = state?.overlay?.querySelector?.('[data-animation-audio-total]');
+        if (!state || !target || typeof store.listMediaEntries !== 'function') return;
+        const keys = new Set();
+        (state.pages || []).forEach(page => {
+            (page.timelineEntries || []).forEach(entry => {
+                if (entry.recordedAudioKey) keys.add(String(entry.recordedAudioKey));
+            });
+        });
+        try {
+            const entries = await store.listMediaEntries('shift-page-audio-');
+            if (this._shiftPhotoCompareAnimationState !== state || !target.isConnected) return;
+            const byKey = new Map(entries.map(entry => [entry.key, entry]));
+            const total = Array.from(keys).reduce((sum, key) => sum + (byKey.get(key)?.size || 0), 0);
+            target.textContent = this.formatShiftPhotoCompareAudioBytes(total);
+            const display = target.closest('.shift-photo-compare-animation-audio-storage');
+            if (display) display.title = `このアニメで使用中: ${keys.size}件 / ${this.formatShiftPhotoCompareAudioBytes(total)}`;
+        } catch (_) {
+            target.textContent = '取得失敗';
+        }
+    }
+    getShiftPhotoCompareAnimationAudioManagementItems() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const items = [];
+        (state?.pages || []).forEach((page, animationPageIndex) => {
+            (page.timelineEntries || []).forEach(entry => {
+                if (!entry.recordedAudioKey) return;
+                items.push({
+                    page,
+                    animationPageIndex,
+                    entry,
+                    location: page.group
+                        ? `${page.group} / ${page.page || animationPageIndex + 1}P`
+                        : `${page.page || animationPageIndex + 1}P`
+                });
+            });
+        });
+        return items;
+    }
+
+    getShiftPhotoCompareAnimationAudioManagementItem(animationPageIndex = 0, entryId = '') {
+        return this.getShiftPhotoCompareAnimationAudioManagementItems()
+            .find(item => item.animationPageIndex === Number(animationPageIndex) && item.entry.id === entryId) || null;
+    }
+
+    closeShiftPhotoCompareAnimationAudioManager(force = false) {
+        const dialog = this._shiftPhotoCompareAnimationState?.overlay
+            ?.querySelector?.('.shift-photo-compare-animation-audio-manager');
+        if (!dialog) return true;
+        const dirtyCount = dialog.querySelectorAll('.shift-photo-compare-animation-audio-item.is-dirty').length;
+        if (!force && dirtyCount && !confirm(`未保存の変更が${dirtyCount}件あります。保存せずに閉じますか？`)) return false;
+        dialog?.querySelectorAll?.('audio')?.forEach(audio => {
+            try {
+                audio.pause();
+                audio.removeAttribute('src');
+                audio.load?.();
+            } catch (_) {}
+        });
+        (dialog?._audioObjectUrls || []).forEach(url => URL.revokeObjectURL(url));
+        (dialog?._waveformObservers || []).forEach(observer => observer.disconnect?.());
+        dialog?.remove();
+        return true;
+    }
+
+    async openShiftPhotoCompareAnimationAudioManager(forceClose = false) {
+        const state = this._shiftPhotoCompareAnimationState;
+        if (!state?.overlay || state.videoRecording) return;
+        if (!this.closeShiftPhotoCompareAnimationAudioManager(forceClose)) return;
+        const items = this.getShiftPhotoCompareAnimationAudioManagementItems();
+        const totalSize = items.reduce((sum, item) => sum + (Number(item.entry.recordedAudioSize) || 0), 0);
+        const dialog = document.createElement('div');
+        dialog.className = 'shift-photo-compare-animation-timeline-dialog shift-photo-compare-animation-audio-manager';
+        dialog.innerHTML = `
+            <section class="shift-photo-compare-animation-audio-manager-panel">
+                <header>
+                    <div><strong><i class="fa-solid fa-wave-square"></i> ページ音声管理</strong><small>${items.length}件 / ${this.formatShiftPhotoCompareAudioBytes(totalSize)}</small></div>
+                    <button type="button" onclick="app.closeShiftPhotoCompareAnimationAudioManager()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+                </header>
+                <div class="shift-photo-compare-animation-audio-manager-batch">
+                    <label><input type="checkbox" onchange="app.toggleAllShiftPhotoCompareAnimationManagedAudio(this.checked)">すべて選択</label>
+                    <button type="button" onclick="app.normalizeSelectedShiftPhotoCompareAnimationManagedAudio(this)"><i class="fa-solid fa-volume-high"></i><span>選択音声の音量を調整</span></button>
+                    <span data-audio-batch-status></span>
+                </div>
+                <div class="shift-photo-compare-animation-audio-manager-list">
+                    ${items.length ? items.map((item, index) => {
+                        const entry = item.entry;
+                        const duration = Math.max(0, Number(entry.recordedAudioDuration) || 0);
+                        const start = Math.max(0, Math.min(duration, Number(entry.recordedAudioTrimStart) || 0));
+                        const end = Math.max(start, Math.min(duration, Number(entry.recordedAudioTrimEnd) || duration));
+                        const sourceName = entry.recordedAudioSource === 'file'
+                            ? (entry.recordedAudioName || '音声ファイル')
+                            : 'その場で録音';
+                        return `
+                            <article class="shift-photo-compare-animation-audio-item" data-audio-page-index="${item.animationPageIndex}" data-audio-entry-id="${this.escapeHtml(entry.id)}" data-audio-duration="${duration}">
+                                <label class="shift-photo-compare-animation-audio-select" title="一括音量調整の対象"><input type="checkbox" data-audio-manager-select></label>
+                                <div class="shift-photo-compare-animation-audio-item-meta">
+                                    <button type="button" class="location" onclick="app.jumpToShiftPhotoCompareAnimationManagedAudio(this)" title="このページと記号を表示"><i class="fa-solid fa-location-dot"></i> ${this.escapeHtml(item.location)}</button>
+                                    <strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P</strong>
+                                    <span class="text">${this.escapeHtml(entry.label || '本文なし')}</span>
+
+                                    <label class="audio-name"><span>音声名</span><input type="text" maxlength="180" value="${this.escapeHtml(sourceName)}" data-audio-name><button type="button" onclick="app.renameShiftPhotoCompareAnimationManagedAudioFromText(this)" title="本文の先頭6文字を音声名にする"><i class="fa-solid fa-wand-magic-sparkles"></i>本文6文字</button></label>
+                                    <small><i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'}"></i> ${this.formatShiftPhotoCompareAudioBytes(entry.recordedAudioSize)} / ${this.formatShiftPhotoCompareRecordedAudioDuration(duration)}</small>
+                                    <div class="shift-photo-compare-animation-audio-item-status"><span class="unsaved" data-audio-unsaved hidden><i class="fa-solid fa-circle-exclamation"></i> 未保存</span></div>
+                                </div>
+                                <div class="shift-photo-compare-animation-audio-preview-column">
+                                    <audio controls preload="metadata" data-audio-manager-preview="${index}"></audio>
+                                    <div class="shift-photo-compare-animation-audio-waveform" onpointerdown="app.startShiftPhotoCompareAnimationAudioWaveformDrag(event, this)" title="開始線または終了線をドラッグ"><canvas></canvas><i class="start"></i><i class="end"></i></div>
+                                </div>
+                                <div class="shift-photo-compare-animation-audio-trim">
+                                    <div><label>開始 <input type="number" min="0" max="${duration}" step="0.1" value="${start.toFixed(1)}" data-audio-trim-start oninput="app.updateShiftPhotoCompareAnimationAudioTrimEditor(this)"></label><label>終了 <input type="number" min="0" max="${duration}" step="0.1" value="${end.toFixed(1)}" data-audio-trim-end oninput="app.updateShiftPhotoCompareAnimationAudioTrimEditor(this)"></label></div>
+                                    <input type="range" min="0" max="${duration}" step="0.1" value="${start}" data-audio-trim-start-range oninput="app.updateShiftPhotoCompareAnimationAudioTrimEditor(this)">
+                                    <input type="range" min="0" max="${duration}" step="0.1" value="${end}" data-audio-trim-end-range oninput="app.updateShiftPhotoCompareAnimationAudioTrimEditor(this)">
+                                    <div class="shift-photo-compare-animation-audio-nudge">
+                                        <button type="button" onclick="app.nudgeShiftPhotoCompareAnimationAudioTrim(this, 'start', -1)">開始 -1秒</button>
+                                        <button type="button" onclick="app.nudgeShiftPhotoCompareAnimationAudioTrim(this, 'start', -0.1)">-0.1</button>
+                                        <button type="button" onclick="app.nudgeShiftPhotoCompareAnimationAudioTrim(this, 'start', 0.1)">+0.1</button>
+                                        <button type="button" onclick="app.nudgeShiftPhotoCompareAnimationAudioTrim(this, 'start', 1)">+1秒</button>
+                                        <button type="button" onclick="app.nudgeShiftPhotoCompareAnimationAudioTrim(this, 'end', -1)">終了 -1秒</button>
+                                        <button type="button" onclick="app.nudgeShiftPhotoCompareAnimationAudioTrim(this, 'end', -0.1)">終了 -0.1</button>
+                                        <button type="button" onclick="app.nudgeShiftPhotoCompareAnimationAudioTrim(this, 'end', 0.1)">+0.1</button>
+                                        <button type="button" onclick="app.nudgeShiftPhotoCompareAnimationAudioTrim(this, 'end', 1)">+1秒</button>
+                                    </div>
+                                    <output data-audio-trim-summary>使用 ${this.formatShiftPhotoCompareRecordedAudioDuration(end - start)} / 全体 ${this.formatShiftPhotoCompareRecordedAudioDuration(duration)}</output>
+                                </div>
+                                <div class="shift-photo-compare-animation-audio-item-actions">
+                                    <button type="button" onclick="app.detectShiftPhotoCompareAnimationManagedAudioSilence(this)"><i class="fa-solid fa-wand-magic-sparkles"></i><span>前後の無音を検出</span></button>
+                                    <button type="button" onclick="app.previewShiftPhotoCompareAnimationManagedAudio(this)"><i class="fa-solid fa-play"></i><span>範囲を試聴</span></button>
+                                    <button type="button" onclick="app.saveShiftPhotoCompareAnimationManagedAudioTrim(this)"><i class="fa-solid fa-floppy-disk"></i><span>名前・範囲を保存</span></button>
+                                    <button type="button" class="danger" onclick="app.deleteShiftPhotoCompareAnimationManagedAudio(this)"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+                            </article>`;
+                    }).join('') : '<p class="shift-photo-compare-animation-audio-empty">ページ音声は登録されていません。</p>'}
+                </div>
+                <footer><span data-audio-unsaved-summary></span><button type="button" class="secondary" onclick="app.closeShiftPhotoCompareAnimationAudioManager()">閉じる</button></footer>
+            </section>`;
+        state.overlay.appendChild(dialog);
+        dialog._audioObjectUrls = [];
+        dialog._waveformObservers = [];
+        const rows = Array.from(dialog.querySelectorAll('.shift-photo-compare-animation-audio-item'));
+        rows.forEach(row => {
+            row._savedAudioState = {
+                name: String(row.querySelector('[data-audio-name]')?.value || '').trim(),
+                start: Number(row.querySelector('[data-audio-trim-start]')?.value) || 0,
+                end: Number(row.querySelector('[data-audio-trim-end]')?.value) || 0
+            };
+            row.querySelector('[data-audio-name]')?.addEventListener('input', () => this.updateShiftPhotoCompareAnimationManagedAudioDirtyState(row));
+        });
+        await Promise.all(rows.map(async row => {
+            const item = this.getShiftPhotoCompareAnimationAudioManagementItem(
+                Number(row.dataset.audioPageIndex),
+                row.dataset.audioEntryId
+            );
+            const audio = row.querySelector('audio');
+            if (!item || !audio) return;
+            try {
+                const blob = await store.loadMediaBlob(item.entry.recordedAudioKey);
+                if (!blob || !dialog.isConnected) return;
+                const url = URL.createObjectURL(blob);
+                dialog._audioObjectUrls.push(url);
+                row._audioBlob = blob;
+                audio.src = url;
+                audio.load();
+                const audioContext = this.prepareShiftPhotoCompareRecordedAudioContext();
+                if (audioContext) {
+                    const buffer = await audioContext.decodeAudioData((await blob.arrayBuffer()).slice(0));
+                    if (!dialog.isConnected) return;
+                    row._audioBuffer = buffer;
+                    row.dataset.audioDuration = String(buffer.duration || row.dataset.audioDuration || 0);
+                    requestAnimationFrame(() => this.drawShiftPhotoCompareAnimationAudioWaveform(row));
+                    if ('ResizeObserver' in window) {
+                        const observer = new ResizeObserver(() => this.drawShiftPhotoCompareAnimationAudioWaveform(row));
+                        observer.observe(row.querySelector('.shift-photo-compare-animation-audio-waveform'));
+                        dialog._waveformObservers.push(observer);
+                    }
+                }
+            } catch (_) {
+                row.classList.add('audio-load-error');
+            }
+        }));
+    }
+
+    updateShiftPhotoCompareAnimationManagedAudioDirtyState(row) {
+        if (!row?._savedAudioState) return false;
+        const current = {
+            name: String(row.querySelector('[data-audio-name]')?.value || '').trim(),
+            start: Number(row.querySelector('[data-audio-trim-start]')?.value) || 0,
+            end: Number(row.querySelector('[data-audio-trim-end]')?.value) || 0
+        };
+        const saved = row._savedAudioState;
+        const dirty = current.name !== saved.name
+            || Math.abs(current.start - saved.start) >= 0.05
+            || Math.abs(current.end - saved.end) >= 0.05;
+        row.classList.toggle('is-dirty', dirty);
+        const badge = row.querySelector('[data-audio-unsaved]');
+        if (badge) badge.hidden = !dirty;
+        const dialog = row.closest('.shift-photo-compare-animation-audio-manager');
+        const dirtyCount = dialog?.querySelectorAll('.shift-photo-compare-animation-audio-item.is-dirty').length || 0;
+        const summary = dialog?.querySelector('[data-audio-unsaved-summary]');
+        if (summary) summary.textContent = dirtyCount ? `未保存 ${dirtyCount}件` : '';
+        return dirty;
+    }
+
+    drawShiftPhotoCompareAnimationAudioWaveform(row) {
+        const waveform = row?.querySelector?.('.shift-photo-compare-animation-audio-waveform');
+        const canvas = waveform?.querySelector?.('canvas');
+        const buffer = row?._audioBuffer;
+        if (!waveform || !canvas || !buffer) return;
+        const rect = waveform.getBoundingClientRect();
+        const width = Math.max(120, Math.round(rect.width));
+        const height = Math.max(48, Math.round(rect.height));
+        const ratio = Math.min(2, window.devicePixelRatio || 1);
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        const context = canvas.getContext('2d');
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.clearRect(0, 0, width, height);
+        context.fillStyle = '#08111f';
+        context.fillRect(0, 0, width, height);
+        const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
+        const samplesPerPixel = Math.max(1, Math.floor(buffer.length / width));
+        context.strokeStyle = '#38bdf8';
+        context.lineWidth = 1;
+        context.beginPath();
+        for (let x = 0; x < width; x += 1) {
+            const from = x * samplesPerPixel;
+            const to = Math.min(buffer.length, from + samplesPerPixel);
+            let peak = 0;
+            for (let sample = from; sample < to; sample += 1) {
+                let value = 0;
+                channels.forEach(channel => { value += Math.abs(channel[sample] || 0); });
+                peak = Math.max(peak, value / channels.length);
+            }
+            const half = Math.max(1, peak * (height * 0.46));
+            context.moveTo(x + 0.5, height / 2 - half);
+            context.lineTo(x + 0.5, height / 2 + half);
+        }
+        context.stroke();
+        const duration = Math.max(0.01, Number(row.dataset.audioDuration) || buffer.duration || 0.01);
+        const start = Math.max(0, Number(row.querySelector('[data-audio-trim-start]')?.value) || 0);
+        const end = Math.max(start, Number(row.querySelector('[data-audio-trim-end]')?.value) || duration);
+        const startX = Math.max(0, Math.min(width, (start / duration) * width));
+        const endX = Math.max(startX, Math.min(width, (end / duration) * width));
+        context.fillStyle = 'rgba(2, 6, 23, 0.68)';
+        context.fillRect(0, 0, startX, height);
+        context.fillRect(endX, 0, width - endX, height);
+        waveform.querySelector('i.start').style.left = `${(start / duration) * 100}%`;
+        waveform.querySelector('i.end').style.left = `${(end / duration) * 100}%`;
+    }
+
+    startShiftPhotoCompareAnimationAudioWaveformDrag(event, waveform) {
+        if (event.button !== 0) return;
+        const row = waveform?.closest?.('.shift-photo-compare-animation-audio-item');
+        if (!row) return;
+        event.preventDefault();
+        const duration = Math.max(0.01, Number(row.dataset.audioDuration) || 0.01);
+        const startInput = row.querySelector('[data-audio-trim-start]');
+        const endInput = row.querySelector('[data-audio-trim-end]');
+        const rect = waveform.getBoundingClientRect();
+        const initialTime = Math.max(0, Math.min(duration, ((event.clientX - rect.left) / rect.width) * duration));
+        const boundary = Math.abs(initialTime - Number(startInput.value)) <= Math.abs(initialTime - Number(endInput.value))
+            ? 'start'
+            : 'end';
+        waveform.setPointerCapture?.(event.pointerId);
+        const move = moveEvent => {
+            const nextRect = waveform.getBoundingClientRect();
+            const time = Math.max(0, Math.min(duration, ((moveEvent.clientX - nextRect.left) / nextRect.width) * duration));
+            const control = boundary === 'start' ? startInput : endInput;
+            control.value = time.toFixed(1);
+            this.updateShiftPhotoCompareAnimationAudioTrimEditor(control);
+        };
+        const finish = () => {
+            waveform.removeEventListener('pointermove', move);
+            waveform.removeEventListener('pointerup', finish);
+            waveform.removeEventListener('pointercancel', finish);
+        };
+        waveform.addEventListener('pointermove', move);
+        waveform.addEventListener('pointerup', finish);
+        waveform.addEventListener('pointercancel', finish);
+        move(event);
+    }
+
+    detectShiftPhotoCompareAnimationManagedAudioSilence(button) {
+        const row = button?.closest?.('.shift-photo-compare-animation-audio-item');
+        const buffer = row?._audioBuffer;
+        if (!row || !buffer) {
+            this.showToast?.('波形の読み込み完了後にお試しください。');
+            return;
+        }
+        const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
+        const sampleRate = buffer.sampleRate;
+        const windowSize = Math.max(1, Math.round(sampleRate * 0.02));
+        const threshold = 0.018;
+        let first = -1;
+        let last = -1;
+        for (let offset = 0; offset < buffer.length; offset += windowSize) {
+            const limit = Math.min(buffer.length, offset + windowSize);
+            let sum = 0;
+            let count = 0;
+            for (let sample = offset; sample < limit; sample += 1) {
+                channels.forEach(channel => {
+                    const value = channel[sample] || 0;
+                    sum += value * value;
+                    count += 1;
+                });
+            }
+            if (Math.sqrt(sum / Math.max(1, count)) >= threshold) {
+                if (first < 0) first = offset;
+                last = limit;
+            }
+        }
+        if (first < 0 || last <= first) {
+            this.showToast?.('音声部分を検出できませんでした。');
+            return;
+        }
+        const padding = 0.08;
+        const start = Math.max(0, first / sampleRate - padding);
+        const end = Math.min(buffer.duration, last / sampleRate + padding);
+        const startInput = row.querySelector('[data-audio-trim-start]');
+        const endInput = row.querySelector('[data-audio-trim-end]');
+        startInput.value = start.toFixed(1);
+        endInput.value = end.toFixed(1);
+        this.updateShiftPhotoCompareAnimationAudioTrimEditor(startInput);
+        this.showToast?.(`前後の無音を除いた範囲 ${this.formatShiftPhotoCompareRecordedAudioDuration(start)}～${this.formatShiftPhotoCompareRecordedAudioDuration(end)} を設定しました。`);
+    }
+
+    nudgeShiftPhotoCompareAnimationAudioTrim(button, boundary = 'start', delta = 0) {
+        const row = button?.closest?.('.shift-photo-compare-animation-audio-item');
+        const input = row?.querySelector?.(boundary === 'end' ? '[data-audio-trim-end]' : '[data-audio-trim-start]');
+        if (!input) return;
+        input.value = (Number(input.value || 0) + Number(delta || 0)).toFixed(1);
+        this.updateShiftPhotoCompareAnimationAudioTrimEditor(input);
+    }
+    updateShiftPhotoCompareAnimationAudioTrimEditor(control) {
+        const row = control?.closest?.('.shift-photo-compare-animation-audio-item');
+        if (!row) return;
+        const duration = Math.max(0, Number(row.dataset.audioDuration) || 0);
+        const startInput = row.querySelector('[data-audio-trim-start]');
+        const endInput = row.querySelector('[data-audio-trim-end]');
+        const startRange = row.querySelector('[data-audio-trim-start-range]');
+        const endRange = row.querySelector('[data-audio-trim-end-range]');
+        let start = control.matches('[data-audio-trim-start-range]')
+            ? Number(startRange.value)
+            : Number(startInput.value);
+        let end = control.matches('[data-audio-trim-end-range]')
+            ? Number(endRange.value)
+            : Number(endInput.value);
+        start = Math.max(0, Math.min(duration, Number.isFinite(start) ? start : 0));
+        end = Math.max(start + Math.min(0.1, duration), Math.min(duration, Number.isFinite(end) ? end : duration));
+        if (end > duration) {
+            end = duration;
+            start = Math.min(start, Math.max(0, duration - 0.1));
+        }
+        startInput.value = start.toFixed(1);
+        endInput.value = end.toFixed(1);
+        startRange.value = String(start);
+        endRange.value = String(end);
+        const summary = row.querySelector('[data-audio-trim-summary]');
+        if (summary) summary.textContent = `使用 ${this.formatShiftPhotoCompareRecordedAudioDuration(end - start)} / 全体 ${this.formatShiftPhotoCompareRecordedAudioDuration(duration)}`;
+        this.drawShiftPhotoCompareAnimationAudioWaveform(row);
+        this.updateShiftPhotoCompareAnimationManagedAudioDirtyState(row);
+    }
+
+    previewShiftPhotoCompareAnimationManagedAudio(button) {
+        const row = button?.closest?.('.shift-photo-compare-animation-audio-item');
+        const audio = row?.querySelector?.('audio');
+        if (!audio?.src) {
+            this.showToast?.('音声を読み込めませんでした。');
+            return;
+        }
+        const start = Math.max(0, Number(row.querySelector('[data-audio-trim-start]')?.value) || 0);
+        const end = Math.max(start, Number(row.querySelector('[data-audio-trim-end]')?.value) || Number(audio.duration) || 0);
+        row.closest('.shift-photo-compare-animation-audio-manager')?.querySelectorAll('audio')?.forEach(other => {
+            if (other !== audio) other.pause();
+        });
+        if (!audio.paused) {
+            audio.pause();
+            button.querySelector('i')?.classList.replace('fa-stop', 'fa-play');
+            const label = button.querySelector('span');
+            if (label) label.textContent = '範囲を試聴';
+            return;
+        }
+        audio.currentTime = Math.min(start, Math.max(0, (Number(audio.duration) || end) - 0.01));
+        const reset = () => {
+            audio.pause();
+            button.querySelector('i')?.classList.replace('fa-stop', 'fa-play');
+            const label = button.querySelector('span');
+            if (label) label.textContent = '範囲を試聴';
+        };
+        audio.ontimeupdate = () => {
+            if (audio.currentTime >= end) reset();
+        };
+        audio.onended = reset;
+        button.querySelector('i')?.classList.replace('fa-play', 'fa-stop');
+        const label = button.querySelector('span');
+        if (label) label.textContent = '停止';
+        audio.play()?.catch?.(() => {
+            reset();
+            this.showToast?.('音声を再生できませんでした。');
+        });
+    }
+
+    async saveShiftPhotoCompareAnimationManagedAudioTrim(button) {
+        const row = button?.closest?.('.shift-photo-compare-animation-audio-item');
+        const item = row ? this.getShiftPhotoCompareAnimationAudioManagementItem(
+            Number(row.dataset.audioPageIndex),
+            row.dataset.audioEntryId
+        ) : null;
+        if (!item) return;
+        const entry = item.entry;
+        const duration = Math.max(0, Number(entry.recordedAudioDuration) || Number(row.dataset.audioDuration) || 0);
+        const name = String(row.querySelector('[data-audio-name]')?.value || entry.recordedAudioName || 'ページ音声').trim().slice(0, 180);
+        const start = Math.max(0, Math.min(duration, Number(row.querySelector('[data-audio-trim-start]')?.value) || 0));
+        const end = Math.max(start, Math.min(duration, Number(row.querySelector('[data-audio-trim-end]')?.value) || duration));
+        const saved = this.persistShiftPhotoCompareAnimationPageRecording(entry, {
+            key: entry.recordedAudioKey,
+            type: entry.recordedAudioType,
+            name,
+            source: entry.recordedAudioSource,
+            size: entry.recordedAudioSize,
+            duration,
+            trimStart: start,
+            trimEnd: end
+        }, item.page);
+        if (!saved) {
+            this.showToast?.('使用範囲を保存できませんでした。');
+            return;
+        }
+        button.disabled = true;
+        const saveIcon = button.querySelector('i');
+        const saveLabel = button.querySelector('span');
+        saveIcon?.classList.replace('fa-floppy-disk', 'fa-spinner');
+        saveIcon?.classList.add('fa-spin');
+        if (saveLabel) saveLabel.textContent = '保存中';
+        try {
+            await (this._shiftPhotoComparePageAudioSavePromise || Promise.resolve(store.save()));
+        } catch (_) {
+            this.showToast?.('使用範囲をデータへ保存できませんでした。もう一度お試しください。');
+            return;
+        } finally {
+            button.disabled = false;
+            saveIcon?.classList.remove('fa-spin');
+            saveIcon?.classList.replace('fa-spinner', 'fa-floppy-disk');
+            if (saveLabel) saveLabel.textContent = '名前・範囲を保存';
+        }
+        const databaseAudio = typeof this.getPhotoManagerAudios === 'function'
+            ? this.getPhotoManagerAudios().find(audio => String(audio.mediaKey || '') === String(entry.recordedAudioKey || ''))
+            : null;
+        if (databaseAudio && databaseAudio.name !== name) {
+            databaseAudio.name = name;
+            databaseAudio.updatedAt = Date.now();
+            await store.save();
+        }
+        row._savedAudioState = { name, start, end };
+        this.updateShiftPhotoCompareAnimationManagedAudioDirtyState(row);
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.showToast?.(`音声名と使用範囲（${this.formatShiftPhotoCompareRecordedAudioDuration(start)}～${this.formatShiftPhotoCompareRecordedAudioDuration(end)}）を保存しました。`);
+    }
+
+    renameShiftPhotoCompareAnimationManagedAudioFromText(button) {
+        const row = button?.closest?.('.shift-photo-compare-animation-audio-item');
+        const item = row ? this.getShiftPhotoCompareAnimationAudioManagementItem(
+            Number(row.dataset.audioPageIndex),
+            row.dataset.audioEntryId
+        ) : null;
+        const input = row?.querySelector?.('[data-audio-name]');
+        const name = Array.from(String(item?.entry?.label || '').trim()).slice(0, 6).join('');
+        if (!input || !name) {
+            this.showToast?.('音声名に使える本文がありません。');
+            return;
+        }
+        input.value = name;
+        this.updateShiftPhotoCompareAnimationManagedAudioDirtyState(row);
+    }
+
+    toggleAllShiftPhotoCompareAnimationManagedAudio(checked = false) {
+        this._shiftPhotoCompareAnimationState?.overlay
+            ?.querySelectorAll?.('.shift-photo-compare-animation-audio-manager [data-audio-manager-select]')
+            ?.forEach(input => { input.checked = !!checked; });
+    }
+
+    async normalizeSelectedShiftPhotoCompareAnimationManagedAudio(button) {
+        const dialog = button?.closest?.('.shift-photo-compare-animation-audio-manager');
+        const rows = Array.from(dialog?.querySelectorAll?.('.shift-photo-compare-animation-audio-item') || [])
+            .filter(row => row.querySelector('[data-audio-manager-select]')?.checked);
+        if (!rows.length) {
+            this.showToast?.('音量調整する音声を選択してください。');
+            return;
+        }
+        if (!confirm(`選択した${rows.length}件の音量を均一化しますか？\n音声データを再圧縮しますが、トリミング範囲は維持されます。`)) return;
+        button.disabled = true;
+        const status = dialog.querySelector('[data-audio-batch-status]');
+        let completed = 0;
+        let failed = 0;
+        for (const row of rows) {
+            const item = this.getShiftPhotoCompareAnimationAudioManagementItem(
+                Number(row.dataset.audioPageIndex),
+                row.dataset.audioEntryId
+            );
+            if (!item) {
+                failed += 1;
+                continue;
+            }
+            try {
+                if (status) status.textContent = `${completed + failed + 1} / ${rows.length} を調整中`;
+                const blob = await store.loadMediaBlob(item.entry.recordedAudioKey);
+                if (!blob) throw new Error('音声なし');
+                const normalizedBlob = await this.compressShiftPhotoComparePageAudioFile(blob);
+                await store.saveMediaBlob(item.entry.recordedAudioKey, normalizedBlob);
+                const duration = await this.getShiftPhotoCompareAudioBlobDuration(normalizedBlob)
+                    || item.entry.recordedAudioDuration;
+                const name = String(row.querySelector('[data-audio-name]')?.value || item.entry.recordedAudioName || 'ページ音声').trim().slice(0, 180);
+                const saved = this.persistShiftPhotoCompareAnimationPageRecording(item.entry, {
+                    key: item.entry.recordedAudioKey,
+                    type: normalizedBlob.type,
+                    name,
+                    source: item.entry.recordedAudioSource,
+                    size: normalizedBlob.size,
+                    duration,
+                    trimStart: Math.min(duration, Number(row.querySelector('[data-audio-trim-start]')?.value) || 0),
+                    trimEnd: Math.min(duration, Number(row.querySelector('[data-audio-trim-end]')?.value) || duration)
+                }, item.page);
+                if (!saved) throw new Error('保存失敗');
+                completed += 1;
+            } catch (_) {
+                failed += 1;
+            }
+        }
+        if (status) status.textContent = failed ? `${completed}件完了 / ${failed}件失敗` : `${completed}件の音量調整が完了`;
+        this.renderShiftPhotoCompareAnimationTimeline();
+        await this.updateShiftPhotoCompareAnimationAudioStorageSummary();
+        this.showToast?.(failed
+            ? `${completed}件の音量を調整しました。 ${failed}件は処理できませんでした。`
+            : `${completed}件の音量を均一化しました。`);
+        button.disabled = false;
+        if (!failed) this.openShiftPhotoCompareAnimationAudioManager(true);
+    }
+
+    jumpToShiftPhotoCompareAnimationManagedAudio(button) {
+        const row = button?.closest?.('.shift-photo-compare-animation-audio-item');
+        const item = row ? this.getShiftPhotoCompareAnimationAudioManagementItem(
+            Number(row.dataset.audioPageIndex),
+            row.dataset.audioEntryId
+        ) : null;
+        if (!item) return;
+        if (!this.closeShiftPhotoCompareAnimationAudioManager()) return;
+        if (!this.activateShiftPhotoCompareAnimationPage(item.animationPageIndex)) return;
+        this.previewShiftPhotoCompareAnimationTimelineEntry(item.entry.id);
+    }
+
+    async deleteShiftPhotoCompareAnimationManagedAudio(button) {
+        const row = button?.closest?.('.shift-photo-compare-animation-audio-item');
+        const item = row ? this.getShiftPhotoCompareAnimationAudioManagementItem(
+            Number(row.dataset.audioPageIndex),
+            row.dataset.audioEntryId
+        ) : null;
+        if (!item || !confirm(`${item.location}のページ音声を削除しますか？`)) return;
+        const key = item.entry.recordedAudioKey;
+        const saved = this.persistShiftPhotoCompareAnimationPageRecording(item.entry, {
+            key: '', type: '', name: '', source: '', size: 0, duration: 0, trimStart: 0, trimEnd: 0
+        }, item.page);
+        if (!saved) {
+            this.showToast?.('ページ音声を削除できませんでした。');
+            return;
+        }
+        if (!(this.isPhotoManagerAudioMediaKey?.(key))) await store.deleteMediaBlob(key).catch(() => false);
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.updateShiftPhotoCompareAnimationAudioStorageSummary();
+        this.openShiftPhotoCompareAnimationAudioManager(true);
+        this.showToast?.('ページ音声を削除しました。');
+    }
+    getShiftPhotoCompareAnimationTimelineEntry(entryId = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        return page?.timelineEntries?.find(item => item.id === entryId) || null;
+    }
+
+    formatShiftPhotoCompareRecordedAudioDuration(seconds = 0) {
+        const total = Math.max(0, Math.round(Number(seconds) || 0));
+        const minutes = Math.floor(total / 60);
+        return `${minutes}:${String(total % 60).padStart(2, '0')}`;
+    }
+
+    closeShiftPhotoCompareAnimationPageAudioMenu() {
+        this._shiftPhotoCompareAnimationPageAudioMenuCleanup?.();
+        this._shiftPhotoCompareAnimationPageAudioMenuCleanup = null;
+        const menu = document.querySelector('.shift-photo-compare-animation-page-audio-menu');
+        const audio = menu?.querySelector?.('[data-page-audio-preview]');
+        try {
+            audio?.pause?.();
+            if (audio) {
+                audio.removeAttribute('src');
+                audio.load?.();
+            }
+        } catch (_) {}
+        if (menu?._shiftPhotoCompareAudioPreviewUrl) {
+            URL.revokeObjectURL(menu._shiftPhotoCompareAudioPreviewUrl);
+            menu._shiftPhotoCompareAudioPreviewUrl = '';
+        }
+        menu?.remove();
+    }
+
+    openShiftPhotoCompareAnimationPageAudioMenu(event, entryId = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (!state || !entry || state.videoRecording) return;
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        this.prepareShiftPhotoCompareRecordedAudioContext();
+        const menu = document.createElement('div');
+        const audioName = entry.recordedAudioSource === 'file'
+            ? (entry.recordedAudioName || '音声ファイル')
+            : 'その場で録音した音声';
+        const audioSize = Math.max(0, Number(entry.recordedAudioSize) || 0);
+        menu.className = 'shift-photo-compare-animation-page-audio-menu';
+        menu.innerHTML = `
+            ${entry.recordedAudioKey ? `<div class="shift-photo-compare-animation-page-audio-info"><i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'}"></i><span><strong>${this.escapeHtml(audioName)}</strong><small>${this.formatShiftPhotoCompareRecordedAudioDuration(entry.recordedAudioDuration)} / <b data-page-audio-capacity>${audioSize ? this.formatShiftPhotoCompareAudioBytes(audioSize) : '容量を確認中'}</b></small></span></div>` : ''}
+            <button type="button" onclick="app.openShiftPhotoCompareAnimationPageRecordingDialog('${this.escapeJs(entryId)}')"><i class="fa-solid fa-microphone-lines"></i><span>${entry.recordedAudioKey ? 'その場で録り直す' : 'その場で録音'}</span></button>
+            <button type="button" onclick="app.selectShiftPhotoCompareAnimationPageAudioFile('${this.escapeJs(entryId)}')"><i class="fa-solid fa-file-audio"></i><span>音声ファイルを使用</span></button>
+            <button type="button" onclick="app.openShiftPhotoCompareAnimationAudioDatabase('${this.escapeJs(entryId)}')"><i class="fa-solid fa-database"></i><span>音声DBから登録</span></button>
+            ${entry.recordedAudioKey ? `<button type="button" data-page-audio-preview-button disabled onclick="app.previewShiftPhotoCompareAnimationPageRecordingFromMenu(this, '${this.escapeJs(entryId)}')"><i class="fa-solid fa-spinner fa-spin"></i><span>音声を読み込み中</span></button><audio data-page-audio-preview preload="auto" hidden></audio><button type="button" class="danger" onclick="app.deleteShiftPhotoCompareAnimationPageRecording('${this.escapeJs(entryId)}')"><i class="fa-solid fa-trash"></i><span>設定中の音声を削除</span></button>` : ''}
+        `;
+        state.overlay.appendChild(menu);
+        if (entry.recordedAudioKey) {
+            const previewButton = menu.querySelector('[data-page-audio-preview-button]');
+            const previewAudio = menu.querySelector('[data-page-audio-preview]');
+            store.loadMediaBlob(entry.recordedAudioKey).then(blob => {
+                if (!blob || !menu.isConnected || !previewAudio) throw new Error('音声データがありません。');
+                entry.recordedAudioSize = blob.size;
+                const capacity = menu.querySelector('[data-page-audio-capacity]');
+                if (capacity) capacity.textContent = this.formatShiftPhotoCompareAudioBytes(blob.size);
+                menu._shiftPhotoCompareAudioPreviewUrl = URL.createObjectURL(blob);
+                previewAudio.src = menu._shiftPhotoCompareAudioPreviewUrl;
+                const ready = () => {
+                    if (!menu.isConnected || !previewButton) return;
+                    previewButton.disabled = false;
+                    previewButton.querySelector('i')?.classList.replace('fa-spinner', 'fa-play');
+                    previewButton.querySelector('i')?.classList.remove('fa-spin');
+                    const label = previewButton.querySelector('span');
+                    if (label) label.textContent = '設定中の音声を試聴';
+                };
+                previewAudio.addEventListener('loadedmetadata', ready, { once: true });
+                previewAudio.addEventListener('canplay', ready, { once: true });
+                previewAudio.onerror = () => {
+                    if (!previewButton) return;
+                    previewButton.disabled = true;
+                    previewButton.querySelector('i')?.classList.replace('fa-spinner', 'fa-triangle-exclamation');
+                    previewButton.querySelector('i')?.classList.remove('fa-spin');
+                    const label = previewButton.querySelector('span');
+                    if (label) label.textContent = '音声を読み込めません';
+                };
+                previewAudio.load();
+            }).catch(() => {
+                const capacity = menu.querySelector('[data-page-audio-capacity]');
+                if (capacity) capacity.textContent = '取得できません';
+                if (previewButton) {
+                    previewButton.disabled = true;
+                    previewButton.querySelector('i')?.classList.replace('fa-spinner', 'fa-triangle-exclamation');
+                    previewButton.querySelector('i')?.classList.remove('fa-spin');
+                    const label = previewButton.querySelector('span');
+                    if (label) label.textContent = '音声を読み込めません';
+                }
+            });
+        }
+        const menuRect = menu.getBoundingClientRect();
+        const left = Math.max(8, Math.min(Number(event?.clientX) || 0, window.innerWidth - menuRect.width - 8));
+        const top = Math.max(8, Math.min(Number(event?.clientY) || 0, window.innerHeight - menuRect.height - 8));
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+        const close = closeEvent => {
+            if (!menu.contains(closeEvent.target)) this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        };
+        setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
+        this._shiftPhotoCompareAnimationPageAudioMenuCleanup = () => document.removeEventListener('pointerdown', close, true);
+    }
+
+    previewShiftPhotoCompareAnimationPageRecordingFromMenu(button, entryId = '') {
+        const menu = button?.closest?.('.shift-photo-compare-animation-page-audio-menu');
+        const audio = menu?.querySelector?.('[data-page-audio-preview]');
+        if (!audio?.src || button.disabled) {
+            this.showToast?.('音声の読み込み完了後にお試しください。');
+            return;
+        }
+        this.cancelShiftPhotoCompareSpeech();
+        const icon = button.querySelector('i');
+        const label = button.querySelector('span');
+        if (!audio.paused) {
+            audio.pause();
+            audio.currentTime = 0;
+            icon?.classList.replace('fa-stop', 'fa-play');
+            if (label) label.textContent = '設定中の音声を試聴';
+            return;
+        }
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        const trimStart = Math.max(0, Number(entry?.recordedAudioTrimStart) || 0);
+        const trimEnd = Math.max(trimStart, Number(entry?.recordedAudioTrimEnd) || Number(audio.duration) || 0);
+        audio.currentTime = Math.min(trimStart, Math.max(0, (Number(audio.duration) || trimEnd) - 0.01));
+        const reset = () => {
+            audio.pause();
+            icon?.classList.replace('fa-stop', 'fa-play');
+            if (label) label.textContent = '設定中の音声を試聴';
+        };
+        audio.ontimeupdate = () => {
+            if (trimEnd > trimStart && audio.currentTime >= trimEnd) reset();
+        };
+        audio.onended = reset;
+        icon?.classList.replace('fa-play', 'fa-stop');
+        if (label) label.textContent = '試聴を停止';
+        const playResult = audio.play();
+        if (playResult?.catch) playResult.catch(() => {
+            reset();
+            this.showToast?.('音声を再生できませんでした。ブラウザーの音声許可を確認してください。');
+        });
+    }
+    closeShiftPhotoCompareAnimationAudioDatabase() {
+        const dialog = this._shiftPhotoCompareAnimationState?.overlay?.querySelector?.('.shift-photo-compare-animation-audio-database');
+        dialog?.querySelectorAll?.('audio')?.forEach(audio => audio.pause());
+        (dialog?._audioObjectUrls || []).forEach(url => URL.revokeObjectURL(url));
+        dialog?.remove();
+    }
+
+    async openShiftPhotoCompareAnimationAudioDatabase(entryId = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (!state?.overlay || !entry) return;
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        this.closeShiftPhotoCompareAnimationAudioDatabase();
+        this.syncCurrentPageAudiosToPhotoManagerDatabase?.();
+        const audios = typeof this.getPhotoManagerAudios === 'function' ? this.getPhotoManagerAudios() : [];
+        const dialog = document.createElement('div');
+        dialog.className = 'shift-photo-compare-animation-timeline-dialog shift-photo-compare-animation-audio-database';
+        dialog.innerHTML = `
+            <div class="shift-photo-compare-animation-timeline-dialog-panel">
+                <header><strong><i class="fa-solid fa-database"></i> 音声DBから登録</strong><button type="button" onclick="app.closeShiftPhotoCompareAnimationAudioDatabase()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                <div class="shift-photo-compare-animation-audio-database-search"><i class="fa-solid fa-magnifying-glass"></i><input type="search" placeholder="音声名・認識内容を検索" oninput="app.filterShiftPhotoCompareAnimationAudioDatabase(this.value)" aria-label="音声DBを検索"><span>${audios.length}件</span></div>
+                <div class="shift-photo-compare-animation-audio-database-list">
+                    ${audios.length ? audios.map(audio => `<article data-audio-db-id="${this.escapeHtml(audio.id)}"><div><strong>${this.escapeHtml(audio.name || '音声')}</strong><small>${this.formatShiftPhotoCompareAudioBytes(audio.size || 0)} / ${this.formatShiftPhotoCompareRecordedAudioDuration(audio.duration || 0)}</small><div class="photo-manager-audio-transcript" ${audio.transcript ? '' : 'hidden'}><strong>${audio.transcriptManuallyEdited ? '認識内容（手動修正済み）' : '認識内容'}</strong><p>${this.escapeHtml(audio.transcript || '')}</p></div><small class="photo-manager-audio-search-hit" hidden></small><audio controls preload="metadata"></audio></div><button type="button" onclick="app.useShiftPhotoCompareAnimationAudioDatabase('${this.escapeJs(entryId)}', '${this.escapeJs(audio.id)}')"><i class="fa-solid fa-check"></i>この音声を登録</button></article>`).join('') : '<p class="empty">写真管理の「音声」から音声ファイルを登録してください。</p>'}
+                    <p class="empty shift-photo-compare-animation-audio-database-search-empty" hidden>該当する音声はありません。</p>
+                </div>
+                <div class="shift-photo-compare-animation-timeline-dialog-actions"><button type="button" class="secondary" onclick="app.closeShiftPhotoCompareAnimationAudioDatabase()">キャンセル</button></div>
+            </div>`;
+        state.overlay.appendChild(dialog);
+        dialog._audioObjectUrls = [];
+        for (const card of dialog.querySelectorAll('[data-audio-db-id]')) {
+            const audio = typeof this.getPhotoManagerAudio === 'function' ? this.getPhotoManagerAudio(card.dataset.audioDbId) : null;
+            const player = card.querySelector('audio');
+            try {
+                const blob = audio ? await store.loadMediaBlob(audio.mediaKey) : null;
+                if (!blob || !dialog.isConnected) continue;
+                const url = URL.createObjectURL(blob);
+                dialog._audioObjectUrls.push(url);
+                player.src = url;
+            } catch (_) {
+                card.classList.add('missing');
+            }
+        }
+    }
+
+    filterShiftPhotoCompareAnimationAudioDatabase(query = '') {
+        const dialog = this._shiftPhotoCompareAnimationState?.overlay?.querySelector?.('.shift-photo-compare-animation-audio-database');
+        if (!dialog) return;
+        const needle = String(query || '').trim().toLocaleLowerCase('ja').replace(/[\s\u3000]+/g, '');
+        let visible = 0;
+        const cards = [...dialog.querySelectorAll('[data-audio-db-id]')];
+        cards.forEach(card => {
+            const audio = this.getPhotoManagerAudio?.(card.dataset.audioDbId);
+            const text = `${audio?.name || ''} ${audio?.transcript || ''}`.toLocaleLowerCase('ja').replace(/[\s\u3000]+/g, '');
+            const matched = !needle || text.includes(needle);
+            card.hidden = !matched;
+            const hit = card.querySelector('.photo-manager-audio-search-hit');
+            if (hit) {
+                hit.hidden = !needle || !matched;
+                hit.innerHTML = needle && matched ? this.getPhotoManagerAudioSearchPreviewHtml(audio, query) : '';
+            }
+            if (matched) visible += 1;
+        });
+        const count = dialog.querySelector('.shift-photo-compare-animation-audio-database-search span');
+        if (count) count.textContent = needle ? `${visible}/${cards.length}件` : `${visible}件`;
+        const empty = dialog.querySelector('.shift-photo-compare-animation-audio-database-search-empty');
+        if (empty) empty.hidden = visible > 0 || !cards.length;
+    }
+
+    async useShiftPhotoCompareAnimationAudioDatabase(entryId = '', audioId = '') {
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        const audio = typeof this.getPhotoManagerAudio === 'function' ? this.getPhotoManagerAudio(audioId) : null;
+        if (!entry || !audio) return;
+        const blob = await store.loadMediaBlob(audio.mediaKey).catch(() => null);
+        if (!blob) {
+            this.showToast?.('音声DBの音声データを読み込めませんでした。');
+            return;
+        }
+        const oldKey = String(entry.recordedAudioKey || '');
+        const duration = Math.max(0, Number(audio.duration) || await this.getShiftPhotoCompareAudioBlobDuration(blob));
+        const saved = this.persistShiftPhotoCompareAnimationPageRecording(entry, {
+            key: audio.mediaKey,
+            type: audio.type || blob.type,
+            name: audio.name || '音声',
+            source: 'file',
+            size: audio.size || blob.size,
+            duration,
+            trimStart: 0,
+            trimEnd: duration
+        });
+        if (!saved) return this.showToast?.('音声DBからページへ登録できませんでした。');
+        await (this._shiftPhotoComparePageAudioSavePromise || Promise.resolve(store.save())).catch(() => null);
+        if (oldKey && oldKey !== audio.mediaKey && !(this.isPhotoManagerAudioMediaKey?.(oldKey))) {
+            await store.deleteMediaBlob(oldKey).catch(() => false);
+        }
+        this.closeShiftPhotoCompareAnimationAudioDatabase();
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.showToast?.(`${audio.name || '音声'}をページへ登録しました。`);
+    }
+
+    selectShiftPhotoCompareAnimationPageAudioFile(entryId = '') {
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (!entry) return;
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.webm,.flac';
+        input.hidden = true;
+        input.addEventListener('change', () => {
+            const file = input.files?.[0];
+            input.remove();
+            if (file) this.useShiftPhotoCompareAnimationPageAudioFile(entryId, file);
+        }, { once: true });
+        input.addEventListener('cancel', () => input.remove(), { once: true });
+        document.body.appendChild(input);
+        input.click();
+    }
+
+    getShiftPhotoCompareAudioBlobDuration(blob) {
+        return new Promise(resolve => {
+            if (!(blob instanceof Blob)) return resolve(0);
+            const url = URL.createObjectURL(blob);
+            const audio = document.createElement('audio');
+            let settled = false;
+            const finish = value => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                audio.removeAttribute('src');
+                audio.load?.();
+                URL.revokeObjectURL(url);
+                resolve(Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0);
+            };
+            const timer = setTimeout(() => finish(0), 8000);
+            audio.preload = 'metadata';
+            audio.onloadedmetadata = () => finish(audio.duration);
+            audio.onerror = () => finish(0);
+            audio.src = url;
+        });
+    }
+
+    getShiftPhotoCompareAudioInputExtension(file = {}) {
+        const nameMatch = String(file.name || '').toLowerCase().match(/\.([a-z0-9]{2,5})$/);
+        const extension = nameMatch?.[1] || '';
+        if (['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'webm', 'flac'].includes(extension)) return extension;
+        const type = String(file.type || '').toLowerCase();
+        if (type.includes('mpeg')) return 'mp3';
+        if (type.includes('wav')) return 'wav';
+        if (type.includes('mp4') || type.includes('m4a')) return 'm4a';
+        if (type.includes('aac')) return 'aac';
+        if (type.includes('ogg')) return 'ogg';
+        if (type.includes('flac')) return 'flac';
+        return 'webm';
+    }
+
+    async compressShiftPhotoComparePageAudioFile(file) {
+        if (!(file instanceof Blob)) throw new Error('圧縮する音声ファイルがありません。');
+        if (!window.FFmpeg?.createFFmpeg) throw new Error('音声圧縮エンジンを読み込めませんでした。通信状態を確認してください。');
+        if (this._shiftPhotoCompareAudioFFmpegLoading) {
+            throw new Error('別の音声を圧縮中です。完了後にもう一度お試しください。');
+        }
+        const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const inputName = `page-audio-input-${token}.${this.getShiftPhotoCompareAudioInputExtension(file)}`;
+        const outputName = `page-audio-output-${token}.webm`;
+        const ffmpeg = window.FFmpeg.createFFmpeg({
+            log: false,
+            mainName: 'main',
+            corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+        });
+        this._shiftPhotoCompareAudioFFmpegLoading = ffmpeg;
+        try {
+            await ffmpeg.load();
+            ffmpeg.FS('writeFile', inputName, new Uint8Array(await file.arrayBuffer()));
+            await ffmpeg.run(
+                '-i', inputName,
+                '-map', '0:a:0',
+                '-vn',
+                '-ac', '1',
+                '-ar', '24000',
+                '-af', 'loudnorm=I=-16:LRA=11:TP=-1.5',
+                '-c:a', 'libopus',
+                '-b:a', '40k',
+                '-vbr', 'on',
+                '-compression_level', '10',
+                '-application', 'voip',
+                outputName
+            );
+            const data = ffmpeg.FS('readFile', outputName);
+            const bytes = data instanceof Uint8Array ? data.slice() : new Uint8Array(data);
+            if (!bytes.byteLength) throw new Error('圧縮後の音声データを作成できませんでした。');
+            return new Blob([bytes], { type: 'audio/webm;codecs=opus' });
+        } catch (error) {
+            if (String(error?.message || '').includes('音声')) throw error;
+            throw new Error('音声ファイルを圧縮できませんでした。別の音声形式をお試しください。');
+        } finally {
+            try { ffmpeg.FS('unlink', inputName); } catch (_) {}
+            try { ffmpeg.FS('unlink', outputName); } catch (_) {}
+            try { ffmpeg.exit?.(); } catch (_) {}
+            if (this._shiftPhotoCompareAudioFFmpegLoading === ffmpeg) {
+                this._shiftPhotoCompareAudioFFmpegLoading = null;
+            }
+        }
+    }
+
+    formatShiftPhotoCompareAudioBytes(bytes = 0) {
+        if (typeof this.formatPhotoManagerBytes === 'function') return this.formatPhotoManagerBytes(bytes);
+        const value = Math.max(0, Number(bytes) || 0);
+        if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(2)}MB`;
+        if (value >= 1024) return `${Math.round(value / 1024)}KB`;
+        return `${Math.round(value)}B`;
+    }
+    confirmShiftPhotoCompareAnimationPageAudioFile(entry, fileName, originalBlob, preparedBlob, duration = 0) {
+        const state = this._shiftPhotoCompareAnimationState;
+        if (!state?.overlay || !entry || !(preparedBlob instanceof Blob)) return Promise.resolve(false);
+        return new Promise(resolve => {
+            const dialog = document.createElement('div');
+            const previewUrl = URL.createObjectURL(preparedBlob);
+            let settled = false;
+            const finish = accepted => {
+                if (settled) return;
+                settled = true;
+                dialog.querySelector('audio')?.pause?.();
+                URL.revokeObjectURL(previewUrl);
+                dialog.remove();
+                resolve(!!accepted);
+            };
+            dialog.className = 'shift-photo-compare-animation-timeline-dialog shift-photo-compare-animation-recording-dialog shift-photo-compare-animation-audio-confirm';
+            dialog.innerHTML = `
+                <div class="shift-photo-compare-animation-timeline-dialog-panel">
+                    <header><strong><i class="fa-solid fa-file-audio"></i> 音声ファイルの確認</strong><button type="button" data-audio-confirm="cancel" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                    <div class="shift-photo-compare-audio-confirm-name">${this.escapeHtml(fileName)}</div>
+                    <audio controls preload="auto" src="${this.escapeHtml(previewUrl)}"></audio>
+                    <dl class="shift-photo-compare-audio-confirm-details">
+                        <div><dt>再生時間</dt><dd>${this.formatShiftPhotoCompareRecordedAudioDuration(duration)}</dd></div>
+                        <div><dt>元の容量</dt><dd>${this.formatShiftPhotoCompareAudioBytes(originalBlob.size)}</dd></div>
+                        <div><dt>登録容量</dt><dd>${this.formatShiftPhotoCompareAudioBytes(preparedBlob.size)}</dd></div>
+                        <div><dt>音声調整</dt><dd>音量均一化・モノラル・40kbps</dd></div>
+                    </dl>
+                    <p>試聴して問題がなければ、この音声をページへ登録してください。</p>
+                    <div class="shift-photo-compare-animation-timeline-dialog-actions">
+                        <button type="button" class="secondary" data-audio-confirm="cancel">キャンセル</button>
+                        <button type="button" data-audio-confirm="save"><i class="fa-solid fa-check"></i>この音声を登録</button>
+                    </div>
+                </div>`;
+            state.overlay.appendChild(dialog);
+            dialog.querySelectorAll('[data-audio-confirm="cancel"]').forEach(button => {
+                button.addEventListener('click', () => finish(false));
+            });
+            dialog.querySelector('[data-audio-confirm="save"]')?.addEventListener('click', () => finish(true));
+            dialog.addEventListener('pointerdown', event => {
+                if (event.target === dialog) finish(false);
+            });
+            const placement = { dialog, entry };
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                this.positionShiftPhotoCompareAnimationPageRecordingDialog(placement);
+            }));
+        });
+    }
+    async useShiftPhotoCompareAnimationPageAudioFile(entryId = '', file = null) {
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (!entry || !(file instanceof Blob)) return;
+        const fileName = String(file.name || '音声ファイル');
+        const audioExtension = /\.(mp3|wav|m4a|aac|ogg|oga|webm|flac)$/i.test(fileName);
+        if (!String(file.type || '').toLowerCase().startsWith('audio/') && !audioExtension) {
+            this.showToast?.('音声ファイルを選択してください。');
+            return;
+        }
+        if (file.size > 100 * 1024 * 1024) {
+            this.showToast?.('音声ファイルは100MB以下を選択してください。');
+            return;
+        }
+        const pages = this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark);
+        const currentPage = pages[entry.pageIndex] || {};
+        const oldKey = String(currentPage.recordedAudioKey || '');
+        const key = `shift-page-audio-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        this.showToast?.('音声ファイルを圧縮しています。完了までお待ちください。');
+        try {
+            const sourceDuration = await this.getShiftPhotoCompareAudioBlobDuration(file);
+            const compressedBlob = await this.compressShiftPhotoComparePageAudioFile(file);
+            const useCompressed = compressedBlob.size < file.size;
+            const storedBlob = useCompressed ? compressedBlob : file;
+            const duration = useCompressed
+                ? (await this.getShiftPhotoCompareAudioBlobDuration(storedBlob) || sourceDuration)
+                : sourceDuration;
+            const confirmed = await this.confirmShiftPhotoCompareAnimationPageAudioFile(
+                entry,
+                fileName,
+                file,
+                storedBlob,
+                duration
+            );
+            if (!confirmed) {
+                this.showToast?.('音声ファイルの登録をキャンセルしました。');
+                return;
+            }
+            await store.saveMediaBlob(key, storedBlob);
+            if (!this.persistShiftPhotoCompareAnimationPageRecording(entry, {
+                key,
+                type: storedBlob.type || file.type || '',
+                name: fileName,
+                source: 'file',
+                size: storedBlob.size,
+                duration
+            })) {
+                await store.deleteMediaBlob(key).catch(() => false);
+                throw new Error('音声を設定するページを保存できませんでした。');
+            }
+            this.registerPhotoManagerAudioReference?.({
+                mediaKey: key,
+                name: fileName,
+                type: storedBlob.type || file.type || '',
+                size: storedBlob.size,
+                duration
+            });
+            if (oldKey && oldKey !== key && !(this.isPhotoManagerAudioMediaKey?.(oldKey))) {
+                await store.deleteMediaBlob(oldKey).catch(() => false);
+            }
+            this.renderShiftPhotoCompareAnimationTimeline();
+            const beforeSize = this.formatShiftPhotoCompareAudioBytes(file.size);
+            const afterSize = this.formatShiftPhotoCompareAudioBytes(storedBlob.size);
+            const reduction = Math.max(0, file.size - storedBlob.size);
+            this.showToast?.(useCompressed
+                ? `${fileName} を圧縮して設定しました（${beforeSize} → ${afterSize}、${this.formatShiftPhotoCompareAudioBytes(reduction)}削減）。`
+                : `${fileName} はすでに十分小さいため、そのまま設定しました（${beforeSize}）。`);
+        } catch (error) {
+            this.showToast?.(error?.message || '音声ファイルを保存できませんでした。');
+        }
+    }
+    async previewShiftPhotoCompareAnimationPageRecording(entryId = '') {
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        if (!entry?.recordedAudioKey) return;
+        this.cancelShiftPhotoCompareSpeech();
+        const started = this.playShiftPhotoCompareRecordedAudio(entry.recordedAudioKey, {
+            notifyError: true,
+            trimStart: entry.recordedAudioTrimStart,
+            trimEnd: entry.recordedAudioTrimEnd
+        });
+        if (!started) this.showToast?.('設定中の音声を再生できませんでした。');
+    }
+
+    persistShiftPhotoCompareAnimationPageRecording(entry, recording = {}, targetPage = null) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = targetPage || state?.pages?.[state.pageIndex];
+        const mark = entry?.mark;
+        const previousAudioKey = String(entry?.recordedAudioKey || '');
+        if (!mark || !page) return false;
+        const applyRecording = target => {
+            target.recordedAudioKey = String(recording.key || '');
+            target.recordedAudioType = String(recording.type || '');
+            target.recordedAudioName = String(recording.name || '').slice(0, 180);
+            target.recordedAudioSource = recording.key ? (recording.source === 'file' ? 'file' : 'recording') : '';
+            target.recordedAudioSize = Math.max(0, Number(recording.size) || 0);
+            target.recordedAudioDuration = Math.max(0, Number(recording.duration) || 0);
+            target.recordedAudioTrimStart = Math.max(0, Number(recording.trimStart) || 0);
+            target.recordedAudioTrimEnd = Math.max(0, Number(recording.trimEnd) || 0);
+        };
+        const animationPages = this.getShiftPhotoCompareMarkPagesFromDataset(mark);
+        if (!animationPages[entry.pageIndex]) return false;
+        applyRecording(animationPages[entry.pageIndex]);
+        mark.dataset.pages = JSON.stringify(animationPages);
+        entry.recordedAudioKey = String(recording.key || '');
+        entry.recordedAudioType = String(recording.type || '');
+        entry.recordedAudioName = String(recording.name || '').slice(0, 180);
+        entry.recordedAudioSource = recording.key ? (recording.source === 'file' ? 'file' : 'recording') : '';
+        entry.recordedAudioSize = Math.max(0, Number(recording.size) || 0);
+        entry.recordedAudioDuration = Math.max(0, Number(recording.duration) || 0);
+        entry.recordedAudioTrimStart = Math.max(0, Number(recording.trimStart) || 0);
+        entry.recordedAudioTrimEnd = Math.max(0, Number(recording.trimEnd) || 0);
+
+        const sourceDomMark = this.getShiftPhotoCompareAnimationTimelineSourceDomMark(mark, page);
+        if (sourceDomMark && this.supportsShiftPhotoComparePages(sourceDomMark)) {
+            const sourcePages = this.getShiftPhotoCompareMarkPagesFromDataset(sourceDomMark);
+            if (!sourcePages[entry.pageIndex]) return false;
+            applyRecording(sourcePages[entry.pageIndex]);
+            sourceDomMark.dataset.pages = JSON.stringify(sourcePages);
+            this.syncShiftPhotoCompareChangedMarkWraps([sourceDomMark]);
+            if (recording.key) {
+                this.saveShiftPhotoComparePageAudioSavedSettings(recording.key, {
+                    name: recording.name,
+                    trimStart: recording.trimStart,
+                    trimEnd: recording.trimEnd
+                });
+            }
+            if (previousAudioKey && previousAudioKey !== String(recording.key || '')) {
+                this.saveShiftPhotoComparePageAudioSavedSettings(previousAudioKey, null);
+            }
+            this._shiftPhotoComparePageAudioSavePromise = Promise.resolve(this.autoSaveShiftNotebook?.(true));
+            return true;
+        }
+
+        const row = page.row;
+        if (!row) return false;
+        const markIndex = Math.max(0, Math.round(Number(mark.dataset.animationSourceMarkIndex) || 0));
+        const scope = mark.dataset.animationSourceScope || '';
+        let marks = [];
+        let save = null;
+        if (scope === 'global') {
+            marks = this.parseShiftPhotoCompareMarks(row.dataset.shiftPhotoGlobalMarks || '[]');
+            save = next => { row.dataset.shiftPhotoGlobalMarks = JSON.stringify(this.compactShiftPhotoCompareMarkImages(next)); };
+        } else if (scope === 'photo') {
+            const photoIndex = Math.max(0, Math.round(Number(mark.dataset.animationSourcePhotoIndex) || 0));
+            const photo = this.getShiftPhotoCompareItems(row).find(item => item.index === photoIndex);
+            if (!photo?.previewItem) return false;
+            marks = this.parseShiftPhotoCompareMarks(photo.previewItem.dataset.shiftPhotoMarks || '[]');
+            save = next => { photo.previewItem.dataset.shiftPhotoMarks = JSON.stringify(this.compactShiftPhotoCompareMarkImages(next)); };
+        }
+        const sourceMark = marks[markIndex];
+        if (!sourceMark || !this.getShiftPhotoComparePagedMarkModes().includes(sourceMark.mode) || !save) return false;
+        const sourcePages = this.normalizeShiftPhotoCompareMarkPages(sourceMark);
+        if (!sourcePages[entry.pageIndex]) return false;
+        applyRecording(sourcePages[entry.pageIndex]);
+        sourceMark.pages = sourcePages;
+        save(marks);
+        if (recording.key) {
+            this.saveShiftPhotoComparePageAudioSavedSettings(recording.key, {
+                name: recording.name,
+                trimStart: recording.trimStart,
+                trimEnd: recording.trimEnd
+            });
+        }
+        if (previousAudioKey && previousAudioKey !== String(recording.key || '')) {
+            this.saveShiftPhotoComparePageAudioSavedSettings(previousAudioKey, null);
+        }
+        this._shiftPhotoComparePageAudioSavePromise = Promise.resolve(this.autoSaveShiftNotebook?.(true));
+        return true;
+    }
+
+    positionShiftPhotoCompareAnimationPageRecordingDialog(session = this._shiftPhotoComparePageRecordingSession) {
+        const dialog = session?.dialog;
+        const panel = dialog?.querySelector?.('.shift-photo-compare-animation-timeline-dialog-panel');
+        const target = session?.entry?.mark;
+        if (!dialog || !panel || !target || !document.contains(target)) return;
+        const targetRect = target.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        if (!targetRect.width || !targetRect.height || !panelRect.width || !panelRect.height) return;
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        const margin = 12;
+        const gap = 18;
+        const width = Math.min(panelRect.width, Math.max(1, viewportWidth - margin * 2));
+        const height = Math.min(panelRect.height, Math.max(1, viewportHeight - margin * 2));
+        const clamp = (value, min, max) => Math.max(min, Math.min(value, Math.max(min, max)));
+        const candidates = [
+            { side: 'right', left: targetRect.right + gap, top: targetRect.top + (targetRect.height - height) / 2 },
+            { side: 'left', left: targetRect.left - width - gap, top: targetRect.top + (targetRect.height - height) / 2 },
+            { side: 'bottom', left: targetRect.left + (targetRect.width - width) / 2, top: targetRect.bottom + gap },
+            { side: 'top', left: targetRect.left + (targetRect.width - width) / 2, top: targetRect.top - height - gap }
+        ];
+        const expandedTarget = {
+            left: targetRect.left - gap,
+            top: targetRect.top - gap,
+            right: targetRect.right + gap,
+            bottom: targetRect.bottom + gap
+        };
+        const scoreCandidate = candidate => {
+            const rawLeft = candidate.left;
+            const rawTop = candidate.top;
+            const left = clamp(rawLeft, margin, viewportWidth - width - margin);
+            const top = clamp(rawTop, margin, viewportHeight - height - margin);
+            const right = left + width;
+            const bottom = top + height;
+            const overlapWidth = Math.max(0, Math.min(right, expandedTarget.right) - Math.max(left, expandedTarget.left));
+            const overlapHeight = Math.max(0, Math.min(bottom, expandedTarget.bottom) - Math.max(top, expandedTarget.top));
+            const overflow = Math.abs(left - rawLeft) + Math.abs(top - rawTop);
+            const targetCenterX = targetRect.left + targetRect.width / 2;
+            const targetCenterY = targetRect.top + targetRect.height / 2;
+            const distance = Math.hypot((left + width / 2) - targetCenterX, (top + height / 2) - targetCenterY);
+            return { ...candidate, left, top, score: overlapWidth * overlapHeight * 10000 + overflow * 100 + distance };
+        };
+        const best = candidates.map(scoreCandidate).sort((left, right) => left.score - right.score)[0];
+        panel.style.position = 'fixed';
+        panel.style.left = `${Math.round(best.left)}px`;
+        panel.style.top = `${Math.round(best.top)}px`;
+        panel.style.margin = '0';
+        panel.style.maxHeight = `calc(100vh - ${margin * 2}px)`;
+        panel.style.overflowY = 'auto';
+        dialog.dataset.placement = best.side;
+    }
+    async openShiftPhotoCompareAnimationPageRecordingDialog(entryId = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (!state || !entry || state.videoRecording) return;
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        this.closeShiftPhotoCompareAnimationPageRecordingDialog();
+        const dialog = document.createElement('div');
+        dialog.className = 'shift-photo-compare-animation-timeline-dialog shift-photo-compare-animation-recording-dialog';
+        dialog.innerHTML = `
+            <div class="shift-photo-compare-animation-timeline-dialog-panel">
+                <header><strong><i class="fa-solid fa-microphone-lines"></i> ${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}Pのページ音声</strong><button type="button" onclick="app.closeShiftPhotoCompareAnimationPageRecordingDialog()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                <div class="shift-photo-compare-recording-status" role="status"><i class="fa-solid ${entry.recordedAudioKey ? 'fa-circle-check' : 'fa-microphone'}"></i><span>${entry.recordedAudioKey ? `${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : '録音済み'}（${this.formatShiftPhotoCompareRecordedAudioDuration(entry.recordedAudioDuration)}）` : '録音を開始してください'}</span><time>${this.formatShiftPhotoCompareRecordedAudioDuration(entry.recordedAudioDuration)}</time></div>
+                <div class="shift-photo-compare-recording-meter" aria-hidden="true"><span></span></div>
+                <audio class="shift-photo-compare-recording-preview" controls ${entry.recordedAudioKey ? '' : 'hidden'}></audio>
+                <div class="shift-photo-compare-recording-controls">
+                    <button type="button" class="record" onclick="app.startShiftPhotoCompareAnimationPageRecording()"><i class="fa-solid fa-circle"></i><span>${entry.recordedAudioKey ? '録り直す' : '録音開始'}</span></button>
+                    <button type="button" class="stop" onclick="app.stopShiftPhotoCompareAnimationPageRecording()" disabled><i class="fa-solid fa-stop"></i><span>停止</span></button>
+                </div>
+                <p>マイクの使用を許可してください。保存後、このページではブラウザー音声の代わりに録音音声を再生します。</p>
+                <div class="shift-photo-compare-animation-timeline-dialog-actions ${entry.recordedAudioKey ? 'three-actions' : ''}">
+                    ${entry.recordedAudioKey ? `<button type="button" class="danger" onclick="app.deleteShiftPhotoCompareAnimationPageRecording('${this.escapeJs(entryId)}')"><i class="fa-solid fa-trash"></i>削除</button>` : ''}
+                    <button type="button" class="secondary" onclick="app.closeShiftPhotoCompareAnimationPageRecordingDialog()">キャンセル</button>
+                    <button type="button" class="save-recording" onclick="app.saveShiftPhotoCompareAnimationPageRecording()" ${entry.recordedAudioKey ? '' : 'disabled'}><i class="fa-solid fa-check"></i>この音声を使用</button>
+                </div>
+            </div>`;
+        state.overlay.appendChild(dialog);
+        const session = {
+            dialog,
+            entry,
+            recorder: null,
+            stream: null,
+            chunks: [],
+            draftBlob: null,
+            previewUrl: '',
+            startedAt: 0,
+            duration: entry.recordedAudioDuration || 0,
+            timer: null,
+            closed: false
+        };
+        this._shiftPhotoComparePageRecordingSession = session;
+        session.positionHandler = () => this.positionShiftPhotoCompareAnimationPageRecordingDialog(session);
+        window.addEventListener('resize', session.positionHandler);
+        requestAnimationFrame(() => requestAnimationFrame(session.positionHandler));
+        if (entry.recordedAudioKey) {
+            try {
+                const blob = await store.loadMediaBlob(entry.recordedAudioKey);
+                if (this._shiftPhotoComparePageRecordingSession !== session || !blob) return;
+                session.previewUrl = URL.createObjectURL(blob);
+                dialog.querySelector('audio').src = session.previewUrl;
+            } catch (_) {
+                this.showToast?.('保存済みの録音音声を読み込めませんでした。');
+            }
+        }
+    }
+
+    getShiftPhotoCompareRecordingMimeType() {
+        if (!window.MediaRecorder?.isTypeSupported) return '';
+        return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+            .find(type => MediaRecorder.isTypeSupported(type)) || '';
+    }
+
+    async startShiftPhotoCompareAnimationPageRecording() {
+        const session = this._shiftPhotoComparePageRecordingSession;
+        if (!session || session.closed) return;
+        if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+            this.showToast?.('このブラウザーではマイク録音を利用できません。');
+            return;
+        }
+        try {
+            session.stream?.getTracks?.().forEach(track => track.stop());
+            session.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (session.closed) {
+                session.stream.getTracks().forEach(track => track.stop());
+                return;
+            }
+            const mimeType = this.getShiftPhotoCompareRecordingMimeType();
+            session.recorder = mimeType
+                ? new MediaRecorder(session.stream, { mimeType })
+                : new MediaRecorder(session.stream);
+            session.chunks = [];
+            session.draftBlob = null;
+            session.startedAt = Date.now();
+            const status = session.dialog.querySelector('.shift-photo-compare-recording-status');
+            status?.classList.add('recording');
+            const label = status?.querySelector('span');
+            if (label) label.textContent = '録音中';
+            session.dialog.querySelector('.record')?.setAttribute('disabled', '');
+            session.dialog.querySelector('.stop')?.removeAttribute('disabled');
+            session.dialog.querySelector('.save-recording')?.setAttribute('disabled', '');
+            session.timer = setInterval(() => {
+                const seconds = (Date.now() - session.startedAt) / 1000;
+                const time = session.dialog.querySelector('.shift-photo-compare-recording-status time');
+                if (time) time.textContent = this.formatShiftPhotoCompareRecordedAudioDuration(seconds);
+            }, 200);
+            session.recorder.ondataavailable = dataEvent => {
+                if (dataEvent.data?.size) session.chunks.push(dataEvent.data);
+            };
+            session.recorder.onstop = () => {
+                clearInterval(session.timer);
+                session.timer = null;
+                session.stream?.getTracks?.().forEach(track => track.stop());
+                session.stream = null;
+                if (session.closed) return;
+                session.duration = Math.max(0.1, (Date.now() - session.startedAt) / 1000);
+                session.draftBlob = new Blob(session.chunks, { type: session.recorder.mimeType || mimeType || 'audio/webm' });
+                if (session.previewUrl) URL.revokeObjectURL(session.previewUrl);
+                session.previewUrl = URL.createObjectURL(session.draftBlob);
+                const audio = session.dialog.querySelector('audio');
+                audio.src = session.previewUrl;
+                audio.hidden = false;
+                const currentStatus = session.dialog.querySelector('.shift-photo-compare-recording-status');
+                currentStatus?.classList.remove('recording');
+                const currentLabel = currentStatus?.querySelector('span');
+                if (currentLabel) currentLabel.textContent = `録音完了（${this.formatShiftPhotoCompareRecordedAudioDuration(session.duration)}）`;
+                const time = currentStatus?.querySelector('time');
+                if (time) time.textContent = this.formatShiftPhotoCompareRecordedAudioDuration(session.duration);
+                session.dialog.querySelector('.record')?.removeAttribute('disabled');
+                const recordLabel = session.dialog.querySelector('.record span');
+                if (recordLabel) recordLabel.textContent = '録り直す';
+                session.dialog.querySelector('.stop')?.setAttribute('disabled', '');
+                session.dialog.querySelector('.save-recording')?.removeAttribute('disabled');
+            };
+            session.recorder.start(250);
+        } catch (error) {
+            session.stream?.getTracks?.().forEach(track => track.stop());
+            session.stream = null;
+            this.showToast?.(error?.name === 'NotAllowedError'
+                ? 'マイクの使用が許可されていません。ブラウザーの設定を確認してください。'
+                : '録音を開始できませんでした。');
+        }
+    }
+
+    stopShiftPhotoCompareAnimationPageRecording() {
+        const recorder = this._shiftPhotoComparePageRecordingSession?.recorder;
+        if (recorder?.state === 'recording') recorder.stop();
+    }
+
+    closeShiftPhotoCompareAnimationPageRecordingDialog() {
+        const session = this._shiftPhotoComparePageRecordingSession;
+        if (!session) return;
+        session.closed = true;
+        clearInterval(session.timer);
+        if (session.positionHandler) window.removeEventListener('resize', session.positionHandler);
+        if (session.recorder?.state === 'recording') {
+            try { session.recorder.stop(); } catch (_) {}
+        }
+        session.stream?.getTracks?.().forEach(track => track.stop());
+        session.dialog?.querySelector('audio')?.pause?.();
+        if (session.previewUrl) URL.revokeObjectURL(session.previewUrl);
+        session.dialog?.remove();
+        this._shiftPhotoComparePageRecordingSession = null;
+    }
+
+    async saveShiftPhotoCompareAnimationPageRecording() {
+        const session = this._shiftPhotoComparePageRecordingSession;
+        if (!session || session.recorder?.state === 'recording') return;
+        if (!session.draftBlob && session.entry?.recordedAudioKey) {
+            this.closeShiftPhotoCompareAnimationPageRecordingDialog();
+            return;
+        }
+        if (!session.draftBlob) return;
+        const pages = this.getShiftPhotoCompareMarkPagesFromDataset(session.entry.mark);
+        const currentPage = pages[session.entry.pageIndex] || {};
+        const currentKey = String(currentPage.recordedAudioKey || '');
+        const key = currentKey && !(this.isPhotoManagerAudioMediaKey?.(currentKey))
+            ? currentKey
+            : `shift-page-audio-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const button = session.dialog.querySelector('.save-recording');
+        button.disabled = true;
+        try {
+            await store.saveMediaBlob(key, session.draftBlob);
+            if (!this.persistShiftPhotoCompareAnimationPageRecording(session.entry, {
+                key,
+                type: session.draftBlob.type,
+                name: 'その場で録音',
+                source: 'recording',
+                size: session.draftBlob.size,
+                duration: session.duration
+            })) throw new Error('録音先のページを保存できませんでした。');
+            this.closeShiftPhotoCompareAnimationPageRecordingDialog();
+            this.renderShiftPhotoCompareAnimationTimeline();
+            this.showToast?.('このページで録音音声を使用します。');
+        } catch (error) {
+            button.disabled = false;
+            this.showToast?.(error?.message || '録音音声を保存できませんでした。');
+        }
+    }
+
+    async deleteShiftPhotoCompareAnimationPageRecording(entryId = '') {
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId)
+            || this._shiftPhotoComparePageRecordingSession?.entry;
+        if (!entry?.recordedAudioKey) return;
+        if (!confirm('このページの録音音声を削除しますか？')) return;
+        const key = entry.recordedAudioKey;
+        try {
+            if (!this.persistShiftPhotoCompareAnimationPageRecording(entry, { key: '', type: '', name: '', source: '', size: 0, duration: 0 })) {
+                throw new Error('ページの録音設定を削除できませんでした。');
+            }
+            if (!(this.isPhotoManagerAudioMediaKey?.(key))) await store.deleteMediaBlob(key).catch(() => false);
+            this.closeShiftPhotoCompareAnimationPageAudioMenu();
+            this.closeShiftPhotoCompareAnimationPageRecordingDialog();
+            this.cancelShiftPhotoCompareSpeech();
+            this.renderShiftPhotoCompareAnimationTimeline();
+            this.showToast?.('録音音声を削除しました。');
+        } catch (error) {
+            this.showToast?.(error?.message || '録音音声を削除できませんでした。');
+        }
+    }
     toggleShiftPhotoCompareAnimationTimelineSelection(type, id) {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state || state.videoRecording) return;
@@ -11073,6 +12769,11 @@
                     <button type="button" class="shift-photo-compare-animation-page-save shift-photo-compare-animation-save-all" onclick="app.saveAllShiftPhotoCompareAnimationChanges()" title="変更は保存済みです"><i class="fa-solid fa-floppy-disk"></i><span>すべて保存</span></button>
                     <button type="button" class="shift-photo-compare-animation-page-clear" onclick="app.clearShiftPhotoCompareAnimationPageSettings()" title="グループとページの設定を解除" aria-label="グループとページの設定を解除"><i class="fa-solid fa-link-slash"></i></button>
                 </div>
+                <div class="shift-photo-compare-animation-audio-tools">
+                    <div class="shift-photo-compare-animation-audio-storage" title="このアニメで使用中のページ音声容量"><i class="fa-solid fa-hard-drive"></i><span>音声 <b data-animation-audio-total>確認中</b></span></div>
+                    <button type="button" class="shift-photo-compare-animation-audio-manage" onclick="app.openShiftPhotoCompareAnimationAudioManager()" title="全ページの音声を一覧管理" aria-label="ページ音声を一覧管理"><i class="fa-solid fa-list"></i></button>
+                    <button type="button" class="shift-photo-compare-animation-audio-cleanup" onclick="app.cleanupUnusedShiftPhotoComparePageAudio()" title="全部署を確認し、どこからも参照されていないページ音声を整理" aria-label="未使用のページ音声を整理"><i class="fa-solid fa-broom"></i></button>
+                </div>
                 <div class="shift-photo-compare-animation-progress" aria-live="polite">
                     <div class="shift-photo-compare-animation-progress-text"><strong class="shift-photo-compare-animation-current-page">1P</strong><span class="shift-photo-compare-animation-current-step">開始前</span><span class="shift-photo-compare-animation-counter">0 / ${currentPage.marks.length}</span></div>
                     <div class="shift-photo-compare-animation-progress-track"><span></span></div>
@@ -11275,6 +12976,7 @@
             animationOverlay.classList.add('timeline-collapsed');
         }
         this.renderShiftPhotoCompareAnimationTimeline();
+        this.updateShiftPhotoCompareAnimationAudioStorageSummary();
         requestAnimationFrame(() => {
             this.refreshShiftPhotoCompareTextLayout(currentPage.grid);
             this.syncShiftPhotoCompareAnimationLinkedEndpointLayouts(currentPage);
@@ -11350,6 +13052,7 @@
         this.updateShiftPhotoCompareAnimationMotionTrails();
         this.updateShiftPhotoCompareAnimationCounter();
         this.renderShiftPhotoCompareAnimationTimeline();
+        this.updateShiftPhotoCompareAnimationAudioStorageSummary();
         requestAnimationFrame(() => {
             this.refreshShiftPhotoCompareTextLayout(page.grid);
             this.syncShiftPhotoCompareAnimationLinkedEndpointLayouts(page);
@@ -11653,6 +13356,8 @@
             this.finishShiftPhotoCompareAnimationVideoRecording(state.videoRecording, true);
         }
         if (state.timer) clearInterval(state.timer);
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        this.closeShiftPhotoCompareAnimationPageRecordingDialog();
         this.cancelShiftPhotoCompareSpeech();
         this.stopShiftPhotoCompareAnimationVideos(state.grid);
         clearTimeout(state.presentationExitTimer);
@@ -36895,13 +38600,14 @@
 
     autoSaveShiftNotebook(immediate = false) {
         const editing = this._editingShiftNotebook;
-        if (!editing || !document.getElementById('shift-notebook-rows')) return;
+        if (!editing || !document.getElementById('shift-notebook-rows')) return Promise.resolve(false);
         this.updateUnusedBlankShiftNotebookRowCount();
         clearTimeout(this._shiftNotebookAutoSaveTimer);
         const run = () => this.saveShiftNotebook(editing.dateStr, editing.shift, { close: false, render: true, status: true });
         this.setShiftNotebookStatus('保存中', 'saving');
-        if (immediate) run();
-        else this._shiftNotebookAutoSaveTimer = setTimeout(run, 500);
+        if (immediate) return run();
+        this._shiftNotebookAutoSaveTimer = setTimeout(run, 500);
+        return Promise.resolve(false);
     }
 
     saveShiftNotebook(dateStr, shift, options = { close: true, render: true }) {
@@ -36956,6 +38662,7 @@
             this.closeModal();
         }
         if (options.render !== false) this.renderCalendar();
+        return saved;
     }
     }
 

@@ -2128,7 +2128,7 @@
                 source: 'photoManagerVideo',
                 videoId,
                 name: photo?.name || video?.name || video?.fileName || '動画',
-                thumbnailUrl: photo?.thumbnailUrl || video?.thumbnailUrl || '',
+                thumbnailUrl: video?.thumbnailUrl || photo?.thumbnailUrl || '',
                 marks: [],
                 printSize: 72
             };

@@ -298,6 +298,34 @@ class MaintenanceStore {
         });
     }
 
+    listMediaEntries(prefix = '') {
+        if (!this.db) return Promise.resolve([]);
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readonly');
+            const store = tx.objectStore(this.MEDIA_STORE_NAME);
+            const entries = [];
+            const request = store.openCursor();
+            request.onsuccess = () => {
+                const cursor = request.result;
+                if (!cursor) {
+                    resolve(entries);
+                    return;
+                }
+                const key = String(cursor.key || '');
+                if (!prefix || key.startsWith(String(prefix))) {
+                    const value = cursor.value || {};
+                    entries.push({
+                        key,
+                        size: Math.max(0, Number(value.size) || Number(value.blob?.size) || 0),
+                        type: String(value.type || value.blob?.type || ''),
+                        updatedAt: Number(value.updatedAt) || 0
+                    });
+                }
+                cursor.continue();
+            };
+            request.onerror = () => reject(request.error || new Error('保存メディア一覧を読み込めませんでした。'));
+        });
+    }
     saveMediaFileHandle(id, handle) {
         if (!this.db || !id || !handle || handle.kind !== 'file') {
             return Promise.reject(new Error('PC動画のリンク情報を保存できません。'));

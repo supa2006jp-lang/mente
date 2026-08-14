@@ -56,6 +56,9 @@
             if (!Array.isArray(store.activeData.photoManagerVideos)) {
                 store.activeData.photoManagerVideos = [];
             }
+            if (!Array.isArray(store.activeData.photoManagerAudios)) {
+                store.activeData.photoManagerAudios = [];
+            }
             return store.activeData.photoManagerNames;
         }
 
@@ -74,6 +77,754 @@
             return store.activeData.photoManagerVideos;
         }
 
+        getPhotoManagerAudios() {
+            this.ensurePhotoManagerData();
+            return store.activeData.photoManagerAudios;
+        }
+
+        getPhotoManagerAudio(id = '') {
+            return this.getPhotoManagerAudios().find(audio => audio.id === String(id)) || null;
+        }
+
+        getPhotoManagerAudioMediaKey(id = '') {
+            return `photo-manager-audio:${store.data.currentDepartmentId || 'dept_default'}:${String(id)}`;
+        }
+
+        isPhotoManagerAudioMediaKey(mediaKey = '') {
+            const key = String(mediaKey || '');
+            return !!key && this.getPhotoManagerAudios().some(audio => String(audio.mediaKey || '') === key);
+        }
+
+        registerPhotoManagerAudioReference(values = {}, options = {}) {
+            const mediaKey = String(values.mediaKey || '');
+            if (!mediaKey) return null;
+            const audios = this.getPhotoManagerAudios();
+            let item = audios.find(audio => String(audio.mediaKey || '') === mediaKey);
+            if (!item) {
+                item = {
+                    id: String(values.id || `audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+                    mediaKey,
+                    createdAt: Date.now()
+                };
+                audios.unshift(item);
+            }
+            item.name = String(values.name || item.name || '音声').slice(0, 180);
+            item.type = String(values.type || item.type || 'audio/webm').slice(0, 100);
+            item.size = Math.max(0, Number(values.size ?? item.size) || 0);
+            item.duration = Math.max(0, Number(values.duration ?? item.duration) || 0);
+            item.updatedAt = Date.now();
+            if (options.save !== false) store.save();
+            return item;
+        }
+
+        syncCurrentPageAudiosToPhotoManagerDatabase() {
+            const references = [];
+            const visited = new WeakSet();
+            const visit = value => {
+                if (!value || typeof value !== 'object' || visited.has(value)) return;
+                visited.add(value);
+                if (value.recordedAudioKey && value.recordedAudioSource === 'file') references.push(value);
+                if (Array.isArray(value)) value.forEach(visit);
+                else Object.values(value).forEach(visit);
+            };
+            visit(store.activeData);
+            if (typeof this.getShiftPhotoCompareAnimationAudioManagementItems === 'function') {
+                (this.getShiftPhotoCompareAnimationAudioManagementItems() || []).forEach(({ entry }) => {
+                    if (entry?.recordedAudioKey && entry.recordedAudioSource === 'file') references.push(entry);
+                });
+            }
+            let added = 0;
+            const seen = new Set();
+            references.forEach(entry => {
+                const mediaKey = String(entry.recordedAudioKey || '');
+                if (!mediaKey || seen.has(mediaKey)) return;
+                seen.add(mediaKey);
+                if (this.isPhotoManagerAudioMediaKey(mediaKey)) return;
+                this.registerPhotoManagerAudioReference({
+                    mediaKey,
+                    name: entry.recordedAudioName || entry.label || '音声ファイル',
+                    type: entry.recordedAudioType,
+                    size: entry.recordedAudioSize,
+                    duration: entry.recordedAudioDuration
+                }, { save: false });
+                added += 1;
+            });
+            if (added) store.save();
+            return added;
+        }
+        getPhotoManagerAudioUsageCount(mediaKey = '') {
+            const target = String(mediaKey || '');
+            if (!target) return 0;
+            let count = 0;
+            const visited = new WeakSet();
+            const visit = value => {
+                if (!value || typeof value !== 'object' || visited.has(value)) return;
+                visited.add(value);
+                if (String(value.recordedAudioKey || '') === target) count += 1;
+                if (Array.isArray(value)) value.forEach(visit);
+                else Object.values(value).forEach(visit);
+            };
+            visit(store.activeData);
+            const loadedCount = typeof this.getShiftPhotoCompareAnimationAudioManagementItems === 'function'
+                ? (this.getShiftPhotoCompareAnimationAudioManagementItems() || [])
+                    .filter(item => String(item?.entry?.recordedAudioKey || '') === target).length
+                : 0;
+            return Math.max(count, loadedCount);
+        }
+
+        async importPhotoManagerAudios(fileList = []) {
+            const files = Array.from(fileList || []).filter(file => String(file.type || '').startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|oga|webm|flac)$/i.test(file.name || ''));
+            if (!files.length) return this.showPhotoManagerNotice?.('音声ファイルを選択してください。');
+            let imported = 0;
+            for (const file of files) {
+                if (file.size > 100 * 1024 * 1024) continue;
+                const id = `audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                const mediaKey = this.getPhotoManagerAudioMediaKey(id);
+                try {
+                    let blob = file;
+                    if (typeof this.compressShiftPhotoComparePageAudioFile === 'function') {
+                        try {
+                            const compressed = await this.compressShiftPhotoComparePageAudioFile(file);
+                            if (compressed?.size && compressed.size < file.size) blob = compressed;
+                        } catch (_) {}
+                    }
+                    const duration = typeof this.getShiftPhotoCompareAudioBlobDuration === 'function'
+                        ? await this.getShiftPhotoCompareAudioBlobDuration(blob)
+                        : 0;
+                    await store.saveMediaBlob(mediaKey, blob);
+                    this.registerPhotoManagerAudioReference({
+                        id,
+                        mediaKey,
+                        name: file.name || '音声ファイル',
+                        type: blob.type || file.type,
+                        size: blob.size,
+                        duration
+                    }, { save: false });
+                    imported += 1;
+                } catch (_) {}
+            }
+            await store.save();
+            this.openPhotoManagerAudios();
+            this.showPhotoManagerNotice?.(imported ? `${imported}件の音声を登録しました。` : '音声を登録できませんでした。');
+        }
+
+        revokePhotoManagerAudioObjectUrls() {
+            (this._photoManagerAudioObjectUrls || []).forEach(url => URL.revokeObjectURL(url));
+            this._photoManagerAudioObjectUrls = [];
+        }
+
+        closePhotoManagerAudios(event = null) {
+            if (event && event.target !== event.currentTarget) return;
+            this.closePhotoManagerAudioUsage();
+            this.closePhotoManagerAudioTranscriptHistory();
+            const modal = document.getElementById('photo-manager-audio-modal');
+            modal?.querySelectorAll('audio')?.forEach(audio => audio.pause());
+            this.revokePhotoManagerAudioObjectUrls();
+            modal?.remove();
+        }
+
+        async hydratePhotoManagerAudioCards() {
+            const modal = document.getElementById('photo-manager-audio-modal');
+            if (!modal) return;
+            this.revokePhotoManagerAudioObjectUrls();
+            for (const audioElement of modal.querySelectorAll('audio[data-audio-id]')) {
+                const item = this.getPhotoManagerAudio(audioElement.dataset.audioId);
+                if (!item) continue;
+                try {
+                    const blob = await store.loadMediaBlob(item.mediaKey);
+                    if (!blob || !audioElement.isConnected) continue;
+                    const url = URL.createObjectURL(blob);
+                    this._photoManagerAudioObjectUrls.push(url);
+                    audioElement.src = url;
+                } catch (_) {
+                    audioElement.closest('.photo-manager-audio-card')?.classList.add('missing');
+                }
+            }
+        }
+
+        openPhotoManagerAudios() {
+            this.syncCurrentPageAudiosToPhotoManagerDatabase();
+            this.closePhotoManagerAudios();
+            const audios = this.getPhotoManagerAudios();
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="photo-manager-audio-modal" class="photo-manager-video-modal photo-manager-audio-modal" onclick="app.closePhotoManagerAudios(event)">
+                    <section class="photo-manager-video-panel photo-manager-audio-panel" onclick="event.stopPropagation()">
+                        <header>
+                            <div><strong><i class="fa-solid fa-headphones"></i> 音声管理</strong><small>${audios.length}件 / 登録音声の試聴・名前変更・削除</small></div>
+                            <div class="photo-manager-video-header-actions">
+                                <button type="button" class="secondary-btn photo-manager-audio-batch-recognize-btn" onclick="app.recognizeUnrecognizedPhotoManagerAudios(this)"><i class="fa-solid fa-wand-magic-sparkles"></i> 未認識を一括認識</button>
+                                <button type="button" class="primary-btn" onclick="document.getElementById('photo-manager-audio-import-input')?.click()"><i class="fa-solid fa-plus"></i> 音声登録</button>
+                                <button type="button" class="secondary-btn" onclick="app.closePhotoManagerAudios()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                        </header>
+                        <div class="photo-manager-audio-search">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="search" placeholder="音声名・認識内容を検索" oninput="app.filterPhotoManagerAudios(this.value)" aria-label="音声を検索">
+                            <select class="photo-manager-audio-status-filter" onchange="app.filterPhotoManagerAudios()" aria-label="認識状態"><option value="all">すべての状態</option><option value="unrecognized">未認識</option><option value="auto">自動認識</option><option value="manual">手動修正済み</option></select>
+                            <select class="photo-manager-audio-sort" onchange="app.filterPhotoManagerAudios()" aria-label="並び順"><option value="recent">登録が新しい順</option><option value="name">名前順</option><option value="size">容量が大きい順</option><option value="usage">使用数が多い順</option><option value="status">認識状態順</option></select>
+                            <span class="photo-manager-audio-search-count">${audios.length}件</span>
+                        </div>
+                        <div class="photo-manager-audio-list">
+                            ${audios.length ? audios.map(audio => {
+                                const usage = this.getPhotoManagerAudioUsageCount(audio.mediaKey);
+                                return `<article class="photo-manager-audio-card" data-audio-id="${this.escapeHtml(audio.id)}">
+                                    <i class="fa-solid fa-wave-square"></i>
+                                    <div class="photo-manager-audio-main">
+                                        <input type="text" maxlength="180" value="${this.escapeHtml(audio.name || '音声')}" aria-label="音声名">
+                                        <audio controls preload="metadata" data-audio-id="${this.escapeHtml(audio.id)}"></audio>
+                                        <div class="photo-manager-audio-facts"><small>${this.formatPhotoManagerBytes(audio.size || 0)} / ${this.formatPhotoManagerVideoDuration(audio.duration || 0)}</small>${usage ? `<button type="button" onclick="app.openPhotoManagerAudioUsage('${this.escapeJs(audio.id)}')"><i class="fa-solid fa-location-dot"></i> ${usage}ページで使用中</button>` : '<small>未使用</small>'}</div>
+                                        <div class="photo-manager-audio-transcript" ${audio.transcript ? '' : 'hidden'}>
+                                            <div class="photo-manager-audio-transcript-header"><strong>${audio.transcriptManuallyEdited ? '認識内容（手動修正済み）' : '認識内容'}</strong><div><button type="button" class="photo-manager-audio-transcript-rename-btn" onclick="app.renamePhotoManagerAudioFromCorrectedTranscript('${this.escapeJs(audio.id)}', this)" ${audio.transcriptManuallyEdited ? '' : 'hidden'}><i class="fa-solid fa-font"></i> 修正文から再命名</button><button type="button" class="photo-manager-audio-transcript-history-btn" onclick="app.openPhotoManagerAudioTranscriptHistory('${this.escapeJs(audio.id)}')" ${Array.isArray(audio.transcriptHistory) && audio.transcriptHistory.length ? '' : 'hidden'}><i class="fa-solid fa-clock-rotate-left"></i> 履歴</button><button type="button" class="photo-manager-audio-transcript-edit-btn" onclick="app.editPhotoManagerAudioTranscript('${this.escapeJs(audio.id)}', this)"><i class="fa-solid fa-pen"></i> 修正</button></div></div>
+                                            <p>${this.escapeHtml(audio.transcript || '')}</p>
+                                            <div class="photo-manager-audio-transcript-editor" hidden><textarea rows="4" maxlength="10000">${this.escapeHtml(audio.transcript || '')}</textarea><div><button type="button" class="primary-btn" onclick="app.savePhotoManagerAudioTranscript('${this.escapeJs(audio.id)}', this)"><i class="fa-solid fa-floppy-disk"></i> 修正を保存</button><button type="button" class="secondary-btn" onclick="app.cancelPhotoManagerAudioTranscriptEdit(this)">キャンセル</button></div></div>
+                                        </div>
+                                        <small class="photo-manager-audio-search-hit" hidden></small>
+                                    </div>
+                                    <div class="photo-manager-audio-actions">
+                                        <button type="button" class="secondary-btn photo-manager-audio-transcribe-btn" onclick="app.renamePhotoManagerAudioFromContent('${this.escapeJs(audio.id)}', this)"><i class="fa-solid fa-wand-magic-sparkles"></i> 内容から命名</button>
+                                        <button type="button" class="primary-btn" onclick="app.savePhotoManagerAudioName('${this.escapeJs(audio.id)}', this)"><i class="fa-solid fa-floppy-disk"></i> 名前保存</button>
+                                        <button type="button" class="danger-btn" onclick="app.deletePhotoManagerAudio('${this.escapeJs(audio.id)}')" ${usage ? 'disabled title="使用中のため削除できません"' : ''}><i class="fa-solid fa-trash"></i></button>
+                                        <small class="photo-manager-audio-transcription-status" aria-live="polite"></small>
+                                    </div>
+                                </article>`;
+                            }).join('') : '<div class="photo-manager-video-empty"><i class="fa-solid fa-volume-xmark"></i><p>登録音声はありません。</p></div>'}
+                            <div class="photo-manager-audio-search-empty" hidden><i class="fa-solid fa-magnifying-glass"></i><p>該当する音声はありません。</p></div>
+                        </div>
+                    </section>
+                </div>`);
+            this.filterPhotoManagerAudios();
+            this.hydratePhotoManagerAudioCards();
+        }
+
+        async savePhotoManagerAudioName(id = '', button = null) {
+            const item = this.getPhotoManagerAudio(id);
+            const card = button?.closest?.('.photo-manager-audio-card');
+            if (!item || !card) return;
+            const requestedName = String(card.querySelector('input')?.value || item.name || '音声').trim().slice(0, 180);
+            item.name = this.getUniquePhotoManagerAudioName(requestedName, item.id);
+            const input = card.querySelector('input');
+            if (input) input.value = item.name;
+            item.updatedAt = Date.now();
+            await store.save();
+            this.filterPhotoManagerAudios();
+            this.showPhotoManagerNotice?.('音声名を保存しました。');
+        }
+
+        filterPhotoManagerAudios(query = null) {
+            const modal = document.getElementById('photo-manager-audio-modal');
+            if (!modal) return;
+            const searchInput = modal.querySelector('.photo-manager-audio-search input');
+            const rawQuery = query === null ? String(searchInput?.value || '') : String(query || '');
+            const needle = rawQuery.trim().toLocaleLowerCase('ja').replace(/[\s\u3000]+/g, '');
+            const status = modal.querySelector('.photo-manager-audio-status-filter')?.value || 'all';
+            const sort = modal.querySelector('.photo-manager-audio-sort')?.value || 'recent';
+            const list = modal.querySelector('.photo-manager-audio-list');
+            const empty = modal.querySelector('.photo-manager-audio-search-empty');
+            const cards = [...modal.querySelectorAll('.photo-manager-audio-card[data-audio-id]')];
+            const itemFor = card => this.getPhotoManagerAudio(card.dataset.audioId) || {};
+            cards.sort((leftCard, rightCard) => {
+                const left = itemFor(leftCard);
+                const right = itemFor(rightCard);
+                if (sort === 'name') return String(left.name || '').localeCompare(String(right.name || ''), 'ja', { numeric: true });
+                if (sort === 'size') return (Number(right.size) || 0) - (Number(left.size) || 0);
+                if (sort === 'usage') return this.getPhotoManagerAudioUsageCount(right.mediaKey) - this.getPhotoManagerAudioUsageCount(left.mediaKey);
+                if (sort === 'status') {
+                    const rank = item => item.transcriptManuallyEdited ? 2 : (item.transcript ? 1 : 0);
+                    return rank(right) - rank(left) || String(left.name || '').localeCompare(String(right.name || ''), 'ja');
+                }
+                return (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0);
+            });
+            cards.forEach(card => list?.insertBefore(card, empty || null));
+            let visible = 0;
+            cards.forEach(card => {
+                const item = itemFor(card);
+                const haystack = `${item.name || ''} ${item.transcript || ''}`.toLocaleLowerCase('ja').replace(/[\s\u3000]+/g, '');
+                const queryMatched = !needle || haystack.includes(needle);
+                const statusMatched = status === 'all'
+                    || (status === 'unrecognized' && !item.transcript)
+                    || (status === 'auto' && !!item.transcript && !item.transcriptManuallyEdited)
+                    || (status === 'manual' && !!item.transcriptManuallyEdited);
+                const matched = queryMatched && statusMatched;
+                card.hidden = !matched;
+                const hit = card.querySelector('.photo-manager-audio-search-hit');
+                if (hit) {
+                    hit.hidden = !needle || !matched;
+                    hit.innerHTML = needle && matched ? this.getPhotoManagerAudioSearchPreviewHtml(item, rawQuery) : '';
+                }
+                if (matched) visible += 1;
+            });
+            const total = cards.length;
+            const count = modal.querySelector('.photo-manager-audio-search-count');
+            if (count) count.textContent = (needle || status !== 'all') ? `${visible}/${total}件` : `${visible}件`;
+            if (empty) empty.hidden = visible > 0 || !total;
+        }
+
+        getPhotoManagerAudioSearchPreviewHtml(item = {}, query = '') {
+            const transcript = String(item.transcript || '');
+            const name = String(item.name || '');
+            const transcriptRange = this.getPhotoManagerAudioSearchMatchRange(transcript, query);
+            const source = transcriptRange ? transcript : name;
+            const label = transcriptRange ? '認識内容' : '音声名';
+            const range = transcriptRange || this.getPhotoManagerAudioSearchMatchRange(name, query);
+            if (!range) return '';
+            const chars = Array.from(source);
+            const start = Math.max(0, range.start - 32);
+            const end = Math.min(chars.length, range.end + 48);
+            const before = `${start > 0 ? '…' : ''}${chars.slice(start, range.start).join('')}`;
+            const match = chars.slice(range.start, range.end).join('');
+            const after = `${chars.slice(range.end, end).join('')}${end < chars.length ? '…' : ''}`;
+            return `<span>${label}:</span> ${this.escapeHtml(before)}<mark>${this.escapeHtml(match)}</mark>${this.escapeHtml(after)}`;
+        }
+
+        getPhotoManagerAudioSearchMatchRange(text = '', query = '') {
+            const chars = Array.from(String(text || ''));
+            const compactChars = [];
+            const originalIndexes = [];
+            chars.forEach((char, index) => {
+                if (/[\s\u3000]/.test(char)) return;
+                for (const normalized of Array.from(char.toLocaleLowerCase('ja'))) {
+                    compactChars.push(normalized);
+                    originalIndexes.push(index);
+                }
+            });
+            const needle = Array.from(String(query || '').trim().toLocaleLowerCase('ja')).filter(char => !/[\s\u3000]/.test(char));
+            if (!needle.length || needle.length > compactChars.length) return null;
+            let position = -1;
+            for (let index = 0; index <= compactChars.length - needle.length; index += 1) {
+                if (needle.every((char, offset) => compactChars[index + offset] === char)) {
+                    position = index;
+                    break;
+                }
+            }
+            if (position < 0) return null;
+            return {
+                start: originalIndexes[position],
+                end: originalIndexes[position + needle.length - 1] + 1
+            };
+        }
+
+        getUniquePhotoManagerAudioName(name = '', currentId = '') {
+            const requested = String(name || '音声').trim().slice(0, 180) || '音声';
+            const match = requested.match(/^(.*?)(\.(?:wav|mp3|m4a|aac|ogg|webm|flac))$/i);
+            const base = (match?.[1] || requested).slice(0, 165);
+            const extension = match?.[2] || '';
+            const used = new Set(this.getPhotoManagerAudios()
+                .filter(audio => String(audio.id) !== String(currentId))
+                .map(audio => String(audio.name || '').trim().toLocaleLowerCase('ja')));
+            if (!used.has(requested.toLocaleLowerCase('ja'))) return requested;
+            let number = 2;
+            let candidate = '';
+            do {
+                candidate = `${base}_${number}${extension}`;
+                number += 1;
+            } while (used.has(candidate.toLocaleLowerCase('ja')));
+            return candidate.slice(0, 180);
+        }
+
+        async renamePhotoManagerAudioFromCorrectedTranscript(id = '', button = null) {
+            const item = this.getPhotoManagerAudio(id);
+            const card = button?.closest?.('.photo-manager-audio-card');
+            if (!item || !card || !item.transcript) return;
+            const recognizedName = this.getPhotoManagerTranscribedAudioName(item, item.transcript);
+            if (!recognizedName) return this.showPhotoManagerNotice?.('名前に使える修正文がありません。');
+            item.name = this.getUniquePhotoManagerAudioName(recognizedName, item.id);
+            item.updatedAt = Date.now();
+            const input = card.querySelector('.photo-manager-audio-main > input');
+            if (input) input.value = item.name;
+            await store.save();
+            this.filterPhotoManagerAudios();
+            this.showPhotoManagerNotice?.(`「${item.name}」に変更しました。`);
+        }
+
+        appendPhotoManagerAudioTranscriptHistory(item = {}, text = '', manuallyEdited = false) {
+            const value = String(text || '').trim();
+            if (!value) return false;
+            if (!Array.isArray(item.transcriptHistory)) item.transcriptHistory = [];
+            item.transcriptHistory.unshift({
+                id: `audio-transcript-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                text: value.slice(0, 10000),
+                manuallyEdited: !!manuallyEdited,
+                savedAt: Date.now()
+            });
+            item.transcriptHistory = item.transcriptHistory.slice(0, 20);
+            return true;
+        }
+
+        closePhotoManagerAudioTranscriptHistory(event = null) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('photo-manager-audio-transcript-history-modal')?.remove();
+        }
+
+        openPhotoManagerAudioTranscriptHistory(id = '') {
+            const item = this.getPhotoManagerAudio(id);
+            if (!item) return;
+            this.closePhotoManagerAudioTranscriptHistory();
+            const history = Array.isArray(item.transcriptHistory) ? item.transcriptHistory : [];
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="photo-manager-audio-transcript-history-modal" class="photo-manager-audio-transcript-history-modal" onclick="app.closePhotoManagerAudioTranscriptHistory(event)">
+                    <section onclick="event.stopPropagation()">
+                        <header><div><strong><i class="fa-solid fa-clock-rotate-left"></i> 認識内容の履歴</strong><small>${this.escapeHtml(item.name || '音声')} / 最大20件</small></div><button type="button" onclick="app.closePhotoManagerAudioTranscriptHistory()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                        <div class="photo-manager-audio-transcript-history-current"><strong>現在の内容${item.transcriptManuallyEdited ? '（手動修正済み）' : ''}</strong><p>${this.escapeHtml(item.transcript || '')}</p></div>
+                        <div class="photo-manager-audio-transcript-history-list">
+                            ${history.length ? history.map(entry => `<article><div><strong>${entry.manuallyEdited ? '手動修正版' : '自動認識版'}</strong><time>${this.escapeHtml(new Date(Number(entry.savedAt) || Date.now()).toLocaleString('ja-JP'))}</time><p>${this.escapeHtml(entry.text || '')}</p></div><button type="button" onclick="app.restorePhotoManagerAudioTranscript('${this.escapeJs(item.id)}', '${this.escapeJs(entry.id)}')"><i class="fa-solid fa-rotate-left"></i> この内容に戻す</button></article>`).join('') : '<div class="photo-manager-audio-usage-unavailable">保存された履歴はありません。</div>'}
+                        </div>
+                    </section>
+                </div>`);
+        }
+
+        async restorePhotoManagerAudioTranscript(id = '', historyId = '') {
+            const item = this.getPhotoManagerAudio(id);
+            const history = Array.isArray(item?.transcriptHistory) ? item.transcriptHistory : [];
+            const target = history.find(entry => String(entry.id) === String(historyId));
+            if (!item || !target) return;
+            this.appendPhotoManagerAudioTranscriptHistory(item, item.transcript, item.transcriptManuallyEdited);
+            item.transcript = String(target.text || '').slice(0, 10000);
+            item.transcriptManuallyEdited = !!target.manuallyEdited;
+            item.updatedAt = Date.now();
+            await store.save();
+            this.closePhotoManagerAudioTranscriptHistory();
+            this.openPhotoManagerAudios();
+            this.showPhotoManagerNotice?.('認識内容を履歴から復元しました。');
+        }
+
+        editPhotoManagerAudioTranscript(id = '', button = null) {
+            const item = this.getPhotoManagerAudio(id);
+            const box = button?.closest?.('.photo-manager-audio-transcript');
+            if (!item || !box) return;
+            const editor = box.querySelector('.photo-manager-audio-transcript-editor');
+            const textarea = editor?.querySelector('textarea');
+            if (!editor || !textarea) return;
+            textarea.value = String(item.transcript || '');
+            editor.hidden = false;
+            box.querySelector('p')?.setAttribute('hidden', '');
+            button.hidden = true;
+            textarea.focus();
+            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        }
+
+        cancelPhotoManagerAudioTranscriptEdit(button = null) {
+            const box = button?.closest?.('.photo-manager-audio-transcript');
+            if (!box) return;
+            box.querySelector('.photo-manager-audio-transcript-editor')?.setAttribute('hidden', '');
+            box.querySelector('p')?.removeAttribute('hidden');
+            const editButton = box.querySelector('.photo-manager-audio-transcript-edit-btn');
+            if (editButton) editButton.hidden = false;
+        }
+
+        async savePhotoManagerAudioTranscript(id = '', button = null) {
+            const item = this.getPhotoManagerAudio(id);
+            const box = button?.closest?.('.photo-manager-audio-transcript');
+            const textarea = box?.querySelector?.('textarea');
+            const transcript = String(textarea?.value || '').trim();
+            if (!item || !box || !textarea) return;
+            if (!transcript) return this.showPhotoManagerNotice?.('認識内容を入力してください。');
+            button.disabled = true;
+            try {
+                if (String(item.transcript || '') !== transcript || !item.transcriptManuallyEdited) {
+                    this.appendPhotoManagerAudioTranscriptHistory(item, item.transcript, item.transcriptManuallyEdited);
+                }
+                item.transcript = transcript.slice(0, 10000);
+                item.transcriptManuallyEdited = true;
+                item.updatedAt = Date.now();
+                const label = box.querySelector('.photo-manager-audio-transcript-header strong');
+                const paragraph = box.querySelector('p');
+                if (label) label.textContent = '認識内容（手動修正済み）';
+                if (paragraph) paragraph.textContent = item.transcript;
+                const renameButton = box.querySelector('.photo-manager-audio-transcript-rename-btn');
+                if (renameButton) renameButton.hidden = false;
+                const historyButton = box.querySelector('.photo-manager-audio-transcript-history-btn');
+                if (historyButton) historyButton.hidden = !(item.transcriptHistory?.length);
+                await store.save();
+                this.cancelPhotoManagerAudioTranscriptEdit(button);
+                this.filterPhotoManagerAudios();
+                this.showPhotoManagerNotice?.('認識内容の修正を保存しました。');
+            } finally {
+                if (button.isConnected) button.disabled = false;
+            }
+        }
+
+        getPhotoManagerAudioTranscriberWorker() {
+            if (this._photoManagerAudioTranscriberWorker) return this._photoManagerAudioTranscriberWorker;
+            const worker = new Worker('audio-transcriber-worker.js?v=20260815-local-audio-name1', { type: 'module' });
+            this._photoManagerAudioTranscriptionRequests = new Map();
+            worker.onmessage = event => {
+                const data = event.data || {};
+                if (data.type === 'progress') {
+                    const progress = Number(data.progress?.progress);
+                    const label = Number.isFinite(progress) ? `モデル準備 ${Math.round(progress)}%` : 'モデルを準備中...';
+                    this._photoManagerAudioTranscriptionRequests.forEach(request => request.onProgress?.(label));
+                    return;
+                }
+                const request = this._photoManagerAudioTranscriptionRequests.get(data.requestId);
+                if (!request) return;
+                if (data.type === 'recognizing') {
+                    request.onProgress?.('音声を認識中...');
+                    return;
+                }
+                this._photoManagerAudioTranscriptionRequests.delete(data.requestId);
+                if (data.type === 'result') request.resolve(String(data.text || ''));
+                else request.reject(new Error(data.message || '音声を認識できませんでした。'));
+            };
+            worker.onerror = event => {
+                const requests = [...this._photoManagerAudioTranscriptionRequests.values()];
+                this._photoManagerAudioTranscriptionRequests.clear();
+                worker.terminate();
+                this._photoManagerAudioTranscriberWorker = null;
+                requests.forEach(request => {
+                    request.onProgress?.('互換モードで準備中...');
+                    this.transcribePhotoManagerAudioOnMainThread(request.audioData, request.onProgress)
+                        .then(request.resolve)
+                        .catch(error => request.reject(new Error(error?.message || event?.message || '音声認識を開始できませんでした。')));
+                });
+            };
+            this._photoManagerAudioTranscriberWorker = worker;
+            return worker;
+        }
+
+        async decodePhotoManagerAudioForTranscription(blob) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            const OfflineAudioContextClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+            if (!AudioContextClass || !OfflineAudioContextClass) throw new Error('このブラウザは端末内音声認識に対応していません。');
+            const context = new AudioContextClass();
+            try {
+                const decoded = await context.decodeAudioData(await blob.arrayBuffer());
+                const frameCount = Math.max(1, Math.ceil(decoded.duration * 16000));
+                const offline = new OfflineAudioContextClass(1, frameCount, 16000);
+                const source = offline.createBufferSource();
+                source.buffer = decoded;
+                source.connect(offline.destination);
+                source.start(0);
+                const rendered = await offline.startRendering();
+                return rendered.getChannelData(0).slice();
+            } finally {
+                await context.close().catch(() => {});
+            }
+        }
+
+        transcribePhotoManagerAudio(audioData, onProgress = null) {
+            const worker = this.getPhotoManagerAudioTranscriberWorker();
+            const requestId = `audio-transcribe-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            return new Promise((resolve, reject) => {
+                this._photoManagerAudioTranscriptionRequests.set(requestId, { resolve, reject, onProgress, audioData });
+                worker.postMessage({ requestId, audioBuffer: audioData.buffer });
+            });
+        }
+
+        async transcribePhotoManagerAudioOnMainThread(audioData, onProgress = null) {
+            if (!this._photoManagerAudioMainTranscriberPromise) {
+                this._photoManagerAudioMainTranscriberPromise = import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1')
+                    .then(({ pipeline, env }) => {
+                        env.allowLocalModels = false;
+                        return pipeline('automatic-speech-recognition', 'onnx-community/whisper-tiny', {
+                            dtype: 'q8',
+                            progress_callback: progress => {
+                                const value = Number(progress?.progress);
+                                onProgress?.(Number.isFinite(value) ? `モデル準備 ${Math.round(value)}%` : 'モデルを準備中...');
+                            }
+                        });
+                    })
+                    .catch(error => {
+                        this._photoManagerAudioMainTranscriberPromise = null;
+                        throw error;
+                    });
+            }
+            const transcriber = await this._photoManagerAudioMainTranscriberPromise;
+            onProgress?.('音声を認識中...');
+            const result = await transcriber(audioData, { language: 'japanese', task: 'transcribe' });
+            return String(result?.text || '').trim();
+        }
+
+        getPhotoManagerTranscribedAudioName(item = {}, transcript = '') {
+            const compact = String(transcript || '')
+                .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '')
+                .replace(/[\s\u3000、。！？,.!?・「」『』（）()\[\]【】]/g, '');
+            const head = Array.from(compact).slice(0, 6).join('');
+            if (!head) return '';
+            const currentExtension = String(item.name || '').match(/\.(wav|mp3|m4a|aac|ogg|webm|flac)$/i)?.[0];
+            const type = String(item.type || '').toLowerCase();
+            const inferredExtension = type.includes('mpeg') ? '.mp3'
+                : type.includes('mp4') ? '.m4a'
+                    : type.includes('ogg') ? '.ogg'
+                        : type.includes('webm') ? '.webm'
+                            : type.includes('flac') ? '.flac'
+                                : type.includes('aac') ? '.aac' : '.wav';
+            return `${head}${currentExtension || inferredExtension}`;
+        }
+
+        async recognizeUnrecognizedPhotoManagerAudios(button = null) {
+            const targets = this.getPhotoManagerAudios().filter(audio => !String(audio.transcript || '').trim());
+            if (!targets.length) return this.showPhotoManagerNotice?.('未認識の音声はありません。');
+            if (!button || button.disabled) return;
+            const originalHtml = button.innerHTML;
+            button.disabled = true;
+            let completed = 0;
+            let failed = 0;
+            try {
+                for (let index = 0; index < targets.length; index += 1) {
+                    if (!button.isConnected) break;
+                    button.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${index + 1}/${targets.length}件`;
+                    const card = [...document.querySelectorAll('#photo-manager-audio-modal .photo-manager-audio-card[data-audio-id]')]
+                        .find(targetCard => String(targetCard.dataset.audioId) === String(targets[index].id));
+                    const recognizeButton = card?.querySelector('.photo-manager-audio-transcribe-btn');
+                    const succeeded = recognizeButton
+                        ? await this.renamePhotoManagerAudioFromContent(targets[index].id, recognizeButton)
+                        : false;
+                    if (succeeded) completed += 1;
+                    else failed += 1;
+                }
+                this.showPhotoManagerNotice?.(failed
+                    ? `${completed}件を認識しました。${failed}件は認識できませんでした。`
+                    : `${completed}件の認識と命名が完了しました。`);
+            } finally {
+                if (button.isConnected) {
+                    button.disabled = false;
+                    button.innerHTML = originalHtml;
+                }
+            }
+        }
+
+        async renamePhotoManagerAudioFromContent(id = '', button = null) {
+            const item = this.getPhotoManagerAudio(id);
+            const card = button?.closest?.('.photo-manager-audio-card');
+            const status = card?.querySelector?.('.photo-manager-audio-transcription-status');
+            if (!item || !card || !button || button.disabled) return;
+            const setStatus = message => { if (status?.isConnected) status.textContent = message; };
+            const originalHtml = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 準備中';
+            setStatus('音声を読み込み中...');
+            try {
+                const blob = await store.loadMediaBlob(item.mediaKey);
+                if (!blob) throw new Error('音声データが見つかりません。');
+                const audioData = await this.decodePhotoManagerAudioForTranscription(blob);
+                const transcript = await this.transcribePhotoManagerAudio(audioData, message => {
+                    setStatus(message);
+                    if (button.isConnected) button.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${this.escapeHtml(message)}`;
+                });
+                const recognizedName = this.getPhotoManagerTranscribedAudioName(item, transcript);
+                if (!recognizedName) throw new Error('音声の内容を認識できませんでした。');
+                const nextName = this.getUniquePhotoManagerAudioName(recognizedName, item.id);
+                if (item.transcript && (String(item.transcript) !== String(transcript) || item.transcriptManuallyEdited)) {
+                    this.appendPhotoManagerAudioTranscriptHistory(item, item.transcript, item.transcriptManuallyEdited);
+                }
+                item.name = nextName;
+                item.transcript = transcript;
+                item.transcriptManuallyEdited = false;
+                item.updatedAt = Date.now();
+                const input = card.querySelector('input');
+                if (input) input.value = nextName;
+                const transcriptBox = card.querySelector('.photo-manager-audio-transcript');
+                if (transcriptBox) {
+                    transcriptBox.hidden = false;
+                    const label = transcriptBox.querySelector('.photo-manager-audio-transcript-header strong');
+                    if (label) label.textContent = '認識内容';
+                    const renameButton = transcriptBox.querySelector('.photo-manager-audio-transcript-rename-btn');
+                    if (renameButton) renameButton.hidden = true;
+                    const historyButton = transcriptBox.querySelector('.photo-manager-audio-transcript-history-btn');
+                    if (historyButton) historyButton.hidden = !(item.transcriptHistory?.length);
+                    const paragraph = transcriptBox.querySelector('p');
+                    if (paragraph) paragraph.textContent = transcript;
+                }
+                await store.save();
+                this.filterPhotoManagerAudios();
+                setStatus('認識内容を保存しました。');
+                this.showPhotoManagerNotice?.(`「${nextName}」に変更しました。`);
+                return true;
+            } catch (error) {
+                setStatus(error?.message || '音声を認識できませんでした。');
+                this.showPhotoManagerNotice?.(error?.message || '音声を認識できませんでした。');
+                return false;
+            } finally {
+                if (button.isConnected) {
+                    button.disabled = false;
+                    button.innerHTML = originalHtml;
+                }
+            }
+        }
+
+        getPhotoManagerAudioUsageLocations(mediaKey = '') {
+            const target = String(mediaKey || '');
+            if (!target || typeof this.getShiftPhotoCompareAnimationAudioManagementItems !== 'function') return [];
+            return (this.getShiftPhotoCompareAnimationAudioManagementItems() || [])
+                .filter(item => String(item?.entry?.recordedAudioKey || '') === target)
+                .map(item => ({
+                    animationPageIndex: Number(item.animationPageIndex) || 0,
+                    entryId: String(item.entry?.id || ''),
+                    location: String(item.location || `${Number(item.animationPageIndex) + 1}P`),
+                    label: String(item.entry?.label || item.entry?.sourceLabel || '読み上げページ')
+                }));
+        }
+
+        closePhotoManagerAudioUsage(event = null) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('photo-manager-audio-usage-modal')?.remove();
+        }
+
+        openPhotoManagerAudioUsage(id = '') {
+            const item = this.getPhotoManagerAudio(id);
+            if (!item) return;
+            this.closePhotoManagerAudioUsage();
+            const total = this.getPhotoManagerAudioUsageCount(item.mediaKey);
+            const locations = this.getPhotoManagerAudioUsageLocations(item.mediaKey);
+            const unavailable = Math.max(0, total - locations.length);
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="photo-manager-audio-usage-modal" class="photo-manager-audio-usage-modal" onclick="app.closePhotoManagerAudioUsage(event)">
+                    <section onclick="event.stopPropagation()">
+                        <header><div><strong><i class="fa-solid fa-location-dot"></i> 使用場所</strong><small>${this.escapeHtml(item.name || '音声')} / ${total}ページ</small></div><button type="button" onclick="app.closePhotoManagerAudioUsage()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                        <div class="photo-manager-audio-usage-list">
+                            ${locations.map(location => `<article><div><strong>${this.escapeHtml(location.location)}</strong><small>${this.escapeHtml(location.label)}</small></div><div class="photo-manager-audio-usage-actions"><button type="button" onclick="app.jumpToPhotoManagerAudioUsage(${location.animationPageIndex}, '${this.escapeJs(location.entryId)}')"><i class="fa-solid fa-arrow-up-right-from-square"></i> 開く</button><button type="button" class="danger" onclick="app.detachPhotoManagerAudioUsage('${this.escapeJs(item.id)}', ${location.animationPageIndex}, '${this.escapeJs(location.entryId)}')"><i class="fa-solid fa-link-slash"></i> 解除</button></div></article>`).join('')}
+                            ${unavailable ? `<div class="photo-manager-audio-usage-unavailable"><i class="fa-solid fa-circle-info"></i><span>ほか${unavailable}ページで使用中です。該当するアニメを開くと移動できます。</span></div>` : ''}
+                            ${!total ? '<div class="photo-manager-audio-usage-unavailable">この音声は使用されていません。</div>' : ''}
+                        </div>
+                    </section>
+                </div>`);
+        }
+
+        async detachPhotoManagerAudioUsage(audioId = '', animationPageIndex = 0, entryId = '') {
+            const audio = this.getPhotoManagerAudio(audioId);
+            const usage = typeof this.getShiftPhotoCompareAnimationAudioManagementItem === 'function'
+                ? this.getShiftPhotoCompareAnimationAudioManagementItem(Number(animationPageIndex) || 0, String(entryId || ''))
+                : null;
+            if (!audio || !usage || String(usage.entry?.recordedAudioKey || '') !== String(audio.mediaKey || '')) {
+                return this.showPhotoManagerNotice?.('この使用場所を確認できませんでした。');
+            }
+            if (!confirm(`${usage.location}から「${audio.name || '音声'}」を解除しますか？\n音声DBの登録データは削除されません。`)) return;
+            const saved = this.persistShiftPhotoCompareAnimationPageRecording?.(usage.entry, {
+                key: '', type: '', name: '', source: '', size: 0, duration: 0, trimStart: 0, trimEnd: 0
+            }, usage.page);
+            if (!saved) return this.showPhotoManagerNotice?.('ページから音声を解除できませんでした。');
+            await (this._shiftPhotoComparePageAudioSavePromise || Promise.resolve(store.save())).catch(() => null);
+            this.renderShiftPhotoCompareAnimationTimeline?.();
+            this.openPhotoManagerAudios();
+            this.openPhotoManagerAudioUsage(audioId);
+            this.showPhotoManagerNotice?.(`${usage.location}から音声を解除しました。`);
+        }
+
+        jumpToPhotoManagerAudioUsage(animationPageIndex = 0, entryId = '') {
+            if (typeof this.activateShiftPhotoCompareAnimationPage !== 'function'
+                || !this._shiftPhotoCompareAnimationState?.overlay) {
+                return this.showPhotoManagerNotice?.('先に音声を使用しているアニメを開いてください。');
+            }
+            this.closePhotoManagerAudioUsage();
+            this.closePhotoManagerAudios();
+            if (!this.activateShiftPhotoCompareAnimationPage(Number(animationPageIndex) || 0)) {
+                return this.showPhotoManagerNotice?.('使用先ページを開けませんでした。');
+            }
+            requestAnimationFrame(() => this.previewShiftPhotoCompareAnimationTimelineEntry?.(String(entryId || '')));
+        }
+
+        async deletePhotoManagerAudio(id = '') {
+            const item = this.getPhotoManagerAudio(id);
+            if (!item) return;
+            const usage = this.getPhotoManagerAudioUsageCount(item.mediaKey);
+            if (usage) return this.showPhotoManagerNotice?.(`この音声は${usage}ページで使用中のため削除できません。`);
+            if (!confirm(`${item.name || '音声'}を音声DBから削除しますか？`)) return;
+            store.activeData.photoManagerAudios = this.getPhotoManagerAudios().filter(audio => audio.id !== item.id);
+            await store.deleteMediaBlob(item.mediaKey).catch(() => false);
+            await store.save();
+            this.openPhotoManagerAudios();
+            this.showPhotoManagerNotice?.('音声を削除しました。');
+        }
         getPhotoManagerVideo(id = '') {
             return this.getPhotoManagerVideos().find(video => video.id === String(id)) || null;
         }
@@ -421,9 +1172,16 @@
                 item.trimStart = 0;
                 item.trimEnd = metadata.duration;
                 item.updatedAt = Date.now();
+                item.thumbnailUrl = '';
                 await store.save();
-                await this.openPhotoManagerVideoEditor(id);
-                this.showPhotoManagerNotice('PC動画の元ファイルを更新しました。');
+                this.refreshRegisteredVideoAttachmentStatuses(id);
+                if (document.getElementById('registered-video-attachment-viewer')) {
+                    await this.openRegisteredVideoAttachment(id);
+                    this.showToast?.('PC動画の元ファイルを更新しました。', 'success');
+                } else {
+                    await this.openPhotoManagerVideoEditor(id);
+                    this.showPhotoManagerNotice('PC動画の元ファイルを更新しました。');
+                }
             } catch (error) {
                 this.showPhotoManagerNotice(error?.message || '元ファイルを更新できませんでした。');
             }
@@ -1623,18 +2381,28 @@
             if (!id) return null;
             const video = this.getPhotoManagerVideo(id);
             const name = reference.name || video?.name || video?.fileName || '動画';
-            const thumbnailUrl = reference.thumbnailUrl || video?.thumbnailUrl || '';
+            const thumbnailUrl = video?.thumbnailUrl || reference.thumbnailUrl || '';
             const div = document.createElement('div');
             div.className = 'registered-video-attachment';
+            div.dataset.videoId = id;
             div.style.setProperty('--attachment-size', `${Math.max(56, Number(size) || 80)}px`);
             div.innerHTML = `
                 <button type="button" class="registered-video-attachment-open" title="${this.escapeHtml(name)}" aria-label="${this.escapeHtml(name)}を再生">
-                    ${thumbnailUrl ? `<img src="${this.escapeHtml(thumbnailUrl)}" alt="">` : '<span class="registered-video-attachment-placeholder"><i class="fa-solid fa-video"></i></span>'}
+                    <span class="registered-video-attachment-placeholder"><i class="fa-solid fa-video"></i></span>
+                    ${thumbnailUrl
+                        ? `<img src="${this.escapeHtml(thumbnailUrl)}" alt="" data-video-thumbnail-id="${this.escapeHtml(id)}">`
+                        : `<video class="registered-video-attachment-thumbnail" data-video-id="${this.escapeHtml(id)}" muted playsinline preload="metadata"></video>`}
                     <span class="registered-video-attachment-play"><i class="fa-solid fa-play"></i></span>
+                    <span class="registered-video-attachment-status" hidden><i class="fa-solid fa-triangle-exclamation"></i><b></b></span>
                 </button>
                 <small>${this.escapeHtml(name)}</small>
                 <button type="button" class="close-btn registered-video-attachment-remove" title="削除" aria-label="削除"><i class="fa-solid fa-xmark"></i></button>
             `;
+            const thumbnail = div.querySelector('.registered-video-attachment-thumbnail');
+            requestAnimationFrame(() => {
+                if (thumbnail && video) this.hydrateRegisteredVideoAttachmentThumbnail(video, thumbnail, div);
+                this.refreshRegisteredVideoAttachmentStatus(div, video);
+            });
             div.querySelector('.registered-video-attachment-open').onclick = event => {
                 event.stopPropagation();
                 this.openRegisteredVideoAttachment(id);
@@ -1647,6 +2415,80 @@
             return div;
         }
 
+        setRegisteredVideoAttachmentStatus(container, state = 'ok', message = '') {
+            if (!container) return;
+            container.classList.toggle('video-source-unavailable', state === 'missing' || state === 'reconnect');
+            container.classList.toggle('video-source-reconnect', state === 'reconnect');
+            const badge = container.querySelector('.registered-video-attachment-status');
+            if (!badge) return;
+            badge.hidden = state === 'ok' || state === 'checking';
+            const label = badge.querySelector('b');
+            if (label) label.textContent = message || (state === 'reconnect' ? '再接続' : 'リンク切れ');
+        }
+
+        async getRegisteredVideoAttachmentStatus(video) {
+            if (!video) return { state: 'missing', message: '登録元なし' };
+            try {
+                if (video.sourceType === 'youtube') return { state: 'ok', message: '' };
+                if (video.sourceType === 'local-handle') {
+                    const handle = await store.loadMediaFileHandle(this.getPhotoManagerVideoMediaKey(video.id));
+                    if (!handle) return { state: 'reconnect', message: '再接続' };
+                    if (!(await this.hasPhotoManagerLocalVideoPermission(handle, false))) {
+                        return { state: 'reconnect', message: '許可が必要' };
+                    }
+                    const file = await handle.getFile();
+                    return file?.type?.startsWith?.('video/')
+                        ? { state: 'ok', message: '' }
+                        : { state: 'reconnect', message: '再接続' };
+                }
+                if (!video.sourceType) {
+                    const blob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey(video.id));
+                    return blob ? { state: 'ok', message: '' } : { state: 'missing', message: '元動画なし' };
+                }
+                if (video.sourceType === 'url') {
+                    if (!video.sourceUrl) return { state: 'missing', message: 'URLなし' };
+                    return await new Promise(resolve => {
+                        const probe = document.createElement('video');
+                        let done = false;
+                        const finish = result => {
+                            if (done) return;
+                            done = true;
+                            probe.removeAttribute('src');
+                            probe.load();
+                            resolve(result);
+                        };
+                        const timer = setTimeout(() => finish({ state: 'ok', message: '' }), 5000);
+                        probe.preload = 'metadata';
+                        probe.muted = true;
+                        probe.onloadedmetadata = () => {
+                            clearTimeout(timer);
+                            finish({ state: 'ok', message: '' });
+                        };
+                        probe.onerror = () => {
+                            clearTimeout(timer);
+                            finish({ state: 'missing', message: 'リンク切れ' });
+                        };
+                        probe.src = video.sourceUrl;
+                    });
+                }
+            } catch {}
+            return { state: video?.sourceType === 'local-handle' ? 'reconnect' : 'missing', message: video?.sourceType === 'local-handle' ? '再接続' : 'リンク切れ' };
+        }
+
+        async refreshRegisteredVideoAttachmentStatus(container, video) {
+            this.setRegisteredVideoAttachmentStatus(container, 'checking');
+            const status = await this.getRegisteredVideoAttachmentStatus(video);
+            if (!document.contains(container)) return status;
+            this.setRegisteredVideoAttachmentStatus(container, status.state, status.message);
+            return status;
+        }
+        refreshRegisteredVideoAttachmentStatuses(videoId = '') {
+            const id = String(videoId || '');
+            const video = this.getPhotoManagerVideo(id);
+            document.querySelectorAll(`.registered-video-attachment[data-video-id="${CSS.escape(id)}"]`).forEach(container => {
+                this.refreshRegisteredVideoAttachmentStatus(container, video);
+            });
+        }
         openRegisteredVideoAttachmentPicker(kind = '', target = null) {
             document.getElementById('registered-video-attachment-picker')?.remove();
             this._registeredVideoAttachmentTarget = { kind, target };
@@ -1662,7 +2504,9 @@
                             ${videos.length ? videos.map(video => `
                                 <button type="button" class="registered-video-picker-item" onclick="app.selectRegisteredVideoAttachment('${this.escapeJs(video.id)}')">
                                     <span class="registered-video-picker-preview">
-                                        ${video.thumbnailUrl ? `<img src="${this.escapeHtml(video.thumbnailUrl)}" alt="">` : `<i class="${video.sourceType === 'youtube' ? 'fa-brands fa-youtube' : 'fa-solid fa-video'}"></i>`}
+                                        ${video.thumbnailUrl
+                                            ? `<img src="${this.escapeHtml(video.thumbnailUrl)}" alt="" data-video-thumbnail-id="${this.escapeHtml(video.id)}">`
+                                            : `<i class="${video.sourceType === 'youtube' ? 'fa-brands fa-youtube' : 'fa-solid fa-video'}"></i><video class="registered-video-picker-thumbnail" data-video-id="${this.escapeHtml(video.id)}" muted playsinline preload="metadata"></video>`}
                                         <i class="fa-solid fa-play"></i>
                                     </span>
                                     <span>
@@ -1675,9 +2519,92 @@
                     </section>
                 </div>
             `);
+            document.querySelectorAll('#registered-video-attachment-picker .registered-video-picker-thumbnail').forEach(element => {
+                const video = this.getPhotoManagerVideo(element.dataset.videoId || '');
+                if (video) this.hydrateRegisteredVideoAttachmentThumbnail(video, element);
+            });
+        }
+
+        releaseRegisteredVideoAttachmentThumbnail(element) {
+            const url = element?._registeredVideoThumbnailObjectUrl || '';
+            if (url) URL.revokeObjectURL(url);
+            if (element) element._registeredVideoThumbnailObjectUrl = '';
+        }
+
+        async hydrateRegisteredVideoAttachmentThumbnail(video, element, statusContainer = null) {
+            if (!video || !element || video.sourceType === 'youtube') return false;
+            try {
+                let source = '';
+                if (video.sourceType === 'url' && video.sourceUrl) {
+                    source = video.sourceUrl;
+                } else if (video.sourceType === 'local-handle') {
+                    const file = await this.loadPhotoManagerLinkedVideoFile(video, false);
+                    if (!file) {
+                        this.setRegisteredVideoAttachmentStatus(statusContainer, 'reconnect', '再接続');
+                        return false;
+                    }
+                    source = URL.createObjectURL(file);
+                    element._registeredVideoThumbnailObjectUrl = source;
+                } else {
+                    const blob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey(video.id));
+                    if (!blob) {
+                        this.setRegisteredVideoAttachmentStatus(statusContainer, 'missing', '元動画なし');
+                        return false;
+                    }
+                    source = URL.createObjectURL(blob);
+                    element._registeredVideoThumbnailObjectUrl = source;
+                }
+                if (!document.contains(element)) {
+                    this.releaseRegisteredVideoAttachmentThumbnail(element);
+                    return false;
+                }
+                const start = Math.max(0, Number(video.trimStart) || 0);
+                element.src = source;
+                element.muted = true;
+                element.onerror = () => this.setRegisteredVideoAttachmentStatus(statusContainer, 'missing', 'リンク切れ');
+                element.addEventListener('loadedmetadata', () => {
+                    const duration = Math.max(0, Number(element.duration) || 0);
+                    element.currentTime = Math.min(start || 0.08, Math.max(0, duration - 0.05));
+                }, { once: true });
+                const capture = () => {
+                    if (!element.videoWidth || !element.videoHeight) return;
+                    try {
+                        const maxWidth = 360;
+                        const scale = Math.min(1, maxWidth / element.videoWidth);
+                        const canvas = document.createElement('canvas');
+                        canvas.width = Math.max(1, Math.round(element.videoWidth * scale));
+                        canvas.height = Math.max(1, Math.round(element.videoHeight * scale));
+                        canvas.getContext('2d').drawImage(element, 0, 0, canvas.width, canvas.height);
+                        const image = document.createElement('img');
+                        image.src = canvas.toDataURL('image/jpeg', 0.76);
+                        image.alt = '';
+                        image.dataset.videoThumbnailId = video.id;
+                        if (!video.thumbnailUrl) {
+                            video.thumbnailUrl = image.src;
+                            Promise.resolve(store.save()).catch(() => {});
+                        }
+                        element.replaceWith(image);
+                        this.releaseRegisteredVideoAttachmentThumbnail(element);
+                    } catch {
+                        element.classList.add('is-ready');
+                    }
+                };
+                element.addEventListener('seeked', capture, { once: true });
+                element.addEventListener('loadeddata', () => {
+                    element.classList.add('is-ready');
+                    if (start <= 0.001) capture();
+                }, { once: true });
+                element.load();
+                return true;
+            } catch (error) {
+                this.releaseRegisteredVideoAttachmentThumbnail(element);
+                console.warn('Video thumbnail loading failed.', error);
+                return false;
+            }
         }
 
         closeRegisteredVideoAttachmentPicker() {
+            document.querySelectorAll('#registered-video-attachment-picker video').forEach(element => this.releaseRegisteredVideoAttachmentThumbnail(element));
             document.getElementById('registered-video-attachment-picker')?.remove();
             this._registeredVideoAttachmentTarget = null;
         }
@@ -1736,7 +2663,7 @@
             const end = Math.max(start, Number(video.trimEnd) || duration || 0);
             let playerHtml = '';
             if (video.sourceType === 'youtube' && video.youtubeId) {
-                let embedUrl = this.getPhotoManagerYouTubeEmbedUrl(video.youtubeId, false, true);
+                let embedUrl = this.getPhotoManagerYouTubeEmbedUrl(video.youtubeId, true, true);
                 try {
                     const url = new URL(embedUrl);
                     if (start > 0) url.searchParams.set('start', String(Math.floor(start)));
@@ -1744,11 +2671,20 @@
                     url.searchParams.set('autoplay', '1');
                     embedUrl = url.href;
                 } catch {}
-                playerHtml = `<iframe src="${this.escapeHtml(embedUrl)}" title="${this.escapeHtml(video.name || '動画')}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+                playerHtml = `<iframe class="registered-video-viewer-youtube" data-video-id="${this.escapeHtml(video.id)}" data-youtube-current-time="${start}" data-youtube-state="1" src="${this.escapeHtml(embedUrl)}" title="${this.escapeHtml(video.name || '動画')}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
             } else {
                 playerHtml = `
                     <video class="registered-video-viewer-player" data-video-id="${this.escapeHtml(video.id)}" playsinline preload="metadata"></video>
-                    <button type="button" class="registered-video-viewer-reconnect" onclick="app.reconnectRegisteredVideoAttachment('${this.escapeJs(video.id)}')"><i class="fa-solid fa-folder-open"></i> 再接続</button>
+                    <div class="registered-video-viewer-error">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <b>動画を開けません</b>
+                        ${video.sourceType === 'local-handle' ? `
+                            <div>
+                                <button type="button" onclick="app.reconnectRegisteredVideoAttachment('${this.escapeJs(video.id)}')"><i class="fa-solid fa-link"></i> アクセス許可</button>
+                                <button type="button" onclick="app.reselectPhotoManagerLocalVideo('${this.escapeJs(video.id)}')"><i class="fa-solid fa-folder-open"></i> 選び直す</button>
+                            </div>
+                        ` : (video.sourceType === 'url' ? `<button type="button" onclick="app.reconnectRegisteredVideoAttachment('${this.escapeJs(video.id)}')"><i class="fa-solid fa-rotate-right"></i> 再読み込み</button>` : '')}
+                    </div>
                 `;
             }
             const width = this.getRegisteredVideoAttachmentWidth();
@@ -1759,15 +2695,34 @@
                             <strong>${this.escapeHtml(video.name || video.fileName || '動画')}</strong>
                             <div>
                                 <output class="registered-video-viewer-zoom">${Math.round(width / 9)}%</output>
+                                <button type="button" onclick="app.toggleRegisteredVideoAttachmentFullscreen()" title="全画面" aria-label="全画面"><i class="fa-solid fa-expand"></i></button>
                                 <button type="button" onclick="app.closeRegisteredVideoAttachment()" title="閉じる" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
                             </div>
                         </header>
                         <div class="registered-video-viewer-stage">${playerHtml}</div>
                         ${video.sourceType === 'youtube' ? '' : `
                             <div class="registered-video-viewer-controls">
-                                <button type="button" onclick="app.toggleRegisteredVideoAttachmentPlayback()" title="再生・一時停止" aria-label="再生・一時停止"><i class="fa-solid fa-play"></i></button>
-                                <input type="range" min="0" max="1" step="0.05" value="0" oninput="app.seekRegisteredVideoAttachment(this.value)" aria-label="再生位置">
-                                <output>0:00 / 0:00</output>
+                                <div class="registered-video-viewer-transport">
+                                    <button type="button" onclick="app.adjustRegisteredVideoAttachmentTime(-5)" title="5秒戻す" aria-label="5秒戻す"><i class="fa-solid fa-backward"></i></button>
+                                    <button type="button" onclick="app.toggleRegisteredVideoAttachmentPlayback()" title="再生・一時停止" aria-label="再生・一時停止"><i class="fa-solid fa-play"></i></button>
+                                    <button type="button" onclick="app.adjustRegisteredVideoAttachmentTime(5)" title="5秒進める" aria-label="5秒進める"><i class="fa-solid fa-forward"></i></button>
+                                </div>
+                                <input class="registered-video-viewer-seek" type="range" min="0" max="1" step="0.05" value="0" oninput="app.seekRegisteredVideoAttachment(this.value)" aria-label="再生位置">
+                                <output class="registered-video-viewer-time">0:00 / 0:00</output>
+                                <div class="registered-video-viewer-options">
+                                    <button type="button" onclick="app.toggleRegisteredVideoAttachmentMute()" title="ミュート" aria-label="ミュート"><i class="fa-solid fa-volume-high"></i></button>
+                                    <input class="registered-video-viewer-volume" type="range" min="0" max="1" step="0.05" value="1" oninput="app.setRegisteredVideoAttachmentVolume(this.value)" aria-label="音量">
+                                    <select onchange="app.setRegisteredVideoAttachmentRate(this.value)" title="再生速度" aria-label="再生速度">
+                                        <option value="0.5">0.5x</option>
+                                        <option value="0.75">0.75x</option>
+                                        <option value="1" selected>1x</option>
+                                        <option value="1.25">1.25x</option>
+                                        <option value="1.5">1.5x</option>
+                                        <option value="2">2x</option>
+                                    </select>
+                                    <button type="button" onclick="app.saveRegisteredVideoAttachmentThumbnail()" title="現在位置をサムネイルに設定" aria-label="現在位置をサムネイルに設定"><i class="fa-solid fa-camera"></i></button>
+                                    <button type="button" onclick="app.toggleRegisteredVideoAttachmentFullscreen()" title="全画面" aria-label="全画面"><i class="fa-solid fa-expand"></i></button>
+                                </div>
                             </div>
                         `}
                     </section>
@@ -1779,7 +2734,31 @@
                 this.setRegisteredVideoAttachmentWidth(this.getRegisteredVideoAttachmentWidth() + (event.deltaY < 0 ? 80 : -80));
             }, { passive: false });
             this._registeredVideoAttachmentKeyHandler = event => {
-                if (event.key === 'Escape') this.closeRegisteredVideoAttachment();
+                const tag = String(event.target?.tagName || '').toLowerCase();
+                if (['input', 'select', 'textarea'].includes(tag)) return;
+                if (event.key === 'Escape') {
+                    if (document.fullscreenElement) document.exitFullscreen?.();
+                    else this.closeRegisteredVideoAttachment();
+                    return;
+                }
+                if (video.sourceType === 'youtube') {
+                    if (event.key.toLowerCase() === 'f') this.toggleRegisteredVideoAttachmentFullscreen();
+                    return;
+                }
+                if (event.code === 'Space') {
+                    event.preventDefault();
+                    this.toggleRegisteredVideoAttachmentPlayback();
+                } else if (event.key === 'ArrowLeft') {
+                    event.preventDefault();
+                    this.adjustRegisteredVideoAttachmentTime(-5);
+                } else if (event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    this.adjustRegisteredVideoAttachmentTime(5);
+                } else if (event.key.toLowerCase() === 'm') {
+                    this.toggleRegisteredVideoAttachmentMute();
+                } else if (event.key.toLowerCase() === 'f') {
+                    this.toggleRegisteredVideoAttachmentFullscreen();
+                }
             };
             document.addEventListener('keydown', this._registeredVideoAttachmentKeyHandler);
             if (video.sourceType !== 'youtube') await this.hydrateRegisteredVideoAttachmentPlayer(video, false);
@@ -1796,7 +2775,7 @@
                 } else if (video.sourceType === 'local-handle') {
                     const file = await this.loadPhotoManagerLinkedVideoFile(video, requestPermission);
                     if (!file) {
-                        overlay.classList.add('needs-video-reconnect');
+                        this.showRegisteredVideoAttachmentError(video, 'PC動画へのアクセス許可が必要です');
                         return false;
                     }
                     source = URL.createObjectURL(file);
@@ -1808,13 +2787,14 @@
                     this._registeredVideoAttachmentObjectUrl = source;
                 }
                 player.src = source;
-                overlay.classList.remove('needs-video-reconnect');
+                overlay.classList.remove('has-video-error', 'needs-video-reconnect');
+                player.onerror = () => this.showRegisteredVideoAttachmentError(video, video.sourceType === 'url' ? '動画URLを読み込めません' : '元動画が見つかりません');
                 const start = Math.max(0, Number(video.trimStart) || 0);
                 const configuredEnd = Math.max(start, Number(video.trimEnd) || 0);
                 const controls = overlay.querySelector('.registered-video-viewer-controls');
                 const range = controls?.querySelector('input');
                 const output = controls?.querySelector('output');
-                const playIcon = controls?.querySelector('button i');
+                const playIcon = controls?.querySelector('.registered-video-viewer-transport button:nth-child(2) i');
                 const update = () => {
                     const actualEnd = configuredEnd > start ? configuredEnd : Math.max(start, Number(player.duration) || start);
                     const clipDuration = Math.max(0.1, actualEnd - start);
@@ -1839,17 +2819,130 @@
                 player.onplay = update;
                 player.onpause = update;
                 player.play().catch(() => update());
+                this.refreshRegisteredVideoAttachmentStatuses(video.id);
                 return true;
             } catch (error) {
                 console.warn('Attached video could not be opened.', error);
-                overlay.classList.add('needs-video-reconnect');
+                this.showRegisteredVideoAttachmentError(video, video.sourceType === 'local-handle' ? 'PC動画へ再接続してください' : '元動画が見つかりません');
                 return false;
             }
         }
 
+        showRegisteredVideoAttachmentError(video, message = '動画を開けません') {
+            const overlay = document.getElementById('registered-video-attachment-viewer');
+            if (!overlay) return;
+            overlay.classList.add('has-video-error');
+            const label = overlay.querySelector('.registered-video-viewer-error b');
+            if (label) label.textContent = message;
+            const player = overlay.querySelector('.registered-video-viewer-player');
+            player?.pause?.();
+        }
+
+        getRegisteredVideoAttachmentBounds(player, video) {
+            const start = Math.max(0, Number(video?.trimStart) || 0);
+            const configuredEnd = Math.max(start, Number(video?.trimEnd) || 0);
+            const duration = Math.max(0, Number(player?.duration) || Number(video?.duration) || 0);
+            const end = configuredEnd > start ? Math.min(configuredEnd, duration || configuredEnd) : duration;
+            return { start, end: Math.max(start, end), duration: Math.max(0, end - start) };
+        }
+
+        adjustRegisteredVideoAttachmentTime(delta = 0) {
+            const player = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-player');
+            const video = this.getPhotoManagerVideo(player?.dataset.videoId || '');
+            if (!player || !video || !player.src) return;
+            const bounds = this.getRegisteredVideoAttachmentBounds(player, video);
+            player.currentTime = Math.max(bounds.start, Math.min(bounds.end, (Number(player.currentTime) || bounds.start) + Number(delta || 0)));
+        }
+
+        setRegisteredVideoAttachmentVolume(value = 1) {
+            const player = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-player');
+            if (!player) return;
+            player.volume = Math.max(0, Math.min(1, Number(value) || 0));
+            player.muted = player.volume <= 0;
+            this.updateRegisteredVideoAttachmentVolumeIcon();
+        }
+
+        updateRegisteredVideoAttachmentVolumeIcon() {
+            const overlay = document.getElementById('registered-video-attachment-viewer');
+            const player = overlay?.querySelector('.registered-video-viewer-player');
+            const icon = overlay?.querySelector('.registered-video-viewer-options button i');
+            if (!player || !icon) return;
+            icon.className = `fa-solid ${player.muted || player.volume <= 0 ? 'fa-volume-xmark' : (player.volume < 0.5 ? 'fa-volume-low' : 'fa-volume-high')}`;
+        }
+
+        toggleRegisteredVideoAttachmentMute() {
+            const player = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-player');
+            if (!player) return;
+            player.muted = !player.muted;
+            const volume = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-volume');
+            if (volume && !player.muted && player.volume <= 0) {
+                player.volume = 0.5;
+                volume.value = '0.5';
+            }
+            this.updateRegisteredVideoAttachmentVolumeIcon();
+        }
+
+        setRegisteredVideoAttachmentRate(value = 1) {
+            const player = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-player');
+            if (player) player.playbackRate = Math.max(0.25, Math.min(4, Number(value) || 1));
+        }
+
+        async toggleRegisteredVideoAttachmentFullscreen() {
+            const card = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-card');
+            if (!card) return;
+            try {
+                if (document.fullscreenElement) await document.exitFullscreen?.();
+                else await card.requestFullscreen?.();
+            } catch {
+                this.showToast?.('全画面表示を開始できませんでした。', 'warning');
+            }
+        }
+
+        async saveRegisteredVideoAttachmentThumbnail() {
+            const player = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-player');
+            const video = this.getPhotoManagerVideo(player?.dataset.videoId || '');
+            if (!player || !video || !player.videoWidth || !player.videoHeight) {
+                this.showToast?.('映像を読み込んでから設定してください。', 'warning');
+                return false;
+            }
+            try {
+                const maxWidth = 480;
+                const scale = Math.min(1, maxWidth / player.videoWidth);
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(player.videoWidth * scale));
+                canvas.height = Math.max(1, Math.round(player.videoHeight * scale));
+                canvas.getContext('2d').drawImage(player, 0, 0, canvas.width, canvas.height);
+                video.thumbnailUrl = canvas.toDataURL('image/jpeg', 0.8);
+                video.thumbnailTime = Number(player.currentTime) || 0;
+                video.updatedAt = Date.now();
+                await store.save();
+                document.querySelectorAll(`[data-video-thumbnail-id="${CSS.escape(String(video.id))}"]`).forEach(image => {
+                    if (image.tagName === 'IMG') image.src = video.thumbnailUrl;
+                });
+                document.querySelectorAll(`video[data-video-id="${CSS.escape(String(video.id))}"]`).forEach(element => {
+                    if (element.classList.contains('registered-video-viewer-player')) return;
+                    const image = document.createElement('img');
+                    image.src = video.thumbnailUrl;
+                    image.alt = '';
+                    image.dataset.videoThumbnailId = video.id;
+                    this.releaseRegisteredVideoAttachmentThumbnail(element);
+                    element.replaceWith(image);
+                });
+                this.showToast?.('現在位置をサムネイルに設定しました。', 'success');
+                return true;
+            } catch {
+                this.showToast?.('このURL動画はサムネイル画像を作成できません。', 'warning');
+                return false;
+            }
+        }
         async reconnectRegisteredVideoAttachment(id = '') {
             const video = this.getPhotoManagerVideo(id);
-            if (video) await this.hydrateRegisteredVideoAttachmentPlayer(video, true);
+            if (!video) return;
+            if (this._registeredVideoAttachmentObjectUrl) {
+                URL.revokeObjectURL(this._registeredVideoAttachmentObjectUrl);
+                this._registeredVideoAttachmentObjectUrl = '';
+            }
+            await this.hydrateRegisteredVideoAttachmentPlayer(video, true);
         }
 
         toggleRegisteredVideoAttachmentPlayback() {
@@ -1863,7 +2956,8 @@
             const player = document.querySelector('#registered-video-attachment-viewer .registered-video-viewer-player');
             const video = this.getPhotoManagerVideo(player?.dataset.videoId || '');
             if (!player || !video) return;
-            player.currentTime = Math.max(0, Number(video.trimStart) || 0) + Math.max(0, Number(value) || 0);
+            const bounds = this.getRegisteredVideoAttachmentBounds(player, video);
+            player.currentTime = Math.max(bounds.start, Math.min(bounds.end, bounds.start + Math.max(0, Number(value) || 0)));
         }
 
         closeRegisteredVideoAttachment() {
