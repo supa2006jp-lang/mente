@@ -15668,6 +15668,7 @@
                 delete mark._shiftPhotoCompareVideoStartTimer;
                 delete mark.dataset.animationPlaybackPending;
                 delete mark.dataset.animationPlaybackAttempts;
+                delete iframe.dataset.youtubeAutoplayCommandSent;
             }
             const icon = mark.querySelector('.shift-photo-compare-video-play i');
             if (state === 1) icon?.classList.replace('fa-play', 'fa-pause');
@@ -15959,11 +15960,13 @@
                     delete mark.dataset.animationPlaybackPending;
                     delete mark.dataset.animationPlaybackAttempts;
                     delete mark._shiftPhotoCompareVideoStartTimer;
+                    const iframe = mark.querySelector('.shift-photo-compare-youtube-player');
+                    if (iframe) delete iframe.dataset.youtubeAutoplayCommandSent;
                     this.scheduleShiftPhotoComparePresentationExitAfterVideo(mark);
                     return;
                 }
                 this.startShiftPhotoCompareAnimationVideo(item);
-            }, 250);
+            }, 600);
         });
     }
 
@@ -16013,6 +16016,7 @@
         delete mark._shiftPhotoCompareVideoStartTimer;
         delete mark.dataset.animationPlaybackPending;
         delete mark.dataset.animationPlaybackAttempts;
+        delete iframe.dataset.youtubeAutoplayCommandSent;
         const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
         const behavior = !forceReturn && iframe.dataset.animationPlaying === '1' && ['hold', 'loop'].includes(mark.dataset.videoEndBehavior)
             ? mark.dataset.videoEndBehavior
@@ -16077,6 +16081,7 @@
             }
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'pauseVideo');
             delete iframe.dataset.animationPlaying;
+            delete iframe.dataset.youtubeAutoplayCommandSent;
             iframe.dataset.youtubeState = '2';
         }
         delete mark.dataset.animationPlaying;
@@ -16308,29 +16313,34 @@
             }
             const state = this._shiftPhotoCompareAnimationState;
             if (state?.presentationMode) clearTimeout(state.presentationExitTimer);
-            this.restoreShiftPhotoCompareAnimationVideo(mark, true);
             clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
             delete mark._shiftPhotoCompareVideoStartTimer;
             mark.dataset.animationPlaybackPending = '1';
-            mark.classList.remove('shift-photo-compare-animation-video-user-paused');
-            iframe.dataset.animationPlaying = '1';
-            mark.dataset.animationPlaying = '1';
+            const attempts = Math.max(0, Number(mark.dataset.animationPlaybackAttempts) || 0);
+            const firstCommand = iframe.dataset.youtubeAutoplayCommandSent !== '1';
             const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
             const playbackRate = Number(mark.dataset.videoPlaybackRate) || 1;
-            const attempts = Math.max(0, Number(mark.dataset.animationPlaybackAttempts) || 0);
-            iframe.dataset.youtubeCurrentTime = String(start);
-            if (attempts >= 4) {
+            if (firstCommand) {
+                iframe.dataset.youtubeAutoplayCommandSent = '1';
+                this.restoreShiftPhotoCompareAnimationVideo(mark, true);
+                mark.classList.remove('shift-photo-compare-animation-video-user-paused');
+                iframe.dataset.animationPlaying = '1';
+                mark.dataset.animationPlaying = '1';
+                iframe.dataset.youtubeCurrentTime = String(start);
+                if (attempts < 2) {
+                    delete iframe.dataset.youtubeAutoplayMuted;
+                    this.sendShiftPhotoCompareYouTubeCommand(iframe, 'unMute');
+                }
+                this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
+                this.sendShiftPhotoCompareYouTubeCommand(iframe, 'setPlaybackRate', [playbackRate]);
+                if (item.effect === 'videoExpand') this.expandShiftPhotoCompareAnimationVideo(mark);
+                this.showShiftPhotoCompareAnimationVideoFinishControl(mark);
+            }
+            if (attempts >= 2 && iframe.dataset.youtubeAutoplayMuted !== '1') {
                 iframe.dataset.youtubeAutoplayMuted = '1';
                 this.sendShiftPhotoCompareYouTubeCommand(iframe, 'mute');
-            } else {
-                delete iframe.dataset.youtubeAutoplayMuted;
-                this.sendShiftPhotoCompareYouTubeCommand(iframe, 'unMute');
             }
-            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
-            if (item.effect === 'videoExpand') this.expandShiftPhotoCompareAnimationVideo(mark);
-            this.showShiftPhotoCompareAnimationVideoFinishControl(mark);
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'playVideo');
-            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'setPlaybackRate', [playbackRate]);
             if (iframe.dataset.youtubeState !== '1') this.queueShiftPhotoCompareAnimationVideoStart(item);
             return;
         }
