@@ -12,7 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260815-audio-batch-history2">
+    <link rel="stylesheet" href="style.css?v=20260815-tips-recorded-progress3">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -726,9 +726,14 @@
                                     <input type="file" id="tips-file-input" multiple>
                                 </label>
                                 <input type="file" id="tips-photo-manager-input" accept="image/*" multiple hidden>
-                                <button type="button" class="tips-photo-manager-btn" onclick="app.openTipsPhotoManagerPicker()">
-                                    <i class="fa-solid fa-images"></i> 写真管理から添付
-                                </button>
+                                <div class="tips-attachment-source-actions">
+                                    <button type="button" class="tips-photo-manager-btn" onclick="app.openTipsPhotoManagerPicker()">
+                                        <i class="fa-solid fa-images"></i> 写真管理から添付
+                                    </button>
+                                    <button type="button" class="tips-photo-manager-btn tips-audio-picker-btn" onclick="app.openTipsAudioMenu(event)">
+                                        <i class="fa-solid fa-headphones"></i> 音声
+                                    </button>
+                                </div>
                             </div>
                             <div class="tips-drop-hint">
                                 <i class="fa-solid fa-file-arrow-down"></i>
@@ -739,6 +744,9 @@
                             <div id="tips-editing-hint" class="tips-editing-hint" hidden></div>
                             <div id="tips-editing-meta" class="tips-editing-meta" hidden></div>
                             <div class="tips-compose-actions">
+                                <button type="button" id="tips-delete-edit-btn" class="tips-edit-delete-btn" onclick="app.deleteEditingTipsNote()" title="編集中のTIPSを削除" aria-label="編集中のTIPSを削除" hidden>
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
                                 <button type="button" id="tips-cancel-edit-btn" class="secondary-btn" onclick="app.cancelTipsEdit()" hidden>
                                     <i class="fa-solid fa-xmark"></i> 編集取消
                                 </button>
@@ -788,6 +796,7 @@
                                     <option value="with">添付あり</option>
                                     <option value="none">添付なし</option>
                                     <option value="image">画像</option>
+                                    <option value="audio">音声</option>
                                     <option value="pdf">PDF</option>
                                     <option value="office">Office</option>
                                     <option value="other">その他</option>
@@ -1174,7 +1183,7 @@
     <script src="app-history.js?v=20260815-audio-database1"></script>
     <script src="app-analysis-dashboard.js?v=20260803-dashboard-photo-ref1"></script>
     <script src="app-ranking-guides.js?v=20260613-guide-title-candidates"></script>
-    <script src="app-tips.js?v=20260802-tips-editor-webp-preview1"></script>
+    <script src="app-tips.js?v=20260815-tips-recorded-progress3"></script>
     <script src="app-skills.js?v=20260711-worker-radar-compare"></script>
     <script src="app-outlook-assist.js?v=20260727-outlook-address-note-newline1"></script>
     <script src="app-worktime.js?v=20260803-worktime-history-all2"></script>
@@ -1184,7 +1193,7 @@
     <script src="app-csv.js?v=20260803-single-maintenance1"></script>
     <script src="app-misc-analysis.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
-    <script src="app-photo-manager.js?v=20260815-audio-batch-history2"></script>
+    <script src="app-photo-manager.js?v=20260815-tips-audio-ref1"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js?v=20260619-remove-auto-backup"></script>
 </body>

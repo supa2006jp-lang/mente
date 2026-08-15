@@ -33,9 +33,36 @@
         const name = String(file.name || '').toLowerCase();
         const type = String(file.type || '').toLowerCase();
         if (type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)) return 'image';
+        if (type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|oga|webm|flac)$/i.test(name)) return 'audio';
         if (type === 'application/pdf' || /\.pdf$/i.test(name)) return 'pdf';
         if (/\.(xlsx|xls|xlsm|xlsb|ods|docx?|pptx?)$/i.test(name)) return 'office';
         return 'other';
+    };
+
+    proto.getTipsAttachmentIconClass = function (file = {}) {
+        if (file.source === 'photoManager') return 'fa-images';
+        const type = this.getTipsFileType(file);
+        if (type === 'image') return 'fa-file-image';
+        if (type === 'audio') return 'fa-file-audio';
+        if (type === 'pdf') return 'fa-file-pdf';
+        if (type === 'office') return 'fa-file-lines';
+        return 'fa-paperclip';
+    };
+
+    proto.getTipsAudioMimeType = function (file = {}) {
+        const current = String(file.type || '').toLowerCase();
+        if (current.startsWith('audio/')) return current;
+        const extension = String(file.name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '';
+        return ({
+            mp3: 'audio/mpeg',
+            wav: 'audio/wav',
+            m4a: 'audio/mp4',
+            aac: 'audio/aac',
+            ogg: 'audio/ogg',
+            oga: 'audio/ogg',
+            webm: 'audio/webm',
+            flac: 'audio/flac'
+        })[extension] || current || 'audio/mpeg';
     };
 
     proto.ensureTipsGroupColorStore = function () {
@@ -166,6 +193,8 @@
     };
 
     proto.renderTips = function () {
+        this.stopTipsInlineAudio?.();
+        this.stopTipsSyntheticSpeech?.();
         const notes = this.ensureTipsState();
         const list = document.getElementById('tips-list');
         if (!list) return;
@@ -507,7 +536,7 @@
                         ${attachments.map((file, index) => `
                             <span class="tips-attachment-pill">
                                 <button type="button" class="tips-attachment-pill-open" onclick="event.stopPropagation(); app.openTipsAttachment('${this.escapeJs(note.id)}', ${index})" title="${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}">
-                                    <i class="fa-solid ${file.source === 'photoManager' ? 'fa-images' : 'fa-paperclip'}"></i>
+                                    <i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>
                                     <span>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}</span>
                                 </button>
                                 <button type="button" class="tips-attachment-pill-delete" onclick="event.stopPropagation(); app.deleteTipsAttachmentFromCard('${this.escapeJs(note.id)}', ${index})" title="この添付を削除">
@@ -518,6 +547,7 @@
                     </div>
                 ` : ''}
                 <div class="tips-note-actions">
+                    ${this.getTipsSoundButtonHtml(note, 'tips-sound-action-btn')}
                     <button type="button" class="tips-icon-btn" title="このTIPSを削除" onclick="event.stopPropagation(); app.deleteTipsNote('${this.escapeJs(note.id)}')">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
@@ -614,14 +644,14 @@
             <article class="tips-map-note" onclick="app.editTipsNote('${this.escapeJs(note.id)}')" title="クリックで編集">
                 <div class="tips-map-note-head">
                     <i class="fa-regular fa-note-sticky"></i>
-                    <time>${this.escapeHtml(this.formatTipsDateTime(note.updatedAt || note.createdAt))}</time>
+                    <span><time>${this.escapeHtml(this.formatTipsDateTime(note.updatedAt || note.createdAt))}</time>${this.getTipsSoundButtonHtml(note, 'tips-sound-action-btn tips-map-note-sound-btn')}</span>
                 </div>
                 <p>${this.escapeHtml(summary || '本文なし')}</p>
                 ${attachments.length ? `
                     <div class="tips-map-attachments">
                         ${attachments.slice(0, 3).map((file, index) => `
                             <button type="button" onclick="event.stopPropagation(); app.openTipsAttachment('${this.escapeJs(note.id)}', ${index})" title="${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}">
-                                <i class="fa-solid ${file.source === 'photoManager' ? 'fa-images' : 'fa-paperclip'}"></i>
+                                <i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>
                                 <span>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}</span>
                             </button>
                         `).join('')}
@@ -1075,11 +1105,12 @@
                 const offset = baseNoteOffset + (noteIndex - (notes.length - 1) / 2) * spread;
                 const body = String(note.body || '').trim();
                 const summary = body.length > 22 ? `${body.slice(0, 22)}...` : body;
+                const soundButton = this.getTipsSoundButtonHtml(note, 'tips-circle-audio-btn');
                 nodes.push({
                     type: 'note',
                     angle: baseAngle + offset,
                     radius: 45,
-                    html: `<button type="button" class="tips-circle-node note" onclick="app.editTipsNote('${this.escapeJs(note.id)}')" title="${this.escapeHtml(body || '本文なし')}"><i class="fa-regular fa-note-sticky"></i><span>${this.escapeHtml(summary || '本文なし')}</span></button>`
+                    html: `<button type="button" class="tips-circle-node note" onclick="app.editTipsNote('${this.escapeJs(note.id)}')" title="${this.escapeHtml(body || '本文なし')}"><i class="fa-regular fa-note-sticky"></i><span>${this.escapeHtml(summary || '本文なし')}</span></button>${soundButton}`
                 });
             });
         });
@@ -1322,13 +1353,16 @@
                     </div>
                     <div class="tips-map-node-note-list">
                         ${notes.length ? notes.map(note => `
-                            <button type="button" style="${this.getTipsNoteHierarchyStyle(note)}" data-tips-node-note-kind="${String(note.body || '').trim() && Array.isArray(note.attachments) && note.attachments.length ? 'both' : String(note.body || '').trim() ? 'body' : Array.isArray(note.attachments) && note.attachments.length ? 'attachment' : 'empty'}" data-tips-node-note-search="${this.escapeHtml(`${note.group || ''} ${note.branch || ''} ${note.subBranch || ''} ${note.body || ''} ${(Array.isArray(note.attachments) ? note.attachments : []).map((file, index) => this.getTipsAttachmentDisplayName(file, index)).join(' ')}`.toLowerCase())}" onclick="app.openTipsNotePreview('${this.escapeJs(note.id)}')">
-                                <span>
-                                    <b>${this.escapeHtml(note.group || '未分類')}${note.branch ? ` / ${this.escapeHtml(note.branch)}` : ''}${note.subBranch ? ` / ${this.escapeHtml(note.subBranch)}` : ''}</b>
-                                    <small>${Array.isArray(note.attachments) && note.attachments.length ? `<i class="fa-solid fa-paperclip"></i> ${note.attachments.length} ` : ''}${this.escapeHtml(this.formatTipsDateTime(note.updatedAt || note.createdAt))}</small>
-                                </span>
-                                <p class="${String(note.body || '').trim() ? '' : 'tips-map-node-note-empty-body'}">${String(note.body || '').trim() ? this.escapeHtml(String(note.body || '').slice(0, 90)) : (Array.isArray(note.attachments) && note.attachments.length ? '<i class="fa-solid fa-paperclip"></i> 添付のみ' : '本文なし')}</p>
-                            </button>
+                            <div class="tips-map-node-note-item" style="${this.getTipsNoteHierarchyStyle(note)}" data-tips-node-note-kind="${String(note.body || '').trim() && Array.isArray(note.attachments) && note.attachments.length ? 'both' : String(note.body || '').trim() ? 'body' : Array.isArray(note.attachments) && note.attachments.length ? 'attachment' : 'empty'}" data-tips-node-note-search="${this.escapeHtml(`${note.group || ''} ${note.branch || ''} ${note.subBranch || ''} ${note.body || ''} ${(Array.isArray(note.attachments) ? note.attachments : []).map((file, index) => this.getTipsAttachmentDisplayName(file, index)).join(' ')}`.toLowerCase())}">
+                                <button type="button" class="tips-map-node-note-open" onclick="app.openTipsNotePreview('${this.escapeJs(note.id)}')">
+                                    <span>
+                                        <b>${this.escapeHtml(note.group || '未分類')}${note.branch ? ` / ${this.escapeHtml(note.branch)}` : ''}${note.subBranch ? ` / ${this.escapeHtml(note.subBranch)}` : ''}</b>
+                                        <small>${Array.isArray(note.attachments) && note.attachments.length ? `<i class="fa-solid fa-paperclip"></i> ${note.attachments.length} ` : ''}${this.escapeHtml(this.formatTipsDateTime(note.updatedAt || note.createdAt))}</small>
+                                    </span>
+                                    <p class="${String(note.body || '').trim() ? '' : 'tips-map-node-note-empty-body'}">${String(note.body || '').trim() ? this.escapeHtml(String(note.body || '').slice(0, 90)) : (Array.isArray(note.attachments) && note.attachments.length ? '<i class="fa-solid fa-paperclip"></i> 添付のみ' : '本文なし')}</p>
+                                </button>
+                                ${this.getTipsSoundButtonHtml(note, 'tips-sound-action-btn tips-map-node-sound-btn')}
+                            </div>
                         `).join('') : '<p class="tips-map-node-empty">該当するTIPSがありません</p>'}
                     </div>
                 </div>
@@ -1339,7 +1373,7 @@
     proto.filterTipsMapNodeNotes = function (value = '') {
         const query = String(value || '').trim().toLowerCase();
         const activeFilter = document.querySelector('#tips-map-node-notes .tips-map-node-filter button.active')?.dataset?.tipsNodeFilter || 'all';
-        document.querySelectorAll('#tips-map-node-notes .tips-map-node-note-list > button').forEach(button => {
+        document.querySelectorAll('#tips-map-node-notes .tips-map-node-note-list > [data-tips-node-note-kind]').forEach(button => {
             const haystack = button.getAttribute('data-tips-node-note-search') || '';
             const kind = button.getAttribute('data-tips-node-note-kind') || 'empty';
             const matchesText = query ? haystack.includes(query) : true;
@@ -1350,7 +1384,7 @@
         });
         const list = document.querySelector('#tips-map-node-notes .tips-map-node-note-list');
         if (!list) return;
-        const hasVisible = [...list.querySelectorAll(':scope > button')].some(button => !button.hidden);
+        const hasVisible = [...list.querySelectorAll(':scope > [data-tips-node-note-kind]')].some(item => !item.hidden);
         list.classList.toggle('is-empty-filtered', !hasVisible);
     };
 
@@ -1423,13 +1457,14 @@
                         <div class="tips-note-preview-files">
                             ${attachments.map((file, index) => `
                                 <button type="button" onclick="app.openTipsAttachment('${this.escapeJs(note.id)}', ${index})" title="${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}">
-                                    <i class="fa-solid ${file.source === 'photoManager' ? 'fa-images' : 'fa-paperclip'}"></i>
+                                    <i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>
                                     <span>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}</span>
                                 </button>
                             `).join('')}
                         </div>
                     ` : ''}
                     <footer>
+                        ${this.getTipsSoundButtonHtml(note, 'tips-sound-action-btn tips-preview-sound-btn')}
                         <button type="button" onclick="app.copyTipsNotePreview('${this.escapeJs(note.id)}', 'body', this)"><i class="fa-regular fa-copy"></i> 本文コピー</button>
                         <button type="button" onclick="app.copyTipsNotePreview('${this.escapeJs(note.id)}', 'full', this)"><i class="fa-solid fa-copy"></i> 階層ごとコピー</button>
                         <button type="button" onclick="app.editTipsNoteFromPreview('${this.escapeJs(note.id)}')"><i class="fa-solid fa-pen"></i> 編集</button>
@@ -1545,12 +1580,12 @@
         if (!box || !input) return;
         const files = Array.from(input.files || []);
         const photoAttachments = Array.isArray(this._tipsPhotoManagerAttachments) ? this._tipsPhotoManagerAttachments : [];
-        const allPending = [...files, ...photoAttachments];
+        const audioDatabaseAttachments = Array.isArray(this._tipsAudioDatabaseAttachments) ? this._tipsAudioDatabaseAttachments : [];
+        const allPending = [...files, ...photoAttachments, ...audioDatabaseAttachments];
         box.innerHTML = allPending.length
-            ? `<b class="tips-file-section-title"><i class="fa-solid fa-plus"></i> 追加予定の添付</b>${this.getTipsAttachmentWarningHtml(allPending)}${this.getTipsDuplicateWarningHtml(allPending)}${files.map(file => `<span class="${file.size >= this.getTipsLargeAttachmentBytes() ? 'warn' : ''}"><i class="fa-solid fa-paperclip"></i>${this.escapeHtml(file.name)}<small>${this.formatTipsFileSize(file.size)}</small></span>`).join('')}${photoAttachments.map((file, index) => `<span class="tips-photo-manager-chip ${file.size >= this.getTipsLargeAttachmentBytes() ? 'warn' : ''}"><i class="fa-solid fa-images"></i>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}<small>${this.formatTipsFileSize(file.size)}</small><button type="button" onclick="app.removeTipsPhotoManagerAttachment('${this.escapeJs(file.id)}')" title="この写真管理画像を外す"><i class="fa-solid fa-xmark"></i></button></span>`).join('')}`
+            ? `<b class="tips-file-section-title"><i class="fa-solid fa-plus"></i> 追加予定の添付</b>${this.getTipsAttachmentWarningHtml(allPending)}${this.getTipsDuplicateWarningHtml(allPending)}${files.map(file => `<span class="${file.size >= this.getTipsLargeAttachmentBytes() ? 'warn' : ''}"><i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>${this.escapeHtml(file.name)}<small>${this.formatTipsFileSize(file.size)}</small></span>`).join('')}${photoAttachments.map((file, index) => `<span class="tips-photo-manager-chip ${file.size >= this.getTipsLargeAttachmentBytes() ? 'warn' : ''}"><i class="fa-solid fa-images"></i>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}<small>${this.formatTipsFileSize(file.size)}</small><button type="button" onclick="app.removeTipsPhotoManagerAttachment('${this.escapeJs(file.id)}')" title="この写真管理画像を外す"><i class="fa-solid fa-xmark"></i></button></span>`).join('')}${audioDatabaseAttachments.map((file, index) => `<span class="tips-photo-manager-chip tips-audio-database-chip"><i class="fa-solid fa-database"></i>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}<small>${this.formatTipsFileSize(file.size)}・DB参照</small><button type="button" onclick="app.removeTipsAudioDatabaseAttachment('${this.escapeJs(file.id)}')" title="この音声DB参照を外す"><i class="fa-solid fa-xmark"></i></button></span>`).join('')}`
             : '';
     };
-
     proto.renderTipsExistingFiles = function (note = null) {
         const box = document.getElementById('tips-existing-files');
         if (!box) return;
@@ -1566,7 +1601,7 @@
             ${attachments.length ? attachments.map((file, index) => `
                 <div class="tips-existing-file-row">
                     <button type="button" class="tips-existing-file-open" onclick="app.openTipsAttachment('${this.escapeJs(editingNote.id)}', ${index})" title="${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}">
-                        <i class="fa-solid fa-file"></i>
+                        <i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>
                         <span>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}</span>
                         <small>${this.escapeHtml(this.formatTipsFileSize(file.size || 0))}</small>
                     </button>
@@ -1703,35 +1738,322 @@
         this.renderTipsSelectedFiles();
     };
 
-    proto.openTipsAttachment = function (noteId, attachmentIndex = 0) {
+    proto.getTipsPrimaryAudioIndex = function (note = {}) {
+        return (Array.isArray(note.attachments) ? note.attachments : [])
+            .findIndex(file => this.getTipsFileType(file) === 'audio' && (file.dataUrl || file.mediaKey));
+    };
+
+    proto.getTipsSoundButtonHtml = function (note = {}, className = 'tips-sound-action-btn') {
+        const audioIndex = this.getTipsPrimaryAudioIndex(note);
+        const label = String(note.body || '').trim().slice(0, 24) || 'このTIPS';
+        return audioIndex >= 0
+            ? `<button type="button" class="${this.escapeHtml(className)}" onclick="event.stopPropagation(); app.toggleTipsInlineAudio(this, '${this.escapeJs(note.id)}', ${audioIndex})" title="添付音声を再生" aria-label="${this.escapeHtml(label)}の添付音声を再生"><i class="fa-solid fa-microphone"></i></button>`
+            : `<button type="button" class="${this.escapeHtml(`${className} tips-synthetic-speech-btn`)}" onclick="event.stopPropagation(); app.toggleTipsSyntheticSpeech(this, '${this.escapeJs(note.id)}')" title="本文を合成音声で読み上げ" aria-label="${this.escapeHtml(label)}を合成音声で読み上げ"><i class="fa-solid fa-music"></i></button>`;
+    };
+
+    proto.setTipsSoundProgress = function (button, ratio = 0) {
+        if (!button) return;
+        const percent = Math.max(0, Math.min(100, Number(ratio) * 100));
+        button.style.setProperty('--tips-sound-progress', `${percent}%`);
+        button.setAttribute('aria-valuenow', String(Math.round(percent)));
+    };
+
+    proto.resetTipsSyntheticSpeechButton = function (state = this._tipsSyntheticSpeech) {
+        if (!state?.button) return;
+        clearInterval(state.progressTimer);
+        state.button.classList.remove('playing');
+        state.button.title = '本文を合成音声で読み上げ';
+        state.button.setAttribute('aria-label', state.originalAriaLabel || '本文を合成音声で読み上げ');
+        state.button.removeAttribute('aria-valuenow');
+        state.button.removeAttribute('role');
+        this.setTipsSoundProgress(state.button, 0);
+        const icon = state.button.querySelector('i');
+        icon?.classList.remove('fa-stop');
+        icon?.classList.add('fa-music');
+    };
+
+    proto.stopTipsSyntheticSpeech = function () {
+        const state = this._tipsSyntheticSpeech;
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        clearInterval(state?.progressTimer);
+        this.resetTipsSyntheticSpeechButton(state);
+        this._tipsSyntheticSpeech = null;
+    };
+
+    proto.toggleTipsSyntheticSpeech = function (button, noteId = '') {
+        const current = this._tipsSyntheticSpeech;
+        if (current?.noteId === noteId) {
+            this.stopTipsSyntheticSpeech();
+            return;
+        }
+        this.stopTipsInlineAudio();
+        this.stopTipsSyntheticSpeech();
+        if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
+            this.showToast('このブラウザーでは合成音声を利用できません', 'error');
+            return;
+        }
+        const note = this.ensureTipsState().find(item => item.id === noteId);
+        const text = String(note?.body || '').replace(/\s+/g, ' ').trim();
+        if (!text) return this.showToast('読み上げる本文がありません', 'warning');
+        const settings = this.getShiftPhotoCompareSpeechSettings?.()
+            || { voiceURI: '', rate: 1, pitch: 1, intonation: 1, volume: 1 };
+        const voices = window.speechSynthesis.getVoices?.() || [];
+        const voice = voices.find(item => item.voiceURI === settings.voiceURI)
+            || voices.find(item => String(item.lang || '').toLowerCase().startsWith('ja'))
+            || voices.find(item => item.default)
+            || voices[0];
+        const segments = this.getShiftPhotoCompareSpeechSegments?.(text) || [text];
+        const rate = Math.max(0.5, Math.min(2, Number(settings.rate) || 1));
+        const originalAriaLabel = button?.getAttribute('aria-label') || '本文を合成音声で読み上げ';
+        const state = {
+            button, noteId, originalAriaLabel, remaining: segments.length, utterances: [],
+            startedAt: performance.now(), estimatedDuration: Math.max(2, text.length / (5.2 * rate)), progressTimer: null
+        };
+        this._tipsSyntheticSpeech = state;
+        if (button) {
+            button.classList.add('playing');
+            button.title = '読み上げを停止';
+            button.setAttribute('aria-label', originalAriaLabel.replace('読み上げ', '停止'));
+            button.setAttribute('role', 'progressbar');
+            const icon = button.querySelector('i');
+            icon?.classList.remove('fa-music');
+            icon?.classList.add('fa-stop');
+            this.setTipsSoundProgress(button, 0);
+        }
+        state.progressTimer = setInterval(() => {
+            const elapsed = (performance.now() - state.startedAt) / 1000;
+            this.setTipsSoundProgress(button, Math.min(0.95, elapsed / state.estimatedDuration));
+        }, 120);
+        const finishSegment = () => {
+            if (this._tipsSyntheticSpeech !== state) return;
+            state.remaining = Math.max(0, state.remaining - 1);
+            const completedRatio = (segments.length - state.remaining) / Math.max(segments.length, 1);
+            this.setTipsSoundProgress(button, completedRatio);
+            if (state.remaining > 0) return;
+            clearInterval(state.progressTimer);
+            this.setTipsSoundProgress(button, 1);
+            this.resetTipsSyntheticSpeechButton(state);
+            this._tipsSyntheticSpeech = null;
+        };
+        segments.forEach(segment => {
+            const utterance = new SpeechSynthesisUtterance(segment);
+            utterance.lang = voice?.lang || 'ja-JP';
+            if (voice) utterance.voice = voice;
+            utterance.rate = rate;
+            utterance.pitch = this.getShiftPhotoCompareSpeechSegmentPitch?.(segment, settings.pitch, settings.intonation)
+                || Math.max(0.5, Math.min(2, Number(settings.pitch) || 1));
+            utterance.volume = Number.isFinite(Number(settings.volume)) ? Math.max(0, Math.min(1, Number(settings.volume))) : 1;
+            utterance.onend = finishSegment;
+            utterance.onerror = finishSegment;
+            state.utterances.push(utterance);
+            window.speechSynthesis.speak(utterance);
+        });
+    };
+
+    proto.resolveTipsAttachmentSource = async function (file = {}) {
+        if (file.dataUrl) return { source: file.dataUrl, objectUrl: '' };
+        if (!file.mediaKey) return { source: '', objectUrl: '' };
+        const blob = await store.loadMediaBlob(file.mediaKey).catch(() => null);
+        if (!blob) return { source: '', objectUrl: '' };
+        const objectUrl = URL.createObjectURL(blob);
+        return { source: objectUrl, objectUrl };
+    };
+
+    proto.resolveTipsAudioDuration = function (audio, fallbackDuration = 0, source = '') {
+        const fallback = Number(fallbackDuration);
+        if (Number.isFinite(fallback) && fallback > 0) return Promise.resolve(fallback);
+        return new Promise(resolve => {
+            let settled = false;
+            let timer = 0;
+            let audioContext = null;
+            const cleanup = () => {
+                clearTimeout(timer);
+                audio.removeEventListener('loadedmetadata', inspect);
+                audio.removeEventListener('durationchange', inspect);
+                audioContext?.close?.().catch?.(() => {});
+            };
+            const finish = duration => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                const value = Number(duration);
+                resolve(Number.isFinite(value) && value > 0 ? value : 0);
+            };
+            const inspect = () => {
+                const duration = Number(audio.duration);
+                if (Number.isFinite(duration) && duration > 0) finish(duration);
+            };
+            audio.addEventListener('loadedmetadata', inspect);
+            audio.addEventListener('durationchange', inspect);
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (source && AudioContextClass) {
+                fetch(source)
+                    .then(response => response.arrayBuffer())
+                    .then(buffer => {
+                        if (settled) return null;
+                        audioContext = new AudioContextClass();
+                        return audioContext.decodeAudioData(buffer.slice(0));
+                    })
+                    .then(decoded => { if (decoded) finish(decoded.duration); })
+                    .catch(() => {});
+            }
+            timer = setTimeout(() => finish(0), 5000);
+            inspect();
+        });
+    };
+    proto.resetTipsInlineAudioButton = function (button, originalAriaLabel = '') {
+        if (!button) return;
+        button.classList.remove('playing', 'loading', 'indeterminate');
+        button.title = '添付音声を再生';
+        button.setAttribute('aria-label', originalAriaLabel || '添付音声を再生');
+        button.removeAttribute('aria-valuenow');
+        button.removeAttribute('role');
+        this.setTipsSoundProgress(button, 0);
+        const icon = button.querySelector('i');
+        icon?.classList.remove('fa-stop', 'fa-spinner', 'fa-spin');
+        icon?.classList.add('fa-microphone');
+    };
+
+    proto.stopTipsInlineAudio = function () {
+        this._tipsInlineAudioLoadToken = (Number(this._tipsInlineAudioLoadToken) || 0) + 1;
+        if (this._tipsInlineAudioLoadingButton) {
+            this.resetTipsInlineAudioButton(this._tipsInlineAudioLoadingButton, this._tipsInlineAudioLoadingAriaLabel || '');
+            this._tipsInlineAudioLoadingButton = null;
+            this._tipsInlineAudioLoadingAriaLabel = '';
+        }
+        const state = this._tipsInlineAudio;
+        if (!state) return;
+        try {
+            state.audio.pause();
+            state.audio.currentTime = 0;
+        } catch (_) {}
+        this.resetTipsInlineAudioButton(state.button, state.originalAriaLabel);
+        if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
+        this._tipsInlineAudio = null;
+    };
+
+    proto.toggleTipsInlineAudio = async function (button, noteId = '', attachmentIndex = 0) {
+        this.stopTipsSyntheticSpeech();
+        const current = this._tipsInlineAudio;
+        if (current?.noteId === noteId && current?.attachmentIndex === Number(attachmentIndex) && !current.audio.paused) {
+            this.stopTipsInlineAudio();
+            return;
+        }
+        this.stopTipsInlineAudio();
+        const note = this.ensureTipsState().find(item => item.id === noteId);
+        const file = Array.isArray(note?.attachments) ? note.attachments[Number(attachmentIndex)] : null;
+        if (!file || this.getTipsFileType(file) !== 'audio') {
+            this.showToast('音声ファイルを再生できませんでした', 'error');
+            return;
+        }
+        const originalAriaLabel = button?.getAttribute('aria-label') || '添付音声を再生';
+        const loadToken = (Number(this._tipsInlineAudioLoadToken) || 0) + 1;
+        this._tipsInlineAudioLoadToken = loadToken;
+        this._tipsInlineAudioLoadingButton = button;
+        this._tipsInlineAudioLoadingAriaLabel = originalAriaLabel;
+        button?.classList.add('loading');
+        const loadingIcon = button?.querySelector('i');
+        loadingIcon?.classList.remove('fa-microphone');
+        loadingIcon?.classList.add('fa-spinner', 'fa-spin');
+        const resolved = await this.resolveTipsAttachmentSource(file);
+        if (this._tipsInlineAudioLoadToken !== loadToken) {
+            if (resolved.objectUrl) URL.revokeObjectURL(resolved.objectUrl);
+            return;
+        }
+        this._tipsInlineAudioLoadingButton = null;
+        this._tipsInlineAudioLoadingAriaLabel = '';
+        if (!resolved.source) {
+            this.resetTipsInlineAudioButton(button, originalAriaLabel);
+            this.showToast('音声DBの音声データを読み込めませんでした', 'error');
+            return;
+        }
+        const audio = new Audio(resolved.source);
+        audio.preload = 'auto';
+        const storedDuration = Number(file.duration);
+        const state = { audio, button, noteId, attachmentIndex: Number(attachmentIndex), originalAriaLabel, objectUrl: resolved.objectUrl, duration: Number.isFinite(storedDuration) && storedDuration > 0 ? storedDuration : 0 };
+        this._tipsInlineAudio = state;
+        if (button) {
+            button.classList.remove('loading');
+            button.classList.add('playing');
+            button.classList.toggle('indeterminate', !state.duration);
+            button.title = '音声を停止';
+            button.setAttribute('aria-label', originalAriaLabel.replace('再生', '停止'));
+            button.setAttribute('role', 'progressbar');
+            const icon = button.querySelector('i');
+            icon?.classList.remove('fa-microphone', 'fa-spinner', 'fa-spin');
+            icon?.classList.add('fa-stop');
+        }
+        this.resolveTipsAudioDuration(audio, state.duration, resolved.source).then(duration => {
+            if (this._tipsInlineAudio !== state) return;
+            state.duration = duration;
+            button?.classList.toggle('indeterminate', !duration);
+            if (duration) this.setTipsSoundProgress(button, audio.currentTime / duration);
+        });
+        const finish = () => {
+            if (this._tipsInlineAudio?.audio === audio) this.stopTipsInlineAudio();
+        };
+        audio.ontimeupdate = () => {
+            const nativeDuration = Number(audio.duration);
+            const duration = Number.isFinite(nativeDuration) && nativeDuration > 0 ? nativeDuration : state.duration;
+            if (Number.isFinite(duration) && duration > 0) {
+                state.duration = duration;
+                button?.classList.remove('indeterminate');
+                this.setTipsSoundProgress(button, audio.currentTime / duration);
+            }
+        };
+        audio.onended = finish;
+        audio.onerror = () => {
+            finish();
+            this.showToast('音声ファイルを再生できませんでした', 'error');
+        };
+        const result = audio.play();
+        if (result?.catch) result.catch(() => {
+            finish();
+            this.showToast('音声を再生できませんでした。ブラウザーの音声許可を確認してください', 'error');
+        });
+    };
+    proto.openTipsAttachment = async function (noteId, attachmentIndex = 0) {
         this.markTipsNoteViewed(noteId);
         const note = this.ensureTipsState().find(item => item.id === noteId);
         const attachments = Array.isArray(note?.attachments) ? note.attachments : [];
         const safeIndex = Math.max(0, Math.min(Number(attachmentIndex) || 0, attachments.length - 1));
         const file = attachments[safeIndex];
-        if (!file?.dataUrl) {
-            this.showToast('添付ファイルを開けませんでした', 'error');
+        if (!file) return;
+        const resolved = await this.resolveTipsAttachmentSource(file);
+        if (!resolved.source) {
+            this.showToast(file.mediaKey ? '音声DBの音声データを読み込めませんでした' : '添付ファイルを開けませんでした', 'error');
             return;
         }
-
-        document.getElementById('tips-attachment-viewer')?.remove();
+        const sourceUrl = resolved.source;
+        this.closeTipsAttachmentViewer();
+        this._tipsAttachmentObjectUrl = resolved.objectUrl || '';
         const type = String(file.type || '');
         const name = this.getTipsAttachmentDisplayName(file, safeIndex) || 'attachment';
         const lowerName = name.toLowerCase();
+        const attachmentType = this.getTipsFileType(file);
         const isSpreadsheet = /\.(xlsx|xls|xlsm|xlsb|ods)$/i.test(lowerName);
         const isCsv = /\.csv$/i.test(lowerName) || type.includes('csv');
         let previewHtml = `
             <div class="tips-attachment-preview-empty">
-                <i class="fa-solid fa-file"></i>
+                <i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>
                 <b>${this.escapeHtml(name)}</b>
                 <span>${this.escapeHtml(type || 'file')} / ${this.escapeHtml(this.formatTipsFileSize(file.size || 0))}</span>
             </div>
         `;
 
-        if (type.startsWith('image/')) {
-            previewHtml = `<img class="tips-attachment-zoom-target tips-attachment-preview-image" src="${this.escapeHtml(file.dataUrl)}" alt="${this.escapeHtml(name)}">`;
-        } else if (type === 'application/pdf') {
-            previewHtml = `<iframe class="tips-attachment-zoom-target tips-attachment-preview-frame" src="${this.escapeHtml(file.dataUrl)}" title="${this.escapeHtml(name)}"></iframe>`;
+        if (attachmentType === 'image') {
+            previewHtml = `<img class="tips-attachment-zoom-target tips-attachment-preview-image" src="${this.escapeHtml(sourceUrl)}" alt="${this.escapeHtml(name)}">`;
+        } else if (attachmentType === 'audio') {
+            previewHtml = `
+                <div class="tips-attachment-audio">
+                    <i class="fa-solid fa-file-audio"></i>
+                    <b>${this.escapeHtml(name)}</b>
+                    <span>${this.escapeHtml(this.formatTipsFileSize(file.size || 0))}</span>
+                    <audio controls preload="metadata" src="${this.escapeHtml(sourceUrl)}">このブラウザでは音声を再生できません。</audio>
+                </div>
+            `;
+        } else if (attachmentType === 'pdf') {
+            previewHtml = `<iframe class="tips-attachment-zoom-target tips-attachment-preview-frame" src="${this.escapeHtml(sourceUrl)}" title="${this.escapeHtml(name)}"></iframe>`;
         } else if (isSpreadsheet) {
             previewHtml = `
                 <div class="tips-attachment-preview-empty">
@@ -1741,10 +2063,10 @@
                 </div>
             `;
         } else if (isCsv) {
-            const rows = this.parseTipsCsv(this.decodeTipsTextAttachment(file.dataUrl));
+            const rows = this.parseTipsCsv(this.decodeTipsTextAttachment(sourceUrl));
             previewHtml = `<div class="tips-attachment-zoom-target tips-sheet-preview">${this.getTipsTablePreviewHtml(rows, 'CSV')}</div>`;
         } else if (type.startsWith('text/') || /\.(txt|log|md)$/i.test(name)) {
-            const text = this.decodeTipsTextAttachment(file.dataUrl);
+            const text = this.decodeTipsTextAttachment(sourceUrl);
             previewHtml = `<pre class="tips-attachment-zoom-target tips-attachment-preview-text">${this.escapeHtml(text)}</pre>`;
         }
 
@@ -1755,7 +2077,7 @@
             <nav class="tips-preview-tabs" aria-label="添付ファイル切替">
                 ${attachments.map((item, index) => `
                     <button type="button" class="${index === safeIndex ? 'active' : ''}" onclick="app.openTipsAttachment('${this.escapeJs(noteId)}', ${index})" title="${this.escapeHtml(this.getTipsAttachmentDisplayName(item, index))}">
-                        <i class="fa-solid ${this.getTipsFileType(item) === 'image' ? 'fa-file-image' : this.getTipsFileType(item) === 'pdf' ? 'fa-file-pdf' : this.getTipsFileType(item) === 'office' ? 'fa-file-lines' : 'fa-file'}"></i>
+                        <i class="fa-solid ${this.getTipsAttachmentIconClass(item)}"></i>
                         <span>${this.escapeHtml(this.getTipsAttachmentDisplayName(item, index))}</span>
                     </button>
                 `).join('')}
@@ -1766,7 +2088,7 @@
                 <div class="tips-attachment-viewer-card ${attachments.length > 1 ? 'has-tabs' : ''}" onclick="event.stopPropagation()">
                     <header>
                         <div>
-                            <b><i class="fa-solid fa-paperclip"></i>${this.escapeHtml(name)}</b>
+                            <b><i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>${this.escapeHtml(name)}</b>
                             <span>${attachments.length > 1 ? `${safeIndex + 1}/${attachments.length} ・ ` : ''}${this.escapeHtml(this.formatTipsFileSize(file.size || 0))}</span>
                         </div>
                         <div class="tips-attachment-header-actions">
@@ -1777,12 +2099,14 @@
                                     <button type="button" onclick="app.openTipsAttachment('${this.escapeJs(noteId)}', ${nextIndex})" title="次の添付"><i class="fa-solid fa-chevron-right"></i></button>
                                 </div>
                             ` : ''}
-                            <div class="tips-attachment-zoom-controls" aria-label="プレビュー拡大縮小">
-                                <button type="button" onclick="app.zoomTipsAttachment(-0.15)" title="縮小"><i class="fa-solid fa-minus"></i></button>
-                                <span id="tips-attachment-zoom-label">100%</span>
-                                <button type="button" onclick="app.zoomTipsAttachment(0.15)" title="拡大"><i class="fa-solid fa-plus"></i></button>
-                                <button type="button" onclick="app.resetTipsAttachmentZoom()" title="等倍"><i class="fa-solid fa-maximize"></i></button>
-                            </div>
+                            ${attachmentType === 'audio' ? '' : `
+                                <div class="tips-attachment-zoom-controls" aria-label="プレビュー拡大縮小">
+                                    <button type="button" onclick="app.zoomTipsAttachment(-0.15)" title="縮小"><i class="fa-solid fa-minus"></i></button>
+                                    <span id="tips-attachment-zoom-label">100%</span>
+                                    <button type="button" onclick="app.zoomTipsAttachment(0.15)" title="拡大"><i class="fa-solid fa-plus"></i></button>
+                                    <button type="button" onclick="app.resetTipsAttachmentZoom()" title="等倍"><i class="fa-solid fa-maximize"></i></button>
+                                </div>
+                            `}
                             <button type="button" class="tips-attachment-close" onclick="app.closeTipsAttachmentViewer()" title="閉じる">
                                 <i class="fa-solid fa-xmark"></i>
                             </button>
@@ -1794,7 +2118,7 @@
                         <button type="button" class="tips-attachment-delete" onclick="app.deleteTipsAttachmentFromViewer('${this.escapeJs(noteId)}', ${safeIndex})">
                             <i class="fa-solid fa-trash-can"></i> 削除
                         </button>
-                        <a class="primary-btn tips-attachment-download" href="${this.escapeHtml(file.dataUrl)}" download="${this.escapeHtml(name)}">
+                        <a class="primary-btn tips-attachment-download" href="${this.escapeHtml(sourceUrl)}" download="${this.escapeHtml(name)}">
                             <i class="fa-solid fa-download"></i> ダウンロード
                         </a>
                     </footer>
@@ -1937,6 +2261,10 @@
     proto.closeTipsAttachmentViewer = function (event) {
         if (event && event.target?.id !== 'tips-attachment-viewer') return;
         document.getElementById('tips-attachment-viewer')?.remove();
+        if (this._tipsAttachmentObjectUrl) {
+            URL.revokeObjectURL(this._tipsAttachmentObjectUrl);
+            this._tipsAttachmentObjectUrl = '';
+        }
         if (this._tipsAttachmentKeydown) {
             document.removeEventListener('keydown', this._tipsAttachmentKeydown);
             this._tipsAttachmentKeydown = null;
@@ -1964,13 +2292,22 @@
     proto.readTipsFile = function (file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = event => resolve({
-                id: `tips_file_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                name: file.name,
-                type: file.type || 'application/octet-stream',
-                size: file.size || 0,
-                dataUrl: event.target.result
-            });
+            reader.onload = event => {
+                let type = file.type || 'application/octet-stream';
+                let dataUrl = String(event.target.result || '');
+                if (this.getTipsFileType(file) === 'audio') {
+                    type = this.getTipsAudioMimeType(file);
+                    dataUrl = dataUrl.replace(/^data:[^;,]*/i, `data:${type}`);
+                }
+                resolve({
+                    id: `tips_file_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    name: file.name,
+                    type,
+                    size: file.size || 0,
+                    duration: Number.isFinite(Number(file.tipsDuration)) ? Math.max(0, Number(file.tipsDuration)) : 0,
+                    dataUrl
+                });
+            };
             reader.onerror = reject;
             reader.readAsDataURL(file);
         });
@@ -2041,7 +2378,8 @@
             return;
         }
         const photoAttachments = Array.isArray(this._tipsPhotoManagerAttachments) ? this._tipsPhotoManagerAttachments : [];
-        attachments = [...attachments, ...photoAttachments.map(item => ({ ...item }))];
+        const audioDatabaseAttachments = Array.isArray(this._tipsAudioDatabaseAttachments) ? this._tipsAudioDatabaseAttachments : [];
+        attachments = [...attachments, ...photoAttachments.map(item => ({ ...item })), ...audioDatabaseAttachments.map(item => ({ ...item }))];
 
         const notes = this.ensureTipsState();
         const editingId = this._editingTipsId || '';
@@ -2242,6 +2580,7 @@
         if (bodyInput) bodyInput.value = '';
         if (fileInput) fileInput.value = '';
         this._tipsPhotoManagerAttachments = [];
+        this._tipsAudioDatabaseAttachments = [];
         this._editingTipsId = '';
         document.querySelector('.tips-compose-panel')?.classList.remove('editing');
         this.updateTipsEditStateUI();
@@ -2281,6 +2620,8 @@
             bodyInput.focus();
         }
         if (fileInput) fileInput.value = '';
+        this._tipsPhotoManagerAttachments = [];
+        this._tipsAudioDatabaseAttachments = [];
         document.querySelector('.tips-compose-panel')?.classList.add('editing');
         this.renderTipsExistingFiles(note);
         this.renderTipsSelectedFiles();
@@ -2443,6 +2784,7 @@
         const editingNote = note || (editingId ? this.ensureTipsState().find(item => item.id === editingId) : null);
         const saveBtn = document.getElementById('tips-save-btn');
         const cancelBtn = document.getElementById('tips-cancel-edit-btn');
+        const deleteBtn = document.getElementById('tips-delete-edit-btn');
         const hint = document.getElementById('tips-editing-hint');
         this.renderTipsExistingFiles(editingNote);
         this.updateTipsEditMetaUI(editingNote);
@@ -2452,6 +2794,7 @@
                 : '<i class="fa-solid fa-plus"></i> 登録';
         }
         if (cancelBtn) cancelBtn.hidden = !editingNote;
+        if (deleteBtn) deleteBtn.hidden = !editingNote;
         if (hint) {
             hint.hidden = !editingNote;
             hint.innerHTML = editingNote
@@ -2520,6 +2863,278 @@
         this.showToast(`${files.length}件のファイルを追加しました`, 'success');
     };
 
+    proto.closeTipsAudioMenu = function () {
+        this._tipsAudioMenuCleanup?.();
+        this._tipsAudioMenuCleanup = null;
+        document.querySelector('.tips-audio-menu')?.remove();
+    };
+
+    proto.openTipsAudioMenu = function (event = null) {
+        this.closeTipsAudioMenu();
+        const menu = document.createElement('div');
+        menu.className = 'shift-photo-compare-animation-page-audio-menu tips-audio-menu';
+        menu.innerHTML = `
+            <div class="shift-photo-compare-animation-page-audio-info">
+                <i class="fa-solid fa-headphones"></i>
+                <span><strong>TIPSへ音声を添付</strong><small>追加方法を選択</small></span>
+            </div>
+            <button type="button" onclick="app.openTipsAudioRecordingDialog()"><i class="fa-solid fa-microphone-lines"></i><span>その場で録音</span></button>
+            <button type="button" onclick="app.selectTipsAudioFile()"><i class="fa-solid fa-file-audio"></i><span>音声ファイルを使用</span></button>
+            <button type="button" onclick="app.openTipsAudioDatabase()"><i class="fa-solid fa-database"></i><span>音声DBから登録</span></button>
+        `;
+        document.body.appendChild(menu);
+        const anchor = event?.currentTarget?.getBoundingClientRect?.();
+        const rect = menu.getBoundingClientRect();
+        const preferredLeft = anchor ? anchor.left : (Number(event?.clientX) || 12);
+        const preferredTop = anchor ? anchor.bottom + 6 : (Number(event?.clientY) || 12);
+        menu.style.left = `${Math.max(8, Math.min(preferredLeft, window.innerWidth - rect.width - 8))}px`;
+        menu.style.top = `${Math.max(8, Math.min(preferredTop, window.innerHeight - rect.height - 8))}px`;
+        const close = closeEvent => {
+            if (!menu.contains(closeEvent.target)) this.closeTipsAudioMenu();
+        };
+        setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
+        this._tipsAudioMenuCleanup = () => document.removeEventListener('pointerdown', close, true);
+    };
+
+    proto.selectTipsAudioFile = function () {
+        this.closeTipsAudioMenu();
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.webm,.flac';
+        input.multiple = true;
+        input.hidden = true;
+        input.addEventListener('change', () => {
+            const files = Array.from(input.files || []);
+            input.remove();
+            if (files.length) this.addTipsFilesToInput(files);
+        }, { once: true });
+        input.addEventListener('cancel', () => input.remove(), { once: true });
+        document.body.appendChild(input);
+        input.click();
+    };
+
+    proto.closeTipsAudioDatabase = function (event = null) {
+        const dialog = document.getElementById('tips-audio-database');
+        if (event && event.target !== event.currentTarget) return;
+        dialog?.querySelectorAll('audio')?.forEach(audio => audio.pause());
+        (dialog?._tipsAudioObjectUrls || []).forEach(url => URL.revokeObjectURL(url));
+        dialog?.remove();
+    };
+
+    proto.openTipsAudioDatabase = async function () {
+        this.closeTipsAudioMenu();
+        this.closeTipsAudioDatabase();
+        this.syncCurrentPageAudiosToPhotoManagerDatabase?.();
+        const audios = typeof this.getPhotoManagerAudios === 'function' ? this.getPhotoManagerAudios() : [];
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="tips-audio-database" class="shift-photo-compare-animation-timeline-dialog shift-photo-compare-animation-audio-database tips-audio-database" onclick="app.closeTipsAudioDatabase(event)">
+                <div class="shift-photo-compare-animation-timeline-dialog-panel" onclick="event.stopPropagation()">
+                    <header><strong><i class="fa-solid fa-database"></i> 音声DBからTIPSへ添付</strong><button type="button" onclick="app.closeTipsAudioDatabase()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                    <div class="shift-photo-compare-animation-audio-database-search"><i class="fa-solid fa-magnifying-glass"></i><input type="search" placeholder="音声名・認識内容を検索" oninput="app.filterTipsAudioDatabase(this.value)" aria-label="音声DBを検索"><span>${audios.length}件</span></div>
+                    <div class="shift-photo-compare-animation-audio-database-list">
+                        ${audios.length ? audios.map(audio => `<article data-tips-audio-db-id="${this.escapeHtml(audio.id)}"><div><strong>${this.escapeHtml(audio.name || '音声')}</strong><small>${this.formatTipsFileSize(audio.size || 0)} / ${this.formatShiftPhotoCompareRecordedAudioDuration?.(audio.duration || 0) || '0:00'}</small>${audio.transcript ? `<div class="photo-manager-audio-transcript"><strong>${audio.transcriptManuallyEdited ? '認識内容（手動修正済み）' : '認識内容'}</strong><p>${this.escapeHtml(audio.transcript)}</p></div>` : ''}<audio controls preload="metadata"></audio></div><button type="button" onclick="app.useTipsAudioDatabase('${this.escapeJs(audio.id)}')"><i class="fa-solid fa-paperclip"></i>TIPSへ添付</button></article>`).join('') : '<p class="empty">写真管理の「音声」から音声ファイルを登録してください。</p>'}
+                        <p class="empty tips-audio-database-search-empty" hidden>該当する音声はありません。</p>
+                    </div>
+                    <div class="shift-photo-compare-animation-timeline-dialog-actions"><button type="button" class="secondary" onclick="app.closeTipsAudioDatabase()">キャンセル</button></div>
+                </div>
+            </div>
+        `);
+        const dialog = document.getElementById('tips-audio-database');
+        if (!dialog) return;
+        dialog._tipsAudioObjectUrls = [];
+        for (const card of dialog.querySelectorAll('[data-tips-audio-db-id]')) {
+            const audio = this.getPhotoManagerAudio?.(card.dataset.tipsAudioDbId);
+            try {
+                const blob = audio ? await store.loadMediaBlob(audio.mediaKey) : null;
+                if (!blob || !dialog.isConnected) throw new Error('missing audio');
+                const url = URL.createObjectURL(blob);
+                dialog._tipsAudioObjectUrls.push(url);
+                card.querySelector('audio').src = url;
+            } catch (_) {
+                card.classList.add('missing');
+                const player = card.querySelector('audio');
+                if (player) player.hidden = true;
+            }
+        }
+    };
+
+    proto.filterTipsAudioDatabase = function (query = '') {
+        const dialog = document.getElementById('tips-audio-database');
+        if (!dialog) return;
+        const needle = String(query || '').trim().toLocaleLowerCase('ja').replace(/[\s\u3000]+/g, '');
+        const cards = [...dialog.querySelectorAll('[data-tips-audio-db-id]')];
+        let visible = 0;
+        cards.forEach(card => {
+            const audio = this.getPhotoManagerAudio?.(card.dataset.tipsAudioDbId);
+            const haystack = `${audio?.name || ''} ${audio?.transcript || ''}`.toLocaleLowerCase('ja').replace(/[\s\u3000]+/g, '');
+            const matched = !needle || haystack.includes(needle);
+            card.hidden = !matched;
+            if (matched) visible += 1;
+        });
+        const count = dialog.querySelector('.shift-photo-compare-animation-audio-database-search span');
+        if (count) count.textContent = needle ? `${visible}/${cards.length}件` : `${visible}件`;
+        const empty = dialog.querySelector('.tips-audio-database-search-empty');
+        if (empty) empty.hidden = visible > 0 || !cards.length;
+    };
+
+    proto.useTipsAudioDatabase = async function (audioId = '') {
+        const audio = this.getPhotoManagerAudio?.(audioId);
+        if (!audio) return this.showToast('音声DBの登録情報が見つかりません', 'error');
+        const blob = await store.loadMediaBlob(audio.mediaKey).catch(() => null);
+        if (!blob) return this.showToast('音声DBの音声データを読み込めませんでした', 'error');
+        if (!Array.isArray(this._tipsAudioDatabaseAttachments)) this._tipsAudioDatabaseAttachments = [];
+        if (this._tipsAudioDatabaseAttachments.some(item => item.mediaKey === audio.mediaKey)) {
+            this.closeTipsAudioDatabase();
+            return this.showToast('この音声は追加済みです', 'info');
+        }
+        this._tipsAudioDatabaseAttachments.push({
+            id: `tips_audio_db_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: audio.name || '音声',
+            type: audio.type || blob.type || 'audio/webm',
+            size: audio.size || blob.size || 0,
+            duration: Math.max(0, Number(audio.duration) || 0),
+            source: 'audioDatabase',
+            audioDatabaseId: audio.id,
+            mediaKey: audio.mediaKey
+        });
+        this.renderTipsSelectedFiles();
+        this.closeTipsAudioDatabase();
+        this.showToast(`${audio.name || '音声'}をDB参照で追加しました`, 'success');
+    };
+
+    proto.removeTipsAudioDatabaseAttachment = function (id = '') {
+        if (!Array.isArray(this._tipsAudioDatabaseAttachments)) return;
+        this._tipsAudioDatabaseAttachments = this._tipsAudioDatabaseAttachments.filter(item => item.id !== id);
+        this.renderTipsSelectedFiles();
+    };
+    proto.openTipsAudioRecordingDialog = function () {
+        this.closeTipsAudioMenu();
+        this.closeTipsAudioRecordingDialog();
+        const body = String(document.getElementById('tips-body-input')?.value || '').trim();
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="tips-audio-recording-dialog" class="shift-photo-compare-animation-timeline-dialog shift-photo-compare-animation-recording-dialog tips-audio-recording-dialog">
+                <div class="shift-photo-compare-animation-timeline-dialog-panel">
+                    <header><strong><i class="fa-solid fa-microphone-lines"></i> TIPS用の音声を録音</strong><button type="button" onclick="app.closeTipsAudioRecordingDialog()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                    ${body ? `<div class="tips-audio-recording-target"><small>読み上げる内容</small><p>${this.escapeHtml(body)}</p></div>` : ''}
+                    <div class="shift-photo-compare-recording-status" role="status"><i class="fa-solid fa-microphone"></i><span>録音を開始してください</span><time>0:00</time></div>
+                    <div class="shift-photo-compare-recording-meter" aria-hidden="true"><span></span></div>
+                    <audio class="shift-photo-compare-recording-preview" controls hidden></audio>
+                    <div class="shift-photo-compare-recording-controls">
+                        <button type="button" class="record" onclick="app.startTipsAudioRecording()"><i class="fa-solid fa-circle"></i><span>録音開始</span></button>
+                        <button type="button" class="stop" onclick="app.stopTipsAudioRecording()" disabled><i class="fa-solid fa-stop"></i><span>停止</span></button>
+                    </div>
+                    <p>マイクの使用を許可してください。録音は低容量の音声形式でTIPSへ添付します。</p>
+                    <div class="shift-photo-compare-animation-timeline-dialog-actions">
+                        <button type="button" class="secondary" onclick="app.closeTipsAudioRecordingDialog()">キャンセル</button>
+                        <button type="button" class="save-recording" onclick="app.attachTipsAudioRecording()" disabled><i class="fa-solid fa-paperclip"></i>この音声を添付</button>
+                    </div>
+                </div>
+            </div>
+        `);
+        this._tipsAudioRecordingSession = {
+            dialog: document.getElementById('tips-audio-recording-dialog'),
+            recorder: null,
+            stream: null,
+            chunks: [],
+            blob: null,
+            previewUrl: '',
+            startedAt: 0,
+            timer: null,
+            closed: false
+        };
+    };
+
+    proto.startTipsAudioRecording = async function () {
+        const session = this._tipsAudioRecordingSession;
+        if (!session || session.closed) return;
+        if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return this.showToast('このブラウザーではマイク録音を利用できません', 'error');
+        try {
+            session.stream?.getTracks?.().forEach(track => track.stop());
+            session.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (session.closed) return session.stream.getTracks().forEach(track => track.stop());
+            const mimeType = this.getShiftPhotoCompareRecordingMimeType?.() || '';
+            session.recorder = mimeType
+                ? new MediaRecorder(session.stream, { mimeType, audioBitsPerSecond: 48000 })
+                : new MediaRecorder(session.stream, { audioBitsPerSecond: 48000 });
+            session.chunks = [];
+            session.blob = null;
+            session.startedAt = Date.now();
+            const status = session.dialog.querySelector('.shift-photo-compare-recording-status');
+            status?.classList.add('recording');
+            const label = status?.querySelector('span');
+            if (label) label.textContent = '録音中';
+            session.dialog.querySelector('.record')?.setAttribute('disabled', '');
+            session.dialog.querySelector('.stop')?.removeAttribute('disabled');
+            session.dialog.querySelector('.save-recording')?.setAttribute('disabled', '');
+            session.timer = setInterval(() => {
+                const seconds = (Date.now() - session.startedAt) / 1000;
+                const time = status?.querySelector('time');
+                if (time) time.textContent = this.formatShiftPhotoCompareRecordedAudioDuration?.(seconds) || `${Math.round(seconds)}秒`;
+            }, 200);
+            session.recorder.ondataavailable = dataEvent => {
+                if (dataEvent.data?.size) session.chunks.push(dataEvent.data);
+            };
+            session.recorder.onstop = () => {
+                clearInterval(session.timer);
+                session.timer = null;
+                session.stream?.getTracks?.().forEach(track => track.stop());
+                session.stream = null;
+                if (session.closed) return;
+                session.blob = new Blob(session.chunks, { type: session.recorder.mimeType || mimeType || 'audio/webm' });
+                session.duration = Math.max(0, (Date.now() - session.startedAt) / 1000);
+                if (session.previewUrl) URL.revokeObjectURL(session.previewUrl);
+                session.previewUrl = URL.createObjectURL(session.blob);
+                const preview = session.dialog.querySelector('audio');
+                preview.src = session.previewUrl;
+                preview.hidden = false;
+                status?.classList.remove('recording');
+                const currentLabel = status?.querySelector('span');
+                if (currentLabel) currentLabel.textContent = '録音完了';
+                session.dialog.querySelector('.record')?.removeAttribute('disabled');
+                const recordLabel = session.dialog.querySelector('.record span');
+                if (recordLabel) recordLabel.textContent = '録り直す';
+                session.dialog.querySelector('.stop')?.setAttribute('disabled', '');
+                session.dialog.querySelector('.save-recording')?.removeAttribute('disabled');
+            };
+            session.recorder.start(250);
+        } catch (error) {
+            session.stream?.getTracks?.().forEach(track => track.stop());
+            session.stream = null;
+            this.showToast(error?.name === 'NotAllowedError' ? 'マイクの使用が許可されていません' : '録音を開始できませんでした', 'error');
+        }
+    };
+
+    proto.stopTipsAudioRecording = function () {
+        const recorder = this._tipsAudioRecordingSession?.recorder;
+        if (recorder?.state === 'recording') recorder.stop();
+    };
+
+    proto.attachTipsAudioRecording = function () {
+        const session = this._tipsAudioRecordingSession;
+        if (!session?.blob?.size) return this.showToast('添付する録音がありません', 'warning');
+        const text = String(document.getElementById('tips-body-input')?.value || '').trim().replace(/[\\/:*?"<>|\s]/g, '').slice(0, 6);
+        const extension = session.blob.type.includes('mp4') ? 'm4a' : 'webm';
+        const file = new File([session.blob], `${text || 'TIPS録音'}.${extension}`, { type: session.blob.type, lastModified: Date.now() });
+        Object.defineProperty(file, 'tipsDuration', { value: Math.max(0, Number(session.duration) || 0), configurable: true });
+        this.addTipsFilesToInput([file]);
+        this.closeTipsAudioRecordingDialog();
+    };
+
+    proto.closeTipsAudioRecordingDialog = function () {
+        const session = this._tipsAudioRecordingSession;
+        if (!session) return document.getElementById('tips-audio-recording-dialog')?.remove();
+        session.closed = true;
+        clearInterval(session.timer);
+        if (session.recorder?.state === 'recording') {
+            try { session.recorder.stop(); } catch (_) {}
+        }
+        session.stream?.getTracks?.().forEach(track => track.stop());
+        session.dialog?.querySelector('audio')?.pause?.();
+        if (session.previewUrl) URL.revokeObjectURL(session.previewUrl);
+        session.dialog?.remove();
+        this._tipsAudioRecordingSession = null;
+    };
+
     proto.startTipsNoteDrag = function (event, id) {
         this._tipsDragging = true;
         event.dataTransfer?.setData('text/plain', id);
@@ -2548,6 +3163,19 @@
         const id = event.dataTransfer?.getData('application/x-tips-note-id') || event.dataTransfer?.getData('text/plain');
         event.currentTarget?.classList.remove('ready', 'over');
         if (id) this.deleteTipsNote(id, { fromDrop: true });
+    };
+
+    proto.deleteEditingTipsNote = function () {
+        const id = String(this._editingTipsId || '');
+        const note = id ? this.ensureTipsState().find(item => item.id === id) : null;
+        if (!note) return this.showToast('削除するTIPSが選択されていません', 'warning');
+        const location = [note.group || '未分類', note.branch, note.subBranch].filter(Boolean).join(' / ');
+        if (!confirm(`編集中のTIPS「${location}」を削除しますか？\nこの操作は元に戻せません。`)) return;
+        store.activeData.tipsNotes = this.ensureTipsState().filter(item => item.id !== id);
+        store.save();
+        this.clearTipsForm();
+        this.renderTips();
+        this.showToast('TIPSを削除しました', 'success');
     };
 
     proto.deleteTipsNote = function (id, options = {}) {

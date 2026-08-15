@@ -160,7 +160,8 @@
             const visit = value => {
                 if (!value || typeof value !== 'object' || visited.has(value)) return;
                 visited.add(value);
-                if (String(value.recordedAudioKey || '') === target) count += 1;
+                if (String(value.recordedAudioKey || '') === target
+                    || (value.source === 'audioDatabase' && String(value.mediaKey || '') === target)) count += 1;
                 if (Array.isArray(value)) value.forEach(visit);
                 else Object.values(value).forEach(visit);
             };
