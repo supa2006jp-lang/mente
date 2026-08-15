@@ -15516,6 +15516,8 @@
                     }
                     iframe.dataset.videoId = id;
                     iframe.onload = () => {
+                        iframe.dataset.youtubeReady = '0';
+                        this.sendShiftPhotoCompareYouTubeCommand(iframe, 'addEventListener', ['onReady']);
                         this.sendShiftPhotoCompareYouTubeCommand(iframe, 'addEventListener', ['onStateChange']);
                         try { iframe.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id }), '*'); } catch {}
                     };
@@ -15527,6 +15529,7 @@
                         iframe.src = this.getPhotoManagerYouTubeEmbedUrl?.(item.youtubeId, true)
                             || `https://www.youtube-nocookie.com/embed/${encodeURIComponent(item.youtubeId)}?enablejsapi=1&playsinline=1&rel=0${fallbackOrigin}`;
                     } else {
+                        this.sendShiftPhotoCompareYouTubeCommand(iframe, 'addEventListener', ['onReady']);
                         this.sendShiftPhotoCompareYouTubeCommand(iframe, 'addEventListener', ['onStateChange']);
                         try { iframe.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id }), '*'); } catch {}
                     }
@@ -15632,7 +15635,12 @@
             const iframe = Array.from(document.querySelectorAll('.shift-photo-compare-youtube-player')).find(node => node.contentWindow === event.source);
             const mark = iframe?.closest('.shift-photo-compare-mark.video');
             if (!iframe || !mark) return;
+            if (payload?.event === 'onReady') {
+                iframe.dataset.youtubeReady = '1';
+                return;
+            }
             if (payload?.event === 'infoDelivery' && payload.info && typeof payload.info === 'object') {
+                iframe.dataset.youtubeReady = '1';
                 if (Number.isFinite(Number(payload.info.currentTime))) iframe.dataset.youtubeCurrentTime = String(payload.info.currentTime);
                 if (Number.isFinite(Number(payload.info.duration)) && Number(payload.info.duration) > 0) iframe.dataset.youtubeDuration = String(payload.info.duration);
                 this.updateShiftPhotoCompareAnimationVideoSeekControls(mark);
@@ -15653,7 +15661,14 @@
             }
             if (!payload || payload.event !== 'onStateChange') return;
             const state = Number(payload.info);
+            iframe.dataset.youtubeReady = '1';
             iframe.dataset.youtubeState = String(state);
+            if (state === 1) {
+                clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
+                delete mark._shiftPhotoCompareVideoStartTimer;
+                delete mark.dataset.animationPlaybackPending;
+                delete mark.dataset.animationPlaybackAttempts;
+            }
             const icon = mark.querySelector('.shift-photo-compare-video-play i');
             if (state === 1) icon?.classList.replace('fa-play', 'fa-pause');
             if (state === 2) icon?.classList.replace('fa-pause', 'fa-play');
@@ -15682,6 +15697,10 @@
         if (!playing && (current < start || (end > start && current >= end))) {
             iframe.dataset.youtubeCurrentTime = String(start);
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
+        }
+        if (!playing && iframe.dataset.youtubeAutoplayMuted === '1') {
+            delete iframe.dataset.youtubeAutoplayMuted;
+            this.sendShiftPhotoCompareYouTubeCommand(iframe, 'unMute');
         }
         this.sendShiftPhotoCompareYouTubeCommand(iframe, playing ? 'pauseVideo' : 'playVideo');
         iframe.dataset.youtubeState = playing ? '2' : '1';
@@ -16283,7 +16302,7 @@
         const isYouTube = mark.dataset.videoSourceType === 'youtube' || libraryItem?.sourceType === 'youtube';
         if (isYouTube) {
             const iframe = mark.querySelector('.shift-photo-compare-youtube-player');
-            if (!iframe) {
+            if (!iframe || iframe.dataset.youtubeReady !== '1') {
                 this.queueShiftPhotoCompareAnimationVideoStart(item);
                 return;
             }
@@ -16292,20 +16311,27 @@
             this.restoreShiftPhotoCompareAnimationVideo(mark, true);
             clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
             delete mark._shiftPhotoCompareVideoStartTimer;
-            delete mark.dataset.animationPlaybackPending;
-            delete mark.dataset.animationPlaybackAttempts;
+            mark.dataset.animationPlaybackPending = '1';
             mark.classList.remove('shift-photo-compare-animation-video-user-paused');
             iframe.dataset.animationPlaying = '1';
             mark.dataset.animationPlaying = '1';
-            iframe.dataset.youtubeState = '1';
             const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
             const playbackRate = Number(mark.dataset.videoPlaybackRate) || 1;
+            const attempts = Math.max(0, Number(mark.dataset.animationPlaybackAttempts) || 0);
             iframe.dataset.youtubeCurrentTime = String(start);
+            if (attempts >= 4) {
+                iframe.dataset.youtubeAutoplayMuted = '1';
+                this.sendShiftPhotoCompareYouTubeCommand(iframe, 'mute');
+            } else {
+                delete iframe.dataset.youtubeAutoplayMuted;
+                this.sendShiftPhotoCompareYouTubeCommand(iframe, 'unMute');
+            }
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'seekTo', [start, true]);
             if (item.effect === 'videoExpand') this.expandShiftPhotoCompareAnimationVideo(mark);
             this.showShiftPhotoCompareAnimationVideoFinishControl(mark);
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'playVideo');
             this.sendShiftPhotoCompareYouTubeCommand(iframe, 'setPlaybackRate', [playbackRate]);
+            if (iframe.dataset.youtubeState !== '1') this.queueShiftPhotoCompareAnimationVideoStart(item);
             return;
         }
         const video = mark.querySelector('video');
