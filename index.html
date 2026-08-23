@@ -12,7 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260815-tips-recorded-progress3">
+    <link rel="stylesheet" href="style.css?v=20260824-skill-header-move1">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -182,14 +182,8 @@
         <!-- Sidebar Navigation -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header" id="sidebar-home" style="cursor: pointer;">
-                <div class="logo-box">
-                    <i class="fa-solid fa-industry"></i>
-                </div>
-                <div class="logo-text">
-                    <h1>メンテ管理帳</h1>
-                </div>
+                <img class="sidebar-maintenance-logo" src="assets/maintenance-book-title.png?v=20260823" alt="メンテ管理帳">
             </div>
-
             <!-- Stats in Sidebar (Toggleable Status Summary) -->
             <div class="nav-divider" onclick="app.toggleSidebarStats()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition: var(--transition); user-select: none;">
                 <span>状況サマリー</span>
@@ -250,17 +244,17 @@
                     <i class="fa-solid fa-broom"></i> <span>5S管理</span>
                 </button>
                 <button class="nav-btn" data-view="guides" data-nav-bg="guides">
-                    <i class="fa-solid fa-book-open"></i> <span>手順書・ナレッジDB</span>
+                    <i class="fa-solid fa-book-open"></i> <span>手順書</span>
                 </button>
                 <button class="nav-btn" data-view="tips" data-nav-bg="guides">
                     <i class="fa-solid fa-note-sticky"></i> <span>TIPS</span>
                 </button>
                 <div class="nav-divider">分析</div>
                 <button class="nav-btn" data-view="photos" data-nav-bg="photos">
-                    <i class="fa-solid fa-images"></i> <span>&#20889;&#30495;&#31649;&#29702;</span>
+                    <i class="fa-solid fa-photo-film"></i> <span>&#12513;&#12487;&#12451;&#12450;&#31649;&#29702;</span>
                 </button>
                 <button class="nav-btn" data-view="analysis" data-nav-bg="analysis">
-                    <i class="fa-solid fa-box-open"></i> <span>部品消費・コスト</span>
+                    <i class="fa-solid fa-box-open"></i> <span>部品管理</span>
                 </button>
                 <button class="nav-btn" data-view="dashboard" data-nav-bg="dashboard">
                     <i class="fa-solid fa-chart-line"></i> <span>ダッシュボード</span>
@@ -329,7 +323,7 @@
             <header class="top-header" data-view-bg="calendar">
                 <div class="header-left">
                     <button id="sidebar-toggle" class="icon-btn"><i class="fa-solid fa-bars"></i></button>
-                    <h2 id="view-title">カレンダー</h2>
+                    <h2 id="view-title"><img class="calendar-title-logo" src="assets/calendar-title.png?v=20260823" alt="カレンダー"></h2>
                     <div id="view-guide-slot" class="view-guide-slot"></div>
                     <div id="contextual-help-slot" class="contextual-help-slot" aria-live="polite"></div>
                     <button type="button" id="app-settings-btn" class="header-settings-btn" onclick="app.openAppSettingsPanel()" title="設定">
@@ -377,8 +371,7 @@
                             <h3 id="current-month-display">2026年 3月</h3>
                             <button class="icon-btn" id="cal-next"><i class="fa-solid fa-chevron-right"></i></button>
                         </div>
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            <label style="font-size:0.75rem; color:var(--text-light); font-weight:700; white-space:nowrap;"><i class="fa-solid fa-filter"></i> ライン絞込:</label>
+                        <div style="display:flex; align-items:center; gap:10px;">`r`n                            <label style="font-size:0.75rem; color:var(--text-light); font-weight:700; white-space:nowrap;"><i class="fa-solid fa-filter"></i> ライン絞込:</label>
                             <select id="cal-filter-line" style="font-size:0.8rem; padding:6px 14px; border-radius:99px; border:1.5px solid var(--border); background:white; font-weight:700; cursor:pointer;" onchange="app.calLineFilter=this.value; app.renderCalendar();">
                                 <option value="all">全ライン</option>
                             </select>
@@ -482,6 +475,11 @@
                                 <option value="name">名称順 (五十音順)</option>
                                 <option value="newest">登録が新しい順</option>
                             </select>
+                            <div class="part-card-color-control" title="メンテ・周期設定カードの共通色">
+                                <i class="fa-solid fa-palette"></i><span>カード色</span>
+                                <input type="color" id="machine-management-card-color" value="#ffffff" oninput="app.setMachineManagementCardColor(this.value)" onchange="app.setMachineManagementCardColor(this.value)" aria-label="メンテ・周期設定カードの色">
+                                <button type="button" onclick="app.resetMachineManagementCardColor()" title="白に戻す"><i class="fa-solid fa-rotate-left"></i></button>
+                            </div>
                         </div>
                     </div>
                     <div id="machines-list" class="grid-list"></div>
@@ -649,10 +647,14 @@
                 <section id="view-guides" class="view">
                     <div class="view-header" style="justify-content:space-between; align-items:center;">
                         <div class="title-group">
-                            <h3 style="font-size:1.15rem; font-weight:900;"><i class="fa-solid fa-book-open" style="margin-right:8px; color:var(--primary);"></i> 手順書・ナレッジDB</h3>
                             <p class="subtitle">過去のトラブル対応や定期メンテナンスの手順・ノウハウ</p>
                         </div>
-                        <div style="display:flex; align-items:center; gap:10px;">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
+                            <div class="part-card-color-control" title="手順書カードの共通色">
+                                <i class="fa-solid fa-palette"></i><span>カード色</span>
+                                <input type="color" id="guide-management-card-color" value="#ffffff" oninput="app.setGuideManagementCardColor(this.value)" aria-label="手順書カードの色">
+                                <button type="button" onclick="app.resetGuideManagementCardColor()" title="白に戻す"><i class="fa-solid fa-rotate-left"></i></button>
+                            </div>
                             <label style="font-size:0.75rem; color:var(--text-light); font-weight:700; white-space:nowrap;"><i class="fa-solid fa-filter"></i> ライン絞込:</label>
                             <select id="guides-filter-line" style="font-size:0.8rem; padding:6px 14px; border-radius:99px; border:1.5px solid var(--border); background:white; font-weight:700; cursor:pointer;" onchange="app.renderGuides();">
                                 <option value="all">全ライン</option>
@@ -679,10 +681,31 @@
                         <section class="tips-compose-panel" id="tips-compose-panel" ondragover="app.onTipsFileDragOver(event)" ondragleave="app.onTipsFileDragLeave(event)" ondrop="app.dropTipsFilesToForm(event)">
                             <div class="tips-compose-head">
                                 <div>
-                                    <h3><i class="fa-solid fa-note-sticky"></i> TIPS登録</h3>
+                                    <h3 class="tips-compose-logo"><img src="assets/tips-register-title.png" alt="TIPS登録"></h3>
                                     <p>ちょっとした記憶を、グループ名と一緒に残します</p>
                                 </div>
-                                <span class="tips-count-pill" id="tips-count-pill">0件</span>
+                                <div class="tips-compose-head-actions">
+                                    <div class="tips-compose-color-control">
+                                        <button type="button" class="tips-compose-color-btn" id="tips-compose-color-btn" onclick="app.toggleTipsComposeColorMenu(event)" title="TIPS登録の背景色を変更" aria-label="TIPS登録の背景色を変更" aria-expanded="false">
+                                            <i class="fa-solid fa-palette"></i>
+                                        </button>
+                                        <div class="tips-compose-color-menu" id="tips-compose-color-menu" hidden onclick="event.stopPropagation()">
+                                            <div class="tips-compose-color-menu-head"><b>背景色</b><button type="button" onclick="app.resetTipsComposeBackground()" title="白に戻す"><i class="fa-solid fa-rotate-left"></i></button></div>
+                                            <div class="tips-compose-color-swatches">
+                                                <button type="button" data-tips-compose-color="#ffffff" style="--swatch:#ffffff" onclick="app.setTipsComposeBackground('#ffffff')" title="白"></button>
+                                                <button type="button" data-tips-compose-color="#eff6ff" style="--swatch:#eff6ff" onclick="app.setTipsComposeBackground('#eff6ff')" title="青"></button>
+                                                <button type="button" data-tips-compose-color="#f0fdf4" style="--swatch:#f0fdf4" onclick="app.setTipsComposeBackground('#f0fdf4')" title="緑"></button>
+                                                <button type="button" data-tips-compose-color="#fffbeb" style="--swatch:#fffbeb" onclick="app.setTipsComposeBackground('#fffbeb')" title="黄"></button>
+                                                <button type="button" data-tips-compose-color="#fff1f2" style="--swatch:#fff1f2" onclick="app.setTipsComposeBackground('#fff1f2')" title="桃"></button>
+                                                <button type="button" data-tips-compose-color="#f5f3ff" style="--swatch:#f5f3ff" onclick="app.setTipsComposeBackground('#f5f3ff')" title="紫"></button>
+                                                <button type="button" data-tips-compose-color="#ecfeff" style="--swatch:#ecfeff" onclick="app.setTipsComposeBackground('#ecfeff')" title="水色"></button>
+                                                <button type="button" data-tips-compose-color="#f8fafc" style="--swatch:#f8fafc" onclick="app.setTipsComposeBackground('#f8fafc')" title="グレー"></button>
+                                            </div>
+                                            <label class="tips-compose-custom-color"><span>自由色</span><input type="color" id="tips-compose-custom-color" value="#ffffff" oninput="app.previewTipsComposeBackground(this.value)" onchange="app.setTipsComposeBackground(this.value, false)"></label>
+                                        </div>
+                                    </div>
+                                    <span class="tips-count-pill" id="tips-count-pill">0件</span>
+                                </div>
                             </div>
                             <div class="tips-form-grid">
                                 <label>
@@ -764,6 +787,7 @@
 
                         <section class="tips-board-panel">
                             <div class="tips-toolbar">
+                                <div class="tips-toolbar-actions">
                                 <div class="tips-view-toggle" role="group" aria-label="TIPS表示切替">
                                     <button type="button" id="tips-view-group" onclick="app.setTipsDisplayMode('group')">
                                         <i class="fa-solid fa-layer-group"></i> グループ別
@@ -781,6 +805,8 @@
                                 <button type="button" class="tips-compact-toggle" onclick="app.openTipsLabelManager()">
                                     <i class="fa-solid fa-tags"></i> 表記統一
                                 </button>
+                                </div>
+                                <div class="tips-toolbar-query">
                                 <div class="tips-search-inline">
                                     <i class="fa-solid fa-magnifying-glass"></i>
                                     <input type="search" id="tips-search-input" placeholder="TIPSを検索" oninput="app.renderTips()">
@@ -808,6 +834,7 @@
                                     <option value="sizeDesc">容量 重い順</option>
                                     <option value="group">グループ順</option>
                                 </select>
+                                </div>
                                 <div id="tips-trash" class="tips-trash" ondragover="app.onTipsTrashDragOver(event)" ondragleave="app.onTipsTrashDragLeave(event)" ondrop="app.dropTipsNoteToTrash(event)">
                                     <i class="fa-solid fa-trash-can"></i>
                                     <span>ここへドラッグで削除</span>
@@ -822,8 +849,7 @@
                 <section id="view-photos" class="view">
                     <div class="view-header" style="justify-content:space-between; align-items:center;">
                         <div class="title-group">
-                            <h3 style="font-size:1.15rem; font-weight:900;"><i class="fa-solid fa-images" style="margin-right:8px; color:var(--primary);"></i>&#20889;&#30495;&#31649;&#29702;</h3>
-                            <p class="subtitle">&#21508;&#30011;&#38754;&#12395;&#30331;&#37682;&#12375;&#12383;&#20889;&#30495;&#12434;&#19968;&#35239;&#12391;&#31649;&#29702;</p>
+                            <p class="subtitle">各画面に登録した画像・動画・音声を一覧で管理</p>
                         </div>
                     </div>
                     <div class="photo-manager-toolbar">
@@ -925,7 +951,12 @@
                                 <button class="secondary-btn" id="btn-cost-periodic" onclick="app.setCostFilter('periodic')" style="border-radius:0; padding:4px 12px; font-size:0.7rem; min-width:60px; border:none; border-left:1px solid var(--border);">定期</button>
                                 <button class="secondary-btn" id="btn-cost-sudden" onclick="app.setCostFilter('sudden')" style="border-radius:0 99px 99px 0; padding:4px 12px; font-size:0.7rem; min-width:60px; border:none; border-left:1px solid var(--border);">突発</button>
                             </div>
-                            <button class="primary-btn" style="padding: 8px 16px; font-size:0.8rem;" onclick="app.openPartMasterModal('', '')">
+                            <div class="part-card-color-control" title="部品管理カードの共通色">
+                                <i class="fa-solid fa-palette"></i>
+                                <span>カード色</span>
+                                <input type="color" id="part-management-card-color" value="#ffffff" oninput="app.setPartManagementCardColor(this.value)" aria-label="部品管理カードの色">
+                                <button type="button" onclick="app.resetPartManagementCardColor()" title="標準色に戻す" aria-label="カード色を標準に戻す"><i class="fa-solid fa-rotate-left"></i></button>
+                            </div>                            <button class="primary-btn" style="padding: 8px 16px; font-size:0.8rem;" onclick="app.openPartMasterModal('', '')">
                                 <i class="fa-solid fa-plus"></i> 新規部品登録
                             </button>
                             <select id="analysis-filter-line" style="font-size:0.8rem; padding:6px 12px; border-radius:99px;" onchange="app.onCommonLineFilterChange(this, () => app.renderAnalysis())">
@@ -966,7 +997,6 @@
                 <section id="view-ranking" class="view">
                     <div class="view-header" style="justify-content: space-between;">
                         <div class="title-group">
-                            <h2 style="font-size:1.4rem; font-weight:800; color:var(--text-main); margin-bottom:4px;">不具合頻度ランキング</h2>
                             <p class="subtitle">故障箇所・原因のワースト分析</p>
                         </div>
                         <div class="filter-bar" style="margin-top:0;">
@@ -988,7 +1018,6 @@
                 <section id="view-workers" class="view">
                     <div class="view-header" style="justify-content:space-between; align-items:center;">
                         <div class="title-group">
-                            <h2 style="font-size:1.4rem; font-weight:800; color:var(--text-main); margin-bottom:4px;">作業員スキルマップ</h2>
                             <p class="subtitle">各担当者の習熟度とスキル評価の記録</p>
                         </div>
                         <div class="filter-bar" style="margin-top:0; display:flex; gap:8px; flex-wrap:wrap;">
@@ -1167,25 +1196,25 @@
     <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
-    <script src="store.js?v=20260812-local-video-handle2"></script>
-    <script src="app.js?v=20260618-photo-capacity-expiry-alpha"></script>
+    <script src="store.js?v=20260821-part-stock-ledger2"></script>
+    <script src="app.js?v=20260824-skill-header-move1"></script>
     <script src="app-settings.js?v=20260711-guide-bulk-compress"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js?v=20260802-shift-stamp-backspace1"></script>
-    <script src="app-shift-notebook-core.js?v=20260816-youtube-autoplay2"></script>
+    <script src="app-shift-notebook-core.js?v=20260824-direct-framed-video-overlay-fix11"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js?v=20260623-dept-switch-import-fix"></script>
-    <script src="app-machines.js?v=20260803-machine-recent-photo-ref1"></script>
-    <script src="app-maintenance-forms.js?v=20260815-audio-database1"></script>
-    <script src="app-history.js?v=20260815-audio-database1"></script>
-    <script src="app-analysis-dashboard.js?v=20260803-dashboard-photo-ref1"></script>
-    <script src="app-ranking-guides.js?v=20260613-guide-title-candidates"></script>
-    <script src="app-tips.js?v=20260815-tips-recorded-progress3"></script>
+    <script src="app-machines.js?v=20260823-machine-header-equal1"></script>
+    <script src="app-maintenance-forms.js?v=20260821-part-stock-ledger2"></script>
+    <script src="app-history.js?v=20260821-part-stock-ledger2"></script>
+    <script src="app-analysis-dashboard.js?v=20260823-part-card-color1"></script>
+    <script src="app-ranking-guides.js?v=20260823-card-color1"></script>
+    <script src="app-tips.js?v=20260823-tips-toolbar-layout1"></script>
     <script src="app-skills.js?v=20260711-worker-radar-compare"></script>
-    <script src="app-outlook-assist.js?v=20260727-outlook-address-note-newline1"></script>
+    <script src="app-outlook-assist.js?v=20260823-outlook-input-background2"></script>
     <script src="app-worktime.js?v=20260803-worktime-history-all2"></script>
     <script src="app-archives.js?v=20260606-admin-log-targets"></script>
     <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
@@ -1193,11 +1222,21 @@
     <script src="app-csv.js?v=20260803-single-maintenance1"></script>
     <script src="app-misc-analysis.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
-    <script src="app-photo-manager.js?v=20260815-tips-audio-ref1"></script>
+    <script src="app-photo-manager.js?v=20260822-video-trim-size1"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js?v=20260619-remove-auto-backup"></script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
 
 
 

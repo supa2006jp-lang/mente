@@ -33,7 +33,10 @@
         const name = String(file.name || '').toLowerCase();
         const type = String(file.type || '').toLowerCase();
         if (type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)) return 'image';
-        if (type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|oga|webm|flac)$/i.test(name)) return 'audio';
+        if (type.startsWith('video/')) return 'video';
+        if (type.startsWith('audio/')) return 'audio';
+        if (/\.(mp4|mov|m4v|avi|mkv|webm|ogv)$/i.test(name)) return 'video';
+        if (/\.(mp3|wav|m4a|aac|ogg|oga|flac)$/i.test(name)) return 'audio';
         if (type === 'application/pdf' || /\.pdf$/i.test(name)) return 'pdf';
         if (/\.(xlsx|xls|xlsm|xlsb|ods|docx?|pptx?)$/i.test(name)) return 'office';
         return 'other';
@@ -44,6 +47,7 @@
         const type = this.getTipsFileType(file);
         if (type === 'image') return 'fa-file-image';
         if (type === 'audio') return 'fa-file-audio';
+        if (type === 'video') return 'fa-file-video';
         if (type === 'pdf') return 'fa-file-pdf';
         if (type === 'office') return 'fa-file-lines';
         return 'fa-paperclip';
@@ -192,12 +196,72 @@
         });
     };
 
+    proto.getTipsComposeBackground = function () {
+        const value = String(localStorage.getItem('tips_compose_background') || '#ffffff').trim().toLowerCase();
+        return /^#[0-9a-f]{6}$/.test(value) ? value : '#ffffff';
+    };
+
+    proto.applyTipsComposeBackground = function (color = this.getTipsComposeBackground()) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '#ffffff';
+        const panel = document.getElementById('tips-compose-panel');
+        panel?.style.setProperty('--tips-compose-background', safeColor);
+        const red = parseInt(safeColor.slice(1, 3), 16);
+        const green = parseInt(safeColor.slice(3, 5), 16);
+        const blue = parseInt(safeColor.slice(5, 7), 16);
+        const luminance = (red * 299 + green * 587 + blue * 114) / 255000;
+        panel?.classList.toggle('tips-compose-dark-background', luminance < 0.48);
+        const picker = document.getElementById('tips-compose-custom-color');
+        if (picker && picker.value.toLowerCase() !== safeColor) picker.value = safeColor;
+        document.querySelectorAll('[data-tips-compose-color]').forEach(button => {
+            const active = String(button.dataset.tipsComposeColor || '').toLowerCase() === safeColor;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        const trigger = document.getElementById('tips-compose-color-btn');
+        trigger?.style.setProperty('--tips-compose-current-color', safeColor);
+    };
+
+    proto.previewTipsComposeBackground = function (color = '') {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '#ffffff';
+        localStorage.setItem('tips_compose_background', safeColor);
+        this.applyTipsComposeBackground(safeColor);
+    };
+
+    proto.setTipsComposeBackground = function (color = '', closeMenu = true) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '#ffffff';
+        localStorage.setItem('tips_compose_background', safeColor);
+        this.applyTipsComposeBackground(safeColor);
+        if (closeMenu) this.closeTipsComposeColorMenu();
+    };
+
+    proto.resetTipsComposeBackground = function () {
+        this.setTipsComposeBackground('#ffffff');
+    };
+
+    proto.toggleTipsComposeColorMenu = function (event = null) {
+        event?.stopPropagation?.();
+        const menu = document.getElementById('tips-compose-color-menu');
+        const trigger = document.getElementById('tips-compose-color-btn');
+        if (!menu) return;
+        const willOpen = menu.hidden;
+        menu.hidden = !willOpen;
+        trigger?.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        if (willOpen) this.applyTipsComposeBackground();
+    };
+
+    proto.closeTipsComposeColorMenu = function () {
+        const menu = document.getElementById('tips-compose-color-menu');
+        if (menu) menu.hidden = true;
+        document.getElementById('tips-compose-color-btn')?.setAttribute('aria-expanded', 'false');
+    };
+
     proto.renderTips = function () {
         this.stopTipsInlineAudio?.();
         this.stopTipsSyntheticSpeech?.();
         const notes = this.ensureTipsState();
         const list = document.getElementById('tips-list');
         if (!list) return;
+        this.applyTipsComposeBackground();
 
         const mode = ['group', 'time', 'map'].includes(this.tipsDisplayMode) ? this.tipsDisplayMode : 'group';
         this.tipsDisplayMode = mode;
@@ -263,7 +327,6 @@
             })
             .slice()
             .sort((a, b) => this.compareTipsNotes(a, b, filters.sort));
-        const heatPanelHtml = this.getTipsHeatPanelHtml(filtered);
 
         if (!filtered.length) {
             list.innerHTML = `
@@ -277,12 +340,12 @@
         }
 
         if (mode === 'time') {
-            list.innerHTML = `${heatPanelHtml}<div class="tips-time-grid">${filtered.map(note => this.getTipsCardHtml(note)).join('')}</div>`;
+            list.innerHTML = `<div class="tips-time-grid">${filtered.map(note => this.getTipsCardHtml(note)).join('')}</div>`;
             return;
         }
 
         if (mode === 'map') {
-            list.innerHTML = `${heatPanelHtml}${this.getTipsMemoryMapHtmlV3(filtered)}`;
+            list.innerHTML = this.getTipsMemoryMapHtmlV3(filtered);
             return;
         }
 
@@ -294,7 +357,7 @@
             return map;
         }, new Map());
         const sortedGroups = [...grouped.values()].sort((a, b) => a.label.normalize('NFKC').localeCompare(b.label.normalize('NFKC'), 'ja'));
-        list.innerHTML = heatPanelHtml + sortedGroups.map(({ label: group, items }) => `
+        list.innerHTML = sortedGroups.map(({ label: group, items }) => `
             <section class="tips-group-section">
                 <header>
                     <h4><i class="fa-solid fa-layer-group"></i>${this.escapeHtml(group)}</h4>
@@ -616,21 +679,6 @@
 
         return `
             <div class="tips-memory-map">
-                <div class="tips-map-summary">
-                    <div class="tips-map-bulk-actions">
-                        <button type="button" onclick="app.setTipsMapCollapseAll(false)">
-                            <i class="fa-solid fa-up-right-and-down-left-from-center"></i> 全て開く
-                        </button>
-                        <button type="button" onclick="app.setTipsMapCollapseAll(true)">
-                            <i class="fa-solid fa-down-left-and-up-right-to-center"></i> 全て閉じる
-                        </button>
-                    </div>
-                    <span><i class="fa-solid fa-diagram-project"></i> 記憶マップ</span>
-                    <b>${safeNotes.length}件</b>
-                    <b>${groups.size}グループ</b>
-                    <b>${branchCount}分岐</b>
-                    <b>${attachmentCount}添付</b>
-                </div>
                 ${groupHtml}
             </div>
         `;
@@ -761,13 +809,6 @@
 
         return `
             <div class="tips-memory-map">
-                <div class="tips-map-summary">
-                    <span><i class="fa-solid fa-diagram-project"></i> 記憶マップ</span>
-                    <b>${safeNotes.length}件</b>
-                    <b>${sortedGroups.length}グループ</b>
-                    <b>${branchCount}分岐</b>
-                    <b>${attachmentCount}添付</b>
-                </div>
                 <div class="tips-map-bulk-actions">
                     <button type="button" onclick="app.setTipsMapCollapseAll(false)">
                         <i class="fa-solid fa-up-right-and-down-left-from-center"></i> 全て開く
@@ -841,6 +882,175 @@
         this.renderTips();
     };
 
+    proto.getTipsCircleGroupOrder = function () {
+        const data = store.activeData || {};
+        if (!Array.isArray(data.tipsMapCircleGroupOrder)) data.tipsMapCircleGroupOrder = [];
+        return [...new Set(data.tipsMapCircleGroupOrder.map(value => String(value || '')).filter(Boolean))];
+    };
+
+    proto.sortTipsMapGroupsBySavedOrder = function (groups = []) {
+        const order = this.getTipsCircleGroupOrder();
+        const rank = new Map(order.map((key, index) => [key, index]));
+        return [...groups].sort((a, b) => {
+            const left = rank.has(a.key) ? rank.get(a.key) : Number.MAX_SAFE_INTEGER;
+            const right = rank.has(b.key) ? rank.get(b.key) : Number.MAX_SAFE_INTEGER;
+            if (left !== right) return left - right;
+            return a.label.normalize('NFKC').localeCompare(b.label.normalize('NFKC'), 'ja');
+        });
+    };
+
+    proto.getTipsCircleSortMode = function () {
+        const mode = String(store.activeData?.tipsMapCircleSortMode || 'custom');
+        return ['custom', 'name', 'count', 'updated', 'color'].includes(mode) ? mode : 'custom';
+    };
+
+    proto.saveTipsCircleGroupOrder = function (order = [], mode = 'custom') {
+        store.activeData.tipsMapCircleGroupOrder = [...new Set(order.map(value => String(value || '')).filter(Boolean))];
+        store.activeData.tipsMapCircleSortMode = mode;
+        store.save();
+    };
+
+    proto.moveTipsCircleGroup = function (groupKey = '', direction = 0) {
+        const keys = this.collectTipsMapGroupsV4(this.ensureTipsState()).map(group => group.key);
+        const from = keys.indexOf(groupKey);
+        const to = from + (Number(direction) < 0 ? -1 : 1);
+        if (from < 0 || to < 0 || to >= keys.length) return;
+        [keys[from], keys[to]] = [keys[to], keys[from]];
+        this.saveTipsCircleGroupOrder(keys, 'custom');
+        this.renderTips();
+    };
+
+    proto.getTipsGroupColorSortValue = function (group = {}) {
+        const rgb = this.hexToTipsRgb(this.getTipsCardColors({ group: group.label }).edge) || { r: 0, g: 0, b: 0 };
+        const r = rgb.r / 255;
+        const g = rgb.g / 255;
+        const b = rgb.b / 255;
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const delta = max - min;
+        let hue = 0;
+        if (delta) {
+            if (max === r) hue = ((g - b) / delta) % 6;
+            else if (max === g) hue = (b - r) / delta + 2;
+            else hue = (r - g) / delta + 4;
+            hue = (hue * 60 + 360) % 360;
+        }
+        return hue * 1000000 + (max ? delta / max : 0) * 1000 + max;
+    };
+
+    proto.sortTipsCircleGroups = function (mode = 'custom') {
+        const safeMode = ['custom', 'name', 'count', 'updated', 'color'].includes(mode) ? mode : 'custom';
+        const groups = this.collectTipsMapGroupsV4(this.ensureTipsState());
+        if (safeMode !== 'custom') {
+            const labelCompare = (a, b) => a.label.normalize('NFKC').localeCompare(b.label.normalize('NFKC'), 'ja');
+            groups.sort((a, b) => {
+                if (safeMode === 'name') return labelCompare(a, b);
+                if (safeMode === 'count') return b.notes.length - a.notes.length || labelCompare(a, b);
+                if (safeMode === 'updated') {
+                    const latest = group => Math.max(0, ...group.notes.map(note => new Date(note.updatedAt || note.createdAt || 0).getTime() || 0));
+                    return latest(b) - latest(a) || labelCompare(a, b);
+                }
+                return this.getTipsGroupColorSortValue(a) - this.getTipsGroupColorSortValue(b) || labelCompare(a, b);
+            });
+        }
+        this.saveTipsCircleGroupOrder(groups.map(group => group.key), safeMode);
+        this.renderTips();
+        this.showToast(safeMode === 'custom' ? '手動の並び順に切り替えました' : 'サークルを自動整理しました', 'success');
+    };
+    proto.startTipsCircleGroupDrag = function (event, groupKey = '') {
+        if (!groupKey || !event?.dataTransfer) return;
+        this._tipsCircleDragGroupKey = groupKey;
+        this._tipsCircleDropBefore = true;
+        const section = event.currentTarget?.closest?.('[data-tips-circle-group-key]');
+        section?.classList?.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', `tips-circle:${groupKey}`);
+    };
+
+    proto.dragOverTipsCircleGroup = function (event, targetKey = '') {
+        if (this._tipsCircleNoteDragId) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.tips-circle-group.tips-note-drop-target').forEach(section => section.classList.remove('tips-note-drop-target'));
+            event.currentTarget?.classList?.add('tips-note-drop-target');
+            return;
+        }
+        const sourceKey = String(this._tipsCircleDragGroupKey || '');
+        if (!sourceKey || !targetKey || sourceKey === targetKey) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const section = event.currentTarget;
+        const grid = section?.parentElement;
+        const rect = section?.getBoundingClientRect?.();
+        if (!rect) return;
+        const siblings = Array.from(grid?.querySelectorAll?.('[data-tips-circle-group-key]') || []).filter(item => item !== section);
+        const hasSameRowPeer = siblings.some(item => Math.abs(item.getBoundingClientRect().top - rect.top) < 12);
+        const before = hasSameRowPeer ? event.clientX < rect.left + rect.width / 2 : event.clientY < rect.top + rect.height / 2;
+        this._tipsCircleDropBefore = before;
+        grid?.querySelectorAll?.('.drag-before, .drag-after')?.forEach(item => item.classList.remove('drag-before', 'drag-after'));
+        section.classList.add(before ? 'drag-before' : 'drag-after');
+    };
+
+    proto.leaveTipsCircleGroupDrag = function (event) {
+        event?.currentTarget?.classList?.remove('drag-before', 'drag-after', 'tips-note-drop-target');
+    };
+
+    proto.dropTipsCircleGroup = function (event, targetKey = '') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (this._tipsCircleNoteDragId) return this.moveTipsNoteToCircleGroup(this._tipsCircleNoteDragId, targetKey);
+        const sourceKey = String(this._tipsCircleDragGroupKey || '');
+        if (!sourceKey || !targetKey || sourceKey === targetKey) return this.endTipsCircleGroupDrag();
+        const allKeys = this.collectTipsMapGroupsV4(this.ensureTipsState()).map(group => group.key);
+        const order = this.getTipsCircleGroupOrder().filter(key => allKeys.includes(key) && key !== sourceKey);
+        allKeys.forEach(key => { if (!order.includes(key) && key !== sourceKey) order.push(key); });
+        let targetIndex = order.indexOf(targetKey);
+        if (targetIndex < 0) targetIndex = order.length;
+        if (!this._tipsCircleDropBefore) targetIndex += 1;
+        order.splice(Math.max(0, Math.min(order.length, targetIndex)), 0, sourceKey);
+        this.saveTipsCircleGroupOrder(order, 'custom');
+        this.endTipsCircleGroupDrag();
+        this.renderTips();
+    };
+
+    proto.endTipsCircleGroupDrag = function () {
+        this._tipsCircleDragGroupKey = '';
+        this._tipsCircleDropBefore = true;
+        document.querySelectorAll('.tips-circle-group.dragging, .tips-circle-group.drag-before, .tips-circle-group.drag-after')
+            .forEach(section => section.classList.remove('dragging', 'drag-before', 'drag-after'));
+    };
+    proto.startTipsCircleNoteDrag = function (event, noteId = '') {
+        if (!noteId || !event?.dataTransfer) return;
+        event.stopPropagation();
+        this._tipsCircleNoteDragId = noteId;
+        event.currentTarget?.closest?.('.tips-circle-node-wrap')?.classList?.add('dragging-note');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('application/x-tips-circle-note-id', noteId);
+        event.dataTransfer.setData('text/plain', `tips-note:${noteId}`);
+    };
+
+    proto.endTipsCircleNoteDrag = function () {
+        this._tipsCircleNoteDragId = '';
+        document.querySelectorAll('.tips-circle-node-wrap.dragging-note, .tips-circle-group.tips-note-drop-target')
+            .forEach(element => element.classList.remove('dragging-note', 'tips-note-drop-target'));
+    };
+
+    proto.moveTipsNoteToCircleGroup = function (noteId = '', targetKey = '') {
+        const note = this.ensureTipsState().find(item => item.id === noteId);
+        const target = this.collectTipsMapGroupsV4(this.ensureTipsState()).find(group => group.key === targetKey);
+        if (!note || !target) return this.endTipsCircleNoteDrag();
+        if (this.normalizeTipsLabel(note.group || '未分類') === targetKey) {
+            this.endTipsCircleNoteDrag();
+            return this.showToast('同じサークルです', 'info');
+        }
+        const previousGroup = note.group || '未分類';
+        note.group = target.label;
+        note.updatedAt = new Date().toISOString();
+        store.save();
+        this.endTipsCircleNoteDrag();
+        this.renderTips();
+        this.showToast(`${previousGroup} から ${target.label} へ移動しました`, 'success');
+    };
     proto.collectTipsMapGroups = function (notes = []) {
         const groups = new Map();
         (Array.isArray(notes) ? notes : []).forEach(note => {
@@ -881,7 +1091,7 @@
             }
             group.notes.push(note);
         });
-        return [...groups.values()].sort((a, b) => a.label.normalize('NFKC').localeCompare(b.label.normalize('NFKC'), 'ja'));
+        return this.sortTipsMapGroupsBySavedOrder([...groups.values()]);
     };
 
     proto.getTipsMemoryMapHtmlV3 = function (notes = []) {
@@ -896,13 +1106,7 @@
             : this.getTipsMemoryMapTreeHtml(sortedGroups);
         return `
             <div class="tips-memory-map ${this.escapeHtml(layout)} ${this.tipsCompactMode ? 'compact' : ''}">
-                <div class="tips-map-summary">
-                    <span><i class="fa-solid fa-diagram-project"></i> 記憶マップ</span>
-                    <b>${safeNotes.length}件</b>
-                    <b>${sortedGroups.length}グループ</b>
-                    <b>${branchCount}分岐</b>
-                    <b>${attachmentCount}添付</b>
-                </div>
+                <div class="tips-map-controls">
                 <div class="tips-map-layout-toggle">
                     <button type="button" class="${layout === 'tree' ? 'active' : ''}" onclick="app.setTipsMapLayout('tree')">
                         <i class="fa-solid fa-sitemap"></i> 階層
@@ -911,6 +1115,19 @@
                         <i class="fa-regular fa-circle-dot"></i> サークル
                     </button>
                 </div>
+                ${layout === 'circle' ? `
+                    <label class="tips-circle-sort-controls">
+                        <i class="fa-solid fa-arrow-down-a-z"></i>
+                        <span>自動整理</span>
+                        <select onchange="app.sortTipsCircleGroups(this.value)" aria-label="サークルの並び順">
+                            <option value="custom" ${this.getTipsCircleSortMode() === 'custom' ? 'selected' : ''}>手動順</option>
+                            <option value="name" ${this.getTipsCircleSortMode() === 'name' ? 'selected' : ''}>名前順</option>
+                            <option value="count" ${this.getTipsCircleSortMode() === 'count' ? 'selected' : ''}>件数順</option>
+                            <option value="updated" ${this.getTipsCircleSortMode() === 'updated' ? 'selected' : ''}>更新日時順</option>
+                            <option value="color" ${this.getTipsCircleSortMode() === 'color' ? 'selected' : ''}>色順</option>
+                        </select>
+                    </label>
+                ` : ''}
                 <div class="tips-map-bulk-actions">
                     <button type="button" onclick="app.setTipsMapCollapseAll(false)">
                         <i class="fa-solid fa-up-right-and-down-left-from-center"></i> 全て開く
@@ -918,6 +1135,7 @@
                     <button type="button" onclick="app.setTipsMapCollapseAll(true)">
                         <i class="fa-solid fa-down-left-and-up-right-to-center"></i> 全て閉じる
                     </button>
+                </div>
                 </div>
                 <div class="tips-map-minimap">
                     <b><i class="fa-solid fa-map"></i> ミニマップ</b>
@@ -1008,7 +1226,7 @@
     };
 
     proto.getTipsMemoryMapCircleHtml = function (sortedGroups = []) {
-        return `<div class="tips-map-circle-grid">${sortedGroups.map(group => this.getTipsMemoryMapCircleGroupHtmlV2(group)).join('')}</div>`;
+        return `<div class="tips-map-circle-grid">${sortedGroups.map((group, index) => this.getTipsMemoryMapCircleGroupHtmlV2(group, index, sortedGroups.length)).join('')}</div>`;
     };
 
     proto.getTipsMemoryMapCircleGroupHtml = function (group = {}) {
@@ -1074,7 +1292,7 @@
         `;
     };
 
-    proto.getTipsMemoryMapCircleGroupHtmlV2 = function (group = {}) {
+    proto.getTipsMemoryMapCircleGroupHtmlV2 = function (group = {}, groupIndex = 0, groupCount = 0) {
         const branches = [...(group.branches?.values?.() || [])].sort((a, b) => a.label.normalize('NFKC').localeCompare(b.label.normalize('NFKC'), 'ja'));
         const nodes = [];
         branches.forEach((branch, branchIndex) => {
@@ -1110,7 +1328,7 @@
                     type: 'note',
                     angle: baseAngle + offset,
                     radius: 45,
-                    html: `<button type="button" class="tips-circle-node note" onclick="app.editTipsNote('${this.escapeJs(note.id)}')" title="${this.escapeHtml(body || '本文なし')}"><i class="fa-regular fa-note-sticky"></i><span>${this.escapeHtml(summary || '本文なし')}</span></button>${soundButton}`
+                    html: `<button type="button" class="tips-circle-node note${body ? ' has-body' : ''}" draggable="true" ondragstart="app.startTipsCircleNoteDrag(event, '${this.escapeJs(note.id)}')" ondragend="app.endTipsCircleNoteDrag()" onclick="${body ? `app.openTipsBodyEditor('${this.escapeJs(note.id)}')` : `app.editTipsNote('${this.escapeJs(note.id)}')`}" title="${body ? 'クリックで本文を拡大表示' : 'クリックで編集'} / ドラッグで別サークルへ移動"><i class="fa-regular fa-note-sticky"></i><span>${this.escapeHtml(summary || '本文なし')}</span></button>${soundButton}`
                 });
             });
         });
@@ -1120,15 +1338,20 @@
             return `<div class="tips-circle-node-wrap ${this.escapeHtml(node.type)}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;">${node.html}</div>`;
         }).join('');
         return `
-            <section class="tips-circle-group" id="tips-map-group-${this.escapeHtml(group.key)}" style="${this.getTipsCardStyle(group.notes?.[0] || {})}">
+            <section class="tips-circle-group" id="tips-map-group-${this.escapeHtml(group.key)}" data-tips-circle-group-key="${this.escapeHtml(group.key)}" ondragover="app.dragOverTipsCircleGroup(event, '${this.escapeJs(group.key)}')" ondragleave="app.leaveTipsCircleGroupDrag(event)" ondrop="app.dropTipsCircleGroup(event, '${this.escapeJs(group.key)}')" style="${this.getTipsCardStyle(group.notes?.[0] || {})}">
                 <div class="tips-circle-ring">
                     <div class="tips-circle-center">
+                        <button type="button" class="tips-circle-drag-handle" draggable="true" ondragstart="app.startTipsCircleGroupDrag(event, '${this.escapeJs(group.key)}')" ondragend="app.endTipsCircleGroupDrag()" onclick="event.preventDefault()" title="ドラッグしてサークルを並べ替え" aria-label="${this.escapeHtml(group.label || '未分類')}を並べ替え"><i class="fa-solid fa-grip"></i></button>
                         <span class="tips-map-hub-icon"><i class="fa-solid fa-layer-group"></i></span>
                         <b>${this.escapeHtml(group.label || '未分類')}</b>
                         <small>${group.notes?.length || 0}件 / ${branches.length}分岐</small>
                         <div class="tips-map-label-actions">
                             <button type="button" class="tips-map-color-btn" onclick="app.openTipsGroupColorDialog('${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="系統色を変更"><i class="fa-solid fa-palette"></i></button>
                             <button type="button" onclick="app.renameTipsMapLabelV2('group', '${this.escapeJs(group.key)}', '${this.escapeJs(group.label)}')" title="グループ名を変更"><i class="fa-solid fa-pen"></i></button>
+                        </div>
+                        <div class="tips-circle-order-actions" aria-label="サークルの順番を変更">
+                            <button type="button" onclick="app.moveTipsCircleGroup('${this.escapeJs(group.key)}', -1)" ${groupIndex <= 0 ? 'disabled' : ''} title="前へ移動"><i class="fa-solid fa-chevron-left"></i></button>
+                            <button type="button" onclick="app.moveTipsCircleGroup('${this.escapeJs(group.key)}', 1)" ${groupIndex >= groupCount - 1 ? 'disabled' : ''} title="後へ移動"><i class="fa-solid fa-chevron-right"></i></button>
                         </div>
                     </div>
                     ${nodeHtml}
@@ -1396,7 +1619,7 @@
         this.filterTipsMapNodeNotes(document.querySelector('#tips-map-node-notes .tips-map-node-search input')?.value || '');
     };
 
-    proto.openTipsNotePreview = function (noteId = '') {
+    proto.openTipsNotePreview = function (noteId = '', options = {}) {
         const note = this.ensureTipsState().find(item => item.id === noteId);
         if (!note) return;
         const attachments = Array.isArray(note.attachments) ? note.attachments : [];
@@ -1405,11 +1628,12 @@
         const prevId = currentIndex > 0 ? contextIds[currentIndex - 1] : '';
         const nextId = currentIndex >= 0 && currentIndex < contextIds.length - 1 ? contextIds[currentIndex + 1] : '';
         const longBody = String(note.body || '').length > 180 || String(note.body || '').split(/\r?\n/).length > 5;
+        const expandBody = options?.expandBody === true;
         const fontSize = this.getTipsPreviewFontSize();
         document.getElementById('tips-note-preview')?.remove();
         document.body.insertAdjacentHTML('beforeend', `
             <div id="tips-note-preview" class="tips-note-preview" onclick="app.closeTipsNotePreview(event)">
-                <div class="tips-note-preview-card tips-preview-font-${this.escapeHtml(fontSize)}" style="${this.getTipsNoteHierarchyStyle(note)}" onclick="event.stopPropagation()">
+                <div class="tips-note-preview-card tips-preview-font-${this.escapeHtml(fontSize)}${expandBody ? ' tips-note-preview-card-expanded' : ''}" style="${this.getTipsNoteHierarchyStyle(note)}" onclick="event.stopPropagation()">
                     <header>
                         <div>
                             <b><i class="fa-regular fa-note-sticky"></i>${this.escapeHtml(note.group || 'TIPS')}</b>
@@ -1427,8 +1651,8 @@
                         </div>
                         <button type="button" ${nextId ? '' : 'disabled'} onclick="app.openTipsNotePreview('${this.escapeJs(nextId)}')">次へ <i class="fa-solid fa-chevron-right"></i></button>
                     </div>
-                    <div class="tips-note-preview-body ${longBody ? 'collapsed' : ''}" id="tips-note-preview-body">${this.renderTipsBodyHtml(note.body || '本文なし')}</div>
-                    ${longBody ? '<button type="button" class="tips-note-preview-expand" onclick="app.toggleTipsNotePreviewFull()"><i class="fa-solid fa-up-right-and-down-left-from-center"></i> 全文表示</button>' : ''}
+                    <div class="tips-note-preview-body ${longBody && !expandBody ? 'collapsed' : ''}" id="tips-note-preview-body">${this.renderTipsBodyHtml(note.body || '本文なし')}</div>
+                    ${longBody ? `<button type="button" class="tips-note-preview-expand" onclick="app.toggleTipsNotePreviewFull()"><i class="fa-solid ${expandBody ? 'fa-down-left-and-up-right-to-center' : 'fa-up-right-and-down-left-from-center'}"></i> ${expandBody ? '折りたたむ' : '全文表示'}</button>` : ''}
                     ${attachments.length ? `
                         ${attachments.some(file => this.getTipsFileType(file) === 'image' && file.dataUrl) ? `
                             <div class="tips-note-preview-image-panel">
@@ -1751,6 +1975,15 @@
             : `<button type="button" class="${this.escapeHtml(`${className} tips-synthetic-speech-btn`)}" onclick="event.stopPropagation(); app.toggleTipsSyntheticSpeech(this, '${this.escapeJs(note.id)}')" title="本文を合成音声で読み上げ" aria-label="${this.escapeHtml(label)}を合成音声で読み上げ"><i class="fa-solid fa-music"></i></button>`;
     };
 
+    proto.toggleTipsBodyEditorSound = function (button, noteId = '', audioIndex = -1) {
+        if (Number(audioIndex) >= 0) {
+            this.toggleTipsInlineAudio(button, noteId, Number(audioIndex));
+            return;
+        }
+        const editorText = document.getElementById('tips-body-editor-textarea')?.value || '';
+        this.toggleTipsSyntheticSpeech(button, noteId, editorText);
+    };
+
     proto.setTipsSoundProgress = function (button, ratio = 0) {
         if (!button) return;
         const percent = Math.max(0, Math.min(100, Number(ratio) * 100));
@@ -1780,7 +2013,7 @@
         this._tipsSyntheticSpeech = null;
     };
 
-    proto.toggleTipsSyntheticSpeech = function (button, noteId = '') {
+    proto.toggleTipsSyntheticSpeech = function (button, noteId = '', overrideText = '') {
         const current = this._tipsSyntheticSpeech;
         if (current?.noteId === noteId) {
             this.stopTipsSyntheticSpeech();
@@ -1793,7 +2026,7 @@
             return;
         }
         const note = this.ensureTipsState().find(item => item.id === noteId);
-        const text = String(note?.body || '').replace(/\s+/g, ' ').trim();
+        const text = String(overrideText || note?.body || '').replace(/\s+/g, ' ').trim();
         if (!text) return this.showToast('読み上げる本文がありません', 'warning');
         const settings = this.getShiftPhotoCompareSpeechSettings?.()
             || { voiceURI: '', rate: 1, pitch: 1, intonation: 1, volume: 1 };
@@ -2052,6 +2285,8 @@
                     <audio controls preload="metadata" src="${this.escapeHtml(sourceUrl)}">このブラウザでは音声を再生できません。</audio>
                 </div>
             `;
+        } else if (attachmentType === 'video') {
+            previewHtml = `<video class="tips-attachment-zoom-target tips-attachment-preview-video" controls preload="metadata" playsinline src="${this.escapeHtml(sourceUrl)}">このブラウザーでは動画を再生できません。</video>`;
         } else if (attachmentType === 'pdf') {
             previewHtml = `<iframe class="tips-attachment-zoom-target tips-attachment-preview-frame" src="${this.escapeHtml(sourceUrl)}" title="${this.escapeHtml(name)}"></iframe>`;
         } else if (isSpreadsheet) {
@@ -2330,9 +2565,82 @@
         return [...existing, ...photoAttachments, ...pendingFiles].filter(file => this.getTipsFileType(file) === 'image' && file.dataUrl);
     };
 
+    proto.revokeTipsBodyEditorObjectUrls = function () {
+        (Array.isArray(this._tipsBodyEditorObjectUrls) ? this._tipsBodyEditorObjectUrls : []).forEach(url => {
+            try { URL.revokeObjectURL(url); } catch {}
+        });
+        this._tipsBodyEditorObjectUrls = [];
+    };
+
     proto.renderTipsBodyEditorImagePreview = async function () {
         const box = document.getElementById('tips-body-editor-image-preview');
         if (!box) return;
+        const noteId = this._tipsBodyEditorNoteId || '';
+        if (noteId) {
+            const note = this.ensureTipsState().find(item => item.id === noteId);
+            const attachments = Array.isArray(note?.attachments) ? note.attachments : [];
+            this.revokeTipsBodyEditorObjectUrls();
+            const resolvedAttachments = await Promise.all(attachments.map(async file => {
+                try {
+                    const resolved = await this.resolveTipsAttachmentSource(file);
+                    return { ...resolved, file };
+                } catch {
+                    return { source: '', objectUrl: '', file };
+                }
+            }));
+            if (!document.getElementById('tips-body-editor-image-preview') || this._tipsBodyEditorNoteId !== noteId) {
+                resolvedAttachments.forEach(item => {
+                    if (item.objectUrl) try { URL.revokeObjectURL(item.objectUrl); } catch {}
+                });
+                return;
+            }
+            this._tipsBodyEditorObjectUrls = resolvedAttachments.map(item => item.objectUrl).filter(Boolean);
+            box.hidden = !attachments.length;
+            box.innerHTML = attachments.length ? `
+                <div class="tips-body-editor-image-preview-head">
+                    <b><i class="fa-solid fa-paperclip"></i> 登録済み添付</b>
+                    <span>${attachments.length}件・音声と動画はこの画面で再生できます</span>
+                </div>
+                ${resolvedAttachments.some(item => this.getTipsFileType(item.file) === 'image' && item.source) ? `
+                    <div class="tips-body-editor-image-preview-grid">
+                        ${resolvedAttachments.map((item, index) => this.getTipsFileType(item.file) === 'image' && item.source ? `
+                            <button type="button" class="tips-body-editor-attachment-image" onclick="app.openTipsAttachment('${this.escapeJs(note.id)}', ${index})" title="${this.escapeHtml(this.getTipsAttachmentDisplayName(item.file, index))}">
+                                <img src="${this.escapeHtml(item.source)}" alt="${this.escapeHtml(this.getTipsAttachmentDisplayName(item.file, index))}">
+                                <span>${this.escapeHtml(this.getTipsAttachmentDisplayName(item.file, index))}</span>
+                            </button>
+                        ` : '').join('')}
+                    </div>
+                ` : ''}
+                ${resolvedAttachments.some(item => ['audio', 'video'].includes(this.getTipsFileType(item.file)) && item.source) ? `
+                    <div class="tips-body-editor-media-list">
+                        ${resolvedAttachments.map((item, index) => {
+                            const mediaType = this.getTipsFileType(item.file);
+                            if (!['audio', 'video'].includes(mediaType) || !item.source) return '';
+                            const name = this.getTipsAttachmentDisplayName(item.file, index);
+                            return `
+                                <article class="${mediaType}">
+                                    <div><i class="fa-solid ${this.getTipsAttachmentIconClass(item.file)}"></i><span>${this.escapeHtml(name)}</span><small>${this.escapeHtml(this.formatTipsFileSize(item.file.size || 0))}</small></div>
+                                    ${mediaType === 'video'
+                                        ? `<video controls preload="metadata" playsinline src="${this.escapeHtml(item.source)}">このブラウザーでは動画を再生できません。</video>`
+                                        : `<audio controls preload="metadata" src="${this.escapeHtml(item.source)}">このブラウザーでは音声を再生できません。</audio>`}
+                                </article>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : ''}
+                <div class="tips-body-editor-attachment-list">
+                    ${attachments.map((file, index) => `
+                        <button type="button" onclick="app.openTipsAttachment('${this.escapeJs(note.id)}', ${index})" title="${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}">
+                            <i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>
+                            <span>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}</span>
+                            <small>${this.escapeHtml(this.formatTipsFileSize(file.size || 0))}</small>
+                            <i class="fa-solid fa-up-right-from-square"></i>
+                        </button>
+                    `).join('')}
+                </div>
+            ` : '';
+            return;
+        }
         const images = await this.getTipsEditingImageAttachments();
         if (!document.getElementById('tips-body-editor-image-preview')) return;
         box.hidden = !images.length;
@@ -2498,17 +2806,33 @@
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
     };
 
-    proto.openTipsBodyEditor = function () {
+    proto.openTipsBodyEditor = function (noteId = '') {
+        const note = noteId ? this.ensureTipsState().find(item => item.id === noteId) : null;
+        if (noteId && !note) return;
+        if (note) this.editTipsNote(note.id);
         const bodyInput = document.getElementById('tips-body-input');
-        if (!bodyInput) return;
+        if (!note && !bodyInput) return;
+        this._tipsBodyEditorNoteId = note?.id || '';
+        const sourceBody = note ? (note.body || '') : (bodyInput?.value || '');
+        this._tipsBodyEditorInitialValue = sourceBody;
+        const subtitle = note
+            ? `${[note.group, note.branch, note.subBranch].filter(Boolean).join(' / ') || '分類なし'}・本文の編集と添付の確認ができます`
+            : '大きな入力欄で本文を編集できます';
+        const audioIndex = note ? this.getTipsPrimaryAudioIndex(note) : -1;
+        const soundButton = note ? `
+            <button type="button" class="tips-sound-action-btn tips-body-editor-sound-btn${audioIndex < 0 ? ' tips-synthetic-speech-btn' : ''}" onclick="app.toggleTipsBodyEditorSound(this, '${this.escapeJs(note.id)}', ${audioIndex})" title="${audioIndex >= 0 ? '添付音声を再生' : '本文を合成音声で読み上げ'}">
+                <i class="fa-solid ${audioIndex >= 0 ? 'fa-microphone' : 'fa-music'}"></i>
+                <span>${audioIndex >= 0 ? '添付音声を再生' : '本文を読み上げ'}</span>
+            </button>
+        ` : '';
         document.getElementById('tips-body-editor-modal')?.remove();
         document.body.insertAdjacentHTML('beforeend', `
-            <div id="tips-body-editor-modal" class="tips-body-editor-modal" onclick="app.closeTipsBodyEditor(event)">
+            <div id="tips-body-editor-modal" class="tips-body-editor-modal" onclick="app.closeTipsBodyEditor(event)" onkeydown="app.handleTipsBodyEditorKeydown(event)">
                 <div class="tips-body-editor-card" onclick="event.stopPropagation()">
                     <header>
                         <div>
                             <b><i class="fa-regular fa-note-sticky"></i> TIPS本文を拡大</b>
-                            <span>大きな入力欄で本文を編集できます</span>
+                            <span>${this.escapeHtml(subtitle)}</span>
                         </div>
                         <div class="tips-body-editor-actions">
                             <select class="tips-body-timestamp-select" id="tips-timestamp-format-editor" onchange="app.setTipsTimestampFormat(this.value)" title="日時の形式">
@@ -2529,9 +2853,11 @@
                             </button>
                         </div>
                     </header>
-                    <textarea id="tips-body-editor-textarea" placeholder="忘れたくない内容を入力">${this.escapeHtml(bodyInput.value || '')}</textarea>
+                    <textarea id="tips-body-editor-textarea" placeholder="忘れたくない内容を入力">${this.escapeHtml(sourceBody)}</textarea>
                     <div id="tips-body-editor-image-preview" class="tips-body-editor-image-preview" hidden></div>
                     <footer>
+                        ${soundButton}
+                        ${note ? `<button type="button" class="tips-body-editor-delete-btn" onclick="app.deleteTipsBodyEditorNote()" title="このTIPSを削除"><i class="fa-solid fa-trash-can"></i></button>` : ''}
                         <button type="button" class="secondary-btn" onclick="app.closeTipsBodyEditor()">
                             <i class="fa-solid fa-xmark"></i> 閉じる
                         </button>
@@ -2543,6 +2869,7 @@
             </div>
         `);
         const editor = document.getElementById('tips-body-editor-textarea');
+        this._tipsBodyEditorInitialValue = editor?.value ?? sourceBody;
         this.syncTipsTimestampControls();
         this.renderTipsBodyEditorImagePreview();
         window.setTimeout(() => {
@@ -2553,19 +2880,86 @@
     };
 
     proto.applyTipsBodyEditor = function () {
-        const bodyInput = document.getElementById('tips-body-input');
         const editor = document.getElementById('tips-body-editor-textarea');
-        if (bodyInput && editor) {
+        if (!editor) return;
+        const noteId = this._tipsBodyEditorNoteId || '';
+        if (noteId) {
+            const note = this.ensureTipsState().find(item => item.id === noteId);
+            const body = editor.value.trim();
+            if (!note) return;
+            if (!body) {
+                this.showToast('本文を入力してください', 'warning');
+                editor.focus();
+                return;
+            }
+            note.body = body;
+            note.updatedAt = new Date().toISOString();
+            const bodyInput = document.getElementById('tips-body-input');
+            if (this._editingTipsId === noteId && bodyInput) {
+                bodyInput.value = body;
+                bodyInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            store.save();
+            this.closeTipsBodyEditor(null, true);
+            this.renderTips();
+            this.showToast('TIPS本文を更新しました', 'success');
+            return;
+        }
+        const bodyInput = document.getElementById('tips-body-input');
+        if (bodyInput) {
             bodyInput.value = editor.value;
             bodyInput.dispatchEvent(new Event('input', { bubbles: true }));
             bodyInput.focus();
         }
-        this.closeTipsBodyEditor();
+        this.closeTipsBodyEditor(null, true);
     };
 
-    proto.closeTipsBodyEditor = function (event = null) {
+    proto.isTipsBodyEditorDirty = function () {
+        const editor = document.getElementById('tips-body-editor-textarea');
+        if (!editor) return false;
+        return editor.value !== String(this._tipsBodyEditorInitialValue || '');
+    };
+
+    proto.handleTipsBodyEditorKeydown = function (event) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (document.getElementById('tips-attachment-viewer')) {
+                this.closeTipsAttachmentViewer();
+                return;
+            }
+            this.closeTipsBodyEditor();
+            return;
+        }
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            this.applyTipsBodyEditor();
+        }
+    };
+
+    proto.deleteTipsBodyEditorNote = function () {
+        const noteId = this._tipsBodyEditorNoteId || '';
+        const note = this.ensureTipsState().find(item => item.id === noteId);
+        if (!note) return;
+        const location = [note.group || '未分類', note.branch, note.subBranch].filter(Boolean).join(' / ');
+        if (!confirm(`TIPS「${location}」を削除しますか？\nこの操作は元に戻せません。`)) return;
+        store.activeData.tipsNotes = this.ensureTipsState().filter(item => item.id !== noteId);
+        store.save();
+        this.closeTipsBodyEditor(null, true);
+        if (this._editingTipsId === noteId) this.clearTipsForm();
+        this.renderTips();
+        this.showToast('TIPSを削除しました', 'success');
+    };
+
+    proto.closeTipsBodyEditor = function (event = null, force = false) {
         if (event && event.target?.id !== 'tips-body-editor-modal') return;
+        if (!force && this.isTipsBodyEditorDirty() && !confirm('本文に未保存の変更があります。変更を破棄して閉じますか？')) return;
         document.getElementById('tips-body-editor-modal')?.remove();
+        this.stopTipsInlineAudio?.();
+        this.stopTipsSyntheticSpeech?.();
+        this.revokeTipsBodyEditorObjectUrls?.();
+        this._tipsBodyEditorNoteId = '';
+        this._tipsBodyEditorInitialValue = '';
     };
 
     proto.clearTipsForm = function () {
@@ -3187,6 +3581,10 @@
         this.renderTips();
         this.showToast(options.fromDrop ? 'TIPSをゴミ箱へ移動しました' : 'TIPSを削除しました', 'success');
     };
+
+    document.addEventListener('click', event => {
+        if (!event.target?.closest?.('.tips-compose-color-control')) window.app?.closeTipsComposeColorMenu?.();
+    });
 
     document.addEventListener('change', event => {
         if (event.target?.id === 'tips-file-input') {

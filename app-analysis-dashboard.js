@@ -1,10 +1,42 @@
-﻿(function () {
+(function () {
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppAnalysisDashboardMethods extends MaintenanceApp {
+    getPartManagementCardColor() {
+        const color = String(localStorage.getItem('part_management_card_color') || '#ffffff').trim().toLowerCase();
+        return /^#[0-9a-f]{6}$/.test(color) ? color : '#ffffff';
+    }
+
+    applyPartManagementCardColor(color = this.getPartManagementCardColor()) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '#ffffff';
+        const container = document.getElementById('analysis-container');
+        if (container) {
+            container.style.setProperty('--part-management-card-color', safeColor);
+            const red = parseInt(safeColor.slice(1, 3), 16);
+            const green = parseInt(safeColor.slice(3, 5), 16);
+            const blue = parseInt(safeColor.slice(5, 7), 16);
+            const luminance = (red * 299 + green * 587 + blue * 114) / 255000;
+            container.classList.toggle('part-management-card-dark', luminance < 0.46);
+        }
+        const picker = document.getElementById('part-management-card-color');
+        if (picker && picker.value.toLowerCase() !== safeColor) picker.value = safeColor;
+        return safeColor;
+    }
+
+    setPartManagementCardColor(color = '') {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '#ffffff';
+        localStorage.setItem('part_management_card_color', safeColor);
+        this.applyPartManagementCardColor(safeColor);
+    }
+
+    resetPartManagementCardColor() {
+        this.setPartManagementCardColor('#ffffff');
+    }
+
     renderAnalysis(searchQuery = '') {
         const container = document.getElementById('analysis-container');
         if (!container) return;
+        this.applyPartManagementCardColor();
         this.syncLaborRateInputs?.(this.laborRate);
 
         const qInput = document.getElementById('global-search');

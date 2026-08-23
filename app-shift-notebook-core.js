@@ -5507,6 +5507,9 @@
                 textEffect: this.normalizeShiftPhotoCompareTextEffect(mark.textEffect || ''),
                 dashed: mark.dashed === true || mark.dashed === '1',
                 arrowHeadHidden: mark.arrowHeadHidden === true || mark.arrowHeadHidden === '1',
+                polylineStartArrow: mark.polylineStartArrow === true || mark.polylineStartArrow === '1',
+                polylineEndArrow: mark.polylineEndArrow === true || mark.polylineEndArrow === '1',
+                polylineArrowPoints: this.normalizeShiftPhotoComparePolylineArrowPoints(mark.polylineArrowPoints),
                 tableRows: Math.max(1, Math.min(20, Number(mark.tableRows) || 2)),
                 tableCols: Math.max(1, Math.min(12, Number(mark.tableCols) || 3)),
                 tableRounded: mark.tableRounded === true || mark.tableRounded === '1',
@@ -5528,6 +5531,14 @@
                 videoTrimEnd: Math.max(0, Number(mark.videoTrimEnd) || 0),
                 videoClickMode: mark.videoClickMode === 'stop' ? 'stop' : 'continue',
                 videoEndBehavior: ['hold', 'loop'].includes(mark.videoEndBehavior) ? mark.videoEndBehavior : 'return',
+                videoFrameStyle: ['modern', 'retro', 'custom'].includes(mark.videoFrameStyle) ? mark.videoFrameStyle : 'none',
+                videoFrameId: String(mark.videoFrameId || ''),
+                videoFrameX: Math.max(0, Math.min(95, Number(mark.videoFrameX) || 0)),
+                videoFrameY: Math.max(0, Math.min(95, Number(mark.videoFrameY) || 0)),
+                videoFrameWidth: Math.max(5, Math.min(100, Number(mark.videoFrameWidth) || 100)),
+                videoFrameHeight: Math.max(5, Math.min(100, Number(mark.videoFrameHeight) || 100)),
+                videoFrameAspectLocked: mark.videoFrameAspectLocked === true || mark.videoFrameAspectLocked === '1',
+                videoFrameAspect: Math.max(0.2, Math.min(5, Number(mark.videoFrameAspect) || (16 / 9))),
                 imageFit: mark.imageFit === 'fill' ? 'fill' : '',
                 imageShape: mark.imageShape === 'circle' ? 'circle' : '',
                 imageZoom: Math.max(0.2, Math.min(4, Number(mark.imageZoom) || 1)),
@@ -5570,7 +5581,10 @@
                 locked: mark.locked === true || mark.locked === '1',
                 animationOrder: Math.max(0, Math.min(999, Math.round(Number(mark.animationOrder) || 0))),
                 animationName: String(mark.animationName || '').trim().slice(0, 40),
+                animationHoldMs: Math.max(0, Math.min(10000, Math.round(Number(mark.animationHoldMs) || 0))),
                 animationEffect: this.normalizeShiftPhotoCompareAnimationEffect(mark.animationEffect || ''),
+                animationRoundTripPauseMs: Math.max(0, Math.min(3000, Math.round(Number(mark.animationRoundTripPauseMs) || 0))),
+                animationRoundTripCount: this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.animationRoundTripCount),
                 animationMotion: mark.animationMotion === true || mark.animationMotion === '1' ? '1' : '',
                 speechEnabled: mark.speechEnabled === false || mark.speechEnabled === '0' ? '0' : '1',
                 animationEndX: Number.isFinite(Number(mark.animationEndX)) ? Math.max(-50, Math.min(150, Number(mark.animationEndX))) : '',
@@ -5792,7 +5806,7 @@
             selection.mark.dataset.showStoredTextSelection = '1';
             this.updateShiftPhotoCompareRichTextColorMirror(selection.mark);
         }
-        const needsNativeFocus = !!event?.target?.closest?.('input[type="color"], select');
+        const needsNativeFocus = !!event?.target?.closest?.('input, select, textarea');
         if (!needsNativeFocus) event?.preventDefault?.();
         event?.stopPropagation?.();
     }
@@ -6298,17 +6312,272 @@
         return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline class="shift-photo-freehand-hit" points="${points}"></polyline><polyline class="shift-photo-freehand-line" points="${points}"></polyline></svg>`;
     }
 
-    getShiftPhotoComparePolylineSvg(pointsText = '', pointsValue = [], regionFillValue = [], fillDefaults = {}) {
+    normalizeShiftPhotoComparePolylineArrowPoints(value = [], pointCount = 500) {
+        let parsed = value;
+        if (typeof parsed === 'string') {
+            try {
+                parsed = JSON.parse(parsed || '[]');
+            } catch (_) {
+                parsed = [];
+            }
+        }
+        if (!Array.isArray(parsed)) return [];
+        const lastIndex = Math.max(0, Math.min(499, Math.round(Number(pointCount) || 0) - 1));
+        return Array.from(new Set(parsed
+            .map(item => Math.round(Number(item)))
+            .filter(index => Number.isFinite(index) && index > 0 && index < lastIndex)))
+            .sort((left, right) => left - right);
+    }
+
+    remapShiftPhotoComparePolylineArrowPoints(oldPoints = [], newPoints = [], value = []) {
+        if (!Array.isArray(oldPoints) || !Array.isArray(newPoints) || newPoints.length < 3) return [];
+        const indices = this.normalizeShiftPhotoComparePolylineArrowPoints(value, oldPoints.length);
+        return this.normalizeShiftPhotoComparePolylineArrowPoints(indices.map(index => {
+            const source = oldPoints[index];
+            if (!source) return -1;
+            let bestIndex = -1;
+            let bestDistance = Infinity;
+            newPoints.forEach((point, candidateIndex) => {
+                if (candidateIndex <= 0 || candidateIndex >= newPoints.length - 1) return;
+                const distance = Math.hypot(point.x - source.x, point.y - source.y);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestIndex = candidateIndex;
+                }
+            });
+            return bestIndex;
+        }), newPoints.length);
+    }
+
+    getShiftPhotoComparePolylineVisiblePoints(pointsValue = [], options = {}) {
+        const points = (Array.isArray(pointsValue) ? pointsValue : []).map(point => ({
+            x: Math.max(0, Math.min(100, Number(point.x) || 0)),
+            y: Math.max(0, Math.min(100, Number(point.y) || 0))
+        }));
+        if (points.length < 2) return points;
+        const width = Math.max(1, Number(options.width) || 1);
+        const height = Math.max(1, Number(options.height) || 1);
+        const size = Math.max(1, Number(options.size) || 56);
+        const stroke = Math.max(0.1, Number(options.stroke) || 1);
+        const baseWidth = Math.max(0.5, size * 0.08 * stroke);
+        const arrowLength = Math.max(28, size * 0.48, baseWidth * 3.6);
+        const arrowHeight = Math.max(38, size * 0.72, baseWidth * 5.4);
+        const shaftWidth = Math.max(0.5, Number(options.shaftWidth) || baseWidth);
+        const armWidth = Math.max(0.5, Number(options.armWidth) || Math.max(2, baseWidth * 0.78));
+        const arrowAngle = Math.atan2(arrowHeight / 2, arrowLength);
+        const joinDistance = (shaftWidth / 2 + armWidth / 2 * Math.cos(arrowAngle)) / Math.tan(arrowAngle);
+        const joinOverlap = Math.max(4, shaftWidth * 0.28);
+        const minimumCutback = Math.max(arrowLength * 0.04, shaftWidth * 0.30);
+        const cutback = Math.min(arrowLength * 0.94, Math.max(minimumCutback, joinDistance - joinOverlap));
+        const shorten = (index, neighbourIndex) => {
+            const point = points[index];
+            const neighbour = points[neighbourIndex];
+            const dx = (neighbour.x - point.x) / 100 * width;
+            const dy = (neighbour.y - point.y) / 100 * height;
+            const distance = Math.hypot(dx, dy);
+            if (distance < 0.5) return;
+            const applied = Math.min(cutback, distance * 0.42);
+            point.x += dx / distance * applied / width * 100;
+            point.y += dy / distance * applied / height * 100;
+        };
+        if (options.startArrow) shorten(0, 1);
+        if (options.endArrow) shorten(points.length - 1, points.length - 2);
+        this.normalizeShiftPhotoComparePolylineArrowPoints(options.arrowPoints, points.length)
+            .forEach(index => shorten(index, index - 1));
+        return points;
+    }
+
+    getShiftPhotoComparePolylineVisiblePointLayers(pointsValue = [], options = {}) {
+        const size = Math.max(1, Number(options.size) || 56);
+        const stroke = Math.max(0.1, Number(options.stroke) || 1);
+        const baseWidth = Math.max(0.5, size * 0.08 * stroke);
+        const armWidth = Math.max(2, baseWidth * 0.78);
+        const innerExtra = options.innerOutline ? Math.max(0, Number(options.innerWidth) || 0) * 2 : 0;
+        const outerExtra = options.outline === false ? 0 : Math.max(0, Number(options.outerWidth) || 0) * 2;
+        return {
+            outer: this.getShiftPhotoComparePolylineVisiblePoints(pointsValue, {
+                ...options,
+                shaftWidth: baseWidth + innerExtra + outerExtra,
+                armWidth: armWidth + innerExtra + outerExtra
+            }),
+            inner: this.getShiftPhotoComparePolylineVisiblePoints(pointsValue, {
+                ...options,
+                shaftWidth: baseWidth + innerExtra,
+                armWidth: armWidth + innerExtra
+            }),
+            main: this.getShiftPhotoComparePolylineVisiblePoints(pointsValue, {
+                ...options,
+                shaftWidth: baseWidth,
+                armWidth,
+                joinOverlap: Math.max(6, armWidth * 0.70)
+            })
+        };
+    }
+
+    getShiftPhotoComparePolylineInlineArrowPointSets(pointsValue = [], options = {}) {
+        const empty = { start: '', end: '' };
+        if (!Array.isArray(pointsValue) || pointsValue.length < 2) return empty;
+        const width = Math.max(1, Number(options.width) || 1);
+        const height = Math.max(1, Number(options.height) || 1);
+        const size = Math.max(1, Number(options.size) || 56);
+        const stroke = Math.max(0.1, Number(options.stroke) || 1);
+        const baseWidth = Math.max(0.5, size * 0.08 * stroke);
+        const arrowLength = Math.max(28, size * 0.48, baseWidth * 3.6);
+        const arrowHeight = Math.max(38, size * 0.72, baseWidth * 5.4);
+        const make = (point, neighbour) => {
+            const tipX = point.x / 100 * width;
+            const tipY = point.y / 100 * height;
+            const neighbourX = neighbour.x / 100 * width;
+            const neighbourY = neighbour.y / 100 * height;
+            const distance = Math.hypot(tipX - neighbourX, tipY - neighbourY);
+            if (distance < 0.5) return '';
+            const ux = (tipX - neighbourX) / distance;
+            const uy = (tipY - neighbourY) / distance;
+            const px = -uy;
+            const py = ux;
+            const backX = tipX - ux * arrowLength;
+            const backY = tipY - uy * arrowLength;
+            const halfHeight = arrowHeight / 2;
+            return [
+                { x: backX + px * halfHeight, y: backY + py * halfHeight },
+                { x: tipX, y: tipY },
+                { x: backX - px * halfHeight, y: backY - py * halfHeight }
+            ].map(item => `${(item.x / width * 100).toFixed(3)},${(item.y / height * 100).toFixed(3)}`).join(' ');
+        };
+        return {
+            start: make(pointsValue[0], pointsValue[1]),
+            end: make(pointsValue[pointsValue.length - 1], pointsValue[pointsValue.length - 2])
+        };
+    }
+
+    getShiftPhotoComparePolylineInlineArrowheadsHtml(pointsValue = [], options = {}) {
+        const pointSets = this.getShiftPhotoComparePolylineInlineArrowPointSets(pointsValue, options);
+        const start = options.startArrow ? this.escapeHtml(pointSets.start) : '';
+        const end = options.endArrow ? this.escapeHtml(pointSets.end) : '';
+        const layer = name => `<polyline class="shift-photo-polyline-inline-v start ${name}" points="${start}"></polyline><polyline class="shift-photo-polyline-inline-v end ${name}" points="${end}"></polyline>`;
+        return {
+            outer: layer('outer'),
+            inner: layer('inner'),
+            main: layer('main')
+        };
+    }
+
+    getShiftPhotoComparePolylinePointArrowheadsHtml(pointsValue = [], options = {}) {
+        const indices = this.normalizeShiftPhotoComparePolylineArrowPoints(options.arrowPoints, pointsValue.length);
+        const layer = name => indices.map(index => {
+            const segment = [pointsValue[index - 1], pointsValue[index]];
+            const pointSet = this.getShiftPhotoComparePolylineInlineArrowPointSets(segment, options).end;
+            return `<polyline class="shift-photo-polyline-inline-v point ${name}" data-arrow-point-index="${index}" points="${this.escapeHtml(pointSet)}"></polyline>`;
+        }).join('');
+        return {
+            outer: layer('outer'),
+            inner: layer('inner'),
+            main: layer('main')
+        };
+    }
+
+    getShiftPhotoComparePolylineArrowheadsHtml(pointsValue = [], options = {}) {
+        const shape = '<svg class="shift-photo-polyline-v-arrow" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline class="v-layer outer" points="0,0 100,50 0,100"></polyline><polyline class="v-layer inner" points="0,0 100,50 0,100"></polyline><polyline class="v-layer main" points="0,0 100,50 0,100"></polyline></svg>';
+        const empty = kind => `<span class="shift-photo-polyline-arrowhead ${kind}">${shape}</span>`;
+        if (pointsValue.length < 2) return empty('start') + empty('end');
+        const width = Math.max(1, Number(options.width) || 1);
+        const height = Math.max(1, Number(options.height) || 1);
+        const make = (kind, point, neighbour) => {
+            const angle = Math.atan2((point.y - neighbour.y) * height, (point.x - neighbour.x) * width) * 180 / Math.PI;
+            return `<span class="shift-photo-polyline-arrowhead ${kind}" style="left:${point.x}%;top:${point.y}%;--polyline-arrow-angle:${angle}deg">${shape}</span>`;
+        };
+        return make('start', pointsValue[0], pointsValue[1])
+            + make('end', pointsValue[pointsValue.length - 1], pointsValue[pointsValue.length - 2]);
+    }
+
+    updateShiftPhotoComparePolylineArrowheads(mark, pointsValue = null) {
+        if (!mark || mark.dataset.mode !== 'polyline') return;
+        const points = Array.isArray(pointsValue) ? pointsValue : this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        const rect = mark.getBoundingClientRect?.();
+        const renderWidth = Math.max(1, Number(rect?.width) || Number(mark.dataset.wrapWidth) || Number(mark.parentElement?.clientWidth) || 1);
+        const renderHeight = Math.max(1, Number(rect?.height) || Number(mark.dataset.wrapHeight) || Number(mark.parentElement?.clientHeight) || 1);
+        const pointSets = this.getShiftPhotoComparePolylineInlineArrowPointSets(points, {
+            width: renderWidth,
+            height: renderHeight,
+            size: Number(mark.dataset.size) || 56,
+            stroke: Number(mark.dataset.stroke) || 1
+        });
+        const updateInline = (side, enabled) => {
+            const pointsText = enabled ? pointSets[side] : '';
+            mark.querySelectorAll(`.shift-photo-polyline-inline-v.${side}`)
+                .forEach(path => path.setAttribute('points', pointsText));
+        };
+        updateInline('start', mark.dataset.polylineStartArrow === '1');
+        updateInline('end', mark.dataset.polylineEndArrow === '1');
+        const arrowPoints = this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]', points.length);
+        mark.dataset.polylineArrowPoints = JSON.stringify(arrowPoints);
+        const visibleLayers = this.getShiftPhotoComparePolylineVisiblePointLayers(points, {
+            width: renderWidth,
+            height: renderHeight,
+            size: Number(mark.dataset.size) || 56,
+            stroke: Number(mark.dataset.stroke) || 1,
+            startArrow: mark.dataset.polylineStartArrow === '1',
+            endArrow: mark.dataset.polylineEndArrow === '1',
+            arrowPoints,
+            outline: mark.dataset.outline !== '0',
+            innerOutline: mark.dataset.innerOutline === '1',
+            outerWidth: Number(mark.dataset.outerOutlineWidth) || 0,
+            innerWidth: Number(mark.dataset.innerOutlineWidth) || 0
+        });
+        const visiblePointsText = layer => visibleLayers[layer]
+            .map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`)
+            .join(' ');
+        mark.querySelectorAll('.shift-photo-polyline-outline.outer')
+            .forEach(polyline => polyline.setAttribute('points', visiblePointsText('outer')));
+        mark.querySelectorAll('.shift-photo-polyline-outline.inner')
+            .forEach(polyline => polyline.setAttribute('points', visiblePointsText('inner')));
+        mark.querySelectorAll('.shift-photo-polyline-line')
+            .forEach(polyline => polyline.setAttribute('points', visiblePointsText('main')));
+        const pointArrowheads = this.getShiftPhotoComparePolylinePointArrowheadsHtml(points, {
+            width: renderWidth,
+            height: renderHeight,
+            size: Number(mark.dataset.size) || 56,
+            stroke: Number(mark.dataset.stroke) || 1,
+            arrowPoints
+        });
+        ['outer', 'inner', 'main'].forEach(layer => {
+            const group = mark.querySelector(`.shift-photo-polyline-point-arrows.${layer}`);
+            if (group) group.innerHTML = pointArrowheads[layer];
+        });
+        const heads = {
+            start: mark.querySelector('.shift-photo-polyline-arrowhead.start'),
+            end: mark.querySelector('.shift-photo-polyline-arrowhead.end')
+        };
+        if (points.length < 2) return;
+        const update = (head, point, neighbour) => {
+            if (!head) return;
+            const angle = Math.atan2((point.y - neighbour.y) * Math.max(1, rect?.height || 1), (point.x - neighbour.x) * Math.max(1, rect?.width || 1)) * 180 / Math.PI;
+            head.style.left = `${point.x}%`;
+            head.style.top = `${point.y}%`;
+            head.style.setProperty('--polyline-arrow-angle', `${angle}deg`);
+        };
+        update(heads.start, points[0], points[1]);
+        update(heads.end, points[points.length - 1], points[points.length - 2]);
+    }
+
+    getShiftPhotoComparePolylineSvg(pointsText = '', pointsValue = [], regionFillValue = [], fillDefaults = {}, arrowOptions = {}) {
         const points = this.escapeHtml(String(pointsText || ''));
         const first = pointsValue[0] || { x: 0, y: 0 };
         const last = pointsValue[pointsValue.length - 1] || first;
         const regionPolygons = this.getShiftPhotoComparePolylineRegionPolygonsHtml(pointsValue, regionFillValue, fillDefaults);
         const regionImages = this.getShiftPhotoComparePolylineRegionImagesHtml(pointsValue, regionFillValue);
         const regionLabels = this.getShiftPhotoComparePolylineRegionLabelsHtml(pointsValue, regionFillValue);
+        const arrowPoints = this.normalizeShiftPhotoComparePolylineArrowPoints(arrowOptions.arrowPoints, pointsValue.length);
         const vertices = pointsValue.slice(1, -1)
-            .map((point, index) => `<i class="shift-photo-polyline-vertex" data-point-index="${index + 1}" style="left:${point.x}%;top:${point.y}%"></i>`)
+            .map((point, index) => `<i class="shift-photo-polyline-vertex" data-point-index="${index + 1}" data-has-arrow="${arrowPoints.includes(index + 1) ? '1' : '0'}" title="${arrowPoints.includes(index + 1) ? '矢印あり（右クリックで解除）' : '右クリックで矢印を追加'}" style="left:${point.x}%;top:${point.y}%"></i>`)
             .join('');
-        return `<svg class="shift-photo-polyline-fill-canvas" viewBox="0 0 100 100" preserveAspectRatio="none"><g class="shift-photo-polyline-regions">${regionPolygons}</g></svg><span class="shift-photo-polyline-region-images">${regionImages}</span><svg class="shift-photo-polyline-main-canvas" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline class="shift-photo-polyline-hit" points="${points}"></polyline><polyline class="shift-photo-polyline-outline outer" points="${points}"></polyline><polyline class="shift-photo-polyline-outline inner" points="${points}"></polyline><polyline class="shift-photo-polyline-line" points="${points}"></polyline></svg><span class="shift-photo-polyline-region-labels">${regionLabels}</span><i class="shift-photo-polyline-endpoint start" data-point-index="0" style="left:${first.x}%;top:${first.y}%"></i>${vertices}<i class="shift-photo-polyline-endpoint end" data-point-index="${Math.max(0, pointsValue.length - 1)}" style="left:${last.x}%;top:${last.y}%"></i>`;
+        const visibleLayers = this.getShiftPhotoComparePolylineVisiblePointLayers(pointsValue, arrowOptions);
+        const visiblePointsText = layer => this.escapeHtml(visibleLayers[layer].map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' '));
+        const inlineArrowheads = this.getShiftPhotoComparePolylineInlineArrowheadsHtml(pointsValue, arrowOptions);
+        const pointArrowheads = this.getShiftPhotoComparePolylinePointArrowheadsHtml(pointsValue, arrowOptions);
+        const pointArrowGroup = layer => `<g class="shift-photo-polyline-point-arrows ${layer}">${pointArrowheads[layer]}</g>`;
+        const openCaps = layer => `<line class="shift-photo-polyline-open-cap start ${layer}" x1="${first.x}" y1="${first.y}" x2="${first.x}" y2="${first.y}"></line><line class="shift-photo-polyline-open-cap end ${layer}" x1="${last.x}" y1="${last.y}" x2="${last.x}" y2="${last.y}"></line>`;
+        return `<svg class="shift-photo-polyline-fill-canvas" viewBox="0 0 100 100" preserveAspectRatio="none"><g class="shift-photo-polyline-regions">${regionPolygons}</g></svg><span class="shift-photo-polyline-region-images">${regionImages}</span><svg class="shift-photo-polyline-main-canvas" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline class="shift-photo-polyline-hit" points="${points}"></polyline><polyline class="shift-photo-polyline-outline outer" points="${visiblePointsText('outer')}"></polyline>${inlineArrowheads.outer}${pointArrowGroup('outer')}${openCaps('outer')}<polyline class="shift-photo-polyline-outline inner" points="${visiblePointsText('inner')}"></polyline>${inlineArrowheads.inner}${pointArrowGroup('inner')}${openCaps('inner')}<polyline class="shift-photo-polyline-line" points="${visiblePointsText('main')}"></polyline>${inlineArrowheads.main}${pointArrowGroup('main')}${openCaps('main')}</svg><span class="shift-photo-polyline-region-labels">${regionLabels}</span><i class="shift-photo-polyline-endpoint start" data-point-index="0" data-has-arrow="${arrowOptions.startArrow ? '1' : '0'}" title="${arrowOptions.startArrow ? '矢印あり（右クリックで解除）' : '右クリックで矢印を追加'}" style="left:${first.x}%;top:${first.y}%"></i>${vertices}<i class="shift-photo-polyline-endpoint end" data-point-index="${Math.max(0, pointsValue.length - 1)}" data-has-arrow="${arrowOptions.endArrow ? '1' : '0'}" title="${arrowOptions.endArrow ? '矢印あり（右クリックで解除）' : '右クリックで矢印を追加'}" style="left:${last.x}%;top:${last.y}%"></i>`;
     }
 
     getShiftPhotoComparePolylineRegionPolygonsHtml(pointsValue = [], regionFillValue = [], fillDefaults = {}) {
@@ -6868,6 +7137,8 @@
         const textEffect = this.normalizeShiftPhotoCompareTextEffect(mark.textEffect || '');
         const dashed = mark.dashed === true || mark.dashed === '1';
         const arrowHeadHidden = mark.arrowHeadHidden === true || mark.arrowHeadHidden === '1';
+        const polylineStartArrow = mark.polylineStartArrow === true || mark.polylineStartArrow === '1';
+        const polylineEndArrow = mark.polylineEndArrow === true || mark.polylineEndArrow === '1';
         const tableRows = Math.max(1, Math.min(20, Number(mark.tableRows) || 2));
         const tableCols = Math.max(1, Math.min(12, Number(mark.tableCols) || 3));
         const tableRounded = mark.tableRounded === true || mark.tableRounded === '1';
@@ -6892,6 +7163,14 @@
         const videoTrimEnd = Math.max(videoTrimStart, Number(mark.videoTrimEnd) || 0);
         const videoClickMode = mark.videoClickMode === 'stop' ? 'stop' : 'continue';
         const videoEndBehavior = ['hold', 'loop'].includes(mark.videoEndBehavior) ? mark.videoEndBehavior : 'return';
+        const videoFrameStyle = ['modern', 'retro', 'custom'].includes(mark.videoFrameStyle) ? mark.videoFrameStyle : 'none';
+        const videoFrameId = String(mark.videoFrameId || '');
+        const videoFrameX = Math.max(0, Math.min(95, Number(mark.videoFrameX) || 0));
+        const videoFrameY = Math.max(0, Math.min(95, Number(mark.videoFrameY) || 0));
+        const videoFrameWidth = Math.max(5, Math.min(100, Number(mark.videoFrameWidth) || 100));
+        const videoFrameHeight = Math.max(5, Math.min(100, Number(mark.videoFrameHeight) || 100));
+        const videoFrameAspectLocked = mark.videoFrameAspectLocked === true || mark.videoFrameAspectLocked === '1';
+        const videoFrameAspect = Math.max(0.2, Math.min(5, Number(mark.videoFrameAspect) || (16 / 9)));
         const speechEnabled = !(mark.speechEnabled === false || mark.speechEnabled === '0');
         const imageFit = (activePage?.imageFit || mark.imageFit) === 'fill' ? 'fill' : '';
         const imageShape = (activePage?.imageShape || mark.imageShape) === 'circle' ? 'circle' : '';
@@ -6971,6 +7250,11 @@
                 opacity: polylineFillOpacity
             });
         }
+        const freehandSourcePoints = Array.isArray(mark.freehandSourcePoints) ? mark.freehandSourcePoints.map(point => ({
+            x: Math.max(0, Math.min(100, Number(point.x) || 0)),
+            y: Math.max(0, Math.min(100, Number(point.y) || 0))
+        })).slice(0, 500) : [];
+        const polylineArrowPoints = this.normalizeShiftPhotoComparePolylineArrowPoints(mark.polylineArrowPoints, points.length);
         const orderBadgeHtml = this.getShiftPhotoCompareAnimationOrderBadgeHtml(animationOrder, { mode, points });
         const pointsText = points.map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
         const xmarkStroke = 9.5 * stroke;
@@ -6984,19 +7268,19 @@
         const triangleOuterWithInnerStroke = triangleStroke + (xmarkOuterUnits + xmarkInnerUnits) * 2;
         const triangleInnerStroke = triangleStroke + xmarkInnerUnits * 2;
         const outlineStyle = `--outer-outline-color:${this.escapeHtml(outerOutlineColor)}; --inner-outline-color:${this.escapeHtml(innerOutlineColor)};`;
-        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-boxed-border-width="${boxedBorderWidth}" data-callout-border-width="${calloutBorderWidth}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-outer-outline-width="${outerOutlineWidth}" data-inner-outline-width="${innerOutlineWidth}" data-outer-outline-color="${this.escapeHtml(outerOutlineColor)}" data-inner-outline-color="${this.escapeHtml(innerOutlineColor)}" data-outer-outline-blur="${outerOutlineBlur ? '1' : '0'}" data-text-effect="${this.escapeHtml(textEffect)}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-table-rows="${tableRows}" data-table-cols="${tableCols}" data-table-rounded="${tableRounded ? '1' : '0'}" data-table-cell-width="${tableCellWidth}" data-table-cell-height="${tableCellHeight}" data-table-col-widths="${this.escapeHtml(JSON.stringify(tableColWidths))}" data-table-row-heights="${this.escapeHtml(JSON.stringify(tableRowHeights))}" data-table-border-width="${tableBorderWidth}" data-table-vertical-line-style="${tableVerticalLineStyle}" data-table-horizontal-line-style="${tableHorizontalLineStyle}" data-table-cells="${this.escapeHtml(JSON.stringify(tableCells))}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-fill-color="${this.escapeHtml(fillColor)}" data-wallpaper-src="${this.escapeHtml(wallpaperSrc)}" data-polyline-fill="${polylineFill ? '1' : '0'}" data-polyline-fill-color="${this.escapeHtml(polylineFillColor)}" data-polyline-fill-opacity="${polylineFillOpacity}" data-polyline-region-fills="${this.escapeHtml(JSON.stringify(polylineRegionFills))}" data-region-comment="${regionComment ? '1' : '0'}" data-region-comment-width="${regionCommentWidth}" data-region-comment-height="${regionCommentHeight}" data-region-comment-link-id="${this.escapeHtml(regionCommentLinkId)}" data-region-comment-region-id="${this.escapeHtml(regionCommentRegionId)}" data-region-comment-index="${regionCommentIndex}" data-region-comment-anchor-x="${regionCommentAnchorX ?? ''}" data-region-comment-anchor-y="${regionCommentAnchorY ?? ''}" data-text-color="${this.escapeHtml(textColor)}" data-text-color-runs="${this.escapeHtml(JSON.stringify(textColorRuns))}" data-has-partial-text-color="${textColorRuns.length ? '1' : '0'}" data-text-scale="${textScale}" data-text-fit="${textFit}" data-text-padding-x="${textPaddingX}" data-text-padding-y="${textPaddingY}" data-plain-text-bg-padding-x="${plainTextBgPaddingX}" data-plain-text-bg-padding-y="${plainTextBgPaddingY}" data-tail-enabled="${tailEnabled ? '1' : '0'}" data-tail-pos="${tailPos}" data-tail-side="${tailSide}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-image-shape="${imageShape}" data-image-zoom="${imageZoom}" data-image-offset-x="${imageOffsetX}" data-image-offset-y="${imageOffsetY}" data-circle-library-id="${this.escapeHtml(circleLibraryId)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-text-vertical="${textVertical}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-group-icon-hidden="${groupIconHidden ? '1' : '0'}" data-locked="${locked ? '1' : '0'}" data-animation-order="${animationOrder}" data-animation-name="${this.escapeHtml(animationName)}" data-animation-effect="${this.escapeHtml(animationEffect)}" data-animation-motion="${animationMotion ? '1' : '0'}" data-speech-enabled="${speechEnabled ? '1' : '0'}" data-animation-end-x="${animationEndX}" data-animation-end-y="${animationEndY}" data-animation-end-image-x="${animationEndImageX}" data-animation-end-image-y="${animationEndImageY}" data-animation-end-size="${animationEndSize}" data-animation-end-angle="${animationEndAngle}" data-animation-end-stretch="${animationEndStretch}" data-animation-end-stretch-y="${animationEndStretchY}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-image-x="${imageX ?? ''}" data-image-y="${imageY ?? ''}" data-image-display-width="${imageDisplayWidth}" data-image-display-height="${imageDisplayHeight}" data-current-page="${currentPage}" data-pages="${this.escapeHtml(JSON.stringify(pages))}" data-points="${this.escapeHtml(JSON.stringify(points))}"`;
+        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-boxed-border-width="${boxedBorderWidth}" data-callout-border-width="${calloutBorderWidth}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-outer-outline-width="${outerOutlineWidth}" data-inner-outline-width="${innerOutlineWidth}" data-outer-outline-color="${this.escapeHtml(outerOutlineColor)}" data-inner-outline-color="${this.escapeHtml(innerOutlineColor)}" data-outer-outline-blur="${outerOutlineBlur ? '1' : '0'}" data-text-effect="${this.escapeHtml(textEffect)}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-polyline-start-arrow="${polylineStartArrow ? '1' : '0'}" data-polyline-end-arrow="${polylineEndArrow ? '1' : '0'}" data-polyline-arrow-points="${this.escapeHtml(JSON.stringify(polylineArrowPoints))}" data-table-rows="${tableRows}" data-table-cols="${tableCols}" data-table-rounded="${tableRounded ? '1' : '0'}" data-table-cell-width="${tableCellWidth}" data-table-cell-height="${tableCellHeight}" data-table-col-widths="${this.escapeHtml(JSON.stringify(tableColWidths))}" data-table-row-heights="${this.escapeHtml(JSON.stringify(tableRowHeights))}" data-table-border-width="${tableBorderWidth}" data-table-vertical-line-style="${tableVerticalLineStyle}" data-table-horizontal-line-style="${tableHorizontalLineStyle}" data-table-cells="${this.escapeHtml(JSON.stringify(tableCells))}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-fill-color="${this.escapeHtml(fillColor)}" data-wallpaper-src="${this.escapeHtml(wallpaperSrc)}" data-polyline-fill="${polylineFill ? '1' : '0'}" data-polyline-fill-color="${this.escapeHtml(polylineFillColor)}" data-polyline-fill-opacity="${polylineFillOpacity}" data-polyline-region-fills="${this.escapeHtml(JSON.stringify(polylineRegionFills))}" data-region-comment="${regionComment ? '1' : '0'}" data-region-comment-width="${regionCommentWidth}" data-region-comment-height="${regionCommentHeight}" data-region-comment-link-id="${this.escapeHtml(regionCommentLinkId)}" data-region-comment-region-id="${this.escapeHtml(regionCommentRegionId)}" data-region-comment-index="${regionCommentIndex}" data-region-comment-anchor-x="${regionCommentAnchorX ?? ''}" data-region-comment-anchor-y="${regionCommentAnchorY ?? ''}" data-text-color="${this.escapeHtml(textColor)}" data-text-color-runs="${this.escapeHtml(JSON.stringify(textColorRuns))}" data-has-partial-text-color="${textColorRuns.length ? '1' : '0'}" data-text-scale="${textScale}" data-text-fit="${textFit}" data-text-padding-x="${textPaddingX}" data-text-padding-y="${textPaddingY}" data-plain-text-bg-padding-x="${plainTextBgPaddingX}" data-plain-text-bg-padding-y="${plainTextBgPaddingY}" data-tail-enabled="${tailEnabled ? '1' : '0'}" data-tail-pos="${tailPos}" data-tail-side="${tailSide}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-image-shape="${imageShape}" data-image-zoom="${imageZoom}" data-image-offset-x="${imageOffsetX}" data-image-offset-y="${imageOffsetY}" data-circle-library-id="${this.escapeHtml(circleLibraryId)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-text-vertical="${textVertical}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-group-icon-hidden="${groupIconHidden ? '1' : '0'}" data-locked="${locked ? '1' : '0'}" data-animation-order="${animationOrder}" data-animation-name="${this.escapeHtml(animationName)}" data-animation-hold-ms="${Math.max(0, Math.min(10000, Math.round(Number(mark.animationHoldMs) || 0)))}" data-animation-effect="${this.escapeHtml(animationEffect)}" data-animation-round-trip-pause-ms="${Math.max(0, Math.min(3000, Math.round(Number(mark.animationRoundTripPauseMs) || 0)))}" data-animation-round-trip-count="${this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.animationRoundTripCount)}" data-animation-motion="${animationMotion ? '1' : '0'}" data-speech-enabled="${speechEnabled ? '1' : '0'}" data-animation-end-x="${animationEndX}" data-animation-end-y="${animationEndY}" data-animation-end-image-x="${animationEndImageX}" data-animation-end-image-y="${animationEndImageY}" data-animation-end-size="${animationEndSize}" data-animation-end-angle="${animationEndAngle}" data-animation-end-stretch="${animationEndStretch}" data-animation-end-stretch-y="${animationEndStretchY}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-image-x="${imageX ?? ''}" data-image-y="${imageY ?? ''}" data-image-display-width="${imageDisplayWidth}" data-image-display-height="${imageDisplayHeight}" data-current-page="${currentPage}" data-pages="${this.escapeHtml(JSON.stringify(pages))}" data-points="${this.escapeHtml(JSON.stringify(points))}" data-freehand-source-points="${this.escapeHtml(JSON.stringify(freehandSourcePoints))}"`;
         if (mode === 'freehand') {
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle}">${this.getShiftPhotoCompareFreehandSvg(pointsText)}${orderBadgeHtml}</div>`;
         }
         if (mode === 'polyline') {
             const closed = this.hasShiftPhotoComparePolylineClosedRegion(points);
-            return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} data-has-path="${points.length >= 2 ? '1' : '0'}" data-polyline-closed="${closed ? '1' : '0'}" style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --polyline-fill-color:${this.escapeHtml(polylineFillColor)}; --polyline-fill-opacity:${polylineFillOpacity}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle}">${this.getShiftPhotoComparePolylineSvg(pointsText, points, polylineRegionFills, { enabled: polylineFill, color: polylineFillColor, opacity: polylineFillOpacity })}${orderBadgeHtml}</div>`;
+            return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} data-has-path="${points.length >= 2 ? '1' : '0'}" data-polyline-closed="${closed ? '1' : '0'}" style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --polyline-fill-color:${this.escapeHtml(polylineFillColor)}; --polyline-fill-opacity:${polylineFillOpacity}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle}">${this.getShiftPhotoComparePolylineSvg(pointsText, points, polylineRegionFills, { enabled: polylineFill, color: polylineFillColor, opacity: polylineFillOpacity }, { width: wrapWidth, height: wrapHeight, size, stroke, startArrow: polylineStartArrow, endArrow: polylineEndArrow, arrowPoints: polylineArrowPoints, outline, innerOutline, outerWidth: outerOutlineWidth, innerWidth: innerOutlineWidth })}${orderBadgeHtml}</div>`;
         }
         if (mode === 'image') {
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --circle-border-width:${4 * stroke}px; --mark-font:${fontFamily}; --mark-opacity:${opacity}; --circle-image-size:${imageZoom * 100}%; --circle-image-offset-x:${imageOffsetX}%; --circle-image-offset-y:${imageOffsetY}%;"><img src="${this.escapeHtml(imageSrc)}" alt="">${orderBadgeHtml}</div>`;
         }
         if (mode === 'video') {
-            return `<div class="shift-photo-compare-mark video${lockedClass}" ${common} data-video-id="${this.escapeHtml(videoId)}" data-video-trim-start="${videoTrimStart}" data-video-trim-end="${videoTrimEnd}" data-video-click-mode="${videoClickMode}" data-video-end-behavior="${videoEndBehavior}" style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY};"><video preload="metadata" playsinline ontimeupdate="app.handleShiftPhotoCompareVideoTimeUpdate(this)" onended="app.handleShiftPhotoCompareVideoEnded(this)"></video><span class="shift-photo-compare-video-click-catcher" aria-hidden="true"></span><div class="shift-photo-compare-video-seek-controls"><button type="button" class="seek-ten-back" data-video-seek-step="-10" title="10秒戻る"><i class="fa-solid fa-rotate-left"></i><span>10</span></button><input type="range" class="shift-photo-compare-video-seek" min="0" max="1" step="0.1" value="0" aria-label="再生位置"><span class="shift-photo-compare-video-seek-time">0:00 / 0:00</span><button type="button" class="seek-ten-forward" data-video-seek-step="10" title="10秒進む"><i class="fa-solid fa-rotate-right"></i><span>10</span></button><button type="button" class="seek-frame-back" data-video-frame-step="-1" title="1コマ戻る"><i class="fa-solid fa-backward-step"></i></button><div class="shift-photo-compare-video-speed-options" role="group" aria-label="再生速度"><button type="button" data-video-playback-rate="0.25">.25</button><button type="button" data-video-playback-rate="0.5">.5</button><button type="button" data-video-playback-rate="1" class="active">1x</button><button type="button" data-video-playback-rate="1.5">1.5</button><button type="button" data-video-playback-rate="2">2x</button></div><button type="button" class="seek-frame-forward" data-video-frame-step="1" title="1コマ進む"><i class="fa-solid fa-forward-step"></i></button></div><button type="button" class="shift-photo-compare-video-finish" title="動画を最後まで再生した状態にする" aria-label="動画を終了"><i class="fa-solid fa-xmark"></i></button><button type="button" class="shift-photo-compare-video-play" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareVideoMark(this.closest('.shift-photo-compare-mark'))" title="動画を再生・停止"><i class="fa-solid fa-play"></i></button><span class="shift-photo-compare-video-missing"><i class="fa-solid fa-video-slash"></i>動画なし</span>${orderBadgeHtml}</div>`;
+            return `<div class="shift-photo-compare-mark video${lockedClass}" ${common} data-video-id="${this.escapeHtml(videoId)}" data-video-trim-start="${videoTrimStart}" data-video-trim-end="${videoTrimEnd}" data-video-click-mode="${videoClickMode}" data-video-end-behavior="${videoEndBehavior}" data-video-frame-style="${videoFrameStyle}" data-video-frame-id="${this.escapeHtml(videoFrameId)}" data-video-frame-x="${videoFrameX}" data-video-frame-y="${videoFrameY}" data-video-frame-width="${videoFrameWidth}" data-video-frame-height="${videoFrameHeight}" data-video-frame-aspect-locked="${videoFrameAspectLocked ? '1' : '0'}" data-video-frame-aspect="${videoFrameAspect}" style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --video-frame-x:${videoFrameX}%; --video-frame-y:${videoFrameY}%; --video-frame-width:${videoFrameWidth}%; --video-frame-height:${videoFrameHeight}%; --video-frame-aspect:${videoFrameAspect};"><video preload="metadata" playsinline ontimeupdate="app.handleShiftPhotoCompareVideoTimeUpdate(this)" onended="app.handleShiftPhotoCompareVideoEnded(this)"></video><span class="shift-photo-compare-video-tv-decor" aria-hidden="true"><i class="tv-frame-highlight"></i><i class="tv-frame-speaker"></i><i class="tv-frame-led"></i><i class="tv-frame-dial tv-frame-dial-one"></i><i class="tv-frame-dial tv-frame-dial-two"></i><i class="tv-frame-antenna"></i><i class="tv-frame-stand"></i></span><span class="shift-photo-compare-video-click-catcher" aria-hidden="true"></span><div class="shift-photo-compare-video-seek-controls"><button type="button" class="seek-ten-back" data-video-seek-step="-10" title="10秒戻る"><i class="fa-solid fa-rotate-left"></i><span>10</span></button><input type="range" class="shift-photo-compare-video-seek" min="0" max="1" step="0.1" value="0" aria-label="再生位置"><span class="shift-photo-compare-video-seek-time">0:00 / 0:00</span><button type="button" class="seek-ten-forward" data-video-seek-step="10" title="10秒進む"><i class="fa-solid fa-rotate-right"></i><span>10</span></button><button type="button" class="seek-frame-back" data-video-frame-step="-1" title="1コマ戻る"><i class="fa-solid fa-backward-step"></i></button><div class="shift-photo-compare-video-speed-options" role="group" aria-label="再生速度"><button type="button" data-video-playback-rate="0.25">.25</button><button type="button" data-video-playback-rate="0.5">.5</button><button type="button" data-video-playback-rate="1" class="active">1x</button><button type="button" data-video-playback-rate="1.5">1.5</button><button type="button" data-video-playback-rate="2">2x</button></div><button type="button" class="seek-frame-forward" data-video-frame-step="1" title="1コマ進む"><i class="fa-solid fa-forward-step"></i></button></div><button type="button" class="shift-photo-compare-video-finish" title="動画を最後まで再生した状態にする" aria-label="動画を終了"><i class="fa-solid fa-xmark"></i></button><button type="button" class="shift-photo-compare-video-play" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareVideoMark(this.closest('.shift-photo-compare-mark'))" title="動画を再生・停止"><i class="fa-solid fa-play"></i></button><span class="shift-photo-compare-video-missing"><i class="fa-solid fa-video-slash"></i>動画なし</span>${orderBadgeHtml}</div>`;
         }
         if (mode === 'callout') {
             const inverseX = 1 / Math.max(0.05, stretch);
@@ -7288,6 +7572,7 @@
                 mark.classList.remove(
                     'shift-photo-compare-animation-visible',
                     'shift-photo-compare-animation-motion',
+                    'shift-photo-compare-animation-round-trip-settled',
                     ...this.getShiftPhotoCompareAnimationEffectClasses()
                 );
                 delete mark.dataset.animationPagePending;
@@ -7331,6 +7616,9 @@
             textEffect: this.normalizeShiftPhotoCompareTextEffect(mark.dataset.textEffect || ''),
             dashed: mark.dataset.dashed === '1',
             arrowHeadHidden: mark.dataset.arrowHeadHidden === '1',
+            polylineStartArrow: mark.dataset.polylineStartArrow === '1',
+            polylineEndArrow: mark.dataset.polylineEndArrow === '1',
+            polylineArrowPoints: this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]'),
             tableRows: Math.max(1, Math.min(20, Number(mark.dataset.tableRows) || 2)),
             tableCols: Math.max(1, Math.min(12, Number(mark.dataset.tableCols) || 3)),
             tableRounded: mark.dataset.tableRounded === '1',
@@ -7352,6 +7640,14 @@
             videoTrimEnd: Math.max(0, Number(mark.dataset.videoTrimEnd) || 0),
             videoClickMode: mark.dataset.videoClickMode === 'stop' ? 'stop' : 'continue',
             videoEndBehavior: ['hold', 'loop'].includes(mark.dataset.videoEndBehavior) ? mark.dataset.videoEndBehavior : 'return',
+            videoFrameStyle: ['modern', 'retro', 'custom'].includes(mark.dataset.videoFrameStyle) ? mark.dataset.videoFrameStyle : 'none',
+            videoFrameId: String(mark.dataset.videoFrameId || ''),
+            videoFrameX: Math.max(0, Math.min(95, Number(mark.dataset.videoFrameX) || 0)),
+            videoFrameY: Math.max(0, Math.min(95, Number(mark.dataset.videoFrameY) || 0)),
+            videoFrameWidth: Math.max(5, Math.min(100, Number(mark.dataset.videoFrameWidth) || 100)),
+            videoFrameHeight: Math.max(5, Math.min(100, Number(mark.dataset.videoFrameHeight) || 100)),
+            videoFrameAspectLocked: mark.dataset.videoFrameAspectLocked === '1',
+            videoFrameAspect: Math.max(0.2, Math.min(5, Number(mark.dataset.videoFrameAspect) || (16 / 9))),
             imageFit: mark.dataset.imageFit === 'fill' ? 'fill' : '',
             imageShape: mark.dataset.imageShape === 'circle' ? 'circle' : '',
             imageZoom: Math.max(0.2, Math.min(4, Number(mark.dataset.imageZoom) || 1)),
@@ -7397,7 +7693,10 @@
             locked: mark.dataset.locked === '1',
             animationOrder: this.getShiftPhotoCompareAnimationOrderValue(mark.dataset.animationOrder),
             animationName: String(mark.dataset.animationName || '').trim().slice(0, 40),
+            animationHoldMs: Math.max(0, Math.min(10000, Math.round(Number(mark.dataset.animationHoldMs) || 0))),
             animationEffect: this.normalizeShiftPhotoCompareAnimationEffect(mark.dataset.animationEffect || ''),
+            animationRoundTripPauseMs: Math.max(0, Math.min(3000, Math.round(Number(mark.dataset.animationRoundTripPauseMs) || 0))),
+            animationRoundTripCount: this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.dataset.animationRoundTripCount),
             animationMotion: mark.dataset.animationMotion === '1' ? '1' : '',
             speechEnabled: mark.dataset.speechEnabled === '1' ? '1' : '',
             animationEndX: this.getShiftPhotoCompareAnimationNumber(mark.dataset.animationEndX, ''),
@@ -7412,7 +7711,8 @@
             wrapHeight,
             pages: this.getShiftPhotoCompareMarkPagesForSave(mark),
             currentPage: Math.max(0, Math.min(98, Math.round(Number(mark.dataset.currentPage) || 0))),
-            points: this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]')
+            points: this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]'),
+            freehandSourcePoints: this.parseShiftPhotoCompareFreehandPoints(mark.dataset.freehandSourcePoints || '[]')
         }));
     }
 
@@ -7581,6 +7881,18 @@
         const photo = context.photos?.[photoIndex];
         let marks = this.readShiftPhotoCompareMarksFromWrap(wrap);
         marks = this.addShiftPhotoCompareImageCoordinates(marks, wrap);
+        const domMarks = Array.from(wrap?.querySelectorAll('.shift-photo-compare-mark') || [])
+            .filter(mark => mark.dataset.animationGhost !== '1');
+        domMarks.forEach((mark, index) => {
+            const saved = marks[index];
+            if (mark.dataset.mode !== 'image' || !saved) return;
+            mark.dataset.imageX = String(saved.imageX ?? '');
+            mark.dataset.imageY = String(saved.imageY ?? '');
+            mark.dataset.imageDisplayWidth = String(saved.imageDisplayWidth ?? '');
+            mark.dataset.imageDisplayHeight = String(saved.imageDisplayHeight ?? '');
+            mark.dataset.wrapWidth = String(saved.wrapWidth ?? '');
+            mark.dataset.wrapHeight = String(saved.wrapHeight ?? '');
+        });
         if (photo) photo.marks = marks;
         const previewItem = photo?.previewItem;
         if (previewItem) previewItem.dataset.shiftPhotoMarks = JSON.stringify(this.compactShiftPhotoCompareMarkImages(marks));
@@ -7617,8 +7929,13 @@
     }
 
     getShiftPhotoCompareAnimationEffectOptions(includeVideoExpand = true) {
-        const effects = ['pop', 'fade', 'zoom', 'slide', 'bounce', 'spin', 'swing', 'shake', 'flash', 'jelly'];
+        const effects = ['pop', 'fade', 'zoom', 'slide', 'bounce', 'spin', 'swing', 'shake', 'flash', 'jelly', 'roundTrip'];
         return includeVideoExpand ? [...effects, 'videoExpand'] : effects;
+    }
+
+    normalizeShiftPhotoCompareAnimationRoundTripCount(value = 0) {
+        const count = Math.round(Number(value) || 0);
+        return [1, 3, 5].includes(count) ? count : 0;
     }
 
     getShiftPhotoCompareAnimationEffectClasses() {
@@ -7644,6 +7961,7 @@
             shake: 'ブルブル',
             flash: '点滅',
             jelly: 'ぽよん',
+            roundTrip: '往復',
             videoExpand: '拡大',
             none: '効果なし'
         })[this.normalizeShiftPhotoCompareAnimationEffect(effect)] || 'ポップ';
@@ -7909,7 +8227,12 @@
         const order = this.getShiftPhotoCompareAnimationOrderValue(mark.dataset.animationOrder);
         const effect = this.normalizeShiftPhotoCompareAnimationEffect(mark.dataset.animationEffect || '');
         const hasMotion = mark.dataset.animationMotion === '1';
+        const roundTripPauseMs = Math.max(0, Math.min(3000, Math.round(Number(mark.dataset.animationRoundTripPauseMs) || 0)));
+        const roundTripCount = this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.dataset.animationRoundTripCount);
         const videoEndBehavior = ['hold', 'loop'].includes(mark.dataset.videoEndBehavior) ? mark.dataset.videoEndBehavior : 'return';
+        const videoFrameStyle = ['modern', 'retro', 'custom'].includes(mark.dataset.videoFrameStyle) ? mark.dataset.videoFrameStyle : 'none';
+        const videoFrameId = String(mark.dataset.videoFrameId || '');
+        const customVideoFrames = mark.dataset.mode === 'video' ? this.getShiftPhotoCompareCustomVideoFrames() : [];
         const speechSettings = this.getShiftPhotoCompareMarkSpeechSettings(mark);
         const speechEnabled = speechSettings.enabled;
         const textMotionLocked = mark.dataset.mode === 'boxedText';
@@ -7937,7 +8260,24 @@
                     <button type="button" data-animation-effect="none" class="shift-photo-compare-animation-effect-clear${effect === 'none' ? ' active' : ''}" onclick="app.setShiftPhotoCompareAnimationEffectFromMenu('none')"><i class="fa-solid fa-eraser"></i> 効果解除</button>
                 </div>
             </div>
+            <div class="shift-photo-compare-animation-menu-section shift-photo-compare-round-trip-settings" data-round-trip-settings${effect === 'roundTrip' ? '' : ' hidden'}>
+                <span>往復設定</span>
+                <label class="shift-photo-compare-round-trip-pause"><span>端で停止</span><input type="number" min="0" max="3000" step="100" value="${roundTripPauseMs}" onfocus="this.select()" onchange="app.updateShiftPhotoCompareAnimationRoundTripSettingFromMenu('pause', this.value)"><small>ms</small></label>
+                <label class="shift-photo-compare-round-trip-count"><span>往復回数</span><select onchange="app.updateShiftPhotoCompareAnimationRoundTripSettingFromMenu('count', this.value)"><option value="0"${roundTripCount === 0 ? ' selected' : ''}>クリックまで</option><option value="1"${roundTripCount === 1 ? ' selected' : ''}>1回</option><option value="3"${roundTripCount === 3 ? ' selected' : ''}>3回</option><option value="5"${roundTripCount === 5 ? ' selected' : ''}>5回</option></select></label>
+            </div>
             ${mark.dataset.mode === 'video' ? `
+            <div class="shift-photo-compare-animation-menu-section">
+                <span>動画枠</span>
+                <div class="shift-photo-compare-video-frame-actions">
+                    <button type="button" data-video-frame-style="none" class="${videoFrameStyle === 'none' ? 'active' : ''}" onclick="app.setShiftPhotoCompareVideoFrameStyleFromMenu('none')"><i class="fa-solid fa-ban"></i> なし</button>
+                    <button type="button" data-video-frame-style="modern" class="${videoFrameStyle === 'modern' ? 'active' : ''}" onclick="app.setShiftPhotoCompareVideoFrameStyleFromMenu('modern')"><i class="fa-solid fa-tv"></i> 薄型テレビ</button>
+                    <button type="button" data-video-frame-style="retro" class="${videoFrameStyle === 'retro' ? 'active' : ''}" onclick="app.setShiftPhotoCompareVideoFrameStyleFromMenu('retro')"><i class="fa-solid fa-tv"></i> レトロテレビ</button>
+                    ${customVideoFrames.map(frame => `<span class="shift-photo-compare-custom-frame-choice"><button type="button" data-video-custom-frame-id="${this.escapeHtml(frame.id)}" class="${videoFrameStyle === 'custom' && videoFrameId === frame.id ? 'active' : ''}" onclick="app.useShiftPhotoCompareCustomVideoFrameFromMenu('${frame.id}')"><i class="fa-regular fa-image"></i> ${this.escapeHtml(frame.name)}</button><button type="button" class="shift-photo-compare-custom-frame-rename" title="登録枠の名前を変更" onclick="event.stopPropagation(); app.renameShiftPhotoCompareCustomVideoFrame('${frame.id}')"><i class="fa-solid fa-pen"></i></button><button type="button" class="shift-photo-compare-custom-frame-delete" title="登録枠を削除" onclick="event.stopPropagation(); app.deleteShiftPhotoCompareCustomVideoFrame('${frame.id}')"><i class="fa-solid fa-trash"></i></button></span>`).join('')}
+                    <button type="button" class="shift-photo-compare-custom-frame-register" onclick="app.openShiftPhotoCompareCustomVideoFrameRegistration()"><i class="fa-solid fa-plus"></i> 独自枠を登録</button>
+                </div>
+                <label class="shift-photo-compare-video-frame-lock"><input type="checkbox" ${mark.dataset.videoFrameAspectLocked === '1' ? 'checked' : ''} onchange="app.toggleShiftPhotoCompareVideoFrameAspectLockFromMenu(this.checked)"> 枠の縦横比を固定</label>
+                <small class="shift-photo-compare-video-frame-help">枠だけを交換します。動画位置・トリミング・再生設定は保持されます。</small>
+            </div>
             <div class="shift-photo-compare-animation-menu-section">
                 <span>再生後</span>
                 <div class="shift-photo-compare-video-end-actions">
@@ -8121,7 +8461,29 @@
         this._shiftPhotoCompareAnimationBadgeMenu?.querySelectorAll('.shift-photo-compare-animation-effect-list button').forEach(button => {
             button.classList.toggle('active', button.dataset.animationEffect === this.normalizeShiftPhotoCompareAnimationEffect(effect));
         });
-        this.showToast?.(`効果を「${this.getShiftPhotoCompareAnimationEffectLabel(effect)}」にしました。`);
+        const roundTripSettings = this._shiftPhotoCompareAnimationBadgeMenu?.querySelector?.('[data-round-trip-settings]');
+        if (roundTripSettings) roundTripSettings.hidden = this.normalizeShiftPhotoCompareAnimationEffect(effect) !== 'roundTrip';
+        const label = this.getShiftPhotoCompareAnimationEffectLabel(effect);
+        const needsEndpoint = this.normalizeShiftPhotoCompareAnimationEffect(effect) === 'roundTrip'
+            && mark.dataset.animationMotion !== '1';
+        this.showToast?.(needsEndpoint
+            ? `効果を「${label}」にしました。続けて終点を作成してください。`
+            : `効果を「${label}」にしました。`);
+    }
+
+    updateShiftPhotoCompareAnimationRoundTripSettingFromMenu(kind = 'pause', value = 0) {
+        const mark = this.getShiftPhotoCompareAnimationMenuTarget();
+        if (!mark) return;
+        this.pushShiftPhotoCompareUndo?.();
+        if (kind === 'count') {
+            const count = this.normalizeShiftPhotoCompareAnimationRoundTripCount(value);
+            mark.dataset.animationRoundTripCount = String(count);
+        } else {
+            const pauseMs = Math.max(0, Math.min(3000, Math.round(Number(value) || 0)));
+            mark.dataset.animationRoundTripPauseMs = String(pauseMs);
+        }
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.refreshShiftPhotoCompareMarkList?.();
     }
 
     previewShiftPhotoCompareAnimationEffectFromMenu(effect) {
@@ -8133,6 +8495,22 @@
         this._shiftPhotoCompareAnimationEffectPreviewMark = mark;
         if (normalized === 'videoExpand' && mark.dataset.mode === 'video') {
             this.expandShiftPhotoCompareAnimationVideo(mark);
+        } else if (normalized === 'roundTrip') {
+            if (mark.dataset.animationMotion !== '1') {
+                this._shiftPhotoCompareAnimationEffectPreviewMark = null;
+                return;
+            }
+            mark._shiftPhotoCompareAnimationEffectPreviewHadVisible = mark.classList.contains('shift-photo-compare-animation-visible');
+            mark._shiftPhotoCompareAnimationEffectPreviewStyle = mark.getAttribute('style');
+            this.prepareShiftPhotoCompareAnimationMark({
+                mark,
+                start: this.getShiftPhotoCompareAnimationStartState(mark),
+                end: this.getShiftPhotoCompareAnimationEndState(mark)
+            });
+            mark.classList.add('shift-photo-compare-animation-visible');
+            mark.classList.remove(...this.getShiftPhotoCompareAnimationEffectClasses());
+            void mark.offsetWidth;
+            mark.classList.add('shift-photo-compare-animation-motion', 'shift-photo-compare-animation-effect-roundTrip');
         } else {
             mark._shiftPhotoCompareAnimationEffectPreviewHadVisible = mark.classList.contains('shift-photo-compare-animation-visible');
             mark.classList.add('shift-photo-compare-animation-visible');
@@ -8143,7 +8521,7 @@
         clearTimeout(this._shiftPhotoCompareAnimationEffectPreviewTimer);
         this._shiftPhotoCompareAnimationEffectPreviewTimer = setTimeout(() => {
             this.stopShiftPhotoCompareAnimationEffectPreview();
-        }, 760);
+        }, normalized === 'roundTrip' ? 1450 : 760);
     }
 
     stopShiftPhotoCompareAnimationEffectPreview() {
@@ -8151,11 +8529,17 @@
         this._shiftPhotoCompareAnimationEffectPreviewTimer = null;
         const mark = this._shiftPhotoCompareAnimationEffectPreviewMark;
         if (!mark) return;
-        mark.classList.remove(...this.getShiftPhotoCompareAnimationEffectClasses());
+        mark.classList.remove('shift-photo-compare-animation-motion', 'shift-photo-compare-animation-round-trip-settled', ...this.getShiftPhotoCompareAnimationEffectClasses());
+        if (mark._shiftPhotoCompareAnimationEffectPreviewStyle !== undefined) {
+            const styleValue = mark._shiftPhotoCompareAnimationEffectPreviewStyle;
+            if (styleValue === null) mark.removeAttribute('style');
+            else mark.setAttribute('style', styleValue);
+        }
         if (!mark._shiftPhotoCompareAnimationEffectPreviewHadVisible) {
             mark.classList.remove('shift-photo-compare-animation-visible');
         }
         delete mark._shiftPhotoCompareAnimationEffectPreviewHadVisible;
+        delete mark._shiftPhotoCompareAnimationEffectPreviewStyle;
         this.restoreShiftPhotoCompareAnimationVideo(mark);
         this._shiftPhotoCompareAnimationEffectPreviewMark = null;
     }
@@ -8171,6 +8555,288 @@
             button.classList.toggle('active', button.dataset.videoEndBehavior === behavior);
         });
         this.showToast?.(`動画の再生後を「${({ return: '元の枠へ戻る', hold: '最終フレーム', loop: '繰り返す' })[behavior]}」にしました。`);
+    }
+
+    getShiftPhotoCompareCustomVideoFrames() {
+        const frames = store.activeData?.shiftPhotoCompareVideoFrames;
+        return Array.isArray(frames) ? frames.filter(frame => frame?.id && frame?.mediaKey) : [];
+    }
+
+    getShiftPhotoCompareCustomVideoFrame(id = '') {
+        return this.getShiftPhotoCompareCustomVideoFrames().find(frame => frame.id === String(id || '')) || null;
+    }
+
+    getShiftPhotoCompareVideoFrameAspect(style = 'none', frame = null) {
+        if (style === 'modern') return 1672 / 941;
+        if (style === 'retro') return 1448 / 1086;
+        return style === 'custom' ? Math.max(0.2, Math.min(5, Number(frame?.aspect) || (16 / 9))) : 16 / 9;
+    }
+
+    applyShiftPhotoCompareVideoFrame(mark, style = 'none', frame = null) {
+        if (!mark || mark.dataset.mode !== 'video') return;
+        const nextStyle = ['modern', 'retro', 'custom'].includes(style) ? style : 'none';
+        const custom = nextStyle === 'custom' ? frame : null;
+        mark.dataset.videoFrameStyle = custom ? 'custom' : nextStyle;
+        mark.dataset.videoFrameId = custom?.id || '';
+        mark.dataset.videoFrameX = String(custom?.x ?? 0);
+        mark.dataset.videoFrameY = String(custom?.y ?? 0);
+        mark.dataset.videoFrameWidth = String(custom?.width ?? 100);
+        mark.dataset.videoFrameHeight = String(custom?.height ?? 100);
+        mark.dataset.videoFrameAspect = String(this.getShiftPhotoCompareVideoFrameAspect(custom ? 'custom' : nextStyle, custom));
+        mark.style.setProperty('--video-frame-x', `${mark.dataset.videoFrameX}%`);
+        mark.style.setProperty('--video-frame-y', `${mark.dataset.videoFrameY}%`);
+        mark.style.setProperty('--video-frame-width', `${mark.dataset.videoFrameWidth}%`);
+        mark.style.setProperty('--video-frame-height', `${mark.dataset.videoFrameHeight}%`);
+        mark.style.setProperty('--video-frame-aspect', mark.dataset.videoFrameAspect);
+        this.hydrateShiftPhotoCompareCustomVideoFrame(mark);
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+    }
+
+    setShiftPhotoCompareVideoFrameStyleFromMenu(value = 'none') {
+        const mark = this.getShiftPhotoCompareAnimationMenuTarget();
+        if (!mark || mark.dataset.mode !== 'video') return;
+        const style = ['modern', 'retro'].includes(value) ? value : 'none';
+        this.pushShiftPhotoCompareUndo?.();
+        this.applyShiftPhotoCompareVideoFrame(mark, style);
+        this._shiftPhotoCompareAnimationBadgeMenu?.querySelectorAll('[data-video-frame-style]').forEach(button => {
+            button.classList.toggle('active', button.dataset.videoFrameStyle === style);
+        });
+        this.showToast?.(`枠だけを「${({ none: 'なし', modern: '薄型テレビ', retro: 'レトロテレビ' })[style]}」へ交換しました。動画・トリミング設定はそのままです。`);
+    }
+
+    useShiftPhotoCompareCustomVideoFrameFromMenu(id = '') {
+        const mark = this.getShiftPhotoCompareAnimationMenuTarget();
+        const frame = this.getShiftPhotoCompareCustomVideoFrame(id);
+        if (!mark || mark.dataset.mode !== 'video' || !frame) return;
+        this.pushShiftPhotoCompareUndo?.();
+        this.applyShiftPhotoCompareVideoFrame(mark, 'custom', frame);
+        this.showToast?.(`枠だけを「${frame.name}」へ交換しました。動画・トリミング設定はそのままです。`);
+        this.closeShiftPhotoCompareAnimationBadgeMenu();
+    }
+
+    toggleShiftPhotoCompareVideoFrameAspectLockFromMenu(checked = false) {
+        const mark = this.getShiftPhotoCompareAnimationMenuTarget();
+        if (!mark || mark.dataset.mode !== 'video') return;
+        this.pushShiftPhotoCompareUndo?.();
+        mark.dataset.videoFrameAspectLocked = checked ? '1' : '0';
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.showToast?.(checked ? '動画枠の縦横比を固定しました。' : '動画枠の縦横比固定を解除しました。');
+    }
+
+    openShiftPhotoCompareCustomVideoFrameRegistration() {
+        const mark = this.getShiftPhotoCompareAnimationMenuTarget();
+        if (!mark || mark.dataset.mode !== 'video') return;
+        this._shiftPhotoCompareCustomFrameTarget = mark;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/png,image/webp';
+        input.onchange = () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            if (!['image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) {
+                this.showToast?.('10MB以下の透明PNGまたはWebP画像を選択してください。', 'error');
+                return;
+            }
+            this.showShiftPhotoCompareCustomVideoFrameEditor(file);
+        };
+        input.click();
+    }
+
+    async showShiftPhotoCompareCustomVideoFrameEditor(file) {
+        this.closeShiftPhotoCompareAnimationBadgeMenu();
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.src = objectUrl;
+        try { await image.decode(); } catch {
+            URL.revokeObjectURL(objectUrl);
+            this.showToast?.('枠画像を読み込めませんでした。', 'error');
+            return;
+        }
+        const detectedRect = this.detectShiftPhotoCompareCustomVideoFrameScreen(image);
+        const autoRect = detectedRect || { x: 8, y: 8, width: 76, height: 80 };
+        const overlay = document.createElement('div');
+        overlay.className = 'shift-photo-compare-custom-frame-overlay';
+        overlay.innerHTML = `
+            <div class="shift-photo-compare-custom-frame-modal">
+                <header><h3><i class="fa-regular fa-image"></i> 独自動画枠を登録</h3><button type="button" data-close title="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                <div class="shift-photo-compare-custom-frame-body">
+                    <label class="shift-photo-compare-custom-frame-name"><span>枠の名前</span><input type="text" maxlength="30" value="${this.escapeHtml(file.name.replace(/\.[^.]+$/, '') || '独自枠')}"></label>
+                    <div class="shift-photo-compare-custom-frame-preview" style="aspect-ratio:${image.naturalWidth}/${image.naturalHeight}">
+                        <img src="${objectUrl}" alt=""><div class="shift-photo-compare-custom-frame-screen-box"><span>動画表示範囲</span><i></i></div>
+                    </div>
+                    <div class="shift-photo-compare-custom-frame-values">
+                        ${[['x','左'],['y','上'],['width','幅'],['height','高さ']].map(([key,label]) => `<label><span>${label}</span><input type="number" data-frame-value="${key}" min="0" max="100" step="0.1"><b>%</b></label>`).join('')}
+                    </div>
+                    <div class="shift-photo-compare-custom-frame-options"><button type="button" data-detect><i class="fa-solid fa-wand-magic-sparkles"></i> 透明部分から自動検出</button><label><input type="checkbox" data-lock checked> 枠の縦横比を固定</label></div>
+                    <p> ドラッグで移動、右下の点で大きさを調整できます。</p>
+                </div>
+                <footer><button type="button" data-cancel>キャンセル</button><button type="button" class="primary" data-save><i class="fa-solid fa-floppy-disk"></i> 登録して使用</button></footer>
+            </div>`;
+        document.body.appendChild(overlay);
+        const box = overlay.querySelector('.shift-photo-compare-custom-frame-screen-box');
+        const preview = overlay.querySelector('.shift-photo-compare-custom-frame-preview');
+        const values = Object.fromEntries(Array.from(overlay.querySelectorAll('[data-frame-value]')).map(input => [input.dataset.frameValue, input]));
+        let rect = { ...autoRect };
+        const render = () => {
+            rect.width = Math.max(5, Math.min(100, Number(rect.width) || 5));
+            rect.height = Math.max(5, Math.min(100, Number(rect.height) || 5));
+            rect.x = Math.max(0, Math.min(100 - rect.width, Number(rect.x) || 0));
+            rect.y = Math.max(0, Math.min(100 - rect.height, Number(rect.y) || 0));
+            Object.assign(box.style, { left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.width}%`, height: `${rect.height}%` });
+            Object.entries(values).forEach(([key, input]) => { input.value = Number(rect[key]).toFixed(1); });
+        };
+        const drag = (event, resizing) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const bounds = preview.getBoundingClientRect();
+            const start = { clientX: event.clientX, clientY: event.clientY, ...rect };
+            const move = next => {
+                const dx = (next.clientX - start.clientX) / bounds.width * 100;
+                const dy = (next.clientY - start.clientY) / bounds.height * 100;
+                rect = resizing ? { ...start, width: start.width + dx, height: start.height + dy } : { ...start, x: start.x + dx, y: start.y + dy };
+                render();
+            };
+            const end = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', end);
+        };
+        box.addEventListener('pointerdown', event => { if (event.target !== box.querySelector('i')) drag(event, false); });
+        box.querySelector('i').addEventListener('pointerdown', event => drag(event, true));
+        Object.entries(values).forEach(([key,input]) => input.addEventListener('change', () => { rect[key] = Number(input.value); render(); }));
+        overlay.querySelector('[data-detect]').onclick = () => { rect = { ...autoRect }; render(); };
+        const close = () => { URL.revokeObjectURL(objectUrl); overlay.remove(); };
+        overlay.querySelector('[data-close]').onclick = close;
+        overlay.querySelector('[data-cancel]').onclick = close;
+        overlay.addEventListener('pointerdown', event => { if (event.target === overlay) close(); });
+        overlay.querySelector('[data-save]').onclick = async event => {
+            const button = event.currentTarget;
+            const name = overlay.querySelector('.shift-photo-compare-custom-frame-name input').value.trim() || '独自枠';
+            const id = `frame-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+            const mediaKey = `shift-photo-video-frame:${store.activeDepartment || 'default'}:${id}`;
+            button.disabled = true;
+            try {
+                let storedBlob = file;
+                if (!detectedRect) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.naturalWidth;
+                    canvas.height = image.naturalHeight;
+                    const context = canvas.getContext('2d');
+                    context.drawImage(image, 0, 0);
+                    context.clearRect(
+                        Math.round(rect.x / 100 * canvas.width),
+                        Math.round(rect.y / 100 * canvas.height),
+                        Math.round(rect.width / 100 * canvas.width),
+                        Math.round(rect.height / 100 * canvas.height)
+                    );
+                    storedBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                    if (!storedBlob) throw new Error('frame conversion failed');
+                }
+                await store.saveMediaBlob(mediaKey, storedBlob);
+                const frame = { id, name, mediaKey, x: rect.x, y: rect.y, width: rect.width, height: rect.height, aspect: image.naturalWidth / image.naturalHeight, size: storedBlob.size, createdAt: new Date().toISOString() };
+                store.activeData.shiftPhotoCompareVideoFrames = [...this.getShiftPhotoCompareCustomVideoFrames(), frame];
+                await store.save();
+                const target = this._shiftPhotoCompareCustomFrameTarget;
+                if (target?.isConnected) {
+                    this.pushShiftPhotoCompareUndo?.();
+                    target.dataset.videoFrameAspectLocked = overlay.querySelector('[data-lock]').checked ? '1' : '0';
+                    this.applyShiftPhotoCompareVideoFrame(target, 'custom', frame);
+                }
+                close();
+                this.showToast?.(`独自枠「${name}」を登録して使用しました。`);
+            } catch (error) {
+                console.error(error);
+                button.disabled = false;
+                this.showToast?.('独自枠を保存できませんでした。', 'error');
+            }
+        };
+        render();
+    }
+
+    detectShiftPhotoCompareCustomVideoFrameScreen(image) {
+        const scale = Math.min(1, 360 / Math.max(image.naturalWidth, image.naturalHeight));
+        const width = Math.max(1, Math.round(image.naturalWidth * scale));
+        const height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        context.drawImage(image, 0, 0, width, height);
+        const pixels = context.getImageData(0, 0, width, height).data;
+        const visited = new Uint8Array(width * height);
+        let best = null;
+        for (let sy = 1; sy < height - 1; sy += 1) for (let sx = 1; sx < width - 1; sx += 1) {
+            const startIndex = sy * width + sx;
+            if (visited[startIndex] || pixels[startIndex * 4 + 3] >= 40) continue;
+            const stack = [startIndex];
+            visited[startIndex] = 1;
+            let count = 0, minX = sx, maxX = sx, minY = sy, maxY = sy, touchesEdge = false;
+            while (stack.length) {
+                const index = stack.pop(), x = index % width, y = Math.floor(index / width);
+                count += 1; minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+                if (!x || !y || x === width - 1 || y === height - 1) touchesEdge = true;
+                [index - 1, index + 1, index - width, index + width].forEach(next => {
+                    if (next < 0 || next >= visited.length || visited[next] || pixels[next * 4 + 3] >= 40) return;
+                    const nx = next % width, ny = Math.floor(next / width);
+                    if (Math.abs(nx - x) + Math.abs(ny - y) !== 1) return;
+                    visited[next] = 1; stack.push(next);
+                });
+            }
+            if (!touchesEdge && count > (best?.count || width * height * 0.015)) best = { count, minX, maxX, minY, maxY };
+        }
+        return best ? { x: best.minX / width * 100, y: best.minY / height * 100, width: (best.maxX - best.minX + 1) / width * 100, height: (best.maxY - best.minY + 1) / height * 100 } : null;
+    }
+
+    async hydrateShiftPhotoCompareCustomVideoFrame(mark) {
+        const highlight = mark?.querySelector?.('.tv-frame-highlight');
+        if (!highlight) return;
+        const requestedId = mark.dataset.videoFrameStyle === 'custom' ? String(mark.dataset.videoFrameId || '') : '';
+        if (requestedId && mark._shiftPhotoCompareCustomFrameObjectUrl && mark._shiftPhotoCompareCustomFrameHydratedId === requestedId) return;
+        if (mark._shiftPhotoCompareCustomFrameObjectUrl) URL.revokeObjectURL(mark._shiftPhotoCompareCustomFrameObjectUrl);
+        mark._shiftPhotoCompareCustomFrameObjectUrl = '';
+        mark._shiftPhotoCompareCustomFrameHydratedId = '';
+        highlight.style.removeProperty('background-image');
+        mark.classList.remove('custom-video-frame-missing');
+        if (!requestedId) return;
+        const frame = this.getShiftPhotoCompareCustomVideoFrame(requestedId);
+        const blob = frame ? await store.loadMediaBlob(frame.mediaKey).catch(() => null) : null;
+        if (!blob || !mark.isConnected) { mark.classList.add('custom-video-frame-missing'); return; }
+        const url = URL.createObjectURL(blob);
+        mark._shiftPhotoCompareCustomFrameObjectUrl = url;
+        mark._shiftPhotoCompareCustomFrameHydratedId = requestedId;
+        highlight.style.backgroundImage = `url("${url}")`;
+    }
+
+    async renameShiftPhotoCompareCustomVideoFrame(id = '') {
+        const frame = this.getShiftPhotoCompareCustomVideoFrame(id);
+        if (!frame) return;
+        const entered = prompt('登録枠の新しい名前を入力してください。', frame.name || '独自枠');
+        if (entered === null) return;
+        const name = String(entered || '').trim().slice(0, 30);
+        if (!name) {
+            this.showToast?.('枠の名前を入力してください。', 'error');
+            return;
+        }
+        const frames = this.getShiftPhotoCompareCustomVideoFrames().map(item => (
+            item.id === id ? { ...item, name, updatedAt: new Date().toISOString() } : item
+        ));
+        store.activeData.shiftPhotoCompareVideoFrames = frames;
+        try {
+            await store.save();
+            this.closeShiftPhotoCompareAnimationBadgeMenu();
+            this.showToast?.(`登録枠の名前を「${name}」へ変更しました。`);
+        } catch (error) {
+            console.error(error);
+            this.showToast?.('枠の名前を保存できませんでした。', 'error');
+        }
+    }
+    async deleteShiftPhotoCompareCustomVideoFrame(id = '') {
+        const frame = this.getShiftPhotoCompareCustomVideoFrame(id);
+        if (!frame || !confirm(`登録枠「${frame.name}」を削除しますか？`)) return;
+        store.activeData.shiftPhotoCompareVideoFrames = this.getShiftPhotoCompareCustomVideoFrames().filter(item => item.id !== id);
+        await store.deleteMediaBlob(frame.mediaKey).catch(() => false);
+        document.querySelectorAll(`.shift-photo-compare-mark.video[data-video-frame-id="${CSS.escape(id)}"]`).forEach(mark => this.applyShiftPhotoCompareVideoFrame(mark, 'none'));
+        await store.save();
+        this.closeShiftPhotoCompareAnimationBadgeMenu();
+        this.showToast?.(`登録枠「${frame.name}」を削除しました。`);
     }
 
     toggleShiftPhotoCompareMarkSpeechFromMenu() {
@@ -8389,7 +9055,8 @@
 
     playShiftPhotoCompareRecordedAudio(key = '', options = {}) {
         if (!key) return false;
-        const audioContext = this.prepareShiftPhotoCompareRecordedAudioContext();
+        const audioContext = this._shiftPhotoCompareAnimationRecordingAudioContext
+            || this.prepareShiftPhotoCompareRecordedAudioContext();
         const trimStart = Math.max(0, Number(options.trimStart) || 0);
         const trimEnd = Math.max(0, Number(options.trimEnd) || 0);
         const generation = Number.isFinite(Number(options.generation))
@@ -8450,6 +9117,9 @@
                     const source = audioContext.createBufferSource();
                     source.buffer = audioBuffer;
                     source.connect(audioContext.destination);
+                    if (this._shiftPhotoCompareAnimationRecordingAudioDestination) {
+                        source.connect(this._shiftPhotoCompareAnimationRecordingAudioDestination);
+                    }
                     source.onended = finish;
                     playback.source = source;
                     const boundedStart = Math.min(trimStart, Math.max(0, audioBuffer.duration - 0.01));
@@ -9183,6 +9853,8 @@
             index,
             order: this.getShiftPhotoCompareAnimationOrderValue(mark.dataset.animationOrder),
             effect: this.normalizeShiftPhotoCompareAnimationEffect(mark.dataset.animationEffect || ''),
+            roundTripPauseMs: Math.max(0, Math.min(3000, Math.round(Number(mark.dataset.animationRoundTripPauseMs) || 0))),
+            roundTripCount: this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.dataset.animationRoundTripCount),
             motion: mark.dataset.animationMotion === '1' && (mark.dataset.mode === 'polyline' || !this.isShiftPhotoComparePointPathMode(mark.dataset.mode)),
             start: this.getShiftPhotoCompareAnimationStartState(mark),
             end: this.getShiftPhotoCompareAnimationEndState(mark)
@@ -9262,6 +9934,10 @@
         const endStretchY = this.getShiftPhotoCompareAnimationNumber(end.stretchY, startStretchY);
         const mode = mark.dataset.mode || '';
         const isVideoMark = mode === 'video';
+        const isVideoFrameAspectLocked = isVideoMark
+            && mark.dataset.videoFrameAspectLocked === '1'
+            && mark.dataset.videoFrameStyle !== 'none';
+        const videoFrameAspect = Math.max(0.2, Math.min(5, Number(mark.dataset.videoFrameAspect) || (16 / 9)));
         const isPolylineMotion = mode === 'polyline';
         if (isPolylineMotion) mark.style.removeProperty('transform');
         const isLineMark = mode === 'arrow' || mode === 'dimension';
@@ -9272,8 +9948,12 @@
         const getCalloutMarkHeight = size => Math.max(1, size * 1.5);
         const startWidth = isVideoMark ? startSize * startStretch : (isLineMark ? getLineMarkWidth(startSize, startStretch) : (isCalloutMark ? getCalloutMarkWidth(startSize) : startSize));
         const endWidth = isVideoMark ? endSize * endStretch : (isLineMark ? getLineMarkWidth(startSize, endStretch) : (isCalloutMark ? getCalloutMarkWidth(endSize) : endSize));
-        const startHeight = isVideoMark ? startSize * startStretchY : (isLineMark ? getLineMarkHeight(startSize, startStretchY) : (isCalloutMark ? getCalloutMarkHeight(startSize) : startSize));
-        const endHeight = isVideoMark ? endSize * endStretchY : (isLineMark ? startHeight : (isCalloutMark ? getCalloutMarkHeight(endSize) : endSize));
+        const startHeight = isVideoMark
+            ? (isVideoFrameAspectLocked ? startWidth / videoFrameAspect : startSize * startStretchY)
+            : (isLineMark ? getLineMarkHeight(startSize, startStretchY) : (isCalloutMark ? getCalloutMarkHeight(startSize) : startSize));
+        const endHeight = isVideoMark
+            ? (isVideoFrameAspectLocked ? endWidth / videoFrameAspect : endSize * endStretchY)
+            : (isLineMark ? startHeight : (isCalloutMark ? getCalloutMarkHeight(endSize) : endSize));
         if (isVideoMark) {
             mark.style.width = `${startWidth}px`;
             mark.style.height = `${startHeight}px`;
@@ -9302,6 +9982,13 @@
             mark.style.setProperty('--animation-path-dx', `${endX - startX}%`);
             mark.style.setProperty('--animation-path-dy', `${endY - startY}%`);
         }
+    }
+
+    refreshShiftPhotoCompareAnimationPolylineArrows(root) {
+        root?.querySelectorAll?.('.shift-photo-compare-mark.polyline').forEach(mark => {
+            const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+            if (points.length >= 2) this.updateShiftPhotoCompareFreehandMark(mark, points);
+        });
     }
 
     refreshShiftPhotoCompareTextLayout(root) {
@@ -9765,7 +10452,13 @@
                 .filter(mark => mark.dataset.animationGhost !== '1')
                 .forEach((mark, index) => saveMark(mark, `photo:${sourcePhotoIndex}:${index}`));
         });
-        store.activeData.shiftPhotoCompareAnimationTimelines[rowId] = { version: 1, marks };
+        store.activeData.shiftPhotoCompareAnimationTimelines[rowId] = {
+            version: 2,
+            marks,
+            actions: this.normalizeShiftPhotoCompareAnimationTimelineActions(
+                store.activeData.shiftPhotoCompareAnimationTimelines?.[rowId]?.actions
+            )
+        };
     }
 
     restoreShiftPhotoCompareAnimationTimelineBackup(grid, row) {
@@ -9820,11 +10513,89 @@
                         : -1)
                 };
             });
-            store.activeData.shiftPhotoCompareAnimationTimelines[rowId] = { version: 1, marks };
+            store.activeData.shiftPhotoCompareAnimationTimelines[rowId] = {
+            version: 2,
+            marks,
+            actions: this.normalizeShiftPhotoCompareAnimationTimelineActions(
+                store.activeData.shiftPhotoCompareAnimationTimelines?.[rowId]?.actions
+            )
+        };
         });
     }
 
-    mergeShiftPhotoCompareAnimationTimelineSteps(baseSteps = [], pageEntries = []) {
+    getShiftPhotoCompareAnimationTimelineStepKey(step) {
+        if (!step) return '';
+        if (step.type === 'page') {
+            const entry = step.pageEntry;
+            return `page:${this.getShiftPhotoCompareAnimationTimelineMarkKey(entry?.mark)}:${Math.max(0, Number(entry?.pageIndex) || 0)}`;
+        }
+        const phase = step.videoPlayback ? 'video' : (step.motion ? 'motion' : (step.endpointReveal ? 'endpoint' : 'reveal'));
+        return `symbol:${Math.max(0, Number(step.order) || 0)}:${phase}`;
+    }
+
+    normalizeShiftPhotoCompareAnimationTimelineActions(actions = []) {
+        return (Array.isArray(actions) ? actions : []).map((action, index) => {
+            const targetOrder = Math.max(0, Math.round(Number(action?.targetOrder) || 0));
+            const targetOrders = [...new Set([
+                ...(Array.isArray(action?.targetOrders) ? action.targetOrders : []),
+                targetOrder
+            ].map(value => Math.max(0, Math.round(Number(value) || 0))).filter(Boolean))].sort((left, right) => left - right);
+            const type = action?.type === 'show' ? 'show' : 'hide';
+            return {
+                id: String(action?.id || `${type}-${Date.now()}-${index}`).replace(/[^a-z0-9_-]/gi, '').slice(0, 80),
+                type,
+                afterKey: String(action?.afterKey || '').slice(0, 160),
+                afterStepIndex: Number.isFinite(Number(action?.afterStepIndex)) ? Math.max(0, Math.round(Number(action.afterStepIndex))) : -1,
+                targetMarkKey: String(action?.targetMarkKey || '').slice(0, 160),
+                targetOrder: targetOrders[0] || 0,
+                targetOrders
+            };
+        }).filter(action => action.id && (action.afterKey || action.afterStepIndex >= 0) && action.targetOrders.length);
+    }
+
+    getShiftPhotoCompareAnimationTimelineStorageKey(row = null, fallbackKey = '') {
+        return String(row?.dataset?.shiftRowId || fallbackKey || this._shiftPhotoCompareContext?.animationTimelineStorageKey || '').slice(0, 180);
+    }
+
+    createShiftPhotoCompareAnimationTimelineStorageKey(photos = [], source = '') {
+        const identity = (Array.isArray(photos) ? photos : []).map((photo, index) => {
+            const item = photo && typeof photo === 'object' ? photo : { src: photo };
+            const src = String(item.src || '');
+            return [index, item.id || item.videoId || item.photoManagerId || item.orderNumber || '', item.source || '', src.length, src.slice(0, 96), src.slice(-96)].join(':');
+        }).join('|');
+        let hash = 2166136261;
+        const seed = `${source || 'photo'}|${identity}`;
+        for (let index = 0; index < seed.length; index += 1) {
+            hash ^= seed.charCodeAt(index);
+            hash = Math.imul(hash, 16777619);
+        }
+        return `source-${String(source || 'photo').replace(/[^a-z0-9_-]/gi, '').slice(0, 24) || 'photo'}-${(hash >>> 0).toString(36)}`;
+    }
+
+    getShiftPhotoCompareAnimationTimelineActions(row = this._shiftPhotoCompareAnimationState?.pages?.[this._shiftPhotoCompareAnimationState?.pageIndex]?.row, fallbackKey = '') {
+        const rowId = this.getShiftPhotoCompareAnimationTimelineStorageKey(row, fallbackKey);
+        return this.normalizeShiftPhotoCompareAnimationTimelineActions(
+            store.activeData.shiftPhotoCompareAnimationTimelines?.[rowId]?.actions
+        );
+    }
+
+    saveShiftPhotoCompareAnimationTimelineActions(row, actions = [], fallbackKey = '') {
+        const rowId = this.getShiftPhotoCompareAnimationTimelineStorageKey(row, fallbackKey);
+        if (!rowId) return false;
+        if (!store.activeData.shiftPhotoCompareAnimationTimelines || typeof store.activeData.shiftPhotoCompareAnimationTimelines !== 'object') {
+            store.activeData.shiftPhotoCompareAnimationTimelines = {};
+        }
+        const current = store.activeData.shiftPhotoCompareAnimationTimelines[rowId] || { version: 1, marks: {} };
+        store.activeData.shiftPhotoCompareAnimationTimelines[rowId] = {
+            ...current,
+            version: 2,
+            actions: this.normalizeShiftPhotoCompareAnimationTimelineActions(actions)
+        };
+        store.save();
+        return true;
+    }
+
+    mergeShiftPhotoCompareAnimationTimelineSteps(baseSteps = [], pageEntries = [], actions = [], allItems = []) {
         const inserted = pageEntries
             .filter(entry => entry.insertAfter >= Math.max(1, Number(entry.item?.order) || 1))
             .sort((left, right) => left.insertAfter - right.insertAfter || left.type.localeCompare(right.type) || left.pageIndex - right.pageIndex);
@@ -9844,7 +10615,47 @@
         inserted.filter(entry => entry.insertAfter > 0 && !knownOrders.has(entry.insertAfter)).forEach(entry => {
             steps.push({ type: 'page', pageEntry: entry, items: [], motion: false, order: entry.insertAfter });
         });
+        const itemsByKey = new Map((allItems || []).map(item => [this.getShiftPhotoCompareAnimationTimelineMarkKey(item.mark), item]));
+        const actionsByKey = new Map();
+        const actionsByStepIndex = new Map();
+        this.normalizeShiftPhotoCompareAnimationTimelineActions(actions).forEach(action => {
+            const targetMap = action.afterStepIndex >= 0 ? actionsByStepIndex : actionsByKey;
+            const anchor = action.afterStepIndex >= 0 ? action.afterStepIndex : action.afterKey;
+            if (!targetMap.has(anchor)) targetMap.set(anchor, []);
+            targetMap.get(anchor).push(action);
+        });
+        const stepsWithActions = [];
+        steps.forEach((step, stepIndex) => {
+            stepsWithActions.push(step);
+            const key = this.getShiftPhotoCompareAnimationTimelineStepKey(step);
+            const anchoredActions = [
+                ...(actionsByStepIndex.get(stepIndex) || []),
+                ...(actionsByKey.get(key) || [])
+            ];
+            actionsByKey.delete(key);
+            anchoredActions.forEach(action => {
+                const targetItem = itemsByKey.get(action.targetMarkKey);
+                const targetOrders = [...new Set([
+                    ...(action.targetOrders || []),
+                    Number(targetItem?.order) || 0
+                ].map(Number).filter(Boolean))];
+                const targetItems = (allItems || []).filter(item => targetOrders.includes(Number(item.order)));
+                if (targetItems.length) stepsWithActions.push({
+                    type: action.type === 'show' ? 'show' : 'hide',
+                    action: { ...action, targetOrder: targetOrders[0] || 0, targetOrders },
+                    item: targetItems[0],
+                    items: targetItems,
+                    motion: false,
+                    order: step.order
+                });
+            });
+        });
+        steps.splice(0, steps.length, ...stepsWithActions);
         steps.forEach((step, index) => {
+            if (['hide', 'show'].includes(step.type)) {
+                step.timelineStepIndex = index;
+                return;
+            }
             if (step.type === 'page') {
                 step.timelineStepIndex = index;
                 return;
@@ -10004,9 +10815,12 @@
             this.prepareShiftPhotoCompareAnimationMark(item);
         });
         const timelineEntries = this.getShiftPhotoCompareAnimationTimelinePageEntries(allItems);
-        const steps = this.mergeShiftPhotoCompareAnimationTimelineSteps(baseSteps, timelineEntries);
+        const storageKey = this.getShiftPhotoCompareAnimationTimelineStorageKey(row);
+        const timelineActions = this.getShiftPhotoCompareAnimationTimelineActions(row, storageKey);
+        const steps = this.mergeShiftPhotoCompareAnimationTimelineSteps(baseSteps, timelineEntries, timelineActions, allItems);
         return {
             row,
+            storageKey,
             grid,
             allItems,
             marks,
@@ -10076,9 +10890,7 @@
             const label = String(mark.dataset.animationName || `記号 ${item.order || '?'}`).trim();
             if (mark.dataset.mode === 'video') {
                 const videoId = String(mark.dataset.videoId || '');
-                if (!videoId || !this.getPhotoManagerVideo?.(videoId)) {
-                    issues.push(`${label}: 動画データが見つかりません`);
-                }
+                if (!videoId || !this.getPhotoManagerVideo?.(videoId)) issues.push(`${label}: 動画データが見つかりません`);
                 const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
                 const end = Math.max(0, Number(mark.dataset.videoTrimEnd) || 0);
                 if (end > 0 && end <= start) issues.push(`${label}: 再生範囲が正しくありません`);
@@ -10092,9 +10904,31 @@
                 issues.push(`${entry.pageNumber}P: 表示前の位置へ差し込まれています`);
             }
         });
-        return [...new Set(issues)].slice(0, 6);
+        const revealed = new Set();
+        const hidden = new Map();
+        (page?.steps || []).forEach((step, stepIndex) => {
+            if (step.type === 'symbol' && !step.motion && !step.videoPlayback) {
+                revealed.add(Number(step.order));
+                hidden.set(Number(step.order), false);
+                return;
+            }
+            if (!['hide', 'show'].includes(step.type)) return;
+            const targetOrders = step.action?.targetOrders || [step.action?.targetOrder];
+            targetOrders.map(Number).filter(Boolean).forEach(order => {
+                const target = (page?.allItems || []).find(item => Number(item.order) === order);
+                const label = String(target?.mark?.dataset?.animationName || '').trim() || `記号 ${order}`;
+                if (!revealed.has(order)) {
+                    issues.push(`駅${stepIndex + 1} ${label}: 表示前に${step.type === 'show' ? '再表示' : '消去'}しています`);
+                } else if (step.type === 'hide' && hidden.get(order)) {
+                    issues.push(`駅${stepIndex + 1} ${label}: すでに消えています`);
+                } else if (step.type === 'show' && !hidden.get(order)) {
+                    issues.push(`駅${stepIndex + 1} ${label}: すでに表示中です`);
+                }
+                hidden.set(order, step.type === 'hide');
+            });
+        });
+        return [...new Set(issues)].slice(0, 10);
     }
-
     renderShiftPhotoCompareAnimationTimeline() {
         const state = this._shiftPhotoCompareAnimationState;
         const page = state?.pages?.[state.pageIndex];
@@ -10105,13 +10939,30 @@
         const symbolGroupIndexes = new Map(symbolGroups.map((step, index) => [step.order, index]));
         const symbolDropZone = targetIndex => `<div class="shift-photo-compare-animation-timeline-drop-zone symbol-drop-zone" data-symbol-drop-index="${targetIndex}" ondragover="app.dragOverShiftPhotoCompareAnimationSymbolTimeline(event, ${targetIndex})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationSymbolTimeline(event, ${targetIndex})">ここへ移動</div>`;
         const symbolNodes = (page.steps || []).map((step, index, steps) => {
+            const stationDot = `<span class="shift-photo-compare-animation-timeline-dot">${index + 1}</span>`;
+            const afterKey = encodeURIComponent(this.getShiftPhotoCompareAnimationTimelineStepKey(step));
+            const afterStepIndex = steps.slice(0, index + 1).filter(candidate => !['hide', 'show'].includes(candidate.type)).length - 1;
+            const hasTimelineAction = ['hide', 'show'].includes(steps[index + 1]?.type);
+            const addStation = !['hide', 'show'].includes(step.type)
+                ? `<button type="button" class="shift-photo-compare-animation-add-station ${hasTimelineAction ? 'has-action' : ''}" onclick="event.stopPropagation(); app.openShiftPhotoCompareAnimationHideActionEditor('${afterKey}', ${afterStepIndex})" ondragover="app.dragOverShiftPhotoCompareAnimationActionStation(event, '${afterKey}', ${afterStepIndex})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationActionStation(event, '${afterKey}', ${afterStepIndex})" title="${hasTimelineAction ? 'この区間には表示状態アクションがあります' : 'この駅の後にアクションを追加'}" aria-label="${hasTimelineAction ? '表示状態アクション設定済み' : 'この駅の後にアクションを追加'}"><i class="fa-solid ${hasTimelineAction ? 'fa-eye' : 'fa-plus'}"></i></button>`
+                : '';
+            if (['hide', 'show'].includes(step.type)) {
+                const targetOrders = step.action?.targetOrders || [step.action?.targetOrder];
+                const targetNames = targetOrders.map(order => {
+                    const target = (page.allItems || []).find(item => Number(item.order) === Number(order));
+                    return String(target?.mark?.dataset?.animationName || '').trim() || `記号 ${order}`;
+                });
+                const targetLabel = this.escapeHtml(targetNames.join('、'));
+                const isShow = step.type === 'show';
+                return `<div class="shift-photo-compare-animation-timeline-node symbol-node ${isShow ? 'show-node' : 'hide-node'}" data-timeline-step-index="${index}" data-timeline-action-id="${step.action.id}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge ${isShow ? 'show-action' : 'hide-action'}" draggable="true" onclick="app.openShiftPhotoCompareAnimationHideActionEditor('', -1, '${step.action.id}')" ondragstart="app.startShiftPhotoCompareAnimationActionTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックで編集、ドラッグで実行位置を変更"><strong>${targetLabel}</strong><small><i class="fa-solid ${isShow ? 'fa-eye' : 'fa-eye-slash'}"></i> ${isShow ? '再表示' : '消す'}・${targetOrders.length}件</small></button><button type="button" class="shift-photo-compare-animation-delete-station" onclick="event.stopPropagation(); app.deleteShiftPhotoCompareAnimationTimelineAction('${step.action.id}')" title="この駅を削除" aria-label="この駅を削除"><i class="fa-solid fa-trash"></i></button></div>`;
+            }
             if (step.type === 'page') {
                 const entry = step.pageEntry;
                 const laneClass = entry.type === 'boxedTextPage' ? 'boxed' : 'callout';
                 const suffix = entry.type === 'boxedTextPage' ? '（直）' : '（吹）';
-                const node = `<div class="shift-photo-compare-animation-timeline-node inserted ${laneClass} ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-timeline-entry-id="${entry.id}"><span class="shift-photo-compare-animation-timeline-dot"></span><button type="button" class="shift-photo-compare-animation-timeline-badge inserted ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageAudioMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックでページ音声"><strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong><span>${this.escapeHtml(entry.label)}</span>${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}</button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
+                const node = `<div class="shift-photo-compare-animation-timeline-node inserted ${laneClass} ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-timeline-entry-id="${entry.id}">${stationDot}<button type="button" class="shift-photo-compare-animation-timeline-badge inserted ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageAudioMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックでページ音声"><strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong><span>${this.escapeHtml(entry.label)}</span>${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}</button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
                 const nextOrder = steps[index + 1]?.order;
-                return nextOrder === step.order ? node : `${node}<div class="shift-photo-compare-animation-timeline-drop-zone page-drop-zone" data-drop-order="${step.order}" ondragover="app.dragOverShiftPhotoCompareAnimationTimeline(event, ${step.order})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationTimeline(event, ${step.order})">記号 ${step.order} の後</div>`;
+                return nextOrder === step.order ? `${node}${addStation}` : `${node}${addStation}<div class="shift-photo-compare-animation-timeline-drop-zone page-drop-zone" data-drop-order="${step.order}" ondragover="app.dragOverShiftPhotoCompareAnimationTimeline(event, ${step.order})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationTimeline(event, ${step.order})">記号 ${step.order} の後</div>`;
             }
             const suffix = this.getShiftPhotoCompareAnimationTimelineSuffix(step.items || []);
             const symbolKind = this.getShiftPhotoCompareAnimationTimelineSymbolKind(step.items || []);
@@ -10120,17 +10971,17 @@
             const groupIndex = symbolGroupIndexes.get(step.order);
             const dragAttributes = `draggable="true" ondragstart="app.startShiftPhotoCompareAnimationSymbolTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="記号欄内でドラッグして順番を変更"`;
             const node = step.videoPlayback
-                ? `<div class="shift-photo-compare-animation-timeline-node symbol-node video-playback-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}"><span class="shift-photo-compare-animation-timeline-dot"></span><button type="button" class="shift-photo-compare-animation-symbol-badge symbol-video video-playback" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" title="クリックで動画再生をプレビュー"><strong>${badgeTitle}（動）</strong><small><i class="fa-solid fa-play"></i> 再生</small></button></div>`
+                ? `<div class="shift-photo-compare-animation-timeline-node symbol-node video-playback-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-video video-playback" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" title="クリックで動画再生をプレビュー"><strong>${badgeTitle}（動）</strong><small><i class="fa-solid fa-play"></i> 再生</small></button></div>`
                 : step.motion
-                ? `<div class="shift-photo-compare-animation-timeline-node symbol-node motion-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}"><span class="shift-photo-compare-animation-timeline-dot"></span><button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}><strong>${badgeTitle}${suffix}</strong><small>移動</small></button></div>`
-                : `<div class="shift-photo-compare-animation-timeline-node symbol-node ${selectedItems.has(`symbol:${step.order}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-symbol-order="${step.order}"><span class="shift-photo-compare-animation-timeline-dot"></span><button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}><strong>${badgeTitle}${suffix}</strong><small>${animationName ? `記号 ${step.order}` : ((step.items || []).length > 1 ? `${step.items.length}個を同時表示` : '表示')}</small></button><button type="button" class="shift-photo-compare-animation-symbol-name-edit" onclick="event.stopPropagation(); app.openShiftPhotoCompareAnimationSymbolNameEditor(${step.order})" title="記号名を編集" aria-label="記号名を編集"><i class="fa-solid fa-pen"></i></button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('symbol', '${step.order}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
+                ? `<div class="shift-photo-compare-animation-timeline-node symbol-node motion-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}><strong>${badgeTitle}${suffix}</strong><small>${this.isShiftPhotoCompareAnimationRoundTripStep(step) ? '往復' : '移動'}</small></button></div>`
+                : `<div class="shift-photo-compare-animation-timeline-node symbol-node ${selectedItems.has(`symbol:${step.order}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-symbol-order="${step.order}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}><strong>${badgeTitle}${suffix}</strong><small>${animationName ? `記号 ${step.order}` : ((step.items || []).length > 1 ? `${step.items.length}個を同時表示` : '表示')}</small></button><button type="button" class="shift-photo-compare-animation-symbol-name-edit" onclick="event.stopPropagation(); app.openShiftPhotoCompareAnimationSymbolNameEditor(${step.order})" title="記号名を編集" aria-label="記号名を編集"><i class="fa-solid fa-pen"></i></button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('symbol', '${step.order}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
             const nextOrder = steps[index + 1]?.order;
             const before = !step.motion && !step.videoPlayback ? symbolDropZone(groupIndex) : '';
             const afterSymbol = nextOrder === step.order ? '' : `<div class="shift-photo-compare-animation-timeline-drop-zone page-drop-zone" data-drop-order="${step.order}" ondragover="app.dragOverShiftPhotoCompareAnimationTimeline(event, ${step.order})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationTimeline(event, ${step.order})">記号 ${step.order} の後</div>`;
             const afterLast = groupIndex === symbolGroups.length - 1 && !steps.some((nextStep, nextIndex) => nextIndex > index && nextStep.type === 'symbol' && nextStep.order === step.order)
                 ? symbolDropZone(symbolGroups.length)
                 : '';
-            return `${before}${node}${afterSymbol}${afterLast}`;
+            return `${before}${node}${addStation}${afterSymbol}${afterLast}`;
         }).join('');
         const visibleEntries = (page.timelineEntries || []).filter(entry => Number(entry.item?.order) > 0);
         const boxedEntries = visibleEntries.filter(entry => entry.type === 'boxedTextPage');
@@ -10138,12 +10989,21 @@
         const selectedCount = selectedItems.size;
         const issues = this.getShiftPhotoCompareAnimationTimelineIssues(page);
         body.innerHTML = `
+            <div class="shift-photo-compare-animation-playhead-control">
+                <button type="button" onclick="app.seekShiftPhotoCompareAnimationTimeline(-1)" title="開始前へ戻る"><i class="fa-solid fa-backward-step"></i></button>
+                <input type="range" min="0" max="${page.steps?.length || 0}" value="${Math.max(0, state.index + 1)}" oninput="app.seekShiftPhotoCompareAnimationTimeline(Number(this.value) - 1)" aria-label="再生位置">
+                <output>${Math.max(0, state.index + 1)} / ${page.steps?.length || 0}</output>
+            </div>
             ${issues.length ? `<div class="shift-photo-compare-animation-timeline-issues"><strong><i class="fa-solid fa-triangle-exclamation"></i> 手順チェック ${issues.length}件</strong>${issues.map(issue => `<span>${this.escapeHtml(issue)}</span>`).join('')}</div>` : ''}
             <div class="shift-photo-compare-animation-timeline-batch ${selectedCount ? '' : 'hidden'}">
                 <strong>${selectedCount}件選択</strong>
                 <button type="button" onclick="app.moveSelectedShiftPhotoCompareAnimationTimeline(-1)" title="選択項目を前へ"><i class="fa-solid fa-arrow-up"></i></button>
                 <button type="button" onclick="app.moveSelectedShiftPhotoCompareAnimationTimeline(1)" title="選択項目を後へ"><i class="fa-solid fa-arrow-down"></i></button>
                 <button type="button" onclick="app.openSelectedShiftPhotoCompareAnimationTimelineNameEditor()" title="選択した記号へ名前を付ける"><i class="fa-solid fa-pen"></i><span>名前</span></button>
+                <button type="button" onclick="app.addSelectedShiftPhotoCompareAnimationVisibilityAction('show')" title="現在駅の後で選択記号を再表示"><i class="fa-solid fa-eye"></i><span>表示</span></button>
+                <button type="button" onclick="app.addSelectedShiftPhotoCompareAnimationVisibilityAction('hide')" title="現在駅の後で選択記号を消す"><i class="fa-solid fa-eye-slash"></i><span>消す</span></button>
+                <label class="shift-photo-compare-animation-batch-color" title="選択記号の色を一括変更"><i class="fa-solid fa-palette"></i><input type="color" value="#dc2626" onchange="app.applySelectedShiftPhotoCompareAnimationColor(this.value)"></label>
+                <label class="shift-photo-compare-animation-batch-hold" title="選択記号を表示した後の待ち時間"><i class="fa-regular fa-clock"></i><input type="number" min="100" max="10000" step="50" value="${this.getSelectedShiftPhotoCompareAnimationHoldMs()}" onchange="app.applySelectedShiftPhotoCompareAnimationHold(this.value)"><span>ms</span></label>
                 <button type="button" onclick="app.detachSelectedShiftPhotoCompareAnimationTimelinePages()" title="選択ページの差し込みを解除"><i class="fa-solid fa-link-slash"></i><span>解除</span></button>
                 <button type="button" class="danger" onclick="app.removeSelectedShiftPhotoCompareAnimationTimelineItems()" title="選択記号をアニメから外す"><i class="fa-solid fa-trash"></i></button>
                 <button type="button" onclick="app.clearShiftPhotoCompareAnimationTimelineSelection()" title="選択を解除"><i class="fa-solid fa-xmark"></i></button>
@@ -10151,16 +11011,157 @@
             <div class="shift-photo-compare-animation-timeline-lanes">
                 <section class="shift-photo-compare-animation-timeline-lane symbol-lane">
                     <h3><i class="fa-solid fa-route"></i><span>記号</span></h3>
-                    <div class="shift-photo-compare-animation-timeline-route">${symbolNodes || '<p>記号なし</p>'}</div>
+                    <div class="shift-photo-compare-animation-timeline-route"><span class="shift-photo-compare-animation-playhead-line"></span>${symbolNodes || '<p>記号なし</p>'}</div>
                 </section>
                 ${this.getShiftPhotoCompareAnimationTimelineLaneHtml('直線引き', 'fa-vector-square', boxedEntries, 'boxedTextPage')}
                 ${this.getShiftPhotoCompareAnimationTimelineLaneHtml('吹き出し', 'fa-comment', calloutEntries, 'calloutPage')}
             </div>
         `;
+        body.querySelectorAll('[data-timeline-step-index]').forEach(node => {
+            node.addEventListener('mouseenter', () => this.showShiftPhotoCompareAnimationStationStatePreview(Number(node.dataset.timelineStepIndex), node));
+            node.addEventListener('mouseleave', () => this.hideShiftPhotoCompareAnimationStationStatePreview(node));
+        });
         this.updateShiftPhotoCompareAnimationTimelineActive();
         this.updateShiftPhotoCompareAnimationTimelineHistoryButtons();
     }
 
+    showShiftPhotoCompareAnimationStationStatePreview(stepIndex = -1, node = null) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        if (!page || !node || stepIndex < 0) return;
+        this.hideShiftPhotoCompareAnimationStationStatePreview();
+        const groups = new Map();
+        (page.allItems || []).filter(item => item.order > 0).forEach(item => {
+            const order = Number(item.order);
+            if (!groups.has(order)) groups.set(order, []);
+            groups.get(order).push(item);
+        });
+        const visible = [];
+        const hidden = [];
+        [...groups.entries()].sort((left, right) => left[0] - right[0]).forEach(([order, items]) => {
+            const item = items[0];
+            const revealStepIndex = Number.isFinite(item.animationRevealStepIndex) ? item.animationRevealStepIndex : Number.MAX_SAFE_INTEGER;
+            const name = String(item.mark?.dataset?.animationName || '').trim() || `記号 ${order}`;
+            const isVisible = revealStepIndex <= stepIndex && !this.isShiftPhotoCompareAnimationItemHiddenAtStep(item, page.steps || [], stepIndex);
+            (isVisible ? visible : hidden).push(name);
+        });
+        const format = values => values.length
+            ? `${values.slice(0, 6).map(value => this.escapeHtml(value)).join('、')}${values.length > 6 ? `、他${values.length - 6}件` : ''}`
+            : 'なし';
+        const preview = document.createElement('div');
+        preview.className = 'shift-photo-compare-animation-station-state-preview';
+        preview.innerHTML = `<strong>駅 ${stepIndex + 1} の状態</strong><span class="visible"><i class="fa-solid fa-eye"></i><b>表示中</b>${format(visible)}</span><span class="hidden"><i class="fa-solid fa-eye-slash"></i><b>非表示</b>${format(hidden)}</span>`;
+        const rect = node.getBoundingClientRect();
+        preview.style.left = `${Math.max(8, rect.left - 294)}px`;
+        preview.style.top = `${Math.max(8, Math.min(window.innerHeight - 190, rect.top))}px`;
+        state.overlay.appendChild(preview);
+    }
+
+    hideShiftPhotoCompareAnimationStationStatePreview() {
+        this._shiftPhotoCompareAnimationState?.overlay?.querySelectorAll?.('.shift-photo-compare-animation-station-state-preview')?.forEach(preview => preview.remove());
+    }
+
+    openShiftPhotoCompareAnimationHideActionEditor(encodedAfterKey = '', afterStepIndex = -1, actionId = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        if (!state || !page || state.videoRecording) return;
+        if (Date.now() < Number(state._timelineSuppressClickUntil || 0)) return;
+        this.hideShiftPhotoCompareAnimationStationStatePreview();
+        const actions = this.getShiftPhotoCompareAnimationTimelineActions(page.row, page.storageKey);
+        const existing = actions.find(action => action.id === actionId) || null;
+        const afterKey = existing?.afterKey || decodeURIComponent(String(encodedAfterKey || ''));
+        const anchorIndex = existing?.afterStepIndex >= 0
+            ? existing.afterStepIndex
+            : Math.max(0, Math.round(Number(afterStepIndex) || 0));
+        if (!afterKey) return;
+        const selectedOrders = new Set(existing?.targetOrders || []);
+        const targetOrders = [...new Set((page.allItems || []).filter(item => item.order > 0).map(item => Number(item.order)))].sort((left, right) => left - right);
+        const options = targetOrders.map(order => {
+            const items = (page.allItems || []).filter(item => Number(item.order) === order);
+            const item = items[0];
+            const name = String(item?.mark?.dataset?.animationName || '').trim() || `記号 ${order}`;
+            const label = `${name}${items.length > 1 ? `（${items.length}要素）` : ''}`;
+            return `<label class="shift-photo-compare-animation-action-target"><input type="checkbox" value="${order}" ${selectedOrders.has(order) ? 'checked' : ''}><span>${this.escapeHtml(label)}</span></label>`;
+        }).join('');
+        if (!options) {
+            this.showToast?.('対象にできる記号がありません。');
+            return;
+        }
+        state.overlay.querySelector('.shift-photo-compare-animation-timeline-dialog')?.remove();
+        const dialog = document.createElement('div');
+        dialog.className = 'shift-photo-compare-animation-timeline-dialog';
+        dialog.innerHTML = `
+            <div class="shift-photo-compare-animation-timeline-dialog-panel shift-photo-compare-animation-action-editor">
+                <header><strong><i class="fa-solid ${existing ? 'fa-pen' : 'fa-plus'}"></i> ${existing ? '駅を編集' : '駅を追加'}</strong><button type="button" onclick="this.closest('.shift-photo-compare-animation-timeline-dialog').remove()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                <div class="shift-photo-compare-animation-action-modes" role="group" aria-label="アクション">
+                    <label><input type="radio" name="timeline-action-type" value="hide" ${existing?.type !== 'show' ? 'checked' : ''}><span><i class="fa-solid fa-eye-slash"></i> 消す</span></label>
+                    <label><input type="radio" name="timeline-action-type" value="show" ${existing?.type === 'show' ? 'checked' : ''}><span><i class="fa-solid fa-eye"></i> 再表示</span></label>
+                </div>
+                <div class="shift-photo-compare-animation-hide-action-choices"><span>対象記号（複数選択可）</span>${options}</div>
+                <div class="shift-photo-compare-animation-timeline-dialog-actions">
+                    ${existing ? `<button type="button" class="danger" onclick="app.deleteShiftPhotoCompareAnimationTimelineAction('${existing.id}')"><i class="fa-solid fa-trash"></i> 削除</button>` : '<span></span>'}
+                    <button type="button" class="primary" onclick="app.saveShiftPhotoCompareAnimationHideAction('${encodeURIComponent(afterKey)}', ${anchorIndex}, '${existing?.id || ''}', this.closest('.shift-photo-compare-animation-timeline-dialog'))"><i class="fa-solid fa-floppy-disk"></i> ${existing ? '更新' : '追加'}</button>
+                </div>
+            </div>`;
+        state.overlay.appendChild(dialog);
+        requestAnimationFrame(() => dialog.querySelector('input:checked')?.focus());
+    }
+
+    saveShiftPhotoCompareAnimationHideAction(encodedAfterKey = '', afterStepIndex = -1, actionId = '', dialog = null) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const afterKey = decodeURIComponent(String(encodedAfterKey || ''));
+        const type = dialog?.querySelector?.('input[name="timeline-action-type"]:checked')?.value === 'show' ? 'show' : 'hide';
+        const targetOrders = [...new Set(Array.from(dialog?.querySelectorAll?.('.shift-photo-compare-animation-action-target input:checked') || [])
+            .map(input => Math.max(0, Math.round(Number(input.value) || 0))).filter(Boolean))].sort((left, right) => left - right);
+        if (!state || !page || !afterKey || !targetOrders.length) {
+            this.showShiftPhotoCompareAnimationTimelineNotice('対象記号を1つ以上選択してください。', 'error');
+            return;
+        }
+        const targetItem = (page.allItems || []).find(item => Number(item.order) === targetOrders[0]);
+        const targetMarkKey = this.getShiftPhotoCompareAnimationTimelineMarkKey(targetItem?.mark);
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        const actions = this.getShiftPhotoCompareAnimationTimelineActions(page.row, page.storageKey);
+        const nextAction = {
+            id: actionId || `${type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+            type,
+            afterKey,
+            afterStepIndex: Math.max(0, Math.round(Number(afterStepIndex) || 0)),
+            targetMarkKey,
+            targetOrder: targetOrders[0],
+            targetOrders
+        };
+        const existingIndex = actions.findIndex(action => action.id === actionId);
+        if (existingIndex >= 0) actions.splice(existingIndex, 1, nextAction);
+        else actions.push(nextAction);
+        if (!this.saveShiftPhotoCompareAnimationTimelineActions(page.row, actions, page.storageKey)) {
+            this.showShiftPhotoCompareAnimationTimelineNotice('アクション駅を保存できませんでした。', 'error');
+            return;
+        }
+        dialog?.remove();
+        this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
+        state.steps = page.steps;
+        state.index = Math.min(state.index, state.steps.length - 1);
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.updateShiftPhotoCompareAnimationCounter();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
+        this.showShiftPhotoCompareAnimationTimelineNotice(`${targetOrders.length}件を${type === 'show' ? '再表示する' : '消す'}駅を${existingIndex >= 0 ? '更新' : '追加'}しました。`, 'saved');
+    }
+    deleteShiftPhotoCompareAnimationTimelineAction(actionId = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        if (!state || !page || !actionId) return;
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        state.overlay.querySelector('.shift-photo-compare-animation-timeline-dialog')?.remove();
+        const actions = this.getShiftPhotoCompareAnimationTimelineActions(page.row, page.storageKey).filter(action => action.id !== actionId);
+        this.saveShiftPhotoCompareAnimationTimelineActions(page.row, actions, page.storageKey);
+        this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
+        state.steps = page.steps;
+        state.index = Math.min(state.index, state.steps.length - 1);
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.updateShiftPhotoCompareAnimationCounter();
+        this.showShiftPhotoCompareAnimationTimelineNotice('追加した駅を削除しました。', 'saved');
+    }
     updateShiftPhotoCompareAnimationTimelineActive() {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state?.overlay) return;
@@ -10176,6 +11177,20 @@
             node.classList.toggle('page-current', !!entry && Number(entry.mark.dataset.currentPage) === entry.pageIndex);
         });
         const activeNode = state.overlay.querySelector('[data-timeline-step-index].playback-current');
+        const playhead = state.overlay.querySelector('.shift-photo-compare-animation-playhead-control input');
+        const playheadOutput = state.overlay.querySelector('.shift-photo-compare-animation-playhead-control output');
+        if (playhead) {
+            playhead.max = String(state.steps?.length || 0);
+            playhead.value = String(Math.max(0, state.index + 1));
+        }
+        if (playheadOutput) playheadOutput.textContent = `${Math.max(0, state.index + 1)} / ${state.steps?.length || 0}`;
+        const route = state.overlay.querySelector('.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-timeline-route');
+        const progressLine = route?.querySelector(':scope > .shift-photo-compare-animation-playhead-line');
+        if (progressLine) {
+            const routeRect = route.getBoundingClientRect();
+            const nodeRect = activeNode?.getBoundingClientRect?.();
+            progressLine.style.height = nodeRect ? `${Math.max(0, nodeRect.top + nodeRect.height / 2 - routeRect.top - 8)}px` : '0px';
+        }
         const timeline = state.overlay.querySelector('.shift-photo-compare-animation-timeline');
         if (activeNode && timeline && !state.overlay.classList.contains('timeline-dragging')
             && !state.overlay.classList.contains('timeline-collapsed')) {
@@ -10199,6 +11214,10 @@
         const pageIndex = state.pageIndex;
         this.activateShiftPhotoCompareAnimationPage(pageIndex);
         for (let index = 0; index <= targetIndex; index += 1) this.stepShiftPhotoCompareAnimation(1);
+    }
+
+    seekShiftPhotoCompareAnimationTimeline(stepIndex = -1) {
+        this.previewShiftPhotoCompareAnimationTimelineStep(stepIndex);
     }
 
     previewShiftPhotoCompareAnimationTimelineEntry(entryId = '') {
@@ -11737,6 +12756,81 @@
         };
     }
 
+    getSelectedShiftPhotoCompareAnimationMarks() {
+        const { page, symbolOrders } = this.getSelectedShiftPhotoCompareAnimationTimelineItems();
+        return (page?.allItems || page?.marks || []).filter(item => symbolOrders.has(Number(item.order)));
+    }
+
+    getSelectedShiftPhotoCompareAnimationHoldMs() {
+        const values = this.getSelectedShiftPhotoCompareAnimationMarks()
+            .map(item => Math.max(0, Math.round(Number(item.mark?.dataset?.animationHoldMs) || 0)))
+            .filter(Boolean);
+        return values.length && values.every(value => value === values[0])
+            ? values[0]
+            : (Number(this._shiftPhotoCompareAnimationState?.speedMs) || this.getShiftPhotoCompareAnimationAutoSpeed());
+    }
+
+    addSelectedShiftPhotoCompareAnimationVisibilityAction(type = 'hide') {
+        const { state, page, symbolOrders } = this.getSelectedShiftPhotoCompareAnimationTimelineItems();
+        if (!state || !page || !symbolOrders.size || state.videoRecording) {
+            this.showShiftPhotoCompareAnimationTimelineNotice('表示状態を変更する記号を選択してください。', 'error');
+            return;
+        }
+        const steps = page.steps || [];
+        const anchorIndex = Math.max(0, Math.min(steps.length - 1, state.index >= 0 ? state.index : 0));
+        const anchorStep = steps[anchorIndex];
+        const afterKey = this.getShiftPhotoCompareAnimationTimelineStepKey(anchorStep);
+        if (!anchorStep || !afterKey) return;
+        const afterStepIndex = Math.max(0, steps.slice(0, anchorIndex + 1).filter(step => !['hide', 'show'].includes(step.type)).length - 1);
+        const targetOrders = [...symbolOrders].sort((left, right) => left - right);
+        const targetItem = (page.allItems || []).find(item => Number(item.order) === targetOrders[0]);
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        const actions = this.getShiftPhotoCompareAnimationTimelineActions(page.row, page.storageKey);
+        actions.push({
+            id: `${type === 'show' ? 'show' : 'hide'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+            type: type === 'show' ? 'show' : 'hide',
+            afterKey,
+            afterStepIndex,
+            targetMarkKey: this.getShiftPhotoCompareAnimationTimelineMarkKey(targetItem?.mark),
+            targetOrder: targetOrders[0],
+            targetOrders
+        });
+        if (!this.saveShiftPhotoCompareAnimationTimelineActions(page.row, actions, page.storageKey)) {
+            this.showShiftPhotoCompareAnimationTimelineNotice('表示状態の駅を保存できませんでした。', 'error');
+            return;
+        }
+        this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
+        state.steps = page.steps;
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
+        this.showShiftPhotoCompareAnimationTimelineNotice(`${targetOrders.length}件を${type === 'show' ? '再表示する' : '消す'}駅を追加しました。`, 'saved');
+    }
+
+    applySelectedShiftPhotoCompareAnimationColor(value = '') {
+        const color = /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#dc2626';
+        const { state, page, symbolOrders } = this.getSelectedShiftPhotoCompareAnimationTimelineItems();
+        if (!state || !page || !symbolOrders.size || state.videoRecording) return;
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        const items = (page.allItems || []).filter(item => symbolOrders.has(Number(item.order)));
+        items.forEach(item => this.applyShiftPhotoCompareSettingsToMark(item.mark, { color }));
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
+        this.showShiftPhotoCompareAnimationTimelineNotice(`${symbolOrders.size}件の記号色を変更しました。`, 'saved');
+    }
+
+    applySelectedShiftPhotoCompareAnimationHold(value = 850) {
+        const holdMs = Math.max(100, Math.min(10000, Math.round(Number(value) || 850)));
+        const { state, page, symbolOrders } = this.getSelectedShiftPhotoCompareAnimationTimelineItems();
+        if (!state || !page || !symbolOrders.size || state.videoRecording) return;
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        (page.allItems || []).filter(item => symbolOrders.has(Number(item.order))).forEach(item => {
+            item.mark.dataset.animationHoldMs = String(holdMs);
+        });
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
+        this.showShiftPhotoCompareAnimationTimelineNotice(`${symbolOrders.size}件の駅間隔を${holdMs}msに変更しました。`, 'saved');
+    }
+
     syncShiftPhotoCompareAnimationTimelineEntryDataset(entry) {
         const pages = this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark);
         if (pages[entry.pageIndex]) pages[entry.pageIndex].animationInsertAfter = entry.insertAfter;
@@ -11921,6 +13015,54 @@
         event.dataTransfer.setData('text/plain', `symbol-${order}`);
     }
 
+    startShiftPhotoCompareAnimationActionTimelineDrag(event, badge) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const actionId = String(badge?.closest?.('[data-timeline-action-id]')?.dataset?.timelineActionId || '');
+        if (!state || !actionId || state.videoRecording) {
+            event?.preventDefault?.();
+            return;
+        }
+        state._timelineDragType = 'action';
+        state._timelineDragActionId = actionId;
+        state.overlay.classList.add('timeline-dragging', 'timeline-action-dragging');
+        badge.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', `action-${actionId}`);
+    }
+
+    dragOverShiftPhotoCompareAnimationActionStation(event, encodedAfterKey = '', afterStepIndex = -1) {
+        const state = this._shiftPhotoCompareAnimationState;
+        if (state?._timelineDragType !== 'action' || !state._timelineDragActionId) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        event.currentTarget.classList.add('drop-allowed');
+        this.showShiftPhotoCompareAnimationTimelineDropPreview(event.currentTarget, `駅 ${Math.max(0, Number(afterStepIndex) + 1)} の後へ`, true);
+    }
+
+    dropShiftPhotoCompareAnimationActionStation(event, encodedAfterKey = '', afterStepIndex = -1) {
+        event.preventDefault();
+        event.stopPropagation();
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const actionId = String(state?._timelineDragActionId || '');
+        const afterKey = decodeURIComponent(String(encodedAfterKey || ''));
+        if (!state || !page || !actionId || !afterKey) return this.endShiftPhotoCompareAnimationTimelineDrag(event);
+        const actions = this.getShiftPhotoCompareAnimationTimelineActions(page.row, page.storageKey);
+        const action = actions.find(item => item.id === actionId);
+        if (!action) return this.endShiftPhotoCompareAnimationTimelineDrag(event);
+        const nextIndex = Math.max(0, Math.round(Number(afterStepIndex) || 0));
+        if (action.afterStepIndex === nextIndex && action.afterKey === afterKey) return this.endShiftPhotoCompareAnimationTimelineDrag(event);
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        action.afterKey = afterKey;
+        action.afterStepIndex = nextIndex;
+        this.saveShiftPhotoCompareAnimationTimelineActions(page.row, actions, page.storageKey);
+        this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
+        state.steps = page.steps;
+        this.endShiftPhotoCompareAnimationTimelineDrag(event);
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
+        this.showShiftPhotoCompareAnimationTimelineNotice('アクション駅を移動しました。', 'saved');
+    }
     dragOverShiftPhotoCompareAnimationTimeline(event, order = -1) {
         if (this._shiftPhotoCompareAnimationState?._timelineDragType !== 'page') return;
         const entries = this.getShiftPhotoCompareAnimationTimelineDraggedEntries();
@@ -12051,8 +13193,9 @@
         state._timelineDragEntryIds = [];
         state._timelineDragSymbolOrder = 0;
         state._timelineDragSymbolOrders = [];
+        state._timelineDragActionId = '';
         state._timelineSuppressClickUntil = Date.now() + 180;
-        state.overlay?.classList?.remove('timeline-dragging', 'timeline-page-dragging', 'timeline-symbol-dragging');
+        state.overlay?.classList?.remove('timeline-dragging', 'timeline-page-dragging', 'timeline-symbol-dragging', 'timeline-action-dragging');
         state.overlay?.querySelectorAll?.('.dragging, .drop-allowed, .drop-blocked, .drop-preview')
             ?.forEach(node => {
                 node.classList.remove('dragging', 'drop-allowed', 'drop-blocked', 'drop-preview');
@@ -12094,6 +13237,23 @@
         this.updateShiftPhotoCompareAnimationTimelineActive();
     }
 
+    setShiftPhotoCompareAnimationTimelineZoom(mode = 'normal') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const safeMode = ['compact', 'normal', 'detail'].includes(mode) ? mode : 'normal';
+        if (!state?.overlay) return;
+        state.timelineZoom = safeMode;
+        state.overlay.classList.remove('timeline-zoom-compact', 'timeline-zoom-normal', 'timeline-zoom-detail');
+        state.overlay.classList.add(`timeline-zoom-${safeMode}`);
+        state.overlay.querySelectorAll('[data-timeline-zoom]').forEach(button => {
+            button.classList.toggle('active', button.dataset.timelineZoom === safeMode);
+        });
+        localStorage.setItem('shiftPhotoCompareAnimationTimelineZoom', safeMode);
+        requestAnimationFrame(() => {
+            this.fitShiftPhotoCompareAnimationGrid(state.overlay);
+            this.updateShiftPhotoCompareAnimationTimelineActive();
+        });
+    }
+
     toggleShiftPhotoCompareAnimationTimeline() {
         const overlay = this._shiftPhotoCompareAnimationState?.overlay;
         if (!overlay) return;
@@ -12113,7 +13273,10 @@
         return {
             orders: new Map((page?.allItems || page?.marks || []).map(item => [item, item.order])),
             names: new Map((page?.allItems || page?.marks || []).map(item => [item, String(item.mark?.dataset?.animationName || '')])),
-            inserts: new Map((page?.timelineEntries || []).map(entry => [entry, entry.insertAfter]))
+            colors: new Map((page?.allItems || page?.marks || []).map(item => [item, String(item.mark?.dataset?.color || '#dc2626')])),
+            holdTimes: new Map((page?.allItems || page?.marks || []).map(item => [item, Math.max(0, Math.round(Number(item.mark?.dataset?.animationHoldMs) || 0))])),
+            inserts: new Map((page?.timelineEntries || []).map(entry => [entry, entry.insertAfter])),
+            actions: this.getShiftPhotoCompareAnimationTimelineActions(page?.row, page?.storageKey)
         };
     }
 
@@ -12150,6 +13313,9 @@
             snapshot.names.forEach((name, item) => {
                 item.mark.dataset.animationName = String(name || '');
             });
+            snapshot.colors?.forEach((color, item) => this.applyShiftPhotoCompareSettingsToMark(item.mark, { color }));
+            snapshot.holdTimes?.forEach((holdMs, item) => { item.mark.dataset.animationHoldMs = String(holdMs || 0); });
+            this.saveShiftPhotoCompareAnimationTimelineActions(page.row, snapshot.actions || [], page.storageKey);
             snapshot.inserts.forEach((insertAfter, entry) => {
                 entry.insertAfter = insertAfter;
                 const pages = this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark);
@@ -12294,8 +13460,10 @@
             if (!snapshot) return false;
             const orderChanged = (page.allItems || page.marks || []).some(item => snapshot.orders.get(item) !== item.order);
             const nameChanged = (page.allItems || page.marks || []).some(item => snapshot.names.get(item) !== String(item.mark?.dataset?.animationName || ''));
+            const colorChanged = (page.allItems || page.marks || []).some(item => snapshot.colors?.get(item) !== String(item.mark?.dataset?.color || '#dc2626'));
+            const holdChanged = (page.allItems || page.marks || []).some(item => snapshot.holdTimes?.get(item) !== Math.max(0, Math.round(Number(item.mark?.dataset?.animationHoldMs) || 0)));
             const insertChanged = (page.timelineEntries || []).some(entry => snapshot.inserts.get(entry) !== entry.insertAfter);
-            return orderChanged || nameChanged || insertChanged;
+            return orderChanged || nameChanged || colorChanged || holdChanged || insertChanged;
         });
     }
 
@@ -12347,6 +13515,9 @@
         if (sourceDomMark) {
             sourceDomMark.dataset.animationOrder = String(item.order);
             sourceDomMark.dataset.animationName = String(mark.dataset.animationName || '').trim().slice(0, 40);
+            sourceDomMark.dataset.animationHoldMs = String(Math.max(0, Math.min(10000, Math.round(Number(mark.dataset.animationHoldMs) || 0))));
+            sourceDomMark.dataset.color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
+            this.applyShiftPhotoCompareSettingsToMark(sourceDomMark, { color: sourceDomMark.dataset.color });
             this.renderShiftPhotoCompareAnimationOrderBadge(sourceDomMark);
             this.syncShiftPhotoCompareChangedMarkWraps([sourceDomMark]);
             return true;
@@ -12369,6 +13540,8 @@
         if (!marks[markIndex] || !save) return false;
         marks[markIndex].animationOrder = item.order;
         marks[markIndex].animationName = String(mark.dataset.animationName || '').trim().slice(0, 40);
+        marks[markIndex].animationHoldMs = Math.max(0, Math.min(10000, Math.round(Number(mark.dataset.animationHoldMs) || 0)));
+        marks[markIndex].color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
         save(marks);
         return true;
     }
@@ -12387,7 +13560,9 @@
             const snapshot = state.timelineInitialSnapshots?.get(page);
             const uniqueItems = Array.from(new Map((page.allItems || page.marks || [])
                 .filter(item => snapshot?.orders?.get(item) !== item.order
-                    || snapshot?.names?.get(item) !== String(item.mark?.dataset?.animationName || ''))
+                    || snapshot?.names?.get(item) !== String(item.mark?.dataset?.animationName || '')
+                    || snapshot?.colors?.get(item) !== String(item.mark?.dataset?.color || '#dc2626')
+                    || snapshot?.holdTimes?.get(item) !== Math.max(0, Math.round(Number(item.mark?.dataset?.animationHoldMs) || 0)))
                 .map(item => [item.mark, item])).values());
             uniqueItems.forEach(item => {
                 if (this.persistShiftPhotoCompareAnimationTimelineMarkOrder(item, page)) savedCount += 1;
@@ -12446,7 +13621,7 @@
         if (!page) return;
         if (page.allItems) page.marks = page.allItems.filter(item => item.order > 0).sort((left, right) => left.order - right.order || left.index - right.index);
         page.baseSteps = this.buildShiftPhotoCompareAnimationBaseSteps(page.marks || []);
-        page.steps = this.mergeShiftPhotoCompareAnimationTimelineSteps(page.baseSteps, page.timelineEntries || []);
+        page.steps = this.mergeShiftPhotoCompareAnimationTimelineSteps(page.baseSteps, page.timelineEntries || [], this.getShiftPhotoCompareAnimationTimelineActions(page.row, page.storageKey), page.allItems || []);
     }
 
     reorderShiftPhotoCompareAnimationSymbolTimeline(order, targetIndex = 0) {
@@ -12516,6 +13691,8 @@
         snapshot.names.forEach((name, item) => {
             item.mark.dataset.animationName = String(name || '');
         });
+        snapshot.colors?.forEach((color, item) => this.applyShiftPhotoCompareSettingsToMark(item.mark, { color }));
+        snapshot.holdTimes?.forEach((holdMs, item) => { item.mark.dataset.animationHoldMs = String(holdMs || 0); });
         snapshot.inserts.forEach((insertAfter, entry) => {
             entry.insertAfter = insertAfter;
             const pages = this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark);
@@ -12789,6 +13966,11 @@
                             <button type="button" class="shift-photo-compare-animation-timeline-icon-btn shift-photo-compare-animation-timeline-undo" onclick="app.undoShiftPhotoCompareAnimationTimeline()" title="タイムラインを元に戻す" aria-label="元に戻す" disabled><i class="fa-solid fa-arrow-rotate-left"></i></button>
                             <button type="button" class="shift-photo-compare-animation-timeline-icon-btn shift-photo-compare-animation-timeline-redo" onclick="app.redoShiftPhotoCompareAnimationTimeline()" title="タイムラインをやり直す" aria-label="やり直す" disabled><i class="fa-solid fa-arrow-rotate-right"></i></button>
                             <button type="button" class="shift-photo-compare-animation-timeline-auto-order" onclick="app.autoOrderShiftPhotoCompareAnimationTimeline()" title="全記号を上から下・左から右の順に自動並び付け"><i class="fa-solid fa-arrow-down-1-9"></i><span>自動順</span></button>
+                            <span class="shift-photo-compare-animation-timeline-zoom" role="group" aria-label="タイムラインの表示倍率">
+                                <button type="button" data-timeline-zoom="compact" onclick="app.setShiftPhotoCompareAnimationTimelineZoom('compact')" title="全体を小さく表示"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                                <button type="button" data-timeline-zoom="normal" onclick="app.setShiftPhotoCompareAnimationTimelineZoom('normal')" title="標準表示"><i class="fa-solid fa-compress"></i></button>
+                                <button type="button" data-timeline-zoom="detail" onclick="app.setShiftPhotoCompareAnimationTimelineZoom('detail')" title="詳細を大きく表示"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                            </span>
 
                             <button type="button" class="shift-photo-compare-animation-timeline-reset" onclick="app.resetShiftPhotoCompareAnimationTimelineChanges()" title="バッジの変更を開いた時点へ戻す" aria-label="バッジの変更をリセット"><i class="fa-solid fa-arrow-rotate-left"></i><span>リセット</span></button>
                             <button type="button" class="shift-photo-compare-animation-timeline-initialize" onclick="app.initializeShiftPhotoCompareAnimationTimelineChanges()" title="記号順とページ差し込みを未編集の状態へ戻す" aria-label="タイムラインを初期化"><i class="fa-solid fa-eraser"></i><span>初期化</span></button>
@@ -12821,7 +14003,8 @@
                     <input class="shift-photo-compare-animation-motion-speed-input" type="number" min="100" max="5000" step="50" value="${motionSpeed}" onfocus="this.select()" onchange="app.setShiftPhotoCompareAnimationMotionSpeed(this.value)" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); app.setShiftPhotoCompareAnimationMotionSpeed(this.value); this.blur(); }">
                     <span>ms</span>
                 </label>
-                <button type="button" onclick="app.saveShiftPhotoCompareAnimationAutoVideo()" title="自動再生の流れを動画として保存"><i class="fa-solid fa-file-video"></i><span>自動動画</span></button>
+                <button type="button" onclick="app.saveShiftPhotoCompareAnimationAutoVideo()" title="画面キャプチャで自動再生の流れを動画として保存"><i class="fa-solid fa-file-video"></i><span>自動動画</span></button>
+                <button type="button" class="shift-photo-compare-animation-direct-video-btn" onclick="app.saveShiftPhotoCompareAnimationDirectVideo()" title="画面選択を使わず、アニメ部分を直接動画として保存"><i class="fa-solid fa-film"></i><span>直接動画</span></button>
                 <button type="button" class="shift-photo-compare-animation-manual-video-btn" onclick="app.toggleShiftPhotoCompareAnimationManualVideo()" title="クリックしたタイミングで進めた流れを動画として保存"><i class="fa-solid fa-record-vinyl"></i><span>クリック録画</span></button>
                 <button type="button" class="shift-photo-compare-animation-speech-toggle${speechSettings.enabled ? ' active' : ''}" onclick="app.toggleShiftPhotoCompareAnimationSpeech()" title="テキストの音声読み上げを切り替える"><i class="fa-solid fa-volume-high"></i><span>読上 ${speechSettings.enabled ? 'ON' : 'OFF'}</span></button>
                 <button type="button" class="shift-photo-compare-animation-speech-settings-btn" onclick="app.toggleShiftPhotoCompareSpeechSettingsPanel()" title="音声の設定" aria-label="音声の設定"><i class="fa-solid fa-sliders"></i></button>
@@ -12853,6 +14036,7 @@
             item.mark.classList.remove(
                 'shift-photo-compare-animation-visible',
                 'shift-photo-compare-animation-motion',
+                'shift-photo-compare-animation-round-trip-settled',
                 ...this.getShiftPhotoCompareAnimationEffectClasses()
             );
         });
@@ -12860,6 +14044,7 @@
         document.body.appendChild(animationOverlay);
         this.populateShiftPhotoCompareSpeechVoiceOptions(animationOverlay);
         this.hydrateShiftPhotoCompareVideoMarks(currentPage.grid);
+        this.refreshShiftPhotoCompareAnimationPolylineArrows(currentPage.grid);
         this.refreshShiftPhotoCompareTextLayout(currentPage.grid);
         this.syncShiftPhotoCompareAnimationLinkedEndpointLayouts(currentPage);
         this.pinShiftPhotoCompareAnimationRegionLayouts(currentPage.grid);
@@ -12909,6 +14094,15 @@
             }
             if (event.target.closest('.shift-photo-compare-animation-controls, .shift-photo-compare-animation-topbar, .shift-photo-compare-animation-timeline, .shift-photo-compare-animation-timeline-toggle, .shift-photo-compare-animation-timeline-dialog, .shift-photo-compare-speech-settings')) return;
             const animationState = this._shiftPhotoCompareAnimationState;
+            const currentStep = animationState?.steps?.[animationState.index] || null;
+            const currentRoundTripKey = this.getShiftPhotoCompareAnimationRoundTripStepKey(animationState);
+            if (this.isShiftPhotoCompareAnimationRoundTripStep(currentStep)
+                && animationState.roundTripReleased !== currentRoundTripKey) {
+                event.preventDefault();
+                event.stopPropagation();
+                this.stepShiftPhotoCompareAnimation(1);
+                return;
+            }
             const videoMark = event.target.closest('.shift-photo-compare-mark.video');
             if (videoMark && this.toggleShiftPhotoCompareAnimationVideoPause(videoMark)) {
                 event.preventDefault();
@@ -12965,8 +14159,10 @@
             timelineRedoStack: [],
             timelineSelectedItems: new Set(),
             presentationMode: false,
+            roundTripReleased: '',
             keyHandler
         };
+        this.setShiftPhotoCompareAnimationTimelineZoom(localStorage.getItem('shiftPhotoCompareAnimationTimelineZoom') || 'normal');
         this.saveShiftPhotoCompareAnimationTimelineBackup(pages);
         Promise.resolve(store.save()).catch(() => {});
         this._shiftPhotoCompareAnimationState.timelineInitialSnapshots = new Map(
@@ -13017,6 +14213,7 @@
         const page = state?.pages?.[pageIndex];
         const stage = state?.overlay?.querySelector?.('.shift-photo-compare-animation-stage');
         if (!state || !page || !stage) return false;
+        (state.marks || []).forEach(item => this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item.mark));
         if (state.grid && state.grid !== page.grid) this.stopShiftPhotoCompareAnimationVideos(state.grid);
         if (state.pageIndex !== pageIndex) state.timelineSelectedItems = new Set();
         stage.querySelector(':scope > .shift-photo-compare-animation-last-page-label')?.remove();
@@ -13026,10 +14223,12 @@
         state.marks = page.marks.filter(item => item.order > 0);
         state.steps = page.steps;
         state.index = -1;
+        state.roundTripReleased = '';
         const savedScale = Number(page.grid.dataset.animationScale);
         const hasSavedScale = Number.isFinite(savedScale) && savedScale > 0;
         stage.replaceChildren(page.grid);
         this.hydrateShiftPhotoCompareVideoMarks(page.grid);
+        this.refreshShiftPhotoCompareAnimationPolylineArrows(page.grid);
         page.grid.style.transform = hasSavedScale ? `scale(${savedScale})` : '';
         page.grid.style.transformOrigin = hasSavedScale ? 'center center' : '';
         const groupInput = state.overlay.querySelector('.shift-photo-compare-animation-group-input');
@@ -13043,7 +14242,7 @@
         });
         page.marks.forEach(item => {
             item.mark.classList.add('shift-photo-compare-animation-hidden');
-            item.mark.classList.remove('shift-photo-compare-animation-visible', 'shift-photo-compare-animation-motion', ...this.getShiftPhotoCompareAnimationEffectClasses());
+            item.mark.classList.remove('shift-photo-compare-animation-visible', 'shift-photo-compare-animation-motion', 'shift-photo-compare-animation-round-trip-settled', ...this.getShiftPhotoCompareAnimationEffectClasses());
             this.prepareShiftPhotoCompareAnimationMark(item);
         });
         this.refreshShiftPhotoCompareTextLayout(page.grid);
@@ -13054,6 +14253,7 @@
         this.renderShiftPhotoCompareAnimationTimeline();
         this.updateShiftPhotoCompareAnimationAudioStorageSummary();
         requestAnimationFrame(() => {
+            this.refreshShiftPhotoCompareAnimationPolylineArrows(page.grid);
             this.refreshShiftPhotoCompareTextLayout(page.grid);
             this.syncShiftPhotoCompareAnimationLinkedEndpointLayouts(page);
             this.pinShiftPhotoCompareAnimationRegionLayouts(page.grid);
@@ -13078,10 +14278,21 @@
         if (currentStep?.type === 'page') {
             const entry = currentStep.pageEntry;
             stepName = `${entry?.sourceLabel || '差し込み'}・${entry?.pageNumber || 1}P ${entry?.label || ''}`.trim();
+        } else if (['hide', 'show'].includes(currentStep?.type)) {
+            const targetOrders = currentStep.action?.targetOrders || [currentStep.action?.targetOrder];
+            const names = targetOrders.map(order => {
+                const item = (page?.allItems || []).find(target => Number(target.order) === Number(order));
+                return String(item?.mark?.dataset?.animationName || '').trim() || `記号 ${order}`;
+            });
+            stepName = `${names.join('、')}・${currentStep.type === 'show' ? '再表示' : '消す'}`;
         } else if (currentStep) {
             const item = currentStep.items?.[0] || currentStep.item;
             const name = String(item?.mark?.dataset?.animationName || '').trim() || `記号 ${currentStep.order || item?.order || state.index + 1}`;
-            stepName = currentStep.videoPlayback ? `${name}・動画再生` : (currentStep.motion ? `${name}・移動` : name);
+            stepName = currentStep.videoPlayback
+                ? `${name}・動画再生`
+                : (currentStep.motion
+                    ? `${name}・${this.isShiftPhotoCompareAnimationRoundTripStep(currentStep) ? '往復（クリックで次へ）' : '移動'}`
+                    : name);
         }
         const totalSteps = (state.pages || []).reduce((sum, targetPage) => sum + (targetPage.steps?.length || 0), 0);
         const completedBefore = (state.pages || []).slice(0, state.pageIndex)
@@ -13101,10 +14312,155 @@
         state?.grid?.querySelector('.shift-photo-compare-animation-motion-trails')?.remove();
     }
 
+    isShiftPhotoCompareAnimationItemHiddenAtStep(item, steps = [], stepIndex = -1) {
+        if (!item || stepIndex < 0) return false;
+        let hidden = false;
+        steps.slice(0, stepIndex + 1).forEach(step => {
+            if (!['hide', 'show'].includes(step.type)) return;
+            const targetOrders = step.action?.targetOrders || [step.action?.targetOrder];
+            const targetsItem = (step.items || []).includes(item) || targetOrders.map(Number).includes(Number(item.order));
+            if (targetsItem) hidden = step.type === 'hide';
+        });
+        return hidden;
+    }
+
+    isShiftPhotoCompareAnimationRoundTripStep(step = null) {
+        if (!step?.motion) return false;
+        const items = step.items || (step.item ? [step.item] : []);
+        return items.some(item => item?.motion && this.normalizeShiftPhotoCompareAnimationEffect(item.effect || '') === 'roundTrip');
+    }
+
+    getShiftPhotoCompareAnimationRoundTripStepKey(state, index = state?.index) {
+        return `${Math.max(0, Number(state?.pageIndex) || 0)}:${Math.max(-1, Number(index) || 0)}`;
+    }
+
+    cancelShiftPhotoCompareAnimationRoundTripAnimation(mark) {
+        if (!mark) return;
+        try {
+            mark._shiftPhotoCompareRoundTripAnimation?.cancel?.();
+        } catch (_) {}
+        mark._shiftPhotoCompareRoundTripAnimation = null;
+        mark._shiftPhotoCompareRoundTripSignature = '';
+        mark._shiftPhotoCompareRoundTripFallbackEndsAt = 0;
+        mark.classList.remove('shift-photo-compare-animation-round-trip-web');
+    }
+
+    getShiftPhotoCompareAnimationRoundTripFrames(item, moveMs, pauseMs) {
+        const mark = item?.mark;
+        if (!mark) return [];
+        const read = name => mark.style.getPropertyValue(name).trim();
+        const mode = mark.dataset.mode || '';
+        const isPolyline = mode === 'polyline';
+        const isLine = ['arrow', 'dimension'].includes(mode);
+        const isRegion = mode === 'boxedText' && mark.dataset.regionComment === '1';
+        const frame = side => {
+            if (isPolyline) {
+                return {
+                    opacity: 1,
+                    transform: side === 'from'
+                        ? 'translate(0, 0)'
+                        : `translate(${read('--animation-path-dx') || '0%'}, ${read('--animation-path-dy') || '0%'})`
+                };
+            }
+            const result = {
+                left: read(`--animation-${side}-left`),
+                top: read(`--animation-${side}-top`),
+                width: read(`--animation-${side}-width`) || read(`--animation-${side}-size`),
+                height: read(`--animation-${side}-height`) || read(`--animation-${side}-size`),
+                opacity: 1
+            };
+            if (!isRegion) {
+                const rotate = read(`--animation-${side}-rotate`) || '0deg';
+                result.transform = isLine
+                    ? `translate(-50%, -50%) rotate(${rotate})`
+                    : `translate(-50%, -50%) rotate(${rotate}) scale(${read(`--animation-${side}-scale-x`) || 1}, ${read(`--animation-${side}-scale-y`) || 1})`;
+            }
+            return result;
+        };
+        const from = frame('from');
+        const to = frame('to');
+        if (pauseMs <= 0) return [{ ...from, offset: 0 }, { ...to, offset: 0.5 }, { ...from, offset: 1 }];
+        const total = Math.max(1, moveMs * 2 + pauseMs * 2);
+        return [
+            { ...from, offset: 0 },
+            { ...to, offset: moveMs / total },
+            { ...to, offset: (moveMs + pauseMs) / total },
+            { ...from, offset: (moveMs * 2 + pauseMs) / total },
+            { ...from, offset: 1 }
+        ];
+    }
+
+    startShiftPhotoCompareAnimationRoundTripAnimation(item, state = this._shiftPhotoCompareAnimationState) {
+        const mark = item?.mark;
+        if (!mark || !item?.motion) return;
+        const moveMs = Math.max(100, Number(state?.motionSpeedMs) || this.getShiftPhotoCompareAnimationMotionSpeed());
+        const pauseMs = Math.max(0, Math.min(3000, Math.round(Number(item.roundTripPauseMs) || 0)));
+        const count = this.normalizeShiftPhotoCompareAnimationRoundTripCount(item.roundTripCount);
+        const duration = Math.max(200, moveMs * 2 + pauseMs * 2);
+        const signature = `${moveMs}:${pauseMs}:${count}:${mark.style.getPropertyValue('--animation-to-left')}:${mark.style.getPropertyValue('--animation-to-top')}:${mark.style.getPropertyValue('--animation-path-dx')}:${mark.style.getPropertyValue('--animation-path-dy')}`;
+        if (mark._shiftPhotoCompareRoundTripAnimation
+            && mark._shiftPhotoCompareRoundTripSignature === signature
+            && ['running', 'pending', 'finished'].includes(mark._shiftPhotoCompareRoundTripAnimation.playState)) return;
+        this.cancelShiftPhotoCompareAnimationRoundTripAnimation(mark);
+        mark.classList.add('shift-photo-compare-animation-round-trip-web');
+        mark._shiftPhotoCompareRoundTripSignature = signature;
+        mark._shiftPhotoCompareRoundTripFallbackEndsAt = count
+            ? ((typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) + duration * count)
+            : Infinity;
+        if (typeof mark.animate !== 'function') return;
+        try {
+            mark._shiftPhotoCompareRoundTripAnimation = mark.animate(
+                this.getShiftPhotoCompareAnimationRoundTripFrames(item, moveMs, pauseMs),
+                {
+                    duration,
+                    iterations: count || Infinity,
+                    easing: 'ease-in-out',
+                    fill: 'both'
+                }
+            );
+        } catch (_) {
+            mark._shiftPhotoCompareRoundTripAnimation = null;
+        }
+    }
+
+    isShiftPhotoCompareAnimationRoundTripWaiting(state, step = null, stepIndex = state?.index) {
+        if (!this.isShiftPhotoCompareAnimationRoundTripStep(step)) return false;
+        const key = this.getShiftPhotoCompareAnimationRoundTripStepKey(state, stepIndex);
+        if (state?.roundTripReleased === key) return false;
+        const items = (step.items || (step.item ? [step.item] : []))
+            .filter(item => item?.motion && this.normalizeShiftPhotoCompareAnimationEffect(item.effect || '') === 'roundTrip');
+        if (items.some(item => this.normalizeShiftPhotoCompareAnimationRoundTripCount(item.roundTripCount) === 0)) return true;
+        const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+        return items.some(item => {
+            const animation = item.mark?._shiftPhotoCompareRoundTripAnimation;
+            if (animation) return animation.playState !== 'finished';
+            return now < Number(item.mark?._shiftPhotoCompareRoundTripFallbackEndsAt || 0);
+        });
+    }
+    finishShiftPhotoCompareAnimationRoundTripStep(step = null) {
+        if (!this.isShiftPhotoCompareAnimationRoundTripStep(step)) return false;
+        const items = step.items || (step.item ? [step.item] : []);
+        items.forEach(item => {
+            if (!item?.motion || this.normalizeShiftPhotoCompareAnimationEffect(item.effect || '') !== 'roundTrip') return;
+            this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item.mark);
+            item.mark?.classList?.remove('shift-photo-compare-animation-motion', 'shift-photo-compare-animation-effect-roundTrip');
+            item.mark?.classList?.add('shift-photo-compare-animation-round-trip-settled');
+        });
+        return true;
+    }
+
     stepShiftPhotoCompareAnimation(direction = 1, options = {}) {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state) return;
         const currentSteps = state.steps?.length ? state.steps : state.marks.map(item => ({ item, items: [item], motion: false }));
+        const currentStep = currentSteps[state.index] || null;
+        const currentRoundTripKey = this.getShiftPhotoCompareAnimationRoundTripStepKey(state);
+        if (direction !== 0
+            && this.isShiftPhotoCompareAnimationRoundTripStep(currentStep)
+            && state.roundTripReleased !== currentRoundTripKey) {
+            this.finishShiftPhotoCompareAnimationRoundTripStep(currentStep);
+            state.roundTripReleased = currentRoundTripKey;
+        }
         if (direction > 0
             && state.presentationMode
             && state.index >= currentSteps.length - 1
@@ -13137,6 +14493,8 @@
         }
         const nextIndex = Math.max(-1, Math.min(steps.length - 1, state.index + direction));
         state.index = nextIndex;
+        const nextRoundTripKey = this.getShiftPhotoCompareAnimationRoundTripStepKey(state, nextIndex);
+        if (state.roundTripReleased && state.roundTripReleased !== nextRoundTripKey) state.roundTripReleased = '';
         const activeStep = steps[nextIndex] || null;
         if (direction < 0) this.setShiftPhotoCompareAnimationTimelinePageSnapshot(nextIndex);
         else if (activeStep?.type === 'page') this.applyShiftPhotoCompareAnimationTimelineEntry(activeStep.pageEntry);
@@ -13146,13 +14504,18 @@
         state.marks.forEach((item, index) => {
             const revealStepIndex = Number.isFinite(item.animationRevealStepIndex) ? item.animationRevealStepIndex : index;
             const motionStepIndex = Number.isFinite(item.animationMotionStepIndex) ? item.animationMotionStepIndex : revealStepIndex;
-            const visible = revealStepIndex <= nextIndex;
+            const visible = revealStepIndex <= nextIndex && !this.isShiftPhotoCompareAnimationItemHiddenAtStep(item, steps, nextIndex);
             const motionReached = item.motion && motionStepIndex <= nextIndex;
             const isActiveStep = activeItems.has(item);
+            const isRoundTrip = item.motion && this.normalizeShiftPhotoCompareAnimationEffect(item.effect || '') === 'roundTrip';
+            const roundTripActive = isRoundTrip && isActiveStep && activeStep?.motion
+                && state.roundTripReleased !== this.getShiftPhotoCompareAnimationRoundTripStepKey(state, nextIndex);
+            if (isRoundTrip && !roundTripActive) this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item.mark);
             item.mark.classList.remove(
                 ...this.getShiftPhotoCompareAnimationEffectClasses()
             );
-            if (!motionReached) {
+            item.mark.classList.toggle('shift-photo-compare-animation-round-trip-settled', isRoundTrip && motionReached && !roundTripActive);
+            if (!motionReached || (isRoundTrip && !roundTripActive)) {
                 item.mark.classList.remove('shift-photo-compare-animation-motion');
             }
             this.prepareShiftPhotoCompareAnimationMark(item);
@@ -13162,9 +14525,13 @@
                 if (isActiveStep) {
                     void item.mark.offsetWidth;
                 }
-                if (motionReached) {
+                if (motionReached && (!isRoundTrip || roundTripActive)) {
                     item.mark.classList.add('shift-photo-compare-animation-motion');
-                } else if (isActiveStep && !activeStep?.videoPlayback) {
+                    if (roundTripActive) {
+                        item.mark.classList.add('shift-photo-compare-animation-effect-roundTrip');
+                        this.startShiftPhotoCompareAnimationRoundTripAnimation(item, state);
+                    }
+                } else if (isActiveStep && !activeStep?.videoPlayback && !isRoundTrip) {
                     item.mark.classList.add(`shift-photo-compare-animation-effect-${item.effect || 'pop'}`);
                 }
             }
@@ -13183,7 +14550,7 @@
             && direction > 0
             && state.pageIndex >= (state.pages?.length || 1) - 1
             && nextIndex >= steps.length - 1;
-        if (isPresentationComplete) {
+        if (isPresentationComplete && !this.isShiftPhotoCompareAnimationRoundTripStep(activeStep)) {
             this.scheduleShiftPhotoCompareAnimationPresentationExit(state);
         }
     }
@@ -13271,11 +14638,14 @@
         if (state.pageIndex > 0) this.activateShiftPhotoCompareAnimationPage(0);
         this.cleanShiftPhotoCompareAnimationPlaybackChrome(state.grid);
         state.index = -1;
+        state.roundTripReleased = '';
         state.marks.forEach(item => {
+            this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item.mark);
             item.mark.classList.add('shift-photo-compare-animation-hidden');
             item.mark.classList.remove(
                 'shift-photo-compare-animation-visible',
                 'shift-photo-compare-animation-motion',
+                'shift-photo-compare-animation-round-trip-settled',
                 ...this.getShiftPhotoCompareAnimationEffectClasses()
             );
         });
@@ -13288,6 +14658,15 @@
         this.queueShiftPhotoCompareAnimationManualVideoFrame?.(null, true);
     }
 
+    getShiftPhotoCompareAnimationStepHoldMs(step = null) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const values = (step?.items || (step?.item ? [step.item] : []))
+            .map(item => Math.max(0, Math.round(Number(item?.mark?.dataset?.animationHoldMs) || 0)))
+            .filter(Boolean);
+        if (values.length) return Math.max(...values);
+        return Math.max(100, Number(state?.speedMs) || this.getShiftPhotoCompareAnimationAutoSpeed());
+    }
+
     toggleShiftPhotoCompareAnimationAutoPlay() {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state) return;
@@ -13297,26 +14676,50 @@
             state.overlay?.querySelector('.shift-photo-compare-animation-controls .fa-pause')?.classList.replace('fa-pause', 'fa-play');
             return;
         }
+        this.resetShiftPhotoCompareAnimation();
         const icon = state.overlay?.querySelector('.shift-photo-compare-animation-controls .fa-play');
         icon?.classList.replace('fa-play', 'fa-pause');
+        this.stepShiftPhotoCompareAnimation(1);
         this.startShiftPhotoCompareAnimationAutoPlay();
     }
 
     startShiftPhotoCompareAnimationAutoPlay() {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state || state.timer) return;
-        state.timer = setInterval(() => {
-            if (!this._shiftPhotoCompareAnimationState) return;
-            if (this.isShiftPhotoCompareSpeechInProgress()) return;
-            if (this.hasShiftPhotoCompareAnimationVideoPlaying(state.overlay)) return;
+        const schedule = delay => {
+            if (this._shiftPhotoCompareAnimationState !== state) return;
+            state.timer = setTimeout(tick, Math.max(100, Number(delay) || this.getShiftPhotoCompareAnimationAutoSpeed()));
+        };
+        const tick = () => {
+            if (this._shiftPhotoCompareAnimationState !== state) return;
+            state.timer = null;
+            if (this.isShiftPhotoCompareSpeechInProgress() || this.hasShiftPhotoCompareAnimationVideoPlaying(state.overlay)) {
+                schedule(120);
+                return;
+            }
+            const activeStep = state.steps?.[state.index] || null;
+            if (this.isShiftPhotoCompareAnimationRoundTripWaiting(state, activeStep, state.index)) {
+                schedule(120);
+                return;
+            }
             const stepCount = state.steps?.length || state.marks.length;
             const isLastPage = state.pageIndex >= (state.pages?.length || 1) - 1;
             if (state.index >= stepCount - 1 && isLastPage) {
-                this.toggleShiftPhotoCompareAnimationAutoPlay();
+                const finiteRoundTripComplete = this.isShiftPhotoCompareAnimationRoundTripStep(activeStep)
+                    && (activeStep.items || (activeStep.item ? [activeStep.item] : []))
+                        .filter(item => item?.motion && this.normalizeShiftPhotoCompareAnimationEffect(item.effect || '') === 'roundTrip')
+                        .every(item => this.normalizeShiftPhotoCompareAnimationRoundTripCount(item.roundTripCount) > 0);
+                if (state.presentationMode && finiteRoundTripComplete) {
+                    this.stepShiftPhotoCompareAnimation(1);
+                    return;
+                }
+                state.overlay?.querySelector('.shift-photo-compare-animation-controls .fa-pause')?.classList.replace('fa-pause', 'fa-play');
                 return;
             }
             this.stepShiftPhotoCompareAnimation(1);
-        }, Number(state.speedMs) || this.getShiftPhotoCompareAnimationAutoSpeed());
+            schedule(this.getShiftPhotoCompareAnimationStepHoldMs(state.steps?.[state.index]));
+        };
+        schedule(this.getShiftPhotoCompareAnimationStepHoldMs(state.steps?.[state.index]));
     }
 
     showShiftPhotoCompareAnimationUnsavedConfirm() {
@@ -13360,6 +14763,7 @@
         this.closeShiftPhotoCompareAnimationPageRecordingDialog();
         this.cancelShiftPhotoCompareSpeech();
         this.stopShiftPhotoCompareAnimationVideos(state.grid);
+        state.marks?.forEach(item => this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item?.mark));
         clearTimeout(state.presentationExitTimer);
         if (state.keyHandler) document.removeEventListener('keydown', state.keyHandler);
         if (state.presentationFullscreenHandler) document.removeEventListener('fullscreenchange', state.presentationFullscreenHandler);
@@ -13386,11 +14790,14 @@
     getShiftPhotoCompareAnimationVideoMimeType() {
         if (typeof MediaRecorder === 'undefined') return '';
         const candidates = [
-            'video/mp4;codecs=h264',
-            'video/mp4',
             'video/webm;codecs=vp9',
             'video/webm;codecs=vp8',
-            'video/webm'
+            'video/webm;codecs=vp9,opus',
+            'video/webm;codecs=vp8,opus',
+            'video/webm',
+            'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+            'video/mp4;codecs=h264',
+            'video/mp4'
         ];
         return candidates.find(type => MediaRecorder.isTypeSupported?.(type)) || '';
     }
@@ -13403,12 +14810,13 @@
         return new Promise(resolve => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
     }
 
-    downloadShiftPhotoCompareAnimationVideoBlob(blob, mimeType = '') {
+    downloadShiftPhotoCompareAnimationVideoBlob(blob, mimeType = '', nameLabel = '') {
         if (!blob) return;
         const extension = this.getShiftPhotoCompareAnimationVideoExtension(mimeType);
+        const safeLabel = String(nameLabel || '').replace(/[\\/:*?"<>|]/g, '').trim();
         const anchor = document.createElement('a');
         anchor.href = URL.createObjectURL(blob);
-        anchor.download = `写真比較アニメ_${new Date().toISOString().slice(0, 10)}.${extension}`;
+        anchor.download = `写真比較アニメ${safeLabel ? `_${safeLabel}` : ''}_${new Date().toISOString().slice(0, 10)}.${extension}`;
         document.body.appendChild(anchor);
         anchor.click();
         setTimeout(() => {
@@ -13490,7 +14898,52 @@
         }
     }
 
-    async createShiftPhotoCompareAnimationCanvasRecorder() {
+    async prepareShiftPhotoCompareAnimationVideosForRecording(root = null) {
+        const target = root || this._shiftPhotoCompareAnimationState?.grid;
+        if (!target) return;
+        await this.hydrateShiftPhotoCompareVideoMarks(target);
+        const marks = Array.from(target.querySelectorAll?.('.shift-photo-compare-mark.video') || []);
+        await Promise.all(marks.map(async mark => {
+            if (mark.dataset.videoSourceType === 'youtube') return;
+            const video = mark.querySelector('video');
+            if (!video?.src) return;
+            video.preload = 'auto';
+            if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+                await new Promise(resolve => {
+                    let settled = false;
+                    const finish = () => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timer);
+                        video.removeEventListener('loadeddata', finish);
+                        video.removeEventListener('canplay', finish);
+                        resolve();
+                    };
+                    const timer = setTimeout(finish, 5000);
+                    video.addEventListener('loadeddata', finish, { once: true });
+                    video.addEventListener('canplay', finish, { once: true });
+                    try { video.load(); } catch (_) { finish(); }
+                });
+            }
+            const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
+            if (video.readyState >= 1 && Math.abs((Number(video.currentTime) || 0) - start) > 0.04) {
+                await new Promise(resolve => {
+                    let settled = false;
+                    const finish = () => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timer);
+                        video.removeEventListener('seeked', finish);
+                        resolve();
+                    };
+                    const timer = setTimeout(finish, 1500);
+                    video.addEventListener('seeked', finish, { once: true });
+                    try { video.currentTime = Math.min(start, Number(video.duration) || start); } catch (_) { finish(); }
+                });
+            }
+        }));
+    }
+    async createShiftPhotoCompareAnimationCanvasRecorder(options = {}) {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state?.grid) throw new Error('アニメ画面がありません。');
         if (!HTMLCanvasElement.prototype.captureStream || typeof MediaRecorder === 'undefined') {
@@ -13499,7 +14952,9 @@
         const previousImageCache = this._shiftPhotoCompareAnimationRenderImageCache;
         this._shiftPhotoCompareAnimationRenderImageCache = new Map();
         try {
-            const renderMaxSide = 3840;
+            const renderMaxSide = Math.max(960, Math.min(2560, Number(options.renderMaxSide) || 1920));
+            const targetFps = Math.max(12, Math.min(60, Number(options.frameRate) || 30));
+            await this.prepareShiftPhotoCompareAnimationVideosForRecording(state.grid);
             const firstFrame = await this.renderShiftPhotoCompareAnimationGridToCanvas(renderMaxSide);
             if (!firstFrame) throw new Error('動画にする画像を作成できませんでした。');
             const canvas = document.createElement('canvas');
@@ -13507,50 +14962,135 @@
             canvas.height = firstFrame.height;
             const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
             ctx.drawImage(firstFrame, 0, 0);
-            const stream = canvas.captureStream(90);
+            // Audio is recorded separately, so timer-driven capture remains stable.
+            const stream = canvas.captureStream(targetFps);
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            const audioContext = AudioContextClass ? new AudioContextClass({ latencyHint: 'playback' }) : null;
+            if (audioContext?.state === 'suspended') await audioContext.resume().catch(() => {});
+            const audioDestination = audioContext?.createMediaStreamDestination?.() || null;
+const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
+            const audioMimeType = ['audio/webm;codecs=opus', 'audio/webm']
+                .find(type => MediaRecorder.isTypeSupported?.(type)) || '';
+            const audioChunks = [];
+            const audioRecorder = audioTrack
+                ? new MediaRecorder(audioDestination.stream, audioMimeType
+                    ? { mimeType: audioMimeType, audioBitsPerSecond: 192000 }
+                    : { audioBitsPerSecond: 192000 })
+                : null;
+            if (audioRecorder) {
+                audioRecorder.ondataavailable = event => {
+                    if (event.data?.size) audioChunks.push(event.data);
+                };
+            }
             const mimeType = this.getShiftPhotoCompareAnimationVideoMimeType();
             if (!mimeType) throw new Error('このブラウザーでは動画形式に対応していません。');
             const chunks = [];
             const recorder = new MediaRecorder(stream, {
                 mimeType,
-                videoBitsPerSecond: 50000000
+                videoBitsPerSecond: Math.max(12000000, Math.min(50000000, Number(options.videoBitsPerSecond) || 24000000)),
+                audioBitsPerSecond: 192000
             });
             recorder.ondataavailable = event => {
                 if (event.data?.size) chunks.push(event.data);
             };
             const videoTrack = stream.getVideoTracks?.()[0] || null;
-            return { canvas, ctx, stream, videoTrack, mimeType, chunks, recorder, queue: Promise.resolve(), cancelled: false, previousImageCache, renderMaxSide, speedCorrection: 0.97 };
+            return {
+                canvas, ctx, stream, videoTrack, mimeType, chunks, recorder,
+                audioContext, audioDestination, audioTrack, audioRecorder, audioChunks, audioMimeType, videoAudioConnections: [],
+                queue: Promise.resolve(), cancelled: false, previousImageCache,
+                renderMaxSide, targetFps, realTimeFrameSkipping: true, speedCorrection: 1
+            };
         } catch (error) {
             this._shiftPhotoCompareAnimationRenderImageCache = previousImageCache || null;
             throw error;
         }
     }
 
+    async muxShiftPhotoCompareAnimationVideoAndAudio(videoBlob, audioBlob) {
+        if (!audioBlob?.size) return videoBlob;
+        if (!window.FFmpeg?.createFFmpeg) throw new Error('動画と音声の結合エンジンを読み込めませんでした。');
+        const token = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const videoName = `animation_${token}.webm`;
+        const audioName = `audio_${token}.webm`;
+        const outputName = `output_${token}.webm`;
+        const ffmpeg = window.FFmpeg.createFFmpeg({
+            log: false,
+            mainName: 'main',
+            corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+        });
+        try {
+            await ffmpeg.load();
+            ffmpeg.FS('writeFile', videoName, new Uint8Array(await videoBlob.arrayBuffer()));
+            ffmpeg.FS('writeFile', audioName, new Uint8Array(await audioBlob.arrayBuffer()));
+            await ffmpeg.run(
+                '-i', videoName, '-i', audioName,
+                '-map', '0:v:0', '-map', '1:a:0',
+                '-c:v', 'copy', '-c:a', 'copy', outputName
+            );
+            const data = ffmpeg.FS('readFile', outputName);
+            return new Blob([data.buffer], { type: 'video/webm' });
+        } finally {
+            try { ffmpeg.FS('unlink', videoName); } catch (_) {}
+            try { ffmpeg.FS('unlink', audioName); } catch (_) {}
+            try { ffmpeg.FS('unlink', outputName); } catch (_) {}
+            try { ffmpeg.exit?.(); } catch (_) {}
+        }
+    }
     finishShiftPhotoCompareAnimationVideoRecording(recording, cancel = false) {
         if (!recording) return Promise.resolve(null);
         recording.cancelled = !!cancel;
+        const audioStopped = new Promise(resolveAudio => {
+            const audioRecorder = recording.audioRecorder;
+            if (!audioRecorder || audioRecorder.state === 'inactive') return resolveAudio();
+            audioRecorder.onstop = () => resolveAudio();
+            try { audioRecorder.stop(); } catch (_) { resolveAudio(); }
+        });
         return new Promise(resolve => {
-            recording.recorder.onstop = () => {
+            recording.recorder.onstop = async () => {
+                await audioStopped;
+                (recording.videoAudioConnections || []).forEach(connection => {
+                    try { connection.source?.disconnect?.(recording.audioDestination); } catch (_) {}
+                    try { connection.stream?.getTracks?.().forEach(track => track.stop()); } catch (_) {}
+                });
+                recording.videoAudioConnections = [];
+                if (this._shiftPhotoCompareAnimationRecordingAudioDestination === recording.audioDestination) {
+                    this._shiftPhotoCompareAnimationRecordingAudioDestination = null;
+                    this._shiftPhotoCompareAnimationRecordingAudioContext = null;
+                }
                 recording.stream?.getTracks?.().forEach(track => track.stop());
+                recording.audioContext?.close?.().catch?.(() => {});
                 this._shiftPhotoCompareAnimationRenderImageCache = recording.previousImageCache || null;
                 if (recording.cancelled) return resolve(null);
-                const blob = new Blob(recording.chunks || [], { type: recording.mimeType || 'video/webm' });
-                this.downloadShiftPhotoCompareAnimationVideoBlob(blob, recording.mimeType);
-                resolve(blob);
+                const videoBlob = new Blob(recording.chunks || [], { type: recording.mimeType || 'video/webm' });
+                let outputBlob = videoBlob;
+                let outputMimeType = recording.mimeType || 'video/webm';
+                const audioBlob = new Blob(recording.audioChunks || [], { type: recording.audioMimeType || 'audio/webm' });
+                if (audioBlob.size) {
+                    try {
+                        outputBlob = await this.muxShiftPhotoCompareAnimationVideoAndAudio(videoBlob, audioBlob);
+                        outputMimeType = 'video/webm';
+                    } catch (error) {
+                        console.warn('Shift photo compare animation audio mux failed', error);
+                        this.showToast?.('音声の結合に失敗したため、映像のみで保存します。');
+                    }
+                }
+                this.downloadShiftPhotoCompareAnimationVideoBlob(outputBlob, outputMimeType, recording.downloadLabel || '');
+                resolve(outputBlob);
             };
             if (recording.recorder.state !== 'inactive') {
                 recording.recorder.stop();
             } else {
-                this._shiftPhotoCompareAnimationRenderImageCache = recording.previousImageCache || null;
-                resolve(null);
+                audioStopped.finally(() => {
+                    this._shiftPhotoCompareAnimationRenderImageCache = recording.previousImageCache || null;
+                    resolve(null);
+                });
             }
         });
     }
-
     async drawShiftPhotoCompareAnimationRecordingFrame(recording) {
         if (!recording || recording.cancelled) return;
         if (recording.screenCapture) return;
-        const frame = await this.renderShiftPhotoCompareAnimationGridToCanvas(recording.renderMaxSide || 1600);
+        const frame = await this.renderShiftPhotoCompareAnimationGridToCanvas(recording.renderMaxSide || 1600, { skipLayout: true });
         if (!frame) return;
         if (recording.canvas.width !== frame.width || recording.canvas.height !== frame.height) {
             recording.canvas.width = frame.width;
@@ -13558,7 +15098,198 @@
         }
         recording.ctx.clearRect(0, 0, recording.canvas.width, recording.canvas.height);
         recording.ctx.drawImage(frame, 0, 0);
+        await this.drawShiftPhotoCompareRecordingFramedVideos(recording);
         recording.videoTrack?.requestFrame?.();
+    }
+
+    async drawShiftPhotoCompareRecordingFramedVideos(recording) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const stage = state?.overlay?.querySelector?.('.shift-photo-compare-animation-stage');
+        const stageRect = stage?.getBoundingClientRect?.();
+        if (!recording?.ctx || !stageRect?.width || !stageRect?.height) return;
+
+        const scaleX = recording.canvas.width / stageRect.width;
+        const scaleY = recording.canvas.height / stageRect.height;
+        const framedMarks = Array.from(state?.grid?.querySelectorAll?.(
+            '.shift-photo-compare-mark.video[data-animation-playing="1"]'
+        ) || []).filter(mark => ['modern', 'retro', 'custom'].includes(mark.dataset.videoFrameStyle));
+
+        for (const mark of framedMarks) {
+            let objectUrl = '';
+            try {
+                const video = mark.querySelector?.('video');
+                if (!video) continue;
+                const frameKey = String(mark.dataset.videoId || video.dataset.videoHydrated || '');
+                const recordingFrames = this._shiftPhotoCompareRecordingVideoFrames;
+                const recordingFrame = recordingFrames?.get?.(frameKey)
+                    || (recordingFrames?.size === 1 ? recordingFrames.values().next().value : null)
+                    || video._shiftPhotoCompareRecordingFrame;
+                if (!recordingFrame) continue;
+
+                const markRect = mark.getBoundingClientRect();
+                const width = Math.max(1, (mark.offsetWidth || markRect.width) * scaleX);
+                const height = Math.max(1, (mark.offsetHeight || markRect.height) * scaleY);
+                const centerX = (markRect.left + markRect.width / 2 - stageRect.left) * scaleX;
+                const centerY = (markRect.top + markRect.height / 2 - stageRect.top) * scaleY;
+                const screenX = -width / 2 + video.offsetLeft * scaleX;
+                const screenY = -height / 2 + video.offsetTop * scaleY;
+                const screenWidth = Math.max(1, video.offsetWidth * scaleX);
+                const screenHeight = Math.max(1, video.offsetHeight * scaleY);
+                const angle = (Number(mark.dataset.angle) || 0) * Math.PI / 180;
+
+                let frameImage = null;
+                const frameStyle = mark.dataset.videoFrameStyle;
+                if (frameStyle === 'modern') {
+                    frameImage = await this.loadShiftPhotoCompareImage('assets/video-frames/modern-flat-tv.png');
+                } else if (frameStyle === 'retro') {
+                    frameImage = await this.loadShiftPhotoCompareImage('assets/video-frames/retro-wood-console-tv.png');
+                } else {
+                    const customFrame = this.getShiftPhotoCompareCustomVideoFrame(mark.dataset.videoFrameId || '');
+                    const frameBlob = customFrame
+                        ? await store.loadMediaBlob(customFrame.mediaKey).catch(() => null)
+                        : null;
+                    if (frameBlob) {
+                        objectUrl = URL.createObjectURL(frameBlob);
+                        frameImage = await this.loadShiftPhotoCompareImage(objectUrl);
+                    }
+                }
+
+                const ctx = recording.ctx;
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(angle);
+                ctx.fillStyle = '#020617';
+                ctx.fillRect(screenX, screenY, screenWidth, screenHeight);
+                if (frameImage) ctx.drawImage(frameImage, -width / 2, -height / 2, width, height);
+                ctx.save();
+                this.drawShiftPhotoCompareRoundedRectPath(ctx, screenX, screenY, screenWidth, screenHeight, 0);
+                ctx.clip();
+                ctx.drawImage(recordingFrame, screenX, screenY, screenWidth, screenHeight);
+                ctx.restore();
+                ctx.restore();
+            } catch (error) {
+                console.warn('Direct recording framed video overlay failed.', error);
+            } finally {
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+            }
+        }
+    }
+
+    getShiftPhotoCompareAnimationEffectDuration(effect = '') {
+        return ({
+            slide: 620, bounce: 480, spin: 560, swing: 620,
+            shake: 420, flash: 580, jelly: 580
+        })[this.normalizeShiftPhotoCompareAnimationEffect(effect)] || 340;
+    }
+
+    getShiftPhotoCompareAnimationStepEffectDuration(step = null) {
+        if (!step || step.motion || step.videoPlayback) return 0;
+        const items = step.items || (step.item ? [step.item] : []);
+        return items.reduce((duration, item) => {
+            const effect = this.normalizeShiftPhotoCompareAnimationEffect(item?.effect || '');
+            if (['none', 'roundTrip', 'videoExpand'].includes(effect)) return duration;
+            return Math.max(duration, this.getShiftPhotoCompareAnimationEffectDuration(effect));
+        }, 0);
+    }
+
+    resetShiftPhotoCompareAnimationExportEffect(mark) {
+        if (!mark?.dataset) return;
+        ['animationExportOpacity', 'animationExportScaleX', 'animationExportScaleY',
+            'animationExportRotate', 'animationExportTranslateX', 'animationExportTranslateY',
+            'animationExportFilter'].forEach(name => delete mark.dataset[name]);
+    }
+
+    sampleShiftPhotoCompareAnimationEffectFrames(frames = [], progress = 1) {
+        const p = Math.max(0, Math.min(1, Number(progress) || 0));
+        const ordered = [...frames].sort((left, right) => left.at - right.at);
+        const rightIndex = ordered.findIndex(frame => p <= frame.at);
+        if (rightIndex <= 0) return { ...(ordered[0] || {}) };
+        if (rightIndex < 0) return { ...(ordered[ordered.length - 1] || {}) };
+        const left = ordered[rightIndex - 1];
+        const right = ordered[rightIndex];
+        const span = Math.max(0.0001, right.at - left.at);
+        const t = Math.max(0, Math.min(1, (p - left.at) / span));
+        const result = { at: p };
+        new Set([...Object.keys(left), ...Object.keys(right)]).forEach(key => {
+            if (key === 'at') return;
+            const from = Number(left[key] ?? right[key] ?? 0);
+            const to = Number(right[key] ?? left[key] ?? 0);
+            result[key] = from + (to - from) * t;
+        });
+        return result;
+    }
+
+    applyShiftPhotoCompareAnimationExportEffect(item, progress = 1) {
+        const mark = item?.mark;
+        if (!mark) return;
+        const effect = this.normalizeShiftPhotoCompareAnimationEffect(item.effect || '');
+        if (['none', 'roundTrip', 'videoExpand'].includes(effect)) return;
+        const p = Math.max(0, Math.min(1, Number(progress) || 0));
+        const isPath = this.isShiftPhotoComparePointPathMode(mark.dataset.mode);
+        const isLine = ['arrow', 'dimension'].includes(mark.dataset.mode || '');
+        let frame = { opacity: 1, scaleX: 1, scaleY: 1, rotate: 0, translateX: 0, translateY: 0 };
+        if (isPath && !['fade', 'flash'].includes(effect)) {
+            frame.opacity = p;
+        } else if (effect === 'fade') {
+            frame.opacity = p;
+        } else if (effect === 'pop') {
+            const eased = 1 - Math.pow(1 - p, 3);
+            frame.opacity = eased;
+            frame.scaleX = frame.scaleY = 0.92 + 0.08 * eased;
+        } else if (effect === 'zoom') {
+            const eased = 1 - Math.pow(1 - p, 3);
+            frame.opacity = eased;
+            frame.scaleX = frame.scaleY = 0.35 + 0.65 * eased;
+        } else if (effect === 'slide') {
+            const eased = 1 - Math.pow(1 - p, 4);
+            frame.translateX = -110 * (1 - eased);
+        } else if (effect === 'bounce') {
+            frame = this.sampleShiftPhotoCompareAnimationEffectFrames([
+                { at: 0, opacity: 0, scaleX: 0.45, scaleY: 0.45 },
+                { at: 0.62, opacity: 1, scaleX: 1.12, scaleY: 1.12 },
+                { at: 1, opacity: 1, scaleX: 1, scaleY: 1 }
+            ], p);
+        } else if (effect === 'spin') {
+            frame = this.sampleShiftPhotoCompareAnimationEffectFrames([
+                { at: 0, opacity: 0, scaleX: 0.52, scaleY: 0.52, rotate: -190 },
+                { at: 0.72, opacity: 1, scaleX: 1.04, scaleY: 1.04, rotate: 10 },
+                { at: 1, opacity: 1, scaleX: 1, scaleY: 1, rotate: 0 }
+            ], p);
+        } else if (effect === 'swing') {
+            frame = this.sampleShiftPhotoCompareAnimationEffectFrames([
+                { at: 0, opacity: 0, scaleX: 0.86, scaleY: 0.86, rotate: isLine ? -11 : -18 },
+                { at: 0.38, opacity: 1, scaleX: 1.03, scaleY: 1.03, rotate: isLine ? 8 : 13 },
+                { at: 0.67, opacity: 1, scaleX: 1, scaleY: 1, rotate: isLine ? -4 : -7 },
+                { at: 1, opacity: 1, scaleX: 1, scaleY: 1, rotate: 0 }
+            ], p);
+        } else if (effect === 'shake') {
+            frame = this.sampleShiftPhotoCompareAnimationEffectFrames([
+                { at: 0, opacity: 0, scaleX: 0.96, scaleY: 0.96, rotate: 0, translateX: 0 },
+                { at: 0.2, opacity: 1, scaleX: 1, scaleY: 1, rotate: isLine ? -2 : -3, translateX: -0.8 },
+                { at: 0.42, opacity: 1, scaleX: 1, scaleY: 1, rotate: isLine ? 2 : 3, translateX: 0.7 },
+                { at: 0.64, opacity: 1, scaleX: 1, scaleY: 1, rotate: isLine ? -1 : -2, translateX: -0.4 },
+                { at: 1, opacity: 1, scaleX: 1, scaleY: 1, rotate: 0, translateX: 0 }
+            ], p);
+        } else if (effect === 'flash') {
+            frame = this.sampleShiftPhotoCompareAnimationEffectFrames([
+                { at: 0, opacity: 0 }, { at: 0.18, opacity: 1 }, { at: 0.34, opacity: 0.25 },
+                { at: 0.52, opacity: 1 }, { at: 0.7, opacity: 0.48 }, { at: 1, opacity: 1 }
+            ], p);
+        } else if (effect === 'jelly') {
+            frame = this.sampleShiftPhotoCompareAnimationEffectFrames([
+                { at: 0, opacity: 0, scaleX: 0.55, scaleY: 0.55 },
+                { at: 0.46, opacity: 1, scaleX: isLine ? 1 : 1.18, scaleY: isLine ? 1.18 : 0.82 },
+                { at: 0.68, opacity: 1, scaleX: isLine ? 1 : 0.9, scaleY: isLine ? 0.9 : 1.12 },
+                { at: 0.84, opacity: 1, scaleX: isLine ? 1 : 1.04, scaleY: isLine ? 1.04 : 0.96 },
+                { at: 1, opacity: 1, scaleX: 1, scaleY: 1 }
+            ], p);
+        }
+        mark.dataset.animationExportOpacity = String(frame.opacity ?? 1);
+        mark.dataset.animationExportScaleX = String(isLine ? 1 : (frame.scaleX ?? 1));
+        mark.dataset.animationExportScaleY = String(frame.scaleY ?? 1);
+        mark.dataset.animationExportRotate = String(frame.rotate ?? 0);
+        mark.dataset.animationExportTranslateX = String(frame.translateX ?? 0);
+        mark.dataset.animationExportTranslateY = String(frame.translateY ?? 0);
     }
 
     setShiftPhotoCompareAnimationSnapshot(stepIndex = -1, progress = 1) {
@@ -13570,8 +15301,9 @@
         state.marks.forEach((item, fallbackIndex) => {
             const revealStepIndex = Number.isFinite(item.animationRevealStepIndex) ? item.animationRevealStepIndex : fallbackIndex;
             const motionStepIndex = Number.isFinite(item.animationMotionStepIndex) ? item.animationMotionStepIndex : revealStepIndex;
-            const visible = revealStepIndex <= stepIndex;
+            const visible = revealStepIndex <= stepIndex && !this.isShiftPhotoCompareAnimationItemHiddenAtStep(item, state.steps || [], stepIndex);
             const mark = item.mark;
+            this.resetShiftPhotoCompareAnimationExportEffect(mark);
             mark.classList.toggle('shift-photo-compare-animation-hidden', !visible);
             mark.classList.toggle('shift-photo-compare-animation-visible', visible);
             if (!visible) return;
@@ -13579,7 +15311,10 @@
             const end = item.end || start;
             const motionFinished = item.motion && motionStepIndex < stepIndex;
             const motionActive = item.motion && activeItems.has(item) && activeStep?.motion;
-            const rawT = motionActive ? Math.max(0, Math.min(1, Number(progress) || 0)) : (motionFinished ? 1 : 0);
+            const itemProgress = typeof progress === 'function' ? progress(item) : progress;
+            const rawT = motionActive ? Math.max(0, Math.min(1, Number(itemProgress) || 0)) : (motionFinished ? 1 : 0);
+            const revealActive = revealStepIndex === stepIndex && activeItems.has(item) && !activeStep?.motion && !activeStep?.videoPlayback;
+            if (revealActive) this.applyShiftPhotoCompareAnimationExportEffect(item, itemProgress);
             const t = rawT * rawT * (3 - (2 * rawT));
             const lerp = (a, b) => Number(a) + (Number(b) - Number(a)) * t;
             if (mark.dataset.mode === 'polyline') {
@@ -13598,31 +15333,258 @@
         });
     }
 
+    getShiftPhotoCompareAnimationRoundTripItemTiming(item, state = this._shiftPhotoCompareAnimationState, finiteFallback = 1) {
+        const moveMs = Math.max(100, Number(state?.motionSpeedMs) || this.getShiftPhotoCompareAnimationMotionSpeed());
+        const pauseMs = Math.max(0, Math.min(3000, Math.round(Number(item?.roundTripPauseMs) || 0)));
+        const configuredCount = this.normalizeShiftPhotoCompareAnimationRoundTripCount(item?.roundTripCount);
+        const count = configuredCount || Math.max(1, Number(finiteFallback) || 1);
+        const cycleMs = Math.max(200, moveMs * 2 + pauseMs * 2);
+        return { moveMs, pauseMs, count, cycleMs, totalMs: cycleMs * count };
+    }
+
+    getShiftPhotoCompareAnimationRoundTripStepDuration(step, state = this._shiftPhotoCompareAnimationState, finiteFallback = 1) {
+        if (!this.isShiftPhotoCompareAnimationRoundTripStep(step)) return 0;
+        const items = (step.items || (step.item ? [step.item] : []))
+            .filter(item => item?.motion && this.normalizeShiftPhotoCompareAnimationEffect(item.effect || '') === 'roundTrip');
+        return items.reduce((duration, item) => Math.max(duration,
+            this.getShiftPhotoCompareAnimationRoundTripItemTiming(item, state, finiteFallback).totalMs), 0);
+    }
+
+    getShiftPhotoCompareAnimationRoundTripRecordingProgress(item, elapsedMs, state = this._shiftPhotoCompareAnimationState) {
+        if (!item?.motion || this.normalizeShiftPhotoCompareAnimationEffect(item.effect || '') !== 'roundTrip') return 1;
+        const timing = this.getShiftPhotoCompareAnimationRoundTripItemTiming(item, state, 1);
+        if (elapsedMs >= timing.totalMs) return 0;
+        const cycleElapsed = Math.max(0, elapsedMs) % timing.cycleMs;
+        if (cycleElapsed <= timing.moveMs) return cycleElapsed / timing.moveMs;
+        if (cycleElapsed <= timing.moveMs + timing.pauseMs) return 1;
+        if (cycleElapsed <= timing.moveMs * 2 + timing.pauseMs) {
+            return 1 - ((cycleElapsed - timing.moveMs - timing.pauseMs) / timing.moveMs);
+        }
+        return 0;
+    }
+
+    async recordShiftPhotoCompareAnimationVideoPlaybackStep(recording, stepIndex = -1, options = {}) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const step = state?.steps?.[stepIndex] || null;
+        await this.prepareShiftPhotoCompareAnimationVideosForRecording(state?.grid);
+        const items = step?.items || (step?.item ? [step.item] : []);
+        const videos = items
+            .map(item => ({ mark: item?.mark, video: item?.mark?.querySelector?.('video') }))
+            .filter(entry => entry.mark?.dataset?.mode === 'video'
+                && (entry.video?.currentSrc || entry.video?.src || entry.video?.getAttribute?.('src'))
+                && entry.mark.dataset.videoSourceType !== 'youtube');
+        this.setShiftPhotoCompareAnimationSnapshot(stepIndex, 1);
+        if (!videos.length) {
+            await this.drawShiftPhotoCompareAnimationRecordingFrame(recording);
+            if (options.holdMs) await this.waitShiftPhotoCompareAnimationVideo(options.holdMs);
+            return;
+        }
+        const waitForSeek = (video, time) => new Promise(resolve => {
+            let settled = false;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                video.removeEventListener('seeked', finish);
+                video.removeEventListener('loadeddata', finish);
+                resolve();
+            };
+            const timer = setTimeout(finish, 1000);
+            video.addEventListener('seeked', finish, { once: true });
+            video.addEventListener('loadeddata', finish, { once: true });
+            try {
+                video.currentTime = Math.max(0, Math.min(time, Number.isFinite(video.duration) ? video.duration : time));
+                if (video.readyState >= 2 && Math.abs(video.currentTime - time) < 0.05) finish();
+            } catch {
+                finish();
+            }
+        });
+        const sessions = videos.map(({ mark, video }) => {
+            const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
+            const naturalEnd = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : start;
+            const end = Math.max(start, Math.min(Number(mark.dataset.videoTrimEnd) || naturalEnd, naturalEnd));
+            const rate = Math.max(0.25, Math.min(2, Number(mark.dataset.videoPlaybackRate) || 1));
+            return { mark, video, start, end, rate, muted: video.muted };
+        });
+        sessions.forEach(session => {
+            session.mark.classList.remove('shift-photo-compare-animation-hidden');
+            session.mark.classList.add('shift-photo-compare-animation-visible');
+            session.mark.dataset.animationPlaying = '1';
+            session.video.dataset.animationPlaying = '1';
+            session.video.muted = false;
+            session.video.playbackRate = session.rate;
+        });
+        await Promise.all(sessions.map(session => waitForSeek(session.video, session.start)));
+        await Promise.all(sessions.map(session => session.video.play().catch(() => {})));
+        await this.waitShiftPhotoCompareAnimationVideo(80);
+        const waitForFreshVideoFrame = video => new Promise(resolve => {
+            if (typeof video?.requestVideoFrameCallback !== 'function') {
+                requestAnimationFrame(() => resolve());
+                return;
+            }
+            let settled = false;
+            let callbackId = 0;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve();
+            };
+            const timer = setTimeout(() => {
+                try { video.cancelVideoFrameCallback?.(callbackId); } catch (_) {}
+                finish();
+            }, 250);
+            callbackId = video.requestVideoFrameCallback(finish);
+        });
+        if (recording?.audioContext && recording?.audioDestination) {
+            if (recording.audioContext.state === 'suspended') await recording.audioContext.resume().catch(() => {});
+            sessions.forEach(session => {
+                try {
+                    const capturedStream = session.video.captureStream?.() || session.video.mozCaptureStream?.();
+                    if (!capturedStream?.getAudioTracks?.().length) return;
+                    const source = recording.audioContext.createMediaStreamSource(capturedStream);
+                    source.connect(recording.audioDestination);
+                    recording.videoAudioConnections.push({ source, stream: capturedStream, video: session.video });
+                } catch (error) {
+                    console.warn('Animation video audio capture failed.', error);
+                }
+            });
+        }
+        const duration = Math.max(80, ...sessions.map(session => ((session.end - session.start) / session.rate) * 1000));
+        const frameInterval = 1000 / Math.max(12, Math.min(60, Number(recording?.targetFps) || 60));
+        const startedAt = performance.now();
+        const captureFreshVideoFrame = async session => {
+            await waitForFreshVideoFrame(session.video);
+            try {
+                const frameWidth = Math.max(1, Number(session.video.videoWidth) || 1);
+                const frameHeight = Math.max(1, Number(session.video.videoHeight) || 1);
+                const frameCanvas = session.frameCanvas || document.createElement('canvas');
+                if (frameCanvas.width !== frameWidth || frameCanvas.height !== frameHeight) {
+                    frameCanvas.width = frameWidth;
+                    frameCanvas.height = frameHeight;
+                }
+                const frameContext = frameCanvas.getContext('2d', { alpha: false });
+                frameContext.drawImage(session.video, 0, 0, frameWidth, frameHeight);
+                session.frameCanvas = frameCanvas;
+                const frameKey = String(session.mark?.dataset?.videoId || session.video?.dataset?.videoHydrated || '');
+                if (!this._shiftPhotoCompareRecordingVideoFrames) this._shiftPhotoCompareRecordingVideoFrames = new Map();
+                session.video._shiftPhotoCompareRecordingFrame = frameCanvas;
+                if (frameKey) this._shiftPhotoCompareRecordingVideoFrames.set(frameKey, frameCanvas);
+            } catch (error) {
+                console.warn('Animation video frame snapshot failed.', error);
+            }
+        };
+        while (!recording.cancelled && performance.now() - startedAt < duration) {
+            await Promise.all(sessions.map(captureFreshVideoFrame));
+            await this.drawShiftPhotoCompareAnimationRecordingFrame(recording);
+            const elapsed = performance.now() - startedAt;
+            const nextAt = (Math.floor(elapsed / frameInterval) + 1) * frameInterval;
+            await this.waitShiftPhotoCompareAnimationVideo(Math.max(0, Math.min(duration, nextAt) - elapsed));
+        }
+        sessions.forEach(session => {
+            session.video.pause();
+            recording.videoAudioConnections = (recording.videoAudioConnections || []).filter(connection => {
+                if (connection.video !== session.video) return true;
+                try { connection.source?.disconnect?.(recording.audioDestination); } catch (_) {}
+                try { connection.stream?.getTracks?.().forEach(track => track.stop()); } catch (_) {}
+                return false;
+            });
+            session.video.muted = session.muted;
+            const frameKey = String(session.mark?.dataset?.videoId || session.video?.dataset?.videoHydrated || '');
+            const mappedFrame = frameKey ? this._shiftPhotoCompareRecordingVideoFrames?.get?.(frameKey) : null;
+            (mappedFrame || session.video._shiftPhotoCompareRecordingFrame)?.close?.();
+            if (frameKey) this._shiftPhotoCompareRecordingVideoFrames?.delete?.(frameKey);
+            delete session.video._shiftPhotoCompareRecordingFrame;
+            const behavior = session.mark.dataset.videoEndBehavior || 'return';
+            session.video.currentTime = behavior === 'hold' ? Math.max(session.start, session.end - 0.04) : session.start;
+            delete session.video.dataset.animationPlaying;
+            delete session.mark.dataset.animationPlaying;
+        });
+        await this.drawShiftPhotoCompareAnimationRecordingFrame(recording);
+        if (options.holdMs) await this.waitShiftPhotoCompareAnimationVideo(Math.max(0, Number(options.holdMs) || 0));
+    }
     async recordShiftPhotoCompareAnimationStep(recording, stepIndex = -1, options = {}) {
         const state = this._shiftPhotoCompareAnimationState;
         const step = state?.steps?.[stepIndex] || null;
+        const pageRecording = step?.type === 'page' && step.pageEntry?.mark
+            ? this.getShiftPhotoComparePageRecordedAudio(step.pageEntry.mark)
+            : null;
+        if (step?.type === 'page' && step.pageEntry?.mark) {
+            this.speakShiftPhotoCompareAnimationMarks([step.pageEntry.mark]);
+        }
+        if (step?.videoPlayback) {
+            await this.recordShiftPhotoCompareAnimationVideoPlaybackStep(recording, stepIndex, options);
+            return;
+        }
+        const roundTrip = this.isShiftPhotoCompareAnimationRoundTripStep(step);
+        const effectDuration = this.getShiftPhotoCompareAnimationStepEffectDuration(step);
+        const animatedStep = !!step?.motion || effectDuration > 0;
         const duration = step?.motion
-            ? Number(state.motionSpeedMs) || this.getShiftPhotoCompareAnimationMotionSpeed()
-            : Math.min(420, Number(state.speedMs) || this.getShiftPhotoCompareAnimationAutoSpeed());
-        const effectiveDuration = Math.max(40, duration * (Number(recording?.speedCorrection) || 1));
-        const fps = 90;
-        const frameCount = step?.motion ? Math.max(2, Math.ceil(effectiveDuration / (1000 / fps)) + 1) : 1;
+            ? (roundTrip
+                ? this.getShiftPhotoCompareAnimationRoundTripStepDuration(step, state, 1)
+                : (Number(state.motionSpeedMs) || this.getShiftPhotoCompareAnimationMotionSpeed()))
+            : (effectDuration || Math.min(420, Number(state.speedMs) || this.getShiftPhotoCompareAnimationAutoSpeed()));
+        const speedCorrection = Number(recording?.speedCorrection) || 1;
+        const effectiveDuration = Math.max(40, duration * speedCorrection);
+        const fps = recording?.realTimeFrameSkipping ? (Number(recording.targetFps) || 30) : 90;
+        const frameCount = animatedStep ? Math.max(2, Math.ceil(effectiveDuration / (1000 / fps)) + 1) : 1;
         const startedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        for (let frame = 0; frame < frameCount; frame += 1) {
-            const progress = frameCount <= 1 ? 1 : frame / (frameCount - 1);
-            this.setShiftPhotoCompareAnimationSnapshot(stepIndex, progress);
-            await this.drawShiftPhotoCompareAnimationRecordingFrame(recording);
-            if (frame < frameCount - 1) {
+        if (recording?.realTimeFrameSkipping && animatedStep) {
+            const frameInterval = 1000 / fps;
+            let nextFrameAt = startedAt;
+            while (!recording.cancelled) {
                 const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-                const targetAt = startedAt + (((frame + 1) * effectiveDuration) / (frameCount - 1));
-                await this.waitShiftPhotoCompareAnimationVideo(Math.max(0, targetAt - now));
+                const linearProgress = Math.max(0, Math.min(1, (now - startedAt) / effectiveDuration));
+                const elapsedMs = linearProgress * duration;
+                const progress = roundTrip
+                    ? item => this.getShiftPhotoCompareAnimationRoundTripRecordingProgress(item, elapsedMs, state)
+                    : linearProgress;
+                this.setShiftPhotoCompareAnimationSnapshot(stepIndex, progress);
+                await this.drawShiftPhotoCompareAnimationRecordingFrame(recording);
+                if (linearProgress >= 1) break;
+                const afterDraw = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                nextFrameAt = Math.max(nextFrameAt + frameInterval, startedAt + (Math.floor((afterDraw - startedAt) / frameInterval) + 1) * frameInterval);
+                await this.waitShiftPhotoCompareAnimationVideo(Math.max(0, Math.min(effectiveDuration + startedAt, nextFrameAt) - afterDraw));
+            }
+            this.setShiftPhotoCompareAnimationSnapshot(stepIndex, roundTrip
+                ? item => this.getShiftPhotoCompareAnimationRoundTripRecordingProgress(item, duration, state)
+                : 1);
+            await this.drawShiftPhotoCompareAnimationRecordingFrame(recording);
+        } else {
+            for (let frame = 0; frame < frameCount; frame += 1) {
+                const linearProgress = frameCount <= 1 ? 1 : frame / (frameCount - 1);
+                const elapsedMs = linearProgress * duration;
+                const progress = roundTrip
+                    ? item => this.getShiftPhotoCompareAnimationRoundTripRecordingProgress(item, elapsedMs, state)
+                    : linearProgress;
+                this.setShiftPhotoCompareAnimationSnapshot(stepIndex, progress);
+                await this.drawShiftPhotoCompareAnimationRecordingFrame(recording);
+                if (frame < frameCount - 1) {
+                    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                    const targetAt = startedAt + (((frame + 1) * effectiveDuration) / (frameCount - 1));
+                    await this.waitShiftPhotoCompareAnimationVideo(Math.max(0, targetAt - now));
+                }
             }
         }
-        if (options.holdMs) await this.waitShiftPhotoCompareAnimationVideo(Math.max(0, options.holdMs * (Number(recording?.speedCorrection) || 1)));
+        if (options.holdMs) await this.waitShiftPhotoCompareAnimationVideo(Math.max(0, options.holdMs * speedCorrection));
+        if (pageRecording?.key) {
+            const trimEnd = pageRecording.trimEnd > pageRecording.trimStart ? pageRecording.trimEnd : pageRecording.duration;
+            const maxWaitMs = Math.max(500, (trimEnd - pageRecording.trimStart) * 1000 + 1200);
+            const waitStartedAt = performance.now();
+            while (!recording.cancelled && this.isShiftPhotoCompareSpeechInProgress()
+                && performance.now() - waitStartedAt < maxWaitMs) {
+                await this.waitShiftPhotoCompareAnimationVideo(50);
+            }
+        }
     }
 
-    async saveShiftPhotoCompareAnimationAutoVideo() {
+    async saveShiftPhotoCompareAnimationDirectVideo() {
+        return this.saveShiftPhotoCompareAnimationAutoVideo({ recorderMode: 'canvas' });
+    }
+
+    async saveShiftPhotoCompareAnimationAutoVideo(options = {}) {
         const state = this._shiftPhotoCompareAnimationState;
+        const directCanvas = options?.recorderMode === 'canvas';
         if (!state?.steps?.length) {
             this.showToast?.('先にアニメ再生画面を開いてください。');
             return;
@@ -13633,11 +15595,22 @@
         }
         let recording = null;
         try {
-            this.showToast?.('自動再生の動画を作成しています...');
-            recording = await this.createShiftPhotoCompareAnimationRecorder();
-            recording.mode = 'auto';
+            this.showToast?.(directCanvas
+                ? '画面選択なしで直接動画を作成しています...'
+                : '自動再生の動画を作成しています...');
+            recording = directCanvas
+                ? await this.createShiftPhotoCompareAnimationCanvasRecorder({ renderMaxSide: 1728, frameRate: 60, videoBitsPerSecond: 20000000 })
+                : await this.createShiftPhotoCompareAnimationRecorder();
+            recording.mode = directCanvas ? 'auto-canvas' : 'auto';
+            recording.downloadLabel = directCanvas ? '直接動画' : '';
             state.videoRecording = recording;
+            if (directCanvas) {
+                this._shiftPhotoCompareAnimationRecordingAudioContext = recording.audioContext || null;
+                this._shiftPhotoCompareAnimationRecordingAudioDestination = recording.audioDestination || null;
+            }
+            recording.audioRecorder?.start?.();
             recording.recorder.start();
+            recording.videoTrack?.requestFrame?.();
             const pages = Array.isArray(state.pages) && state.pages.length ? [...state.pages] : [];
             if (!pages.length) throw new Error('動画にするページがありません。');
             if (recording.screenCapture) {
@@ -13654,7 +15627,11 @@
                         this.stepShiftPhotoCompareAnimation(1);
                         const autoSpeed = Number(state.speedMs) || this.getShiftPhotoCompareAnimationAutoSpeed();
                         const motionSpeed = Number(state.motionSpeedMs) || this.getShiftPhotoCompareAnimationMotionSpeed();
-                        const waitMs = step?.motion ? motionSpeed : autoSpeed;
+                        const waitMs = step?.motion
+                            ? (this.isShiftPhotoCompareAnimationRoundTripStep(step)
+                                ? this.getShiftPhotoCompareAnimationRoundTripStepDuration(step, state, 1)
+                                : motionSpeed)
+                            : autoSpeed;
                         await this.waitShiftPhotoCompareAnimationVideo(Math.max(120, waitMs));
                     }
                 }
@@ -13671,8 +15648,13 @@
                         this.updateShiftPhotoCompareAnimationCounter();
                         const autoSpeed = Number(state.speedMs) || this.getShiftPhotoCompareAnimationAutoSpeed();
                         const motionSpeed = Number(state.motionSpeedMs) || this.getShiftPhotoCompareAnimationMotionSpeed();
-                        const revealSpeed = Math.min(420, autoSpeed);
-                        const baseHold = Math.max(80, autoSpeed - (step.motion ? motionSpeed : revealSpeed));
+                        const revealSpeed = this.getShiftPhotoCompareAnimationStepEffectDuration(step) || Math.min(420, autoSpeed);
+                        const motionDuration = step.motion
+                            ? (this.isShiftPhotoCompareAnimationRoundTripStep(step)
+                                ? this.getShiftPhotoCompareAnimationRoundTripStepDuration(step, state, 1)
+                                : motionSpeed)
+                            : revealSpeed;
+                        const baseHold = Math.max(80, autoSpeed - motionDuration);
                         await this.recordShiftPhotoCompareAnimationStep(recording, index, { holdMs: baseHold });
                     }
                 }
@@ -13680,12 +15662,12 @@
             await this.waitShiftPhotoCompareAnimationVideo(420);
             await this.finishShiftPhotoCompareAnimationVideoRecording(recording, false);
             state.videoRecording = null;
-            this.showToast?.(`動画を保存しました。${this.getShiftPhotoCompareAnimationVideoExtension(recording.mimeType).toUpperCase()}形式です。`);
+            this.showToast?.(`${directCanvas ? '直接動画' : '動画'}を保存しました。${this.getShiftPhotoCompareAnimationVideoExtension(recording.mimeType).toUpperCase()}形式です。`);
         } catch (error) {
-            console.warn('Shift photo compare animation auto video failed', error);
+            console.warn(`Shift photo compare animation ${directCanvas ? 'direct' : 'auto'} video failed`, error);
             if (recording) await this.finishShiftPhotoCompareAnimationVideoRecording(recording, true).catch?.(() => {});
             if (state.videoRecording === recording) state.videoRecording = null;
-            this.showToast?.(error?.message || '動画を保存できませんでした。');
+            this.showToast?.(error?.message || `${directCanvas ? '直接動画' : '動画'}を保存できませんでした。`);
         }
     }
 
@@ -13721,7 +15703,9 @@
             recording.stepPending = false;
             recording.pendingDirections = [];
             state.videoRecording = recording;
+            recording.audioRecorder?.start?.();
             recording.recorder.start();
+            recording.videoTrack?.requestFrame?.();
             state.index = -1;
             this.setShiftPhotoCompareAnimationSnapshot(-1, 1);
             this.updateShiftPhotoCompareAnimationCounter();
@@ -14216,6 +16200,7 @@
             row: contextRow,
             photos,
             source: options.source || 'shift',
+            animationTimelineStorageKey: String(contextRow?.dataset?.shiftRowId || options.animationTimelineStorageKey || this.createShiftPhotoCompareAnimationTimelineStorageKey(photos, options.source || 'shift')),
             globalMarks: Array.isArray(options.globalMarks) ? options.globalMarks : [],
             photoManagerBlankEditItemId: options.photoManagerBlankEditItemId || '',
             onSync: options.onSync || null,
@@ -14574,6 +16559,11 @@
                     <button type="button" class="shift-photo-compare-animation-order-clear-btn" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); app.clearShiftPhotoCompareAnimationOrder()" title="選択中の記号のアニメ順を消す"><i class="fa-solid fa-eraser"></i><span>順消</span></button>
                     <span class="shift-photo-compare-operation-mode" id="shift-photo-compare-operation-mode" hidden></span>
                     <span class="shift-photo-compare-polyline-state" hidden></span>
+                    <span class="shift-photo-compare-polyline-arrow-controls" hidden onpointerdown="event.stopPropagation()" aria-label="直線の端を矢印にする">
+                        <button type="button" data-arrow-side="start" onclick="app.toggleSelectedShiftPhotoComparePolylineArrow('start')" title="始点を矢印にする／解除"><i class="fa-solid fa-arrow-left"></i><span>始点</span></button>
+                        <button type="button" data-arrow-side="end" onclick="app.toggleSelectedShiftPhotoComparePolylineArrow('end')" title="終点を矢印にする／解除"><i class="fa-solid fa-arrow-right"></i><span>終点</span></button>
+                        <button type="button" data-arrow-side="both" onclick="app.toggleSelectedShiftPhotoComparePolylineArrow('both')" title="両端を矢印にする／解除"><i class="fa-solid fa-arrows-left-right"></i><span>両端</span></button>
+                    </span>
                     <span class="shift-photo-compare-page-state" hidden onpointerdown="event.stopPropagation()">
                         <button type="button" onclick="app.changeSelectedShiftPhotoCompareTextPage(-1)" title="前のページ"><i class="fa-solid fa-chevron-left"></i></button>
                         <input type="number" min="1" max="1" value="1" onfocus="this.select()" onchange="app.goToSelectedShiftPhotoCompareTextPage(this.value)" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); app.goToSelectedShiftPhotoCompareTextPage(this.value); this.blur(); }">
@@ -14597,7 +16587,7 @@
                         <button type="button" class="shift-photo-compare-boxed-text-align-btn" onclick="app.toggleSelectedShiftPhotoBoxedTextAlign()" title="枠付き文字の揃えを切替">横：中</button>
                         <label class="shift-photo-compare-boxed-border-width-control" title="枠付き文字・吹き出しの枠の太さ。0で枠なし">
                             <span>枠太さ</span>
-                            <input type="number" min="0" max="80" step="1" value="8" onfocus="this.select()" onclick="this.select()" oninput="app.setSelectedShiftPhotoTextFrameBorderWidth(this.value)">
+                            <input type="number" min="0" max="80" step="1" value="8" onchange="app.setSelectedShiftPhotoTextFrameBorderWidth(this.value)" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); this.blur(); }">
                         </label>
                         <button type="button" class="shift-photo-compare-boxed-text-vertical-btn" onclick="app.toggleSelectedShiftPhotoRegionCommentVertical()" title="区画テキストの縦揃えを切替">縦：中</button>
                         <button type="button" class="shift-photo-compare-region-font-size-btn" onclick="app.adjustSelectedShiftPhotoRegionCommentTextSize(-0.1)" title="区画内の文字を小さく">A−</button>
@@ -15432,7 +17422,15 @@
             videoTrimStart: item.trimStart,
             videoTrimEnd: item.trimEnd || item.duration,
             videoClickMode: item.animationClickMode || 'continue',
-            videoEndBehavior: 'return'
+            videoEndBehavior: 'return',
+            videoFrameStyle: 'none',
+            videoFrameId: '',
+            videoFrameX: 0,
+            videoFrameY: 0,
+            videoFrameWidth: 100,
+            videoFrameHeight: 100,
+            videoFrameAspectLocked: false,
+            videoFrameAspect: 16 / 9
         }));
         const mark = layer.lastElementChild;
         if (!mark) return;
@@ -15464,6 +17462,7 @@
             ? [root]
             : Array.from(root?.querySelectorAll?.('.shift-photo-compare-mark.video') || []);
         for (const mark of marks) {
+            await this.hydrateShiftPhotoCompareCustomVideoFrame(mark);
             const video = mark.querySelector('video');
             const id = String(mark.dataset.videoId || '');
             if (!video || !id) continue;
@@ -20863,7 +22862,7 @@
         const width = Math.max(0, Math.min(80, Number(value) || 0));
         const marks = this.getShiftPhotoCompareSelectedMarks()
             .filter(mark => ['boxedText', 'callout'].includes(mark.dataset.mode) && mark.dataset.regionComment !== '1' && !this.isShiftPhotoCompareMarkLocked(mark));
-        if (!marks.length || this._shiftPhotoCompareMarkMode !== 'move') {
+        if (!marks.length) {
             this.showShiftPhotoCompareActionMessage('枠付き文字または吹き出しを選択してください。');
             return;
         }
@@ -22772,6 +24771,21 @@
                 polylineState.textContent = '';
             }
         }
+        const polylineArrowControls = toolbar.querySelector('.shift-photo-compare-polyline-arrow-controls');
+        if (polylineArrowControls) {
+            const polyline = selected.find(item => item.dataset.mode === 'polyline');
+            polylineArrowControls.hidden = !polyline;
+            polylineArrowControls.querySelectorAll('button[data-arrow-side]').forEach(button => {
+                const side = button.dataset.arrowSide;
+                const active = !!polyline && (side === 'start'
+                    ? polyline.dataset.polylineStartArrow === '1'
+                    : (side === 'end'
+                        ? polyline.dataset.polylineEndArrow === '1'
+                        : polyline.dataset.polylineStartArrow === '1' && polyline.dataset.polylineEndArrow === '1'));
+                button.classList.toggle('active', active);
+                button.disabled = !polyline || this.isShiftPhotoCompareMarkLocked(polyline);
+            });
+        }
         const pageState = toolbar.querySelector('.shift-photo-compare-page-state');
         if (pageState) {
             if (selected.length === 1 && this.supportsShiftPhotoComparePages(mark)) {
@@ -23096,6 +25110,7 @@
         if (mode === 'mosaic') return 'モザイク：角・中点で範囲変更、赤点で角度変更できます';
         if (mode === 'text' || mode === 'number') return '文字：入力欄で内容変更、赤点で角度変更できます';
         if (mode === 'freehand') return '手描き：移動・拡大・回転できます';
+        if (mode === 'polyline') return '直線：上の始点・終点・両端ボタンで、区画なしでも矢印にできます';
         if (mode === 'polyline') return '直線：線全体を掴んで移動、四隅で拡大縮小できます';
         return '記号：角の点で拡大、赤点で角度変更。空白ドラッグで範囲選択できます';
     }
@@ -23758,6 +25773,7 @@
                 mark,
                 wrap: mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer'),
                 points: this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]'),
+                freehandSourcePoints: this.parseShiftPhotoCompareFreehandPoints(mark.dataset.freehandSourcePoints || '[]'),
                 angle: Number(mark.dataset.angle) || 0
             }))
             .filter(state => state.wrap && state.points.length >= 2);
@@ -23793,7 +25809,7 @@
                 if (!wrapRect.width || !wrapRect.height) return;
                 const cos = Math.cos(appliedDelta);
                 const sin = Math.sin(appliedDelta);
-                const rotated = state.points.map(point => {
+                const rotatePoints = points => points.map(point => {
                     const px = wrapRect.left + point.x / 100 * wrapRect.width;
                     const py = wrapRect.top + point.y / 100 * wrapRect.height;
                     const dx = px - center.x;
@@ -23803,6 +25819,10 @@
                         y: Math.max(0, Math.min(100, ((center.y + dx * sin + dy * cos - wrapRect.top) / wrapRect.height) * 100))
                     };
                 });
+                const rotated = rotatePoints(state.points);
+                if (state.freehandSourcePoints.length >= 2) {
+                    state.mark.dataset.freehandSourcePoints = JSON.stringify(rotatePoints(state.freehandSourcePoints));
+                }
                 this.updateShiftPhotoCompareFreehandMark(state.mark, rotated);
                 state.mark.dataset.angle = String(((state.angle + deltaDegrees) % 360 + 360) % 360);
             });
@@ -24091,6 +26111,12 @@
         if (this.supportsShiftPhotoComparePages(mark)
             && ['text', 'textColor', 'fillColor', 'wallpaperSrc'].some(key => settings[key] !== undefined)) {
             this.persistCurrentShiftPhotoCompareMarkPage(mark);
+        }
+        if (mark.dataset.mode === 'polyline'
+            && ['size', 'stroke', 'outline', 'innerOutline', 'outerOutlineWidth', 'innerOutlineWidth']
+                .some(key => settings[key] !== undefined)) {
+            const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+            this.updateShiftPhotoCompareFreehandMark(mark, points);
         }
     }
 
@@ -25054,6 +27080,65 @@
         if (imageWrap) imageWrap.innerHTML = this.getShiftPhotoComparePolylineRegionImagesHtml(points, regionFills);
         const labelWrap = mark.querySelector('.shift-photo-polyline-region-labels');
         if (labelWrap) labelWrap.innerHTML = this.getShiftPhotoComparePolylineRegionLabelsHtml(points, regionFills);
+        this.updateShiftPhotoComparePolylineArrowheads(mark, points);
+    }
+
+    toggleSelectedShiftPhotoComparePolylineArrow(side = 'end') {
+        const mark = this.getShiftPhotoCompareSelectedMarks().find(item => item.dataset.mode === 'polyline');
+        if (!mark) {
+            this.showShiftPhotoCompareActionMessage('先に直線を選択してください。');
+            return;
+        }
+        this.toggleShiftPhotoComparePolylineArrow(mark, side);
+        this.updateShiftPhotoCompareMiniToolbar();
+    }
+
+    toggleShiftPhotoComparePolylineArrow(mark, side = 'end') {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        this.pushShiftPhotoCompareUndo();
+        let next = '0';
+        let label = side === 'start' ? '始点' : '終点';
+        if (side === 'both') {
+            next = mark.dataset.polylineStartArrow === '1' && mark.dataset.polylineEndArrow === '1' ? '0' : '1';
+            mark.dataset.polylineStartArrow = next;
+            mark.dataset.polylineEndArrow = next;
+            label = '両端';
+        } else {
+            const key = side === 'start' ? 'polylineStartArrow' : 'polylineEndArrow';
+            next = mark.dataset[key] === '1' ? '0' : '1';
+            mark.dataset[key] = next;
+        }
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        this.updateShiftPhotoCompareFreehandMark(mark, points);
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`${label}の矢印を${next === '1' ? '表示' : '解除'}しました。`);
+    }
+
+    toggleShiftPhotoComparePolylinePointArrow(mark, pointIndex = 0) {
+        if (!mark || mark.dataset.mode !== 'polyline' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (points.length < 2) return;
+        const index = Math.max(0, Math.min(points.length - 1, Math.round(Number(pointIndex) || 0)));
+        if (index === 0) {
+            this.toggleShiftPhotoComparePolylineArrow(mark, 'start');
+            return;
+        }
+        if (index === points.length - 1) {
+            this.toggleShiftPhotoComparePolylineArrow(mark, 'end');
+            return;
+        }
+        this.pushShiftPhotoCompareUndo();
+        const current = this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]', points.length);
+        const enabled = !current.includes(index);
+        const next = enabled ? [...current, index] : current.filter(item => item !== index);
+        mark.dataset.polylineArrowPoints = JSON.stringify(this.normalizeShiftPhotoComparePolylineArrowPoints(next, points.length));
+        this.updateShiftPhotoCompareFreehandMark(mark, points);
+        this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`この点の矢印を${enabled ? '表示' : '解除'}しました。`);
     }
 
     setShiftPhotoComparePolylineRegionFill(mark, regionIndex, colorValue, transparencyPercent) {
@@ -25381,6 +27466,274 @@
         this.refreshShiftPhotoCompareMarkList();
         this.autoSaveShiftNotebook(true);
         this.showShiftPhotoCompareActionMessage(Number(regionIndex) >= 0 ? `区画 ${Number(regionIndex) + 1} へ塗り設定を貼り付けました。` : '全区画へ塗り設定を貼り付けました。');
+    }
+
+    getShiftPhotoCompareFreehandConversionTolerance() {
+        const stored = Number(localStorage.getItem('shift_photo_freehand_conversion_tolerance'));
+        return Math.max(1, Math.min(24, Number.isFinite(stored) && stored > 0 ? stored : 6));
+    }
+
+    setShiftPhotoCompareFreehandConversionTolerance(value) {
+        const tolerance = Math.max(1, Math.min(24, Number(value) || 6));
+        localStorage.setItem('shift_photo_freehand_conversion_tolerance', String(tolerance));
+        return tolerance;
+    }
+
+    getShiftPhotoCompareFreehandConversionLabel(value) {
+        const tolerance = Math.max(1, Math.min(24, Number(value) || 6));
+        if (tolerance <= 4) return '細かい';
+        if (tolerance <= 9) return '標準';
+        if (tolerance <= 15) return '粗め';
+        return '抽象的';
+    }
+
+    getShiftPhotoCompareFreehandAngleSnapEnabled() {
+        const stored = localStorage.getItem('shift_photo_freehand_conversion_angle_snap');
+        return stored === null ? true : stored === '1';
+    }
+
+    setShiftPhotoCompareFreehandAngleSnapEnabled(value) {
+        const enabled = value === true || value === '1';
+        localStorage.setItem('shift_photo_freehand_conversion_angle_snap', enabled ? '1' : '0');
+        return enabled;
+    }
+
+    getShiftPhotoCompareFreehandConversionSourcePoints(mark) {
+        if (!mark) return [];
+        if (mark.dataset.mode === 'freehand') return this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (mark.dataset.mode === 'polyline') return this.parseShiftPhotoCompareFreehandPoints(mark.dataset.freehandSourcePoints || '[]');
+        return [];
+    }
+
+    getShiftPhotoCompareFreehandConversionTargets(fallbackMark = null) {
+        const selected = this.getShiftPhotoCompareSelectedMarks().filter(mark => document.contains(mark));
+        const convertible = mark => ['freehand', 'polyline'].includes(mark?.dataset?.mode)
+            && this.getShiftPhotoCompareFreehandConversionSourcePoints(mark).length >= 2;
+        const targets = selected.filter(convertible);
+        return targets.length ? targets : [fallbackMark].filter(convertible);
+    }
+
+    snapShiftPhotoCompareConvertedPolylineAngles(mark, pointsValue = [], enabled = true) {
+        const points = Array.isArray(pointsValue) ? pointsValue.map(point => ({ ...point })) : [];
+        if (!enabled || points.length < 2) return points;
+        const rect = mark?.closest?.('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer')?.getBoundingClientRect?.();
+        const width = Math.max(1, Number(rect?.width) || 100);
+        const height = Math.max(1, Number(rect?.height) || 100);
+        const closed = points.length >= 4 && Math.hypot(points[0].x - points[points.length - 1].x, points[0].y - points[points.length - 1].y) < 0.2;
+        const result = [{ ...points[0] }];
+        const step = Math.PI / 4;
+        const limit = 7 * Math.PI / 180;
+        const distance = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+        for (let index = 1; index < points.length; index += 1) {
+            if (closed && index === points.length - 1) {
+                result.push({ ...result[0] });
+                continue;
+            }
+            const anchor = result[result.length - 1];
+            const target = points[index];
+            const dx = (target.x - anchor.x) / 100 * width;
+            const dy = (target.y - anchor.y) / 100 * height;
+            const length = Math.hypot(dx, dy);
+            const angle = Math.atan2(dy, dx);
+            const snapped = Math.round(angle / step) * step;
+            if (length < 0.5 || distance(angle, snapped) > limit) {
+                result.push({ ...target });
+                continue;
+            }
+            result.push({
+                x: Math.max(0, Math.min(100, anchor.x + Math.cos(snapped) * length / width * 100)),
+                y: Math.max(0, Math.min(100, anchor.y + Math.sin(snapped) * length / height * 100))
+            });
+        }
+        return result;
+    }
+
+    clearShiftPhotoCompareFreehandConversionPreview() {
+        document.querySelectorAll('.shift-photo-freehand-conversion-preview').forEach(preview => preview.remove());
+    }
+
+    previewShiftPhotoCompareFreehandConversion(fallbackMark = null, tolerancePx = 0, snapAngles = true) {
+        this.clearShiftPhotoCompareFreehandConversionPreview();
+        this.getShiftPhotoCompareFreehandConversionTargets(fallbackMark).filter(mark => !this.isShiftPhotoCompareMarkLocked(mark)).forEach(mark => {
+            const source = this.getShiftPhotoCompareFreehandConversionSourcePoints(mark);
+            let points = this.simplifyShiftPhotoCompareFreehandForPolyline(mark, source, tolerancePx);
+            points = this.snapShiftPhotoCompareConvertedPolylineAngles(mark, points, snapAngles);
+            points = this.normalizeShiftPhotoComparePolylineIntersections(points);
+            if (points.length < 2) return;
+            const value = points.map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
+            mark.insertAdjacentHTML('beforeend', `<svg class="shift-photo-freehand-conversion-preview" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${value}"></polyline></svg>`);
+        });
+    }
+
+    simplifyShiftPhotoCompareFreehandForPolyline(mark, pointsValue = [], tolerancePx = 0) {
+        const points = Array.isArray(pointsValue)
+            ? pointsValue.filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+            : [];
+        if (points.length <= 2) return points.map(point => ({ ...point }));
+
+        const wrapRect = mark?.closest?.('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer')?.getBoundingClientRect?.();
+        const width = Math.max(1, Number(wrapRect?.width) || 100);
+        const height = Math.max(1, Number(wrapRect?.height) || 100);
+        const tolerance = Number(tolerancePx) > 0
+            ? Number(tolerancePx)
+            : Math.max(3, Math.min(9, Math.hypot(width, height) * 0.006));
+        const toPixel = point => ({ x: point.x / 100 * width, y: point.y / 100 * height });
+        const pixelDistance = (a, b) => {
+            const ap = toPixel(a);
+            const bp = toPixel(b);
+            return Math.hypot(ap.x - bp.x, ap.y - bp.y);
+        };
+        const distanceToSegment = (point, a, b) => {
+            const p = toPixel(point);
+            const ap = toPixel(a);
+            const bp = toPixel(b);
+            const dx = bp.x - ap.x;
+            const dy = bp.y - ap.y;
+            const lengthSquared = dx * dx + dy * dy || 0.000001;
+            const position = Math.max(0, Math.min(1, ((p.x - ap.x) * dx + (p.y - ap.y) * dy) / lengthSquared));
+            return Math.hypot(p.x - (ap.x + dx * position), p.y - (ap.y + dy * position));
+        };
+        const filtered = [];
+        points.forEach((point, index) => {
+            if (index === points.length - 1 || !filtered.length || pixelDistance(point, filtered[filtered.length - 1]) >= Math.max(1.5, tolerance * 0.3)) {
+                filtered.push({ ...point });
+            }
+        });
+        if (filtered.length <= 2) return filtered;
+
+        const simplifyOpen = source => {
+            if (source.length <= 2) return source.map(point => ({ ...point }));
+            let farthestIndex = -1;
+            let farthestDistance = 0;
+            for (let index = 1; index < source.length - 1; index += 1) {
+                const distance = distanceToSegment(source[index], source[0], source[source.length - 1]);
+                if (distance > farthestDistance) {
+                    farthestDistance = distance;
+                    farthestIndex = index;
+                }
+            }
+            if (farthestIndex < 0 || farthestDistance <= tolerance) {
+                return [{ ...source[0] }, { ...source[source.length - 1] }];
+            }
+            const before = simplifyOpen(source.slice(0, farthestIndex + 1));
+            const after = simplifyOpen(source.slice(farthestIndex));
+            return before.slice(0, -1).concat(after);
+        };
+
+        const isClosed = filtered.length >= 4 && pixelDistance(filtered[0], filtered[filtered.length - 1]) <= Math.max(8, tolerance * 1.5);
+        if (!isClosed) return simplifyOpen(filtered);
+
+        filtered[filtered.length - 1] = { ...filtered[0] };
+        let splitIndex = 1;
+        let farthestFromStart = 0;
+        for (let index = 1; index < filtered.length - 1; index += 1) {
+            const distance = pixelDistance(filtered[0], filtered[index]);
+            if (distance > farthestFromStart) {
+                farthestFromStart = distance;
+                splitIndex = index;
+            }
+        }
+        const before = simplifyOpen(filtered.slice(0, splitIndex + 1));
+        const after = simplifyOpen(filtered.slice(splitIndex));
+        const simplified = before.slice(0, -1).concat(after);
+        if (simplified.length >= 3) simplified[simplified.length - 1] = { ...simplified[0] };
+        return simplified;
+    }
+
+    convertSelectedShiftPhotoCompareFreehandToPolyline(fallbackMark = null, tolerancePx = 0, snapAngles = true) {
+        const convertibleMarks = this.getShiftPhotoCompareFreehandConversionTargets(fallbackMark);
+        const targets = convertibleMarks.filter(mark => !this.isShiftPhotoCompareMarkLocked(mark));
+        if (!convertibleMarks.length) {
+            this.showShiftPhotoCompareActionMessage('変換するフリーハンド線を選択してください。');
+            return;
+        }
+        if (!targets.length) {
+            this.showShiftPhotoCompareActionMessage('ロックを解除してから変換してください。');
+            return;
+        }
+        this.clearShiftPhotoCompareFreehandConversionPreview();
+        this.pushShiftPhotoCompareUndo();
+        const changed = [];
+        targets.forEach(mark => {
+            const wasFreehand = mark.dataset.mode === 'freehand';
+            const sourcePoints = this.getShiftPhotoCompareFreehandConversionSourcePoints(mark);
+            let points = this.simplifyShiftPhotoCompareFreehandForPolyline(mark, sourcePoints, tolerancePx);
+            points = this.snapShiftPhotoCompareConvertedPolylineAngles(mark, points, snapAngles);
+            points = this.normalizeShiftPhotoComparePolylineIntersections(points);
+            if (points.length < 2) return;
+            const badges = Array.from(mark.querySelectorAll(':scope > .shift-photo-compare-animation-order-badge'));
+            badges.forEach(badge => badge.remove());
+            if (wasFreehand) mark.dataset.freehandSourcePoints = JSON.stringify(sourcePoints);
+            const sourceColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
+            let color = sourceColor;
+            let size = Math.max(24, Math.min(700, Number(mark.dataset.size) || 56));
+            let stroke = Math.max(0.1, Math.min(8, Number(mark.dataset.stroke) || 1));
+            let dashed = mark.dataset.dashed === '1';
+            let outlineEnabled = { outer: mark.dataset.outline !== '0', inner: mark.dataset.innerOutline === '1' };
+            let outlineWidths = { outer: Math.max(0, Number(mark.dataset.outerOutlineWidth) || 0), inner: Math.max(0, Number(mark.dataset.innerOutlineWidth) || 0) };
+            let outlineColors = { outer: mark.dataset.outerOutlineColor || '#ffffff', inner: mark.dataset.innerOutlineColor || '#111827' };
+            if (wasFreehand) {
+                const settings = this.getShiftPhotoCompareSymbolSettingPreferences().polyline || {};
+                color = this.getShiftPhotoCompareBorderColorDefault('polyline', sourceColor);
+                size = Math.max(24, Math.min(700, Number(settings.size) || size));
+                stroke = Math.max(0.1, Math.min(8, Number(settings.stroke) > 0 ? Number(settings.stroke) / 100 : stroke));
+                dashed = Object.prototype.hasOwnProperty.call(settings, 'dashed') ? settings.dashed === true : dashed;
+                outlineEnabled = this.getShiftPhotoCompareOutlineEnabledDefaults('polyline');
+                outlineWidths = this.getShiftPhotoCompareOutlineWidthDefaults('polyline');
+                outlineColors = this.getShiftPhotoCompareOutlineColorDefaults('polyline');
+            }
+            mark.dataset.mode = 'polyline';
+            mark.classList.remove('freehand');
+            mark.classList.add('polyline');
+            Object.assign(mark.dataset, {
+                size: String(size), stroke: String(stroke), dashed: dashed ? '1' : '0', color,
+                outline: outlineEnabled.outer ? '1' : '0', innerOutline: outlineEnabled.inner ? '1' : '0',
+                outerOutlineWidth: String(outlineWidths.outer), innerOutlineWidth: String(outlineWidths.inner),
+                outerOutlineColor: outlineColors.outer, innerOutlineColor: outlineColors.inner
+            });
+            if (wasFreehand) Object.assign(mark.dataset, {
+                polylineFill: '0', polylineFillColor: color, polylineFillOpacity: '1', polylineRegionFills: '[]'
+            });
+            mark.style.setProperty('--mark-size', `${size}px`);
+            mark.style.setProperty('--mark-stroke', String(stroke));
+            mark.style.setProperty('--mark-color', color);
+            mark.style.setProperty('--polyline-fill-color', mark.dataset.polylineFillColor || color);
+            mark.style.setProperty('--polyline-fill-opacity', mark.dataset.polylineFillOpacity || '1');
+            mark.style.setProperty('--outer-outline-width', `${outlineWidths.outer}px`);
+            mark.style.setProperty('--inner-outline-width', `${outlineWidths.inner}px`);
+            mark.style.setProperty('--outer-outline-color', outlineColors.outer);
+            mark.style.setProperty('--inner-outline-color', outlineColors.inner);
+            const fills = wasFreehand ? [] : this.reconcileShiftPhotoComparePolylineRegionFills(points, mark.dataset.polylineRegionFills || '[]', {
+                enabled: mark.dataset.polylineFill === '1', color: mark.dataset.polylineFillColor || color, opacity: mark.dataset.polylineFillOpacity
+            });
+            mark.dataset.polylineRegionFills = JSON.stringify(fills);
+            const value = points.map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
+            mark.innerHTML = this.getShiftPhotoComparePolylineSvg(value, points, fills, {
+                enabled: mark.dataset.polylineFill === '1', color: mark.dataset.polylineFillColor || color, opacity: Number(mark.dataset.polylineFillOpacity) || 1
+            });
+            badges.forEach(badge => mark.appendChild(badge));
+            this.updateShiftPhotoCompareFreehandMark(mark, points);
+            changed.push(mark);
+        });
+        if (!changed.length) {
+            this._shiftPhotoCompareUndoStack?.pop?.();
+            this.updateShiftPhotoCompareUndoButton();
+            this.showShiftPhotoCompareActionMessage('変換できる線データがありませんでした。');
+            return;
+        }
+        const remembered = changed[0];
+        this.rememberShiftPhotoCompareSymbolSettingsFromMark(remembered);
+        this.saveShiftPhotoCompareBorderColorDefault('polyline', remembered.dataset.color, remembered);
+        this.saveShiftPhotoCompareOutlineEnabledDefaults(remembered.dataset.outline !== '0', remembered.dataset.innerOutline === '1', 'polyline');
+        this.saveShiftPhotoCompareOutlineWidthDefaults(remembered.dataset.outerOutlineWidth, remembered.dataset.innerOutlineWidth, 'polyline');
+        this.saveShiftPhotoCompareOutlineColorDefaults(remembered.dataset.outerOutlineColor, remembered.dataset.innerOutlineColor, 'polyline');
+        this.syncShiftPhotoCompareChangedMarkWraps(changed);
+        this.updateShiftPhotoCompareSelectionBounds();
+        this.updateShiftPhotoCompareSelectionHint();
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        const skipped = convertibleMarks.length - changed.length;
+        this.showShiftPhotoCompareActionMessage(`${changed.length}本を直線引きに変換しました。${skipped ? `（ロック中 ${skipped}本を除外）` : ''}`);
     }
 
     mergeCloseShiftPhotoComparePolylinePoints(mark, thresholdPercent = 0.35) {
@@ -27552,6 +29905,7 @@
     closeShiftPhotoCompareImageContextMenu() {
         this.clearShiftPhotoCompareSymbolSettingPresetPreview();
         this.hideShiftPhotoCompareSymbolSettingPresetPreview();
+        this.clearShiftPhotoCompareFreehandConversionPreview();
         document.querySelectorAll('.shift-photo-compare-mark.overlap-choice-preview')
             .forEach(mark => mark.classList.remove('overlap-choice-preview'));
         document.querySelectorAll('.shift-photo-compare-image-context-menu').forEach(menu => menu.remove());
@@ -27616,6 +29970,10 @@
             ? 0
             : Math.max(0, Math.min(corePoints.length - 1, Number(pointIndex) || 0));
         const isOpenEndpoint = !closed && (safeIndex === 0 || safeIndex === points.length - 1);
+        const arrowPoints = this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]', points.length);
+        const pointHasArrow = (safeIndex === 0 && mark.dataset.polylineStartArrow === '1')
+            || (safeIndex === points.length - 1 && mark.dataset.polylineEndArrow === '1')
+            || arrowPoints.includes(safeIndex);
         const nearestEndpoint = isOpenEndpoint
             ? this.getNearestShiftPhotoComparePolylineEndpoint(mark, safeIndex)
             : null;
@@ -27638,6 +29996,7 @@
             ${canChangeStart
                 ? `<button type="button" data-action="set-start"${safeIndex === 0 ? ' disabled' : ''}><i class="fa-solid fa-play"></i><span>${safeIndex === 0 ? '現在の始点です' : 'この点を始点に変更'}</span></button>`
                 : '<button type="button" disabled><i class="fa-solid fa-circle-info"></i><span>始点変更には3点以上必要です</span></button>'}
+            <button type="button" data-action="toggle-point-arrow"><i class="fa-solid fa-location-arrow"></i><span>${pointHasArrow ? 'この点の矢印を解除' : 'この点へ矢印を追加'}</span></button>
             <button type="button" data-action="delete-point" class="danger"${canDeletePoint ? '' : ' disabled'}><i class="fa-solid fa-circle-minus"></i><span>${canDeletePoint ? 'この青点を削除' : 'これ以上削除できません'}</span></button>
         `;
         menu.addEventListener('pointerdown', menuEvent => menuEvent.stopPropagation());
@@ -27666,6 +30025,9 @@
                 } else {
                     reordered = this.buildShiftPhotoComparePolylineTraversal(points, safeIndex);
                 }
+                mark.dataset.polylineArrowPoints = JSON.stringify(
+                    this.remapShiftPhotoComparePolylineArrowPoints(points, reordered, arrowPoints)
+                );
                 this.updateShiftPhotoCompareFreehandMark(mark, reordered);
                 if (wrap?.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(wrap);
                 else if (wrap) this.syncShiftPhotoCompareMarks(wrap);
@@ -27676,6 +30038,9 @@
                 this.refreshShiftPhotoCompareMarkList();
                 this.autoSaveShiftNotebook(true);
                 this.showShiftPhotoCompareActionMessage('選択した青点を新しい始点に変更しました。続けて直線を引けます。');
+            }
+            if (action === 'toggle-point-arrow') {
+                this.toggleShiftPhotoComparePolylinePointArrow(mark, safeIndex);
             }
             if (action === 'delete-point' && canDeletePoint) {
                 this.deleteShiftPhotoComparePolylinePoint(mark, safeIndex);
@@ -28103,8 +30468,13 @@
         }
         if (!best) return;
         this.pushShiftPhotoCompareUndo();
+        const previousPoints = points.map(point => ({ ...point }));
+        const previousArrowPoints = this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]', previousPoints.length);
         points.splice(best.index + 1, 0, best.point);
         const normalized = this.normalizeShiftPhotoComparePolylineIntersections(points);
+        mark.dataset.polylineArrowPoints = JSON.stringify(
+            this.remapShiftPhotoComparePolylineArrowPoints(previousPoints, normalized, previousArrowPoints)
+        );
         this.updateShiftPhotoCompareFreehandMark(mark, normalized);
         this.syncShiftPhotoCompareChangedMarkWraps([mark]);
         this.selectShiftPhotoCompareMark(mark);
@@ -28132,7 +30502,11 @@
             nextPoints = points.filter((_, itemIndex) => itemIndex !== index);
         }
         this.pushShiftPhotoCompareUndo();
+        const previousArrowPoints = this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]', points.length);
         nextPoints = this.normalizeShiftPhotoComparePolylineIntersections(nextPoints);
+        mark.dataset.polylineArrowPoints = JSON.stringify(
+            this.remapShiftPhotoComparePolylineArrowPoints(points, nextPoints, previousArrowPoints)
+        );
         this.updateShiftPhotoCompareFreehandMark(mark, nextPoints);
         this.syncShiftPhotoCompareChangedMarkWraps([mark]);
         this.selectShiftPhotoCompareMark(mark);
@@ -28806,6 +31180,12 @@
         const canSelectFromDrawing = ['freehand', 'polyline'].includes(mode);
         const arrowHeadHidden = isArrow && mark.dataset.arrowHeadHidden === '1';
         const selected = this.getShiftPhotoCompareSelectedMarks();
+        const selectedConvertible = selected.filter(item => this.getShiftPhotoCompareFreehandConversionSourcePoints(item).length >= 2);
+        const canConvertFreehand = selectedConvertible.length > 0 || this.getShiftPhotoCompareFreehandConversionSourcePoints(mark).length >= 2;
+        const isFreehandReconversion = mode === 'polyline' && this.getShiftPhotoCompareFreehandConversionSourcePoints(mark).length >= 2;
+        const freehandConversionTolerance = this.getShiftPhotoCompareFreehandConversionTolerance();
+        const freehandConversionLabel = this.getShiftPhotoCompareFreehandConversionLabel(freehandConversionTolerance);
+        const freehandAngleSnap = this.getShiftPhotoCompareFreehandAngleSnapEnabled();
         const outlineTextModes = ['text', 'number', 'boxedText', 'callout'];
         const outlineWidthModes = [...outlineTextModes, 'circle', 'triangle', 'arrow', 'rect', 'freehand', 'polyline', 'xmark'];
         const outlineTextTarget = selected.find(item => outlineTextModes.includes(item.dataset.mode)) || (outlineTextModes.includes(mode) ? mark : null);
@@ -28883,7 +31263,21 @@
             ${regionAspectInfoHtml}
             <div class="shift-photo-context-section-title first">操作</div>
             ${canSelectFromDrawing ? '<button type="button" data-action="select"><i class="fa-solid fa-arrow-pointer"></i><span>選択</span></button>' : ''}
-            ${isPolyline ? `<button type="button" data-action="polyline-draw"${isPolylineLocked ? ' disabled' : ''}><i class="fa-solid fa-route"></i><span>${isPolylineLocked ? 'ロック解除後に直線引き' : '直線引きを再開'}</span></button>` : ''}
+            ${canConvertFreehand ? `<div class="shift-photo-freehand-convert-row">
+                <div class="shift-photo-freehand-convert-head"><span>直線変換の細かさ</span><b data-role="freehand-conversion-label">${freehandConversionLabel}</b></div>
+                <label><span>細かい</span><input type="range" min="1" max="24" step="1" value="${freehandConversionTolerance}" data-field="freehand-conversion-tolerance"><span>抽象的</span></label>
+                <label class="shift-photo-freehand-angle-snap"><input type="checkbox" data-field="freehand-angle-snap"${freehandAngleSnap ? ' checked' : ''}><span>水平・垂直・45°を補正</span></label>
+                <button type="button" data-action="freehand-to-polyline"><i class="fa-solid fa-route"></i><span>${isFreehandReconversion ? 'この細かさで再変換' : 'この細かさで変換'}</span></button>
+            </div>` : ''}
+            ${isPolyline ? `<button type="button" data-action="polyline-draw"${isPolylineLocked ? ' disabled' : ''}><i class="fa-solid fa-route"></i><span>${isPolylineLocked ? 'ロック解除後に直線引き' : '直線引きを再開'}</span></button>
+            <div class="shift-photo-polyline-arrow-tools">
+                <b><i class="fa-solid fa-location-arrow"></i> 線の端を矢印にする</b>
+                <div>
+                    <button type="button" data-action="polyline-start-arrow" class="${mark.dataset.polylineStartArrow === '1' ? 'active' : ''}" title="始点の矢印を切り替え"><i class="fa-solid fa-arrow-left"></i><span>始点</span></button>
+                    <button type="button" data-action="polyline-end-arrow" class="${mark.dataset.polylineEndArrow === '1' ? 'active' : ''}" title="終点の矢印を切り替え"><i class="fa-solid fa-arrow-right"></i><span>終点</span></button>
+                    <button type="button" data-action="polyline-both-arrows" class="${mark.dataset.polylineStartArrow === '1' && mark.dataset.polylineEndArrow === '1' ? 'active' : ''}" title="両端の矢印を切り替え"><i class="fa-solid fa-arrows-left-right"></i><span>両端</span></button>
+                </div>
+            </div>` : ''}
             <div class="shift-photo-context-section-title">コピー</div>
             <button type="button" data-action="copy"><i class="fa-regular fa-copy"></i><span>コピー${selectedCount > 1 ? ` (${selectedCount}件)` : ''}</span></button>
             <button type="button" data-action="copy-clipboard"><i class="fa-regular fa-clipboard"></i><span>クリップボードにコピー</span></button>
@@ -29077,6 +31471,19 @@
         menu.querySelector('[data-field="freehand-width"]')?.addEventListener('input', widthEvent => {
             this.setSelectedShiftPhotoCompareFreehandWidth(widthEvent.target.value, { silent: true });
         });
+        const previewFreehandConversion = () => {
+            const tolerance = this.setShiftPhotoCompareFreehandConversionTolerance(menu.querySelector('[data-field="freehand-conversion-tolerance"]')?.value);
+            const snapAngles = this.setShiftPhotoCompareFreehandAngleSnapEnabled(!!menu.querySelector('[data-field="freehand-angle-snap"]')?.checked);
+            this.previewShiftPhotoCompareFreehandConversion(mark, tolerance, snapAngles);
+        };
+        menu.querySelector('[data-field="freehand-conversion-tolerance"]')?.addEventListener('input', toleranceEvent => {
+            const tolerance = this.setShiftPhotoCompareFreehandConversionTolerance(toleranceEvent.target.value);
+            const label = menu.querySelector('[data-role="freehand-conversion-label"]');
+            if (label) label.textContent = this.getShiftPhotoCompareFreehandConversionLabel(tolerance);
+            previewFreehandConversion();
+        });
+        menu.querySelector('[data-field="freehand-angle-snap"]')?.addEventListener('change', previewFreehandConversion);
+        if (canConvertFreehand) previewFreehandConversion();
         menu.querySelector('[data-field="text-font"]')?.addEventListener('change', fontEvent => {
             this.setShiftPhotoCompareMarkFont(fontEvent.target.value);
         });
@@ -29107,6 +31514,13 @@
             if (action === 'polyline-draw') {
                 const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
                 this.continueShiftPhotoComparePolylineFromEndpoint(mark, Math.max(0, points.length - 1));
+            }
+            if (action === 'freehand-to-polyline') {
+                const tolerance = this.setShiftPhotoCompareFreehandConversionTolerance(
+                    menu.querySelector('[data-field="freehand-conversion-tolerance"]')?.value
+                );
+                const snapAngles = this.setShiftPhotoCompareFreehandAngleSnapEnabled(!!menu.querySelector('[data-field="freehand-angle-snap"]')?.checked);
+                this.convertSelectedShiftPhotoCompareFreehandToPolyline(mark, tolerance, snapAngles);
             }
             if (action === 'copy') this.copySelectedShiftPhotoCompareMark();
             if (action === 'copy-clipboard') this.copySelectedShiftPhotoCompareMarksToClipboard();
@@ -29176,6 +31590,9 @@
             if (action === 'freehand-width') {
                 this.setSelectedShiftPhotoCompareFreehandWidth(menu.querySelector('[data-field="freehand-width"]')?.value);
             }
+            if (action === 'polyline-start-arrow') this.toggleShiftPhotoComparePolylineArrow(mark, 'start');
+            if (action === 'polyline-end-arrow') this.toggleShiftPhotoComparePolylineArrow(mark, 'end');
+            if (action === 'polyline-both-arrows') this.toggleShiftPhotoComparePolylineArrow(mark, 'both');
             if (action === 'polyline-fill-settings') {
                 applyPolylineFillFromMenu();
             }
@@ -31472,6 +33889,13 @@
                     centerY: fill.centerY === null ? null : Math.max(0, Math.min(100, fill.centerY + translateY))
                 }));
                 mark.dataset.polylineRegionFills = JSON.stringify(translatedFills);
+                const sourcePoints = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.freehandSourcePoints || '[]');
+                if (sourcePoints.length >= 2) {
+                    mark.dataset.freehandSourcePoints = JSON.stringify(sourcePoints.map(point => ({
+                        x: Math.max(0, Math.min(100, point.x + translateX)),
+                        y: Math.max(0, Math.min(100, point.y + translateY))
+                    })));
+                }
                 if (!isAnimationGhost) {
                     const linkId = mark.dataset.regionCommentLinkId || '';
                     const wrap = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
@@ -31491,10 +33915,46 @@
         mark.dataset.points = JSON.stringify(points);
         mark.dataset.hasPath = points.length >= 2 ? '1' : '0';
         const pointsText = points.map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
-        mark.querySelectorAll('polyline').forEach(polyline => polyline.setAttribute('points', pointsText));
+        if (mark.dataset.mode !== 'polyline') {
+            mark.querySelectorAll('polyline:not(.v-layer)').forEach(polyline => polyline.setAttribute('points', pointsText));
+        }
         if (mark.dataset.mode === 'polyline') {
+            const rect = mark.getBoundingClientRect?.();
+            const renderWidth = Math.max(1, Number(rect?.width) || Number(mark.dataset.wrapWidth) || Number(mark.parentElement?.clientWidth) || 1);
+            const renderHeight = Math.max(1, Number(rect?.height) || Number(mark.dataset.wrapHeight) || Number(mark.parentElement?.clientHeight) || 1);
+            const visibleLayers = this.getShiftPhotoComparePolylineVisiblePointLayers(points, {
+                width: renderWidth,
+                height: renderHeight,
+                size: Number(mark.dataset.size) || 56,
+                stroke: Number(mark.dataset.stroke) || 1,
+                startArrow: mark.dataset.polylineStartArrow === '1',
+                endArrow: mark.dataset.polylineEndArrow === '1',
+                arrowPoints: this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]', points.length),
+                outline: mark.dataset.outline !== '0',
+                innerOutline: mark.dataset.innerOutline === '1',
+                outerWidth: Number(mark.dataset.outerOutlineWidth) || 0,
+                innerWidth: Number(mark.dataset.innerOutlineWidth) || 0
+            });
+            const visiblePointsText = layer => visibleLayers[layer].map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
+            mark.querySelectorAll('.shift-photo-polyline-hit').forEach(polyline => polyline.setAttribute('points', pointsText));
+            mark.querySelectorAll('.shift-photo-polyline-outline.outer').forEach(polyline => polyline.setAttribute('points', visiblePointsText('outer')));
+            mark.querySelectorAll('.shift-photo-polyline-outline.inner').forEach(polyline => polyline.setAttribute('points', visiblePointsText('inner')));
+            mark.querySelectorAll('.shift-photo-polyline-line').forEach(polyline => polyline.setAttribute('points', visiblePointsText('main')));
             const first = points[0];
             const last = points[points.length - 1];
+            const updateOpenCaps = (side, point) => {
+                if (!point) return;
+                mark.querySelectorAll(`.shift-photo-polyline-open-cap.${side}`).forEach(cap => {
+                    cap.setAttribute('x1', point.x);
+                    cap.setAttribute('y1', point.y);
+                    cap.setAttribute('x2', point.x);
+                    cap.setAttribute('y2', point.y);
+                });
+            };
+            updateOpenCaps('start', first);
+            updateOpenCaps('end', last);
+            this.updateShiftPhotoComparePolylineArrowheads(mark, points);
+
             const closed = this.hasShiftPhotoComparePolylineClosedRegion(points);
             mark.dataset.polylineClosed = closed ? '1' : '0';
             this.refreshShiftPhotoComparePolylineRegions(mark);
@@ -31528,6 +33988,15 @@
                 endHandle.style.left = `${last.x}%`;
                 endHandle.style.top = `${last.y}%`;
             }
+            const arrowPoints = this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]', points.length);
+            mark.querySelectorAll('.shift-photo-polyline-endpoint, .shift-photo-polyline-vertex').forEach(handle => {
+                const index = Number(handle.dataset.pointIndex);
+                const enabled = (index === 0 && mark.dataset.polylineStartArrow === '1')
+                    || (index === points.length - 1 && mark.dataset.polylineEndArrow === '1')
+                    || arrowPoints.includes(index);
+                handle.dataset.hasArrow = enabled ? '1' : '0';
+                handle.title = enabled ? '矢印あり（右クリックで解除）' : '右クリックで矢印を追加';
+            });
             if (!isAnimationGhost) this.syncShiftPhotoCompareRegionCommentsForPolyline(mark);
         }
         if (isAnimationGhost && points.length) {
@@ -31968,6 +34437,9 @@
             mark.dataset.stretchY = '1';
             mark.dataset.stroke = String(stroke);
             mark.dataset.dashed = this._shiftPhotoCompareMarkDashed ? '1' : '0';
+            mark.dataset.polylineStartArrow = '0';
+            mark.dataset.polylineEndArrow = '0';
+            mark.dataset.polylineArrowPoints = '[]';
             mark.dataset.color = color;
             mark.dataset.polylineFill = '0';
             mark.dataset.polylineFillColor = color;
@@ -34720,7 +37192,7 @@
             .filter(mark => !options.visibleOnly || !mark.classList.contains('shift-photo-compare-animation-hidden'))
             .sort((left, right) => Number(left.dataset.mode === 'mosaic') - Number(right.dataset.mode === 'mosaic'));
         for (const mark of orderedMarks) {
-            await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect);
+            await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, Number(options.markSizeMultiplier) || 1);
         }
         await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, rect, options);
         return canvas;
@@ -34747,7 +37219,8 @@
             const wrapCanvas = await this.renderShiftPhotoCompareWrapToCanvas(wrap, maxSide, {
                 visibleOnly: true,
                 skipSync: true,
-                globalLayer: grid.querySelector('.shift-photo-compare-global-layer')
+                globalLayer: grid.querySelector('.shift-photo-compare-global-layer'),
+                markSizeMultiplier: Math.max(0.1, Math.min(3, Math.min(gridScaleX, gridScaleY)))
             });
             if (!wrapCanvas) continue;
             const wrapRect = wrap.getBoundingClientRect();
@@ -34775,14 +37248,16 @@
         ctx.closePath();
     }
 
-    async renderShiftPhotoCompareAnimationGridToCanvas(maxSide = 2560) {
+    async renderShiftPhotoCompareAnimationGridToCanvas(maxSide = 2560, options = {}) {
         const state = this._shiftPhotoCompareAnimationState;
         const grid = state?.grid;
         const stage = state?.overlay?.querySelector?.('.shift-photo-compare-animation-stage');
         if (!grid || !stage) return null;
-        this.fitShiftPhotoCompareAnimationGrid?.(state?.overlay);
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        this.fitShiftPhotoCompareAnimationGrid?.(state?.overlay);
+        if (!options.skipLayout) {
+            this.fitShiftPhotoCompareAnimationGrid?.(state?.overlay);
+            await new Promise(resolve => requestAnimationFrame(resolve));
+            this.fitShiftPhotoCompareAnimationGrid?.(state?.overlay);
+        }
         const stageRect = stage.getBoundingClientRect();
         const gridRect = grid.getBoundingClientRect();
         const stageWidth = Math.max(1, stageRect.width || Number(grid.dataset.animationStageWidth) || gridRect.width || 1);
@@ -35591,6 +38066,58 @@
         ctx.restore();
     }
 
+    drawShiftPhotoComparePolylineArrowheads(ctx, mark, points, rect, style = {}) {
+        if (!mark || !Array.isArray(points) || points.length < 2) return;
+        const drawHead = (enabled, point, neighbour) => {
+            if (!enabled) return;
+            const tipX = rect.x + point.x / 100 * rect.width;
+            const tipY = rect.y + point.y / 100 * rect.height;
+            const neighbourX = rect.x + neighbour.x / 100 * rect.width;
+            const neighbourY = rect.y + neighbour.y / 100 * rect.height;
+            const distance = Math.hypot(tipX - neighbourX, tipY - neighbourY);
+            if (distance < 0.5) return;
+            const ux = (tipX - neighbourX) / distance;
+            const uy = (tipY - neighbourY) / distance;
+            const px = -uy;
+            const py = ux;
+            const baseStrokeWidth = Math.max(1, Number(style.lineWidth) || Math.max(1, style.size * 0.08));
+            const armStrokeWidth = Math.max(2 * style.scale, baseStrokeWidth * 0.78);
+            const baseLength = Math.max(28 * style.scale, style.size * 0.48, baseStrokeWidth * 3.6);
+            const arrowHeight = Math.max(38 * style.scale, style.size * 0.72, baseStrokeWidth * 5.4);
+            const drawLayer = (color, lineWidth) => {
+                const halfWidth = arrowHeight / 2;
+                const backX = tipX - ux * baseLength;
+                const backY = tipY - uy * baseLength;
+                ctx.beginPath();
+                ctx.moveTo(backX + px * halfWidth, backY + py * halfWidth);
+                ctx.lineTo(tipX, tipY);
+                ctx.lineTo(backX - px * halfWidth, backY - py * halfWidth);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = lineWidth;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.miterLimit = 5;
+                ctx.stroke();
+            };
+            const requestedLayer = style.layer || 'all';
+            ctx.save();
+            ctx.setLineDash([]);
+            if ((requestedLayer === 'all' || requestedLayer === 'outer') && style.outline) {
+                drawLayer(style.outerColor, armStrokeWidth + (style.innerOutline ? style.innerWidth * 2 : 0) + style.outerWidth * 2);
+            }
+            if ((requestedLayer === 'all' || requestedLayer === 'inner') && style.innerOutline) {
+                drawLayer(style.innerColor, armStrokeWidth + style.innerWidth * 2);
+            }
+            if (requestedLayer === 'all' || requestedLayer === 'main') {
+                drawLayer(style.color, armStrokeWidth);
+            }
+            ctx.restore();
+        };
+        drawHead(mark.dataset.polylineStartArrow === '1', points[0], points[1]);
+        this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]', points.length)
+            .forEach(index => drawHead(true, points[index], points[index - 1]));
+        drawHead(mark.dataset.polylineEndArrow === '1', points[points.length - 1], points[points.length - 2]);
+    }
     async drawShiftPhotoCompareMark(ctx, mark, rect, sizeScale = 1) {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
@@ -35626,6 +38153,29 @@
                 const outerWidth = Math.max(1, Math.min(40, Number(mark.dataset.outerOutlineWidth) || Math.max(5, sourceSize * 0.11))) * (Number(sizeScale) || 1);
                 const innerWidth = Math.max(1, Math.min(30, Number(mark.dataset.innerOutlineWidth) || Math.max(2, sourceSize * 0.055))) * (Number(sizeScale) || 1);
                 const baseWidth = Math.max(0.5, size * 0.08 * stroke);
+                ctx.lineCap = mark.dataset.polylineStartArrow === '1' || mark.dataset.polylineEndArrow === '1' ? 'butt' : 'round';
+                const visibleLayers = this.getShiftPhotoComparePolylineVisiblePointLayers(points, {
+                    width: rect.width,
+                    height: rect.height,
+                    size,
+                    stroke,
+                    startArrow: mark.dataset.polylineStartArrow === '1',
+                    endArrow: mark.dataset.polylineEndArrow === '1',
+                    arrowPoints: this.normalizeShiftPhotoComparePolylineArrowPoints(mark.dataset.polylineArrowPoints || '[]', points.length),
+                    outline: outlineEnabled,
+                    innerOutline: innerOutlineEnabled,
+                    outerWidth,
+                    innerWidth
+                });
+                const drawVisiblePolylinePath = (layer = 'main') => {
+                    ctx.beginPath();
+                    visibleLayers[layer].forEach((point, index) => {
+                        const px = rect.x + point.x / 100 * rect.width;
+                        const py = rect.y + point.y / 100 * rect.height;
+                        if (index === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    });
+                };
                 const regions = this.getShiftPhotoComparePolylineRegions(points, mark.dataset.polylineRegionFills || '[]');
                 const regionFills = this.reconcileShiftPhotoComparePolylineRegionFills(
                     points,
@@ -35701,22 +38251,56 @@
                         console.warn('Polyline region image export failed', error);
                     }
                 }
+                const arrowStyle = {
+                    size,
+                    scale: Number(sizeScale) || 1,
+                    lineWidth: baseWidth,
+                    color,
+                    outline: outlineEnabled,
+                    innerOutline: innerOutlineEnabled,
+                    outerWidth,
+                    innerWidth,
+                    outerColor: outerOutlineColor,
+                    innerColor: innerOutlineColor
+                };
+                const closedPolyline = this.hasShiftPhotoComparePolylineClosedRegion(points);
+                const drawOpenEndpointCaps = (lineWidth, capColor) => {
+                    if (closedPolyline) return;
+                    const drawCap = point => {
+                        const px = rect.x + point.x / 100 * rect.width;
+                        const py = rect.y + point.y / 100 * rect.height;
+                        ctx.beginPath();
+                        ctx.arc(px, py, lineWidth / 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    };
+                    ctx.save();
+                    ctx.fillStyle = capColor;
+                    if (mark.dataset.polylineStartArrow !== '1') drawCap(points[0]);
+                    if (mark.dataset.polylineEndArrow !== '1') drawCap(points[points.length - 1]);
+                    ctx.restore();
+                };
                 if (outlineEnabled) {
                     ctx.strokeStyle = outerOutlineColor;
                     ctx.lineWidth = baseWidth + (innerOutlineEnabled ? innerWidth * 2 : 0) + outerWidth * 2;
-                    drawFreehandPath();
+                    drawVisiblePolylinePath('outer');
                     ctx.stroke();
+                    this.drawShiftPhotoComparePolylineArrowheads(ctx, mark, points, rect, { ...arrowStyle, layer: 'outer' });
+                    drawOpenEndpointCaps(baseWidth + (innerOutlineEnabled ? innerWidth * 2 : 0) + outerWidth * 2, outerOutlineColor);
                 }
                 if (innerOutlineEnabled) {
                     ctx.strokeStyle = innerOutlineColor;
                     ctx.lineWidth = baseWidth + innerWidth * 2;
-                    drawFreehandPath();
+                    drawVisiblePolylinePath('inner');
                     ctx.stroke();
+                    this.drawShiftPhotoComparePolylineArrowheads(ctx, mark, points, rect, { ...arrowStyle, layer: 'inner' });
+                    drawOpenEndpointCaps(baseWidth + innerWidth * 2, innerOutlineColor);
                 }
                 ctx.strokeStyle = color;
                 ctx.lineWidth = baseWidth;
-                drawFreehandPath();
+                drawVisiblePolylinePath('main');
                 ctx.stroke();
+                this.drawShiftPhotoComparePolylineArrowheads(ctx, mark, points, rect, { ...arrowStyle, layer: 'main' });
+                drawOpenEndpointCaps(baseWidth, color);
                 ctx.restore();
                 return;
             }
@@ -35828,6 +38412,137 @@
             } catch {
                 // Ignore broken stamp images during export.
             }
+            return;
+        }
+        if (mode === 'video') {
+            const video = mark._shiftPhotoCompareExportVideo || mark.querySelector?.('video');
+            const exportScale = Number(sizeScale) || 1;
+            const measuredWidth = Number(mark.dataset.animationExportVideoWidth) || 0;
+            const measuredHeight = Number(mark.dataset.animationExportVideoHeight) || 0;
+            const width = Math.max(1, measuredWidth > 0 ? measuredWidth * exportScale : size * Math.max(0.05, stretch));
+            const height = Math.max(1, measuredHeight > 0 ? measuredHeight * exportScale : size * Math.max(0.05, stretchY));
+            const sourceType = mark._shiftPhotoCompareExportVideoSourceType || mark.dataset.videoSourceType || '';
+            const frameStyle = ['modern', 'retro', 'custom'].includes(mark.dataset.videoFrameStyle)
+                ? mark.dataset.videoFrameStyle
+                : 'none';
+            const frameSettings = frameStyle === 'modern'
+                ? { x: 5.85, y: 4.1, width: 88.3, height: 79.5, src: 'assets/video-frames/modern-flat-tv.png' }
+                : (frameStyle === 'retro'
+                    ? { x: 9.4, y: 15.1, width: 61.6, height: 63.6, src: 'assets/video-frames/retro-wood-console-tv.png' }
+                    : {
+                        x: Math.max(0, Math.min(95, Number(mark.dataset.videoFrameX) || 0)),
+                        y: Math.max(0, Math.min(95, Number(mark.dataset.videoFrameY) || 0)),
+                        width: Math.max(5, Math.min(100, Number(mark.dataset.videoFrameWidth) || 100)),
+                        height: Math.max(5, Math.min(100, Number(mark.dataset.videoFrameHeight) || 100)),
+                        src: ''
+                    });
+            const measuredScreenX = Number(mark.dataset.animationExportVideoScreenX);
+            const measuredScreenY = Number(mark.dataset.animationExportVideoScreenY);
+            const measuredScreenWidth = Number(mark.dataset.animationExportVideoScreenWidth);
+            const measuredScreenHeight = Number(mark.dataset.animationExportVideoScreenHeight);
+            const hasMeasuredScreen = measuredWidth > 0
+                && measuredHeight > 0
+                && Number.isFinite(measuredScreenX)
+                && Number.isFinite(measuredScreenY)
+                && measuredScreenWidth > 0
+                && measuredScreenHeight > 0;
+            const screenX = hasMeasuredScreen
+                ? -width / 2 + measuredScreenX * exportScale
+                : -width / 2 + width * frameSettings.x / 100;
+            const screenY = hasMeasuredScreen
+                ? -height / 2 + measuredScreenY * exportScale
+                : -height / 2 + height * frameSettings.y / 100;
+            const screenWidth = hasMeasuredScreen
+                ? measuredScreenWidth * exportScale
+                : width * frameSettings.width / 100;
+            const screenHeight = hasMeasuredScreen
+                ? measuredScreenHeight * exportScale
+                : height * frameSettings.height / 100;
+            const recordingFrames = this._shiftPhotoCompareRecordingVideoFrames;
+            const recordingFrame = recordingFrames?.get?.(String(mark.dataset.videoId || ''))
+                || (recordingFrames?.size === 1 ? recordingFrames.values().next().value : null)
+                || video?._shiftPhotoCompareRecordingFrame
+                || null;
+            const videoFrameSource = recordingFrame || video;
+            let drawable = !!recordingFrame || (!!video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0);
+            if (drawable && !recordingFrame && sourceType === 'url') {
+                try {
+                    const sourceUrl = new URL(video.currentSrc || video.src, window.location.href);
+                    drawable = sourceUrl.origin === window.location.origin || sourceUrl.protocol === 'blob:' || sourceUrl.protocol === 'data:';
+                } catch {
+                    drawable = false;
+                }
+            }
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+            ctx.fillStyle = '#020617';
+            this.drawShiftPhotoCompareRoundedRectPath(ctx, screenX, screenY, screenWidth, screenHeight, frameStyle === 'none' ? Math.max(2, Math.min(8, size * 0.04)) : 0);
+            ctx.fill();
+            if (drawable && frameStyle === 'none') {
+                ctx.save();
+                try {
+                    this.drawShiftPhotoCompareRoundedRectPath(ctx, screenX, screenY, screenWidth, screenHeight, frameStyle === 'none' ? Math.max(2, Math.min(8, size * 0.04)) : 0);
+                    ctx.clip();
+                    ctx.drawImage(videoFrameSource, screenX, screenY, screenWidth, screenHeight);
+                } catch (error) {
+                    drawable = false;
+                    console.warn('Animation video frame export failed.', error);
+                } finally {
+                    ctx.restore();
+                }
+            }
+            if (!drawable) {
+                ctx.fillStyle = '#cbd5e1';
+                ctx.font = `700 ${Math.max(10, Math.min(18, size * 0.09))}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(sourceType === 'youtube' ? 'YouTube動画' : '動画を準備中', screenX + screenWidth / 2, screenY + screenHeight / 2);
+            }
+            let frameImage = null;
+            let frameObjectUrl = '';
+            try {
+                if (frameSettings.src) {
+                    frameImage = await this.loadShiftPhotoCompareImage(frameSettings.src);
+                } else if (frameStyle === 'custom') {
+                    const frame = this.getShiftPhotoCompareCustomVideoFrame(mark.dataset.videoFrameId || '');
+                    const frameCache = this._shiftPhotoCompareAnimationRenderImageCache;
+                    const frameCacheKey = frame?.mediaKey ? `custom-video-frame:${frame.mediaKey}` : '';
+                    frameImage = frameCacheKey ? frameCache?.get(frameCacheKey) : null;
+                    if (!frameImage) {
+                        const blob = frame ? await store.loadMediaBlob(frame.mediaKey).catch(() => null) : null;
+                        if (blob) {
+                            frameObjectUrl = URL.createObjectURL(blob);
+                            frameImage = await this.loadShiftPhotoCompareImage(frameObjectUrl);
+                            if (frameCacheKey) frameCache?.set(frameCacheKey, frameImage);
+                        }
+                    }
+                }
+                if (frameImage) ctx.drawImage(frameImage, -width / 2, -height / 2, width, height);
+            } catch (error) {
+                console.warn('Animation television frame export failed.', error);
+            } finally {
+                if (frameObjectUrl) URL.revokeObjectURL(frameObjectUrl);
+            }
+            if (drawable && frameStyle !== 'none') {
+                ctx.save();
+                try {
+                    this.drawShiftPhotoCompareRoundedRectPath(ctx, screenX, screenY, screenWidth, screenHeight, 0);
+                    ctx.clip();
+                    ctx.drawImage(videoFrameSource, screenX, screenY, screenWidth, screenHeight);
+                } catch (error) {
+                    console.warn('Animation framed video foreground export failed.', error);
+                } finally {
+                    ctx.restore();
+                }
+            }
+            if (frameStyle === 'none') {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.lineWidth = Math.max(1, 2 * (Number(sizeScale) || 1));
+                this.drawShiftPhotoCompareRoundedRectPath(ctx, screenX, screenY, screenWidth, screenHeight, Math.max(2, Math.min(8, size * 0.04)));
+                ctx.stroke();
+            }
+            ctx.restore();
             return;
         }
         if (mode === 'mosaic') {
@@ -36928,16 +39643,47 @@
         };
     }
 
-    async drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect) {
+    async drawShiftPhotoCompareAnimationExportMark(ctx, mark, rect, coordinateScale = 1) {
+        if (!ctx || !mark) return;
+        const opacity = Math.max(0, Math.min(1, Number(mark.dataset.animationExportOpacity ?? 1)));
+        const scaleX = Number(mark.dataset.animationExportScaleX ?? 1) || 1;
+        const scaleY = Number(mark.dataset.animationExportScaleY ?? 1) || 1;
+        const rotate = Number(mark.dataset.animationExportRotate ?? 0) || 0;
+        const translateX = Number(mark.dataset.animationExportTranslateX ?? 0) || 0;
+        const translateY = Number(mark.dataset.animationExportTranslateY ?? 0) || 0;
+        const centerX = rect.x + ((parseFloat(mark.style.left) || 0) / 100) * rect.width;
+        const centerY = rect.y + ((parseFloat(mark.style.top) || 0) / 100) * rect.height;
+        ctx.save();
+        ctx.globalAlpha *= opacity;
+        ctx.translate(centerX + translateX / 100 * rect.width, centerY + translateY / 100 * rect.height);
+        if (rotate) ctx.rotate(rotate * Math.PI / 180);
+        if (scaleX !== 1 || scaleY !== 1) ctx.scale(scaleX, scaleY);
+        ctx.translate(-centerX, -centerY);
+        await this.drawShiftPhotoCompareMark(ctx, mark, rect, coordinateScale);
+        ctx.restore();
+    }
+
+    async drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, markSizeMultiplier = 1) {
         const wrapRect = wrap?.getBoundingClientRect?.();
         const imageRect = this.getShiftPhotoCompareDisplayImageRect(wrap);
         if (!wrapRect?.width || !wrapRect?.height || !imageRect?.width || !imageRect?.height) {
-            await this.drawShiftPhotoCompareMark(ctx, mark, rect);
+            await this.drawShiftPhotoCompareAnimationExportMark(ctx, mark, rect, Number(markSizeMultiplier) || 1);
             return;
         }
         const markX = wrapRect.left + ((parseFloat(mark.style.left) || 0) / 100) * wrapRect.width;
         const markY = wrapRect.top + ((parseFloat(mark.style.top) || 0) / 100) * wrapRect.height;
         const localMark = mark.cloneNode(true);
+        if (mark.dataset.mode === 'video') {
+            const video = mark.querySelector('video');
+            localMark._shiftPhotoCompareExportVideo = video;
+            localMark._shiftPhotoCompareExportVideoSourceType = mark.dataset.videoSourceType || '';
+            localMark.dataset.animationExportVideoWidth = String(mark.offsetWidth || 0);
+            localMark.dataset.animationExportVideoHeight = String(mark.offsetHeight || 0);
+            localMark.dataset.animationExportVideoScreenX = String(video?.offsetLeft || 0);
+            localMark.dataset.animationExportVideoScreenY = String(video?.offsetTop || 0);
+            localMark.dataset.animationExportVideoScreenWidth = String(video?.offsetWidth || 0);
+            localMark.dataset.animationExportVideoScreenHeight = String(video?.offsetHeight || 0);
+        }
         this.setShiftPhotoCompareExportTextLines(mark, localMark);
         if (this.isShiftPhotoComparePointPathMode(mark.dataset.mode)) {
             const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]')
@@ -36951,12 +39697,12 @@
                 })
                 .filter(point => point.x >= -5 && point.x <= 105 && point.y >= -5 && point.y <= 105);
             this.updateShiftPhotoCompareFreehandMark(localMark, points);
-            await this.drawShiftPhotoCompareMark(ctx, localMark, rect, rect.width / imageRect.width);
+            await this.drawShiftPhotoCompareAnimationExportMark(ctx, localMark, rect, (rect.width / imageRect.width) * (Number(markSizeMultiplier) || 1));
             return;
         }
         localMark.style.left = `${((markX - imageRect.left) / imageRect.width) * 100}%`;
         localMark.style.top = `${((markY - imageRect.top) / imageRect.height) * 100}%`;
-        await this.drawShiftPhotoCompareMark(ctx, localMark, rect, rect.width / imageRect.width);
+        await this.drawShiftPhotoCompareAnimationExportMark(ctx, localMark, rect, (rect.width / imageRect.width) * (Number(markSizeMultiplier) || 1));
     }
 
     async drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, rect, options = {}) {
@@ -36981,6 +39727,17 @@
                 && markY - radiusY <= imageRect.bottom);
             if (!intersects) continue;
             const localMark = mark.cloneNode(true);
+            if (mark.dataset.mode === 'video') {
+                const video = mark.querySelector('video');
+                localMark._shiftPhotoCompareExportVideo = video;
+                localMark._shiftPhotoCompareExportVideoSourceType = mark.dataset.videoSourceType || '';
+                localMark.dataset.animationExportVideoWidth = String(mark.offsetWidth || 0);
+                localMark.dataset.animationExportVideoHeight = String(mark.offsetHeight || 0);
+                localMark.dataset.animationExportVideoScreenX = String(video?.offsetLeft || 0);
+                localMark.dataset.animationExportVideoScreenY = String(video?.offsetTop || 0);
+                localMark.dataset.animationExportVideoScreenWidth = String(video?.offsetWidth || 0);
+                localMark.dataset.animationExportVideoScreenHeight = String(video?.offsetHeight || 0);
+            }
             this.setShiftPhotoCompareExportTextLines(mark, localMark);
             if (this.isShiftPhotoComparePointPathMode(mark.dataset.mode)) {
                 const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]')
@@ -37002,7 +39759,7 @@
             ctx.beginPath();
             ctx.rect(rect.x, rect.y, rect.width, rect.height);
             ctx.clip();
-            await this.drawShiftPhotoCompareMark(ctx, localMark, rect, rect.width / imageRect.width);
+            await this.drawShiftPhotoCompareAnimationExportMark(ctx, localMark, rect, (rect.width / imageRect.width) * (Number(options.markSizeMultiplier) || 1));
             ctx.restore();
         }
     }
@@ -37137,7 +39894,7 @@
             .filter(mark => mark.dataset.animationGhost !== '1')
             .sort((left, right) => Number(left.dataset.mode === 'mosaic') - Number(right.dataset.mode === 'mosaic'));
         for (const mark of orderedMarks) {
-            await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect);
+            await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, Number(options.markSizeMultiplier) || 1);
         }
         await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, rect);
         return canvas.toDataURL('image/jpeg', 0.92);
@@ -38708,3 +41465,14 @@
         }
     }
 })();
+
+
+
+
+
+
+
+
+
+
+

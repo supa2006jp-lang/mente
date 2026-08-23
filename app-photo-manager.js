@@ -1897,9 +1897,17 @@
             return 'webm';
         }
 
-        async cutPhotoManagerVideoWithFFmpeg(blob, start = 0, end = 0) {
+        async cutPhotoManagerVideoWithFFmpeg(blob, start = 0, end = 0, options = {}) {
             const ffmpeg = await this.getPhotoManagerVideoFFmpeg();
             const duration = Math.max(0.1, Number(end) - Number(start));
+            const sourceDuration = Math.max(duration, Number(options.sourceDuration) || Number(end) || duration);
+            const sourceBitsPerSecond = Math.max(24000, Math.round((Number(blob?.size) || 0) * 8 / sourceDuration));
+            const bitrateFactor = Math.max(0.35, Math.min(0.95, Number(options.bitrateFactor) || 0.9));
+            const targetTotalBitsPerSecond = Math.max(24000, Math.min(8100000, Math.round(sourceBitsPerSecond * bitrateFactor)));
+            const audioBitsPerSecond = Math.max(16000, Math.min(96000, Math.round(targetTotalBitsPerSecond * 0.12)));
+            const videoBitsPerSecond = Math.max(8000, targetTotalBitsPerSecond - audioBitsPerSecond);
+            const videoKbps = Math.max(8, Math.floor(videoBitsPerSecond / 1000));
+            const audioKbps = Math.max(16, Math.floor(audioBitsPerSecond / 1000));
             const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
             const inputName = `input-${token}.${this.getPhotoManagerVideoInputExtension(blob)}`;
             const outputName = `output-${token}.webm`;
@@ -1912,12 +1920,15 @@
                     '-t', duration.toFixed(3),
                     '-map', '0:v:0',
                     '-map', '0:a?',
-                    '-c:v', 'libvpx',
+                    '-c:v', 'libvpx-vp9',
                     '-deadline', 'good',
                     '-cpu-used', '2',
-                    '-b:v', '8000k',
+                    '-crf', '32',
+                    '-b:v', `${videoKbps}k`,
+                    '-maxrate', `${Math.max(videoKbps, Math.round(videoKbps * 1.12))}k`,
+                    '-bufsize', `${Math.max(16, videoKbps * 2)}k`,
                     '-c:a', 'libopus',
-                    '-b:a', '128k',
+                    '-b:a', `${audioKbps}k`,
                     '-avoid_negative_ts', 'make_zero',
                     outputName
                 );
@@ -2260,7 +2271,20 @@
                 const sourceBlob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey(id));
                 if (!sourceBlob) throw new Error('元動画が見つかりません。');
                 this.updatePhotoManagerVideoCutProgress(0, '切り出し中');
-                const result = await this.cutPhotoManagerVideoWithFFmpeg(sourceBlob, start, end);
+                let result = await this.cutPhotoManagerVideoWithFFmpeg(sourceBlob, start, end, {
+                    sourceDuration: item.duration,
+                    bitrateFactor: 0.9
+                });
+                if (result.blob.size >= sourceBlob.size) {
+                    this.updatePhotoManagerVideoCutProgress(2, '容量を抑えて再処理中');
+                    result = await this.cutPhotoManagerVideoWithFFmpeg(sourceBlob, start, end, {
+                        sourceDuration: item.duration,
+                        bitrateFactor: 0.65
+                    });
+                }
+                if (result.blob.size >= sourceBlob.size) {
+                    throw new Error('トリミング後の容量が元動画以上になるため、元動画を残しました。圧縮設定から容量優先を選ぶとさらに小さくできます。');
+                }
                 if (result.blob.size > this.getPhotoManagerVideoMaxBytes()) throw new Error('切り出し後の動画が100MBを超えました。');
                 this.updatePhotoManagerVideoCutProgress(100, '保存中');
                 await store.saveMediaBlob(this.getPhotoManagerVideoMediaKey(id), result.blob);

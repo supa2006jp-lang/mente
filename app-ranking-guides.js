@@ -1,7 +1,35 @@
-﻿(function () {
+(function () {
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppRankingGuideMethods extends MaintenanceApp {
+    getGuideManagementCardColor() {
+        const color = String(localStorage.getItem('guide_management_card_color') || '#ffffff').trim().toLowerCase();
+        return /^#[0-9a-f]{6}$/.test(color) ? color : '#ffffff';
+    }
+
+    applyGuideManagementCardColor(color = this.getGuideManagementCardColor()) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color)) ? String(color).toLowerCase() : '#ffffff';
+        const container = document.getElementById('guides-container');
+        if (container) {
+            container.style.setProperty('--guide-management-card-color', safeColor);
+            const rgb = safeColor.match(/[0-9a-f]{2}/gi).map(value => parseInt(value, 16));
+            const luminance = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+            container.classList.toggle('guide-card-color-custom', safeColor !== '#ffffff');
+            container.classList.toggle('guide-card-color-dark', luminance < 0.46);
+        }
+        const picker = document.getElementById('guide-management-card-color');
+        if (picker && picker.value.toLowerCase() !== safeColor) picker.value = safeColor;
+    }
+
+    setGuideManagementCardColor(color) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color)) ? String(color).toLowerCase() : '#ffffff';
+        localStorage.setItem('guide_management_card_color', safeColor);
+        this.applyGuideManagementCardColor(safeColor);
+    }
+
+    resetGuideManagementCardColor() {
+        this.setGuideManagementCardColor('#ffffff');
+    }
     // --- Phase 4: Ranking ---
     renderRanking() {
         const container = document.getElementById('ranking-container');
@@ -312,6 +340,7 @@
         const container = document.getElementById('guides-container');
         const tagCloud = document.getElementById('guides-tag-cloud');
         if (!container || !tagCloud) return;
+        this.applyGuideManagementCardColor();
 
         const query = (document.getElementById('global-search')?.value || '').toLowerCase().trim();
         const normQuery = query ? MaintenanceStore.toHalfWidthLower(query) : null;
@@ -466,7 +495,7 @@
                 : 'display:flex; flex-direction:column;';
 
             return `
-                <div class="card" style="${cardStyle}">
+                <div class="card guide-management-card" style="${cardStyle}">
                     <div style="padding:0px;">
                         <div style="display:flex; gap:12px; margin-bottom:12px; align-items:flex-start;">
                             ${representativePhoto ? `<div class="img-box" style="width:70px; height:70px; border-radius:8px; flex-shrink:0;"><img src="${representativePhoto}"></div>` : 

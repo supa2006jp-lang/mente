@@ -2751,6 +2751,7 @@
             // Sort history by date desc
             usageHistory.sort((a,b) => new Date(b.date) - new Date(a.date));
         }
+        const stockMovements = isNew ? [] : store.getPartStockMovements(canonName, canonModel);
 
         this.openModal('part-master', isNew ? '新規部品の登録' : '部品マスターの編集', () => {
             const content = document.getElementById('modal-content');
@@ -2914,6 +2915,35 @@
                             </div>
                         </div>
                     </div>
+                    ${!isNew ? `
+                        <section class="part-stock-ledger">
+                            <header>
+                                <div><i class="fa-solid fa-arrow-right-arrow-left"></i><span>入出庫履歴</span><b>${stockMovements.length}件</b></div>
+                                <small>この機能の追加後に発生した在庫変更を記録します</small>
+                            </header>
+                            ${stockMovements.length ? `
+                                <div class="part-stock-ledger-table-wrap">
+                                    <table>
+                                        <thead><tr><th>日時</th><th>区分</th><th>数量</th><th>在庫</th><th>理由</th></tr></thead>
+                                        <tbody>
+                                            ${stockMovements.slice(0, 50).map(movement => {
+                                                const dateLabel = movement.date || (movement.occurredAt ? new Date(movement.occurredAt).toLocaleString('ja-JP') : '-');
+                                                const inbound = movement.type === 'in' || Number(movement.delta) > 0;
+                                                return `<tr>
+                                                    <td>${this.escapeHtml(dateLabel)}</td>
+                                                    <td><span class="part-stock-movement-type ${inbound ? 'in' : 'out'}"><i class="fa-solid ${inbound ? 'fa-arrow-down' : 'fa-arrow-up'}"></i>${inbound ? '入庫' : '出庫'}</span></td>
+                                                    <td class="part-stock-movement-quantity ${inbound ? 'in' : 'out'}">${inbound ? '+' : '-'}${this.escapeHtml(String(movement.quantity))}${this.escapeHtml(movement.unit || master?.unit || '個')}</td>
+                                                    <td>${this.escapeHtml(String(movement.before))} → <b>${this.escapeHtml(String(movement.after))}</b></td>
+                                                    <td>${this.escapeHtml(movement.reason || (inbound ? '入庫' : '出庫'))}</td>
+                                                </tr>`;
+                                            }).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                ${stockMovements.length > 50 ? `<p>最新50件を表示しています（全${stockMovements.length}件）</p>` : ''}
+                            ` : '<div class="part-stock-ledger-empty"><i class="fa-solid fa-box-open"></i>入出庫履歴はまだありません</div>'}
+                        </section>
+                    ` : ''}
                 </form>
             `;
             setTimeout(() => this.updatePartAliasPreview(), 0);
@@ -3575,7 +3605,12 @@
 
             // Auto-deduct stock
             replacedParts.forEach(p => {
-                store.adjustStock(p.name, p.model, -p.count);
+                store.adjustStock(p.name, p.model, -p.count, {
+                    source: 'maintenance',
+                    sourceId: newSuddenRecord?.id || '',
+                    date,
+                    reason: 'メンテナンス使用'
+                });
             });
 
             this._tempPhotos = [];
@@ -3627,7 +3662,7 @@
             }
 
             const task = store.activeData.tasks.find(t => String(t.id) === String(taskId));
-            store.addHistoryRecord({
+            const completedRecord = store.addHistoryRecord({
                 taskId,
                 taskContent: task ? task.content : '定期メンテナンス', // Save fixed label
                 machineId,
@@ -3658,7 +3693,12 @@
 
             // Auto-deduct stock
             replacedParts.forEach(p => {
-                store.adjustStock(p.name, p.model, -p.count);
+                store.adjustStock(p.name, p.model, -p.count, {
+                    source: 'maintenance',
+                    sourceId: completedRecord?.id || '',
+                    date,
+                    reason: 'メンテナンス使用'
+                });
             });
 
             this.closeModal();
@@ -3711,16 +3751,26 @@
             if (index !== -1) {
                 const oldRecord = store.activeData.history[index];
                 
-                // 1. Revert OLD stock
-                if (oldRecord.replacedParts) {
-                    oldRecord.replacedParts.forEach(p => {
-                        store.adjustStock(p.name, p.model, p.count);
+                // Apply only the difference so unchanged parts do not create duplicate ledger entries.
+                const stockDifferences = new Map();
+                const addStockDifference = (part, delta) => {
+                    const key = `${part.name || ''}___${part.model || ''}`;
+                    const current = stockDifferences.get(key) || { name: part.name || '', model: part.model || '', unit: part.unit || '個', delta: 0 };
+                    current.delta += Number(delta) || 0;
+                    stockDifferences.set(key, current);
+                };
+                (oldRecord.replacedParts || []).forEach(part => addStockDifference(part, Number(part.count ?? part.qty) || 0));
+                replacedParts.forEach(part => addStockDifference(part, -(Number(part.count ?? part.qty) || 0)));
+                stockDifferences.forEach(change => {
+                    const delta = Math.round(change.delta * 1000) / 1000;
+                    if (!delta) return;
+                    store.adjustStock(change.name, change.model, delta, {
+                        source: 'maintenance-edit',
+                        sourceId: hId,
+                        date,
+                        unit: change.unit,
+                        reason: delta > 0 ? '履歴編集（使用数減少による戻し）' : '履歴編集（使用数増加による出庫）'
                     });
-                }
-
-                // 2. Apply NEW stock deduction
-                replacedParts.forEach(p => {
-                    store.adjustStock(p.name, p.model, -p.count);
                 });
 
                 store.activeData.history[index] = {

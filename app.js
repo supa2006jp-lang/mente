@@ -1,4 +1,4 @@
-﻿/**
+/**
  * App.js - Main Controller & Navigation
  */
 class MaintenanceApp {
@@ -531,18 +531,50 @@ class MaintenanceApp {
             'machines': 'メンテ・周期設定',
             'history': 'メンテナンス履歴',
             'fiveS': '5S管理',
-            'analysis': '部品消費・コスト',
+            'analysis': '部品管理',
             'worktime': '作業時間集計',
             'dashboard': 'ダッシュボード',
             'ranking': '不具合頻度ランキング',
             'workers': 'スキルマップ',
             'outlookAssist': 'outlook入力補助',
-            'guides': '手順書・ナレッジDB',
+            'guides': '手順書',
             'tips': 'TIPS',
-            'photos': '写真管理'
+            'photos': 'メディア管理'
         };
         const titleEl = document.getElementById('view-title');
-        if (titleEl) titleEl.textContent = titles[viewName] || 'メンテナンス';
+        if (titleEl) {
+            if (viewName === 'calendar') {
+                titleEl.innerHTML = '<img class="calendar-title-logo" src="assets/calendar-title.png?v=20260823" alt="カレンダー">';
+            } else if (viewName === 'todos') {
+                titleEl.innerHTML = '<img class="todo-list-title-logo" src="assets/todo-list-title.png?v=20260823" alt="ToDoリスト">';
+            } else if (viewName === 'machines') {
+                titleEl.innerHTML = '<img class="maintenance-cycle-title-logo" src="assets/maintenance-cycle-title.png?v=20260823" alt="メンテ・周期設定">';
+            } else if (viewName === 'history') {
+                titleEl.innerHTML = '<img class="maintenance-history-title-logo" src="assets/maintenance-history-title.png?v=20260823" alt="メンテナンス履歴">';
+            } else if (viewName === 'fiveS') {
+                titleEl.innerHTML = '<img class="five-s-title-logo" src="assets/five-s-title.png?v=20260823-2" alt="5S管理">';
+            } else if (viewName === 'guides') {
+                titleEl.innerHTML = '<img class="guides-header-title-logo" src="assets/guides-header-title.png?v=20260823-2" alt="手順書">';
+            } else if (viewName === 'tips') {
+                titleEl.innerHTML = '<img class="tips-header-title-logo" src="assets/tips-header-title.png?v=20260823" alt="TIPS">';
+            } else if (viewName === 'photos') {
+                titleEl.innerHTML = '<img class="media-header-title-logo" src="assets/media-header-title.png?v=20260823" alt="メディア管理">';
+            } else if (viewName === 'analysis') {
+                titleEl.innerHTML = '<img class="parts-header-title-logo" src="assets/parts-header-title.png?v=20260823" alt="部品管理">';
+            } else if (viewName === 'dashboard') {
+                titleEl.innerHTML = '<img class="dashboard-header-title-logo" src="assets/dashboard-title.png?v=20260823-2" alt="ダッシュボード">';
+            } else if (viewName === 'worktime') {
+                titleEl.innerHTML = '<img class="worktime-header-title-logo" src="assets/worktime-header-title.png?v=20260823" alt="作業時間集計">';
+            } else if (viewName === 'ranking') {
+                titleEl.innerHTML = '<img class="ranking-header-title-logo" src="assets/ranking-header-title.png?v=20260823-2" alt="不具合頻度ランキング">';
+            } else if (viewName === 'workers') {
+                titleEl.innerHTML = '<img class="skill-map-header-title-logo" src="assets/skill-map-header-title.png?v=20260824" alt="スキルマップ">';
+            } else if (viewName === 'outlookAssist') {
+                titleEl.innerHTML = '<img class="outlook-assist-title-logo" src="assets/outlook-assist-title.png?v=20260823" alt="Outlook入力補助">';
+            } else {
+                titleEl.textContent = titles[viewName] || 'メンテナンス';
+            }
+        }
         const topHeader = document.querySelector('.top-header');
         if (topHeader) topHeader.dataset.viewBg = viewName;
 
@@ -555,6 +587,10 @@ class MaintenanceApp {
 
         if (viewName === 'dashboard') {
             this.dashboardPeriod = 'yesterday_today';
+        }
+
+        if (viewName === 'tips') {
+            this.clearTipsForm?.();
         }
 
         this.currentView = viewName;
@@ -584,8 +620,8 @@ class MaintenanceApp {
         };
         Object.assign(map, {
             machines: [{ src: 'assets/view-guide-machines.svg', title: 'メンテ・周期設定の使い方' }],
-            guides: [{ src: 'assets/view-guide-guides.svg', title: '手順書・ナレッジDBの使い方' }],
-            analysis: [{ src: 'assets/view-guide-analysis.svg', title: '部品消費・コストの見方' }],
+            guides: [{ src: 'assets/view-guide-guides.svg', title: '手順書の使い方' }],
+            analysis: [{ src: 'assets/view-guide-analysis.svg', title: '部品管理の見方' }],
             worktime: [{ src: 'assets/view-guide-worktime.svg', title: '作業時間集計の見方' }],
             ranking: [{ src: 'assets/view-guide-ranking.svg', title: '異常頻度ランクの見方' }],
             workers: [{ src: 'assets/view-guide-workers.svg', title: 'スキルマップの見方' }]

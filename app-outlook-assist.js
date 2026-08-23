@@ -81,7 +81,7 @@
         draftPageDeleteAsk: '\u3053\u306e\u4e0b\u66f8\u304d\u30da\u30fc\u30b8\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f',
         templateApplyChoice: '\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u3092\u3069\u3053\u306b\u53cd\u6620\u3057\u307e\u3059\u304b\uff1f\n1: \u4eca\u306e\u30da\u30fc\u30b8\u306b\u53cd\u6620\n2: \u65b0\u898f\u30da\u30fc\u30b8\u3092\u4f5c\u3063\u3066\u53cd\u6620\n3: \u30ad\u30e3\u30f3\u30bb\u30eb',
         pageList: '\u30da\u30fc\u30b8\u4e00\u89a7',
-        pageColor: '\u30da\u30fc\u30b8\u8272',
+        pageColor: '\u5165\u529b\u80cc\u666f\u8272',
         movePageUp: '\u4e0a\u3078',
         movePageDown: '\u4e0b\u3078',
         pageTitleLock: '\u56fa\u5b9a',
@@ -281,7 +281,15 @@
     ];
     const DRAFT_PAGE_COLOR_PRESETS = [
         { id: 'none', label: TXT.colorNone, color: '' },
-        ...TEMPLATE_COLOR_PRESETS
+        { id: 'red', label: TXT.colorRed, color: '#fecaca' },
+        { id: 'pink', label: '\u30d4\u30f3\u30af', color: '#fce7f3' },
+        { id: 'orange', label: '\u30aa\u30ec\u30f3\u30b8', color: '#ffedd5' },
+        { id: 'yellow', label: TXT.colorYellow, color: '#fef08a' },
+        { id: 'green', label: TXT.colorGreen, color: '#bbf7d0' },
+        { id: 'mint', label: '\u30df\u30f3\u30c8', color: '#ccfbf1' },
+        { id: 'blue', label: TXT.colorBlue, color: '#bfdbfe' },
+        { id: 'purple', label: '\u7d2b', color: '#ede9fe' },
+        { id: 'gray', label: TXT.colorGray, color: '#e2e8f0' }
     ];
 
     function getState() {
@@ -1446,6 +1454,21 @@
             if (checkbox) checkbox.checked = true;
         },
 
+        previewOutlookAssistDraftPageColor(color) {
+            const normalizedColor = normalizeOutlookAssistTemplateColor(color || '');
+            const pageColor = normalizedColor === '#ffffff' ? '' : normalizedColor;
+            const composeCard = document.querySelector('.outlook-compose-card');
+            if (!composeCard) return;
+            composeCard.classList.toggle('has-page-color', !!pageColor);
+            if (!pageColor) {
+                composeCard.style.removeProperty('--outlook-page-color');
+                composeCard.style.removeProperty('--outlook-page-text');
+                return;
+            }
+            composeCard.style.setProperty('--outlook-page-color', pageColor);
+            composeCard.style.setProperty('--outlook-page-text', getReadableTextColor(pageColor));
+        },
+
         renderOutlookAssistComposer() {
             const container = document.getElementById('outlook-assist-main');
             if (!container) return;
@@ -1466,10 +1489,11 @@
             const draftPages = this.getOutlookAssistDraftPages(worker);
             const draftPageIndex = this.getOutlookAssistDraftPageIndex(worker);
             const draftPageColor = normalizeOutlookAssistTemplateColor(draft.pageColor || '');
+            const draftPageTextColor = getReadableTextColor(draftPageColor);
             const pageControlsDisabled = editingTemplate ? 'disabled' : '';
             const pageControlsTitle = editingTemplate ? '\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8\u7de8\u96c6\u4e2d\u306f\u4e0b\u66f8\u304d\u30da\u30fc\u30b8\u3092\u5207\u308a\u66ff\u3048\u3067\u304d\u307e\u305b\u3093' : '';
             container.innerHTML = `
-                <div class="outlook-compose-card ${bodyTopCollapsed ? 'body-focus' : ''} ${editingTemplate ? 'template-editing' : ''}">
+                <div class="outlook-compose-card ${bodyTopCollapsed ? 'body-focus' : ''} ${editingTemplate ? 'template-editing' : ''} ${draftPageColor ? 'has-page-color' : ''}" style="${draftPageColor ? `--outlook-page-color:${this.escapeHtml(draftPageColor)};--outlook-page-text:${this.escapeHtml(draftPageTextColor)}` : ''}">
                     <div class="outlook-compose-top">
                         <div class="outlook-compose-title-area">
                             <div class="outlook-compose-worker-name">${this.escapeHtml(worker)}</div>
@@ -1480,7 +1504,7 @@
                                 <button type="button" class="outlook-draft-page-count" title="${pageControlsTitle || TXT.pageList}" onclick="app.toggleOutlookAssistDraftPageList()" ${pageControlsDisabled}>${draftPageIndex + 1}/${draftPages.length}</button>
                                 <button type="button" class="secondary-btn" title="${pageControlsTitle}" onclick="app.switchOutlookAssistDraftPage(1)" ${pageControlsDisabled}>&#9654;</button>
                                 <input id="outlook-assist-page-title" value="${this.escapeHtml(draft.pageTitle || '')}" placeholder="${TXT.pageName}" oninput="app.markOutlookAssistPageTitleLocked(); app.saveOutlookAssistDraftFromForm()" ${pageControlsDisabled}>
-                                <label class="outlook-page-color-picker ${editingTemplate ? 'disabled' : ''}" title="${pageControlsTitle || TXT.pageColor}" style="${draftPageColor ? `--page-color:${this.escapeHtml(draftPageColor)}` : ''}"><i class="fa-solid fa-palette"></i><input id="outlook-assist-page-color" type="color" value="${this.escapeHtml(draftPageColor || '#ffffff')}" oninput="app.saveOutlookAssistDraftFromForm(); app.renderOutlookAssistWorkers()" ${pageControlsDisabled}></label>
+                                <label class="outlook-page-color-picker ${editingTemplate ? 'disabled' : ''}" title="${pageControlsTitle || TXT.pageColor}" style="${draftPageColor ? `--page-color:${this.escapeHtml(draftPageColor)}` : ''}"><i class="fa-solid fa-palette"></i><input id="outlook-assist-page-color" type="color" value="${this.escapeHtml(draftPageColor || '#ffffff')}" oninput="app.previewOutlookAssistDraftPageColor(this.value); app.saveOutlookAssistDraftFromForm(); app.renderOutlookAssistWorkers()" ${pageControlsDisabled}></label>
                                 ${editingTemplate ? '' : this.getOutlookAssistDraftPageColorPresetHtml(null, draftPageColor)}
                                 <label class="outlook-page-title-lock"><input id="outlook-assist-page-title-lock" type="checkbox" ${draft.pageTitleLocked ? 'checked' : ''} onchange="app.saveOutlookAssistDraftFromForm()" ${pageControlsDisabled}> ${TXT.pageTitleLock}</label>
                                 <button type="button" class="secondary-btn" title="${pageControlsTitle || TXT.duplicateDraftPage}" onclick="app.duplicateOutlookAssistDraftPage()" ${pageControlsDisabled}><i class="fa-regular fa-copy"></i></button>

@@ -167,6 +167,7 @@ class MaintenanceStore {
             if (!d.tasks) d.tasks = [];
             if (!d.history) d.history = [];
             if (!d.partsMaster) d.partsMaster = [];
+            if (!Array.isArray(d.partStockMovements)) d.partStockMovements = [];
             if (!d.archivedWorkers) d.archivedWorkers = [];
             if (!d.archivedTasks) d.archivedTasks = [];
             if (!d.archivedParts) d.archivedParts = [];
@@ -392,6 +393,42 @@ class MaintenanceStore {
         );
     }
 
+    getPartStockMovements(name, model) {
+        if (!Array.isArray(this.activeData.partStockMovements)) this.activeData.partStockMovements = [];
+        const master = this.getPartMaster(name, model);
+        const identities = new Set([
+            `${master?.name ?? name}___${master?.model ?? model ?? ''}`,
+            ...((master?.seeds || []).map(seed => `${seed.name || ''}___${seed.model || ''}`))
+        ]);
+        return this.activeData.partStockMovements
+            .filter(item => identities.has(`${item.partName || ''}___${item.partModel || ''}`))
+            .sort((left, right) => String(right.occurredAt || right.date || '').localeCompare(String(left.occurredAt || left.date || '')));
+    }
+
+    recordPartStockMovement(master, delta, before, after, options = {}) {
+        const amount = Math.round(Math.abs(Number(delta) || 0) * 1000) / 1000;
+        if (!master || amount <= 0) return null;
+        if (!Array.isArray(this.activeData.partStockMovements)) this.activeData.partStockMovements = [];
+        const occurredAt = options.occurredAt || new Date().toISOString();
+        const movement = {
+            id: `stock-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+            partName: master.name || '',
+            partModel: master.model || '',
+            type: Number(delta) > 0 ? 'in' : 'out',
+            quantity: amount,
+            delta: Math.round((Number(delta) || 0) * 1000) / 1000,
+            before: Math.round((Number(before) || 0) * 1000) / 1000,
+            after: Math.round((Number(after) || 0) * 1000) / 1000,
+            unit: options.unit || master.unit || '個',
+            reason: String(options.reason || (Number(delta) > 0 ? '入庫' : '出庫')).slice(0, 100),
+            source: String(options.source || 'manual'),
+            sourceId: String(options.sourceId || ''),
+            date: String(options.date || '').slice(0, 10),
+            occurredAt
+        };
+        this.activeData.partStockMovements.push(movement);
+        return movement;
+    }
     updatePartMaster(name, model, updates, isSubstitute = false) {
         if (!this.activeData.partsMaster) this.activeData.partsMaster = [];
         const index = this.activeData.partsMaster.findIndex(m => m.name === name && m.model === model);
@@ -422,22 +459,37 @@ class MaintenanceStore {
             const target = this.getPartMaster(name, model);
             if (target) {
                 const idx = this.activeData.partsMaster.indexOf(target);
+                const beforeStock = parseFloat(this.activeData.partsMaster[idx].stock) || 0;
+                const afterStock = updates.stock !== undefined ? parseFloat(updates.stock) || 0 : beforeStock;
                 this.activeData.partsMaster[idx] = { 
                     ...this.activeData.partsMaster[idx], 
                     ...updates,
-                    // Ensure stock values are numbers
-                    stock: updates.stock !== undefined ? parseFloat(updates.stock) || 0 : this.activeData.partsMaster[idx].stock,
+                    stock: afterStock,
                     minStock: updates.minStock !== undefined ? parseFloat(updates.minStock) || 0 : this.activeData.partsMaster[idx].minStock,
                     unit: updates.unit || this.activeData.partsMaster[idx].unit || '個'
                 };
+                const stockDelta = Math.round((afterStock - beforeStock) * 1000) / 1000;
+                if (updates.stock !== undefined && stockDelta) {
+                    this.recordPartStockMovement(this.activeData.partsMaster[idx], stockDelta, beforeStock, afterStock, {
+                        source: 'manual',
+                        reason: stockDelta > 0 ? '在庫を直接変更（入庫）' : '在庫を直接変更（出庫）'
+                    });
+                }
             } else {
-                this.activeData.partsMaster.push({ 
+                const created = { 
                     name, model, 
                     ...updates,
                     stock: parseFloat(updates.stock) || 0,
                     minStock: parseFloat(updates.minStock) || 0,
                     unit: updates.unit || '個'
-                });
+                };
+                this.activeData.partsMaster.push(created);
+                if (created.stock) {
+                    this.recordPartStockMovement(created, created.stock, 0, created.stock, {
+                        source: 'manual',
+                        reason: created.stock > 0 ? '初期在庫登録（入庫）' : '初期在庫登録（出庫）'
+                    });
+                }
             }
         }
         this.save();
@@ -446,18 +498,20 @@ class MaintenanceStore {
     /**
      * Adjusts the stock of a part by a given delta (positive for restock, negative for use)
      */
-    adjustStock(name, model, delta) {
+    adjustStock(name, model, delta, options = {}) {
         const master = this.getPartMaster(name, model);
         if (master) {
             const idx = this.activeData.partsMaster.indexOf(master);
             const currentStock = parseFloat(this.activeData.partsMaster[idx].stock) || 0;
-            const newStock = currentStock + delta;
-            // Round to 3 decimal places to avoid IEEE 754 precision issues
+            const safeDelta = Math.round((parseFloat(delta) || 0) * 1000) / 1000;
+            const newStock = currentStock + safeDelta;
             this.activeData.partsMaster[idx].stock = Math.round(newStock * 1000) / 1000;
+            if (safeDelta) {
+                this.recordPartStockMovement(this.activeData.partsMaster[idx], safeDelta, currentStock, this.activeData.partsMaster[idx].stock, options);
+            }
             this.save();
             return true;
         }
-        // If not found in master, we could optionally create it, but for now we just return false
         return false;
     }
 

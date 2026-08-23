@@ -684,7 +684,11 @@
             const h = store.activeData.history.find(h => h.id === id);
             if (h && h.replacedParts) {
                 h.replacedParts.forEach(p => {
-                    store.adjustStock(p.name, p.model, p.count); // Restore stock
+                    store.adjustStock(p.name, p.model, p.count, {
+                        source: 'maintenance-delete',
+                        sourceId: h.id,
+                        reason: 'メンテナンス履歴削除（使用分を戻す）'
+                    });
                 });
             }
             store.activeData.history = store.activeData.history.filter(h => h.id !== id);

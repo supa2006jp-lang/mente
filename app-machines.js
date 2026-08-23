@@ -1,8 +1,37 @@
-﻿(function () {
+(function () {
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppMachineMethods extends MaintenanceApp {
     // --- Machines Implementation ---
+    getMachineManagementCardColor() {
+        const color = String(localStorage.getItem('machine_management_card_color') || '#ffffff').trim().toLowerCase();
+        return /^#[0-9a-f]{6}$/.test(color) ? color : '#ffffff';
+    }
+
+    applyMachineManagementCardColor(color = this.getMachineManagementCardColor()) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color)) ? String(color).toLowerCase() : '#ffffff';
+        const container = document.getElementById('machines-list');
+        if (container) {
+            container.style.setProperty('--machine-management-card-color', safeColor);
+            const rgb = safeColor.match(/[0-9a-f]{2}/gi).map(value => parseInt(value, 16));
+            const luminance = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+            container.classList.toggle('machine-card-color-custom', safeColor !== '#ffffff');
+            container.classList.toggle('machine-card-color-dark', luminance < 0.46);
+        }
+        const picker = document.getElementById('machine-management-card-color');
+        if (picker && picker.value.toLowerCase() !== safeColor) picker.value = safeColor;
+    }
+
+    setMachineManagementCardColor(color) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color)) ? String(color).toLowerCase() : '#ffffff';
+        localStorage.setItem('machine_management_card_color', safeColor);
+        this.applyMachineManagementCardColor(safeColor);
+    }
+
+    resetMachineManagementCardColor() {
+        this.setMachineManagementCardColor('#ffffff');
+    }
+
 
     renderMachines(searchQuery = '') {
         const container = document.getElementById('machines-list');
@@ -12,10 +41,12 @@
         }
         if (this.machineMaintenanceListMode) {
             this.renderMachineMaintenanceList(searchQuery);
+            this.applyMachineManagementCardColor();
             return;
         }
         this.updateMachineMaintenanceListButton();
         container.className = 'grid-list';
+        this.applyMachineManagementCardColor();
         
         const qInput = document.getElementById('global-search');
         const query = (searchQuery || (qInput ? qInput.value : '')).toLowerCase().trim();
@@ -99,7 +130,6 @@
             id: m.id,
             total: machineCostMap[m.id]?.total || 0
         })).sort((a,b) => b.total - a.total);
-        const priorityRankLimit = Math.max(1, Math.ceil(costRankBasis.length * 0.25));
 
         machines.forEach(m => {
             const mId = m.id;
@@ -114,21 +144,14 @@
             const rank = rankBasis.findIndex(x => x.id === mId) + 1;
             const lastTrouble = mHistory[0] || null;
             const lastMaintenance = maintenanceHistory[0] || null;
-            const lastTroubleText = this.getMachineHistoryDateTimeText(lastTrouble);
-            const lastMaintenanceText = this.getMachineHistoryDateTimeText(lastMaintenance);
+            const lastTroubleText = this.getMachineHistoryShortDateText(lastTrouble);
+            const lastMaintenanceText = this.getMachineHistoryShortDateText(lastMaintenance);
             const lastMaintenanceTone = this.getMachineLastMaintenanceTone(lastMaintenance);
-            const needsMaintenanceCheck = ['missing', 'warning-old', 'danger-old'].includes(lastMaintenanceTone);
             const machineCost = machineCostMap[mId] || { total: 0, labor: 0, parts: 0 };
             const machineCostTotalText = typeof this.formatCurrency === 'function' ? this.formatCurrency(machineCost.total) : `${Math.round(machineCost.total || 0).toLocaleString()}円`;
             const machineCostLaborText = typeof this.formatCurrency === 'function' ? this.formatCurrency(machineCost.labor) : `${Math.round(machineCost.labor || 0).toLocaleString()}円`;
             const machineCostPartsText = typeof this.formatCurrency === 'function' ? this.formatCurrency(machineCost.parts) : `${Math.round(machineCost.parts || 0).toLocaleString()}円`;
             const costRank = costRankBasis.findIndex(x => x.id === mId) + 1;
-            const isPriorityMachine = troubleCount > 0
-                && machineCost.total > 0
-                && rank > 0
-                && costRank > 0
-                && rank <= priorityRankLimit
-                && costRank <= priorityRankLimit;
             
             const recurrenceCount = recurrenceCountMap[mId] || 0;
             const recurrenceCountThisYear = recurrenceCountThisYearMap[mId] || 0;
@@ -214,8 +237,6 @@
                                 [${this.highlightText(MaintenanceApp.isModelBlank(m.model) ? '型式未登録' : normModel, query)}]
                             </span>
                             ${m.manufacturer ? `<span style="font-size:0.7rem; color:var(--text-light); margin-left:8px;"><i class="fa-solid fa-industry" style="font-size:0.6rem; margin-right:2px;"></i> ${m.manufacturer}</span>` : ''}
-                            ${isPriorityMachine ? `<span class="machine-priority-badge" title="不具合頻度 第${rank}位 / コスト 第${costRank}位"><i class="fa-solid fa-bullseye"></i>重点管理</span>` : ''}
-                            ${needsMaintenanceCheck ? `<span class="machine-maintenance-alert-badge ${lastMaintenanceTone}" title="${lastMaintenanceTone === 'missing' ? 'メンテ記録がありません' : `最終メンテ日: ${this.escapeHtml(this.getMachineHistoryDateTimeWithElapsedText(lastMaintenance, lastMaintenanceText))}`}"><i class="fa-solid fa-screwdriver-wrench"></i>メンテ要確認</span>` : ''}
                             ${recurrenceCount > 0 ? `<span class="machine-recurrence-badge"><i class="fa-solid fa-redo"></i>再発:累計${recurrenceCount}回/今年${recurrenceCountThisYear}回(第${recurrenceRank}位)</span>` : ''}
                             ${modelGuides.length > 0 ? `
                                 <div class="card-inline-guides" style="display:inline-flex; gap:4px; margin-left:4px;">
@@ -232,7 +253,8 @@
                                 </div>
                             ` : ''}
                         </div>
-                        <div class="machine-last-history-info">
+                    </div>
+                    <div class="machine-last-history-info">
                             <div class="machine-last-history-row trouble">
                                 <span class="label"><i class="fa-solid fa-triangle-exclamation"></i> 最終トラブル</span>
                                 ${this.getMachineLastHistoryValueHtml(lastTrouble, lastTroubleText, 'このトラブル履歴を表示')}
@@ -241,7 +263,6 @@
                                 <span class="label"><i class="fa-solid fa-screwdriver-wrench"></i> 最終メンテ日</span>
                                 ${this.getMachineLastHistoryValueHtml(lastMaintenance, lastMaintenanceText, 'このメンテ履歴を表示', '定期メンテの完了記録がまだありません')}
                             </div>
-                        </div>
                     </div>
                     <div class="actions machine-card-actions">
                         <button class="icon-btn edit-btn" title="編集"><i class="fa-solid fa-pen"></i></button>
@@ -281,6 +302,22 @@
             card.querySelector('.delete-btn').onclick = () => this.deleteMachine(mId);
             container.appendChild(card);
         });
+        this.syncMachineCardHeaderHeights(container);
+    }
+
+    syncMachineCardHeaderHeights(container = document.getElementById('machines-list')) {
+        if (!container) return;
+        cancelAnimationFrame(this._machineCardHeaderHeightFrame || 0);
+        this._machineCardHeaderHeightFrame = requestAnimationFrame(() => {
+            const headers = Array.from(container.querySelectorAll('.machine-card-header'));
+            headers.forEach(header => { header.style.height = ''; });
+            const maxHeight = Math.ceil(Math.max(0, ...headers.map(header => header.getBoundingClientRect().height)));
+            if (maxHeight > 0) headers.forEach(header => { header.style.height = `${maxHeight}px`; });
+        });
+        if (!this._machineCardHeaderResizeBound) {
+            this._machineCardHeaderResizeBound = true;
+            window.addEventListener('resize', () => this.syncMachineCardHeaderHeights());
+        }
     }
 
     compareMachineHistoryDateDesc(a = {}, b = {}) {
@@ -293,6 +330,12 @@
         if (!history?.date) return '記録なし';
         const time = history.startTime || history.endTime || '';
         return time ? `${history.date} ${time}` : history.date;
+    }
+
+    getMachineHistoryShortDateText(history = null) {
+        if (!history?.date) return '無';
+        const match = String(history.date).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        return match ? `${Number(match[2])}/${Number(match[3])}` : String(history.date);
     }
 
     getMachineHistoryElapsedDays(history = null) {
@@ -321,7 +364,7 @@
     }
 
     getMachineLastHistoryValueHtml(history = null, text = '', linkTitle = 'この履歴を表示', emptyTitle = '記録がありません') {
-        const displayText = history?.id ? this.getMachineHistoryDateTimeWithElapsedText(history, text) : (text || '記録なし');
+        const displayText = history?.id ? (text || this.getMachineHistoryShortDateText(history)) : (text || '無');
         const safeText = this.escapeHtml(displayText);
         if (!history?.id) return `<span class="value muted" title="${this.escapeHtml(emptyTitle)}">${safeText}</span>`;
         return `<button type="button" class="value machine-last-history-link" onclick="event.stopPropagation(); app.openMachineLastHistoryInHistoryList('${this.escapeJs(history.id)}')" title="${this.escapeHtml(linkTitle)}">${safeText}</button>`;
@@ -757,3 +800,4 @@
         }
     }
 })();
+
