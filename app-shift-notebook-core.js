@@ -14746,6 +14746,36 @@
         if (this.saveAllShiftPhotoCompareAnimationChanges()) this.closeShiftPhotoCompareAnimation({ force: true });
     }
 
+    cleanupShiftPhotoCompareAnimationTransientState(state = this._shiftPhotoCompareAnimationState, options = {}) {
+        if (!state) return;
+        const marks = new Set();
+        const roots = new Set([state.overlay, state.grid]);
+        (state.pages || []).forEach(page => roots.add(page?.grid));
+        roots.forEach(root => root?.querySelectorAll?.('.shift-photo-compare-mark.video').forEach(mark => marks.add(mark)));
+        marks.forEach(mark => {
+            clearTimeout(mark._shiftPhotoCompareVideoStartTimer);
+            clearTimeout(mark._shiftPhotoCompareVideoPlaybackTimer);
+            clearTimeout(mark._shiftPhotoCompareVideoPositionTimer);
+            clearTimeout(mark._shiftPhotoCompareVideoExpandTimer);
+            delete mark._shiftPhotoCompareVideoStartTimer;
+            delete mark._shiftPhotoCompareVideoPlaybackTimer;
+            delete mark._shiftPhotoCompareVideoPositionTimer;
+            delete mark._shiftPhotoCompareVideoExpandTimer;
+            delete mark.dataset.animationPlaybackPending;
+            delete mark.dataset.animationPlaybackAttempts;
+            delete mark.dataset.animationPlaying;
+            mark.querySelector('video')?.removeAttribute('data-animation-playing');
+            mark.querySelector('.shift-photo-compare-youtube-player')?.removeAttribute('data-animation-playing');
+            mark.classList.remove('shift-photo-compare-animation-video-user-paused');
+            this.hideShiftPhotoCompareAnimationVideoFinishControl(mark);
+            this.restoreShiftPhotoCompareAnimationVideo(mark, true);
+        });
+        if (options.clearEditorSelection) {
+            this.selectShiftPhotoCompareMark(null);
+            document.getElementById('shift-photo-compare-selection-bounds')?.remove();
+        }
+    }
+
     closeShiftPhotoCompareAnimation(options = {}) {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state) return true;
@@ -14763,6 +14793,7 @@
         this.closeShiftPhotoCompareAnimationPageRecordingDialog();
         this.cancelShiftPhotoCompareSpeech();
         this.stopShiftPhotoCompareAnimationVideos(state.grid);
+        this.cleanupShiftPhotoCompareAnimationTransientState(state, { clearEditorSelection: true });
         state.marks?.forEach(item => this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item?.mark));
         clearTimeout(state.presentationExitTimer);
         if (state.keyHandler) document.removeEventListener('keydown', state.keyHandler);
@@ -14960,10 +14991,36 @@
             const canvas = document.createElement('canvas');
             canvas.width = firstFrame.width;
             canvas.height = firstFrame.height;
-            const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+            const ctx = canvas.getContext('2d', { alpha: false });
             ctx.drawImage(firstFrame, 0, 0);
-            // Audio is recorded separately, so timer-driven capture remains stable.
-            const stream = canvas.captureStream(targetFps);
+            // Prefer a writable video track so every completed canvas is handed to MediaRecorder
+            // as an explicit VideoFrame. Canvas capture remains a compatibility fallback.
+            let stream = null;
+            let videoTrack = null;
+            let frameWriter = null;
+            let frameTransport = 'canvas';
+            if (typeof window.VideoFrame === 'function' && typeof window.MediaStreamTrackGenerator === 'function') {
+                const generator = new MediaStreamTrackGenerator({ kind: 'video' });
+                videoTrack = generator;
+                frameWriter = generator.writable.getWriter();
+                stream = new MediaStream([videoTrack]);
+                frameTransport = 'direct';
+            } else if (typeof window.VideoFrame === 'function' && typeof window.VideoTrackGenerator === 'function') {
+                const generator = new VideoTrackGenerator();
+                videoTrack = generator.track;
+                frameWriter = generator.writable.getWriter();
+                stream = new MediaStream([videoTrack]);
+                frameTransport = 'direct';
+            } else {
+                stream = canvas.captureStream(0);
+                videoTrack = stream.getVideoTracks?.()[0] || null;
+                if (typeof videoTrack?.requestFrame !== 'function') {
+                    stream.getTracks?.().forEach(track => track.stop());
+                    stream = canvas.captureStream(targetFps);
+                    videoTrack = stream.getVideoTracks?.()[0] || null;
+                }
+
+            }
             const AudioContextClass = window.AudioContext || window.webkitAudioContext;
             const audioContext = AudioContextClass ? new AudioContextClass({ latencyHint: 'playback' }) : null;
             if (audioContext?.state === 'suspended') await audioContext.resume().catch(() => {});
@@ -14993,9 +15050,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             recorder.ondataavailable = event => {
                 if (event.data?.size) chunks.push(event.data);
             };
-            const videoTrack = stream.getVideoTracks?.()[0] || null;
             return {
-                canvas, ctx, stream, videoTrack, mimeType, chunks, recorder,
+                canvas, ctx, stream, videoTrack, frameWriter, frameTransport, nextFrameTimestampUs: 0, generatedFrameCount: 0, mimeType, chunks, recorder,
                 audioContext, audioDestination, audioTrack, audioRecorder, audioChunks, audioMimeType, videoAudioConnections: [],
                 queue: Promise.resolve(), cancelled: false, previousImageCache,
                 renderMaxSide, targetFps, realTimeFrameSkipping: true, speedCorrection: 1
@@ -15057,6 +15113,10 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     this._shiftPhotoCompareAnimationRecordingAudioDestination = null;
                     this._shiftPhotoCompareAnimationRecordingAudioContext = null;
                 }
+                if (recording.frameWriter) {
+                    try { await recording.frameWriter.close(); } catch (_) {}
+                    recording.frameWriter = null;
+                }
                 recording.stream?.getTracks?.().forEach(track => track.stop());
                 recording.audioContext?.close?.().catch?.(() => {});
                 this._shiftPhotoCompareAnimationRenderImageCache = recording.previousImageCache || null;
@@ -15096,41 +15156,63 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             recording.canvas.width = frame.width;
             recording.canvas.height = frame.height;
         }
-        recording.ctx.clearRect(0, 0, recording.canvas.width, recording.canvas.height);
         recording.ctx.drawImage(frame, 0, 0);
-        await this.drawShiftPhotoCompareRecordingFramedVideos(recording);
-        recording.videoTrack?.requestFrame?.();
+        if (recording.frameWriter && typeof window.VideoFrame === 'function') {
+            const duration = Math.max(1, Math.round(1000000 / (Number(recording.targetFps) || 60)));
+            const videoFrame = new VideoFrame(recording.canvas, {
+                timestamp: Math.max(0, Number(recording.nextFrameTimestampUs) || 0),
+                duration
+            });
+            try {
+                await recording.frameWriter.write(videoFrame);
+                recording.generatedFrameCount = (Number(recording.generatedFrameCount) || 0) + 1;
+                recording.nextFrameTimestampUs = (Number(recording.nextFrameTimestampUs) || 0) + duration;
+            } finally {
+                videoFrame.close();
+            }
+        } else {
+            recording.videoTrack?.requestFrame?.();
+        }
     }
 
-    async drawShiftPhotoCompareRecordingFramedVideos(recording) {
+    async drawShiftPhotoCompareRecordingFramedVideos(recording, targetCanvas = recording?.canvas, targetCtx = recording?.ctx) {
+        const diagnostics = recording.framedVideoDiagnostics || (recording.framedVideoDiagnostics = {
+            calls: 0, entries: 0, ready: 0, drawn: 0, errors: 0, lastRect: ''
+        });
+        diagnostics.calls += 1;
         const state = this._shiftPhotoCompareAnimationState;
         const stage = state?.overlay?.querySelector?.('.shift-photo-compare-animation-stage');
         const stageRect = stage?.getBoundingClientRect?.();
-        if (!recording?.ctx || !stageRect?.width || !stageRect?.height) return;
+        // The recording canvas represents the entire stage, including portaled/expanded videos.
+        const recordingRect = stageRect;
+        if (!targetCanvas || !targetCtx || !recordingRect?.width || !recordingRect?.height) return;
 
-        const scaleX = recording.canvas.width / stageRect.width;
-        const scaleY = recording.canvas.height / stageRect.height;
-        const framedMarks = Array.from(state?.grid?.querySelectorAll?.(
-            '.shift-photo-compare-mark.video[data-animation-playing="1"]'
-        ) || []).filter(mark => ['modern', 'retro', 'custom'].includes(mark.dataset.videoFrameStyle));
+        const scaleX = targetCanvas.width / recordingRect.width;
+        const scaleY = targetCanvas.height / recordingRect.height;
+        const activeSessions = Array.isArray(recording.activeVideoSessions)
+            ? recording.activeVideoSessions
+            : [];
+        const framedEntries = activeSessions
+            .filter(entry => entry.mark && entry.video && entry.frameCanvas
+                && ['modern', 'retro', 'custom'].includes(entry.mark.dataset.videoFrameStyle));
+        diagnostics.entries += framedEntries.length;
 
-        for (const mark of framedMarks) {
+        for (const entry of framedEntries) {
             let objectUrl = '';
             try {
-                const video = mark.querySelector?.('video');
-                if (!video) continue;
-                const frameKey = String(mark.dataset.videoId || video.dataset.videoHydrated || '');
-                const recordingFrames = this._shiftPhotoCompareRecordingVideoFrames;
-                const recordingFrame = recordingFrames?.get?.(frameKey)
-                    || (recordingFrames?.size === 1 ? recordingFrames.values().next().value : null)
-                    || video._shiftPhotoCompareRecordingFrame;
-                if (!recordingFrame) continue;
+                const { mark, video } = entry;
+                const directVideoReady = video.readyState >= 2
+                    && video.videoWidth > 0
+                    && video.videoHeight > 0;
+                const videoFrameSource = entry.frameCanvas || video._shiftPhotoCompareRecordingFrame || null;
+                if (!videoFrameSource) continue;
+                if (directVideoReady) diagnostics.ready += 1;
 
                 const markRect = mark.getBoundingClientRect();
                 const width = Math.max(1, (mark.offsetWidth || markRect.width) * scaleX);
                 const height = Math.max(1, (mark.offsetHeight || markRect.height) * scaleY);
-                const centerX = (markRect.left + markRect.width / 2 - stageRect.left) * scaleX;
-                const centerY = (markRect.top + markRect.height / 2 - stageRect.top) * scaleY;
+                const centerX = (markRect.left + markRect.width / 2 - recordingRect.left) * scaleX;
+                const centerY = (markRect.top + markRect.height / 2 - recordingRect.top) * scaleY;
                 const screenX = -width / 2 + video.offsetLeft * scaleX;
                 const screenY = -height / 2 + video.offsetTop * scaleY;
                 const screenWidth = Math.max(1, video.offsetWidth * scaleX);
@@ -15154,7 +15236,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     }
                 }
 
-                const ctx = recording.ctx;
+                const ctx = targetCtx;
                 ctx.save();
                 ctx.translate(centerX, centerY);
                 ctx.rotate(angle);
@@ -15164,10 +15246,14 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 ctx.save();
                 this.drawShiftPhotoCompareRoundedRectPath(ctx, screenX, screenY, screenWidth, screenHeight, 0);
                 ctx.clip();
-                ctx.drawImage(recordingFrame, screenX, screenY, screenWidth, screenHeight);
+                ctx.drawImage(videoFrameSource, screenX, screenY, screenWidth, screenHeight);
                 ctx.restore();
                 ctx.restore();
+                diagnostics.composited = (Number(diagnostics.composited) || 0) + 1;
+                diagnostics.drawn += 1;
+                diagnostics.lastRect = `${Math.round(centerX)},${Math.round(centerY)} ${Math.round(screenWidth)}x${Math.round(screenHeight)}`;
             } catch (error) {
+                diagnostics.errors += 1;
                 console.warn('Direct recording framed video overlay failed.', error);
             } finally {
                 if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -15363,6 +15449,65 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         return 0;
     }
 
+    async createShiftPhotoCompareRecordingVideoSource(mark, liveVideo) {
+        const id = String(mark?.dataset?.videoId || liveVideo?.dataset?.videoHydrated || '');
+        const item = this.getPhotoManagerVideo?.(id);
+        let sourceBlob = null;
+        let sourceUrl = '';
+        let objectUrl = '';
+        try {
+            if (item?.sourceType === 'local-handle') {
+                sourceBlob = await this.loadPhotoManagerLinkedVideoFile?.(item, false).catch(() => null);
+            } else if (item?.sourceType === 'url' && item.sourceUrl) {
+                sourceUrl = item.sourceUrl;
+            } else if (id) {
+                sourceBlob = await store.loadMediaBlob(this.getPhotoManagerVideoMediaKey?.(id) || id).catch(() => null);
+            }
+            if (sourceBlob) {
+                objectUrl = URL.createObjectURL(sourceBlob);
+                sourceUrl = objectUrl;
+            }
+            if (!sourceUrl) sourceUrl = liveVideo?.currentSrc || liveVideo?.src || liveVideo?.getAttribute?.('src') || '';
+            if (!sourceUrl) return null;
+
+            const video = document.createElement('video');
+            video.preload = 'auto';
+            video.muted = true;
+            video.playsInline = true;
+            video.disablePictureInPicture = true;
+            const loaded = new Promise(resolve => {
+                let settled = false;
+                const finish = success => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    video.removeEventListener('loadeddata', onLoaded);
+                    video.removeEventListener('canplay', onLoaded);
+                    video.removeEventListener('error', onError);
+                    resolve(success);
+                };
+                const onLoaded = () => finish(video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0);
+                const onError = () => finish(false);
+                const timer = setTimeout(() => finish(video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0), 5000);
+                video.addEventListener('loadeddata', onLoaded, { once: true });
+                video.addEventListener('canplay', onLoaded, { once: true });
+                video.addEventListener('error', onError, { once: true });
+            });
+            video.src = sourceUrl;
+            video.load();
+            if (!await loaded) {
+                video.removeAttribute('src');
+                video.load();
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+                return null;
+            }
+            return { video, objectUrl };
+        } catch (error) {
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+            console.warn('Recording-only video source could not be created.', error);
+            return null;
+        }
+    }
     async recordShiftPhotoCompareAnimationVideoPlaybackStep(recording, stepIndex = -1, options = {}) {
         const state = this._shiftPhotoCompareAnimationState;
         const step = state?.steps?.[stepIndex] || null;
@@ -15399,13 +15544,22 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 finish();
             }
         });
-        const sessions = videos.map(({ mark, video }) => {
+        const sessions = await Promise.all(videos.map(async ({ mark, video }) => {
+            const recordingSource = await this.createShiftPhotoCompareRecordingVideoSource(mark, video);
+            const frameVideo = recordingSource?.video || video;
             const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
-            const naturalEnd = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : start;
+            const naturalEnd = Number.isFinite(frameVideo.duration) && frameVideo.duration > 0
+                ? frameVideo.duration
+                : (Number.isFinite(video.duration) && video.duration > 0 ? video.duration : start);
             const end = Math.max(start, Math.min(Number(mark.dataset.videoTrimEnd) || naturalEnd, naturalEnd));
             const rate = Math.max(0.25, Math.min(2, Number(mark.dataset.videoPlaybackRate) || 1));
-            return { mark, video, start, end, rate, muted: video.muted };
-        });
+            return {
+                mark, video, frameVideo, recordingObjectUrl: recordingSource?.objectUrl || '',
+                start, end, rate, muted: video.muted
+            };
+        }));
+        recording.activeVideoSessions = sessions;
+        recording.recordingVideoSourceCount = sessions.filter(session => session.frameVideo !== session.video).length;
         sessions.forEach(session => {
             session.mark.classList.remove('shift-photo-compare-animation-hidden');
             session.mark.classList.add('shift-photo-compare-animation-visible');
@@ -15413,9 +15567,16 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             session.video.dataset.animationPlaying = '1';
             session.video.muted = false;
             session.video.playbackRate = session.rate;
+            session.frameVideo.playbackRate = session.rate;
         });
-        await Promise.all(sessions.map(session => waitForSeek(session.video, session.start)));
-        await Promise.all(sessions.map(session => session.video.play().catch(() => {})));
+        await Promise.all(sessions.flatMap(session => [
+            waitForSeek(session.video, session.start),
+            session.frameVideo === session.video ? Promise.resolve() : waitForSeek(session.frameVideo, session.start)
+        ]));
+        await Promise.all(sessions.flatMap(session => [
+            session.video.play().catch(() => {}),
+            session.frameVideo === session.video ? Promise.resolve() : session.frameVideo.play().catch(() => {})
+        ]));
         await this.waitShiftPhotoCompareAnimationVideo(80);
         const waitForFreshVideoFrame = video => new Promise(resolve => {
             if (typeof video?.requestVideoFrameCallback !== 'function') {
@@ -15454,17 +15615,21 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         const frameInterval = 1000 / Math.max(12, Math.min(60, Number(recording?.targetFps) || 60));
         const startedAt = performance.now();
         const captureFreshVideoFrame = async session => {
-            await waitForFreshVideoFrame(session.video);
+            await waitForFreshVideoFrame(session.frameVideo);
             try {
-                const frameWidth = Math.max(1, Number(session.video.videoWidth) || 1);
-                const frameHeight = Math.max(1, Number(session.video.videoHeight) || 1);
+                const frameWidth = Math.max(1, Number(session.frameVideo.videoWidth) || 1);
+                const frameHeight = Math.max(1, Number(session.frameVideo.videoHeight) || 1);
                 const frameCanvas = session.frameCanvas || document.createElement('canvas');
                 if (frameCanvas.width !== frameWidth || frameCanvas.height !== frameHeight) {
                     frameCanvas.width = frameWidth;
                     frameCanvas.height = frameHeight;
                 }
                 const frameContext = frameCanvas.getContext('2d', { alpha: false });
-                frameContext.drawImage(session.video, 0, 0, frameWidth, frameHeight);
+                frameContext.drawImage(session.frameVideo, 0, 0, frameWidth, frameHeight);
+                const sample = frameContext.getImageData(Math.floor(frameWidth / 2), Math.floor(frameHeight / 2), 1, 1).data;
+                if (sample[0] + sample[1] + sample[2] > 24) {
+                    recording.videoFramePixelCount = (Number(recording.videoFramePixelCount) || 0) + 1;
+                }
                 session.frameCanvas = frameCanvas;
                 const frameKey = String(session.mark?.dataset?.videoId || session.video?.dataset?.videoHydrated || '');
                 if (!this._shiftPhotoCompareRecordingVideoFrames) this._shiftPhotoCompareRecordingVideoFrames = new Map();
@@ -15483,6 +15648,12 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         }
         sessions.forEach(session => {
             session.video.pause();
+            if (session.frameVideo !== session.video) {
+                session.frameVideo.pause();
+                session.frameVideo.removeAttribute('src');
+                session.frameVideo.load();
+                if (session.recordingObjectUrl) URL.revokeObjectURL(session.recordingObjectUrl);
+            }
             recording.videoAudioConnections = (recording.videoAudioConnections || []).filter(connection => {
                 if (connection.video !== session.video) return true;
                 try { connection.source?.disconnect?.(recording.audioDestination); } catch (_) {}
@@ -15500,6 +15671,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             delete session.video.dataset.animationPlaying;
             delete session.mark.dataset.animationPlaying;
         });
+        recording.activeVideoSessions = [];
         await this.drawShiftPhotoCompareAnimationRecordingFrame(recording);
         if (options.holdMs) await this.waitShiftPhotoCompareAnimationVideo(Math.max(0, Number(options.holdMs) || 0));
     }
@@ -15585,6 +15757,10 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
     async saveShiftPhotoCompareAnimationAutoVideo(options = {}) {
         const state = this._shiftPhotoCompareAnimationState;
         const directCanvas = options?.recorderMode === 'canvas';
+        if (directCanvas && window.location.protocol === 'file:') {
+            this.showToast?.('直接動画はオンライン版で実行してください。');
+            return;
+        }
         if (!state?.steps?.length) {
             this.showToast?.('先にアニメ再生画面を開いてください。');
             return;
@@ -15662,11 +15838,17 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             await this.waitShiftPhotoCompareAnimationVideo(420);
             await this.finishShiftPhotoCompareAnimationVideoRecording(recording, false);
             state.videoRecording = null;
-            this.showToast?.(`${directCanvas ? '直接動画' : '動画'}を保存しました。${this.getShiftPhotoCompareAnimationVideoExtension(recording.mimeType).toUpperCase()}形式です。`);
+            this.cleanupShiftPhotoCompareAnimationTransientState(state);
+            const framed = recording.framedVideoDiagnostics;
+            const framedStatus = directCanvas && framed
+                ? ` 枠動画: 描画${framed.drawn} / 動画画素${Number(recording.videoFramePixelCount) || 0} / 合成${Number(framed.composited) || 0} / 専用元${Number(recording.recordingVideoSourceCount) || 0} / 送出${recording.frameTransport === 'direct' ? '直接フレーム' : 'キャンバス'}${Number(recording.generatedFrameCount) || 0} / エラー${framed.errors}`
+                : '';
+            this.showToast?.(`${directCanvas ? '直接動画' : '動画'}を保存しました。${this.getShiftPhotoCompareAnimationVideoExtension(recording.mimeType).toUpperCase()}形式です。${framedStatus}`);
         } catch (error) {
             console.warn(`Shift photo compare animation ${directCanvas ? 'direct' : 'auto'} video failed`, error);
             if (recording) await this.finishShiftPhotoCompareAnimationVideoRecording(recording, true).catch?.(() => {});
             if (state.videoRecording === recording) state.videoRecording = null;
+            this.cleanupShiftPhotoCompareAnimationTransientState(state);
             this.showToast?.(error?.message || `${directCanvas ? '直接動画' : '動画'}を保存できませんでした。`);
         }
     }
@@ -15688,6 +15870,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             await recording.queue.catch(() => {});
             state.videoRecording = null;
             await this.finishShiftPhotoCompareAnimationVideoRecording(recording, false);
+            this.cleanupShiftPhotoCompareAnimationTransientState(state);
             if (button) button.disabled = false;
             if (span) span.textContent = 'クリック録画';
             this.showToast?.(`クリック録画を保存しました。${this.getShiftPhotoCompareAnimationVideoExtension(recording.mimeType).toUpperCase()}形式です。`);
@@ -15718,6 +15901,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         } catch (error) {
             console.warn('Shift photo compare animation manual video failed', error);
             state.videoRecording = null;
+            this.cleanupShiftPhotoCompareAnimationTransientState(state);
             this.showToast?.(error?.message || 'クリック録画を開始できませんでした。');
         }
     }
@@ -38463,9 +38647,14 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 || (recordingFrames?.size === 1 ? recordingFrames.values().next().value : null)
                 || video?._shiftPhotoCompareRecordingFrame
                 || null;
-            const videoFrameSource = recordingFrame || video;
-            let drawable = !!recordingFrame || (!!video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0);
-            if (drawable && !recordingFrame && sourceType === 'url') {
+            const liveVideoDrawable = !!video
+                && video.readyState >= 2
+                && video.videoWidth > 0
+                && video.videoHeight > 0;
+            const directCanvasRecording = this._shiftPhotoCompareAnimationState?.videoRecording?.mode === 'auto-canvas';
+            const videoFrameSource = recordingFrame || (directCanvasRecording ? null : video);
+            let drawable = !!recordingFrame || (!directCanvasRecording && liveVideoDrawable);
+            if (drawable && videoFrameSource === video && sourceType === 'url') {
                 try {
                     const sourceUrl = new URL(video.currentSrc || video.src, window.location.href);
                     drawable = sourceUrl.origin === window.location.origin || sourceUrl.protocol === 'blob:' || sourceUrl.protocol === 'data:';

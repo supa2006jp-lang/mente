@@ -37311,8 +37311,9 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
 }
 
 .skill-chip {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -37324,10 +37325,39 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     color: #94a3b8;
     background: transparent;
     user-select: none;
+    border: 0;
+    padding: 0;
+    font-family: inherit;
+    line-height: 1;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.skill-toggle-group-fit {
+    width: max-content;
+    min-width: 106px;
+    margin: 0 auto;
+    padding: 2px;
+}
+
+.skill-toggle-group-fit .skill-chip {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    font-size: 1.05rem;
 }
 
 .skill-chip:hover {
     background: rgba(255,255,255,0.5);
+}
+
+.skill-chip:active {
+    transform: scale(0.9);
+}
+
+.skill-chip:focus-visible {
+    outline: 3px solid #2563eb;
+    outline-offset: 2px;
 }
 
 .skill-chip.active[data-val="good"],
@@ -39182,6 +39212,15 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     gap: 10px;
     margin-top: 16px;
     flex-wrap: wrap;
+}
+.tips-save-as-new-btn {
+    border-color: #0f766e !important;
+    background: #ecfdf5 !important;
+    color: #0f766e !important;
+}
+
+.tips-save-as-new-btn:hover {
+    background: #ccfbf1 !important;
 }
 
 .tips-compose-panel.editing {
@@ -47516,4 +47555,224 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     max-width: 180px;
     height: 62px;
     object-fit: contain;
+}
+/* Keep editor font selectors readable even when the selected object uses a specialty font. */
+.shift-photo-compare-font select,
+.shift-photo-compare-font select option,
+.shift-photo-compare-callout-font-select,
+.shift-photo-compare-callout-font-select option,
+.shift-photo-compare-mini-toolbar select[data-field="font"],
+.shift-photo-compare-mini-toolbar select[data-field="font"] option,
+.shift-photo-compare-image-context-menu select[data-field="font"],
+.shift-photo-compare-image-context-menu select[data-field="font"] option {
+    font-family: "Yu Gothic", "Meiryo", sans-serif !important;
+}
+
+/* TIPS duplicate workflow */
+.tips-duplicate-btn {
+    color: #0f766e;
+}
+
+.tips-duplicate-btn:hover {
+    background: #ccfbf1;
+}
+
+.tips-compose-panel.cloning {
+    border-color: #0f766e;
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, .12), var(--card-shadow);
+}
+
+.tips-compose-panel.cloning .tips-editing-hint {
+    border-color: #99f6e4;
+    background: #ecfdf5;
+    color: #115e59;
+}
+
+.tips-selected-files .tips-cloned-attachment-chip {
+    border-color: #99f6e4;
+    background: #ecfdf5;
+    color: #115e59;
+}
+/* TIPS expanded body copy action */
+.tips-body-editor-left-actions {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-right: auto;
+}
+
+.tips-body-editor-left-actions .tips-body-editor-sound-btn {
+    margin-right: 0;
+}
+
+.tips-body-editor-copy-btn.copied {
+    border-color: #86efac;
+    background: #f0fdf4;
+    color: #15803d;
+}
+/* Media management common card color (2026-08-26) */
+body.media-management-card-color-custom .photo-manager-card,
+body.media-management-card-color-custom .photo-manager-video-card,
+body.media-management-card-color-custom .photo-manager-audio-card {
+    background: var(--media-management-card-color);
+}
+
+body.media-management-card-gradient-active .photo-manager-card,
+body.media-management-card-gradient-active .photo-manager-video-card,
+body.media-management-card-gradient-active .photo-manager-audio-card {
+    background: linear-gradient(var(--media-management-card-gradient-angle), var(--media-management-card-color), var(--media-management-card-gradient-color));
+}
+
+.media-card-gradient-toggle {
+    width: auto !important;
+    padding: 0 9px !important;
+    gap: 5px;
+    border-radius: 999px !important;
+}
+
+.media-card-gradient-toggle[aria-pressed="true"] {
+    background: #2563eb;
+    color: #ffffff;
+}
+
+.media-card-gradient-options {
+    display: none;
+    align-items: center;
+    gap: 6px;
+}
+
+.media-card-color-control.gradient-active .media-card-gradient-options {
+    display: inline-flex;
+}
+
+.media-card-gradient-options select {
+    min-height: 30px;
+    padding: 3px 24px 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: #ffffff;
+    color: #334155;
+    font-size: .72rem;
+    font-weight: 850;
+}
+
+body.media-management-card-color-dark .photo-manager-card,
+body.media-management-card-color-dark .photo-manager-video-card,
+body.media-management-card-color-dark .photo-manager-audio-card,
+body.media-management-card-color-dark .photo-manager-video-info strong,
+body.media-management-card-color-dark .photo-manager-video-info span,
+body.media-management-card-color-dark .photo-manager-video-info small,
+body.media-management-card-color-dark .photo-manager-audio-main small {
+    color: #f8fafc;
+}
+
+body.media-management-card-color-dark .photo-manager-meta,
+body.media-management-card-color-dark .photo-manager-info p {
+    color: #dbeafe;
+}
+/* Shared adjustable card gradients (2026-08-26) */
+body.media-management-card-gradient-active .photo-manager-card,
+body.media-management-card-gradient-active .photo-manager-video-card,
+body.media-management-card-gradient-active .photo-manager-audio-card {
+    background: linear-gradient(
+        var(--media-management-card-gradient-angle, 135deg),
+        var(--media-management-card-color, #ffffff) 0%,
+        var(--media-management-card-color, #ffffff) calc(100% - var(--media-management-card-gradient-strength, 100%)),
+        var(--media-management-card-gradient-color, #bfdbfe) 100%
+    );
+}
+
+#machines-list.machine-card-gradient-active .machine-card .card-body {
+    background: linear-gradient(
+        var(--machine-management-card-gradient-angle, 135deg),
+        var(--machine-management-card-color, #ffffff) 0%,
+        var(--machine-management-card-color, #ffffff) calc(100% - var(--machine-management-card-gradient-strength, 100%)),
+        var(--machine-management-card-gradient-color, #bfdbfe) 100%
+    );
+}
+
+#view-analysis #analysis-container.part-management-card-gradient-active > .card {
+    background: linear-gradient(
+        var(--part-management-card-gradient-angle, 135deg),
+        var(--part-management-card-color, #ffffff) 0%,
+        var(--part-management-card-color, #ffffff) calc(100% - var(--part-management-card-gradient-strength, 100%)),
+        var(--part-management-card-gradient-color, #bfdbfe) 100%
+    );
+}
+
+.part-card-color-control.gradient-active .media-card-gradient-options {
+    display: inline-flex;
+}
+
+.media-card-gradient-strength-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 30px;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: #ffffff;
+    color: #475569;
+    font-size: 0.7rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.media-card-gradient-strength-wrap input[type="range"] {
+    width: 74px;
+    min-width: 74px;
+    accent-color: #2563eb;
+}
+
+.media-card-gradient-strength-wrap b {
+    min-width: 32px;
+    color: #1d4ed8;
+    text-align: right;
+    font-size: 0.68rem;
+}
+
+/* Guide card adjustable gradient (2026-08-26) */
+#guides-container.guide-card-gradient-active .guide-management-card {
+    background: linear-gradient(
+        var(--guide-management-card-gradient-angle, 135deg),
+        var(--guide-management-card-color, #ffffff) 0%,
+        var(--guide-management-card-color, #ffffff) calc(100% - var(--guide-management-card-gradient-strength, 100%)),
+        var(--guide-management-card-gradient-color, #bfdbfe) 100%
+    ) !important;
+    border-color: color-mix(in srgb, var(--guide-management-card-gradient-color, #bfdbfe) 55%, #64748b) !important;
+}
+
+/* Automatic card text contrast (2026-08-26) */
+#view-analysis #analysis-container.part-management-card-dark > .card,
+#machines-list.machine-card-color-dark .machine-card .card-body,
+#guides-container.guide-card-color-dark .guide-management-card,
+body.media-management-card-color-dark .photo-manager-card,
+body.media-management-card-color-dark .photo-manager-video-card,
+body.media-management-card-color-dark .photo-manager-audio-card {
+    color: #f8fafc;
+    text-shadow: 0 1px 2px rgba(15, 23, 42, 0.32);
+}
+
+#view-analysis #analysis-container.part-management-card-dark > .card :where(h1, h2, h3, h4, h5, h6, p),
+#machines-list.machine-card-color-dark .machine-card .card-body :where(h1, h2, h3, h4, h5, h6, p),
+#guides-container.guide-card-color-dark .guide-management-card :where(h1, h2, h3, h4, h5, h6, p) {
+    color: inherit;
+}
+
+#view-analysis #analysis-container.part-management-card-dark > .card :where(.data-table, input, select, textarea, button),
+#machines-list.machine-card-color-dark .machine-card :where(.remarks, .machine-trouble-info, .card-recent-troubles, .machine-total-cost-row, .recent-trouble-item, .task-pill, input, select, textarea, button),
+#guides-container.guide-card-color-dark .guide-management-card :where(input, select, textarea, button, .img-box),
+body.media-management-card-color-dark :where(.photo-manager-meta span, input, select, textarea, button, audio) {
+    text-shadow: none;
+}
+
+#view-analysis #analysis-container:not(.part-management-card-dark) > .card,
+#machines-list:not(.machine-card-color-dark) .machine-card .card-body,
+#guides-container:not(.guide-card-color-dark) .guide-management-card,
+body:not(.media-management-card-color-dark) .photo-manager-card,
+body:not(.media-management-card-color-dark) .photo-manager-video-card,
+body:not(.media-management-card-color-dark) .photo-manager-audio-card {
+    text-shadow: none;
 }

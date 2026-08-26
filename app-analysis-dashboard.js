@@ -7,20 +7,55 @@
         return /^#[0-9a-f]{6}$/.test(color) ? color : '#ffffff';
     }
 
+    getPartManagementCardGradientSettings() {
+        const color = String(localStorage.getItem('part_management_card_gradient_color') || '#bfdbfe').trim().toLowerCase();
+        const angle = Number(localStorage.getItem('part_management_card_gradient_angle') || 135);
+        const strength = Math.max(10, Math.min(100, Number(localStorage.getItem('part_management_card_gradient_strength') || 100)));
+        return {
+            enabled: localStorage.getItem('part_management_card_gradient_enabled') === '1',
+            color: /^#[0-9a-f]{6}$/.test(color) ? color : '#bfdbfe',
+            angle: [90, 135, 180, 225].includes(angle) ? angle : 135,
+            strength: Number.isFinite(strength) ? strength : 100
+        };
+    }
+
     applyPartManagementCardColor(color = this.getPartManagementCardColor()) {
         const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '#ffffff';
+        const gradient = this.getPartManagementCardGradientSettings();
         const container = document.getElementById('analysis-container');
         if (container) {
             container.style.setProperty('--part-management-card-color', safeColor);
-            const red = parseInt(safeColor.slice(1, 3), 16);
-            const green = parseInt(safeColor.slice(3, 5), 16);
-            const blue = parseInt(safeColor.slice(5, 7), 16);
-            const luminance = (red * 299 + green * 587 + blue * 114) / 255000;
-            container.classList.toggle('part-management-card-dark', luminance < 0.46);
+            container.style.setProperty('--part-management-card-gradient-color', gradient.color);
+            container.style.setProperty('--part-management-card-gradient-angle', String(gradient.angle) + 'deg');
+            container.style.setProperty('--part-management-card-gradient-strength', String(gradient.strength) + '%');
+            const relativeLuminance = value => {
+                const channels = [value.slice(1, 3), value.slice(3, 5), value.slice(5, 7)].map(item => parseInt(item, 16) / 255);
+                const linear = channels.map(channel => channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4));
+                return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+            };
+            const secondaryWeight = gradient.enabled ? gradient.strength / 200 : 0;
+            const luminance = relativeLuminance(safeColor) * (1 - secondaryWeight) + relativeLuminance(gradient.color) * secondaryWeight;
+            const useLightText = luminance < 0.24;
+            container.classList.toggle('part-management-card-custom', safeColor !== '#ffffff' || gradient.enabled);
+            container.classList.toggle('part-management-card-gradient-active', gradient.enabled);
+            container.classList.toggle('part-management-card-dark', useLightText);
+            container.dataset.cardTextTone = useLightText ? 'light' : 'dark';
         }
-        const picker = document.getElementById('part-management-card-color');
-        if (picker && picker.value.toLowerCase() !== safeColor) picker.value = safeColor;
-        return safeColor;
+        const colorInput = document.getElementById('part-management-card-color');
+        const gradientInput = document.getElementById('part-management-card-gradient-color');
+        const angleInput = document.getElementById('part-management-card-gradient-angle');
+        const strengthInput = document.getElementById('part-management-card-gradient-strength');
+        const strengthValue = document.getElementById('part-management-card-gradient-strength-value');
+        const toggle = document.getElementById('part-management-card-gradient-toggle');
+        if (colorInput) colorInput.value = safeColor;
+        if (gradientInput) gradientInput.value = gradient.color;
+        if (angleInput) angleInput.value = String(gradient.angle);
+        if (strengthInput) strengthInput.value = String(gradient.strength);
+        if (strengthValue) strengthValue.textContent = String(gradient.strength) + '%';
+        if (toggle) {
+            toggle.setAttribute('aria-pressed', gradient.enabled ? 'true' : 'false');
+            toggle.closest('.part-management-card-color-control')?.classList.toggle('gradient-active', gradient.enabled);
+        }
     }
 
     setPartManagementCardColor(color = '') {
@@ -29,8 +64,34 @@
         this.applyPartManagementCardColor(safeColor);
     }
 
+    setPartManagementCardGradientColor(color = '') {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '#bfdbfe';
+        localStorage.setItem('part_management_card_gradient_color', safeColor);
+        this.applyPartManagementCardColor();
+    }
+
+    setPartManagementCardGradientAngle(angle = 135) {
+        const safeAngle = [90, 135, 180, 225].includes(Number(angle)) ? Number(angle) : 135;
+        localStorage.setItem('part_management_card_gradient_angle', String(safeAngle));
+        this.applyPartManagementCardColor();
+    }
+
+    setPartManagementCardGradientStrength(strength = 100) {
+        const safeStrength = Math.max(10, Math.min(100, Number(strength) || 100));
+        localStorage.setItem('part_management_card_gradient_strength', String(safeStrength));
+        this.applyPartManagementCardColor();
+    }
+
+    togglePartManagementCardGradient(force = null) {
+        const current = this.getPartManagementCardGradientSettings().enabled;
+        const enabled = typeof force === 'boolean' ? force : !current;
+        localStorage.setItem('part_management_card_gradient_enabled', enabled ? '1' : '0');
+        this.applyPartManagementCardColor();
+    }
+
     resetPartManagementCardColor() {
-        this.setPartManagementCardColor('#ffffff');
+        ['part_management_card_color', 'part_management_card_gradient_enabled', 'part_management_card_gradient_color', 'part_management_card_gradient_angle', 'part_management_card_gradient_strength'].forEach(key => localStorage.removeItem(key));
+        this.applyPartManagementCardColor('#ffffff');
     }
 
     renderAnalysis(searchQuery = '') {

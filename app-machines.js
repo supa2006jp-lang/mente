@@ -8,18 +8,55 @@
         return /^#[0-9a-f]{6}$/.test(color) ? color : '#ffffff';
     }
 
+    getMachineManagementCardGradientSettings() {
+        const color = String(localStorage.getItem('machine_management_card_gradient_color') || '#bfdbfe').trim().toLowerCase();
+        const angle = Number(localStorage.getItem('machine_management_card_gradient_angle') || 135);
+        const strength = Math.max(10, Math.min(100, Number(localStorage.getItem('machine_management_card_gradient_strength') || 100)));
+        return {
+            enabled: localStorage.getItem('machine_management_card_gradient_enabled') === '1',
+            color: /^#[0-9a-f]{6}$/.test(color) ? color : '#bfdbfe',
+            angle: [90, 135, 180, 225].includes(angle) ? angle : 135,
+            strength: Number.isFinite(strength) ? strength : 100
+        };
+    }
+
     applyMachineManagementCardColor(color = this.getMachineManagementCardColor()) {
         const safeColor = /^#[0-9a-f]{6}$/i.test(String(color)) ? String(color).toLowerCase() : '#ffffff';
+        const gradient = this.getMachineManagementCardGradientSettings();
         const container = document.getElementById('machines-list');
         if (container) {
             container.style.setProperty('--machine-management-card-color', safeColor);
-            const rgb = safeColor.match(/[0-9a-f]{2}/gi).map(value => parseInt(value, 16));
-            const luminance = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
-            container.classList.toggle('machine-card-color-custom', safeColor !== '#ffffff');
-            container.classList.toggle('machine-card-color-dark', luminance < 0.46);
+            container.style.setProperty('--machine-management-card-gradient-color', gradient.color);
+            container.style.setProperty('--machine-management-card-gradient-angle', String(gradient.angle) + 'deg');
+            container.style.setProperty('--machine-management-card-gradient-strength', String(gradient.strength) + '%');
+            const relativeLuminance = value => {
+                const channels = value.match(/[0-9a-f]{2}/gi).map(item => parseInt(item, 16) / 255);
+                const linear = channels.map(channel => channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4));
+                return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+            };
+            const secondaryWeight = gradient.enabled ? gradient.strength / 200 : 0;
+            const luminance = relativeLuminance(safeColor) * (1 - secondaryWeight) + relativeLuminance(gradient.color) * secondaryWeight;
+            const useLightText = luminance < 0.24;
+            container.classList.toggle('machine-card-color-custom', safeColor !== '#ffffff' || gradient.enabled);
+            container.classList.toggle('machine-card-gradient-active', gradient.enabled);
+            container.classList.toggle('machine-card-color-dark', useLightText);
+            container.dataset.cardTextTone = useLightText ? 'light' : 'dark';
         }
-        const picker = document.getElementById('machine-management-card-color');
-        if (picker && picker.value.toLowerCase() !== safeColor) picker.value = safeColor;
+        const colorInput = document.getElementById('machine-management-card-color');
+        const gradientInput = document.getElementById('machine-management-card-gradient-color');
+        const angleInput = document.getElementById('machine-management-card-gradient-angle');
+        const strengthInput = document.getElementById('machine-management-card-gradient-strength');
+        const strengthValue = document.getElementById('machine-management-card-gradient-strength-value');
+        const toggle = document.getElementById('machine-management-card-gradient-toggle');
+        if (colorInput) colorInput.value = safeColor;
+        if (gradientInput) gradientInput.value = gradient.color;
+        if (angleInput) angleInput.value = String(gradient.angle);
+        if (strengthInput) strengthInput.value = String(gradient.strength);
+        if (strengthValue) strengthValue.textContent = String(gradient.strength) + '%';
+        if (toggle) {
+            toggle.setAttribute('aria-pressed', gradient.enabled ? 'true' : 'false');
+            toggle.closest('.machine-card-color-control')?.classList.toggle('gradient-active', gradient.enabled);
+        }
     }
 
     setMachineManagementCardColor(color) {
@@ -28,8 +65,34 @@
         this.applyMachineManagementCardColor(safeColor);
     }
 
+    setMachineManagementCardGradientColor(color) {
+        const safeColor = /^#[0-9a-f]{6}$/i.test(String(color)) ? String(color).toLowerCase() : '#bfdbfe';
+        localStorage.setItem('machine_management_card_gradient_color', safeColor);
+        this.applyMachineManagementCardColor();
+    }
+
+    setMachineManagementCardGradientAngle(angle) {
+        const safeAngle = [90, 135, 180, 225].includes(Number(angle)) ? Number(angle) : 135;
+        localStorage.setItem('machine_management_card_gradient_angle', String(safeAngle));
+        this.applyMachineManagementCardColor();
+    }
+
+    setMachineManagementCardGradientStrength(strength) {
+        const safeStrength = Math.max(10, Math.min(100, Number(strength) || 100));
+        localStorage.setItem('machine_management_card_gradient_strength', String(safeStrength));
+        this.applyMachineManagementCardColor();
+    }
+
+    toggleMachineManagementCardGradient(force = null) {
+        const current = this.getMachineManagementCardGradientSettings().enabled;
+        const enabled = typeof force === 'boolean' ? force : !current;
+        localStorage.setItem('machine_management_card_gradient_enabled', enabled ? '1' : '0');
+        this.applyMachineManagementCardColor();
+    }
+
     resetMachineManagementCardColor() {
-        this.setMachineManagementCardColor('#ffffff');
+        ['machine_management_card_color', 'machine_management_card_gradient_enabled', 'machine_management_card_gradient_color', 'machine_management_card_gradient_angle', 'machine_management_card_gradient_strength'].forEach(key => localStorage.removeItem(key));
+        this.applyMachineManagementCardColor('#ffffff');
     }
 
 

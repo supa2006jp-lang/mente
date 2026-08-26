@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppSkillMethods extends MaintenanceApp {
@@ -228,10 +228,10 @@
                                     return `
                                         <td style="padding:6px 1px; text-align:center; vertical-align:middle; transition:background.2s; border-right:1px solid #0000000a;">
                                             <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height:45px;">
-                                                <div class="skill-toggle-group" style="${this.skillFitAll ? 'width:100%; max-width:105px; margin:0 auto; padding:2px;' : ''}">
-                                                    <div class="skill-chip ${val==='○'?'active':''}" style="${this.skillFitAll ? 'flex:1; width:auto; max-width:32px; min-width:12px; aspect-ratio:1; height:auto; font-size:1.1rem; padding:0;' : ''}" data-val="○" onclick="app.saveSkillEval('${w}', '${taskKey.replace(/'/g,"\\'")}', '○')" title="単独可能">○</div>
-                                                    <div class="skill-chip ${val==='△'?'active':''}" style="${this.skillFitAll ? 'flex:1; width:auto; max-width:32px; min-width:12px; aspect-ratio:1; height:auto; font-size:1.1rem; padding:0;' : ''}" data-val="△" onclick="app.saveSkillEval('${w}', '${taskKey.replace(/'/g,"\\'")}', '△')" title="要サポート">△</div>
-                                                    <div class="skill-chip ${val==='✕'?'active':''}" style="${this.skillFitAll ? 'flex:1; width:auto; max-width:32px; min-width:12px; aspect-ratio:1; height:auto; font-size:1.1rem; padding:0;' : ''}" data-val="✕" onclick="app.saveSkillEval('${w}', '${taskKey.replace(/'/g,"\\'")}', '✕')" title="未習得">✕</div>
+<div class="skill-toggle-group ${this.skillFitAll ? 'skill-toggle-group-fit' : ''}">
+<button type="button" class="skill-chip ${val==='○'?'active':''}" data-val="○" onclick="app.saveSkillEval('${w}', '${taskKey.replace(/'/g,"\\'")}', '○')" title="単独可能" aria-label="${w}：単独可能">○</button>
+<button type="button" class="skill-chip ${val==='△'?'active':''}" data-val="△" onclick="app.saveSkillEval('${w}', '${taskKey.replace(/'/g,"\\'")}', '△')" title="要サポート" aria-label="${w}：要サポート">△</button>
+<button type="button" class="skill-chip ${val==='✕'?'active':''}" data-val="✕" onclick="app.saveSkillEval('${w}', '${taskKey.replace(/'/g,"\\'")}', '✕')" title="未習得" aria-label="${w}：未習得">✕</button>
                                                 </div>
                                                 ${firstRespondersMap[taskKey]?.has(w) ? `<div style="font-size:${this.skillFitAll ? '0.45rem' : '0.55rem'}; color:#0369a1; font-weight:800; background:#e0f2fe; padding:${this.skillFitAll ? '0 1px' : '1px 4px'}; border-radius:2px; white-space:nowrap; border:1px solid #bae6fd; line-height:1; transform:${this.skillFitAll ? 'scale(0.9)' : 'none'};">初回対応者</div>` : ''}
                                             </div>

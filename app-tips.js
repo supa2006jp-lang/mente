@@ -611,6 +611,9 @@
                 ` : ''}
                 <div class="tips-note-actions">
                     ${this.getTipsSoundButtonHtml(note, 'tips-sound-action-btn')}
+                    <button type="button" class="tips-icon-btn tips-duplicate-btn" title="複製して編集" onclick="event.stopPropagation(); app.duplicateTipsNoteForEdit('${this.escapeJs(note.id)}')">
+                        <i class="fa-solid fa-copy"></i>
+                    </button>
                     <button type="button" class="tips-icon-btn" title="このTIPSを削除" onclick="event.stopPropagation(); app.deleteTipsNote('${this.escapeJs(note.id)}')">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
@@ -1805,10 +1808,17 @@
         const files = Array.from(input.files || []);
         const photoAttachments = Array.isArray(this._tipsPhotoManagerAttachments) ? this._tipsPhotoManagerAttachments : [];
         const audioDatabaseAttachments = Array.isArray(this._tipsAudioDatabaseAttachments) ? this._tipsAudioDatabaseAttachments : [];
-        const allPending = [...files, ...photoAttachments, ...audioDatabaseAttachments];
+        const clonedAttachments = Array.isArray(this._tipsClonedAttachments) ? this._tipsClonedAttachments : [];
+        const allPending = [...files, ...photoAttachments, ...audioDatabaseAttachments, ...clonedAttachments];
         box.innerHTML = allPending.length
-            ? `<b class="tips-file-section-title"><i class="fa-solid fa-plus"></i> 追加予定の添付</b>${this.getTipsAttachmentWarningHtml(allPending)}${this.getTipsDuplicateWarningHtml(allPending)}${files.map(file => `<span class="${file.size >= this.getTipsLargeAttachmentBytes() ? 'warn' : ''}"><i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>${this.escapeHtml(file.name)}<small>${this.formatTipsFileSize(file.size)}</small></span>`).join('')}${photoAttachments.map((file, index) => `<span class="tips-photo-manager-chip ${file.size >= this.getTipsLargeAttachmentBytes() ? 'warn' : ''}"><i class="fa-solid fa-images"></i>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}<small>${this.formatTipsFileSize(file.size)}</small><button type="button" onclick="app.removeTipsPhotoManagerAttachment('${this.escapeJs(file.id)}')" title="この写真管理画像を外す"><i class="fa-solid fa-xmark"></i></button></span>`).join('')}${audioDatabaseAttachments.map((file, index) => `<span class="tips-photo-manager-chip tips-audio-database-chip"><i class="fa-solid fa-database"></i>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}<small>${this.formatTipsFileSize(file.size)}・DB参照</small><button type="button" onclick="app.removeTipsAudioDatabaseAttachment('${this.escapeJs(file.id)}')" title="この音声DB参照を外す"><i class="fa-solid fa-xmark"></i></button></span>`).join('')}`
+            ? `<b class="tips-file-section-title"><i class="fa-solid fa-plus"></i> 追加予定の添付</b>${this.getTipsAttachmentWarningHtml(allPending)}${this.getTipsDuplicateWarningHtml(allPending)}${files.map(file => `<span class="${file.size >= this.getTipsLargeAttachmentBytes() ? 'warn' : ''}"><i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>${this.escapeHtml(file.name)}<small>${this.formatTipsFileSize(file.size)}</small></span>`).join('')}${photoAttachments.map((file, index) => `<span class="tips-photo-manager-chip ${file.size >= this.getTipsLargeAttachmentBytes() ? 'warn' : ''}"><i class="fa-solid fa-images"></i>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}<small>${this.formatTipsFileSize(file.size)}</small><button type="button" onclick="app.removeTipsPhotoManagerAttachment('${this.escapeJs(file.id)}')" title="この写真管理画像を外す"><i class="fa-solid fa-xmark"></i></button></span>`).join('')}${audioDatabaseAttachments.map((file, index) => `<span class="tips-photo-manager-chip tips-audio-database-chip"><i class="fa-solid fa-database"></i>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}<small>${this.formatTipsFileSize(file.size)}・DB参照</small><button type="button" onclick="app.removeTipsAudioDatabaseAttachment('${this.escapeJs(file.id)}')" title="この音声DB参照を外す"><i class="fa-solid fa-xmark"></i></button></span>`).join('')}${clonedAttachments.map((file, index) => `<span class="tips-photo-manager-chip tips-cloned-attachment-chip"><i class="fa-solid ${this.getTipsAttachmentIconClass(file)}"></i>${this.escapeHtml(this.getTipsAttachmentDisplayName(file, index))}<small>${this.formatTipsFileSize(file.size)}・複製</small><button type="button" onclick="app.removeTipsClonedAttachment('${this.escapeJs(file._cloneId)}')" title="複製対象から外す"><i class="fa-solid fa-xmark"></i></button></span>`).join('')}`
             : '';
+    };
+
+    proto.removeTipsClonedAttachment = function (id = '') {
+        if (!Array.isArray(this._tipsClonedAttachments)) return;
+        this._tipsClonedAttachments = this._tipsClonedAttachments.filter(item => item._cloneId !== id);
+        this.renderTipsSelectedFiles();
     };
     proto.renderTipsExistingFiles = function (note = null) {
         const box = document.getElementById('tips-existing-files');
@@ -1982,6 +1992,40 @@
         }
         const editorText = document.getElementById('tips-body-editor-textarea')?.value || '';
         this.toggleTipsSyntheticSpeech(button, noteId, editorText);
+    };
+
+    proto.copyTipsBodyEditorText = async function (button = null) {
+        const text = document.getElementById('tips-body-editor-textarea')?.value || '';
+        if (!text) {
+            this.showToast?.('コピーする本文がありません', 'warning');
+            return;
+        }
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const area = document.createElement('textarea');
+                area.value = text;
+                area.style.position = 'fixed';
+                area.style.opacity = '0';
+                document.body.appendChild(area);
+                area.select();
+                document.execCommand('copy');
+                area.remove();
+            }
+            this.showToast?.('本文をコピーしました', 'success');
+            if (button) {
+                const before = button.innerHTML;
+                button.classList.add('copied');
+                button.innerHTML = '<i class="fa-solid fa-check"></i> コピー済み';
+                window.setTimeout(() => {
+                    button.classList.remove('copied');
+                    button.innerHTML = before;
+                }, 1400);
+            }
+        } catch (error) {
+            this.showToast?.('本文をコピーできませんでした', 'error');
+        }
     };
 
     proto.setTipsSoundProgress = function (button, ratio = 0) {
@@ -2660,7 +2704,8 @@
         ` : '';
     };
 
-    proto.saveTipsNote = async function () {
+    proto.saveTipsNote = async function (options = {}) {
+        const saveAsNew = options === true || options?.asNew === true;
         const groupInput = document.getElementById('tips-group-input');
         const branchInput = document.getElementById('tips-branch-input');
         const subBranchInput = document.getElementById('tips-sub-branch-input');
@@ -2687,12 +2732,22 @@
         }
         const photoAttachments = Array.isArray(this._tipsPhotoManagerAttachments) ? this._tipsPhotoManagerAttachments : [];
         const audioDatabaseAttachments = Array.isArray(this._tipsAudioDatabaseAttachments) ? this._tipsAudioDatabaseAttachments : [];
-        attachments = [...attachments, ...photoAttachments.map(item => ({ ...item })), ...audioDatabaseAttachments.map(item => ({ ...item }))];
+        const clonedAttachments = Array.isArray(this._tipsClonedAttachments) ? this._tipsClonedAttachments : [];
+        attachments = [...attachments, ...photoAttachments.map(item => ({ ...item })), ...audioDatabaseAttachments.map(item => ({ ...item })), ...clonedAttachments.map(({ _cloneId, ...item }) => ({ ...item }))];
 
         const notes = this.ensureTipsState();
         const editingId = this._editingTipsId || '';
         const existing = editingId ? notes.find(note => note.id === editingId) : null;
-        if (existing) {
+        const cloningId = this._tipsCloningSourceId || '';
+        const cloningSource = cloningId ? notes.find(note => note.id === cloningId) : null;
+        const duplicateSource = (saveAsNew && existing) ? existing : cloningSource;
+        if (duplicateSource) {
+            const sourcePath = [duplicateSource.group || '未分類', duplicateSource.branch, duplicateSource.subBranch].filter(Boolean).join(' / ');
+            const sourceAttachmentCount = Array.isArray(duplicateSource.attachments) ? duplicateSource.attachments.length : 0;
+            const message = '「' + sourcePath + '」を別のTIPSとして新規登録します。\n本文と添付' + sourceAttachmentCount + '件を複製します。\n元のTIPSは変更されません。登録しますか？';
+            if (!confirm(message)) return;
+        }
+        if (existing && !saveAsNew) {
             existing.group = group;
             existing.branch = branch;
             existing.subBranch = subBranch;
@@ -2700,6 +2755,9 @@
             existing.updatedAt = new Date().toISOString();
             existing.attachments = [...(Array.isArray(existing.attachments) ? existing.attachments : []), ...attachments];
         } else {
+            const existingAttachments = saveAsNew && existing && Array.isArray(existing.attachments)
+                ? existing.attachments.map(item => ({ ...item }))
+                : [];
             notes.unshift({
                 id: `tips_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 group,
@@ -2707,13 +2765,13 @@
                 subBranch,
                 body,
                 createdAt: new Date().toISOString(),
-                attachments
+                attachments: [...existingAttachments, ...attachments]
             });
         }
         store.save();
         this.clearTipsForm();
         this.renderTips();
-        this.showToast(existing ? 'TIPSを更新しました' : 'TIPSを登録しました', 'success');
+        this.showToast(saveAsNew && existing ? '別のTIPSとして新規登録しました' : (existing ? 'TIPSを更新しました' : 'TIPSを登録しました'), 'success');
     };
 
     proto.addTipsNote = function () {
@@ -2856,7 +2914,12 @@
                     <textarea id="tips-body-editor-textarea" placeholder="忘れたくない内容を入力">${this.escapeHtml(sourceBody)}</textarea>
                     <div id="tips-body-editor-image-preview" class="tips-body-editor-image-preview" hidden></div>
                     <footer>
-                        ${soundButton}
+                        <div class="tips-body-editor-left-actions">
+                            ${soundButton}
+                            <button type="button" class="secondary-btn tips-body-editor-copy-btn" onclick="app.copyTipsBodyEditorText(this)" title="現在の本文をコピー">
+                                <i class="fa-regular fa-copy"></i> 本文をコピー
+                            </button>
+                        </div>
                         ${note ? `<button type="button" class="tips-body-editor-delete-btn" onclick="app.deleteTipsBodyEditorNote()" title="このTIPSを削除"><i class="fa-solid fa-trash-can"></i></button>` : ''}
                         <button type="button" class="secondary-btn" onclick="app.closeTipsBodyEditor()">
                             <i class="fa-solid fa-xmark"></i> 閉じる
@@ -2975,8 +3038,10 @@
         if (fileInput) fileInput.value = '';
         this._tipsPhotoManagerAttachments = [];
         this._tipsAudioDatabaseAttachments = [];
+        this._tipsClonedAttachments = [];
+        this._tipsCloningSourceId = '';
         this._editingTipsId = '';
-        document.querySelector('.tips-compose-panel')?.classList.remove('editing');
+        document.querySelector('.tips-compose-panel')?.classList.remove('editing', 'cloning');
         this.updateTipsEditStateUI();
         this.renderTipsExistingFiles();
         this.renderTipsSelectedFiles();
@@ -3016,12 +3081,46 @@
         if (fileInput) fileInput.value = '';
         this._tipsPhotoManagerAttachments = [];
         this._tipsAudioDatabaseAttachments = [];
+        this._tipsClonedAttachments = [];
+        this._tipsCloningSourceId = '';
+        document.querySelector('.tips-compose-panel')?.classList.remove('cloning');
         document.querySelector('.tips-compose-panel')?.classList.add('editing');
         this.renderTipsExistingFiles(note);
         this.renderTipsSelectedFiles();
         this.updateTipsEditStateUI(note);
         this.renderTips();
         if (jumpToBody) this.focusTipsBodyInput();
+    };
+
+    proto.duplicateTipsNoteForEdit = function (id = '') {
+        const note = this.ensureTipsState().find(item => item.id === id);
+        if (!note) return;
+        this._editingTipsId = '';
+        this._tipsCloningSourceId = id;
+        const groupInput = document.getElementById('tips-group-input');
+        const branchInput = document.getElementById('tips-branch-input');
+        const subBranchInput = document.getElementById('tips-sub-branch-input');
+        const bodyInput = document.getElementById('tips-body-input');
+        const fileInput = document.getElementById('tips-file-input');
+        if (groupInput) groupInput.value = note.group || '';
+        if (branchInput) branchInput.value = note.branch || '';
+        if (subBranchInput) subBranchInput.value = note.subBranch || '';
+        if (bodyInput) bodyInput.value = note.body || '';
+        if (fileInput) fileInput.value = '';
+        this._tipsPhotoManagerAttachments = [];
+        this._tipsAudioDatabaseAttachments = [];
+        this._tipsClonedAttachments = (Array.isArray(note.attachments) ? note.attachments : []).map((item, index) => ({
+            ...item,
+            _cloneId: 'tips_clone_' + Date.now() + '_' + index
+        }));
+        document.querySelector('.tips-compose-panel')?.classList.remove('editing');
+        document.querySelector('.tips-compose-panel')?.classList.add('cloning');
+        this.renderTipsExistingFiles();
+        this.renderTipsSelectedFiles();
+        this.updateTipsEditStateUI();
+        this.renderTips();
+        this.focusTipsBodyInput();
+        this.showToast('複製内容を新規登録フォームに読み込みました', 'info');
     };
 
     proto.cancelTipsEdit = function () {
@@ -3176,7 +3275,10 @@
     proto.updateTipsEditStateUI = function (note = null) {
         const editingId = this._editingTipsId || '';
         const editingNote = note || (editingId ? this.ensureTipsState().find(item => item.id === editingId) : null);
+        const cloningId = this._tipsCloningSourceId || '';
+        const cloningNote = cloningId ? this.ensureTipsState().find(item => item.id === cloningId) : null;
         const saveBtn = document.getElementById('tips-save-btn');
+        const saveAsNewBtn = document.getElementById('tips-save-as-new-btn');
         const cancelBtn = document.getElementById('tips-cancel-edit-btn');
         const deleteBtn = document.getElementById('tips-delete-edit-btn');
         const hint = document.getElementById('tips-editing-hint');
@@ -3187,13 +3289,19 @@
                 ? '<i class="fa-solid fa-floppy-disk"></i> 更新'
                 : '<i class="fa-solid fa-plus"></i> 登録';
         }
-        if (cancelBtn) cancelBtn.hidden = !editingNote;
+        if (cancelBtn) {
+            cancelBtn.hidden = !(editingNote || cloningNote);
+            cancelBtn.innerHTML = cloningNote
+                ? '<i class="fa-solid fa-xmark"></i> 複製取消'
+                : '<i class="fa-solid fa-xmark"></i> 編集取消';
+        }
         if (deleteBtn) deleteBtn.hidden = !editingNote;
+        if (saveAsNewBtn) saveAsNewBtn.hidden = !editingNote;
         if (hint) {
-            hint.hidden = !editingNote;
+            hint.hidden = !(editingNote || cloningNote);
             hint.innerHTML = editingNote
-                ? `<i class="fa-solid fa-pen-to-square"></i><span>編集中: ${this.escapeHtml(editingNote.group || '未分類')}${editingNote.branch ? ` / ${this.escapeHtml(editingNote.branch)}` : ''}</span>`
-                : '';
+                ? '<i class="fa-solid fa-pen-to-square"></i><span>編集中: ' + this.escapeHtml(editingNote.group || '未分類') + (editingNote.branch ? ' / ' + this.escapeHtml(editingNote.branch) : '') + '</span>'
+                : (cloningNote ? '<i class="fa-solid fa-copy"></i><span>複製元: ' + this.escapeHtml(cloningNote.group || '未分類') + (cloningNote.branch ? ' / ' + this.escapeHtml(cloningNote.branch) : '') + '（元のTIPSは変更されません）</span>' : '');
         }
     };
 

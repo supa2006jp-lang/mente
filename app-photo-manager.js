@@ -2,6 +2,100 @@
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppPhotoManagerMethods extends MaintenanceApp {
+        getMediaManagementCardColor() {
+            const color = String(localStorage.getItem('media_management_card_color') || '').trim().toLowerCase();
+            return /^#[0-9a-f]{6}$/.test(color) ? color : '';
+        }
+
+        getMediaManagementCardGradientSettings() {
+            const color = String(localStorage.getItem('media_management_card_gradient_color') || '#bfdbfe').trim().toLowerCase();
+            const angle = Number(localStorage.getItem('media_management_card_gradient_angle') || 135);
+            const strength = Math.max(10, Math.min(100, Number(localStorage.getItem('media_management_card_gradient_strength') || 100)));
+            return {
+                enabled: localStorage.getItem('media_management_card_gradient_enabled') === '1',
+                color: /^#[0-9a-f]{6}$/.test(color) ? color : '#bfdbfe',
+                angle: [90, 135, 180, 225].includes(angle) ? angle : 135,
+                strength: Number.isFinite(strength) ? strength : 100
+            };
+        }
+
+        applyMediaManagementCardColor(color = this.getMediaManagementCardColor()) {
+            const gradient = this.getMediaManagementCardGradientSettings();
+            const requestedColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '';
+            const safeColor = requestedColor || (gradient.enabled ? '#ffffff' : '');
+            const root = document.documentElement;
+            const body = document.body;
+            if (safeColor) root.style.setProperty('--media-management-card-color', safeColor);
+            else root.style.removeProperty('--media-management-card-color');
+            root.style.setProperty('--media-management-card-gradient-color', gradient.color);
+            root.style.setProperty('--media-management-card-gradient-angle', String(gradient.angle) + 'deg');
+            root.style.setProperty('--media-management-card-gradient-strength', String(gradient.strength) + '%');
+            body?.classList.toggle('media-management-card-color-active', Boolean(safeColor));
+            body?.classList.toggle('media-management-card-gradient-active', gradient.enabled);
+            const relativeLuminance = value => {
+                const channels = [value.slice(1, 3), value.slice(3, 5), value.slice(5, 7)].map(item => parseInt(item, 16) / 255);
+                const linear = channels.map(channel => channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4));
+                return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+            };
+            const primaryColor = safeColor || '#ffffff';
+            const secondaryWeight = gradient.enabled ? gradient.strength / 200 : 0;
+            const luminance = relativeLuminance(primaryColor) * (1 - secondaryWeight) + relativeLuminance(gradient.color) * secondaryWeight;
+            const useLightText = Boolean(safeColor) && luminance < 0.24;
+            body?.classList.toggle('media-management-card-color-dark', useLightText);
+            if (body) body.dataset.mediaCardTextTone = useLightText ? 'light' : 'dark';
+            const colorInput = document.getElementById('media-management-card-color');
+            const gradientInput = document.getElementById('media-management-card-gradient-color');
+            const angleInput = document.getElementById('media-management-card-gradient-angle');
+            const strengthInput = document.getElementById('media-management-card-gradient-strength');
+            const strengthValue = document.getElementById('media-management-card-gradient-strength-value');
+            const toggle = document.getElementById('media-management-card-gradient-toggle');
+            if (colorInput) colorInput.value = safeColor || '#ffffff';
+            if (gradientInput) gradientInput.value = gradient.color;
+            if (angleInput) angleInput.value = String(gradient.angle);
+            if (strengthInput) strengthInput.value = String(gradient.strength);
+            if (strengthValue) strengthValue.textContent = String(gradient.strength) + '%';
+            if (toggle) {
+                toggle.setAttribute('aria-pressed', gradient.enabled ? 'true' : 'false');
+                toggle.closest('.media-card-color-control')?.classList.toggle('gradient-active', gradient.enabled);
+            }
+        }
+
+        setMediaManagementCardColor(color = '') {
+            const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '#ffffff';
+            localStorage.setItem('media_management_card_color', safeColor);
+            this.applyMediaManagementCardColor(safeColor);
+        }
+
+        setMediaManagementCardGradientColor(color = '') {
+            const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : '#bfdbfe';
+            localStorage.setItem('media_management_card_gradient_color', safeColor);
+            this.applyMediaManagementCardColor();
+        }
+
+        setMediaManagementCardGradientAngle(angle = 135) {
+            const safeAngle = [90, 135, 180, 225].includes(Number(angle)) ? Number(angle) : 135;
+            localStorage.setItem('media_management_card_gradient_angle', String(safeAngle));
+            this.applyMediaManagementCardColor();
+        }
+
+        setMediaManagementCardGradientStrength(strength = 100) {
+            const safeStrength = Math.max(10, Math.min(100, Number(strength) || 100));
+            localStorage.setItem('media_management_card_gradient_strength', String(safeStrength));
+            this.applyMediaManagementCardColor();
+        }
+
+        toggleMediaManagementCardGradient(force = null) {
+            const current = this.getMediaManagementCardGradientSettings().enabled;
+            const enabled = typeof force === 'boolean' ? force : !current;
+            localStorage.setItem('media_management_card_gradient_enabled', enabled ? '1' : '0');
+            if (enabled && !this.getMediaManagementCardColor()) localStorage.setItem('media_management_card_color', '#ffffff');
+            this.applyMediaManagementCardColor();
+        }
+
+        resetMediaManagementCardColor() {
+            ['media_management_card_color', 'media_management_card_gradient_enabled', 'media_management_card_gradient_color', 'media_management_card_gradient_angle', 'media_management_card_gradient_strength'].forEach(key => localStorage.removeItem(key));
+            this.applyMediaManagementCardColor('');
+        }
         ensurePhotoManagerData() {
             if (!store.activeData.photoManagerNames || typeof store.activeData.photoManagerNames !== 'object') {
                 store.activeData.photoManagerNames = {};
@@ -244,6 +338,7 @@
         }
 
         openPhotoManagerAudios() {
+            this.applyMediaManagementCardColor();
             this.syncCurrentPageAudiosToPhotoManagerDatabase();
             this.closePhotoManagerAudios();
             const audios = this.getPhotoManagerAudios();
@@ -1245,6 +1340,7 @@
         }
 
         openPhotoManagerVideos() {
+            this.applyMediaManagementCardColor();
             this.revokePhotoManagerVideoObjectUrls();
             document.getElementById('photo-manager-video-modal')?.remove();
             const videos = this.getPhotoManagerVideos();
@@ -7026,6 +7122,7 @@
             if (removed) this.showPhotoManagerNotice?.(`${removed} old images were cleaned up.`);
         }
         renderPhotoManager() {
+            this.applyMediaManagementCardColor();
             this.ensurePhotoManagerPasteImportListener?.();
             this.ensureImageSourceChoiceListener?.();
             const list = document.getElementById('photo-manager-list');

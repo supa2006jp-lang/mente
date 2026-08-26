@@ -12,7 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=20260824-skill-header-move1">
+    <link rel="stylesheet" href="style.css?v=20260826-auto-contrast1">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -371,7 +371,8 @@
                             <h3 id="current-month-display">2026年 3月</h3>
                             <button class="icon-btn" id="cal-next"><i class="fa-solid fa-chevron-right"></i></button>
                         </div>
-                        <div style="display:flex; align-items:center; gap:10px;">`r`n                            <label style="font-size:0.75rem; color:var(--text-light); font-weight:700; white-space:nowrap;"><i class="fa-solid fa-filter"></i> ライン絞込:</label>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <label style="font-size:0.75rem; color:var(--text-light); font-weight:700; white-space:nowrap;"><i class="fa-solid fa-filter"></i> ライン絞込:</label>
                             <select id="cal-filter-line" style="font-size:0.8rem; padding:6px 14px; border-radius:99px; border:1.5px solid var(--border); background:white; font-weight:700; cursor:pointer;" onchange="app.calLineFilter=this.value; app.renderCalendar();">
                                 <option value="all">全ライン</option>
                             </select>
@@ -475,10 +476,16 @@
                                 <option value="name">名称順 (五十音順)</option>
                                 <option value="newest">登録が新しい順</option>
                             </select>
-                            <div class="part-card-color-control" title="メンテ・周期設定カードの共通色">
+                            <div class="part-card-color-control machine-card-color-control" title="メンテ・周期設定カードの共通色">
                                 <i class="fa-solid fa-palette"></i><span>カード色</span>
-                                <input type="color" id="machine-management-card-color" value="#ffffff" oninput="app.setMachineManagementCardColor(this.value)" onchange="app.setMachineManagementCardColor(this.value)" aria-label="メンテ・周期設定カードの色">
-                                <button type="button" onclick="app.resetMachineManagementCardColor()" title="白に戻す"><i class="fa-solid fa-rotate-left"></i></button>
+                                <input type="color" id="machine-management-card-color" value="#ffffff" oninput="app.setMachineManagementCardColor(this.value)" aria-label="メンテ・周期設定カードの色">
+                                <button type="button" id="machine-management-card-gradient-toggle" class="media-card-gradient-toggle" onclick="app.toggleMachineManagementCardGradient()" title="グラデーションを切り替え" aria-label="グラデーションを切り替え" aria-pressed="false"><i class="fa-solid fa-fill-drip"></i><span>グラデ</span></button>
+                                <span class="media-card-gradient-options">
+                                    <input type="color" id="machine-management-card-gradient-color" value="#bfdbfe" oninput="app.setMachineManagementCardGradientColor(this.value)" aria-label="グラデーションの2色目">
+                                    <select id="machine-management-card-gradient-angle" onchange="app.setMachineManagementCardGradientAngle(this.value)" aria-label="グラデーションの方向" title="グラデーションの方向"><option value="90">横</option><option value="135">斜め</option><option value="180">縦</option><option value="225">逆斜め</option></select>
+                                    <label class="media-card-gradient-strength-wrap" title="グラデーションが広がる範囲"><span>効果</span><input type="range" id="machine-management-card-gradient-strength" min="10" max="100" step="5" value="100" oninput="app.setMachineManagementCardGradientStrength(this.value)"><b id="machine-management-card-gradient-strength-value">100%</b></label>
+                                </span>
+                                <button type="button" onclick="app.resetMachineManagementCardColor()" title="既定色に戻す" aria-label="カード色を既定に戻す"><i class="fa-solid fa-arrow-rotate-left"></i></button>
                             </div>
                         </div>
                     </div>
@@ -650,10 +657,16 @@
                             <p class="subtitle">過去のトラブル対応や定期メンテナンスの手順・ノウハウ</p>
                         </div>
                         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
-                            <div class="part-card-color-control" title="手順書カードの共通色">
+                            <div class="part-card-color-control guide-card-color-control" title="手順書カードの共通色">
                                 <i class="fa-solid fa-palette"></i><span>カード色</span>
                                 <input type="color" id="guide-management-card-color" value="#ffffff" oninput="app.setGuideManagementCardColor(this.value)" aria-label="手順書カードの色">
-                                <button type="button" onclick="app.resetGuideManagementCardColor()" title="白に戻す"><i class="fa-solid fa-rotate-left"></i></button>
+                                <button type="button" id="guide-management-card-gradient-toggle" class="media-card-gradient-toggle" onclick="app.toggleGuideManagementCardGradient()" title="グラデーションを切り替え" aria-label="グラデーションを切り替え" aria-pressed="false"><i class="fa-solid fa-fill-drip"></i><span>グラデ</span></button>
+                                <span class="media-card-gradient-options">
+                                    <input type="color" id="guide-management-card-gradient-color" value="#bfdbfe" oninput="app.setGuideManagementCardGradientColor(this.value)" aria-label="グラデーションの2色目">
+                                    <select id="guide-management-card-gradient-angle" onchange="app.setGuideManagementCardGradientAngle(this.value)" aria-label="グラデーションの方向" title="グラデーションの方向"><option value="90">横</option><option value="135">斜め</option><option value="180">縦</option><option value="225">逆斜め</option></select>
+                                    <label class="media-card-gradient-strength-wrap" title="グラデーションが広がる範囲"><span>効果</span><input type="range" id="guide-management-card-gradient-strength" min="10" max="100" step="5" value="100" oninput="app.setGuideManagementCardGradientStrength(this.value)"><b id="guide-management-card-gradient-strength-value">100%</b></label>
+                                </span>
+                                <button type="button" onclick="app.resetGuideManagementCardColor()" title="既定色に戻す" aria-label="カード色を既定に戻す"><i class="fa-solid fa-arrow-rotate-left"></i></button>
                             </div>
                             <label style="font-size:0.75rem; color:var(--text-light); font-weight:700; white-space:nowrap;"><i class="fa-solid fa-filter"></i> ライン絞込:</label>
                             <select id="guides-filter-line" style="font-size:0.8rem; padding:6px 14px; border-radius:99px; border:1.5px solid var(--border); background:white; font-weight:700; cursor:pointer;" onchange="app.renderGuides();">
@@ -776,6 +789,9 @@
                                 <button type="button" class="secondary-btn" onclick="app.clearTipsForm()">
                                     <i class="fa-solid fa-eraser"></i> クリア
                                 </button>
+                                <button type="button" id="tips-save-as-new-btn" class="secondary-btn tips-save-as-new-btn" onclick="app.saveTipsNote({ asNew: true })" hidden>
+                                    <i class="fa-solid fa-copy"></i> 新規として登録
+                                </button>
                                 <button type="button" id="tips-save-btn" class="primary-btn" onclick="app.saveTipsNote()">
                                     <i class="fa-solid fa-plus"></i> 登録
                                 </button>
@@ -853,6 +869,17 @@
                         </div>
                     </div>
                     <div class="photo-manager-toolbar">
+                        <div class="part-card-color-control media-card-color-control" title="写真・動画・音声カードの色を一括変更">
+                            <i class="fa-solid fa-palette"></i><span>カード色</span>
+                            <input type="color" id="media-management-card-color" value="#ffffff" oninput="app.setMediaManagementCardColor(this.value)" aria-label="メディア管理カードの色">
+                            <button type="button" id="media-management-card-gradient-toggle" class="media-card-gradient-toggle" onclick="app.toggleMediaManagementCardGradient()" title="グラデーションを切り替え" aria-label="グラデーションを切り替え" aria-pressed="false"><i class="fa-solid fa-fill-drip"></i><span>グラデ</span></button>
+                            <span class="media-card-gradient-options">
+                                <input type="color" id="media-management-card-gradient-color" value="#bfdbfe" oninput="app.setMediaManagementCardGradientColor(this.value)" aria-label="グラデーションの2色目">
+                                <select id="media-management-card-gradient-angle" onchange="app.setMediaManagementCardGradientAngle(this.value)" aria-label="グラデーションの方向" title="グラデーションの方向"><option value="90">横</option><option value="135">斜め</option><option value="180">縦</option><option value="225">逆斜め</option></select>
+                                <label class="media-card-gradient-strength-wrap" title="グラデーションが広がる範囲"><span>効果</span><input type="range" id="media-management-card-gradient-strength" min="10" max="100" step="5" value="100" oninput="app.setMediaManagementCardGradientStrength(this.value)"><b id="media-management-card-gradient-strength-value">100%</b></label>
+                            </span>
+                            <button type="button" onclick="app.resetMediaManagementCardColor()" title="既定色に戻す" aria-label="カード色を既定に戻す"><i class="fa-solid fa-arrow-rotate-left"></i></button>
+                        </div>
                         <select id="photo-manager-source" onchange="app.renderPhotoManager()">
                             <option value="all">&#20840;&#12390;&#12398;&#20889;&#30495;</option>
                             <option value="shift">&#36899;&#32097;&#24115;</option>
@@ -951,11 +978,16 @@
                                 <button class="secondary-btn" id="btn-cost-periodic" onclick="app.setCostFilter('periodic')" style="border-radius:0; padding:4px 12px; font-size:0.7rem; min-width:60px; border:none; border-left:1px solid var(--border);">定期</button>
                                 <button class="secondary-btn" id="btn-cost-sudden" onclick="app.setCostFilter('sudden')" style="border-radius:0 99px 99px 0; padding:4px 12px; font-size:0.7rem; min-width:60px; border:none; border-left:1px solid var(--border);">突発</button>
                             </div>
-                            <div class="part-card-color-control" title="部品管理カードの共通色">
-                                <i class="fa-solid fa-palette"></i>
-                                <span>カード色</span>
+                            <div class="part-card-color-control part-management-card-color-control" title="部品管理カードの共通色">
+                                <i class="fa-solid fa-palette"></i><span>カード色</span>
                                 <input type="color" id="part-management-card-color" value="#ffffff" oninput="app.setPartManagementCardColor(this.value)" aria-label="部品管理カードの色">
-                                <button type="button" onclick="app.resetPartManagementCardColor()" title="標準色に戻す" aria-label="カード色を標準に戻す"><i class="fa-solid fa-rotate-left"></i></button>
+                                <button type="button" id="part-management-card-gradient-toggle" class="media-card-gradient-toggle" onclick="app.togglePartManagementCardGradient()" title="グラデーションを切り替え" aria-label="グラデーションを切り替え" aria-pressed="false"><i class="fa-solid fa-fill-drip"></i><span>グラデ</span></button>
+                                <span class="media-card-gradient-options">
+                                    <input type="color" id="part-management-card-gradient-color" value="#bfdbfe" oninput="app.setPartManagementCardGradientColor(this.value)" aria-label="グラデーションの2色目">
+                                    <select id="part-management-card-gradient-angle" onchange="app.setPartManagementCardGradientAngle(this.value)" aria-label="グラデーションの方向" title="グラデーションの方向"><option value="90">横</option><option value="135">斜め</option><option value="180">縦</option><option value="225">逆斜め</option></select>
+                                    <label class="media-card-gradient-strength-wrap" title="グラデーションが広がる範囲"><span>効果</span><input type="range" id="part-management-card-gradient-strength" min="10" max="100" step="5" value="100" oninput="app.setPartManagementCardGradientStrength(this.value)"><b id="part-management-card-gradient-strength-value">100%</b></label>
+                                </span>
+                                <button type="button" onclick="app.resetPartManagementCardColor()" title="既定色に戻す" aria-label="カード色を既定に戻す"><i class="fa-solid fa-arrow-rotate-left"></i></button>
                             </div>                            <button class="primary-btn" style="padding: 8px 16px; font-size:0.8rem;" onclick="app.openPartMasterModal('', '')">
                                 <i class="fa-solid fa-plus"></i> 新規部品登録
                             </button>
@@ -1204,16 +1236,16 @@
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
     <script src="app-calendar-details.js?v=20260604-calendar-memo-editor-no-save-close"></script>
     <script src="app-shift-notebook-editor.js?v=20260802-shift-stamp-backspace1"></script>
-    <script src="app-shift-notebook-core.js?v=20260824-direct-framed-video-overlay-fix11"></script>
+    <script src="app-shift-notebook-core.js?v=20260824-launcher-and-cleanup-fix26"></script>
     <script src="app-calendar-support.js"></script>
     <script src="app-departments.js?v=20260623-dept-switch-import-fix"></script>
-    <script src="app-machines.js?v=20260823-machine-header-equal1"></script>
+    <script src="app-machines.js?v=20260826-auto-contrast1"></script>
     <script src="app-maintenance-forms.js?v=20260821-part-stock-ledger2"></script>
     <script src="app-history.js?v=20260821-part-stock-ledger2"></script>
-    <script src="app-analysis-dashboard.js?v=20260823-part-card-color1"></script>
-    <script src="app-ranking-guides.js?v=20260823-card-color1"></script>
-    <script src="app-tips.js?v=20260823-tips-toolbar-layout1"></script>
-    <script src="app-skills.js?v=20260711-worker-radar-compare"></script>
+    <script src="app-analysis-dashboard.js?v=20260826-auto-contrast1"></script>
+    <script src="app-ranking-guides.js?v=20260826-auto-contrast1"></script>
+    <script src="app-tips.js?v=20260826-tips-copy-body1"></script>
+    <script src="app-skills.js?v=20260826-skill-click-target"></script>
     <script src="app-outlook-assist.js?v=20260823-outlook-input-background2"></script>
     <script src="app-worktime.js?v=20260803-worktime-history-all2"></script>
     <script src="app-archives.js?v=20260606-admin-log-targets"></script>
@@ -1222,7 +1254,7 @@
     <script src="app-csv.js?v=20260803-single-maintenance1"></script>
     <script src="app-misc-analysis.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
-    <script src="app-photo-manager.js?v=20260822-video-trim-size1"></script>
+    <script src="app-photo-manager.js?v=20260826-auto-contrast1"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-boot.js?v=20260619-remove-auto-backup"></script>
 </body>
