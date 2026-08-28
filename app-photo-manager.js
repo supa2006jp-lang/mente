@@ -135,6 +135,9 @@
             if (!store.activeData.photoManagerEditedAt || typeof store.activeData.photoManagerEditedAt !== 'object') {
                 store.activeData.photoManagerEditedAt = {};
             }
+            if (!store.activeData.photoManagerSvgPreviewColors || typeof store.activeData.photoManagerSvgPreviewColors !== 'object') {
+                store.activeData.photoManagerSvgPreviewColors = {};
+            }
             if (!store.activeData.photoManagerProtectedSources || typeof store.activeData.photoManagerProtectedSources !== 'object') {
                 store.activeData.photoManagerProtectedSources = {};
             }
@@ -3758,6 +3761,7 @@
             const period = document.getElementById('photo-manager-period')?.value || 'all';
             const markFilter = document.getElementById('photo-manager-mark-filter')?.value || 'all';
             const compressionFilter = document.getElementById('photo-manager-compression-filter')?.value || 'all';
+            const formatFilter = document.getElementById('photo-manager-format-filter')?.value || 'all';
             const circleFilter = document.getElementById('photo-manager-circle-filter')?.value || 'all';
             const sort = document.getElementById('photo-manager-sort')?.value || 'date_desc';
             const tagFilter = document.getElementById('photo-manager-tag-filter')?.value || 'all';
@@ -3775,6 +3779,8 @@
             if (markFilter === 'plain') items = items.filter(item => !item.annotated);
             if (compressionFilter === 'compressed') items = items.filter(item => this.isPhotoManagerSourceCompressed(item.src));
             if (compressionFilter === 'uncompressed') items = items.filter(item => !this.isPhotoManagerSourceCompressed(item.src));
+            if (formatFilter === 'svg') items = items.filter(item => this.isPhotoManagerSvgSource(item.src));
+            if (formatFilter === 'raster') items = items.filter(item => !this.isPhotoManagerSvgSource(item.src));
             if (circleFilter === 'circle') items = items.filter(item => !!item.circleImageEdit);
             if (circleFilter === 'normal') items = items.filter(item => !item.circleImageEdit);
             if (circleFilter === 'blankEdit') items = items.filter(item => item.source === 'library' && item.photoCompareBlankEdit?.type === 'blank');
@@ -3814,11 +3820,17 @@
                 const nameInput = info?.querySelector?.('input:not(.photo-manager-tags-input):not(.photo-manager-reading-input)');
                 if (!info || !nameInput || info.querySelector('.photo-manager-tags-input')) return;
                 const alphaStatus = this.getPhotoManagerAlphaStatus(item);
+                const isSvg = this.isPhotoManagerSvgSource?.(item.src);
+                const svgCompatibility = isSvg ? this.getPhotoManagerSvgCompatibility?.(item.src) : null;
+                const svgPreviewColor = isSvg ? this.getPhotoManagerSvgPreviewColor(item.id) : '';
                 const compressed = this.isPhotoManagerSourceCompressed(item.src);
                 const protectedPhoto = this.isPhotoManagerSourceProtected(item.src);
                 const stateRow = document.createElement('div');
                 stateRow.className = 'photo-manager-state-row';
                 stateRow.innerHTML = `
+                    ${isSvg ? '<span class="file-type svg"><i class="fa-solid fa-file-code"></i> SVG</span>' : ''}
+                    ${svgCompatibility && svgCompatibility.status !== 'ok' ? `<span class="svg-compatibility ${svgCompatibility.status}" title="${this.escapeHtml(svgCompatibility.detail)}"><i class="fa-solid fa-triangle-exclamation"></i> ${this.escapeHtml(svgCompatibility.label)}</span>` : ''}
+                    ${isSvg ? `<label class="svg-color-preview-control${svgPreviewColor ? ' saved' : ''}" title="SVGの表示色を確認・保存（SVG原本は変更されません）"><i class="fa-solid fa-palette"></i><input type="color" value="${this.escapeHtml(svgPreviewColor || '#dc2626')}" aria-label="SVGのプレビュー色" oninput="app.previewPhotoManagerSvgColor('${this.escapeJs(item.id)}', this.value)" onchange="app.setPhotoManagerSvgPreviewColor('${this.escapeJs(item.id)}', this.value)"></label><button type="button" class="svg-color-preview-reset" onclick="app.resetPhotoManagerSvgPreviewColor('${this.escapeJs(item.id)}')" title="原色に戻す" aria-label="SVGを原色に戻す"${svgPreviewColor ? '' : ' disabled'}><i class="fa-solid fa-rotate-left"></i></button>` : ''}
                     <span class="size"><i class="fa-solid fa-database"></i> ${this.escapeHtml(this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(item.src)))}</span>
                     ${alphaStatus ? `<span class="alpha ${alphaStatus}"><i class="fa-solid fa-layer-group"></i> ${alphaStatus === 'transparent' ? '透過' : '透過候補'}</span>` : ''}
                     <span class="compression ${compressed ? 'done' : ''}"><i class="fa-solid fa-compress"></i> ${compressed ? '圧縮済み' : '非圧縮'}</span>
@@ -3839,6 +3851,7 @@
                 readingInput.value = this.getPhotoManagerReading(item);
                 readingInput.addEventListener('change', () => this.setPhotoManagerReading(item.id, readingInput.value));
                 input.insertAdjacentElement('afterend', readingInput);
+                if (svgPreviewColor) requestAnimationFrame(() => this.previewPhotoManagerSvgColor(item.id, svgPreviewColor));
             });
         }
 
@@ -3900,6 +3913,7 @@
                 'photo-manager-period': 'all',
                 'photo-manager-mark-filter': 'all',
                 'photo-manager-compression-filter': 'all',
+                'photo-manager-format-filter': 'all',
                 'photo-manager-circle-filter': 'all',
                 'photo-manager-tag-filter': 'all'
             };
@@ -3995,7 +4009,161 @@
             alert(text);
         }
 
+        isPhotoManagerSvgSource(src = '') {
+            return /^data:image\/svg\+xml(?:;|,)/i.test(String(src || '').trim());
+        }
+
+        isPhotoManagerSvgFile(file = null) {
+            if (!file) return false;
+            return /^image\/svg\+xml$/i.test(String(file.type || '').trim())
+                || /\.svg$/i.test(String(file.name || '').trim());
+        }
+
+        decodePhotoManagerSvgSource(src = '') {
+            if (!this.isPhotoManagerSvgSource(src)) return '';
+            const value = String(src || '');
+            const comma = value.indexOf(',');
+            if (comma < 0) return '';
+            try {
+                if (/;base64/i.test(value.slice(0, comma))) {
+                    const binary = atob(value.slice(comma + 1));
+                    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+                    return new TextDecoder('utf-8').decode(bytes);
+                }
+                return decodeURIComponent(value.slice(comma + 1));
+            } catch (error) {
+                console.warn('SVGデータの解析に失敗しました。', error);
+                return '';
+            }
+        }
+
+        getPhotoManagerSvgCompatibility(src = '') {
+            if (!this.isPhotoManagerSvgSource(src)) return null;
+            if (!this._photoManagerSvgCompatibilityCache) this._photoManagerSvgCompatibilityCache = new Map();
+            if (this._photoManagerSvgCompatibilityCache.has(src)) return this._photoManagerSvgCompatibilityCache.get(src);
+            const text = this.decodePhotoManagerSvgSource(src);
+            const issues = [];
+            let status = 'ok';
+            if (!text) {
+                issues.push('SVGデータを読み取れません');
+                status = 'error';
+            } else {
+                try {
+                    const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+                    if (doc.querySelector('parsererror') || doc.documentElement?.localName !== 'svg') {
+                        issues.push('SVGの構文を確認してください');
+                        status = 'error';
+                    } else {
+                        const elements = Array.from(doc.querySelectorAll('*'));
+                        if (doc.querySelector('script') || elements.some(el => Array.from(el.attributes || []).some(attr => attr.name.toLowerCase().startsWith('on')))) {
+                            issues.push('スクリプトを含みます');
+                            status = 'error';
+                        }
+                        if (elements.some(el => ['href', 'xlink:href', 'src'].some(name => {
+                            const ref = String(el.getAttribute?.(name) || '').toLowerCase();
+                            return ref.startsWith('http://') || ref.startsWith('https://') || ref.startsWith('//');
+                        }))) issues.push('外部素材を参照しています');
+                        if (doc.querySelector('text, tspan') || text.toLowerCase().includes('font-family')) {
+                            issues.push('文字・特殊フォントを含みます');
+                        }
+                        if (doc.querySelector('filter, animate, animateTransform, set, foreignObject')) {
+                            issues.push('特殊効果を含みます');
+                        }
+                    }
+                } catch (error) {
+                    issues.push('SVGの解析に失敗しました');
+                    status = 'error';
+                }
+            }
+            if (status !== 'error' && issues.length) status = 'warning';
+            const result = {
+                status,
+                label: status === 'error' ? '読込注意' : (status === 'warning' ? '表示注意' : '互換OK'),
+                detail: issues.join('・')
+            };
+            this._photoManagerSvgCompatibilityCache.set(src, result);
+            return result;
+        }
+
+        getPhotoManagerSvgPreviewColor(id = '') {
+            this.ensurePhotoManagerData();
+            const color = String(store.activeData.photoManagerSvgPreviewColors[id] || '');
+            return /^#[0-9a-f]{6}$/i.test(color) ? color : '';
+        }
+
+        setPhotoManagerSvgPreviewColor(id = '', color = '') {
+            const item = this.findPhotoManagerItem(id);
+            if (!item?.src || !this.isPhotoManagerSvgSource(item.src)) return;
+            this.ensurePhotoManagerData();
+            const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color) : '';
+            if (!safeColor) return;
+            store.activeData.photoManagerSvgPreviewColors[id] = safeColor;
+            store.save();
+            this.renderPhotoManager();
+        }
+
+        resetPhotoManagerSvgPreviewColor(id = '') {
+            const item = this.findPhotoManagerItem(id);
+            if (!item?.src || !this.isPhotoManagerSvgSource(item.src)) return;
+            this.ensurePhotoManagerData();
+            delete store.activeData.photoManagerSvgPreviewColors[id];
+            store.save();
+            this.renderPhotoManager();
+            this.showPhotoManagerNotice('SVGを原色表示へ戻しました。');
+        }
+
+        async previewPhotoManagerSvgColor(id = '', color = '#dc2626') {
+            const item = this.findPhotoManagerItem(id);
+            if (!item?.src || !this.isPhotoManagerSvgSource(item.src)) return;
+            const safeId = window.CSS?.escape ? CSS.escape(item.id) : String(item.id).replace(/"/g, '\\"');
+            const card = document.querySelector(`.photo-manager-card[data-photo-id="${safeId}"]`);
+            const image = card?.querySelector?.('.photo-manager-thumb img');
+            if (!card || !image) return;
+            const previewColor = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? color : '#dc2626';
+            const token = `${Date.now()}-${previewColor}`;
+            card.dataset.svgPreviewToken = token;
+            card.classList.add('svg-preview-rendering');
+            try {
+                const sourceImage = await this.loadPhotoManagerImage(item.src);
+                const naturalWidth = Math.max(1, sourceImage.naturalWidth || sourceImage.width || 100);
+                const naturalHeight = Math.max(1, sourceImage.naturalHeight || sourceImage.height || 100);
+                const scale = Math.min(1, 640 / Math.max(naturalWidth, naturalHeight));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(naturalWidth * scale));
+                canvas.height = Math.max(1, Math.round(naturalHeight * scale));
+                const context = canvas.getContext('2d');
+                if (!context) throw new Error('SVGの描画領域を作成できません。');
+                context.imageSmoothingEnabled = true;
+                context.imageSmoothingQuality = 'high';
+                context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height);
+                context.globalCompositeOperation = 'source-in';
+                context.fillStyle = previewColor;
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.globalCompositeOperation = 'source-over';
+                if (!canvas || card.dataset.svgPreviewToken !== token) return;
+                image.src = canvas.toDataURL('image/png');
+                card.style.setProperty('--photo-manager-svg-preview-color', previewColor);
+            } catch (error) {
+                console.error('SVGの色プレビューに失敗しました。', error);
+                this.showPhotoManagerNotice('SVGの色プレビューを表示できませんでした。');
+            } finally {
+                if (card.dataset.svgPreviewToken === token) card.classList.remove('svg-preview-rendering');
+            }
+        }
+
+        getPhotoManagerOriginalVectorSaveResult(src = '') {
+            return {
+                src,
+                compressed: false,
+                transparent: false,
+                status: 'vector-original',
+                reason: 'SVGを元形式のまま保存',
+                before: this.formatPhotoManagerBytes(this.estimatePhotoManagerImageBytes(src))
+            };
+        }
+
         async preparePhotoManagerNormalSaveSource(src = '', name = '', options = {}) {
+            if (this.isPhotoManagerSvgSource(src)) return this.getPhotoManagerOriginalVectorSaveResult(src);
             const fallback = {
                 src,
                 compressed: false,
@@ -4063,10 +4231,12 @@
             if (!list.length) return '';
             const compressed = list.filter(item => item.status === 'compressed').length;
             const transparentOriginal = list.filter(item => item.status === 'transparent-original').length;
-            const original = list.length - compressed - transparentOriginal;
+            const vectorOriginal = list.filter(item => item.status === 'vector-original').length;
+            const original = list.length - compressed - transparentOriginal - vectorOriginal;
             const parts = [];
             if (compressed) parts.push(`圧縮保存 ${compressed}件`);
             if (transparentOriginal) parts.push(`透過画像のためそのまま ${transparentOriginal}件`);
+            if (vectorOriginal) parts.push(`SVGのまま ${vectorOriginal}件`);
             if (original) parts.push(`そのまま保存 ${original}件`);
             return parts.join(' / ');
         }
@@ -4153,14 +4323,18 @@
             const today = this.getPhotoManagerToday();
             const saveResults = [];
             const imported = [];
+            const transparencyReviewItems = [];
             for (const file of files) {
                 try {
                     const originalSrc = await this.readPhotoManagerFileAsDataUrl(file);
-                    const prepared = await this.preparePhotoManagerNormalSaveSource(
-                        originalSrc,
-                        file.name ? file.name.replace(/\.[^.]+$/, '') : '',
-                        { forceAsk: true }
-                    );
+                    const isSvg = this.isPhotoManagerSvgFile(file) || this.isPhotoManagerSvgSource(originalSrc);
+                    const prepared = isSvg
+                        ? this.getPhotoManagerOriginalVectorSaveResult(originalSrc)
+                        : await this.preparePhotoManagerNormalSaveSource(
+                            originalSrc,
+                            file.name ? file.name.replace(/\.[^.]+$/, '') : '',
+                            { forceAsk: true }
+                        );
                     const src = prepared.src || originalSrc;
                     saveResults.push(prepared);
                     const added = {
@@ -4174,9 +4348,10 @@
                     };
                     library.unshift(added);
                     imported.push(added);
+                    if (!isSvg) transparencyReviewItems.push(added);
                     if (prepared.compressed) this.rememberPhotoManagerCompressedSource(src, true);
                     if (prepared.transparent) this.rememberPhotoManagerTransparentSource(src, true);
-                    else await this.detectAndRememberPhotoManagerTransparency(src, false);
+                    else if (!isSvg) await this.detectAndRememberPhotoManagerTransparency(src, false);
                 } catch (error) {
                     console.error(error);
                 }
@@ -4187,9 +4362,11 @@
             this.renderPhotoManager();
             const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
             if (summary) this.showPhotoManagerNotice(`${files.length}枚の画像を登録しました。${summary}`);
-            if (imported.length) {
-                this._imageSourceInitialImportIds = new Set(imported.map(item => item.id));
-                requestAnimationFrame(() => this.openImageSourceChoiceTransparencyPreview(imported[0].id));
+            if (transparencyReviewItems.length) {
+                this._imageSourceInitialImportIds = new Set(transparencyReviewItems.map(item => item.id));
+                requestAnimationFrame(() => this.openImageSourceChoiceTransparencyPreview(transparencyReviewItems[0].id));
+            } else {
+                this._imageSourceInitialImportIds = new Set();
             }
         }
 
@@ -4901,6 +5078,7 @@
                 item.deletePhoto?.();
                 delete names[item.id];
                 delete overlays[item.id];
+                delete store.activeData.photoManagerSvgPreviewColors[item.id];
                 this.ensurePhotoManagerSelectionStore().delete(item.id);
                 this.removePhotoManagerSourceFromRecentCachesIfUnused(item.src);
             });
@@ -5333,6 +5511,7 @@
                 item.deletePhoto?.();
                 delete names[item.id];
                 delete overlays[item.id];
+                delete store.activeData.photoManagerSvgPreviewColors[item.id];
                 this.ensurePhotoManagerSelectionStore().delete(item.id);
                 this.removePhotoManagerSourceFromRecentCachesIfUnused(item.src);
             });
@@ -5563,6 +5742,7 @@
                 item.deletePhoto?.();
                 delete names[item.id];
                 delete overlays[item.id];
+                delete store.activeData.photoManagerSvgPreviewColors[item.id];
                 this.ensurePhotoManagerSelectionStore().delete(item.id);
                 this.removePhotoManagerSourceFromRecentCachesIfUnused(item.src);
             });
@@ -5581,6 +5761,7 @@
             item.deletePhoto?.();
             delete names[item.id];
             delete overlays[item.id];
+            delete store.activeData.photoManagerSvgPreviewColors[item.id];
             this.removePhotoManagerSourceFromRecentCachesIfUnused(item.src);
             store.save();
             this.renderPhotoManager();
@@ -5602,6 +5783,20 @@
 
         async createCompressedPhotoManagerSource(src = '') {
             if (!/^data:image\//i.test(src || '')) throw new Error('画像データではありません。');
+            if (this.isPhotoManagerSvgSource(src)) {
+                const bytes = this.estimatePhotoManagerImageBytes(src);
+                return {
+                    src,
+                    beforeBytes: bytes,
+                    afterBytes: bytes,
+                    savedBytes: 0,
+                    transparent: false,
+                    width: 0,
+                    height: 0,
+                    changed: false,
+                    vectorOriginal: true
+                };
+            }
             const img = await this.loadPhotoManagerImage(src);
             const naturalW = img.naturalWidth || img.width || 1;
             const naturalH = img.naturalHeight || img.height || 1;
@@ -5659,7 +5854,7 @@
             const nextHash = this.hashPhotoManagerSrc(nextSrc);
             const oldId = item.id || '';
             const nextId = oldId.endsWith(`|${oldHash}`) ? `${oldId.slice(0, -(oldHash.length))}${nextHash}` : oldId;
-            ['photoManagerNames', 'photoManagerOverlays', 'photoManagerTags', 'photoManagerReadings', 'photoManagerEditedAt'].forEach(key => {
+            ['photoManagerNames', 'photoManagerOverlays', 'photoManagerTags', 'photoManagerReadings', 'photoManagerEditedAt', 'photoManagerSvgPreviewColors'].forEach(key => {
                 const records = store.activeData[key];
                 if (!records || !Object.prototype.hasOwnProperty.call(records, oldId) || nextId === oldId) return;
                 records[nextId] = records[oldId];
@@ -5684,6 +5879,7 @@
         async compressPhotoManagerImage(id = '') {
             const item = this.findPhotoManagerItem(id);
             if (!item?.src || typeof item.replacePhoto !== 'function') return this.showPhotoManagerNotice('圧縮できる写真が見つかりませんでした。');
+            if (this.isPhotoManagerSvgSource(item.src)) return this.showPhotoManagerNotice('SVG原本は圧縮対象外です。元形式のまま保持します。');
             try {
                 const transparent = this.isKnownPhotoManagerTransparentSource(item.src)
                     || (typeof this.imageHasTransparentPixels === 'function' && await this.imageHasTransparentPixels(item.src));
@@ -5750,9 +5946,11 @@
         async compressSelectedPhotoManagerImages() {
             const ids = this.getSelectedPhotoManagerIds();
             if (!ids.length) return this.showPhotoManagerNotice('圧縮する写真を選択してください。');
-            const items = this.collectPhotoManagerItems().filter(item => ids.includes(item.id) && typeof item.replacePhoto === 'function');
+            const selectedItems = this.collectPhotoManagerItems().filter(item => ids.includes(item.id) && typeof item.replacePhoto === 'function');
+            const items = selectedItems.filter(item => !this.isPhotoManagerSvgSource(item.src));
+            if (!items.length) return this.showPhotoManagerNotice('SVG原本は圧縮対象外です。元形式のまま保持します。');
             const prepared = [];
-            let skipped = 0;
+            let skipped = selectedItems.length - items.length;
             for (const item of items) {
                 try {
                     const result = await this.createCompressedPhotoManagerSource(item.src);
@@ -5779,6 +5977,7 @@
         }
         async createTransparentPhotoManagerSource(src = '', options = {}) {
             if (!/^data:image\//i.test(src || '')) throw new Error('画像データではありません。');
+            if (this.isPhotoManagerSvgSource(src)) throw new Error('SVG原本は透過処理対象外です。');
             const img = await this.loadPhotoManagerImage(src);
             const naturalW = img.naturalWidth || img.width || 1;
             const naturalH = img.naturalHeight || img.height || 1;
@@ -5811,6 +6010,7 @@
         async createTransparentPhotoManagerImage(id) {
             const item = this.findPhotoManagerItem(id);
             if (!item?.src) return alert('写真が見つかりませんでした。');
+            if (this.isPhotoManagerSvgSource(item.src)) return this.showPhotoManagerNotice('SVG原本は再透過の対象外です。元形式のまま保持します。');
             try {
                 const alreadyTransparent = typeof this.imageHasTransparentPixels === 'function'
                     ? await this.imageHasTransparentPixels(item.src)
@@ -5856,10 +6056,16 @@
                 this.showPhotoManagerNotice('透過画像を作る写真を選択してください。');
                 return;
             }
-            const items = this.collectPhotoManagerItems().filter(item => ids.includes(item.id));
+            const selectedItems = this.collectPhotoManagerItems().filter(item => ids.includes(item.id));
+            const items = selectedItems.filter(item => !this.isPhotoManagerSvgSource(item.src));
+            const svgSkipped = selectedItems.length - items.length;
+            if (!items.length) {
+                this.showPhotoManagerNotice('SVG原本は再透過の対象外です。元形式のまま保持します。');
+                return;
+            }
             const deleteOriginals = confirm('作成後に元画像を削除しますか？');
             let created = 0;
-            let skipped = 0;
+            let skipped = svgSkipped;
             for (const item of items) {
                 try {
                     const alreadyTransparent = typeof this.imageHasTransparentPixels === 'function'
@@ -6170,22 +6376,27 @@
             if (!input || !selectedFiles.length) return;
             try {
                 const imported = [];
+                const transparencyReviewItems = [];
                 const saveResults = [];
                 for (const file of selectedFiles) {
                     const originalSrc = await this.readPhotoManagerFileAsDataUrl(file);
-                    const prepared = await this.preparePhotoManagerNormalSaveSource(originalSrc, file.name || '直接ファイル画像', { forceAsk: true });
+                    const isSvg = this.isPhotoManagerSvgFile(file) || this.isPhotoManagerSvgSource(originalSrc);
+                    const prepared = isSvg
+                        ? this.getPhotoManagerOriginalVectorSaveResult(originalSrc)
+                        : await this.preparePhotoManagerNormalSaveSource(originalSrc, file.name || '直接ファイル画像', { forceAsk: true });
                     const src = prepared.src || originalSrc;
                     const added = this.addPhotoManagerLibraryImage(src, file.name || '直接ファイル画像');
                     if (added) {
                         saveResults.push(prepared);
                         if (prepared.compressed) this.rememberPhotoManagerCompressedSource(src, true);
                         if (prepared.transparent) this.rememberPhotoManagerTransparentSource(src, true);
-                        else await this.detectAndRememberPhotoManagerTransparency(src, false);
+                        else if (!isSvg) await this.detectAndRememberPhotoManagerTransparency(src, false);
                         imported.push(added);
+                        if (!isSvg) transparencyReviewItems.push(added);
                     }
                 }
                 if (!imported.length) return;
-                this._imageSourceInitialImportIds = new Set(imported.map(item => item.id));
+                this._imageSourceInitialImportIds = new Set(transparencyReviewItems.map(item => item.id));
                 const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
                 if (summary) this.showPhotoManagerNotice(`${imported.length}枚の画像を登録しました。${summary}`);
                 store.save();
@@ -6198,7 +6409,9 @@
                         if (choice) choice.checked = true;
                     });
                     this.updateImageSourceChoicePreview(imported[0]);
-                    this.openImageSourceChoiceTransparencyPreview(imported[0].id);
+                    if (transparencyReviewItems.length) {
+                        this.openImageSourceChoiceTransparencyPreview(transparencyReviewItems[0].id);
+                    }
                 });
                 this.showPhotoManagerNotice(`${imported.length}枚を選択候補に追加しました。`);
             } catch (error) {
@@ -6341,11 +6554,12 @@
             list.innerHTML = items.map(item => {
                 const title = this.getPhotoManagerName(item) || item.defaultName || item.title || '画像';
                 const sub = [item.sourceLabel, item.date, item.title].filter(Boolean).join(' / ');
+                const isSvg = this.isPhotoManagerSvgSource(item.src);
                 const canHaveAlpha = this.canImageSourceHaveAlpha(item.src);
                 const matchReasons = this.getImageSourceChoiceMatchReasons(item, query);
                 const usageCount = usageCounts.get(item.src) || 0;
                 return `
-                    <label class="image-source-choice-item${canHaveAlpha ? ' may-transparent' : ''}" data-image-choice-id="${this.escapeHtml(item.id)}">
+                    <label class="image-source-choice-item${canHaveAlpha ? ' may-transparent' : ''}${isSvg ? ' is-svg' : ''}" data-image-choice-id="${this.escapeHtml(item.id)}">
                         <input type="${multiple ? 'checkbox' : 'radio'}" name="image-source-choice-item" value="${this.escapeHtml(item.id)}">
                         <span class="image-source-choice-thumb">
                             <img src="${item.src}" alt="${this.escapeHtml(title)}">
@@ -6420,9 +6634,10 @@
             }
             const title = this.getPhotoManagerName(item) || item.defaultName || item.title || '画像';
             const sub = [item.sourceLabel, item.date, item.title].filter(Boolean).join(' / ');
+            const isSvg = this.isPhotoManagerSvgSource(item.src);
             const canHaveAlpha = this.canImageSourceHaveAlpha(item.src);
             preview.innerHTML = `
-                <div class="image-source-choice-preview-stage">
+                <div class="image-source-choice-preview-stage${isSvg ? ' is-svg' : ''}">
                     <img src="${item.src}" alt="${this.escapeHtml(title)}">
                     ${canHaveAlpha ? `<button type="button" onclick="event.preventDefault(); event.stopPropagation(); app.openImageSourceChoiceTransparencyPreview('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 透過チェック</button>` : ''}
                 </div>
@@ -6434,6 +6649,9 @@
         async openImageSourceChoiceTransparencyPreview(id = '') {
             const item = this.collectPhotoManagerItems().find(entry => entry.id === id);
             if (!item?.src) return this.showPhotoManagerNotice('透過確認する画像が見つかりませんでした。');
+            if (this.isPhotoManagerSvgSource(item.src)) {
+                return this.showPhotoManagerNotice('SVGは元形式を保つため、透過変換の対象外です。');
+            }
             if (typeof this.openShiftPhotoCompareBaseImageTransparencyPreview !== 'function'
                 || typeof this.createTransparentPhotoManagerSource !== 'function') {
                 return this.showPhotoManagerNotice('透過確認画面を開けませんでした。');
@@ -6534,7 +6752,7 @@
         canImageSourceHaveAlpha(src = '') {
             const match = String(src || '').match(/^data:image\/([^;,]+)[;,]/i);
             if (!match) return false;
-            return !/^(?:jpe?g|pjpeg|bmp|x-ms-bmp)$/i.test(match[1]);
+            return !/^(?:jpe?g|pjpeg|bmp|x-ms-bmp|svg\+xml)$/i.test(match[1]);
         }
 
         imageHasTransparentPixels(src = '') {
@@ -6624,6 +6842,10 @@
         applyPhotoManagerImagesToInput(input, items = []) {
             const selected = (items || []).filter(item => item?.src);
             if (!input || !selected.length) return;
+            if (typeof input._shiftPhotoFillSvgApply === 'function') {
+                input._shiftPhotoFillSvgApply(selected[0]);
+                return;
+            }
             const id = input.id || '';
             if (id === 'machine-photo-quick-input' && (input._quickPhotoTarget || input._machinePhotoTargetId)) {
                 if (input._quickPhotoTarget && typeof this.applyQuickPhotoFromSource === 'function') {
@@ -7163,6 +7385,7 @@
             list.innerHTML = items.map(item => {
                 const name = this.getPhotoManagerName?.(item) || item.defaultName || item.title || '画像';
                 const sourceLabel = this.getPhotoManagerSourceLabel?.(item) || '画像';
+                const isSvg = this.isPhotoManagerSvgSource?.(item.src);
                 const alphaStatus = this.getPhotoManagerAlphaStatus?.(item);
                 const checked = selectedIds.has(item.id) ? ' checked' : '';
                 const usageSummary = this.getPhotoManagerUsageSummary?.(item, usageIndex) || { count: 0, label: '未使用' };
@@ -7176,7 +7399,7 @@
                         ? `app.openPhotoManagerEditor('${this.escapeJs(item.id)}')`
                         : `app.openPhotoManagerSource('${this.escapeJs(item.id)}')`);
                 return `
-                <article class="photo-manager-card" data-photo-id="${this.escapeHtml(item.id)}">
+                <article class="photo-manager-card${isSvg ? ' is-svg' : ''}" data-photo-id="${this.escapeHtml(item.id)}">
                     <label class="photo-manager-check">
                         <input type="checkbox" class="photo-manager-select" value="${this.escapeHtml(item.id)}"${checked} onchange="app.syncPhotoManagerSelection(this.value, this.checked)">
                     </label>
@@ -7199,11 +7422,15 @@
                             <summary><i class="fa-solid fa-ellipsis"></i></summary>
                             <div>
                                 <button type="button" onclick="app.autoTagPhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-tags"></i> タグ自動</button>
-                                <button type="button" onclick="app.compressPhotoManagerImage('${this.escapeJs(item.id)}')"><i class="fa-solid fa-compress"></i> 圧縮</button>
+                                ${isSvg
+                                    ? '<button type="button" class="svg-original-protected" disabled title="SVG原本は圧縮対象外です"><i class="fa-solid fa-shield-halved"></i> 圧縮対象外</button>'
+                                    : `<button type="button" onclick="app.compressPhotoManagerImage('${this.escapeJs(item.id)}')"><i class="fa-solid fa-compress"></i> 圧縮</button>`}
                                 ${hasBlankEdit ? `<button type="button" onclick="app.savePhotoManagerBlankTemplate('${this.escapeJs(item.id)}')"><i class="fa-regular fa-clone"></i> テンプレ保存</button>` : ''}
                                 ${hasBlankEdit ? `<button type="button" onclick="app.duplicatePhotoManagerBlankEdit('${this.escapeJs(item.id)}')"><i class="fa-solid fa-copy"></i> 複製</button>` : ''}
                                 <button type="button" onclick="app.togglePhotoManagerSourceProtection?.('${this.escapeJs(item.id)}')"><i class="fa-solid ${protectedPhoto ? 'fa-lock-open' : 'fa-lock'}"></i> ${protectedPhoto ? 'ロック解除' : 'ロック'}</button>
-                                <button type="button" onclick="app.createTransparentPhotoManagerImage('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 再透過</button>
+                                ${isSvg
+                                    ? '<button type="button" class="svg-original-protected" disabled title="SVG原本は再透過の対象外です"><i class="fa-solid fa-shield-halved"></i> 透過対象外</button>'
+                                    : `<button type="button" onclick="app.createTransparentPhotoManagerImage('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> 再透過</button>`}
                                 <button type="button" class="danger" onclick="app.deletePhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-trash-can"></i> 削除</button>
                             </div>
                         </details>

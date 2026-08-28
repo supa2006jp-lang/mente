@@ -5323,7 +5323,7 @@
 
     compactShiftPhotoCompareMarkImages(marks = []) {
         const list = Array.isArray(marks) ? marks.map(mark => ({ ...mark })) : [];
-        const fields = ['imageSrc', 'originalImageSrc', 'wallpaperSrc'];
+        const fields = ['imageSrc', 'originalImageSrc', 'wallpaperSrc', 'fillSvgSrc'];
         const counts = new Map();
         list.forEach(mark => {
             fields.forEach(field => {
@@ -5367,7 +5367,7 @@
 
     expandShiftPhotoCompareMarkImageRefs(marks = []) {
         const list = Array.isArray(marks) ? marks.map(mark => ({ ...mark })) : [];
-        const fields = ['imageSrc', 'originalImageSrc', 'wallpaperSrc'];
+        const fields = ['imageSrc', 'originalImageSrc', 'wallpaperSrc', 'fillSvgSrc'];
         const assets = new Map();
         list.forEach(mark => {
             fields.forEach(field => {
@@ -5551,8 +5551,25 @@
                 textAlign: ['left', 'center', 'right'].includes(mark.textAlign || '') ? mark.textAlign : (['text', 'boxedText', 'callout'].includes(mark.mode) ? 'center' : 'left'),
                 textVertical: ['top', 'middle', 'bottom'].includes(mark.textVertical || '') ? mark.textVertical : 'middle',
                 fillColor: /^#[0-9a-f]{6}$/i.test(mark.fillColor || '') ? mark.fillColor : (mark.mode === 'boxedText' ? '#fff7fb' : (mark.mode === 'image' ? '#ffffff' : '#fff3a3')),
+                fillWithBorder: mark.fillWithBorder === true || mark.fillWithBorder === '1',
+                fillPattern: this.normalizeShiftPhotoCompareFillPattern(mark.fillPattern),
+                fillPatternScale: this.normalizeShiftPhotoCompareFillPatternScale(mark.fillPatternScale),
+                fillSvgSrc: /^data:image\/(?:svg\+xml|png)/i.test(mark.fillSvgSrc || '') ? mark.fillSvgSrc : '',
+                fillSvgOriginalSrc: /^data:image\/svg\+xml/i.test(mark.fillSvgOriginalSrc || '') ? mark.fillSvgOriginalSrc : '',
+                fillSvgMaskMode: mark.fillSvgMaskMode === 'cutout' ? 'cutout' : 'alpha',
+                fillSvgFit: ['contain', 'cover', 'stretch', 'repeat'].includes(mark.fillSvgFit) ? mark.fillSvgFit : 'contain',
+                fillSvgZoom: Math.max(0.5, Math.min(4, Number(mark.fillSvgZoom) || 1)),
+                fillSvgOffsetX: Math.max(-100, Math.min(100, Number(mark.fillSvgOffsetX) || 0)),
+                fillSvgOffsetY: Math.max(-100, Math.min(100, Number(mark.fillSvgOffsetY) || 0)),
+                fillSvgRotation: Math.max(-180, Math.min(180, Number(mark.fillSvgRotation) || 0)),
+                fillSvgFlipX: mark.fillSvgFlipX === true || mark.fillSvgFlipX === '1',
+                fillSvgFlipY: mark.fillSvgFlipY === true || mark.fillSvgFlipY === '1',
+                fillSvgOpacity: Math.max(0.1, Math.min(1, Number(mark.fillSvgOpacity) || 1)),
+                fillSvgInverted: mark.fillSvgInverted === true || mark.fillSvgInverted === '1',
                 polylineFill: mark.polylineFill === true || mark.polylineFill === '1',
                 polylineFillColor: /^#[0-9a-f]{6}$/i.test(mark.polylineFillColor || '') ? mark.polylineFillColor : (/^#[0-9a-f]{6}$/i.test(mark.color || '') ? mark.color : '#dc2626'),
+                polylineFillPattern: this.normalizeShiftPhotoCompareFillPattern(mark.polylineFillPattern),
+                polylineFillPatternScale: this.normalizeShiftPhotoCompareFillPatternScale(mark.polylineFillPatternScale),
                 polylineFillOpacity: Math.max(0.05, Math.min(1, Number(mark.polylineFillOpacity) || 1)),
                 polylineRegionFills: this.normalizeShiftPhotoComparePolylineRegionFills(mark.polylineRegionFills),
                 regionComment: mark.regionComment === true || mark.regionComment === '1',
@@ -6585,16 +6602,36 @@
         const regionFills = this.reconcileShiftPhotoComparePolylineRegionFills(pointsValue, regionFillValue, fillDefaults);
         const defaultEnabled = fillDefaults.enabled === true;
         const defaultColor = /^#[0-9a-f]{6}$/i.test(fillDefaults.color || '') ? fillDefaults.color : '#dc2626';
+        const defaultPattern = this.normalizeShiftPhotoCompareFillPattern(fillDefaults.pattern);
+        const defaultPatternScale = this.normalizeShiftPhotoCompareFillPatternScale(fillDefaults.patternScale);
         const defaultOpacity = Math.max(0.05, Math.min(1, Number(fillDefaults.opacity) || 1));
+        const patternNamespace = `shift-fill-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const patternDefinitions = [];
         const regionPolygons = regions.map((region, index) => {
             const fill = regionFills[index] || {};
             const enabled = typeof fill.enabled === 'boolean' ? fill.enabled : defaultEnabled;
             const color = /^#[0-9a-f]{6}$/i.test(fill.color || '') ? fill.color : defaultColor;
+            const pattern = this.normalizeShiftPhotoCompareFillPattern(fill.pattern || defaultPattern);
+            const patternScale = this.normalizeShiftPhotoCompareFillPatternScale(fill.patternScale || defaultPatternScale);
             const opacity = Math.max(0.05, Math.min(1, Number(fill.opacity) || defaultOpacity));
+            const svgImageFill = pattern === 'svg' && fill.imageTint && /^data:image\/svg\+xml/i.test(fill.imageSrc || '');
             const regionPoints = region.points.map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
-            return `<polygon class="shift-photo-polyline-region" data-region-index="${index}" data-region-enabled="${enabled ? '1' : '0'}" data-region-has-image="${fill.imageSrc ? '1' : '0'}" points="${this.escapeHtml(regionPoints)}" fill="${enabled ? this.escapeHtml(color) : 'transparent'}" fill-opacity="${enabled ? opacity : 0}"></polygon>`;
+            let fillValue = color;
+            if (enabled && pattern !== 'solid' && !svgImageFill) {
+                const patternId = `${patternNamespace}-${index}`;
+                const strokeWidth = Math.max(1, Math.min(5, patternScale * 0.18));
+                const half = patternScale / 2;
+                const diagonal = `<path d="M-${half} ${half}L${half} -${half}M0 ${patternScale}L${patternScale} 0M${half} ${patternScale + half}L${patternScale + half} ${half}" stroke="${color}" stroke-width="${strokeWidth}" fill="none"></path>`;
+                const reverse = `<path d="M-${half} ${half}L${half} ${patternScale + half}M0 0L${patternScale} ${patternScale}M${half} -${half}L${patternScale + half} ${half}" stroke="${color}" stroke-width="${strokeWidth}" fill="none"></path>`;
+                const content = pattern === 'dots'
+                    ? `<circle cx="${half}" cy="${half}" r="${Math.max(1.5, Math.min(5, patternScale * 0.18))}" fill="${color}"></circle>`
+                    : `${diagonal}${pattern === 'cross' ? reverse : ''}`;
+                patternDefinitions.push(`<pattern id="${patternId}" patternUnits="userSpaceOnUse" width="${patternScale}" height="${patternScale}">${content}</pattern>`);
+                fillValue = `url(#${patternId})`;
+            }
+            return `<polygon class="shift-photo-polyline-region" data-region-index="${index}" data-region-enabled="${enabled ? '1' : '0'}" data-region-pattern="${pattern}" data-region-pattern-scale="${patternScale}" data-region-has-image="${fill.imageSrc ? '1' : '0'}" points="${this.escapeHtml(regionPoints)}" fill="${enabled && !svgImageFill ? fillValue : 'transparent'}" fill-opacity="${enabled && !svgImageFill ? opacity : 0}"></polygon>`;
         }).join('');
-        return regionPolygons;
+        return `${patternDefinitions.length ? `<defs>${patternDefinitions.join('')}</defs>` : ''}${regionPolygons}`;
     }
 
     getShiftPhotoComparePolylineRegionImagesHtml(pointsValue = [], regionFillValue = []) {
@@ -6609,19 +6646,23 @@
             const maxY = Math.max(...region.points.map(point => point.y));
             const width = Math.max(0.01, maxX - minX);
             const height = Math.max(0.01, maxY - minY);
-            const zoom = Math.max(1, Math.min(6, Number(fill.imageZoom) || 1));
+            const zoom = Math.max(0.5, Math.min(6, Number(fill.imageZoom) || 1));
             const offsetX = Math.max(-150, Math.min(150, Number(fill.imageOffsetX) || 0));
             const offsetY = Math.max(-150, Math.min(150, Number(fill.imageOffsetY) || 0));
-            const stretchImage = fill.imageFit === 'stretch';
+            const imageFit = ['contain', 'cover', 'stretch', 'repeat'].includes(fill.imageFit) ? fill.imageFit : 'contain';
+            const stretchImage = imageFit === 'stretch';
             const clipPoints = region.points.map(point => {
                 const x = (point.x - minX) / width * 100;
                 const y = (point.y - minY) / height * 100;
                 return `${x.toFixed(3)}% ${y.toFixed(3)}%`;
             }).join(',');
-            const imageStyle = stretchImage
-                ? `left:50%;top:50%;width:100%;height:100%;object-fit:fill;transform:translate(-50%,-50%) scaleX(${fill.imageFlipX ? -1 : 1})`
-                : `left:${(50 + offsetX).toFixed(3)}%;top:${(50 + offsetY).toFixed(3)}%;width:${(zoom * 100).toFixed(3)}%;height:${(zoom * 100).toFixed(3)}%;transform:translate(-50%,-50%) scaleX(${fill.imageFlipX ? -1 : 1})`;
-            return `<span class="shift-photo-polyline-region-image${stretchImage ? ' stretch-image' : ''}" data-region-index="${index}" style="left:${minX.toFixed(3)}%;top:${minY.toFixed(3)}%;width:${width.toFixed(3)}%;height:${height.toFixed(3)}%;clip-path:polygon(${this.escapeHtml(clipPoints)})"><img src="${this.escapeHtml(fill.imageSrc)}" alt="" style="${imageStyle}"></span>`;
+            const rotation = Math.max(-180, Math.min(180, Number(fill.imageRotation) || 0));
+            const opacity = Math.max(0.1, Math.min(1, Number(fill.imageOpacity) || 1));
+            const imageStyle = `left:${(50 + offsetX).toFixed(3)}%;top:${(50 + offsetY).toFixed(3)}%;width:${(zoom * 100).toFixed(3)}%;height:${(zoom * 100).toFixed(3)}%;opacity:${opacity};object-fit:${stretchImage ? 'fill' : imageFit === 'cover' ? 'cover' : 'contain'};transform:translate(-50%,-50%) rotate(${rotation}deg) scale(${fill.imageFlipX ? -1 : 1},${fill.imageFlipY ? -1 : 1})`;
+            const content = fill.imageTint
+                ? `<i class="shift-photo-polyline-region-svg" data-svg-fit="${imageFit}" style="${imageStyle};--region-svg-src:url(&quot;${this.escapeHtml(fill.imageSrc)}&quot;)"></i>`
+                : `<img src="${this.escapeHtml(fill.imageSrc)}" alt="" style="${imageStyle}">`;
+            return `<span class="shift-photo-polyline-region-image${stretchImage ? ' stretch-image' : ''}" data-region-index="${index}" style="left:${minX.toFixed(3)}%;top:${minY.toFixed(3)}%;width:${width.toFixed(3)}%;height:${height.toFixed(3)}%;clip-path:polygon(${this.escapeHtml(clipPoints)})">${content}</span>`;
         }).join('');
     }
 
@@ -6654,6 +6695,14 @@
         return ['freehand', 'polyline'].includes(mode);
     }
 
+    normalizeShiftPhotoCompareFillPattern(value = 'solid') {
+        return ['solid', 'diagonal', 'cross', 'dots', 'svg'].includes(String(value || '')) ? String(value) : 'solid';
+    }
+
+    normalizeShiftPhotoCompareFillPatternScale(value = 12) {
+        return Math.max(6, Math.min(36, Math.round(Number(value) || 12)));
+    }
+
     normalizeShiftPhotoComparePolylineRegionFills(value = []) {
         let source = value;
         if (typeof source === 'string') {
@@ -6667,13 +6716,21 @@
             id: /^[a-z0-9_-]{4,80}$/i.test(fill?.id || '') ? fill.id : '',
             enabled: fill?.enabled === true || fill?.enabled === '1',
             color: /^#[0-9a-f]{6}$/i.test(fill?.color || '') ? fill.color : '#dc2626',
+            pattern: this.normalizeShiftPhotoCompareFillPattern(fill?.pattern),
+            patternScale: this.normalizeShiftPhotoCompareFillPatternScale(fill?.patternScale),
             opacity: Math.max(0.05, Math.min(1, Number(fill?.opacity) || 1)),
             imageSrc: /^data:image\//i.test(fill?.imageSrc || '') ? fill.imageSrc : '',
-            imageFit: fill?.imageFit === 'stretch' ? 'stretch' : '',
-            imageZoom: Math.max(1, Math.min(6, Number(fill?.imageZoom) || 1)),
-            imageOffsetX: Math.max(-150, Math.min(150, Number(fill?.imageOffsetX) || 0)),
-            imageOffsetY: Math.max(-150, Math.min(150, Number(fill?.imageOffsetY) || 0)),
+            imageOriginalSrc: /^data:image\/svg\+xml/i.test(fill?.imageOriginalSrc || '') ? fill.imageOriginalSrc : '',
+            imageTint: fill?.imageTint === true || fill?.imageTint === '1',
+            imageFit: ['contain', 'cover', 'stretch', 'repeat'].includes(fill?.imageFit) ? fill.imageFit : 'contain',
+            imageZoom: Math.max(0.5, Math.min(6, Number(fill?.imageZoom) || 1)),
+            imageOffsetX: Math.max(-100, Math.min(100, Number(fill?.imageOffsetX) || 0)),
+            imageOffsetY: Math.max(-100, Math.min(100, Number(fill?.imageOffsetY) || 0)),
+            imageRotation: Math.max(-180, Math.min(180, Number(fill?.imageRotation) || 0)),
             imageFlipX: fill?.imageFlipX === true || fill?.imageFlipX === '1',
+            imageFlipY: fill?.imageFlipY === true || fill?.imageFlipY === '1',
+            imageOpacity: Math.max(0.1, Math.min(1, Number(fill?.imageOpacity) || 1)),
+            imageInvert: fill?.imageInvert === true || fill?.imageInvert === '1',
             centerX: Number.isFinite(Number(fill?.centerX)) ? Math.max(0, Math.min(100, Number(fill.centerX))) : null,
             centerY: Number.isFinite(Number(fill?.centerY)) ? Math.max(0, Math.min(100, Number(fill.centerY))) : null,
             area: Number.isFinite(Number(fill?.area)) ? Math.max(0, Number(fill.area)) : null
@@ -6687,6 +6744,8 @@
         // but do not paint a newly created region just because another region was filled.
         const defaultEnabled = previous.length === 0 && fillDefaults.enabled === true;
         const defaultColor = /^#[0-9a-f]{6}$/i.test(fillDefaults.color || '') ? fillDefaults.color : '#dc2626';
+        const defaultPattern = this.normalizeShiftPhotoCompareFillPattern(fillDefaults.pattern);
+        const defaultPatternScale = this.normalizeShiftPhotoCompareFillPatternScale(fillDefaults.patternScale);
         const defaultOpacity = Math.max(0.05, Math.min(1, Number(fillDefaults.opacity) || 1));
         const unmatched = new Set(previous.map((_, index) => index));
         return regions.map((region, regionIndex) => {
@@ -6719,13 +6778,21 @@
                 id: matched?.id || `region-${Date.now().toString(36)}-${regionIndex}-${Math.random().toString(36).slice(2, 7)}`,
                 enabled: matched ? matched.enabled : defaultEnabled,
                 color: matched?.color || defaultColor,
+                pattern: matched?.pattern || defaultPattern,
+                patternScale: matched?.patternScale || defaultPatternScale,
                 opacity: matched?.opacity || defaultOpacity,
                 imageSrc: matched?.imageSrc || '',
-                imageFit: matched?.imageFit || '',
+                imageOriginalSrc: matched?.imageOriginalSrc || '',
+                imageTint: !!matched?.imageTint,
+                imageFit: matched?.imageFit || 'contain',
                 imageZoom: matched?.imageZoom || 1,
                 imageOffsetX: matched?.imageOffsetX || 0,
                 imageOffsetY: matched?.imageOffsetY || 0,
+                imageRotation: matched?.imageRotation || 0,
                 imageFlipX: !!matched?.imageFlipX,
+                imageFlipY: !!matched?.imageFlipY,
+                imageOpacity: matched?.imageOpacity || 1,
+                imageInvert: !!matched?.imageInvert,
                 centerX: region.centerX,
                 centerY: region.centerY,
                 area: region.area
@@ -7186,8 +7253,25 @@
         const textAlign = ['left', 'center', 'right'].includes(mark.textAlign || '') ? mark.textAlign : (['boxedText', 'callout'].includes(mode) ? 'center' : 'left');
         const textVertical = ['top', 'middle', 'bottom'].includes(mark.textVertical || '') ? mark.textVertical : 'middle';
         const fillColor = /^#[0-9a-f]{6}$/i.test(activePage?.fillColor || '') ? activePage.fillColor : (/^#[0-9a-f]{6}$/i.test(mark.fillColor || '') ? mark.fillColor : (mode === 'boxedText' ? '#fff7fb' : (mode === 'image' ? '#ffffff' : '#fff3a3')));
+        const fillWithBorder = mark.fillWithBorder === true || mark.fillWithBorder === '1';
+        const fillPattern = this.normalizeShiftPhotoCompareFillPattern(mark.fillPattern);
+        const fillPatternScale = this.normalizeShiftPhotoCompareFillPatternScale(mark.fillPatternScale);
+        const fillSvgSrc = /^data:image\/(?:svg\+xml|png)/i.test(mark.fillSvgSrc || '') ? mark.fillSvgSrc : '';
+        const fillSvgOriginalSrc = /^data:image\/svg\+xml/i.test(mark.fillSvgOriginalSrc || '') ? mark.fillSvgOriginalSrc : '';
+        const fillSvgMaskMode = mark.fillSvgMaskMode === 'cutout' ? 'cutout' : 'alpha';
+        const fillSvgFit = ['contain', 'cover', 'stretch', 'repeat'].includes(mark.fillSvgFit) ? mark.fillSvgFit : 'contain';
+        const fillSvgZoom = Math.max(0.5, Math.min(4, Number(mark.fillSvgZoom) || 1));
+        const fillSvgOffsetX = Math.max(-100, Math.min(100, Number(mark.fillSvgOffsetX) || 0));
+        const fillSvgOffsetY = Math.max(-100, Math.min(100, Number(mark.fillSvgOffsetY) || 0));
+        const fillSvgRotation = Math.max(-180, Math.min(180, Number(mark.fillSvgRotation) || 0));
+        const fillSvgFlipX = mark.fillSvgFlipX === true || mark.fillSvgFlipX === '1';
+        const fillSvgFlipY = mark.fillSvgFlipY === true || mark.fillSvgFlipY === '1';
+        const fillSvgOpacity = Math.max(0.1, Math.min(1, Number(mark.fillSvgOpacity) || 1));
+        const fillSvgInverted = mark.fillSvgInverted === true || mark.fillSvgInverted === '1';
         const polylineFill = mark.polylineFill === true || mark.polylineFill === '1';
         const polylineFillColor = /^#[0-9a-f]{6}$/i.test(mark.polylineFillColor || '') ? mark.polylineFillColor : color;
+        const polylineFillPattern = this.normalizeShiftPhotoCompareFillPattern(mark.polylineFillPattern);
+        const polylineFillPatternScale = this.normalizeShiftPhotoCompareFillPatternScale(mark.polylineFillPatternScale);
         const polylineFillOpacity = Math.max(0.05, Math.min(1, Number(mark.polylineFillOpacity) || 1));
         let polylineRegionFills = this.normalizeShiftPhotoComparePolylineRegionFills(mark.polylineRegionFills);
         const regionComment = mark.regionComment === true || mark.regionComment === '1';
@@ -7247,6 +7331,8 @@
             polylineRegionFills = this.reconcileShiftPhotoComparePolylineRegionFills(points, polylineRegionFills, {
                 enabled: polylineFill,
                 color: polylineFillColor,
+                pattern: polylineFillPattern,
+                patternScale: polylineFillPatternScale,
                 opacity: polylineFillOpacity
             });
         }
@@ -7268,13 +7354,13 @@
         const triangleOuterWithInnerStroke = triangleStroke + (xmarkOuterUnits + xmarkInnerUnits) * 2;
         const triangleInnerStroke = triangleStroke + xmarkInnerUnits * 2;
         const outlineStyle = `--outer-outline-color:${this.escapeHtml(outerOutlineColor)}; --inner-outline-color:${this.escapeHtml(innerOutlineColor)};`;
-        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-boxed-border-width="${boxedBorderWidth}" data-callout-border-width="${calloutBorderWidth}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-outer-outline-width="${outerOutlineWidth}" data-inner-outline-width="${innerOutlineWidth}" data-outer-outline-color="${this.escapeHtml(outerOutlineColor)}" data-inner-outline-color="${this.escapeHtml(innerOutlineColor)}" data-outer-outline-blur="${outerOutlineBlur ? '1' : '0'}" data-text-effect="${this.escapeHtml(textEffect)}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-polyline-start-arrow="${polylineStartArrow ? '1' : '0'}" data-polyline-end-arrow="${polylineEndArrow ? '1' : '0'}" data-polyline-arrow-points="${this.escapeHtml(JSON.stringify(polylineArrowPoints))}" data-table-rows="${tableRows}" data-table-cols="${tableCols}" data-table-rounded="${tableRounded ? '1' : '0'}" data-table-cell-width="${tableCellWidth}" data-table-cell-height="${tableCellHeight}" data-table-col-widths="${this.escapeHtml(JSON.stringify(tableColWidths))}" data-table-row-heights="${this.escapeHtml(JSON.stringify(tableRowHeights))}" data-table-border-width="${tableBorderWidth}" data-table-vertical-line-style="${tableVerticalLineStyle}" data-table-horizontal-line-style="${tableHorizontalLineStyle}" data-table-cells="${this.escapeHtml(JSON.stringify(tableCells))}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-fill-color="${this.escapeHtml(fillColor)}" data-wallpaper-src="${this.escapeHtml(wallpaperSrc)}" data-polyline-fill="${polylineFill ? '1' : '0'}" data-polyline-fill-color="${this.escapeHtml(polylineFillColor)}" data-polyline-fill-opacity="${polylineFillOpacity}" data-polyline-region-fills="${this.escapeHtml(JSON.stringify(polylineRegionFills))}" data-region-comment="${regionComment ? '1' : '0'}" data-region-comment-width="${regionCommentWidth}" data-region-comment-height="${regionCommentHeight}" data-region-comment-link-id="${this.escapeHtml(regionCommentLinkId)}" data-region-comment-region-id="${this.escapeHtml(regionCommentRegionId)}" data-region-comment-index="${regionCommentIndex}" data-region-comment-anchor-x="${regionCommentAnchorX ?? ''}" data-region-comment-anchor-y="${regionCommentAnchorY ?? ''}" data-text-color="${this.escapeHtml(textColor)}" data-text-color-runs="${this.escapeHtml(JSON.stringify(textColorRuns))}" data-has-partial-text-color="${textColorRuns.length ? '1' : '0'}" data-text-scale="${textScale}" data-text-fit="${textFit}" data-text-padding-x="${textPaddingX}" data-text-padding-y="${textPaddingY}" data-plain-text-bg-padding-x="${plainTextBgPaddingX}" data-plain-text-bg-padding-y="${plainTextBgPaddingY}" data-tail-enabled="${tailEnabled ? '1' : '0'}" data-tail-pos="${tailPos}" data-tail-side="${tailSide}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-image-shape="${imageShape}" data-image-zoom="${imageZoom}" data-image-offset-x="${imageOffsetX}" data-image-offset-y="${imageOffsetY}" data-circle-library-id="${this.escapeHtml(circleLibraryId)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-text-vertical="${textVertical}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-group-icon-hidden="${groupIconHidden ? '1' : '0'}" data-locked="${locked ? '1' : '0'}" data-animation-order="${animationOrder}" data-animation-name="${this.escapeHtml(animationName)}" data-animation-hold-ms="${Math.max(0, Math.min(10000, Math.round(Number(mark.animationHoldMs) || 0)))}" data-animation-effect="${this.escapeHtml(animationEffect)}" data-animation-round-trip-pause-ms="${Math.max(0, Math.min(3000, Math.round(Number(mark.animationRoundTripPauseMs) || 0)))}" data-animation-round-trip-count="${this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.animationRoundTripCount)}" data-animation-motion="${animationMotion ? '1' : '0'}" data-speech-enabled="${speechEnabled ? '1' : '0'}" data-animation-end-x="${animationEndX}" data-animation-end-y="${animationEndY}" data-animation-end-image-x="${animationEndImageX}" data-animation-end-image-y="${animationEndImageY}" data-animation-end-size="${animationEndSize}" data-animation-end-angle="${animationEndAngle}" data-animation-end-stretch="${animationEndStretch}" data-animation-end-stretch-y="${animationEndStretchY}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-image-x="${imageX ?? ''}" data-image-y="${imageY ?? ''}" data-image-display-width="${imageDisplayWidth}" data-image-display-height="${imageDisplayHeight}" data-current-page="${currentPage}" data-pages="${this.escapeHtml(JSON.stringify(pages))}" data-points="${this.escapeHtml(JSON.stringify(points))}" data-freehand-source-points="${this.escapeHtml(JSON.stringify(freehandSourcePoints))}"`;
+        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-boxed-border-width="${boxedBorderWidth}" data-callout-border-width="${calloutBorderWidth}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-outer-outline-width="${outerOutlineWidth}" data-inner-outline-width="${innerOutlineWidth}" data-outer-outline-color="${this.escapeHtml(outerOutlineColor)}" data-inner-outline-color="${this.escapeHtml(innerOutlineColor)}" data-outer-outline-blur="${outerOutlineBlur ? '1' : '0'}" data-text-effect="${this.escapeHtml(textEffect)}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-polyline-start-arrow="${polylineStartArrow ? '1' : '0'}" data-polyline-end-arrow="${polylineEndArrow ? '1' : '0'}" data-polyline-arrow-points="${this.escapeHtml(JSON.stringify(polylineArrowPoints))}" data-table-rows="${tableRows}" data-table-cols="${tableCols}" data-table-rounded="${tableRounded ? '1' : '0'}" data-table-cell-width="${tableCellWidth}" data-table-cell-height="${tableCellHeight}" data-table-col-widths="${this.escapeHtml(JSON.stringify(tableColWidths))}" data-table-row-heights="${this.escapeHtml(JSON.stringify(tableRowHeights))}" data-table-border-width="${tableBorderWidth}" data-table-vertical-line-style="${tableVerticalLineStyle}" data-table-horizontal-line-style="${tableHorizontalLineStyle}" data-table-cells="${this.escapeHtml(JSON.stringify(tableCells))}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-fill-color="${this.escapeHtml(fillColor)}" data-fill-with-border="${fillWithBorder ? '1' : '0'}" data-fill-pattern="${fillPattern}" data-fill-pattern-scale="${fillPatternScale}" data-fill-svg-src="${this.escapeHtml(fillSvgSrc)}" data-fill-svg-original-src="${this.escapeHtml(fillSvgOriginalSrc)}" data-fill-svg-mask-mode="${fillSvgMaskMode}" data-fill-svg-fit="${fillSvgFit}" data-fill-svg-zoom="${fillSvgZoom}" data-fill-svg-offset-x="${fillSvgOffsetX}" data-fill-svg-offset-y="${fillSvgOffsetY}" data-fill-svg-rotation="${fillSvgRotation}" data-fill-svg-flip-x="${fillSvgFlipX ? '1' : '0'}" data-fill-svg-flip-y="${fillSvgFlipY ? '1' : '0'}" data-fill-svg-opacity="${fillSvgOpacity}" data-fill-svg-inverted="${fillSvgInverted ? '1' : '0'}" data-wallpaper-src="${this.escapeHtml(wallpaperSrc)}" data-polyline-fill="${polylineFill ? '1' : '0'}" data-polyline-fill-color="${this.escapeHtml(polylineFillColor)}" data-polyline-fill-pattern="${polylineFillPattern}" data-polyline-fill-pattern-scale="${polylineFillPatternScale}" data-polyline-fill-opacity="${polylineFillOpacity}" data-polyline-region-fills="${this.escapeHtml(JSON.stringify(polylineRegionFills))}" data-region-comment="${regionComment ? '1' : '0'}" data-region-comment-width="${regionCommentWidth}" data-region-comment-height="${regionCommentHeight}" data-region-comment-link-id="${this.escapeHtml(regionCommentLinkId)}" data-region-comment-region-id="${this.escapeHtml(regionCommentRegionId)}" data-region-comment-index="${regionCommentIndex}" data-region-comment-anchor-x="${regionCommentAnchorX ?? ''}" data-region-comment-anchor-y="${regionCommentAnchorY ?? ''}" data-text-color="${this.escapeHtml(textColor)}" data-text-color-runs="${this.escapeHtml(JSON.stringify(textColorRuns))}" data-has-partial-text-color="${textColorRuns.length ? '1' : '0'}" data-text-scale="${textScale}" data-text-fit="${textFit}" data-text-padding-x="${textPaddingX}" data-text-padding-y="${textPaddingY}" data-plain-text-bg-padding-x="${plainTextBgPaddingX}" data-plain-text-bg-padding-y="${plainTextBgPaddingY}" data-tail-enabled="${tailEnabled ? '1' : '0'}" data-tail-pos="${tailPos}" data-tail-side="${tailSide}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-image-shape="${imageShape}" data-image-zoom="${imageZoom}" data-image-offset-x="${imageOffsetX}" data-image-offset-y="${imageOffsetY}" data-circle-library-id="${this.escapeHtml(circleLibraryId)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-text-vertical="${textVertical}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-group-icon-hidden="${groupIconHidden ? '1' : '0'}" data-locked="${locked ? '1' : '0'}" data-animation-order="${animationOrder}" data-animation-name="${this.escapeHtml(animationName)}" data-animation-hold-ms="${Math.max(0, Math.min(10000, Math.round(Number(mark.animationHoldMs) || 0)))}" data-animation-effect="${this.escapeHtml(animationEffect)}" data-animation-round-trip-pause-ms="${Math.max(0, Math.min(3000, Math.round(Number(mark.animationRoundTripPauseMs) || 0)))}" data-animation-round-trip-count="${this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.animationRoundTripCount)}" data-animation-motion="${animationMotion ? '1' : '0'}" data-speech-enabled="${speechEnabled ? '1' : '0'}" data-animation-end-x="${animationEndX}" data-animation-end-y="${animationEndY}" data-animation-end-image-x="${animationEndImageX}" data-animation-end-image-y="${animationEndImageY}" data-animation-end-size="${animationEndSize}" data-animation-end-angle="${animationEndAngle}" data-animation-end-stretch="${animationEndStretch}" data-animation-end-stretch-y="${animationEndStretchY}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-image-x="${imageX ?? ''}" data-image-y="${imageY ?? ''}" data-image-display-width="${imageDisplayWidth}" data-image-display-height="${imageDisplayHeight}" data-current-page="${currentPage}" data-pages="${this.escapeHtml(JSON.stringify(pages))}" data-points="${this.escapeHtml(JSON.stringify(points))}" data-freehand-source-points="${this.escapeHtml(JSON.stringify(freehandSourcePoints))}"`;
         if (mode === 'freehand') {
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle}">${this.getShiftPhotoCompareFreehandSvg(pointsText)}${orderBadgeHtml}</div>`;
         }
         if (mode === 'polyline') {
             const closed = this.hasShiftPhotoComparePolylineClosedRegion(points);
-            return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} data-has-path="${points.length >= 2 ? '1' : '0'}" data-polyline-closed="${closed ? '1' : '0'}" style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --polyline-fill-color:${this.escapeHtml(polylineFillColor)}; --polyline-fill-opacity:${polylineFillOpacity}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle}">${this.getShiftPhotoComparePolylineSvg(pointsText, points, polylineRegionFills, { enabled: polylineFill, color: polylineFillColor, opacity: polylineFillOpacity }, { width: wrapWidth, height: wrapHeight, size, stroke, startArrow: polylineStartArrow, endArrow: polylineEndArrow, arrowPoints: polylineArrowPoints, outline, innerOutline, outerWidth: outerOutlineWidth, innerWidth: innerOutlineWidth })}${orderBadgeHtml}</div>`;
+            return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} data-has-path="${points.length >= 2 ? '1' : '0'}" data-polyline-closed="${closed ? '1' : '0'}" style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --polyline-fill-color:${this.escapeHtml(polylineFillColor)}; --polyline-fill-opacity:${polylineFillOpacity}; --fill-pattern-size:${polylineFillPatternScale}px; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle}">${this.getShiftPhotoComparePolylineSvg(pointsText, points, polylineRegionFills, { enabled: polylineFill, color: polylineFillColor, pattern: polylineFillPattern, patternScale: polylineFillPatternScale, opacity: polylineFillOpacity }, { width: wrapWidth, height: wrapHeight, size, stroke, startArrow: polylineStartArrow, endArrow: polylineEndArrow, arrowPoints: polylineArrowPoints, outline, innerOutline, outerWidth: outerOutlineWidth, innerWidth: innerOutlineWidth })}${orderBadgeHtml}</div>`;
         }
         if (mode === 'image') {
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --circle-border-width:${4 * stroke}px; --mark-font:${fontFamily}; --mark-opacity:${opacity}; --circle-image-size:${imageZoom * 100}%; --circle-image-offset-x:${imageOffsetX}%; --circle-image-offset-y:${imageOffsetY}%;"><img src="${this.escapeHtml(imageSrc)}" alt="">${orderBadgeHtml}</div>`;
@@ -7295,7 +7381,7 @@
         const boxedTextHtml = mode === 'boxedText'
             ? `${wallpaperSrc ? `<img class="shift-photo-mark-wallpaper" src="${this.escapeHtml(wallpaperSrc)}" alt="">` : ''}${this.getShiftPhotoCompareBoxedTextEditorHtml(text, { regionComment, textColorRuns, textColor })}${regionComment ? this.getShiftPhotoCompareRegionInfoButtonHtml() : ''}`
             : '';
-        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --boxed-text-font-scale:${textScale}; --plain-text-font-scale:${textScale}; --plain-text-bg-padding-x:${plainTextBgPaddingX}px; --plain-text-bg-padding-y:${plainTextBgPaddingY}px; --boxed-text-inverse-x:${1 / stretch}; --boxed-text-inverse-y:${1 / stretchY}; --boxed-text-border-inverse-x:${1 / stretch}; --boxed-text-border-inverse-y:${1 / stretchY}; ${hasBoxedBorderWidth ? `--boxed-text-border-width-custom:${boxedBorderWidth}px;` : ''} --region-comment-width:${regionCommentWidth}px; --region-comment-height:${regionCommentHeight}px; --rect-dot-inverse-x:${1 / stretch}; --rect-dot-inverse-y:${1 / stretchY}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkStroke}; --xmark-outer-stroke:${xmarkOuterStroke}; --xmark-outer-with-inner-stroke:${xmarkOuterWithInnerStroke}; --xmark-inner-stroke:${xmarkInnerStroke}; --triangle-stroke:${triangleStroke}; --triangle-outer-stroke:${triangleOuterStroke}; --triangle-outer-with-inner-stroke:${triangleOuterWithInnerStroke}; --triangle-inner-stroke:${triangleInnerStroke}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle}">${mode === 'arrow' ? this.getShiftPhotoCompareArrowHtml(true) : (mode === 'dimension' ? dimensionHtml : (mode === 'triangle' ? this.getShiftPhotoCompareTriangleHtml() : (mode === 'rect' ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY) : (mode === 'xmark' ? xmarkHtml : (mode === 'boxedText' ? boxedTextHtml : (mode === 'text' ? this.getShiftPhotoComparePlainTextEditorHtml(text) : (mode === 'number' ? this.escapeHtml(text) : '')))))))}${orderBadgeHtml}</div>`;
+        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --boxed-text-font-scale:${textScale}; --plain-text-font-scale:${textScale}; --plain-text-bg-padding-x:${plainTextBgPaddingX}px; --plain-text-bg-padding-y:${plainTextBgPaddingY}px; --boxed-text-inverse-x:${1 / stretch}; --boxed-text-inverse-y:${1 / stretchY}; --boxed-text-border-inverse-x:${1 / stretch}; --boxed-text-border-inverse-y:${1 / stretchY}; ${hasBoxedBorderWidth ? `--boxed-text-border-width-custom:${boxedBorderWidth}px;` : ''} --region-comment-width:${regionCommentWidth}px; --region-comment-height:${regionCommentHeight}px; --rect-dot-inverse-x:${1 / stretch}; --rect-dot-inverse-y:${1 / stretchY}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkStroke}; --xmark-outer-stroke:${xmarkOuterStroke}; --xmark-outer-with-inner-stroke:${xmarkOuterWithInnerStroke}; --xmark-inner-stroke:${xmarkInnerStroke}; --triangle-stroke:${triangleStroke}; --triangle-outer-stroke:${triangleOuterStroke}; --triangle-outer-with-inner-stroke:${triangleOuterWithInnerStroke}; --triangle-inner-stroke:${triangleInnerStroke}; --fill-pattern-size:${fillPatternScale}px; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle} --fill-svg-src:url(&quot;${this.escapeHtml(fillSvgSrc)}&quot;); --fill-svg-zoom:${fillSvgZoom}; --fill-svg-offset-x:${fillSvgOffsetX}%; --fill-svg-offset-y:${fillSvgOffsetY}%; --fill-svg-rotation:${fillSvgRotation}deg; --fill-svg-flip-x:${fillSvgFlipX ? -1 : 1}; --fill-svg-flip-y:${fillSvgFlipY ? -1 : 1}; --fill-svg-opacity:${fillSvgOpacity};">${fillSvgSrc ? `<span class="shift-photo-fill-svg" data-svg-fit="${fillSvgFit}"><i></i></span>` : ''}${mode === 'arrow' ? this.getShiftPhotoCompareArrowHtml(true) : (mode === 'dimension' ? dimensionHtml : (mode === 'triangle' ? this.getShiftPhotoCompareTriangleHtml() : (mode === 'rect' ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY) : (mode === 'xmark' ? xmarkHtml : (mode === 'boxedText' ? boxedTextHtml : (mode === 'text' ? this.getShiftPhotoComparePlainTextEditorHtml(text) : (mode === 'number' ? this.escapeHtml(text) : '')))))))}${orderBadgeHtml}</div>`;
     }
 
     getShiftPhotoCompareMarkPageContentFromDom(mark) {
@@ -7661,8 +7747,25 @@
             textAlign: ['left', 'center', 'right'].includes(mark.dataset.textAlign || '') ? mark.dataset.textAlign : (['text', 'boxedText', 'callout'].includes(mark.dataset.mode) ? 'center' : 'left'),
             textVertical: ['top', 'middle', 'bottom'].includes(mark.dataset.textVertical || '') ? mark.dataset.textVertical : 'middle',
             fillColor: /^#[0-9a-f]{6}$/i.test(mark.dataset.fillColor || '') ? mark.dataset.fillColor : (mark.dataset.mode === 'boxedText' ? '#fff7fb' : (mark.dataset.mode === 'image' ? '#ffffff' : '#fff3a3')),
+            fillWithBorder: mark.dataset.fillWithBorder === '1',
+            fillPattern: this.normalizeShiftPhotoCompareFillPattern(mark.dataset.fillPattern),
+            fillPatternScale: this.normalizeShiftPhotoCompareFillPatternScale(mark.dataset.fillPatternScale),
+            fillSvgSrc: /^data:image\/(?:svg\+xml|png)/i.test(mark.dataset.fillSvgSrc || '') ? mark.dataset.fillSvgSrc : '',
+            fillSvgOriginalSrc: /^data:image\/svg\+xml/i.test(mark.dataset.fillSvgOriginalSrc || '') ? mark.dataset.fillSvgOriginalSrc : '',
+            fillSvgMaskMode: mark.dataset.fillSvgMaskMode === 'cutout' ? 'cutout' : 'alpha',
+            fillSvgFit: ['contain', 'cover', 'stretch', 'repeat'].includes(mark.dataset.fillSvgFit) ? mark.dataset.fillSvgFit : 'contain',
+            fillSvgZoom: Math.max(0.5, Math.min(4, Number(mark.dataset.fillSvgZoom) || 1)),
+            fillSvgOffsetX: Math.max(-100, Math.min(100, Number(mark.dataset.fillSvgOffsetX) || 0)),
+            fillSvgOffsetY: Math.max(-100, Math.min(100, Number(mark.dataset.fillSvgOffsetY) || 0)),
+            fillSvgRotation: Math.max(-180, Math.min(180, Number(mark.dataset.fillSvgRotation) || 0)),
+            fillSvgFlipX: mark.dataset.fillSvgFlipX === '1',
+            fillSvgFlipY: mark.dataset.fillSvgFlipY === '1',
+            fillSvgOpacity: Math.max(0.1, Math.min(1, Number(mark.dataset.fillSvgOpacity) || 1)),
+            fillSvgInverted: mark.dataset.fillSvgInverted === '1',
             polylineFill: mark.dataset.polylineFill === '1',
             polylineFillColor: /^#[0-9a-f]{6}$/i.test(mark.dataset.polylineFillColor || '') ? mark.dataset.polylineFillColor : (mark.dataset.color || '#dc2626'),
+            polylineFillPattern: this.normalizeShiftPhotoCompareFillPattern(mark.dataset.polylineFillPattern),
+            polylineFillPatternScale: this.normalizeShiftPhotoCompareFillPatternScale(mark.dataset.polylineFillPatternScale),
             polylineFillOpacity: Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 1)),
             polylineRegionFills: this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]'),
             regionComment: mark.dataset.regionComment === '1',
@@ -16909,6 +17012,17 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             if (e.target === overlay) this.closeShiftPhotoCompare();
         });
         overlay.addEventListener('dblclick', (e) => {
+            const svgMark = e.target?.closest?.('.shift-photo-compare-mark[data-fill-pattern="svg"]');
+            if (svgMark && overlay.contains(svgMark) && /^data:image\/(?:svg\+xml|png)/i.test(svgMark.dataset.fillSvgSrc || '')) {
+                if (e.target?.closest?.('button, input, select, textarea, .shift-photo-compare-resize-handle, .shift-photo-compare-rotate-handle')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.setShiftPhotoCompareMarkModeDirect('move');
+                this.selectShiftPhotoCompareMark(svgMark);
+                this.pushShiftPhotoCompareUndo();
+                this.openShiftPhotoCompareSvgFillSettings(svgMark);
+                return;
+            }
             if (this._shiftPhotoCompareMarkMode !== 'polyline') return;
             e.preventDefault();
             e.stopPropagation();
@@ -16929,6 +17043,15 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     this.openShiftPhotoComparePolylineEdgeContextMenu(e, mark, edgeHit.index);
                     return;
                 }
+            }
+            const region = e.target?.closest?.('.shift-photo-polyline-region[data-region-index]');
+            const regionMark = region?.closest?.('.shift-photo-compare-mark.polyline');
+            if (region && regionMark && overlay.contains(regionMark)) {
+                e.preventDefault();
+                this.openShiftPhotoCompareImageContextMenu(e, regionMark, {
+                    polylineRegionIndex: Number(region.dataset.regionIndex)
+                });
+                return;
             }
             if (mark && overlay.contains(mark)) {
                 e.preventDefault();
@@ -27235,6 +27358,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             {
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color,
+                pattern: mark.dataset.polylineFillPattern,
+                patternScale: mark.dataset.polylineFillPatternScale,
                 opacity: mark.dataset.polylineFillOpacity
             }
         );
@@ -27247,6 +27372,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 {
                     enabled: mark.dataset.polylineFill === '1',
                     color: mark.dataset.polylineFillColor || mark.dataset.color,
+                    pattern: mark.dataset.polylineFillPattern,
+                    patternScale: mark.dataset.polylineFillPatternScale,
                     opacity: mark.dataset.polylineFillOpacity
                 }
             );
@@ -27342,6 +27469,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             {
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color,
+                pattern: mark.dataset.polylineFillPattern,
+                patternScale: mark.dataset.polylineFillPatternScale,
                 opacity: mark.dataset.polylineFillOpacity
             }
         );
@@ -27349,6 +27478,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             fills.push({
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color || '#dc2626',
+                pattern: this.normalizeShiftPhotoCompareFillPattern(mark.dataset.polylineFillPattern),
+                patternScale: this.normalizeShiftPhotoCompareFillPatternScale(mark.dataset.polylineFillPatternScale),
                 opacity: Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 1))
             });
         }
@@ -27375,6 +27506,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             {
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color,
+                pattern: mark.dataset.polylineFillPattern,
+                patternScale: mark.dataset.polylineFillPatternScale,
                 opacity: mark.dataset.polylineFillOpacity
             }
         );
@@ -27386,13 +27519,21 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             imageSrc: /^data:image\//i.test(changes.imageSrc ?? current.imageSrc ?? '')
                 ? (changes.imageSrc ?? current.imageSrc)
                 : '',
-            imageFit: changes.imageFit === undefined
-                ? (current.imageFit === 'stretch' ? 'stretch' : '')
-                : (changes.imageFit === 'stretch' ? 'stretch' : ''),
-            imageZoom: Math.max(1, Math.min(6, Number(changes.imageZoom ?? current.imageZoom) || 1)),
-            imageOffsetX: Math.max(-150, Math.min(150, Number(changes.imageOffsetX ?? current.imageOffsetX) || 0)),
-            imageOffsetY: Math.max(-150, Math.min(150, Number(changes.imageOffsetY ?? current.imageOffsetY) || 0)),
-            imageFlipX: changes.imageFlipX === undefined ? !!current.imageFlipX : !!changes.imageFlipX
+            imageOriginalSrc: /^data:image\/svg\+xml/i.test(changes.imageOriginalSrc ?? current.imageOriginalSrc ?? '')
+                ? (changes.imageOriginalSrc ?? current.imageOriginalSrc)
+                : '',
+            imageFit: ['contain', 'cover', 'stretch', 'repeat'].includes(changes.imageFit ?? current.imageFit)
+                ? (changes.imageFit ?? current.imageFit)
+                : 'contain',
+            imageZoom: Math.max(0.5, Math.min(6, Number(changes.imageZoom ?? current.imageZoom) || 1)),
+            imageOffsetX: Math.max(-100, Math.min(100, Number(changes.imageOffsetX ?? current.imageOffsetX) || 0)),
+            imageOffsetY: Math.max(-100, Math.min(100, Number(changes.imageOffsetY ?? current.imageOffsetY) || 0)),
+            imageRotation: Math.max(-180, Math.min(180, Number(changes.imageRotation ?? current.imageRotation) || 0)),
+            imageFlipX: changes.imageFlipX === undefined ? !!current.imageFlipX : !!changes.imageFlipX,
+            imageFlipY: changes.imageFlipY === undefined ? !!current.imageFlipY : !!changes.imageFlipY,
+            imageOpacity: Math.max(0.1, Math.min(1, Number(changes.imageOpacity ?? current.imageOpacity) || 1)),
+            imageInvert: changes.imageInvert === undefined ? !!current.imageInvert : !!changes.imageInvert,
+            imageTint: changes.imageTint === undefined ? !!current.imageTint : !!changes.imageTint
         };
         mark.dataset.polylineRegionFills = JSON.stringify(fills);
         this.refreshShiftPhotoComparePolylineRegions(mark);
@@ -27416,6 +27557,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             input.remove();
             const updated = this.updateShiftPhotoComparePolylineRegionImage(mark, regionIndex, {
                 imageSrc: src,
+                imageTint: false,
                 imageFit: '',
                 imageZoom: 1,
                 imageOffsetX: 0,
@@ -27469,7 +27611,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         if (action === 'flip-x') changes.imageFlipX = !fill.imageFlipX;
         if (action === 'fit-stretch') Object.assign(changes, { imageFit: fill.imageFit === 'stretch' ? '' : 'stretch', imageZoom: 1, imageOffsetX: 0, imageOffsetY: 0 });
         if (action === 'reset') Object.assign(changes, { imageZoom: 1, imageOffsetX: 0, imageOffsetY: 0 });
-        if (action === 'remove') changes.imageSrc = '';
+        if (action === 'remove') Object.assign(changes, { imageSrc: '', imageTint: false });
         const labels = {
             'zoom-in': '画像を拡大しました。',
             'zoom-out': '画像を縮小しました。',
@@ -27565,6 +27707,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             {
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color,
+                pattern: mark.dataset.polylineFillPattern,
+                patternScale: mark.dataset.polylineFillPatternScale,
                 opacity: mark.dataset.polylineFillOpacity
             }
         );
@@ -27572,6 +27716,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             fills.push({
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color || '#dc2626',
+                pattern: this.normalizeShiftPhotoCompareFillPattern(mark.dataset.polylineFillPattern),
+                patternScale: this.normalizeShiftPhotoCompareFillPatternScale(mark.dataset.polylineFillPatternScale),
                 opacity: Math.max(0.05, Math.min(1, Number(mark.dataset.polylineFillOpacity) || 1))
             });
         }
@@ -27588,6 +27734,1052 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             : `区画 ${index + 1} の塗りつぶしを解除しました。`);
     }
 
+    sanitizeShiftPhotoCompareFillSvg(svgText = '', options = {}) {
+        const source = String(svgText || '');
+        if (!source || source.length > 600000 || typeof DOMParser === 'undefined') return '';
+        const documentNode = new DOMParser().parseFromString(source, 'image/svg+xml');
+        const root = documentNode.documentElement;
+        if (!root || root.nodeName.toLowerCase() !== 'svg' || documentNode.querySelector('parsererror')) return '';
+        root.querySelectorAll('script,foreignObject,iframe,object,embed,audio,video').forEach(node => node.remove());
+        root.querySelectorAll('style').forEach(node => {
+            const safeCss = String(node.textContent || '')
+                .replace(/@import[\s\S]*?(?:;|$)/gi, '')
+                .replace(/url\(\s*(['"]?)(?!#)[^)]+\)/gi, 'none')
+                .replace(/(?:javascript|expression)\s*[:(]/gi, '');
+            if (safeCss.trim()) node.textContent = safeCss;
+            else node.remove();
+        });
+        [root, ...root.querySelectorAll('*')].forEach(node => {
+            Array.from(node.attributes || []).forEach(attribute => {
+                const name = attribute.name.toLowerCase();
+                const value = String(attribute.value || '');
+                const isHref = name === 'href' || name === 'xlink:href';
+                const isFragmentReference = /^#[^\s"'<>]+$/.test(value);
+                const isEmbeddedRaster = node.nodeName.toLowerCase() === 'image'
+                    && /^data:image\/(?:png|jpe?g|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(value);
+                if (name.startsWith('on')
+                    || (isHref && !isFragmentReference && !isEmbeddedRaster)
+                    || (!isHref && /(?:javascript:|https?:|data:text\/html)/i.test(value))) {
+                    node.removeAttribute(attribute.name);
+                }
+            });
+            const inlineStyle = String(node.getAttribute('style') || '');
+            const safeInlineStyle = inlineStyle
+                .split(';')
+                .map(declaration => declaration.trim())
+                .filter(declaration => declaration
+                    && !/(?:javascript|expression)\s*[:(]/i.test(declaration)
+                    && !/url\(\s*(['"]?)(?!#)/i.test(declaration))
+                .join(';');
+            if (safeInlineStyle) node.setAttribute('style', safeInlineStyle);
+            else node.removeAttribute('style');
+        });
+        root.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        root.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        if (!root.getAttribute('viewBox')) {
+            const width = Math.max(1, Number.parseFloat(root.getAttribute('width')) || 100);
+            const height = Math.max(1, Number.parseFloat(root.getAttribute('height')) || 100);
+            root.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        }
+        if (options.padViewBox !== false && root.getAttribute('data-shift-viewbox-padded') !== '1') {
+            const viewBox = String(root.getAttribute('viewBox') || '')
+                .trim().split(/[\s,]+/).map(Number);
+            if (viewBox.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0 && viewBox[3] > 0) {
+                const [x, y, width, height] = viewBox;
+                const padX = width * 0.08;
+                const padY = height * 0.08;
+                root.setAttribute('viewBox', `${x - padX} ${y - padY} ${width + padX * 2} ${height + padY * 2}`);
+                root.setAttribute('data-shift-viewbox-padded', '1');
+            }
+        }
+        if (options.cutoutMask === true) {
+            const viewBox = String(root.getAttribute('viewBox') || '0 0 100 100')
+                .trim().split(/[\s,]+/).map(Number);
+            const [x, y, width, height] = viewBox.length === 4 && viewBox.every(Number.isFinite)
+                ? viewBox
+                : [0, 0, 100, 100];
+            const originalNodes = Array.from(root.childNodes);
+            const defs = documentNode.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            const mask = documentNode.createElementNS('http://www.w3.org/2000/svg', 'mask');
+            const maskId = 'shift-photo-fill-cutout';
+            mask.setAttribute('id', maskId);
+            mask.setAttribute('maskUnits', 'userSpaceOnUse');
+            mask.setAttribute('x', String(x));
+            mask.setAttribute('y', String(y));
+            mask.setAttribute('width', String(Math.max(1, width)));
+            mask.setAttribute('height', String(Math.max(1, height)));
+            const backdrop = documentNode.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            backdrop.setAttribute('x', String(x));
+            backdrop.setAttribute('y', String(y));
+            backdrop.setAttribute('width', String(Math.max(1, width)));
+            backdrop.setAttribute('height', String(Math.max(1, height)));
+            backdrop.setAttribute('fill', '#fff');
+            mask.appendChild(backdrop);
+            originalNodes.forEach(node => mask.appendChild(node));
+            defs.appendChild(mask);
+            root.appendChild(defs);
+            const result = documentNode.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            result.setAttribute('x', String(x));
+            result.setAttribute('y', String(y));
+            result.setAttribute('width', String(Math.max(1, width)));
+            result.setAttribute('height', String(Math.max(1, height)));
+            result.setAttribute('fill', '#fff');
+            result.setAttribute('mask', `url(#${maskId})`);
+            root.appendChild(result);
+            root.setAttribute('data-shift-fill-mask', 'cutout');
+        }
+        root.removeAttribute('width');
+        root.removeAttribute('height');
+        return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(root))}`;
+    }
+
+    async detectShiftPhotoCompareFillSvgMaskMode(src = '') {
+        try {
+            const image = await this.loadShiftPhotoCompareImage(src);
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!ctx) return 'alpha';
+            ctx.clearRect(0, 0, 64, 64);
+            ctx.drawImage(image, 0, 0, 64, 64);
+            const pixels = ctx.getImageData(0, 0, 64, 64).data;
+            let transparent = 0;
+            let darkOpaque = 0;
+            let opaque = 0;
+            const total = pixels.length / 4;
+            for (let i = 0; i < pixels.length; i += 4) {
+                const alpha = pixels[i + 3];
+                if (alpha < 32) {
+                    transparent += 1;
+                    continue;
+                }
+                opaque += 1;
+                const luminance = pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722;
+                if (luminance < 64) darkOpaque += 1;
+            }
+            return opaque / total > 0.5
+                && transparent / total > 0.01
+                && darkOpaque / Math.max(1, opaque) > 0.7
+                ? 'cutout'
+                : 'alpha';
+        } catch {
+            return 'alpha';
+        }
+    }
+
+    async createShiftPhotoCompareCutoutMaskDataUrl(src = '', maxSide = 1024) {
+        this._shiftPhotoCompareCutoutMaskCache ||= new Map();
+        const cacheKey = `${src}|${Math.round(Number(maxSide) || 1024)}|safe-pad-v2`;
+        if (this._shiftPhotoCompareCutoutMaskCache.has(cacheKey)) {
+            return this._shiftPhotoCompareCutoutMaskCache.get(cacheKey);
+        }
+        const image = await this.loadShiftPhotoCompareImage(src);
+        const naturalWidth = Math.max(1, image.naturalWidth || image.width || 100);
+        const naturalHeight = Math.max(1, image.naturalHeight || image.height || 100);
+        const scale = Math.max(1, Math.min(4, Math.max(256, Number(maxSide) || 1024) / Math.max(naturalWidth, naturalHeight)));
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = Math.max(1, Math.round(naturalWidth * scale));
+        sourceCanvas.height = Math.max(1, Math.round(naturalHeight * scale));
+        const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true });
+        if (!sourceContext) return '';
+        sourceContext.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+        sourceContext.drawImage(image, 0, 0, sourceCanvas.width, sourceCanvas.height);
+        const pixels = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+        for (let i = 0; i < pixels.data.length; i += 4) {
+            const sourceAlpha = pixels.data[i + 3];
+            pixels.data[i] = 255;
+            pixels.data[i + 1] = 255;
+            pixels.data[i + 2] = 255;
+            pixels.data[i + 3] = 255 - sourceAlpha;
+        }
+        sourceContext.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+        sourceContext.putImageData(pixels, 0, 0);
+        const paddingX = Math.max(8, Math.round(sourceCanvas.width * 0.14));
+        const paddingY = Math.max(8, Math.round(sourceCanvas.height * 0.14));
+        const canvas = document.createElement('canvas');
+        canvas.width = sourceCanvas.width + paddingX * 2;
+        canvas.height = sourceCanvas.height + paddingY * 2;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return '';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(sourceCanvas, paddingX, paddingY);
+        const result = canvas.toDataURL('image/png');
+        this._shiftPhotoCompareCutoutMaskCache.set(cacheKey, result);
+        if (this._shiftPhotoCompareCutoutMaskCache.size > 12) {
+            this._shiftPhotoCompareCutoutMaskCache.delete(this._shiftPhotoCompareCutoutMaskCache.keys().next().value);
+        }
+        return result;
+    }
+
+    refreshShiftPhotoCompareFillSvgElement(mark) {
+        if (!mark || !['circle', 'triangle', 'rect'].includes(mark.dataset.mode || '')) return;
+        const src = /^data:image\/(?:svg\+xml|png)/i.test(mark.dataset.fillSvgSrc || '') ? mark.dataset.fillSvgSrc : '';
+        mark.style.setProperty('--fill-svg-src', src ? `url("${src}")` : 'none');
+        const settings = this.getShiftPhotoCompareSvgFillSettings(mark);
+        mark.style.setProperty('--fill-svg-zoom', settings.zoom);
+        mark.style.setProperty('--fill-svg-offset-x', `${settings.offsetX}%`);
+        mark.style.setProperty('--fill-svg-offset-y', `${settings.offsetY}%`);
+        mark.style.setProperty('--fill-svg-rotation', `${settings.rotation}deg`);
+        mark.style.setProperty('--fill-svg-flip-x', settings.flipX ? -1 : 1);
+        mark.style.setProperty('--fill-svg-flip-y', settings.flipY ? -1 : 1);
+        mark.style.setProperty('--fill-svg-opacity', settings.opacity);
+        mark.dataset.fillSvgMaskMode = mark.dataset.fillSvgMaskMode === 'cutout' ? 'cutout' : 'alpha';
+        let layer = mark.querySelector(':scope > .shift-photo-fill-svg');
+        if (src && !layer) {
+            layer = document.createElement('span');
+            layer.className = 'shift-photo-fill-svg';
+            layer.appendChild(document.createElement('i'));
+            mark.insertBefore(layer, mark.firstChild);
+        }
+        if (layer) {
+            if (!layer.querySelector(':scope > i')) layer.appendChild(document.createElement('i'));
+            layer.dataset.svgFit = settings.fit;
+        }
+        if (!src) layer?.remove();
+    }
+
+    normalizeShiftPhotoCompareSvgFillSettings(value = {}) {
+        return {
+            fit: ['contain', 'cover', 'stretch', 'repeat'].includes(value.fit) ? value.fit : 'contain',
+            zoom: Math.max(0.25, Math.min(4, Number(value.zoom) || 1)),
+            offsetX: Math.max(-100, Math.min(100, Number(value.offsetX) || 0)),
+            offsetY: Math.max(-100, Math.min(100, Number(value.offsetY) || 0)),
+            rotation: Math.max(-180, Math.min(180, Number(value.rotation) || 0)),
+            flipX: value.flipX === true || value.flipX === '1',
+            flipY: value.flipY === true || value.flipY === '1',
+            opacity: Math.max(0.1, Math.min(1, Number(value.opacity) || 1)),
+            inverted: value.inverted === true || value.inverted === '1'
+        };
+    }
+
+    getShiftPhotoCompareSvgContainZoom(mark, regionIndex = -1) {
+        const mode = mark?.dataset?.mode || 'circle';
+        if (mode === 'polyline' && Number(regionIndex) >= 0) return 0.5;
+        if (mode === 'triangle') return 0.42;
+        if (mode === 'circle') return 0.68;
+        if (mode === 'rect') return 0.9;
+        return 0.68;
+    }
+
+    fitShiftPhotoCompareSvgMarkInsideSurface(mark, margin = 8) {
+        if (!mark || !['circle', 'triangle', 'rect'].includes(mark.dataset.mode || '')) return false;
+        const surface = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const surfaceRect = surface?.getBoundingClientRect?.();
+        let markRect = mark.getBoundingClientRect?.();
+        if (!surfaceRect?.width || !surfaceRect?.height || !markRect?.width || !markRect?.height) return false;
+        const safeMargin = Math.max(0, Math.min(Number(margin) || 0, Math.min(surfaceRect.width, surfaceRect.height) * 0.08));
+        const availableWidth = Math.max(1, surfaceRect.width - safeMargin * 2);
+        const availableHeight = Math.max(1, surfaceRect.height - safeMargin * 2);
+        const fitScale = Math.min(1, availableWidth / markRect.width, availableHeight / markRect.height);
+        let changed = false;
+        if (fitScale < 0.999) {
+            const currentSize = Math.max(1, Number(mark.dataset.size) || 56);
+            const nextSize = Math.max(24, Math.round(currentSize * fitScale * 10) / 10);
+            if (nextSize < currentSize) {
+                mark.dataset.size = String(nextSize);
+                mark.style.setProperty('--mark-size', `${nextSize}px`);
+                markRect = mark.getBoundingClientRect();
+                changed = true;
+            }
+        }
+        let dx = 0;
+        let dy = 0;
+        const leftLimit = surfaceRect.left + safeMargin;
+        const rightLimit = surfaceRect.right - safeMargin;
+        const topLimit = surfaceRect.top + safeMargin;
+        const bottomLimit = surfaceRect.bottom - safeMargin;
+        if (markRect.left < leftLimit) dx += leftLimit - markRect.left;
+        if (markRect.right > rightLimit) dx -= markRect.right - rightLimit;
+        if (markRect.top < topLimit) dy += topLimit - markRect.top;
+        if (markRect.bottom > bottomLimit) dy -= markRect.bottom - bottomLimit;
+        if (Math.abs(dx) > 0.25 || Math.abs(dy) > 0.25) {
+            const currentLeft = Number.parseFloat(mark.style.left) || 50;
+            const currentTop = Number.parseFloat(mark.style.top) || 50;
+            mark.style.left = `${Math.max(0, Math.min(100, currentLeft + dx / surfaceRect.width * 100))}%`;
+            mark.style.top = `${Math.max(0, Math.min(100, currentTop + dy / surfaceRect.height * 100))}%`;
+            changed = true;
+        }
+        if (changed) this.updateShiftPhotoCompareSelectionBounds?.();
+        return changed;
+    }
+
+    ensureShiftPhotoCompareSvgViewBoxPadding(source = '') {
+        const value = String(source || '');
+        if (!/^data:image\/svg\+xml/i.test(value)) return value;
+        try {
+            const commaIndex = value.indexOf(',');
+            if (commaIndex < 0) return value;
+            const header = value.slice(0, commaIndex);
+            const payload = value.slice(commaIndex + 1);
+            const svgText = /;base64/i.test(header)
+                ? new TextDecoder('utf-8').decode(Uint8Array.from(atob(payload.replace(/\s+/g, '')), character => character.charCodeAt(0)))
+                : decodeURIComponent(payload);
+            if (/data-shift-viewbox-padded=["']1["']/i.test(svgText)) return value;
+            return this.sanitizeShiftPhotoCompareFillSvg(svgText) || value;
+        } catch {
+            return value;
+        }
+    }
+
+    getShiftPhotoCompareSvgFillSettings(mark, regionIndex = -1) {
+        if (mark?.dataset?.mode === 'polyline' && Number(regionIndex) >= 0) {
+            const fills = this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]');
+            const fill = fills[Number(regionIndex)] || {};
+            return this.normalizeShiftPhotoCompareSvgFillSettings({
+                fit: fill.imageFit,
+                zoom: fill.imageZoom,
+                offsetX: fill.imageOffsetX,
+                offsetY: fill.imageOffsetY,
+                rotation: fill.imageRotation,
+                flipX: fill.imageFlipX,
+                flipY: fill.imageFlipY,
+                opacity: fill.imageOpacity,
+                inverted: fill.imageInvert
+            });
+        }
+        return this.normalizeShiftPhotoCompareSvgFillSettings({
+            fit: mark?.dataset?.fillSvgFit,
+            zoom: mark?.dataset?.fillSvgZoom,
+            offsetX: mark?.dataset?.fillSvgOffsetX,
+            offsetY: mark?.dataset?.fillSvgOffsetY,
+            rotation: mark?.dataset?.fillSvgRotation,
+            flipX: mark?.dataset?.fillSvgFlipX,
+            flipY: mark?.dataset?.fillSvgFlipY,
+            opacity: mark?.dataset?.fillSvgOpacity,
+            inverted: mark?.dataset?.fillSvgInverted
+        });
+    }
+
+    getLastShiftPhotoCompareSvgFillPreset() {
+        try {
+            const value = JSON.parse(localStorage.getItem('shift_photo_compare_svg_fill_preset_v1') || '{}');
+            return {
+                source: /^data:image\/svg\+xml/i.test(value.source || '') ? value.source : '',
+                settings: this.normalizeShiftPhotoCompareSvgFillSettings(value.settings || {})
+            };
+        } catch {
+            return { source: '', settings: this.normalizeShiftPhotoCompareSvgFillSettings({}) };
+        }
+    }
+
+    saveLastShiftPhotoCompareSvgFillPreset(source = '', settings = {}) {
+        if (!/^data:image\/svg\+xml/i.test(source || '')) return;
+        try {
+            localStorage.setItem('shift_photo_compare_svg_fill_preset_v1', JSON.stringify({
+                source,
+                settings: this.normalizeShiftPhotoCompareSvgFillSettings(settings)
+            }));
+        } catch (_) {}
+    }
+
+    async applyShiftPhotoCompareSvgFillSettings(mark, regionIndex, settingsValue = {}, options = {}) {
+        if (!mark) return false;
+        const settings = this.normalizeShiftPhotoCompareSvgFillSettings(settingsValue);
+        if (mark.dataset.mode === 'polyline' && Number(regionIndex) >= 0) {
+            const index = Number(regionIndex);
+            const fills = this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]');
+            if (!fills[index]) return false;
+            const current = fills[index];
+            const source = this.ensureShiftPhotoCompareSvgViewBoxPadding(
+                /^data:image\/svg\+xml/i.test(current.imageOriginalSrc || '') ? current.imageOriginalSrc : current.imageSrc
+            );
+            const imageSrc = settings.inverted && /^data:image\/svg\+xml/i.test(source || '')
+                ? await this.createShiftPhotoCompareCutoutMaskDataUrl(source)
+                : source;
+            fills[index] = {
+                ...current,
+                imageSrc,
+                imageOriginalSrc: /^data:image\/svg\+xml/i.test(source || '') ? source : '',
+                imageFit: settings.fit,
+                imageZoom: settings.zoom,
+                imageOffsetX: settings.offsetX,
+                imageOffsetY: settings.offsetY,
+                imageRotation: settings.rotation,
+                imageFlipX: settings.flipX,
+                imageFlipY: settings.flipY,
+                imageOpacity: settings.opacity,
+                imageInvert: settings.inverted,
+                imageTint: true,
+                pattern: 'svg',
+                enabled: true
+            };
+            mark.dataset.polylineRegionFills = JSON.stringify(fills);
+            this.refreshShiftPhotoComparePolylineRegions(mark);
+            if (options.commit) {
+                this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+                this.refreshShiftPhotoCompareMarkList();
+                this.autoSaveShiftNotebook(true);
+                this.saveLastShiftPhotoCompareSvgFillPreset(source, settings);
+            }
+            return true;
+        }
+        const source = this.ensureShiftPhotoCompareSvgViewBoxPadding(
+            /^data:image\/svg\+xml/i.test(mark.dataset.fillSvgOriginalSrc || '')
+                ? mark.dataset.fillSvgOriginalSrc
+                : mark.dataset.fillSvgSrc
+        );
+        mark.dataset.fillSvgSrc = settings.inverted && /^data:image\/svg\+xml/i.test(source || '')
+            ? await this.createShiftPhotoCompareCutoutMaskDataUrl(source)
+            : source;
+        mark.dataset.fillSvgOriginalSrc = /^data:image\/svg\+xml/i.test(source || '') ? source : '';
+        mark.dataset.fillSvgFit = settings.fit;
+        mark.dataset.fillSvgZoom = String(settings.zoom);
+        mark.dataset.fillSvgOffsetX = String(settings.offsetX);
+        mark.dataset.fillSvgOffsetY = String(settings.offsetY);
+        mark.dataset.fillSvgRotation = String(settings.rotation);
+        mark.dataset.fillSvgFlipX = settings.flipX ? '1' : '0';
+        mark.dataset.fillSvgFlipY = settings.flipY ? '1' : '0';
+        mark.dataset.fillSvgOpacity = String(settings.opacity);
+        mark.dataset.fillSvgInverted = settings.inverted ? '1' : '0';
+        mark.dataset.fillSvgMaskMode = settings.inverted ? 'cutout' : 'alpha';
+        this.refreshShiftPhotoCompareFillSvgElement(mark);
+        if (options.commit) {
+            this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+            this.refreshShiftPhotoCompareMarkList();
+            this.autoSaveShiftNotebook(true);
+            this.saveLastShiftPhotoCompareSvgFillPreset(source, settings);
+        }
+        return true;
+    }
+
+    openShiftPhotoCompareSvgFillSettings(mark, regionIndex = -1) {
+        if (!mark || this.isShiftPhotoCompareMarkLocked(mark)) return false;
+        document.querySelector('.shift-photo-svg-settings-overlay')?.remove();
+        const isRegion = mark.dataset.mode === 'polyline' && Number(regionIndex) >= 0;
+        const index = isRegion ? Number(regionIndex) : -1;
+        const originalSettings = this.getShiftPhotoCompareSvgFillSettings(mark, index);
+        const originalState = isRegion
+            ? mark.dataset.polylineRegionFills
+            : {
+                src: mark.dataset.fillSvgSrc || '',
+                originalSrc: mark.dataset.fillSvgOriginalSrc || '',
+                maskMode: mark.dataset.fillSvgMaskMode || '',
+                left: mark.style.left || '',
+                top: mark.style.top || '',
+                size: mark.dataset.size || '56',
+                ...originalSettings
+            };
+        const getSource = () => {
+            if (isRegion) {
+                const fill = this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]')[index] || {};
+                return fill.imageOriginalSrc || fill.imageSrc || '';
+            }
+            return mark.dataset.fillSvgOriginalSrc || mark.dataset.fillSvgSrc || '';
+        };
+        const mode = mark.dataset.mode || 'circle';
+        const stretchX = Math.max(0.1, Math.abs(Number(mark.dataset.stretch) || 1));
+        const stretchY = Math.max(0.1, Math.abs(Number(mark.dataset.stretchY) || 1));
+        let previewShapeAspect = Math.max(0.5, Math.min(2.4, stretchX / stretchY));
+        let previewShapeClip = 'circle(45% at 50% 50%)';
+        let previewShapeOutline = '<ellipse cx="50" cy="50" rx="45" ry="45"></ellipse>';
+        let previewShapeName = '円';
+        if (isRegion) {
+            const points = this.getShiftPhotoComparePolylineRegions(
+                this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]'),
+                mark.dataset.polylineRegionFills || '[]'
+            )[index]?.points || [];
+            if (points.length >= 3) {
+                const minX = Math.min(...points.map(point => Number(point.x) || 0));
+                const maxX = Math.max(...points.map(point => Number(point.x) || 0));
+                const minY = Math.min(...points.map(point => Number(point.y) || 0));
+                const maxY = Math.max(...points.map(point => Number(point.y) || 0));
+                const width = Math.max(0.001, maxX - minX);
+                const height = Math.max(0.001, maxY - minY);
+                const normalized = points.map(point => ({
+                    x: 6 + ((Number(point.x) || 0) - minX) / width * 88,
+                    y: 6 + ((Number(point.y) || 0) - minY) / height * 88
+                }));
+                const cssPoints = normalized.map(point => point.x.toFixed(2) + '% ' + point.y.toFixed(2) + '%').join(', ');
+                const svgPoints = normalized.map(point => point.x.toFixed(2) + ',' + point.y.toFixed(2)).join(' ');
+                previewShapeAspect = Math.max(0.5, Math.min(2.4, width / height));
+                previewShapeClip = 'polygon(' + cssPoints + ')';
+                previewShapeOutline = '<polygon points="' + svgPoints + '"></polygon>';
+                previewShapeName = '区画 ' + (index + 1);
+            }
+        } else if (mode === 'rect') {
+            previewShapeClip = 'inset(8% 5% 8% 5% round 2%)';
+            previewShapeOutline = '<rect x="5" y="8" width="90" height="84" rx="2"></rect>';
+            previewShapeName = '四角';
+        } else if (mode === 'triangle') {
+            previewShapeClip = 'polygon(50% 5%, 95% 94%, 5% 94%)';
+            previewShapeOutline = '<polygon points="50,5 95,94 5,94"></polygon>';
+            previewShapeName = '三角';
+        }
+        const containZoom = this.getShiftPhotoCompareSvgContainZoom(mark, index);
+        const overlay = document.createElement('div');
+        overlay.className = 'shift-photo-svg-settings-overlay';
+        overlay.innerHTML = `
+            <div class="shift-photo-svg-settings-dialog" role="dialog" aria-modal="true" aria-label="SVGの表示を調整">
+                <header><div><b><i class="fa-solid fa-wand-magic-sparkles"></i> SVGの表示を調整</b><small>${isRegion ? `区画 ${index + 1}` : '記号内'}を見ながら調整できます</small></div><button type="button" data-action="close" title="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                <div class="shift-photo-svg-settings-body">
+                    <div class="shift-photo-svg-settings-preview">
+                        <div class="shift-photo-svg-settings-shape" style="--preview-shape-aspect:${previewShapeAspect}; --preview-shape-clip:${previewShapeClip};">
+                            <div class="shift-photo-svg-settings-shape-mask"><i></i></div>
+                            <svg class="shift-photo-svg-settings-shape-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${previewShapeOutline}</svg>
+                        </div>
+                        <span>${previewShapeName}への挿入プレビュー</span>
+                    </div>
+                    <div class="shift-photo-svg-settings-controls">
+                        <label><span>表示方法</span><select data-field="fit"><option value="contain">全体を収める</option><option value="cover">枠いっぱい</option><option value="stretch">引き伸ばす</option><option value="repeat">繰り返す</option></select></label>
+                        <label><span>大きさ <output data-output="zoom"></output></span><input data-field="zoom" type="range" min="0.25" max="4" step="0.05"></label>
+                        <label><span>左右位置 <output data-output="offsetX"></output></span><input data-field="offsetX" type="range" min="-100" max="100" step="1"></label>
+                        <label><span>上下位置 <output data-output="offsetY"></output></span><input data-field="offsetY" type="range" min="-100" max="100" step="1"></label>
+                        <label><span>角度 <output data-output="rotation"></output></span><input data-field="rotation" type="range" min="-180" max="180" step="1"></label>
+                        <label><span>透明度 <output data-output="opacity"></output></span><input data-field="opacity" type="range" min="0.1" max="1" step="0.05"></label>
+                        <div class="shift-photo-svg-settings-toggles">
+                            <button type="button" data-field="flipX"><i class="fa-solid fa-left-right"></i>左右反転</button>
+                            <button type="button" data-field="flipY"><i class="fa-solid fa-up-down"></i>上下反転</button>
+                            <button type="button" data-field="inverted"><i class="fa-solid fa-circle-half-stroke"></i>白黒を反転</button>
+                        </div>
+                        <button type="button" class="shift-photo-svg-settings-reset" data-action="reset"><i class="fa-solid fa-rotate-left"></i>調整を初期化</button>
+                    </div>
+                </div>
+                <footer><button type="button" data-action="cancel">キャンセル</button><button type="button" class="primary" data-action="save"><i class="fa-solid fa-check"></i>反映</button></footer>
+            </div>`;
+        document.body.appendChild(overlay);
+        let settings = { ...originalSettings };
+        let applySequence = 0;
+        const controls = {};
+        ['fit', 'zoom', 'offsetX', 'offsetY', 'rotation', 'opacity'].forEach(name => {
+            controls[name] = overlay.querySelector(`[data-field="${name}"]`);
+            controls[name].value = settings[name];
+        });
+        ['flipX', 'flipY', 'inverted'].forEach(name => {
+            controls[name] = overlay.querySelector(`button[data-field="${name}"]`);
+            controls[name].classList.toggle('active', !!settings[name]);
+        });
+        const updateOutputs = () => {
+            overlay.querySelector('[data-output="zoom"]').textContent = `${Math.round(settings.zoom * 100)}%`;
+            overlay.querySelector('[data-output="offsetX"]').textContent = `${settings.offsetX > 0 ? '+' : ''}${settings.offsetX}%`;
+            overlay.querySelector('[data-output="offsetY"]').textContent = `${settings.offsetY > 0 ? '+' : ''}${settings.offsetY}%`;
+            overlay.querySelector('[data-output="rotation"]').textContent = `${settings.rotation}°`;
+            overlay.querySelector('[data-output="opacity"]').textContent = `${Math.round(settings.opacity * 100)}%`;
+        };
+        const updatePreview = () => {
+            const shape = overlay.querySelector('.shift-photo-svg-settings-shape');
+            const preview = shape.querySelector('.shift-photo-svg-settings-shape-mask > i');
+            const source = isRegion
+                ? (this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]')[index]?.imageSrc || '')
+                : (mark.dataset.fillSvgSrc || '');
+            preview.style.setProperty('--preview-svg-src', source ? `url("${source}")` : 'none');
+            preview.dataset.svgFit = settings.fit;
+            preview.style.setProperty('--preview-zoom', settings.zoom);
+            preview.style.setProperty('--preview-x', `${settings.offsetX}%`);
+            preview.style.setProperty('--preview-y', `${settings.offsetY}%`);
+            preview.style.setProperty('--preview-rotate', `${settings.rotation}deg`);
+            preview.style.setProperty('--preview-flip-x', settings.flipX ? -1 : 1);
+            preview.style.setProperty('--preview-flip-y', settings.flipY ? -1 : 1);
+            preview.style.opacity = settings.opacity;
+            const color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
+            preview.style.backgroundColor = color;
+            shape.style.setProperty('--preview-shape-color', color);
+        };
+        const syncPositionAndZoomControls = () => {
+            controls.zoom.value = settings.zoom;
+            controls.offsetX.value = settings.offsetX;
+            controls.offsetY.value = settings.offsetY;
+        };
+        const applyLive = async () => {
+            const sequence = ++applySequence;
+            await this.applyShiftPhotoCompareSvgFillSettings(mark, index, settings);
+            if (sequence !== applySequence) return;
+            if (!isRegion) this.fitShiftPhotoCompareSvgMarkInsideSurface(mark);
+            updateOutputs();
+            updatePreview();
+        };
+        Object.entries(controls).forEach(([name, control]) => {
+            if (control.tagName === 'BUTTON') {
+                control.addEventListener('click', async () => {
+                    settings[name] = !settings[name];
+                    control.classList.toggle('active', settings[name]);
+                    await applyLive();
+                });
+            } else {
+                control.addEventListener('input', async () => {
+                    settings[name] = name === 'fit' ? control.value : Number(control.value);
+                    await applyLive();
+                });
+            }
+        });
+        const previewMask = overlay.querySelector('.shift-photo-svg-settings-shape-mask');
+        let previewDrag = null;
+        let previewApplyFrame = 0;
+        const queuePreviewApply = () => {
+            syncPositionAndZoomControls();
+            updateOutputs();
+            updatePreview();
+            cancelAnimationFrame(previewApplyFrame);
+            previewApplyFrame = requestAnimationFrame(() => {
+                previewApplyFrame = 0;
+                applyLive();
+            });
+        };
+        previewMask.addEventListener('pointerdown', event => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            previewDrag = {
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startY: event.clientY,
+                offsetX: settings.offsetX,
+                offsetY: settings.offsetY
+            };
+            previewMask.setPointerCapture(event.pointerId);
+            previewMask.classList.add('dragging');
+        });
+        previewMask.addEventListener('pointermove', event => {
+            if (!previewDrag || previewDrag.pointerId !== event.pointerId) return;
+            const rect = previewMask.getBoundingClientRect();
+            const nextX = previewDrag.offsetX + (event.clientX - previewDrag.startX) / Math.max(1, rect.width) * 100;
+            const nextY = previewDrag.offsetY + (event.clientY - previewDrag.startY) / Math.max(1, rect.height) * 100;
+            settings.offsetX = Math.round(Math.max(-100, Math.min(100, nextX)) * 10) / 10;
+            settings.offsetY = Math.round(Math.max(-100, Math.min(100, nextY)) * 10) / 10;
+            queuePreviewApply();
+        });
+        const finishPreviewDrag = event => {
+            if (!previewDrag || previewDrag.pointerId !== event.pointerId) return;
+            previewDrag = null;
+            previewMask.classList.remove('dragging');
+            if (previewMask.hasPointerCapture(event.pointerId)) previewMask.releasePointerCapture(event.pointerId);
+            applyLive();
+        };
+        previewMask.addEventListener('pointerup', finishPreviewDrag);
+        previewMask.addEventListener('pointercancel', finishPreviewDrag);
+        previewMask.addEventListener('wheel', event => {
+            event.preventDefault();
+            const step = event.deltaY < 0 ? 0.1 : -0.1;
+            settings.zoom = Math.round(Math.max(0.25, Math.min(4, settings.zoom + step)) * 20) / 20;
+            queuePreviewApply();
+        }, { passive: false });
+        overlay.querySelector('[data-action="reset"]').addEventListener('click', async () => {
+            settings = this.normalizeShiftPhotoCompareSvgFillSettings({ fit: 'contain', zoom: containZoom });
+            Object.keys(controls).forEach(name => {
+                if (controls[name].tagName === 'BUTTON') controls[name].classList.toggle('active', !!settings[name]);
+                else controls[name].value = settings[name];
+            });
+            await applyLive();
+        });
+        const restore = () => {
+            if (isRegion) {
+                mark.dataset.polylineRegionFills = originalState || '[]';
+                this.refreshShiftPhotoComparePolylineRegions(mark);
+            } else {
+                mark.dataset.fillSvgSrc = originalState.src;
+                mark.dataset.fillSvgOriginalSrc = originalState.originalSrc;
+                mark.dataset.fillSvgMaskMode = originalState.maskMode;
+                mark.style.left = originalState.left;
+                mark.style.top = originalState.top;
+                mark.dataset.size = originalState.size;
+                mark.style.setProperty('--mark-size', `${Number(originalState.size) || 56}px`);
+                Object.assign(mark.dataset, {
+                    fillSvgFit: originalState.fit,
+                    fillSvgZoom: originalState.zoom,
+                    fillSvgOffsetX: originalState.offsetX,
+                    fillSvgOffsetY: originalState.offsetY,
+                    fillSvgRotation: originalState.rotation,
+                    fillSvgFlipX: originalState.flipX ? '1' : '0',
+                    fillSvgFlipY: originalState.flipY ? '1' : '0',
+                    fillSvgOpacity: originalState.opacity,
+                    fillSvgInverted: originalState.inverted ? '1' : '0'
+                });
+                this.refreshShiftPhotoCompareFillSvgElement(mark);
+            }
+        };
+        const cancel = () => { restore(); overlay.remove(); };
+        overlay.querySelector('[data-action="close"]').addEventListener('click', cancel);
+        overlay.querySelector('[data-action="cancel"]').addEventListener('click', cancel);
+        overlay.addEventListener('pointerdown', event => { if (event.target === overlay) cancel(); });
+        overlay.querySelector('[data-action="save"]').addEventListener('click', async () => {
+            await this.applyShiftPhotoCompareSvgFillSettings(mark, index, settings, { commit: true });
+            if (!isRegion && this.fitShiftPhotoCompareSvgMarkInsideSurface(mark)) {
+                this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+                this.autoSaveShiftNotebook(true);
+            }
+            overlay.remove();
+            this.showShiftPhotoCompareActionMessage('SVGの表示設定を保存しました。');
+        });
+        updateOutputs();
+        updatePreview();
+        applyLive();
+        return true;
+    }
+
+    async chooseShiftPhotoCompareBorderFillSvg(mark, regionIndex = -1, presetSource = '') {
+        if (!mark || this.isShiftPhotoCompareMarkLocked(mark)) return false;
+        const targetId = this.ensureShiftPhotoCompareAnimationId(mark);
+        const targetScope = mark.closest('.shift-photo-compare-modal, .shift-photo-compare-editor') || document;
+        const applySvgSource = async (sourceValue = '') => {
+            const source = String(sourceValue || '').trim();
+            if (!source) throw new Error('SVG source is empty');
+            let svgText = source;
+            if (/^data:image\/svg\+xml/i.test(source)) {
+                const commaIndex = source.indexOf(',');
+                if (commaIndex < 0) throw new Error('Invalid SVG data URL');
+                const header = source.slice(0, commaIndex);
+                const payload = source.slice(commaIndex + 1);
+                if (/;base64/i.test(header)) {
+                    const binary = atob(payload.replace(/\s+/g, ''));
+                    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+                    svgText = new TextDecoder('utf-8').decode(bytes);
+                } else {
+                    svgText = decodeURIComponent(payload);
+                }
+            } else if (!/^<svg[\s>]/i.test(source)) {
+                const response = await fetch(source);
+                if (!response.ok) throw new Error('Could not load SVG source');
+                svgText = await response.text();
+            }
+            if (svgText.length > 600000) throw new Error('SVG is too large');
+            const sourceSrc = this.sanitizeShiftPhotoCompareFillSvg(svgText);
+            if (!sourceSrc) throw new Error('Invalid SVG');
+            const fillSvgMaskMode = await this.detectShiftPhotoCompareFillSvgMaskMode(sourceSrc);
+            const remembered = this.getLastShiftPhotoCompareSvgFillPreset().settings;
+            const containZoom = this.getShiftPhotoCompareSvgContainZoom(mark, regionIndex);
+            const initialSettings = this.normalizeShiftPhotoCompareSvgFillSettings({
+                ...remembered,
+                fit: 'contain',
+                zoom: containZoom,
+                offsetX: 0,
+                offsetY: 0,
+                rotation: 0,
+                inverted: fillSvgMaskMode === 'cutout'
+            });
+            const src = initialSettings.inverted
+                ? await this.createShiftPhotoCompareCutoutMaskDataUrl(sourceSrc)
+                : sourceSrc;
+            if (!src) throw new Error('Could not create SVG mask');
+            const targetMark = document.contains(mark)
+                ? mark
+                : Array.from(targetScope.querySelectorAll('.shift-photo-compare-mark'))
+                    .find(item => item.dataset.animationId === targetId && item.dataset.animationGhost !== '1');
+            if (!targetMark) throw new Error('Target symbol was closed');
+            const mode = targetMark.dataset.mode || '';
+            if (mode === 'polyline') {
+                const index = Number(regionIndex);
+                if (!Number.isInteger(index) || index < 0) throw new Error('Select a region');
+                targetMark.dataset.polylineFill = '1';
+                const color = /^#[0-9a-f]{6}$/i.test(targetMark.dataset.color || '') ? targetMark.dataset.color : '#dc2626';
+                this.updateShiftPhotoComparePolylineRegionImage(targetMark, index, {
+                    enabled: true,
+                    color,
+                    pattern: 'svg',
+                    imageSrc: src,
+                    imageOriginalSrc: sourceSrc,
+                    imageTint: true,
+                    imageFit: initialSettings.fit,
+                    imageZoom: initialSettings.zoom,
+                    imageOffsetX: initialSettings.offsetX,
+                    imageOffsetY: initialSettings.offsetY,
+                    imageRotation: initialSettings.rotation,
+                    imageFlipX: initialSettings.flipX,
+                    imageFlipY: initialSettings.flipY,
+                    imageOpacity: initialSettings.opacity,
+                    imageInvert: initialSettings.inverted
+                }, `区画 ${index + 1} に枠色SVGを挿入しました。`);
+                setTimeout(() => this.openShiftPhotoCompareSvgFillSettings(targetMark, index), 0);
+                return;
+            }
+            const targets = [targetMark]
+                .filter(item => ['circle', 'triangle', 'rect'].includes(item.dataset.mode || '') && !this.isShiftPhotoCompareMarkLocked(item));
+            if (!targets.length) throw new Error('No supported symbol');
+            this.pushShiftPhotoCompareUndo();
+            targets.forEach(item => {
+                item.dataset.fillWithBorder = '1';
+                item.dataset.fillPattern = 'svg';
+                item.dataset.fillSvgSrc = src;
+                item.dataset.fillSvgOriginalSrc = sourceSrc;
+                item.dataset.fillSvgMaskMode = fillSvgMaskMode;
+                item.dataset.fillSvgFit = initialSettings.fit;
+                item.dataset.fillSvgZoom = String(initialSettings.zoom);
+                item.dataset.fillSvgOffsetX = String(initialSettings.offsetX);
+                item.dataset.fillSvgOffsetY = String(initialSettings.offsetY);
+                item.dataset.fillSvgRotation = String(initialSettings.rotation);
+                item.dataset.fillSvgFlipX = initialSettings.flipX ? '1' : '0';
+                item.dataset.fillSvgFlipY = initialSettings.flipY ? '1' : '0';
+                item.dataset.fillSvgOpacity = String(initialSettings.opacity);
+                item.dataset.fillSvgInverted = initialSettings.inverted ? '1' : '0';
+                this.refreshShiftPhotoCompareFillSvgElement(item);
+                this.fitShiftPhotoCompareSvgMarkInsideSurface(item);
+            });
+            this.syncShiftPhotoCompareChangedMarkWraps(targets);
+            this.refreshShiftPhotoCompareMarkList();
+            this.autoSaveShiftNotebook(true);
+            const svgTypeLabel = fillSvgMaskMode === 'cutout' ? '抜き絵SVG' : '通常SVG';
+            this.showShiftPhotoCompareActionMessage(`記号内に枠色SVGを挿入しました（${svgTypeLabel}・${targets.length}件）。`);
+            setTimeout(() => this.openShiftPhotoCompareSvgFillSettings(targets[0]), 0);
+        };
+        const handleSvgSource = async sourceValue => {
+            try {
+                await applySvgSource(sourceValue);
+            } catch (error) {
+                console.warn('Fill SVG loading failed.', error);
+                this.showShiftPhotoCompareActionMessage('SVGを読み込めませんでした。600KB以下のSVGを選んでください。');
+            }
+        };
+        if (/^data:image\/svg\+xml/i.test(presetSource || '')) {
+            await handleSvgSource(presetSource);
+            return true;
+        }
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/svg+xml,.svg';
+        input.className = 'shift-photo-input';
+        input.style.display = 'none';
+        input._shiftPhotoFillSvgApply = item => handleSvgSource(item?.src || '');
+        document.body.appendChild(input);
+        input.addEventListener('change', async () => {
+            const file = input.files?.[0];
+            input.remove();
+            if (!file) return;
+            if (file.size > 600000) return handleSvgSource('');
+            await handleSvgSource(await file.text());
+        }, { once: true });
+        input.addEventListener('cancel', () => input.remove(), { once: true });
+        input.click();
+        return true;
+    }
+    setShiftPhotoCompareBorderFillPattern(mark, patternValue = 'solid', regionIndex = -1) {
+        if (!mark || this.isShiftPhotoCompareMarkLocked(mark)) return false;
+        const pattern = this.normalizeShiftPhotoCompareFillPattern(patternValue);
+        const labels = { solid: '単色', diagonal: '斜線', cross: '網掛け', dots: 'ドット', svg: 'SVG' };
+        const mode = mark.dataset.mode || '';
+        const color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
+        if (mode === 'polyline') {
+            if (!this.isShiftPhotoCompareClosedPolyline(mark)) return false;
+            const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+            const regions = this.getShiftPhotoComparePolylineRegions(points, mark.dataset.polylineRegionFills || '[]');
+            if (!regions.length) return false;
+            const fills = this.reconcileShiftPhotoComparePolylineRegionFills(
+                points,
+                mark.dataset.polylineRegionFills || '[]',
+                {
+                    enabled: mark.dataset.polylineFill === '1',
+                    color: mark.dataset.polylineFillColor || color,
+                    pattern: mark.dataset.polylineFillPattern,
+                    patternScale: mark.dataset.polylineFillPatternScale,
+                    opacity: mark.dataset.polylineFillOpacity
+                }
+            );
+            const requestedIndex = Number(regionIndex);
+            const targets = Number.isInteger(requestedIndex) && regions[requestedIndex]
+                ? [requestedIndex]
+                : regions.map((_, index) => index);
+            this.pushShiftPhotoCompareUndo();
+            targets.forEach(index => {
+                fills[index] = {
+                    ...(fills[index] || {}),
+                    enabled: true,
+                    color,
+                    pattern,
+                    patternScale: this.normalizeShiftPhotoCompareFillPatternScale(fills[index]?.patternScale || mark.dataset.polylineFillPatternScale),
+                    opacity: Number(fills[index]?.opacity) || 1
+                };
+            });
+            mark.dataset.polylineFill = '1';
+            mark.dataset.polylineFillColor = color;
+            mark.dataset.polylineFillPattern = pattern;
+            mark.dataset.polylineFillPatternScale = String(this.normalizeShiftPhotoCompareFillPatternScale(mark.dataset.polylineFillPatternScale));
+            mark.dataset.polylineRegionFills = JSON.stringify(fills);
+            this.refreshShiftPhotoComparePolylineRegions(mark);
+            this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+            this.refreshShiftPhotoCompareMarkList();
+            this.autoSaveShiftNotebook(true);
+            const targetLabel = targets.length === 1 ? `区画 ${targets[0] + 1}` : '全区画';
+            this.showShiftPhotoCompareActionMessage(`${targetLabel}を${labels[pattern]}模様で塗りました。`);
+            return true;
+        }
+        if (!['circle', 'triangle', 'rect'].includes(mode)) return false;
+        const selected = this.getShiftPhotoCompareSelectedMarks();
+        const targets = (selected.includes(mark) ? selected : [mark])
+            .filter(item => ['circle', 'triangle', 'rect'].includes(item.dataset.mode) && !this.isShiftPhotoCompareMarkLocked(item));
+        if (!targets.length) return false;
+        this.pushShiftPhotoCompareUndo();
+        targets.forEach(item => {
+            item.dataset.fillWithBorder = '1';
+            item.dataset.fillPattern = pattern;
+            item.dataset.fillPatternScale = String(this.normalizeShiftPhotoCompareFillPatternScale(item.dataset.fillPatternScale));
+            item.style.setProperty('--fill-pattern-size', `${item.dataset.fillPatternScale}px`);
+        });
+        this.syncShiftPhotoCompareChangedMarkWraps(targets);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`記号内を${labels[pattern]}模様で塗りました。`);
+        return true;
+    }
+
+    setShiftPhotoCompareFillPatternScale(mark, scaleValue = 12, regionIndex = -1) {
+        if (!mark || this.isShiftPhotoCompareMarkLocked(mark)) return false;
+        const scale = this.normalizeShiftPhotoCompareFillPatternScale(scaleValue);
+        const mode = mark.dataset.mode || '';
+        if (mode === 'polyline') {
+            if (!this.isShiftPhotoCompareClosedPolyline(mark)) return false;
+            const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+            const regions = this.getShiftPhotoComparePolylineRegions(points, mark.dataset.polylineRegionFills || '[]');
+            if (!regions.length) return false;
+            const fills = this.reconcileShiftPhotoComparePolylineRegionFills(
+                points,
+                mark.dataset.polylineRegionFills || '[]',
+                {
+                    enabled: mark.dataset.polylineFill === '1',
+                    color: mark.dataset.polylineFillColor || mark.dataset.color,
+                    pattern: mark.dataset.polylineFillPattern,
+                    patternScale: mark.dataset.polylineFillPatternScale,
+                    opacity: mark.dataset.polylineFillOpacity
+                }
+            );
+            const requestedIndex = Number(regionIndex);
+            const targets = Number.isInteger(requestedIndex) && regions[requestedIndex]
+                ? [requestedIndex]
+                : regions.map((_, index) => index);
+            this.pushShiftPhotoCompareUndo();
+            targets.forEach(index => {
+                fills[index] = { ...(fills[index] || {}), patternScale: scale };
+            });
+            mark.dataset.polylineFillPatternScale = String(scale);
+            mark.style.setProperty('--fill-pattern-size', `${scale}px`);
+            mark.dataset.polylineRegionFills = JSON.stringify(fills);
+            this.refreshShiftPhotoComparePolylineRegions(mark);
+            this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+            this.refreshShiftPhotoCompareMarkList();
+            this.autoSaveShiftNotebook(true);
+            this.showShiftPhotoCompareActionMessage(`模様の間隔を${scale}pxに変更しました。`);
+            return true;
+        }
+        if (!['circle', 'triangle', 'rect'].includes(mode)) return false;
+        const selected = this.getShiftPhotoCompareSelectedMarks();
+        const targets = (selected.includes(mark) ? selected : [mark])
+            .filter(item => ['circle', 'triangle', 'rect'].includes(item.dataset.mode) && !this.isShiftPhotoCompareMarkLocked(item));
+        if (!targets.length) return false;
+        this.pushShiftPhotoCompareUndo();
+        targets.forEach(item => {
+            item.dataset.fillPatternScale = String(scale);
+            item.style.setProperty('--fill-pattern-size', `${scale}px`);
+        });
+        this.syncShiftPhotoCompareChangedMarkWraps(targets);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`模様の間隔を${scale}pxに変更しました。`);
+        return true;
+    }
+    clearShiftPhotoCompareInteriorFills(mark, scope = 'image') {
+        if (!mark) return false;
+        const panel = mark.closest('.shift-photo-compare-panel') || document.querySelector('.shift-photo-compare-panel');
+        const imageRoot = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer');
+        const root = scope === 'all' ? panel : imageRoot;
+        if (!root) return false;
+        const changes = [];
+        root.querySelectorAll('.shift-photo-compare-mark').forEach(item => {
+            if (this.isShiftPhotoCompareMarkLocked(item)) return;
+            const mode = item.dataset.mode || '';
+            if (['circle', 'triangle', 'rect'].includes(mode) && item.dataset.fillWithBorder === '1') {
+                changes.push({ item, mode: 'symbol' });
+                return;
+            }
+            if (mode !== 'polyline') return;
+            const points = this.parseShiftPhotoCompareFreehandPoints(item.dataset.points || '[]');
+            const fills = this.reconcileShiftPhotoComparePolylineRegionFills(
+                points,
+                item.dataset.polylineRegionFills || '[]',
+                {
+                    enabled: item.dataset.polylineFill === '1',
+                    color: item.dataset.polylineFillColor || item.dataset.color,
+                    pattern: item.dataset.polylineFillPattern,
+                    opacity: item.dataset.polylineFillOpacity
+                }
+            );
+            if (item.dataset.polylineFill === '1' || fills.some(fill => fill.enabled)) {
+                changes.push({ item, mode: 'polyline', fills });
+            }
+        });
+        if (!changes.length) {
+            this.showShiftPhotoCompareActionMessage('解除できる塗りつぶしはありません。');
+            return false;
+        }
+        this.pushShiftPhotoCompareUndo();
+        changes.forEach(change => {
+            if (change.mode === 'symbol') {
+                change.item.dataset.fillWithBorder = '0';
+                return;
+            }
+            change.fills.forEach(fill => { fill.enabled = false; });
+            change.item.dataset.polylineFill = '0';
+            change.item.dataset.polylineRegionFills = JSON.stringify(change.fills);
+            this.refreshShiftPhotoComparePolylineRegions(change.item);
+        });
+        const changedMarks = changes.map(change => change.item);
+        this.syncShiftPhotoCompareChangedMarkWraps(changedMarks);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`${scope === 'all' ? '比較全体' : 'この画像'}の塗りを一括解除しました（${changes.length}件）。`);
+        return true;
+    }
+    toggleShiftPhotoCompareBorderInteriorFill(mark, regionIndex = -1) {
+        if (!mark || this.isShiftPhotoCompareMarkLocked(mark)) return false;
+        const mode = mark.dataset.mode || '';
+        const color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
+        if (mode === 'polyline') {
+            if (!this.isShiftPhotoCompareClosedPolyline(mark)) return false;
+            const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+            const regions = this.getShiftPhotoComparePolylineRegions(points, mark.dataset.polylineRegionFills || '[]');
+            if (!regions.length) return false;
+            const fills = this.reconcileShiftPhotoComparePolylineRegionFills(
+                points,
+                mark.dataset.polylineRegionFills || '[]',
+                {
+                    enabled: mark.dataset.polylineFill === '1',
+                    color: mark.dataset.polylineFillColor || color,
+                    pattern: mark.dataset.polylineFillPattern,
+                    patternScale: mark.dataset.polylineFillPatternScale,
+                    opacity: mark.dataset.polylineFillOpacity
+                }
+            );
+            const requestedIndex = Number(regionIndex);
+            const targets = Number.isInteger(requestedIndex) && regions[requestedIndex]
+                ? [requestedIndex]
+                : regions.map((_, index) => index);
+            const enabled = targets.every(index => fills[index]?.enabled === true
+                && String(fills[index]?.color || '').toLowerCase() === color.toLowerCase()
+                && Math.abs((Number(fills[index]?.opacity) || 1) - 1) < 0.001);
+            this.pushShiftPhotoCompareUndo();
+            targets.forEach(index => {
+                fills[index] = {
+                    ...(fills[index] || {}),
+                    enabled: !enabled,
+                    color,
+                    opacity: 1
+                };
+            });
+            mark.dataset.polylineFillColor = color;
+            mark.dataset.polylineFillOpacity = '1';
+            mark.dataset.polylineRegionFills = JSON.stringify(fills);
+            mark.dataset.polylineFill = fills.some(fill => fill.enabled) ? '1' : '0';
+            this.refreshShiftPhotoComparePolylineRegions(mark);
+            this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+            this.refreshShiftPhotoCompareMarkList();
+            this.autoSaveShiftNotebook(true);
+            const targetLabel = targets.length === 1 ? `区画 ${targets[0] + 1}` : '全区画';
+            this.showShiftPhotoCompareActionMessage(`${targetLabel}の枠色塗りを${enabled ? '解除' : '設定'}しました。`);
+            return true;
+        }
+        if (!['circle', 'triangle', 'rect'].includes(mode)) return false;
+        const selected = this.getShiftPhotoCompareSelectedMarks();
+        const targets = (selected.includes(mark) ? selected : [mark])
+            .filter(item => ['circle', 'triangle', 'rect'].includes(item.dataset.mode) && !this.isShiftPhotoCompareMarkLocked(item));
+        if (!targets.length) return false;
+        const enabled = targets.every(item => item.dataset.fillWithBorder === '1');
+        this.pushShiftPhotoCompareUndo();
+        targets.forEach(item => {
+            item.dataset.fillWithBorder = enabled ? '0' : '1';
+            item.dataset.fillPattern = this.normalizeShiftPhotoCompareFillPattern(item.dataset.fillPattern);
+        });
+        this.syncShiftPhotoCompareChangedMarkWraps(targets);
+        this.refreshShiftPhotoCompareMarkList();
+        this.autoSaveShiftNotebook(true);
+        this.showShiftPhotoCompareActionMessage(`記号内の枠色塗りを${enabled ? '解除' : '設定'}しました。`);
+        return true;
+    }
+
     copyShiftPhotoComparePolylineRegionFill(mark, regionIndex = -1) {
         if (!mark || mark.dataset.mode !== 'polyline') return;
         const regions = this.getShiftPhotoComparePolylineRegions(
@@ -27600,6 +28792,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             {
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color,
+                pattern: mark.dataset.polylineFillPattern,
+                patternScale: mark.dataset.polylineFillPatternScale,
                 opacity: mark.dataset.polylineFillOpacity
             }
         );
@@ -27627,6 +28821,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             {
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color,
+                pattern: mark.dataset.polylineFillPattern,
+                patternScale: mark.dataset.polylineFillPatternScale,
                 opacity: mark.dataset.polylineFillOpacity
             }
         );
@@ -27888,7 +29084,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             mark.style.setProperty('--outer-outline-color', outlineColors.outer);
             mark.style.setProperty('--inner-outline-color', outlineColors.inner);
             const fills = wasFreehand ? [] : this.reconcileShiftPhotoComparePolylineRegionFills(points, mark.dataset.polylineRegionFills || '[]', {
-                enabled: mark.dataset.polylineFill === '1', color: mark.dataset.polylineFillColor || color, opacity: mark.dataset.polylineFillOpacity
+                enabled: mark.dataset.polylineFill === '1', color: mark.dataset.polylineFillColor || color, pattern: mark.dataset.polylineFillPattern, patternScale: mark.dataset.polylineFillPatternScale, opacity: mark.dataset.polylineFillOpacity
             });
             mark.dataset.polylineRegionFills = JSON.stringify(fills);
             const value = points.map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
@@ -31345,6 +32541,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             {
                 enabled: mark.dataset.polylineFill === '1',
                 color: mark.dataset.polylineFillColor || mark.dataset.color,
+                pattern: mark.dataset.polylineFillPattern,
+                patternScale: mark.dataset.polylineFillPatternScale,
                 opacity: mark.dataset.polylineFillOpacity
             }
         );
@@ -31361,6 +32559,30 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 : (/^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626'));
         const polylineFillOpacity = regionFill?.opacity ?? Number(mark.dataset.polylineFillOpacity);
         const polylineFillTransparency = Math.round((1 - Math.max(0.05, Math.min(1, polylineFillOpacity || 1))) * 100);
+        const borderFillSymbolModes = ['circle', 'triangle', 'rect'];
+        const supportsBorderInteriorFill = borderFillSymbolModes.includes(mode) || (isClosedPolyline && polylineRegions.length > 0);
+        const borderInteriorFillEnabled = isPolyline
+            ? (polylineRegionIndex >= 0
+                ? regionFill?.enabled === true
+                    && String(regionFill.color || '').toLowerCase() === String(mark.dataset.color || '').toLowerCase()
+                    && Math.abs((Number(regionFill.opacity) || 1) - 1) < 0.001
+                : polylineRegionFills.length > 0 && polylineRegionFills.every(fill => fill.enabled === true
+                    && String(fill.color || '').toLowerCase() === String(mark.dataset.color || '').toLowerCase()
+                    && Math.abs((Number(fill.opacity) || 1) - 1) < 0.001))
+            : mark.dataset.fillWithBorder === '1';
+        const borderInteriorFillPattern = this.normalizeShiftPhotoCompareFillPattern(isPolyline
+            ? (regionFill?.pattern || mark.dataset.polylineFillPattern)
+            : mark.dataset.fillPattern);
+        const borderInteriorFillPatternScale = this.normalizeShiftPhotoCompareFillPatternScale(isPolyline
+            ? (regionFill?.patternScale || mark.dataset.polylineFillPatternScale)
+            : mark.dataset.fillPatternScale);
+        const fillPatternOptions = [
+            { value: 'solid', label: '単色' },
+            { value: 'diagonal', label: '斜線' },
+            { value: 'cross', label: '網掛け' },
+            { value: 'dots', label: 'ドット' },
+            { value: 'svg', label: 'SVG' }
+        ];
         const canSelectFromDrawing = ['freehand', 'polyline'].includes(mode);
         const arrowHeadHidden = isArrow && mark.dataset.arrowHeadHidden === '1';
         const selected = this.getShiftPhotoCompareSelectedMarks();
@@ -31472,6 +32694,17 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             <button type="button" data-action="overwrite-mark-template"><i class="fa-solid fa-arrows-rotate"></i><span>記号テンプレートを上書き${selectedCount > 1 ? `（${selectedCount}件）` : ''}</span></button>
             ${!isImage && mode !== 'table' ? symbolPresetMenuHtml : ''}
             <div class="shift-photo-context-section-title">設定</div>
+            ${supportsBorderInteriorFill ? `<button type="button" data-action="border-interior-fill" class="${borderInteriorFillEnabled ? 'active' : ''}"><i class="fa-solid fa-fill-drip"></i><span>${polylineRegionIndex >= 0 ? `区画 ${polylineRegionIndex + 1}：` : ''}${borderInteriorFillEnabled ? '枠色の塗りを解除' : '内側を枠と同じ色で塗る'}</span></button>
+            <div class="shift-photo-fill-pattern-tools">
+                <b><i class="fa-solid fa-border-all"></i><span>塗り模様</span></b>
+                <div>${fillPatternOptions.map(option => `<button type="button" data-action="${option.value === 'svg' ? 'border-fill-svg-file' : 'border-fill-pattern'}" data-pattern="${option.value}" class="${borderInteriorFillPattern === option.value ? 'active' : ''}" title="${option.label}"><i class="shift-photo-fill-pattern-swatch ${option.value}"></i><span>${option.label}</span></button>`).join('')}</div>
+                <label class="shift-photo-fill-pattern-scale"><span>細かい</span><input type="range" min="6" max="36" step="1" value="${borderInteriorFillPatternScale}" data-field="border-fill-pattern-scale"><output>${borderInteriorFillPatternScale}px</output><span>粗い</span></label>
+            </div>
+            <a class="shift-photo-svg-converter-link" href="https://supa2006jp-lang.github.io/mente/bitmap-tracer/" target="_blank" rel="noopener noreferrer" title="画像をSVGへ変換するツールを開く"><i class="fa-solid fa-arrow-up-right-from-square"></i><span>SVG変換ツールを開く</span></a>
+            ${borderInteriorFillPattern === 'svg' && (polylineRegionIndex >= 0 ? polylineRegionImageSrc : mark.dataset.fillSvgSrc) ? '<button type="button" data-action="svg-fill-settings"><i class="fa-solid fa-sliders"></i><span>SVGの表示を調整</span></button>' : ''}
+            ${this.getLastShiftPhotoCompareSvgFillPreset().source ? '<button type="button" data-action="svg-fill-last"><i class="fa-solid fa-clock-rotate-left"></i><span>前回のSVGを使用</span></button>' : ''}
+            <button type="button" data-action="clear-image-interior-fills"><i class="fa-solid fa-eraser"></i><span>この画像の塗りを一括解除</span></button>
+            <button type="button" data-action="clear-all-interior-fills"><i class="fa-solid fa-trash-can-arrow-up"></i><span>比較全体の塗りを一括解除</span></button>` : ''}
             <button type="button" data-action="lock"><i class="fa-solid ${allLocked ? 'fa-lock-open' : 'fa-lock'}"></i><span>${allLocked ? 'ロックを解除' : 'ロック'}</span></button>
             <button type="button" data-action="animation-order"><i class="fa-solid fa-list-ol"></i><span>アニメ順を付ける</span></button>
             <button type="button" data-action="animation-order-clear"><i class="fa-solid fa-eraser"></i><span>アニメ順を消す</span></button>
@@ -31623,7 +32856,14 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 const row = menu.querySelector(`.shift-photo-polyline-region-row[data-region-index="${index}"]`);
                 row?.classList.add('pending');
             }));
-        const ensureOutlineEditMode = () => {
+        const fillPatternScaleInput = menu.querySelector('[data-field="border-fill-pattern-scale"]');
+        fillPatternScaleInput?.addEventListener('input', scaleEvent => {
+            const output = menu.querySelector('.shift-photo-fill-pattern-scale output');
+            if (output) output.textContent = `${this.normalizeShiftPhotoCompareFillPatternScale(scaleEvent.target.value)}px`;
+        });
+        fillPatternScaleInput?.addEventListener('change', scaleEvent => {
+            this.setShiftPhotoCompareFillPatternScale(mark, scaleEvent.target.value, polylineRegionIndex);
+        });        const ensureOutlineEditMode = () => {
             if (this._shiftPhotoCompareMarkMode !== 'move') this.setShiftPhotoCompareMarkModeDirect('move');
             if (!mark.classList.contains('selected')) this.selectShiftPhotoCompareMark(mark);
         };
@@ -31736,6 +32976,26 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 this.overwriteShiftPhotoCompareSymbolSettingPreset(menuEvent.target.closest('button')?.dataset?.presetIndex || '');
             }
             if (action === 'lock') this.toggleSelectedShiftPhotoCompareMarkLock();
+            if (action === 'border-interior-fill') this.toggleShiftPhotoCompareBorderInteriorFill(mark, polylineRegionIndex);
+            if (action === 'border-fill-pattern') this.setShiftPhotoCompareBorderFillPattern(mark, menuEvent.target.closest('button')?.dataset?.pattern || 'solid', polylineRegionIndex);
+            if (action === 'border-fill-svg-file') {
+                this.closeShiftPhotoCompareImageContextMenu();
+                await this.chooseShiftPhotoCompareBorderFillSvg(mark, polylineRegionIndex);
+                return;
+            }
+            if (action === 'svg-fill-settings') {
+                this.closeShiftPhotoCompareImageContextMenu();
+                this.pushShiftPhotoCompareUndo();
+                this.openShiftPhotoCompareSvgFillSettings(mark, polylineRegionIndex);
+                return;
+            }
+            if (action === 'svg-fill-last') {
+                this.closeShiftPhotoCompareImageContextMenu();
+                await this.chooseShiftPhotoCompareBorderFillSvg(mark, polylineRegionIndex, this.getLastShiftPhotoCompareSvgFillPreset().source);
+                return;
+            }
+            if (action === 'clear-image-interior-fills') this.clearShiftPhotoCompareInteriorFills(mark, 'image');
+            if (action === 'clear-all-interior-fills') this.clearShiftPhotoCompareInteriorFills(mark, 'all');
             if (action === 'animation-order') this.assignShiftPhotoCompareAnimationOrder(mark);
             if (action === 'animation-order-clear') this.clearShiftPhotoCompareAnimationOrder(mark);
             if (action === 'group') this.toggleSelectedShiftPhotoCompareMarkGroup();
@@ -34065,6 +35325,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     {
                         enabled: mark.dataset.polylineFill === '1',
                         color: mark.dataset.polylineFillColor || mark.dataset.color,
+                        pattern: mark.dataset.polylineFillPattern,
+                        patternScale: mark.dataset.polylineFillPatternScale,
                         opacity: mark.dataset.polylineFillOpacity
                     }
                 ).map(fill => ({
@@ -38214,6 +39476,111 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         ctx.restore();
     }
 
+    getShiftPhotoCompareCanvasFillStyle(ctx, color = '#dc2626', patternValue = 'solid', patternScaleValue = 12) {
+        const pattern = this.normalizeShiftPhotoCompareFillPattern(patternValue);
+        const patternScale = this.normalizeShiftPhotoCompareFillPatternScale(patternScaleValue);
+        if (pattern === 'solid' || typeof document === 'undefined') return color;
+        if (pattern === 'svg') return 'rgba(0,0,0,0)';
+        const tile = document.createElement('canvas');
+        const size = patternScale;
+        tile.width = size;
+        tile.height = size;
+        const tileCtx = tile.getContext('2d');
+        if (!tileCtx) return color;
+        tileCtx.strokeStyle = color;
+        tileCtx.fillStyle = color;
+        tileCtx.lineWidth = Math.max(1, Math.min(5, size * 0.18));
+        tileCtx.lineCap = 'round';
+        if (pattern === 'dots') {
+            tileCtx.beginPath();
+            tileCtx.arc(size / 2, size / 2, Math.max(1.5, Math.min(5, size * 0.18)), 0, Math.PI * 2);
+            tileCtx.fill();
+        } else {
+            const drawDiagonal = reverse => {
+                tileCtx.beginPath();
+                const direction = reverse ? -1 : 1;
+                for (let offset = -size; offset <= size * 2; offset += size) {
+                    if (direction > 0) {
+                        tileCtx.moveTo(offset, size);
+                        tileCtx.lineTo(offset + size, 0);
+                    } else {
+                        tileCtx.moveTo(offset, 0);
+                        tileCtx.lineTo(offset + size, size);
+                    }
+                }
+                tileCtx.stroke();
+            };
+            drawDiagonal(false);
+            if (pattern === 'cross') drawDiagonal(true);
+        }
+        return ctx.createPattern(tile, 'repeat') || color;
+    }
+
+    async createShiftPhotoCompareTintedSvgCanvas(src = '', color = '#dc2626', maxSide = 1200) {
+        if (!/^data:image\/(?:svg\+xml|png)/i.test(src || '')) return null;
+        const image = await this.loadShiftPhotoCompareImage(src);
+        const naturalWidth = Math.max(1, image.naturalWidth || image.width || 100);
+        const naturalHeight = Math.max(1, image.naturalHeight || image.height || 100);
+        const scale = Math.min(1, Math.max(64, Number(maxSide) || 1200) / Math.max(naturalWidth, naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(naturalHeight * scale));
+        const tintContext = canvas.getContext('2d');
+        if (!tintContext) return null;
+        tintContext.imageSmoothingEnabled = true;
+        tintContext.imageSmoothingQuality = 'high';
+        tintContext.drawImage(image, 0, 0, canvas.width, canvas.height);
+        tintContext.globalCompositeOperation = 'source-in';
+        tintContext.fillStyle = /^#[0-9a-f]{6}$/i.test(color || '') ? color : '#dc2626';
+        tintContext.fillRect(0, 0, canvas.width, canvas.height);
+        tintContext.globalCompositeOperation = 'source-over';
+        return canvas;
+    }
+
+    async drawShiftPhotoCompareCanvasSvgFill(ctx, src = '', color = '#dc2626', x = 0, y = 0, width = 1, height = 1, settingsValue = {}) {
+        const image = await this.createShiftPhotoCompareTintedSvgCanvas(src, color, Math.max(width, height) * 2);
+        if (!image) return false;
+        const settings = this.normalizeShiftPhotoCompareSvgFillSettings(settingsValue);
+        let drawWidth = width;
+        let drawHeight = height;
+        if (settings.fit !== 'stretch' && settings.fit !== 'repeat') {
+            const scale = settings.fit === 'cover'
+                ? Math.max(width / image.width, height / image.height)
+                : Math.min(width / image.width, height / image.height);
+            drawWidth = image.width * scale;
+            drawHeight = image.height * scale;
+        }
+        ctx.save();
+        ctx.globalAlpha *= settings.opacity;
+        ctx.translate(
+            x + width / 2 + width * settings.offsetX / 100,
+            y + height / 2 + height * settings.offsetY / 100
+        );
+        ctx.rotate(settings.rotation * Math.PI / 180);
+        ctx.scale(settings.flipX ? -settings.zoom : settings.zoom, settings.flipY ? -settings.zoom : settings.zoom);
+        if (settings.fit === 'repeat') {
+            const tile = document.createElement('canvas');
+            tile.width = Math.max(1, Math.round(width / 4));
+            tile.height = Math.max(1, Math.round(height / 4));
+            const tileContext = tile.getContext('2d');
+            if (tileContext) {
+                const tileScale = Math.min(tile.width / image.width, tile.height / image.height);
+                const tileWidth = image.width * tileScale;
+                const tileHeight = image.height * tileScale;
+                tileContext.drawImage(image, (tile.width - tileWidth) / 2, (tile.height - tileHeight) / 2, tileWidth, tileHeight);
+                const pattern = ctx.createPattern(tile, 'repeat');
+                if (pattern) {
+                    ctx.fillStyle = pattern;
+                    ctx.fillRect(-width * 2, -height * 2, width * 4, height * 4);
+                }
+            }
+        } else {
+            ctx.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+        }
+        ctx.restore();
+        return true;
+    }
+
     drawShiftPhotoCompareRichCanvasLine(ctx, mark, lineValue, sourceStart, x, y, align = 'left', maxWidth = 0, baseColor = '#111827') {
         const line = String(lineValue || '');
         const runs = this.normalizeShiftPhotoCompareTextColorRuns(mark?.dataset?.textColorRuns || '[]', String(mark?.dataset?.text || '').length);
@@ -38367,6 +39734,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     {
                         enabled: mark.dataset.polylineFill === '1',
                         color: mark.dataset.polylineFillColor || color,
+                        pattern: mark.dataset.polylineFillPattern,
+                        patternScale: mark.dataset.polylineFillPatternScale,
                         opacity: mark.dataset.polylineFillOpacity
                     }
                 );
@@ -38379,9 +39748,11 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     const fill = regionFills[index];
                     const enabled = typeof fill?.enabled === 'boolean' ? fill.enabled : defaultFillEnabled;
                     if (!enabled) return;
+                    if (fill?.pattern === 'svg' && fill?.imageTint && fill?.imageSrc) return;
                     ctx.save();
                     ctx.globalAlpha = Math.max(0.05, Math.min(1, Number(fill?.opacity) || defaultFillOpacity));
-                    ctx.fillStyle = /^#[0-9a-f]{6}$/i.test(fill?.color || '') ? fill.color : defaultFillColor;
+                    const fillColor = /^#[0-9a-f]{6}$/i.test(fill?.color || '') ? fill.color : defaultFillColor;
+                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, fillColor, fill?.pattern || mark.dataset.polylineFillPattern, fill?.patternScale || mark.dataset.polylineFillPatternScale);
                     ctx.setLineDash([]);
                     ctx.beginPath();
                     region.points.forEach((point, pointIndex) => {
@@ -38399,24 +39770,17 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     const fill = regionFills[index] || {};
                     if (!fill.imageSrc || !region?.points?.length) continue;
                     try {
-                        const image = await this.loadShiftPhotoCompareImage(fill.imageSrc);
+                        let image = await this.loadShiftPhotoCompareImage(fill.imageSrc);
+                        if (fill.imageTint) {
+                            const fillColor = /^#[0-9a-f]{6}$/i.test(fill.color || '') ? fill.color : defaultFillColor;
+                            image = await this.createShiftPhotoCompareTintedSvgCanvas(fill.imageSrc, fillColor) || image;
+                        }
                         const minX = Math.min(...region.points.map(point => rect.x + point.x / 100 * rect.width));
                         const minY = Math.min(...region.points.map(point => rect.y + point.y / 100 * rect.height));
                         const maxX = Math.max(...region.points.map(point => rect.x + point.x / 100 * rect.width));
                         const maxY = Math.max(...region.points.map(point => rect.y + point.y / 100 * rect.height));
                         const regionWidth = Math.max(1, maxX - minX);
                         const regionHeight = Math.max(1, maxY - minY);
-                        const zoom = Math.max(1, Math.min(6, Number(fill.imageZoom) || 1));
-                        const imageWidth = image.naturalWidth || image.width || 1;
-                        const imageHeight = image.naturalHeight || image.height || 1;
-                        const stretchImage = fill.imageFit === 'stretch';
-                        const availableWidth = regionWidth * zoom;
-                        const availableHeight = regionHeight * zoom;
-                        const containScale = Math.min(availableWidth / imageWidth, availableHeight / imageHeight);
-                        const drawWidth = stretchImage ? regionWidth : imageWidth * containScale;
-                        const drawHeight = stretchImage ? regionHeight : imageHeight * containScale;
-                        const centerX = stretchImage ? minX + regionWidth / 2 : minX + regionWidth * (0.5 + Math.max(-150, Math.min(150, Number(fill.imageOffsetX) || 0)) / 100);
-                        const centerY = stretchImage ? minY + regionHeight / 2 : minY + regionHeight * (0.5 + Math.max(-150, Math.min(150, Number(fill.imageOffsetY) || 0)) / 100);
                         ctx.save();
                         ctx.beginPath();
                         region.points.forEach((point, pointIndex) => {
@@ -38427,9 +39791,56 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                         });
                         ctx.closePath();
                         ctx.clip();
-                        ctx.translate(centerX, centerY);
-                        ctx.scale(fill.imageFlipX ? -1 : 1, 1);
-                        ctx.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                        const settings = this.normalizeShiftPhotoCompareSvgFillSettings({
+                            fit: fill.imageFit,
+                            zoom: fill.imageZoom,
+                            offsetX: fill.imageOffsetX,
+                            offsetY: fill.imageOffsetY,
+                            rotation: fill.imageRotation,
+                            flipX: fill.imageFlipX,
+                            flipY: fill.imageFlipY,
+                            opacity: fill.imageOpacity,
+                            inverted: fill.imageInvert
+                        });
+                        const imageWidth = image.naturalWidth || image.width || 1;
+                        const imageHeight = image.naturalHeight || image.height || 1;
+                        let drawWidth = regionWidth;
+                        let drawHeight = regionHeight;
+                        if (settings.fit !== 'stretch' && settings.fit !== 'repeat') {
+                            const scale = settings.fit === 'cover'
+                                ? Math.max(regionWidth / imageWidth, regionHeight / imageHeight)
+                                : Math.min(regionWidth / imageWidth, regionHeight / imageHeight);
+                            drawWidth = imageWidth * scale;
+                            drawHeight = imageHeight * scale;
+                        }
+                        ctx.save();
+                        ctx.globalAlpha *= settings.opacity;
+                        ctx.translate(
+                            minX + regionWidth / 2 + regionWidth * settings.offsetX / 100,
+                            minY + regionHeight / 2 + regionHeight * settings.offsetY / 100
+                        );
+                        ctx.rotate(settings.rotation * Math.PI / 180);
+                        ctx.scale(settings.flipX ? -settings.zoom : settings.zoom, settings.flipY ? -settings.zoom : settings.zoom);
+                        if (settings.fit === 'repeat') {
+                            const tile = document.createElement('canvas');
+                            tile.width = Math.max(1, Math.round(regionWidth / 4));
+                            tile.height = Math.max(1, Math.round(regionHeight / 4));
+                            const tileContext = tile.getContext('2d');
+                            if (tileContext) {
+                                const tileScale = Math.min(tile.width / imageWidth, tile.height / imageHeight);
+                                const tileWidth = imageWidth * tileScale;
+                                const tileHeight = imageHeight * tileScale;
+                                tileContext.drawImage(image, (tile.width - tileWidth) / 2, (tile.height - tileHeight) / 2, tileWidth, tileHeight);
+                                const pattern = ctx.createPattern(tile, 'repeat');
+                                if (pattern) {
+                                    ctx.fillStyle = pattern;
+                                    ctx.fillRect(-regionWidth * 2, -regionHeight * 2, regionWidth * 4, regionHeight * 4);
+                                }
+                            }
+                        } else {
+                            ctx.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                        }
+                        ctx.restore();
                         ctx.restore();
                     } catch (error) {
                         console.warn('Polyline region image export failed', error);
@@ -39289,10 +40700,23 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             if (customLineCap) ctx.lineCap = 'round';
         };
         if (mode === 'circle') {
-            drawOutlinedStroke(() => {
+            const drawCircle = () => {
                 ctx.beginPath();
                 ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
-            });
+            };
+            if (mark.dataset.fillWithBorder === '1') {
+                drawCircle();
+                if (mark.dataset.fillPattern === 'svg' && mark.dataset.fillSvgSrc) {
+                    ctx.save();
+                    ctx.clip();
+                    await this.drawShiftPhotoCompareCanvasSvgFill(ctx, mark.dataset.fillSvgSrc, color, -size / 2, -size / 2, size, size, this.getShiftPhotoCompareSvgFillSettings(mark));
+                    ctx.restore();
+                } else {
+                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, color, mark.dataset.fillPattern, mark.dataset.fillPatternScale);
+                    ctx.fill();
+                }
+            }
+            drawOutlinedStroke(drawCircle);
         } else if (mode === 'triangle') {
             const drawTriangle = () => {
                 ctx.beginPath();
@@ -39301,8 +40725,33 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 ctx.lineTo(-size * 0.44, size * 0.38);
                 ctx.closePath();
             };
+            if (mark.dataset.fillWithBorder === '1') {
+                drawTriangle();
+                if (mark.dataset.fillPattern === 'svg' && mark.dataset.fillSvgSrc) {
+                    ctx.save();
+                    ctx.clip();
+                    await this.drawShiftPhotoCompareCanvasSvgFill(ctx, mark.dataset.fillSvgSrc, color, -size / 2, -size / 2, size, size, this.getShiftPhotoCompareSvgFillSettings(mark));
+                    ctx.restore();
+                } else {
+                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, color, mark.dataset.fillPattern, mark.dataset.fillPatternScale);
+                    ctx.fill();
+                }
+            }
             drawOutlinedStroke(drawTriangle);
         } else if (mode === 'rect') {
+            if (mark.dataset.fillWithBorder === '1') {
+                if (mark.dataset.fillPattern === 'svg' && mark.dataset.fillSvgSrc) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.rect(-size / 2, -size / 2, size, size);
+                    ctx.clip();
+                    await this.drawShiftPhotoCompareCanvasSvgFill(ctx, mark.dataset.fillSvgSrc, color, -size / 2, -size / 2, size, size, this.getShiftPhotoCompareSvgFillSettings(mark));
+                    ctx.restore();
+                } else {
+                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, color, mark.dataset.fillPattern, mark.dataset.fillPatternScale);
+                    ctx.fillRect(-size / 2, -size / 2, size, size);
+                }
+            }
             if (dashed) {
                 const dotSize = ctx.lineWidth;
                 const half = size / 2;
