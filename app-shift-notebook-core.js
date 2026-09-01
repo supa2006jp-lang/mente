@@ -5433,6 +5433,7 @@
             speechEnabled: page.speechEnabled === true || page.speechEnabled === '1'
                 ? '1'
                 : (page.speechEnabled === false || page.speechEnabled === '0' ? '0' : ''),
+            speechAvatarStyle: this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarStyle, true),
             speechVoiceURI: typeof page.speechVoiceURI === 'string' ? page.speechVoiceURI.slice(0, 300) : '',
             speechPreset: ['standard', 'yukkuri', 'calm', 'clear', 'custom'].includes(page.speechPreset) ? page.speechPreset : '',
             speechRate: Number.isFinite(Number(page.speechRate)) && page.speechRate !== ''
@@ -5531,7 +5532,7 @@
                 videoTrimEnd: Math.max(0, Number(mark.videoTrimEnd) || 0),
                 videoClickMode: mark.videoClickMode === 'stop' ? 'stop' : 'continue',
                 videoEndBehavior: ['hold', 'loop'].includes(mark.videoEndBehavior) ? mark.videoEndBehavior : 'return',
-                videoFrameStyle: ['modern', 'retro', 'custom'].includes(mark.videoFrameStyle) ? mark.videoFrameStyle : 'none',
+                videoFrameStyle: ['modern', 'retro', 'scroll', 'custom'].includes(mark.videoFrameStyle) ? mark.videoFrameStyle : 'none',
                 videoFrameId: String(mark.videoFrameId || ''),
                 videoFrameX: Math.max(0, Math.min(95, Number(mark.videoFrameX) || 0)),
                 videoFrameY: Math.max(0, Math.min(95, Number(mark.videoFrameY) || 0)),
@@ -5554,6 +5555,9 @@
                 fillWithBorder: mark.fillWithBorder === true || mark.fillWithBorder === '1',
                 fillPattern: this.normalizeShiftPhotoCompareFillPattern(mark.fillPattern),
                 fillPatternScale: this.normalizeShiftPhotoCompareFillPatternScale(mark.fillPatternScale),
+                fillPatternLineWidth: this.normalizeShiftPhotoCompareFillPatternLineWidth(mark.fillPatternLineWidth),
+                fillPatternOpacity: this.normalizeShiftPhotoCompareFillPatternOpacity(mark.fillPatternOpacity),
+                fillPatternBackground: this.normalizeShiftPhotoCompareFillPatternBackground(mark.fillPatternBackground),
                 fillSvgSrc: /^data:image\/(?:svg\+xml|png)/i.test(mark.fillSvgSrc || '') ? mark.fillSvgSrc : '',
                 fillSvgOriginalSrc: /^data:image\/svg\+xml/i.test(mark.fillSvgOriginalSrc || '') ? mark.fillSvgOriginalSrc : '',
                 fillSvgMaskMode: mark.fillSvgMaskMode === 'cutout' ? 'cutout' : 'alpha',
@@ -5566,6 +5570,9 @@
                 fillSvgFlipY: mark.fillSvgFlipY === true || mark.fillSvgFlipY === '1',
                 fillSvgOpacity: Math.max(0.1, Math.min(1, Number(mark.fillSvgOpacity) || 1)),
                 fillSvgInverted: mark.fillSvgInverted === true || mark.fillSvgInverted === '1',
+                fillSvgDetailSource: /^data:image\/svg\+xml/i.test(mark.fillSvgDetailSource || '') ? mark.fillSvgDetailSource : '',
+                fillSvgDetailThreshold: Math.max(0.05, Math.min(3, Number(mark.fillSvgDetailThreshold) || 0.5)),
+                fillSvgProtectedAreas: (Array.isArray(mark.fillSvgProtectedAreas) ? mark.fillSvgProtectedAreas : []).slice(0, 40),
                 polylineFill: mark.polylineFill === true || mark.polylineFill === '1',
                 polylineFillColor: /^#[0-9a-f]{6}$/i.test(mark.polylineFillColor || '') ? mark.polylineFillColor : (/^#[0-9a-f]{6}$/i.test(mark.color || '') ? mark.color : '#dc2626'),
                 polylineFillPattern: this.normalizeShiftPhotoCompareFillPattern(mark.polylineFillPattern),
@@ -6613,20 +6620,30 @@
             const color = /^#[0-9a-f]{6}$/i.test(fill.color || '') ? fill.color : defaultColor;
             const pattern = this.normalizeShiftPhotoCompareFillPattern(fill.pattern || defaultPattern);
             const patternScale = this.normalizeShiftPhotoCompareFillPatternScale(fill.patternScale || defaultPatternScale);
+            const patternLineWidth = this.normalizeShiftPhotoCompareFillPatternLineWidth(fill.patternLineWidth);
+            const patternOpacity = this.normalizeShiftPhotoCompareFillPatternOpacity(fill.patternOpacity);
+            const patternBackground = this.normalizeShiftPhotoCompareFillPatternBackground(fill.patternBackground);
             const opacity = Math.max(0.05, Math.min(1, Number(fill.opacity) || defaultOpacity));
-            const svgImageFill = pattern === 'svg' && fill.imageTint && /^data:image\/svg\+xml/i.test(fill.imageSrc || '');
+            const svgImageFill = ['svg', 'svg-tile'].includes(pattern) && fill.imageTint && /^data:image\/svg\+xml/i.test(fill.imageSrc || '');
             const regionPoints = region.points.map(point => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(' ');
             let fillValue = color;
             if (enabled && pattern !== 'solid' && !svgImageFill) {
                 const patternId = `${patternNamespace}-${index}`;
-                const strokeWidth = Math.max(1, Math.min(5, patternScale * 0.18));
+                const strokeWidth = patternLineWidth;
                 const half = patternScale / 2;
                 const diagonal = `<path d="M-${half} ${half}L${half} -${half}M0 ${patternScale}L${patternScale} 0M${half} ${patternScale + half}L${patternScale + half} ${half}" stroke="${color}" stroke-width="${strokeWidth}" fill="none"></path>`;
                 const reverse = `<path d="M-${half} ${half}L${half} ${patternScale + half}M0 0L${patternScale} ${patternScale}M${half} -${half}L${patternScale + half} ${half}" stroke="${color}" stroke-width="${strokeWidth}" fill="none"></path>`;
-                const content = pattern === 'dots'
-                    ? `<circle cx="${half}" cy="${half}" r="${Math.max(1.5, Math.min(5, patternScale * 0.18))}" fill="${color}"></circle>`
-                    : `${diagonal}${pattern === 'cross' ? reverse : ''}`;
-                patternDefinitions.push(`<pattern id="${patternId}" patternUnits="userSpaceOnUse" width="${patternScale}" height="${patternScale}">${content}</pattern>`);
+                let content = `${diagonal}${pattern === 'cross' ? reverse : ''}`;
+                if (pattern === 'dots') {
+                    content = `<circle cx="${half}" cy="${half}" r="${patternLineWidth}" fill="${color}"></circle>`;
+                } else if (pattern === 'warning') {
+                    content = `<path d="M-${half} ${patternScale + half}L${patternScale + half} -${half}" stroke="${color}" stroke-width="${patternLineWidth}" fill="none"></path>`;
+                } else if (pattern === 'honeycomb') {
+                    const quarter = patternScale * 0.25;
+                    const threeQuarter = patternScale * 0.75;
+                    content = `<path d="M${quarter} 0H${threeQuarter}L${patternScale} ${half}L${threeQuarter} ${patternScale}H${quarter}L0 ${half}Z" stroke="${color}" stroke-width="${patternLineWidth}" fill="none"></path>`;
+                }
+                patternDefinitions.push(`<pattern id="${patternId}" patternUnits="userSpaceOnUse" width="${patternScale}" height="${patternScale}">${patternBackground !== 'transparent' ? `<rect width="${patternScale}" height="${patternScale}" fill="${patternBackground}"></rect>` : ''}<g opacity="${patternOpacity}">${content}</g></pattern>`);
                 fillValue = `url(#${patternId})`;
             }
             return `<polygon class="shift-photo-polyline-region" data-region-index="${index}" data-region-enabled="${enabled ? '1' : '0'}" data-region-pattern="${pattern}" data-region-pattern-scale="${patternScale}" data-region-has-image="${fill.imageSrc ? '1' : '0'}" points="${this.escapeHtml(regionPoints)}" fill="${enabled && !svgImageFill ? fillValue : 'transparent'}" fill-opacity="${enabled && !svgImageFill ? opacity : 0}"></polygon>`;
@@ -6658,11 +6675,15 @@
             }).join(',');
             const rotation = Math.max(-180, Math.min(180, Number(fill.imageRotation) || 0));
             const opacity = Math.max(0.1, Math.min(1, Number(fill.imageOpacity) || 1));
-            const imageStyle = `left:${(50 + offsetX).toFixed(3)}%;top:${(50 + offsetY).toFixed(3)}%;width:${(zoom * 100).toFixed(3)}%;height:${(zoom * 100).toFixed(3)}%;opacity:${opacity};object-fit:${stretchImage ? 'fill' : imageFit === 'cover' ? 'cover' : 'contain'};transform:translate(-50%,-50%) rotate(${rotation}deg) scale(${fill.imageFlipX ? -1 : 1},${fill.imageFlipY ? -1 : 1})`;
+            const patternOpacity = this.normalizeShiftPhotoCompareFillPatternOpacity(fill.patternOpacity);
+            const patternBackground = this.normalizeShiftPhotoCompareFillPatternBackground(fill.patternBackground);
+            const displayOpacity = fill.pattern === 'svg-tile' ? opacity * patternOpacity : opacity;
+            const patternScale = this.normalizeShiftPhotoCompareFillPatternScale(fill.patternScale);
+            const imageStyle = `left:${(50 + offsetX).toFixed(3)}%;top:${(50 + offsetY).toFixed(3)}%;width:${(zoom * 100).toFixed(3)}%;height:${(zoom * 100).toFixed(3)}%;opacity:${displayOpacity};object-fit:${stretchImage ? 'fill' : imageFit === 'cover' ? 'cover' : 'contain'};--fill-pattern-size:${patternScale}px;transform:translate(-50%,-50%) rotate(${rotation}deg) scale(${fill.imageFlipX ? -1 : 1},${fill.imageFlipY ? -1 : 1})`;
             const content = fill.imageTint
-                ? `<i class="shift-photo-polyline-region-svg" data-svg-fit="${imageFit}" style="${imageStyle};--region-svg-src:url(&quot;${this.escapeHtml(fill.imageSrc)}&quot;)"></i>`
+                ? `<i class="shift-photo-polyline-region-svg${fill.pattern === 'svg-tile' ? ' tile-pattern' : ''}" data-svg-fit="${imageFit}" style="${imageStyle};--region-svg-src:url(&quot;${this.escapeHtml(fill.imageSrc)}&quot;)"></i>`
                 : `<img src="${this.escapeHtml(fill.imageSrc)}" alt="" style="${imageStyle}">`;
-            return `<span class="shift-photo-polyline-region-image${stretchImage ? ' stretch-image' : ''}" data-region-index="${index}" style="left:${minX.toFixed(3)}%;top:${minY.toFixed(3)}%;width:${width.toFixed(3)}%;height:${height.toFixed(3)}%;clip-path:polygon(${this.escapeHtml(clipPoints)})">${content}</span>`;
+            return `<span class="shift-photo-polyline-region-image${stretchImage ? ' stretch-image' : ''}" data-region-index="${index}" style="left:${minX.toFixed(3)}%;top:${minY.toFixed(3)}%;width:${width.toFixed(3)}%;height:${height.toFixed(3)}%;background:${patternBackground};clip-path:polygon(${this.escapeHtml(clipPoints)})">${content}</span>`;
         }).join('');
     }
 
@@ -6696,11 +6717,24 @@
     }
 
     normalizeShiftPhotoCompareFillPattern(value = 'solid') {
-        return ['solid', 'diagonal', 'cross', 'dots', 'svg'].includes(String(value || '')) ? String(value) : 'solid';
+        return ['solid', 'diagonal', 'cross', 'dots', 'warning', 'honeycomb', 'svg', 'svg-tile'].includes(String(value || '')) ? String(value) : 'solid';
     }
 
     normalizeShiftPhotoCompareFillPatternScale(value = 12) {
         return Math.max(6, Math.min(36, Math.round(Number(value) || 12)));
+    }
+
+    normalizeShiftPhotoCompareFillPatternLineWidth(value = 3) {
+        return Math.max(1, Math.min(10, Math.round((Number(value) || 3) * 10) / 10));
+    }
+
+    normalizeShiftPhotoCompareFillPatternOpacity(value = 1) {
+        return Math.max(0.1, Math.min(1, Number(value) || 1));
+    }
+
+    normalizeShiftPhotoCompareFillPatternBackground(value = 'transparent') {
+        const color = String(value || '').trim();
+        return color === 'white' ? '#ffffff' : (/^#[0-9a-f]{6}$/i.test(color) ? color : 'transparent');
     }
 
     normalizeShiftPhotoComparePolylineRegionFills(value = []) {
@@ -6718,6 +6752,9 @@
             color: /^#[0-9a-f]{6}$/i.test(fill?.color || '') ? fill.color : '#dc2626',
             pattern: this.normalizeShiftPhotoCompareFillPattern(fill?.pattern),
             patternScale: this.normalizeShiftPhotoCompareFillPatternScale(fill?.patternScale),
+            patternLineWidth: this.normalizeShiftPhotoCompareFillPatternLineWidth(fill?.patternLineWidth),
+            patternOpacity: this.normalizeShiftPhotoCompareFillPatternOpacity(fill?.patternOpacity),
+            patternBackground: this.normalizeShiftPhotoCompareFillPatternBackground(fill?.patternBackground),
             opacity: Math.max(0.05, Math.min(1, Number(fill?.opacity) || 1)),
             imageSrc: /^data:image\//i.test(fill?.imageSrc || '') ? fill.imageSrc : '',
             imageOriginalSrc: /^data:image\/svg\+xml/i.test(fill?.imageOriginalSrc || '') ? fill.imageOriginalSrc : '',
@@ -6731,6 +6768,14 @@
             imageFlipY: fill?.imageFlipY === true || fill?.imageFlipY === '1',
             imageOpacity: Math.max(0.1, Math.min(1, Number(fill?.imageOpacity) || 1)),
             imageInvert: fill?.imageInvert === true || fill?.imageInvert === '1',
+            imageDetailSource: /^data:image\/svg\+xml/i.test(fill?.imageDetailSource || '') ? fill.imageDetailSource : '',
+            imageDetailThreshold: Math.max(0.05, Math.min(3, Number(fill?.imageDetailThreshold) || 0.5)),
+            imageProtectedAreas: (Array.isArray(fill?.imageProtectedAreas) ? fill.imageProtectedAreas : []).slice(0, 40).map(area => ({
+                x: Math.max(0, Math.min(100, Number(area?.x) || 0)),
+                y: Math.max(0, Math.min(100, Number(area?.y) || 0)),
+                width: Math.max(0, Math.min(100, Number(area?.width) || 0)),
+                height: Math.max(0, Math.min(100, Number(area?.height) || 0))
+            })).filter(area => area.width > 0 && area.height > 0),
             centerX: Number.isFinite(Number(fill?.centerX)) ? Math.max(0, Math.min(100, Number(fill.centerX))) : null,
             centerY: Number.isFinite(Number(fill?.centerY)) ? Math.max(0, Math.min(100, Number(fill.centerY))) : null,
             area: Number.isFinite(Number(fill?.area)) ? Math.max(0, Number(fill.area)) : null
@@ -6780,6 +6825,9 @@
                 color: matched?.color || defaultColor,
                 pattern: matched?.pattern || defaultPattern,
                 patternScale: matched?.patternScale || defaultPatternScale,
+                patternLineWidth: this.normalizeShiftPhotoCompareFillPatternLineWidth(matched?.patternLineWidth),
+                patternOpacity: this.normalizeShiftPhotoCompareFillPatternOpacity(matched?.patternOpacity),
+                patternBackground: this.normalizeShiftPhotoCompareFillPatternBackground(matched?.patternBackground),
                 opacity: matched?.opacity || defaultOpacity,
                 imageSrc: matched?.imageSrc || '',
                 imageOriginalSrc: matched?.imageOriginalSrc || '',
@@ -6793,6 +6841,9 @@
                 imageFlipY: !!matched?.imageFlipY,
                 imageOpacity: matched?.imageOpacity || 1,
                 imageInvert: !!matched?.imageInvert,
+                imageDetailSource: matched?.imageDetailSource || '',
+                imageDetailThreshold: matched?.imageDetailThreshold || 0.5,
+                imageProtectedAreas: matched?.imageProtectedAreas || [],
                 centerX: region.centerX,
                 centerY: region.centerY,
                 area: region.area
@@ -7230,7 +7281,7 @@
         const videoTrimEnd = Math.max(videoTrimStart, Number(mark.videoTrimEnd) || 0);
         const videoClickMode = mark.videoClickMode === 'stop' ? 'stop' : 'continue';
         const videoEndBehavior = ['hold', 'loop'].includes(mark.videoEndBehavior) ? mark.videoEndBehavior : 'return';
-        const videoFrameStyle = ['modern', 'retro', 'custom'].includes(mark.videoFrameStyle) ? mark.videoFrameStyle : 'none';
+        const videoFrameStyle = ['modern', 'retro', 'scroll', 'custom'].includes(mark.videoFrameStyle) ? mark.videoFrameStyle : 'none';
         const videoFrameId = String(mark.videoFrameId || '');
         const videoFrameX = Math.max(0, Math.min(95, Number(mark.videoFrameX) || 0));
         const videoFrameY = Math.max(0, Math.min(95, Number(mark.videoFrameY) || 0));
@@ -7256,6 +7307,9 @@
         const fillWithBorder = mark.fillWithBorder === true || mark.fillWithBorder === '1';
         const fillPattern = this.normalizeShiftPhotoCompareFillPattern(mark.fillPattern);
         const fillPatternScale = this.normalizeShiftPhotoCompareFillPatternScale(mark.fillPatternScale);
+        const fillPatternLineWidth = this.normalizeShiftPhotoCompareFillPatternLineWidth(mark.fillPatternLineWidth);
+        const fillPatternOpacity = this.normalizeShiftPhotoCompareFillPatternOpacity(mark.fillPatternOpacity);
+        const fillPatternBackground = this.normalizeShiftPhotoCompareFillPatternBackground(mark.fillPatternBackground);
         const fillSvgSrc = /^data:image\/(?:svg\+xml|png)/i.test(mark.fillSvgSrc || '') ? mark.fillSvgSrc : '';
         const fillSvgOriginalSrc = /^data:image\/svg\+xml/i.test(mark.fillSvgOriginalSrc || '') ? mark.fillSvgOriginalSrc : '';
         const fillSvgMaskMode = mark.fillSvgMaskMode === 'cutout' ? 'cutout' : 'alpha';
@@ -7268,6 +7322,9 @@
         const fillSvgFlipY = mark.fillSvgFlipY === true || mark.fillSvgFlipY === '1';
         const fillSvgOpacity = Math.max(0.1, Math.min(1, Number(mark.fillSvgOpacity) || 1));
         const fillSvgInverted = mark.fillSvgInverted === true || mark.fillSvgInverted === '1';
+        const fillSvgDetailSource = /^data:image\/svg\+xml/i.test(mark.fillSvgDetailSource || '') ? mark.fillSvgDetailSource : '';
+        const fillSvgDetailThreshold = Math.max(0.05, Math.min(3, Number(mark.fillSvgDetailThreshold) || 0.5));
+        const fillSvgProtectedAreas = (Array.isArray(mark.fillSvgProtectedAreas) ? mark.fillSvgProtectedAreas : []).slice(0, 40);
         const polylineFill = mark.polylineFill === true || mark.polylineFill === '1';
         const polylineFillColor = /^#[0-9a-f]{6}$/i.test(mark.polylineFillColor || '') ? mark.polylineFillColor : color;
         const polylineFillPattern = this.normalizeShiftPhotoCompareFillPattern(mark.polylineFillPattern);
@@ -7354,7 +7411,7 @@
         const triangleOuterWithInnerStroke = triangleStroke + (xmarkOuterUnits + xmarkInnerUnits) * 2;
         const triangleInnerStroke = triangleStroke + xmarkInnerUnits * 2;
         const outlineStyle = `--outer-outline-color:${this.escapeHtml(outerOutlineColor)}; --inner-outline-color:${this.escapeHtml(innerOutlineColor)};`;
-        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-boxed-border-width="${boxedBorderWidth}" data-callout-border-width="${calloutBorderWidth}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-outer-outline-width="${outerOutlineWidth}" data-inner-outline-width="${innerOutlineWidth}" data-outer-outline-color="${this.escapeHtml(outerOutlineColor)}" data-inner-outline-color="${this.escapeHtml(innerOutlineColor)}" data-outer-outline-blur="${outerOutlineBlur ? '1' : '0'}" data-text-effect="${this.escapeHtml(textEffect)}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-polyline-start-arrow="${polylineStartArrow ? '1' : '0'}" data-polyline-end-arrow="${polylineEndArrow ? '1' : '0'}" data-polyline-arrow-points="${this.escapeHtml(JSON.stringify(polylineArrowPoints))}" data-table-rows="${tableRows}" data-table-cols="${tableCols}" data-table-rounded="${tableRounded ? '1' : '0'}" data-table-cell-width="${tableCellWidth}" data-table-cell-height="${tableCellHeight}" data-table-col-widths="${this.escapeHtml(JSON.stringify(tableColWidths))}" data-table-row-heights="${this.escapeHtml(JSON.stringify(tableRowHeights))}" data-table-border-width="${tableBorderWidth}" data-table-vertical-line-style="${tableVerticalLineStyle}" data-table-horizontal-line-style="${tableHorizontalLineStyle}" data-table-cells="${this.escapeHtml(JSON.stringify(tableCells))}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-fill-color="${this.escapeHtml(fillColor)}" data-fill-with-border="${fillWithBorder ? '1' : '0'}" data-fill-pattern="${fillPattern}" data-fill-pattern-scale="${fillPatternScale}" data-fill-svg-src="${this.escapeHtml(fillSvgSrc)}" data-fill-svg-original-src="${this.escapeHtml(fillSvgOriginalSrc)}" data-fill-svg-mask-mode="${fillSvgMaskMode}" data-fill-svg-fit="${fillSvgFit}" data-fill-svg-zoom="${fillSvgZoom}" data-fill-svg-offset-x="${fillSvgOffsetX}" data-fill-svg-offset-y="${fillSvgOffsetY}" data-fill-svg-rotation="${fillSvgRotation}" data-fill-svg-flip-x="${fillSvgFlipX ? '1' : '0'}" data-fill-svg-flip-y="${fillSvgFlipY ? '1' : '0'}" data-fill-svg-opacity="${fillSvgOpacity}" data-fill-svg-inverted="${fillSvgInverted ? '1' : '0'}" data-wallpaper-src="${this.escapeHtml(wallpaperSrc)}" data-polyline-fill="${polylineFill ? '1' : '0'}" data-polyline-fill-color="${this.escapeHtml(polylineFillColor)}" data-polyline-fill-pattern="${polylineFillPattern}" data-polyline-fill-pattern-scale="${polylineFillPatternScale}" data-polyline-fill-opacity="${polylineFillOpacity}" data-polyline-region-fills="${this.escapeHtml(JSON.stringify(polylineRegionFills))}" data-region-comment="${regionComment ? '1' : '0'}" data-region-comment-width="${regionCommentWidth}" data-region-comment-height="${regionCommentHeight}" data-region-comment-link-id="${this.escapeHtml(regionCommentLinkId)}" data-region-comment-region-id="${this.escapeHtml(regionCommentRegionId)}" data-region-comment-index="${regionCommentIndex}" data-region-comment-anchor-x="${regionCommentAnchorX ?? ''}" data-region-comment-anchor-y="${regionCommentAnchorY ?? ''}" data-text-color="${this.escapeHtml(textColor)}" data-text-color-runs="${this.escapeHtml(JSON.stringify(textColorRuns))}" data-has-partial-text-color="${textColorRuns.length ? '1' : '0'}" data-text-scale="${textScale}" data-text-fit="${textFit}" data-text-padding-x="${textPaddingX}" data-text-padding-y="${textPaddingY}" data-plain-text-bg-padding-x="${plainTextBgPaddingX}" data-plain-text-bg-padding-y="${plainTextBgPaddingY}" data-tail-enabled="${tailEnabled ? '1' : '0'}" data-tail-pos="${tailPos}" data-tail-side="${tailSide}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-image-shape="${imageShape}" data-image-zoom="${imageZoom}" data-image-offset-x="${imageOffsetX}" data-image-offset-y="${imageOffsetY}" data-circle-library-id="${this.escapeHtml(circleLibraryId)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-text-vertical="${textVertical}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-group-icon-hidden="${groupIconHidden ? '1' : '0'}" data-locked="${locked ? '1' : '0'}" data-animation-order="${animationOrder}" data-animation-name="${this.escapeHtml(animationName)}" data-animation-hold-ms="${Math.max(0, Math.min(10000, Math.round(Number(mark.animationHoldMs) || 0)))}" data-animation-effect="${this.escapeHtml(animationEffect)}" data-animation-round-trip-pause-ms="${Math.max(0, Math.min(3000, Math.round(Number(mark.animationRoundTripPauseMs) || 0)))}" data-animation-round-trip-count="${this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.animationRoundTripCount)}" data-animation-motion="${animationMotion ? '1' : '0'}" data-speech-enabled="${speechEnabled ? '1' : '0'}" data-animation-end-x="${animationEndX}" data-animation-end-y="${animationEndY}" data-animation-end-image-x="${animationEndImageX}" data-animation-end-image-y="${animationEndImageY}" data-animation-end-size="${animationEndSize}" data-animation-end-angle="${animationEndAngle}" data-animation-end-stretch="${animationEndStretch}" data-animation-end-stretch-y="${animationEndStretchY}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-image-x="${imageX ?? ''}" data-image-y="${imageY ?? ''}" data-image-display-width="${imageDisplayWidth}" data-image-display-height="${imageDisplayHeight}" data-current-page="${currentPage}" data-pages="${this.escapeHtml(JSON.stringify(pages))}" data-points="${this.escapeHtml(JSON.stringify(points))}" data-freehand-source-points="${this.escapeHtml(JSON.stringify(freehandSourcePoints))}"`;
+        const common = `data-mode="${mode}" data-size="${size}" data-angle="${angle}" data-stretch="${stretch}" data-stretch-y="${stretchY}" data-stroke="${stroke}" data-boxed-border-width="${boxedBorderWidth}" data-callout-border-width="${calloutBorderWidth}" data-outline="${outline ? '1' : '0'}" data-inner-outline="${innerOutline ? '1' : '0'}" data-outer-outline-width="${outerOutlineWidth}" data-inner-outline-width="${innerOutlineWidth}" data-outer-outline-color="${this.escapeHtml(outerOutlineColor)}" data-inner-outline-color="${this.escapeHtml(innerOutlineColor)}" data-outer-outline-blur="${outerOutlineBlur ? '1' : '0'}" data-text-effect="${this.escapeHtml(textEffect)}" data-dashed="${dashed ? '1' : '0'}" data-arrow-head-hidden="${arrowHeadHidden ? '1' : '0'}" data-polyline-start-arrow="${polylineStartArrow ? '1' : '0'}" data-polyline-end-arrow="${polylineEndArrow ? '1' : '0'}" data-polyline-arrow-points="${this.escapeHtml(JSON.stringify(polylineArrowPoints))}" data-table-rows="${tableRows}" data-table-cols="${tableCols}" data-table-rounded="${tableRounded ? '1' : '0'}" data-table-cell-width="${tableCellWidth}" data-table-cell-height="${tableCellHeight}" data-table-col-widths="${this.escapeHtml(JSON.stringify(tableColWidths))}" data-table-row-heights="${this.escapeHtml(JSON.stringify(tableRowHeights))}" data-table-border-width="${tableBorderWidth}" data-table-vertical-line-style="${tableVerticalLineStyle}" data-table-horizontal-line-style="${tableHorizontalLineStyle}" data-table-cells="${this.escapeHtml(JSON.stringify(tableCells))}" data-color="${this.escapeHtml(color)}" data-text="${this.escapeHtml(text)}" data-fill-color="${this.escapeHtml(fillColor)}" data-fill-with-border="${fillWithBorder ? '1' : '0'}" data-fill-pattern="${fillPattern}" data-fill-pattern-scale="${fillPatternScale}" data-fill-pattern-line-width="${fillPatternLineWidth}" data-fill-pattern-opacity="${fillPatternOpacity}" data-fill-pattern-background="${fillPatternBackground}" data-fill-svg-src="${this.escapeHtml(fillSvgSrc)}" data-fill-svg-original-src="${this.escapeHtml(fillSvgOriginalSrc)}" data-fill-svg-mask-mode="${fillSvgMaskMode}" data-fill-svg-fit="${fillSvgFit}" data-fill-svg-zoom="${fillSvgZoom}" data-fill-svg-offset-x="${fillSvgOffsetX}" data-fill-svg-offset-y="${fillSvgOffsetY}" data-fill-svg-rotation="${fillSvgRotation}" data-fill-svg-flip-x="${fillSvgFlipX ? '1' : '0'}" data-fill-svg-flip-y="${fillSvgFlipY ? '1' : '0'}" data-fill-svg-opacity="${fillSvgOpacity}" data-fill-svg-inverted="${fillSvgInverted ? '1' : '0'}" data-fill-svg-detail-source="${this.escapeHtml(fillSvgDetailSource)}" data-fill-svg-detail-threshold="${fillSvgDetailThreshold}" data-fill-svg-protected-areas="${this.escapeHtml(JSON.stringify(fillSvgProtectedAreas))}" data-wallpaper-src="${this.escapeHtml(wallpaperSrc)}" data-polyline-fill="${polylineFill ? '1' : '0'}" data-polyline-fill-color="${this.escapeHtml(polylineFillColor)}" data-polyline-fill-pattern="${polylineFillPattern}" data-polyline-fill-pattern-scale="${polylineFillPatternScale}" data-polyline-fill-opacity="${polylineFillOpacity}" data-polyline-region-fills="${this.escapeHtml(JSON.stringify(polylineRegionFills))}" data-region-comment="${regionComment ? '1' : '0'}" data-region-comment-width="${regionCommentWidth}" data-region-comment-height="${regionCommentHeight}" data-region-comment-link-id="${this.escapeHtml(regionCommentLinkId)}" data-region-comment-region-id="${this.escapeHtml(regionCommentRegionId)}" data-region-comment-index="${regionCommentIndex}" data-region-comment-anchor-x="${regionCommentAnchorX ?? ''}" data-region-comment-anchor-y="${regionCommentAnchorY ?? ''}" data-text-color="${this.escapeHtml(textColor)}" data-text-color-runs="${this.escapeHtml(JSON.stringify(textColorRuns))}" data-has-partial-text-color="${textColorRuns.length ? '1' : '0'}" data-text-scale="${textScale}" data-text-fit="${textFit}" data-text-padding-x="${textPaddingX}" data-text-padding-y="${textPaddingY}" data-plain-text-bg-padding-x="${plainTextBgPaddingX}" data-plain-text-bg-padding-y="${plainTextBgPaddingY}" data-tail-enabled="${tailEnabled ? '1' : '0'}" data-tail-pos="${tailPos}" data-tail-side="${tailSide}" data-image-src="${this.escapeHtml(imageSrc)}" data-original-image-src="${this.escapeHtml(originalImageSrc)}" data-image-fit="${imageFit}" data-image-shape="${imageShape}" data-image-zoom="${imageZoom}" data-image-offset-x="${imageOffsetX}" data-image-offset-y="${imageOffsetY}" data-circle-library-id="${this.escapeHtml(circleLibraryId)}" data-opacity="${opacity}" data-flip-x="${flipX}" data-flip-y="${flipY}" data-font="${font}" data-anchor="${anchor}" data-text-align="${textAlign}" data-text-vertical="${textVertical}" data-box-trim="${boxTrim}" data-pair-id="${this.escapeHtml(pairId)}" data-pair-role="${pairRole}" data-group-id="${this.escapeHtml(groupId)}" data-group-icon-hidden="${groupIconHidden ? '1' : '0'}" data-locked="${locked ? '1' : '0'}" data-animation-order="${animationOrder}" data-animation-name="${this.escapeHtml(animationName)}" data-animation-hold-ms="${Math.max(0, Math.min(10000, Math.round(Number(mark.animationHoldMs) || 0)))}" data-animation-effect="${this.escapeHtml(animationEffect)}" data-animation-round-trip-pause-ms="${Math.max(0, Math.min(3000, Math.round(Number(mark.animationRoundTripPauseMs) || 0)))}" data-animation-round-trip-count="${this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.animationRoundTripCount)}" data-animation-motion="${animationMotion ? '1' : '0'}" data-speech-enabled="${speechEnabled ? '1' : '0'}" data-animation-end-x="${animationEndX}" data-animation-end-y="${animationEndY}" data-animation-end-image-x="${animationEndImageX}" data-animation-end-image-y="${animationEndImageY}" data-animation-end-size="${animationEndSize}" data-animation-end-angle="${animationEndAngle}" data-animation-end-stretch="${animationEndStretch}" data-animation-end-stretch-y="${animationEndStretchY}" data-wrap-width="${wrapWidth}" data-wrap-height="${wrapHeight}" data-image-x="${imageX ?? ''}" data-image-y="${imageY ?? ''}" data-image-display-width="${imageDisplayWidth}" data-image-display-height="${imageDisplayHeight}" data-current-page="${currentPage}" data-pages="${this.escapeHtml(JSON.stringify(pages))}" data-points="${this.escapeHtml(JSON.stringify(points))}" data-freehand-source-points="${this.escapeHtml(JSON.stringify(freehandSourcePoints))}"`;
         if (mode === 'freehand') {
             return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="--mark-size:${size}px; --mark-stroke:${stroke}; --mark-color:${this.escapeHtml(color)}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle}">${this.getShiftPhotoCompareFreehandSvg(pointsText)}${orderBadgeHtml}</div>`;
         }
@@ -7381,7 +7438,7 @@
         const boxedTextHtml = mode === 'boxedText'
             ? `${wallpaperSrc ? `<img class="shift-photo-mark-wallpaper" src="${this.escapeHtml(wallpaperSrc)}" alt="">` : ''}${this.getShiftPhotoCompareBoxedTextEditorHtml(text, { regionComment, textColorRuns, textColor })}${regionComment ? this.getShiftPhotoCompareRegionInfoButtonHtml() : ''}`
             : '';
-        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --boxed-text-font-scale:${textScale}; --plain-text-font-scale:${textScale}; --plain-text-bg-padding-x:${plainTextBgPaddingX}px; --plain-text-bg-padding-y:${plainTextBgPaddingY}px; --boxed-text-inverse-x:${1 / stretch}; --boxed-text-inverse-y:${1 / stretchY}; --boxed-text-border-inverse-x:${1 / stretch}; --boxed-text-border-inverse-y:${1 / stretchY}; ${hasBoxedBorderWidth ? `--boxed-text-border-width-custom:${boxedBorderWidth}px;` : ''} --region-comment-width:${regionCommentWidth}px; --region-comment-height:${regionCommentHeight}px; --rect-dot-inverse-x:${1 / stretch}; --rect-dot-inverse-y:${1 / stretchY}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkStroke}; --xmark-outer-stroke:${xmarkOuterStroke}; --xmark-outer-with-inner-stroke:${xmarkOuterWithInnerStroke}; --xmark-inner-stroke:${xmarkInnerStroke}; --triangle-stroke:${triangleStroke}; --triangle-outer-stroke:${triangleOuterStroke}; --triangle-outer-with-inner-stroke:${triangleOuterWithInnerStroke}; --triangle-inner-stroke:${triangleInnerStroke}; --fill-pattern-size:${fillPatternScale}px; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle} --fill-svg-src:url(&quot;${this.escapeHtml(fillSvgSrc)}&quot;); --fill-svg-zoom:${fillSvgZoom}; --fill-svg-offset-x:${fillSvgOffsetX}%; --fill-svg-offset-y:${fillSvgOffsetY}%; --fill-svg-rotation:${fillSvgRotation}deg; --fill-svg-flip-x:${fillSvgFlipX ? -1 : 1}; --fill-svg-flip-y:${fillSvgFlipY ? -1 : 1}; --fill-svg-opacity:${fillSvgOpacity};">${fillSvgSrc ? `<span class="shift-photo-fill-svg" data-svg-fit="${fillSvgFit}"><i></i></span>` : ''}${mode === 'arrow' ? this.getShiftPhotoCompareArrowHtml(true) : (mode === 'dimension' ? dimensionHtml : (mode === 'triangle' ? this.getShiftPhotoCompareTriangleHtml() : (mode === 'rect' ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY) : (mode === 'xmark' ? xmarkHtml : (mode === 'boxedText' ? boxedTextHtml : (mode === 'text' ? this.getShiftPhotoComparePlainTextEditorHtml(text) : (mode === 'number' ? this.escapeHtml(text) : '')))))))}${orderBadgeHtml}</div>`;
+        return `<div class="shift-photo-compare-mark ${mode}${lockedClass}" ${common} style="left:${x}%; top:${y}%; --mark-size:${size}px; --mark-rotate:${angle}deg; --mark-scale-x:${stretch}; --mark-scale-y:${stretchY}; --boxed-text-font-scale:${textScale}; --plain-text-font-scale:${textScale}; --plain-text-bg-padding-x:${plainTextBgPaddingX}px; --plain-text-bg-padding-y:${plainTextBgPaddingY}px; --boxed-text-inverse-x:${1 / stretch}; --boxed-text-inverse-y:${1 / stretchY}; --boxed-text-border-inverse-x:${1 / stretch}; --boxed-text-border-inverse-y:${1 / stretchY}; ${hasBoxedBorderWidth ? `--boxed-text-border-width-custom:${boxedBorderWidth}px;` : ''} --region-comment-width:${regionCommentWidth}px; --region-comment-height:${regionCommentHeight}px; --rect-dot-inverse-x:${1 / stretch}; --rect-dot-inverse-y:${1 / stretchY}; --mark-stroke:${stroke}; --xmark-stroke:${xmarkStroke}; --xmark-outer-stroke:${xmarkOuterStroke}; --xmark-outer-with-inner-stroke:${xmarkOuterWithInnerStroke}; --xmark-inner-stroke:${xmarkInnerStroke}; --triangle-stroke:${triangleStroke}; --triangle-outer-stroke:${triangleOuterStroke}; --triangle-outer-with-inner-stroke:${triangleOuterWithInnerStroke}; --triangle-inner-stroke:${triangleInnerStroke}; --fill-pattern-size:${fillPatternScale}px; --fill-pattern-line-width:${fillPatternLineWidth}px; --fill-pattern-opacity-pct:${Math.round(fillPatternOpacity * 100)}%; --fill-pattern-background:${fillPatternBackground}; --mark-color:${this.escapeHtml(color)}; --mark-fill:${this.escapeHtml(fillColor)}; --callout-text-color:${this.escapeHtml(textColor)}; --mark-font:${fontFamily}; --outer-outline-width:${outerOutlineWidth}px; --inner-outline-width:${innerOutlineWidth}px; ${outlineStyle} --fill-svg-src:url(&quot;${this.escapeHtml(fillSvgSrc)}&quot;); --fill-svg-zoom:${fillSvgZoom}; --fill-svg-offset-x:${fillSvgOffsetX}%; --fill-svg-offset-y:${fillSvgOffsetY}%; --fill-svg-rotation:${fillSvgRotation}deg; --fill-svg-flip-x:${fillSvgFlipX ? -1 : 1}; --fill-svg-flip-y:${fillSvgFlipY ? -1 : 1}; --fill-svg-opacity:${fillSvgOpacity};">${fillSvgSrc ? `<span class="shift-photo-fill-svg" data-svg-fit="${fillSvgFit}" data-pattern="${fillPattern}"><i></i></span>` : ''}${mode === 'arrow' ? this.getShiftPhotoCompareArrowHtml(true) : (mode === 'dimension' ? dimensionHtml : (mode === 'triangle' ? this.getShiftPhotoCompareTriangleHtml() : (mode === 'rect' ? this.getShiftPhotoCompareRectDashHtml(size, stroke, stretch, stretchY) : (mode === 'xmark' ? xmarkHtml : (mode === 'boxedText' ? boxedTextHtml : (mode === 'text' ? this.getShiftPhotoComparePlainTextEditorHtml(text) : (mode === 'number' ? this.escapeHtml(text) : '')))))))}${orderBadgeHtml}</div>`;
     }
 
     getShiftPhotoCompareMarkPageContentFromDom(mark) {
@@ -7586,6 +7643,7 @@
             textColor: mark.dataset.textColor || '',
             fillColor: mark.dataset.fillColor || '',
             speechEnabled: pages[0]?.speechEnabled || '',
+            speechAvatarStyle: pages[0]?.speechAvatarStyle || '',
             speechVoiceURI: pages[0]?.speechVoiceURI || '',
             speechPreset: pages[0]?.speechPreset || '',
             speechRate: pages[0]?.speechRate ?? '',
@@ -7726,7 +7784,7 @@
             videoTrimEnd: Math.max(0, Number(mark.dataset.videoTrimEnd) || 0),
             videoClickMode: mark.dataset.videoClickMode === 'stop' ? 'stop' : 'continue',
             videoEndBehavior: ['hold', 'loop'].includes(mark.dataset.videoEndBehavior) ? mark.dataset.videoEndBehavior : 'return',
-            videoFrameStyle: ['modern', 'retro', 'custom'].includes(mark.dataset.videoFrameStyle) ? mark.dataset.videoFrameStyle : 'none',
+            videoFrameStyle: ['modern', 'retro', 'scroll', 'custom'].includes(mark.dataset.videoFrameStyle) ? mark.dataset.videoFrameStyle : 'none',
             videoFrameId: String(mark.dataset.videoFrameId || ''),
             videoFrameX: Math.max(0, Math.min(95, Number(mark.dataset.videoFrameX) || 0)),
             videoFrameY: Math.max(0, Math.min(95, Number(mark.dataset.videoFrameY) || 0)),
@@ -7750,6 +7808,9 @@
             fillWithBorder: mark.dataset.fillWithBorder === '1',
             fillPattern: this.normalizeShiftPhotoCompareFillPattern(mark.dataset.fillPattern),
             fillPatternScale: this.normalizeShiftPhotoCompareFillPatternScale(mark.dataset.fillPatternScale),
+            fillPatternLineWidth: this.normalizeShiftPhotoCompareFillPatternLineWidth(mark.dataset.fillPatternLineWidth),
+            fillPatternOpacity: this.normalizeShiftPhotoCompareFillPatternOpacity(mark.dataset.fillPatternOpacity),
+            fillPatternBackground: this.normalizeShiftPhotoCompareFillPatternBackground(mark.dataset.fillPatternBackground),
             fillSvgSrc: /^data:image\/(?:svg\+xml|png)/i.test(mark.dataset.fillSvgSrc || '') ? mark.dataset.fillSvgSrc : '',
             fillSvgOriginalSrc: /^data:image\/svg\+xml/i.test(mark.dataset.fillSvgOriginalSrc || '') ? mark.dataset.fillSvgOriginalSrc : '',
             fillSvgMaskMode: mark.dataset.fillSvgMaskMode === 'cutout' ? 'cutout' : 'alpha',
@@ -7762,6 +7823,9 @@
             fillSvgFlipY: mark.dataset.fillSvgFlipY === '1',
             fillSvgOpacity: Math.max(0.1, Math.min(1, Number(mark.dataset.fillSvgOpacity) || 1)),
             fillSvgInverted: mark.dataset.fillSvgInverted === '1',
+            fillSvgDetailSource: /^data:image\/svg\+xml/i.test(mark.dataset.fillSvgDetailSource || '') ? mark.dataset.fillSvgDetailSource : '',
+            fillSvgDetailThreshold: Math.max(0.05, Math.min(3, Number(mark.dataset.fillSvgDetailThreshold) || 0.5)),
+            fillSvgProtectedAreas: (() => { try { return JSON.parse(mark.dataset.fillSvgProtectedAreas || '[]'); } catch (_) { return []; } })(),
             polylineFill: mark.dataset.polylineFill === '1',
             polylineFillColor: /^#[0-9a-f]{6}$/i.test(mark.dataset.polylineFillColor || '') ? mark.dataset.polylineFillColor : (mark.dataset.color || '#dc2626'),
             polylineFillPattern: this.normalizeShiftPhotoCompareFillPattern(mark.dataset.polylineFillPattern),
@@ -8333,7 +8397,7 @@
         const roundTripPauseMs = Math.max(0, Math.min(3000, Math.round(Number(mark.dataset.animationRoundTripPauseMs) || 0)));
         const roundTripCount = this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.dataset.animationRoundTripCount);
         const videoEndBehavior = ['hold', 'loop'].includes(mark.dataset.videoEndBehavior) ? mark.dataset.videoEndBehavior : 'return';
-        const videoFrameStyle = ['modern', 'retro', 'custom'].includes(mark.dataset.videoFrameStyle) ? mark.dataset.videoFrameStyle : 'none';
+        const videoFrameStyle = ['modern', 'retro', 'scroll', 'custom'].includes(mark.dataset.videoFrameStyle) ? mark.dataset.videoFrameStyle : 'none';
         const videoFrameId = String(mark.dataset.videoFrameId || '');
         const customVideoFrames = mark.dataset.mode === 'video' ? this.getShiftPhotoCompareCustomVideoFrames() : [];
         const speechSettings = this.getShiftPhotoCompareMarkSpeechSettings(mark);
@@ -8375,6 +8439,7 @@
                     <button type="button" data-video-frame-style="none" class="${videoFrameStyle === 'none' ? 'active' : ''}" onclick="app.setShiftPhotoCompareVideoFrameStyleFromMenu('none')"><i class="fa-solid fa-ban"></i> なし</button>
                     <button type="button" data-video-frame-style="modern" class="${videoFrameStyle === 'modern' ? 'active' : ''}" onclick="app.setShiftPhotoCompareVideoFrameStyleFromMenu('modern')"><i class="fa-solid fa-tv"></i> 薄型テレビ</button>
                     <button type="button" data-video-frame-style="retro" class="${videoFrameStyle === 'retro' ? 'active' : ''}" onclick="app.setShiftPhotoCompareVideoFrameStyleFromMenu('retro')"><i class="fa-solid fa-tv"></i> レトロテレビ</button>
+                    <button type="button" data-video-frame-style="scroll" class="${videoFrameStyle === 'scroll' ? 'active' : ''}" onclick="app.setShiftPhotoCompareVideoFrameStyleFromMenu('scroll')"><i class="fa-solid fa-scroll"></i> 忍者の巻物</button>
                     ${customVideoFrames.map(frame => `<span class="shift-photo-compare-custom-frame-choice"><button type="button" data-video-custom-frame-id="${this.escapeHtml(frame.id)}" class="${videoFrameStyle === 'custom' && videoFrameId === frame.id ? 'active' : ''}" onclick="app.useShiftPhotoCompareCustomVideoFrameFromMenu('${frame.id}')"><i class="fa-regular fa-image"></i> ${this.escapeHtml(frame.name)}</button><button type="button" class="shift-photo-compare-custom-frame-rename" title="登録枠の名前を変更" onclick="event.stopPropagation(); app.renameShiftPhotoCompareCustomVideoFrame('${frame.id}')"><i class="fa-solid fa-pen"></i></button><button type="button" class="shift-photo-compare-custom-frame-delete" title="登録枠を削除" onclick="event.stopPropagation(); app.deleteShiftPhotoCompareCustomVideoFrame('${frame.id}')"><i class="fa-solid fa-trash"></i></button></span>`).join('')}
                     <button type="button" class="shift-photo-compare-custom-frame-register" onclick="app.openShiftPhotoCompareCustomVideoFrameRegistration()"><i class="fa-solid fa-plus"></i> 独自枠を登録</button>
                 </div>
@@ -8672,12 +8737,13 @@
     getShiftPhotoCompareVideoFrameAspect(style = 'none', frame = null) {
         if (style === 'modern') return 1672 / 941;
         if (style === 'retro') return 1448 / 1086;
+        if (style === 'scroll') return 16 / 9;
         return style === 'custom' ? Math.max(0.2, Math.min(5, Number(frame?.aspect) || (16 / 9))) : 16 / 9;
     }
 
     applyShiftPhotoCompareVideoFrame(mark, style = 'none', frame = null) {
         if (!mark || mark.dataset.mode !== 'video') return;
-        const nextStyle = ['modern', 'retro', 'custom'].includes(style) ? style : 'none';
+        const nextStyle = ['modern', 'retro', 'scroll', 'custom'].includes(style) ? style : 'none';
         const custom = nextStyle === 'custom' ? frame : null;
         mark.dataset.videoFrameStyle = custom ? 'custom' : nextStyle;
         mark.dataset.videoFrameId = custom?.id || '';
@@ -8698,13 +8764,13 @@
     setShiftPhotoCompareVideoFrameStyleFromMenu(value = 'none') {
         const mark = this.getShiftPhotoCompareAnimationMenuTarget();
         if (!mark || mark.dataset.mode !== 'video') return;
-        const style = ['modern', 'retro'].includes(value) ? value : 'none';
+        const style = ['modern', 'retro', 'scroll'].includes(value) ? value : 'none';
         this.pushShiftPhotoCompareUndo?.();
         this.applyShiftPhotoCompareVideoFrame(mark, style);
         this._shiftPhotoCompareAnimationBadgeMenu?.querySelectorAll('[data-video-frame-style]').forEach(button => {
             button.classList.toggle('active', button.dataset.videoFrameStyle === style);
         });
-        this.showToast?.(`枠だけを「${({ none: 'なし', modern: '薄型テレビ', retro: 'レトロテレビ' })[style]}」へ交換しました。動画・トリミング設定はそのままです。`);
+        this.showToast?.(`枠だけを「${({ none: 'なし', modern: '薄型テレビ', retro: 'レトロテレビ', scroll: '忍者の巻物' })[style]}」へ交換しました。動画・トリミング設定はそのままです。`);
     }
 
     useShiftPhotoCompareCustomVideoFrameFromMenu(id = '') {
@@ -9014,7 +9080,7 @@
         this.pushShiftPhotoCompareUndo?.();
         const pages = this.persistCurrentShiftPhotoCompareMarkPage(mark);
         pages.forEach(page => Object.assign(page, {
-            speechEnabled: '', speechVoiceURI: '', speechPreset: '', speechRate: '',
+            speechEnabled: '', speechAvatarStyle: '', speechVoiceURI: '', speechPreset: '', speechRate: '',
             speechPitch: '', speechIntonation: '', speechVolume: ''
         }));
         mark.dataset.pages = JSON.stringify(pages);
@@ -9029,22 +9095,55 @@
         this.speakShiftPhotoCompareAnimationMarks([mark], { force: true });
     }
 
+    getShiftPhotoCompareSpeechAvatarStyles() {
+        return ['safetyFirst', 'instructor', 'siteGuide', 'fox', 'crtGuide', 'helmetCat', 'frog'];
+    }
+    normalizeShiftPhotoCompareSpeechAvatarStyle(style = 'safetyFirst', allowInherited = false) {
+        if (allowInherited && !style) return '';
+        return this.getShiftPhotoCompareSpeechAvatarStyles().includes(style) ? style : 'safetyFirst';
+    }
+    normalizeShiftPhotoCompareSpeechProfile(profile = {}, fallback = {}) {
+        const numberOr = (value, defaultValue) => Number.isFinite(Number(value)) ? Number(value) : defaultValue;
+        const source = { voiceURI: '', preset: 'standard', rate: 1, pitch: 1, intonation: 1, volume: 1, ...fallback, ...profile };
+        return {
+            voiceURI: typeof source.voiceURI === 'string' ? source.voiceURI : '',
+            preset: ['standard', 'yukkuri', 'calm', 'clear', 'custom'].includes(source.preset) ? source.preset : 'standard',
+            rate: Math.min(2, Math.max(0.5, numberOr(source.rate, 1))),
+            pitch: Math.min(2, Math.max(0.5, numberOr(source.pitch, 1))),
+            intonation: Math.min(2, Math.max(0, numberOr(source.intonation, 1))),
+            volume: Math.min(1, Math.max(0, numberOr(source.volume, 1)))
+        };
+    }
+    getShiftPhotoCompareSpeechAvatarProfile(style = 'safetyFirst', savedSettings = null) {
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style);
+        let saved = savedSettings;
+        if (!saved) {
+            try { saved = JSON.parse(localStorage.getItem('shiftPhotoCompareSpeechSettingsV1') || '{}'); }
+            catch (_) { saved = {}; }
+        }
+        const savedStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(saved?.avatarStyle);
+        const legacy = avatarStyle === savedStyle ? {
+            voiceURI: saved?.voiceURI,
+            preset: saved?.preset,
+            rate: saved?.rate,
+            pitch: saved?.pitch,
+            intonation: saved?.intonation,
+            volume: saved?.volume
+        } : {};
+        return this.normalizeShiftPhotoCompareSpeechProfile(saved?.avatarProfiles?.[avatarStyle], legacy);
+    }
     getShiftPhotoCompareSpeechSettings() {
-        const defaults = { enabled: true, voiceURI: '', preset: 'standard', rate: 1, pitch: 1, intonation: 1, volume: 1 };
         try {
             const saved = JSON.parse(localStorage.getItem('shiftPhotoCompareSpeechSettingsV1') || '{}');
-            const numberOr = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+            const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(saved.avatarStyle);
             return {
                 enabled: saved.enabled !== false,
-                voiceURI: typeof saved.voiceURI === 'string' ? saved.voiceURI : '',
-                preset: ['standard', 'yukkuri', 'calm', 'clear', 'custom'].includes(saved.preset) ? saved.preset : 'standard',
-                rate: Math.min(2, Math.max(0.5, numberOr(saved.rate, 1))),
-                pitch: Math.min(2, Math.max(0.5, numberOr(saved.pitch, 1))),
-                intonation: Math.min(2, Math.max(0, numberOr(saved.intonation, 1))),
-                volume: Math.min(1, Math.max(0, numberOr(saved.volume, 1)))
+                avatarEnabled: saved.avatarEnabled !== false,
+                avatarStyle,
+                ...this.getShiftPhotoCompareSpeechAvatarProfile(avatarStyle, saved)
             };
         } catch (_) {
-            return defaults;
+            return { enabled: true, avatarEnabled: true, avatarStyle: 'safetyFirst', ...this.normalizeShiftPhotoCompareSpeechProfile() };
         }
     }
 
@@ -9063,7 +9162,9 @@
         if (!mark || !['boxedText', 'callout'].includes(mark.dataset?.mode || '')) return common;
         const pages = this.getShiftPhotoCompareMarkPagesFromDataset(mark);
         const index = Math.max(0, Math.min(pages.length - 1, Math.round(Number(mark.dataset.currentPage) || 0)));
-        const page = pages[0] || {};
+        const page = pages[index] || pages[0] || {};
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarStyle || common.avatarStyle);
+        const avatarProfile = this.getShiftPhotoCompareSpeechAvatarProfile(avatarStyle);
         const pagePreset = ['standard', 'yukkuri', 'calm', 'clear', 'custom'].includes(page.speechPreset)
             ? page.speechPreset
             : '';
@@ -9075,30 +9176,48 @@
             : fallback;
         return {
             ...common,
+            ...avatarProfile,
+            avatarStyle,
             enabled: page.speechEnabled === '1'
                 ? true
                 : (page.speechEnabled === '0'
                     ? false
                     : (mark.dataset.speechEnabled === '0' ? false : common.enabled)),
-            voiceURI: page.speechVoiceURI || common.voiceURI,
-            preset: pagePreset || common.preset,
-            rate: pageNumber('speechRate', presetValues.rate ?? common.rate),
-            pitch: pageNumber('speechPitch', presetValues.pitch ?? common.pitch),
-            intonation: pageNumber('speechIntonation', presetValues.intonation ?? common.intonation),
-            volume: pageNumber('speechVolume', common.volume),
+            voiceURI: page.speechVoiceURI || avatarProfile.voiceURI,
+            preset: pagePreset || avatarProfile.preset,
+            rate: pageNumber('speechRate', presetValues.rate ?? avatarProfile.rate),
+            pitch: pageNumber('speechPitch', presetValues.pitch ?? avatarProfile.pitch),
+            intonation: pageNumber('speechIntonation', presetValues.intonation ?? avatarProfile.intonation),
+            volume: pageNumber('speechVolume', avatarProfile.volume),
             pageIndex: index,
-            inherited: !page.speechEnabled && !page.speechVoiceURI && !page.speechPreset
+            inherited: !page.speechEnabled && !page.speechAvatarStyle && !page.speechVoiceURI && !page.speechPreset
                 && page.speechRate === '' && page.speechPitch === ''
                 && page.speechIntonation === '' && page.speechVolume === ''
         };
     }
 
-    saveShiftPhotoCompareSpeechSettings(settings) {
-        const normalized = { ...this.getShiftPhotoCompareSpeechSettings(), ...settings };
-        try {
-            localStorage.setItem('shiftPhotoCompareSpeechSettingsV1', JSON.stringify(normalized));
-        } catch (_) {}
-        return normalized;
+    saveShiftPhotoCompareSpeechSettings(settings = {}) {
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem('shiftPhotoCompareSpeechSettingsV1') || '{}'); }
+        catch (_) { saved = {}; }
+        const current = this.getShiftPhotoCompareSpeechSettings();
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(settings.avatarStyle ?? current.avatarStyle);
+        const profileKeys = ['voiceURI', 'preset', 'rate', 'pitch', 'intonation', 'volume'];
+        const profilePatch = Object.fromEntries(profileKeys.filter(key => Object.prototype.hasOwnProperty.call(settings, key)).map(key => [key, settings[key]]));
+        const profile = this.normalizeShiftPhotoCompareSpeechProfile(profilePatch, this.getShiftPhotoCompareSpeechAvatarProfile(avatarStyle, saved));
+        const avatarProfiles = { ...(saved.avatarProfiles && typeof saved.avatarProfiles === 'object' ? saved.avatarProfiles : {}) };
+        avatarProfiles[avatarStyle] = profile;
+        const normalized = {
+            ...saved,
+            enabled: Object.prototype.hasOwnProperty.call(settings, 'enabled') ? settings.enabled !== false : current.enabled,
+            avatarEnabled: Object.prototype.hasOwnProperty.call(settings, 'avatarEnabled') ? settings.avatarEnabled !== false : current.avatarEnabled,
+            avatarStyle,
+            avatarProfiles,
+            ...profile
+        };
+        try { localStorage.setItem('shiftPhotoCompareSpeechSettingsV1', JSON.stringify(normalized)); }
+        catch (_) {}
+        return { enabled: normalized.enabled, avatarEnabled: normalized.avatarEnabled, avatarStyle, ...profile };
     }
 
     getShiftPhotoCompareSpeechText(mark) {
@@ -9166,12 +9285,52 @@
             ? Number(options.generation)
             : (Number(this._shiftPhotoCompareSpeechGeneration) || 0);
         this._shiftPhotoCompareRecordedSpeechPendingCount = Math.max(0, Number(this._shiftPhotoCompareRecordedSpeechPendingCount) || 0) + 1;
-        const playback = { audio: null, source: null, url: '', settled: false, generation };
+        const playback = { audio: null, source: null, analyser: null, monitorFrame: 0, url: '', settled: false, started: false, audible: false, generation };
+        const setAudible = audible => {
+            const next = audible === true;
+            if (playback.audible === next) return;
+            playback.audible = next;
+            if (this._shiftPhotoCompareSpeechGeneration === generation) {
+                const change = next ? 1 : -1;
+                this._shiftPhotoCompareRecordedSpeechActiveCount = Math.max(
+                    0,
+                    (Number(this._shiftPhotoCompareRecordedSpeechActiveCount) || 0) + change
+                );
+            }
+            this.syncShiftPhotoCompareSpeechAvatar();
+        };
+        const monitorAmplitude = analyser => {
+            playback.analyser = analyser;
+            const samples = new Uint8Array(analyser.fftSize);
+            let lastSoundAt = 0;
+            const tick = () => {
+                if (playback.settled || this._shiftPhotoCompareSpeechGeneration !== generation) return;
+                analyser.getByteTimeDomainData(samples);
+                let sum = 0;
+                for (let index = 0; index < samples.length; index += 1) {
+                    const sample = (samples[index] - 128) / 128;
+                    sum += sample * sample;
+                }
+                const rms = Math.sqrt(sum / Math.max(1, samples.length));
+                const now = performance.now();
+                if (rms >= 0.03) lastSoundAt = now;
+                setAudible(lastSoundAt > 0 && now - lastSoundAt <= 20);
+                playback.monitorFrame = requestAnimationFrame(tick);
+            };
+            tick();
+        };
+        const markStarted = amplitudeTracked => {
+            if (playback.settled || playback.started || this._shiftPhotoCompareSpeechGeneration !== generation) return;
+            playback.started = true;
+            if (!amplitudeTracked) setAudible(true);
+        };
         if (!Array.isArray(this._shiftPhotoCompareRecordedSpeechPlayers)) this._shiftPhotoCompareRecordedSpeechPlayers = [];
         this._shiftPhotoCompareRecordedSpeechPlayers.push(playback);
         const finish = () => {
             if (playback.settled) return;
             playback.settled = true;
+            if (playback.monitorFrame) cancelAnimationFrame(playback.monitorFrame);
+            setAudible(false);
             if (playback.url) URL.revokeObjectURL(playback.url);
             this._shiftPhotoCompareRecordedSpeechPlayers = (this._shiftPhotoCompareRecordedSpeechPlayers || [])
                 .filter(item => item !== playback);
@@ -9180,13 +9339,16 @@
                     0,
                     (Number(this._shiftPhotoCompareRecordedSpeechPendingCount) || 0) - 1
                 );
+
             }
+            this.syncShiftPhotoCompareSpeechAvatar();
         };
         const playWithAudioElement = blob => {
             playback.url = URL.createObjectURL(blob);
             playback.audio = new Audio();
             playback.audio.preload = 'auto';
             playback.audio.src = playback.url;
+            playback.audio.onplay = () => markStarted(false);
             playback.audio.onended = finish;
             playback.audio.onerror = finish;
             playback.audio.onloadedmetadata = () => {
@@ -9218,10 +9380,14 @@
                     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
                     if (this._shiftPhotoCompareSpeechGeneration !== generation) return finish();
                     const source = audioContext.createBufferSource();
+                    const analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 256;
+                    analyser.smoothingTimeConstant = 0.15;
                     source.buffer = audioBuffer;
-                    source.connect(audioContext.destination);
+                    source.connect(analyser);
+                    analyser.connect(audioContext.destination);
                     if (this._shiftPhotoCompareAnimationRecordingAudioDestination) {
-                        source.connect(this._shiftPhotoCompareAnimationRecordingAudioDestination);
+                        analyser.connect(this._shiftPhotoCompareAnimationRecordingAudioDestination);
                     }
                     source.onended = finish;
                     playback.source = source;
@@ -9230,6 +9396,8 @@
                         ? Math.min(trimEnd, audioBuffer.duration)
                         : audioBuffer.duration;
                     const playDuration = Math.max(0.01, boundedEnd - boundedStart);
+                    markStarted(true);
+                    monitorAmplitude(analyser);
                     source.start(0, boundedStart, playDuration);
                     return;
                 } catch (_) {
@@ -9248,8 +9416,11 @@
         this._shiftPhotoCompareSpeechGeneration = (Number(this._shiftPhotoCompareSpeechGeneration) || 0) + 1;
         this._shiftPhotoCompareSpeechPendingCount = 0;
         this._shiftPhotoCompareRecordedSpeechPendingCount = 0;
+        this._shiftPhotoCompareSpeechActiveCount = 0;
+        this._shiftPhotoCompareRecordedSpeechActiveCount = 0;
         (this._shiftPhotoCompareRecordedSpeechPlayers || []).forEach(playback => {
             playback.settled = true;
+            if (playback.monitorFrame) cancelAnimationFrame(playback.monitorFrame);
             try {
                 if (playback.source) {
                     playback.source.onended = null;
@@ -9263,10 +9434,94 @@
         });
         this._shiftPhotoCompareRecordedSpeechPlayers = [];
         if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        this.syncShiftPhotoCompareSpeechAvatar(false);
     }
     isShiftPhotoCompareSpeechInProgress() {
         return Math.max(0, Number(this._shiftPhotoCompareSpeechPendingCount) || 0)
             + Math.max(0, Number(this._shiftPhotoCompareRecordedSpeechPendingCount) || 0) > 0;
+    }
+
+    isShiftPhotoCompareSpeechAudible() {
+        return Math.max(0, Number(this._shiftPhotoCompareSpeechActiveCount) || 0)
+            + Math.max(0, Number(this._shiftPhotoCompareRecordedSpeechActiveCount) || 0) > 0;
+    }
+
+    syncShiftPhotoCompareSpeechAvatar(forceTalking = null) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const avatar = state?.overlay?.querySelector?.('.shift-photo-compare-speech-avatar');
+        if (!avatar) return;
+        const enabled = this.getShiftPhotoCompareSpeechSettings().avatarEnabled !== false;
+        const visible = enabled && this.isShiftPhotoCompareSpeechInProgress();
+        const talking = forceTalking === false ? false : (enabled && this.isShiftPhotoCompareSpeechAudible());
+        avatar.classList.toggle('disabled', !enabled);
+        avatar.classList.toggle('visible', visible);
+        avatar.classList.toggle('talking', talking);
+        avatar.setAttribute('aria-hidden', talking ? 'false' : 'true');
+    }
+
+    toggleShiftPhotoCompareSpeechAvatar() {
+        const current = this.getShiftPhotoCompareSpeechSettings();
+        const settings = this.saveShiftPhotoCompareSpeechSettings({ avatarEnabled: current.avatarEnabled === false });
+        const button = this._shiftPhotoCompareAnimationState?.overlay?.querySelector('.shift-photo-compare-animation-avatar-toggle');
+        button?.classList.toggle('active', settings.avatarEnabled !== false);
+        const label = button?.querySelector('span');
+        if (label) label.textContent = `アバ ${settings.avatarEnabled !== false ? 'ON' : 'OFF'}`;
+        this.syncShiftPhotoCompareSpeechAvatar();
+    }
+
+    getShiftPhotoCompareSpeechAvatarPaths(style = 'safetyFirst') {
+        const prefixes = {
+            safetyFirst: 'safety-first-raccoon-speaker',
+            instructor: 'safety-instructor-speaker',
+            siteGuide: 'site-guide-speaker',
+            fox: 'fox-supervisor-speaker',
+            crtGuide: 'crt-guide-speaker',
+            helmetCat: 'helmet-cat-speaker',
+            frog: 'frog-speaker'
+        };
+        const prefix = prefixes[style] || prefixes.safetyFirst;
+        return [
+            `assets/avatars/${prefix}.png`,
+            `assets/avatars/${prefix}-half.png`,
+            `assets/avatars/${prefix}-open.png`
+        ];
+    }
+
+    applyShiftPhotoCompareSpeechAvatarAppearance(style = 'safetyFirst') {
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style);
+        const overlay = this._shiftPhotoCompareAnimationState?.overlay;
+        const avatar = overlay?.querySelector('.shift-photo-compare-speech-avatar');
+        const paths = this.getShiftPhotoCompareSpeechAvatarPaths(avatarStyle);
+        avatar?.querySelectorAll('.shift-photo-compare-speech-avatar-frame').forEach((image, index) => {
+            image.src = paths[index] || paths[0];
+        });
+        if (avatar) avatar.dataset.avatarStyle = avatarStyle;
+        return avatarStyle;
+    }
+    syncShiftPhotoCompareSpeechSettingsPanel(settings = this.getShiftPhotoCompareSpeechSettings()) {
+        const overlay = this._shiftPhotoCompareAnimationState?.overlay;
+        const panel = overlay?.querySelector('.shift-photo-compare-speech-settings');
+        overlay?.querySelectorAll('[data-speech-avatar-style]').forEach(button => {
+            button.classList.toggle('active', button.dataset.speechAvatarStyle === settings.avatarStyle);
+        });
+        panel?.querySelectorAll('[data-speech-preset]').forEach(button => {
+            button.classList.toggle('active', button.dataset.speechPreset === settings.preset);
+        });
+        const voice = panel?.querySelector('.shift-photo-compare-speech-voice');
+        if (voice) voice.value = settings.voiceURI || '';
+        Object.entries({ rate: settings.rate, pitch: settings.pitch, intonation: settings.intonation, volume: settings.volume }).forEach(([key, value]) => {
+            const input = panel?.querySelector(`[data-speech-setting="${key}"]`);
+            if (input) input.value = String(value);
+        });
+    }
+    setShiftPhotoCompareSpeechAvatarStyle(style = 'safetyFirst') {
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style);
+        const settings = this.saveShiftPhotoCompareSpeechSettings({ avatarStyle });
+        this.applyShiftPhotoCompareSpeechAvatarAppearance(avatarStyle);
+        this.populateShiftPhotoCompareSpeechVoiceOptions();
+        this.syncShiftPhotoCompareSpeechSettingsPanel(settings);
+        this.syncShiftPhotoCompareSpeechAvatar();
+        return settings;
     }
 
     speakShiftPhotoCompareAnimationMarks(marks = [], options = {}) {
@@ -9295,6 +9550,8 @@
         }
 
         this.cancelShiftPhotoCompareSpeech();
+        this._shiftPhotoCompareActiveSpeechAvatarStyle = candidates[0]?.settings?.avatarStyle || commonSettings.avatarStyle;
+        this.applyShiftPhotoCompareSpeechAvatarAppearance(this._shiftPhotoCompareActiveSpeechAvatarStyle);
         const speechGeneration = this._shiftPhotoCompareSpeechGeneration;
         recordings.forEach(({ recording }) => {
             this.playShiftPhotoCompareRecordedAudio(recording.key, {
@@ -9308,24 +9565,72 @@
         if (speechSupported && speechParts.length) {
             const voices = window.speechSynthesis.getVoices?.() || [];
             this._shiftPhotoCompareSpeechPendingCount = speechParts.length;
-            speechParts.forEach(({ text, settings }) => {
+            const speakPart = (partIndex = 0) => {
+                if (this._shiftPhotoCompareSpeechGeneration !== speechGeneration) return;
+                const part = speechParts[partIndex];
+                if (!part) return;
+                const { text, settings } = part;
                 const voice = voices.find(item => item.voiceURI === settings.voiceURI)
                     || voices.find(item => String(item.lang || '').toLowerCase().startsWith('ja'))
                     || voices.find(item => item.default)
                     || voices[0];
-                const utterance = new SpeechSynthesisUtterance(text);
+                const spokenText = text.replace(/[。！？!?、，,]+$/gu, '').trim() || text;
+                const utterance = new SpeechSynthesisUtterance(spokenText);
                 utterance.lang = voice?.lang || 'ja-JP';
                 if (voice) utterance.voice = voice;
                 utterance.rate = settings.rate;
                 utterance.pitch = this.getShiftPhotoCompareSpeechSegmentPitch(text, settings.pitch, settings.intonation);
                 utterance.volume = settings.volume;
                 let settled = false;
+                let started = false;
+                let mouthActive = false;
+                let earlyCloseTimer = 0;
+                const setMouthActive = active => {
+                    const next = active === true;
+                    if (mouthActive === next || this._shiftPhotoCompareSpeechGeneration !== speechGeneration) return;
+                    mouthActive = next;
+                    const change = next ? 1 : -1;
+                    this._shiftPhotoCompareSpeechActiveCount = Math.max(
+                        0,
+                        (Number(this._shiftPhotoCompareSpeechActiveCount) || 0) + change
+                    );
+                    this.syncShiftPhotoCompareSpeechAvatar();
+                };
+                const start = () => {
+                    if (started || settled || this._shiftPhotoCompareSpeechGeneration !== speechGeneration) return;
+                    started = true;
+                    setMouthActive(true);
+                };
                 const finish = () => {
                     if (settled) return;
                     settled = true;
+                    if (earlyCloseTimer) window.clearTimeout(earlyCloseTimer);
                     if (this._shiftPhotoCompareSpeechGeneration !== speechGeneration) return;
+                    setMouthActive(false);
                     this._shiftPhotoCompareSpeechPendingCount = Math.max(0, (Number(this._shiftPhotoCompareSpeechPendingCount) || 0) - 1);
+                    const sentenceEnd = /[。！？!?]$/u.test(text);
+                    const commaEnd = /[、，,]$/u.test(text);
+                    const pauseMs = sentenceEnd ? 420 : (commaEnd ? 220 : 100);
+                    if (partIndex + 1 < speechParts.length) {
+                        window.setTimeout(() => speakPart(partIndex + 1), pauseMs);
+                    }
                 };
+                utterance.onstart = start;
+                utterance.onboundary = event => {
+                    if (settled || this._shiftPhotoCompareSpeechGeneration !== speechGeneration) return;
+                    const charIndex = Math.max(0, Number(event.charIndex) || 0);
+                    const charLength = Math.max(1, Number(event.charLength) || 1);
+                    const remaining = Math.max(0, spokenText.length - charIndex - charLength);
+                    if (remaining <= 2) {
+                        if (earlyCloseTimer) window.clearTimeout(earlyCloseTimer);
+                        const closeDelay = Math.max(35, Math.round(90 / Math.max(0.5, Number(settings.rate) || 1)));
+                        earlyCloseTimer = window.setTimeout(() => setMouthActive(false), closeDelay);
+                    } else {
+                        setMouthActive(true);
+                    }
+                };
+                utterance.onpause = () => setMouthActive(false);
+                utterance.onresume = () => setMouthActive(true);
                 utterance.onend = finish;
                 utterance.onerror = finish;
                 try {
@@ -9333,8 +9638,10 @@
                 } catch (_) {
                     finish();
                 }
-            });
+            };
+            speakPart(0);
         }
+        this.syncShiftPhotoCompareSpeechAvatar();
         return recordings.length > 0 || (speechSupported && speechParts.length > 0);
     }
     toggleShiftPhotoCompareAnimationSpeech() {
@@ -10491,6 +10798,7 @@
                     pageIndex,
                     pageNumber: pageIndex + 1,
                     label: text ? text.slice(0, 18) : `${pageIndex + 1}ページ`,
+                    speechAvatarStyle: this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarStyle, true),
                     recordedAudioKey: String(page.recordedAudioKey || ''),
                     recordedAudioType: String(page.recordedAudioType || ''),
                     recordedAudioName: String(savedAudioSettings?.name ?? page.recordedAudioName ?? ''),
@@ -10970,7 +11278,7 @@
                 <button type="button" class="shift-photo-compare-animation-timeline-badge ${entry.insertAfter >= 0 ? 'inserted' : ''} ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineEntry('${entry.id}')" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageAudioMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックでページ音声、ドラッグで記号路線へ差し込み">
                     <strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong>
                     <span>${this.escapeHtml(entry.label)}</span>
-                    ${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}
+                    ${this.getShiftPhotoCompareTimelineAvatarBadgeHtml(entry)}${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}
                 </button>
                 <button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button>
                 <small>${entry.insertAfter >= 0 ? `記号 ${entry.insertAfter} の後` : '独立'}</small>
@@ -10991,7 +11299,7 @@
             const mark = item?.mark;
             if (!mark) return;
             const label = String(mark.dataset.animationName || `記号 ${item.order || '?'}`).trim();
-            if (mark.dataset.mode === 'video') {
+            if (mark.dataset.mode === 'video' && options.videoFrameMode !== 'placeholder') {
                 const videoId = String(mark.dataset.videoId || '');
                 if (!videoId || !this.getPhotoManagerVideo?.(videoId)) issues.push(`${label}: 動画データが見つかりません`);
                 const start = Math.max(0, Number(mark.dataset.videoTrimStart) || 0);
@@ -11063,7 +11371,7 @@
                 const entry = step.pageEntry;
                 const laneClass = entry.type === 'boxedTextPage' ? 'boxed' : 'callout';
                 const suffix = entry.type === 'boxedTextPage' ? '（直）' : '（吹）';
-                const node = `<div class="shift-photo-compare-animation-timeline-node inserted ${laneClass} ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-timeline-entry-id="${entry.id}">${stationDot}<button type="button" class="shift-photo-compare-animation-timeline-badge inserted ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageAudioMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックでページ音声"><strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong><span>${this.escapeHtml(entry.label)}</span>${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}</button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
+                const node = `<div class="shift-photo-compare-animation-timeline-node inserted ${laneClass} ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-timeline-entry-id="${entry.id}">${stationDot}<button type="button" class="shift-photo-compare-animation-timeline-badge inserted ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageAudioMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックでページ音声"><strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong><span>${this.escapeHtml(entry.label)}</span>${this.getShiftPhotoCompareTimelineAvatarBadgeHtml(entry)}${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}</button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
                 const nextOrder = steps[index + 1]?.order;
                 return nextOrder === step.order ? `${node}${addStation}` : `${node}${addStation}<div class="shift-photo-compare-animation-timeline-drop-zone page-drop-zone" data-drop-order="${step.order}" ondragover="app.dragOverShiftPhotoCompareAnimationTimeline(event, ${step.order})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationTimeline(event, ${step.order})">記号 ${step.order} の後</div>`;
             }
@@ -12021,6 +12329,90 @@
         menu?.remove();
     }
 
+    getShiftPhotoCompareSpeechAvatarOptions() {
+        return [
+            { id: 'safetyFirst', label: '\u5b89\u5168\u7b2c\u4e00' },
+            { id: 'instructor', label: '\u5b89\u5168\u6307\u5c0e\u54e1' },
+            { id: 'siteGuide', label: '\u73fe\u5834\u30ac\u30a4\u30c9' },
+            { id: 'fox', label: '\u30ad\u30c4\u30cd\u76e3\u7763' },
+            { id: 'crtGuide', label: '\u30ec\u30c8\u30ed\u30e2\u30cb\u30bf\u30fc' },
+            { id: 'helmetCat', label: '\u30d8\u30eb\u30e1\u30c3\u30c8\u732b' },
+            { id: 'frog', label: '\u30ab\u30a8\u30eb' }
+        ];
+    }
+
+    getShiftPhotoCompareTimelineAvatarBadgeHtml(entry = {}) {
+        const style = this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true);
+        if (!style) return '';
+        const option = this.getShiftPhotoCompareSpeechAvatarOptions().find(item => item.id === style);
+        const image = this.getShiftPhotoCompareSpeechAvatarPaths(style)[0];
+        return `<img class="shift-photo-compare-timeline-avatar-mark" src="${this.escapeHtml(image)}" alt="" title="\u8aad\u307f\u4e0a\u3052: ${this.escapeHtml(option?.label || style)}">`;
+    }
+
+    persistShiftPhotoCompareAnimationPageAvatar(entry, style = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const mark = entry?.mark;
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style, true);
+        if (!mark || !page) return false;
+        const applyAvatar = target => { target.speechAvatarStyle = avatarStyle; };
+        const animationPages = this.getShiftPhotoCompareMarkPagesFromDataset(mark);
+        if (!animationPages[entry.pageIndex]) return false;
+        applyAvatar(animationPages[entry.pageIndex]);
+        mark.dataset.pages = JSON.stringify(animationPages);
+        entry.speechAvatarStyle = avatarStyle;
+        const sourceDomMark = this.getShiftPhotoCompareAnimationTimelineSourceDomMark(mark, page);
+        if (sourceDomMark && this.supportsShiftPhotoComparePages(sourceDomMark)) {
+            const sourcePages = this.getShiftPhotoCompareMarkPagesFromDataset(sourceDomMark);
+            if (!sourcePages[entry.pageIndex]) return false;
+            applyAvatar(sourcePages[entry.pageIndex]);
+            sourceDomMark.dataset.pages = JSON.stringify(sourcePages);
+            this.syncShiftPhotoCompareChangedMarkWraps([sourceDomMark]);
+            this.autoSaveShiftNotebook?.(true);
+            return true;
+        }
+        const row = page.row;
+        if (!row) return false;
+        const markIndex = Math.max(0, Math.round(Number(mark.dataset.animationSourceMarkIndex) || 0));
+        const scope = mark.dataset.animationSourceScope || '';
+        let marks = [];
+        let save = null;
+        if (scope === 'global') {
+            marks = this.parseShiftPhotoCompareMarks(row.dataset.shiftPhotoGlobalMarks || '[]');
+            save = next => { row.dataset.shiftPhotoGlobalMarks = JSON.stringify(this.compactShiftPhotoCompareMarkImages(next)); };
+        } else if (scope === 'photo') {
+            const photoIndex = Math.max(0, Math.round(Number(mark.dataset.animationSourcePhotoIndex) || 0));
+            const photo = this.getShiftPhotoCompareItems(row).find(item => item.index === photoIndex);
+            if (!photo?.previewItem) return false;
+            marks = this.parseShiftPhotoCompareMarks(photo.previewItem.dataset.shiftPhotoMarks || '[]');
+            save = next => { photo.previewItem.dataset.shiftPhotoMarks = JSON.stringify(this.compactShiftPhotoCompareMarkImages(next)); };
+        }
+        const sourceMark = marks[markIndex];
+        if (!sourceMark || !save) return false;
+        const sourcePages = this.normalizeShiftPhotoCompareMarkPages(sourceMark);
+        if (!sourcePages[entry.pageIndex]) return false;
+        applyAvatar(sourcePages[entry.pageIndex]);
+        sourceMark.pages = sourcePages;
+        save(marks);
+        this.autoSaveShiftNotebook?.(true);
+        return true;
+    }
+
+    setShiftPhotoCompareAnimationPageAvatar(entryId = '', style = '') {
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (!entry || !this.persistShiftPhotoCompareAnimationPageAvatar(entry, style)) {
+            this.showToast?.('\u3053\u306e\u30da\u30fc\u30b8\u306e\u30a2\u30d0\u30bf\u30fc\u3092\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002');
+            return;
+        }
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style, true);
+        const option = this.getShiftPhotoCompareSpeechAvatarOptions().find(item => item.id === avatarStyle);
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.showToast?.(avatarStyle
+            ? `\u3053\u306e\u30bb\u30ea\u30d5\u306f\u300c${option?.label || avatarStyle}\u300d\u304c\u8aad\u307f\u4e0a\u3052\u307e\u3059\u3002`
+            : '\u3053\u306e\u30bb\u30ea\u30d5\u306e\u30a2\u30d0\u30bf\u30fc\u3092\u5168\u4f53\u8a2d\u5b9a\u3078\u623b\u3057\u307e\u3057\u305f\u3002');
+    }
+
     openShiftPhotoCompareAnimationPageAudioMenu(event, entryId = '') {
         const state = this._shiftPhotoCompareAnimationState;
         const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
@@ -12032,9 +12424,17 @@
             ? (entry.recordedAudioName || '音声ファイル')
             : 'その場で録音した音声';
         const audioSize = Math.max(0, Number(entry.recordedAudioSize) || 0);
+        const selectedAvatar = this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true);
+        const avatarOptions = this.getShiftPhotoCompareSpeechAvatarOptions();
         menu.className = 'shift-photo-compare-animation-page-audio-menu';
         menu.innerHTML = `
-            ${entry.recordedAudioKey ? `<div class="shift-photo-compare-animation-page-audio-info"><i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'}"></i><span><strong>${this.escapeHtml(audioName)}</strong><small>${this.formatShiftPhotoCompareRecordedAudioDuration(entry.recordedAudioDuration)} / <b data-page-audio-capacity>${audioSize ? this.formatShiftPhotoCompareAudioBytes(audioSize) : '容量を確認中'}</b></small></span></div>` : ''}
+            <div class="shift-photo-compare-animation-page-avatar-picker">
+                <strong><i class="fa-solid fa-face-smile"></i> \u3053\u306e\u30bb\u30ea\u30d5\u3092\u8aad\u3080\u30a2\u30d0\u30bf\u30fc</strong>
+                <div>
+                    <button type="button" class="${selectedAvatar ? '' : 'active'}" onclick="app.setShiftPhotoCompareAnimationPageAvatar('${this.escapeJs(entryId)}', '')" title="\u5168\u4f53\u306e\u30a2\u30d0\u30bf\u30fc\u8a2d\u5b9a\u3092\u4f7f\u7528"><i class="fa-solid fa-globe"></i><span>\u5168\u4f53</span></button>
+                    ${avatarOptions.map(option => { const image = this.getShiftPhotoCompareSpeechAvatarPaths(option.id)[0]; return `<button type="button" class="${selectedAvatar === option.id ? 'active' : ''}" onclick="app.setShiftPhotoCompareAnimationPageAvatar('${this.escapeJs(entryId)}', '${option.id}')" title="${this.escapeHtml(option.label)}"><img src="${this.escapeHtml(image)}" alt=""><span>${this.escapeHtml(option.label)}</span></button>`; }).join('')}
+                </div>
+            </div>            ${entry.recordedAudioKey ? `<div class="shift-photo-compare-animation-page-audio-info"><i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'}"></i><span><strong>${this.escapeHtml(audioName)}</strong><small>${this.formatShiftPhotoCompareRecordedAudioDuration(entry.recordedAudioDuration)} / <b data-page-audio-capacity>${audioSize ? this.formatShiftPhotoCompareAudioBytes(audioSize) : '容量を確認中'}</b></small></span></div>` : ''}
             <button type="button" onclick="app.openShiftPhotoCompareAnimationPageRecordingDialog('${this.escapeJs(entryId)}')"><i class="fa-solid fa-microphone-lines"></i><span>${entry.recordedAudioKey ? 'その場で録り直す' : 'その場で録音'}</span></button>
             <button type="button" onclick="app.selectShiftPhotoCompareAnimationPageAudioFile('${this.escapeJs(entryId)}')"><i class="fa-solid fa-file-audio"></i><span>音声ファイルを使用</span></button>
             <button type="button" onclick="app.openShiftPhotoCompareAnimationAudioDatabase('${this.escapeJs(entryId)}')"><i class="fa-solid fa-database"></i><span>音声DBから登録</span></button>
@@ -13924,6 +14324,11 @@
         const overlay = document.getElementById('shift-photo-compare-overlay');
         const grid = overlay?.querySelector('.shift-photo-compare-grid');
         if (!grid) return;
+        grid.querySelectorAll('.shift-photo-compare-mark').forEach(mark => {
+            const editor = mark.querySelector('.shift-photo-boxed-text-editor, .shift-photo-callout-text');
+            if (editor) mark.dataset.text = String(editor.value || '');
+            if (this.supportsShiftPhotoComparePages(mark)) this.persistCurrentShiftPhotoCompareMarkPage(mark);
+        });
         this.clearShiftPhotoCompareSnapGuides?.();
         this.clearShiftPhotoCompareResizeWidthMatchGuide?.();
         const sourceGridRect = grid.getBoundingClientRect();
@@ -14037,6 +14442,7 @@
         const autoSpeed = this.getShiftPhotoCompareAnimationAutoSpeed();
         const motionSpeed = this.getShiftPhotoCompareAnimationMotionSpeed();
         const speechSettings = this.getShiftPhotoCompareSpeechSettings();
+        const speechAvatarPaths = this.getShiftPhotoCompareSpeechAvatarPaths(speechSettings.avatarStyle);
         const animationOverlay = document.createElement('div');
         animationOverlay.className = 'shift-photo-compare-animation-overlay';
         animationOverlay.style.setProperty('--shift-photo-compare-animation-motion-duration', `${motionSpeed}ms`);
@@ -14061,7 +14467,14 @@
                 <button type="button" onclick="app.closeShiftPhotoCompareAnimation()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="shift-photo-compare-animation-main">
-                <div class="shift-photo-compare-animation-stage"></div>
+                <div class="shift-photo-compare-animation-stage">
+                    <div class="shift-photo-compare-speech-avatar${speechSettings.avatarEnabled === false ? ' disabled' : ''}" data-avatar-style="${speechSettings.avatarStyle}" aria-hidden="true">
+                        <img class="shift-photo-compare-speech-avatar-frame frame-base" src="${speechAvatarPaths[0]}" alt="">
+                        <img class="shift-photo-compare-speech-avatar-frame frame-half" src="${speechAvatarPaths[1]}" alt="">
+                        <img class="shift-photo-compare-speech-avatar-frame frame-open" src="${speechAvatarPaths[2]}" alt="">
+                        <span class="shift-photo-compare-speech-avatar-sound" aria-hidden="true"><i class="fa-solid fa-volume-high"></i></span>
+                    </div>
+                </div>
                 <aside class="shift-photo-compare-animation-timeline" aria-label="アニメタイムライン">
                     <header>
                         <span class="shift-photo-compare-animation-timeline-title"><i class="fa-solid fa-route"></i><strong>タイムライン</strong><span class="shift-photo-compare-animation-timeline-save-state"><i class="fa-solid fa-circle-check"></i><span>保存済み</span></span></span>
@@ -14110,12 +14523,37 @@
                 <button type="button" class="shift-photo-compare-animation-direct-video-btn" onclick="app.saveShiftPhotoCompareAnimationDirectVideo()" title="画面選択を使わず、アニメ部分を直接動画として保存"><i class="fa-solid fa-film"></i><span>直接動画</span></button>
                 <button type="button" class="shift-photo-compare-animation-manual-video-btn" onclick="app.toggleShiftPhotoCompareAnimationManualVideo()" title="クリックしたタイミングで進めた流れを動画として保存"><i class="fa-solid fa-record-vinyl"></i><span>クリック録画</span></button>
                 <button type="button" class="shift-photo-compare-animation-speech-toggle${speechSettings.enabled ? ' active' : ''}" onclick="app.toggleShiftPhotoCompareAnimationSpeech()" title="テキストの音声読み上げを切り替える"><i class="fa-solid fa-volume-high"></i><span>読上 ${speechSettings.enabled ? 'ON' : 'OFF'}</span></button>
-                <button type="button" class="shift-photo-compare-animation-speech-settings-btn" onclick="app.toggleShiftPhotoCompareSpeechSettingsPanel()" title="音声の設定" aria-label="音声の設定"><i class="fa-solid fa-sliders"></i></button>
+<button type="button" class="shift-photo-compare-animation-avatar-toggle${speechSettings.avatarEnabled === false ? '' : ' active'}" onclick="app.toggleShiftPhotoCompareSpeechAvatar()" title="読み上げ中の口パクアバターを切り替える"><i class="fa-solid fa-face-smile"></i><span>アバ ${speechSettings.avatarEnabled === false ? 'OFF' : 'ON'}</span></button>
+                <button type="button" class="shift-photo-compare-animation-speech-settings-btn" onclick="app.toggleShiftPhotoCompareSpeechSettingsPanel()" title="アバターと音声の設定" aria-label="アバター設定"><i class="fa-solid fa-user-gear"></i><span>アバター設定</span></button>
                 <button type="button" class="shift-photo-compare-animation-fullscreen-btn" onclick="app.enterShiftPhotoCompareAnimationFullscreenMode()" title="操作表示を隠し、クリック・左右キー・スペースで再生"><i class="fa-solid fa-expand"></i><span>全画面</span></button>
                 <button type="button" onclick="app.resetShiftPhotoCompareAnimation()" title="最初に戻す"><i class="fa-solid fa-rotate-left"></i><span>戻す</span></button>
             </div>
             <section class="shift-photo-compare-speech-settings hidden" aria-label="音声読み上げ設定">
                 <header><strong><i class="fa-solid fa-volume-high"></i> 音声設定</strong><button type="button" onclick="app.toggleShiftPhotoCompareSpeechSettingsPanel()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                <div class="shift-photo-compare-speech-avatar-options" role="group" aria-label="読み上げアバター">
+
+                    <button type="button" data-speech-avatar-style="safetyFirst" class="${speechSettings.avatarStyle === 'safetyFirst' ? 'active' : ''}" onclick="app.setShiftPhotoCompareSpeechAvatarStyle('safetyFirst')" title="安全第一アバター">
+                        <img src="assets/avatars/safety-first-raccoon-speaker.png" alt=""><span>安全第一</span>
+                    </button>
+                    <button type="button" data-speech-avatar-style="instructor" class="${speechSettings.avatarStyle === 'instructor' ? 'active' : ''}" onclick="app.setShiftPhotoCompareSpeechAvatarStyle('instructor')" title="女性安全指導員アバター">
+                        <img src="assets/avatars/safety-instructor-speaker.png" alt=""><span>安全指導員</span>
+                    </button>
+                    <button type="button" data-speech-avatar-style="siteGuide" class="${speechSettings.avatarStyle === 'siteGuide' ? 'active' : ''}" onclick="app.setShiftPhotoCompareSpeechAvatarStyle('siteGuide')" title="現場ガイドアバター">
+                        <img src="assets/avatars/site-guide-speaker.png" alt=""><span>現場ガイド</span>
+                    </button>
+                    <button type="button" data-speech-avatar-style="fox" class="${speechSettings.avatarStyle === 'fox' ? 'active' : ''}" onclick="app.setShiftPhotoCompareSpeechAvatarStyle('fox')" title="キツネ監督アバター">
+                        <img src="assets/avatars/fox-supervisor-speaker.png" alt=""><span>キツネ監督</span>
+                    </button>
+                    <button type="button" data-speech-avatar-style="crtGuide" class="${speechSettings.avatarStyle === 'crtGuide' ? 'active' : ''}" onclick="app.setShiftPhotoCompareSpeechAvatarStyle('crtGuide')" title="レトロモニター案内役アバター">
+                        <img src="assets/avatars/crt-guide-speaker.png" alt=""><span>レトロモニター</span>
+                    </button>
+                    <button type="button" data-speech-avatar-style="helmetCat" class="${speechSettings.avatarStyle === 'helmetCat' ? 'active' : ''}" onclick="app.setShiftPhotoCompareSpeechAvatarStyle('helmetCat')" title="ヘルメット猫アバター">
+                        <img src="assets/avatars/helmet-cat-speaker.png" alt=""><span>ヘルメット猫</span>
+                    </button>
+                    <button type="button" data-speech-avatar-style="frog" class="${speechSettings.avatarStyle === 'frog' ? 'active' : ''}" onclick="app.setShiftPhotoCompareSpeechAvatarStyle('frog')" title="カエルアバター">
+                        <img src="assets/avatars/frog-speaker.png" alt=""><span>カエル</span>
+                    </button>
+                </div>
                 <label><span>音声</span><select class="shift-photo-compare-speech-voice" onchange="app.updateShiftPhotoCompareSpeechSetting('voiceURI', this.value)"><option value="">既定の音声</option></select></label>
                 <div class="shift-photo-compare-speech-presets" role="group" aria-label="話し方">
                     <span>話し方</span>
@@ -15297,7 +15735,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             : [];
         const framedEntries = activeSessions
             .filter(entry => entry.mark && entry.video && entry.frameCanvas
-                && ['modern', 'retro', 'custom'].includes(entry.mark.dataset.videoFrameStyle));
+                && ['modern', 'retro', 'scroll', 'custom'].includes(entry.mark.dataset.videoFrameStyle));
         diagnostics.entries += framedEntries.length;
 
         for (const entry of framedEntries) {
@@ -15328,6 +15766,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     frameImage = await this.loadShiftPhotoCompareImage('assets/video-frames/modern-flat-tv.png');
                 } else if (frameStyle === 'retro') {
                     frameImage = await this.loadShiftPhotoCompareImage('assets/video-frames/retro-wood-console-tv.png');
+                } else if (frameStyle === 'scroll') {
+                    frameImage = await this.loadShiftPhotoCompareImage('assets/video-frames/ninja-scroll-generated.png');
                 } else {
                     const customFrame = this.getShiftPhotoCompareCustomVideoFrame(mark.dataset.videoFrameId || '');
                     const frameBlob = customFrame
@@ -15345,12 +15785,27 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 ctx.rotate(angle);
                 ctx.fillStyle = '#020617';
                 ctx.fillRect(screenX, screenY, screenWidth, screenHeight);
-                if (frameImage) ctx.drawImage(frameImage, -width / 2, -height / 2, width, height);
+                if (frameImage && frameStyle !== 'scroll') ctx.drawImage(frameImage, -width / 2, -height / 2, width, height);
                 ctx.save();
                 this.drawShiftPhotoCompareRoundedRectPath(ctx, screenX, screenY, screenWidth, screenHeight, 0);
                 ctx.clip();
                 ctx.drawImage(videoFrameSource, screenX, screenY, screenWidth, screenHeight);
                 ctx.restore();
+                if (frameImage && frameStyle === 'scroll') ctx.drawImage(frameImage, -width / 2, -height / 2, width, height);
+            if (!frameImage && frameStyle !== 'none') {
+                ctx.save();
+                ctx.strokeStyle = '#6b4f2b';
+                ctx.lineWidth = Math.max(2, Math.min(12, size * 0.035));
+                this.drawShiftPhotoCompareRoundedRectPath(ctx, -width / 2, -height / 2, width, height, Math.max(3, size * 0.025));
+                ctx.stroke();
+                if (frameStyle === 'scroll') {
+                    ctx.fillStyle = '#3f2c1d';
+                    const rodWidth = Math.max(5, width * 0.025);
+                    this.drawShiftPhotoCompareRoundedRectPath(ctx, -width / 2 - rodWidth * 0.4, -height / 2, rodWidth, height, rodWidth / 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
                 ctx.restore();
                 diagnostics.composited = (Number(diagnostics.composited) || 0) + 1;
                 diagnostics.drawn += 1;
@@ -27846,21 +28301,40 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             const pixels = ctx.getImageData(0, 0, 64, 64).data;
             let transparent = 0;
             let darkOpaque = 0;
+            let chromaticOpaque = 0;
             let opaque = 0;
+            const darkCornerPixels = [0, 0, 0, 0];
+            const cornerPixels = [0, 0, 0, 0];
             const total = pixels.length / 4;
             for (let i = 0; i < pixels.length; i += 4) {
+                const pixelIndex = i / 4;
+                const x = pixelIndex % 64;
+                const y = Math.floor(pixelIndex / 64);
                 const alpha = pixels[i + 3];
+                const cornerIndex = x < 6 && y < 6 ? 0
+                    : x >= 58 && y < 6 ? 1
+                    : x < 6 && y >= 58 ? 2
+                    : x >= 58 && y >= 58 ? 3
+                    : -1;
+                if (cornerIndex >= 0) cornerPixels[cornerIndex] += 1;
                 if (alpha < 32) {
                     transparent += 1;
                     continue;
                 }
                 opaque += 1;
-                const luminance = pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722;
+                const red = pixels[i];
+                const green = pixels[i + 1];
+                const blue = pixels[i + 2];
+                const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
                 if (luminance < 64) darkOpaque += 1;
+                if (Math.max(red, green, blue) - Math.min(red, green, blue) > 28) chromaticOpaque += 1;
+                if (cornerIndex >= 0 && luminance < 64) darkCornerPixels[cornerIndex] += 1;
             }
-            return opaque / total > 0.5
+            const darkBackgroundCorners = darkCornerPixels.filter((count, index) => count / Math.max(1, cornerPixels[index]) > 0.6).length;
+            return darkBackgroundCorners >= 3
                 && transparent / total > 0.01
-                && darkOpaque / Math.max(1, opaque) > 0.7
+                && darkOpaque / Math.max(1, opaque) > 0.45
+                && chromaticOpaque / Math.max(1, opaque) < 0.08
                 ? 'cutout'
                 : 'alpha';
         } catch {
@@ -27935,8 +28409,34 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         if (layer) {
             if (!layer.querySelector(':scope > i')) layer.appendChild(document.createElement('i'));
             layer.dataset.svgFit = settings.fit;
+            layer.dataset.pattern = mark.dataset.fillPattern === 'svg-tile' ? 'svg-tile' : 'svg';
         }
         if (!src) layer?.remove();
+        const originalSrc = /^data:image\/svg\+xml/i.test(mark.dataset.fillSvgOriginalSrc || '')
+            ? mark.dataset.fillSvgOriginalSrc
+            : '';
+        if (originalSrc && mark.dataset.fillSvgMaskMode === 'cutout') {
+            this._shiftPhotoCompareSvgMaskRepairing ||= new WeakSet();
+            if (!this._shiftPhotoCompareSvgMaskRepairing.has(mark)) {
+                this._shiftPhotoCompareSvgMaskRepairing.add(mark);
+                this.detectShiftPhotoCompareFillSvgMaskMode(originalSrc).then(maskMode => {
+                    if (maskMode !== 'alpha'
+                        || !mark.isConnected
+                        || mark.dataset.fillSvgOriginalSrc !== originalSrc
+                        || mark.dataset.fillSvgMaskMode !== 'cutout') return;
+                    mark.dataset.fillSvgSrc = originalSrc;
+                    mark.dataset.fillSvgMaskMode = 'alpha';
+                    mark.dataset.fillSvgInverted = '0';
+                    this.refreshShiftPhotoCompareFillSvgElement(mark);
+                    this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+                    this.refreshShiftPhotoCompareMarkList();
+                    this.autoSaveShiftNotebook(true);
+                    this.showShiftPhotoCompareActionMessage('SVGの誤った白黒反転を自動で修正しました。');
+                }).catch(() => {}).finally(() => {
+                    this._shiftPhotoCompareSvgMaskRepairing?.delete(mark);
+                });
+            }
+        }
     }
 
     normalizeShiftPhotoCompareSvgFillSettings(value = {}) {
@@ -28019,6 +28519,231 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             return this.sanitizeShiftPhotoCompareFillSvg(svgText) || value;
         } catch {
             return value;
+        }
+    }
+
+    removeShiftPhotoCompareSvgTinyClosedFragments(source = '', thresholdPercent = 0.5, protectedAreas = [], previewContext = {}) {
+        const value = String(source || '');
+        const threshold = Math.max(0.05, Math.min(3, Number(thresholdPercent) || 0.5));
+        if (!/^data:image\/svg\+xml/i.test(value)) return { source: value, removed: 0 };
+        let measurementSvg = null;
+        try {
+            const commaIndex = value.indexOf(',');
+            if (commaIndex < 0) return { source: value, removed: 0 };
+            const header = value.slice(0, commaIndex);
+            const payload = value.slice(commaIndex + 1);
+            const svgText = /;base64/i.test(header)
+                ? new TextDecoder('utf-8').decode(Uint8Array.from(atob(payload.replace(/\s+/g, '')), character => character.charCodeAt(0)))
+                : decodeURIComponent(payload);
+            const documentNode = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+            const root = documentNode.documentElement;
+            if (!root || root.nodeName.toLowerCase() !== 'svg' || documentNode.querySelector('parsererror')) {
+                return { source: value, removed: 0 };
+            }
+            const viewBox = String(root.getAttribute('viewBox') || '')
+                .trim().split(/[\s,]+/).map(Number);
+            const width = viewBox.length === 4 && viewBox.every(Number.isFinite)
+                ? Math.max(1, Math.abs(viewBox[2]))
+                : Math.max(1, Number.parseFloat(root.getAttribute('width')) || 100);
+            const height = viewBox.length === 4 && viewBox.every(Number.isFinite)
+                ? Math.max(1, Math.abs(viewBox[3]))
+                : Math.max(1, Number.parseFloat(root.getAttribute('height')) || 100);
+            const viewBoxX = viewBox.length === 4 && Number.isFinite(viewBox[0]) ? viewBox[0] : 0;
+            const viewBoxY = viewBox.length === 4 && Number.isFinite(viewBox[1]) ? viewBox[1] : 0;
+            const maximumWidth = width * threshold / 100;
+            const maximumHeight = height * threshold / 100;
+            const normalizedProtectedAreas = Array.isArray(protectedAreas)
+                ? protectedAreas.map(area => ({
+                    x: Math.max(0, Math.min(100, Number(area?.x) || 0)),
+                    y: Math.max(0, Math.min(100, Number(area?.y) || 0)),
+                    width: Math.max(0, Math.min(100, Number(area?.width) || 0)),
+                    height: Math.max(0, Math.min(100, Number(area?.height) || 0))
+                })).filter(area => area.width > 0 && area.height > 0)
+                : [];
+            const previewWidth = Math.max(1, Number(previewContext?.width) || 1);
+            const previewHeight = Math.max(1, Number(previewContext?.height) || 1);
+            const previewSettings = this.normalizeShiftPhotoCompareSvgFillSettings(previewContext?.settings || {});
+            const projectBoundsToPreview = bounds => {
+                if (!bounds) return null;
+                let drawWidth = previewWidth;
+                let drawHeight = previewHeight;
+                if (previewSettings.fit !== 'stretch' && previewSettings.fit !== 'repeat') {
+                    const scale = previewSettings.fit === 'cover'
+                        ? Math.max(previewWidth / width, previewHeight / height)
+                        : Math.min(previewWidth / width, previewHeight / height);
+                    drawWidth = width * scale;
+                    drawHeight = height * scale;
+                } else if (previewSettings.fit === 'repeat') {
+                    drawWidth = previewWidth * 0.25;
+                    drawHeight = previewHeight * 0.25;
+                }
+                const drawLeft = (previewWidth - drawWidth) / 2;
+                const drawTop = (previewHeight - drawHeight) / 2;
+                const zoom = previewSettings.zoom;
+                const flipX = previewSettings.flipX ? -1 : 1;
+                const flipY = previewSettings.flipY ? -1 : 1;
+                const angle = previewSettings.rotation * Math.PI / 180;
+                const cosine = Math.cos(angle);
+                const sine = Math.sin(angle);
+                const translateX = previewWidth * previewSettings.offsetX / 100;
+                const translateY = previewHeight * previewSettings.offsetY / 100;
+                const sourceLeft = (bounds.x - viewBoxX) / width;
+                const sourceTop = (bounds.y - viewBoxY) / height;
+                const sourceRight = sourceLeft + bounds.width / width;
+                const sourceBottom = sourceTop + bounds.height / height;
+                const corners = [
+                    [sourceLeft, sourceTop],
+                    [sourceRight, sourceTop],
+                    [sourceRight, sourceBottom],
+                    [sourceLeft, sourceBottom]
+                ].map(([sourceX, sourceY]) => {
+                    const localX = drawLeft + sourceX * drawWidth - previewWidth / 2;
+                    const localY = drawTop + sourceY * drawHeight - previewHeight / 2;
+                    const scaledX = localX * zoom * flipX;
+                    const scaledY = localY * zoom * flipY;
+                    return {
+                        x: previewWidth / 2 + translateX + scaledX * cosine - scaledY * sine,
+                        y: previewHeight / 2 + translateY + scaledX * sine + scaledY * cosine
+                    };
+                });
+                const xs = corners.map(point => point.x / previewWidth * 100);
+                const ys = corners.map(point => point.y / previewHeight * 100);
+                return {
+                    left: Math.min(...xs),
+                    top: Math.min(...ys),
+                    right: Math.max(...xs),
+                    bottom: Math.max(...ys)
+                };
+            };
+            measurementSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            measurementSvg.setAttribute('viewBox', viewBox.length === 4 ? viewBox.join(' ') : `0 0 ${width} ${height}`);
+            measurementSvg.style.cssText = 'position:fixed;left:-10000px;top:-10000px;width:1000px;height:1000px;visibility:hidden;pointer-events:none;';
+            document.body.appendChild(measurementSvg);
+            const getTransformChain = (sourceNode, includeSelf = false) => {
+                const chain = [];
+                let current = includeSelf ? sourceNode : sourceNode?.parentElement;
+                while (current && current !== root) {
+                    const transform = String(current.getAttribute?.('transform') || '').trim();
+                    if (transform) chain.unshift(transform);
+                    current = current.parentElement;
+                }
+                return chain;
+            };
+            const getBounds = (node, sourceNode = node, includeSourceTransform = false) => {
+                const probe = document.importNode(node, true);
+                let container = measurementSvg;
+                getTransformChain(sourceNode, includeSourceTransform).forEach(transform => {
+                    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                    group.setAttribute('transform', transform);
+                    container.appendChild(group);
+                    container = group;
+                });
+                container.appendChild(probe);
+                let bounds = null;
+                try {
+                    const localBounds = probe.getBBox();
+                    const rootMatrix = measurementSvg.getScreenCTM?.();
+                    const probeMatrix = probe.getScreenCTM?.();
+                    if (localBounds && rootMatrix && probeMatrix) {
+                        const matrix = rootMatrix.inverse().multiply(probeMatrix);
+                        const corners = [
+                            new DOMPoint(localBounds.x, localBounds.y),
+                            new DOMPoint(localBounds.x + localBounds.width, localBounds.y),
+                            new DOMPoint(localBounds.x + localBounds.width, localBounds.y + localBounds.height),
+                            new DOMPoint(localBounds.x, localBounds.y + localBounds.height)
+                        ].map(point => point.matrixTransform(matrix));
+                        const xs = corners.map(point => point.x);
+                        const ys = corners.map(point => point.y);
+                        bounds = {
+                            x: Math.min(...xs),
+                            y: Math.min(...ys),
+                            width: Math.max(...xs) - Math.min(...xs),
+                            height: Math.max(...ys) - Math.min(...ys)
+                        };
+                    } else {
+                        bounds = localBounds;
+                    }
+                } catch (_) { bounds = null; }
+                let removable = probe;
+                while (removable.parentElement && removable.parentElement !== measurementSvg) {
+                    removable = removable.parentElement;
+                }
+                removable.remove();
+                return bounds;
+            };
+            const isTiny = bounds => !!bounds
+                && bounds.width <= maximumWidth + 0.0001
+                && bounds.height <= maximumHeight + 0.0001;
+            const isProtected = bounds => {
+                if (!bounds || !normalizedProtectedAreas.length) return false;
+                const projected = projectBoundsToPreview(bounds);
+                if (!projected) return false;
+                const tolerance = 0.75;
+                return normalizedProtectedAreas.some(area => (
+                    projected.right >= area.x - tolerance
+                    && projected.left <= area.x + area.width + tolerance
+                    && projected.bottom >= area.y - tolerance
+                    && projected.top <= area.y + area.height + tolerance
+                ));
+            };
+            let removed = 0;
+            let protectedCount = 0;
+            const fragments = [];
+            root.querySelectorAll('path').forEach(path => {
+                const parts = String(path.getAttribute('d') || '').match(/[Mm][^Mm]*/g) || [];
+                if (!parts.length) return;
+                const kept = parts.filter(part => {
+                    const pathData = part.trim();
+                    if (!/[Zz]\s*$/.test(pathData)) return true;
+                    const probe = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    probe.setAttribute('d', pathData);
+                    const bounds = getBounds(probe, path, true);
+                    const tiny = isTiny(bounds);
+                    const protectedFragment = tiny && isProtected(bounds);
+                    if (tiny) {
+                        const projected = projectBoundsToPreview(bounds);
+                        if (projected) fragments.push({ ...projected, protected: protectedFragment });
+                    }
+                    if (protectedFragment) {
+                        protectedCount += 1;
+                        return true;
+                    }
+                    if (tiny) removed += 1;
+                    return !tiny;
+                });
+                if (!kept.length) path.remove();
+                else if (kept.length !== parts.length) path.setAttribute('d', kept.join(' '));
+            });
+            root.querySelectorAll('rect, circle, ellipse, polygon').forEach(node => {
+                const bounds = getBounds(node);
+                if (!isTiny(bounds)) return;
+                const protectedFragment = isProtected(bounds);
+                const projected = projectBoundsToPreview(bounds);
+                if (projected) fragments.push({ ...projected, protected: protectedFragment });
+                if (protectedFragment) {
+                    protectedCount += 1;
+                    return;
+                }
+                node.remove();
+                removed += 1;
+            });
+            Array.from(root.querySelectorAll('g')).reverse().forEach(group => {
+                if (!group.querySelector('path, rect, circle, ellipse, polygon, polyline, line')) group.remove();
+            });
+            if (!removed) return { source: value, removed: 0, protected: protectedCount, fragments };
+            root.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            const serialized = new XMLSerializer().serializeToString(root);
+            return {
+                source: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`,
+                removed,
+                protected: protectedCount,
+                fragments
+            };
+        } catch (error) {
+            console.warn('SVG tiny closed fragment cleanup failed.', error);
+            return { source: value, removed: 0, protected: 0, fragments: [] };
+        } finally {
+            measurementSvg?.remove();
         }
     }
 
@@ -28155,6 +28880,9 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 src: mark.dataset.fillSvgSrc || '',
                 originalSrc: mark.dataset.fillSvgOriginalSrc || '',
                 maskMode: mark.dataset.fillSvgMaskMode || '',
+                detailSource: mark.dataset.fillSvgDetailSource || '',
+                detailThreshold: mark.dataset.fillSvgDetailThreshold || '0.5',
+                protectedAreas: mark.dataset.fillSvgProtectedAreas || '[]',
                 left: mark.style.left || '',
                 top: mark.style.top || '',
                 size: mark.dataset.size || '56',
@@ -28170,9 +28898,9 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         const mode = mark.dataset.mode || 'circle';
         const stretchX = Math.max(0.1, Math.abs(Number(mark.dataset.stretch) || 1));
         const stretchY = Math.max(0.1, Math.abs(Number(mark.dataset.stretchY) || 1));
-        let previewShapeAspect = Math.max(0.5, Math.min(2.4, stretchX / stretchY));
-        let previewShapeClip = 'circle(45% at 50% 50%)';
-        let previewShapeOutline = '<ellipse cx="50" cy="50" rx="45" ry="45"></ellipse>';
+        let previewShapeAspect = Math.max(0.25, Math.min(4, stretchX / stretchY));
+        let previewShapeClip = 'circle(50% at 50% 50%)';
+        let previewShapeOutline = '<ellipse cx="50" cy="50" rx="49" ry="49"></ellipse>';
         let previewShapeName = '円';
         if (isRegion) {
             const points = this.getShiftPhotoComparePolylineRegions(
@@ -28187,23 +28915,25 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 const width = Math.max(0.001, maxX - minX);
                 const height = Math.max(0.001, maxY - minY);
                 const normalized = points.map(point => ({
-                    x: 6 + ((Number(point.x) || 0) - minX) / width * 88,
-                    y: 6 + ((Number(point.y) || 0) - minY) / height * 88
+                    x: ((Number(point.x) || 0) - minX) / width * 100,
+                    y: ((Number(point.y) || 0) - minY) / height * 100
                 }));
                 const cssPoints = normalized.map(point => point.x.toFixed(2) + '% ' + point.y.toFixed(2) + '%').join(', ');
                 const svgPoints = normalized.map(point => point.x.toFixed(2) + ',' + point.y.toFixed(2)).join(' ');
-                previewShapeAspect = Math.max(0.5, Math.min(2.4, width / height));
+                const renderedWidth = Math.max(1, Number(mark.clientWidth) || Number(mark.dataset.wrapWidth) || Number(mark.parentElement?.clientWidth) || 1);
+                const renderedHeight = Math.max(1, Number(mark.clientHeight) || Number(mark.dataset.wrapHeight) || Number(mark.parentElement?.clientHeight) || 1);
+                previewShapeAspect = Math.max(0.25, Math.min(4, (width * renderedWidth) / (height * renderedHeight)));
                 previewShapeClip = 'polygon(' + cssPoints + ')';
                 previewShapeOutline = '<polygon points="' + svgPoints + '"></polygon>';
                 previewShapeName = '区画 ' + (index + 1);
             }
         } else if (mode === 'rect') {
-            previewShapeClip = 'inset(8% 5% 8% 5% round 2%)';
-            previewShapeOutline = '<rect x="5" y="8" width="90" height="84" rx="2"></rect>';
+            previewShapeClip = 'inset(0 round 2%)';
+            previewShapeOutline = '<rect x="1" y="1" width="98" height="98" rx="2"></rect>';
             previewShapeName = '四角';
         } else if (mode === 'triangle') {
-            previewShapeClip = 'polygon(50% 5%, 95% 94%, 5% 94%)';
-            previewShapeOutline = '<polygon points="50,5 95,94 5,94"></polygon>';
+            previewShapeClip = 'polygon(50% 16%, 88% 82%, 12% 82%)';
+            previewShapeOutline = '<polygon points="50,16 88,82 12,82"></polygon>';
             previewShapeName = '三角';
         }
         const containZoom = this.getShiftPhotoCompareSvgContainZoom(mark, index);
@@ -28215,8 +28945,9 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 <div class="shift-photo-svg-settings-body">
                     <div class="shift-photo-svg-settings-preview">
                         <div class="shift-photo-svg-settings-shape" style="--preview-shape-aspect:${previewShapeAspect}; --preview-shape-clip:${previewShapeClip};">
-                            <div class="shift-photo-svg-settings-shape-mask"><i></i></div>
+                            <div class="shift-photo-svg-settings-shape-mask"><i></i><div class="shift-photo-svg-fragment-layer" aria-hidden="true"></div><div class="shift-photo-svg-protection-layer"></div></div>
                             <svg class="shift-photo-svg-settings-shape-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${previewShapeOutline}</svg>
+                            <div class="shift-photo-svg-click-magnifier" hidden><div class="shift-photo-svg-click-magnifier-content"></div><span></span></div>
                         </div>
                         <span>${previewShapeName}への挿入プレビュー</span>
                     </div>
@@ -28227,6 +28958,24 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                         <label><span>上下位置 <output data-output="offsetY"></output></span><input data-field="offsetY" type="range" min="-100" max="100" step="1"></label>
                         <label><span>角度 <output data-output="rotation"></output></span><input data-field="rotation" type="range" min="-180" max="180" step="1"></label>
                         <label><span>透明度 <output data-output="opacity"></output></span><input data-field="opacity" type="range" min="0.1" max="1" step="0.05"></label>
+                        <section class="shift-photo-svg-detail-cleanup">
+                            <label><span>細かい点 <output data-output="detailThreshold">0.5%</output></span><input data-field="detailThreshold" type="range" min="0.05" max="3" step="0.05" value="0.5"></label>
+                            <div class="shift-photo-svg-protection-actions">
+                                <button type="button" data-action="protect-details"><i class="fa-solid fa-shield-halved"></i>保護範囲を指定</button>
+                                <button type="button" data-action="protect-detail-click" disabled title="細かい点のスライダーを上げると候補が表示されます"><i class="fa-solid fa-arrow-pointer"></i>クリック保護（候補なし）</button>
+                                <button type="button" data-action="undo-protection" disabled><i class="fa-solid fa-delete-left"></i>最後の範囲を削除</button>
+                                <button type="button" data-action="clear-protection" disabled><i class="fa-solid fa-shield"></i>全解除</button>
+                            </div>
+                            <div class="shift-photo-svg-detail-view-actions">
+                                <button type="button" data-action="show-original"><i class="fa-solid fa-image"></i>元画像</button>
+                                <button type="button" data-action="show-cleaned" class="active"><i class="fa-solid fa-wand-magic-sparkles"></i>除去後</button>
+                                <button type="button" data-action="toggle-fragments" class="active"><i class="fa-solid fa-eye"></i>候補表示</button>
+                                <button type="button" data-action="detail-undo" disabled title="除去編集を戻す"><i class="fa-solid fa-rotate-left"></i></button>
+                                <button type="button" data-action="detail-redo" disabled title="除去編集をやり直す"><i class="fa-solid fa-rotate-right"></i></button>
+                            </div>
+                            <small data-protection-result>目の光など残したい部分をドラッグで囲めます</small>
+                            <small data-detail-result><span class="shift-photo-svg-detail-legend"><i></i>除去候補 <i></i>保護</span></small>
+                        </section>
                         <div class="shift-photo-svg-settings-toggles">
                             <button type="button" data-field="flipX"><i class="fa-solid fa-left-right"></i>左右反転</button>
                             <button type="button" data-field="flipY"><i class="fa-solid fa-up-down"></i>上下反転</button>
@@ -28238,6 +28987,23 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 <footer><button type="button" data-action="cancel">キャンセル</button><button type="button" class="primary" data-action="save"><i class="fa-solid fa-check"></i>反映</button></footer>
             </div>`;
         document.body.appendChild(overlay);
+        const previewPanel = overlay.querySelector('.shift-photo-svg-settings-preview');
+        const previewShape = overlay.querySelector('.shift-photo-svg-settings-shape');
+        const syncPreviewShapeDimensions = () => {
+            const panelRect = previewPanel?.getBoundingClientRect?.();
+            if (!panelRect?.width || !panelRect?.height || !previewShape) return;
+            const maxWidth = Math.min(panelRect.width * 0.84, 420);
+            const maxHeight = panelRect.height * 0.84;
+            let width = maxWidth;
+            let height = width / previewShapeAspect;
+            if (height > maxHeight) {
+                height = maxHeight;
+                width = height * previewShapeAspect;
+            }
+            previewShape.style.width = `${Math.max(40, width)}px`;
+            previewShape.style.height = `${Math.max(40, height)}px`;
+        };
+        syncPreviewShapeDimensions();
         let settings = { ...originalSettings };
         let applySequence = 0;
         const controls = {};
@@ -28249,6 +29015,105 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             controls[name] = overlay.querySelector(`button[data-field="${name}"]`);
             controls[name].classList.toggle('active', !!settings[name]);
         });
+        const detailThreshold = overlay.querySelector('[data-field="detailThreshold"]');
+        const detailThresholdOutput = overlay.querySelector('[data-output="detailThreshold"]');
+        const detailResult = overlay.querySelector('[data-detail-result]');
+        const protectionResult = overlay.querySelector('[data-protection-result]');
+        const fragmentLayer = overlay.querySelector('.shift-photo-svg-fragment-layer');
+        const protectionLayer = overlay.querySelector('.shift-photo-svg-protection-layer');
+        const clickMagnifier = overlay.querySelector('.shift-photo-svg-click-magnifier');
+        const clickMagnifierContent = overlay.querySelector('.shift-photo-svg-click-magnifier-content');
+        const protectDetailsButton = overlay.querySelector('[data-action="protect-details"]');
+        const protectDetailClickButton = overlay.querySelector('[data-action="protect-detail-click"]');
+        const undoProtectionButton = overlay.querySelector('[data-action="undo-protection"]');
+        const clearProtectionButton = overlay.querySelector('[data-action="clear-protection"]');
+        const showOriginalButton = overlay.querySelector('[data-action="show-original"]');
+        const showCleanedButton = overlay.querySelector('[data-action="show-cleaned"]');
+        const toggleFragmentsButton = overlay.querySelector('[data-action="toggle-fragments"]');
+        const detailUndoButton = overlay.querySelector('[data-action="detail-undo"]');
+        const detailRedoButton = overlay.querySelector('[data-action="detail-redo"]');
+        const savedDetail = isRegion
+            ? (this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]')[index] || {})
+            : {
+                imageDetailSource: mark.dataset.fillSvgDetailSource || '',
+                imageDetailThreshold: mark.dataset.fillSvgDetailThreshold || 0.5,
+                imageProtectedAreas: (() => { try { return JSON.parse(mark.dataset.fillSvgProtectedAreas || '[]'); } catch (_) { return []; } })()
+            };
+        const detailBaseSource = savedDetail.imageDetailSource || getSource();
+        let detailPreviewFrame = 0;
+        let detailPreviewSequence = 0;
+        let protectedAreas = (savedDetail.imageProtectedAreas || []).map(area => ({ ...area }));
+        let protectionMode = '';
+        let protectionDraft = null;
+        let lastCleanupResult = { source: getSource(), removed: 0, protected: 0, fragments: [] };
+        let showOriginal = false;
+        let showFragments = true;
+        let detailHistory = [];
+        let detailFuture = [];
+        detailThreshold.value = String(savedDetail.imageDetailThreshold || 0.5);
+        detailThresholdOutput.textContent = `${Number(detailThreshold.value).toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}%`;
+        const snapshotDetailState = () => ({
+            threshold: Number(detailThreshold.value),
+            protectedAreas: protectedAreas.map(area => ({ ...area }))
+        });
+        const updateDetailHistoryButtons = () => {
+            detailUndoButton.disabled = detailHistory.length === 0;
+            detailRedoButton.disabled = detailFuture.length === 0;
+        };
+        const pushDetailHistory = () => {
+            const snapshot = snapshotDetailState();
+            const previous = detailHistory[detailHistory.length - 1];
+            if (!previous || JSON.stringify(previous) !== JSON.stringify(snapshot)) detailHistory.push(snapshot);
+            if (detailHistory.length > 40) detailHistory.shift();
+            detailFuture = [];
+            updateDetailHistoryButtons();
+        };
+        const renderProtectionAreas = () => {
+            const areas = protectionDraft ? [...protectedAreas, protectionDraft] : protectedAreas;
+            protectionLayer.innerHTML = areas.map((area, areaIndex) => (
+                '<span data-area-index="' + areaIndex + '" style="left:' + area.x + '%;top:' + area.y + '%;width:' + area.width + '%;height:' + area.height + '%">'
+                + (areaIndex < protectedAreas.length ? '<b>' + (areaIndex + 1) + '</b>' : '')
+                + (areaIndex < protectedAreas.length ? '<i data-handle="nw"></i><i data-handle="ne"></i><i data-handle="sw"></i><i data-handle="se"></i>' : '')
+                + '</span>'
+            )).join('');
+            undoProtectionButton.disabled = protectedAreas.length === 0;
+            clearProtectionButton.disabled = protectedAreas.length === 0;
+            protectionResult.textContent = protectionMode
+                ? protectionMode === 'click' ? '残したい小さな点をクリックしてください' : '範囲を作成、または既存範囲をドラッグして調整できます'
+                : protectedAreas.length
+                    ? protectedAreas.length + 'か所を除去対象から保護しています'
+                    : '目の光など残したい部分をドラッグで囲めます';
+        };
+        const setProtectionMode = modeValue => {
+            if (modeValue === 'click' && protectDetailClickButton.disabled && protectionMode !== 'click') {
+                protectionResult.textContent = 'クリック保護できる候補がありません。細かい点のスライダーを上げてください';
+                return;
+            }
+            protectionMode = protectionMode === modeValue ? '' : modeValue;
+            protectionDraft = null;
+            protectDetailsButton.classList.toggle('active', protectionMode === 'draw');
+            protectDetailClickButton.classList.toggle('active', protectionMode === 'click');
+            protectDetailsButton.innerHTML = protectionMode === 'draw'
+                ? '<i class="fa-solid fa-xmark"></i>範囲指定を終了'
+                : '<i class="fa-solid fa-shield-halved"></i>保護範囲を指定';
+            overlay.querySelector('.shift-photo-svg-settings-shape-mask')?.classList.toggle('protection-mode', !!protectionMode);
+            protectionLayer.classList.toggle('editing', protectionMode === 'draw');
+            clickMagnifier.hidden = true;
+            renderProtectionAreas();
+        };
+        const setDetailSource = source => {
+            if (isRegion) {
+                const fills = this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]');
+                if (!fills[index]) return false;
+                fills[index].imageOriginalSrc = source;
+                fills[index].imageSrc = source;
+                mark.dataset.polylineRegionFills = JSON.stringify(fills);
+            } else {
+                mark.dataset.fillSvgOriginalSrc = source;
+                mark.dataset.fillSvgSrc = source;
+            }
+            return true;
+        };
         const updateOutputs = () => {
             overlay.querySelector('[data-output="zoom"]').textContent = `${Math.round(settings.zoom * 100)}%`;
             overlay.querySelector('[data-output="offsetX"]').textContent = `${settings.offsetX > 0 ? '+' : ''}${settings.offsetX}%`;
@@ -28259,9 +29124,11 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         const updatePreview = () => {
             const shape = overlay.querySelector('.shift-photo-svg-settings-shape');
             const preview = shape.querySelector('.shift-photo-svg-settings-shape-mask > i');
-            const source = isRegion
-                ? (this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]')[index]?.imageSrc || '')
-                : (mark.dataset.fillSvgSrc || '');
+            const source = showOriginal
+                ? detailBaseSource
+                : isRegion
+                    ? (this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]')[index]?.imageSrc || '')
+                    : (mark.dataset.fillSvgSrc || '');
             preview.style.setProperty('--preview-svg-src', source ? `url("${source}")` : 'none');
             preview.dataset.svgFit = settings.fit;
             preview.style.setProperty('--preview-zoom', settings.zoom);
@@ -28274,6 +29141,15 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             const color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
             preview.style.backgroundColor = color;
             shape.style.setProperty('--preview-shape-color', color);
+            fragmentLayer.hidden = showOriginal || !showFragments;
+            showOriginalButton.classList.toggle('active', showOriginal);
+            showCleanedButton.classList.toggle('active', !showOriginal);
+            toggleFragmentsButton.classList.toggle('active', showFragments);
+            toggleFragmentsButton.innerHTML = showFragments
+                ? '<i class="fa-solid fa-eye"></i>候補表示'
+                : '<i class="fa-solid fa-eye-slash"></i>候補非表示';
+            clickMagnifierContent.innerHTML = preview.parentElement.innerHTML;
+            clickMagnifierContent.querySelector('.shift-photo-svg-protection-layer')?.classList.remove('editing');
         };
         const syncPositionAndZoomControls = () => {
             controls.zoom.value = settings.zoom;
@@ -28288,23 +29164,108 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             updateOutputs();
             updatePreview();
         };
+        const previewDetailCleanup = async () => {
+            const sequence = ++detailPreviewSequence;
+            if (!/^data:image\/svg\+xml/i.test(detailBaseSource || '')) {
+                detailResult.textContent = 'SVGデータを確認できませんでした';
+                return { source: detailBaseSource, removed: 0 };
+            }
+            const cleaned = this.removeShiftPhotoCompareSvgTinyClosedFragments(
+                detailBaseSource,
+                detailThreshold.value,
+                protectedAreas,
+                {
+                    width: overlay.querySelector('.shift-photo-svg-settings-shape-mask')?.getBoundingClientRect().width,
+                    height: overlay.querySelector('.shift-photo-svg-settings-shape-mask')?.getBoundingClientRect().height,
+                    settings
+                }
+            );
+            if (sequence !== detailPreviewSequence) return cleaned;
+            lastCleanupResult = cleaned;
+            const clickableCount = (cleaned.fragments || []).filter(fragment => !fragment.protected).length;
+            protectDetailClickButton.disabled = clickableCount === 0;
+            protectDetailClickButton.innerHTML = clickableCount
+                ? `<i class="fa-solid fa-arrow-pointer"></i>クリック保護 (${clickableCount})`
+                : '<i class="fa-solid fa-arrow-pointer"></i>クリック保護（候補なし）';
+            protectDetailClickButton.title = clickableCount
+                ? `赤い除去候補をクリックして保護できます（${clickableCount}個）`
+                : '細かい点のスライダーを上げると、クリック保護できる候補が表示されます';
+            if (!clickableCount && protectionMode === 'click') setProtectionMode('click');
+            if (!clickableCount) protectionResult.textContent = 'クリック保護の条件：細かい点スライダーで除去候補が1個以上検出されること';
+            fragmentLayer.innerHTML = (cleaned.fragments || []).map(fragment => {
+                const left = Math.max(0, Math.min(100, fragment.left));
+                const top = Math.max(0, Math.min(100, fragment.top));
+                const right = Math.max(0, Math.min(100, fragment.right));
+                const bottom = Math.max(0, Math.min(100, fragment.bottom));
+                return `<span class="${fragment.protected ? 'protected' : 'removed'}" style="left:${left}%;top:${top}%;width:${Math.max(0.7, right - left)}%;height:${Math.max(0.7, bottom - top)}%"></span>`;
+            }).join('');
+            setDetailSource(cleaned.source);
+            await applyLive();
+            if (sequence !== detailPreviewSequence) return cleaned;
+            const protectedText = cleaned.protected ? `（保護 ${cleaned.protected}個）` : '';
+            detailResult.textContent = cleaned.removed
+                ? `赤: 除去 ${cleaned.removed}個 / 緑: 保護 ${cleaned.protected || 0}個`
+                : cleaned.protected
+                    ? `対象の小輪郭は保護されています（${cleaned.protected}個）`
+                    : '候補なし：細かい点のスライダーを上げるとクリック保護できます';
+            return cleaned;
+        };
+        detailThreshold.addEventListener('pointerdown', pushDetailHistory);
+        detailThreshold.addEventListener('keydown', event => {
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) pushDetailHistory();
+        });
+        detailThreshold.addEventListener('input', () => {
+            detailThresholdOutput.textContent = `${Number(detailThreshold.value).toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}%`;
+            cancelAnimationFrame(detailPreviewFrame);
+            detailPreviewFrame = requestAnimationFrame(() => {
+                detailPreviewFrame = 0;
+                previewDetailCleanup();
+            });
+        });
         Object.entries(controls).forEach(([name, control]) => {
             if (control.tagName === 'BUTTON') {
                 control.addEventListener('click', async () => {
                     settings[name] = !settings[name];
                     control.classList.toggle('active', settings[name]);
-                    await applyLive();
+                    await previewDetailCleanup();
                 });
             } else {
                 control.addEventListener('input', async () => {
                     settings[name] = name === 'fit' ? control.value : Number(control.value);
-                    await applyLive();
+                    await previewDetailCleanup();
                 });
             }
         });
         const previewMask = overlay.querySelector('.shift-photo-svg-settings-shape-mask');
         let previewDrag = null;
+        let protectionPointerDrag = null;
         let previewApplyFrame = 0;
+        const getProtectionPoint = event => {
+            const rect = previewMask.getBoundingClientRect();
+            return {
+                x: Math.max(0, Math.min(100, (event.clientX - rect.left) / Math.max(1, rect.width) * 100)),
+                y: Math.max(0, Math.min(100, (event.clientY - rect.top) / Math.max(1, rect.height) * 100))
+            };
+        };
+        const updateClickMagnifier = event => {
+            if (protectionMode !== 'click') return;
+            const rect = previewMask.getBoundingClientRect();
+            const pointX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+            const pointY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+            const lensSize = Math.max(120, clickMagnifier.offsetWidth || 156);
+            const gap = 18;
+            let lensLeft = pointX + gap;
+            let lensTop = pointY + gap;
+            if (lensLeft + lensSize > rect.width) lensLeft = pointX - lensSize - gap;
+            if (lensTop + lensSize > rect.height) lensTop = pointY - lensSize - gap;
+            clickMagnifier.style.left = `${Math.max(-lensSize * 0.35, Math.min(rect.width - lensSize * 0.65, lensLeft))}px`;
+            clickMagnifier.style.top = `${Math.max(-lensSize * 0.35, Math.min(rect.height - lensSize * 0.65, lensTop))}px`;
+            clickMagnifierContent.style.width = `${rect.width}px`;
+            clickMagnifierContent.style.height = `${rect.height}px`;
+            const magnification = 3.2;
+            clickMagnifierContent.style.transform = `translate(${lensSize / 2 - pointX * magnification}px, ${lensSize / 2 - pointY * magnification}px) scale(${magnification})`;
+            clickMagnifier.hidden = false;
+        };
         const queuePreviewApply = () => {
             syncPositionAndZoomControls();
             updateOutputs();
@@ -28312,12 +29273,61 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             cancelAnimationFrame(previewApplyFrame);
             previewApplyFrame = requestAnimationFrame(() => {
                 previewApplyFrame = 0;
-                applyLive();
+                previewDetailCleanup();
             });
         };
         previewMask.addEventListener('pointerdown', event => {
             if (event.button !== 0) return;
             event.preventDefault();
+            if (protectionMode) {
+                updateClickMagnifier(event);
+                const point = getProtectionPoint(event);
+                if (protectionMode === 'click') {
+                    const candidate = (lastCleanupResult.fragments || [])
+                        .map(fragment => ({
+                            ...fragment,
+                            distance: Math.hypot(point.x - (fragment.left + fragment.right) / 2, point.y - (fragment.top + fragment.bottom) / 2)
+                        }))
+                        .filter(fragment => point.x >= fragment.left - 3 && point.x <= fragment.right + 3 && point.y >= fragment.top - 3 && point.y <= fragment.bottom + 3)
+                        .sort((left, right) => left.distance - right.distance)[0];
+                    if (candidate) {
+                        pushDetailHistory();
+                        const padding = 1.2;
+                        protectedAreas.push({
+                            x: Math.max(0, candidate.left - padding),
+                            y: Math.max(0, candidate.top - padding),
+                            width: Math.min(100 - Math.max(0, candidate.left - padding), candidate.right - candidate.left + padding * 2),
+                            height: Math.min(100 - Math.max(0, candidate.top - padding), candidate.bottom - candidate.top + padding * 2)
+                        });
+                        renderProtectionAreas();
+                        previewDetailCleanup();
+                    } else {
+                        protectionResult.textContent = 'この位置に除去候補がありません';
+                    }
+                    return;
+                }
+                const areaElement = event.target.closest?.('[data-area-index]');
+                const areaIndex = Number(areaElement?.dataset?.areaIndex);
+                if (Number.isInteger(areaIndex) && protectedAreas[areaIndex]) {
+                    pushDetailHistory();
+                    protectionPointerDrag = {
+                        pointerId: event.pointerId,
+                        operation: event.target.dataset.handle ? 'resize' : 'move',
+                        handle: event.target.dataset.handle || '',
+                        areaIndex,
+                        startX: point.x,
+                        startY: point.y,
+                        startArea: { ...protectedAreas[areaIndex] }
+                    };
+                } else {
+                    pushDetailHistory();
+                    protectionPointerDrag = { pointerId: event.pointerId, operation: 'new', startX: point.x, startY: point.y };
+                    protectionDraft = { x: point.x, y: point.y, width: 0, height: 0 };
+                }
+                previewMask.setPointerCapture(event.pointerId);
+                renderProtectionAreas();
+                return;
+            }
             previewDrag = {
                 pointerId: event.pointerId,
                 startX: event.clientX,
@@ -28329,6 +29339,43 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             previewMask.classList.add('dragging');
         });
         previewMask.addEventListener('pointermove', event => {
+            if (protectionMode === 'click') updateClickMagnifier(event);
+            if (protectionPointerDrag?.pointerId === event.pointerId) {
+                const point = getProtectionPoint(event);
+                if (protectionPointerDrag.operation === 'move') {
+                    const start = protectionPointerDrag.startArea;
+                    protectedAreas[protectionPointerDrag.areaIndex] = {
+                        ...start,
+                        x: Math.max(0, Math.min(100 - start.width, start.x + point.x - protectionPointerDrag.startX)),
+                        y: Math.max(0, Math.min(100 - start.height, start.y + point.y - protectionPointerDrag.startY))
+                    };
+                } else if (protectionPointerDrag.operation === 'resize') {
+                    const start = protectionPointerDrag.startArea;
+                    let left = start.x;
+                    let top = start.y;
+                    let right = start.x + start.width;
+                    let bottom = start.y + start.height;
+                    if (protectionPointerDrag.handle.includes('w')) left = point.x;
+                    if (protectionPointerDrag.handle.includes('e')) right = point.x;
+                    if (protectionPointerDrag.handle.includes('n')) top = point.y;
+                    if (protectionPointerDrag.handle.includes('s')) bottom = point.y;
+                    protectedAreas[protectionPointerDrag.areaIndex] = {
+                        x: Math.min(left, right),
+                        y: Math.min(top, bottom),
+                        width: Math.max(0.5, Math.abs(right - left)),
+                        height: Math.max(0.5, Math.abs(bottom - top))
+                    };
+                } else {
+                    protectionDraft = {
+                        x: Math.min(protectionPointerDrag.startX, point.x),
+                        y: Math.min(protectionPointerDrag.startY, point.y),
+                        width: Math.abs(point.x - protectionPointerDrag.startX),
+                        height: Math.abs(point.y - protectionPointerDrag.startY)
+                    };
+                }
+                renderProtectionAreas();
+                return;
+            }
             if (!previewDrag || previewDrag.pointerId !== event.pointerId) return;
             const rect = previewMask.getBoundingClientRect();
             const nextX = previewDrag.offsetX + (event.clientX - previewDrag.startX) / Math.max(1, rect.width) * 100;
@@ -28338,27 +29385,88 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             queuePreviewApply();
         });
         const finishPreviewDrag = event => {
+            if (protectionPointerDrag?.pointerId === event.pointerId) {
+                if (event.type === 'pointerup' && protectionDraft?.width >= 1 && protectionDraft?.height >= 1) {
+                    protectedAreas.push({ ...protectionDraft });
+                }
+                protectionPointerDrag = null;
+                protectionDraft = null;
+                if (previewMask.hasPointerCapture(event.pointerId)) previewMask.releasePointerCapture(event.pointerId);
+                renderProtectionAreas();
+                previewDetailCleanup();
+                return;
+            }
             if (!previewDrag || previewDrag.pointerId !== event.pointerId) return;
             previewDrag = null;
             previewMask.classList.remove('dragging');
             if (previewMask.hasPointerCapture(event.pointerId)) previewMask.releasePointerCapture(event.pointerId);
-            applyLive();
+            previewDetailCleanup();
         };
         previewMask.addEventListener('pointerup', finishPreviewDrag);
         previewMask.addEventListener('pointercancel', finishPreviewDrag);
+        previewMask.addEventListener('pointerleave', () => {
+            if (protectionMode === 'click') clickMagnifier.hidden = true;
+        });
         previewMask.addEventListener('wheel', event => {
             event.preventDefault();
+            if (protectionMode) return;
             const step = event.deltaY < 0 ? 0.1 : -0.1;
             settings.zoom = Math.round(Math.max(0.25, Math.min(4, settings.zoom + step)) * 20) / 20;
             queuePreviewApply();
         }, { passive: false });
+        protectDetailsButton.addEventListener('click', () => setProtectionMode('draw'));
+        protectDetailClickButton.addEventListener('click', () => setProtectionMode('click'));
+        undoProtectionButton.addEventListener('click', () => {
+            pushDetailHistory();
+            protectedAreas.pop();
+            renderProtectionAreas();
+            previewDetailCleanup();
+        });
+        clearProtectionButton.addEventListener('click', () => {
+            pushDetailHistory();
+            protectedAreas = [];
+            renderProtectionAreas();
+            previewDetailCleanup();
+        });
+        const restoreDetailSnapshot = snapshot => {
+            detailThreshold.value = String(snapshot.threshold);
+            detailThresholdOutput.textContent = `${Number(snapshot.threshold).toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}%`;
+            protectedAreas = snapshot.protectedAreas.map(area => ({ ...area }));
+            renderProtectionAreas();
+            updateDetailHistoryButtons();
+            previewDetailCleanup();
+        };
+        detailUndoButton.addEventListener('click', () => {
+            if (!detailHistory.length) return;
+            detailFuture.push(snapshotDetailState());
+            restoreDetailSnapshot(detailHistory.pop());
+        });
+        detailRedoButton.addEventListener('click', () => {
+            if (!detailFuture.length) return;
+            detailHistory.push(snapshotDetailState());
+            restoreDetailSnapshot(detailFuture.pop());
+        });
+        showOriginalButton.addEventListener('click', () => {
+            showOriginal = true;
+            updatePreview();
+        });
+        showCleanedButton.addEventListener('click', () => {
+            showOriginal = false;
+            updatePreview();
+        });
+        toggleFragmentsButton.addEventListener('click', () => {
+            showFragments = !showFragments;
+            updatePreview();
+        });
+        updateDetailHistoryButtons();
+        renderProtectionAreas();
         overlay.querySelector('[data-action="reset"]').addEventListener('click', async () => {
             settings = this.normalizeShiftPhotoCompareSvgFillSettings({ fit: 'contain', zoom: containZoom });
             Object.keys(controls).forEach(name => {
                 if (controls[name].tagName === 'BUTTON') controls[name].classList.toggle('active', !!settings[name]);
                 else controls[name].value = settings[name];
             });
-            await applyLive();
+            await previewDetailCleanup();
         });
         const restore = () => {
             if (isRegion) {
@@ -28368,6 +29476,9 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 mark.dataset.fillSvgSrc = originalState.src;
                 mark.dataset.fillSvgOriginalSrc = originalState.originalSrc;
                 mark.dataset.fillSvgMaskMode = originalState.maskMode;
+                mark.dataset.fillSvgDetailSource = originalState.detailSource;
+                mark.dataset.fillSvgDetailThreshold = originalState.detailThreshold;
+                mark.dataset.fillSvgProtectedAreas = originalState.protectedAreas;
                 mark.style.left = originalState.left;
                 mark.style.top = originalState.top;
                 mark.dataset.size = originalState.size;
@@ -28391,6 +29502,20 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         overlay.querySelector('[data-action="cancel"]').addEventListener('click', cancel);
         overlay.addEventListener('pointerdown', event => { if (event.target === overlay) cancel(); });
         overlay.querySelector('[data-action="save"]').addEventListener('click', async () => {
+            await previewDetailCleanup();
+            if (isRegion) {
+                const fills = this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]');
+                if (fills[index]) {
+                    fills[index].imageDetailSource = detailBaseSource;
+                    fills[index].imageDetailThreshold = Number(detailThreshold.value);
+                    fills[index].imageProtectedAreas = protectedAreas.map(area => ({ ...area }));
+                    mark.dataset.polylineRegionFills = JSON.stringify(fills);
+                }
+            } else {
+                mark.dataset.fillSvgDetailSource = detailBaseSource;
+                mark.dataset.fillSvgDetailThreshold = String(Number(detailThreshold.value));
+                mark.dataset.fillSvgProtectedAreas = JSON.stringify(protectedAreas);
+            }
             await this.applyShiftPhotoCompareSvgFillSettings(mark, index, settings, { commit: true });
             if (!isRegion && this.fitShiftPhotoCompareSvgMarkInsideSurface(mark)) {
                 this.syncShiftPhotoCompareChangedMarkWraps([mark]);
@@ -28401,11 +29526,11 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         });
         updateOutputs();
         updatePreview();
-        applyLive();
+        previewDetailCleanup();
         return true;
     }
 
-    async chooseShiftPhotoCompareBorderFillSvg(mark, regionIndex = -1, presetSource = '') {
+    async chooseShiftPhotoCompareBorderFillSvg(mark, regionIndex = -1, presetSource = '', options = {}) {
         if (!mark || this.isShiftPhotoCompareMarkLocked(mark)) return false;
         const targetId = this.ensureShiftPhotoCompareAnimationId(mark);
         const targetScope = mark.closest('.shift-photo-compare-modal, .shift-photo-compare-editor') || document;
@@ -28436,10 +29561,11 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             const fillSvgMaskMode = await this.detectShiftPhotoCompareFillSvgMaskMode(sourceSrc);
             const remembered = this.getLastShiftPhotoCompareSvgFillPreset().settings;
             const containZoom = this.getShiftPhotoCompareSvgContainZoom(mark, regionIndex);
+            const tileMode = options.tile === true;
             const initialSettings = this.normalizeShiftPhotoCompareSvgFillSettings({
                 ...remembered,
-                fit: 'contain',
-                zoom: containZoom,
+                fit: tileMode ? 'repeat' : 'contain',
+                zoom: tileMode ? 1 : containZoom,
                 offsetX: 0,
                 offsetY: 0,
                 rotation: 0,
@@ -28463,7 +29589,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 this.updateShiftPhotoComparePolylineRegionImage(targetMark, index, {
                     enabled: true,
                     color,
-                    pattern: 'svg',
+                    pattern: tileMode ? 'svg-tile' : 'svg',
+                    patternScale: this.normalizeShiftPhotoCompareFillPatternScale(targetMark.dataset.polylineFillPatternScale),
                     imageSrc: src,
                     imageOriginalSrc: sourceSrc,
                     imageTint: true,
@@ -28475,7 +29602,10 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     imageFlipX: initialSettings.flipX,
                     imageFlipY: initialSettings.flipY,
                     imageOpacity: initialSettings.opacity,
-                    imageInvert: initialSettings.inverted
+                    imageInvert: initialSettings.inverted,
+                    imageDetailSource: sourceSrc,
+                    imageDetailThreshold: 0.5,
+                    imageProtectedAreas: []
                 }, `区画 ${index + 1} に枠色SVGを挿入しました。`);
                 setTimeout(() => this.openShiftPhotoCompareSvgFillSettings(targetMark, index), 0);
                 return;
@@ -28486,7 +29616,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             this.pushShiftPhotoCompareUndo();
             targets.forEach(item => {
                 item.dataset.fillWithBorder = '1';
-                item.dataset.fillPattern = 'svg';
+                item.dataset.fillPattern = tileMode ? 'svg-tile' : 'svg';
                 item.dataset.fillSvgSrc = src;
                 item.dataset.fillSvgOriginalSrc = sourceSrc;
                 item.dataset.fillSvgMaskMode = fillSvgMaskMode;
@@ -28499,6 +29629,9 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 item.dataset.fillSvgFlipY = initialSettings.flipY ? '1' : '0';
                 item.dataset.fillSvgOpacity = String(initialSettings.opacity);
                 item.dataset.fillSvgInverted = initialSettings.inverted ? '1' : '0';
+                item.dataset.fillSvgDetailSource = sourceSrc;
+                item.dataset.fillSvgDetailThreshold = '0.5';
+                item.dataset.fillSvgProtectedAreas = '[]';
                 this.refreshShiftPhotoCompareFillSvgElement(item);
                 this.fitShiftPhotoCompareSvgMarkInsideSurface(item);
             });
@@ -28506,7 +29639,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             this.refreshShiftPhotoCompareMarkList();
             this.autoSaveShiftNotebook(true);
             const svgTypeLabel = fillSvgMaskMode === 'cutout' ? '抜き絵SVG' : '通常SVG';
-            this.showShiftPhotoCompareActionMessage(`記号内に枠色SVGを挿入しました（${svgTypeLabel}・${targets.length}件）。`);
+            this.showShiftPhotoCompareActionMessage(`記号内に枠色SVG${tileMode ? 'タイル' : ''}を挿入しました（${svgTypeLabel}・${targets.length}件）。`);
             setTimeout(() => this.openShiftPhotoCompareSvgFillSettings(targets[0]), 0);
         };
         const handleSvgSource = async sourceValue => {
@@ -28539,10 +29672,830 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         input.click();
         return true;
     }
+
+    getShiftPhotoCompareCombinedSvgExportData(mark, regionIndex = -1) {
+        if (!mark) return null;
+        const mode = mark.dataset.mode || '';
+        const color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
+        const markRect = mark.getBoundingClientRect?.();
+        let width = Math.max(1, Math.round(markRect?.width || Number(mark.dataset.wrapWidth) || 512));
+        let height = Math.max(1, Math.round(markRect?.height || Number(mark.dataset.wrapHeight) || width));
+        let shape = '';
+        let source = mark.dataset.fillSvgOriginalSrc || mark.dataset.fillSvgSrc || '';
+        let displaySource = mark.dataset.fillSvgSrc || source;
+        let settings = this.getShiftPhotoCompareSvgFillSettings(mark);
+        let maskMode = mark.dataset.fillSvgMaskMode === 'cutout' ? 'luminance' : 'alpha';
+        let strokeWidth = Math.max(1, Math.min(width, height) * 0.035 * Math.max(0.25, Number(mark.dataset.stroke) || 1));
+        let clipPoints = [];
+
+        if (mode === 'polyline') {
+            const index = Number(regionIndex);
+            const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+            const regions = this.getShiftPhotoComparePolylineRegions(points, mark.dataset.polylineRegionFills || '[]');
+            const region = Number.isInteger(index) && index >= 0 ? regions[index] : null;
+            const fill = Number.isInteger(index) && index >= 0
+                ? this.reconcileShiftPhotoComparePolylineRegionFills(points, mark.dataset.polylineRegionFills || '[]')[index]
+                : null;
+            if (!region?.points?.length || !fill?.imageSrc) return null;
+            const surfaceRect = mark.closest('.shift-photo-compare-image-wrap, .shift-photo-compare-global-layer')?.getBoundingClientRect?.();
+            const surfaceWidth = Math.max(1, surfaceRect?.width || 1000);
+            const surfaceHeight = Math.max(1, surfaceRect?.height || 1000);
+            const minX = Math.min(...region.points.map(point => point.x));
+            const maxX = Math.max(...region.points.map(point => point.x));
+            const minY = Math.min(...region.points.map(point => point.y));
+            const maxY = Math.max(...region.points.map(point => point.y));
+            width = Math.max(1, Math.round((maxX - minX) / 100 * surfaceWidth));
+            height = Math.max(1, Math.round((maxY - minY) / 100 * surfaceHeight));
+            const pathPoints = region.points.map(point => ({
+                x: (point.x - minX) / 100 * surfaceWidth,
+                y: (point.y - minY) / 100 * surfaceHeight
+            }));
+            clipPoints = pathPoints;
+            shape = `<path d="M ${pathPoints.map(point => `${Number(point.x.toFixed(3))} ${Number(point.y.toFixed(3))}`).join(' L ')} Z"/>`;
+            source = fill.imageOriginalSrc || fill.imageSrc || '';
+            displaySource = fill.imageSrc || source;
+            settings = this.normalizeShiftPhotoCompareSvgFillSettings({
+                fit: fill.imageFit,
+                zoom: fill.imageZoom,
+                offsetX: fill.imageOffsetX,
+                offsetY: fill.imageOffsetY,
+                rotation: fill.imageRotation,
+                flipX: fill.imageFlipX,
+                flipY: fill.imageFlipY,
+                opacity: fill.imageOpacity,
+                inverted: fill.imageInvert
+            });
+            maskMode = fill.imageInvert ? 'luminance' : 'alpha';
+            strokeWidth = Math.max(1, Math.min(width, height) * 0.025 * Math.max(0.25, Number(mark.dataset.stroke) || 1));
+        } else if (mode === 'circle') {
+            shape = `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${Math.max(0, width / 2 - strokeWidth / 2)}" ry="${Math.max(0, height / 2 - strokeWidth / 2)}"/>`;
+        } else if (mode === 'rect') {
+            shape = `<rect x="${strokeWidth / 2}" y="${strokeWidth / 2}" width="${Math.max(0, width - strokeWidth)}" height="${Math.max(0, height - strokeWidth)}" rx="${Math.max(1, Math.min(width, height) * 0.025)}"/>`;
+        } else if (mode === 'triangle') {
+            shape = `<path d="M ${width * 0.5} ${height * 0.16} L ${width * 0.88} ${height * 0.82} L ${width * 0.12} ${height * 0.82} Z"/>`;
+        } else {
+            return null;
+        }
+        if (!/^data:image\/(?:svg\+xml|png)/i.test(source)) return null;
+        return { mode, width, height, shape, source, displaySource, settings, maskMode, color, strokeWidth, regionIndex: Number(regionIndex), clipPoints };
+    }
+
+    async getShiftPhotoCompareFusionClippedArtwork(data, resolution = 900, outputOptions = {}) {
+        const clippedSource = data?.displaySource || data?.source || '';
+        if (!data || !/^data:image\/(?:svg\+xml|png)/i.test(clippedSource)) return null;
+        const width = Math.max(1, Number(data.width) || 1);
+        const height = Math.max(1, Number(data.height) || width);
+        const scale = Math.min(3, Math.max(1, Number(resolution) || 900) / Math.max(width, height));
+        const outputWidthMm = Math.max(1, Number(outputOptions.widthMm) || 60);
+        const minLineMm = Math.max(0.1, Number(outputOptions.minLineMm) || 0.6);
+        const minimumFeaturePixels = Math.max(1, minLineMm / (outputWidthMm / width) * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(32, Math.round(width * scale));
+        canvas.height = Math.max(32, Math.round(height * scale));
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return null;
+        const image = await new Promise(resolve => {
+            const item = new Image();
+            item.onload = () => resolve(item);
+            item.onerror = () => resolve(null);
+            item.src = clippedSource;
+        });
+        if (!image) return null;
+
+        ctx.save();
+        ctx.scale(scale, scale);
+        ctx.beginPath();
+        const inset = Math.max(0, Number(data.strokeWidth) || 0) * 0.5;
+        if (data.mode === 'circle') {
+            ctx.ellipse(width / 2, height / 2, Math.max(0.5, width / 2 - inset), Math.max(0.5, height / 2 - inset), 0, 0, Math.PI * 2);
+        } else if (data.mode === 'rect') {
+            ctx.rect(inset, inset, Math.max(1, width - inset * 2), Math.max(1, height - inset * 2));
+        } else if (data.mode === 'triangle') {
+            ctx.moveTo(width * 0.5, height * 0.16);
+            ctx.lineTo(width * 0.88, height * 0.82);
+            ctx.lineTo(width * 0.12, height * 0.82);
+            ctx.closePath();
+        } else if (data.mode === 'polyline' && data.clipPoints?.length) {
+            data.clipPoints.forEach((point, index) => index ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+            ctx.closePath();
+        } else {
+            ctx.rect(0, 0, width, height);
+        }
+        ctx.clip();
+
+        const settings = data.settings || {};
+        const zoom = Math.max(0.25, Number(settings.zoom) || 1);
+        ctx.translate(width / 2 + Number(settings.offsetX || 0) / 100 * width, height / 2 + Number(settings.offsetY || 0) / 100 * height);
+        ctx.rotate((Number(settings.rotation) || 0) * Math.PI / 180);
+        ctx.scale(zoom * (settings.flipX ? -1 : 1), zoom * (settings.flipY ? -1 : 1));
+        const sourceWidth = Math.max(1, image.naturalWidth || width);
+        const sourceHeight = Math.max(1, image.naturalHeight || height);
+        let drawWidth = width;
+        let drawHeight = height;
+        if (settings.fit !== 'stretch') {
+            const fitScale = settings.fit === 'cover'
+                ? Math.max(width / sourceWidth, height / sourceHeight)
+                : Math.min(width / sourceWidth, height / sourceHeight);
+            drawWidth = sourceWidth * fitScale;
+            drawHeight = sourceHeight * fitScale;
+        }
+        ctx.globalAlpha = Math.max(0.1, Math.min(1, Number(settings.opacity) || 1));
+        ctx.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+        ctx.restore();
+
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        const opaque = new Uint8Array(canvas.width * canvas.height);
+        for (let index = 0; index < opaque.length; index += 1) opaque[index] = pixels[index * 4 + 3] >= 80 ? 1 : 0;
+        const outgoing = new Map();
+        const addEdge = (x1, y1, x2, y2) => {
+            const key = `${x1},${y1}`;
+            const edges = outgoing.get(key) || [];
+            edges.push([x2, y2]);
+            outgoing.set(key, edges);
+        };
+        const filled = (x, y) => x >= 0 && y >= 0 && x < canvas.width && y < canvas.height && opaque[y * canvas.width + x];
+        for (let y = 0; y < canvas.height; y += 1) {
+            for (let x = 0; x < canvas.width; x += 1) {
+                if (!filled(x, y)) continue;
+                if (!filled(x, y - 1)) addEdge(x, y, x + 1, y);
+                if (!filled(x + 1, y)) addEdge(x + 1, y, x + 1, y + 1);
+                if (!filled(x, y + 1)) addEdge(x + 1, y + 1, x, y + 1);
+                if (!filled(x - 1, y)) addEdge(x, y + 1, x, y);
+            }
+        }
+        const takeEdge = key => {
+            const edges = outgoing.get(key);
+            if (!edges?.length) return null;
+            const edge = edges.pop();
+            if (!edges.length) outgoing.delete(key);
+            return edge;
+        };
+        const simplify = points => {
+            if (points.length < 4) return points;
+            const compact = points.filter((point, index) => {
+                if (!index || index === points.length - 1) return true;
+                const before = points[index - 1];
+                const after = points[index + 1];
+                return (point[0] - before[0]) * (after[1] - point[1]) !== (point[1] - before[1]) * (after[0] - point[0]);
+            });
+            const reduce = list => {
+                if (list.length <= 2) return list;
+                const first = list[0];
+                const last = list[list.length - 1];
+                const dx = last[0] - first[0];
+                const dy = last[1] - first[1];
+                const lengthSq = dx * dx + dy * dy || 1;
+                let farthest = 0;
+                let farthestIndex = 0;
+                for (let index = 1; index < list.length - 1; index += 1) {
+                    const point = list[index];
+                    const t = Math.max(0, Math.min(1, ((point[0] - first[0]) * dx + (point[1] - first[1]) * dy) / lengthSq));
+                    const px = first[0] + t * dx;
+                    const py = first[1] + t * dy;
+                    const distanceSq = (point[0] - px) ** 2 + (point[1] - py) ** 2;
+                    if (distanceSq > farthest) { farthest = distanceSq; farthestIndex = index; }
+                }
+                const tolerance = Math.max(1.4, minimumFeaturePixels * 0.35);
+                if (farthest <= tolerance * tolerance) return [first, last];
+                return reduce(list.slice(0, farthestIndex + 1)).slice(0, -1).concat(reduce(list.slice(farthestIndex)));
+            };
+            const reduced = reduce(compact);
+            if (reduced.length < 4) return reduced;
+            return reduced.filter((point, index) => {
+                if (!index || index === reduced.length - 1) return true;
+                const before = reduced[index - 1];
+                return Math.hypot(point[0] - before[0], point[1] - before[1]) >= minimumFeaturePixels * 0.3;
+            });
+        };
+        const loops = [];
+        while (outgoing.size) {
+            const startKey = outgoing.keys().next().value;
+            const [startX, startY] = startKey.split(',').map(Number);
+            const points = [[startX, startY]];
+            let currentKey = startKey;
+            let guard = 0;
+            while (guard++ < canvas.width * canvas.height * 4) {
+                const next = takeEdge(currentKey);
+                if (!next) break;
+                points.push(next);
+                currentKey = `${next[0]},${next[1]}`;
+                if (currentKey === startKey) break;
+            }
+            if (points.length >= 4 && currentKey === startKey) {
+                const simplified = simplify(points);
+                const xs = simplified.map(point => point[0]);
+                const ys = simplified.map(point => point[1]);
+                const boundsWidth = Math.max(...xs) - Math.min(...xs);
+                const boundsHeight = Math.max(...ys) - Math.min(...ys);
+                if (simplified.length >= 4 && Math.max(boundsWidth, boundsHeight) >= minimumFeaturePixels * 0.65) loops.push(simplified);
+            }
+        }
+        if (!loops.length) return null;
+        const pathData = loops.map(points => points.map((point, index) => {
+            const x = Number((point[0] / scale).toFixed(3));
+            const y = Number((point[1] / scale).toFixed(3));
+            return `${index ? 'L' : 'M'} ${x} ${y}`;
+        }).join(' ') + ' Z').join(' ');
+        return {
+            markup: `<path d="${pathData}" fill="${data.color}" fill-rule="evenodd"/>`,
+            viewBox: [0, 0, width, height],
+            alreadyPositioned: true
+        };
+    }
+
+    getShiftPhotoCompareFusionVectorArtwork(source, color, maskMode = 'alpha', minimumStrokeWidth = 0, outputOptions = {}) {
+        if (!/^data:image\/svg\+xml/i.test(source || '')) return null;
+        try {
+            const commaIndex = source.indexOf(',');
+            if (commaIndex < 0) return null;
+            const header = source.slice(0, commaIndex);
+            const payload = source.slice(commaIndex + 1);
+            const svgText = /;base64/i.test(header)
+                ? decodeURIComponent(Array.from(atob(payload), char => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`).join(''))
+                : decodeURIComponent(payload);
+            const documentNode = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+            if (documentNode.querySelector('parsererror')) return null;
+            const root = documentNode.documentElement;
+            const rawViewBox = String(root.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+            const sourceWidth = Math.max(1, Number(root.getAttribute('width')) || 100);
+            const sourceHeight = Math.max(1, Number(root.getAttribute('height')) || sourceWidth);
+            const viewBox = rawViewBox.length === 4 && rawViewBox.every(Number.isFinite)
+                ? rawViewBox
+                : [0, 0, sourceWidth, sourceHeight];
+
+            root.querySelectorAll('script, style, image, foreignObject, mask, clipPath, filter').forEach(node => node.remove());
+            const supported = new Set(['svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'line']);
+            Array.from(root.querySelectorAll('*')).reverse().forEach(node => {
+                if (!supported.has(node.localName)) node.remove();
+            });
+
+            const shapes = Array.from(root.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, line'));
+            if (!shapes.length) return null;
+            if (maskMode === 'luminance') {
+                const firstPath = shapes.find(node => root.contains(node) && node.localName === 'path');
+                const pathData = firstPath?.getAttribute('d') || '';
+                const firstClosedSubpath = pathData.match(/^\s*([Mm][\s\S]*?[Zz])\s*(?=[Mm])/);
+                if (firstClosedSubpath) {
+                    const backgroundCandidate = firstClosedSubpath[1];
+                    const straightEdges = (backgroundCandidate.match(/[LlHhVv]/g) || []).length;
+                    const curvedEdges = (backgroundCandidate.match(/[CcSsQqTtAa]/g) || []).length;
+                    const remaining = pathData.slice(firstClosedSubpath[0].length).trim();
+                    if (remaining && straightEdges >= 3 && curvedEdges === 0) firstPath.setAttribute('d', remaining);
+                }
+                const [viewX, viewY, viewWidth, viewHeight] = viewBox;
+                shapes.filter(node => {
+                    if (node.localName !== 'rect') return false;
+                    const x = Number(node.getAttribute('x')) || 0;
+                    const y = Number(node.getAttribute('y')) || 0;
+                    const rectWidth = Number(node.getAttribute('width')) || 0;
+                    const rectHeight = Number(node.getAttribute('height')) || 0;
+                    const toleranceX = Math.max(1, viewWidth * 0.02);
+                    const toleranceY = Math.max(1, viewHeight * 0.02);
+                    return x <= viewX + toleranceX
+                        && y <= viewY + toleranceY
+                        && rectWidth >= viewWidth - toleranceX * 2
+                        && rectHeight >= viewHeight - toleranceY * 2;
+                }).forEach(node => node.remove());
+            }
+            const thickenMode = ['center', 'outside', 'inside'].includes(outputOptions.thickenMode)
+                ? outputOptions.thickenMode
+                : 'center';
+            const correctedMinimumStrokeWidth = minimumStrokeWidth * (thickenMode === 'center' ? 1 : 2);
+            shapes.filter(node => root.contains(node)).forEach(node => {
+                const fill = String(node.getAttribute('fill') || 'black').trim().toLowerCase();
+                const stroke = String(node.getAttribute('stroke') || '').trim().toLowerCase();
+                node.removeAttribute('style');
+                node.removeAttribute('class');
+                node.removeAttribute('filter');
+                node.removeAttribute('mask');
+                node.removeAttribute('clip-path');
+                if (fill !== 'none') node.setAttribute('fill', color);
+                if (stroke && stroke !== 'none') {
+                    node.setAttribute('stroke', color);
+                    const currentStrokeWidth = Math.max(0, Number(node.getAttribute('stroke-width')) || 0);
+                    if (correctedMinimumStrokeWidth > 0 && currentStrokeWidth < correctedMinimumStrokeWidth) {
+                        node.setAttribute('stroke-width', Number(correctedMinimumStrokeWidth.toFixed(4)));
+                        node.setAttribute('vector-effect', 'non-scaling-stroke');
+                        node.setAttribute('stroke-alignment', thickenMode);
+                        if (fill !== 'none') node.setAttribute('paint-order', thickenMode === 'outside' ? 'stroke fill' : thickenMode === 'inside' ? 'fill stroke' : 'normal');
+                    }
+                    node.setAttribute('stroke-linecap', node.getAttribute('stroke-linecap') || 'round');
+                    node.setAttribute('stroke-linejoin', node.getAttribute('stroke-linejoin') || 'round');
+                }
+            });
+            Array.from(root.querySelectorAll('g')).reverse().forEach(group => {
+                if (!group.querySelector('path, rect, circle, ellipse, polygon, polyline, line')) group.remove();
+            });
+            const markup = Array.from(root.childNodes)
+                .filter(node => node.nodeType === Node.ELEMENT_NODE)
+                .map(node => new XMLSerializer().serializeToString(node))
+                .join('');
+            return { markup, viewBox };
+        } catch (error) {
+            console.warn('Fusion SVG vector conversion failed.', error);
+            return null;
+        }
+    }
+
+    repairShiftPhotoCompareFusionArtwork(artwork, data, options = {}) {
+        if (!artwork?.markup || options.autoRepair === false) return artwork;
+        try {
+            const widthMm = Math.max(1, Number(options.widthMm) || 60);
+            const repairDistanceMm = Math.max(0.05, Math.min(10, Number(options.repairDistanceMm) || 0.6));
+            const sourceWidth = Math.max(1, Number(artwork.viewBox?.[2]) || Number(data?.width) || 1);
+            const repairDistance = repairDistanceMm / (widthMm / sourceWidth);
+            const parser = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${artwork.markup}</svg>`, 'image/svg+xml');
+            if (parser.querySelector('parsererror')) return artwork;
+            let repairedContours = 0;
+            parser.querySelectorAll('path').forEach(path => {
+                const parts = String(path.getAttribute('d') || '').match(/[Mm][^Mm]*/g) || [];
+                let changed = false;
+                const repaired = parts.map(part => {
+                    const value = part.trim();
+                    if (!value || /[Zz]\s*$/.test(value)) return value;
+                    try {
+                        const probe = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                        probe.setAttribute('d', value);
+                        const length = probe.getTotalLength();
+                        const start = probe.getPointAtLength(0);
+                        const end = probe.getPointAtLength(length);
+                        if (Math.hypot(end.x - start.x, end.y - start.y) <= repairDistance) {
+                            changed = true;
+                            repairedContours += 1;
+                            return `${value} Z`;
+                        }
+                    } catch (error) { /* Invalid subpaths remain open for the warning check. */ }
+                    return value;
+                });
+                if (changed) path.setAttribute('d', repaired.join(' '));
+            });
+            parser.querySelectorAll('polyline').forEach(polyline => {
+                const values = String(polyline.getAttribute('points') || '').trim().split(/[\s,]+/).map(Number);
+                if (values.length < 6 || values.some(value => !Number.isFinite(value))) return;
+                const gap = Math.hypot(values.at(-2) - values[0], values.at(-1) - values[1]);
+                if (gap > repairDistance) return;
+                const polygon = parser.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                Array.from(polyline.attributes).forEach(attribute => polygon.setAttribute(attribute.name, attribute.value));
+                polygon.setAttribute('points', `${polyline.getAttribute('points')} ${values[0]},${values[1]}`);
+                polyline.replaceWith(polygon);
+                repairedContours += 1;
+            });
+            const markup = Array.from(parser.documentElement.childNodes)
+                .filter(node => node.nodeType === Node.ELEMENT_NODE)
+                .map(node => new XMLSerializer().serializeToString(node))
+                .join('');
+            return { ...artwork, markup, repairedContours };
+        } catch (error) {
+            console.warn('Fusion SVG contour repair failed.', error);
+            return artwork;
+        }
+    }
+
+    cleanShiftPhotoCompareFusionTinyFragments(artwork, data, options = {}) {
+        if (!artwork?.markup) return artwork;
+        let measurementSvg = null;
+        try {
+            const widthMm = Math.max(1, Number(options.widthMm) || 60);
+            const minFragmentMm = Math.max(0.05, Number(options.minLineMm) || 0.6);
+            const sourceWidth = Math.max(1, Number(artwork.viewBox?.[2]) || Number(data?.width) || 1);
+            const minimumSize = minFragmentMm / (widthMm / sourceWidth);
+            const parser = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${artwork.markup}</svg>`, 'image/svg+xml');
+            if (parser.querySelector('parsererror')) return artwork;
+            measurementSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            measurementSvg.setAttribute('viewBox', (artwork.viewBox || [0, 0, sourceWidth, sourceWidth]).join(' '));
+            measurementSvg.style.cssText = 'position:fixed;left:-10000px;top:-10000px;width:1000px;height:1000px;visibility:hidden;pointer-events:none;';
+            document.body.appendChild(measurementSvg);
+            const getBounds = node => {
+                const clone = document.importNode(node, true);
+                clone.removeAttribute('transform');
+                measurementSvg.appendChild(clone);
+                let bounds = null;
+                try { bounds = clone.getBBox(); } catch (error) { bounds = null; }
+                clone.remove();
+                return bounds;
+            };
+            let removedFragments = 0;
+            parser.querySelectorAll('path').forEach(path => {
+                const parts = String(path.getAttribute('d') || '').match(/[Mm][^Mm]*/g) || [];
+                if (!parts.length) return;
+                const kept = parts.filter(part => {
+                    const probe = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    probe.setAttribute('d', part.trim());
+                    const bounds = getBounds(probe);
+                    const tiny = bounds && bounds.width + 0.0001 < minimumSize && bounds.height + 0.0001 < minimumSize;
+                    if (tiny) removedFragments += 1;
+                    return !tiny;
+                });
+                if (!kept.length) path.remove();
+                else if (kept.length !== parts.length) path.setAttribute('d', kept.join(' '));
+            });
+            parser.querySelectorAll('rect, circle, ellipse, polygon, polyline, line').forEach(node => {
+                const bounds = getBounds(node);
+                if (!bounds || bounds.width + 0.0001 >= minimumSize || bounds.height + 0.0001 >= minimumSize) return;
+                node.remove();
+                removedFragments += 1;
+            });
+            Array.from(parser.querySelectorAll('g')).reverse().forEach(group => {
+                if (!group.querySelector('path, rect, circle, ellipse, polygon, polyline, line')) group.remove();
+            });
+            const markup = Array.from(parser.documentElement.childNodes)
+                .filter(node => node.nodeType === Node.ELEMENT_NODE)
+                .map(node => new XMLSerializer().serializeToString(node))
+                .join('');
+            return { ...artwork, markup, removedFragments };
+        } catch (error) {
+            console.warn('Fusion SVG tiny fragment cleanup failed.', error);
+            return artwork;
+        } finally {
+            measurementSvg?.remove();
+        }
+    }
+
+    getShiftPhotoCompare3dSvgAnalysis(data, options = {}) {
+        const rawArtwork = this.getShiftPhotoCompareFusionVectorArtwork(data?.source || '', data?.color || '#dc2626', data?.maskMode || 'alpha', 0, options);
+        const repairedArtwork = this.repairShiftPhotoCompareFusionArtwork(rawArtwork, data, options);
+        const vectorArtwork = this.cleanShiftPhotoCompareFusionTinyFragments(repairedArtwork, data, options);
+        if (!vectorArtwork) return { openContours: 0, thinLines: 0, vectorCount: 0, unavailable: true };
+        const parser = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${vectorArtwork.markup}</svg>`, 'image/svg+xml');
+        const shapes = Array.from(parser.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, line'));
+        let openContours = parser.querySelectorAll('line, polyline').length;
+        parser.querySelectorAll('path').forEach(path => {
+            const parts = String(path.getAttribute('d') || '').match(/[Mm][^Mm]*/g) || [];
+            openContours += parts.filter(part => !/[Zz]\s*$/.test(part.trim())).length;
+        });
+        const widthMm = Math.max(1, Number(options.widthMm) || 60);
+        const minLineMm = Math.max(0.1, Number(options.minLineMm) || 0.6);
+        const unitMm = widthMm / Math.max(1, data.width);
+        const lineWidthsMm = [data.strokeWidth * unitMm];
+        let thinLines = lineWidthsMm.filter(value => value + 0.0001 < minLineMm).length;
+        parser.querySelectorAll('[stroke]:not([stroke="none"])').forEach(node => {
+            if (String(node.getAttribute('fill') || '').toLowerCase() !== 'none') return;
+            const value = Math.max(0, Number(node.getAttribute('stroke-width')) || 0) * unitMm;
+            if (value + 0.0001 < minLineMm) thinLines += 1;
+        });
+        return {
+            openContours,
+            thinLines,
+            repairedContours: Number(vectorArtwork.repairedContours) || 0,
+            removedFragments: Number(vectorArtwork.removedFragments) || 0,
+            vectorCount: shapes.length,
+            unavailable: false
+        };
+    }
+
+    getShiftPhotoCompare3dSvgWarningMarkup(artwork, data, options = {}) {
+        if (!artwork?.markup) return '';
+        try {
+            const parser = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${artwork.markup}</svg>`, 'image/svg+xml');
+            if (parser.querySelector('parsererror')) return '';
+            const widthMm = Math.max(1, Number(options.widthMm) || 60);
+            const minLineMm = Math.max(0.1, Number(options.minLineMm) || 0.6);
+            const unitMm = widthMm / Math.max(1, Number(data?.width) || 1);
+            const warningStroke = Math.max(1.5, (Number(data?.width) || 100) / 180);
+            const shapes = Array.from(parser.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, line'));
+            shapes.forEach(node => {
+                const isOpen = node.localName === 'line'
+                    || node.localName === 'polyline'
+                    || (node.localName === 'path' && (String(node.getAttribute('d') || '').match(/[Mm][^Mm]*/g) || []).some(part => !/[Zz]\s*$/.test(part.trim())));
+                const hasStroke = String(node.getAttribute('stroke') || '').toLowerCase() !== 'none' && node.hasAttribute('stroke');
+                const strokeOnly = hasStroke && String(node.getAttribute('fill') || '').toLowerCase() === 'none';
+                const strokeMm = Math.max(0, Number(node.getAttribute('stroke-width')) || 0) * unitMm;
+                const isThin = strokeOnly && strokeMm + 0.0001 < minLineMm;
+                if (!isOpen && !isThin) {
+                    node.remove();
+                    return;
+                }
+                node.removeAttribute('style');
+                node.setAttribute('fill', 'none');
+                node.setAttribute('stroke', isOpen ? '#ef4444' : '#f59e0b');
+                node.setAttribute('stroke-width', String(warningStroke));
+                node.setAttribute('stroke-linecap', 'round');
+                node.setAttribute('stroke-linejoin', 'round');
+                node.setAttribute('vector-effect', 'non-scaling-stroke');
+                node.setAttribute('opacity', '0.95');
+            });
+            Array.from(parser.querySelectorAll('g')).reverse().forEach(group => {
+                if (!group.querySelector('path, rect, circle, ellipse, polygon, polyline, line')) group.remove();
+            });
+            return Array.from(parser.documentElement.childNodes)
+                .filter(node => node.nodeType === Node.ELEMENT_NODE)
+                .map(node => new XMLSerializer().serializeToString(node))
+                .join('');
+        } catch (error) {
+            return '';
+        }
+    }
+
+    openShiftPhotoCompare3dSvgExportDialog(mark, regionIndex = -1) {
+        const data = this.getShiftPhotoCompareCombinedSvgExportData(mark, regionIndex);
+        if (!data) {
+            this.showShiftPhotoCompareActionMessage('3Dプリント用SVGにできるSVG入り記号または区画を選択してください。');
+            return false;
+        }
+        document.querySelector('.shift-photo-3d-svg-export-overlay')?.remove();
+        const aspect = data.width / Math.max(1, data.height);
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem('shiftPhoto3dSvgExportSettingsV2') || '{}') || {}; } catch (error) { saved = {}; }
+        const settings = {
+            preset: ['plate', 'stamp', 'cutout'].includes(saved.preset) ? saved.preset : 'cutout',
+            widthMm: Math.max(5, Math.min(500, Number(saved.widthMm) || 60)),
+            heightMm: Math.max(5, Math.min(500, Number(saved.heightMm) || Number((60 / aspect).toFixed(1)))),
+            minLineMm: Math.max(0.1, Math.min(5, Number(saved.minLineMm) || 0.6)),
+            correctThin: saved.correctThin !== false,
+            flipHorizontal: saved.flipHorizontal === true,
+            autoRepair: saved.autoRepair !== false,
+            repairDistanceMm: Math.max(0.05, Math.min(10, Number(saved.repairDistanceMm) || 0.6)),
+            includeFrame: saved.includeFrame !== false,
+            includeArtwork: saved.includeArtwork !== false,
+            thickenMode: ['center', 'outside', 'inside'].includes(saved.thickenMode) ? saved.thickenMode : 'center'
+        };
+        settings.heightMm = Number((settings.widthMm / aspect).toFixed(1));
+        const overlay = document.createElement('div');
+        overlay.className = 'shift-photo-svg-settings-overlay shift-photo-3d-svg-export-overlay';
+        overlay.innerHTML = `
+            <div class="shift-photo-svg-settings-dialog shift-photo-3d-svg-export-dialog" role="dialog" aria-modal="true" aria-label="3Dプリント用SVG保存">
+                <header><div><b><i class="fa-solid fa-cube"></i> 3Dプリント用SVG保存</b><small>Fusionで扱いやすい輪郭パスとして出力します</small></div><button type="button" data-action="close" title="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                <div class="shift-photo-3d-svg-export-body">
+                    <section><h4>用途</h4><div class="shift-photo-3d-svg-presets">
+                        <button type="button" data-preset="plate"><i class="fa-regular fa-square"></i><span>プレート<small>外枠＋絵</small></span></button>
+                        <button type="button" data-preset="stamp"><i class="fa-solid fa-stamp"></i><span>スタンプ<small>左右反転</small></span></button>
+                        <button type="button" data-preset="cutout"><i class="fa-solid fa-vector-square"></i><span>SVG部分のみ<small>余計な枠を除外</small></span></button>
+                    </div></section>
+                    <section class="shift-photo-3d-svg-fields"><h4>実寸</h4>
+                        <label><span>横幅</span><span><input type="number" data-field="widthMm" min="5" max="500" step="0.1"> mm</span></label>
+                        <label><span>高さ</span><span><input type="number" data-field="heightMm" min="5" max="500" step="0.1"> mm</span></label>
+                        <label><span>最小線幅</span><span><input type="number" data-field="minLineMm" min="0.1" max="5" step="0.1"> mm</span></label>
+                        <label><span>太線化</span><select data-field="thickenMode"><option value="center">中心</option><option value="outside">外側</option><option value="inside">内側</option></select></label>
+                        <label class="shift-photo-3d-svg-check"><input type="checkbox" data-field="correctThin"><span>細い線を最小線幅まで補正する</span></label>
+                        <label class="shift-photo-3d-svg-check"><input type="checkbox" data-field="flipHorizontal"><span>左右反転して保存する</span></label>
+                    </section>
+                    <section class="shift-photo-3d-svg-fields"><h4>輪郭と出力対象</h4>
+                        <label class="shift-photo-3d-svg-check"><input type="checkbox" data-field="autoRepair"><span>近い輪郭端を自動でつなぐ</span></label>
+                        <label><span>修復距離</span><span><input type="number" data-field="repairDistanceMm" min="0.05" max="10" step="0.05"> mm</span></label>
+                        <label class="shift-photo-3d-svg-check"><input type="checkbox" data-field="includeFrame"><span>記号・区画の枠を出力</span></label>
+                        <label class="shift-photo-3d-svg-check"><input type="checkbox" data-field="includeArtwork"><span>内部SVGを出力</span></label>
+                    </section>
+                    <section class="shift-photo-3d-svg-preview-section">
+                        <h4>保存プレビュー <span data-preview-state>準備中</span></h4>
+                        <div class="shift-photo-3d-svg-preview" data-export-preview><i class="fa-solid fa-spinner fa-spin"></i></div>
+                        <div class="shift-photo-3d-svg-preview-legend"><span class="range">出力範囲</span><span class="open">開いた輪郭</span><span class="thin">細すぎる線</span></div>
+                    </section>
+                    <section><h4>出力前チェック</h4><div class="shift-photo-3d-svg-analysis" data-analysis></div><p class="shift-photo-3d-svg-note">塗りつぶされた細かな部分は形状により0.6mm未満になる場合があります。Fusionで押し出す前にも輪郭をご確認ください。</p></section>
+                </div>
+                <footer><button type="button" data-action="cancel">キャンセル</button><button type="button" class="primary" data-action="save"><i class="fa-solid fa-file-arrow-down"></i> SVG保存</button></footer>
+            </div>`;
+        document.body.appendChild(overlay);
+        const fields = Object.fromEntries(['widthMm', 'heightMm', 'minLineMm', 'thickenMode', 'correctThin', 'flipHorizontal', 'autoRepair', 'repairDistanceMm', 'includeFrame', 'includeArtwork'].map(name => [name, overlay.querySelector(`[data-field="${name}"]`)]));
+        fields.widthMm.value = settings.widthMm;
+        fields.heightMm.value = settings.heightMm;
+        fields.minLineMm.value = settings.minLineMm;
+        fields.thickenMode.value = settings.thickenMode;
+        fields.correctThin.checked = settings.correctThin;
+        fields.flipHorizontal.checked = settings.flipHorizontal;
+        fields.autoRepair.checked = settings.autoRepair;
+        fields.repairDistanceMm.value = settings.repairDistanceMm;
+        fields.includeFrame.checked = settings.includeFrame;
+        fields.includeArtwork.checked = settings.includeArtwork;
+        let syncingDimensions = false;
+        let previewTimer = 0;
+        let previewRevision = 0;
+        const renderPreview = async () => {
+            const revision = ++previewRevision;
+            const preview = overlay.querySelector('[data-export-preview]');
+            const state = overlay.querySelector('[data-preview-state]');
+            preview.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            state.textContent = '生成中';
+            const previewMinimumStroke = settings.correctThin === false
+                ? 0
+                : settings.minLineMm / (settings.widthMm / data.width);
+            const includeArtwork = settings.preset !== 'plate' || settings.includeArtwork;
+            const useClippedArtwork = settings.preset === 'cutout' || settings.preset === 'plate';
+            const rawArtwork = !includeArtwork
+                ? { markup: '', viewBox: [0, 0, data.width, data.height], alreadyPositioned: true }
+                : useClippedArtwork
+                    ? await this.getShiftPhotoCompareFusionClippedArtwork(data, 520, settings)
+                    : this.getShiftPhotoCompareFusionVectorArtwork(data.source, data.color, data.maskMode, previewMinimumStroke, settings);
+            const repairedArtwork = useClippedArtwork
+                ? rawArtwork
+                : this.repairShiftPhotoCompareFusionArtwork(rawArtwork, data, settings);
+            const artwork = useClippedArtwork
+                ? repairedArtwork
+                : this.cleanShiftPhotoCompareFusionTinyFragments(repairedArtwork, data, settings);
+            if (revision !== previewRevision || !overlay.isConnected) return;
+            if (!artwork) {
+                preview.innerHTML = '<span>プレビューを作成できませんでした</span>';
+                state.textContent = '確認不可';
+                return;
+            }
+            const [viewX, viewY, viewWidth, viewHeight] = artwork.viewBox;
+            let artworkScaleX = data.width / Math.max(1, viewWidth);
+            let artworkScaleY = data.height / Math.max(1, viewHeight);
+            if (data.settings.fit !== 'stretch') {
+                const uniformScale = data.settings.fit === 'cover'
+                    ? Math.max(artworkScaleX, artworkScaleY)
+                    : Math.min(artworkScaleX, artworkScaleY);
+                artworkScaleX = uniformScale;
+                artworkScaleY = uniformScale;
+            }
+            const artworkX = (data.width - viewWidth * artworkScaleX) / 2;
+            const artworkY = (data.height - viewHeight * artworkScaleY) / 2;
+            const viewTransform = artwork.alreadyPositioned
+                ? ''
+                : `translate(${artworkX} ${artworkY}) scale(${artworkScaleX} ${artworkScaleY}) translate(${-viewX} ${-viewY})`;
+            const sourceSettings = data.settings || {};
+            const zoom = Math.max(0.25, Number(sourceSettings.zoom) || 1);
+            const sourceTransform = `translate(${data.width / 2 + Number(sourceSettings.offsetX || 0) / 100 * data.width} ${data.height / 2 + Number(sourceSettings.offsetY || 0) / 100 * data.height}) rotate(${Number(sourceSettings.rotation) || 0}) scale(${zoom * (sourceSettings.flipX ? -1 : 1)} ${zoom * (sourceSettings.flipY ? -1 : 1)}) translate(${-data.width / 2} ${-data.height / 2})`;
+            const mirrored = settings.preset === 'stamp' || settings.flipHorizontal;
+            const analysis = includeArtwork
+                ? this.getShiftPhotoCompare3dSvgAnalysis(data, settings)
+                : { openContours: 0, thinLines: 0, repairedContours: 0, removedFragments: 0, vectorCount: 0, unavailable: false };
+            const warningMarkup = settings.preset === 'cutout' || !includeArtwork
+                ? ''
+                : this.getShiftPhotoCompare3dSvgWarningMarkup(artwork, data, settings);
+            const warningColor = analysis.openContours ? '#ef4444' : analysis.thinLines ? '#f59e0b' : '#38bdf8';
+            const frameMarkup = settings.preset === 'plate' && settings.includeFrame
+                ? `<g fill="none" stroke="${data.color}" stroke-width="${Math.max(data.strokeWidth, previewMinimumStroke)}">${data.shape}</g>`
+                : '';
+            preview.innerHTML = `<svg viewBox="0 0 ${data.width} ${data.height}" role="img" aria-label="保存されるSVGのプレビュー">
+                <defs><pattern id="fusion-preview-grid" width="18" height="18" patternUnits="userSpaceOnUse"><path d="M 18 0 L 0 0 0 18" fill="none" stroke="#dbeafe" stroke-width="1"/></pattern></defs>
+                <rect width="${data.width}" height="${data.height}" fill="#ffffff"/>
+                <rect width="${data.width}" height="${data.height}" fill="url(#fusion-preview-grid)"/>
+                <g${mirrored ? ` transform="translate(${data.width} 0) scale(-1 1)"` : ''}>
+                    ${frameMarkup}
+                    <g fill="#0f172a" stroke="#0f172a"${artwork.alreadyPositioned ? '' : ` transform="${sourceTransform}"`}><g${viewTransform ? ` transform="${viewTransform}"` : ''}>${artwork.markup}${warningMarkup ? `<g class="fusion-preview-warnings">${warningMarkup}</g>` : ''}</g></g>
+                </g>
+                <rect x="1.5" y="1.5" width="${Math.max(1, data.width - 3)}" height="${Math.max(1, data.height - 3)}" rx="3" fill="none" stroke="${warningColor}" stroke-width="3" stroke-dasharray="9 6"/>
+            </svg>`;
+            state.textContent = mirrored ? '左右反転' : '通常向き';
+        };
+        const schedulePreview = () => {
+            clearTimeout(previewTimer);
+            previewTimer = setTimeout(renderPreview, 100);
+        };
+        const sync = () => {
+            settings.widthMm = Math.max(5, Math.min(500, Number(fields.widthMm.value) || 60));
+            settings.heightMm = Math.max(5, Math.min(500, Number(fields.heightMm.value) || settings.widthMm / aspect));
+            settings.minLineMm = Math.max(0.1, Math.min(5, Number(fields.minLineMm.value) || 0.6));
+            settings.thickenMode = ['center', 'outside', 'inside'].includes(fields.thickenMode.value) ? fields.thickenMode.value : 'center';
+            settings.correctThin = fields.correctThin.checked;
+            settings.flipHorizontal = fields.flipHorizontal.checked;
+            settings.autoRepair = fields.autoRepair.checked;
+            settings.repairDistanceMm = Math.max(0.05, Math.min(10, Number(fields.repairDistanceMm.value) || 0.6));
+            settings.includeFrame = fields.includeFrame.checked;
+            settings.includeArtwork = fields.includeArtwork.checked;
+            const platePreset = settings.preset === 'plate';
+            fields.includeFrame.disabled = !platePreset;
+            fields.includeArtwork.disabled = !platePreset;
+            overlay.querySelectorAll('[data-preset]').forEach(button => button.classList.toggle('active', button.dataset.preset === settings.preset));
+            const analysis = platePreset && !settings.includeArtwork
+                ? { openContours: 0, thinLines: 0, repairedContours: 0, vectorCount: 0, unavailable: false }
+                : this.getShiftPhotoCompare3dSvgAnalysis(data, settings);
+            const corrected = settings.correctThin && analysis.thinLines > 0;
+            const emptyOutput = platePreset && !settings.includeFrame && !settings.includeArtwork;
+            overlay.querySelector('[data-analysis]').innerHTML = analysis.unavailable
+                ? '<div class="danger"><i class="fa-solid fa-triangle-exclamation"></i><span>ベクター輪郭を解析できません</span></div>'
+                : `<div class="ok"><i class="fa-solid fa-vector-square"></i><span>輪郭パス <b>${analysis.vectorCount}本</b></span></div>
+                   <div class="${analysis.openContours ? 'danger' : 'ok'}"><i class="fa-solid ${analysis.openContours ? 'fa-link-slash' : 'fa-link'}"></i><span>開いた輪郭 <b>${analysis.openContours}本</b></span></div>
+                   <div class="${analysis.thinLines && !corrected ? 'danger' : 'ok'}"><i class="fa-solid fa-ruler-horizontal"></i><span>${settings.minLineMm}mm未満 <b>${analysis.thinLines}本</b>${corrected ? '（保存時に補正）' : ''}</span></div>
+                   <div class="${emptyOutput ? 'danger' : 'ok'}"><i class="fa-solid fa-layer-group"></i><span>${emptyOutput ? '出力対象を1つ以上選択してください' : `自動修復 <b>${analysis.repairedContours || 0}本</b>・極小片除外 <b>${analysis.removedFragments || 0}個</b>`}</span></div>`;
+            schedulePreview();
+        };
+        overlay.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => { settings.preset = button.dataset.preset; sync(); }));
+        fields.widthMm.addEventListener('input', () => {
+            if (syncingDimensions) return;
+            syncingDimensions = true;
+            fields.heightMm.value = Math.max(5, Number(fields.widthMm.value) / aspect).toFixed(1);
+            syncingDimensions = false;
+            sync();
+        });
+        fields.heightMm.addEventListener('input', sync);
+        fields.minLineMm.addEventListener('input', sync);
+        fields.thickenMode.addEventListener('change', sync);
+        fields.correctThin.addEventListener('change', sync);
+        fields.flipHorizontal.addEventListener('change', sync);
+        fields.autoRepair.addEventListener('change', sync);
+        fields.repairDistanceMm.addEventListener('input', sync);
+        fields.includeFrame.addEventListener('change', sync);
+        fields.includeArtwork.addEventListener('change', sync);
+        let onKeyDown = null;
+        const close = () => {
+            if (onKeyDown) document.removeEventListener('keydown', onKeyDown);
+            clearTimeout(previewTimer);
+            previewRevision += 1;
+            overlay.remove();
+        };
+        overlay.querySelectorAll('[data-action="close"], [data-action="cancel"]').forEach(button => button.addEventListener('click', close));
+        overlay.querySelector('[data-action="save"]').addEventListener('click', async () => {
+            sync();
+            try { localStorage.setItem('shiftPhoto3dSvgExportSettingsV2', JSON.stringify(settings)); } catch (error) { /* localStorage may be unavailable. */ }
+            if (await this.exportShiftPhotoCompareCombinedSvg(mark, regionIndex, settings)) close();
+        });
+        overlay.addEventListener('pointerdown', event => { if (event.target === overlay) close(); });
+        onKeyDown = event => {
+            if (event.key !== 'Escape' || !overlay.isConnected) return;
+            close();
+        };
+        document.addEventListener('keydown', onKeyDown);
+        sync();
+        return true;
+    }
+
+    async exportShiftPhotoCompareCombinedSvg(mark, regionIndex = -1, exportOptions = {}) {
+        const data = this.getShiftPhotoCompareCombinedSvgExportData(mark, regionIndex);
+        if (!data) {
+            this.showShiftPhotoCompareActionMessage('合成SVGにできるSVG入り記号または区画を選択してください。');
+            return false;
+        }
+        const { width, height, shape, source, settings, maskMode, color, strokeWidth, mode } = data;
+        const preset = ['plate', 'stamp', 'cutout'].includes(exportOptions.preset) ? exportOptions.preset : 'cutout';
+        const outputWidthMm = Math.max(5, Math.min(500, Number(exportOptions.widthMm) || 60));
+        const outputHeightMm = Math.max(5, Math.min(500, Number(exportOptions.heightMm) || outputWidthMm * height / width));
+        const minLineMm = Math.max(0.1, Math.min(5, Number(exportOptions.minLineMm) || 0.6));
+        const minimumStrokeWidth = exportOptions.correctThin === false ? 0 : minLineMm / (outputWidthMm / width);
+        const includeFrame = preset === 'plate' && exportOptions.includeFrame !== false;
+        const includeArtwork = preset !== 'plate' || exportOptions.includeArtwork !== false;
+        if (!includeFrame && !includeArtwork) {
+            this.showShiftPhotoCompareActionMessage('枠または内部SVGのどちらかを出力対象にしてください。');
+            return false;
+        }
+        const useClippedArtwork = preset === 'cutout' || preset === 'plate';
+        const rawArtwork = !includeArtwork
+            ? { markup: '', viewBox: [0, 0, width, height], alreadyPositioned: true }
+            : useClippedArtwork
+                ? await this.getShiftPhotoCompareFusionClippedArtwork(data, 900, { ...exportOptions, widthMm: outputWidthMm, minLineMm })
+                : this.getShiftPhotoCompareFusionVectorArtwork(source, color, maskMode, minimumStrokeWidth, exportOptions);
+        const repairedArtwork = useClippedArtwork
+            ? rawArtwork
+            : this.repairShiftPhotoCompareFusionArtwork(rawArtwork, data, { ...exportOptions, widthMm: outputWidthMm });
+        const vectorArtwork = useClippedArtwork
+            ? repairedArtwork
+            : this.cleanShiftPhotoCompareFusionTinyFragments(repairedArtwork, data, { ...exportOptions, widthMm: outputWidthMm, minLineMm });
+        if (!vectorArtwork) {
+            this.showShiftPhotoCompareActionMessage('Fusion用SVGに変換できませんでした。元のSVGを選び直してください。');
+            return false;
+        }
+        const zoom = Math.max(0.25, Number(settings.zoom) || 1);
+        const translateX = Number(settings.offsetX || 0) / 100 * width;
+        const translateY = Number(settings.offsetY || 0) / 100 * height;
+        const scaleX = zoom * (settings.flipX ? -1 : 1);
+        const scaleY = zoom * (settings.flipY ? -1 : 1);
+        const transform = `translate(${width / 2 + translateX} ${height / 2 + translateY}) rotate(${Number(settings.rotation) || 0}) scale(${scaleX} ${scaleY}) translate(${-width / 2} ${-height / 2})`;
+        const [viewX, viewY, viewWidth, viewHeight] = vectorArtwork.viewBox;
+        let artworkScaleX = width / Math.max(1, viewWidth);
+        let artworkScaleY = height / Math.max(1, viewHeight);
+        if (settings.fit !== 'stretch') {
+            const uniformScale = settings.fit === 'cover'
+                ? Math.max(artworkScaleX, artworkScaleY)
+                : Math.min(artworkScaleX, artworkScaleY);
+            artworkScaleX = uniformScale;
+            artworkScaleY = uniformScale;
+        }
+        const artworkX = (width - viewWidth * artworkScaleX) / 2;
+        const artworkY = (height - viewHeight * artworkScaleY) / 2;
+        const viewBoxTransform = vectorArtwork.alreadyPositioned
+            ? ''
+            : `translate(${artworkX} ${artworkY}) scale(${artworkScaleX} ${artworkScaleY}) translate(${-viewX} ${-viewY})`;
+        const outerEnabled = mark.dataset.outline !== '0';
+        const innerEnabled = mark.dataset.innerOutline === '1';
+        const outerColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.outerOutlineColor || '') ? mark.dataset.outerOutlineColor : '#ffffff';
+        const innerColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.innerOutlineColor || '') ? mark.dataset.innerOutlineColor : '#111111';
+        const thickenMultiplier = exportOptions.thickenMode === 'center' ? 1 : 2;
+        const effectiveStrokeWidth = Math.max(strokeWidth, minimumStrokeWidth * thickenMultiplier);
+        const outerWidth = Math.max(effectiveStrokeWidth, Number(mark.dataset.outerOutlineWidth) || strokeWidth * 2.2);
+        const innerWidth = Math.max(effectiveStrokeWidth, Number(mark.dataset.innerOutlineWidth) || strokeWidth * 1.4);
+        const opacity = Math.max(0.1, Math.min(1, Number(settings.opacity) || 1));
+        const mirrorTransform = preset === 'stamp' || exportOptions.flipHorizontal === true
+            ? `translate(${width} 0) scale(-1 1)`
+            : '';
+        const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${outputWidthMm}mm" height="${outputHeightMm}mm" viewBox="0 0 ${width} ${height}">
+  <title>写真比較で作成した合成記号</title>
+  <metadata>preset=${preset}; size=${outputWidthMm}x${outputHeightMm}mm; minimum-line=${minLineMm}mm; thicken=${exportOptions.thickenMode || 'center'}; repair=${exportOptions.autoRepair === false ? 'off' : `${Number(exportOptions.repairDistanceMm) || 0.6}mm`}; frame=${includeFrame ? 'yes' : 'no'}; artwork=${includeArtwork ? 'yes' : 'no'}; nozzle=0.6mm; mirrored=${mirrorTransform ? 'yes' : 'no'}</metadata>
+  <g${mirrorTransform ? ` transform="${mirrorTransform}"` : ''}>
+    ${includeFrame && outerEnabled ? `<g fill="none" stroke="${outerColor}" stroke-width="${outerWidth}" stroke-linejoin="round">${shape}</g>` : ''}
+    ${includeFrame && innerEnabled ? `<g fill="none" stroke="${innerColor}" stroke-width="${innerWidth}" stroke-linejoin="round">${shape}</g>` : ''}
+    ${includeArtwork ? `<g opacity="${opacity}"${vectorArtwork.alreadyPositioned ? '' : ` transform="${transform}"`}><g${viewBoxTransform ? ` transform="${viewBoxTransform}"` : ''}>${vectorArtwork.markup}</g></g>` : ''}
+    ${includeFrame ? `<g fill="none" stroke="${color}" stroke-width="${effectiveStrokeWidth}" stroke-linejoin="round">${shape}</g>` : ''}
+  </g>
+</svg>`;
+        const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        const presetLabel = { plate: 'プレート', stamp: 'スタンプ', cutout: 'SVG部分のみ' }[preset];
+        const mirrorLabel = mirrorTransform ? '_左右反転' : '';
+        anchor.download = `3D_${presetLabel}${mirrorLabel}_${mode === 'polyline' ? `区画${Math.max(1, data.regionIndex + 1)}` : mode}_${outputWidthMm}mm_${new Date().toISOString().slice(0, 10)}.svg`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        this.showShiftPhotoCompareActionMessage(`${presetLabel}用SVGを${outputWidthMm}×${Number(outputHeightMm.toFixed(1))}mm・最小線幅${minLineMm}mmで保存しました。`);
+        return true;
+    }
     setShiftPhotoCompareBorderFillPattern(mark, patternValue = 'solid', regionIndex = -1) {
         if (!mark || this.isShiftPhotoCompareMarkLocked(mark)) return false;
         const pattern = this.normalizeShiftPhotoCompareFillPattern(patternValue);
-        const labels = { solid: '単色', diagonal: '斜線', cross: '網掛け', dots: 'ドット', svg: 'SVG' };
+        const labels = { solid: '単色', diagonal: '斜線', cross: '網掛け', dots: 'ドット', warning: '警告ストライプ', honeycomb: 'ハニカム', svg: 'SVG', 'svg-tile': 'SVGタイル' };
         const mode = mark.dataset.mode || '';
         const color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
         if (mode === 'polyline') {
@@ -28660,6 +30613,53 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         this.refreshShiftPhotoCompareMarkList();
         this.autoSaveShiftNotebook(true);
         this.showShiftPhotoCompareActionMessage(`模様の間隔を${scale}pxに変更しました。`);
+        return true;
+    }
+
+    setShiftPhotoCompareFillPatternAppearance(mark, values = {}, regionIndex = -1) {
+        if (!mark || this.isShiftPhotoCompareMarkLocked(mark)) return false;
+        const lineWidth = this.normalizeShiftPhotoCompareFillPatternLineWidth(values.lineWidth);
+        const patternOpacity = this.normalizeShiftPhotoCompareFillPatternOpacity(values.opacity);
+        const patternBackground = this.normalizeShiftPhotoCompareFillPatternBackground(values.background);
+        const mode = mark.dataset.mode || '';
+        if (mode === 'polyline') {
+            const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+            const regions = this.getShiftPhotoComparePolylineRegions(points, mark.dataset.polylineRegionFills || '[]');
+            const fills = this.reconcileShiftPhotoComparePolylineRegionFills(points, mark.dataset.polylineRegionFills || '[]', {
+                enabled: mark.dataset.polylineFill === '1',
+                color: mark.dataset.polylineFillColor || mark.dataset.color,
+                pattern: mark.dataset.polylineFillPattern,
+                patternScale: mark.dataset.polylineFillPatternScale,
+                opacity: mark.dataset.polylineFillOpacity
+            });
+            const requestedIndex = Number(regionIndex);
+            const targets = Number.isInteger(requestedIndex) && regions[requestedIndex]
+                ? [requestedIndex]
+                : regions.map((_, index) => index);
+            if (!targets.length) return false;
+            this.pushShiftPhotoCompareUndo();
+            targets.forEach(index => Object.assign(fills[index], { patternLineWidth: lineWidth, patternOpacity, patternBackground }));
+            mark.dataset.polylineRegionFills = JSON.stringify(fills);
+            this.refreshShiftPhotoComparePolylineRegions(mark);
+            this.syncShiftPhotoCompareChangedMarkWraps([mark]);
+            this.autoSaveShiftNotebook(true);
+            return true;
+        }
+        const selected = this.getShiftPhotoCompareSelectedMarks();
+        const targets = (selected.includes(mark) ? selected : [mark])
+            .filter(item => ['circle', 'triangle', 'rect'].includes(item.dataset.mode || '') && !this.isShiftPhotoCompareMarkLocked(item));
+        if (!targets.length) return false;
+        this.pushShiftPhotoCompareUndo();
+        targets.forEach(item => {
+            item.dataset.fillPatternLineWidth = String(lineWidth);
+            item.dataset.fillPatternOpacity = String(patternOpacity);
+            item.dataset.fillPatternBackground = patternBackground;
+            item.style.setProperty('--fill-pattern-line-width', `${lineWidth}px`);
+            item.style.setProperty('--fill-pattern-opacity-pct', `${Math.round(patternOpacity * 100)}%`);
+            item.style.setProperty('--fill-pattern-background', patternBackground);
+        });
+        this.syncShiftPhotoCompareChangedMarkWraps(targets);
+        this.autoSaveShiftNotebook(true);
         return true;
     }
     clearShiftPhotoCompareInteriorFills(mark, scope = 'image') {
@@ -32576,12 +34576,20 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         const borderInteriorFillPatternScale = this.normalizeShiftPhotoCompareFillPatternScale(isPolyline
             ? (regionFill?.patternScale || mark.dataset.polylineFillPatternScale)
             : mark.dataset.fillPatternScale);
+        const borderInteriorFillPatternLineWidth = this.normalizeShiftPhotoCompareFillPatternLineWidth(isPolyline ? regionFill?.patternLineWidth : mark.dataset.fillPatternLineWidth);
+        const borderInteriorFillPatternOpacity = this.normalizeShiftPhotoCompareFillPatternOpacity(isPolyline ? regionFill?.patternOpacity : mark.dataset.fillPatternOpacity);
+        const borderInteriorFillPatternBackground = this.normalizeShiftPhotoCompareFillPatternBackground(isPolyline ? regionFill?.patternBackground : mark.dataset.fillPatternBackground);
+        const borderInteriorFillBackgroundMode = borderInteriorFillPatternBackground === 'transparent' ? 'transparent' : (borderInteriorFillPatternBackground === '#ffffff' ? 'white' : 'custom');
+        const borderInteriorFillBackgroundColor = /^#[0-9a-f]{6}$/i.test(borderInteriorFillPatternBackground) ? borderInteriorFillPatternBackground : '#ffffff';
         const fillPatternOptions = [
             { value: 'solid', label: '単色' },
             { value: 'diagonal', label: '斜線' },
             { value: 'cross', label: '網掛け' },
             { value: 'dots', label: 'ドット' },
-            { value: 'svg', label: 'SVG' }
+            { value: 'warning', label: '警告' },
+            { value: 'honeycomb', label: 'ハニカム' },
+            { value: 'svg', label: 'SVG' },
+            { value: 'svg-tile', label: 'SVGタイル' }
         ];
         const canSelectFromDrawing = ['freehand', 'polyline'].includes(mode);
         const arrowHeadHidden = isArrow && mark.dataset.arrowHeadHidden === '1';
@@ -32697,11 +34705,15 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             ${supportsBorderInteriorFill ? `<button type="button" data-action="border-interior-fill" class="${borderInteriorFillEnabled ? 'active' : ''}"><i class="fa-solid fa-fill-drip"></i><span>${polylineRegionIndex >= 0 ? `区画 ${polylineRegionIndex + 1}：` : ''}${borderInteriorFillEnabled ? '枠色の塗りを解除' : '内側を枠と同じ色で塗る'}</span></button>
             <div class="shift-photo-fill-pattern-tools">
                 <b><i class="fa-solid fa-border-all"></i><span>塗り模様</span></b>
-                <div>${fillPatternOptions.map(option => `<button type="button" data-action="${option.value === 'svg' ? 'border-fill-svg-file' : 'border-fill-pattern'}" data-pattern="${option.value}" class="${borderInteriorFillPattern === option.value ? 'active' : ''}" title="${option.label}"><i class="shift-photo-fill-pattern-swatch ${option.value}"></i><span>${option.label}</span></button>`).join('')}</div>
+                <div>${fillPatternOptions.map(option => `<button type="button" data-action="${['svg', 'svg-tile'].includes(option.value) ? 'border-fill-svg-file' : 'border-fill-pattern'}" data-pattern="${option.value}" class="${borderInteriorFillPattern === option.value ? 'active' : ''}" title="${option.label}"><i class="shift-photo-fill-pattern-swatch ${option.value}"></i><span>${option.label}</span></button>`).join('')}</div>
                 <label class="shift-photo-fill-pattern-scale"><span>細かい</span><input type="range" min="6" max="36" step="1" value="${borderInteriorFillPatternScale}" data-field="border-fill-pattern-scale"><output>${borderInteriorFillPatternScale}px</output><span>粗い</span></label>
+                <label class="shift-photo-fill-pattern-scale"><span>線幅</span><input type="range" min="1" max="10" step="0.5" value="${borderInteriorFillPatternLineWidth}" data-field="border-fill-pattern-line-width"><output>${borderInteriorFillPatternLineWidth}px</output><span>太い</span></label>
+                <label class="shift-photo-fill-pattern-scale"><span>透明度</span><input type="range" min="10" max="100" step="5" value="${Math.round(borderInteriorFillPatternOpacity * 100)}" data-field="border-fill-pattern-opacity"><output>${Math.round(borderInteriorFillPatternOpacity * 100)}%</output><span>濃い</span></label>
+                <label class="shift-photo-fill-pattern-background"><span>下地</span><select data-field="border-fill-pattern-background"><option value="transparent"${borderInteriorFillBackgroundMode === 'transparent' ? ' selected' : ''}>透明</option><option value="white"${borderInteriorFillBackgroundMode === 'white' ? ' selected' : ''}>白</option><option value="custom"${borderInteriorFillBackgroundMode === 'custom' ? ' selected' : ''}>任意色</option></select><input type="color" value="${borderInteriorFillBackgroundColor}" data-field="border-fill-pattern-background-color"${borderInteriorFillBackgroundMode === 'custom' ? '' : ' disabled'}></label>
             </div>
             <a class="shift-photo-svg-converter-link" href="https://supa2006jp-lang.github.io/mente/bitmap-tracer/" target="_blank" rel="noopener noreferrer" title="画像をSVGへ変換するツールを開く"><i class="fa-solid fa-arrow-up-right-from-square"></i><span>SVG変換ツールを開く</span></a>
-            ${borderInteriorFillPattern === 'svg' && (polylineRegionIndex >= 0 ? polylineRegionImageSrc : mark.dataset.fillSvgSrc) ? '<button type="button" data-action="svg-fill-settings"><i class="fa-solid fa-sliders"></i><span>SVGの表示を調整</span></button>' : ''}
+            ${['svg', 'svg-tile'].includes(borderInteriorFillPattern) && (polylineRegionIndex >= 0 ? polylineRegionImageSrc : mark.dataset.fillSvgSrc) ? '<button type="button" data-action="svg-fill-settings"><i class="fa-solid fa-sliders"></i><span>SVGの表示を調整</span></button>' : ''}
+            ${['svg', 'svg-tile'].includes(borderInteriorFillPattern) && (polylineRegionIndex >= 0 ? polylineRegionImageSrc : mark.dataset.fillSvgSrc) ? '<button type="button" data-action="export-combined-svg"><i class="fa-solid fa-cube"></i><span>3Dプリント用SVG保存</span></button>' : ''}
             ${this.getLastShiftPhotoCompareSvgFillPreset().source ? '<button type="button" data-action="svg-fill-last"><i class="fa-solid fa-clock-rotate-left"></i><span>前回のSVGを使用</span></button>' : ''}
             <button type="button" data-action="clear-image-interior-fills"><i class="fa-solid fa-eraser"></i><span>この画像の塗りを一括解除</span></button>
             <button type="button" data-action="clear-all-interior-fills"><i class="fa-solid fa-trash-can-arrow-up"></i><span>比較全体の塗りを一括解除</span></button>` : ''}
@@ -32863,7 +34875,30 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         });
         fillPatternScaleInput?.addEventListener('change', scaleEvent => {
             this.setShiftPhotoCompareFillPatternScale(mark, scaleEvent.target.value, polylineRegionIndex);
-        });        const ensureOutlineEditMode = () => {
+        });
+        const fillPatternLineWidthInput = menu.querySelector('[data-field="border-fill-pattern-line-width"]');
+        const fillPatternOpacityInput = menu.querySelector('[data-field="border-fill-pattern-opacity"]');
+        const fillPatternBackgroundInput = menu.querySelector('[data-field="border-fill-pattern-background"]');
+        const fillPatternBackgroundColorInput = menu.querySelector('[data-field="border-fill-pattern-background-color"]');
+        const applyFillPatternAppearance = () => this.setShiftPhotoCompareFillPatternAppearance(mark, {
+            lineWidth: fillPatternLineWidthInput?.value,
+            opacity: (Number(fillPatternOpacityInput?.value) || 100) / 100,
+            background: fillPatternBackgroundInput?.value === 'custom' ? fillPatternBackgroundColorInput?.value : fillPatternBackgroundInput?.value
+        }, polylineRegionIndex);
+        fillPatternLineWidthInput?.addEventListener('input', event => {
+            event.target.closest('label')?.querySelector('output')?.replaceChildren(`${this.normalizeShiftPhotoCompareFillPatternLineWidth(event.target.value)}px`);
+        });
+        fillPatternLineWidthInput?.addEventListener('change', applyFillPatternAppearance);
+        fillPatternOpacityInput?.addEventListener('input', event => {
+            event.target.closest('label')?.querySelector('output')?.replaceChildren(`${Math.round(Number(event.target.value) || 100)}%`);
+        });
+        fillPatternOpacityInput?.addEventListener('change', applyFillPatternAppearance);
+        fillPatternBackgroundInput?.addEventListener('change', () => {
+            if (fillPatternBackgroundColorInput) fillPatternBackgroundColorInput.disabled = fillPatternBackgroundInput.value !== 'custom';
+            applyFillPatternAppearance();
+        });
+        fillPatternBackgroundColorInput?.addEventListener('change', applyFillPatternAppearance);
+        const ensureOutlineEditMode = () => {
             if (this._shiftPhotoCompareMarkMode !== 'move') this.setShiftPhotoCompareMarkModeDirect('move');
             if (!mark.classList.contains('selected')) this.selectShiftPhotoCompareMark(mark);
         };
@@ -32980,13 +35015,19 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             if (action === 'border-fill-pattern') this.setShiftPhotoCompareBorderFillPattern(mark, menuEvent.target.closest('button')?.dataset?.pattern || 'solid', polylineRegionIndex);
             if (action === 'border-fill-svg-file') {
                 this.closeShiftPhotoCompareImageContextMenu();
-                await this.chooseShiftPhotoCompareBorderFillSvg(mark, polylineRegionIndex);
+                const svgPattern = menuEvent.target.closest('button')?.dataset?.pattern || 'svg';
+                await this.chooseShiftPhotoCompareBorderFillSvg(mark, polylineRegionIndex, '', { tile: svgPattern === 'svg-tile' });
                 return;
             }
             if (action === 'svg-fill-settings') {
                 this.closeShiftPhotoCompareImageContextMenu();
                 this.pushShiftPhotoCompareUndo();
                 this.openShiftPhotoCompareSvgFillSettings(mark, polylineRegionIndex);
+                return;
+            }
+            if (action === 'export-combined-svg') {
+                this.closeShiftPhotoCompareImageContextMenu();
+                this.openShiftPhotoCompare3dSvgExportDialog(mark, polylineRegionIndex);
                 return;
             }
             if (action === 'svg-fill-last') {
@@ -38618,7 +40659,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             this.syncShiftPhotoCompareGlobalMarks();
             this.syncShiftPhotoCompareMarks(wrap);
         }
-        const imgEl = wrap.querySelector('img');
+        const imgEl = wrap.querySelector(':scope > img') || wrap.querySelector('img');
         if (!imgEl?.src) return null;
         const img = await this.loadShiftPhotoCompareImage(imgEl.src);
         const naturalW = img.naturalWidth || img.width || 1;
@@ -38638,9 +40679,58 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             .filter(mark => !options.visibleOnly || !mark.classList.contains('shift-photo-compare-animation-hidden'))
             .sort((left, right) => Number(left.dataset.mode === 'mosaic') - Number(right.dataset.mode === 'mosaic'));
         for (const mark of orderedMarks) {
-            await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, Number(options.markSizeMultiplier) || 1);
+            await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, Number(options.markSizeMultiplier) || 1, options);
         }
         await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, rect, options);
+        return canvas;
+    }
+
+    async renderShiftPhotoCompareStoredMarksToCanvas(wrap, maxSide = 3200, options = {}) {
+        if (!wrap) return null;
+        if (document.fonts?.ready) await document.fonts.ready;
+        const photo = this.getShiftPhotoComparePhotoByWrap?.(wrap);
+        const marks = Array.isArray(options.marks) ? options.marks : (Array.isArray(photo?.marks) ? photo.marks : []);
+        const imgEl = wrap.querySelector(':scope > img') || wrap.querySelector('img');
+        if (!imgEl?.src) return null;
+        const img = await this.loadShiftPhotoCompareImage(imgEl.src);
+        const naturalW = img.naturalWidth || img.width || 1;
+        const naturalH = img.naturalHeight || img.height || 1;
+        const scale = Math.min(1, maxSide / Math.max(naturalW, naturalH));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(naturalW * scale));
+        canvas.height = Math.max(1, Math.round(naturalH * scale));
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const rect = { x: 0, y: 0, width: canvas.width, height: canvas.height };
+        const template = document.createElement('template');
+        const liveVideoMarks = Array.from(wrap.querySelectorAll('.shift-photo-compare-mark.video'));
+        let liveVideoIndex = 0;
+        const orderedMarks = [...marks]
+            .sort((left, right) => Number(left?.mode === 'mosaic') - Number(right?.mode === 'mosaic'));
+        for (const markData of orderedMarks) {
+            template.innerHTML = this.getShiftPhotoCompareMarkHtml(markData);
+            const mark = template.content.firstElementChild;
+            if (!mark) continue;
+            const liveMark = markData?.mode === 'video'
+                ? (liveVideoMarks.find(item => markData.videoId && item.dataset.videoId === markData.videoId) || liveVideoMarks[liveVideoIndex++])
+                : null;
+            try {
+                await this.drawShiftPhotoCompareMarkFromWrap(ctx, liveMark || mark, wrap, rect, Number(options.markSizeMultiplier) || 1, {
+                    ...options,
+                    videoFrameMode: liveMark ? 'live' : 'placeholder'
+                });
+            } catch (error) {
+                if (!liveMark) throw error;
+                await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, Number(options.markSizeMultiplier) || 1, {
+                    ...options,
+                    videoFrameMode: 'placeholder'
+                });
+            }
+        }
         return canvas;
     }
 
@@ -38724,9 +40814,69 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         const width = gridRect.width * outputScale;
         const height = gridRect.height * outputScale;
         ctx.drawImage(contentCanvas, x, y, width, height);
+        await this.drawShiftPhotoCompareSpeechAvatarToCanvas(ctx, canvas.width, canvas.height);
         return canvas;
     }
 
+    async drawShiftPhotoCompareSpeechAvatarToCanvas(ctx, canvasWidth, canvasHeight) {
+        const settings = this.getShiftPhotoCompareSpeechSettings();
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(this._shiftPhotoCompareActiveSpeechAvatarStyle || settings.avatarStyle);
+        if (!ctx || settings.avatarEnabled === false || !this.isShiftPhotoCompareSpeechInProgress()) return;
+        const talking = this.isShiftPhotoCompareSpeechAudible();
+        try {
+            const paths = this.getShiftPhotoCompareSpeechAvatarPaths(avatarStyle);
+            const frames = await Promise.all(paths.map(path => this.loadShiftPhotoCompareImage(path)));
+            const size = Math.max(96, Math.min(260, Math.min(canvasWidth, canvasHeight) * 0.2));
+            const margin = Math.max(18, size * 0.13);
+            const x = canvasWidth - size - margin;
+            const y = canvasHeight - size - margin;
+            const sequence = [0, 1, 2, 1];
+            const frame = talking
+                ? (frames[sequence[Math.floor(performance.now() / 70) % sequence.length]] || frames[0])
+                : frames[0];
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+            ctx.clip();
+            const drawCover = image => {
+                const sourceWidth = image.naturalWidth || image.width || 1;
+                const sourceHeight = image.naturalHeight || image.height || 1;
+                const sourceSize = Math.min(sourceWidth, sourceHeight);
+                const sourceX = (sourceWidth - sourceSize) / 2;
+                const sourceY = (sourceHeight - sourceSize) / 2;
+                ctx.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, x, y, size, size);
+            };
+            drawCover(frames[0]);
+            if (frame !== frames[0]) {
+                const mouthClips = {
+                    safetyFirst: { x: 0.26, y: 0.59, width: 0.48, height: 0.31 },
+                    instructor: { x: 0.30, y: 0.44, width: 0.40, height: 0.22 },
+                    siteGuide: { x: 0.28, y: 0.49, width: 0.44, height: 0.24 },
+                    fox: { x: 0.27, y: 0.53, width: 0.46, height: 0.26 },
+                    crtGuide: { x: 0.30, y: 0.45, width: 0.40, height: 0.22 },
+                    helmetCat: { x: 0.28, y: 0.58, width: 0.44, height: 0.22 },
+                    frog: { x: 0.22, y: 0.47, width: 0.56, height: 0.20 }
+                };
+                const mouthClip = mouthClips[avatarStyle] || mouthClips.safetyFirst;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(x + size * mouthClip.x, y + size * mouthClip.y, size * mouthClip.width, size * mouthClip.height);
+                ctx.clip();
+                drawCover(frame);
+                ctx.restore();
+            }
+            ctx.restore();
+            ctx.save();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = Math.max(3, size * 0.025);
+            ctx.beginPath();
+            ctx.arc(x + size / 2, y + size / 2, size / 2 - ctx.lineWidth / 2, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        } catch (error) {
+            console.warn('Speech avatar could not be added to direct video.', error);
+        }
+    }
     async getShiftPhotoCompareColorAtPoint(wrap, clientX = 0, clientY = 0) {
         if (wrap?.clientX !== undefined && wrap?.clientY !== undefined) {
             const event = wrap;
@@ -39476,25 +41626,49 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         ctx.restore();
     }
 
-    getShiftPhotoCompareCanvasFillStyle(ctx, color = '#dc2626', patternValue = 'solid', patternScaleValue = 12) {
+    getShiftPhotoCompareCanvasFillStyle(ctx, color = '#dc2626', patternValue = 'solid', patternScaleValue = 12, appearance = {}) {
         const pattern = this.normalizeShiftPhotoCompareFillPattern(patternValue);
         const patternScale = this.normalizeShiftPhotoCompareFillPatternScale(patternScaleValue);
         if (pattern === 'solid' || typeof document === 'undefined') return color;
-        if (pattern === 'svg') return 'rgba(0,0,0,0)';
+        if (['svg', 'svg-tile'].includes(pattern)) return 'rgba(0,0,0,0)';
         const tile = document.createElement('canvas');
         const size = patternScale;
         tile.width = size;
         tile.height = size;
         const tileCtx = tile.getContext('2d');
         if (!tileCtx) return color;
+        const patternBackground = this.normalizeShiftPhotoCompareFillPatternBackground(appearance.background);
+        if (patternBackground !== 'transparent') {
+            tileCtx.fillStyle = patternBackground;
+            tileCtx.fillRect(0, 0, size, size);
+        }
         tileCtx.strokeStyle = color;
         tileCtx.fillStyle = color;
-        tileCtx.lineWidth = Math.max(1, Math.min(5, size * 0.18));
+        tileCtx.lineWidth = this.normalizeShiftPhotoCompareFillPatternLineWidth(appearance.lineWidth);
+        tileCtx.globalAlpha = this.normalizeShiftPhotoCompareFillPatternOpacity(appearance.opacity);
         tileCtx.lineCap = 'round';
         if (pattern === 'dots') {
             tileCtx.beginPath();
-            tileCtx.arc(size / 2, size / 2, Math.max(1.5, Math.min(5, size * 0.18)), 0, Math.PI * 2);
+            tileCtx.arc(size / 2, size / 2, tileCtx.lineWidth, 0, Math.PI * 2);
             tileCtx.fill();
+        } else if (pattern === 'warning') {
+            tileCtx.save();
+            tileCtx.translate(size / 2, size / 2);
+            tileCtx.rotate(-Math.PI / 4);
+            tileCtx.fillRect(-size * 1.5, -size * 1.5, tileCtx.lineWidth, size * 3);
+            tileCtx.fillRect(size * 0.5, -size * 1.5, tileCtx.lineWidth, size * 3);
+            tileCtx.restore();
+        } else if (pattern === 'honeycomb') {
+            tileCtx.lineWidth = Math.max(1, Math.min(4, size * 0.12));
+            tileCtx.beginPath();
+            tileCtx.moveTo(size * 0.25, 0);
+            tileCtx.lineTo(size * 0.75, 0);
+            tileCtx.lineTo(size, size * 0.5);
+            tileCtx.lineTo(size * 0.75, size);
+            tileCtx.lineTo(size * 0.25, size);
+            tileCtx.lineTo(0, size * 0.5);
+            tileCtx.closePath();
+            tileCtx.stroke();
         } else {
             const drawDiagonal = reverse => {
                 tileCtx.beginPath();
@@ -39540,6 +41714,9 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
     async drawShiftPhotoCompareCanvasSvgFill(ctx, src = '', color = '#dc2626', x = 0, y = 0, width = 1, height = 1, settingsValue = {}) {
         const image = await this.createShiftPhotoCompareTintedSvgCanvas(src, color, Math.max(width, height) * 2);
         if (!image) return false;
+        const tileSize = this.normalizeShiftPhotoCompareFillPatternScale(settingsValue?.tileSize);
+        const patternOpacity = this.normalizeShiftPhotoCompareFillPatternOpacity(settingsValue?.patternOpacity);
+        const patternBackground = this.normalizeShiftPhotoCompareFillPatternBackground(settingsValue?.background);
         const settings = this.normalizeShiftPhotoCompareSvgFillSettings(settingsValue);
         let drawWidth = width;
         let drawHeight = height;
@@ -39551,7 +41728,11 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             drawHeight = image.height * scale;
         }
         ctx.save();
-        ctx.globalAlpha *= settings.opacity;
+        if (patternBackground !== 'transparent') {
+            ctx.fillStyle = patternBackground;
+            ctx.fillRect(x, y, width, height);
+        }
+        ctx.globalAlpha *= settings.opacity * patternOpacity;
         ctx.translate(
             x + width / 2 + width * settings.offsetX / 100,
             y + height / 2 + height * settings.offsetY / 100
@@ -39560,8 +41741,8 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         ctx.scale(settings.flipX ? -settings.zoom : settings.zoom, settings.flipY ? -settings.zoom : settings.zoom);
         if (settings.fit === 'repeat') {
             const tile = document.createElement('canvas');
-            tile.width = Math.max(1, Math.round(width / 4));
-            tile.height = Math.max(1, Math.round(height / 4));
+            tile.width = tileSize;
+            tile.height = tileSize;
             const tileContext = tile.getContext('2d');
             if (tileContext) {
                 const tileScale = Math.min(tile.width / image.width, tile.height / image.height);
@@ -39748,11 +41929,11 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     const fill = regionFills[index];
                     const enabled = typeof fill?.enabled === 'boolean' ? fill.enabled : defaultFillEnabled;
                     if (!enabled) return;
-                    if (fill?.pattern === 'svg' && fill?.imageTint && fill?.imageSrc) return;
+                    if (['svg', 'svg-tile'].includes(fill?.pattern) && fill?.imageTint && fill?.imageSrc) return;
                     ctx.save();
                     ctx.globalAlpha = Math.max(0.05, Math.min(1, Number(fill?.opacity) || defaultFillOpacity));
                     const fillColor = /^#[0-9a-f]{6}$/i.test(fill?.color || '') ? fill.color : defaultFillColor;
-                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, fillColor, fill?.pattern || mark.dataset.polylineFillPattern, fill?.patternScale || mark.dataset.polylineFillPatternScale);
+                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, fillColor, fill?.pattern || mark.dataset.polylineFillPattern, fill?.patternScale || mark.dataset.polylineFillPatternScale, { lineWidth: fill?.patternLineWidth, opacity: fill?.patternOpacity, background: fill?.patternBackground });
                     ctx.setLineDash([]);
                     ctx.beginPath();
                     region.points.forEach((point, pointIndex) => {
@@ -40017,20 +42198,22 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             const width = Math.max(1, measuredWidth > 0 ? measuredWidth * exportScale : size * Math.max(0.05, stretch));
             const height = Math.max(1, measuredHeight > 0 ? measuredHeight * exportScale : size * Math.max(0.05, stretchY));
             const sourceType = mark._shiftPhotoCompareExportVideoSourceType || mark.dataset.videoSourceType || '';
-            const frameStyle = ['modern', 'retro', 'custom'].includes(mark.dataset.videoFrameStyle)
+            const frameStyle = ['modern', 'retro', 'scroll', 'custom'].includes(mark.dataset.videoFrameStyle)
                 ? mark.dataset.videoFrameStyle
                 : 'none';
             const frameSettings = frameStyle === 'modern'
                 ? { x: 5.85, y: 4.1, width: 88.3, height: 79.5, src: 'assets/video-frames/modern-flat-tv.png' }
                 : (frameStyle === 'retro'
                     ? { x: 9.4, y: 15.1, width: 61.6, height: 63.6, src: 'assets/video-frames/retro-wood-console-tv.png' }
-                    : {
+                    : (frameStyle === 'scroll'
+                        ? { x: 14.5, y: 18.5, width: 70.8, height: 62.8, src: 'assets/video-frames/ninja-scroll-generated.png' }
+                        : {
                         x: Math.max(0, Math.min(95, Number(mark.dataset.videoFrameX) || 0)),
                         y: Math.max(0, Math.min(95, Number(mark.dataset.videoFrameY) || 0)),
                         width: Math.max(5, Math.min(100, Number(mark.dataset.videoFrameWidth) || 100)),
                         height: Math.max(5, Math.min(100, Number(mark.dataset.videoFrameHeight) || 100)),
                         src: ''
-                    });
+                    }));
             const measuredScreenX = Number(mark.dataset.animationExportVideoScreenX);
             const measuredScreenY = Number(mark.dataset.animationExportVideoScreenY);
             const measuredScreenWidth = Number(mark.dataset.animationExportVideoScreenWidth);
@@ -40101,8 +42284,11 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             }
             let frameImage = null;
             let frameObjectUrl = '';
+            const fileProtocolFrameBlocked = window.location.protocol === 'file:'
+                && !!frameSettings.src
+                && !/^(?:data:|blob:)/i.test(frameSettings.src);
             try {
-                if (frameSettings.src) {
+                if (frameSettings.src && !fileProtocolFrameBlocked) {
                     frameImage = await this.loadShiftPhotoCompareImage(frameSettings.src);
                 } else if (frameStyle === 'custom') {
                     const frame = this.getShiftPhotoCompareCustomVideoFrame(mark.dataset.videoFrameId || '');
@@ -40118,7 +42304,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                         }
                     }
                 }
-                if (frameImage) ctx.drawImage(frameImage, -width / 2, -height / 2, width, height);
+                if (frameImage && frameStyle !== 'scroll') ctx.drawImage(frameImage, -width / 2, -height / 2, width, height);
             } catch (error) {
                 console.warn('Animation television frame export failed.', error);
             } finally {
@@ -40135,6 +42321,21 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 } finally {
                     ctx.restore();
                 }
+            }
+            if (frameImage && frameStyle === 'scroll') ctx.drawImage(frameImage, -width / 2, -height / 2, width, height);
+            if (!frameImage && frameStyle !== 'none') {
+                ctx.save();
+                ctx.strokeStyle = '#6b4f2b';
+                ctx.lineWidth = Math.max(2, Math.min(12, size * 0.035));
+                this.drawShiftPhotoCompareRoundedRectPath(ctx, -width / 2, -height / 2, width, height, Math.max(3, size * 0.025));
+                ctx.stroke();
+                if (frameStyle === 'scroll') {
+                    ctx.fillStyle = '#3f2c1d';
+                    const rodWidth = Math.max(5, width * 0.025);
+                    this.drawShiftPhotoCompareRoundedRectPath(ctx, -width / 2 - rodWidth * 0.4, -height / 2, rodWidth, height, rodWidth / 2);
+                    ctx.fill();
+                }
+                ctx.restore();
             }
             if (frameStyle === 'none') {
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
@@ -40706,13 +42907,13 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             };
             if (mark.dataset.fillWithBorder === '1') {
                 drawCircle();
-                if (mark.dataset.fillPattern === 'svg' && mark.dataset.fillSvgSrc) {
+                if (['svg', 'svg-tile'].includes(mark.dataset.fillPattern) && mark.dataset.fillSvgSrc) {
                     ctx.save();
                     ctx.clip();
-                    await this.drawShiftPhotoCompareCanvasSvgFill(ctx, mark.dataset.fillSvgSrc, color, -size / 2, -size / 2, size, size, this.getShiftPhotoCompareSvgFillSettings(mark));
+                    await this.drawShiftPhotoCompareCanvasSvgFill(ctx, mark.dataset.fillSvgSrc, color, -size / 2, -size / 2, size, size, { ...this.getShiftPhotoCompareSvgFillSettings(mark), tileSize: mark.dataset.fillPatternScale, patternOpacity: mark.dataset.fillPattern === 'svg-tile' ? mark.dataset.fillPatternOpacity : 1, background: mark.dataset.fillPattern === 'svg-tile' ? mark.dataset.fillPatternBackground : 'transparent' });
                     ctx.restore();
                 } else {
-                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, color, mark.dataset.fillPattern, mark.dataset.fillPatternScale);
+                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, color, mark.dataset.fillPattern, mark.dataset.fillPatternScale, { lineWidth: mark.dataset.fillPatternLineWidth, opacity: mark.dataset.fillPatternOpacity, background: mark.dataset.fillPatternBackground });
                     ctx.fill();
                 }
             }
@@ -40727,28 +42928,28 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             };
             if (mark.dataset.fillWithBorder === '1') {
                 drawTriangle();
-                if (mark.dataset.fillPattern === 'svg' && mark.dataset.fillSvgSrc) {
+                if (['svg', 'svg-tile'].includes(mark.dataset.fillPattern) && mark.dataset.fillSvgSrc) {
                     ctx.save();
                     ctx.clip();
-                    await this.drawShiftPhotoCompareCanvasSvgFill(ctx, mark.dataset.fillSvgSrc, color, -size / 2, -size / 2, size, size, this.getShiftPhotoCompareSvgFillSettings(mark));
+                    await this.drawShiftPhotoCompareCanvasSvgFill(ctx, mark.dataset.fillSvgSrc, color, -size / 2, -size / 2, size, size, { ...this.getShiftPhotoCompareSvgFillSettings(mark), tileSize: mark.dataset.fillPatternScale, patternOpacity: mark.dataset.fillPattern === 'svg-tile' ? mark.dataset.fillPatternOpacity : 1, background: mark.dataset.fillPattern === 'svg-tile' ? mark.dataset.fillPatternBackground : 'transparent' });
                     ctx.restore();
                 } else {
-                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, color, mark.dataset.fillPattern, mark.dataset.fillPatternScale);
+                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, color, mark.dataset.fillPattern, mark.dataset.fillPatternScale, { lineWidth: mark.dataset.fillPatternLineWidth, opacity: mark.dataset.fillPatternOpacity, background: mark.dataset.fillPatternBackground });
                     ctx.fill();
                 }
             }
             drawOutlinedStroke(drawTriangle);
         } else if (mode === 'rect') {
             if (mark.dataset.fillWithBorder === '1') {
-                if (mark.dataset.fillPattern === 'svg' && mark.dataset.fillSvgSrc) {
+                if (['svg', 'svg-tile'].includes(mark.dataset.fillPattern) && mark.dataset.fillSvgSrc) {
                     ctx.save();
                     ctx.beginPath();
                     ctx.rect(-size / 2, -size / 2, size, size);
                     ctx.clip();
-                    await this.drawShiftPhotoCompareCanvasSvgFill(ctx, mark.dataset.fillSvgSrc, color, -size / 2, -size / 2, size, size, this.getShiftPhotoCompareSvgFillSettings(mark));
+                    await this.drawShiftPhotoCompareCanvasSvgFill(ctx, mark.dataset.fillSvgSrc, color, -size / 2, -size / 2, size, size, { ...this.getShiftPhotoCompareSvgFillSettings(mark), tileSize: mark.dataset.fillPatternScale, patternOpacity: mark.dataset.fillPattern === 'svg-tile' ? mark.dataset.fillPatternOpacity : 1, background: mark.dataset.fillPattern === 'svg-tile' ? mark.dataset.fillPatternBackground : 'transparent' });
                     ctx.restore();
                 } else {
-                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, color, mark.dataset.fillPattern, mark.dataset.fillPatternScale);
+                    ctx.fillStyle = this.getShiftPhotoCompareCanvasFillStyle(ctx, color, mark.dataset.fillPattern, mark.dataset.fillPatternScale, { lineWidth: mark.dataset.fillPatternLineWidth, opacity: mark.dataset.fillPatternOpacity, background: mark.dataset.fillPatternBackground });
                     ctx.fillRect(-size / 2, -size / 2, size, size);
                 }
             }
@@ -41301,7 +43502,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         ctx.restore();
     }
 
-    async drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, markSizeMultiplier = 1) {
+    async drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, markSizeMultiplier = 1, options = {}) {
         const wrapRect = wrap?.getBoundingClientRect?.();
         const imageRect = this.getShiftPhotoCompareDisplayImageRect(wrap);
         if (!wrapRect?.width || !wrapRect?.height || !imageRect?.width || !imageRect?.height) {
@@ -41311,7 +43512,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         const markX = wrapRect.left + ((parseFloat(mark.style.left) || 0) / 100) * wrapRect.width;
         const markY = wrapRect.top + ((parseFloat(mark.style.top) || 0) / 100) * wrapRect.height;
         const localMark = mark.cloneNode(true);
-        if (mark.dataset.mode === 'video') {
+        if (mark.dataset.mode === 'video' && options.videoFrameMode !== 'placeholder') {
             const video = mark.querySelector('video');
             localMark._shiftPhotoCompareExportVideo = video;
             localMark._shiftPhotoCompareExportVideoSourceType = mark.dataset.videoSourceType || '';
@@ -41365,7 +43566,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 && markY - radiusY <= imageRect.bottom);
             if (!intersects) continue;
             const localMark = mark.cloneNode(true);
-            if (mark.dataset.mode === 'video') {
+            if (mark.dataset.mode === 'video' && options.videoFrameMode !== 'placeholder') {
                 const video = mark.querySelector('video');
                 localMark._shiftPhotoCompareExportVideo = video;
                 localMark._shiftPhotoCompareExportVideoSourceType = mark.dataset.videoSourceType || '';
@@ -41413,7 +43614,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         const cellW = 720 * exportScale;
         const exportItems = [];
         for (const wrap of wraps) {
-            const imgEl = wrap.querySelector('img');
+            const imgEl = wrap.querySelector(':scope > img') || wrap.querySelector('img');
             if (!imgEl?.src) continue;
             const img = await this.loadShiftPhotoCompareImage(imgEl.src);
             const naturalW = Math.max(1, img.naturalWidth || img.width || 1);
@@ -41476,7 +43677,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         for (let i = 0; i < wraps.length; i += 1) {
             const wrap = wraps[i];
             this.syncShiftPhotoCompareMarks(wrap);
-            const imgEl = wrap.querySelector('img');
+            const imgEl = wrap.querySelector(':scope > img') || wrap.querySelector('img');
             if (!imgEl?.src) continue;
             const img = await this.loadShiftPhotoCompareImage(imgEl.src);
             const naturalW = img.naturalWidth || img.width || 1;
@@ -41506,36 +43707,26 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         this.autoSaveShiftNotebook(true);
     }
 
-    async renderShiftPhotoCompareWrapWithMarks(wrap) {
-        if (!wrap) return '';
-        if (document.fonts?.ready) await document.fonts.ready;
-        this.syncShiftPhotoCompareGlobalMarks();
-        this.syncShiftPhotoCompareMarks(wrap);
-        const imgEl = wrap.querySelector('img');
-        if (!imgEl?.src) return '';
-        const img = await this.loadShiftPhotoCompareImage(imgEl.src);
-        const naturalW = img.naturalWidth || img.width || 1;
-        const naturalH = img.naturalHeight || img.height || 1;
-        const maxSide = 3200;
-        const scale = Math.min(1, maxSide / Math.max(naturalW, naturalH));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(naturalW * scale));
-        canvas.height = Math.max(1, Math.round(naturalH * scale));
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const rect = { x: 0, y: 0, width: canvas.width, height: canvas.height };
-        const orderedMarks = Array.from(wrap.querySelectorAll('.shift-photo-compare-mark'))
-            .filter(mark => mark.dataset.animationGhost !== '1')
-            .sort((left, right) => Number(left.dataset.mode === 'mosaic') - Number(right.dataset.mode === 'mosaic'));
-        for (const mark of orderedMarks) {
-            await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, Number(options.markSizeMultiplier) || 1);
+    async renderShiftPhotoCompareWrapWithMarks(wrap, options = {}) {
+        const photo = this.getShiftPhotoComparePhotoByWrap?.(wrap);
+        const hasStoredVideo = Array.isArray(photo?.marks) && photo.marks.some(mark => mark?.mode === 'video' || !!mark?.videoId);
+        if (hasStoredVideo) {
+            const storedCanvas = await this.renderShiftPhotoCompareStoredMarksToCanvas(wrap, 3200, options);
+            if (storedCanvas) return storedCanvas.toDataURL('image/jpeg', 0.92);
         }
-        await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, rect);
-        return canvas.toDataURL('image/jpeg', 0.92);
+        try {
+            const canvas = await this.renderShiftPhotoCompareWrapToCanvas(wrap, 3200, options);
+            if (!canvas) return '';
+            return canvas.toDataURL('image/jpeg', 0.92);
+        } catch (error) {
+            console.warn('Video frame could not be included in the card thumbnail.', error);
+            const safeCanvas = await this.renderShiftPhotoCompareWrapToCanvas(wrap, 3200, {
+                ...options,
+                skipSync: true,
+                videoFrameMode: 'placeholder'
+            });
+            return safeCanvas ? safeCanvas.toDataURL('image/jpeg', 0.92) : '';
+        }
     }
 
     getShiftPhotoCompareDisplayItems(photos, labels) {

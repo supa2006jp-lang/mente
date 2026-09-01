@@ -7343,6 +7343,60 @@
             store.save();
             if (removed) this.showPhotoManagerNotice?.(`${removed} old images were cleaned up.`);
         }
+        async refreshPhotoManagerVideoBlankEditThumbnails(items = []) {
+            if (this._photoManagerVideoBlankThumbRefresh || typeof this.renderShiftPhotoCompareStoredMarksToCanvas !== 'function') return;
+            const candidates = items.filter(item => {
+                const edit = item?.source === 'library' ? item.photoCompareBlankEdit : null;
+                return edit?.type === 'blank'
+                    && Number(edit.thumbnailVersion || 0) < 2
+                    && (edit.marks || []).some(mark => mark?.mode === 'video' || !!mark?.videoId);
+            });
+            if (!candidates.length) return;
+            this._photoManagerVideoBlankThumbRefresh = true;
+            let changed = false;
+            try {
+                const library = this.getPhotoManagerLibrary?.() || [];
+                for (const item of candidates) {
+                    const edit = item.photoCompareBlankEdit;
+                    const wrap = document.createElement('div');
+                    wrap.className = 'shift-photo-compare-image-wrap';
+                    wrap.style.cssText = 'position:fixed;left:-20000px;top:0;width:1600px;height:1000px;visibility:hidden;pointer-events:none;';
+                    const base = document.createElement('img');
+                    base.src = this.createShiftPhotoCompareBlankBaseSrc?.(edit.blankBaseColor || '#ffffff') || item.src;
+                    base.alt = '';
+                    base.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;';
+                    wrap.appendChild(base);
+                    document.body.appendChild(wrap);
+                    try {
+                        if (typeof base.decode === 'function') await base.decode();
+                        const canvas = await this.renderShiftPhotoCompareStoredMarksToCanvas(wrap, 1600, { marks: edit.marks || [] });
+                        if (!canvas) continue;
+                        const src = canvas.toDataURL('image/jpeg', 0.9);
+                        const stored = library.find(photo => photo?.id === item.id);
+                        if (stored) {
+                            stored.src = src;
+                            stored.photoCompareBlankEdit.thumbnailVersion = 2;
+                            stored.updatedAt = Date.now();
+                        }
+                        item.src = src;
+                        edit.thumbnailVersion = 2;
+                        const card = Array.from(document.querySelectorAll('.photo-manager-card'))
+                            .find(element => element.dataset.photoId === item.id);
+                        const cardImage = card?.querySelector('.photo-manager-thumb > img');
+                        if (cardImage) cardImage.src = src;
+                        changed = true;
+                    } catch (error) {
+                        console.warn('Failed to refresh video blank-edit thumbnail.', error);
+                    } finally {
+                        wrap.remove();
+                    }
+                }
+                if (changed) store.save();
+            } finally {
+                this._photoManagerVideoBlankThumbRefresh = false;
+            }
+        }
+
         renderPhotoManager() {
             this.applyMediaManagementCardColor();
             this.ensurePhotoManagerPasteImportListener?.();
@@ -7393,6 +7447,9 @@
                 const protectedPhoto = this.isPhotoManagerSourceProtected?.(item.src);
                 const sizeText = this.formatPhotoManagerBytes?.(this.estimatePhotoManagerImageBytes?.(item.src) || 0) || '';
                 const hasBlankEdit = !!(item.source === 'library' && item.photoCompareBlankEdit?.type === 'blank');
+                const hasEmbeddedVideo = hasBlankEdit && (item.photoCompareBlankEdit.marks || []).some(mark =>
+                    mark?.mode === 'video' || !!mark?.videoId
+                );
                 const thumbAction = hasBlankEdit
                     ? `app.openPhotoManagerBlankEdit('${this.escapeJs(item.id)}')`
                     : (item.source === 'library'
@@ -7408,6 +7465,7 @@
                         ${duplicateSrcs.has(item.src) ? '<span class="photo-manager-duplicate-badge"><i class="fa-solid fa-clone"></i> 重複</span>' : ''}
                         ${item.annotated ? '<span class="photo-manager-mark-badge"><i class="fa-solid fa-pen"></i> 注記</span>' : ''}
                         ${hasBlankEdit ? '<span class="photo-manager-blank-edit-badge"><i class="fa-regular fa-file-lines"></i> 白紙編集</span>' : ''}
+                        ${hasEmbeddedVideo ? '<span class="photo-manager-video-content-badge" title="動画を含むカード"><i class="fa-solid fa-circle-play"></i> 動画</span>' : ''}
                         ${alphaStatus ? `<span class="photo-manager-alpha-badge ${alphaStatus}" role="button" tabindex="0" onpointerdown="event.preventDefault(); event.stopPropagation();" onclick="event.preventDefault(); event.stopPropagation(); app.openImageSourceChoiceTransparencyPreview('${this.escapeJs(item.id)}')"><i class="fa-solid fa-layer-group"></i> ${alphaStatus === 'transparent' ? '透過' : '透過候補'}</span>` : ''}
                         ${item.circleImageEdit ? '<span class="photo-manager-circle-image-badge"><i class="fa-solid fa-circle-user"></i> 丸編集</span>' : ''}
                         ${compressedPhoto ? '<span class="photo-manager-compressed-badge"><i class="fa-solid fa-compress"></i> 圧縮済み</span>' : ''}
@@ -7459,6 +7517,7 @@
                     </div>
                 </article>`;
             }).join('');
+            this.refreshPhotoManagerVideoBlankEditThumbnails?.(items);
             this.updatePhotoManagerTransparencyBadges?.(items);
             this.updatePhotoManagerBulkBar?.();
             this.addPhotoManagerPageOnlyCleanupButton?.();
