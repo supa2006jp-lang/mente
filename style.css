@@ -35591,11 +35591,11 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
 .photo-manager-side-actions .secondary-btn {
     min-width: 0;
     min-height: 27px;
-    padding: 3px 4px;
+    padding: 3px 2px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 3px;
+    gap: 2px;
     white-space: nowrap;
     font-size: 0.63rem;
 }

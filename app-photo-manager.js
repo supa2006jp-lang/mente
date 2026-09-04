@@ -7472,12 +7472,12 @@
                         <span class="photo-manager-usage-badge ${usageSummary.count ? 'used' : 'unused'}"><i class="fa-solid ${usageSummary.count ? 'fa-link' : 'fa-circle-minus'}"></i> ${this.escapeHtml(usageSummary.label || '未使用')}</span>
                     </button>
                     <div class="photo-manager-side-actions">
-                        <button type="button" class="secondary-btn icon-only" onclick="app.openPhotoManagerEditor('${this.escapeJs(item.id)}')" title="編集" aria-label="編集"><i class="fa-solid fa-pen"></i></button>
-                        ${hasBlankEdit ? `<button type="button" class="secondary-btn icon-only photo-manager-blank-edit-btn" onclick="app.openPhotoManagerBlankEdit('${this.escapeJs(item.id)}')" title="白紙再編集" aria-label="白紙再編集"><i class="fa-regular fa-file-lines"></i></button>` : ''}
-                        ${hasBlankEdit ? `<button type="button" class="secondary-btn icon-only photo-manager-blank-copy-btn" onclick="app.duplicatePhotoManagerBlankEdit('${this.escapeJs(item.id)}')" title="白紙編集を複製" aria-label="白紙編集を複製"><i class="fa-solid fa-copy"></i></button>` : ''}
-                        <button type="button" class="secondary-btn icon-only" onclick="app.downloadPhotoManagerItem('${this.escapeJs(item.id)}')" title="出力" aria-label="出力"><i class="fa-solid fa-download"></i></button>
+                        <button type="button" class="secondary-btn" onclick="app.openPhotoManagerEditor('${this.escapeJs(item.id)}')" title="編集" aria-label="編集"><i class="fa-solid fa-pen"></i><span>編集</span></button>
+                        ${hasBlankEdit ? `<button type="button" class="secondary-btn photo-manager-blank-edit-btn" onclick="app.openPhotoManagerBlankEdit('${this.escapeJs(item.id)}')" title="白紙再編集" aria-label="白紙再編集"><i class="fa-regular fa-file-lines"></i><span>再編集</span></button>` : ''}
+                        ${hasBlankEdit ? `<button type="button" class="secondary-btn photo-manager-blank-copy-btn" onclick="app.duplicatePhotoManagerBlankEdit('${this.escapeJs(item.id)}')" title="白紙編集を複製" aria-label="白紙編集を複製"><i class="fa-solid fa-copy"></i><span>複製</span></button>` : ''}
+                        <button type="button" class="secondary-btn" onclick="app.downloadPhotoManagerItem('${this.escapeJs(item.id)}')" title="出力" aria-label="出力"><i class="fa-solid fa-download"></i><span>出力</span></button>
                         <details class="photo-manager-more-actions">
-                            <summary><i class="fa-solid fa-ellipsis"></i></summary>
+                            <summary><i class="fa-solid fa-ellipsis"></i><span>その他</span></summary>
                             <div>
                                 <button type="button" onclick="app.autoTagPhotoManagerItem('${this.escapeJs(item.id)}')"><i class="fa-solid fa-tags"></i> タグ自動</button>
                                 ${isSvg
