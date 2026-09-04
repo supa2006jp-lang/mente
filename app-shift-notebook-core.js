@@ -7536,7 +7536,9 @@
                     this.animateShiftPhotoCompareImagePage(mark, img, page.imageSrc, nextIndex >= previousIndex ? 1 : -1);
                 } else {
                     this.finishShiftPhotoCompareImagePageAnimation(mark);
-                    img.src = page.imageSrc || '';
+                    this.setShiftPhotoCompareImagePageSource(mark, img, page.imageSrc || '', {
+                        hideUntilReady: options.contentOnly || mark.classList.contains('shift-photo-compare-animation-hidden')
+                    });
                 }
             }
         } else if (mark.dataset.mode === 'callout') {
@@ -7638,6 +7640,27 @@
         mark.style.removeProperty('--image-slide-to');
     }
 
+    setShiftPhotoCompareImagePageSource(mark, img, nextSrc = '', options = {}) {
+        if (!mark || !img) return;
+        const src = String(nextSrc || '');
+        const requestId = (Number(mark._shiftPhotoCompareImagePageRequestId) || 0) + 1;
+        mark._shiftPhotoCompareImagePageRequestId = requestId;
+        const reveal = async () => {
+            try { await img.decode?.(); } catch (_) {}
+            if (mark._shiftPhotoCompareImagePageRequestId !== requestId) return;
+            img.classList.remove('shift-photo-compare-image-page-loading');
+        };
+        if (!src) {
+            img.classList.remove('shift-photo-compare-image-page-loading');
+            img.removeAttribute('src');
+            return;
+        }
+        if (options.hideUntilReady) img.classList.add('shift-photo-compare-image-page-loading');
+        img.addEventListener('load', reveal, { once: true });
+        img.addEventListener('error', reveal, { once: true });
+        if (img.getAttribute('src') !== src) img.src = src;
+        if (img.complete && img.naturalWidth) void reveal();
+    }
     animateShiftPhotoCompareImagePage(mark, img, nextSrc = '', direction = 1) {
         if (!mark || !img || !nextSrc) return;
         this.finishShiftPhotoCompareImagePageAnimation(mark);
@@ -9389,9 +9412,43 @@
         return { enabled: normalized.enabled, avatarEnabled: normalized.avatarEnabled, avatarStyle, ...profile };
     }
 
+    getShiftPhotoCompareLiveText(mark, options = {}) {
+        if (!mark) return '';
+        const mode = mark.dataset?.mode || '';
+        const selector = mode === 'callout'
+            ? '.shift-photo-callout-text'
+            : (mode === 'boxedText'
+                ? '.shift-photo-boxed-text-editor'
+                : (mode === 'text' ? '.shift-photo-plain-text-editor' : ''));
+        const editor = selector ? mark.querySelector?.(selector) : null;
+        const editorText = String(editor && 'value' in editor ? editor.value : '');
+        const datasetText = String(mark.dataset?.text || '');
+        let pageText = '';
+        if (!editorText && !datasetText && mark.dataset?.pages) {
+            try {
+                const pages = JSON.parse(mark.dataset.pages || '[]');
+                const pageIndex = Math.max(0, Math.min(pages.length - 1, Math.round(Number(mark.dataset.currentPage) || 0)));
+                pageText = String(pages[pageIndex]?.text || '');
+            } catch (_) {}
+        }
+        const visibleText = String(mark.querySelector?.('.shift-photo-plain-text-display')?.textContent || '');
+        const text = editorText || datasetText || pageText || visibleText;
+        if (options.sync !== false && mark.dataset && ['callout', 'boxedText', 'text'].includes(mode)) {
+            mark.dataset.text = text;
+            if (editor) editor.defaultValue = text;
+        }
+        return text;
+    }
+
+    syncShiftPhotoCompareLiveText(root = null) {
+        const target = root || this._shiftPhotoCompareAnimationState?.grid;
+        target?.querySelectorAll?.('.shift-photo-compare-mark.callout, .shift-photo-compare-mark.boxedText, .shift-photo-compare-mark.text')
+            ?.forEach(mark => this.getShiftPhotoCompareLiveText(mark));
+    }
+
     getShiftPhotoCompareSpeechText(mark) {
         if (!mark || !['boxedText', 'callout'].includes(mark.dataset.mode || '')) return '';
-        return String(mark.dataset.text || '')
+        return this.getShiftPhotoCompareLiveText(mark)
             .replace(/<br\s*\/?>/gi, ' ')
             .replace(/<[^>]*>/g, ' ')
             .replace(/\s+/g, ' ')
@@ -14991,11 +15048,13 @@
         if (!entry?.mark || !document.contains(entry.mark)) return false;
         const pages = this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark);
         if (!pages[entry.pageIndex]) return false;
+        const firstPhotoReveal = entry.type === 'imagePage'
+            && entry.mark.classList.contains('shift-photo-compare-animation-hidden');
         const changed = this.applyShiftPhotoCompareMarkPage(entry.mark, entry.pageIndex, {
             skipPersist: true,
             preserveRegionLayout: true,
             contentOnly: true,
-            animate: entry.mark.dataset.mode === 'image'
+            animate: entry.mark.dataset.mode === 'image' && !firstPhotoReveal
         });
         if (entry.type === 'imagePage' && this.isShiftPhotoCompareAnimationSyncControlledPhoto(entry.mark)) {
             entry.mark.classList.remove('shift-photo-compare-animation-hidden');
@@ -15645,8 +15704,7 @@
         const grid = overlay?.querySelector('.shift-photo-compare-grid');
         if (!grid) return;
         grid.querySelectorAll('.shift-photo-compare-mark').forEach(mark => {
-            const editor = mark.querySelector('.shift-photo-boxed-text-editor, .shift-photo-callout-text');
-            if (editor) mark.dataset.text = String(editor.value || '');
+            this.getShiftPhotoCompareLiveText(mark);
             if (this.supportsShiftPhotoComparePages(mark)) this.persistCurrentShiftPhotoCompareMarkPage(mark);
         });
         this.clearShiftPhotoCompareSnapGuides?.();
@@ -16769,8 +16827,8 @@
                 height: { ideal: 2160 }
             },
             audio: { suppressLocalAudioPlayback: false },
-            preferCurrentTab: true,
-            selfBrowserSurface: 'include',
+            preferCurrentTab: false,
+            selfBrowserSurface: 'exclude',
             surfaceSwitching: 'exclude',
             systemAudio: 'include',
             windowAudio: 'system'
@@ -16839,12 +16897,13 @@
             selfBrowserSurface: 'exclude',
             monitorTypeSurfaces: 'include',
             systemAudio: 'include',
-            windowAudio: 'system'
+            windowAudio: 'system',
+            surfaceSwitching: 'include'
         });
         const displaySurface = sharedStream.getVideoTracks()[0]?.getSettings?.().displaySurface || '';
         if (displaySurface && displaySurface !== 'monitor') {
             sharedStream.getTracks().forEach(track => track.stop());
-            throw new Error('読み上げ音声を保存する場合は、共有先で「画面全体」を選んでください。');
+            throw new Error('読み上げ音声を保存するには「画面全体」を選んでください。映像にはアニメ部分だけが保存されます。');
         }
         if (!sharedStream.getAudioTracks().length) {
             sharedStream.getTracks().forEach(track => track.stop());
@@ -16950,7 +17009,9 @@
             const frameTransport = 'canvas';
             const externalAudioStream = options.externalAudioStream || null;
             const externalAudioTrack = externalAudioStream?.getAudioTracks?.()[0] || null;
-            const streamAudioTrack = externalAudioTrack?.clone?.() || null;
+            // Keep display-capture audio in the final stream. Re-recording and
+            // offline muxing can replace valid Chrome audio with a silent track.
+            const streamAudioTrack = externalAudioTrack || null;
             if (streamAudioTrack) stream.addTrack(streamAudioTrack);
             const AudioContextClass = window.AudioContext || window.webkitAudioContext;
             const audioContext = !externalAudioTrack && AudioContextClass
@@ -16959,14 +17020,12 @@
             if (audioContext?.state === 'suspended') await audioContext.resume().catch(() => {});
             const audioDestination = audioContext?.createMediaStreamDestination?.() || null;
             const audioTrack = streamAudioTrack || audioDestination?.stream?.getAudioTracks?.()[0] || null;
-            const audioCaptureStream = externalAudioTrack
-                ? new MediaStream([externalAudioTrack.clone()])
-                : null;
+            const audioCaptureStream = null;
             const audioRecorderStream = audioCaptureStream || audioDestination?.stream || null;
             const audioMimeType = ['audio/webm;codecs=opus', 'audio/webm']
                 .find(type => MediaRecorder.isTypeSupported?.(type)) || '';
             const audioChunks = [];
-            const audioRecorder = audioTrack
+            const audioRecorder = audioTrack && audioRecorderStream
                 ? new MediaRecorder(audioRecorderStream, audioMimeType
                     ? { mimeType: audioMimeType, audioBitsPerSecond: 192000 }
                     : { audioBitsPerSecond: 192000 })
@@ -42265,6 +42324,7 @@
     async renderShiftPhotoCompareAnimationContentToCanvas(maxSide = 1920) {
         const state = this._shiftPhotoCompareAnimationState;
         const grid = state?.grid;
+        this.syncShiftPhotoCompareLiveText(grid);
         const wraps = Array.from(grid?.querySelectorAll?.('.shift-photo-compare-image-wrap') || []);
         if (!grid || !wraps.length) return null;
         const gridRect = grid.getBoundingClientRect();
@@ -42681,7 +42741,13 @@
 
     applyShiftPhotoCompareExportTextLayout(mark, clone, layout) {
         if (!mark || !clone || !layout) return null;
-        clone.dataset.exportLines = JSON.stringify(layout.lines);
+        const liveText = this.getShiftPhotoCompareLiveText(mark);
+        clone.dataset.text = liveText;
+        const capturedLines = Array.isArray(layout.lines) ? layout.lines.map(line => String(line)) : [];
+        const exportLines = liveText.trim() && !capturedLines.join('').trim()
+            ? liveText.replace(/\r/g, '').split('\n')
+            : capturedLines;
+        clone.dataset.exportLines = JSON.stringify(exportLines);
         clone.dataset.exportTextWidth = String(layout.width);
         clone.dataset.exportTextHeight = String(layout.height);
         clone.dataset.exportTextFontSize = String(layout.fontSize);

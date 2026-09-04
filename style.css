@@ -29487,6 +29487,9 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     pointer-events: none;
 }
 
+.shift-photo-compare-mark.image > img.shift-photo-compare-image-page-loading {
+    opacity: 0 !important;
+}
 .shift-photo-compare-mark.image[data-image-fit="fill"] img {
     object-fit: fill;
 }
