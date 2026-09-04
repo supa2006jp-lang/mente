@@ -21558,6 +21558,15 @@ select.history-assist-copied-value {
     height: 24px;
 }
 
+.shift-photo-compare-page-state button.photo-page-add {
+    width: auto;
+    min-width: 76px;
+    padding-inline: 7px;
+    gap: 4px;
+    font-size: 0.68rem;
+    white-space: nowrap;
+}
+
 .shift-photo-compare-operation-mode {
     display: inline-flex;
     align-items: center;
@@ -26884,6 +26893,13 @@ select.history-assist-copied-value {
     background: rgba(113, 63, 18, 0.88);
 }
 
+.shift-photo-compare-animation-timeline-lane.image-lane .shift-photo-compare-animation-timeline-badge,
+[data-timeline-mode="imagePage"] .shift-photo-compare-animation-timeline-badge,
+.shift-photo-compare-animation-timeline-node.inserted.image .shift-photo-compare-animation-timeline-badge {
+    border-color: rgba(56, 189, 248, 0.82);
+    background: rgba(7, 89, 133, 0.9);
+}
+
 button.shift-photo-compare-animation-timeline-badge {
     cursor: grab;
 }
@@ -29425,6 +29441,40 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
 
 .shift-photo-compare-mark.image[data-outline="0"] {
     filter: none;
+}
+
+.shift-photo-compare-mark.image.shift-photo-compare-image-sliding {
+    overflow: hidden;
+}
+
+.shift-photo-compare-mark.image.shift-photo-compare-image-sliding > img {
+    transition: translate 360ms cubic-bezier(0.22, 0.78, 0.2, 1);
+    will-change: translate;
+}
+
+.shift-photo-compare-mark.image > img.shift-photo-compare-image-slide-copy {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    translate: 0 0;
+}
+
+.shift-photo-compare-mark.image > img.shift-photo-compare-image-slide-incoming {
+    translate: var(--image-slide-from, 100%) 0;
+}
+
+.shift-photo-compare-mark.image.shift-photo-compare-image-slide-active > img.shift-photo-compare-image-slide-copy {
+    translate: var(--image-slide-to, -100%) 0;
+}
+
+.shift-photo-compare-mark.image.shift-photo-compare-image-slide-active > img.shift-photo-compare-image-slide-incoming {
+    translate: 0 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .shift-photo-compare-mark.image.shift-photo-compare-image-sliding > img {
+        transition-duration: 1ms;
+    }
 }
 
 .shift-photo-compare-mark.image img,
@@ -48995,7 +49045,7 @@ body:not(.media-management-card-color-dark) .photo-manager-audio-card {
     z-index: 90;
     right: 24px;
     bottom: 86px;
-    width: clamp(112px, 13vw, 184px);
+    width: var(--speech-avatar-size, clamp(112px, 13vw, 184px));
     aspect-ratio: 1;
     overflow: hidden;
     border: 4px solid #ffffff;
@@ -49300,4 +49350,984 @@ body:not(.media-management-card-color-dark) .photo-manager-audio-card {
     font-size: 9px;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+/* Photo page changes can share a station with another animation badge. */
+.shift-photo-compare-animation-photo-sync-menu {
+    position: fixed;
+    z-index: 10030;
+    width: min(320px, calc(100vw - 16px));
+    max-height: min(520px, calc(100vh - 16px));
+    padding: 12px;
+    overflow: hidden;
+    color: #e5eefb;
+    background: #101a2d;
+    border: 1px solid #42526c;
+    border-radius: 8px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+}
+
+.shift-photo-compare-animation-photo-sync-menu header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+.shift-photo-compare-animation-photo-sync-menu header span,
+.shift-photo-compare-animation-photo-sync-menu > p {
+    color: #aebbd0;
+    font-size: 12px;
+}
+
+.shift-photo-compare-animation-photo-sync-menu > p {
+    margin: 0 0 9px;
+}
+
+.shift-photo-compare-animation-photo-sync-list {
+    display: grid;
+    gap: 4px;
+    max-height: 390px;
+    overflow: auto;
+}
+
+.shift-photo-compare-animation-photo-sync-list button {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: 7px;
+    min-height: 38px;
+    padding: 7px 9px;
+    color: #edf6ff;
+    text-align: left;
+    background: #1d2a40;
+    border: 1px solid #40516d;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-photo-sync-list button:hover,
+.shift-photo-compare-animation-photo-sync-list button.active {
+    background: #075985;
+    border-color: #38bdf8;
+}
+
+.shift-photo-compare-animation-photo-sync-list button span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-timeline-badge.synced {
+    border-color: #a78bfa;
+    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.45);
+}
+.shift-photo-compare-animation-photo-sync-destination {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 2px 5px;
+    overflow: hidden;
+    color: #ddd6fe;
+    background: rgba(91, 33, 182, 0.3);
+    border: 1px solid rgba(167, 139, 250, 0.65);
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-photo-sync-destination.missing {
+    color: #fecaca;
+    background: rgba(127, 29, 29, 0.34);
+    border-color: rgba(248, 113, 113, 0.7);
+}
+
+.shift-photo-compare-animation-synced-photo-marker {
+    min-width: 0;
+    width: 100%;
+    min-height: 20px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 1px;
+    padding: 3px 6px;
+    overflow: hidden;
+    color: #f5f3ff;
+    background: rgba(91, 33, 182, 0.72);
+    border: 1px solid #a78bfa;
+    border-radius: 5px;
+    font-size: 9px;
+    font-weight: 900;
+}
+
+.shift-photo-compare-animation-synced-photo-marker span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-timeline-node:has(> .shift-photo-compare-animation-synced-photo-marker) .shift-photo-compare-animation-timeline-dot {
+    border-color: #c084fc;
+    box-shadow: 0 0 0 3px rgba(91, 33, 182, 0.3), 0 0 10px rgba(192, 132, 252, 0.6);
+}
+.shift-photo-compare-animation-photo-thumb {
+    flex: 0 0 26px;
+    width: 26px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    object-fit: cover;
+    background: #f8fafc;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 3px;
+}
+
+.shift-photo-compare-animation-photo-thumb.compact {
+    flex-basis: 20px;
+    width: 20px;
+    height: 18px;
+}
+
+.shift-photo-compare-animation-photo-thumb.placeholder {
+    color: #64748b;
+    font-size: 10px;
+}
+
+.shift-photo-compare-animation-timeline-badge:has(> .shift-photo-compare-animation-photo-thumb) {
+    min-height: 30px;
+}
+.shift-photo-compare-animation-page-text-preview {
+    margin-bottom: 6px;
+    padding: 8px 9px;
+    color: #e2e8f0;
+    background: #111c31;
+    border: 1px solid #334155;
+    border-radius: 5px;
+}
+
+.shift-photo-compare-animation-page-text-preview header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    color: #7dd3fc;
+    font-size: 11px;
+}
+
+.shift-photo-compare-animation-page-text-preview p {
+    max-height: 128px;
+    margin: 0;
+    padding: 7px 8px;
+    overflow: auto;
+    color: #f8fafc;
+    background: #0b1220;
+    border-left: 3px solid #38bdf8;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.shift-photo-compare-animation-page-text-preview p.empty {
+    color: #94a3b8;
+    font-weight: 500;
+}
+.shift-photo-compare-animation-symbol-badge:has(> .shift-photo-compare-animation-symbol-thumb) {
+    position: relative;
+    min-height: 34px;
+    padding-left: 34px;
+}
+
+.shift-photo-compare-animation-symbol-thumb {
+    position: absolute;
+    left: 5px;
+    top: 50%;
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    color: var(--symbol-thumb-color, #2563eb);
+    background: #f8fafc;
+    border: 1px solid rgba(255, 255, 255, 0.82);
+    border-radius: 3px;
+    transform: translateY(-50%);
+}
+
+.shift-photo-compare-animation-symbol-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.shift-photo-compare-animation-symbol-thumb em {
+    max-width: 100%;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 950;
+    line-height: 1;
+    text-overflow: clip;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-symbol-thumb.shape i {
+    color: var(--symbol-thumb-color, #2563eb);
+    font-size: 13px;
+}
+
+.shift-photo-compare-animation-symbol-thumb > b {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    min-width: 10px;
+    height: 10px;
+    padding: 0 2px;
+    color: #fff;
+    background: #7c3aed;
+    border-radius: 5px 0 2px 0;
+    font-size: 7px;
+    font-style: normal;
+    line-height: 10px;
+    text-align: center;
+}
+.shift-photo-compare-animation-symbol-thumb.rendered {
+    isolation: isolate;
+    background: #f8fafc;
+}
+
+.shift-photo-compare-animation-symbol-thumb-stage {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: var(--symbol-preview-width, 24px);
+    height: var(--symbol-preview-height, 24px);
+    transform: translate(-50%, -50%) scale(var(--symbol-preview-scale, 1));
+    transform-origin: center;
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-symbol-thumb-stage > .shift-photo-compare-mark {
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    margin: 0 !important;
+    pointer-events: none !important;
+    animation: none !important;
+    transition: none !important;
+}
+
+.shift-photo-compare-animation-symbol-thumb-stage * {
+    pointer-events: none !important;
+    animation: none !important;
+    transition: none !important;
+}
+.shift-photo-compare-animation-symbol-thumb.direct-text {
+    overflow: visible;
+    background: #fff;
+    color: #111827;
+}
+
+.shift-photo-compare-animation-symbol-thumb.direct-text > i {
+    position: absolute;
+    left: 2px;
+    top: 15px;
+    width: 10px;
+    border-top: 2px solid var(--symbol-thumb-color);
+    transform: rotate(-28deg);
+    transform-origin: right center;
+}
+
+.shift-photo-compare-animation-symbol-thumb.direct-text > i::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: -3px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--symbol-thumb-color);
+}
+
+.shift-photo-compare-animation-symbol-thumb.direct-text > em {
+    position: absolute;
+    right: 2px;
+    top: 3px;
+    display: grid;
+    width: 13px;
+    height: 15px;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid var(--symbol-thumb-color);
+    border-radius: 2px;
+    background: #fff;
+    color: #111827;
+    font-size: 7px;
+    font-style: normal;
+    font-weight: 800;
+    line-height: 1;
+}
+.shift-photo-compare-animation-symbol-thumb.polyline-preview {
+    width: 38px;
+}
+
+.shift-photo-compare-animation-symbol-badge:has(> .shift-photo-compare-animation-symbol-thumb.polyline-preview) {
+    padding-left: 48px;
+}
+
+.shift-photo-compare-animation-symbol-thumb-stage > .shift-photo-compare-mark.polyline,
+.shift-photo-compare-animation-symbol-thumb-stage > .shift-photo-compare-mark.freehand {
+    left: 0 !important;
+    top: 0 !important;
+}
+.shift-photo-compare-animation-symbol-thumb.polyline-preview > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+.shift-photo-compare-animation-overlay.timeline-photo-sync-dragging .shift-photo-compare-animation-symbol-badge {
+    outline: 1px dashed rgba(56, 189, 248, 0.72);
+    outline-offset: 3px;
+}
+
+.shift-photo-compare-animation-symbol-badge.photo-sync-drop-target {
+    outline: 3px solid #38bdf8 !important;
+    outline-offset: 3px;
+    box-shadow: 0 0 0 5px rgba(56, 189, 248, 0.2), 0 0 20px rgba(34, 211, 238, 0.75) !important;
+    filter: brightness(1.12);
+}
+.shift-photo-compare-animation-overlay.timeline-photo-sync-dragging .boxed-lane .shift-photo-compare-animation-timeline-badge,
+.shift-photo-compare-animation-overlay.timeline-photo-sync-dragging .callout-lane .shift-photo-compare-animation-timeline-badge,
+.shift-photo-compare-animation-overlay.timeline-photo-sync-dragging .shift-photo-compare-animation-timeline-node.inserted.boxed .shift-photo-compare-animation-timeline-badge,
+.shift-photo-compare-animation-overlay.timeline-photo-sync-dragging .shift-photo-compare-animation-timeline-node.inserted.callout .shift-photo-compare-animation-timeline-badge {
+    outline: 1px dashed rgba(56, 189, 248, 0.72);
+    outline-offset: 3px;
+}
+
+.shift-photo-compare-animation-timeline-badge.photo-sync-drop-target {
+    outline: 3px solid #38bdf8 !important;
+    outline-offset: 3px;
+    box-shadow: 0 0 0 5px rgba(56, 189, 248, 0.2), 0 0 20px rgba(34, 211, 238, 0.75) !important;
+    filter: brightness(1.12);
+}
+/* Photo-to-timeline synchronization feedback */
+.shift-photo-compare-animation-timeline-lanes {
+    position: relative;
+}
+
+.shift-photo-compare-animation-timeline-lane {
+    position: relative;
+    z-index: 2;
+}
+
+.shift-photo-compare-animation-sync-lines {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-sync-lines path {
+    fill: none;
+    stroke: var(--sync-line-color, #c084fc);
+    stroke-width: 2;
+    stroke-linecap: square;
+    stroke-linejoin: miter;
+    vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 0 2px color-mix(in srgb, var(--sync-line-color, #c084fc) 70%, transparent));
+    pointer-events: stroke;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-sync-lines circle {
+    fill: #0f172a;
+    stroke: var(--sync-line-color, #c084fc);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    pointer-events: all;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-photo-drop-preview {
+    position: fixed;
+    z-index: 10040;
+    max-width: 292px;
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 9px;
+    color: #ecfeff;
+    background: rgba(8, 47, 73, 0.97);
+    border: 1px solid #38bdf8;
+    border-radius: 6px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+    font-size: 10px;
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-photo-drop-preview span,
+.shift-photo-compare-animation-photo-drop-preview strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-photo-drop-preview strong {
+    color: #7dd3fc;
+}
+
+.shift-photo-compare-animation-photo-drop-preview.blocked {
+    color: #fee2e2;
+    background: rgba(69, 10, 10, 0.97);
+    border-color: #f87171;
+}
+
+button.shift-photo-compare-animation-photo-sync-destination {
+    width: 100%;
+    cursor: pointer;
+    font: inherit;
+}
+
+button.shift-photo-compare-animation-photo-sync-destination > span {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+button.shift-photo-compare-animation-photo-sync-destination > .fa-xmark {
+    flex: 0 0 auto;
+    opacity: 0.72;
+}
+
+button.shift-photo-compare-animation-photo-sync-destination:hover {
+    color: #fff;
+    background: rgba(126, 34, 206, 0.62);
+    border-color: #d8b4fe;
+}
+
+.shift-photo-compare-animation-synced-photo-marker {
+    position: relative;
+    overflow: visible;
+    cursor: help;
+}
+
+.shift-photo-compare-animation-synced-photo-marker > .fa-chevron-down {
+    margin-left: auto;
+    font-size: 7px;
+    opacity: 0.8;
+}
+
+.shift-photo-compare-animation-synced-photo-list {
+    position: absolute;
+    z-index: 40;
+    left: 0;
+    top: calc(100% + 4px);
+    width: 170px;
+    max-height: 190px;
+    display: none;
+    gap: 4px;
+    padding: 7px;
+    overflow: auto !important;
+    color: #f8fafc;
+    background: #111827;
+    border: 1px solid #a78bfa;
+    border-radius: 6px;
+    box-shadow: 0 12px 25px rgba(0, 0, 0, 0.4);
+    white-space: normal !important;
+}
+
+.shift-photo-compare-animation-synced-photo-marker:hover > .shift-photo-compare-animation-synced-photo-list,
+.shift-photo-compare-animation-synced-photo-marker:focus > .shift-photo-compare-animation-synced-photo-list,
+.shift-photo-compare-animation-synced-photo-marker:focus-within > .shift-photo-compare-animation-synced-photo-list {
+    display: grid;
+}
+
+.shift-photo-compare-animation-synced-photo-list > strong {
+    color: #ddd6fe;
+    font-size: 9px;
+}
+
+.shift-photo-compare-animation-synced-photo-item {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+    padding: 3px;
+    overflow: visible !important;
+    background: #1f2937;
+    border-radius: 4px;
+    white-space: normal !important;
+}
+
+.shift-photo-compare-animation-synced-photo-item b {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.shift-photo-compare-animation-sync-line-controls {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 4px 8px;
+    padding: 4px 6px;
+    color: #cbd5e1;
+    background: rgba(15, 23, 42, 0.84);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 6px;
+    font-size: 10px;
+}
+
+.shift-photo-compare-animation-sync-line-controls > strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-sync-line-controls > .shift-photo-compare-animation-sync-line-display {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid #475569;
+    border-radius: 5px;
+}
+
+.shift-photo-compare-animation-sync-line-controls button {
+    min-width: 0;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 7px;
+    color: #cbd5e1;
+    background: #1e293b;
+    border: 0;
+    border-right: 1px solid #475569;
+    font-size: 9px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-sync-line-controls button:last-child {
+    border-right: 0;
+}
+
+.shift-photo-compare-animation-sync-line-controls button.active {
+    color: #08111f;
+    background: #67e8f9;
+}
+
+.shift-photo-compare-animation-sync-lines [data-sync-line-key] {
+    opacity: 0.88;
+    transition: opacity 120ms ease, stroke-width 120ms ease;
+}
+
+.shift-photo-compare-animation-sync-lines path.sync-trunk {
+    stroke-width: 2.5;
+}
+
+.shift-photo-compare-animation-sync-lines path.sync-branch {
+    stroke-width: 1.8;
+}
+
+.shift-photo-compare-animation-sync-lines path.sync-trunk,
+.shift-photo-compare-animation-sync-lines path.sync-branch {
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-sync-lines path.sync-hit-path {
+    stroke: transparent;
+    stroke-width: 14px;
+    filter: none;
+    pointer-events: stroke;
+    cursor: pointer;
+}
+
+.shift-photo-compare-animation-sync-lines path.sync-hit-path:focus {
+    outline: none;
+    stroke: color-mix(in srgb, var(--sync-line-color, #c084fc) 18%, transparent);
+}
+
+.shift-photo-compare-animation-timeline-lanes[data-sync-line-mode="focus"] .shift-photo-compare-animation-sync-lines path.sync-hit-path:not(.related) {
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-sync-lines text {
+    fill: var(--sync-line-color, #c084fc);
+    stroke: #08111f;
+    stroke-width: 2.4px;
+    paint-order: stroke fill;
+    font-size: 8px;
+    font-weight: 950;
+    letter-spacing: 0;
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-timeline-lanes[data-sync-line-mode="focus"] .shift-photo-compare-animation-sync-lines [data-sync-line-key] {
+    opacity: 0;
+}
+
+.shift-photo-compare-animation-timeline-lanes[data-sync-line-mode="focus"] .shift-photo-compare-animation-sync-lines [data-sync-line-key].related {
+    opacity: 1;
+}
+
+.shift-photo-compare-animation-timeline-lanes[data-active-sync-key]:not([data-active-sync-key=""]) .shift-photo-compare-animation-sync-lines [data-sync-line-key].unrelated {
+    opacity: 0.08;
+}
+
+.shift-photo-compare-animation-timeline-lanes[data-active-sync-key]:not([data-active-sync-key=""]) .shift-photo-compare-animation-sync-lines path.related {
+    opacity: 1;
+    stroke-width: 3;
+}
+
+.shift-photo-compare-animation-timeline-node.sync-unrelated {
+    opacity: 0.48;
+}
+
+.shift-photo-compare-animation-timeline-node.sync-related {
+    z-index: 5;
+    filter: brightness(1.12);
+}
+.shift-photo-compare-animation-sync-preview-btn {
+    flex: 0 0 auto;
+    border: 1px solid #0e7490 !important;
+    border-radius: 5px;
+}
+
+.shift-photo-compare-animation-sync-preview-btn.active {
+    color: #fff !important;
+    background: #be123c !important;
+    border-color: #fb7185 !important;
+}
+
+.shift-photo-compare-animation-timeline-node.sync-color-linked .shift-photo-compare-animation-timeline-badge {
+    border-color: var(--sync-line-color, #c084fc) !important;
+    box-shadow: inset 4px 0 0 var(--sync-line-color, #c084fc), 0 0 0 1px color-mix(in srgb, var(--sync-line-color, #c084fc) 48%, transparent);
+}
+
+.shift-photo-compare-animation-photo-sync-menu.sync-line-editor {
+    min-width: 260px;
+    max-width: 340px;
+}
+
+.shift-photo-compare-animation-sync-line-photo-list {
+    max-height: 126px;
+    display: grid;
+    gap: 4px;
+    margin: 7px 0;
+    padding: 6px;
+    overflow: auto;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid #475569;
+    border-radius: 5px;
+}
+
+.shift-photo-compare-animation-sync-line-photo-list > span {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+}
+
+.shift-photo-compare-animation-sync-line-photo-list b {
+    overflow: hidden;
+    color: #e2e8f0;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-animation-overlay.sync-preview-running .shift-photo-compare-animation-timeline-node:not(.sync-related) {
+    opacity: 0.34;
+}
+
+.shift-photo-compare-animation-overlay.sync-preview-running .shift-photo-compare-animation-stage .shift-photo-compare-mark:not([data-mode="image"]) {
+    opacity: 0.12 !important;
+}
+/* Per-avatar placement and size */
+.shift-photo-compare-speech-avatar[data-avatar-position="left"] {
+    right: auto;
+    left: 24px;
+}
+
+.shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-speech-avatar[data-avatar-position="left"] {
+    right: auto;
+    left: 26px;
+}
+
+.shift-photo-compare-speech-avatar.no-background {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+}
+
+.shift-photo-compare-speech-settings {
+    max-height: calc(100vh - 108px);
+    overflow-y: auto;
+}
+
+.shift-photo-compare-speech-avatar-layout {
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    color: #cbd5e1;
+    background: #111827;
+    border: 1px solid rgba(103, 232, 249, 0.34);
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.shift-photo-compare-speech-avatar-layout > strong,
+.shift-photo-compare-speech-avatar-layout > label > span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.shift-photo-compare-speech-avatar-layout output {
+    color: #67e8f9;
+    font-variant-numeric: tabular-nums;
+}
+
+.shift-photo-compare-speech-avatar-position {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid #475569;
+    border-radius: 6px;
+}
+
+.shift-photo-compare-speech-avatar-position button {
+    min-width: 0;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: #cbd5e1;
+    background: #1e293b;
+    border: 0;
+    border-right: 1px solid #475569;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.shift-photo-compare-speech-avatar-position button:last-child {
+    border-right: 0;
+}
+
+.shift-photo-compare-speech-avatar-position button.active {
+    color: #06202a;
+    background: #67e8f9;
+}
+
+.shift-photo-compare-speech-avatar-layout input[type="range"] {
+    height: 28px;
+    padding: 0;
+    accent-color: #22d3ee;
+}
+
+.shift-photo-compare-speech-avatar-layout .shift-photo-compare-speech-avatar-background {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.shift-photo-compare-speech-avatar-layout .shift-photo-compare-speech-avatar-background input {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    margin: 0;
+    padding: 0;
+    accent-color: #22d3ee;
+}
+
+@media (max-width: 700px) {
+    .shift-photo-compare-speech-avatar[data-avatar-position="left"] {
+        right: auto;
+        left: 12px;
+    }
+}
+/* Compact single-row animation controls */
+.shift-photo-compare-animation-controls {
+    width: max-content;
+    max-width: calc(100vw - 24px);
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 4px;
+    padding: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-radius: 16px;
+    white-space: nowrap;
+    scrollbar-width: thin;
+}
+
+.shift-photo-compare-animation-controls button {
+    min-width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    gap: 4px;
+    padding: 0 9px;
+    font-size: 0.82rem;
+}
+
+.shift-photo-compare-animation-controls .shift-photo-compare-animation-speech-settings-btn {
+    min-width: 108px;
+}
+
+.shift-photo-compare-animation-speed-control {
+    min-height: 34px;
+    flex: 0 0 auto;
+    gap: 4px;
+    padding: 0 6px;
+    font-size: 0.82rem;
+}
+
+.shift-photo-compare-animation-speed-control select,
+.shift-photo-compare-animation-speed-control input {
+    height: 26px;
+    font-size: 0.82rem;
+}
+
+.shift-photo-compare-animation-speed-control select {
+    width: 88px;
+    padding: 0 20px 0 7px;
+}
+
+.shift-photo-compare-animation-speed-control input {
+    width: 64px;
+    padding: 0 6px;
+}
+
+.shift-photo-compare-animation-speed-control span {
+    font-size: 0.76rem;
+}
+.shift-photo-compare-animation-controls .shift-photo-compare-animation-last-page-label {
+    position: static;
+    flex: 0 0 auto;
+    min-height: 28px;
+    margin: 0 2px;
+    padding: 0 7px;
+    border-width: 1px;
+    border-radius: 5px;
+    font-size: 11px;
+    box-shadow: none;
+}
+.shift-photo-compare-animation-controls .shift-photo-compare-animation-back-btn {
+    color: #ffffff;
+    background: #ea580c;
+    border-color: #fb923c;
+}
+
+.shift-photo-compare-animation-controls .shift-photo-compare-animation-back-btn:hover {
+    color: #ffffff;
+    background: #f97316;
+    border-color: #fed7aa;
+}
+/* Lemon badges for direct-line timeline items */
+.shift-photo-compare-animation-timeline-lane.boxed-lane .shift-photo-compare-animation-timeline-badge,
+[data-timeline-mode="boxedTextPage"] .shift-photo-compare-animation-timeline-badge,
+.shift-photo-compare-animation-timeline-node.inserted.boxed .shift-photo-compare-animation-timeline-badge,
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-direct {
+    color: #422006;
+    background: #fef08a;
+    border-color: #f97316;
+}
+
+.shift-photo-compare-animation-timeline-lane.boxed-lane .shift-photo-compare-animation-timeline-badge span,
+[data-timeline-mode="boxedTextPage"] .shift-photo-compare-animation-timeline-badge span,
+.shift-photo-compare-animation-timeline-node.inserted.boxed .shift-photo-compare-animation-timeline-badge span,
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-direct small {
+    color: #713f12;
+}
+
+.shift-photo-compare-animation-timeline-lane.boxed-lane .shift-photo-compare-animation-timeline-badge strong,
+[data-timeline-mode="boxedTextPage"] .shift-photo-compare-animation-timeline-badge strong,
+.shift-photo-compare-animation-timeline-node.inserted.boxed .shift-photo-compare-animation-timeline-badge strong,
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-direct strong {
+    color: #422006 !important;
+}
+/* Emerald badges for standard symbol timeline items */
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-standard {
+    color: #ecfdf5;
+    background: #047857;
+    border-color: #34d399;
+}
+
+.shift-photo-compare-animation-timeline-lane.symbol-lane .shift-photo-compare-animation-symbol-badge.symbol-standard small {
+    color: #a7f3d0;
+}
+/* Top warning shown while animation changes are not saved */
+.shift-photo-compare-animation-unsaved-warning {
+    position: absolute;
+    z-index: 12;
+    top: 66px;
+    left: 50%;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    max-width: calc(100vw - 32px);
+    padding: 7px 13px;
+    border: 1px solid #fb923c;
+    border-radius: 6px;
+    background: #9a3412;
+    color: #fff7ed;
+    font-size: 0.82rem;
+    font-weight: 900;
+    white-space: nowrap;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+
+.shift-photo-compare-animation-unsaved-warning.hidden {
+    display: none;
+}
+.shift-photo-compare-animation-saved-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 7px;
+    border: 1px solid rgba(134, 239, 172, 0.35);
+    border-radius: 5px;
+    background: rgba(20, 83, 45, 0.28);
+    color: #bbf7d0;
+    font-size: 0.7rem;
+    font-weight: 800;
+    white-space: nowrap;
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.shift-photo-compare-animation-saved-time.just-saved {
+    border-color: #86efac;
+    background: #15803d;
+    color: #ffffff;
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.2), 0 6px 16px rgba(20, 83, 45, 0.38);
+    transform: scale(1.04);
 }

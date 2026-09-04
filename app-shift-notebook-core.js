@@ -5466,7 +5466,10 @@
                 : 0,
             animationInsertAfter: Number.isFinite(Number(page.animationInsertAfter))
                 ? Math.max(-1, Math.min(999, Math.round(Number(page.animationInsertAfter))))
-                : -1
+                : -1,
+            animationSyncStepKey: typeof page.animationSyncStepKey === 'string'
+                ? page.animationSyncStepKey.slice(0, 500)
+                : ''
         };
     }
 
@@ -7517,6 +7520,7 @@
             : null;
         const pages = options.skipPersist ? this.getShiftPhotoCompareMarkPagesFromDataset(mark) : this.persistCurrentShiftPhotoCompareMarkPage(mark);
         if (!pages.length) return false;
+        const previousIndex = Math.max(0, Math.min(pages.length - 1, Math.round(Number(mark.dataset.currentPage) || 0)));
         const nextIndex = Math.max(0, Math.min(pages.length - 1, Math.round(Number(index) || 0)));
         const page = pages[nextIndex];
         mark.dataset.currentPage = String(nextIndex);
@@ -7526,8 +7530,15 @@
         mark.dataset.textColorRuns = JSON.stringify(page.textColorRuns || []);
         mark.dataset.hasPartialTextColor = (page.textColorRuns || []).length ? '1' : '0';
         if (mark.dataset.mode === 'image') {
-            const img = mark.querySelector('img');
-            if (img) img.src = page.imageSrc || '';
+            const img = mark.querySelector(':scope > img:not(.shift-photo-compare-image-slide-copy)');
+            if (img) {
+                if (options.animate && img.src && page.imageSrc && img.src !== page.imageSrc) {
+                    this.animateShiftPhotoCompareImagePage(mark, img, page.imageSrc, nextIndex >= previousIndex ? 1 : -1);
+                } else {
+                    this.finishShiftPhotoCompareImagePageAnimation(mark);
+                    img.src = page.imageSrc || '';
+                }
+            }
         } else if (mark.dataset.mode === 'callout') {
             mark.querySelector(':scope > .shift-photo-mark-wallpaper')?.remove();
             if (page.wallpaperSrc) {
@@ -7616,6 +7627,37 @@
         return true;
     }
 
+    finishShiftPhotoCompareImagePageAnimation(mark) {
+        if (!mark) return;
+        clearTimeout(mark._shiftPhotoCompareImageSlideTimer);
+        mark._shiftPhotoCompareImageSlideTimer = null;
+        mark.classList.remove('shift-photo-compare-image-sliding', 'shift-photo-compare-image-slide-active');
+        mark.querySelectorAll(':scope > .shift-photo-compare-image-slide-copy').forEach(node => node.remove());
+        mark.querySelector(':scope > img.shift-photo-compare-image-slide-incoming')?.classList.remove('shift-photo-compare-image-slide-incoming');
+        mark.style.removeProperty('--image-slide-from');
+        mark.style.removeProperty('--image-slide-to');
+    }
+
+    animateShiftPhotoCompareImagePage(mark, img, nextSrc = '', direction = 1) {
+        if (!mark || !img || !nextSrc) return;
+        this.finishShiftPhotoCompareImagePageAnimation(mark);
+        const outgoing = img.cloneNode(false);
+        outgoing.removeAttribute('id');
+        outgoing.classList.add('shift-photo-compare-image-slide-copy');
+        mark.appendChild(outgoing);
+        const forward = Number(direction) >= 0;
+        mark.style.setProperty('--image-slide-from', forward ? '100%' : '-100%');
+        mark.style.setProperty('--image-slide-to', forward ? '-100%' : '100%');
+        img.src = nextSrc;
+        img.classList.add('shift-photo-compare-image-slide-incoming');
+        mark.classList.add('shift-photo-compare-image-sliding');
+        void mark.offsetWidth;
+        requestAnimationFrame(() => mark.classList.add('shift-photo-compare-image-slide-active'));
+        mark._shiftPhotoCompareImageSlideTimer = setTimeout(() => {
+            this.finishShiftPhotoCompareImagePageAnimation(mark);
+        }, 420);
+    }
+
     changeSelectedShiftPhotoCompareTextPage(delta = 0) {
         const mark = this._shiftPhotoCompareSelectedMark;
         if (!this.supportsShiftPhotoComparePages(mark)) return;
@@ -7635,6 +7677,10 @@
     addSelectedShiftPhotoCompareTextPage(copyCurrent = false) {
         const mark = this._shiftPhotoCompareSelectedMark;
         if (!this.supportsShiftPhotoComparePages(mark) || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        if (mark.dataset.mode === 'image' && !copyCurrent) {
+            this.selectAdditionalShiftPhotoCompareImagePages();
+            return;
+        }
         this.pushShiftPhotoCompareUndo();
         const pages = this.persistCurrentShiftPhotoCompareMarkPage(mark);
         const current = Math.max(0, Number(mark.dataset.currentPage) || 0);
@@ -7658,6 +7704,96 @@
         this.autoSaveShiftNotebook(true);
     }
 
+    selectAdditionalShiftPhotoCompareImagePages() {
+        const mark = this._shiftPhotoCompareSelectedMark;
+        if (mark?.dataset?.mode !== 'image' || this.isShiftPhotoCompareMarkLocked(mark)) return;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.bmp,.svg';
+        input.className = 'shift-photo-input';
+        input.multiple = true;
+        input.hidden = true;
+        const pendingSources = [];
+        const commitSelectedSources = () => {
+            clearTimeout(input._shiftPhotoSlideCommitTimer);
+            input._shiftPhotoSlideCommitTimer = setTimeout(async () => {
+                const sources = pendingSources.splice(0);
+                input.remove();
+                if (sources.length) await this.addShiftPhotoCompareImageSources(mark, sources);
+            }, 0);
+        };
+        input._shiftPhotoAddSrc = src => {
+            if (!/^data:image\//i.test(src || '')) return false;
+            pendingSources.push(src);
+            commitSelectedSources();
+            return true;
+        };
+        input.addEventListener('change', async () => {
+            const files = Array.from(input.files || []);
+            input.remove();
+            if (files.length) await this.addShiftPhotoCompareImagePages(mark, files);
+        }, { once: true });
+        input.addEventListener('cancel', () => input.remove(), { once: true });
+        document.body.appendChild(input);
+        input.click();
+    }
+
+    async addShiftPhotoCompareImagePages(mark, files = []) {
+        if (mark?.dataset?.mode !== 'image' || this.isShiftPhotoCompareMarkLocked(mark)) return false;
+        const imageFiles = Array.from(files).filter(file =>
+            /^image\//i.test(file?.type || '') || /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(file?.name || '')
+        );
+        if (!imageFiles.length) {
+            this.showToast?.('画像ファイルを選択してください。');
+            return false;
+        }
+        const sources = [];
+        for (const file of imageFiles) {
+            try {
+                const optimized = await this.optimizeShiftPhotoCompareImageBlob(file, {
+                    maxSide: 1800,
+                    maxBytes: 1800000
+                });
+                if (optimized?.src) sources.push(optimized.src);
+            } catch (error) {
+                console.warn('Photo slide loading failed.', error);
+            }
+        }
+        return this.addShiftPhotoCompareImageSources(mark, sources);
+    }
+
+    async addShiftPhotoCompareImageSources(mark, sources = []) {
+        if (mark?.dataset?.mode !== 'image' || this.isShiftPhotoCompareMarkLocked(mark)) return false;
+        const imageSources = Array.from(sources).filter(src => /^data:image\//i.test(src || ''));
+        if (!imageSources.length) {
+            this.showToast?.('写真を読み込めませんでした。');
+            return false;
+        }
+        const pages = this.persistCurrentShiftPhotoCompareMarkPage(mark);
+        const available = Math.max(0, 99 - pages.length);
+        if (!available) {
+            this.showToast?.('写真は1つの枠に99枚まで登録できます。');
+            return false;
+        }
+        this.pushShiftPhotoCompareUndo();
+        const current = Math.max(0, Math.min(pages.length - 1, Number(mark.dataset.currentPage) || 0));
+        const template = pages[current] || this.getShiftPhotoCompareMarkPageContentFromDom(mark);
+        const additions = imageSources.slice(0, available).map(src =>
+            this.normalizeShiftPhotoCompareMarkPage(mark, {
+                ...template,
+                imageSrc: src,
+                originalImageSrc: src
+            })
+        );
+        pages.splice(current + 1, 0, ...additions);
+        mark.dataset.pages = JSON.stringify(pages.slice(0, 99));
+        this.applyShiftPhotoCompareMarkPage(mark, current + additions.length, { skipPersist: true });
+        this.syncShiftPhotoCompareWrapForMark(mark);
+        this.updateShiftPhotoCompareMiniToolbar();
+        this.autoSaveShiftNotebook(true);
+        this.showToast?.(additions.length + '枚の写真をこの枠へ追加しました。');
+        return true;
+    }
     duplicateSelectedShiftPhotoCompareTextPage() {
         this.addSelectedShiftPhotoCompareTextPage(true);
     }
@@ -7685,7 +7821,8 @@
         const changed = this.applyShiftPhotoCompareMarkPage(mark, next, {
             skipPersist: true,
             preserveRegionLayout: true,
-            contentOnly: true
+            contentOnly: true,
+            animate: mark.dataset.mode === 'image'
         });
         if (changed) this.updateShiftPhotoCompareAnimationLastPageLabel(mark, next, pages.length);
         if (changed) this.updateShiftPhotoCompareAnimationTimelineActive?.();
@@ -7695,22 +7832,22 @@
 
     updateShiftPhotoCompareAnimationLastPageLabel(mark, pageIndex = 0, pageCount = 0) {
         if (!mark) return;
-        const stage = mark.closest('.shift-photo-compare-animation-overlay')
-            ?.querySelector('.shift-photo-compare-animation-stage');
-        stage?.querySelector(':scope > .shift-photo-compare-animation-last-page-label')?.remove();
+        const overlay = mark.closest('.shift-photo-compare-animation-overlay');
+        const controls = overlay?.querySelector('.shift-photo-compare-animation-controls');
+        overlay?.querySelector('.shift-photo-compare-animation-last-page-label')?.remove();
         if (pageCount <= 1 || pageIndex !== pageCount - 1) return;
-        if (!stage) return;
+        if (!controls) return;
         const label = document.createElement('span');
         label.className = 'shift-photo-compare-animation-last-page-label';
         label.textContent = '最終Pです';
-        stage.appendChild(label);
+        controls.appendChild(label);
     }
 
     resetShiftPhotoCompareAnimationPagedText(root) {
         if (!root?.querySelectorAll) return;
         root.querySelectorAll('.shift-photo-compare-mark.shift-photo-compare-animation-paged')
             .forEach(mark => {
-                if (!['boxedText', 'callout'].includes(mark.dataset.mode || '')) return;
+                if (!['boxedText', 'callout', 'image'].includes(mark.dataset.mode || '')) return;
                 if (!this.getShiftPhotoCompareAnimationOrderValue(mark.dataset.animationOrder)) return;
                 mark.classList.add('shift-photo-compare-animation-hidden');
                 mark.classList.remove(
@@ -9114,12 +9251,46 @@
             volume: Math.min(1, Math.max(0, numberOr(source.volume, 1)))
         };
     }
+    getPersistedShiftPhotoCompareSpeechSettings() {
+        let local = {};
+        try { local = JSON.parse(localStorage.getItem('shiftPhotoCompareSpeechSettingsV1') || '{}'); }
+        catch (_) { local = {}; }
+        const durable = (typeof store !== 'undefined' && store?.data?.settings?.shiftPhotoCompareSpeechSettingsV1
+            && typeof store.data.settings.shiftPhotoCompareSpeechSettingsV1 === 'object')
+            ? store.data.settings.shiftPhotoCompareSpeechSettingsV1
+            : {};
+        const preferLocal = (Number(local.updatedAt) || 0) >= (Number(durable.updatedAt) || 0);
+        const preferred = preferLocal ? local : durable;
+        const fallback = preferLocal ? durable : local;
+        return {
+            ...fallback,
+            ...preferred,
+            avatarProfiles: { ...(fallback.avatarProfiles || {}), ...(preferred.avatarProfiles || {}) },
+            avatarLayouts: { ...(fallback.avatarLayouts || {}), ...(preferred.avatarLayouts || {}) }
+        };
+    }
+    persistShiftPhotoCompareSpeechSettings(settings = {}) {
+        const normalized = { ...settings, updatedAt: Date.now() };
+        try { localStorage.setItem('shiftPhotoCompareSpeechSettingsV1', JSON.stringify(normalized)); }
+        catch (_) {}
+        if (typeof store !== 'undefined' && store?.data) {
+            if (!store.data.settings || typeof store.data.settings !== 'object') store.data.settings = {};
+            store.data.settings.shiftPhotoCompareSpeechSettingsV1 = normalized;
+            try { Promise.resolve(store.save?.()).catch(() => {}); }
+            catch (_) {}
+        }
+        const state = this._shiftPhotoCompareAnimationState;
+        if (state) {
+            state.speechSettingsDirty = true;
+            this.updateShiftPhotoCompareAnimationSaveState?.();
+        }
+        return normalized;
+    }
     getShiftPhotoCompareSpeechAvatarProfile(style = 'safetyFirst', savedSettings = null) {
         const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style);
         let saved = savedSettings;
         if (!saved) {
-            try { saved = JSON.parse(localStorage.getItem('shiftPhotoCompareSpeechSettingsV1') || '{}'); }
-            catch (_) { saved = {}; }
+            saved = this.getPersistedShiftPhotoCompareSpeechSettings();
         }
         const savedStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(saved?.avatarStyle);
         const legacy = avatarStyle === savedStyle ? {
@@ -9134,7 +9305,7 @@
     }
     getShiftPhotoCompareSpeechSettings() {
         try {
-            const saved = JSON.parse(localStorage.getItem('shiftPhotoCompareSpeechSettingsV1') || '{}');
+            const saved = this.getPersistedShiftPhotoCompareSpeechSettings();
             const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(saved.avatarStyle);
             return {
                 enabled: saved.enabled !== false,
@@ -9198,8 +9369,7 @@
 
     saveShiftPhotoCompareSpeechSettings(settings = {}) {
         let saved = {};
-        try { saved = JSON.parse(localStorage.getItem('shiftPhotoCompareSpeechSettingsV1') || '{}'); }
-        catch (_) { saved = {}; }
+        saved = this.getPersistedShiftPhotoCompareSpeechSettings();
         const current = this.getShiftPhotoCompareSpeechSettings();
         const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(settings.avatarStyle ?? current.avatarStyle);
         const profileKeys = ['voiceURI', 'preset', 'rate', 'pitch', 'intonation', 'volume'];
@@ -9215,8 +9385,7 @@
             avatarProfiles,
             ...profile
         };
-        try { localStorage.setItem('shiftPhotoCompareSpeechSettingsV1', JSON.stringify(normalized)); }
-        catch (_) {}
+        this.persistShiftPhotoCompareSpeechSettings(normalized);
         return { enabled: normalized.enabled, avatarEnabled: normalized.avatarEnabled, avatarStyle, ...profile };
     }
 
@@ -9487,15 +9656,82 @@
         ];
     }
 
+    normalizeShiftPhotoCompareSpeechAvatarLayout(layout = {}) {
+        return {
+            position: layout.position === 'left' ? 'left' : 'right',
+            size: Math.max(92, Math.min(240, Math.round(Number(layout.size) || 160))),
+            background: layout.background !== false
+        };
+    }
+
+    getShiftPhotoCompareSpeechAvatarLayout(style = 'safetyFirst', savedSettings = null) {
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style);
+        let saved = savedSettings;
+        if (!saved) {
+            saved = this.getPersistedShiftPhotoCompareSpeechSettings();
+        }
+        return this.normalizeShiftPhotoCompareSpeechAvatarLayout(saved?.avatarLayouts?.[avatarStyle]);
+    }
+
+    applyShiftPhotoCompareSpeechAvatarLayout(style = 'safetyFirst', layout = null) {
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style);
+        const normalized = this.normalizeShiftPhotoCompareSpeechAvatarLayout(layout || this.getShiftPhotoCompareSpeechAvatarLayout(avatarStyle));
+        const avatar = this._shiftPhotoCompareAnimationState?.overlay?.querySelector('.shift-photo-compare-speech-avatar');
+        if (!avatar) return normalized;
+        avatar.dataset.avatarPosition = normalized.position;
+        avatar.style.setProperty('--speech-avatar-size', `${normalized.size}px`);
+        avatar.classList.toggle('no-background', !normalized.background);
+        return normalized;
+    }
+
+    updateShiftPhotoCompareSpeechAvatarLayout(key = '', value = '') {
+        const settings = this.getShiftPhotoCompareSpeechSettings();
+        let saved = {};
+        saved = this.getPersistedShiftPhotoCompareSpeechSettings();
+        const current = this.getShiftPhotoCompareSpeechAvatarLayout(settings.avatarStyle, saved);
+        if (key === 'position') current.position = value === 'left' ? 'left' : 'right';
+        if (key === 'size') current.size = Math.max(92, Math.min(240, Math.round(Number(value) || 160)));
+        if (key === 'background') current.background = value === true || value === 'true' || value === '1';
+        saved.avatarLayouts = { ...(saved.avatarLayouts || {}), [settings.avatarStyle]: this.normalizeShiftPhotoCompareSpeechAvatarLayout(current) };
+        this.persistShiftPhotoCompareSpeechSettings(saved);
+        this.applyShiftPhotoCompareSpeechAvatarLayout(settings.avatarStyle, current);
+        this.syncShiftPhotoCompareSpeechSettingsPanel(settings);
+    }
+
     applyShiftPhotoCompareSpeechAvatarAppearance(style = 'safetyFirst') {
         const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style);
         const overlay = this._shiftPhotoCompareAnimationState?.overlay;
         const avatar = overlay?.querySelector('.shift-photo-compare-speech-avatar');
         const paths = this.getShiftPhotoCompareSpeechAvatarPaths(avatarStyle);
-        avatar?.querySelectorAll('.shift-photo-compare-speech-avatar-frame').forEach((image, index) => {
-            image.src = paths[index] || paths[0];
+        if (!avatar) return avatarStyle;
+        this.applyShiftPhotoCompareSpeechAvatarLayout(avatarStyle);
+        const requestId = (Number(avatar._appearanceRequestId) || 0) + 1;
+        avatar._appearanceRequestId = requestId;
+        avatar.classList.add('avatar-loading');
+        const resolvedPaths = paths.map(path => {
+            try { return new URL(path, document.baseURI).href; }
+            catch (_) { return path; }
         });
-        if (avatar) avatar.dataset.avatarStyle = avatarStyle;
+        Promise.all(resolvedPaths.map(src => new Promise(resolve => {
+            const preload = new Image();
+            preload.onload = () => resolve(src);
+            preload.onerror = () => resolve('');
+            preload.src = src;
+        }))).then(loadedPaths => {
+            if (!avatar.isConnected || avatar._appearanceRequestId !== requestId) return;
+            const frames = Array.from(avatar.querySelectorAll('.shift-photo-compare-speech-avatar-frame'));
+            if (!loadedPaths[0]) {
+                avatar.classList.remove('avatar-loading');
+                return;
+            }
+            frames.forEach((image, index) => {
+                image.src = loadedPaths[index] || loadedPaths[0];
+            });
+            avatar.dataset.avatarStyle = avatarStyle;
+            avatar.classList.remove('avatar-loading');
+            void avatar.offsetWidth;
+            this.syncShiftPhotoCompareSpeechAvatar();
+        });
         return avatarStyle;
     }
     syncShiftPhotoCompareSpeechSettingsPanel(settings = this.getShiftPhotoCompareSpeechSettings()) {
@@ -9513,6 +9749,14 @@
             const input = panel?.querySelector(`[data-speech-setting="${key}"]`);
             if (input) input.value = String(value);
         });
+        const layout = this.getShiftPhotoCompareSpeechAvatarLayout(settings.avatarStyle);
+        panel?.querySelectorAll('[data-avatar-position]').forEach(button => button.classList.toggle('active', button.dataset.avatarPosition === layout.position));
+        const sizeInput = panel?.querySelector('[data-avatar-layout-size]');
+        const sizeOutput = panel?.querySelector('[data-avatar-layout-size-output]');
+        const backgroundInput = panel?.querySelector('[data-avatar-layout-background]');
+        if (sizeInput) sizeInput.value = String(layout.size);
+        if (sizeOutput) sizeOutput.textContent = `${layout.size}px`;
+        if (backgroundInput) backgroundInput.checked = layout.background;
     }
     setShiftPhotoCompareSpeechAvatarStyle(style = 'safetyFirst') {
         const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style);
@@ -10578,7 +10822,54 @@
 
     hasShiftPhotoCompareAnimationUnsavedChanges() {
         const state = this._shiftPhotoCompareAnimationState;
-        return !!state && (state.timelineDirty || this.hasShiftPhotoCompareAnimationPageSettingChanges());
+        return !!state && (state.timelineDirty || state.speechSettingsDirty || this.hasShiftPhotoCompareAnimationPageSettingChanges());
+    }
+
+    getShiftPhotoCompareAnimationUnsavedLabels() {
+        const state = this._shiftPhotoCompareAnimationState;
+        if (!state) return [];
+        const labels = [];
+        if (this.hasShiftPhotoCompareAnimationPageSettingChanges()) labels.push('グループ・ページ');
+        if (state.timelineDirty) labels.push('タイムライン');
+        const pageAvatarChanged = (state.pages || []).some(page => {
+            const snapshot = state.timelineInitialSnapshots?.get(page);
+            return (page.timelineEntries || []).some(entry =>
+                this.normalizeShiftPhotoCompareSpeechAvatarStyle(snapshot?.avatars?.get(entry), true)
+                !== this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true));
+        });
+        if (pageAvatarChanged) labels.push('セリフ別アバター');
+        if (state.speechSettingsDirty) labels.push('アバター・音声');
+        return labels;
+    }
+
+    getShiftPhotoCompareAnimationSavedTimeLabel(pending = false) {
+        const savedAt = Number(localStorage.getItem('shiftPhotoCompareAnimationLastSavedAt') || 0);
+        if (!Number.isFinite(savedAt) || savedAt <= 0) return pending ? '前回保存 --:--' : '保存時刻 --:--';
+        const date = new Date(savedAt);
+        const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+        return `${pending ? '前回保存' : '保存済み'} ${time}`;
+    }
+
+    setShiftPhotoCompareAnimationSavedTime() {
+        localStorage.setItem('shiftPhotoCompareAnimationLastSavedAt', String(Date.now()));
+    }
+
+    showShiftPhotoCompareAnimationSavedFeedback() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const savedTime = state?.overlay?.querySelector?.('.shift-photo-compare-animation-saved-time');
+        if (!state || !savedTime) return;
+        clearTimeout(state.savedFeedbackTimer);
+        savedTime.classList.remove('just-saved');
+        void savedTime.offsetWidth;
+        savedTime.classList.add('just-saved');
+        const label = savedTime.querySelector('span');
+        if (label) label.textContent = this.getShiftPhotoCompareAnimationSavedTimeLabel(false).replace('保存済み', '保存しました');
+        state.savedFeedbackTimer = setTimeout(() => {
+            if (this._shiftPhotoCompareAnimationState !== state) return;
+            savedTime.classList.remove('just-saved');
+            if (label) label.textContent = this.getShiftPhotoCompareAnimationSavedTimeLabel(false);
+            state.savedFeedbackTimer = null;
+        }, 2800);
     }
 
     updateShiftPhotoCompareAnimationSaveState() {
@@ -10588,7 +10879,7 @@
         const button = state.overlay?.querySelector?.('.shift-photo-compare-animation-save-all');
         if (button) {
             button.classList.toggle('pending', pending);
-            button.title = pending ? 'グループ・ページとタイムラインの変更をすべて保存' : '変更は保存済みです';
+            button.title = pending ? 'グループ・ページ・タイムライン・アバター設定の変更をすべて保存' : '変更は保存済みです';
         }
         const saveState = state.overlay?.querySelector?.('.shift-photo-compare-animation-timeline-save-state');
         if (saveState) {
@@ -10597,9 +10888,26 @@
                 ? '<i class="fa-solid fa-circle-exclamation"></i><span>未保存</span>'
                 : '<i class="fa-solid fa-circle-check"></i><span>保存済み</span>';
         }
+        const warning = state.overlay?.querySelector?.('.shift-photo-compare-animation-unsaved-warning');
+        if (warning) {
+            warning.classList.toggle('hidden', !pending);
+            warning.setAttribute('aria-hidden', pending ? 'false' : 'true');
+            const warningText = warning.querySelector('span');
+            if (warningText) warningText.textContent = `未保存: ${this.getShiftPhotoCompareAnimationUnsavedLabels().join('・') || '変更あり'}`;
+        }
+        const savedTime = state.overlay?.querySelector?.('.shift-photo-compare-animation-saved-time');
+        if (savedTime) {
+            if (pending && state.savedFeedbackTimer) {
+                clearTimeout(state.savedFeedbackTimer);
+                state.savedFeedbackTimer = null;
+                savedTime.classList.remove('just-saved');
+            }
+            const label = savedTime.querySelector('span');
+            if (label) label.textContent = this.getShiftPhotoCompareAnimationSavedTimeLabel(pending);
+        }
     }
 
-    saveAllShiftPhotoCompareAnimationChanges() {
+    async saveAllShiftPhotoCompareAnimationChanges() {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state || state.videoRecording) {
             if (state?.videoRecording) this.showToast?.('録画を停止してから保存してください。');
@@ -10607,13 +10915,40 @@
         }
         const pageChanged = this.hasShiftPhotoCompareAnimationPageSettingChanges();
         const timelineChanged = state.timelineDirty;
-        if (pageChanged && !this.saveShiftPhotoCompareAnimationPageSettings({ silent: true })) return false;
-        if (timelineChanged && !this.saveShiftPhotoCompareAnimationTimelineChanges({ silent: true })) return false;
-        this.updateShiftPhotoCompareAnimationSaveState();
-        const message = pageChanged || timelineChanged ? '記号アニメの変更をすべて保存しました。' : '記号アニメは保存済みです。';
-        this.showShiftPhotoCompareAnimationTimelineNotice(message, 'saved');
-        this.showToast?.(message);
-        return true;
+        const speechChanged = state.speechSettingsDirty === true;
+        const button = state.overlay?.querySelector?.('.shift-photo-compare-animation-save-all');
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>保存中</span>';
+        }
+        try {
+            if (pageChanged && !this.saveShiftPhotoCompareAnimationPageSettings({ silent: true })) return false;
+            if (timelineChanged && !this.saveShiftPhotoCompareAnimationTimelineChanges({ silent: true })) return false;
+            const editor = document.getElementById('shift-photo-compare-overlay');
+            if (editor && this._shiftPhotoCompareContext) {
+                const saved = await this.saveShiftPhotoCompare();
+                if (saved === false) throw new Error('編集内容を保存できませんでした。');
+            } else if (typeof store !== 'undefined') {
+                await store.save();
+            }
+            state.speechSettingsDirty = false;
+            this.setShiftPhotoCompareAnimationSavedTime();
+            this.updateShiftPhotoCompareAnimationSaveState();
+            this.showShiftPhotoCompareAnimationSavedFeedback();
+            const message = pageChanged || timelineChanged || speechChanged ? '記号アニメの変更をすべて保存しました。' : '記号アニメは保存済みです。';
+            this.showShiftPhotoCompareAnimationTimelineNotice(message, 'saved');
+            this.showToast?.(message);
+            return true;
+        } catch (error) {
+            this.showShiftPhotoCompareAnimationTimelineNotice(error?.message || '保存できませんでした。', 'error');
+            this.showToast?.(error?.message || '保存できませんでした。');
+            return false;
+        } finally {
+            if (button?.isConnected) {
+                button.disabled = false;
+                button.innerHTML = '<i class="fa-solid fa-floppy-disk"></i><span>すべて保存</span>';
+            }
+        }
     }
     clearShiftPhotoCompareAnimationPageSettings() {
         const state = this._shiftPhotoCompareAnimationState;
@@ -10771,17 +11106,24 @@
         } catch (_) {}
     }
 
+    isShiftPhotoCompareAnimationSyncControlledPhoto(itemOrMark) {
+        const mark = itemOrMark?.mark || itemOrMark;
+        if (!mark || mark.dataset?.mode !== 'image') return false;
+        return this.getShiftPhotoCompareMarkPagesFromDataset(mark)
+            .some(page => String(page.animationSyncStepKey || '').trim());
+    }
     getShiftPhotoCompareAnimationTimelinePageEntries(allItems = []) {
         const entries = [];
         let entryIndex = 0;
-        const kindCounts = { boxedText: 0, callout: 0 };
+        const kindCounts = { boxedText: 0, callout: 0, image: 0 };
         allItems.forEach(item => {
             const mode = item.mark?.dataset?.mode || '';
-            if (!['boxedText', 'callout'].includes(mode) || item.order <= 0) return;
+            if (!['boxedText', 'callout', 'image'].includes(mode)
+                || (item.order <= 0 && !this.isShiftPhotoCompareAnimationSyncControlledPhoto(item))) return;
             kindCounts[mode] += 1;
             const sourceLabel = mode === 'boxedText'
-                ? `直${kindCounts[mode]}`
-                : `吹${kindCounts[mode]}`;
+                ? '直' + kindCounts[mode]
+                : (mode === 'callout' ? '吹' + kindCounts[mode] : '写' + kindCounts[mode]);
             const pages = this.getShiftPhotoCompareMarkPagesFromDataset(item.mark);
             pages.forEach((page, pageIndex) => {
                 const text = String(page.text || '').replace(/\s+/g, ' ').trim();
@@ -10791,13 +11133,13 @@
                 const savedAudioSettings = this.getShiftPhotoComparePageAudioSavedSettings(page.recordedAudioKey);
                 entries.push({
                     id: `timeline-page-${entryIndex++}`,
-                    type: mode === 'boxedText' ? 'boxedTextPage' : 'calloutPage',
+                    type: mode === 'boxedText' ? 'boxedTextPage' : (mode === 'callout' ? 'calloutPage' : 'imagePage'),
                     item,
                     mark: item.mark,
                     sourceLabel,
                     pageIndex,
                     pageNumber: pageIndex + 1,
-                    label: text ? text.slice(0, 18) : `${pageIndex + 1}ページ`,
+                    label: mode === 'image' ? '写真 ' + (pageIndex + 1) : (text ? text.slice(0, 18) : (pageIndex + 1) + 'ページ'),
                     speechAvatarStyle: this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarStyle, true),
                     recordedAudioKey: String(page.recordedAudioKey || ''),
                     recordedAudioType: String(page.recordedAudioType || ''),
@@ -10807,7 +11149,8 @@
                     recordedAudioDuration: Math.max(0, Number(page.recordedAudioDuration) || 0),
                     recordedAudioTrimStart: Math.max(0, Number(savedAudioSettings?.trimStart ?? page.recordedAudioTrimStart) || 0),
                     recordedAudioTrimEnd: Math.max(0, Number(savedAudioSettings?.trimEnd ?? page.recordedAudioTrimEnd) || 0),
-                    insertAfter: savedInsertAfter >= item.order ? savedInsertAfter : -1
+                    insertAfter: savedInsertAfter >= item.order ? savedInsertAfter : -1,
+                    syncStepKey: String(page.animationSyncStepKey || '').slice(0, 500)
                 });
             });
         });
@@ -10850,7 +11193,8 @@
                         : order),
                 inserts: pages.map(page => Number.isFinite(Number(page.animationInsertAfter))
                     ? Math.max(-1, Math.min(999, Math.round(Number(page.animationInsertAfter))))
-                    : -1)
+                    : -1),
+                syncs: pages.map(page => String(page.animationSyncStepKey || '').slice(0, 500))
             };
         };
         Array.from(editor.querySelectorAll(':scope .shift-photo-compare-global-layer > .shift-photo-compare-mark'))
@@ -10889,6 +11233,9 @@
                     if (Number.isFinite(Number(saved.inserts[index]))) {
                         page.animationInsertAfter = Math.max(-1, Math.min(999, Math.round(Number(saved.inserts[index]))));
                     }
+                    if (Array.isArray(saved.syncs)) {
+                        page.animationSyncStepKey = String(saved.syncs[index] || '').slice(0, 500);
+                    }
                 });
                 mark.dataset.pages = JSON.stringify(pages);
             }
@@ -10921,7 +11268,8 @@
                             : order),
                     inserts: markPages.map(markPage => Number.isFinite(Number(markPage.animationInsertAfter))
                         ? Math.max(-1, Math.min(999, Math.round(Number(markPage.animationInsertAfter))))
-                        : -1)
+                        : -1),
+                    syncs: markPages.map(markPage => String(markPage.animationSyncStepKey || '').slice(0, 500))
                 };
             });
             store.activeData.shiftPhotoCompareAnimationTimelines[rowId] = {
@@ -11006,9 +11354,50 @@
         return true;
     }
 
+    getShiftPhotoCompareAnimationPhotoSyncTargetKey(step = null) {
+        if (!step) return '';
+        if (step.type === 'page' && step.pageEntry) {
+            return 'sync-page:' + this.getShiftPhotoCompareAnimationTimelineMarkKey(step.pageEntry.mark)
+                + ':' + Math.max(0, Number(step.pageEntry.pageIndex) || 0);
+        }
+        if (step.type !== 'symbol') return '';
+        const phase = step.videoPlayback ? 'video' : (step.motion ? 'motion' : (step.endpointReveal ? 'endpoint' : 'reveal'));
+        const markKeys = (step.items || (step.item ? [step.item] : []))
+            .map(item => this.getShiftPhotoCompareAnimationTimelineMarkKey(item?.mark))
+            .filter(Boolean)
+            .sort();
+        const identity = markKeys.length ? markKeys.join('+') : 'order-' + Math.max(0, Number(step.order) || 0);
+        return 'sync-symbol:' + identity + ':' + phase;
+    }
+
+    getShiftPhotoCompareAnimationPhotoSyncTargetLabel(step = null) {
+        if (!step) return '同期先';
+        if (step.type === 'page' && step.pageEntry) {
+            const entry = step.pageEntry;
+            return entry.sourceLabel + '・' + entry.pageNumber + 'P ' + (entry.label || '');
+        }
+        const item = step.items?.[0] || step.item;
+        const name = String(item?.mark?.dataset?.animationName || '').trim();
+        const base = name || '記号 ' + Math.max(0, Number(step.order) || 0);
+        const phase = step.videoPlayback ? '動画再生' : (step.motion ? '移動' : (step.endpointReveal ? '端点表示' : '表示'));
+        return base + '・' + phase;
+    }
+    getShiftPhotoCompareAnimationStepSyncedPageEntries(step, page = null) {
+        if (!step) return [];
+        const state = this._shiftPhotoCompareAnimationState;
+        const activePage = page || state?.pages?.[state.pageIndex];
+        const key = this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step);
+        const entries = [...(step.syncedPageEntries || [])];
+        if (key) {
+            (activePage?.timelineEntries || []).forEach(entry => {
+                if (String(entry.syncStepKey || '') === key && !entries.includes(entry)) entries.push(entry);
+            });
+        }
+        return entries;
+    }
     mergeShiftPhotoCompareAnimationTimelineSteps(baseSteps = [], pageEntries = [], actions = [], allItems = []) {
         const inserted = pageEntries
-            .filter(entry => entry.insertAfter >= Math.max(1, Number(entry.item?.order) || 1))
+            .filter(entry => !entry.syncStepKey && entry.insertAfter >= Math.max(1, Number(entry.item?.order) || 1))
             .sort((left, right) => left.insertAfter - right.insertAfter || left.type.localeCompare(right.type) || left.pageIndex - right.pageIndex);
         const steps = [];
         inserted.filter(entry => entry.insertAfter === 0).forEach(entry => {
@@ -11026,7 +11415,17 @@
         inserted.filter(entry => entry.insertAfter > 0 && !knownOrders.has(entry.insertAfter)).forEach(entry => {
             steps.push({ type: 'page', pageEntry: entry, items: [], motion: false, order: entry.insertAfter });
         });
-        const itemsByKey = new Map((allItems || []).map(item => [this.getShiftPhotoCompareAnimationTimelineMarkKey(item.mark), item]));
+        const syncTargets = new Map();
+        steps.forEach(step => {
+            const key = this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step);
+            if (key) syncTargets.set(key, step);
+        });
+        pageEntries.filter(entry => entry.syncStepKey).forEach(entry => {
+            const target = syncTargets.get(entry.syncStepKey);
+            if (!target) return;
+            if (!Array.isArray(target.syncedPageEntries)) target.syncedPageEntries = [];
+            if (!target.syncedPageEntries.includes(entry)) target.syncedPageEntries.push(entry);
+        });        const itemsByKey = new Map((allItems || []).map(item => [this.getShiftPhotoCompareAnimationTimelineMarkKey(item.mark), item]));
         const actionsByKey = new Map();
         const actionsByStepIndex = new Map();
         this.normalizeShiftPhotoCompareAnimationTimelineActions(actions).forEach(action => {
@@ -11212,10 +11611,15 @@
             mark.style.left = `${item.end.x}%`;
             mark.style.top = `${item.end.y}%`;
         });
-        const marks = allItems.filter(item => item.order > 0).sort((a, b) => a.order - b.order || a.index - b.index);
+        const syncControlledPhotoMarks = new Set(allItems
+            .filter(item => this.isShiftPhotoCompareAnimationSyncControlledPhoto(item))
+            .map(item => item.mark));
+        const marks = allItems
+            .filter(item => item.order > 0 && !syncControlledPhotoMarks.has(item.mark))
+            .sort((a, b) => a.order - b.order || a.index - b.index);
         if (!marks.length) return null;
         const baseSteps = this.buildShiftPhotoCompareAnimationBaseSteps(marks);
-        const animatedMarkSet = new Set(marks.map(item => item.mark));
+        const animatedMarkSet = new Set([...marks.map(item => item.mark), ...syncControlledPhotoMarks]);
         allItems.forEach(item => {
             const pageCount = this.supportsShiftPhotoComparePages(item.mark)
                 ? this.getShiftPhotoCompareMarkPagesFromDataset(item.mark).length
@@ -11243,6 +11647,180 @@
         };
     }
 
+    getShiftPhotoCompareAnimationPolylineThumbnailHtml(mark, count = '') {
+        if (!mark || mark.dataset?.mode !== 'polyline') return '';
+        const points = this.parseShiftPhotoCompareFreehandPoints(mark.dataset.points || '[]');
+        if (points.length < 2) return '';
+        const xs = points.map(point => Number(point.x)).filter(Number.isFinite);
+        const ys = points.map(point => Number(point.y)).filter(Number.isFinite);
+        if (!xs.length || !ys.length) return '';
+        const minX = Math.max(0, Math.min(...xs) - 2);
+        const minY = Math.max(0, Math.min(...ys) - 2);
+        const maxX = Math.min(100, Math.max(...xs) + 2);
+        const maxY = Math.min(100, Math.max(...ys) + 2);
+        const viewWidth = Math.max(1, maxX - minX);
+        const viewHeight = Math.max(1, maxY - minY);
+        const fills = this.normalizeShiftPhotoComparePolylineRegionFills(mark.dataset.polylineRegionFills || '[]');
+        const regions = this.getShiftPhotoComparePolylineRegions(points, fills);
+        const uid = `timeline-polyline-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        const defs = [];
+        const regionContent = regions.map((region, index) => {
+            const fill = fills[index] || {};
+            const polygonPoints = region.points.map(point => `${Number(point.x).toFixed(3)},${Number(point.y).toFixed(3)}`).join(' ');
+            const clipId = `${uid}-${index}`;
+            defs.push(`<clipPath id="${clipId}"><polygon points="${this.escapeHtml(polygonPoints)}"></polygon></clipPath>`);
+            const background = fill.enabled
+                ? fill.color
+                : (fill.patternBackground && fill.patternBackground !== 'transparent' ? fill.patternBackground : '#fff7cf');
+            let image = '';
+            if (fill.imageSrc) {
+                const regionMinX = Math.min(...region.points.map(point => point.x));
+                const regionMinY = Math.min(...region.points.map(point => point.y));
+                const regionMaxX = Math.max(...region.points.map(point => point.x));
+                const regionMaxY = Math.max(...region.points.map(point => point.y));
+                const regionWidth = Math.max(0.01, regionMaxX - regionMinX);
+                const regionHeight = Math.max(0.01, regionMaxY - regionMinY);
+                const zoom = Math.max(0.5, Math.min(6, Number(fill.imageZoom) || 1));
+                const imageWidth = regionWidth * zoom;
+                const imageHeight = regionHeight * zoom;
+                const centerX = regionMinX + regionWidth * (0.5 + (Number(fill.imageOffsetX) || 0) / 100);
+                const centerY = regionMinY + regionHeight * (0.5 + (Number(fill.imageOffsetY) || 0) / 100);
+                const preserve = fill.imageFit === 'stretch'
+                    ? 'none'
+                    : (fill.imageFit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet');
+                const transform = `translate(${centerX} ${centerY}) rotate(${Number(fill.imageRotation) || 0}) scale(${fill.imageFlipX ? -1 : 1} ${fill.imageFlipY ? -1 : 1}) translate(${-centerX} ${-centerY})`;
+                image = `<image href="${this.escapeHtml(fill.imageSrc)}" x="${centerX - imageWidth / 2}" y="${centerY - imageHeight / 2}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="${preserve}" opacity="${Number(fill.imageOpacity) || 1}" transform="${transform}" clip-path="url(#${clipId})"></image>`;
+            }
+            return `<polygon points="${this.escapeHtml(polygonPoints)}" fill="${this.escapeHtml(background)}"></polygon>${image}`;
+        }).join('');
+        const color = /^#[0-9a-f]{6}$/i.test(mark.dataset.color || '') ? mark.dataset.color : '#dc2626';
+        const pointText = points.map(point => `${Number(point.x).toFixed(3)},${Number(point.y).toFixed(3)}`).join(' ');
+        const strokeWidth = Math.max(1.2, Math.min(4, (Number(mark.dataset.size) || 56) * (Number(mark.dataset.stroke) || 1) * 0.035));
+        return `<span class="shift-photo-compare-animation-symbol-thumb rendered polyline-preview">${count}<svg viewBox="${minX} ${minY} ${viewWidth} ${viewHeight}" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs>${defs.join('')}</defs>${regionContent}<polyline points="${this.escapeHtml(pointText)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"></polyline></svg></span>`;
+    }
+    getShiftPhotoCompareAnimationRenderedSymbolThumbnailHtml(mark, count = '') {
+        if (!mark || mark.dataset?.mode === 'video') return '';
+        try {
+            const clone = mark.cloneNode(true);
+            clone.removeAttribute('id');
+            clone.removeAttribute('draggable');
+            clone.classList.remove(
+                'selected',
+                'shift-photo-compare-animation-hidden',
+                'shift-photo-compare-animation-visible',
+                'shift-photo-compare-animation-motion',
+                'shift-photo-compare-animation-round-trip-settled'
+            );
+            clone.querySelectorAll('.shift-photo-compare-animation-order-badge, button, .resize-handle, .rotate-handle')
+                .forEach(node => node.remove());
+            clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+            clone.querySelectorAll('[contenteditable]').forEach(node => node.removeAttribute('contenteditable'));
+            clone.querySelectorAll('textarea').forEach(node => {
+                node.textContent = node.value || node.textContent || '';
+                node.setAttribute('readonly', '');
+            });
+            clone.querySelectorAll('input').forEach(node => {
+                node.setAttribute('value', node.value || node.getAttribute('value') || '');
+                node.setAttribute('readonly', '');
+            });
+            const rect = mark.getBoundingClientRect?.() || { width: 0, height: 0 };
+            const width = Math.max(1, Number(mark.offsetWidth) || Number(rect.width) || 24);
+            const height = Math.max(1, Number(mark.offsetHeight) || Number(rect.height) || 24);
+            const visualWidth = Math.max(width, Number(rect.width) || 0);
+            const visualHeight = Math.max(height, Number(rect.height) || 0);
+            let centerX = width / 2;
+            let centerY = height / 2;
+            let previewWidth = visualWidth;
+            let previewHeight = visualHeight;
+            const isFullCanvasMark = ['polyline', 'freehand'].includes(mark.dataset?.mode || '');
+            if (mark.dataset?.mode === 'polyline') {
+                try {
+                    const points = JSON.parse(mark.dataset.points || '[]');
+                    if (Array.isArray(points) && points.length >= 2) {
+                        const xs = points.map(point => Number(point?.x)).filter(Number.isFinite);
+                        const ys = points.map(point => Number(point?.y)).filter(Number.isFinite);
+                        if (xs.length && ys.length) {
+                            const minX = Math.max(0, Math.min(...xs) - 2);
+                            const maxX = Math.min(100, Math.max(...xs) + 2);
+                            const minY = Math.max(0, Math.min(...ys) - 2);
+                            const maxY = Math.min(100, Math.max(...ys) + 2);
+                            centerX = width * (minX + maxX) / 200;
+                            centerY = height * (minY + maxY) / 200;
+                            previewWidth = Math.max(1, width * (maxX - minX) / 100);
+                            previewHeight = Math.max(1, height * (maxY - minY) / 100);
+                        }
+                    }
+                } catch (_) {}
+            }
+            const targetWidth = mark.dataset?.mode === 'polyline' ? 34 : 20;
+            const scale = Math.max(0.015, Math.min(1, Math.min(targetWidth / previewWidth, 20 / previewHeight)));
+            clone.style.left = isFullCanvasMark ? '0' : '50%';
+            clone.style.top = isFullCanvasMark ? '0' : '50%';
+            clone.style.pointerEvents = 'none';
+            const stageStyle = `--symbol-preview-width:${width}px;--symbol-preview-height:${height}px;--symbol-preview-scale:${scale}`;
+            const kindClass = mark.dataset?.mode === 'polyline' ? ' polyline-preview' : '';
+            const stageTransform = mark.dataset?.mode === 'polyline'
+                ? `scale(${scale}) translate(${-centerX}px,${-centerY}px)`
+                : `translate(-50%,-50%) scale(${scale})`;
+            return `<span class="shift-photo-compare-animation-symbol-thumb rendered${kindClass}" style="${stageStyle}">${count}<span class="shift-photo-compare-animation-symbol-thumb-stage" style="transform:${stageTransform}">${clone.outerHTML}</span></span>`;
+        } catch (_) {
+            return '';
+        }
+    }
+    getShiftPhotoCompareAnimationSymbolThumbnailHtml(step = null) {
+        const items = step?.items || (step?.item ? [step.item] : []);
+        const mark = items[0]?.mark;
+        if (!mark) return '';
+        const mode = String(mark.dataset?.mode || '');
+        const color = /^#[0-9a-f]{6}$/i.test(mark.dataset?.color || '') ? mark.dataset.color : '#2563eb';
+        const count = items.length > 1 ? `<b>${items.length}</b>` : '';
+        const directPolylineMark = items
+            .map(item => item?.mark)
+            .find(item => item?.dataset?.mode === 'polyline' && item.dataset.regionCommentLinkId);
+        if (directPolylineMark) {
+            return this.getShiftPhotoCompareAnimationPolylineThumbnailHtml(directPolylineMark, count)
+                || this.getShiftPhotoCompareAnimationRenderedSymbolThumbnailHtml(directPolylineMark, count);
+        }
+        const directTextMark = items
+            .map(item => item?.mark)
+            .find(item => item?.dataset?.mode === 'boxedText' && item.dataset.regionComment === '1');
+        if (directTextMark) {
+            const text = String(directTextMark.dataset.text || '').replace(/\s+/g, ' ').trim();
+            const sample = text ? Array.from(text).slice(0, 2).join('') : '直';
+            const directColor = /^#[0-9a-f]{6}$/i.test(directTextMark.dataset.color || '')
+                ? directTextMark.dataset.color
+                : color;
+            return `<span class="shift-photo-compare-animation-symbol-thumb direct-text" style="--symbol-thumb-color:${directColor}" title="${this.escapeHtml(text || '直線引き')}">${count}<i></i><em>${this.escapeHtml(sample)}</em></span>`;
+        }
+        if (mode === 'image') {
+            const page = this.getShiftPhotoCompareMarkPagesFromDataset(mark)?.[0];
+            const src = /^data:image\//i.test(page?.imageSrc || '')
+                ? page.imageSrc
+                : (/^data:image\//i.test(mark.dataset.imageSrc || '') ? mark.dataset.imageSrc : '');
+            if (src) return `<span class="shift-photo-compare-animation-symbol-thumb image">${count}<img src="${this.escapeHtml(src)}" alt="" draggable="false"></span>`;
+        }
+        const rendered = this.getShiftPhotoCompareAnimationRenderedSymbolThumbnailHtml(mark, count);
+        if (rendered) return rendered;
+        if (['text', 'boxedText', 'callout', 'number'].includes(mode)) {
+            const text = String(mark.dataset?.text || '').replace(/\s+/g, ' ').trim();
+            const sample = text ? Array.from(text).slice(0, 2).join('') : (mode === 'number' ? '1' : 'Aa');
+            return `<span class="shift-photo-compare-animation-symbol-thumb text" style="--symbol-thumb-color:${color}" title="${this.escapeHtml(text || mode)}">${count}<em>${this.escapeHtml(sample)}</em></span>`;
+        }
+        const icons = {
+            circle: 'fa-circle',
+            triangle: 'fa-play',
+            rect: 'fa-square',
+            table: 'fa-table-cells',
+            arrow: 'fa-arrow-right-long',
+            dimension: 'fa-ruler-horizontal',
+            freehand: 'fa-signature',
+            polyline: 'fa-share-nodes',
+            xmark: 'fa-xmark',
+            mosaic: 'fa-border-all',
+            video: 'fa-video'
+        };
+        return `<span class="shift-photo-compare-animation-symbol-thumb shape" style="--symbol-thumb-color:${color}" title="${this.escapeHtml(mode || '記号')}">${count}<i class="fa-solid ${icons[mode] || 'fa-shapes'}"></i></span>`;
+    }
     getShiftPhotoCompareAnimationTimelineSuffix(items = []) {
         const kind = this.getShiftPhotoCompareAnimationTimelineSymbolKind(items);
         if (kind === 'mixed') return '（直・吹）';
@@ -11269,23 +11847,73 @@
         return 'standard';
     }
 
+    getShiftPhotoCompareAnimationPhotoThumbnailHtml(entry, compact = false) {
+        if (entry?.type !== 'imagePage') return '';
+        const page = this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark)?.[entry.pageIndex];
+        const src = /^data:image\//i.test(page?.imageSrc || '')
+            ? page.imageSrc
+            : (/^data:image\//i.test(entry.mark?.dataset?.imageSrc || '') ? entry.mark.dataset.imageSrc : '');
+        const className = `shift-photo-compare-animation-photo-thumb${compact ? ' compact' : ''}`;
+        if (!src) return `<span class="${className} placeholder"><i class="fa-regular fa-image"></i></span>`;
+        return `<img class="${className}" src="${this.escapeHtml(src)}" alt="" draggable="false">`;
+    }
+    getShiftPhotoCompareAnimationPhotoSyncDropAttributes(entry) {
+        if (!entry || entry.type === 'imagePage') return '';
+        const entryId = this.escapeJs(String(entry.id || ''));
+        const targetKey = this.getShiftPhotoCompareAnimationPhotoSyncTargetKey({ type: 'page', pageEntry: entry });
+        return `data-photo-sync-target-key="${this.escapeHtml(targetKey)}" ondragover="app.dragOverShiftPhotoCompareAnimationPhotoSyncTarget(event, -1, '${entryId}')" ondragleave="app.leaveShiftPhotoCompareAnimationPhotoSyncTarget(event)" ondrop="app.dropShiftPhotoCompareAnimationPhotoSyncTarget(event, -1, '${entryId}')"`;
+    }
+
+    getShiftPhotoCompareAnimationPhotoSyncTargetStep(entry, page = null) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const activePage = page || state?.pages?.[state.pageIndex];
+        const key = String(entry?.syncStepKey || '');
+        if (!activePage || !key) return { step: null, index: -1 };
+        const index = (activePage.steps || []).findIndex(step => this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step) === key);
+        return { step: index >= 0 ? activePage.steps[index] : null, index };
+    }
+
+    getShiftPhotoCompareAnimationPhotoSyncStatusHtml(entry) {
+        if (!entry?.syncStepKey) {
+            return entry?.insertAfter >= 0 ? `記号 ${entry.insertAfter} の後` : '独立';
+        }
+        const target = this.getShiftPhotoCompareAnimationPhotoSyncTargetStep(entry);
+        const entryId = this.escapeJs(String(entry.id || ''));
+        if (!target.step) {
+            return `<button type="button" class="shift-photo-compare-animation-photo-sync-destination missing" onclick="event.stopPropagation(); app.setShiftPhotoCompareAnimationPhotoSync('${entryId}', '')" title="同期先がありません。クリックで解除"><i class="fa-solid fa-link-slash"></i><span>同期先なし</span><i class="fa-solid fa-xmark"></i></button>`;
+        }
+        const label = this.getShiftPhotoCompareAnimationPhotoSyncTargetLabel(target.step);
+        return `<button type="button" class="shift-photo-compare-animation-photo-sync-destination" onclick="event.stopPropagation(); app.setShiftPhotoCompareAnimationPhotoSync('${entryId}', '')" title="駅${target.index + 1} ${this.escapeHtml(label)}との同期を解除"><i class="fa-solid fa-link"></i><span>駅${target.index + 1} ${this.escapeHtml(label)}</span><i class="fa-solid fa-xmark"></i></button>`;
+    }
+
+    getShiftPhotoCompareAnimationSyncedPhotoMarkerHtml(step) {
+        const entries = this.getShiftPhotoCompareAnimationStepSyncedPageEntries(step)
+            .filter(entry => entry.type === 'imagePage');
+        if (!entries.length) return '';
+        const details = entries.map(entry => `${entry.sourceLabel}・${entry.pageNumber}P`).join('、');
+        const label = entries.length === 1
+            ? `${entries[0].sourceLabel}・${entries[0].pageNumber}P`
+            : `写真 ${entries.length}件`;
+        const list = entries.map(entry => `<span class="shift-photo-compare-animation-synced-photo-item">${this.getShiftPhotoCompareAnimationPhotoThumbnailHtml(entry, true)}<b>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P</b></span>`).join('');
+        return `<span class="shift-photo-compare-animation-synced-photo-marker" tabindex="0" title="同時に切替: ${this.escapeHtml(details)}">${this.getShiftPhotoCompareAnimationPhotoThumbnailHtml(entries[0], true)}<span>${this.escapeHtml(label)}</span><i class="fa-solid fa-chevron-down"></i><span class="shift-photo-compare-animation-synced-photo-list"><strong>同調する写真</strong>${list}</span></span>`;
+    }
     getShiftPhotoCompareAnimationTimelineLaneHtml(title, icon, entries = [], type = '') {
-        const suffix = type === 'boxedTextPage' ? '（直）' : '（吹）';
+        const suffix = type === 'boxedTextPage' ? '（直）' : (type === 'calloutPage' ? '（吹）' : '（写）');
         const selectedItems = this._shiftPhotoCompareAnimationState?.timelineSelectedItems || new Set();
         const nodes = entries.map(entry => `
-            <div class="shift-photo-compare-animation-timeline-node page-node ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-entry-id="${entry.id}" data-timeline-mode="${entry.type}">
+            <div class="shift-photo-compare-animation-timeline-node page-node ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-entry-id="${entry.id}" data-timeline-mode="${entry.type}" data-photo-sync-key="${this.escapeHtml(String(entry.syncStepKey || ''))}" ${this.getShiftPhotoCompareAnimationPhotoSyncDropAttributes(entry)}>
                 <span class="shift-photo-compare-animation-timeline-dot"></span>
-                <button type="button" class="shift-photo-compare-animation-timeline-badge ${entry.insertAfter >= 0 ? 'inserted' : ''} ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineEntry('${entry.id}')" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageAudioMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックでページ音声、ドラッグで記号路線へ差し込み">
-                    <strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong>
+                <button type="button" class="shift-photo-compare-animation-timeline-badge ${entry.syncStepKey ? 'synced' : ''} ${entry.insertAfter >= 0 ? 'inserted' : ''} ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineEntry('${entry.id}')" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageContextMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックで設定、ドラッグで記号路線へ差し込み">
+                    ${this.getShiftPhotoCompareAnimationPhotoThumbnailHtml(entry)}<strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong>
                     <span>${this.escapeHtml(entry.label)}</span>
                     ${this.getShiftPhotoCompareTimelineAvatarBadgeHtml(entry)}${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}
                 </button>
                 <button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button>
-                <small>${entry.insertAfter >= 0 ? `記号 ${entry.insertAfter} の後` : '独立'}</small>
+                <small>${this.getShiftPhotoCompareAnimationPhotoSyncStatusHtml(entry)}</small>
             </div>
         `).join('');
         return `
-            <section class="shift-photo-compare-animation-timeline-lane ${type === 'boxedTextPage' ? 'boxed-lane' : 'callout-lane'}" data-timeline-lane="${type}">
+            <section class="shift-photo-compare-animation-timeline-lane ${type === 'boxedTextPage' ? 'boxed-lane' : (type === 'calloutPage' ? 'callout-lane' : 'image-lane')}" data-timeline-lane="${type}">
                 <h3><i class="fa-solid ${icon}"></i><span>${title}</span></h3>
                 <div class="shift-photo-compare-animation-timeline-drop-zone standalone" ondragover="app.dragOverShiftPhotoCompareAnimationTimeline(event, -1)" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationTimeline(event, -1)">ここへ戻す</div>
                 <div class="shift-photo-compare-animation-timeline-route">${nodes || '<p>ページなし</p>'}</div>
@@ -11351,6 +11979,7 @@
         const symbolDropZone = targetIndex => `<div class="shift-photo-compare-animation-timeline-drop-zone symbol-drop-zone" data-symbol-drop-index="${targetIndex}" ondragover="app.dragOverShiftPhotoCompareAnimationSymbolTimeline(event, ${targetIndex})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationSymbolTimeline(event, ${targetIndex})">ここへ移動</div>`;
         const symbolNodes = (page.steps || []).map((step, index, steps) => {
             const stationDot = `<span class="shift-photo-compare-animation-timeline-dot">${index + 1}</span>`;
+            const syncedPhotoMarker = this.getShiftPhotoCompareAnimationSyncedPhotoMarkerHtml(step);
             const afterKey = encodeURIComponent(this.getShiftPhotoCompareAnimationTimelineStepKey(step));
             const afterStepIndex = steps.slice(0, index + 1).filter(candidate => !['hide', 'show'].includes(candidate.type)).length - 1;
             const hasTimelineAction = ['hide', 'show'].includes(steps[index + 1]?.type);
@@ -11365,13 +11994,13 @@
                 });
                 const targetLabel = this.escapeHtml(targetNames.join('、'));
                 const isShow = step.type === 'show';
-                return `<div class="shift-photo-compare-animation-timeline-node symbol-node ${isShow ? 'show-node' : 'hide-node'}" data-timeline-step-index="${index}" data-timeline-action-id="${step.action.id}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge ${isShow ? 'show-action' : 'hide-action'}" draggable="true" onclick="app.openShiftPhotoCompareAnimationHideActionEditor('', -1, '${step.action.id}')" ondragstart="app.startShiftPhotoCompareAnimationActionTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックで編集、ドラッグで実行位置を変更"><strong>${targetLabel}</strong><small><i class="fa-solid ${isShow ? 'fa-eye' : 'fa-eye-slash'}"></i> ${isShow ? '再表示' : '消す'}・${targetOrders.length}件</small></button><button type="button" class="shift-photo-compare-animation-delete-station" onclick="event.stopPropagation(); app.deleteShiftPhotoCompareAnimationTimelineAction('${step.action.id}')" title="この駅を削除" aria-label="この駅を削除"><i class="fa-solid fa-trash"></i></button></div>`;
+                return `<div class="shift-photo-compare-animation-timeline-node symbol-node ${isShow ? 'show-node' : 'hide-node'}" data-timeline-step-index="${index}" data-timeline-action-id="${step.action.id}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge ${isShow ? 'show-action' : 'hide-action'}" draggable="true" onclick="app.openShiftPhotoCompareAnimationHideActionEditor('', -1, '${step.action.id}')" ondragstart="app.startShiftPhotoCompareAnimationActionTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックで編集、ドラッグで実行位置を変更"><strong>${targetLabel}</strong><small><i class="fa-solid ${isShow ? 'fa-eye' : 'fa-eye-slash'}"></i> ${isShow ? '再表示' : '消す'}・${targetOrders.length}件</small></button><button type="button" class="shift-photo-compare-animation-delete-station" onclick="event.stopPropagation(); app.deleteShiftPhotoCompareAnimationTimelineAction('${step.action.id}')" title="この駅を削除" aria-label="この駅を削除"><i class="fa-solid fa-trash"></i></button>${syncedPhotoMarker}</div>`;
             }
             if (step.type === 'page') {
                 const entry = step.pageEntry;
-                const laneClass = entry.type === 'boxedTextPage' ? 'boxed' : 'callout';
-                const suffix = entry.type === 'boxedTextPage' ? '（直）' : '（吹）';
-                const node = `<div class="shift-photo-compare-animation-timeline-node inserted ${laneClass} ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-timeline-entry-id="${entry.id}">${stationDot}<button type="button" class="shift-photo-compare-animation-timeline-badge inserted ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageAudioMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックでページ音声"><strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong><span>${this.escapeHtml(entry.label)}</span>${this.getShiftPhotoCompareTimelineAvatarBadgeHtml(entry)}${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}</button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
+                const laneClass = entry.type === 'boxedTextPage' ? 'boxed' : (entry.type === 'calloutPage' ? 'callout' : 'image');
+                const suffix = entry.type === 'boxedTextPage' ? '（直）' : (entry.type === 'calloutPage' ? '（吹）' : '（写）');
+                const node = `<div class="shift-photo-compare-animation-timeline-node inserted ${laneClass} ${selectedItems.has(`page:${entry.id}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-timeline-entry-id="${entry.id}" ${this.getShiftPhotoCompareAnimationPhotoSyncDropAttributes(entry)}>${stationDot}<button type="button" class="shift-photo-compare-animation-timeline-badge inserted ${entry.recordedAudioKey ? 'has-recorded-audio' : ''}" draggable="true" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" oncontextmenu="event.preventDefault(); event.stopPropagation(); app.openShiftPhotoCompareAnimationPageContextMenu(event, '${entry.id}')" ondragstart="app.startShiftPhotoCompareAnimationTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックでプレビュー、右クリックで設定">${this.getShiftPhotoCompareAnimationPhotoThumbnailHtml(entry)}<strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P${suffix}</strong><span>${this.escapeHtml(entry.label)}</span>${this.getShiftPhotoCompareTimelineAvatarBadgeHtml(entry)}${entry.recordedAudioKey ? `<i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'} shift-photo-compare-recorded-audio-mark" title="${entry.recordedAudioSource === 'file' ? this.escapeHtml(entry.recordedAudioName || '音声ファイル') : 'その場で録音した音声'}"></i>` : ''}</button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('page', '${entry.id}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button>${syncedPhotoMarker}</div>`;
                 const nextOrder = steps[index + 1]?.order;
                 return nextOrder === step.order ? `${node}${addStation}` : `${node}${addStation}<div class="shift-photo-compare-animation-timeline-drop-zone page-drop-zone" data-drop-order="${step.order}" ondragover="app.dragOverShiftPhotoCompareAnimationTimeline(event, ${step.order})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationTimeline(event, ${step.order})">記号 ${step.order} の後</div>`;
             }
@@ -11379,13 +12008,16 @@
             const symbolKind = this.getShiftPhotoCompareAnimationTimelineSymbolKind(step.items || []);
             const animationName = String(step.items?.[0]?.mark?.dataset?.animationName || '').trim();
             const badgeTitle = this.escapeHtml(animationName || `記号 ${step.order}`);
+            const symbolThumbnail = this.getShiftPhotoCompareAnimationSymbolThumbnailHtml(step);
             const groupIndex = symbolGroupIndexes.get(step.order);
-            const dragAttributes = `draggable="true" ondragstart="app.startShiftPhotoCompareAnimationSymbolTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="記号欄内でドラッグして順番を変更"`;
+            const syncTargetKey = this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step);
+            const syncDropAttributes = `data-photo-sync-target-key="${this.escapeHtml(syncTargetKey)}" ondragover="app.dragOverShiftPhotoCompareAnimationPhotoSyncTarget(event, ${index})" ondragleave="app.leaveShiftPhotoCompareAnimationPhotoSyncTarget(event)" ondrop="app.dropShiftPhotoCompareAnimationPhotoSyncTarget(event, ${index})"`;
+            const dragAttributes = `draggable="true" ondragstart="app.startShiftPhotoCompareAnimationSymbolTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" ${syncDropAttributes} title="記号欄内でドラッグして順番を変更／写真をドロップして同調"`;
             const node = step.videoPlayback
-                ? `<div class="shift-photo-compare-animation-timeline-node symbol-node video-playback-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-video video-playback" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" title="クリックで動画再生をプレビュー"><strong>${badgeTitle}（動）</strong><small><i class="fa-solid fa-play"></i> 再生</small></button></div>`
+                ? `<div class="shift-photo-compare-animation-timeline-node symbol-node video-playback-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}" ${syncDropAttributes}>${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-video video-playback" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${syncDropAttributes} title="クリックで動画再生をプレビュー／写真をドロップして同調">${symbolThumbnail}<strong>${badgeTitle}（動）</strong><small><i class="fa-solid fa-play"></i> 再生</small></button>${syncedPhotoMarker}</div>`
                 : step.motion
-                ? `<div class="shift-photo-compare-animation-timeline-node symbol-node motion-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}><strong>${badgeTitle}${suffix}</strong><small>${this.isShiftPhotoCompareAnimationRoundTripStep(step) ? '往復' : '移動'}</small></button></div>`
-                : `<div class="shift-photo-compare-animation-timeline-node symbol-node ${selectedItems.has(`symbol:${step.order}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-symbol-order="${step.order}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}><strong>${badgeTitle}${suffix}</strong><small>${animationName ? `記号 ${step.order}` : ((step.items || []).length > 1 ? `${step.items.length}個を同時表示` : '表示')}</small></button><button type="button" class="shift-photo-compare-animation-symbol-name-edit" onclick="event.stopPropagation(); app.openShiftPhotoCompareAnimationSymbolNameEditor(${step.order})" title="記号名を編集" aria-label="記号名を編集"><i class="fa-solid fa-pen"></i></button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('symbol', '${step.order}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button></div>`;
+                ? `<div class="shift-photo-compare-animation-timeline-node symbol-node motion-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}" ${syncDropAttributes}>${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}>${symbolThumbnail}<strong>${badgeTitle}${suffix}</strong><small>${this.isShiftPhotoCompareAnimationRoundTripStep(step) ? '往復' : '移動'}</small></button>${syncedPhotoMarker}</div>`
+                : `<div class="shift-photo-compare-animation-timeline-node symbol-node ${selectedItems.has(`symbol:${step.order}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-symbol-order="${step.order}" ${syncDropAttributes}>${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}>${symbolThumbnail}<strong>${badgeTitle}${suffix}</strong><small>${animationName ? `記号 ${step.order}` : ((step.items || []).length > 1 ? `${step.items.length}個を同時表示` : '表示')}</small></button><button type="button" class="shift-photo-compare-animation-symbol-name-edit" onclick="event.stopPropagation(); app.openShiftPhotoCompareAnimationSymbolNameEditor(${step.order})" title="記号名を編集" aria-label="記号名を編集"><i class="fa-solid fa-pen"></i></button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('symbol', '${step.order}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button>${syncedPhotoMarker}</div>`;
             const nextOrder = steps[index + 1]?.order;
             const before = !step.motion && !step.videoPlayback ? symbolDropZone(groupIndex) : '';
             const afterSymbol = nextOrder === step.order ? '' : `<div class="shift-photo-compare-animation-timeline-drop-zone page-drop-zone" data-drop-order="${step.order}" ondragover="app.dragOverShiftPhotoCompareAnimationTimeline(event, ${step.order})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationTimeline(event, ${step.order})">記号 ${step.order} の後</div>`;
@@ -11394,10 +12026,15 @@
                 : '';
             return `${before}${node}${addStation}${afterSymbol}${afterLast}`;
         }).join('');
-        const visibleEntries = (page.timelineEntries || []).filter(entry => Number(entry.item?.order) > 0);
+        const visibleEntries = (page.timelineEntries || []).filter(entry => Number(entry.item?.order) > 0
+            || (entry.type === 'imagePage' && !!entry.syncStepKey));
         const boxedEntries = visibleEntries.filter(entry => entry.type === 'boxedTextPage');
         const calloutEntries = visibleEntries.filter(entry => entry.type === 'calloutPage');
+        const imageEntries = visibleEntries.filter(entry => entry.type === 'imagePage');
         const selectedCount = selectedItems.size;
+        const selectedPageCount = (page.timelineEntries || []).filter(entry =>
+            entry.type !== 'imagePage' && selectedItems.has('page:' + entry.id)
+        ).length;
         const issues = this.getShiftPhotoCompareAnimationTimelineIssues(page);
         body.innerHTML = `
             <div class="shift-photo-compare-animation-playhead-control">
@@ -11415,10 +12052,12 @@
                 <button type="button" onclick="app.addSelectedShiftPhotoCompareAnimationVisibilityAction('hide')" title="現在駅の後で選択記号を消す"><i class="fa-solid fa-eye-slash"></i><span>消す</span></button>
                 <label class="shift-photo-compare-animation-batch-color" title="選択記号の色を一括変更"><i class="fa-solid fa-palette"></i><input type="color" value="#dc2626" onchange="app.applySelectedShiftPhotoCompareAnimationColor(this.value)"></label>
                 <label class="shift-photo-compare-animation-batch-hold" title="選択記号を表示した後の待ち時間"><i class="fa-regular fa-clock"></i><input type="number" min="100" max="10000" step="50" value="${this.getSelectedShiftPhotoCompareAnimationHoldMs()}" onchange="app.applySelectedShiftPhotoCompareAnimationHold(this.value)"><span>ms</span></label>
+                ${selectedPageCount ? `<button type="button" onclick="app.openSelectedShiftPhotoCompareAnimationPageAvatarMenu(event)" title="選択したセリフのアバターを一括設定"><i class="fa-solid fa-user-group"></i><span>アバター</span></button>` : ''}
                 <button type="button" onclick="app.detachSelectedShiftPhotoCompareAnimationTimelinePages()" title="選択ページの差し込みを解除"><i class="fa-solid fa-link-slash"></i><span>解除</span></button>
                 <button type="button" class="danger" onclick="app.removeSelectedShiftPhotoCompareAnimationTimelineItems()" title="選択記号をアニメから外す"><i class="fa-solid fa-trash"></i></button>
                 <button type="button" onclick="app.clearShiftPhotoCompareAnimationTimelineSelection()" title="選択を解除"><i class="fa-solid fa-xmark"></i></button>
             </div>
+            ${this.getShiftPhotoCompareAnimationSyncLineControlsHtml()}
             <div class="shift-photo-compare-animation-timeline-lanes">
                 <section class="shift-photo-compare-animation-timeline-lane symbol-lane">
                     <h3><i class="fa-solid fa-route"></i><span>記号</span></h3>
@@ -11426,6 +12065,7 @@
                 </section>
                 ${this.getShiftPhotoCompareAnimationTimelineLaneHtml('直線引き', 'fa-vector-square', boxedEntries, 'boxedTextPage')}
                 ${this.getShiftPhotoCompareAnimationTimelineLaneHtml('吹き出し', 'fa-comment', calloutEntries, 'calloutPage')}
+                ${this.getShiftPhotoCompareAnimationTimelineLaneHtml('写真スライド', 'fa-images', imageEntries, 'imagePage')}
             </div>
         `;
         body.querySelectorAll('[data-timeline-step-index]').forEach(node => {
@@ -11434,6 +12074,7 @@
         });
         this.updateShiftPhotoCompareAnimationTimelineActive();
         this.updateShiftPhotoCompareAnimationTimelineHistoryButtons();
+        requestAnimationFrame(() => this.renderShiftPhotoCompareAnimationSyncLines());
     }
 
     showShiftPhotoCompareAnimationStationStatePreview(stepIndex = -1, node = null) {
@@ -11611,7 +12252,9 @@
 
     stopShiftPhotoCompareAnimationForTimelinePreview() {
         const state = this._shiftPhotoCompareAnimationState;
-        if (!state?.timer) return;
+        if (!state) return;
+        if (state.syncPreviewRunning) this.stopShiftPhotoCompareAnimationSyncPreview();
+        if (!state.timer) return;
         clearInterval(state.timer);
         state.timer = null;
         state.overlay?.querySelector('.shift-photo-compare-animation-controls .fa-pause')?.classList.replace('fa-pause', 'fa-play');
@@ -11636,7 +12279,7 @@
         const page = state?.pages?.[state.pageIndex];
         const entry = page?.timelineEntries?.find(item => item.id === entryId);
         if (!state || !entry || Date.now() < Number(state._timelineSuppressClickUntil || 0)) return;
-        const stepIndex = page.steps?.findIndex(step => step.type === 'page' && step.pageEntry === entry) ?? -1;
+        const stepIndex = page.steps?.findIndex(step => (step.type === 'page' && step.pageEntry === entry) || this.getShiftPhotoCompareAnimationStepSyncedPageEntries(step, page).includes(entry)) ?? -1;
         const parentStepIndex = Number(entry.item?.animationRevealStepIndex);
         this.previewShiftPhotoCompareAnimationTimelineStep(stepIndex >= 0 ? stepIndex : (Number.isFinite(parentStepIndex) ? parentStepIndex : -1));
         if (stepIndex < 0) this.applyShiftPhotoCompareAnimationTimelineEntry(entry);
@@ -12342,6 +12985,7 @@
     }
 
     getShiftPhotoCompareTimelineAvatarBadgeHtml(entry = {}) {
+        if (entry.type === 'imagePage') return '';
         const style = this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true);
         if (!style) return '';
         const option = this.getShiftPhotoCompareSpeechAvatarOptions().find(item => item.id === style);
@@ -12400,6 +13044,7 @@
 
     setShiftPhotoCompareAnimationPageAvatar(entryId = '', style = '') {
         const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (entry) this.pushShiftPhotoCompareAnimationTimelineHistory();
         if (!entry || !this.persistShiftPhotoCompareAnimationPageAvatar(entry, style)) {
             this.showToast?.('\u3053\u306e\u30da\u30fc\u30b8\u306e\u30a2\u30d0\u30bf\u30fc\u3092\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002');
             return;
@@ -12408,15 +13053,159 @@
         const option = this.getShiftPhotoCompareSpeechAvatarOptions().find(item => item.id === avatarStyle);
         this.closeShiftPhotoCompareAnimationPageAudioMenu();
         this.renderShiftPhotoCompareAnimationTimeline();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
         this.showToast?.(avatarStyle
             ? `\u3053\u306e\u30bb\u30ea\u30d5\u306f\u300c${option?.label || avatarStyle}\u300d\u304c\u8aad\u307f\u4e0a\u3052\u307e\u3059\u3002`
             : '\u3053\u306e\u30bb\u30ea\u30d5\u306e\u30a2\u30d0\u30bf\u30fc\u3092\u5168\u4f53\u8a2d\u5b9a\u3078\u623b\u3057\u307e\u3057\u305f\u3002');
     }
 
+    setSelectedShiftPhotoCompareAnimationPageAvatar(style = '') {
+        const selection = this.getSelectedShiftPhotoCompareAnimationTimelineItems();
+        const state = selection.state;
+        const pageEntries = selection.pageEntries.filter(entry => entry.type !== 'imagePage');
+        if (!state || state.videoRecording || !pageEntries.length) return;
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style, true);
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        let savedCount = 0;
+        pageEntries.forEach(entry => {
+            if (this.persistShiftPhotoCompareAnimationPageAvatar(entry, avatarStyle)) savedCount += 1;
+        });
+        const option = this.getShiftPhotoCompareSpeechAvatarOptions().find(item => item.id === avatarStyle);
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
+        this.showToast?.(avatarStyle
+            ? `${savedCount}件のセリフを「${option?.label || avatarStyle}」へ設定しました。`
+            : `${savedCount}件のセリフを全体のアバター設定へ戻しました。`);
+    }
+
+    openSelectedShiftPhotoCompareAnimationPageAvatarMenu(event) {
+        const pageEntries = this.getSelectedShiftPhotoCompareAnimationTimelineItems()
+            .pageEntries.filter(entry => entry.type !== 'imagePage');
+        if (!pageEntries.length) {
+            this.showToast?.('アバターを設定するセリフを選択してください。');
+            return;
+        }
+        this.openShiftPhotoCompareAnimationPageAudioMenu(event, pageEntries[0].id);
+    }
+    openShiftPhotoCompareAnimationPageContextMenu(event, entryId = '') {
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (entry?.type === 'imagePage') {
+            this.openShiftPhotoCompareAnimationPhotoSyncMenu(event, entryId);
+            return;
+        }
+        this.openShiftPhotoCompareAnimationPageAudioMenu(event, entryId);
+    }
+
+    closeShiftPhotoCompareAnimationPhotoSyncMenu() {
+        this._shiftPhotoCompareAnimationPhotoSyncMenuCleanup?.();
+        this._shiftPhotoCompareAnimationPhotoSyncMenuCleanup = null;
+        document.querySelector('.shift-photo-compare-animation-photo-sync-menu')?.remove();
+    }
+
+    getShiftPhotoCompareAnimationPhotoSyncTargets(page, entry) {
+        const candidates = [
+            ...(page?.baseSteps || []).filter(step => !(step.items || (step.item ? [step.item] : []))
+                .some(item => item?.mark === entry.mark)),
+            ...(page?.steps || []).filter(step => step.type === 'page'
+                && step.pageEntry
+                && step.pageEntry !== entry
+                && step.pageEntry.type !== 'imagePage')
+        ];
+        const seen = new Set();
+        return candidates.map(step => {
+            const key = this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step);
+            const stationIndex = (page?.steps || []).findIndex(candidate => this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(candidate) === key);
+            const station = stationIndex >= 0 ? `駅${stationIndex + 1} ` : '';
+            return {
+                key,
+                label: station + this.getShiftPhotoCompareAnimationPhotoSyncTargetLabel(step)
+            };
+        }).filter(target => {
+            if (!target.key || seen.has(target.key)) return false;
+            seen.add(target.key);
+            return true;
+        });
+    }
+
+    openShiftPhotoCompareAnimationPhotoSyncMenu(event, entryId = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (!state || !page || !entry || entry.type !== 'imagePage' || state.videoRecording) return;
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        this.closeShiftPhotoCompareAnimationPhotoSyncMenu();
+        const targets = this.getShiftPhotoCompareAnimationPhotoSyncTargets(page, entry);
+        const menu = document.createElement('div');
+        menu.className = 'shift-photo-compare-animation-photo-sync-menu';
+        menu.innerHTML = `
+            <header><strong><i class="fa-solid fa-link"></i> 写真切替の同調先</strong><span>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P</span></header>
+            <p>同時に動かしたい記号・テキストを選びます。</p>
+            <div class="shift-photo-compare-animation-photo-sync-list"></div>
+        `;
+        const list = menu.querySelector('.shift-photo-compare-animation-photo-sync-list');
+        const addTarget = (key, label, icon = 'fa-link-slash') => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.classList.toggle('active', String(entry.syncStepKey || '') === key);
+            button.innerHTML = `<i class="fa-solid ${icon}"></i><span></span>${button.classList.contains('active') ? '<i class="fa-solid fa-check"></i>' : ''}`;
+            button.querySelector('span').textContent = label;
+            button.addEventListener('click', () => this.setShiftPhotoCompareAnimationPhotoSync(entryId, key));
+            list.appendChild(button);
+        };
+        addTarget('', '同調しない');
+        targets.forEach(target => addTarget(target.key, target.label, 'fa-link'));
+        if (!targets.length) {
+            const empty = document.createElement('small');
+            empty.textContent = '同調できる記号・テキストがありません。';
+            list.appendChild(empty);
+        }
+        state.overlay.appendChild(menu);
+        const rect = menu.getBoundingClientRect();
+        menu.style.left = `${Math.max(8, Math.min(Number(event?.clientX) || 0, window.innerWidth - rect.width - 8))}px`;
+        menu.style.top = `${Math.max(8, Math.min(Number(event?.clientY) || 0, window.innerHeight - rect.height - 8))}px`;
+        const close = closeEvent => {
+            if (!menu.contains(closeEvent.target)) this.closeShiftPhotoCompareAnimationPhotoSyncMenu();
+        };
+        setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
+        this._shiftPhotoCompareAnimationPhotoSyncMenuCleanup = () => document.removeEventListener('pointerdown', close, true);
+    }
+
+    setShiftPhotoCompareAnimationPhotoSync(entryId = '', syncStepKey = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
+        if (!state || !page || !entry || entry.type !== 'imagePage' || state.videoRecording) return;
+        const nextKey = String(syncStepKey || '').slice(0, 500);
+        if (nextKey) {
+            const targetStep = (page.steps || []).find(step => this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step) === nextKey);
+            const validation = this.validateShiftPhotoCompareAnimationPhotoSync([entry], nextKey, targetStep, page);
+            if (!validation.ok) {
+                this.closeShiftPhotoCompareAnimationPhotoSyncMenu();
+                this.showShiftPhotoCompareAnimationTimelineNotice(validation.message, validation.unchanged ? 'saved' : 'error');
+                return;
+            }
+        }
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        entry.syncStepKey = nextKey;
+        if (entry.syncStepKey) entry.insertAfter = -1;
+        this.syncShiftPhotoCompareAnimationTimelineEntryDataset(entry);
+        this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
+        state.marks = page.marks.filter(item => item.order > 0);
+        state.steps = page.steps;
+        this.setShiftPhotoCompareAnimationTimelinePageSnapshot(state.index);
+        this.closeShiftPhotoCompareAnimationPhotoSyncMenu();
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
+        this.showShiftPhotoCompareAnimationTimelineNotice(entry.syncStepKey
+            ? '写真切替を選んだバッジと同時にしました。'
+            : '写真切替の同調を解除しました。', 'saved');
+    }
     openShiftPhotoCompareAnimationPageAudioMenu(event, entryId = '') {
         const state = this._shiftPhotoCompareAnimationState;
         const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
-        if (!state || !entry || state.videoRecording) return;
+        if (!state || !entry || entry.type === 'imagePage' || state.videoRecording) return;
+        this.closeShiftPhotoCompareAnimationPhotoSyncMenu();
         this.closeShiftPhotoCompareAnimationPageAudioMenu();
         this.prepareShiftPhotoCompareRecordedAudioContext();
         const menu = document.createElement('div');
@@ -12424,21 +13213,38 @@
             ? (entry.recordedAudioName || '音声ファイル')
             : 'その場で録音した音声';
         const audioSize = Math.max(0, Number(entry.recordedAudioSize) || 0);
-        const selectedAvatar = this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true);
+        const pageText = String(this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark)?.[entry.pageIndex]?.text || '').trim();
+        const pageKind = entry.type === 'boxedTextPage' ? '直線引き' : '吹き出し';
+        const selectedPageEntries = this.getSelectedShiftPhotoCompareAnimationTimelineItems().pageEntries;
+        const batchAvatarMode = selectedPageEntries.length > 1
+            && state.timelineSelectedItems?.has(`page:${entry.id}`);
+        const avatarValues = (batchAvatarMode ? selectedPageEntries : [entry])
+            .map(item => this.normalizeShiftPhotoCompareSpeechAvatarStyle(item.speechAvatarStyle, true));
+        const selectedAvatar = avatarValues.every(value => value === avatarValues[0]) ? avatarValues[0] : '__mixed__';
         const avatarOptions = this.getShiftPhotoCompareSpeechAvatarOptions();
+        const avatarAction = style => batchAvatarMode
+            ? `app.setSelectedShiftPhotoCompareAnimationPageAvatar('${style}')`
+            : `app.setShiftPhotoCompareAnimationPageAvatar('${this.escapeJs(entryId)}', '${style}')`;
         menu.className = 'shift-photo-compare-animation-page-audio-menu';
         menu.innerHTML = `
+            <section class="shift-photo-compare-animation-page-text-preview">
+                <header><i class="fa-solid fa-align-left"></i><strong>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P（${pageKind}）</strong></header>
+                <p class="${pageText ? '' : 'empty'}">${pageText ? this.escapeHtml(pageText) : 'テキストなし'}</p>
+            </section>
             <div class="shift-photo-compare-animation-page-avatar-picker">
-                <strong><i class="fa-solid fa-face-smile"></i> \u3053\u306e\u30bb\u30ea\u30d5\u3092\u8aad\u3080\u30a2\u30d0\u30bf\u30fc</strong>
+                <strong><i class="fa-solid fa-face-smile"></i> ${batchAvatarMode ? `選択中${selectedPageEntries.length}件へ一括設定` : 'このセリフを読むアバター'}</strong>
                 <div>
-                    <button type="button" class="${selectedAvatar ? '' : 'active'}" onclick="app.setShiftPhotoCompareAnimationPageAvatar('${this.escapeJs(entryId)}', '')" title="\u5168\u4f53\u306e\u30a2\u30d0\u30bf\u30fc\u8a2d\u5b9a\u3092\u4f7f\u7528"><i class="fa-solid fa-globe"></i><span>\u5168\u4f53</span></button>
-                    ${avatarOptions.map(option => { const image = this.getShiftPhotoCompareSpeechAvatarPaths(option.id)[0]; return `<button type="button" class="${selectedAvatar === option.id ? 'active' : ''}" onclick="app.setShiftPhotoCompareAnimationPageAvatar('${this.escapeJs(entryId)}', '${option.id}')" title="${this.escapeHtml(option.label)}"><img src="${this.escapeHtml(image)}" alt=""><span>${this.escapeHtml(option.label)}</span></button>`; }).join('')}
+                    <button type="button" class="${selectedAvatar ? '' : 'active'}" onclick="${avatarAction('')}" title="\u5168\u4f53\u306e\u30a2\u30d0\u30bf\u30fc\u8a2d\u5b9a\u3092\u4f7f\u7528"><i class="fa-solid fa-globe"></i><span>\u5168\u4f53</span></button>
+                    ${avatarOptions.map(option => { const image = this.getShiftPhotoCompareSpeechAvatarPaths(option.id)[0]; return `<button type="button" class="${selectedAvatar === option.id ? 'active' : ''}" onclick="${avatarAction(option.id)}" title="${this.escapeHtml(option.label)}"><img src="${this.escapeHtml(image)}" alt=""><span>${this.escapeHtml(option.label)}</span></button>`; }).join('')}
                 </div>
-            </div>            ${entry.recordedAudioKey ? `<div class="shift-photo-compare-animation-page-audio-info"><i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'}"></i><span><strong>${this.escapeHtml(audioName)}</strong><small>${this.formatShiftPhotoCompareRecordedAudioDuration(entry.recordedAudioDuration)} / <b data-page-audio-capacity>${audioSize ? this.formatShiftPhotoCompareAudioBytes(audioSize) : '容量を確認中'}</b></small></span></div>` : ''}
+            </div>
+            ${batchAvatarMode ? '' : `
+            ${entry.recordedAudioKey ? `<div class="shift-photo-compare-animation-page-audio-info"><i class="fa-solid ${entry.recordedAudioSource === 'file' ? 'fa-file-audio' : 'fa-microphone-lines'}"></i><span><strong>${this.escapeHtml(audioName)}</strong><small>${this.formatShiftPhotoCompareRecordedAudioDuration(entry.recordedAudioDuration)} / <b data-page-audio-capacity>${audioSize ? this.formatShiftPhotoCompareAudioBytes(audioSize) : '容量を確認中'}</b></small></span></div>` : ''}
             <button type="button" onclick="app.openShiftPhotoCompareAnimationPageRecordingDialog('${this.escapeJs(entryId)}')"><i class="fa-solid fa-microphone-lines"></i><span>${entry.recordedAudioKey ? 'その場で録り直す' : 'その場で録音'}</span></button>
             <button type="button" onclick="app.selectShiftPhotoCompareAnimationPageAudioFile('${this.escapeJs(entryId)}')"><i class="fa-solid fa-file-audio"></i><span>音声ファイルを使用</span></button>
             <button type="button" onclick="app.openShiftPhotoCompareAnimationAudioDatabase('${this.escapeJs(entryId)}')"><i class="fa-solid fa-database"></i><span>音声DBから登録</span></button>
             ${entry.recordedAudioKey ? `<button type="button" data-page-audio-preview-button disabled onclick="app.previewShiftPhotoCompareAnimationPageRecordingFromMenu(this, '${this.escapeJs(entryId)}')"><i class="fa-solid fa-spinner fa-spin"></i><span>音声を読み込み中</span></button><audio data-page-audio-preview preload="auto" hidden></audio><button type="button" class="danger" onclick="app.deleteShiftPhotoCompareAnimationPageRecording('${this.escapeJs(entryId)}')"><i class="fa-solid fa-trash"></i><span>設定中の音声を削除</span></button>` : ''}
+            `}
         `;
         state.overlay.appendChild(menu);
         if (entry.recordedAudioKey) {
@@ -13013,7 +13819,7 @@
     async openShiftPhotoCompareAnimationPageRecordingDialog(entryId = '') {
         const state = this._shiftPhotoCompareAnimationState;
         const entry = this.getShiftPhotoCompareAnimationTimelineEntry(entryId);
-        if (!state || !entry || state.videoRecording) return;
+        if (!state || !entry || entry.type === 'imagePage' || state.videoRecording) return;
         this.closeShiftPhotoCompareAnimationPageAudioMenu();
         this.closeShiftPhotoCompareAnimationPageRecordingDialog();
         const dialog = document.createElement('div');
@@ -13336,7 +14142,11 @@
 
     syncShiftPhotoCompareAnimationTimelineEntryDataset(entry) {
         const pages = this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark);
-        if (pages[entry.pageIndex]) pages[entry.pageIndex].animationInsertAfter = entry.insertAfter;
+        if (pages[entry.pageIndex]) {
+            pages[entry.pageIndex].animationInsertAfter = entry.insertAfter;
+            pages[entry.pageIndex].animationSyncStepKey = String(entry.syncStepKey || '');
+            pages[entry.pageIndex].speechAvatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true);
+        }
         entry.mark.dataset.pages = JSON.stringify(pages);
     }
 
@@ -13374,6 +14184,7 @@
                     ? (delta > 0 ? parentOrder : -1)
                     : Math.max(parentOrder, Math.min(maxOrder, entry.insertAfter + delta));
             }
+            entry.syncStepKey = '';
             this.syncShiftPhotoCompareAnimationTimelineEntryDataset(entry);
         });
         state.timelineSelectedItems = new Set([
@@ -13428,6 +14239,7 @@
         this.pushShiftPhotoCompareAnimationTimelineHistory();
         targets.forEach(entry => {
             entry.insertAfter = -1;
+            entry.syncStepKey = '';
             this.syncShiftPhotoCompareAnimationTimelineEntryDataset(entry);
         });
         this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
@@ -13446,7 +14258,10 @@
             item.mark.dataset.animationOrder = '0';
         });
         (page.timelineEntries || []).forEach(entry => {
-            if (selectedMarks.has(entry.item?.mark) || pageEntries.includes(entry)) entry.insertAfter = -1;
+            if (selectedMarks.has(entry.item?.mark) || pageEntries.includes(entry)) {
+                entry.insertAfter = -1;
+                entry.syncStepKey = '';
+            }
             this.syncShiftPhotoCompareAnimationTimelineEntryDataset(entry);
         });
         state.timelineSelectedItems = new Set();
@@ -13489,9 +14304,18 @@
                 .map(item => item.id)
             : [entry.id];
         state.overlay.classList.add('timeline-dragging', 'timeline-page-dragging');
+        if (state._timelineDragEntryIds.every(id => state.pages[state.pageIndex].timelineEntries
+            ?.find(item => item.id === id)?.type === 'imagePage')) {
+            state.overlay.classList.add('timeline-photo-sync-dragging');
+        }
         badge.classList.add('dragging');
-        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.effectAllowed = entry.type === 'imagePage' ? 'all' : 'move';
         event.dataTransfer.setData('text/plain', entry.id);
+        if (entry.type === 'imagePage') {
+            try {
+                event.dataTransfer.setData('application/x-shift-photo-sync', JSON.stringify(state._timelineDragEntryIds));
+            } catch (_) {}
+        }
     }
 
     startShiftPhotoCompareAnimationSymbolTimelineDrag(event, badge) {
@@ -13585,6 +14409,462 @@
         );
     }
 
+    getShiftPhotoCompareAnimationSyncLineMode() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const valid = new Set(['always', 'focus', 'hidden']);
+        if (valid.has(state?.syncLineDisplayMode)) return state.syncLineDisplayMode;
+        let saved = 'always';
+        try { saved = localStorage.getItem('shift-photo-animation-sync-line-mode') || 'always'; } catch (_) {}
+        if (!valid.has(saved)) saved = 'always';
+        if (state) state.syncLineDisplayMode = saved;
+        return saved;
+    }
+
+    getShiftPhotoCompareAnimationSyncLineControlsHtml() {
+        const mode = this.getShiftPhotoCompareAnimationSyncLineMode();
+        const button = (value, icon, label) => `<button type="button" class="${mode === value ? 'active' : ''}" onclick="app.setShiftPhotoCompareAnimationSyncLineMode('${value}')"><i class="fa-solid ${icon}"></i><span>${label}</span></button>`;
+        return `<div class="shift-photo-compare-animation-sync-line-controls"><strong><i class="fa-solid fa-share-nodes"></i> 同期線</strong><div class="shift-photo-compare-animation-sync-line-display" role="group" aria-label="同期線の表示">${button('always', 'fa-eye', '常時')}${button('focus', 'fa-arrow-pointer', '関連のみ')}${button('hidden', 'fa-eye-slash', '非表示')}</div><button type="button" class="shift-photo-compare-animation-sync-preview-btn" onclick="app.toggleShiftPhotoCompareAnimationSyncPreview()" title="同期している写真切替だけを順番に確認"><i class="fa-solid fa-images"></i><span>同期確認</span></button></div>`;
+    }
+
+    stopShiftPhotoCompareAnimationSyncPreview() {
+        const state = this._shiftPhotoCompareAnimationState;
+        if (!state) return;
+        clearTimeout(state.syncPreviewTimer);
+        state.syncPreviewTimer = null;
+        state.syncPreviewRunning = false;
+        state.syncPreviewPosition = -1;
+        state.overlay?.classList?.remove('sync-preview-running');
+        const button = state.overlay?.querySelector?.('.shift-photo-compare-animation-sync-preview-btn');
+        button?.classList?.remove('active');
+        button?.querySelector?.('i')?.classList?.replace('fa-stop', 'fa-images');
+        this.highlightShiftPhotoCompareAnimationSyncLines('');
+    }
+
+    toggleShiftPhotoCompareAnimationSyncPreview() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        if (!state || !page || state.videoRecording) return;
+        if (state.syncPreviewRunning) return this.stopShiftPhotoCompareAnimationSyncPreview();
+        const targets = (page.steps || []).map((step, index) => ({
+            index,
+            key: this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step),
+            entries: this.getShiftPhotoCompareAnimationStepSyncedPageEntries(step, page).filter(entry => entry.type === 'imagePage')
+        })).filter(item => item.key && item.entries.length);
+        if (!targets.length) {
+            this.showShiftPhotoCompareAnimationTimelineNotice('同期している写真がありません。', 'error');
+            return;
+        }
+        this.stopShiftPhotoCompareAnimationForTimelinePreview();
+        this.resetShiftPhotoCompareAnimation();
+        state.syncPreviewRunning = true;
+        state.syncPreviewPosition = -1;
+        state.overlay.classList.add('sync-preview-running');
+        const button = state.overlay.querySelector('.shift-photo-compare-animation-sync-preview-btn');
+        button?.classList?.add('active');
+        button?.querySelector?.('i')?.classList?.replace('fa-images', 'fa-stop');
+        const advance = () => {
+            if (this._shiftPhotoCompareAnimationState !== state || !state.syncPreviewRunning) return;
+            state.syncPreviewPosition += 1;
+            if (state.syncPreviewPosition >= targets.length) {
+                this.stopShiftPhotoCompareAnimationSyncPreview();
+                this.showShiftPhotoCompareAnimationTimelineNotice('同期確認が完了しました。', 'saved');
+                return;
+            }
+            const target = targets[state.syncPreviewPosition];
+            state.index = target.index;
+            this.setShiftPhotoCompareAnimationTimelinePageSnapshot(target.index);
+            this.updateShiftPhotoCompareAnimationCounter();
+            this.updateShiftPhotoCompareAnimationTimelineActive();
+            this.highlightShiftPhotoCompareAnimationSyncLines(target.key);
+            state.syncPreviewTimer = setTimeout(advance, Math.max(650, Number(state.speedMs) || 850));
+        };
+        advance();
+    }
+
+    setShiftPhotoCompareAnimationSyncLineMode(mode = 'always') {
+        const state = this._shiftPhotoCompareAnimationState;
+        if (!state) return;
+        state.syncLineDisplayMode = ['focus', 'hidden'].includes(mode) ? mode : 'always';
+        try { localStorage.setItem('shift-photo-animation-sync-line-mode', state.syncLineDisplayMode); } catch (_) {}
+        const controls = state.overlay?.querySelector?.('.shift-photo-compare-animation-sync-line-controls');
+        controls?.querySelectorAll?.('button')?.forEach(button => button.classList.toggle('active', button.getAttribute('onclick')?.includes(`'${state.syncLineDisplayMode}'`)));
+        this.renderShiftPhotoCompareAnimationSyncLines();
+    }
+
+    highlightShiftPhotoCompareAnimationSyncLines(key = '') {
+        const lanes = this._shiftPhotoCompareAnimationState?.overlay?.querySelector?.('.shift-photo-compare-animation-timeline-lanes');
+        if (!lanes) return;
+        lanes.dataset.activeSyncKey = String(key || '');
+        lanes.querySelectorAll('[data-sync-line-key]').forEach(node => {
+            const related = !!key && node.dataset.syncLineKey === key;
+            node.classList.toggle('related', related);
+            node.classList.toggle('unrelated', !!key && !related);
+        });
+        lanes.querySelectorAll('.shift-photo-compare-animation-timeline-node[data-photo-sync-key], .shift-photo-compare-animation-timeline-node[data-photo-sync-target-key]').forEach(node => {
+            const nodeKey = node.dataset.photoSyncKey || node.dataset.photoSyncTargetKey || '';
+            node.classList.toggle('sync-related', !!key && nodeKey === key);
+            node.classList.toggle('sync-unrelated', !!key && nodeKey !== key);
+        });
+    }
+    renderShiftPhotoCompareAnimationSyncLines() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const lanes = state?.overlay?.querySelector?.('.shift-photo-compare-animation-timeline-lanes');
+        if (!lanes) return;
+        lanes.querySelector(':scope > .shift-photo-compare-animation-sync-lines')?.remove();
+        lanes.querySelectorAll('.shift-photo-compare-animation-timeline-node.sync-color-linked').forEach(node => {
+            node.classList.remove('sync-color-linked');
+            node.style.removeProperty('--sync-line-color');
+        });
+        const mode = this.getShiftPhotoCompareAnimationSyncLineMode();
+        lanes.dataset.syncLineMode = mode;
+        this.highlightShiftPhotoCompareAnimationSyncLines('');
+        if (mode === 'hidden') return;
+        const sources = Array.from(lanes.querySelectorAll('.shift-photo-compare-animation-timeline-node[data-timeline-mode="imagePage"][data-photo-sync-key]')).filter(node => node.dataset.photoSyncKey);
+        if (!sources.length) return;
+        const targets = Array.from(lanes.querySelectorAll('.shift-photo-compare-animation-timeline-node[data-photo-sync-target-key]'));
+        const nodes = Array.from(lanes.querySelectorAll('.shift-photo-compare-animation-timeline-node'));
+        const width = Math.max(lanes.scrollWidth, lanes.clientWidth, 1);
+        const height = Math.max(lanes.scrollHeight, lanes.clientHeight, 1);
+        const lanesRect = lanes.getBoundingClientRect();
+        const toLocalRect = node => {
+            const rect = node.getBoundingClientRect();
+            return { left: rect.left - lanesRect.left, right: rect.right - lanesRect.left, top: rect.top - lanesRect.top, bottom: rect.bottom - lanesRect.top, width: rect.width, height: rect.height };
+        };
+        const obstacles = nodes.map(node => ({ node, rect: toLocalRect(node) }));
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.classList.add('shift-photo-compare-animation-sync-lines');
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.setAttribute('width', String(width));
+        svg.setAttribute('height', String(height));
+        const palettes = ['#c084fc', '#22d3ee', '#34d399', '#fbbf24', '#fb7185', '#60a5fa'];
+        const usedSegments = [];
+        const overlapLength = (left, right) => Math.max(0, Math.min(left.b, right.b) - Math.max(left.a, right.a));
+        const intersects = (left, right) => {
+            const horizontal = left.orientation === 'h' ? left : right.orientation === 'h' ? right : null;
+            const vertical = left.orientation === 'v' ? left : right.orientation === 'v' ? right : null;
+            return !!horizontal && !!vertical && vertical.fixed >= horizontal.a && vertical.fixed <= horizontal.b && horizontal.fixed >= vertical.a && horizontal.fixed <= vertical.b;
+        };
+        const scoreRoute = (segments, ignoredNodes = []) => {
+            let score = 0;
+            segments.forEach(segment => {
+                usedSegments.forEach(used => {
+                    if (segment.orientation === used.orientation) {
+                        const overlap = overlapLength(segment, used);
+                        const distance = Math.abs(segment.fixed - used.fixed);
+                        if (overlap > 0 && distance < 4) score += 280 + overlap;
+                        else if (overlap > 0 && distance < 10) score += 32;
+                    } else if (intersects(segment, used)) score += 95;
+                });
+                obstacles.forEach(obstacle => {
+                    if (ignoredNodes.includes(obstacle.node)) return;
+                    const rect = obstacle.rect;
+                    if (segment.orientation === 'v' && segment.fixed >= rect.left - 3 && segment.fixed <= rect.right + 3 && segment.b >= rect.top && segment.a <= rect.bottom) score += 460;
+                    if (segment.orientation === 'h' && segment.fixed >= rect.top - 3 && segment.fixed <= rect.bottom + 3 && segment.b >= rect.left && segment.a <= rect.right) score += 460;
+                });
+            });
+            return score;
+        };
+        const groups = new Map();
+        sources.forEach(source => {
+            const key = source.dataset.photoSyncKey;
+            const target = targets.find(node => node.dataset.photoSyncTargetKey === key);
+            if (!target) return;
+            if (!groups.has(key)) groups.set(key, { key, target, sources: [] });
+            groups.get(key).sources.push(source);
+        });
+        const setLineIdentity = (node, key, color, interactive = node.tagName.toLowerCase() !== 'text') => {
+            node.dataset.syncLineKey = key;
+            node.style.setProperty('--sync-line-color', color);
+            if (interactive) {
+                node.setAttribute('tabindex', '0');
+                node.setAttribute('role', 'button');
+                node.setAttribute('aria-label', '同期設定を編集');
+                node.addEventListener('click', event => this.openShiftPhotoCompareAnimationSyncLineMenu(event, key));
+                node.addEventListener('keydown', event => {
+                    if (!['Enter', ' '].includes(event.key)) return;
+                    event.preventDefault();
+                    this.openShiftPhotoCompareAnimationSyncLineMenu(event, key);
+                });
+            }
+        };
+        [...groups.values()].sort((left, right) => toLocalRect(left.target).top - toLocalRect(right.target).top).forEach((group, groupIndex) => {
+            const sourceRects = group.sources.map(source => ({ source, rect: toLocalRect(source) }));
+            const targetRect = toLocalRect(group.target);
+            const averageSourceX = sourceRects.reduce((sum, item) => sum + item.rect.left + item.rect.width / 2, 0) / sourceRects.length;
+            const targetCenterX = targetRect.left + targetRect.width / 2;
+            const towardLeft = targetCenterX < averageSourceX;
+            const x2 = towardLeft ? targetRect.right : targetRect.left;
+            const y2 = targetRect.top + targetRect.height / 2;
+            const branches = sourceRects.map(item => ({
+                source: item.source,
+                x1: towardLeft ? item.rect.left : item.rect.right,
+                y1: item.rect.top + item.rect.height / 2
+            }));
+            const allX = branches.map(branch => branch.x1).concat(x2);
+            const lowX = Math.min(...allX);
+            const highX = Math.max(...allX);
+            const candidates = [];
+            if (highX - lowX > 24) for (let part = 1; part <= 7; part += 1) candidates.push(lowX + (highX - lowX) * part / 8);
+            const centerGutter = width / 2;
+            for (let offset = -5; offset <= 5; offset += 1) candidates.push(centerGutter + offset * 7);
+            for (let offset = 1; offset <= 5; offset += 1) {
+                candidates.push(Math.max(5, lowX - offset * 7));
+                candidates.push(Math.min(width - 5, highX + offset * 7));
+            }
+            const uniqueCandidates = [...new Set(candidates.map(value => Math.max(5, Math.min(width - 5, Math.round(value)))))];
+            let best = null;
+            uniqueCandidates.forEach(trackX => {
+                const verticalValues = branches.map(branch => branch.y1).concat(y2);
+                const minY = Math.min(...verticalValues);
+                const maxY = Math.max(...verticalValues);
+                const segments = [
+                    ...branches.map(branch => ({ orientation: 'h', fixed: branch.y1, a: Math.min(branch.x1, trackX), b: Math.max(branch.x1, trackX) })),
+                    { orientation: 'v', fixed: trackX, a: minY, b: maxY },
+                    { orientation: 'h', fixed: y2, a: Math.min(trackX, x2), b: Math.max(trackX, x2) }
+                ];
+                const score = scoreRoute(segments, [...group.sources, group.target]) + Math.abs(trackX - (averageSourceX + targetCenterX) / 2) * 0.03;
+                if (!best || score < best.score) best = { trackX, minY, maxY, segments, score };
+            });
+            if (!best) return;
+            usedSegments.push(...best.segments);
+            const color = palettes[groupIndex % palettes.length];
+            group.sources.forEach(source => {
+                source.classList.add('sync-color-linked');
+                source.style.setProperty('--sync-line-color', color);
+            });
+            const trunk = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            trunk.setAttribute('d', `M ${best.trackX} ${best.minY} V ${best.maxY} M ${best.trackX} ${y2} H ${x2}`);
+            trunk.classList.add('sync-trunk');
+            setLineIdentity(trunk, group.key, color, false);
+            svg.appendChild(trunk);
+            const trunkHit = trunk.cloneNode(false);
+            trunkHit.classList.remove('sync-trunk');
+            trunkHit.classList.add('sync-hit-path');
+            setLineIdentity(trunkHit, group.key, color, true);
+            svg.appendChild(trunkHit);
+            branches.forEach((branch, branchIndex) => {
+                const branchPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                branchPath.setAttribute('d', `M ${branch.x1} ${branch.y1} H ${best.trackX}`);
+                branchPath.classList.add('sync-branch');
+                setLineIdentity(branchPath, group.key, color, false);
+                svg.appendChild(branchPath);
+                const branchHit = branchPath.cloneNode(false);
+                branchHit.classList.remove('sync-branch');
+                branchHit.classList.add('sync-hit-path');
+                setLineIdentity(branchHit, group.key, color, true);
+                svg.appendChild(branchHit);
+                const entryId = branch.source.dataset.timelineEntryId || '';
+                const entry = (page?.timelineEntries || []).find(item => String(item.id) === entryId);
+                const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                label.textContent = `${entry?.pageNumber || branchIndex + 1}P`;
+                label.setAttribute('x', String((branch.x1 + best.trackX) / 2));
+                label.setAttribute('y', String(branch.y1 - 4));
+                label.setAttribute('text-anchor', 'middle');
+                setLineIdentity(label, group.key, color);
+                svg.appendChild(label);
+                const sourceDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                sourceDot.setAttribute('cx', String(branch.x1));
+                sourceDot.setAttribute('cy', String(branch.y1));
+                sourceDot.setAttribute('r', '2.8');
+                setLineIdentity(sourceDot, group.key, color);
+                svg.appendChild(sourceDot);
+            });
+            const targetDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            targetDot.setAttribute('cx', String(x2));
+            targetDot.setAttribute('cy', String(y2));
+            targetDot.setAttribute('r', '3');
+            setLineIdentity(targetDot, group.key, color);
+            svg.appendChild(targetDot);
+            [...group.sources, group.target].forEach(node => {
+                node.onmouseenter = () => this.highlightShiftPhotoCompareAnimationSyncLines(group.key);
+                node.onmouseleave = () => this.highlightShiftPhotoCompareAnimationSyncLines('');
+                node.onfocusin = () => this.highlightShiftPhotoCompareAnimationSyncLines(group.key);
+                node.onfocusout = () => this.highlightShiftPhotoCompareAnimationSyncLines('');
+            });
+        });
+        if (svg.childElementCount) lanes.prepend(svg);
+        this.highlightShiftPhotoCompareAnimationSyncLines('');
+    }
+    openShiftPhotoCompareAnimationSyncLineMenu(event, syncStepKey = '') {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const key = String(syncStepKey || '');
+        const entries = (page?.timelineEntries || []).filter(entry => entry.type === 'imagePage' && String(entry.syncStepKey || '') === key);
+        if (!state || !page || !key || !entries.length || state.videoRecording) return;
+        this.closeShiftPhotoCompareAnimationPageAudioMenu();
+        this.closeShiftPhotoCompareAnimationPhotoSyncMenu();
+        const target = this.getShiftPhotoCompareAnimationPhotoSyncTargetStep(entries[0], page);
+        const targets = this.getShiftPhotoCompareAnimationPhotoSyncTargets(page, entries[0]);
+        const menu = document.createElement('div');
+        menu.className = 'shift-photo-compare-animation-photo-sync-menu sync-line-editor';
+        menu.innerHTML = `<header><strong><i class="fa-solid fa-share-nodes"></i> 同期グループ</strong><span>${entries.length}枚</span></header><p>${target.step ? this.escapeHtml(`駅${target.index + 1} ${this.getShiftPhotoCompareAnimationPhotoSyncTargetLabel(target.step)}`) : '同期先が見つかりません'}</p><div class="shift-photo-compare-animation-sync-line-photo-list">${entries.map(entry => `<span>${this.getShiftPhotoCompareAnimationPhotoThumbnailHtml(entry, true)}<b>${this.escapeHtml(entry.sourceLabel)}・${entry.pageNumber}P</b></span>`).join('')}</div><div class="shift-photo-compare-animation-photo-sync-list"></div>`;
+        const list = menu.querySelector('.shift-photo-compare-animation-photo-sync-list');
+        const addTarget = (nextKey, label, icon) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.classList.toggle('active', nextKey === key);
+            button.innerHTML = `<i class="fa-solid ${icon}"></i><span></span>${nextKey === key ? '<i class="fa-solid fa-check"></i>' : ''}`;
+            button.querySelector('span').textContent = label;
+            button.addEventListener('click', () => this.setShiftPhotoCompareAnimationPhotoSyncGroup(key, nextKey));
+            list.appendChild(button);
+        };
+        addTarget('', 'このグループの同期を解除', 'fa-link-slash');
+        targets.forEach(item => addTarget(item.key, item.label, 'fa-link'));
+        state.overlay.appendChild(menu);
+        const rect = menu.getBoundingClientRect();
+        menu.style.left = `${Math.max(8, Math.min(Number(event?.clientX) || window.innerWidth / 2, window.innerWidth - rect.width - 8))}px`;
+        menu.style.top = `${Math.max(8, Math.min(Number(event?.clientY) || window.innerHeight / 2, window.innerHeight - rect.height - 8))}px`;
+        const close = closeEvent => {
+            if (!menu.contains(closeEvent.target)) this.closeShiftPhotoCompareAnimationPhotoSyncMenu();
+        };
+        setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
+        this._shiftPhotoCompareAnimationPhotoSyncMenuCleanup = () => document.removeEventListener('pointerdown', close, true);
+    }
+
+    setShiftPhotoCompareAnimationPhotoSyncGroup(currentKey = '', nextKey = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const entries = (page?.timelineEntries || []).filter(entry => entry.type === 'imagePage' && String(entry.syncStepKey || '') === String(currentKey || ''));
+        if (!state || !page || !entries.length || String(currentKey || '') === String(nextKey || '')) return;
+        const targetStep = (page.steps || []).find(step => this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step) === String(nextKey || ''));
+        if (nextKey) {
+            const validation = this.validateShiftPhotoCompareAnimationPhotoSync(entries, nextKey, targetStep, page);
+            if (!validation.ok && !validation.unchanged) {
+                this.closeShiftPhotoCompareAnimationPhotoSyncMenu();
+                this.showShiftPhotoCompareAnimationTimelineNotice(validation.message, 'error');
+                return;
+            }
+        }
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        entries.forEach(entry => {
+            entry.syncStepKey = String(nextKey || '');
+            if (entry.syncStepKey) entry.insertAfter = -1;
+            this.syncShiftPhotoCompareAnimationTimelineEntryDataset(entry);
+        });
+        this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
+        state.marks = page.marks.filter(item => item.order > 0);
+        state.steps = page.steps;
+        this.setShiftPhotoCompareAnimationTimelinePageSnapshot(state.index);
+        this.closeShiftPhotoCompareAnimationPhotoSyncMenu();
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
+        this.showShiftPhotoCompareAnimationTimelineNotice(nextKey ? `${entries.length}枚の同期先を変更しました。` : `${entries.length}枚の同期を解除しました。`, 'saved');
+    }
+    showShiftPhotoCompareAnimationPhotoSyncDropPreview(event, entries = [], step = null, allowed = true) {
+        const state = this._shiftPhotoCompareAnimationState;
+        if (!state?.overlay) return;
+        let preview = state.overlay.querySelector('.shift-photo-compare-animation-photo-drop-preview');
+        if (!preview) {
+            preview = document.createElement('div');
+            preview.className = 'shift-photo-compare-animation-photo-drop-preview';
+            state.overlay.appendChild(preview);
+        }
+        const photos = entries.slice(0, 2).map(entry => `${entry.sourceLabel}・${entry.pageNumber}P`).join('、');
+        const extra = entries.length > 2 ? `ほか${entries.length - 2}枚` : '';
+        const target = this.getShiftPhotoCompareAnimationPhotoSyncTargetLabel(step);
+        preview.classList.toggle('blocked', !allowed);
+        preview.innerHTML = `<i class="fa-solid ${allowed ? 'fa-link' : 'fa-triangle-exclamation'}"></i><span>${this.escapeHtml(photos + extra)}</span><i class="fa-solid fa-arrow-right"></i><strong>${this.escapeHtml(target)}</strong>`;
+        preview.style.left = `${Math.max(8, Math.min(window.innerWidth - 300, (Number(event?.clientX) || 0) + 14))}px`;
+        preview.style.top = `${Math.max(8, Math.min(window.innerHeight - 54, (Number(event?.clientY) || 0) + 14))}px`;
+    }
+
+    hideShiftPhotoCompareAnimationPhotoSyncDropPreview() {
+        this._shiftPhotoCompareAnimationState?.overlay?.querySelector?.('.shift-photo-compare-animation-photo-drop-preview')?.remove();
+    }
+
+    validateShiftPhotoCompareAnimationPhotoSync(entries = [], key = '', step = null, page = null) {
+        if (!key || !entries.length) return { ok: false, message: '同期先を確認できませんでした。' };
+        if (step?.type === 'page' && step.pageEntry?.type === 'imagePage') return { ok: false, message: '写真同士は同期先にできません。記号またはテキストを選んでください。' };
+        if (entries.every(entry => String(entry.syncStepKey || '') === key)) return { ok: false, unchanged: true, message: 'この写真はすでに選んだバッジと同調しています。' };
+        const activePage = page || this._shiftPhotoCompareAnimationState?.pages?.[this._shiftPhotoCompareAnimationState?.pageIndex];
+        const draggedIds = new Set(entries.map(entry => String(entry.id)));
+        const duplicate = entries.find(entry => (activePage?.timelineEntries || []).some(candidate => candidate.type === 'imagePage' && !draggedIds.has(String(candidate.id)) && String(candidate.syncStepKey || '') === key && candidate.mark === entry.mark && Number(candidate.pageIndex) === Number(entry.pageIndex)));
+        if (duplicate) return { ok: false, message: `${duplicate.sourceLabel}・${duplicate.pageNumber}Pは同じ同期先へ登録済みです。` };
+        return { ok: true, message: '' };
+    }
+    getShiftPhotoCompareAnimationDraggedPhotoEntries(event = null) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const pageEntries = state?.pages?.[state.pageIndex]?.timelineEntries || [];
+        let entries = this.getShiftPhotoCompareAnimationTimelineDraggedEntries()
+            .filter(entry => entry.type === 'imagePage');
+        if (entries.length || !event?.dataTransfer) return entries;
+        let ids = [];
+        try {
+            ids = JSON.parse(event.dataTransfer.getData('application/x-shift-photo-sync') || '[]');
+        } catch (_) {}
+        if (!Array.isArray(ids) || !ids.length) {
+            const plainId = String(event.dataTransfer.getData('text/plain') || '');
+            ids = plainId ? [plainId] : [];
+        }
+        const idSet = new Set(ids.map(String));
+        return pageEntries.filter(entry => entry.type === 'imagePage' && idSet.has(String(entry.id)));
+    }
+
+    dragOverShiftPhotoCompareAnimationPhotoSyncTarget(event, stepIndex = -1, targetEntryId = '') {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const entries = this.getShiftPhotoCompareAnimationDraggedPhotoEntries(event);
+        if (state?._timelineDragType !== 'page' || !page || !entries.length) return;
+        const targetEntry = targetEntryId ? this.getShiftPhotoCompareAnimationTimelineEntry(targetEntryId) : null;
+        const step = targetEntry ? { type: 'page', pageEntry: targetEntry } : page.steps?.[Math.max(0, Number(stepIndex) || 0)];
+        const key = this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step);
+        const validation = this.validateShiftPhotoCompareAnimationPhotoSync(entries, key, step, page);
+        const allowed = validation.ok || validation.unchanged;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = allowed ? 'copy' : 'none';
+        const target = event.currentTarget.matches?.('.shift-photo-compare-animation-symbol-badge, .shift-photo-compare-animation-timeline-badge')
+            ? event.currentTarget
+            : event.currentTarget.querySelector?.('.shift-photo-compare-animation-symbol-badge, .shift-photo-compare-animation-timeline-badge');
+        target?.classList.toggle('photo-sync-drop-target', allowed);
+        target?.classList.toggle('drop-blocked', !allowed);
+        this.showShiftPhotoCompareAnimationPhotoSyncDropPreview(event, entries, step, allowed);
+    }
+
+    leaveShiftPhotoCompareAnimationPhotoSyncTarget(event) {
+        const target = event?.currentTarget?.matches?.('.shift-photo-compare-animation-symbol-badge, .shift-photo-compare-animation-timeline-badge')
+            ? event.currentTarget
+            : event?.currentTarget?.querySelector?.('.shift-photo-compare-animation-symbol-badge, .shift-photo-compare-animation-timeline-badge');
+        target?.classList?.remove('photo-sync-drop-target', 'drop-blocked');
+        this.hideShiftPhotoCompareAnimationPhotoSyncDropPreview();
+    }
+
+    dropShiftPhotoCompareAnimationPhotoSyncTarget(event, stepIndex = -1, targetEntryId = '') {
+        event.preventDefault();
+        event.stopPropagation();
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        const entries = this.getShiftPhotoCompareAnimationDraggedPhotoEntries(event);
+        const targetEntry = targetEntryId ? this.getShiftPhotoCompareAnimationTimelineEntry(targetEntryId) : null;
+        const step = targetEntry ? { type: 'page', pageEntry: targetEntry } : page?.steps?.[Math.max(0, Number(stepIndex) || 0)];
+        const key = this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step);
+        if (!state || !page || !key || !entries.length) return this.endShiftPhotoCompareAnimationTimelineDrag();
+        const validation = this.validateShiftPhotoCompareAnimationPhotoSync(entries, key, step, page);
+        if (!validation.ok) {
+            this.showShiftPhotoCompareAnimationTimelineNotice(validation.message, validation.unchanged ? 'saved' : 'error');
+            return this.endShiftPhotoCompareAnimationTimelineDrag();
+        }
+        const changedCount = entries.filter(entry => entry.syncStepKey && entry.syncStepKey !== key).length;
+        this.pushShiftPhotoCompareAnimationTimelineHistory();
+        entries.forEach(entry => {
+            entry.syncStepKey = key;
+            entry.insertAfter = -1;
+            this.syncShiftPhotoCompareAnimationTimelineEntryDataset(entry);
+        });
+        this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
+        state.marks = page.marks.filter(item => item.order > 0);
+        state.steps = page.steps;
+        this.setShiftPhotoCompareAnimationTimelinePageSnapshot(state.index);
+        this.endShiftPhotoCompareAnimationTimelineDrag();
+        this.renderShiftPhotoCompareAnimationTimeline();
+        this.setShiftPhotoCompareAnimationTimelineDirty(true);
+        this.showShiftPhotoCompareAnimationTimelineNotice(changedCount
+            ? `${changedCount}枚の写真の同調先を変更しました。`
+            : (entries.length > 1 ? `${entries.length}枚の写真を選んだバッジと同調しました。` : '写真を選んだバッジと同調しました。'), 'saved');
+    }
     leaveShiftPhotoCompareAnimationTimelineDrop(event) {
         event?.currentTarget?.classList?.remove('drop-allowed', 'drop-blocked', 'drop-preview');
         event?.currentTarget?.removeAttribute?.('data-drop-preview');
@@ -13698,10 +14978,11 @@
         state._timelineDragSymbolOrders = [];
         state._timelineDragActionId = '';
         state._timelineSuppressClickUntil = Date.now() + 180;
-        state.overlay?.classList?.remove('timeline-dragging', 'timeline-page-dragging', 'timeline-symbol-dragging', 'timeline-action-dragging');
-        state.overlay?.querySelectorAll?.('.dragging, .drop-allowed, .drop-blocked, .drop-preview')
+        this.hideShiftPhotoCompareAnimationPhotoSyncDropPreview();
+        state.overlay?.classList?.remove('timeline-dragging', 'timeline-page-dragging', 'timeline-photo-sync-dragging', 'timeline-symbol-dragging', 'timeline-action-dragging');
+        state.overlay?.querySelectorAll?.('.dragging, .drop-allowed, .drop-blocked, .drop-preview, .photo-sync-drop-target')
             ?.forEach(node => {
-                node.classList.remove('dragging', 'drop-allowed', 'drop-blocked', 'drop-preview');
+                node.classList.remove('dragging', 'drop-allowed', 'drop-blocked', 'drop-preview', 'photo-sync-drop-target');
                 node.removeAttribute('data-drop-preview');
             });
     }
@@ -13713,8 +14994,13 @@
         const changed = this.applyShiftPhotoCompareMarkPage(entry.mark, entry.pageIndex, {
             skipPersist: true,
             preserveRegionLayout: true,
-            contentOnly: true
+            contentOnly: true,
+            animate: entry.mark.dataset.mode === 'image'
         });
+        if (entry.type === 'imagePage' && this.isShiftPhotoCompareAnimationSyncControlledPhoto(entry.mark)) {
+            entry.mark.classList.remove('shift-photo-compare-animation-hidden');
+            entry.mark.classList.add('shift-photo-compare-animation-visible');
+        }
         if (changed) this.updateShiftPhotoCompareAnimationLastPageLabel(entry.mark, entry.pageIndex, pages.length);
         return changed;
     }
@@ -13724,9 +15010,17 @@
         const page = state?.pages?.[state.pageIndex];
         if (!page) return;
         const targetPages = new Map();
+        const reachedPhotoMarks = new Set();
         (page.timelineEntries || []).forEach(entry => targetPages.set(entry.mark, 0));
         (page.steps || []).slice(0, Math.max(0, stepIndex + 1)).forEach(step => {
-            if (step.type === 'page' && step.pageEntry) targetPages.set(step.pageEntry.mark, step.pageEntry.pageIndex);
+            if (step.type === 'page' && step.pageEntry) {
+                targetPages.set(step.pageEntry.mark, step.pageEntry.pageIndex);
+                if (step.pageEntry.type === 'imagePage') reachedPhotoMarks.add(step.pageEntry.mark);
+            }
+            this.getShiftPhotoCompareAnimationStepSyncedPageEntries(step, page).forEach(entry => {
+                targetPages.set(entry.mark, entry.pageIndex);
+                if (entry.type === 'imagePage') reachedPhotoMarks.add(entry.mark);
+            });
         });
         targetPages.forEach((pageIndex, mark) => {
             const pages = this.getShiftPhotoCompareMarkPagesFromDataset(mark);
@@ -13736,6 +15030,14 @@
                 contentOnly: true
             });
             this.updateShiftPhotoCompareAnimationLastPageLabel(mark, pageIndex, pages.length);
+        });
+        const controlledPhotoMarks = new Set((page.timelineEntries || [])
+            .filter(entry => entry.type === 'imagePage' && entry.syncStepKey)
+            .map(entry => entry.mark));
+        controlledPhotoMarks.forEach(mark => {
+            const visible = reachedPhotoMarks.has(mark);
+            mark.classList.toggle('shift-photo-compare-animation-hidden', !visible);
+            mark.classList.toggle('shift-photo-compare-animation-visible', visible);
         });
         this.updateShiftPhotoCompareAnimationTimelineActive();
     }
@@ -13779,6 +15081,8 @@
             colors: new Map((page?.allItems || page?.marks || []).map(item => [item, String(item.mark?.dataset?.color || '#dc2626')])),
             holdTimes: new Map((page?.allItems || page?.marks || []).map(item => [item, Math.max(0, Math.round(Number(item.mark?.dataset?.animationHoldMs) || 0))])),
             inserts: new Map((page?.timelineEntries || []).map(entry => [entry, entry.insertAfter])),
+            syncs: new Map((page?.timelineEntries || []).map(entry => [entry, String(entry.syncStepKey || '')])),
+            avatars: new Map((page?.timelineEntries || []).map(entry => [entry, this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true)])),
             actions: this.getShiftPhotoCompareAnimationTimelineActions(page?.row, page?.storageKey)
         };
     }
@@ -13821,8 +15125,11 @@
             this.saveShiftPhotoCompareAnimationTimelineActions(page.row, snapshot.actions || [], page.storageKey);
             snapshot.inserts.forEach((insertAfter, entry) => {
                 entry.insertAfter = insertAfter;
+                entry.syncStepKey = String(snapshot.syncs?.get(entry) || '');
+                entry.speechAvatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(snapshot.avatars?.get(entry), true);
                 const pages = this.getShiftPhotoCompareMarkPagesFromDataset(entry.mark);
                 if (pages[entry.pageIndex]) pages[entry.pageIndex].animationInsertAfter = insertAfter;
+                if (pages[entry.pageIndex]) pages[entry.pageIndex].animationSyncStepKey = entry.syncStepKey;
                 entry.mark.dataset.pages = JSON.stringify(pages);
             });
             this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
@@ -13966,7 +15273,9 @@
             const colorChanged = (page.allItems || page.marks || []).some(item => snapshot.colors?.get(item) !== String(item.mark?.dataset?.color || '#dc2626'));
             const holdChanged = (page.allItems || page.marks || []).some(item => snapshot.holdTimes?.get(item) !== Math.max(0, Math.round(Number(item.mark?.dataset?.animationHoldMs) || 0)));
             const insertChanged = (page.timelineEntries || []).some(entry => snapshot.inserts.get(entry) !== entry.insertAfter);
-            return orderChanged || nameChanged || colorChanged || holdChanged || insertChanged;
+            const syncChanged = (page.timelineEntries || []).some(entry => (snapshot.syncs?.get(entry) || '') !== String(entry.syncStepKey || ''));
+            const avatarChanged = (page.timelineEntries || []).some(entry => this.normalizeShiftPhotoCompareSpeechAvatarStyle(snapshot.avatars?.get(entry), true) !== this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true));
+            return orderChanged || nameChanged || colorChanged || holdChanged || insertChanged || syncChanged || avatarChanged;
         });
     }
 
@@ -14072,7 +15381,9 @@
                 else failedCount += 1;
             });
             (page.timelineEntries || [])
-                .filter(entry => snapshot?.inserts?.get(entry) !== entry.insertAfter)
+                .filter(entry => snapshot?.inserts?.get(entry) !== entry.insertAfter
+                    || (snapshot?.syncs?.get(entry) || '') !== String(entry.syncStepKey || '')
+                    || this.normalizeShiftPhotoCompareSpeechAvatarStyle(snapshot?.avatars?.get(entry), true) !== this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true))
                 .forEach(entry => {
                 if (this.persistShiftPhotoCompareAnimationTimelinePage(entry, page, { autoSave: false })) savedCount += 1;
                 else failedCount += 1;
@@ -14122,7 +15433,11 @@
     }
     rebuildShiftPhotoCompareAnimationTimelinePage(page) {
         if (!page) return;
-        if (page.allItems) page.marks = page.allItems.filter(item => item.order > 0).sort((left, right) => left.order - right.order || left.index - right.index);
+        if (page.allItems) {
+            page.marks = page.allItems
+                .filter(item => item.order > 0 && !this.isShiftPhotoCompareAnimationSyncControlledPhoto(item))
+                .sort((left, right) => left.order - right.order || left.index - right.index);
+        }
         page.baseSteps = this.buildShiftPhotoCompareAnimationBaseSteps(page.marks || []);
         page.steps = this.mergeShiftPhotoCompareAnimationTimelineSteps(page.baseSteps, page.timelineEntries || [], this.getShiftPhotoCompareAnimationTimelineActions(page.row, page.storageKey), page.allItems || []);
     }
@@ -14257,6 +15572,8 @@
             const pages = this.getShiftPhotoCompareMarkPagesFromDataset(sourceDomMark);
             if (!pages[entry.pageIndex]) return false;
             pages[entry.pageIndex].animationInsertAfter = entry.insertAfter;
+            pages[entry.pageIndex].animationSyncStepKey = String(entry.syncStepKey || '');
+            pages[entry.pageIndex].speechAvatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true);
             sourceDomMark.dataset.pages = JSON.stringify(pages);
             this.syncShiftPhotoCompareChangedMarkWraps([sourceDomMark]);
             return true;
@@ -14281,6 +15598,8 @@
         const pages = this.normalizeShiftPhotoCompareMarkPages(sourceMark);
         if (!pages[entry.pageIndex]) return false;
         pages[entry.pageIndex].animationInsertAfter = entry.insertAfter;
+        pages[entry.pageIndex].animationSyncStepKey = String(entry.syncStepKey || '');
+        pages[entry.pageIndex].speechAvatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(entry.speechAvatarStyle, true);
         sourceMark.pages = pages;
         save?.(marks);
         if (options.autoSave !== false) this.autoSaveShiftNotebook?.(true);
@@ -14302,11 +15621,12 @@
             return;
         }
         const nextInsertAfter = Math.max(-1, Math.min(999, Math.round(Number(insertAfter))));
-        const changedTargets = targets.filter(entry => entry.insertAfter !== nextInsertAfter);
+        const changedTargets = targets.filter(entry => entry.insertAfter !== nextInsertAfter || entry.syncStepKey);
         if (!changedTargets.length) return;
         this.pushShiftPhotoCompareAnimationTimelineHistory();
         changedTargets.forEach(entry => {
             entry.insertAfter = nextInsertAfter;
+            entry.syncStepKey = '';
             this.syncShiftPhotoCompareAnimationTimelineEntryDataset(entry);
         });
         this.rebuildShiftPhotoCompareAnimationTimelinePage(page);
@@ -14443,12 +15763,15 @@
         const motionSpeed = this.getShiftPhotoCompareAnimationMotionSpeed();
         const speechSettings = this.getShiftPhotoCompareSpeechSettings();
         const speechAvatarPaths = this.getShiftPhotoCompareSpeechAvatarPaths(speechSettings.avatarStyle);
+        const speechAvatarLayout = this.getShiftPhotoCompareSpeechAvatarLayout(speechSettings.avatarStyle);
         const animationOverlay = document.createElement('div');
         animationOverlay.className = 'shift-photo-compare-animation-overlay';
         animationOverlay.style.setProperty('--shift-photo-compare-animation-motion-duration', `${motionSpeed}ms`);
         animationOverlay.innerHTML = `
             <div class="shift-photo-compare-animation-topbar">
                 <strong><i class="fa-solid fa-wand-magic-sparkles"></i> 記号アニメ</strong>
+                <div class="shift-photo-compare-animation-unsaved-warning hidden" role="status" aria-live="polite" aria-hidden="true"><i class="fa-solid fa-triangle-exclamation"></i><span>未保存の変更があります</span></div>
+                <div class="shift-photo-compare-animation-saved-time" role="status" aria-live="polite"><i class="fa-solid fa-clock"></i><span>${this.escapeHtml(this.getShiftPhotoCompareAnimationSavedTimeLabel(false))}</span></div>
                 <div class="shift-photo-compare-animation-page-settings">
                     <label><span>グループ</span><input class="shift-photo-compare-animation-group-input" type="text" maxlength="40" value="${this.escapeHtml(currentSettings.group)}" placeholder="例: 点検手順" oninput="app.updateShiftPhotoCompareAnimationSaveState()"></label>
                     <label><span>ページ</span><input class="shift-photo-compare-animation-page-input" type="number" min="1" max="999" step="1" value="${currentSettings.page || 1}" oninput="app.updateShiftPhotoCompareAnimationSaveState()"></label>
@@ -14468,7 +15791,7 @@
             </div>
             <div class="shift-photo-compare-animation-main">
                 <div class="shift-photo-compare-animation-stage">
-                    <div class="shift-photo-compare-speech-avatar${speechSettings.avatarEnabled === false ? ' disabled' : ''}" data-avatar-style="${speechSettings.avatarStyle}" aria-hidden="true">
+                    <div class="shift-photo-compare-speech-avatar${speechSettings.avatarEnabled === false ? ' disabled' : ''}${speechAvatarLayout.background ? '' : ' no-background'}" data-avatar-style="${speechSettings.avatarStyle}" data-avatar-position="${speechAvatarLayout.position}" style="--speech-avatar-size:${speechAvatarLayout.size}px" aria-hidden="true">
                         <img class="shift-photo-compare-speech-avatar-frame frame-base" src="${speechAvatarPaths[0]}" alt="">
                         <img class="shift-photo-compare-speech-avatar-frame frame-half" src="${speechAvatarPaths[1]}" alt="">
                         <img class="shift-photo-compare-speech-avatar-frame frame-open" src="${speechAvatarPaths[2]}" alt="">
@@ -14526,7 +15849,7 @@
 <button type="button" class="shift-photo-compare-animation-avatar-toggle${speechSettings.avatarEnabled === false ? '' : ' active'}" onclick="app.toggleShiftPhotoCompareSpeechAvatar()" title="読み上げ中の口パクアバターを切り替える"><i class="fa-solid fa-face-smile"></i><span>アバ ${speechSettings.avatarEnabled === false ? 'OFF' : 'ON'}</span></button>
                 <button type="button" class="shift-photo-compare-animation-speech-settings-btn" onclick="app.toggleShiftPhotoCompareSpeechSettingsPanel()" title="アバターと音声の設定" aria-label="アバター設定"><i class="fa-solid fa-user-gear"></i><span>アバター設定</span></button>
                 <button type="button" class="shift-photo-compare-animation-fullscreen-btn" onclick="app.enterShiftPhotoCompareAnimationFullscreenMode()" title="操作表示を隠し、クリック・左右キー・スペースで再生"><i class="fa-solid fa-expand"></i><span>全画面</span></button>
-                <button type="button" onclick="app.resetShiftPhotoCompareAnimation()" title="最初に戻す"><i class="fa-solid fa-rotate-left"></i><span>戻す</span></button>
+                <button type="button" class="shift-photo-compare-animation-back-btn" onclick="app.resetShiftPhotoCompareAnimation()" title="最初に戻す"><i class="fa-solid fa-rotate-left"></i><span>戻す</span></button>
             </div>
             <section class="shift-photo-compare-speech-settings hidden" aria-label="音声読み上げ設定">
                 <header><strong><i class="fa-solid fa-volume-high"></i> 音声設定</strong><button type="button" onclick="app.toggleShiftPhotoCompareSpeechSettingsPanel()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
@@ -14553,6 +15876,15 @@
                     <button type="button" data-speech-avatar-style="frog" class="${speechSettings.avatarStyle === 'frog' ? 'active' : ''}" onclick="app.setShiftPhotoCompareSpeechAvatarStyle('frog')" title="カエルアバター">
                         <img src="assets/avatars/frog-speaker.png" alt=""><span>カエル</span>
                     </button>
+                </div>
+                <div class="shift-photo-compare-speech-avatar-layout">
+                    <strong><i class="fa-solid fa-display"></i> 表示位置と大きさ</strong>
+                    <div class="shift-photo-compare-speech-avatar-position" role="group" aria-label="アバターの表示位置">
+                        <button type="button" data-avatar-position="left" class="${speechAvatarLayout.position === 'left' ? 'active' : ''}" onclick="app.updateShiftPhotoCompareSpeechAvatarLayout('position', 'left')"><i class="fa-solid fa-arrow-left"></i><span>左下</span></button>
+                        <button type="button" data-avatar-position="right" class="${speechAvatarLayout.position === 'right' ? 'active' : ''}" onclick="app.updateShiftPhotoCompareSpeechAvatarLayout('position', 'right')"><span>右下</span><i class="fa-solid fa-arrow-right"></i></button>
+                    </div>
+                    <label><span>大きさ <output data-avatar-layout-size-output>${speechAvatarLayout.size}px</output></span><input data-avatar-layout-size type="range" min="92" max="240" step="4" value="${speechAvatarLayout.size}" oninput="app.updateShiftPhotoCompareSpeechAvatarLayout('size', this.value)"></label>
+                    <label class="shift-photo-compare-speech-avatar-background"><input data-avatar-layout-background type="checkbox" ${speechAvatarLayout.background ? 'checked' : ''} onchange="app.updateShiftPhotoCompareSpeechAvatarLayout('background', this.checked)"><span>背景円を表示</span></label>
                 </div>
                 <label><span>音声</span><select class="shift-photo-compare-speech-voice" onchange="app.updateShiftPhotoCompareSpeechSetting('voiceURI', this.value)"><option value="">既定の音声</option></select></label>
                 <div class="shift-photo-compare-speech-presets" role="group" aria-label="話し方">
@@ -14757,7 +16089,7 @@
         (state.marks || []).forEach(item => this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item.mark));
         if (state.grid && state.grid !== page.grid) this.stopShiftPhotoCompareAnimationVideos(state.grid);
         if (state.pageIndex !== pageIndex) state.timelineSelectedItems = new Set();
-        stage.querySelector(':scope > .shift-photo-compare-animation-last-page-label')?.remove();
+        state.overlay?.querySelector('.shift-photo-compare-animation-last-page-label')?.remove();
         this.removeAllShiftPhotoCompareAnimationEndpointOrderBadges();
         state.pageIndex = pageIndex;
         state.grid = page.grid;
@@ -14786,6 +16118,7 @@
             item.mark.classList.remove('shift-photo-compare-animation-visible', 'shift-photo-compare-animation-motion', 'shift-photo-compare-animation-round-trip-settled', ...this.getShiftPhotoCompareAnimationEffectClasses());
             this.prepareShiftPhotoCompareAnimationMark(item);
         });
+        this.setShiftPhotoCompareAnimationTimelinePageSnapshot(-1);
         this.refreshShiftPhotoCompareTextLayout(page.grid);
         this.syncShiftPhotoCompareAnimationLinkedEndpointLayouts(page);
         this.pinShiftPhotoCompareAnimationRegionLayouts(page.grid);
@@ -15037,8 +16370,15 @@
         const nextRoundTripKey = this.getShiftPhotoCompareAnimationRoundTripStepKey(state, nextIndex);
         if (state.roundTripReleased && state.roundTripReleased !== nextRoundTripKey) state.roundTripReleased = '';
         const activeStep = steps[nextIndex] || null;
-        if (direction < 0) this.setShiftPhotoCompareAnimationTimelinePageSnapshot(nextIndex);
-        else if (activeStep?.type === 'page') this.applyShiftPhotoCompareAnimationTimelineEntry(activeStep.pageEntry);
+        if (direction < 0) {
+            this.setShiftPhotoCompareAnimationTimelinePageSnapshot(nextIndex);
+        } else {
+            if (activeStep?.type === 'page') this.applyShiftPhotoCompareAnimationTimelineEntry(activeStep.pageEntry);
+            this.getShiftPhotoCompareAnimationStepSyncedPageEntries(activeStep).forEach(entry => {
+                this.applyShiftPhotoCompareAnimationTimelineEntry(entry);
+            });
+        }
+
         const activeItems = new Set(activeStep?.type === 'page' && activeStep.pageEntry?.pageIndex === 0
             ? [activeStep.pageEntry.item]
             : (activeStep?.items || (activeStep?.item ? [activeStep.item] : [])));
@@ -15174,6 +16514,7 @@
     resetShiftPhotoCompareAnimation() {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state) return;
+        if (state.syncPreviewRunning) this.stopShiftPhotoCompareAnimationSyncPreview();
         this.cancelShiftPhotoCompareSpeech();
         this.stopShiftPhotoCompareAnimationVideos(state.grid);
         if (state.pageIndex > 0) this.activateShiftPhotoCompareAnimationPage(0);
@@ -15281,10 +16622,10 @@
         state.overlay.appendChild(dialog);
     }
 
-    saveAndCloseShiftPhotoCompareAnimation() {
+    async saveAndCloseShiftPhotoCompareAnimation() {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state) return;
-        if (this.saveAllShiftPhotoCompareAnimationChanges()) this.closeShiftPhotoCompareAnimation({ force: true });
+        if (await this.saveAllShiftPhotoCompareAnimationChanges()) this.closeShiftPhotoCompareAnimation({ force: true });
     }
 
     cleanupShiftPhotoCompareAnimationTransientState(state = this._shiftPhotoCompareAnimationState, options = {}) {
@@ -15359,18 +16700,21 @@
         return true;
     }
 
-    getShiftPhotoCompareAnimationVideoMimeType() {
+    getShiftPhotoCompareAnimationVideoMimeType(includeAudio = false) {
         if (typeof MediaRecorder === 'undefined') return '';
-        const candidates = [
-            'video/webm;codecs=vp9',
-            'video/webm;codecs=vp8',
-            'video/webm;codecs=vp9,opus',
+        const candidates = includeAudio ? [
             'video/webm;codecs=vp8,opus',
+            'video/webm;codecs=vp9,opus'
+        ] : [
+            'video/webm;codecs=vp8',
+            'video/webm;codecs=vp9'
+        ];
+        candidates.push(
             'video/webm',
             'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
             'video/mp4;codecs=h264',
             'video/mp4'
-        ];
+        );
         return candidates.find(type => MediaRecorder.isTypeSupported?.(type)) || '';
     }
 
@@ -15383,7 +16727,7 @@
     }
 
     downloadShiftPhotoCompareAnimationVideoBlob(blob, mimeType = '', nameLabel = '') {
-        if (!blob) return;
+        if (!blob?.size) return false;
         const extension = this.getShiftPhotoCompareAnimationVideoExtension(mimeType);
         const safeLabel = String(nameLabel || '').replace(/[\\/:*?"<>|]/g, '').trim();
         const anchor = document.createElement('a');
@@ -15394,7 +16738,8 @@
         setTimeout(() => {
             URL.revokeObjectURL(anchor.href);
             anchor.remove();
-        }, 500);
+        }, 30000);
+        return true;
     }
 
     async createShiftPhotoCompareAnimationRecorder() {
@@ -15415,8 +16760,6 @@
     async createShiftPhotoCompareAnimationScreenRecorder() {
         const state = this._shiftPhotoCompareAnimationState;
         if (!state?.overlay) throw new Error('アニメ画面がありません。');
-        const mimeType = this.getShiftPhotoCompareAnimationVideoMimeType();
-        if (!mimeType) throw new Error('このブラウザーでは動画形式に対応していません。');
         this.showToast?.('録画する画面を選んでください。このタブを選べる場合は、アニメ部分だけを切り抜いて保存します。');
         const stream = await navigator.mediaDevices.getDisplayMedia({
             video: {
@@ -15425,25 +16768,56 @@
                 width: { ideal: 3840 },
                 height: { ideal: 2160 }
             },
-            audio: false,
+            audio: { suppressLocalAudioPlayback: false },
             preferCurrentTab: true,
             selfBrowserSurface: 'include',
-            surfaceSwitching: 'exclude'
+            surfaceSwitching: 'exclude',
+            systemAudio: 'include',
+            windowAudio: 'system'
         });
+        const hasAudio = stream.getAudioTracks().length > 0;
+        const requireSharedAudio = this.getShiftPhotoCompareSpeechSettings().enabled;
+        if (requireSharedAudio && !hasAudio) {
+            this.showToast?.('音声トラックを取得できませんでした。映像は作成します。次回は「このタブ」と「タブの音声も共有」を選んでください。');
+        }
+        const mimeType = this.getShiftPhotoCompareAnimationVideoMimeType(hasAudio);
+        if (!mimeType) {
+            stream.getTracks().forEach(track => track.stop());
+            throw new Error('このブラウザーでは動画形式に対応していません。');
+        }
         const cropped = await this.cropShiftPhotoCompareAnimationScreenStream(stream, state);
         const chunks = [];
         const recorder = new MediaRecorder(stream, {
             mimeType,
-            videoBitsPerSecond: 50000000
+            videoBitsPerSecond: 16000000
         });
         recorder.ondataavailable = event => {
             if (event.data?.size) chunks.push(event.data);
         };
+        const sourceAudioTrack = stream.getAudioTracks()[0] || null;
+        const audioCaptureStream = sourceAudioTrack ? new MediaStream([sourceAudioTrack.clone()]) : null;
+        const audioMimeType = ['audio/webm;codecs=opus', 'audio/webm']
+            .find(type => MediaRecorder.isTypeSupported?.(type)) || '';
+        const audioChunks = [];
+        const audioRecorder = audioCaptureStream
+            ? new MediaRecorder(audioCaptureStream, audioMimeType
+                ? { mimeType: audioMimeType, audioBitsPerSecond: 192000 }
+                : { audioBitsPerSecond: 192000 })
+            : null;
+        if (audioRecorder) {
+            audioRecorder.ondataavailable = event => {
+                if (event.data?.size) audioChunks.push(event.data);
+            };
+        }
         return {
             stream,
             mimeType,
             chunks,
             recorder,
+            audioCaptureStream,
+            audioRecorder,
+            audioChunks,
+            audioMimeType,
             queue: Promise.resolve(),
             cancelled: false,
             previousImageCache: this._shiftPhotoCompareAnimationRenderImageCache || null,
@@ -15451,6 +16825,40 @@
             croppedScreenCapture: cropped,
             speedCorrection: 1
         };
+    }
+
+    async createShiftPhotoCompareAnimationSystemAudioCanvasRecorder(options = {}) {
+        if (!navigator.mediaDevices?.getDisplayMedia) {
+            throw new Error('このブラウザーではシステム音声を録音できません。');
+        }
+        this.showToast?.('「画面全体」を選び、「システム音声も共有」をオンにしてください。映像にはアニメ部分だけが保存されます。');
+        const sharedStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { displaySurface: 'monitor', frameRate: { ideal: 30, max: 60 } },
+            audio: { suppressLocalAudioPlayback: false },
+            preferCurrentTab: false,
+            selfBrowserSurface: 'exclude',
+            monitorTypeSurfaces: 'include',
+            systemAudio: 'include',
+            windowAudio: 'system'
+        });
+        const displaySurface = sharedStream.getVideoTracks()[0]?.getSettings?.().displaySurface || '';
+        if (displaySurface && displaySurface !== 'monitor') {
+            sharedStream.getTracks().forEach(track => track.stop());
+            throw new Error('読み上げ音声を保存する場合は、共有先で「画面全体」を選んでください。');
+        }
+        if (!sharedStream.getAudioTracks().length) {
+            sharedStream.getTracks().forEach(track => track.stop());
+            throw new Error('システム音声が共有されていません。「システム音声も共有」をオンにしてください。');
+        }
+        try {
+            return await this.createShiftPhotoCompareAnimationCanvasRecorder({
+                ...options,
+                externalAudioStream: sharedStream
+            });
+        } catch (error) {
+            sharedStream.getTracks().forEach(track => track.stop());
+            throw error;
+        }
     }
 
     async cropShiftPhotoCompareAnimationScreenStream(stream, state = this._shiftPhotoCompareAnimationState) {
@@ -15534,44 +16942,32 @@
             canvas.height = firstFrame.height;
             const ctx = canvas.getContext('2d', { alpha: false });
             ctx.drawImage(firstFrame, 0, 0);
-            // Prefer a writable video track so every completed canvas is handed to MediaRecorder
-            // as an explicit VideoFrame. Canvas capture remains a compatibility fallback.
-            let stream = null;
-            let videoTrack = null;
-            let frameWriter = null;
-            let frameTransport = 'canvas';
-            if (typeof window.VideoFrame === 'function' && typeof window.MediaStreamTrackGenerator === 'function') {
-                const generator = new MediaStreamTrackGenerator({ kind: 'video' });
-                videoTrack = generator;
-                frameWriter = generator.writable.getWriter();
-                stream = new MediaStream([videoTrack]);
-                frameTransport = 'direct';
-            } else if (typeof window.VideoFrame === 'function' && typeof window.VideoTrackGenerator === 'function') {
-                const generator = new VideoTrackGenerator();
-                videoTrack = generator.track;
-                frameWriter = generator.writable.getWriter();
-                stream = new MediaStream([videoTrack]);
-                frameTransport = 'direct';
-            } else {
-                stream = canvas.captureStream(0);
-                videoTrack = stream.getVideoTracks?.()[0] || null;
-                if (typeof videoTrack?.requestFrame !== 'function') {
-                    stream.getTracks?.().forEach(track => track.stop());
-                    stream = canvas.captureStream(targetFps);
-                    videoTrack = stream.getVideoTracks?.()[0] || null;
-                }
-
-            }
+            // CanvasCaptureMediaStreamTrack is consistently supported by MediaRecorder.
+            // Generator tracks can exist in the browser but still produce an empty recording.
+            let stream = canvas.captureStream(targetFps);
+            let videoTrack = stream.getVideoTracks?.()[0] || null;
+            const frameWriter = null;
+            const frameTransport = 'canvas';
+            const externalAudioStream = options.externalAudioStream || null;
+            const externalAudioTrack = externalAudioStream?.getAudioTracks?.()[0] || null;
+            const streamAudioTrack = externalAudioTrack?.clone?.() || null;
+            if (streamAudioTrack) stream.addTrack(streamAudioTrack);
             const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-            const audioContext = AudioContextClass ? new AudioContextClass({ latencyHint: 'playback' }) : null;
+            const audioContext = !externalAudioTrack && AudioContextClass
+                ? new AudioContextClass({ latencyHint: 'playback' })
+                : null;
             if (audioContext?.state === 'suspended') await audioContext.resume().catch(() => {});
             const audioDestination = audioContext?.createMediaStreamDestination?.() || null;
-const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
+            const audioTrack = streamAudioTrack || audioDestination?.stream?.getAudioTracks?.()[0] || null;
+            const audioCaptureStream = externalAudioTrack
+                ? new MediaStream([externalAudioTrack.clone()])
+                : null;
+            const audioRecorderStream = audioCaptureStream || audioDestination?.stream || null;
             const audioMimeType = ['audio/webm;codecs=opus', 'audio/webm']
                 .find(type => MediaRecorder.isTypeSupported?.(type)) || '';
             const audioChunks = [];
             const audioRecorder = audioTrack
-                ? new MediaRecorder(audioDestination.stream, audioMimeType
+                ? new MediaRecorder(audioRecorderStream, audioMimeType
                     ? { mimeType: audioMimeType, audioBitsPerSecond: 192000 }
                     : { audioBitsPerSecond: 192000 })
                 : null;
@@ -15580,7 +16976,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     if (event.data?.size) audioChunks.push(event.data);
                 };
             }
-            const mimeType = this.getShiftPhotoCompareAnimationVideoMimeType();
+            const mimeType = this.getShiftPhotoCompareAnimationVideoMimeType(!!streamAudioTrack);
             if (!mimeType) throw new Error('このブラウザーでは動画形式に対応していません。');
             const chunks = [];
             const recorder = new MediaRecorder(stream, {
@@ -15594,6 +16990,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             return {
                 canvas, ctx, stream, videoTrack, frameWriter, frameTransport, nextFrameTimestampUs: 0, generatedFrameCount: 0, mimeType, chunks, recorder,
                 audioContext, audioDestination, audioTrack, audioRecorder, audioChunks, audioMimeType, videoAudioConnections: [],
+                externalAudioStream, externalAudioSource: null, audioCaptureStream,
                 queue: Promise.resolve(), cancelled: false, previousImageCache,
                 renderMaxSide, targetFps, realTimeFrameSkipping: true, speedCorrection: 1
             };
@@ -15619,11 +17016,22 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             await ffmpeg.load();
             ffmpeg.FS('writeFile', videoName, new Uint8Array(await videoBlob.arrayBuffer()));
             ffmpeg.FS('writeFile', audioName, new Uint8Array(await audioBlob.arrayBuffer()));
-            await ffmpeg.run(
-                '-i', videoName, '-i', audioName,
-                '-map', '0:v:0', '-map', '1:a:0',
-                '-c:v', 'copy', '-c:a', 'copy', outputName
-            );
+            try {
+                await ffmpeg.run(
+                    '-fflags', '+genpts', '-i', videoName,
+                    '-fflags', '+genpts', '-i', audioName,
+                    '-map', '0:v:0', '-map', '1:a:0',
+                    '-c:v', 'copy', '-c:a', 'libopus', '-b:a', '192k',
+                    '-shortest', outputName
+                );
+            } catch (encodeError) {
+                try { ffmpeg.FS('unlink', outputName); } catch (_) {}
+                await ffmpeg.run(
+                    '-i', videoName, '-i', audioName,
+                    '-map', '0:v:0', '-map', '1:a:0',
+                    '-c:v', 'copy', '-c:a', 'copy', '-shortest', outputName
+                );
+            }
             const data = ffmpeg.FS('readFile', outputName);
             return new Blob([data.buffer], { type: 'video/webm' });
         } finally {
@@ -15637,13 +17045,26 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         if (!recording) return Promise.resolve(null);
         recording.cancelled = !!cancel;
         const audioStopped = new Promise(resolveAudio => {
+            let settled = false;
+            const finishAudio = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
+                resolveAudio();
+            };
+            const timeout = setTimeout(finishAudio, 2500);
             const audioRecorder = recording.audioRecorder;
-            if (!audioRecorder || audioRecorder.state === 'inactive') return resolveAudio();
-            audioRecorder.onstop = () => resolveAudio();
-            try { audioRecorder.stop(); } catch (_) { resolveAudio(); }
+            if (!audioRecorder || audioRecorder.state === 'inactive') return finishAudio();
+            audioRecorder.onstop = finishAudio;
+            try { audioRecorder.stop(); } catch (_) { finishAudio(); }
         });
         return new Promise(resolve => {
-            recording.recorder.onstop = async () => {
+            let finalized = false;
+            let stopTimeout = 0;
+            const finalize = async () => {
+                if (finalized) return;
+                finalized = true;
+                clearTimeout(stopTimeout);
                 await audioStopped;
                 (recording.videoAudioConnections || []).forEach(connection => {
                     try { connection.source?.disconnect?.(recording.audioDestination); } catch (_) {}
@@ -15659,6 +17080,9 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                     recording.frameWriter = null;
                 }
                 recording.stream?.getTracks?.().forEach(track => track.stop());
+                recording.audioCaptureStream?.getTracks?.().forEach(track => track.stop());
+                try { recording.externalAudioSource?.disconnect?.(); } catch (_) {}
+                recording.externalAudioStream?.getTracks?.().forEach(track => track.stop());
                 recording.audioContext?.close?.().catch?.(() => {});
                 this._shiftPhotoCompareAnimationRenderImageCache = recording.previousImageCache || null;
                 if (recording.cancelled) return resolve(null);
@@ -15675,19 +17099,54 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                         this.showToast?.('音声の結合に失敗したため、映像のみで保存します。');
                     }
                 }
-                this.downloadShiftPhotoCompareAnimationVideoBlob(outputBlob, outputMimeType, recording.downloadLabel || '');
+                if (!this.downloadShiftPhotoCompareAnimationVideoBlob(outputBlob, outputMimeType, recording.downloadLabel || '')) {
+                    return resolve(null);
+                }
                 resolve(outputBlob);
             };
+            recording.recorder.onstop = () => { setTimeout(() => { void finalize(); }, 100); };
+            recording.recorder.onerror = event => {
+                recording.recorderError = event?.error || new Error('録画エンコーダーが停止しました。');
+            };
             if (recording.recorder.state !== 'inactive') {
-                recording.recorder.stop();
+                stopTimeout = setTimeout(() => { void finalize(); }, 6000);
+                try { recording.recorder.requestData?.(); } catch (_) {}
+                try { recording.recorder.stop(); } catch (_) { void finalize(); }
             } else {
-                audioStopped.finally(() => {
-                    this._shiftPhotoCompareAnimationRenderImageCache = recording.previousImageCache || null;
-                    resolve(null);
-                });
+                void finalize();
             }
         });
     }
+
+    async waitShiftPhotoCompareAnimationSpeechCompletion(maxWaitMs = 600000, recording = null) {
+        const startedAt = performance.now();
+        let inactiveSince = 0;
+        let lastFrameAt = 0;
+        while (this.isShiftPhotoCompareSpeechInProgress() && performance.now() - startedAt < maxWaitMs) {
+            if (recording && !recording.screenCapture && performance.now() - lastFrameAt >= 70) {
+                await this.drawShiftPhotoCompareAnimationRecordingFrame(recording);
+                lastFrameAt = performance.now();
+            }
+            const recordedActive = (this._shiftPhotoCompareRecordedSpeechPlayers || [])
+                .some(playback => playback && !playback.settled);
+            const synthesisActive = 'speechSynthesis' in window
+                && (window.speechSynthesis.speaking || window.speechSynthesis.pending);
+            const generatedPending = Math.max(0, Number(this._shiftPhotoCompareSpeechPendingCount) || 0) > 0;
+            if (generatedPending && !recordedActive && !synthesisActive) {
+                inactiveSince ||= performance.now();
+                if (performance.now() - inactiveSince >= 3000) {
+                    this._shiftPhotoCompareSpeechPendingCount = 0;
+                    this.syncShiftPhotoCompareSpeechAvatar(false);
+                    break;
+                }
+            } else {
+                inactiveSince = 0;
+            }
+            await this.waitShiftPhotoCompareAnimationVideo(40);
+        }
+        if (this.isShiftPhotoCompareSpeechInProgress()) this.cancelShiftPhotoCompareSpeech();
+    }
+
     async drawShiftPhotoCompareAnimationRecordingFrame(recording) {
         if (!recording || recording.cancelled) return;
         if (recording.screenCapture) return;
@@ -16239,9 +17698,9 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         const pageRecording = step?.type === 'page' && step.pageEntry?.mark
             ? this.getShiftPhotoComparePageRecordedAudio(step.pageEntry.mark)
             : null;
-        if (step?.type === 'page' && step.pageEntry?.mark) {
-            this.speakShiftPhotoCompareAnimationMarks([step.pageEntry.mark]);
-        }
+        const speechStarted = step?.type === 'page' && step.pageEntry?.mark
+            ? this.speakShiftPhotoCompareAnimationMarks([step.pageEntry.mark])
+            : false;
         if (step?.videoPlayback) {
             await this.recordShiftPhotoCompareAnimationVideoPlaybackStep(recording, stepIndex, options);
             return;
@@ -16297,28 +17756,47 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             }
         }
         if (options.holdMs) await this.waitShiftPhotoCompareAnimationVideo(Math.max(0, options.holdMs * speedCorrection));
-        if (pageRecording?.key) {
-            const trimEnd = pageRecording.trimEnd > pageRecording.trimStart ? pageRecording.trimEnd : pageRecording.duration;
-            const maxWaitMs = Math.max(500, (trimEnd - pageRecording.trimStart) * 1000 + 1200);
-            const waitStartedAt = performance.now();
-            while (!recording.cancelled && this.isShiftPhotoCompareSpeechInProgress()
-                && performance.now() - waitStartedAt < maxWaitMs) {
-                await this.waitShiftPhotoCompareAnimationVideo(50);
+        if (speechStarted) {
+            const speechText = this.getShiftPhotoCompareSpeechText(step.pageEntry.mark);
+            const speechRate = Math.max(0.5, Number(this.getShiftPhotoCompareMarkSpeechSettings(step.pageEntry.mark)?.rate) || 1);
+            let maxWaitMs = Math.min(600000, Math.max(60000, (speechText.length * 500) / speechRate + 10000));
+            if (pageRecording?.key) {
+                const trimEnd = pageRecording.trimEnd > pageRecording.trimStart ? pageRecording.trimEnd : pageRecording.duration;
+                maxWaitMs = Math.max(500, (trimEnd - pageRecording.trimStart) * 1000 + 1200);
             }
+            await this.waitShiftPhotoCompareAnimationSpeechCompletion(maxWaitMs, recording);
         }
     }
 
     async saveShiftPhotoCompareAnimationDirectVideo() {
-        return this.saveShiftPhotoCompareAnimationAutoVideo({ recorderMode: 'canvas' });
+        const speechEnabled = this.getShiftPhotoCompareSpeechSettings().enabled;
+        const isFirefox = /firefox/i.test(navigator.userAgent || '');
+        if (speechEnabled && isFirefox) {
+            const state = this._shiftPhotoCompareAnimationState;
+            const speechMarks = (state?.pages || []).flatMap(page => (page?.steps || [])
+                .filter(step => step?.type === 'page' && step.pageEntry?.mark)
+                .map(step => step.pageEntry.mark)
+                .filter(mark => this.getShiftPhotoCompareMarkSpeechSettings(mark).enabled));
+            const hasUnrecordedSpeech = speechMarks.some(mark => !this.getShiftPhotoComparePageRecordedAudio(mark)?.key);
+            if (hasUnrecordedSpeech) {
+                const message = 'Firefoxではブラウザー読み上げを動画へ録音できません。Chrome/Edgeを使うか、各セリフに録音音声を設定してください。';
+                this.showToast?.(message);
+                window.alert(message);
+                return;
+            }
+            return this.saveShiftPhotoCompareAnimationAutoVideo({ recorderMode: 'canvas', directRequest: true });
+        }
+        if (speechEnabled && navigator.mediaDevices?.getDisplayMedia) {
+            return this.saveShiftPhotoCompareAnimationAutoVideo({ recorderMode: 'canvas-system-audio', directRequest: true });
+        }
+        return this.saveShiftPhotoCompareAnimationAutoVideo({ recorderMode: 'canvas', directRequest: true });
     }
 
     async saveShiftPhotoCompareAnimationAutoVideo(options = {}) {
         const state = this._shiftPhotoCompareAnimationState;
-        const directCanvas = options?.recorderMode === 'canvas';
-        if (directCanvas && window.location.protocol === 'file:') {
-            this.showToast?.('直接動画はオンライン版で実行してください。');
-            return;
-        }
+        const sharedAudioCanvas = options?.recorderMode === 'canvas-system-audio';
+        const directCanvas = options?.recorderMode === 'canvas' || sharedAudioCanvas;
+        const directRequest = options?.directRequest === true;
         if (!state?.steps?.length) {
             this.showToast?.('先にアニメ再生画面を開いてください。');
             return;
@@ -16328,22 +17806,38 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             return;
         }
         let recording = null;
+        const directButton = directRequest ? state.overlay?.querySelector?.('.shift-photo-compare-animation-direct-video-btn') : null;
+        const directButtonLabel = directButton?.querySelector?.('span');
         try {
-            this.showToast?.(directCanvas
-                ? '画面選択なしで直接動画を作成しています...'
-                : '自動再生の動画を作成しています...');
-            recording = directCanvas
-                ? await this.createShiftPhotoCompareAnimationCanvasRecorder({ renderMaxSide: 1728, frameRate: 60, videoBitsPerSecond: 20000000 })
-                : await this.createShiftPhotoCompareAnimationRecorder();
+            if (directButton) {
+                directButton.disabled = true;
+                directButton.classList.add('recording');
+                directButton.setAttribute('aria-busy', 'true');
+            }
+            if (directButtonLabel) directButtonLabel.textContent = '作成中';
+            this.showToast?.(sharedAudioCanvas
+                ? 'システム音声付きの直接動画を作成しています...'
+                : directCanvas
+                    ? '画面選択なしで直接動画を作成しています...'
+                    : '自動再生の動画を作成しています...');
+            recording = sharedAudioCanvas
+                ? await this.createShiftPhotoCompareAnimationSystemAudioCanvasRecorder({ renderMaxSide: 1728, frameRate: 60, videoBitsPerSecond: 20000000 })
+                : directCanvas
+                    ? await this.createShiftPhotoCompareAnimationCanvasRecorder({ renderMaxSide: 1728, frameRate: 60, videoBitsPerSecond: 20000000 })
+                    : await this.createShiftPhotoCompareAnimationRecorder();
             recording.mode = directCanvas ? 'auto-canvas' : 'auto';
-            recording.downloadLabel = directCanvas ? '直接動画' : '';
+            recording.downloadLabel = directRequest ? '直接動画' : '';
             state.videoRecording = recording;
             if (directCanvas) {
                 this._shiftPhotoCompareAnimationRecordingAudioContext = recording.audioContext || null;
                 this._shiftPhotoCompareAnimationRecordingAudioDestination = recording.audioDestination || null;
             }
-            recording.audioRecorder?.start?.();
-            recording.recorder.start();
+            recording.recorder.start(500);
+            try { recording.audioRecorder?.start?.(500); }
+            catch (error) {
+                console.warn('Shift photo compare tab audio recorder failed', error);
+                recording.audioRecorder = null;
+            }
             recording.videoTrack?.requestFrame?.();
             const pages = Array.isArray(state.pages) && state.pages.length ? [...state.pages] : [];
             if (!pages.length) throw new Error('動画にするページがありません。');
@@ -16367,6 +17861,15 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                                 : motionSpeed)
                             : autoSpeed;
                         await this.waitShiftPhotoCompareAnimationVideo(Math.max(120, waitMs));
+                        if (this.isShiftPhotoCompareSpeechInProgress()) {
+                            const speechMark = step?.type === 'page' ? step.pageEntry?.mark : null;
+                            const speechText = speechMark ? this.getShiftPhotoCompareSpeechText(speechMark) : '';
+                            const speechRate = speechMark
+                                ? Math.max(0.5, Number(this.getShiftPhotoCompareMarkSpeechSettings(speechMark)?.rate) || 1)
+                                : 1;
+                            const speechWaitMs = Math.min(600000, Math.max(60000, (speechText.length * 500) / speechRate + 10000));
+                            await this.waitShiftPhotoCompareAnimationSpeechCompletion(speechWaitMs, recording);
+                        }
                     }
                 }
             } else {
@@ -16394,20 +17897,28 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 }
             }
             await this.waitShiftPhotoCompareAnimationVideo(420);
-            await this.finishShiftPhotoCompareAnimationVideoRecording(recording, false);
+            const savedBlob = await this.finishShiftPhotoCompareAnimationVideoRecording(recording, false);
+            if (!savedBlob?.size) throw new Error('動画データを作成できませんでした。もう一度直接動画を押してください。');
             state.videoRecording = null;
             this.cleanupShiftPhotoCompareAnimationTransientState(state);
             const framed = recording.framedVideoDiagnostics;
             const framedStatus = directCanvas && framed
                 ? ` 枠動画: 描画${framed.drawn} / 動画画素${Number(recording.videoFramePixelCount) || 0} / 合成${Number(framed.composited) || 0} / 専用元${Number(recording.recordingVideoSourceCount) || 0} / 送出${recording.frameTransport === 'direct' ? '直接フレーム' : 'キャンバス'}${Number(recording.generatedFrameCount) || 0} / エラー${framed.errors}`
                 : '';
-            this.showToast?.(`${directCanvas ? '直接動画' : '動画'}を保存しました。${this.getShiftPhotoCompareAnimationVideoExtension(recording.mimeType).toUpperCase()}形式です。${framedStatus}`);
+            this.showToast?.(`${directRequest ? '直接動画' : '動画'}を保存しました。${this.getShiftPhotoCompareAnimationVideoExtension(recording.mimeType).toUpperCase()}形式です。${framedStatus}`);
         } catch (error) {
             console.warn(`Shift photo compare animation ${directCanvas ? 'direct' : 'auto'} video failed`, error);
             if (recording) await this.finishShiftPhotoCompareAnimationVideoRecording(recording, true).catch?.(() => {});
             if (state.videoRecording === recording) state.videoRecording = null;
             this.cleanupShiftPhotoCompareAnimationTransientState(state);
-            this.showToast?.(error?.message || `${directCanvas ? '直接動画' : '動画'}を保存できませんでした。`);
+            this.showToast?.(error?.message || `${directRequest ? '直接動画' : '動画'}を保存できませんでした。`);
+        } finally {
+            if (directButton) {
+                directButton.disabled = false;
+                directButton.classList.remove('recording');
+                directButton.removeAttribute('aria-busy');
+            }
+            if (directButtonLabel) directButtonLabel.textContent = '直接動画';
         }
     }
 
@@ -16444,8 +17955,12 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             recording.stepPending = false;
             recording.pendingDirections = [];
             state.videoRecording = recording;
-            recording.audioRecorder?.start?.();
-            recording.recorder.start();
+            recording.recorder.start(500);
+            try { recording.audioRecorder?.start?.(500); }
+            catch (error) {
+                console.warn('Shift photo compare tab audio recorder failed', error);
+                recording.audioRecorder = null;
+            }
             recording.videoTrack?.requestFrame?.();
             state.index = -1;
             this.setShiftPhotoCompareAnimationSnapshot(-1, 1);
@@ -25561,7 +27076,20 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 }
                 const label = pageState.querySelector('b');
                 if (label) label.textContent = `/ ${pages.length}`;
-                const deleteButton = pageState.querySelector('button[title="現在ページを削除"]');
+                const addButton = pageState.querySelector('button[onclick*="addSelectedShiftPhotoCompareTextPage(false)"]');
+                if (addButton) {
+                    const imagePages = mark.dataset.mode === 'image';
+                    addButton.title = imagePages ? '写真を追加（複数選択可）' : 'ページを追加';
+                    addButton.setAttribute('aria-label', addButton.title);
+                    addButton.classList.toggle('photo-page-add', imagePages);
+                    addButton.innerHTML = imagePages
+                        ? '<i class="fa-solid fa-images"></i><span>写真追加</span>'
+                        : '<i class="fa-solid fa-plus"></i>';
+                }
+                const duplicateButton = pageState.querySelector('button[onclick*="duplicateSelectedShiftPhotoCompareTextPage"]');
+                if (duplicateButton) duplicateButton.title = mark.dataset.mode === 'image' ? '現在の写真を複製' : '現在ページを複製';
+                const deleteButton = pageState.querySelector('button[onclick*="deleteSelectedShiftPhotoCompareTextPage"]');
+                if (deleteButton) deleteButton.title = mark.dataset.mode === 'image' ? '現在の写真を削除' : '現在ページを削除';
                 if (deleteButton) deleteButton.disabled = pages.length <= 1 || this.isShiftPhotoCompareMarkLocked(mark);
                 pageState.querySelectorAll('button').forEach(button => {
                     if (button !== deleteButton) button.disabled = this.isShiftPhotoCompareMarkLocked(mark) && !button.title?.includes('ページ');
@@ -40681,7 +42209,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
         for (const mark of orderedMarks) {
             await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, rect, Number(options.markSizeMultiplier) || 1, options);
         }
-        await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, rect, options);
+        if (!options.skipGlobalMarks) await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, rect, options);
         return canvas;
     }
 
@@ -40756,6 +42284,7 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
                 visibleOnly: true,
                 skipSync: true,
                 globalLayer: grid.querySelector('.shift-photo-compare-global-layer'),
+                skipGlobalMarks: true,
                 markSizeMultiplier: Math.max(0.1, Math.min(3, Math.min(gridScaleX, gridScaleY)))
             });
             if (!wrapCanvas) continue;
@@ -40766,7 +42295,29 @@ const audioTrack = audioDestination?.stream?.getAudioTracks?.()[0] || null;
             const h = (wrapRect.height / gridScaleY) * scale;
             ctx.drawImage(wrapCanvas, x, y, w, h);
         }
+        await this.drawShiftPhotoCompareAnimationGlobalMarksToCanvas(ctx, grid, gridRect, scale, gridScaleX, gridScaleY);
         return canvas;
+    }
+
+    async drawShiftPhotoCompareAnimationGlobalMarksToCanvas(ctx, grid, gridRect, scale, gridScaleX, gridScaleY) {
+        const layer = grid?.querySelector?.('.shift-photo-compare-global-layer');
+        const layerRect = layer?.getBoundingClientRect?.();
+        if (!ctx || !layer || !layerRect?.width || !layerRect?.height) return;
+        const rect = {
+            x: ((layerRect.left - gridRect.left) / gridScaleX) * scale,
+            y: ((layerRect.top - gridRect.top) / gridScaleY) * scale,
+            width: (layerRect.width / gridScaleX) * scale,
+            height: (layerRect.height / gridScaleY) * scale
+        };
+        const coordinateScale = scale / Math.max(0.01, Math.min(gridScaleX, gridScaleY));
+        const marks = Array.from(layer.querySelectorAll('.shift-photo-compare-mark'))
+            .filter(mark => !mark.classList.contains('shift-photo-compare-animation-hidden'))
+            .sort((left, right) => Number(left.dataset.mode === 'mosaic') - Number(right.dataset.mode === 'mosaic'));
+        for (const mark of marks) {
+            const clone = mark.cloneNode(true);
+            this.setShiftPhotoCompareExportTextLines(mark, clone);
+            await this.drawShiftPhotoCompareAnimationExportMark(ctx, clone, rect, coordinateScale);
+        }
     }
 
     drawShiftPhotoCompareRoundedRectPath(ctx, x, y, width, height, radius = 0) {
