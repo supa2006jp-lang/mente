@@ -16260,7 +16260,8 @@
         state.roundTripReleased = '';
         const savedScale = Number(page.grid.dataset.animationScale);
         const hasSavedScale = Number.isFinite(savedScale) && savedScale > 0;
-        stage.replaceChildren(page.grid);
+        const avatars = Array.from(stage.children).filter(child => child.classList.contains('shift-photo-compare-speech-avatar'));
+        stage.replaceChildren(page.grid, ...avatars);
         this.hydrateShiftPhotoCompareVideoMarks(page.grid);
         this.refreshShiftPhotoCompareAnimationPolylineArrows(page.grid);
         page.grid.style.transform = hasSavedScale ? `scale(${savedScale})` : '';
