@@ -5423,6 +5423,8 @@
             textColorRuns: this.normalizeShiftPhotoCompareTextColorRuns(page.textColorRuns ?? mark.textColorRuns ?? mark.dataset?.textColorRuns ?? '[]', text.length),
             fillColor: /^#[0-9a-f]{6}$/i.test(page.fillColor || '') ? page.fillColor : '',
             imageFit: page.imageFit === 'fill' ? 'fill' : '',
+            camera: this.normalizeShiftPhotoCamera(page.camera),
+            reveal: this.normalizeShiftPhotoReveal(page.reveal),
             imageShape: page.imageShape === 'circle' ? 'circle' : '',
             imageZoom: Math.max(0.2, Math.min(4, Number(page.imageZoom) || Number(mark.imageZoom || mark.dataset?.imageZoom) || 1)),
             imageOffsetX: Math.max(-150, Math.min(150, Number(page.imageOffsetX) || Number(mark.imageOffsetX || mark.dataset?.imageOffsetX) || 0)),
@@ -5433,7 +5435,8 @@
             speechEnabled: page.speechEnabled === true || page.speechEnabled === '1'
                 ? '1'
                 : (page.speechEnabled === false || page.speechEnabled === '0' ? '0' : ''),
-            speechAvatarStyle: this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarStyle, true),
+            speechAvatarStyle: this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarStyle || '', true),
+            speechAvatarAutoStyle: this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarAutoStyle || '', true),
             speechVoiceURI: typeof page.speechVoiceURI === 'string' ? page.speechVoiceURI.slice(0, 300) : '',
             speechPreset: ['standard', 'yukkuri', 'calm', 'clear', 'custom'].includes(page.speechPreset) ? page.speechPreset : '',
             speechRate: Number.isFinite(Number(page.speechRate)) && page.speechRate !== ''
@@ -5882,9 +5885,9 @@
         const mirror = mark.querySelector('.shift-photo-text-color-mirror');
         if (!editor || !mirror) return;
         const text = String(editor.value || '');
-        const baseColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '')
+        const baseColor = this.getShiftPhotoCompareSpeechSubtitleColor(mark) || (/^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '')
             ? mark.dataset.textColor
-            : (mark.dataset.mode === 'boxedText' ? (mark.dataset.color || '#dc2626') : '#111827');
+            : (mark.dataset.mode === 'boxedText' ? (mark.dataset.color || '#dc2626') : '#111827'));
         const runs = this.normalizeShiftPhotoCompareTextColorRuns(mark.dataset.textColorRuns || '[]', text.length);
         mark.dataset.textColorRuns = JSON.stringify(runs);
         mark.dataset.hasPartialTextColor = runs.length ? '1' : '0';
@@ -7532,7 +7535,7 @@
         if (mark.dataset.mode === 'image') {
             const img = mark.querySelector(':scope > img:not(.shift-photo-compare-image-slide-copy)');
             if (img) {
-                if (options.animate && img.src && page.imageSrc && img.src !== page.imageSrc) {
+                if (options.animate && img.src && page.imageSrc && img.src !== page.imageSrc && !page.camera?.enabled && !mark.classList.contains('photo-camera-active')) {
                     this.animateShiftPhotoCompareImagePage(mark, img, page.imageSrc, nextIndex >= previousIndex ? 1 : -1);
                 } else {
                     this.finishShiftPhotoCompareImagePageAnimation(mark);
@@ -7621,6 +7624,11 @@
                 this.syncShiftPhotoCompareTextOutlineMirror(mark);
             }
             this.updateShiftPhotoCompareTextOverflowState(mark);
+        }
+        this.applyShiftPhotoCompareSpeechSubtitleColor(mark);
+        if (mark.dataset.mode === 'image') {
+            this.stopShiftPhotoCamera(mark);
+            this.applyShiftPhotoCamera(mark, page.camera, 1);
         }
         if (!options.contentOnly) {
             this.updateShiftPhotoCompareMiniToolbar();
@@ -9271,7 +9279,8 @@
             rate: Math.min(2, Math.max(0.5, numberOr(source.rate, 1))),
             pitch: Math.min(2, Math.max(0.5, numberOr(source.pitch, 1))),
             intonation: Math.min(2, Math.max(0, numberOr(source.intonation, 1))),
-            volume: Math.min(1, Math.max(0, numberOr(source.volume, 1)))
+            volume: Math.min(1, Math.max(0, numberOr(source.volume, 1))),
+            subtitleColor: /^#[0-9a-f]{6}$/i.test(source.subtitleColor || '') ? source.subtitleColor : ''
         };
     }
     getPersistedShiftPhotoCompareSpeechSettings() {
@@ -9395,7 +9404,7 @@
         saved = this.getPersistedShiftPhotoCompareSpeechSettings();
         const current = this.getShiftPhotoCompareSpeechSettings();
         const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(settings.avatarStyle ?? current.avatarStyle);
-        const profileKeys = ['voiceURI', 'preset', 'rate', 'pitch', 'intonation', 'volume'];
+        const profileKeys = ['voiceURI', 'preset', 'rate', 'pitch', 'intonation', 'volume', 'subtitleColor'];
         const profilePatch = Object.fromEntries(profileKeys.filter(key => Object.prototype.hasOwnProperty.call(settings, key)).map(key => [key, settings[key]]));
         const profile = this.normalizeShiftPhotoCompareSpeechProfile(profilePatch, this.getShiftPhotoCompareSpeechAvatarProfile(avatarStyle, saved));
         const avatarProfiles = { ...(saved.avatarProfiles && typeof saved.avatarProfiles === 'object' ? saved.avatarProfiles : {}) };
@@ -9410,6 +9419,72 @@
         };
         this.persistShiftPhotoCompareSpeechSettings(normalized);
         return { enabled: normalized.enabled, avatarEnabled: normalized.avatarEnabled, avatarStyle, ...profile };
+    }
+
+
+    getShiftAvatarBackgroundTextColor(style) {
+        // Background colors sampled from the bundled avatar artwork.
+        const colors = { safetyFirst: '#2262ea', instructor: '#8cc261', siteGuide: '#f76206', fox: '#56ac52', crtGuide: '#0544a9', helmetCat: '#fdf6e4', frog: '#dfba74' };
+        return colors[this.normalizeShiftPhotoCompareSpeechAvatarStyle(style)] || colors.safetyFirst;
+    }
+    getShiftAvatarReadableTextColor(mark, color) {
+        const parse = value => {
+            const hex = /^#([0-9a-f]{6})$/i.exec(value || '');
+            if (hex) return hex[1].match(/../g).map(v => parseInt(v, 16));
+            const rgb = /^rgba?\(([^)]+)\)$/.exec(value || '');
+            if (!rgb) return null;
+            const parts = rgb[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+            return parts.length >= 3 && (parts.length < 4 || parts[3] >= .99) ? parts.slice(0, 3) : null;
+        };
+        const page = this.getShiftPhotoCompareMarkPagesFromDataset(mark)[Number(mark.dataset.currentPage) || 0];
+        let bg = parse(page?.fillColor || mark.dataset.fillColor);
+        for (let node = mark; !bg && node; node = node.parentElement) bg = parse(getComputedStyle(node).backgroundColor);
+        if (!bg) return color;
+        const source = parse(color);
+        if (!source) return color;
+        const luminance = rgb => rgb.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((sum,v,i) => sum + v * [.2126,.7152,.0722][i],0);
+        const light = luminance(bg), contrast = rgb => (Math.max(light,luminance(rgb))+.05)/(Math.min(light,luminance(rgb))+.05);
+        if (contrast(source) >= 4.5) return color;
+        for (let step = 1; step <= 100; step++) {
+            for (const target of [0,255]) {
+                const rgb = source.map(v => Math.round(v + (target-v)*step/100));
+                if (contrast(rgb) >= 4.5) return '#' + rgb.map(v => v.toString(16).padStart(2,'0')).join('');
+            }
+        }
+        return color;
+    }
+    getShiftPhotoCompareSpeechSubtitleColor(mark) {
+        if (!mark || !['boxedText', 'callout'].includes(mark.dataset?.mode)) return '';
+        const inAnimation = mark.closest?.('.shift-photo-compare-animation-grid, .shift-photo-compare-animation-overlay')
+            || mark.dataset.speechSubtitlePreview === '1';
+        if (!inAnimation) return '';
+        const settings = this.getShiftPhotoCompareMarkSpeechSettings(mark);
+        return settings.subtitleColor || this.getShiftAvatarReadableTextColor(mark, this.getShiftAvatarBackgroundTextColor(settings.avatarStyle));
+    }
+
+    applyShiftPhotoCompareSpeechSubtitleColor(mark) {
+        if (!mark || !['boxedText', 'callout'].includes(mark.dataset?.mode)) return;
+        const color = this.getShiftPhotoCompareSpeechSubtitleColor(mark);
+        mark.classList.toggle('speech-subtitle-colored', !!color);
+        if (color) {
+            mark.dataset.speechSubtitlePreview = '1';
+            mark.style.setProperty('--speech-subtitle-color', color);
+        } else {
+            delete mark.dataset.speechSubtitlePreview;
+            mark.style.removeProperty('--speech-subtitle-color');
+        }
+        this.updateShiftPhotoCompareRichTextColorMirror(mark);
+    }
+
+    refreshShiftPhotoCompareSpeechSubtitleColors() {
+        this._shiftPhotoCompareAnimationState?.overlay
+            ?.querySelectorAll('.shift-photo-compare-mark')
+            .forEach(mark => this.applyShiftPhotoCompareSpeechSubtitleColor(mark));
+    }
+
+    updateShiftPhotoCompareSpeechSubtitleColor(value) {
+        const settings = this.saveShiftPhotoCompareSpeechSettings({ subtitleColor: value });
+        this.syncShiftPhotoCompareSpeechSettingsPanel(settings);
     }
 
     getShiftPhotoCompareLiveText(mark, options = {}) {
@@ -9677,7 +9752,7 @@
         const avatar = state?.overlay?.querySelector?.('.shift-photo-compare-speech-avatar');
         if (!avatar) return;
         const enabled = this.getShiftPhotoCompareSpeechSettings().avatarEnabled !== false;
-        const visible = enabled && this.isShiftPhotoCompareSpeechInProgress();
+        const visible = enabled && (this.isShiftPhotoCompareSpeechInProgress() || this._shiftAvatarSettingsPreview === true);
         const talking = forceTalking === false ? false : (enabled && this.isShiftPhotoCompareSpeechAudible());
         avatar.classList.toggle('disabled', !enabled);
         avatar.classList.toggle('visible', visible);
@@ -9814,6 +9889,14 @@
         if (sizeInput) sizeInput.value = String(layout.size);
         if (sizeOutput) sizeOutput.textContent = `${layout.size}px`;
         if (backgroundInput) backgroundInput.checked = layout.background;
+        const subtitleToggle = panel?.querySelector('[data-speech-subtitle-enabled]');
+        const subtitleColor = panel?.querySelector('[data-speech-subtitle-color]');
+        if (subtitleToggle) subtitleToggle.checked = !!settings.subtitleColor;
+        if (subtitleColor) {
+            subtitleColor.value = settings.subtitleColor || this.getShiftAvatarBackgroundTextColor(settings.avatarStyle);
+            subtitleColor.disabled = !settings.subtitleColor;
+        }
+        this.refreshShiftPhotoCompareSpeechSubtitleColors();
     }
     setShiftPhotoCompareSpeechAvatarStyle(style = 'safetyFirst') {
         const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style);
@@ -9900,6 +9983,8 @@
                 const start = () => {
                     if (started || settled || this._shiftPhotoCompareSpeechGeneration !== speechGeneration) return;
                     started = true;
+                    this._shiftPhotoCompareActiveSpeechAvatarStyle = settings.avatarStyle;
+                    this.applyShiftPhotoCompareSpeechAvatarAppearance(settings.avatarStyle);
                     setMouthActive(true);
                 };
                 const finish = () => {
@@ -9911,7 +9996,7 @@
                     this._shiftPhotoCompareSpeechPendingCount = Math.max(0, (Number(this._shiftPhotoCompareSpeechPendingCount) || 0) - 1);
                     const sentenceEnd = /[。！？!?]$/u.test(text);
                     const commaEnd = /[、，,]$/u.test(text);
-                    const pauseMs = sentenceEnd ? 420 : (commaEnd ? 220 : 100);
+                    const pauseMs = Math.max(sentenceEnd ? 420 : (commaEnd ? 220 : 100), this.getShiftAvatarConversation?.().enabled && speechParts[partIndex + 1]?.settings?.avatarStyle !== settings.avatarStyle ? this.getShiftAvatarConversation().gap : 0);
                     if (partIndex + 1 < speechParts.length) {
                         window.setTimeout(() => speakPart(partIndex + 1), pauseMs);
                     }
@@ -9927,7 +10012,9 @@
                         const closeDelay = Math.max(35, Math.round(90 / Math.max(0.5, Number(settings.rate) || 1)));
                         earlyCloseTimer = window.setTimeout(() => setMouthActive(false), closeDelay);
                     } else {
-                        setMouthActive(true);
+                        this._shiftPhotoCompareActiveSpeechAvatarStyle = settings.avatarStyle;
+                    this.applyShiftPhotoCompareSpeechAvatarAppearance(settings.avatarStyle);
+                    setMouthActive(true);
                     }
                 };
                 utterance.onpause = () => setMouthActive(false);
@@ -11197,7 +11284,8 @@
                     pageIndex,
                     pageNumber: pageIndex + 1,
                     label: mode === 'image' ? '写真 ' + (pageIndex + 1) : (text ? text.slice(0, 18) : (pageIndex + 1) + 'ページ'),
-                    speechAvatarStyle: this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarStyle, true),
+                    speechAvatarStyle: this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarStyle || '', true),
+            speechAvatarAutoStyle: this.normalizeShiftPhotoCompareSpeechAvatarStyle(page.speechAvatarAutoStyle || '', true),
                     recordedAudioKey: String(page.recordedAudioKey || ''),
                     recordedAudioType: String(page.recordedAudioType || ''),
                     recordedAudioName: String(savedAudioSettings?.name ?? page.recordedAudioName ?? ''),
@@ -13050,13 +13138,13 @@
         return `<img class="shift-photo-compare-timeline-avatar-mark" src="${this.escapeHtml(image)}" alt="" title="\u8aad\u307f\u4e0a\u3052: ${this.escapeHtml(option?.label || style)}">`;
     }
 
-    persistShiftPhotoCompareAnimationPageAvatar(entry, style = '') {
+    persistShiftPhotoCompareAnimationPageAvatar(entry, style = '', targetPage = null, automatic = false) {
         const state = this._shiftPhotoCompareAnimationState;
-        const page = state?.pages?.[state.pageIndex];
+        const page = targetPage || state?.pages?.[state.pageIndex];
         const mark = entry?.mark;
         const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(style, true);
         if (!mark || !page) return false;
-        const applyAvatar = target => { target.speechAvatarStyle = avatarStyle; };
+        const applyAvatar = target => { target.speechAvatarStyle = avatarStyle; target.speechAvatarAutoStyle = automatic ? avatarStyle : ''; };
         const animationPages = this.getShiftPhotoCompareMarkPagesFromDataset(mark);
         if (!animationPages[entry.pageIndex]) return false;
         applyAvatar(animationPages[entry.pageIndex]);
@@ -13279,6 +13367,7 @@
             .map(item => this.normalizeShiftPhotoCompareSpeechAvatarStyle(item.speechAvatarStyle, true));
         const selectedAvatar = avatarValues.every(value => value === avatarValues[0]) ? avatarValues[0] : '__mixed__';
         const avatarOptions = this.getShiftPhotoCompareSpeechAvatarOptions();
+        const conversation = this.getShiftAvatarConversation();
         const avatarAction = style => batchAvatarMode
             ? `app.setSelectedShiftPhotoCompareAnimationPageAvatar('${style}')`
             : `app.setShiftPhotoCompareAnimationPageAvatar('${this.escapeJs(entryId)}', '${style}')`;
@@ -13289,6 +13378,7 @@
                 <p class="${pageText ? '' : 'empty'}">${pageText ? this.escapeHtml(pageText) : 'テキストなし'}</p>
             </section>
             <div class="shift-photo-compare-animation-page-avatar-picker">
+                <div class="conversation-quick-speakers">${['left','right'].map(side => `<button type="button" onclick="${avatarAction(conversation[side])}"><img src="${this.escapeHtml(this.getShiftPhotoCompareSpeechAvatarPaths(conversation[side])[0])}" alt=""><span>${side === 'left' ? '左の話者' : '右の話者'}</span></button>`).join('')}</div>
                 <strong><i class="fa-solid fa-face-smile"></i> ${batchAvatarMode ? `選択中${selectedPageEntries.length}件へ一括設定` : 'このセリフを読むアバター'}</strong>
                 <div>
                     <button type="button" class="${selectedAvatar ? '' : 'active'}" onclick="${avatarAction('')}" title="\u5168\u4f53\u306e\u30a2\u30d0\u30bf\u30fc\u8a2d\u5b9a\u3092\u4f7f\u7528"><i class="fa-solid fa-globe"></i><span>\u5168\u4f53</span></button>
@@ -15944,6 +16034,10 @@
                     <label><span>大きさ <output data-avatar-layout-size-output>${speechAvatarLayout.size}px</output></span><input data-avatar-layout-size type="range" min="92" max="240" step="4" value="${speechAvatarLayout.size}" oninput="app.updateShiftPhotoCompareSpeechAvatarLayout('size', this.value)"></label>
                     <label class="shift-photo-compare-speech-avatar-background"><input data-avatar-layout-background type="checkbox" ${speechAvatarLayout.background ? 'checked' : ''} onchange="app.updateShiftPhotoCompareSpeechAvatarLayout('background', this.checked)"><span>背景円を表示</span></label>
                 </div>
+                <div class="shift-photo-compare-speech-subtitle-setting">
+                    <label><input type="checkbox" data-speech-subtitle-enabled ${speechSettings.subtitleColor ? 'checked' : ''} onchange="app.updateShiftPhotoCompareSpeechSubtitleColor(this.checked ? app.getShiftAvatarBackgroundTextColor(app.getShiftPhotoCompareSpeechSettings().avatarStyle) : '')"><span>字幕色を指定</span></label>
+                    <input type="color" data-speech-subtitle-color value="${speechSettings.subtitleColor || this.getShiftAvatarBackgroundTextColor(speechSettings.avatarStyle)}" ${speechSettings.subtitleColor ? '' : 'disabled'} aria-label="話者の字幕色" oninput="app.updateShiftPhotoCompareSpeechSubtitleColor(this.value)">
+                </div>
                 <label><span>音声</span><select class="shift-photo-compare-speech-voice" onchange="app.updateShiftPhotoCompareSpeechSetting('voiceURI', this.value)"><option value="">既定の音声</option></select></label>
                 <div class="shift-photo-compare-speech-presets" role="group" aria-label="話し方">
                     <span>話し方</span>
@@ -16005,6 +16099,15 @@
             }
         }, true);
         animationOverlay.addEventListener('click', event => {
+            if (this.consumeShiftPhotoRevealClick(event)) return;
+            const revealButton = event.target.closest('.photo-reveal-layer button');
+            if (revealButton) {
+                event.preventDefault();
+                event.stopPropagation();
+                const mark = revealButton.closest('.shift-photo-compare-mark.image');
+                if (mark) this.openShiftPhotoRevealArea(mark, Array.from(revealButton.parentElement.children).indexOf(revealButton));
+                return;
+            }
             const finishControl = event.target.closest('.shift-photo-compare-video-finish');
             if (finishControl) {
                 event.preventDefault();
@@ -16475,6 +16578,7 @@
                 }
             }
         });
+        if (direction > 0) this.startShiftPhotoCameraStep(activeStep);
         if (activeStep?.videoPlayback) {
             activeItems.forEach(item => this.startShiftPhotoCompareAnimationVideo(item));
         }
@@ -17493,6 +17597,7 @@
             mark.dataset.stretchY = String(lerp(start.stretchY, this.getShiftPhotoCompareAnimationNumber(end.stretchY, start.stretchY)));
             this.updateShiftPhotoCompareMarkVisual?.(mark);
         });
+        this.snapshotShiftPhotoCameraStep(activeStep, progress);
     }
 
     getShiftPhotoCompareAnimationRoundTripItemTiming(item, state = this._shiftPhotoCompareAnimationState, finiteFallback = 1) {
@@ -17773,7 +17878,7 @@
                 : (Number(state.motionSpeedMs) || this.getShiftPhotoCompareAnimationMotionSpeed()))
             : (effectDuration || Math.min(420, Number(state.speedMs) || this.getShiftPhotoCompareAnimationAutoSpeed()));
         const speedCorrection = Number(recording?.speedCorrection) || 1;
-        const effectiveDuration = Math.max(40, duration * speedCorrection);
+        const effectiveDuration = Math.max(40, duration * speedCorrection, this.getShiftPhotoCameraStepDuration(step) * speedCorrection, this.getShiftPhotoRevealStepDuration(step) * speedCorrection);
         const fps = recording?.realTimeFrameSkipping ? (Number(recording.targetFps) || 30) : 90;
         const frameCount = animatedStep ? Math.max(2, Math.ceil(effectiveDuration / (1000 / fps)) + 1) : 1;
         const startedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
@@ -42429,17 +42534,17 @@
         return canvas;
     }
 
-    async drawShiftPhotoCompareSpeechAvatarToCanvas(ctx, canvasWidth, canvasHeight) {
+    async drawShiftPhotoCompareSpeechAvatarToCanvas(ctx, canvasWidth, canvasHeight, conversation = null) {
         const settings = this.getShiftPhotoCompareSpeechSettings();
-        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(this._shiftPhotoCompareActiveSpeechAvatarStyle || settings.avatarStyle);
-        if (!ctx || settings.avatarEnabled === false || !this.isShiftPhotoCompareSpeechInProgress()) return;
-        const talking = this.isShiftPhotoCompareSpeechAudible();
+        const avatarStyle = this.normalizeShiftPhotoCompareSpeechAvatarStyle(conversation?.style || this._shiftPhotoCompareActiveSpeechAvatarStyle || settings.avatarStyle);
+        if (!ctx || settings.avatarEnabled === false || (!conversation?.alwaysVisible && !this.isShiftPhotoCompareSpeechInProgress())) return;
+        const talking = conversation ? conversation.talking : this.isShiftPhotoCompareSpeechAudible();
         try {
             const paths = this.getShiftPhotoCompareSpeechAvatarPaths(avatarStyle);
             const frames = await Promise.all(paths.map(path => this.loadShiftPhotoCompareImage(path)));
             const size = Math.max(96, Math.min(260, Math.min(canvasWidth, canvasHeight) * 0.2));
             const margin = Math.max(18, size * 0.13);
-            const x = canvasWidth - size - margin;
+            const x = conversation?.position === 'left' ? margin : canvasWidth - size - margin;
             const y = canvasHeight - size - margin;
             const sequence = [0, 1, 2, 1];
             const frame = talking
@@ -43749,6 +43854,12 @@
                 ctx.scale(stretch * flipX, stretchY * flipY);
                 let drawWidth = size;
                 let drawHeight = size;
+                if (mark.dataset.photoCameraPose) {
+                    this.drawShiftPhotoCameraFrame(ctx, img, size, size, JSON.parse(mark.dataset.photoCameraPose), mark);
+                    this.drawShiftPhotoReveal(ctx, mark, img, size);
+                    ctx.restore();
+                    return;
+                }
                 if (mark.dataset.imageShape === 'circle') {
                     const naturalWidth = Math.max(1, img.naturalWidth || img.width || 1);
                     const naturalHeight = Math.max(1, img.naturalHeight || img.height || 1);
@@ -43782,6 +43893,7 @@
                     const drawOffsetX = zoom < 1 ? offsetX / 100 * innerRadius * 2 : 0;
                     const drawOffsetY = zoom < 1 ? offsetY / 100 * innerRadius * 2 : 0;
                     ctx.drawImage(img, sourceX, sourceY, cropSize, cropSize, -drawSize / 2 + drawOffsetX, -drawSize / 2 + drawOffsetY, drawSize, drawSize);
+                    this.drawShiftPhotoReveal(ctx, mark, img, size);
                     ctx.restore();
                     ctx.strokeStyle = color;
                     ctx.lineWidth = borderWidth;
@@ -43801,6 +43913,7 @@
                 ctx.shadowColor = outlineEnabled ? outerOutlineColor : 'transparent';
                 ctx.shadowBlur = outlineEnabled ? Math.max(5, size * 0.06) : 0;
                 ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                this.drawShiftPhotoReveal(ctx, mark, img, size);
                 ctx.restore();
             } catch {
                 // Ignore broken stamp images during export.
@@ -44173,7 +44286,7 @@
         if (mode === 'callout') {
             const fillColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.fillColor || '') ? mark.dataset.fillColor : '#fff3a3';
             const wallpaperSrc = /^data:image\//i.test(mark.dataset.wallpaperSrc || '') ? mark.dataset.wallpaperSrc : '';
-            const calloutTextColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '') ? mark.dataset.textColor : '#111827';
+            const calloutTextColor = this.getShiftPhotoCompareSpeechSubtitleColor(mark) || (/^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '') ? mark.dataset.textColor : '#111827');
             const bodyWidth = size * 3.8;
             const bodyHeight = size * 1.5;
             const borderWidth = mark.dataset.calloutBorderWidth !== undefined && mark.dataset.calloutBorderWidth !== ''
@@ -44665,7 +44778,7 @@
             const boxedFillColor = mark.dataset.fillColor === 'transparent'
                 ? 'transparent'
                 : (/^#[0-9a-f]{6}$/i.test(mark.dataset.fillColor || '') ? mark.dataset.fillColor : '#fff7fb');
-            const boxedTextColor = /^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '') ? mark.dataset.textColor : color;
+            const boxedTextColor = this.getShiftPhotoCompareSpeechSubtitleColor(mark) || (/^#[0-9a-f]{6}$/i.test(mark.dataset.textColor || '') ? mark.dataset.textColor : color);
             const regionAutoScale = isRegionComment ? this.getShiftPhotoCompareRegionCommentAutoScale(mark) : 1;
             const boxedTextScale = Math.max(0.5, Math.min(3, Number(mark.dataset.textScale) || 1));
             const calculatedFontSize = isRegionComment
