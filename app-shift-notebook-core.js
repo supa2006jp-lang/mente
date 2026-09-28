@@ -5493,7 +5493,7 @@
                 mode: ['circle', 'triangle', 'arrow', 'dimension', 'rect', 'table', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'mosaic', 'image', 'video'].includes(mark.mode) ? mark.mode : 'circle',
                 x: Math.max(0, Math.min(100, Number(mark.x) || 0)),
                 y: Math.max(0, Math.min(100, Number(mark.y) || 0)),
-                size: Math.max(24, Math.min(mark.mode === 'mosaic' ? 1200 : 700, Number(mark.size) || 56)),
+                size: Math.max(24, Math.min(this.getShiftPhotoCompareMarkSizeMax(mark.mode), Number(mark.size) || 56)),
                 angle: Math.max(0, Math.min(360, Number(mark.angle) || 0)),
                 stretch: Math.max(mark.mode === 'mosaic' || ['arrow', 'dimension'].includes(mark.mode) ? 0.05 : 0.5, Math.min(mark.mode === 'mosaic' ? 12 : (['arrow', 'dimension'].includes(mark.mode) ? 1000 : 5), Number(mark.stretch) || 1)),
                 stretchY: Math.max(mark.mode === 'mosaic' ? 0.05 : 0.5, Math.min(mark.mode === 'mosaic' ? 12 : 5, Number(mark.stretchY) || 1)),
@@ -7238,11 +7238,21 @@
         });
     }
 
+    getShiftPhotoCompareMarkSizeMax(mode = '') {
+        return mode === 'image' ? 1400 : (mode === 'mosaic' ? 1200 : 700);
+    }
+
+    getShiftPhotoCompareSizeControlMax(mode = this._shiftPhotoCompareMarkMode) {
+        const hasSelectedImage = mode === 'move'
+            && this.getShiftPhotoCompareSelectedMarks().some(mark => mark.dataset.mode === 'image');
+        return this.getShiftPhotoCompareMarkSizeMax(hasSelectedImage ? 'image' : mode);
+    }
+
     getShiftPhotoCompareMarkHtml(mark = {}) {
         const mode = ['circle', 'triangle', 'arrow', 'dimension', 'rect', 'table', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline', 'mosaic', 'image', 'video'].includes(mark.mode) ? mark.mode : 'circle';
         const x = Math.max(0, Math.min(100, Number(mark.x) || 0));
         const y = Math.max(0, Math.min(100, Number(mark.y) || 0));
-        const size = Math.max(24, Math.min(mode === 'mosaic' ? 1200 : 700, Number(mark.size) || 56));
+        const size = Math.max(24, Math.min(this.getShiftPhotoCompareMarkSizeMax(mode), Number(mark.size) || 56));
         const angle = Math.max(0, Math.min(360, Number(mark.angle) || 0));
         const stretch = Math.max(mode === 'mosaic' || ['arrow', 'dimension'].includes(mode) ? 0.05 : 0.5, Math.min(mode === 'mosaic' ? 12 : (['arrow', 'dimension'].includes(mode) ? 1000 : 5), Number(mark.stretch) || 1));
         const stretchY = Math.max(mode === 'mosaic' ? 0.05 : 0.5, Math.min(mode === 'mosaic' ? 12 : 5, Number(mark.stretchY) || 1));
@@ -8132,7 +8142,7 @@
             const nextLeft = currentLeft + (imageX / 100) * imageRect.width;
             const nextTop = currentTop + (imageY / 100) * imageRect.height;
             const sizeRatio = storedImageWidth > 0 ? imageRect.width / storedImageWidth : 1;
-            const nextSize = Math.max(24, Math.min(700, storedSize * sizeRatio));
+            const nextSize = Math.max(24, Math.min(this.getShiftPhotoCompareMarkSizeMax('image'), storedSize * sizeRatio));
             const endX = Number(mark.dataset.animationEndX);
             const endY = Number(mark.dataset.animationEndY);
             if (mark.dataset.animationMotion === '1' && Number.isFinite(endX) && Number.isFinite(endY)) {
@@ -8156,7 +8166,7 @@
                 mark.dataset.animationEndImageY = String(endImageY);
                 const storedEndSize = Number(mark.dataset.animationEndSize);
                 if (Number.isFinite(storedEndSize) && storedEndSize > 0) {
-                    mark.dataset.animationEndSize = String(Math.max(24, Math.min(700, storedEndSize * sizeRatio)));
+                    mark.dataset.animationEndSize = String(Math.max(24, Math.min(this.getShiftPhotoCompareMarkSizeMax('image'), storedEndSize * sizeRatio)));
                 }
                 const ghost = this.getShiftPhotoCompareAnimationGhostFor(mark);
                 if (ghost) {
@@ -8264,7 +8274,7 @@
     }
 
     getShiftPhotoCompareAnimationEffectOptions(includeVideoExpand = true) {
-        const effects = ['pop', 'fade', 'zoom', 'slide', 'bounce', 'spin', 'swing', 'shake', 'flash', 'jelly', 'roundTrip'];
+        const effects = ['pop', 'fade', 'erase', 'zoom', 'slide', 'bounce', 'spin', 'swing', 'shake', 'flash', 'jelly', 'roundTrip'];
         return includeVideoExpand ? [...effects, 'videoExpand'] : effects;
     }
 
@@ -8288,6 +8298,7 @@
         return ({
             pop: 'ポップ',
             fade: 'フェード',
+            erase: '消去',
             zoom: 'ズーム',
             slide: 'スライド',
             bounce: 'バウンド',
@@ -8764,6 +8775,23 @@
     getShiftPhotoCompareAnimationMenuTarget() {
         const mark = this._shiftPhotoCompareAnimationBadgeMenu?._targetMark;
         return mark && document.contains(mark) ? mark : null;
+    }
+
+    openShiftPhotoCompareAnimationEffectsForMark(mark = this._shiftPhotoCompareSelectedMark) {
+        if (!mark || !document.contains(mark)) return;
+        const source = mark.dataset.animationGhost === '1'
+            ? this.getShiftPhotoCompareAnimationSourceForGhost(mark)
+            : mark;
+        if (!source || !document.contains(source)) return;
+        if (!this.getShiftPhotoCompareAnimationOrderValue(source.dataset.animationOrder)) {
+            this.assignShiftPhotoCompareAnimationOrder(source);
+        }
+        let badge = source.querySelector(':scope > .shift-photo-compare-animation-order-badge');
+        if (!badge) {
+            this.renderShiftPhotoCompareAnimationOrderBadge(source);
+            badge = source.querySelector(':scope > .shift-photo-compare-animation-order-badge');
+        }
+        if (badge) this.openShiftPhotoCompareAnimationBadgeMenu(null, badge);
     }
 
     setShiftPhotoCompareAnimationOrderFromInput(input) {
@@ -10653,7 +10681,8 @@
             effect: this.normalizeShiftPhotoCompareAnimationEffect(mark.dataset.animationEffect || ''),
             roundTripPauseMs: Math.max(0, Math.min(3000, Math.round(Number(mark.dataset.animationRoundTripPauseMs) || 0))),
             roundTripCount: this.normalizeShiftPhotoCompareAnimationRoundTripCount(mark.dataset.animationRoundTripCount),
-            motion: mark.dataset.animationMotion === '1' && (mark.dataset.mode === 'polyline' || !this.isShiftPhotoComparePointPathMode(mark.dataset.mode)),
+            motion: mark.dataset.animationMotion === '1' && this.normalizeShiftPhotoCompareAnimationEffect(mark.dataset.animationEffect || '') !== 'erase'
+                && (mark.dataset.mode === 'polyline' || !this.isShiftPhotoComparePointPathMode(mark.dataset.mode)),
             start: this.getShiftPhotoCompareAnimationStartState(mark),
             end: this.getShiftPhotoCompareAnimationEndState(mark)
         }));
@@ -11440,14 +11469,17 @@
     normalizeShiftPhotoCompareAnimationTimelineActions(actions = []) {
         return (Array.isArray(actions) ? actions : []).map((action, index) => {
             const targetOrder = Math.max(0, Math.round(Number(action?.targetOrder) || 0));
+            const type = action?.type === 'show' ? 'show' : 'hide';
+            const sequential = type === 'hide' && action?.sequential === true;
             const targetOrders = [...new Set([
                 ...(Array.isArray(action?.targetOrders) ? action.targetOrders : []),
                 targetOrder
-            ].map(value => Math.max(0, Math.round(Number(value) || 0))).filter(Boolean))].sort((left, right) => left - right);
-            const type = action?.type === 'show' ? 'show' : 'hide';
+            ].map(value => Math.max(0, Math.round(Number(value) || 0))).filter(Boolean))];
+            if (!sequential) targetOrders.sort((left, right) => left - right);
             return {
                 id: String(action?.id || `${type}-${Date.now()}-${index}`).replace(/[^a-z0-9_-]/gi, '').slice(0, 80),
                 type,
+                sequential,
                 afterKey: String(action?.afterKey || '').slice(0, 160),
                 afterStepIndex: Number.isFinite(Number(action?.afterStepIndex)) ? Math.max(0, Math.round(Number(action.afterStepIndex))) : -1,
                 targetMarkKey: String(action?.targetMarkKey || '').slice(0, 160),
@@ -11593,16 +11625,30 @@
                 const targetOrders = [...new Set([
                     ...(action.targetOrders || []),
                     Number(targetItem?.order) || 0
-                ].map(Number).filter(Boolean))];
-                const targetItems = (allItems || []).filter(item => targetOrders.includes(Number(item.order)));
-                if (targetItems.length) stepsWithActions.push({
-                    type: action.type === 'show' ? 'show' : 'hide',
-                    action: { ...action, targetOrder: targetOrders[0] || 0, targetOrders },
-                    item: targetItems[0],
-                    items: targetItems,
-                    motion: false,
-                    order: step.order
-                });
+                ].map(Number).filter(Boolean))].filter(order => (allItems || []).some(item => Number(item.order) === order));
+                const addActionStep = (orders, sequentialIndex = -1) => {
+                    const targetItems = (allItems || []).filter(item => orders.includes(Number(item.order)));
+                    if (!targetItems.length) return;
+                    stepsWithActions.push({
+                        type: action.type === 'show' ? 'show' : 'hide',
+                        action: {
+                            ...action,
+                            targetOrder: orders[0] || 0,
+                            targetOrders: orders,
+                            sequentialIndex,
+                            sequentialTotal: action.sequential ? targetOrders.length : 0
+                        },
+                        item: targetItems[0],
+                        items: targetItems,
+                        motion: false,
+                        order: step.order
+                    });
+                };
+                if (action.type === 'hide' && action.sequential) {
+                    targetOrders.forEach((order, index) => addActionStep([order], index));
+                } else {
+                    addActionStep(targetOrders);
+                }
             });
         });
         steps.splice(0, steps.length, ...stepsWithActions);
@@ -11770,8 +11816,10 @@
                 ? this.getShiftPhotoCompareMarkPagesFromDataset(item.mark).length
                 : 0;
             item.mark.classList.toggle('shift-photo-compare-animation-paged', pageCount > 1);
-            item.mark.classList.toggle('shift-photo-compare-animation-hidden', animatedMarkSet.has(item.mark));
-            item.mark.classList.toggle('shift-photo-compare-animation-visible', !animatedMarkSet.has(item.mark));
+            const initiallyVisible = !animatedMarkSet.has(item.mark)
+                || (item.order > 0 && item.effect === 'erase' && !syncControlledPhotoMarks.has(item.mark));
+            item.mark.classList.toggle('shift-photo-compare-animation-hidden', !initiallyVisible);
+            item.mark.classList.toggle('shift-photo-compare-animation-visible', initiallyVisible);
             this.prepareShiftPhotoCompareAnimationMark(item);
         });
         const timelineEntries = this.getShiftPhotoCompareAnimationTimelinePageEntries(allItems);
@@ -12088,12 +12136,17 @@
                 issues.push(`${entry.pageNumber}P: 表示前の位置へ差し込まれています`);
             }
         });
-        const revealed = new Set();
-        const hidden = new Map();
+        const initiallyVisibleOrders = new Set((page?.allItems || [])
+            .filter(item => item.order > 0 && item.effect === 'erase')
+            .map(item => Number(item.order)));
+        const revealed = new Set(initiallyVisibleOrders);
+        const hidden = new Map([...initiallyVisibleOrders].map(order => [order, false]));
         (page?.steps || []).forEach((step, stepIndex) => {
             if (step.type === 'symbol' && !step.motion && !step.videoPlayback) {
-                revealed.add(Number(step.order));
-                hidden.set(Number(step.order), false);
+                const order = Number(step.order);
+                const orderItems = (page?.allItems || []).filter(item => Number(item.order) === order);
+                revealed.add(order);
+                hidden.set(order, !!orderItems.length && orderItems.every(item => item.effect === 'erase'));
                 return;
             }
             if (!['hide', 'show'].includes(step.type)) return;
@@ -12139,7 +12192,10 @@
                 });
                 const targetLabel = this.escapeHtml(targetNames.join('、'));
                 const isShow = step.type === 'show';
-                return `<div class="shift-photo-compare-animation-timeline-node symbol-node ${isShow ? 'show-node' : 'hide-node'}" data-timeline-step-index="${index}" data-timeline-action-id="${step.action.id}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge ${isShow ? 'show-action' : 'hide-action'}" draggable="true" onclick="app.openShiftPhotoCompareAnimationHideActionEditor('', -1, '${step.action.id}')" ondragstart="app.startShiftPhotoCompareAnimationActionTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックで編集、ドラッグで実行位置を変更"><strong>${targetLabel}</strong><small><i class="fa-solid ${isShow ? 'fa-eye' : 'fa-eye-slash'}"></i> ${isShow ? '再表示' : '消す'}・${targetOrders.length}件</small></button><button type="button" class="shift-photo-compare-animation-delete-station" onclick="event.stopPropagation(); app.deleteShiftPhotoCompareAnimationTimelineAction('${step.action.id}')" title="この駅を削除" aria-label="この駅を削除"><i class="fa-solid fa-trash"></i></button>${syncedPhotoMarker}</div>`;
+                const actionLabel = step.action?.sequential
+                    ? `順番に消す ${Number(step.action.sequentialIndex) + 1}/${Number(step.action.sequentialTotal) || 1}`
+                    : `${isShow ? '再表示' : '消す'}・${targetOrders.length}件`;
+                return `<div class="shift-photo-compare-animation-timeline-node symbol-node ${isShow ? 'show-node' : 'hide-node'}" data-timeline-step-index="${index}" data-timeline-action-id="${step.action.id}">${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge ${isShow ? 'show-action' : 'hide-action'}" draggable="true" onclick="app.openShiftPhotoCompareAnimationHideActionEditor('', -1, '${step.action.id}')" ondragstart="app.startShiftPhotoCompareAnimationActionTimelineDrag(event, this)" ondragend="app.endShiftPhotoCompareAnimationTimelineDrag(event)" title="クリックで編集、ドラッグで実行位置を変更"><strong>${targetLabel}</strong><small><i class="fa-solid ${isShow ? 'fa-eye' : 'fa-eye-slash'}"></i> ${actionLabel}</small></button><button type="button" class="shift-photo-compare-animation-delete-station" onclick="event.stopPropagation(); app.deleteShiftPhotoCompareAnimationTimelineAction('${step.action.id}')" title="この駅を削除" aria-label="この駅を削除"><i class="fa-solid fa-trash"></i></button>${syncedPhotoMarker}</div>`;
             }
             if (step.type === 'page') {
                 const entry = step.pageEntry;
@@ -12154,6 +12210,7 @@
             const animationName = String(step.items?.[0]?.mark?.dataset?.animationName || '').trim();
             const badgeTitle = this.escapeHtml(animationName || `記号 ${step.order}`);
             const symbolThumbnail = this.getShiftPhotoCompareAnimationSymbolThumbnailHtml(step);
+            const erasesOnClick = (step.items || []).some(item => item.effect === 'erase');
             const groupIndex = symbolGroupIndexes.get(step.order);
             const syncTargetKey = this.getShiftPhotoCompareAnimationPhotoSyncTargetKey(step);
             const syncDropAttributes = `data-photo-sync-target-key="${this.escapeHtml(syncTargetKey)}" ondragover="app.dragOverShiftPhotoCompareAnimationPhotoSyncTarget(event, ${index})" ondragleave="app.leaveShiftPhotoCompareAnimationPhotoSyncTarget(event)" ondrop="app.dropShiftPhotoCompareAnimationPhotoSyncTarget(event, ${index})"`;
@@ -12162,7 +12219,7 @@
                 ? `<div class="shift-photo-compare-animation-timeline-node symbol-node video-playback-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}" ${syncDropAttributes}>${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-video video-playback" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${syncDropAttributes} title="クリックで動画再生をプレビュー／写真をドロップして同調">${symbolThumbnail}<strong>${badgeTitle}（動）</strong><small><i class="fa-solid fa-play"></i> 再生</small></button>${syncedPhotoMarker}</div>`
                 : step.motion
                 ? `<div class="shift-photo-compare-animation-timeline-node symbol-node motion-node" data-timeline-step-index="${index}" data-symbol-order="${step.order}" ${syncDropAttributes}>${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}>${symbolThumbnail}<strong>${badgeTitle}${suffix}</strong><small>${this.isShiftPhotoCompareAnimationRoundTripStep(step) ? '往復' : '移動'}</small></button>${syncedPhotoMarker}</div>`
-                : `<div class="shift-photo-compare-animation-timeline-node symbol-node ${selectedItems.has(`symbol:${step.order}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-symbol-order="${step.order}" ${syncDropAttributes}>${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}>${symbolThumbnail}<strong>${badgeTitle}${suffix}</strong><small>${animationName ? `記号 ${step.order}` : ((step.items || []).length > 1 ? `${step.items.length}個を同時表示` : '表示')}</small></button><button type="button" class="shift-photo-compare-animation-symbol-name-edit" onclick="event.stopPropagation(); app.openShiftPhotoCompareAnimationSymbolNameEditor(${step.order})" title="記号名を編集" aria-label="記号名を編集"><i class="fa-solid fa-pen"></i></button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('symbol', '${step.order}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button>${syncedPhotoMarker}</div>`;
+                : `<div class="shift-photo-compare-animation-timeline-node symbol-node ${selectedItems.has(`symbol:${step.order}`) ? 'timeline-selected' : ''}" data-timeline-step-index="${index}" data-symbol-order="${step.order}" ${syncDropAttributes}>${stationDot}<button type="button" class="shift-photo-compare-animation-symbol-badge symbol-${symbolKind}" onclick="app.previewShiftPhotoCompareAnimationTimelineStep(${index})" ${dragAttributes}>${symbolThumbnail}<strong>${badgeTitle}${suffix}</strong><small>${animationName ? `記号 ${step.order}` : (erasesOnClick ? '消去' : ((step.items || []).length > 1 ? `${step.items.length}個を同時表示` : '表示'))}</small></button><button type="button" class="shift-photo-compare-animation-symbol-name-edit" onclick="event.stopPropagation(); app.openShiftPhotoCompareAnimationSymbolNameEditor(${step.order})" title="記号名を編集" aria-label="記号名を編集"><i class="fa-solid fa-pen"></i></button><button type="button" class="shift-photo-compare-animation-timeline-select-btn" onclick="event.stopPropagation(); app.toggleShiftPhotoCompareAnimationTimelineSelection('symbol', '${step.order}')" title="一括操作の選択" aria-label="一括操作の選択"><i class="fa-solid fa-check"></i></button>${syncedPhotoMarker}</div>`;
             const nextOrder = steps[index + 1]?.order;
             const before = !step.motion && !step.videoPlayback ? symbolDropZone(groupIndex) : '';
             const afterSymbol = nextOrder === step.order ? '' : `<div class="shift-photo-compare-animation-timeline-drop-zone page-drop-zone" data-drop-order="${step.order}" ondragover="app.dragOverShiftPhotoCompareAnimationTimeline(event, ${step.order})" ondragleave="app.leaveShiftPhotoCompareAnimationTimelineDrop(event)" ondrop="app.dropShiftPhotoCompareAnimationTimeline(event, ${step.order})">記号 ${step.order} の後</div>`;
@@ -12239,7 +12296,7 @@
             const item = items[0];
             const revealStepIndex = Number.isFinite(item.animationRevealStepIndex) ? item.animationRevealStepIndex : Number.MAX_SAFE_INTEGER;
             const name = String(item.mark?.dataset?.animationName || '').trim() || `記号 ${order}`;
-            const isVisible = revealStepIndex <= stepIndex && !this.isShiftPhotoCompareAnimationItemHiddenAtStep(item, page.steps || [], stepIndex);
+            const isVisible = this.isShiftPhotoCompareAnimationItemVisibleAtStep(item, page.steps || [], stepIndex);
             (isVisible ? visible : hidden).push(name);
         });
         const format = values => values.length
@@ -12272,13 +12329,21 @@
             : Math.max(0, Math.round(Number(afterStepIndex) || 0));
         if (!afterKey) return;
         const selectedOrders = new Set(existing?.targetOrders || []);
-        const targetOrders = [...new Set((page.allItems || []).filter(item => item.order > 0).map(item => Number(item.order)))].sort((left, right) => left - right);
+        const selectedRanks = new Map((existing?.targetOrders || []).map((order, index) => [Number(order), index]));
+        const targetOrders = [...new Set((page.allItems || []).filter(item => item.order > 0).map(item => Number(item.order)))].sort((left, right) => {
+            const leftRank = selectedRanks.get(left);
+            const rightRank = selectedRanks.get(right);
+            if (leftRank !== undefined && rightRank !== undefined) return leftRank - rightRank;
+            if (leftRank !== undefined) return -1;
+            if (rightRank !== undefined) return 1;
+            return left - right;
+        });
         const options = targetOrders.map(order => {
             const items = (page.allItems || []).filter(item => Number(item.order) === order);
             const item = items[0];
             const name = String(item?.mark?.dataset?.animationName || '').trim() || `記号 ${order}`;
             const label = `${name}${items.length > 1 ? `（${items.length}要素）` : ''}`;
-            return `<label class="shift-photo-compare-animation-action-target"><input type="checkbox" value="${order}" ${selectedOrders.has(order) ? 'checked' : ''}><span>${this.escapeHtml(label)}</span></label>`;
+            return `<div class="shift-photo-compare-animation-action-target" data-target-order="${order}"><label><input type="checkbox" value="${order}" ${selectedOrders.has(order) ? 'checked' : ''} onchange="app.refreshShiftPhotoCompareAnimationActionTargetOrder(this.closest('.shift-photo-compare-animation-timeline-dialog'))"><span>${this.escapeHtml(label)}</span></label><span class="shift-photo-compare-animation-action-order-number" aria-hidden="true"></span><div class="shift-photo-compare-animation-action-order-controls"><button type="button" data-move="-1" onclick="app.moveShiftPhotoCompareAnimationActionTarget(this, -1)" title="上へ" aria-label="上へ"><i class="fa-solid fa-arrow-up"></i></button><button type="button" data-move="1" onclick="app.moveShiftPhotoCompareAnimationActionTarget(this, 1)" title="下へ" aria-label="下へ"><i class="fa-solid fa-arrow-down"></i></button></div></div>`;
         }).join('');
         if (!options) {
             this.showToast?.('対象にできる記号がありません。');
@@ -12291,26 +12356,63 @@
             <div class="shift-photo-compare-animation-timeline-dialog-panel shift-photo-compare-animation-action-editor">
                 <header><strong><i class="fa-solid ${existing ? 'fa-pen' : 'fa-plus'}"></i> ${existing ? '駅を編集' : '駅を追加'}</strong><button type="button" onclick="this.closest('.shift-photo-compare-animation-timeline-dialog').remove()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
                 <div class="shift-photo-compare-animation-action-modes" role="group" aria-label="アクション">
-                    <label><input type="radio" name="timeline-action-type" value="hide" ${existing?.type !== 'show' ? 'checked' : ''}><span><i class="fa-solid fa-eye-slash"></i> 消す</span></label>
-                    <label><input type="radio" name="timeline-action-type" value="show" ${existing?.type === 'show' ? 'checked' : ''}><span><i class="fa-solid fa-eye"></i> 再表示</span></label>
+                    <label><input type="radio" name="timeline-action-type" value="hide" ${existing?.type !== 'show' && !existing?.sequential ? 'checked' : ''} onchange="app.refreshShiftPhotoCompareAnimationActionTargetOrder(this.closest('.shift-photo-compare-animation-timeline-dialog'))"><span><i class="fa-solid fa-eye-slash"></i> 消す</span></label>
+                    <label><input type="radio" name="timeline-action-type" value="sequential" ${existing?.sequential ? 'checked' : ''} onchange="app.refreshShiftPhotoCompareAnimationActionTargetOrder(this.closest('.shift-photo-compare-animation-timeline-dialog'))"><span><i class="fa-solid fa-list-ol"></i> 順番に消す</span></label>
+                    <label><input type="radio" name="timeline-action-type" value="show" ${existing?.type === 'show' ? 'checked' : ''} onchange="app.refreshShiftPhotoCompareAnimationActionTargetOrder(this.closest('.shift-photo-compare-animation-timeline-dialog'))"><span><i class="fa-solid fa-eye"></i> 再表示</span></label>
                 </div>
-                <div class="shift-photo-compare-animation-hide-action-choices"><span>対象記号（複数選択可）</span>${options}</div>
+                <div class="shift-photo-compare-animation-hide-action-choices"><span>対象記号（複数選択可）</span><p class="shift-photo-compare-animation-action-order-hint">上から順に、クリックするたびに1件ずつ消します。矢印で順番を変更できます。</p>${options}</div>
                 <div class="shift-photo-compare-animation-timeline-dialog-actions">
                     ${existing ? `<button type="button" class="danger" onclick="app.deleteShiftPhotoCompareAnimationTimelineAction('${existing.id}')"><i class="fa-solid fa-trash"></i> 削除</button>` : '<span></span>'}
                     <button type="button" class="primary" onclick="app.saveShiftPhotoCompareAnimationHideAction('${encodeURIComponent(afterKey)}', ${anchorIndex}, '${existing?.id || ''}', this.closest('.shift-photo-compare-animation-timeline-dialog'))"><i class="fa-solid fa-floppy-disk"></i> ${existing ? '更新' : '追加'}</button>
                 </div>
             </div>`;
         state.overlay.appendChild(dialog);
+        this.refreshShiftPhotoCompareAnimationActionTargetOrder(dialog);
         requestAnimationFrame(() => dialog.querySelector('input:checked')?.focus());
+    }
+
+    refreshShiftPhotoCompareAnimationActionTargetOrder(dialog = null) {
+        if (!dialog) return;
+        const sequential = dialog.querySelector('input[name="timeline-action-type"]:checked')?.value === 'sequential';
+        dialog.classList.toggle('is-sequential', sequential);
+        const rows = Array.from(dialog.querySelectorAll('.shift-photo-compare-animation-action-target'));
+        const selectedRows = rows.filter(row => row.querySelector('input[type="checkbox"]')?.checked);
+        rows.forEach(row => {
+            const selectedIndex = selectedRows.indexOf(row);
+            const number = row.querySelector('.shift-photo-compare-animation-action-order-number');
+            if (number) number.textContent = sequential && selectedIndex >= 0 ? String(selectedIndex + 1) : '';
+            const up = row.querySelector('[data-move="-1"]');
+            const down = row.querySelector('[data-move="1"]');
+            if (up) up.disabled = !sequential || selectedIndex <= 0;
+            if (down) down.disabled = !sequential || selectedIndex < 0 || selectedIndex === selectedRows.length - 1;
+        });
+    }
+
+    moveShiftPhotoCompareAnimationActionTarget(button, direction) {
+        const row = button?.closest?.('.shift-photo-compare-animation-action-target');
+        const dialog = button?.closest?.('.shift-photo-compare-animation-timeline-dialog');
+        if (!row || !dialog?.classList.contains('is-sequential')) return;
+        const selectedRows = Array.from(dialog.querySelectorAll('.shift-photo-compare-animation-action-target'))
+            .filter(candidate => candidate.querySelector('input[type="checkbox"]')?.checked);
+        const index = selectedRows.indexOf(row);
+        const neighbor = selectedRows[index + Math.sign(Number(direction) || 0)];
+        if (!neighbor) return;
+        if (direction < 0) row.parentElement.insertBefore(row, neighbor);
+        else row.parentElement.insertBefore(row, neighbor.nextSibling);
+        this.refreshShiftPhotoCompareAnimationActionTargetOrder(dialog);
+        button.focus();
     }
 
     saveShiftPhotoCompareAnimationHideAction(encodedAfterKey = '', afterStepIndex = -1, actionId = '', dialog = null) {
         const state = this._shiftPhotoCompareAnimationState;
         const page = state?.pages?.[state.pageIndex];
         const afterKey = decodeURIComponent(String(encodedAfterKey || ''));
-        const type = dialog?.querySelector?.('input[name="timeline-action-type"]:checked')?.value === 'show' ? 'show' : 'hide';
+        const mode = dialog?.querySelector?.('input[name="timeline-action-type"]:checked')?.value || 'hide';
+        const type = mode === 'show' ? 'show' : 'hide';
+        const sequential = mode === 'sequential';
         const targetOrders = [...new Set(Array.from(dialog?.querySelectorAll?.('.shift-photo-compare-animation-action-target input:checked') || [])
-            .map(input => Math.max(0, Math.round(Number(input.value) || 0))).filter(Boolean))].sort((left, right) => left - right);
+            .map(input => Math.max(0, Math.round(Number(input.value) || 0))).filter(Boolean))];
+        if (!sequential) targetOrders.sort((left, right) => left - right);
         if (!state || !page || !afterKey || !targetOrders.length) {
             this.showShiftPhotoCompareAnimationTimelineNotice('対象記号を1つ以上選択してください。', 'error');
             return;
@@ -12322,6 +12424,7 @@
         const nextAction = {
             id: actionId || `${type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
             type,
+            sequential,
             afterKey,
             afterStepIndex: Math.max(0, Math.round(Number(afterStepIndex) || 0)),
             targetMarkKey,
@@ -12340,10 +12443,28 @@
         state.steps = page.steps;
         state.index = Math.min(state.index, state.steps.length - 1);
         this.renderShiftPhotoCompareAnimationTimeline();
+        this.syncShiftPhotoCompareAnimationActionVisibility();
         this.updateShiftPhotoCompareAnimationCounter();
         this.setShiftPhotoCompareAnimationTimelineDirty(true);
-        this.showShiftPhotoCompareAnimationTimelineNotice(`${targetOrders.length}件を${type === 'show' ? '再表示する' : '消す'}駅を${existingIndex >= 0 ? '更新' : '追加'}しました。`, 'saved');
+        const actionDescription = sequential ? '順番に消す' : (type === 'show' ? '再表示する' : '消す');
+        this.showShiftPhotoCompareAnimationTimelineNotice(`${targetOrders.length}件を${actionDescription}駅を${existingIndex >= 0 ? '更新' : '追加'}しました。`, 'saved');
     }
+    syncShiftPhotoCompareAnimationActionVisibility() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const page = state?.pages?.[state.pageIndex];
+        if (!state || !page) return;
+        state.marks = (page.marks || []).filter(item => item.order > 0);
+        this.setShiftPhotoCompareAnimationTimelinePageSnapshot(state.index);
+        state.marks.forEach((item, index) => {
+            const visible = this.isShiftPhotoCompareAnimationItemVisibleAtStep(item, state.steps, state.index, index);
+            item.mark.classList.remove(...this.getShiftPhotoCompareAnimationEffectClasses());
+            item.mark.classList.toggle('shift-photo-compare-animation-hidden', !visible);
+            item.mark.classList.toggle('shift-photo-compare-animation-visible', visible);
+            if (!visible) item.mark.classList.remove('shift-photo-compare-animation-motion');
+        });
+        this.updateShiftPhotoCompareAnimationMotionTrails();
+    }
+
     deleteShiftPhotoCompareAnimationTimelineAction(actionId = '') {
         const state = this._shiftPhotoCompareAnimationState;
         const page = state?.pages?.[state.pageIndex];
@@ -12356,6 +12477,7 @@
         state.steps = page.steps;
         state.index = Math.min(state.index, state.steps.length - 1);
         this.renderShiftPhotoCompareAnimationTimeline();
+        this.syncShiftPhotoCompareAnimationActionVisibility();
         this.updateShiftPhotoCompareAnimationCounter();
         this.showShiftPhotoCompareAnimationTimelineNotice('追加した駅を削除しました。', 'saved');
     }
@@ -16056,7 +16178,7 @@
             if (this.supportsShiftPhotoComparePages(mark)) this.applyShiftPhotoCompareMarkPage(mark, 0, { skipPersist: true });
         });
         currentPage.marks.forEach(item => {
-            if (!['boxedText', 'callout'].includes(item.mark.dataset.mode || '')) return;
+            if (!['boxedText', 'callout'].includes(item.mark.dataset.mode || '') || item.effect === 'erase') return;
             item.mark.classList.add('shift-photo-compare-animation-hidden');
             item.mark.classList.remove(
                 'shift-photo-compare-animation-visible',
@@ -16276,8 +16398,10 @@
             if (this.supportsShiftPhotoComparePages(mark)) this.applyShiftPhotoCompareMarkPage(mark, 0, { skipPersist: true });
         });
         page.marks.forEach(item => {
-            item.mark.classList.add('shift-photo-compare-animation-hidden');
-            item.mark.classList.remove('shift-photo-compare-animation-visible', 'shift-photo-compare-animation-motion', 'shift-photo-compare-animation-round-trip-settled', ...this.getShiftPhotoCompareAnimationEffectClasses());
+            const initiallyVisible = this.isShiftPhotoCompareAnimationItemVisibleAtStep(item, page.steps, -1);
+            item.mark.classList.toggle('shift-photo-compare-animation-hidden', !initiallyVisible);
+            item.mark.classList.toggle('shift-photo-compare-animation-visible', initiallyVisible);
+            item.mark.classList.remove('shift-photo-compare-animation-motion', 'shift-photo-compare-animation-round-trip-settled', ...this.getShiftPhotoCompareAnimationEffectClasses());
             this.prepareShiftPhotoCompareAnimationMark(item);
         });
         this.setShiftPhotoCompareAnimationTimelinePageSnapshot(-1);
@@ -16320,7 +16444,9 @@
                 const item = (page?.allItems || []).find(target => Number(target.order) === Number(order));
                 return String(item?.mark?.dataset?.animationName || '').trim() || `記号 ${order}`;
             });
-            stepName = `${names.join('、')}・${currentStep.type === 'show' ? '再表示' : '消す'}`;
+            stepName = currentStep.action?.sequential
+                ? `${names.join('、')}・順番に消す ${Number(currentStep.action.sequentialIndex) + 1}/${Number(currentStep.action.sequentialTotal) || 1}`
+                : `${names.join('、')}・${currentStep.type === 'show' ? '再表示' : '消す'}`;
         } else if (currentStep) {
             const item = currentStep.items?.[0] || currentStep.item;
             const name = String(item?.mark?.dataset?.animationName || '').trim() || `記号 ${currentStep.order || item?.order || state.index + 1}`;
@@ -16348,16 +16474,26 @@
         state?.grid?.querySelector('.shift-photo-compare-animation-motion-trails')?.remove();
     }
 
-    isShiftPhotoCompareAnimationItemHiddenAtStep(item, steps = [], stepIndex = -1) {
-        if (!item || stepIndex < 0) return false;
-        let hidden = false;
-        steps.slice(0, stepIndex + 1).forEach(step => {
-            if (!['hide', 'show'].includes(step.type)) return;
+    isShiftPhotoCompareAnimationItemVisibleAtStep(item, steps = [], stepIndex = -1, fallbackIndex = 0) {
+        if (!item) return false;
+        const revealStepIndex = Number.isFinite(item.animationRevealStepIndex)
+            ? item.animationRevealStepIndex
+            : fallbackIndex;
+        const erases = item.effect === 'erase';
+        let visible = erases;
+        for (let index = 0; index <= stepIndex; index += 1) {
+            if (index === revealStepIndex) visible = !erases;
+            const step = steps[index];
+            if (!step || !['hide', 'show'].includes(step.type)) continue;
             const targetOrders = step.action?.targetOrders || [step.action?.targetOrder];
             const targetsItem = (step.items || []).includes(item) || targetOrders.map(Number).includes(Number(item.order));
-            if (targetsItem) hidden = step.type === 'hide';
-        });
-        return hidden;
+            if (targetsItem) visible = step.type === 'show';
+        }
+        return visible;
+    }
+
+    isShiftPhotoCompareAnimationItemHiddenAtStep(item, steps = [], stepIndex = -1) {
+        return !this.isShiftPhotoCompareAnimationItemVisibleAtStep(item, steps, stepIndex);
     }
 
     isShiftPhotoCompareAnimationRoundTripStep(step = null) {
@@ -16547,9 +16683,12 @@
         state.marks.forEach((item, index) => {
             const revealStepIndex = Number.isFinite(item.animationRevealStepIndex) ? item.animationRevealStepIndex : index;
             const motionStepIndex = Number.isFinite(item.animationMotionStepIndex) ? item.animationMotionStepIndex : revealStepIndex;
-            const visible = revealStepIndex <= nextIndex && !this.isShiftPhotoCompareAnimationItemHiddenAtStep(item, steps, nextIndex);
+            const visible = this.isShiftPhotoCompareAnimationItemVisibleAtStep(item, steps, nextIndex, index);
             const motionReached = item.motion && motionStepIndex <= nextIndex;
             const isActiveStep = activeItems.has(item);
+            const erasingNow = direction > 0 && isActiveStep && item.effect === 'erase'
+                && revealStepIndex === nextIndex && !activeStep?.motion && !activeStep?.videoPlayback && !visible;
+            const displayed = visible || erasingNow;
             const isRoundTrip = item.motion && this.normalizeShiftPhotoCompareAnimationEffect(item.effect || '') === 'roundTrip';
             const roundTripActive = isRoundTrip && isActiveStep && activeStep?.motion
                 && state.roundTripReleased !== this.getShiftPhotoCompareAnimationRoundTripStepKey(state, nextIndex);
@@ -16562,19 +16701,21 @@
                 item.mark.classList.remove('shift-photo-compare-animation-motion');
             }
             this.prepareShiftPhotoCompareAnimationMark(item);
-            item.mark.classList.toggle('shift-photo-compare-animation-hidden', !visible);
-            item.mark.classList.toggle('shift-photo-compare-animation-visible', visible);
-            if (visible) {
+            item.mark.classList.toggle('shift-photo-compare-animation-hidden', !displayed);
+            item.mark.classList.toggle('shift-photo-compare-animation-visible', displayed);
+            if (displayed) {
                 if (isActiveStep) {
                     void item.mark.offsetWidth;
                 }
-                if (motionReached && (!isRoundTrip || roundTripActive)) {
+                if (erasingNow) {
+                    item.mark.classList.add('shift-photo-compare-animation-effect-erase');
+                } else if (motionReached && (!isRoundTrip || roundTripActive)) {
                     item.mark.classList.add('shift-photo-compare-animation-motion');
                     if (roundTripActive) {
                         item.mark.classList.add('shift-photo-compare-animation-effect-roundTrip');
                         this.startShiftPhotoCompareAnimationRoundTripAnimation(item, state);
                     }
-                } else if (isActiveStep && !activeStep?.videoPlayback && !isRoundTrip) {
+                } else if (isActiveStep && !activeStep?.videoPlayback && !isRoundTrip && item.effect !== 'erase') {
                     item.mark.classList.add(`shift-photo-compare-animation-effect-${item.effect || 'pop'}`);
                 }
             }
@@ -16686,9 +16827,10 @@
         state.roundTripReleased = '';
         state.marks.forEach(item => {
             this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item.mark);
-            item.mark.classList.add('shift-photo-compare-animation-hidden');
+            const initiallyVisible = this.isShiftPhotoCompareAnimationItemVisibleAtStep(item, state.steps, -1);
+            item.mark.classList.toggle('shift-photo-compare-animation-hidden', !initiallyVisible);
+            item.mark.classList.toggle('shift-photo-compare-animation-visible', initiallyVisible);
             item.mark.classList.remove(
-                'shift-photo-compare-animation-visible',
                 'shift-photo-compare-animation-motion',
                 'shift-photo-compare-animation-round-trip-settled',
                 ...this.getShiftPhotoCompareAnimationEffectClasses()
@@ -17495,7 +17637,9 @@
         const isPath = this.isShiftPhotoComparePointPathMode(mark.dataset.mode);
         const isLine = ['arrow', 'dimension'].includes(mark.dataset.mode || '');
         let frame = { opacity: 1, scaleX: 1, scaleY: 1, rotate: 0, translateX: 0, translateY: 0 };
-        if (isPath && !['fade', 'flash'].includes(effect)) {
+        if (effect === 'erase') {
+            frame.opacity = 1 - p;
+        } else if (isPath && !['fade', 'flash'].includes(effect)) {
             frame.opacity = p;
         } else if (effect === 'fade') {
             frame.opacity = p;
@@ -17568,17 +17712,21 @@
         state.marks.forEach((item, fallbackIndex) => {
             const revealStepIndex = Number.isFinite(item.animationRevealStepIndex) ? item.animationRevealStepIndex : fallbackIndex;
             const motionStepIndex = Number.isFinite(item.animationMotionStepIndex) ? item.animationMotionStepIndex : revealStepIndex;
-            const visible = revealStepIndex <= stepIndex && !this.isShiftPhotoCompareAnimationItemHiddenAtStep(item, state.steps || [], stepIndex);
+            const visible = this.isShiftPhotoCompareAnimationItemVisibleAtStep(item, state.steps || [], stepIndex, fallbackIndex);
+            const itemProgress = typeof progress === 'function' ? progress(item) : progress;
+            const erasingNow = item.effect === 'erase' && revealStepIndex === stepIndex && activeItems.has(item)
+                && !activeStep?.motion && !activeStep?.videoPlayback && Number(itemProgress) < 1;
+            const displayed = visible || erasingNow;
             const mark = item.mark;
             this.resetShiftPhotoCompareAnimationExportEffect(mark);
-            mark.classList.toggle('shift-photo-compare-animation-hidden', !visible);
-            mark.classList.toggle('shift-photo-compare-animation-visible', visible);
-            if (!visible) return;
+            mark.classList.remove('shift-photo-compare-animation-effect-erase');
+            mark.classList.toggle('shift-photo-compare-animation-hidden', !displayed);
+            mark.classList.toggle('shift-photo-compare-animation-visible', displayed);
+            if (!displayed) return;
             const start = item.start || this.getShiftPhotoCompareAnimationStartState(mark);
             const end = item.end || start;
             const motionFinished = item.motion && motionStepIndex < stepIndex;
             const motionActive = item.motion && activeItems.has(item) && activeStep?.motion;
-            const itemProgress = typeof progress === 'function' ? progress(item) : progress;
             const rawT = motionActive ? Math.max(0, Math.min(1, Number(itemProgress) || 0)) : (motionFinished ? 1 : 0);
             const revealActive = revealStepIndex === stepIndex && activeItems.has(item) && !activeStep?.motion && !activeStep?.videoPlayback;
             if (revealActive) this.applyShiftPhotoCompareAnimationExportEffect(item, itemProgress);
@@ -18807,7 +18955,7 @@
                             </button>
                             <label class="shift-photo-compare-size">
                                 <span>大きさ</span>
-                                <input type="range" min="24" max="700" value="56" oninput="app.setShiftPhotoCompareMarkSize(this.value)">
+                                <input type="range" min="24" max="700" value="56" oninput="app.setShiftPhotoCompareMarkSize(this.value)" aria-label="大きさ">
                                 <b id="shift-photo-compare-size-value">56</b>
                             </label>
                             <div class="shift-photo-compare-angle-dial" title="円をドラッグして角度を変更">
@@ -18978,6 +19126,7 @@
                     </div>
                     <button type="button" onclick="app.clearShiftPhotoCompareSelection()" title="選択解除"><i class="fa-solid fa-ban"></i></button>
                     <button type="button" class="shift-photo-compare-animation-order-btn" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); app.assignShiftPhotoCompareAnimationOrder()" title="選択中の記号に次のアニメ順を付ける"><i class="fa-solid fa-list-ol"></i><span>順番</span></button>
+                    <button type="button" class="shift-photo-compare-animation-effect-btn" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); app.openShiftPhotoCompareAnimationEffectsForMark()" title="選択中のモザイクのアニメ効果を設定"><i class="fa-solid fa-wand-magic-sparkles"></i><span>効果</span></button>
                     <button type="button" class="shift-photo-compare-animation-order-clear-btn" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation(); app.clearShiftPhotoCompareAnimationOrder()" title="選択中の記号のアニメ順を消す"><i class="fa-solid fa-eraser"></i><span>順消</span></button>
                     <span class="shift-photo-compare-operation-mode" id="shift-photo-compare-operation-mode" hidden></span>
                     <span class="shift-photo-compare-polyline-state" hidden></span>
@@ -19484,7 +19633,7 @@
         }
         const overlayRect = overlay.getBoundingClientRect();
         if (!overlayRect?.width) return;
-        const size = Math.max(24, Math.min(700, Number(this._shiftPhotoCompareMarkSize) || 56));
+        const size = Math.max(24, Math.min(this.getShiftPhotoCompareMarkSizeMax('image'), Number(this._shiftPhotoCompareMarkSize) || 56));
         let stretch = Math.max(0.5, Math.min(5, Number(this._shiftPhotoCompareMarkStretch || 100) / 100 || 1));
         let stretchY = Math.max(0.5, Math.min(5, Number(this._shiftPhotoCompareMarkStretchY || 100) / 100 || 1));
         let imageFit = this._shiftPhotoCompareImageFit === 'fill' ? 'fill' : '';
@@ -19609,6 +19758,7 @@
         this.updateShiftPhotoCompareDashedButton();
         this.updateShiftPhotoCompareStrokeControl();
         this.updateShiftPhotoComparePolylineSnapButton();
+        this.updateShiftPhotoCompareSizeControls();
     }
 
     clearShiftPhotoCompareTransientModes({ keepMove = true, silent = true } = {}) {
@@ -21182,10 +21332,10 @@
             this.updateShiftPhotoCompareSizeControls();
             return;
         }
-        this._shiftPhotoCompareMarkSize = Math.max(24, Math.min(700, Number(preset.size) || 56));
+        this._shiftPhotoCompareMarkSize = Math.max(24, Math.min(this.getShiftPhotoCompareMarkSizeMax('image'), Number(preset.size) || 56));
         this._shiftPhotoCompareMarkStretch = Math.max(50, Math.min(500, Math.round((Number(preset.stretch) || 1) * 100)));
         this._shiftPhotoCompareMarkStretchY = Math.max(50, Math.min(500, Math.round((Number(preset.stretchY) || 1) * 100)));
-        this.updateShiftPhotoCompareSizeControls();
+        this.updateShiftPhotoCompareSizeControls('image');
         this.normalizeShiftPhotoCompareImagePlacementSize({ force: true });
     }
 
@@ -21207,14 +21357,19 @@
         };
     }
 
-    updateShiftPhotoCompareSizeControls() {
+    updateShiftPhotoCompareSizeControls(mode = this._shiftPhotoCompareMarkMode) {
         const sizeInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkSize"]');
         const stretchInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretch"]');
         const stretchYInput = document.querySelector('.shift-photo-compare-size input[oninput*="MarkStretchY"]');
         const sizeLabel = document.getElementById('shift-photo-compare-size-value');
         const stretchLabel = document.getElementById('shift-photo-compare-stretch-value');
         const stretchYLabel = document.getElementById('shift-photo-compare-stretch-y-value');
-        if (sizeInput) sizeInput.value = String(this._shiftPhotoCompareMarkSize);
+        const sizeMax = this.getShiftPhotoCompareSizeControlMax(mode);
+        this._shiftPhotoCompareMarkSize = Math.max(24, Math.min(sizeMax, Number(this._shiftPhotoCompareMarkSize) || 56));
+        if (sizeInput) {
+            sizeInput.max = String(sizeMax);
+            sizeInput.value = String(this._shiftPhotoCompareMarkSize);
+        }
         if (stretchInput) stretchInput.value = String(this._shiftPhotoCompareMarkStretch);
         if (stretchYInput) stretchYInput.value = String(this._shiftPhotoCompareMarkStretchY);
         if (sizeLabel) sizeLabel.textContent = String(Math.floor(Number(this._shiftPhotoCompareMarkSize) || 0));
@@ -22216,7 +22371,8 @@
         const stretchY = Math.max(0.05, Number(this._shiftPhotoCompareMarkStretchY || 100) / 100 || 1);
         const width = size * stretch;
         const height = size * stretchY;
-        if (size <= 220 && width <= 320 && height <= 320) return false;
+        const maxSize = this.getShiftPhotoCompareMarkSizeMax('image');
+        if (size <= maxSize && width <= maxSize * 5 && height <= maxSize * 5) return false;
         this._shiftPhotoCompareMarkSize = 56;
         this._shiftPhotoCompareMarkStretch = 100;
         this._shiftPhotoCompareMarkStretchY = 100;
@@ -22253,14 +22409,15 @@
             size = targetWidth / stretch;
             stretchY = (targetHeight / size) * boxedTextHeightCorrection;
         }
-        if (size > 700) {
-            const scale = size / 700;
-            size = 700;
+        const maxSize = this.getShiftPhotoCompareMarkSizeMax('image');
+        if (size > maxSize) {
+            const scale = size / maxSize;
+            size = maxSize;
             stretch = Math.min(5, stretch * scale);
             stretchY = Math.min(5, stretchY * scale);
         }
         return {
-            size: Math.max(24, Math.min(700, Math.round(size))),
+            size: Math.max(24, Math.min(maxSize, Math.round(size))),
             stretch: Math.max(0.5, Math.min(5, stretch)),
             stretchY: Math.max(0.5, Math.min(5, stretchY)),
             source: 'boxedText',
@@ -25186,7 +25343,7 @@
     }
 
     setShiftPhotoCompareMarkSize(value) {
-        const size = Math.max(24, Math.min(700, parseInt(value, 10) || 56));
+        const size = Math.max(24, Math.min(this.getShiftPhotoCompareSizeControlMax(), parseInt(value, 10) || 56));
         this._shiftPhotoCompareMarkSize = size;
         if (this.isShiftPhotoCompareShapeToolMode()) {
             this._shiftPhotoCompareShapeSizeDefaults = {
@@ -27023,6 +27180,7 @@
             this.updateShiftPhotoCompareExtendedColorControls();
             this.updateShiftPhotoCompareDashedButton();
             this.updateShiftPhotoCompareStrokeControl();
+            this.updateShiftPhotoCompareSizeControls();
             return;
         }
         const isAnimationGhost = mark.dataset.animationGhost === '1';
@@ -27058,7 +27216,10 @@
         const fontInput = document.querySelector('.shift-photo-compare-font select');
         const textInput = document.getElementById('shift-photo-compare-text-input');
         const angleInput = document.querySelector('.shift-photo-angle-number');
-        if (sizeInput) sizeInput.value = String(size);
+        if (sizeInput) {
+            sizeInput.max = String(this.getShiftPhotoCompareMarkSizeMax(mark.dataset.mode));
+            sizeInput.value = String(size);
+        }
         if (angleInput) angleInput.value = String(angle);
         if (stretchInput) stretchInput.value = String(stretch);
         if (stretchYInput) stretchYInput.value = String(stretchY);
@@ -27989,7 +28150,7 @@
                     return;
                 }
                 if (isLockedImage && axis !== 'both') {
-                    const nextSize = Math.max(24, Math.min(700, item.size * scale));
+                    const nextSize = Math.max(24, Math.min(this.getShiftPhotoCompareMarkSizeMax('image'), item.size * scale));
                     item.mark.dataset.size = String(Math.round(nextSize));
                     item.mark.style.setProperty('--mark-size', `${nextSize}px`);
                     this.updateShiftPhotoCompareCalloutTypography(item.mark);
@@ -28078,7 +28239,7 @@
                     item.mark.style.top = `${item.y}%`;
                     return;
                 }
-                const nextSize = Math.max(24, Math.min(isMosaic ? 1200 : 700, item.size * scale));
+                const nextSize = Math.max(24, Math.min(this.getShiftPhotoCompareMarkSizeMax(item.mark.dataset.mode), item.size * scale));
                 item.mark.dataset.size = String(Math.round(nextSize));
                 item.mark.style.setProperty('--mark-size', `${nextSize}px`);
                 if (item.mark.dataset.mode === 'xmark') this.applyShiftPhotoCompareOutlineWidthStyles(item.mark);
@@ -28360,7 +28521,7 @@
     applyShiftPhotoCompareSettingsToMark(mark, settings = {}) {
         if (!mark) return;
         if (settings.size !== undefined) {
-            const size = Math.max(24, Math.min(700, Number(settings.size) || 56));
+            const size = Math.max(24, Math.min(this.getShiftPhotoCompareMarkSizeMax(mark.dataset.mode), Number(settings.size) || 56));
             mark.dataset.size = String(size);
             mark.style.setProperty('--mark-size', `${size}px`);
             if (mark.dataset.mode === 'xmark') this.applyShiftPhotoCompareOutlineWidthStyles(mark);
@@ -36412,6 +36573,7 @@
             <button type="button" data-action="clear-all-interior-fills"><i class="fa-solid fa-trash-can-arrow-up"></i><span>比較全体の塗りを一括解除</span></button>` : ''}
             <button type="button" data-action="lock"><i class="fa-solid ${allLocked ? 'fa-lock-open' : 'fa-lock'}"></i><span>${allLocked ? 'ロックを解除' : 'ロック'}</span></button>
             <button type="button" data-action="animation-order"><i class="fa-solid fa-list-ol"></i><span>アニメ順を付ける</span></button>
+            ${mode === 'mosaic' ? '<button type="button" data-action="animation-effect"><i class="fa-solid fa-wand-magic-sparkles"></i><span>アニメ効果を設定</span></button>' : ''}
             <button type="button" data-action="animation-order-clear"><i class="fa-solid fa-eraser"></i><span>アニメ順を消す</span></button>
             ${canGroup ? `<button type="button" data-action="group"><i class="fa-solid ${isGrouped && selected.length <= 1 ? 'fa-link-slash' : 'fa-link'}"></i><span>${isGrouped && selected.length <= 1 ? 'グループ化を解除' : 'グループ化/解除'}</span></button>` : ''}
             ${isGrouped ? `<button type="button" data-action="group-icon"><i class="fa-regular ${groupIconHidden ? 'fa-eye' : 'fa-eye-slash'}"></i><span>${groupIconHidden ? 'グループアイコンを表示' : 'グループ化したままアイコンを隠す'}</span></button>` : ''}
@@ -36731,6 +36893,11 @@
             if (action === 'clear-image-interior-fills') this.clearShiftPhotoCompareInteriorFills(mark, 'image');
             if (action === 'clear-all-interior-fills') this.clearShiftPhotoCompareInteriorFills(mark, 'all');
             if (action === 'animation-order') this.assignShiftPhotoCompareAnimationOrder(mark);
+            if (action === 'animation-effect') {
+                this.closeShiftPhotoCompareImageContextMenu();
+                this.openShiftPhotoCompareAnimationEffectsForMark(mark);
+                return;
+            }
             if (action === 'animation-order-clear') this.clearShiftPhotoCompareAnimationOrder(mark);
             if (action === 'group') this.toggleSelectedShiftPhotoCompareMarkGroup();
             if (action === 'outline-widths') {
@@ -42659,7 +42826,15 @@
                 }
             }
         }
-        ctx.putImageData(image, left, top);
+        // putImageData ignores globalAlpha and transforms used by animation export.
+        // Composite the pixelated region as an image so fade, scale, and rotation apply.
+        const mosaicCanvas = document.createElement('canvas');
+        mosaicCanvas.width = w;
+        mosaicCanvas.height = h;
+        const mosaicContext = mosaicCanvas.getContext('2d');
+        if (!mosaicContext) return;
+        mosaicContext.putImageData(image, 0, 0);
+        ctx.drawImage(mosaicCanvas, left, top);
     }
 
     getShiftPhotoCompareRenderedTextEditorLines(mark, selector = '') {

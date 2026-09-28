@@ -28289,6 +28289,12 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     animation-name: shift-photo-compare-animation-fade;
 }
 
+.shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-erase {
+    animation-name: shift-photo-compare-animation-erase;
+    animation-timing-function: ease-in;
+    pointer-events: none;
+}
+
 .shift-photo-compare-animation-visible.shift-photo-compare-animation-effect-zoom {
     animation-name: shift-photo-compare-animation-zoom;
 }
@@ -28447,6 +28453,11 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
 @keyframes shift-photo-compare-animation-fade {
     from { opacity: 0; }
     to { opacity: 1; }
+}
+
+@keyframes shift-photo-compare-animation-erase {
+    from { opacity: 1; visibility: visible; }
+    to { opacity: 0; visibility: hidden; }
 }
 
 @keyframes shift-photo-compare-animation-path-reveal {
@@ -50437,3 +50448,112 @@ button.shift-photo-compare-animation-photo-sync-destination:hover {
 .photo-reveal-sound-controls output { min-width:38px;font-size:13px; }
 
 .photo-reveal-sound-controls button { width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0;flex:0 0 32px; }
+
+/* Sequential station action ordering */
+.shift-photo-compare-animation-action-editor {
+    width: min(560px, calc(100vw - 32px));
+}
+.shift-photo-compare-animation-action-modes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.shift-photo-compare-animation-action-modes span {
+    gap: 6px;
+    padding: 0 4px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+.shift-photo-compare-animation-action-modes input[value="sequential"]:checked + span {
+    border-color: #fb923c;
+    background: #9a3412;
+    color: #ffedd5;
+}
+.shift-photo-compare-animation-action-target > label {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    cursor: pointer;
+}
+.shift-photo-compare-animation-action-target > label span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.shift-photo-compare-animation-action-order-hint,
+.shift-photo-compare-animation-action-order-number,
+.shift-photo-compare-animation-action-order-controls {
+    display: none;
+}
+.shift-photo-compare-animation-timeline-dialog.is-sequential .shift-photo-compare-animation-action-order-hint {
+    display: block;
+    margin: 6px 0 10px;
+    color: #cbd5e1;
+    font-size: 12px;
+}
+.shift-photo-compare-animation-timeline-dialog.is-sequential .shift-photo-compare-animation-action-target:has(input:checked) .shift-photo-compare-animation-action-order-number {
+    display: grid;
+    place-items: center;
+    flex: 0 0 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #fb923c;
+    color: #431407;
+    font-size: 12px;
+    font-weight: 700;
+}
+.shift-photo-compare-animation-timeline-dialog.is-sequential .shift-photo-compare-animation-action-target:has(input:checked) .shift-photo-compare-animation-action-order-controls {
+    display: flex;
+    gap: 4px;
+}
+.shift-photo-compare-animation-action-editor .shift-photo-compare-animation-action-order-controls button {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    min-height: 30px;
+    padding: 0;
+    border: 1px solid #64748b;
+    border-radius: 5px;
+    background: #1e293b;
+    color: #e2e8f0;
+    cursor: pointer;
+}
+.shift-photo-compare-animation-action-editor .shift-photo-compare-animation-action-order-controls button:hover:not(:disabled),
+.shift-photo-compare-animation-action-editor .shift-photo-compare-animation-action-order-controls button:focus-visible:not(:disabled) {
+    border-color: #93c5fd;
+    background: #1e3a8a;
+    outline: 2px solid #60a5fa;
+}
+.shift-photo-compare-animation-action-editor .shift-photo-compare-animation-action-order-controls button:disabled {
+    opacity: .35;
+    cursor: default;
+}
+@media (max-width: 520px) {
+    .shift-photo-compare-animation-action-modes span {
+        gap: 3px;
+        font-size: 11px;
+    }
+    .shift-photo-compare-animation-action-order-controls {
+        gap: 2px !important;
+    }
+}
+
+/* Mosaic animation controls */
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-effect-btn {
+    display: none;
+}
+.shift-photo-compare-mini-toolbar[data-primary-mode="mosaic"] .shift-photo-compare-animation-effect-btn {
+    display: inline-grid;
+    place-items: center;
+    padding: 0;
+    border-color: rgba(251, 146, 60, 0.78);
+    background: #fff7ed;
+    color: #c2410c;
+}
+.shift-photo-compare-mini-toolbar .shift-photo-compare-animation-effect-btn > span {
+    display: none;
+}
+.shift-photo-compare-mark.mosaic > .shift-photo-compare-animation-order-badge {
+    top: -38px;
+    right: 24px;
+}
