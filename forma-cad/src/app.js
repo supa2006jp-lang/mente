@@ -40,6 +40,7 @@ let deletingSketch=false;
 import {rangeSketchHits,sketchSegments,deleteSketchSelection,offsetSketchSelection} from './sketch-selection.js';
 let selectedSketchSegments=new Map(),sketchSelectionHighlight=null;
 import {cadGrid} from './cad-grid.js';
+import {createExtrusionWheel} from './extrusion-wheel.js';
 import {holesOnlyProblem} from './holes-only-options.js';
 import {regionExtrusions} from './region-extrusions.js';
 let selectedRegions=[];
@@ -1071,7 +1072,7 @@ $('split-offset-handle').addEventListener('pointerup',endSplitDrag);
 $('split-offset-handle').addEventListener('pointercancel',endSplitDrag);
 $('split-offset-handle').addEventListener('lostpointercapture',endSplitDrag);
 
-function updateExtrusionOverlay(){const visible=stage==='extrusion'&&!pendingExtrude&&host.dataset.previewKind==='extrusion';for(const id of ['extrude-handle','extrude-distance','extrude-guide'])$(id).toggleAttribute('hidden',!visible);if(!visible)return;$('extrude-handle').hidden=$('grid-extent').checked||($('operation').value==='cut'&&$('through-all').checked);syncViewportOperation();$('viewport-combine-label').hidden=selectedRegions.length<2||!!selected||$('operation').value!=='new';const a=extrusionAnchor();if(!Number.isFinite(a.depth))return;const start=screenPoint(a.base),end=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth)),direction=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth+1));const x=Math.max(22,Math.min(host.clientWidth-22,end.x)),y=Math.max(22,Math.min(host.clientHeight-22,end.y));$('extrude-handle').style.left=x+'px';$('extrude-handle').style.top=y+'px';const dx=direction.x-end.x,dy=direction.y-end.y,angle=Math.hypot(dx,dy)<.05?0:Math.atan2(dy,dx)*180/Math.PI+90;$('extrude-handle').style.transform='translate(-50%,-50%) rotate('+angle+'deg)';const panel=$('extrude-distance');panel.style.left=Math.max(8,Math.min(host.clientWidth-panel.offsetWidth-8,x+28))+'px';panel.style.top=Math.max(8,Math.min(host.clientHeight-panel.offsetHeight-8,y+24))+'px';if(document.activeElement!==$('viewport-depth'))$('viewport-depth').value=Number(Number($('depth').value).toFixed(2));const line=$('extrude-guide-line');line.setAttribute('x1',start.x);line.setAttribute('y1',start.y);line.setAttribute('x2',end.x);line.setAttribute('y2',end.y);}
+function updateExtrusionOverlay(){const visible=stage==='extrusion'&&!pendingExtrude&&host.dataset.previewKind==='extrusion';for(const id of ['extrude-handle','extrude-distance','extrude-guide','extrude-operation-wheel'])$(id).toggleAttribute('hidden',!visible);if(!visible)return;$('extrude-handle').hidden=$('grid-extent').checked||($('operation').value==='cut'&&$('through-all').checked);syncViewportOperation();$('viewport-combine-label').hidden=selectedRegions.length<2||!!selected||$('operation').value!=='new';const a=extrusionAnchor();if(!Number.isFinite(a.depth))return;const start=screenPoint(a.base),end=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth)),direction=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth+1));const x=Math.max(22,Math.min(host.clientWidth-22,end.x)),y=Math.max(22,Math.min(host.clientHeight-22,end.y));$('extrude-handle').style.left=x+'px';$('extrude-handle').style.top=y+'px';const dx=direction.x-end.x,dy=direction.y-end.y,angle=Math.hypot(dx,dy)<.05?0:Math.atan2(dy,dx)*180/Math.PI+90;$('extrude-handle').style.transform='translate(-50%,-50%) rotate('+angle+'deg)';const panel=$('extrude-distance'),wheel=extrusionWheel.element,wheelHeight=wheel.offsetHeight;panel.style.maxHeight=Math.max(120,host.clientHeight-wheelHeight-24)+'px';panel.style.left=Math.max(8,Math.min(host.clientWidth-panel.offsetWidth-8,x+28))+'px';panel.style.top=Math.max(wheelHeight+16,Math.min(host.clientHeight-panel.offsetHeight-8,y+24))+'px';wheel.style.left=(panel.offsetLeft+(panel.offsetWidth-wheel.offsetWidth)/2)+'px';wheel.style.top=(panel.offsetTop-wheelHeight-8)+'px';if(document.activeElement!==$('viewport-depth'))$('viewport-depth').value=Number(Number($('depth').value).toFixed(2));const line=$('extrude-guide-line');line.setAttribute('x1',start.x);line.setAttribute('y1',start.y);line.setAttribute('x2',end.x);line.setAttribute('y2',end.y);}
 function setExtrusionDistance(value){const n=Number(value);if($('until-solid').checked&&contactDistanceLimit&&Math.sign(n)===Math.sign(contactDistanceLimit)&&Math.abs(n)>Math.abs(contactDistanceLimit))value=contactDistanceLimit;if($('viewport-depth').value!==String(value))$('viewport-depth').value=value;$('depth').value=value;$('depth').dispatchEvent(new Event('input',{bubbles:true}));$('viewport-depth-error').textContent=$('error').textContent;}
 $('viewport-depth').addEventListener('input',()=>setExtrusionDistance($('viewport-depth').value));
 $('extrude-distance').onsubmit=async e=>{e.preventDefault();try{if(selected)await applyHistoryEdit();else await applyFeature();$('viewport-depth-error').textContent='';}catch(err){$('viewport-depth-error').textContent=err.message;}};
@@ -1320,7 +1321,7 @@ $('viewport-combine').onchange=()=>{updatePreview();updateExtrusionOverlay();};
 $('shell-tool').onclick=()=>openDirectCommand('shell');
 
 import {draggablePanel,cancelPanelDrags} from './draggable-panel.js';
-for(const [id,title] of [['extrude-distance','押し出し'],['hole-panel','穴あけ'],['line-dimensions','線分'],['circle-dimensions','円'],['move-panel','移動／回転']])draggablePanel($(id),title);
+for(const [id,title] of [['extrude-distance','押し出し'],['hole-panel','穴あけ'],['line-dimensions','線分'],['circle-dimensions','円'],['move-panel','移動／回転']])draggablePanel($(id),title,{topMargin:()=>id==='extrude-distance'?extrusionWheel.element.offsetHeight+16:0});
 
 import {installCombinePreview} from './combine-preview.js';
 installCombinePreview({scene,host,getMesh:id=>meshes.get(id),getSelectedIds:joinSelectedIds,computeClearancePreview:spec=>kernelClient.run(features,{type:'preview',operation:spec})});
@@ -1332,12 +1333,14 @@ fitCommandToolbar(document.querySelector('.command-toolbar'));
 // Preload after the initial screen has rendered, without blocking interaction.
 warmKernelOnInteraction(kernelClient);
 
+const extrusionWheel=createExtrusionWheel(host.parentElement,value=>{$('viewport-operation').value=value;$('viewport-operation').dispatchEvent(new Event('change',{bubbles:true}));});
 function syncViewportOperation(){
  $('viewport-operation').value=$('operation').value;
  const source=$('target'),target=$('viewport-target');
  if(target.innerHTML!==source.innerHTML)target.innerHTML=source.innerHTML;
  target.value=source.value;$('viewport-target-label').hidden=['new','newHoles'].includes($('operation').value);
  for(const option of $('viewport-operation').options)option.disabled=!['new','newHoles'].includes(option.value)&&!source.options.length;
+ extrusionWheel.update($('operation').value,{hasTarget:!!source.options.length,busy:extrusionBusy,holesProblem:holesOnlyProblem({holesOnly:true,mode,profile:$('profile').value,region:regionPayload},selectedRegions.length?selectedRegions:[regionPayload])});
 }
 $('viewport-operation').onchange=()=>{extrusionManualOperation=true;$('operation').value=$('viewport-operation').value;$('operation').dispatchEvent(new Event('input',{bubbles:true}));syncViewportOperation();};
 $('viewport-target').onchange=()=>{extrusionManualOperation=true;$('target').value=$('viewport-target').value;$('target').dispatchEvent(new Event('input',{bubbles:true}));};
@@ -1937,12 +1940,12 @@ function cancelAllTools(){
  selectionMode='auto';$('selection-mode').value='auto';host.dataset.selectionMode='auto';host.dataset.hoverEdge='false';
  $('delete-line-tool').setAttribute('aria-pressed','false');document.getElementById('sketch-group-menu')?.remove();
  dropPreview();controls.enabled=true;host.style.cursor='';syncFields();renderTree();renderRegions();updateSelectionUI();
- for(const id of ['extrude-distance','extrude-guide','extrude-handle','measurement','center-pattern','snap-icon','snap-readout','edge-overlay','body-names','center-markers'])if($(id))$(id).hidden=true;
+ for(const id of ['extrude-distance','extrude-guide','extrude-handle','extrude-operation-wheel','measurement','center-pattern','snap-icon','snap-readout','edge-overlay','body-names','center-markers'])if($(id))$(id).hidden=true;
  $('status').textContent='ツールと選択を解除しました';
 }
 
 function finishExtrusionCommand(){
- finishSketch(false);stage='model';selected=null;selectedFace=null;selectedSurface=null;selectedBody=null;chosenRegion=null;regionPayload=null;selectedRegions=[];pendingExtrude=false;draftTouched=false;fragmentSelection=null;clearEdgeSelection();dropPreview();syncFields();renderTree();renderRegions();for(const id of ['extrude-distance','extrude-guide','extrude-handle','measurement'])$(id).hidden=true;
+ finishSketch(false);stage='model';selected=null;selectedFace=null;selectedSurface=null;selectedBody=null;chosenRegion=null;regionPayload=null;selectedRegions=[];pendingExtrude=false;draftTouched=false;fragmentSelection=null;clearEdgeSelection();dropPreview();syncFields();renderTree();renderRegions();for(const id of ['extrude-distance','extrude-guide','extrude-handle','extrude-operation-wheel','measurement'])$(id).hidden=true;
 }
 
 function stopHingeSketchAlignment(){
