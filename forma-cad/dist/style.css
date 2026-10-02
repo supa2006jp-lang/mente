@@ -241,3 +241,7 @@
 #extrusion-notice #extrusion-notice-edit{font-weight:700;background:#1f6045;color:white;border-color:#1f6045}#extrusion-notice #extrusion-notice-edit:hover{background:#154a36}#extrusion-notice #extrusion-notice-edit:focus-visible{outline:3px solid #087ca5;outline-offset:2px}
 
 #section-panel #section-split{width:100%;background:#087fa5;font-weight:700}#section-panel #section-split:disabled{opacity:.5;cursor:default}#section-split-error{color:#97501e;font-size:12px;line-height:1.5;margin:8px 0}#section-panel #section-close{width:100%}
+
+#section-color-legend{display:flex;gap:12px;font-size:12px;margin:8px 0}.section-negative{color:#267da5}.section-positive{color:#a46414}.body-color-swatch{display:inline-block;width:11px;height:11px;margin-right:7px;border-radius:3px;background:var(--body-color);border:1px solid #fff7;vertical-align:middle}
+
+#section-panel{max-height:calc(100% - 96px);overflow-y:auto;overscroll-behavior:contain}
