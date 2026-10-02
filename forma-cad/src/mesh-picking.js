@@ -4,5 +4,5 @@ import {MeshBVH,acceleratedRaycast,CENTER} from 'three-mesh-bvh';
 export function accelerateMeshPicking(mesh){
  const geometry=mesh.geometry;if(!geometry?.attributes.position)return mesh;
  if(!geometry.boundsTree){geometry.boundsTree=new MeshBVH(geometry,{indirect:true,strategy:CENTER,targetLeafSize:10});geometry.addEventListener('dispose',()=>{geometry.boundsTree=null;});}
- mesh.raycast=acceleratedRaycast;return mesh;
+ mesh.raycast=mesh.userData.displayRaycast||acceleratedRaycast;return mesh;
 }
