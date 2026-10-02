@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {extrusionDragAxis,extrusionArrowAngle,extrusionDragDistance} from '../src/extrusion-drag.js';
+const up=extrusionDragAxis({x:0,y:0},{x:0,y:-2},5);
+assert.equal(extrusionArrowAngle(up,10),0);assert.equal(extrusionArrowAngle(up,-10),180);
+assert.equal(extrusionArrowAngle({dx:2,dy:0},10),90);assert.equal(extrusionArrowAngle({dx:2,dy:0},-10),-90);
+assert.deepEqual(extrusionDragAxis({x:4,y:6},{x:4.01,y:6.01},3),{dx:0,dy:-3});
+assert.deepEqual(extrusionDragDistance(19.5,{snapEnabled:true,step:10,pixelsPerMm:4}),{value:20,snapped:true});
+assert.deepEqual(extrusionDragDistance(-19.5,{snapEnabled:true,step:10,pixelsPerMm:4}),{value:-20,snapped:true});
+assert.deepEqual(extrusionDragDistance(16,{snapEnabled:true,step:10,pixelsPerMm:4}),{value:16,snapped:false});
+assert.deepEqual(extrusionDragDistance(19.5,{snapEnabled:false,step:10,pixelsPerMm:4}),{value:19.5,snapped:false});
+assert.deepEqual(extrusionDragDistance(5.1,{snapEnabled:true,step:5,pixelsPerMm:4}),{value:5,snapped:true});
+assert.deepEqual(extrusionDragDistance(.31,{snapEnabled:true,step:.1,pixelsPerMm:4}),{value:.3,snapped:true});
+assert.deepEqual(extrusionDragDistance(-.01,{snapEnabled:true,step:10,pixelsPerMm:4}),{value:-.1,snapped:false});
+assert.deepEqual(extrusionDragDistance(.01,{snapEnabled:true,step:10,pixelsPerMm:4}),{value:.1,snapped:false});
+assert.equal(extrusionDragDistance(10001,{snapEnabled:true,step:50,pixelsPerMm:4}).value,10000);
+assert.equal(extrusionDragDistance(10.3,{snapEnabled:true,step:10,pixelsPerMm:100}).snapped,false,'zoomed views use a screen-distance snap tolerance');
+assert.equal(extrusionDragDistance(16,{snapEnabled:true,step:10,pixelsPerMm:.01}).snapped,false,'zoomed-out views retain free movement between ticks');
+console.log('PASS signed extrusion arrows, shared end-on drag axis, positive/negative and fractional grid snapping, free movement, zero crossing and zoom tolerance');

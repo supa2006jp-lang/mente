@@ -42,6 +42,7 @@ let selectedSketchSegments=new Map(),sketchSelectionHighlight=null;
 import {cadGrid} from './cad-grid.js';
 import {createExtrusionWheel} from './extrusion-wheel.js';
 import {projectedBounds,findPanelSpace} from './panel-placement.js';
+import {extrusionDragAxis,extrusionArrowAngle,extrusionDragDistance} from './extrusion-drag.js';
 import {holesOnlyProblem} from './holes-only-options.js';
 import {regionExtrusions} from './region-extrusions.js';
 let selectedRegions=[];
@@ -1110,8 +1111,9 @@ function updateExtrusionOverlay(){
  const start=screenPoint(a.base),end=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth)),direction=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth+1));
  const x=Math.max(22,Math.min(host.clientWidth-22,end.x)),y=Math.max(22,Math.min(host.clientHeight-22,end.y));
  $('extrude-handle').style.left=x+'px';$('extrude-handle').style.top=y+'px';
- const dx=direction.x-end.x,dy=direction.y-end.y,angle=Math.hypot(dx,dy)<.05?0:Math.atan2(dy,dx)*180/Math.PI+90;
+ const axis=extrusionDragAxis(end,direction,host.clientHeight/viewHeight()),angle=extrusionArrowAngle(axis,a.depth);
  $('extrude-handle').style.transform='translate(-50%,-50%) rotate('+angle+'deg)';
+ const hint=$('extrude-handle').dataset.snapped==='true'?'グリッド '+gridStep+' mm に吸着：'+fmt(a.depth)+' mm':'ドラッグして押し出し距離を変更（'+(a.depth<0?'負':'正')+'方向）';if($('extrude-handle').title!==hint)$('extrude-handle').title=hint;
  const viewport=host.parentElement,panel=$('extrude-distance'),wheel=extrusionWheel.element,wheelHeight=wheel.offsetHeight;
  panel.style.maxHeight=Math.max(120,viewport.clientHeight-wheelHeight-24)+'px';
  const groupWidth=Math.max(panel.offsetWidth,wheel.offsetWidth),groupHeight=panel.offsetHeight+wheelHeight+8;
@@ -1131,9 +1133,9 @@ function setExtrusionDistance(value){const n=Number(value);if($('until-solid').c
 $('viewport-depth').addEventListener('input',()=>setExtrusionDistance($('viewport-depth').value));
 $('extrude-distance').onsubmit=async e=>{e.preventDefault();try{if(selected)await applyHistoryEdit();else await applyFeature();$('viewport-depth-error').textContent='';}catch(err){$('viewport-depth-error').textContent=err.message;}};
 $('viewport-extrude-cancel').onclick=()=>$('cancel').click();
-$('extrude-handle').addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();e.stopPropagation();contactAutoDepth=false;document.activeElement?.blur();const a=extrusionAnchor(),end=a.base.clone().addScaledVector(a.normal,a.depth),p=screenPoint(end),q=screenPoint(end.clone().add(a.normal));let dx=q.x-p.x,dy=q.y-p.y;if(Math.hypot(dx,dy)<.1){dx=0;dy=-host.clientHeight/viewHeight();}extrusionDrag={id:e.pointerId,x:e.clientX,y:e.clientY,depth:a.depth,dx,dy,enabled:controls.enabled};controls.enabled=false;$('extrude-handle').setPointerCapture(e.pointerId);});
-$('extrude-handle').addEventListener('pointermove',e=>{const d=extrusionDrag;if(!d||e.pointerId!==d.id)return;const delta=((e.clientX-d.x)*d.dx+(e.clientY-d.y)*d.dy)/(d.dx*d.dx+d.dy*d.dy);let value=Math.max(-10000,Math.min(10000,d.depth+delta));if(Math.abs(value)<.1)value=value<0?-.1:.1;setExtrusionDistance(value);});
-function endExtrusionDrag(e){if(!extrusionDrag)return;controls.enabled=extrusionDrag.enabled;extrusionDrag=null;if($('extrude-handle').hasPointerCapture(e.pointerId))$('extrude-handle').releasePointerCapture(e.pointerId);}
+$('extrude-handle').addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();e.stopPropagation();contactAutoDepth=false;document.activeElement?.blur();const a=extrusionAnchor(),end=a.base.clone().addScaledVector(a.normal,a.depth),p=screenPoint(end),q=screenPoint(end.clone().add(a.normal));const {dx,dy}=extrusionDragAxis(p,q,host.clientHeight/viewHeight());extrusionDrag={id:e.pointerId,x:e.clientX,y:e.clientY,depth:a.depth,dx,dy,enabled:controls.enabled};delete $('extrude-handle').dataset.snapped;controls.enabled=false;$('extrude-handle').setPointerCapture(e.pointerId);});
+$('extrude-handle').addEventListener('pointermove',e=>{const d=extrusionDrag;if(!d||e.pointerId!==d.id)return;const delta=((e.clientX-d.x)*d.dx+(e.clientY-d.y)*d.dy)/(d.dx*d.dx+d.dy*d.dy);const result=extrusionDragDistance(d.depth+delta,{snapEnabled:$('snap-enabled').checked,step:gridStep,pixelsPerMm:Math.hypot(d.dx,d.dy)});if(Number($('depth').value)!==result.value)setExtrusionDistance(result.value);$('extrude-handle').dataset.snapped=String(result.snapped&&Math.abs(Number($('depth').value)-result.value)<1e-8);});
+function endExtrusionDrag(e){if(!extrusionDrag)return;controls.enabled=extrusionDrag.enabled;extrusionDrag=null;delete $('extrude-handle').dataset.snapped;if($('extrude-handle').hasPointerCapture(e.pointerId))$('extrude-handle').releasePointerCapture(e.pointerId);}
 $('extrude-handle').addEventListener('pointerup',endExtrusionDrag);$('extrude-handle').addEventListener('pointercancel',endExtrusionDrag);$('extrude-handle').addEventListener('lostpointercapture',endExtrusionDrag);
 
 function applyGridVisibility(){const plane=grid.userData.plane||'XY';grid.visible=gridVisibility[plane]!==false;host.dataset.gridVisible=String(grid.visible);$('grid-toggle').setAttribute('aria-pressed',String(grid.visible));$('grid-toggle').textContent='▦ '+(plane==='CUSTOM'?'作図面':plane)+' グリッド';for(const input of document.querySelectorAll('[data-grid-plane]'))input.checked=gridVisibility[input.dataset.gridPlane];}
