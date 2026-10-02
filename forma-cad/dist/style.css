@@ -233,3 +233,5 @@
 .viewport[data-extrusion-docked=true] .view-help{right:var(--extrusion-dock-width)}
 
 #extrude-handle[data-snapped=true]{background:#a7630b;border-color:#ffd26a;box-shadow:0 0 0 3px #ffd26a88,0 2px 8px #1236}
+
+#extrude-distance .taper-hint,.properties .taper-hint{display:block;font-size:11px;color:#547185;margin:4px 0 8px}#viewport-taper-reset{font-size:12px;white-space:nowrap}

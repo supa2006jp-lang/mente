@@ -1,3 +1,4 @@
+import {taperGeometry,validateTaperAngle} from './taper.js';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {validateReferenceImage} from './reference-image-data.js';
 import {basisFor,frameMatrix,validateFrame,worldPoint} from './frames.js';
@@ -11,6 +12,7 @@ export const evaluator = new Evaluator(); evaluator.useGroups=false;
 evaluator.attributes=['position','normal'];
 const enums={profile:['point','rect','circle','line','region','spline','polyline'],mode:['solid','thin'],side:['inside','outside','center'],plane:['XY','XZ','YZ','CUSTOM'],operation:['new','join','cut']};
 export function validateFeature(f){
+ validateTaperAngle(f?.taperAngle??0);
  if(!f || typeof f!=='object') throw Error('形状データが不正です。');
  if(f.kind==='referenceImage')return validateReferenceImage(f);if(f.cadResult)validateFeature({kind:'cadop',...f.cadResult});if(f.kind==='plane'){validateFrame(f.frame);if(!Number.isFinite(f.offset)||Math.abs(f.offset)>10000)throw Error('平面位置が不正です');return f;}if(f.kind==='cadop'){if(!Array.isArray(f.outputs)||f.outputs.length>100||!Array.isArray(f.remove))throw Error('CAD工程が不正です');for(const o of f.outputs){if(typeof o.id!=='string'||!Array.isArray(o.vertices)||o.vertices.length>3000000||o.vertices.length%3||o.vertices.some(x=>!Number.isFinite(x)||Math.abs(x)>100000)||!Array.isArray(o.triangles)||o.triangles.length>3000000||o.triangles.length%3||o.triangles.some(x=>!Number.isInteger(x)||x<0||x>=o.vertices.length/3))throw Error('立体データが不正です');}return f;}if(f.contactOnly!==undefined&&typeof f.contactOnly!=='boolean')throw Error('接触部分だけの押し出し設定が不正です');if(f.untilSolid!==undefined&&typeof f.untilSolid!=='boolean')throw Error('ソリッド接触の設定が不正です');if(f.untilSolid&&(f.gridExtentPlane||f.throughAll||f.cutAllBodies))throw Error('ソリッド接触とグリッド・貫通は同時に使えません');if(f.cutAllBodies!==undefined&&typeof f.cutAllBodies!=='boolean')throw Error('全ボディ切り取りの設定が不正です');if(f.skipHoleWalls!==undefined&&typeof f.skipHoleWalls!=='boolean')throw Error('穴側の薄い押し出し設定が不正です');if(f.gridExtentPlane!==undefined&&!['XY','XZ','YZ'].includes(f.gridExtentPlane))throw Error('グリッド平面の設定が不正です');if(f.plane==='CUSTOM')validateFrame(f.frame);if(['spline','polyline'].includes(f.profile)&&(!Array.isArray(f.points)||f.points.length<2||f.points.length>(f.profile==='polyline'?20000:200)||f.points.some(p=>!Array.isArray(p)||p.length!==2||p.some(x=>!Number.isFinite(x)||Math.abs(x)>25000))))throw Error('スプラインの点が不正です');
  for(const [k,values] of Object.entries(enums)) if(!values.includes(f[k])) throw Error('設定が不正です: '+k);
@@ -30,7 +32,7 @@ export function validateFeature(f){
 }
 function rectPath(path,w,h){path.moveTo(-w/2,-h/2);path.lineTo(w/2,-h/2);path.lineTo(w/2,h/2);path.lineTo(-w/2,h/2);path.closePath();return path;}
 export function makeGeometry(input){
- let f=validateFeature(input);if(f.holesOnly){const parts=f.region.holes.map(outer=>extrudeRegion({...f.region,outer,holes:[]},f.depth));const result=mergeGeometries(parts);for(const part of parts)part.dispose();return result;}if(f.capHoles&&f.mode==='solid'&&f.region)f={...f,region:{...f.region,holes:[]}};if(f.profile==='region')return extrudeRegion(f.region,f.depth,f.mode,f.wall,f.side,f.skipHoleWalls===true); let shape=new THREE.Shape();
+ let f=validateFeature(input);if(f.holesOnly){const parts=f.region.holes.map(outer=>extrudeRegion({...f.region,outer,holes:[]},f.depth,'solid',2,'inside',false,f.taperAngle??0));const result=mergeGeometries(parts);for(const part of parts)part.dispose();return result;}if(f.capHoles&&f.mode==='solid'&&f.region)f={...f,region:{...f.region,holes:[]}};if(f.profile==='region')return extrudeRegion(f.region,f.depth,f.mode,f.wall,f.side,f.skipHoleWalls===true,f.taperAngle??0); let shape=new THREE.Shape();
  const outer=f.mode==='thin'?(f.side==='outside'?f.wall:f.side==='center'?f.wall/2:0):0;
  const inner=f.side==='inside'?f.wall:f.side==='center'?f.wall/2:0;
  if(f.profile==='rect'){
@@ -46,6 +48,7 @@ export function makeGeometry(input){
   shape.getPoints(); shape.userData={shift};
  }
  const g=new THREE.ExtrudeGeometry(shape,{depth:Math.abs(f.depth),bevelEnabled:false,curveSegments:64,steps:1});
+ taperGeometry(g,[shape],f.depth,f.taperAngle??0);
  if(f.profile==='line') g.translate(0,shape.userData.shift,0);
  if(f.depth<0) g.translate(0,0,f.depth);
  g.rotateZ(f.angle*Math.PI/180);
@@ -74,7 +77,7 @@ export function rebuild(features){
  }catch(e){for(const b of bodies.values()) b.geometry.dispose();throw e;}
 }
 export function volume(g){const p=g.attributes.position,idx=g.index;let v=0;const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();for(let i=0;i<(idx?idx.count:p.count);i+=3){a.fromBufferAttribute(p,idx?idx.getX(i):i);b.fromBufferAttribute(p,idx?idx.getX(i+1):i+1);c.fromBufferAttribute(p,idx?idx.getX(i+2):i+2);v+=a.dot(b.cross(c))/6;}return Math.abs(v);}
-export const defaults={profile:'rect',mode:'solid',side:'inside',plane:'XY',operation:'new',target:'',width:60,height:40,diameter:30,depth:2,wall:2,x:0,y:0,z:0,angle:0};
+export const defaults={profile:'rect',mode:'solid',side:'inside',plane:'XY',operation:'new',target:'',width:60,height:40,diameter:30,depth:2,wall:2,x:0,y:0,z:0,angle:0,taperAngle:0};
 export function validateProject(data){
  if(data?.format!=='forma-cad'||data.version!==1||!Array.isArray(data.features)||data.features.length>150)throw Error('対応するFORMA CADファイルではありません（最大150工程）。');
  const ids=new Set(),bodyIds=new Set();

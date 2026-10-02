@@ -22,7 +22,7 @@ export function replayHistory(before,proposed,start,run,remap){
     if(f.kind==='cadop'&&f.spec){let spec=copy(f.spec);if(spec.type==='pipe'){const path=prefix.find(p=>p.id===spec.path&&p.kind==='sketch');if(path)spec.pathFeature=copy(path);}if(spec.region)spec.region=refreshRegion(spec.region,before.slice(0,i),prefix);if(spec.sections)spec.sections=spec.sections.map(r=>refreshRegion(r,before.slice(0,i),prefix));spec=remap?remap(before.slice(0,i),prefix,spec):spec;const result=run(prefix,{...spec,id:spec.id||f.id});f={...f,spec,...result};}
    }
    if(i>=start&&f.kind==='extrusion'&&f.gridExtentPlane)f={...f,depth:depthToGridPlane(f,f.gridExtentPlane)};
-   if(i>=start&&f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.untilSolid)&&run){const {cadResult,...input}=f;f={...input,cadResult:run(prefix,{type:'extrusion',target:f.target,feature:input})};}
+   if(i>=start&&f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.untilSolid||f.taperAngle||f.cadResult)&&run){const {cadResult,...input}=f;f={...input,cadResult:run(prefix,{type:'extrusion',target:f.target,feature:input})};}
    prefix.push(f);
   }catch(e){throw Error((i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」: '+(e.message||'形状を再計算できません。寸法を小さくしてください')+'。変更前の形状を保持しています');}
  }

@@ -60,3 +60,9 @@ WebMCPは対応ブラウザでcreate_cad_featureを提供します。検証用�
 Sitesの既存公開先は .openai/hosting.json に保持しています。GitHubへの追加で既存のSitesを作り直す必要はありません。
 
 ブラウザからmenteへ追加する場合は npm run package:github:site を実行すると、10個の公開用ファイルだけを forma-cad フォルダにまとめた .sites-runtime/forma-cad-github-site.zip を作成します。解凍したforma-cadフォルダをリポジトリのルートへアップロードすれば、既存アプリを保持できます。
+
+### 押し出しのテーパー角度
+
+押し出しの小ウィンドウ、または右側の設定で「テーパー角度」を入力します。初期値は0°。プラスは押し出し方向の先端が広がり、マイナスは細くなります。負の押し出し距離でも同じ規則です。「0°」ボタンで直線の押し出しに戻せます。保存後は履歴の押し出し工程を選択して再編集します。新規・結合・切り取り、円形・四角・薄い押し出しに対応し、CAD形状として保存します。形状が潰れる角度は確定しません。入力範囲は−80°〜80°です。
+
+検証: `node tests/extrusion-taper.mjs`、`node tests/extrusion-taper-browser.mjs`。

@@ -1,3 +1,5 @@
+import {validateTaperAngle} from './taper.js';
+import {draftExtrusion} from './extrusion-taper.js';
 import {cutWithClearance} from './cut-clearance.js';
 import {encloseParts} from './enclose.js';
 import {patternSolids} from './pattern-solids.js';
@@ -97,7 +99,8 @@ function extrudeCadFaceThin(face,region,depth,wall,side,skipHoleWalls=false){
   return tool;
  }finally{for(const part of parts)part.delete();for(const shape of resources)shape.delete();face.delete();}
 }
-export function featureSolid(f,bodies){
+export function featureSolid(f,bodies){validateTaperAngle(f.taperAngle??0);return draftExtrusion(untaperedFeatureSolid({...f,taperAngle:0},bodies),f);}
+function untaperedFeatureSolid(f,bodies){
  if(f.holesOnly){if(f.mode!=='solid'||f.profile!=='region'||!f.region?.holes?.length)throw Error('穴のある平面を選択してください');const input={...f,holesOnly:false},filled=featureSolid({...input,capHoles:true},bodies),original=featureSolid({...input,capHoles:false},bodies);let plug;try{plug=filled.cut(original);const sourceId=f.region.cadFace?.bodyId||f.region.bodyId,source=bodies?.get(sourceId);return source?plug.cut(source):plug.clone();}finally{plug?.delete();filled.delete();original.delete();}}
 
  if(f.operation==='cut'&&f.throughAll&&bodies?.has(f.target)){
