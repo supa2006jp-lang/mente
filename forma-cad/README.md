@@ -68,3 +68,7 @@ Sitesの既存公開先は .openai/hosting.json に保持しています。GitHu
 検証: `node tests/extrusion-taper.mjs`、`node tests/extrusion-taper-browser.mjs`。
 
 押し出し中は画面上の矢印をクリックすると確定し、ドラッグすると距離を調整できます。ドラッグの終了では確定しません。履歴からの再編集でも同じ操作です。
+
+押し出しのテーパーは図形の横の円弧ハンドルでも調整できます。ドラッグは1°刻み、Shiftを押しながらは0.1°刻み。ハンドルの左右・上下キーでも調整でき、Homeで0°に戻ります。小ウィンドウには先端の幅・奥行き、円では外径を表示します。確定・再編集後は右下に距離と角度を通知し、「元に戻す」でその変更を取り消せます。通知は9秒で閉じ、その後も上部の「戻す」を使えます。
+
+検証: `node tests/extrusion-feedback.mjs`、`node tests/extrusion-feedback-browser.mjs`。

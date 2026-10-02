@@ -17,7 +17,7 @@ export function taperGeometry(geometry,shapes,depth,angle=0){
   }
  }}
  const positions=geometry.attributes.position,slope=Math.tan(angle*Math.PI/180);
- for(let i=0;i<positions.count;i++){const z=positions.getZ(i);if(z<1e-8)continue;const x=positions.getX(i),y=positions.getY(i);let match,best=Infinity;for(const p of corners){const distance=(p.x-x)**2+(p.y-y)**2;if(distance<best){best=distance;match=p;}}
+ for(let i=0;i<positions.count;i++){const z=depth<0?Math.abs(depth)-positions.getZ(i):positions.getZ(i);if(z<1e-8)continue;const x=positions.getX(i),y=positions.getY(i);let match,best=Infinity;for(const p of corners){const distance=(p.x-x)**2+(p.y-y)**2;if(distance<best){best=distance;match=p;}}
   if(!match||best>1e-5)throw Error('テーパーの輪郭を取得できません');const shift=z*slope;positions.setXY(i,x+match.dx*shift,y+match.dy*shift);
  }
  positions.needsUpdate=true;geometry.computeVertexNormals();return geometry;
