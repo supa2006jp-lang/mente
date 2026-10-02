@@ -247,3 +247,7 @@
 #section-panel{max-height:calc(100% - 96px);overflow-y:auto;overscroll-behavior:contain}
 
 #reset-section-colors{margin-left:auto;padding:4px 8px;font-size:12px;color:#d7edf8;border:1px solid #516678;border-radius:5px;background:#233747}#reset-section-colors:hover{background:#304d60}#reset-section-colors:disabled{opacity:.45;cursor:default}
+
+#section-color-legend{flex-direction:column;gap:4px}.section-discard{color:#b63c3c}#section-panel #section-center{width:100%;background:#e3f0f6;color:#23465b;border-color:#91b2c5;font-size:12px}#section-panel #section-center:hover{background:#cce5f0}
+
+#section-panel label{margin:8px 0}#section-panel small{margin:8px 0;font-size:11px}

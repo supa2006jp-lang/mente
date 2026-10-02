@@ -19,6 +19,11 @@ export function sectionSplitSpec({target,plane,offset,keep='both'},mesh,id){
  return {type:'split',sectionSplit:true,keep,id,target,plane,offset:distance,splitFrame:Object.fromEntries(['u','v','n'].map(key=>[key,basis[key].toArray()]))};
 }
 
+export function sectionCenter(mesh,plane){
+ if(!mesh?.visible)throw Error('中央に合わせるボディを選択してください。');
+ const axis={XY:'z',XZ:'y',YZ:'x'}[plane];if(!axis)throw Error('断面の平面を選択してください。');
+ return meshBounds(mesh).getCenter(new THREE.Vector3())[axis];
+}
 export const sectionColors={negative:0x6cafd2,positive:0xe4aa55};
 export function isSectionSplit(feature){return feature.kind==='cadop'&&feature.spec?.type==='split'&&(feature.spec.sectionSplit||feature.name==='断面で分離');}
 export function sectionBodyStyles(features){
