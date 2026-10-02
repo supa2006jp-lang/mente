@@ -2050,7 +2050,14 @@ for(const prefix of ['', 'viewport-'])for(const field of ['through-all','cut-all
  else{$(field).checked=$(prefix+field).checked;if(field==='through-all'&&$('through-all').checked){$('grid-extent').checked=false;$('until-solid').checked=false;}if(field==='cut-all-bodies'&&$('cut-all-bodies').checked)$('until-solid').checked=false;}
  syncFields();if(field==='until-solid'&&!$('until-solid').checked)scheduleAutoCut();
 });
-sectionControl=sectionView({renderer,scene,meshes,raycaster,host,camera,getControls:()=>controls});
+sectionControl=sectionView({renderer,scene,meshes,raycaster,host,camera,getControls:()=>controls,getSelectedBody:()=>selectedBody||selectedFace?.bodyId||selectedEdge?.bodyId,getBodyName:bodyDisplayName,canSplit:()=>stage==='model'&&!pendingExtrude&&!extrusionBusy&&!$('tools-dialog').open&&!moveTool?.active,onSplit:async input=>{
+ const original=features,revision=toolCancelRevision,spec={...input,id:crypto.randomUUID()};
+ const result=await kernelClient.run(original,spec);
+ if(features!==original||revision!==toolCancelRevision||stage!=='model'||pendingExtrude||extrusionBusy||$('tools-dialog').open||moveTool?.active)throw Error('別の編集や操作が開始されたため分離を中止しました。');
+ if(result.outputs.length!==2)throw Error('この断面位置ではボディを分離できません。');
+ setProject([...original,{kind:'cadop',id:spec.id,name:'断面で分離',spec,...result}]);selected=null;stage='model';dropPreview();syncFields();renderTree();
+ notify(spec.plane+'断面 '+fmt(spec.offset)+' mmでボディを分離しました。');
+}});
 
 // Cancel transient tools in one place so capture listeners cannot leave another selection active.
 function cancelAllTools(){
