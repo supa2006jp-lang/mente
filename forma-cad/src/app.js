@@ -41,6 +41,7 @@ import {rangeSketchHits,sketchSegments,deleteSketchSelection,offsetSketchSelecti
 let selectedSketchSegments=new Map(),sketchSelectionHighlight=null;
 import {cadGrid} from './cad-grid.js';
 import {createExtrusionWheel} from './extrusion-wheel.js';
+import {projectedBounds,findPanelSpace} from './panel-placement.js';
 import {holesOnlyProblem} from './holes-only-options.js';
 import {regionExtrusions} from './region-extrusions.js';
 let selectedRegions=[];
@@ -1086,7 +1087,46 @@ $('split-offset-handle').addEventListener('pointerup',endSplitDrag);
 $('split-offset-handle').addEventListener('pointercancel',endSplitDrag);
 $('split-offset-handle').addEventListener('lostpointercapture',endSplitDrag);
 
-function updateExtrusionOverlay(){const visible=stage==='extrusion'&&!pendingExtrude&&host.dataset.previewKind==='extrusion';for(const id of ['extrude-handle','extrude-distance','extrude-guide','extrude-operation-wheel'])$(id).toggleAttribute('hidden',!visible);if(!visible)return;$('extrude-handle').hidden=$('grid-extent').checked||($('operation').value==='cut'&&$('through-all').checked);syncViewportOperation();$('viewport-combine-label').hidden=selectedRegions.length<2||!!selected||$('operation').value!=='new';const a=extrusionAnchor();if(!Number.isFinite(a.depth))return;const start=screenPoint(a.base),end=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth)),direction=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth+1));const x=Math.max(22,Math.min(host.clientWidth-22,end.x)),y=Math.max(22,Math.min(host.clientHeight-22,end.y));$('extrude-handle').style.left=x+'px';$('extrude-handle').style.top=y+'px';const dx=direction.x-end.x,dy=direction.y-end.y,angle=Math.hypot(dx,dy)<.05?0:Math.atan2(dy,dx)*180/Math.PI+90;$('extrude-handle').style.transform='translate(-50%,-50%) rotate('+angle+'deg)';const panel=$('extrude-distance'),wheel=extrusionWheel.element,wheelHeight=wheel.offsetHeight;panel.style.maxHeight=Math.max(120,host.clientHeight-wheelHeight-24)+'px';panel.style.left=Math.max(8,Math.min(host.clientWidth-panel.offsetWidth-8,x+28))+'px';panel.style.top=Math.max(wheelHeight+16,Math.min(host.clientHeight-panel.offsetHeight-8,y+24))+'px';wheel.style.left=(panel.offsetLeft+(panel.offsetWidth-wheel.offsetWidth)/2)+'px';wheel.style.top=(panel.offsetTop-wheelHeight-8)+'px';if(document.activeElement!==$('viewport-depth'))$('viewport-depth').value=Number(Number($('depth').value).toFixed(2));const line=$('extrude-guide-line');line.setAttribute('x1',start.x);line.setAttribute('y1',start.y);line.setAttribute('x2',end.x);line.setAttribute('y2',end.y);}
+let extrusionOverlayPosition=null,extrusionOverlayDocked=false;
+function clearExtrusionOverlayPosition(){
+ extrusionOverlayPosition=null;extrusionOverlayDocked=false;
+ const viewport=host.parentElement;delete viewport.dataset.extrusionDocked;viewport.style.removeProperty('--extrusion-dock-width');
+}
+function extrusionOverlayObstacles(){
+ const objects=[...meshes.values(),...sketchGroup.children,...regionGroup.children.filter(o=>o.userData.region),...(preview?.children||[])];
+ const obstacles=objects.map(o=>projectedBounds(o,camera,host.clientWidth,host.clientHeight)).filter(Boolean),viewport=host.parentElement.getBoundingClientRect();
+ for(const element of host.parentElement.querySelectorAll('#snap-controls,.view-cube,#reference-plane-control,.navigation,#measurement,.viewport-title,#extrude-handle')){
+  if(element.hidden)continue;const r=element.getBoundingClientRect();if(r.width&&r.height)obstacles.push({left:r.left-viewport.left,top:r.top-viewport.top,right:r.right-viewport.left,bottom:r.bottom-viewport.top});
+ }
+ return obstacles;
+}
+function updateExtrusionOverlay(){
+ const visible=stage==='extrusion'&&!pendingExtrude&&host.dataset.previewKind==='extrusion';
+ for(const id of ['extrude-handle','extrude-distance','extrude-guide','extrude-operation-wheel'])$(id).toggleAttribute('hidden',!visible);
+ if(!visible){if(extrusionOverlayPosition||extrusionOverlayDocked)clearExtrusionOverlayPosition();return;}
+ $('extrude-handle').hidden=$('grid-extent').checked||($('operation').value==='cut'&&$('through-all').checked);syncViewportOperation();
+ $('viewport-combine-label').hidden=selectedRegions.length<2||!!selected||$('operation').value!=='new';
+ const a=extrusionAnchor();if(!Number.isFinite(a.depth))return;
+ const start=screenPoint(a.base),end=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth)),direction=screenPoint(a.base.clone().addScaledVector(a.normal,a.depth+1));
+ const x=Math.max(22,Math.min(host.clientWidth-22,end.x)),y=Math.max(22,Math.min(host.clientHeight-22,end.y));
+ $('extrude-handle').style.left=x+'px';$('extrude-handle').style.top=y+'px';
+ const dx=direction.x-end.x,dy=direction.y-end.y,angle=Math.hypot(dx,dy)<.05?0:Math.atan2(dy,dx)*180/Math.PI+90;
+ $('extrude-handle').style.transform='translate(-50%,-50%) rotate('+angle+'deg)';
+ const viewport=host.parentElement,panel=$('extrude-distance'),wheel=extrusionWheel.element,wheelHeight=wheel.offsetHeight;
+ panel.style.maxHeight=Math.max(120,viewport.clientHeight-wheelHeight-24)+'px';
+ const groupWidth=Math.max(panel.offsetWidth,wheel.offsetWidth),groupHeight=panel.offsetHeight+wheelHeight+8;
+ if(panel.dataset.panelPosition!=='manual'){
+  if(!extrusionOverlayDocked){
+   extrusionOverlayPosition=findPanelSpace({width:viewport.clientWidth,height:viewport.clientHeight,panelWidth:groupWidth,panelHeight:groupHeight,anchor:{x,y},previous:extrusionOverlayPosition,obstacles:extrusionOverlayObstacles()});
+   if(!extrusionOverlayPosition){extrusionOverlayDocked=true;viewport.dataset.extrusionDocked='true';viewport.style.setProperty('--extrusion-dock-width',(groupWidth+16)+'px');}
+  }
+  if(extrusionOverlayDocked)extrusionOverlayPosition={x:viewport.clientWidth-groupWidth-8,y:Math.max(8,(viewport.clientHeight-groupHeight)/2)};
+  panel.style.left=(extrusionOverlayPosition.x+(groupWidth-panel.offsetWidth)/2)+'px';panel.style.top=(extrusionOverlayPosition.y+wheelHeight+8)+'px';
+ }
+ wheel.style.left=(panel.offsetLeft+(panel.offsetWidth-wheel.offsetWidth)/2)+'px';wheel.style.top=(panel.offsetTop-wheelHeight-8)+'px';
+ if(document.activeElement!==$('viewport-depth'))$('viewport-depth').value=Number(Number($('depth').value).toFixed(2));
+ const line=$('extrude-guide-line');line.setAttribute('x1',start.x);line.setAttribute('y1',start.y);line.setAttribute('x2',end.x);line.setAttribute('y2',end.y);
+}
 function setExtrusionDistance(value){const n=Number(value);if($('until-solid').checked&&contactDistanceLimit&&Math.sign(n)===Math.sign(contactDistanceLimit)&&Math.abs(n)>Math.abs(contactDistanceLimit))value=contactDistanceLimit;if($('viewport-depth').value!==String(value))$('viewport-depth').value=value;$('depth').value=value;$('depth').dispatchEvent(new Event('input',{bubbles:true}));$('viewport-depth-error').textContent=$('error').textContent;}
 $('viewport-depth').addEventListener('input',()=>setExtrusionDistance($('viewport-depth').value));
 $('extrude-distance').onsubmit=async e=>{e.preventDefault();try{if(selected)await applyHistoryEdit();else await applyFeature();$('viewport-depth-error').textContent='';}catch(err){$('viewport-depth-error').textContent=err.message;}};
@@ -1335,7 +1375,7 @@ $('viewport-combine').onchange=()=>{updatePreview();updateExtrusionOverlay();};
 $('shell-tool').onclick=()=>openDirectCommand('shell');
 
 import {draggablePanel,cancelPanelDrags} from './draggable-panel.js';
-for(const [id,title] of [['extrude-distance','押し出し'],['hole-panel','穴あけ'],['line-dimensions','線分'],['circle-dimensions','円'],['move-panel','移動／回転']])draggablePanel($(id),title,{topMargin:()=>id==='extrude-distance'?extrusionWheel.element.offsetHeight+16:0});
+for(const [id,title] of [['extrude-distance','押し出し'],['hole-panel','穴あけ'],['line-dimensions','線分'],['circle-dimensions','円'],['move-panel','移動／回転']])draggablePanel($(id),title,{topMargin:()=>id==='extrude-distance'?extrusionWheel.element.offsetHeight+16:0,resetOnHide:id==='extrude-distance'});
 
 import {installCombinePreview} from './combine-preview.js';
 installCombinePreview({scene,host,getMesh:id=>meshes.get(id),getSelectedIds:joinSelectedIds,computeClearancePreview:spec=>kernelClient.run(features,{type:'preview',operation:spec})});
