@@ -26,7 +26,7 @@ export function sectionBodyStyles(features){
  for(const f of features){
   const result=f.cadResult||(f.kind==='cadop'?f:null);if(!result)continue;
   const inherited=styles.get(f.spec?.target);for(const id of result.remove||[])styles.delete(id);
-  if(isSectionSplit(f))for(const output of result.outputs){const side=f.spec.keep==='positive'?'positive':output.id===f.spec.target?'negative':'positive',axis={XY:'Z',XZ:'Y',YZ:'X'}[f.spec.plane];styles.set(output.id,{color:sectionColors[side],side,label:(side==='positive'?'＋':'−')+(axis||'')+'側'});}
+  if(isSectionSplit(f))for(const output of result.outputs){const side=f.spec.keep==='positive'?'positive':output.id===f.spec.target?'negative':'positive',axis={XY:'Z',XZ:'Y',YZ:'X'}[f.spec.plane];styles.set(output.id,{color:f.spec.colorize===false?undefined:sectionColors[side],side,label:(side==='positive'?'＋':'−')+(axis||'')+'側'});}
   else if(inherited)for(const output of result.outputs)if(!styles.has(output.id))styles.set(output.id,inherited);
  }
  return styles;
