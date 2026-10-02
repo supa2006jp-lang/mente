@@ -28,8 +28,8 @@ import {basisFor,worldPoint} from './frames.js';
 function threadHelix(pitch,length,radius,leftHand){
  const parts=[],edges=[];try{for(let z=0;z<length-1e-8;z+=pitch){const part=R.makeHelix(pitch,Math.min(pitch,length-z),radius,undefined,undefined,leftHand).translate([0,0,z]);parts.push(part);edges.push(...part.edges);}return R.assembleWire(edges);}finally{for(const edge of edges)edge.delete();for(const part of parts)part.delete();}
 }
-function regionWire(r,points){const ring=points.length>2&&Math.hypot(points[0][0]-points.at(-1)[0],points[0][1]-points.at(-1)[1])<1e-7?points.slice(0,-1):points;const edges=ring.map((p,i)=>R.makeLine(worldPoint(r,p).toArray(),worldPoint(r,ring[(i+1)%ring.length]).toArray()));try{return R.assembleWire(edges);}finally{for(const edge of edges)edge.delete();}}
-export function profileSketch(r){const w=regionWire(r,r.outer),s=new R.Sketch(w,{defaultDirection:basisFor(r).n.toArray()});if(r.holes.length)s.baseFace=R.makeFace(w,r.holes.map(h=>regionWire(r,h)));return s;}
+function regionWire(r,points,hole=false){let ring=points.length>2&&Math.hypot(points[0][0]-points.at(-1)[0],points[0][1]-points.at(-1)[1])<1e-7?points.slice(0,-1):points;const area=ps=>ps.reduce((sum,p,i)=>sum+p[0]*ps[(i+1)%ps.length][1]-ps[(i+1)%ps.length][0]*p[1],0);if(hole&&area(r.outer)*area(ring)>0)ring=[...ring].reverse();const edges=ring.map((p,i)=>R.makeLine(worldPoint(r,p).toArray(),worldPoint(r,ring[(i+1)%ring.length]).toArray()));try{return R.assembleWire(edges);}finally{for(const edge of edges)edge.delete();}}
+export function profileSketch(r){const w=regionWire(r,r.outer),s=new R.Sketch(w,{defaultDirection:basisFor(r).n.toArray()});if(r.holes.length)s.baseFace=R.makeFace(w,r.holes.map(h=>regionWire(r,h,true)));return s;}
 function circularLoftInfoForBody(features,target){
  let info=null;
  for(const feature of features){
@@ -41,7 +41,7 @@ function circularLoftInfoForBody(features,target){
  return info;
 }
 function extrudeProfile(r,depth){
- const outer=regionWire(r,r.outer),holes=r.holes.map(h=>regionWire(r,h));let face,vector;
+ const outer=regionWire(r,r.outer),holes=r.holes.map(h=>regionWire(r,h,true));let face,vector;
  try{face=R.makeFace(outer,holes);vector=new R.Vector(basisFor(r).n.multiplyScalar(depth).toArray());return R.basicFaceExtrusion(face,vector);}finally{vector?.delete();face?.delete();outer.delete();for(const hole of holes)hole.delete();}
 }
 function extrudeCadFaceThin(face,region,depth,wall,side,skipHoleWalls=false){
