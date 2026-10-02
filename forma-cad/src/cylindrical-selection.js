@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {cadFaceGroup,cadFaceGeometry} from './face-selection.js';
 import {basisFor,worldPoint} from './frames.js';
 
 // Recover cylindrical faces before treating tessellated walls as planar patches.
@@ -8,7 +9,8 @@ export function cylindricalSelection(features,bodyId,geometry,faceIndex,point){
  const normalAt=i=>{const a=vertex(i),b=vertex(i+1),c=vertex(i+2);return b.sub(a).cross(c.sub(a)).normalize();};
  const hitNormal=normalAt(faceIndex*3);
  const groups=geometry.userData.faceGroups,planar=geometry.userData.planarFaces;
- const group=groups?.find(g=>faceIndex*3>=g.start&&faceIndex*3<g.start+g.count);
+ const group=cadFaceGroup(geometry,faceIndex);
+ if(group?.cylinder)return {geometry:cadFaceGeometry(geometry,group),...group.cylinder};
  if(group&&planar?.includes(group.faceId))return null;
  let cylinder=null;
  for(const f of [...features].reverse()){
