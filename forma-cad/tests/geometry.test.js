@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {defaults,makeGeometry,volume,rebuild,validateProject} from '../src/geometry.js';
+const near=(a,b,tol=.001)=>assert.ok(Math.abs(a-b)/b<tol,`${a} != ${b}`);
+for(const side of ['inside','outside','center'])test(`長方形・薄い押し出し ${side}`,()=>{const f={...defaults,width:80,height:60,depth:26,wall:3,mode:'thin',side};const out=side==='outside'?3:side==='center'?1.5:0,inn=3-out;const g=makeGeometry(f);near(volume(g),((80+out*2)*(60+out*2)-(80-inn*2)*(60-inn*2))*26);g.computeBoundingBox();near(g.boundingBox.max.x-g.boundingBox.min.x,80+out*2);});
+for(const side of ['inside','outside','center'])test(`円・薄い押し出し ${side}`,()=>{const f={...defaults,profile:'circle',diameter:40,depth:30,wall:2,mode:'thin',side};const out=side==='outside'?2:side==='center'?1:0,inn=2-out;near(volume(makeGeometry(f)),Math.PI*((20+out)**2-(20-inn)**2)*30,.002);});
+for(const plane of ['XY','XZ','YZ'])test(`直線の薄い押し出しと負方向 ${plane}`,()=>{near(volume(makeGeometry({...defaults,profile:'line',mode:'thin',plane,width:50,wall:2,depth:-30,angle:35,x:12,y:-9,z:7})),3000);});
+test('底面と壁を結合して再編集',()=>{const base={...defaults,id:'a',name:'base',width:80,height:60,depth:4};const wall={...defaults,id:'b',name:'wall',width:80,height:60,depth:26,z:4,wall:3,mode:'thin',operation:'join',target:'a'};let result=rebuild([base,wall]);near(volume(result.get('a').geometry),80*60*4+(80*60-74*54)*26);result=rebuild([base,{...wall,wall:5}]);near(volume(result.get('a').geometry),80*60*4+(80*60-70*50)*26);});
+test('板に直径6mmの貫通穴',()=>{const base={...defaults,id:'a',name:'base',width:80,height:40,depth:5};const hole={...defaults,id:'b',name:'hole',operation:'cut',target:'a',profile:'circle',diameter:6,depth:7,z:-1};near(volume(rebuild([base,hole]).get('a').geometry),80*40*5-Math.PI*9*5);});
+test('無効な壁厚・距離を拒否',()=>{assert.throws(()=>makeGeometry({...defaults,mode:'thin',wall:30}),/壁厚/);assert.throws(()=>makeGeometry({...defaults,depth:0}),/距離/);assert.throws(()=>makeGeometry({...defaults,width:NaN}),/数値/);});
+test('保存データの往復と参照検証',()=>{const data={format:'forma-cad',version:1,features:[{...defaults,id:'a',name:'test'}]};assert.deepEqual(validateProject(JSON.parse(JSON.stringify(data))),data.features);assert.throws(()=>validateProject({...data,features:[{...data.features[0],operation:'cut',target:'missing'}]}),/参照/);});

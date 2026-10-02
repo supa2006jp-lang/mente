@@ -1,0 +1,10 @@
+import {chromium} from 'playwright';import assert from 'node:assert/strict';import {defaults} from '../src/geometry.js';
+const browser=await chromium.launch({channel:'msedge',headless:true});try{
+ const page=await browser.newPage({viewport:{width:1800,height:1100}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:5188');
+ await page.locator('#file').setInputFiles({name:'box.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[{...defaults,id:'b',name:'押し出し',width:30,height:30,depth:10}]}))});await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');await page.locator('[data-view=top]').click();await page.locator('#fit').click();
+ await page.locator('#advanced-tools').click();await page.locator('#cad-command').selectOption('mirror');await page.locator('#cad-offset').fill('2');
+ await page.waitForFunction(()=>!document.getElementById('join-body-names').hidden);assert.match(await page.locator('#join-body-names').textContent(),/押し出し（1）/);assert.equal(await page.locator('#tools-dialog').evaluate(e=>e.matches(':modal')),false);
+ const r=await page.locator('canvas').boundingBox(),x=r.x+r.width/2,y=r.y+r.height/2;await page.mouse.click(x+30,y+20);assert.equal(await page.locator('#cad-plane').inputValue(),'FACE');assert.equal(await page.locator('#cad-offset').inputValue(),'2');
+ const scale=r.height/(Math.sqrt(30*30+30*30+10*10)*1.25/Math.min(r.width/r.height,1));await page.mouse.click(x-15*scale,y);assert.equal(await page.locator('#cad-plane').inputValue(),'LINE');assert.equal(await page.locator('#cad-offset').inputValue(),'2');
+ await page.mouse.click(x+30,y+20);assert.equal(await page.locator('#cad-plane').inputValue(),'FACE');await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('tools-dialog').open,{},{timeout:90000});assert.equal(await page.locator('#body-count').textContent(),'2');assert.deepEqual(errors,[]);console.log('PASS names, non-modal face and edge picking, preserved offset and executed mirror');
+}finally{await browser.close();}

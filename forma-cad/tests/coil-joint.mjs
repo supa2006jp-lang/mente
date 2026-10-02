@@ -1,0 +1,22 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import * as R from 'replicad';
+import {makeCoilJoint,cylinderJointInfo,resolveCoilJoint} from '../src/coil-joint.js';
+import {runOperation} from '../src/kernel.js';
+import {defaults,validateProject} from '../src/geometry.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const p={type:'coilJoint',id:'joint',target:'source',wire:1,pitch:4,turns:3,wall:1,jointGap:.2,jointSeam:.15,jointSplit:0,hand:'右ねじ',autoAdjust:true,jointPose:'閉じた状態'};
+const validate=part=>{const c=new (R.getOC().BRepCheck_Analyzer)(part.wrapped,true,false);try{assert.ok(c.IsValid());assert.equal(part.solids.length,1);assert.ok(R.measureVolume(part)>0);}finally{c.delete();}};
+const source=R.makeCylinder(30,43);console.time('reference pair');const result=makeCoilJoint(source,p);console.timeEnd('reference pair');
+assert.ok(result.analysis.height>=result.analysis.split+result.analysis.neckLength+result.analysis.wall);
+assert.equal(result.analysis.motion.status,'clear');assert.ok(result.analysis.motion.checks.every(c=>c.overlap<1e-5));assert.ok(result.analysis.motion.checks[1].distance>=.19);result.parts.forEach(validate);result.parts.forEach(s=>s.delete());
+console.time('cached print pose');const print=makeCoilJoint(source,{...p,jointPose:'分けて並べる'});console.timeEnd('cached print pose');
+for(const part of print.parts){const box=part.boundingBox.bounds;assert.ok(Math.abs(box[0][2])<1e-6);validate(part);}assert.ok(R.measureDistanceBetween(...print.parts)>=4.99);print.parts.forEach(s=>s.delete());source.delete();
+const profile={...defaults,id:'source',name:'円柱',profile:'circle',diameter:60,depth:43};const operation=runOperation([profile],{type:'preview',operation:p});assert.equal(operation.outputs.length,2);assert.deepEqual(operation.outputs.map(o=>o.id),['source','joint-lid']);assert.equal(operation.removed.length,0);validateProject({format:'forma-cad',version:1,features:[profile,{kind:'cadop',id:p.id,name:'コイル接合',spec:p,...operation}]});
+// Auto correction, left handed paths, short sources, and a non-world cylinder axis.
+const tilted=R.makeCylinder(10,8).rotate(37,[0,0,0],[0,1,0]).translate([5,-8,3]);const info=cylinderJointInfo(tilted),short={...p,wire:2,pitch:1,turns:2,wall:.2,hand:'左ねじ',jointSplit:2,jointGap:.25};assert.ok(Math.abs(info.height-8)<1e-6);assert.ok(Math.abs(info.axis[0])>.5);
+const settings=resolveCoilJoint(info,short);assert.ok(settings.pitch>2.5&&settings.wall>=.6&&settings.height>8);assert.throws(()=>resolveCoilJoint(info,{...short,autoAdjust:false}),/自動調整/);
+console.time('short tilted left pair');const adjusted=makeCoilJoint(tilted,short);console.timeEnd('short tilted left pair');assert.equal(adjusted.analysis.leftHand,true);assert.ok(adjusted.analysis.motion.checks.every(c=>c.overlap<1e-5));adjusted.parts.forEach(validate);adjusted.parts.forEach(s=>s.delete());const level=makeCoilJoint(tilted,{...short,jointPose:'分けて並べる'});for(const part of level.parts){const box=part.boundingBox;assert.ok(Math.abs(box.bounds[0][2])<1e-6);box.delete();part.delete();}tilted.delete();
+assert.throws(()=>resolveCoilJoint(info,{...p,turns:1.5}),/整数/);assert.throws(()=>resolveCoilJoint(info,{...p,wall:9}),/外径/);const block=R.makeBox([0,0,0],[10,10,10]);assert.throws(()=>cylinderJointInfo(block),/未加工の円柱/);block.delete();
+console.log('PASS valid paired solids, continuous screw path and finite tips, measured clearance, print pose and reuse, kernel preview IDs, short-height/pitch/wall correction, left hand, tilted source and invalid inputs');

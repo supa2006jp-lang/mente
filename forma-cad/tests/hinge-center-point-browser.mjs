@@ -1,0 +1,54 @@
+import {chromium} from 'playwright';
+import * as THREE from 'three';
+import {defaults} from '../src/geometry.js';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1700,height:1200},acceptDownloads:true}),errors=[];
+ page.on('pageerror',error=>errors.push(error.message));
+ page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
+ await page.addInitScript(()=>Object.defineProperty(window,'showSaveFilePicker',{value:undefined,configurable:true}));
+ await page.goto('http://127.0.0.1:5188');
+ const features=[{...defaults,id:'source',name:'対象',width:30,height:20,depth:20}];
+ await page.locator('#file').setInputFiles({name:'source.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');
+ await page.locator('#direct-enclose').click();
+ await page.locator('#cad-boxMode').check();
+ await page.locator('#cad-clearance').fill('0.5');
+ await page.locator('#cad-hinge').check();
+ await page.locator('#cad-hingeEdge').selectOption('+Y');
+ await page.locator('#cad-apply').click();
+ await page.waitForFunction(()=>!document.getElementById('tools-dialog').open,{},{timeout:120000});
+ assert.equal(await page.locator('#body-count').textContent(),'3');
+ const firstSave=page.waitForEvent('download');await page.locator('#save').click();
+ const enclosureFeature=JSON.parse(await fs.readFile(await(await firstSave).path(),'utf8')).features.at(-1),enclosure=enclosureFeature.spec;
+ assert.equal(enclosure.enclosureSplit,'XY');
+ assert.equal(enclosure.hingeEdge,'+Y');
+ const pinRadius=Math.max(1,enclosure.thickness*.55);
+ const barrelRadius=pinRadius+enclosure.hingeRadialGap+Math.max(.9,enclosure.thickness*.65);
+ const hingeCenter=[enclosureFeature.analysis.hingeFrame.b[0],10+enclosure.clearance+enclosure.thickness+barrelRadius+enclosure.thickness*.4,enclosure.splitOffset];
+ await page.locator('#plane').evaluate(element=>{element.value='YZ';element.dispatchEvent(new Event('change',{bubbles:true}));});
+ await page.locator('#new-point').click();
+ await page.waitForFunction(()=>!document.getElementById('sketch-banner').hidden);
+ const rect=await page.locator('canvas').boundingBox(),state=JSON.parse(await page.locator('#canvas-host').getAttribute('data-camera-state'));
+ const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100,.1,100000);
+ camera.position.fromArray(state);camera.quaternion.fromArray(state,3);camera.zoom=state[7];camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+ const projected=new THREE.Vector3(...hingeCenter).project(camera);
+ const screen={x:rect.x+(projected.x+1)*rect.width/2,y:rect.y+(1-projected.y)*rect.height/2};
+ assert.ok(screen.x>rect.x+10&&screen.x<rect.x+rect.width-10&&screen.y>rect.y+10&&screen.y<rect.y+rect.height-10);
+ // Click a few pixels away; the hinge axis must snap the point to the exact circular center.
+ await page.mouse.move(screen.x+3,screen.y+2);
+ await page.waitForTimeout(100);
+ assert.equal(await page.locator('#canvas-host').getAttribute('data-snap-kind'),'center');
+ await page.mouse.click(screen.x+3,screen.y+2);
+ await page.waitForFunction(()=>document.getElementById('feature-count').textContent==='3');
+ const secondSave=page.waitForEvent('download');await page.locator('#save').click();
+ const saved=JSON.parse(await fs.readFile(await(await secondSave).path(),'utf8'));
+ const point=saved.features.at(-1);
+ assert.equal(point.profile,'point');
+ for(const [i,key] of ['x','y','z'].entries())assert.ok(Math.abs(point[key]-hingeCenter[i])<1e-3,`${key} ${point[key]} must equal hinge axis ${hingeCenter[i]}`);
+ assert.deepEqual(errors,[]);
+ console.log('PASS YZ sketch point snaps to visible hinge cap center');
+}finally{await browser.close();}

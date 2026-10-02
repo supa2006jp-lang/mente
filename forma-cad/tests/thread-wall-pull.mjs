@@ -1,0 +1,11 @@
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';import * as R from 'replicad';import fs from 'node:fs/promises';import assert from 'node:assert/strict';import {runOperation} from '../src/kernel.js';import {defaults} from '../src/geometry.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const b={...defaults,id:'b',profile:'circle',diameter:20,depth:6,x:0,y:0,z:0},h={...b,id:'h',diameter:10,z:6,depth:-6,operation:'cut',target:'b',hole:true};
+const spec={type:'thread',target:'b',surfacePoint:[5,0,3],pitch:1.5,profile:'metric60',threadVersion:2,fullLength:true};
+const thread=runOperation([b,h],spec),history=[b,h,{kind:'cadop',id:'thread',spec,...thread}];
+const probe=R.makeBox([5.02,-.01,.73],[5.08,.01,.77]);
+const before=R.deserializeShape(thread.outputs[0].brep).asShape3D();assert.ok(R.measureVolume(before.intersect(probe))>1e-5);
+const pull=runOperation(history,{type:'pull',target:'b',allThreadFaces:true,distance:-.1}),after=R.deserializeShape(pull.outputs[0].brep).asShape3D();
+assert.ok(Math.abs(R.measureVolume(after.intersect(probe)))<1e-8,'Valley cylinder must retract too');
+const check=new (R.getOC().BRepCheck_Analyzer)(after.wrapped,true,false);assert.ok(check.IsValid());check.delete();assert.equal(after.solids.length,1);
+assert.equal(pull.outputs[0].threadSource.spec.threadCylinderOffset,-.1);console.log('PASS valley clearance, valid connected internal thread');

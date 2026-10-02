@@ -1,0 +1,11 @@
+import {chromium} from 'playwright';import assert from 'node:assert/strict';import {defaults} from '../src/geometry.js';
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1500,height:1100}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:5188');await page.locator('#file').setInputFiles({name:'box.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[{...defaults,id:'b',name:'box',width:10,height:10,depth:10}]}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');await page.locator('#advanced-tools').click();await page.locator('#cad-command').selectOption('rectangular');
+ const host=page.locator('#canvas-host'),positions=async()=>JSON.parse(await host.getAttribute('data-pattern-preview'));
+ assert.equal((await positions()).length,3);await page.locator('#cad-count').fill('3');await page.locator('#cad-spacing').fill('15');await page.locator('#cad-spacing2').fill('-20');assert.deepEqual(await positions(),[[0,-20,0],[15,0,0],[15,-20,0],[30,0,0],[30,-20,0]]);
+ assert.equal(await page.locator('#body-count').textContent(),'1');await page.locator('#cad-count').fill('');assert.equal(await host.getAttribute('data-pattern-preview'),null);await page.locator('#cad-count').fill('3');await page.locator('#cad-cancel').click();assert.equal(await host.getAttribute('data-pattern-preview'),null);assert.equal(await page.locator('#feature-count').textContent(),'1');
+ await page.locator('#advanced-tools').click();await page.locator('#cad-count').fill('3');await page.locator('#cad-spacing').fill('15');await page.locator('#cad-spacing2').fill('-20');await page.locator('#cad-operation').selectOption('新規ボディ');await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('tools-dialog').open,{},{timeout:120000});assert.equal(await page.locator('#body-count').textContent(),'6');assert.equal(await host.getAttribute('data-pattern-preview'),null);assert.deepEqual(errors,[]);console.log('PASS live counts/spacing, negative direction, invalid input cleanup, cancel and six-body commit');
+}finally{await browser.close();}

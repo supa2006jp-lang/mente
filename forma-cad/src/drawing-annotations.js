@@ -1,0 +1,24 @@
+import {drawingCurves} from './drawing-curves.js';
+import {pathEndpoints} from './drawing-dimensions.js';
+export const baseViews=['top','front','right'];
+export function circles(view){return [...new Map(drawingCurves(view.visible).arcs.map(a=>[[...a.center,a.radius].map(v=>v.toFixed(5)).join(','),a])).values()];}
+export function viewPoints(view){const pts=[...pathEndpoints(view.visible),...circles(view).map(a=>a.center)];return [...new Map(pts.filter(p=>insideView(view,p)).map(p=>[p.map(n=>n.toFixed(5)).join(','),p])).values()];}
+export function insideView(view,p){return !view.clip||Math.hypot(p[0]-view.clip.center[0],p[1]-view.clip.center[1])<=view.clip.radius+1e-6;}
+export function withDetails(data,details=[]){const views={...data.views};for(const d of details){const source=views[d.view];if(!source)continue;views[d.id]={...source,viewBox:[d.center[0]-d.radius,d.center[1]-d.radius,2*d.radius,2*d.radius],clip:{center:d.center,radius:d.radius},factor:d.factor};}return {...data,views};}
+export function snapDimension(d,at,others,scale,index=-1){
+ if(!['horizontal','vertical','aligned'].includes(d.kind))return {at};
+ const normal=q=>{if(q.kind==='horizontal')return [0,1];if(q.kind==='vertical')return [1,0];const dx=q.b[0]-q.a[0],dy=q.b[1]-q.a[1],l=Math.hypot(dx,dy)||1;return [-dy/l,dx/l];},n=normal(d),dot=p=>p[0]*n[0]+p[1]*n[1];let best=1.5/scale,result=at,match=null;
+ others.forEach((q,i)=>{if(i===index||q.view!==d.view||!['horizontal','vertical','aligned'].includes(q.kind))return;const v=normal(q);if(Math.abs(n[0]*v[1]-n[1]*v[0])>1e-5)return;const delta=dot(q.at)-dot(at);if(Math.abs(delta)<best){best=Math.abs(delta);result=[at[0]+delta*n[0],at[1]+delta*n[1]];match=q;}});return {at:result,match};
+}
+const hatchCache=new WeakMap();
+export function hatchPaths(triangles,scale){if(!triangles?.length)return '';let cache=hatchCache.get(triangles);if(!cache){cache=new Map();hatchCache.set(triangles,cache);}if(cache.has(scale))return cache.get(scale);
+ let min=Infinity,max=-Infinity;for(const triangle of triangles)for(const p of triangle){min=Math.min(min,p[1]-p[0]);max=Math.max(max,p[1]-p[0]);}const step=Math.max(2/scale,(max-min)/1500),paths=[];
+ for(let k=Math.ceil(min/step)*step;k<max;k+=step){const intervals=[];for(const t of triangles){const xs=[];for(let i=0;i<3;i++){const a=t[i],b=t[(i+1)%3],u=a[1]-a[0]-k,v=b[1]-b[0]-k;if((u<=0&&v>0)||(v<=0&&u>0)){const f=u/(u-v);xs.push(a[0]+f*(b[0]-a[0]));}}if(xs.length===2)intervals.push(xs.sort((a,b)=>a-b));}intervals.sort((a,b)=>a[0]-b[0]);const merged=[];for(const p of intervals){const end=merged.at(-1);if(end&&p[0]<=end[1]+1e-5)end[1]=Math.max(end[1],p[1]);else merged.push([...p]);}for(const [a,b] of merged)if(b-a>1e-6)paths.push(`M ${a.toFixed(5)} ${(a+k).toFixed(5)} L ${b.toFixed(5)} ${(b+k).toFixed(5)}`);}
+ const result=paths.join(' ');cache.set(scale,result);return result;
+}
+export function annotationSVG(options,layout){
+ const map=(v,p)=>[v.x+(p[0]-v.bx)*v.scale,v.y+(p[1]-v.by)*v.scale],line=(a,b)=>`<path d="M ${a.join(' ')} L ${b.join(' ')}"/>`;let svg='';
+ for(const m of options.markers||[]){const v=layout[m.view];if(!v)continue;let paths;if(m.kind==='line'){const a=map(v,m.a),b=map(v,m.b),l=Math.hypot(b[0]-a[0],b[1]-a[1])||1,u=[(b[0]-a[0])/l,(b[1]-a[1])/l];paths=line([a[0]-u[0]*3,a[1]-u[1]*3],[b[0]+u[0]*3,b[1]+u[1]*3]);}else{const c=map(v,m.center),r=m.radius*v.scale+3;paths=line([c[0]-r,c[1]],[c[0]+r,c[1]])+line([c[0],c[1]-r],[c[0],c[1]+r]);}svg+=`<g data-marker="${m.id}" stroke="#365769" stroke-width=".18" stroke-dasharray="5 1 1 1" fill="none">${paths}</g>`;}
+ (options.sections||[]).forEach((s,i)=>{const v=layout[s.view];if(!v)return;const vertical=s.orientation==='vertical',q=map(v,vertical?[s.coordinate,v.by]:[v.bx,s.coordinate]),a=vertical?[q[0],v.y-2]:[v.x-2,q[1]],b=vertical?[q[0],v.y+v.height+2]:[v.x+v.width+2,q[1]],dir=s.reverse?-1:1,arrow=p=>{const end=vertical?[p[0]+dir*6,p[1]]:[p[0],p[1]+dir*6];return line(p,end)+`<path d="M ${end.join(' ')} l ${vertical?-dir*2:-.8} ${vertical?-.8:-dir*2} l ${vertical?0:1.6} ${vertical?1.6:0} Z" fill="#24455b"/>`;};svg+=`<g data-section="${s.id}" stroke="#24455b" stroke-width=".35" fill="none">`+`<path stroke-dasharray="7 1 1 1" d="M ${a.join(' ')} L ${b.join(' ')}"/>`+arrow(a)+arrow(b)+`<text x="${a[0]+2}" y="${a[1]-2}" fill="#24455b" stroke="none" font-size="3.5">${String.fromCharCode(65+i)}</text><text x="${b[0]+2}" y="${b[1]+4}" fill="#24455b" stroke="none" font-size="3.5">${String.fromCharCode(65+i)}</text></g>`;});
+ (options.details||[]).forEach((d,i)=>{const v=layout[d.view];if(!v)return;const c=map(v,d.center);svg+=`<g data-detail="${d.id}" fill="none" stroke="#24455b" stroke-width=".25"><circle cx="${c[0]}" cy="${c[1]}" r="${d.radius*v.scale}" stroke-dasharray="3 1"/><text x="${c[0]+d.radius*v.scale+2}" y="${c[1]}" font-size="3.5" fill="#24455b" stroke="none">D${i+1}</text></g>`;});return svg;
+}

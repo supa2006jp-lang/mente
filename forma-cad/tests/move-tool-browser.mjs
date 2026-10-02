@@ -1,0 +1,17 @@
+import {chromium} from 'playwright';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import {defaults} from '../src/geometry.js';
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1500,height:1100},acceptDownloads:true}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
+ await page.goto('http://127.0.0.1:5188');await page.locator('#file').setInputFiles({name:'box.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[{...defaults,id:'b',name:'box',width:30,height:20,depth:10,x:20}]}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');await page.locator('[data-view=top]').click();await page.locator('#fit').click();
+ const r=await page.locator('canvas').boundingBox(),cx=r.x+r.width/2,cy=r.y+r.height/2,host=page.locator('#canvas-host'),state=async()=>JSON.parse(await host.getAttribute('data-move-preview'));
+ await page.locator('#move-tool').click();await page.mouse.click(cx+30,cy+20);assert.equal(await page.locator('#move-apply').isEnabled(),true);
+ await page.locator('#move-x').fill('12.5');await page.locator('#move-rz').fill('30');assert.ok(Math.abs((await state()).position[0]-32.5)<1e-6);assert.ok(Math.abs((await state()).rotation[2]-Math.PI/6)<1e-6);
+ await page.locator('#move-cancel').click();assert.equal(await page.locator('#feature-count').textContent(),'1');
+ await page.locator('#move-tool').click();await page.mouse.click(cx+30,cy+20);
+ await page.mouse.move(cx+75,cy);await page.mouse.down();await page.mouse.move(cx+115,cy,{steps:8});await page.mouse.up();assert.ok(Math.abs(Number(await page.locator('#move-x').inputValue()))>.1,'Translation handle changes position');
+ await page.locator('#move-x').fill('0');await page.locator('[data-mode=rotate]').click();await page.mouse.move(cx+58,cy-58);await page.mouse.down();await page.mouse.move(cx+82,cy,{steps:12});await page.mouse.up();assert.ok(Math.abs(Number(await page.locator('#move-rz').inputValue()))>1,'Rotation ring changes angle');await page.screenshot({path:'.sites-runtime/move-tool.png'});
+ await page.locator('#move-x').fill('12.5');await page.locator('#move-y').fill('0');await page.locator('#move-z').fill('0');await page.locator('#move-rz').fill('90');await page.locator('#move-apply').click();await page.waitForFunction(()=>document.getElementById('move-panel').hidden,{},{timeout:120000});
+ const download=page.waitForEvent('download');await page.locator('#save').click();const data=JSON.parse(await fs.readFile(await(await download).path(),'utf8')),op=data.features.at(-1);assert.deepEqual(op.spec.rotation,[0,0,90]);assert.equal(op.spec.x,12.5);const xs=[],ys=[];for(let i=0;i<op.outputs[0].vertices.length;i+=3){xs.push(op.outputs[0].vertices[i]);ys.push(op.outputs[0].vertices[i+1]);}assert.ok(Math.abs(Math.max(...xs)-Math.min(...xs)-20)<.01);assert.ok(Math.abs((Math.max(...xs)+Math.min(...xs))/2-32.5)<.01);assert.ok(Math.abs(Math.max(...ys)-Math.min(...ys)-30)<.01);
+ await page.locator('#undo').click();assert.equal(await page.locator('#feature-count').textContent(),'1');assert.deepEqual(errors,[]);console.log('PASS pick after command, live numeric preview, translation handle, cancel, committed rotation and undo');
+}finally{await browser.close();}

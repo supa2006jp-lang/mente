@@ -1,0 +1,19 @@
+import {chromium} from 'playwright';import fs from 'node:fs/promises';import assert from 'node:assert/strict';import {defaults} from '../src/geometry.js';
+const browser=await chromium.launch({channel:'msedge',headless:true});try{
+const page=await browser.newPage({viewport:{width:1550,height:1100},acceptDownloads:true});const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());await page.goto('http://127.0.0.1:5188');await page.waitForFunction(()=>document.getElementById('status').textContent.includes('閉じた'));
+async function load(features){await page.locator('#file').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});await page.waitForTimeout(100);}
+async function save(){const p=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await p).path(),'utf8'));}
+async function viewPlane(){await page.locator('#new-line').click();await page.keyboard.press('Escape');await page.locator('#finish-sketch-tool').click();}
+async function click(u,v){const b=await page.locator('canvas').boundingBox(),scale=b.height/(360*Math.tan(Math.PI/9));await page.mouse.click(b.x+b.width/2+u*scale,b.y+b.height/2-v*scale);}
+const sketch=(id,extra)=>({...defaults,id,name:id,kind:'sketch',...extra});
+// Nested profiles: ring and disk can be selected separately; the hole remains.
+await load([sketch('outer',{width:80,height:60}),sketch('inner',{profile:'circle',diameter:20})]);await viewPlane();assert.equal(await page.locator('#region-count').textContent(),'2');await click(25,0);await page.locator('#solid-tool').click();await page.locator('#depth').fill('10');await page.locator('#apply').click();let data=await save();assert.equal(data.features.at(-1).region.holes.length,1);
+const dl=page.waitForEvent('download');await page.locator('#export').click();const bytes=await fs.readFile(await(await dl).path());assert.equal(bytes.length,84+bytes.readUInt32LE(80)*50);
+// Old projects still open and retain their editable numeric dimensions.
+await page.locator('#sample').click();assert.equal(await page.locator('#body-count').textContent(),'1');await page.locator('#wall').fill('4');await page.locator('#apply').click();assert.equal((await save()).features[1].wall,4);
+// Cut tool before region selection keeps the requested operation.
+await load([{...defaults,id:'base',name:'base',width:100,height:80,depth:6},sketch('circle',{profile:'circle',diameter:10,z:-1})]);await viewPlane();await page.locator('#cut-tool').click();await click(0,0);assert.equal(await page.locator('#operation').inputValue(),'cut');await page.locator('#depth').fill('10');await page.locator('#apply').click();data=await save();assert.equal(data.features.at(-1).operation,'cut');assert.equal(await page.locator('#body-count').textContent(),'1');
+// A bounded region supports thin extrusion and cancel adds no geometry.
+await load([sketch('rect',{width:80,height:60})]);await viewPlane();await click(0,0);await page.locator('#thin-tool').click();await page.locator('#wall').fill('3');await page.locator('#apply').click();data=await save();assert.equal(data.features.at(-1).mode,'thin');assert.equal(data.features.at(-1).profile,'region');const count=data.features.length;await page.locator('#features .row-label').last().click();await page.locator('#depth').fill('50');await page.keyboard.press('Escape');assert.equal((await save()).features.length,count);assert.notEqual((await save()).features.at(-1).depth,50);
+await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);assert.deepEqual(errors,[]);console.log('PASS: nested region holes, binary STL, legacy project edit, profile cut, region thin, Escape cancellation, mobile');
+}finally{await browser.close();}

@@ -1,0 +1,75 @@
+import {chromium} from 'playwright';
+import * as THREE from 'three';
+import * as R from 'replicad';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {defaults} from '../src/geometry.js';
+import {runOperation} from '../src/kernel.js';
+
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const source={...defaults,id:'source',name:'対象',width:30,height:20,depth:20};
+const spec={type:'enclose',id:'hinge',target:'source',thickness:2,clearance:.5,boxMode:true,faces:[],enclosureSplit:'XY',splitOffset:10,hinge:true,hingeEdge:'+Y',hingeRadialGap:.5,hingeAxialGap:.5,hingeAngle:0};
+const operation=runOperation([source],spec);
+const body=operation.outputs[0],vertices=[];
+for(let i=0;i<body.vertices.length;i+=3)vertices.push(body.vertices.slice(i,i+3));
+const barrel=vertices.filter(v=>v[1]>13&&Math.abs(v[2]-10)<5);
+assert.ok(barrel.length>100,'hinge barrel is present');
+const capX=Math.max(...barrel.map(v=>v[0])),maxY=Math.max(...barrel.map(v=>v[1]));
+const zRange=[Math.min(...barrel.map(v=>v[2])),Math.max(...barrel.map(v=>v[2]))];
+const capOuterDiameter=zRange[1]-zRange[0];
+const rimCenter=[capX,maxY-capOuterDiameter/2,(zRange[0]+zRange[1])/2];
+assert.ok(capX>10,'visible cap is away from the YZ base plane');
+
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1800,height:1100},acceptDownloads:true}),errors=[];
+ page.setDefaultTimeout(120000);
+ page.on('pageerror',e=>errors.push(e.message));
+ page.on('dialog',d=>d.accept(d.defaultValue()));
+ await page.addInitScript(()=>Object.defineProperty(window,'showSaveFilePicker',{value:undefined,configurable:true}));
+ await page.goto('http://127.0.0.1:5188');
+ await page.locator('#file').setInputFiles({name:'hinge-cap-circle.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[source,{kind:'cadop',id:'enclosure',name:'囲み',spec,...operation}]}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='3');
+ const project=async point=>{
+  const rect=await page.locator('canvas').boundingBox(),state=JSON.parse(await page.locator('#canvas-host').getAttribute('data-camera-state'));
+  const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100,.1,100000);
+  camera.position.fromArray(state);camera.quaternion.fromArray(state,3);camera.zoom=state[7];camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+  const p=new THREE.Vector3(...point).project(camera);
+  return {x:rect.x+(p.x+1)*rect.width/2,y:rect.y+(1-p.y)*rect.height/2};
+ };
+ const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+ await page.locator('#plane').evaluate(el=>{el.value='YZ';el.dispatchEvent(new Event('change',{bubbles:true}));});
+ await page.locator('#new-circle').click();
+ const cap=await project(rimCenter);
+ await page.mouse.move(cap.x,cap.y);
+ await page.waitForTimeout(100);
+ assert.equal(await page.locator('#canvas-host').getAttribute('data-snap-kind'),'center','cap center should snap');
+ await page.mouse.click(cap.x,cap.y);
+ const capPerimeter=await project([capX,rimCenter[1],rimCenter[2]+capOuterDiameter/2]);
+ const radiusPixels=distance(cap,capPerimeter);assert.ok(radiusPixels>10,'rendered cap rim is large enough to test near-edge snapping');
+ const nearRim={x:cap.x+(capPerimeter.x-cap.x)*(1+4/radiusPixels),y:cap.y+(capPerimeter.y-cap.y)*(1+4/radiusPixels)};
+ await page.mouse.move(nearRim.x,nearRim.y);await page.waitForTimeout(100);
+ const perimeterSnapKind=await page.locator('#canvas-host').getAttribute('data-snap-kind');
+ assert.equal(perimeterSnapKind,'circumference','the visible hinge outer rim should be the active snap target');
+ await page.mouse.click(nearRim.x,nearRim.y);
+ await page.keyboard.press('Escape');
+ await page.waitForFunction(()=>document.getElementById('feature-count').textContent==='3');
+ const download=page.waitForEvent('download');await page.locator('#save').click();
+ const data=JSON.parse(await fs.readFile(await(await download).path(),'utf8'));
+ const circle=data.features.find(f=>f.kind==='sketch'&&f.profile==='circle');
+ assert.ok(circle,'circle sketch was saved');
+ console.log(`Near-rim snap kind: ${perimeterSnapKind}; saved diameter ${circle.diameter} mm; physical cap diameter ${capOuterDiameter.toFixed(4)} mm`);
+ await page.locator('[data-view=iso]').click();
+ await page.locator('#fit').click();
+ const circleScreen=await project([circle.x,circle.y,circle.z]),capScreen=await project(rimCenter);
+ const gap=distance(circleScreen,capScreen);
+ console.log(`Observed circle depth ${circle.x} mm versus visible cap ${capX} mm; oblique view center offset ${gap.toFixed(1)} px`);
+ assert.ok(Math.abs(circle.x-capX)<.002,`circle center x=${circle.x} must equal visible hinge cap x=${capX}`);
+ assert.ok(Math.abs(circle.y-rimCenter[1])<.002&&Math.abs(circle.z-rimCenter[2])<.002,'circle center lies on the hinge axis');
+ assert.ok(Math.abs(circle.diameter-capOuterDiameter)<.01,`circle diameter ${circle.diameter} must snap to the visible cap perimeter ${capOuterDiameter}`);
+ assert.ok(gap<3,`circle sketch is ${gap.toFixed(1)}px from the visible cap after orbit`);
+ assert.deepEqual(errors,[]);
+ console.log('PASS new YZ sketch circle center and radius snap to the visible hinge cap in 3D');
+}finally{await browser.close();}
+

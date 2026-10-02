@@ -1,0 +1,31 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import {defaults} from '../src/geometry.js';
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1500,height:1100},acceptDownloads:true}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
+ await page.goto('http://127.0.0.1:5188');await page.locator('#new-spline').click();
+ const canvas=page.locator('canvas'),host=page.locator('#canvas-host'),cross=page.locator('#drawing-crosshair'),r=await canvas.boundingBox(),cx=r.x+r.width/2,cy=r.y+r.height/2;
+ await page.mouse.move(cx+2,cy+2);await page.waitForTimeout(100);
+ assert.equal(await cross.isVisible(),true);assert.equal(await host.getAttribute('data-snap-kind'),'grid');
+ await page.mouse.click(cx+2,cy+2);
+ await page.mouse.move(cx+43,cy-87);await page.waitForTimeout(100);
+ assert.equal(await host.getAttribute('data-snap-kind'),'free');assert.equal(await host.getAttribute('data-spline-preview-points'),'2');
+ await page.mouse.click(cx+43,cy-87);await page.mouse.move(cx+113,cy+27);await page.waitForTimeout(100);
+ assert.equal(await host.getAttribute('data-spline-preview-points'),'3');
+ await page.mouse.click(cx+113,cy+27);await page.mouse.move(cx+161,cy-41);await page.waitForTimeout(100);
+ assert.equal(await host.getAttribute('data-spline-preview-points'),'4');await page.screenshot({path:'.sites-runtime/spline-live.png'});
+ await page.keyboard.press('Enter');await page.waitForTimeout(100);assert.equal(await cross.isVisible(),false);
+ const download=page.waitForEvent('download');await page.locator('#save').click();const file=await download,data=JSON.parse(await fs.readFile(await file.path(),'utf8'));
+ assert.equal(data.features.length,1);const spline=data.features[0];assert.equal(spline.points.length,3,'Hover point must not be saved');
+ assert.ok(Math.hypot(...spline.points[0])<1e-6,'Near-origin click snaps to grid');
+ assert.ok(spline.points.slice(1).some(p=>p.some(x=>Math.abs(x/10-Math.round(x/10))>.05)),'Free points remain off grid');
+ await page.locator('#new-spline').click();await page.mouse.move(cx,cy);await page.waitForTimeout(100);assert.equal(await cross.isVisible(),true);await page.mouse.move(30,30);await page.waitForTimeout(100);assert.equal(await cross.isVisible(),false);
+ await page.keyboard.press('Escape');
+ await page.locator('#file').setInputFiles({name:'box.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[{...defaults,id:'box',name:'確認用ボディ',width:30,height:30,depth:20}]}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');
+ await page.locator('#cut-tool').click();await page.mouse.move(cx+30,cy-40);await page.waitForTimeout(100);assert.equal(await cross.isVisible(),true,'Hole placement uses crosshair');await page.keyboard.press('Escape');await page.waitForTimeout(100);assert.equal(await cross.isVisible(),false);
+ assert.deepEqual(errors,[]);console.log('PASS live spline, free placement, nearby snapping, committed points and drawing crosshair');
+}finally{await browser.close();}

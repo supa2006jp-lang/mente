@@ -1,0 +1,183 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import {defaults} from '../src/geometry.js';
+
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1600,height:1050},acceptDownloads:true}),errors=[];
+ page.on('pageerror',error=>errors.push(error.message));
+ page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
+ await page.goto('http://127.0.0.1:5188');
+ // Two adjacent obstacles cover the full sketch, at different contact depths.
+ const features=[
+  {...defaults,id:'near',kind:'extrusion',name:'近いソリッド',x:-12.5,width:25.5,height:20,z:15,depth:5},
+  {...defaults,id:'far',kind:'extrusion',name:'遠いソリッド',x:12.5,width:25.5,height:20,z:5,depth:5},
+  {...defaults,id:'profile',kind:'sketch',name:'押し出し輪郭',width:50,height:20,z:30}
+ ];
+ await page.locator('#file').setInputFiles({name:'until-solid.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='2'&&document.getElementById('region-count').textContent==='1');
+ await page.locator('[data-view=top]').click();
+ await page.locator('#fit').click();
+ const canvas=await page.locator('canvas').boundingBox();
+ await page.mouse.click(canvas.x+canvas.width/2-100,canvas.y+canvas.height/2);
+ await page.locator('#solid-tool').click();
+ assert.ok(await page.locator('#extrude-distance').isVisible());
+ await page.locator('#viewport-operation').selectOption('new');
+ await page.locator('#viewport-depth').fill('-1');
+ await page.locator('#viewport-until-solid').check();
+ assert.ok(await page.locator('#until-solid').isChecked());
+ assert.ok(await page.locator('#viewport-until-solid').isChecked());
+ const proposed=Number(await page.locator('#depth').inputValue());
+ assert.ok(proposed<0,'automatic direction must be preserved');
+ await page.locator('#until-solid').uncheck();
+ assert.equal(await page.locator('#viewport-until-solid').isChecked(),false);
+ await page.locator('#until-solid').check();
+ assert.ok(await page.locator('#viewport-until-solid').isChecked());
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.extrusionPreviewCount==='1'&&document.getElementById('error').textContent==='',{},{timeout:30000});
+ assert.equal(await page.locator('#canvas-host').getAttribute('data-extrusion-preview-count'),'1');
+ assert.ok(Math.abs(Number(await page.locator('#depth').inputValue())+20)<.01,'automatic distance is the last contact, not the blocker back face');
+ await page.waitForTimeout(80);
+ const previewPng=(await page.locator('#canvas-host').screenshot()).toString('base64');
+ const cyanPixels=await page.evaluate(async base64=>{
+  const image=new Image();
+  image.src='data:image/png;base64,'+base64;
+  await image.decode();
+  const canvas=document.createElement('canvas');
+  canvas.width=image.width;canvas.height=image.height;
+  const context=canvas.getContext('2d');
+  context.drawImage(image,0,0);
+  const rgba=context.getImageData(0,0,canvas.width,canvas.height).data;
+  let count=0;
+  for(let i=0;i<rgba.length;i+=4)if(rgba[i+1]-rgba[i]>20&&rgba[i+2]-rgba[i]>25&&rgba[i+2]-rgba[i+1]<35)count++;
+  return count;
+ },previewPng);
+ assert.ok(cyanPixels>200,'contact preview mesh should be visible, cyan pixels: '+cyanPixels);
+ assert.equal(await page.locator('#error').textContent(),'');
+ await page.locator('#extrude-distance button[type=submit]').click();
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='3',{},{timeout:30000});
+ const event=page.waitForEvent('download');
+ await page.locator('#save').click();
+ const saved=JSON.parse(await fs.readFile(await(await event).path(),'utf8'));
+ const extrusion=saved.features.at(-1);
+ assert.equal(extrusion.untilSolid,true);
+ assert.equal(extrusion.operation,'new');
+ assert.ok(extrusion.cadResult?.outputs?.length===1,'CAD result must be saved');
+ const vertices=extrusion.cadResult.outputs[0].vertices;
+ const left=[],right=[];
+ for(let i=0;i<vertices.length;i+=3){
+  if(vertices[i]<-1&&Math.abs(vertices[i+1])<10.1)left.push(vertices[i+2]);
+  if(vertices[i]>1&&Math.abs(vertices[i+1])<10.1)right.push(vertices[i+2]);
+ }
+ assert.ok(left.length&&right.length);
+ assert.ok(left.some(z=>Math.abs(z-20)<.15),'left side should have a contact face at z=20');
+ assert.ok(right.some(z=>Math.abs(z-10)<.15),'right side should have a contact face at z=10');
+ assert.ok(Math.min(...left)>19.85,'left side must not extend past its contact surface');
+ assert.ok(Math.min(...right)>9.85,'right side must not extend past its contact surface');
+ await page.reload();
+ await page.locator('#file').setInputFiles({name:'saved.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(saved))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='3');
+ await page.locator('#features .row-label').last().click();
+ assert.ok(await page.locator('#until-solid').isChecked());
+ assert.ok(await page.locator('#viewport-until-solid').isChecked());
+ // With the same profile but narrower blockers, the outer strip has no surface
+ // to hit. Keep that strip until the last genuine contact.
+ const partialFeatures=features.map(f=>f.kind==='extrusion'?{...f,height:16}:f);
+ await page.locator('#file').setInputFiles({name:'partial-contact.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:partialFeatures}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='2'&&document.getElementById('region-count').textContent==='1');
+ await page.locator('[data-view=top]').click();
+ await page.locator('#fit').click();
+ const partialCanvas=await page.locator('canvas').boundingBox();
+ await page.mouse.click(partialCanvas.x+partialCanvas.width/2-100,partialCanvas.y+partialCanvas.height/2);
+ await page.locator('#solid-tool').click();
+ await page.locator('#viewport-operation').selectOption('new');
+ await page.locator('#viewport-depth').fill('-30');
+ await page.locator('#viewport-until-solid').check();
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.extrusionPreviewCount==='1'&&document.getElementById('error').textContent==='',{},{timeout:30000});
+ assert.ok(Math.abs(Number(await page.locator('#depth').inputValue())+20)<.01);
+ assert.equal(await page.locator('#canvas-host').getAttribute('data-contact-preview-roles'),'contacted,uncontacted');
+ assert.ok(await page.locator('#viewport-contact-legend').isVisible());
+ const partialPng=(await page.locator('#canvas-host').screenshot()).toString('base64');
+ const orangePixels=await page.evaluate(async base64=>{
+  const image=new Image();image.src='data:image/png;base64,'+base64;await image.decode();
+  const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+  const context=canvas.getContext('2d');context.drawImage(image,0,0);const rgba=context.getImageData(0,0,canvas.width,canvas.height).data;let count=0;
+  for(let i=0;i<rgba.length;i+=4)if(rgba[i]-rgba[i+1]>25&&rgba[i+1]-rgba[i+2]>20)count++;
+  return count;
+ },partialPng);
+ assert.ok(orangePixels>50,'unmatched preview should be visibly orange: '+orangePixels);
+ await page.locator('#extrude-distance button[type=submit]').click();
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='3',{},{timeout:30000});
+ const partialEvent=page.waitForEvent('download');await page.locator('#save').click();
+ const partialSaved=JSON.parse(await fs.readFile(await(await partialEvent).path(),'utf8'));
+ const partialVertices=partialSaved.features.at(-1).cadResult.outputs[0].vertices,unmatched=[];
+ for(let i=0;i<partialVertices.length;i+=3)if(Math.abs(partialVertices[i+1])>9)unmatched.push(partialVertices[i+2]);
+ assert.ok(unmatched.length,'unmatched outer strips must be retained');
+ assert.ok(Math.abs(Math.min(...unmatched)-10)<.01,'unmatched strips end at the last contact, z=10');
+ // Reload the profile, then shorten with the real viewport handle while the
+ // contact option stays checked. Four millimetres is before either obstacle.
+ await page.locator('#file').setInputFiles({name:'manual-contact.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:partialFeatures}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='2'&&document.getElementById('region-count').textContent==='1');
+ await page.locator('[data-view=top]').click();await page.locator('#fit').click();
+ const manualCanvas=await page.locator('canvas').boundingBox();
+ await page.mouse.click(manualCanvas.x+manualCanvas.width/2-100,manualCanvas.y+manualCanvas.height/2);
+ await page.locator('#solid-tool').click();await page.locator('#viewport-operation').selectOption('new');
+ await page.locator('#viewport-depth').fill('-1');await page.locator('#viewport-until-solid').check();
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.extrusionPreviewCount==='1'&&Math.abs(Number(document.getElementById('depth').value)+20)<.01,{},{timeout:30000});
+ await page.locator('[data-view=top]').click();
+ await page.waitForTimeout(80);
+ const handle=await page.locator('#extrude-handle').boundingBox();
+ const state=JSON.parse(await page.locator('#canvas-host').getAttribute('data-camera-state'));
+ const dy=-16*manualCanvas.height*state.at(-1)/200;
+ await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);
+ await page.mouse.down();await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2+dy,{steps:8});await page.mouse.up();
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.extrusionPreviewCount==='1'&&document.getElementById('error').textContent==='',{},{timeout:30000});
+ assert.ok(Math.abs(Number(await page.locator('#depth').inputValue())+4)<.05,'handle can shorten to four millimetres without unchecking the option');
+ assert.ok(await page.locator('#viewport-until-solid').isChecked());
+ await page.locator('#viewport-contact-reset').click();
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.extrusionPreviewCount==='1'&&Math.abs(Number(document.getElementById('depth').value)+20)<.01,{},{timeout:30000});
+ assert.ok(await page.locator('#viewport-until-solid').isChecked(),'reset retains the contact option');
+ await page.locator('#viewport-depth').fill('-4');
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.extrusionPreviewCount==='1'&&document.getElementById('error').textContent==='',{},{timeout:30000});
+ await page.locator('#contact-reset').click();
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.extrusionPreviewCount==='1'&&Math.abs(Number(document.getElementById('depth').value)+20)<.01,{},{timeout:30000});
+ await page.locator('#viewport-depth').fill('-4');
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.extrusionPreviewCount==='1'&&document.getElementById('error').textContent==='',{},{timeout:30000});
+ await page.locator('#extrude-distance button[type=submit]').click();
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='3',{},{timeout:30000});
+ const manualEvent=page.waitForEvent('download');await page.locator('#save').click();
+ const manualSaved=JSON.parse(await fs.readFile(await(await manualEvent).path(),'utf8'));
+ const manualExtrusion=manualSaved.features.at(-1);
+ assert.ok(Math.abs(manualExtrusion.depth+4)<.05,'manual depth persists in the saved model');
+ const zs=manualExtrusion.cadResult.outputs[0].vertices.filter((_,i)=>i%3===2);
+ assert.ok(Math.abs(Math.min(...zs)-26)<.05,'manual extrusion stops before contact at z=26');
+ // Re-edit the manual extrusion with contact-only, then save and reload it.
+ await page.locator('#features .row-label').last().click();
+ assert.ok(await page.locator('#viewport-contact-only').isVisible());
+ await page.locator('#viewport-contact-only').check();
+ assert.ok(await page.locator('#contact-only').isChecked());
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.extrusionPreviewCount==='1'&&document.getElementById('error').textContent==='',{},{timeout:30000});
+ assert.ok(Math.abs(Number(await page.locator('#depth').inputValue())+4)<.05,'switching contact-only preserves manual distance');
+ assert.equal(await page.locator('#canvas-host').getAttribute('data-contact-preview-roles'),'contacted');
+ assert.equal(await page.locator('#viewport-contact-legend [data-contact-role=uncontacted]').isVisible(),false);
+ await page.locator('#extrude-distance button[type=submit]').click();
+ await page.waitForFunction(()=>document.getElementById('extrude-distance').hidden,{},{timeout:30000});
+ const contactEvent=page.waitForEvent('download');await page.locator('#save').click();
+ const contactSaved=JSON.parse(await fs.readFile(await(await contactEvent).path(),'utf8'));
+ const contactExtrusion=contactSaved.features.at(-1);
+ assert.equal(contactExtrusion.contactOnly,true);
+ const contactVertices=contactExtrusion.cadResult.outputs[0].vertices;
+ for(let i=1;i<contactVertices.length;i+=3)assert.ok(Math.abs(contactVertices[i])<8.01,'unmatched outer strips are omitted in contact-only mode');
+ await page.reload();
+ await page.locator('#file').setInputFiles({name:'contact-only.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(contactSaved))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='3');
+ await page.locator('#features .row-label').last().click();
+ assert.ok(await page.locator('#until-solid').isChecked());
+ assert.ok(await page.locator('#contact-only').isChecked());
+ assert.ok(await page.locator('#viewport-contact-only').isChecked());
+ await page.locator('#contact-only').uncheck();
+ assert.equal(await page.locator('#viewport-contact-only').isChecked(),false);
+ assert.ok(await page.locator('#until-solid').isChecked());
+ assert.deepEqual(errors,[]);
+ console.log('PASS until-solid viewport and panel sync, surface-only depths, unmatched extension and manual handle stop, optional contact-only, reset to surface and coloured preview, save and reload');
+}finally{await browser.close();}

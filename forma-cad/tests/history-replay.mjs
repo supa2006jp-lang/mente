@@ -1,0 +1,18 @@
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import * as R from 'replicad';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
+import {runOperation} from '../src/kernel.js';import {defaults,rebuild,volume} from '../src/geometry.js';import {findRegions} from '../src/regions.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const sketch={...defaults,id:'s',name:'rectangle',kind:'sketch',width:20,height:20},region=findRegions([sketch])[0],extrude={...defaults,id:'b',name:'extrude',kind:'extrusion',profile:'region',region,depth:20};
+const shellSpec={type:'shell',id:'shell',target:'b',thickness:1,direction:'内側',faces:[{bodyId:'b',point:[0,0,20],normal:[0,0,1]}]};
+const base=[sketch,extrude],shell={kind:'cadop',id:'shell',name:'shell',spec:shellSpec,...runOperation(base,shellSpec)},before=[...base,shell],snapshot=JSON.stringify(before);
+let next=structuredClone(before);next[0].width=30;let out=runOperation(next,{type:'replay',before,start:0}).features;
+const measure=f=>{const body=R.deserializeShape(f.outputs[0].brep).asShape3D();try{return R.measureVolume(body);}finally{body.delete();}};
+assert.ok(Math.abs(measure(out[2])-(30*20*20-28*18*19))<.01);assert.equal(JSON.stringify(before),snapshot);
+next=structuredClone(out);next[1].depth=25;out=runOperation(next,{type:'replay',before:out,start:1}).features;assert.equal(out[2].spec.faces[0].point[2],25);assert.ok(Math.abs(measure(out[2])-(30*20*25-28*18*24))<.01);
+next=structuredClone(before);next[0].width=.2;assert.throws(()=>runOperation(next,{type:'replay',before,start:0}),/工程目/);assert.equal(JSON.stringify(before),snapshot);
+next=structuredClone(before);next[0].profile='line';assert.throws(()=>runOperation(next,{type:'replay',before,start:0}),/閉じた領域/);
+const extra={...sketch,id:'other',x:80};const legacyRegion={...region,sourceIds:['s','other']};const legacy=[sketch,extra,{...extrude,region:legacyRegion}];next=structuredClone(legacy);next[0].width=40;out=runOperation(next,{type:'replay',before:legacy,start:0}).features;assert.equal(out[2].region.area,800);assert.deepEqual(out[2].region.sourceIds,['s']);
+const top={...sketch,id:'top',z:30},loftSpec={type:'loft',id:'loft',sections:findRegions([sketch,top])};const loftBefore=[sketch,top,{kind:'cadop',id:'loft',name:'loft',spec:loftSpec,...runOperation([sketch,top],loftSpec)}];next=structuredClone(loftBefore);next[0].width=30;out=runOperation(next,{type:'replay',before:loftBefore,start:0}).features;assert.ok(measure(out[2])>measure(loftBefore[2]));
+assert.throws(()=>runOperation(base,{type:'fillet',target:'b',radius:100}),/半径.*小さく/);
+await fs.writeFile('.sites-runtime/history-fixture.json',JSON.stringify({format:'forma-cad',version:1,features:before}));
+console.log('PASS sketch -> extrusion -> shell, extrusion depth -> selected top face, loft profiles, legacy region references, atomic failure and actionable fillet errors');

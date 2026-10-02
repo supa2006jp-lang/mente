@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import * as THREE from 'three';import {chromium} from 'playwright';import {defaults,validateProject} from '../src/geometry.js';
+const browser=await chromium.launch({channel:'msedge',headless:true});try{
+ const page=await browser.newPage({viewport:{width:1700,height:1100},acceptDownloads:true}),errors=[];page.setDefaultTimeout(120000);page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));await page.goto('http://127.0.0.1:5188');const button=page.locator('#opposite-face-ground');assert.equal(await button.isHidden(),true);
+ const source={...defaults,id:'box',name:'接地する箱',kind:'extrusion',width:40,height:30,depth:20,x:35,y:-17,z:22},other={...defaults,id:'other',name:'そのままの箱',kind:'extrusion',width:10,height:10,depth:10,x:105,y:18,z:7},project={format:'forma-cad',version:1,features:[source,other]};
+ const load=async data=>{await page.locator('#file').setInputFiles({name:'opposite.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(data))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>document.getElementById('body-count').textContent==='2'&&!document.getElementById('project-preview-dialog')?.open);};
+ const save=async()=>{const dl=page.waitForEvent('download');await page.locator('#save').click();const data=JSON.parse(await fs.readFile(await(await dl).path(),'utf8'));validateProject(data);return data;};
+ const clickWorld=async point=>{const host=page.locator('#canvas-host'),s=JSON.parse(await host.getAttribute('data-camera-state')),r=await host.boundingBox(),cam=new THREE.OrthographicCamera(-100*r.width/r.height,100*r.width/r.height,100,-100,.1,100000);cam.position.fromArray(s.slice(0,3));cam.quaternion.fromArray(s.slice(3,7));cam.zoom=s[7];cam.updateProjectionMatrix();cam.updateMatrixWorld();const p=new THREE.Vector3(...point).project(cam);await page.mouse.click(r.x+(p.x+1)*r.width/2,r.y+(1-p.y)*r.height/2);};
+ for(const [view,normal,height] of [['top',[0,0,1],20],['bottom',[0,0,-1],20],['right',[1,0,0],40],['left',[-1,0,0],40],['front',[0,-1,0],30],['back',[0,1,0],30]]){
+  await load(project);await page.locator('#reference-plane').selectOption('XZ');await page.locator('[data-view="'+view+'"]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.waitForTimeout(40);
+  await clickWorld([35+normal[0]*20,-17+normal[1]*15,32+normal[2]*10]);await button.waitFor({state:'visible'});
+  if(view==='top')await page.screenshot({path:'.sites-runtime/opposite-face-selected.png'});
+  await button.click();await page.waitForFunction(()=>document.getElementById('feature-count').textContent==='3');
+  const data=await save(),op=data.features.at(-1),out=op.outputs.find(o=>o.id==='box');assert.equal(op.spec.type,'move');assert.equal(op.spec.target,'box');assert.equal(op.spec.groundPlane,'XY');assert.equal(data.features[1].id,'other');assert.deepEqual(data.features[1],other,'other body untouched');assert.equal(op.outputs.length,1);
+  const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(let i=0;i<out.vertices.length;i++){const axis=i%3;lo[axis]=Math.min(lo[axis],out.vertices[i]);hi[axis]=Math.max(hi[axis],out.vertices[i]);}
+  assert.ok(Math.abs(lo[2])<1e-4,view+' opposite face is Z=0');assert.ok(Math.abs(hi[2]-height)<1e-4);assert.ok(Math.abs((lo[0]+hi[0])/2-35)<1e-4);assert.ok(Math.abs((lo[1]+hi[1])/2+17)<1e-4);const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(...op.spec.rotation.map(v=>v*Math.PI/180),'ZYX'));assert.ok(new THREE.Vector3(...normal).applyQuaternion(q).distanceTo(new THREE.Vector3(0,0,1))<1e-5,'selected plane faces up');
+  
+  await page.locator('#undo').click();assert.equal(await page.locator('#feature-count').textContent(),'2');await page.locator('#redo').click();assert.equal(await page.locator('#feature-count').textContent(),'3');if(view==='back'){await load(data);assert.equal(await page.locator('#feature-count').textContent(),'3');}
+  console.log('PASS actual CAD '+view+' plane to opposite XY face');
+ }
+ assert.deepEqual(errors,[]);console.log('PASS face selection UI, native CAD rotation/translation on all 6 faces, XY destination with XZ grid, stable body ID, other-body preservation, undo/redo and saved load');
+}finally{await browser.close();}

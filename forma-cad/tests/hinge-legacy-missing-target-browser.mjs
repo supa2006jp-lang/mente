@@ -1,0 +1,56 @@
+import {chromium} from 'playwright';
+import * as THREE from 'three';
+import * as R from 'replicad';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {defaults} from '../src/geometry.js';
+import {runOperation} from '../src/kernel.js';
+import {bodyEdges} from '../src/body-edges.js';
+
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const source={...defaults,id:'source',name:'対象',width:30,height:20,depth:20};
+const spec={type:'enclose',id:'hinge',target:'source',thickness:2,clearance:.5,boxMode:true,faces:[],enclosureSplit:'XY',splitOffset:10,hinge:true,hingeEdge:'+Y',hingeRadialGap:.5,hingeAxialGap:.5,hingeAngle:0};
+const operation=runOperation([source],spec);
+const legacy={kind:'cadop',id:'enclosure',name:'囲み',spec,...operation,analysis:{boxExtra:0,effectiveClearance:.5}};
+const removed={kind:'cadop',id:'remove-source',name:'元の対象を削除',spec:{type:'deleteBodies',targets:['source']},outputs:[],remove:['source']};
+const output=operation.outputs[0],geometry=new THREE.BufferGeometry();
+geometry.setAttribute('position',new THREE.Float32BufferAttribute(output.vertices,3));
+geometry.setIndex(output.triangles);
+geometry.userData.faceGroups=output.faceGroups;
+const edges=bodyEdges(geometry,28);
+const pinCircles=[...new Set(edges.userData.circularEdges.values())].filter(circle=>Math.abs(circle.radius-1.1)<.02);
+assert.equal(pinCircles.length,2,'fixture has two pin end-face circles');
+const cap=pinCircles.reduce((front,circle)=>circle.center[0]>front.center[0]?circle:front).center;
+geometry.dispose();edges.dispose();
+
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1800,height:1100},acceptDownloads:true});
+ page.setDefaultTimeout(120000);
+ page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
+ await page.addInitScript(()=>Object.defineProperty(window,'showSaveFilePicker',{value:undefined,configurable:true}));
+ await page.goto('http://127.0.0.1:5188');
+ await page.locator('#file').setInputFiles({name:'legacy-no-source.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[source,legacy,removed]}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='2');
+ await page.locator('#plane').evaluate(el=>{el.value='YZ';el.dispatchEvent(new Event('change',{bubbles:true}));});
+ await page.locator('#new-point').click();
+ await page.locator('#x').fill(String(cap[0]));
+ await page.locator('#draw').click();
+ const rect=await page.locator('canvas').boundingBox(),state=JSON.parse(await page.locator('#canvas-host').getAttribute('data-camera-state'));
+ const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100,.1,100000);
+ camera.position.fromArray(state);camera.quaternion.fromArray(state,3);camera.zoom=state[7];camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+ const projected=new THREE.Vector3(...cap).project(camera),target={x:rect.x+(projected.x+1)*rect.width/2,y:rect.y+(1-projected.y)*rect.height/2};
+ await page.mouse.move(target.x,target.y);
+ await page.waitForTimeout(180);
+ const guide=page.locator('.center-marker[aria-label="ヒンジ軸中心を選択"]:visible');
+ assert.equal(await guide.count(),1,'legacy enclosure still exposes the hinge guide after source deletion');
+ const actual=await guide.evaluate(el=>{const r=el.getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2};});
+ assert.ok(Math.hypot(actual.x-target.x,actual.y-target.y)<3,'legacy guide matches the generated pin cap center');
+ assert.equal(await page.locator('#export-enclosure').isVisible(),true);
+ const exported=page.waitForEvent('download');await page.locator('#export-enclosure').click();
+ const bytes=await fs.readFile(await(await exported).path());
+ const triangles=operation.outputs.reduce((sum,item)=>sum+item.triangles.length/3,0);
+ assert.equal(bytes.readUInt32LE(80),triangles,'legacy BOX exports without the original solid');
+ console.log('PASS legacy hinge guide from output pin circles with original source removed');
+}finally{await browser.close();}

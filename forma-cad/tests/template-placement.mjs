@@ -1,0 +1,3 @@
+import assert from 'node:assert/strict';import {templatePlacement} from '../src/template-placement.js';
+const part={min:[-5,-5,0],max:[5,5,20]};assert.deepEqual(templatePlacement(part,[]),[0,0,0]);assert.deepEqual(templatePlacement(part,[{min:[50,50,0],max:[60,60,20]}]),[0,0,0]);
+const bodies=[part];for(let i=0;i<30;i++){const delta=templatePlacement(part,bodies),placed={min:part.min.map((v,j)=>v+delta[j]),max:part.max.map((v,j)=>v+delta[j])};assert.equal(delta[2],0);for(const b of bodies)assert.ok([0,1,2].some(j=>placed.min[j]>=b.max[j]+5||placed.max[j]<=b.min[j]-5));bodies.push(placed);}console.log('PASS empty/distant scenes preserve origin; 30 repeated parts have 5mm gaps');

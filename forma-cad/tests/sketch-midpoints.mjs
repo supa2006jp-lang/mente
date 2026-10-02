@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {defaults} from '../src/geometry.js';
+import {sketchMidpoints} from '../src/sketch-midpoints.js';
+import {sketchPoints} from '../src/regions.js';
+const f={...defaults,kind:'sketch'};
+assert.equal(sketchMidpoints({...f,profile:'line',width:20}).length,1);
+assert.equal(sketchMidpoints({...f,profile:'rect',width:20,height:10}).length,4);
+assert.deepEqual(sketchMidpoints({...f,profile:'circle'}),[]);
+const arc=sketchPoints({...f,profile:'circle',diameter:20}).slice(0,65);
+assert.deepEqual(sketchMidpoints({...f,profile:'polyline',points:arc}),[]);
+const chord=sketchMidpoints({...f,profile:'polyline',points:arc,closed:true});assert.equal(chord.length,1);assert.ok(Math.hypot(...chord[0])<1e-7);
+assert.equal(sketchMidpoints({...f,profile:'polyline',points:[[0,0],[10,0],[10,10]]}).length,2);
+assert.equal(sketchMidpoints({...f,profile:'polyline',points:[[0,0],[10,0],[10,10]],arc:{radius:10}}).length,0);
+console.log('PASS line, rectangle and polygon midpoints remain; curve tessellation has none');

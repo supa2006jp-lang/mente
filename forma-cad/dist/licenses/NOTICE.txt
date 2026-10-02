@@ -1,0 +1,5 @@
+FORMA CAD uses Replicad (MIT) and Replicad OpenCascade.js / Open CASCADE Technology (LGPL-2.1 with the OCCT exception where applicable).
+Unmodified WASM module: replicad-opencascadejs 1.1.0.
+Source and build instructions: https://github.com/sgenoud/replicad-opencascadejs and https://dev.opencascade.org/resources/download/3rd-party-components
+Replicad source: https://github.com/sgenoud/replicad
+The CAD engine is loaded as a separate, replaceable WASM module.

@@ -1,0 +1,14 @@
+import {chromium} from 'playwright';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import * as THREE from 'three';import {defaults} from '../src/geometry.js';
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1500,height:1100},acceptDownloads:true}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:5188');await page.locator('#file').setInputFiles({name:'box.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[{...defaults,id:'b',name:'box',width:30,height:20,depth:10,x:20}]}))});
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');await page.locator('[data-view=top]').click();await page.locator('#fit').click();await page.locator('#select-edge-tool').click();
+ const r=await page.locator('canvas').boundingBox(),s=r.height/(Math.hypot(30,20,10)*1.25/Math.min(r.width/r.height,1));await page.mouse.click(r.x+r.width/2-15*s,r.y+r.height/2);await page.locator('#move-tool').click();
+ assert.equal(await page.locator('#move-edge-angle-label').isVisible(),true);await page.locator('#move-plus90').click();assert.equal(await page.locator('#move-edge-angle').inputValue(),'90');await page.locator('#move-plus90').click();await page.locator('#move-minus90').click();assert.equal(await page.locator('#move-edge-angle').inputValue(),'90');
+ const state=JSON.parse(await page.locator('#canvas-host').getAttribute('data-move-preview')),pivot=new THREE.Vector3(...state.pivot),rotation=new THREE.Quaternion().setFromEuler(new THREE.Euler(...state.rotation,'ZYX'));
+ assert.ok(pivot.distanceTo(new THREE.Vector3(5,0,10))<1e-5);
+ for(const y of [-10,10]){const p=new THREE.Vector3(5,y,10);assert.ok(p.clone().sub(pivot).applyQuaternion(rotation).add(pivot).distanceTo(p)<1e-5,'Selected edge stays fixed');}
+ await page.locator('#move-apply').click();await page.waitForFunction(()=>document.getElementById('move-panel').hidden,{},{timeout:120000});const download=page.waitForEvent('download');await page.locator('#save').click();const data=JSON.parse(await fs.readFile(await(await download).path(),'utf8')),op=data.features.at(-1),expected=new THREE.Box3(),actual=new THREE.Box3();
+ for(const x of [5,35])for(const y of [-10,10])for(const z of [0,10])expected.expandByPoint(new THREE.Vector3(x,y,z).sub(pivot).applyQuaternion(rotation).add(pivot));for(let i=0;i<op.outputs[0].vertices.length;i+=3)actual.expandByPoint(new THREE.Vector3(...op.outputs[0].vertices.slice(i,i+3)));assert.ok(actual.min.distanceTo(expected.min)<.001&&actual.max.distanceTo(expected.max)<.001);assert.deepEqual(errors,[]);console.log('PASS selected edge pivot, +/-90 increments, fixed edge and matching committed geometry');
+}finally{await browser.close();}
