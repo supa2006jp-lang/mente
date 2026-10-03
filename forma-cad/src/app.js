@@ -1,3 +1,4 @@
+import {planeViewBounds,viewportGridLayout,fitCameraDepth} from './viewport-grid.js';
 import {createBodyDisplay} from './body-display.js';
 import {isSectionSplit,sectionBodyStyles} from './section-split.js';
 import {taperArcPoint,taperDragAngle,extrusionEndDimensions} from './extrusion-feedback.js';
@@ -88,7 +89,7 @@ let features=[],selected=null,mode='solid',meshes=new Map(),hiddenBodies=new Set
 let centerRectangle=false;
 let selectedFaces=[],selectingFaces=false,edgeSelectionMode=false;
 let selectionMode='auto',selectedBodies=new Set(),bodySelectionHighlight=null,editingPipeId=null,editingEncloseId=null,editingCoilJointId=null,editingEncloseVisibility=[];
-let selectedEdges=[],gridPlane='XY',selectedEdge=null,selectedSurface=null,edgeHighlight=null,shiftOrbit=null,sketchPan=null,gridSignature='',hoverEdge=null,hoverTime=0,circleDiameterLocked=false;
+let selectedEdges=[],gridPlane='XY',selectedEdge=null,selectedSurface=null,edgeHighlight=null,shiftOrbit=null,sketchPan=null,gridSignature='',modelGridKey='',hoverEdge=null,hoverTime=0,circleDiameterLocked=false;
 let patternCenter=null,centerCandidates=[],centerRevision=null,referencePointer=null;
 document.addEventListener("pointermove",e=>{referencePointer={x:e.clientX,y:e.clientY};});
 document.addEventListener("pointerleave",()=>{referencePointer=null;});
@@ -139,7 +140,7 @@ for(const [end,color] of [[[5000,0,0],0xe94b55],[[0,5000,0],0x42ba54],[[0,0,5000
 const modelGroup=new THREE.Group();scene.add(modelGroup);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
 let viewCube=null;
-renderer.setAnimationLoop(()=>{viewCube?.update();updateSelectionUI();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());sectionControl?.update();crosshair.update();updateSketchGrid();updateExtrusionOverlay();updateSplitPreview();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateCenterMarkers();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open||$('template-dialog')?.open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
+renderer.setAnimationLoop(()=>{viewCube?.update();updateSelectionUI();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();updateExtrusionOverlay();updateSplitPreview();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateCenterMarkers();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open||$('template-dialog')?.open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
 let sketchNoticeTimer,enteredSketchNumber=null;
 function sketchSession(){if(enteredSketchNumber!==null)return features.find(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)||{groupNumber:enteredSketchNumber};const id=editingSketchGroup||activeSketchGroup;return features.find(f=>f.kind==='sketch'&&f.groupId===id)||features.find(f=>f.kind==='sketch'&&f.id===selected)||null;}
 function notifySketch(message){hideExtrusionNotice();clearTimeout(toastTimer);$('toast').style.display='none';const notice=$('sketch-notice');clearTimeout(sketchNoticeTimer);notice.textContent=message;notice.hidden=false;sketchNoticeTimer=setTimeout(()=>{notice.hidden=true;},5000);}
@@ -401,6 +402,7 @@ window.addEventListener('keydown',handleToolEscape,{capture:true});
 window.addEventListener('keyup',handleToolEscape,{capture:true});
 window.addEventListener('keydown',e=>{if(!e.ctrlKey&&!e.metaKey&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){if(e.key.toLowerCase()==='l')$('new-line').click();if(e.key.toLowerCase()==='e'){if(!pendingExtrude)pendingOperation='new';beginExtrusion('solid');}}if((e.ctrlKey||e.metaKey)&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){if(e.key.toLowerCase()==='z'){e.preventDefault();travel(e.shiftKey);}if(e.key.toLowerCase()==='y'){e.preventDefault();travel(true);}}});
 function viewHeight(){return (camera.top-camera.bottom)/camera.zoom;}
+function updateCameraDepth(){const apply=()=>fitCameraDepth(camera,controls.target,[grid,sketchGrid,axisGroup,modelGroup,sketchGroup,regionGroup,preview].filter(Boolean));if(bodyDisplay)bodyDisplay.withDisplay(apply);else apply();}
 function visibilityRay(point){const ndc=point.clone().project(camera),ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2(ndc.x,ndc.y),camera);return ray;}
 function fit(){const box=bodyDisplay?bodyDisplay.withDisplay(()=>new THREE.Box3().setFromObject(modelGroup)):new THREE.Box3().setFromObject(modelGroup);box.union(new THREE.Box3().setFromObject(sketchGroup));if(imageReferences)box.union(new THREE.Box3().setFromObject(imageReferences.group));if(box.isEmpty()){controls.target.set(0,0,0);camera.position.set(140,-180,150);camera.zoom=1;}else{const center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3()),direction=camera.position.clone().sub(controls.target).normalize();controls.target.copy(center);camera.position.copy(center).addScaledVector(direction,Math.max(size.length()*2,180));camera.zoom=200/(Math.max(size.length(),20)*1.25/Math.min(host.clientWidth/host.clientHeight,1));}camera.updateProjectionMatrix();controls.update();}
 
@@ -417,7 +419,7 @@ const precise=n=>Number(n.toPrecision(14));
 const fmt=n=>Number(n.toFixed(2)).toLocaleString('ja-JP',{maximumFractionDigits:2});
 function refreshGrid(){
  const f={plane:gridPlane,x:0,y:0,z:0},basis=basisFor(f),step=Number($('snap-step').value)||10,extent=step*50,visible=gridVisibility[f.plane]!==false;
- const signature=JSON.stringify([f.plane,f.frame,0,step]);if(signature===gridSignature){applyGridVisibility();return;}gridSignature=signature;gridStep=step;lastGridStep=step;$('grid-scale').textContent='1目盛り：'+fmt(step)+' mm';host.dataset.gridStep=step;disposeObject(grid);grid=cadGrid(step,100);
+ const signature=JSON.stringify([f.plane,f.frame,0,step]);if(signature===gridSignature){applyGridVisibility();return;}gridSignature=signature;modelGridKey='';gridStep=step;lastGridStep=step;$('grid-scale').textContent='1目盛り：'+fmt(step)+' mm';host.dataset.gridStep=step;disposeObject(grid);grid=cadGrid(step,100);
  const matrix=new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v);grid.applyMatrix4(matrix);
  const origin=new THREE.Vector3(f.x,f.y,f.z);grid.position.copy(basis.n).multiplyScalar(origin.dot(basis.n)-.03);grid.userData.plane=f.plane;host.dataset.gridOffset=String(origin.dot(basis.n));grid.visible=visible;scene.add(grid);applyGridVisibility();
 }
@@ -1291,21 +1293,19 @@ function updateCenterMarkers(){if(bodyDisplay?.exploded){for(const c of centerCa
 function selectPatternCenter(center){if(deletingSketch)return;clearEdgeSelection();finishSketch(false);selected=null;selectedFace=null;selectedSurface=null;chosenRegion=null;patternCenter={point:[...center.point],normal:[...center.normal],name:center.name,kind:center.kind};if(center.bodyId)selectedBody=center.bodyId;const point=new THREE.Vector3(...center.point);chosenRegion=regionList.find(r=>{const b=basisFor(r);return Math.abs(point.dot(b.n)-r.offset)<1e-5&&regionContains(r,[point.dot(b.u),point.dot(b.v)]);})||null;stage='model';dropPreview();syncFields();$('measurement').hidden=false;$('measurement-title').textContent='選択した'+center.name+(center.name==='ヒンジ軸中心'||center.kind==='intersection'?'':center.kind==='midpoint'?'の中点':'の中心');$('measurement-length').textContent=center.point.map(fmt).join(', ')+' mm';$('measurement-angle').textContent='円形状パターンの回転中心';$('center-pattern').hidden=false;notify('中心を選択しました。「この中心で円形状パターン」で対象ボディを指定できます');}
 $('center-pattern').onclick=()=>{if(!patternCenter)return;$('cad-command').value='circular';renderCommand();openToolsDialog();};
 
-const gridViewRaycaster=new THREE.Raycaster();
-function gridViewBounds(basis,offset){
- const plane=new THREE.Plane(basis.n.clone(),-offset),points=[];
- for(const x of [-1,1])for(const y of [-1,1]){
-  gridViewRaycaster.setFromCamera(new THREE.Vector2(x,y),camera);
-  const point=gridViewRaycaster.ray.intersectPlane(plane,new THREE.Vector3());
-  if(point&&point.toArray().every(Number.isFinite))points.push([point.dot(basis.u),point.dot(basis.v)]);
- }
- if(points.length===4)return {u:[Math.min(...points.map(p=>p[0])),Math.max(...points.map(p=>p[0]))],v:[Math.min(...points.map(p=>p[1])),Math.max(...points.map(p=>p[1]))]};
- const center=controls.target.clone().addScaledVector(basis.n,offset-controls.target.dot(basis.n)),span=Math.max(viewHeight(),viewHeight()*host.clientWidth/host.clientHeight)*2;
- return {u:[center.dot(basis.u)-span/2,center.dot(basis.u)+span/2],v:[center.dot(basis.v)-span/2,center.dot(basis.v)+span/2]};
+function gridViewBounds(basis,offset){return planeViewBounds(camera,basis,offset,controls.target);}
+function updateModelGrid(){
+ const basis=basisFor({plane:gridPlane}),layout=viewportGridLayout(gridViewBounds(basis,0),gridStep),key=JSON.stringify([gridPlane,layout.step,layout.divisions,layout.u,layout.v]);
+ if(key!==modelGridKey){modelGridKey=key;disposeObject(grid);grid=cadGrid(layout.step,layout.divisions,true,[layout.u,layout.v]);grid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));grid.userData.plane=gridPlane;scene.add(grid);}
+ grid.position.copy(basis.u).multiplyScalar(layout.u).addScaledVector(basis.v,layout.v).addScaledVector(basis.n,-.03);grid.visible=gridVisibility[gridPlane]!==false;
+ host.dataset.gridBounds=JSON.stringify(layout.bounds);host.dataset.gridDisplayStep=String(layout.step);
+ const label=layout.step===gridStep?'1目盛り：'+fmt(gridStep)+' mm':'表示1目盛り：'+fmt(layout.step)+' mm（吸着：'+fmt(gridStep)+' mm）';if($('grid-scale').textContent!==label)$('grid-scale').textContent=label;
+ return layout;
 }
 function updateSketchGrid(){
  const face=!sketch&&stage==='model'?(holeActive?holeHoverFace:selectedFace):null,basis=sketch?sketchBasis:face?basisFor(face):null,visible=!!basis&&gridVisibility[sketch?$('plane').value:face?.plane||'CUSTOM']!==false;
  // Show one working grid, and only the world axes lying in its plane.
+ if(!basis)updateModelGrid();
  grid.visible=!basis&&gridVisibility[grid.userData.plane||'XY']!==false;
  host.dataset.gridVisible=String(grid.visible);
  const normal=basis?.n||new THREE.Vector3(0,1,0).applyQuaternion(grid.quaternion);
@@ -1315,12 +1315,9 @@ function updateSketchGrid(){
  host.dataset.activePlane=planeName;host.dataset.referencePlane=gridPlane;
  axisGroup.children.forEach((axis,i)=>{axis.visible=(basis?visible:grid.visible)&&Math.abs(normal.getComponent(i))<1e-6;});
  host.dataset.visibleAxes=axisGroup.children.map((axis,i)=>axis.visible?'XYZ'[i]:'').join('');
- if(!visible){if(sketchGrid)sketchGrid.visible=false;host.dataset.sketchGridVisible='false';delete host.dataset.sketchGridBounds;delete host.dataset.sketchGridDisplayStep;const label='1目盛り：'+fmt(gridStep)+' mm';if($('grid-scale').textContent!==label)$('grid-scale').textContent=label;return;}
+ if(!visible){if(sketchGrid)sketchGrid.visible=false;host.dataset.sketchGridVisible='false';delete host.dataset.sketchGridBounds;delete host.dataset.sketchGridDisplayStep;const label='1目盛り：'+fmt(gridStep)+' mm';if(basis&&$('grid-scale').textContent!==label)$('grid-scale').textContent=label;return;}
  const offset=sketch?sketchOrigin.dot(basis.n):face.offset+(bodyDisplay?.offset(face.bodyId).dot(basis.n)||0),view=gridViewBounds(basis,offset);
- let displayStep=gridStep;while(Math.max(view.u[1]-view.u[0],view.v[1]-view.v[0])/displayStep>180)displayStep*=2;
- const quantum=5*displayStep,centerU=Math.round((view.u[0]+view.u[1])/2/quantum)*quantum,centerV=Math.round((view.v[0]+view.v[1])/2/quantum)*quantum;
- const radius=Math.max(Math.abs(view.u[0]-centerU),Math.abs(view.u[1]-centerU),Math.abs(view.v[0]-centerV),Math.abs(view.v[1]-centerV))+5*displayStep;
- const divisions=Math.max(100,Math.ceil(2*radius/displayStep/10)*10),key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,divisions]);
+ const layout=viewportGridLayout(view,gridStep),displayStep=layout.step,centerU=layout.u,centerV=layout.v,divisions=layout.divisions,key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,divisions]);
  if(key!==sketchGridKey){if(sketchGrid)disposeObject(sketchGrid);sketchGridKey=key;sketchGrid=cadGrid(displayStep,divisions,false);sketchGrid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));sketchGrid.traverse(o=>{if(o.material){o.material.vertexColors=false;o.material.color.set(0x9554c9);o.material.transparent=true;o.material.opacity=.3;o.material.depthWrite=false;o.material.depthTest=false;}});sketchGrid.renderOrder=3;scene.add(sketchGrid);}
  sketchGrid.position.copy(basis.u).multiplyScalar(centerU).addScaledVector(basis.v,centerV).addScaledVector(basis.n,offset);
  const halfSpan=divisions*displayStep/2;host.dataset.sketchGridBounds=JSON.stringify({u:[centerU-halfSpan,centerU+halfSpan],v:[centerV-halfSpan,centerV+halfSpan]});host.dataset.sketchGridDisplayStep=String(displayStep);
