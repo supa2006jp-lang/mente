@@ -1314,7 +1314,10 @@ function updateModelGrid(){
  return layout;
 }
 function updateSketchGrid(){
- const face=!sketch&&stage==='model'?(holeActive?holeHoverFace:selectedFace):null,basis=sketch?sketchBasis:face?basisFor(face):null,visible=!!basis&&gridVisibility[sketch?$('plane').value:face?.plane||'CUSTOM']!==false;
+ const face=!sketch&&stage==='model'?(holeActive?holeHoverFace:selectedFace):null,basis=sketch?sketchBasis:face?basisFor(face):null;
+ const originSketch=sketch&&['XY','XZ','YZ'].includes($('plane').value)&&Math.abs(sketchOrigin.dot(basis.n))<1e-5;
+ if(originSketch)gridPlane=$('plane').value;
+ const visible=!!basis&&!originSketch&&gridVisibility[sketch?$('plane').value:face?.plane||'CUSTOM']!==false;
  const scopedFace=face?.bodyId&&face.outer?face:null,scope=scopedFace?$('face-grid-scope').value:'unlimited';$('face-grid-scope-row').hidden=!scopedFace;
  // Keep the origin plane alongside the working grid.
  updateModelGrid();
@@ -1326,7 +1329,7 @@ function updateSketchGrid(){
  host.dataset.activePlane=planeName;host.dataset.referencePlane=gridPlane;
  axisGroup.children.forEach((axis,i)=>{axis.visible=(grid.visible&&Math.abs(worldNormal.getComponent(i))<1e-6)||(visible&&Math.abs(normal.getComponent(i))<1e-6);});
  host.dataset.visibleAxes=axisGroup.children.map((axis,i)=>axis.visible?'XYZ'[i]:'').join('');
- if(!visible){if(sketchGrid)sketchGrid.visible=false;host.dataset.sketchGridVisible='false';delete host.dataset.sketchGridBounds;delete host.dataset.sketchGridDisplayStep;const label='1目盛り：'+fmt(gridStep)+' mm';if(basis&&$('grid-scale').textContent!==label)$('grid-scale').textContent=label;return;}
+ if(!visible){if(sketchGrid)sketchGrid.visible=false;host.dataset.sketchGridVisible='false';delete host.dataset.sketchGridBounds;delete host.dataset.sketchGridDisplayStep;const label='1目盛り：'+fmt(gridStep)+' mm';if(basis&&!originSketch&&$('grid-scale').textContent!==label)$('grid-scale').textContent=label;return;}
  const offset=sketch?sketchOrigin.dot(basis.n):face.offset+(bodyDisplay?.offset(face.bodyId).dot(basis.n)||0),view=gridViewBounds(basis,offset);
  const scoped=scopedFace&&scope!=='unlimited',layout=scoped?null:viewportGridLayout(view,gridStep),bounds=scoped?faceGridBounds(scopedFace,scope):layout.bounds;
  let displayStep=scoped?gridStep:layout.step;if(scoped)while(Math.max(bounds.u[1]-bounds.u[0],bounds.v[1]-bounds.v[0])/displayStep>180)displayStep*=2;
