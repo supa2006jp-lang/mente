@@ -35,16 +35,30 @@ export function wrapSvgSolid(base,spec,onProgress){
  if(!Array.isArray(spec.pattern)||!spec.pattern.length||spec.pattern.length>80||spec.pattern.some(r=>!Array.isArray(r.outer)||!Array.isArray(r.holes)||[r.outer,...r.holes].some(ring=>ring.length<3||ring.length>2500||ring.some(p=>!Array.isArray(p)||p.length!==2||p.some(v=>!Number.isFinite(v)||v<-.0001||v>1.0001)))))throw Error('SVG図案のデータを確認してください');
  if(spec.pattern.reduce((count,r)=>count+[r.outer,...r.holes].reduce((n,ring)=>n+ring.length,0),0)>2500)throw Error('図案が細かすぎます。輪郭を減らしてください');
  if(spec.seam==='repeat'&&(!Number.isInteger(spec.repeatCount)||spec.repeatCount<1||spec.repeatCount>24))throw Error('繰り返し回数は1〜24の整数にしてください');
- const pieces=svgWrapPieces(spec.pattern,spec.seam,spec.repeatCount),cylinder=R.makeCylinder(radius,info.height),reference=cylinder.faces.find(f=>f.geomType==='CYLINDRE'),oc=R.getOC();let result=base.clone();
+ const pieces=svgWrapPieces(spec.pattern,spec.seam,spec.repeatCount),cylinder=R.makeCylinder(radius,info.height),faces=cylinder.faces,reference=faces.find(f=>f.geomType==='CYLINDRE'),oc=R.getOC();let result=base.clone();
+ for(const face of faces)if(face!==reference)face.delete();
+ const solids=base.solids,expectedSolidCount=solids.length;for(const solid of solids)solid.delete();
+ const sign=spec.operation==='engrave'?-1:1,axis=new THREE.Vector3(...info.axis),z=new THREE.Vector3(0,0,1),turn=z.angleTo(axis)*180/Math.PI,rotation=z.clone().cross(axis);if(rotation.lengthSq()<1e-16)rotation.set(1,0,0);else rotation.normalize();
+ const overlaps=[0,...[.0001,.001,.005].map(v=>Math.min(v,spec.depth*.05,radius*.001))];
  try{for(const [index,piece]of pieces.entries()){
-  onProgress?.({stage:'SVGを円柱に巻き付けています',current:index+1,total:pieces.length});
-  const face=curvedFace(reference,piece,spec.angle*Math.PI/180,spec.height,spec.offset),builder=new oc.BRepOffsetAPI_MakeThickSolid();let tool,placed;
-  try{builder.MakeThickSolidBySimple(face.wrapped,spec.operation==='engrave'?-spec.depth:spec.depth);tool=R.cast(builder.Shape()).asShape3D();if(R.measureVolume(tool)<0){const corrected=R.cast(tool.wrapped.Reversed()).asShape3D();tool.delete();tool=corrected;}
-   const axis=new THREE.Vector3(...info.axis),z=new THREE.Vector3(0,0,1),turn=z.angleTo(axis)*180/Math.PI,rotation=z.clone().cross(axis);if(rotation.lengthSq()<1e-16)rotation.set(1,0,0);else rotation.normalize();
-   placed=tool.clone().rotate(turn,[0,0,0],rotation.toArray()).translate(info.origin);const next=spec.operation==='engrave'?result.cut(placed):fuseSolid(result,placed);result.delete();result=next;
-  }finally{placed?.delete();tool?.delete();face.delete();builder.delete();}
+  onProgress?.({stage:'SVGを円柱に巻き付けています',current:index+1,total:pieces.length});let joined=false,lastError;
+  // Retry failed contact booleans with a small internal overlap. The outer radius
+  // stays radius + depth (or radius - depth for engraving) in every attempt.
+  for(const overlap of new Set(overlaps)){
+   let shifted,shiftedReference,face,builder,tool,placed,next;
+   try{
+    let surface=reference;if(overlap){onProgress?.({stage:'SVGの接合を調整しています',current:index+1,total:pieces.length});shifted=R.makeCylinder(radius-sign*overlap,info.height);const shiftedFaces=shifted.faces;shiftedReference=shiftedFaces.find(f=>f.geomType==='CYLINDRE');for(const f of shiftedFaces)if(f!==shiftedReference)f.delete();surface=shiftedReference;}
+    face=curvedFace(surface,piece,spec.angle*Math.PI/180,spec.height,spec.offset);builder=new oc.BRepOffsetAPI_MakeThickSolid();builder.MakeThickSolidBySimple(face.wrapped,sign*(spec.depth+overlap));tool=R.cast(builder.Shape()).asShape3D();if(R.measureVolume(tool)<0){const corrected=R.cast(tool.wrapped.Reversed()).asShape3D();tool.delete();tool=corrected;}
+    placed=tool.clone().rotate(turn,[0,0,0],rotation.toArray()).translate(info.origin);next=spec.operation==='engrave'?result.cut(placed):fuseSolid(result,placed);
+    const nextSolids=next.solids;try{if(nextSolids.length!==expectedSolidCount)throw Error('模様が本体と結合していません');}finally{for(const solid of nextSolids)solid.delete();}
+    const check=new oc.BRepCheck_Analyzer(next.wrapped,true,false);try{if(!check.IsValid())throw Error('模様の接合部が不正です');}finally{check.delete();}
+    result.delete();result=next;next=null;joined=true;break;
+   }catch(error){lastError=error;}finally{next?.delete();placed?.delete();tool?.delete();face?.delete();builder?.delete();shiftedReference?.delete();shifted?.delete();}
+  }
+  if(!joined)throw lastError;
  }
  const check=new oc.BRepCheck_Analyzer(result.wrapped,true,false);try{if(!check.IsValid()||!(R.measureVolume(result)>0))throw Error('この図案と深さでは正常な形状を作れません。深さを小さくしてください');}finally{check.delete();}
+ const inputSolids=base.solids,outputSolids=result.solids;try{if(outputSolids.length!==inputSolids.length)throw Error('模様が本体と結合していません。幅や深さを変更してください');}finally{for(const solid of [...inputSolids,...outputSolids])solid.delete();}
  if(Math.abs(R.measureVolume(result)-R.measureVolume(base))<1e-7)throw Error('図案がボディと重なっていません');
  return {shape:result,info};
  }catch(error){result.delete();throw error;}finally{reference.delete();cylinder.delete();}

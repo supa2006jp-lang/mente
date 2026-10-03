@@ -2,7 +2,8 @@
 export function kernelTimeout(features,spec){
  const operation=spec.type==='preview'?spec.operation:spec;
  const coil=['coilJoint','coilTestPiece'].includes(operation?.type)||spec.type==='replay'&&features.slice(spec.start||0).some(f=>f.spec?.type==='coilJoint');
- return coil?600000:['pull','stepImport'].includes(operation?.type)?300000:90000;
+ const svgWrap=operation?.type==='svgWrap'||spec.type==='replay'&&features.slice(spec.start||0).some(f=>f.spec?.type==='svgWrap');
+ return coil?600000:svgWrap?300000:['pull','stepImport'].includes(operation?.type)?300000:90000;
 }
 export class KernelClient {
  constructor(factory=()=>new Worker(new URL('kernel-worker.js',location.href),{type:'module'})){this.factory=factory;this.worker=null;this.pending=new Map();this.next=0;this.active=null;}
