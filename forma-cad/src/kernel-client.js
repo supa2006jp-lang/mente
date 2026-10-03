@@ -1,3 +1,5 @@
+export function freshSvgEngine(features,spec){const operation=spec?.type==='preview'?spec.operation:spec;return operation?.type==='svgWrap'||spec?.type==='replay'&&features.slice(spec.start||0).some(f=>f.spec?.type==='svgWrap');}
+const fatalKernelError=message=>/indirect call to null|null function|memory access out of bounds|unreachable|table index|function signature mismatch|aborted|RuntimeError/i.test(message||'');
 // Requests run one at a time. A queued request cannot time out an active CAD job.
 export function kernelTimeout(features,spec){
  const operation=spec.type==='preview'?spec.operation:spec;
@@ -12,7 +14,8 @@ export class KernelClient {
  cancelQueuedExtrusions(){for(const [id,p] of this.pending)if(id!==this.active&&(p.payload.spec?.type==='extrusionToolPreview'||p.payload.spec?.type==='preview'&&p.payload.spec.operation?.type==='extrusion')){this.pending.delete(id);p.reject(new Error('計算をキャンセルしました'));}}
  dispatch(){
   if(this.active!==null)return;const entry=this.pending.entries().next().value;if(!entry)return;const [id,p]=entry;
-  if(!this.worker){let worker;try{worker=this.factory();}catch(e){this.reset(e);return;}this.worker=worker;worker.onmessage=({data})=>{const pending=this.pending.get(data.id);if(!pending)return;if(data.progress){pending.onProgress?.(data.progress);return;}clearTimeout(pending.timer);this.pending.delete(data.id);this.active=null;data.error?pending.reject(Error(data.error)):pending.resolve(data.result);this.dispatch();};worker.onerror=e=>this.reset(Error(e.message||'CADエンジンを起動できませんでした'));worker.onmessageerror=()=>this.reset(Error('CADの計算結果を受信できませんでした'));}
+  if(freshSvgEngine(p.payload.features||[],p.payload.spec)&&this.worker){this.worker.terminate();this.worker=null;}
+  if(!this.worker){let worker;try{worker=this.factory();}catch(e){this.reset(e);return;}this.worker=worker;worker.onmessage=({data})=>{if(this.worker!==worker)return;const pending=this.pending.get(data.id);if(!pending)return;if(data.progress){pending.onProgress?.(data.progress);return;}clearTimeout(pending.timer);if(data.error&&fatalKernelError(data.error)){this.worker?.terminate();this.worker=null;this.active=null;if(!pending.retried){pending.retried=true;pending.onProgress?.({stage:'計算エンジンを再起動しています',current:0,total:1});this.dispatch();return;}}this.pending.delete(data.id);this.active=null;data.error?pending.reject(Error(data.error)):pending.resolve(data.result);this.dispatch();};worker.onerror=e=>{if(this.worker===worker)this.reset(Error(e.message||'CADエンジンを起動できませんでした'));};worker.onmessageerror=()=>{if(this.worker===worker)this.reset(Error('CADの計算結果を受信できませんでした'));};}
   this.active=id;p.timer=setTimeout(()=>this.reset(Error('計算が長引いています。寸法や個数を小さくして再実行してください')),p.timeout);try{this.worker.postMessage({...p.payload,id});}catch(e){this.reset(e);}
  }
  request(payload,timeout=90000,onProgress){
