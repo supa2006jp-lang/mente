@@ -398,6 +398,9 @@ function handleToolEscape(e){
  e.preventDefault();e.stopImmediatePropagation();
  if(e.type==='keydown'){if(e.repeat)return;escapePressed=true;}
  else if(escapePressed){escapePressed=false;return;}
+ performToolEscape();
+}
+function performToolEscape(){
  if($('solid-face-menu')){closeSolidFaceMenu(true);return;}
  if($('sketch-group-menu')){$('sketch-group-menu').remove();return;}
  const endingSketch=stage==='sketch',session=endingSketch?sketchSession():null;cancelAllTools();if(endingSketch)notifySketchFinished(session);
@@ -1591,11 +1594,23 @@ function openSketchResumeMenu(event,f){
 }
 let sketchRightDown=null;
 function faceMenuPointerTarget(event){return event.target===renderer.domElement||!!event.target.closest?.('.center-marker');}
-document.addEventListener('pointerdown',e=>{if(e.button===2&&faceMenuPointerTarget(e))sketchRightDown={x:e.clientX,y:e.clientY,moved:false};},{capture:true});
-document.addEventListener('pointermove',e=>{if(sketchRightDown&&Math.hypot(e.clientX-sketchRightDown.x,e.clientY-sketchRightDown.y)>5)sketchRightDown.moved=true;},{capture:true});
-document.addEventListener('pointerup',e=>{if(e.button!==2||!sketchRightDown)return;const moved=sketchRightDown.moved||Math.hypot(e.clientX-sketchRightDown.x,e.clientY-sketchRightDown.y)>5;sketchRightDown=null;if(moved||!canResumeSelectedSketch())return;const f=selectedSketchAt(e);if(f){e.preventDefault();closeSolidFaceMenu();openSketchResumeMenu(e,f);}else if(openSolidFaceMenu(e))e.preventDefault();},{capture:true});
-document.addEventListener('contextmenu',e=>{if(faceMenuPointerTarget(e)&&canResumeSelectedSketch()&&(selectedSketchAt(e)||stage!=='extrusion'))e.preventDefault();});
-document.addEventListener('pointercancel',()=>{sketchRightDown=null;});
+document.addEventListener('pointerdown',e=>{if(e.button===2&&faceMenuPointerTarget(e))sketchRightDown={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,menuOpen:!!($('solid-face-menu')||$('sketch-group-menu'))};},{capture:true});
+document.addEventListener('pointermove',e=>{if(e.pointerId===sketchRightDown?.id&&Math.hypot(e.clientX-sketchRightDown.x,e.clientY-sketchRightDown.y)>5)sketchRightDown.moved=true;},{capture:true});
+document.addEventListener('pointerup',e=>{
+ if(e.button!==2||e.pointerId!==sketchRightDown?.id)return;
+ const menuOpen=sketchRightDown.menuOpen,moved=sketchRightDown.moved||Math.hypot(e.clientX-sketchRightDown.x,e.clientY-sketchRightDown.y)>5;sketchRightDown=null;if(moved)return;
+ e.preventDefault();
+ if(canResumeSelectedSketch()){
+  const f=selectedSketchAt(e);if(f){closeSolidFaceMenu();openSketchResumeMenu(e,f);return;}
+  if(openSolidFaceMenu(e))return;
+ }
+ if(menuOpen)return; // The pointerdown listener already dismissed the menu, as Escape does.
+ // Share the Escape action without changing the keyboard's pressed/keyup state.
+ queueMicrotask(performToolEscape);
+},{capture:true});
+document.addEventListener('contextmenu',e=>{if(faceMenuPointerTarget(e))e.preventDefault();});
+for(const type of ['pointercancel','lostpointercapture'])document.addEventListener(type,e=>{if(e.pointerId===sketchRightDown?.id)sketchRightDown=null;});
+window.addEventListener('blur',()=>{sketchRightDown=null;});
 $('select-sketch-edge').onclick=()=>{finishSketch(false);stage='sketch';selected=null;dropPreview();syncFields();$('status').textContent='スケッチの線や点をクリック · Ctrl＋クリックで複数選択';};
 
 let arcDrag=null,arcPreview=null;
