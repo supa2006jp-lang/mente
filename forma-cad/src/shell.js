@@ -27,3 +27,27 @@ export function shellBody(base,p,circularLoftInfo=null){
  }
  throw Error(reason);
 }
+
+// Offset the original body, then remove that same cavity from the decorated
+// body. Fine relief outlines remain outside instead of becoming offset walls.
+export function shellDecoratedBody(base,source,p,circularLoftInfo=null,radius=null){
+ if(!source)throw Error('模様の元になったボディが見つかりません');
+ if(p.direction==='外側')throw Error('模様を保持するシェルは内側を選択してください');
+ if(radius!==null&&p.thickness>=radius-1e-7)throw Error('壁厚が円柱の半径以上のため、内側の空間を作れません。壁厚を小さくしてください');
+ let hollow,cavity,result,accepted=false;
+ try{
+  hollow=shellBody(source,p,circularLoftInfo);
+  cavity=source.cut(hollow);
+  const cavityVolume=R.measureVolume(cavity),original=R.measureVolume(base);
+  if(!(cavityVolume>1e-7))throw Error('この壁厚では内側の空間を作れません');
+  result=base.cut(cavity);
+  const check=new (R.getOC().BRepCheck_Analyzer)(result.wrapped,true,false);
+  try{if(!check.IsValid())throw Error('模様を保持したシェルを作成できません。壁厚を変更してください');}
+  finally{check.delete();}
+  const volume=R.measureVolume(result),solids=result.solids,sourceSolids=base.solids;
+  try{
+   if(solids.length!==sourceSolids.length||!Number.isFinite(volume)||volume<=1e-8||original-volume<=Math.max(1e-7,original*1e-8))throw Error('この壁厚では模様を保持したシェルを作成できません');
+  }finally{for(const solid of [...solids,...sourceSolids])solid.delete();}
+  accepted=true;return result;
+ }finally{hollow?.delete();cavity?.delete();if(!accepted)result?.delete();}
+}

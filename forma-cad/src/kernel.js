@@ -22,7 +22,8 @@ import {coilOnRim} from './coil-on-rim.js';
 import {fuseThread} from './thread-fuse.js';
 import {nominalMaleThread} from './nominal-male-thread.js';
 import {threadSource,threadPullSpec,offsetThreadProfile,allThreadPullSpec} from './thread-pull.js';
-import {shellBody} from './shell.js';
+import {shellBody,shellDecoratedBody} from './shell.js';
+import {decoratedShellHistory} from './shell-decoration.js';
 import {coaxialCircularLoftInfo,makeCoaxialCircularLoft} from './circular-loft.js';
 import {pullFaces,selectedCadFaces} from './face-pull.js';
 import * as THREE from 'three';
@@ -244,7 +245,16 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
   emit(p.id,base.clone().translate([-(lo[0]+hi[0])/2,-(lo[1]+hi[1])/2,-lo[2]]));
  }
  else if(p.type==='templateImport'){if(typeof p.brep!=='string'||!p.brep.length||p.brep.length>30000000)throw Error('部品テンプレートの形状データが不正です');const shape=R.deserializeShape(p.brep).asShape3D();try{if(!(R.measureVolume(shape)>1e-8))throw Error('立体の形状データではありません');const offset=templatePlacement(vertexBounds(shape.mesh().vertices),p.occupiedBounds||[]);const placed=shape.clone().translate(offset);try{emit(p.id,placed);}finally{placed.delete();}}finally{shape.delete();}}
- else if(p.type==='shell'){emit(p.target,shellBody(base,p,circularLoftInfoForBody(features,p.target)));}
+ else if(p.type==='shell'){
+  const sourceHistory=p.direction!=='外側'?decoratedShellHistory(features,p.target):null;
+  let shape;
+  if(sourceHistory){
+   const sourceBodies=kernelBodies(sourceHistory);
+   try{const source=sourceBodies.get(p.target),info=svgCylinderInfo(source,features[sourceHistory.length].spec.surfacePoint);shape=shellDecoratedBody(base,source,p,circularLoftInfoForBody(sourceHistory,p.target),info.radius);}
+   finally{for(const body of sourceBodies.values())body.delete();}
+  }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target));
+  try{emit(p.target,shape);}finally{shape.delete();}
+ }
  else if(p.type==='fillet'){const groups=p.edges?.length?[...new Set(p.edges.map(e=>e.bodyId))]:[p.target];for(const id of groups){const solid=bodies.get(id);if(!solid)throw Error('対象ボディを選択してください');let filter;const points=p.edges?.length?p.edges.filter(e=>e.bodyId===id).map(e=>e.point):p.edgePoint?[p.edgePoint]:[];if(points.length){const edges=points.map(coords=>{const point=new THREE.Vector3(...coords),candidates=solid.edges.map(edge=>{let distance=Infinity;for(let i=0;i<=128;i++)distance=Math.min(distance,new THREE.Vector3(...edge.pointAt(i/128).toTuple()).distanceTo(point));return {edge,distance};}).sort((a,b)=>a.distance-b.distance);if(!candidates.length||candidates[0].distance>1)throw Error('選択した辺を特定できません。辺の中央付近を選び直してください');return candidates[0].edge;});filter=e=>e.inList(edges);}else if(p.face){const b=basisFor(p.face),plane=new R.Plane(b.n.clone().multiplyScalar(p.face.offset).toArray(),b.u.toArray(),b.n.toArray());filter=e=>e.inPlane(plane);}if(!Number.isFinite(p.radius)||p.radius<=0)throw Error('半径は0より大きくしてください');try{emit(id,solid.fillet(p.radius,filter));}catch{throw Error('この半径ではフィレットを作成できません。半径を小さくするか、隣接する短い辺・薄い部分を確認してください');}}}
  else if(p.type==='copiedThread'){
  const source=p.copySource,adjusted=p.copyDistance?allThreadPullSpec(source.spec,-p.copyDistance):source.spec,result=regeneratedThread(source,adjusted),copyBodies=kernelBodies([{kind:'cadop',...result}]);let shape;
