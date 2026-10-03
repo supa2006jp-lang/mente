@@ -1,3 +1,4 @@
+import {edgeTurnFrame,upperEdgeBody,edgeQuarterTurn} from './edge-quarter-turn.js';
 import {installRenderRecovery} from './render-recovery.js';
 import {zoomAtPointer,fitSelectionBox} from './selection-view.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains} from './face-grid.js';
@@ -742,6 +743,29 @@ function commitBodySelection(previous){
 }
 function setSelectionMode(value){if(value==='edge')bodyDisplay?.stopExploded();selectionMode=value;clearEdgeSelection();clearFaceSelection();selectedFace=null;selectedSurface=null;selectedBody=null;chosenRegion=null;fragmentSelection=null;hoverEdge=null;edgeSelectionMode=value==='edge';$('measurement').hidden=true;host.dataset.selectionMode=value;updateCenterMarkers();}
 $('selection-mode').onchange=e=>setSelectionMode(e.target.value);
+let edgeTurnBusy=false,edgeTurnState=null;
+const edgeTurnButton=document.createElement('button');edgeTurnButton.id='edge-quarter-turn';edgeTurnButton.type='button';edgeTurnButton.hidden=true;edgeTurnButton.textContent='上側のソリッドを90°回転';edgeTurnButton.title='選択した直線の辺を軸に、接する上側のソリッドを90°回転します。初回はZがマイナスになりにくい方向、連続操作は同じ方向に回転します。';$('measurement').append(edgeTurnButton);
+edgeTurnButton.onclick=rotateUpperEdgeBody;
+async function rotateUpperEdgeBody(){
+ if(edgeTurnBusy||sketch||stage!=='model'||selectedEdges.length!==1||selectedEdge?.circle||selectedEdge?.arc||moveTool?.active||document.querySelector('dialog[open]'))return;
+ const original=features,request=toolCancelRevision,edge=clone(selectedEdge);let cancel=null;
+ try{
+  const frame=edgeTurnFrame(edge),continuous=edgeTurnState?.features===original&&edgeTurnState.key===frame.key&&edgeTurnState.bodyId===edge.bodyId;
+  const mesh=continuous?meshes.get(edgeTurnState.bodyId):upperEdgeBody([...meshes.values()],edge);
+  if(!mesh)throw Error('回転するソリッドがありません');
+  const placement=edgeQuarterTurn(mesh,edge,continuous?edgeTurnState.angle:null),id=crypto.randomUUID(),spec={type:'move',id,target:mesh.userData.bodyId,...placement.transform,edgeQuarterTurn:{axis:placement.axis,angle:placement.angle}};
+  edgeTurnBusy=true;edgeTurnButton.disabled=true;edgeTurnButton.textContent='90°回転しています…';cancel=()=>kernelClient.reset();pendingKernelCancel=cancel;
+  const result=await kernelClient.run(original,spec);
+  if(features!==original||request!==toolCancelRevision||stage!=='model'||!selectedEdge||selectedEdges.length!==1||selectedEdge.bodyId!==edge.bodyId||edgeTurnFrame(selectedEdge).key!==frame.key)throw Error('操作が変更されました。辺を選び直してください');
+  const next=[...original,{kind:'cadop',id,name:'辺を軸に90°回転',spec,...result}];setProject(next);selected=null;stage='model';syncFields();
+  const rotated=meshes.get(spec.target),a=new THREE.Vector3(...placement.axis[0]),b=new THREE.Vector3(...placement.axis[1]);
+  chooseEdgeHit({mesh:rotated,a,b,point:a.clone().add(b).multiplyScalar(.5)});
+  edgeTurnState={features,key:placement.key,bodyId:spec.target,angle:placement.angle};
+  $('measurement-angle').textContent='辺を軸に90°回転しました · 続けて押すと同じ方向に回転';
+  host.dataset.edgeTurn=JSON.stringify({bodyId:spec.target,angle:placement.angle,minZ:placement.range.min,continuous:!!continuous});
+  notify('上側のソリッドを90°回転しました。続けて押すと同じ方向に回転します');
+ }catch(error){notify(error.message);}finally{if(pendingKernelCancel===cancel)pendingKernelCancel=null;edgeTurnBusy=false;edgeTurnButton.disabled=false;edgeTurnButton.textContent='上側のソリッドを90°回転';}
+}
 let oppositePlaneBusy=false;
 const oppositePlaneButton=document.createElement('button');oppositePlaneButton.id='opposite-face-ground';oppositePlaneButton.type='button';oppositePlaneButton.hidden=true;oppositePlaneButton.textContent='反対面をXYに接地';oppositePlaneButton.title='選択した平面の反対側をXY平面（Z=0）に合わせます。ソリッド全体を回転・移動します。';$('measurement').append(oppositePlaneButton);
 oppositePlaneButton.onclick=groundOppositeFace;
@@ -1240,7 +1264,7 @@ for(const input of document.querySelectorAll('[data-grid-plane]'))input.onchange
 $('construction-visible').onchange=()=>{for(const child of regionGroup.children)if(child.userData.constructionPlane)child.visible=$('construction-visible').checked;};
 $('offset-plane-tool').onclick=()=>{finishSketch(false);$('cad-command').value='offset';renderCommand();openToolsDialog();};
 
-function clearEdgeSelection(){clearBodySelection();clearSketchSelection();selectedRegions=[];if(!selectingFaces)clearFaceSelection();selectedEdge=null;selectedEdges=[];host.dataset.selectedEdgeCount='0';$('edge-fillet').hidden=true;host.dataset.selectedEdge='false';if(edgeHighlight){disposeObject(edgeHighlight);edgeHighlight=null;}}
+function clearEdgeSelection(){edgeTurnState=null;delete host.dataset.edgeTurn;clearBodySelection();clearSketchSelection();selectedRegions=[];if(!selectingFaces)clearFaceSelection();selectedEdge=null;selectedEdges=[];host.dataset.selectedEdgeCount='0';$('edge-fillet').hidden=true;host.dataset.selectedEdge='false';if(edgeHighlight){disposeObject(edgeHighlight);edgeHighlight=null;}}
 function findScreenEdge(event){if(bodyDisplay?.exploded)return null;
  const rect=renderer.domElement.getBoundingClientRect(),x=event.clientX-rect.left,y=event.clientY-rect.top,candidates=[];
  for(const mesh of meshes.values()){if(!mesh.visible)continue;const attr=mesh.children[0]?.geometry?.attributes.position;if(!attr)continue;for(let i=0;i<attr.count;i+=2){const a=new THREE.Vector3().fromBufferAttribute(attr,i),b=new THREE.Vector3().fromBufferAttribute(attr,i+1),p=screenPoint(a),q=screenPoint(b);if(p.z<-1||p.z>1||q.z<-1||q.z>1)continue;const dx=q.x-p.x,dy=q.y-p.y,len=dx*dx+dy*dy;if(len<.01)continue;const t=Math.max(0,Math.min(1,((x-p.x)*dx+(y-p.y)*dy)/len)),distance=Math.hypot(x-p.x-dx*t,y-p.y-dy*t);if(distance>10)continue;const da=a.distanceTo(camera.position),db=b.distanceTo(camera.position),wt=t,point=a.clone().lerp(b,wt);candidates.push({mesh,a,b,point,distance,depth:point.clone().project(camera).z,circle:mesh.children[0].geometry.userData.circularEdges?.get(i),arc:mesh.children[0].geometry.userData.arcEdges?.get(i)});}}
@@ -2177,6 +2201,7 @@ $('align-hinge-sketch').onclick=()=>{
 imageReferences=referenceImages({onSvg:()=>{stage='model';selected=null;syncFields();fit();},scene,camera,canvas:renderer.domElement,host,getFeatures:()=>features,setFeatures:next=>{setProject(next);updateTargets();},getPlane:()=>{const f=selectedFace||{plane:$('plane').value,frame:activeFrame,offset:planeCoordinates(current()).offset},b=basisFor(f);return {plane:f.plane,frame:{u:b.u.toArray(),v:b.v.toArray(),n:b.n.toArray()},offset:f.offset||0};},prepare:()=>{moveTool?.cancel();finishSketch(false);stage='model';dropPreview();syncFields();},viewPlane:f=>{const b=basisFor(f),origin=b.u.clone().multiplyScalar(f.center[0]).addScaledVector(b.v,f.center[1]).addScaledVector(b.n,f.offset);camera.up.copy(b.v);camera.position.copy(origin).addScaledVector(b.n,180);resetViewControls(origin);camera.zoom=200/(Math.max(f.width/(host.clientWidth/host.clientHeight),f.height)*1.3);camera.lookAt(origin);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);},startSketch:f=>{chooseConstructionPlane({...f,kind:'plane'});$('new-line').click();},notify});imageReferences.refresh();
 
 function updateSelectionUI(){bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
+ edgeTurnButton.hidden=!edgeTurnBusy&&!(selectedEdges.length===1&&selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&meshes.has(selectedEdge.bodyId)&&stage==='model'&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));edgeTurnButton.disabled=edgeTurnBusy||extrusionBusy;
  oppositePlaneButton.hidden=!oppositePlaneBusy&&!(selectedFace?.bodyId&&meshes.has(selectedFace.bodyId)&&selectedFaces.length<=1&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));
  const parts=[];if(selectedBodies.size)parts.push('ボディ '+selectedBodies.size+' 個');if(selectedFaces.length)parts.push('面 '+selectedFaces.length+' 枚');if(selectedEdges.length)parts.push('辺 '+selectedEdges.length+' 本');
  let lines=0,points=0;for(const [id,indices] of selectedSketchSegments){const f=features.find(f=>f.id===id);if(!f)continue;if(f.profile==='point')points++;else lines+=['circle','spline'].includes(f.profile)||f.arc?Number(indices.size>0):indices.size;}
