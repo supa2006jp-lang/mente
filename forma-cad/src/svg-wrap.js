@@ -31,10 +31,11 @@ export function wrapSvgSolid(base,spec,onProgress){
  const info=svgCylinderInfo(base,spec.surfacePoint),{radius}=info;
  if(!Number.isFinite(spec.depth)||spec.depth<.01||spec.depth>Math.min(10,radius*.8))throw Error('凹凸の深さは0.01 mm以上、半径の80%以下で指定してください');
  if(!Number.isFinite(spec.height)||spec.height<=0||!Number.isFinite(spec.offset)||spec.offset<0||spec.offset+spec.height>info.height+.0001)throw Error('模様の高さと下端の位置を円柱の側面内に収めてください');
- if(!Number.isFinite(spec.angle)||!['mirror','single'].includes(spec.seam)||!['emboss','engrave'].includes(spec.operation))throw Error('巻き付け設定を確認してください');
+ if(!Number.isFinite(spec.angle)||!['mirror','single','repeat'].includes(spec.seam)||!['emboss','engrave'].includes(spec.operation))throw Error('巻き付け設定を確認してください');
  if(!Array.isArray(spec.pattern)||!spec.pattern.length||spec.pattern.length>80||spec.pattern.some(r=>!Array.isArray(r.outer)||!Array.isArray(r.holes)||[r.outer,...r.holes].some(ring=>ring.length<3||ring.length>2500||ring.some(p=>!Array.isArray(p)||p.length!==2||p.some(v=>!Number.isFinite(v)||v<-.0001||v>1.0001)))))throw Error('SVG図案のデータを確認してください');
  if(spec.pattern.reduce((count,r)=>count+[r.outer,...r.holes].reduce((n,ring)=>n+ring.length,0),0)>2500)throw Error('図案が細かすぎます。輪郭を減らしてください');
- const pieces=svgWrapPieces(spec.pattern,spec.seam),cylinder=R.makeCylinder(radius,info.height),reference=cylinder.faces.find(f=>f.geomType==='CYLINDRE'),oc=R.getOC();let result=base.clone();
+ if(spec.seam==='repeat'&&(!Number.isInteger(spec.repeatCount)||spec.repeatCount<1||spec.repeatCount>24))throw Error('繰り返し回数は1〜24の整数にしてください');
+ const pieces=svgWrapPieces(spec.pattern,spec.seam,spec.repeatCount),cylinder=R.makeCylinder(radius,info.height),reference=cylinder.faces.find(f=>f.geomType==='CYLINDRE'),oc=R.getOC();let result=base.clone();
  try{for(const [index,piece]of pieces.entries()){
   onProgress?.({stage:'SVGを円柱に巻き付けています',current:index+1,total:pieces.length});
   const face=curvedFace(reference,piece,spec.angle*Math.PI/180,spec.height,spec.offset),builder=new oc.BRepOffsetAPI_MakeThickSolid();let tool,placed;

@@ -1,5 +1,5 @@
 import {SVGLoader} from 'three/addons/loaders/SVGLoader.js';
-import {polygonRegions} from './svg-wrap-pattern.js';
+import {polygonRegions,cleanSvgRegions} from './svg-wrap-pattern.js';
 export function svgWrapPattern(text){
  const doc=new DOMParser().parseFromString(text,'image/svg+xml'),root=doc.documentElement;
  if(doc.querySelector('parsererror')||root.localName!=='svg')throw Error('SVGを読み込めません');
@@ -16,7 +16,7 @@ export function svgWrapPattern(text){
  if(vb?.length===4&&vb.every(Number.isFinite)&&vb[2]>0&&vb[3]>0)bounds=vb;else{const xs=all.map(p=>p[0]),ys=all.map(p=>p[1]);bounds=[Math.min(...xs),Math.min(...ys),Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys)];}
  if(!(bounds[2]>0&&bounds[3]>0)||all.some(p=>p.some(v=>!Number.isFinite(v))))throw Error('SVGの寸法を確認してください');
  const transform=ring=>ring.map(([x,y])=>[(x-bounds[0])/bounds[2],1-(y-bounds[1])/bounds[3]]);
- const regions=polygonRegions(raw.map(r=>({outer:transform(r.outer),holes:r.holes.map(transform)})),[0,0,1,1]);
+ const regions=cleanSvgRegions(polygonRegions(raw.map(r=>({outer:transform(r.outer),holes:r.holes.map(transform)})),[0,0,1,1]));
  if(!regions.length||regions.reduce((n,r)=>n+r.outer.length+r.holes.reduce((a,h)=>a+h.length,0),0)>2500||regions.length>80)throw Error('図案が細かすぎます。輪郭を減らしてください');
  return {regions,aspect:bounds[3]/bounds[2]};
 }
