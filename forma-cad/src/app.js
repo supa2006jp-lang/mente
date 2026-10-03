@@ -1316,23 +1316,22 @@ function updateModelGrid(){
 function updateSketchGrid(){
  const face=!sketch&&stage==='model'?(holeActive?holeHoverFace:selectedFace):null,basis=sketch?sketchBasis:face?basisFor(face):null,visible=!!basis&&gridVisibility[sketch?$('plane').value:face?.plane||'CUSTOM']!==false;
  const scopedFace=face?.bodyId&&face.outer?face:null,scope=scopedFace?$('face-grid-scope').value:'unlimited';$('face-grid-scope-row').hidden=!scopedFace;
- // Show one working grid, and only the world axes lying in its plane.
- if(!basis)updateModelGrid();
- grid.visible=!basis&&gridVisibility[grid.userData.plane||'XY']!==false;
+ // Keep the origin plane alongside the working grid.
+ updateModelGrid();
  host.dataset.gridVisible=String(grid.visible);
- const normal=basis?.n||new THREE.Vector3(0,1,0).applyQuaternion(grid.quaternion);
+ const worldNormal=new THREE.Vector3(0,1,0).applyQuaternion(grid.quaternion),normal=basis?.n||worldNormal;
  const planeName=Math.abs(normal.z)>.999999?'XY':Math.abs(normal.y)>.999999?'XZ':Math.abs(normal.x)>.999999?'YZ':'任意平面';
  $('reference-plane').value=gridPlane;
  $('active-plane').textContent=basis?(sketch?'作図中：':holeActive?'穴あけ面：':'選択面：')+planeName:'表示中：'+gridPlane;
  host.dataset.activePlane=planeName;host.dataset.referencePlane=gridPlane;
- axisGroup.children.forEach((axis,i)=>{axis.visible=(basis?visible:grid.visible)&&Math.abs(normal.getComponent(i))<1e-6;});
+ axisGroup.children.forEach((axis,i)=>{axis.visible=(grid.visible&&Math.abs(worldNormal.getComponent(i))<1e-6)||(visible&&Math.abs(normal.getComponent(i))<1e-6);});
  host.dataset.visibleAxes=axisGroup.children.map((axis,i)=>axis.visible?'XYZ'[i]:'').join('');
  if(!visible){if(sketchGrid)sketchGrid.visible=false;host.dataset.sketchGridVisible='false';delete host.dataset.sketchGridBounds;delete host.dataset.sketchGridDisplayStep;const label='1目盛り：'+fmt(gridStep)+' mm';if(basis&&$('grid-scale').textContent!==label)$('grid-scale').textContent=label;return;}
  const offset=sketch?sketchOrigin.dot(basis.n):face.offset+(bodyDisplay?.offset(face.bodyId).dot(basis.n)||0),view=gridViewBounds(basis,offset);
  const scoped=scopedFace&&scope!=='unlimited',layout=scoped?null:viewportGridLayout(view,gridStep),bounds=scoped?faceGridBounds(scopedFace,scope):layout.bounds;
  let displayStep=scoped?gridStep:layout.step;if(scoped)while(Math.max(bounds.u[1]-bounds.u[0],bounds.v[1]-bounds.v[0])/displayStep>180)displayStep*=2;
- const key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,scope,scoped?scopedFace.id:layout.divisions]);
- if(key!==sketchGridKey){if(sketchGrid)disposeObject(sketchGrid);sketchGridKey=key;sketchGrid=scoped?scopedFaceGrid(scopedFace,scope,gridStep).grid:cadGrid(displayStep,layout.divisions,false);sketchGrid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));sketchGrid.traverse(o=>{if(o.material){o.material.vertexColors=false;o.material.color.set(0x9554c9);o.material.transparent=true;o.material.opacity=.3;o.material.depthWrite=false;o.material.depthTest=false;}});sketchGrid.renderOrder=3;scene.add(sketchGrid);}
+ const key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,scope,!!scopedFace,scoped?scopedFace.id:layout.divisions]);
+ if(key!==sketchGridKey){if(sketchGrid)disposeObject(sketchGrid);sketchGridKey=key;sketchGrid=scoped?scopedFaceGrid(scopedFace,scope,gridStep).grid:cadGrid(displayStep,layout.divisions,false);sketchGrid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));sketchGrid.traverse(o=>{if(o.material){o.material.vertexColors=false;o.material.color.set(scopedFace?0xb678e8:0x9554c9);o.material.transparent=true;o.material.opacity=scopedFace ? .85 : .3;o.material.depthWrite=false;o.material.depthTest=false;}});sketchGrid.renderOrder=3;scene.add(sketchGrid);}
  sketchGrid.position.copy(basis.n).multiplyScalar(offset);if(!scoped)sketchGrid.position.addScaledVector(basis.u,layout.u).addScaledVector(basis.v,layout.v);else{const shift=bodyDisplay?.offset(scopedFace.bodyId)||new THREE.Vector3();sketchGrid.position.addScaledVector(basis.u,shift.dot(basis.u)).addScaledVector(basis.v,shift.dot(basis.v));}
  const displayBounds=scoped?Object.fromEntries(['u','v'].map(axis=>{const delta=(bodyDisplay?.offset(scopedFace.bodyId)||new THREE.Vector3()).dot(basis[axis]);return [axis,bounds[axis].map(value=>value+delta)];})):bounds;
  host.dataset.sketchGridBounds=JSON.stringify(displayBounds);host.dataset.sketchGridDisplayStep=String(displayStep);host.dataset.faceGridScope=scope;
