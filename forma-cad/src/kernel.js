@@ -1,3 +1,4 @@
+import {allExtrusionTargets} from './extrusion-targets.js';
 import {validateTaperAngle} from './taper.js';
 import {draftExtrusion} from './extrusion-taper.js';
 import {cutWithClearance} from './cut-clearance.js';
@@ -103,8 +104,8 @@ export function featureSolid(f,bodies){validateTaperAngle(f.taperAngle??0);retur
 function untaperedFeatureSolid(f,bodies){
  if(f.holesOnly){if(f.mode!=='solid'||f.profile!=='region'||!f.region?.holes?.length)throw Error('穴のある平面を選択してください');const input={...f,holesOnly:false},filled=featureSolid({...input,capHoles:true},bodies),original=featureSolid({...input,capHoles:false},bodies);let plug;try{plug=filled.cut(original);const sourceId=f.region.cadFace?.bodyId||f.region.bodyId,source=bodies?.get(sourceId);return source?plug.cut(source):plug.clone();}finally{plug?.delete();filled.delete();original.delete();}}
 
- if(f.operation==='cut'&&f.throughAll&&bodies?.has(f.target)){
-  const targets=f.cutAllBodies?[...bodies.values()]:[bodies.get(f.target)];
+ if(f.operation==='cut'&&f.throughAll&&(allExtrusionTargets(f)?bodies?.size:bodies?.has(f.target))){
+  const targets=allExtrusionTargets(f)?[...bodies.values()]:[bodies.get(f.target)];
   const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
   for(const body of targets){const box=body.boundingBox;try{for(let i=0;i<3;i++){min[i]=Math.min(min[i],box.bounds[0][i]);max[i]=Math.max(max[i],box.bounds[1][i]);}}finally{box.delete();}}
   f={...f,depth:throughDepth(f,[min,max])};
@@ -196,7 +197,7 @@ export function runOperation(features,spec,onProgress,context={}){
   }for(const id of result.remove){const body=before.get(id);if(body)removed.push({id,...body.mesh({tolerance:.08,angularTolerance:.15})});}return {...result,removed};}finally{for(const b of before.values())b.delete();}
  }
  if(spec.type==='deleteBodies'){const bodies=kernelBodies(features);try{const ids=[...new Set(spec.targets||[])];if(!ids.length||ids.some(id=>!bodies.has(id)))throw Error('削除するボディを選択してください');return {outputs:[],remove:ids};}finally{for(const b of bodies.values())b.delete();}}
-if(spec.type==='extrusionBatch'){const added=[];for(const f of spec.features){const history=[...features,...added],input=(f.operation==='cut'&&f.cutAllBodies)||f.untilSolid?history:extrusionTargetHistory(history,f.target,f.region?.cadFace?.bodyId||f.region?.bodyId);const cadResult=runOperation(input,{type:'extrusion',target:f.target,feature:f});added.push({...f,cadResult});}return {features:added};}if(spec.type==='replay')return {features:replayHistory(spec.before,features,spec.start,(history,operation)=>runOperation(history,operation,onProgress),remapHistoryReferences)};const bodies=kernelBodies(features),outputs=[],remove=[];let analysis;const base=bodies.get(spec.target);const axis={X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[spec.axis]||[0,0,1];const emit=(id,shape)=>{if(!shape)throw Error('形状を作成できません');const mesh=shape.mesh({tolerance:.08,angularTolerance:.15});if(!mesh.triangles.length)throw Error('立体が空です');const brep=shape.serialize();rememberBody(brep,shape);outputs.push({id,...mesh,planarFaces:shape.faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode),brep});};const p=spec;try{
+if(spec.type==='extrusionBatch'){const added=[];for(const f of spec.features){const history=[...features,...added],input=allExtrusionTargets(f)||f.untilSolid?history:extrusionTargetHistory(history,f.target,f.region?.cadFace?.bodyId||f.region?.bodyId);const cadResult=runOperation(input,{type:'extrusion',target:f.target,feature:f});added.push({...f,cadResult});}return {features:added};}if(spec.type==='replay')return {features:replayHistory(spec.before,features,spec.start,(history,operation)=>runOperation(history,operation,onProgress),remapHistoryReferences)};const bodies=kernelBodies(features),outputs=[],remove=[];let analysis;const base=bodies.get(spec.target);const axis={X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[spec.axis]||[0,0,1];const emit=(id,shape)=>{if(!shape)throw Error('形状を作成できません');const mesh=shape.mesh({tolerance:.08,angularTolerance:.15});if(!mesh.triangles.length)throw Error('立体が空です');const brep=shape.serialize();rememberBody(brep,shape);outputs.push({id,...mesh,planarFaces:shape.faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode),brep});};const p=spec;try{
  if(['coilJoint','enclose','shell','fillet','move','join','split','mirror','circular','rectangular'].includes(p.type)&&!base)throw Error('対象ボディを選択してください');
  if(p.type==='deleteFragment'){
   if(!base)throw Error('削除するソリッドを選択してください');
@@ -210,9 +211,15 @@ if(spec.type==='extrusionBatch'){const added=[];for(const f of spec.features){co
   }finally{kept?.delete();vertex.delete();for(const solid of solids)solid.delete();}
  }
  else if(p.type==='extrusion'){
-  if(p.feature.operation!=='new'&&!base)throw Error('切り取り・結合する対象ボディを選択してください');
+  if(p.feature.operation!=='new'&&!base&&!(allExtrusionTargets(p.feature)&&bodies.size))throw Error('切り取り・結合する対象ボディを選択してください');
   const tool=extrusionTool(p.feature,bodies);let shape;try{if(p.feature.operation==='new'){emit(p.feature.id,tool);const source=copiedThreadSource(features,p.feature);if(source)outputs.at(-1).threadSource=source;return {outputs,remove};}
-   if(p.feature.operation==='cut'&&p.feature.cutAllBodies){for(const [id,body] of bodies){let cut;try{cut=body.cut(tool);const originalVolume=R.measureVolume(body),remainingVolume=R.measureVolume(cut);if(originalVolume-remainingVolume<=Math.max(1e-7,originalVolume*1e-9))continue;if(Math.abs(remainingVolume)<1e-9){remove.push(id);continue;}const check=new (R.getOC().BRepCheck_Analyzer)(cut.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(id,cut);}finally{cut?.delete();}}if(!outputs.length&&!remove.length)throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');return {outputs,remove};}
+   if(p.feature.operation==='cut'&&allExtrusionTargets(p.feature)){for(const [id,body] of bodies){let cut;try{cut=body.cut(tool);const originalVolume=R.measureVolume(body),remainingVolume=R.measureVolume(cut);if(originalVolume-remainingVolume<=Math.max(1e-7,originalVolume*1e-9))continue;if(Math.abs(remainingVolume)<1e-9){remove.push(id);continue;}const check=new (R.getOC().BRepCheck_Analyzer)(cut.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(id,cut);}finally{cut?.delete();}}if(!outputs.length&&!remove.length)throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');return {outputs,remove};}
+   if(p.feature.operation==='join'&&allExtrusionTargets(p.feature)){
+    const box=tool.boundingBox,contact=[];try{const bounds=box.bounds;for(const [id,body]of bodies){const other=body.boundingBox;try{if(bounds[0].some((lo,i)=>lo>other.bounds[1][i]+1e-6||bounds[1][i]<other.bounds[0][i]-1e-6))continue;}finally{other.delete();}if(R.measureDistanceBetween(body,tool)<=1e-6)contact.push(id);}}finally{box.delete();}
+    if(!contact.length)throw Error('押し出し形状が結合対象のボディと接していません。方向・距離を確認してください');
+    const anchor=contact.includes(p.target)?p.target:contact[0];let joined=fuseSolid(bodies.get(anchor),tool);
+    try{for(const id of contact)if(id!==anchor){const next=fuseSolid(joined,bodies.get(id));joined.delete();joined=next;}emit(anchor,joined);remove.push(...contact.filter(id=>id!==anchor));return {outputs,remove};}finally{joined.delete();}
+   }
    shape=p.feature.operation==='cut'?base.cut(tool):base.fuse(tool);if(p.feature.operation==='cut'&&Math.abs(R.measureVolume(shape))<1e-9){remove.push(p.target);return {outputs,remove};}if(p.feature.operation==='cut'&&Math.abs(R.measureVolume(base)-R.measureVolume(shape))<=Math.max(1e-7,R.measureVolume(base)*1e-9))throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(p.target,shape);}finally{shape?.delete();tool.delete();}
  }
  else if(p.type==='trimSurface'){const selection=p.faces?.[0];const result=trimSurface(base,bodies.get(selection?.bodyId),selection,p.trimSide);try{emit(p.target,result);}finally{result.delete();}}

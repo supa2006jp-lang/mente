@@ -1,3 +1,4 @@
+import {ALL_BODIES_TARGET,allExtrusionTargets} from './extrusion-targets.js';
 import {edgeTurnFrame,upperEdgeBody,edgeQuarterTurn} from './edge-quarter-turn.js';
 import {installRenderRecovery} from './render-recovery.js';
 import {zoomAtPointer,fitSelectionBox} from './selection-view.js';
@@ -211,9 +212,9 @@ function updateExtrusionTip(batch,vertices){
  const combined=vertices.length===1&&batch.length>1,items=combined?[batch[0]]:batch;const lines=items.map((f,i)=>{const size=extrusionEndDimensions(f,vertices[i],{round:!combined});if(!size)return '先端寸法：取得できません';const label=f.untilSolid?'最遠端':combined?'先端（結合全体）':batch.length>1?'領域'+(i+1)+'の先端':'先端';return label+'：'+(size.diameter!==undefined?'外径 '+fmt(size.diameter)+' mm':'幅 '+fmt(size.width)+' × 奥行き '+fmt(size.height)+' mm');});
  $('extrusion-tip-size').textContent=lines.slice(0,3).join('\n')+(lines.length>3?'\nほか '+(lines.length-3)+' 領域':'');
 }
-function current(){const f={...defaults,id:selected||crypto.randomUUID(),name:$('name').value.trim()||(stage==='sketch'?'スケッチ':'押し出し'),kind:stage,mode};for(const k of settings) f[k]=k==='depth'?depthValue():numeric.includes(k)?Number($(k).value):$(k).value;for(const k of numeric)if($(k).value.trim()==='')f[k]=NaN;if(activeFrame)f.frame=clone(activeFrame);const source=features.find(x=>x.id===selected);if(source?.kind==='sketch'){f.groupId=source.groupId;f.groupNumber=source.groupNumber;f.groupHidden=source.groupHidden;}if(['spline','polyline'].includes(f.profile)){f.points=clone(splinePoints);f.closed=features.find(x=>x.id===selected)?.closed||false;}if(f.profile==='region')f.region=clone(regionPayload);if(polygonMode&&stage==='sketch'){const count=Number($('polygon-sides').value),radius=f.diameter/2;if(!Number.isInteger(count)||count<3||count>64)throw Error('辺の数は3〜64で指定してください');const o=planeCoordinates(f),angle=f.angle*Math.PI/180;f.profile='polyline';f.closed=true;f.name=count+'角形';f.points=Array.from({length:count},(_,i)=>[o.u+radius*Math.cos(angle+i*Math.PI*2/count),o.v+radius*Math.sin(angle+i*Math.PI*2/count)]);}f.holesOnly=f.operation==='newHoles';if(f.holesOnly)f.operation='new';f.throughAll=f.operation==='cut'&&$('through-all').checked;f.cutAllBodies=f.operation==='cut'&&$('cut-all-bodies').checked;f.gridExtentPlane=stage==='extrusion'&&$('grid-extent').checked?extrusionGridPlane:undefined;f.untilSolid=stage==='extrusion'&&$('until-solid').checked;f.contactOnly=f.untilSolid&&$('contact-only').checked;f.capHoles=stage==='extrusion'&&mode==='solid'&&f.profile==='region'&&$('cap-holes').checked;f.skipHoleWalls=stage==='extrusion'&&mode==='thin'&&f.profile==='region'&&$('skip-hole-walls').checked;if(f.holesOnly)f.capHoles=false;if(stage==='sketch'){f.holesOnly=false;f.depth=defaults.depth;f.taperAngle=0;f.wall=2;f.operation='new';f.mode=f.profile==='line'?'thin':'solid';}return f;}
+function current(){const f={...defaults,id:selected||crypto.randomUUID(),name:$('name').value.trim()||(stage==='sketch'?'スケッチ':'押し出し'),kind:stage,mode};for(const k of settings) f[k]=k==='depth'?depthValue():numeric.includes(k)?Number($(k).value):$(k).value;for(const k of numeric)if($(k).value.trim()==='')f[k]=NaN;if(activeFrame)f.frame=clone(activeFrame);const source=features.find(x=>x.id===selected);if(source?.kind==='sketch'){f.groupId=source.groupId;f.groupNumber=source.groupNumber;f.groupHidden=source.groupHidden;}if(['spline','polyline'].includes(f.profile)){f.points=clone(splinePoints);f.closed=features.find(x=>x.id===selected)?.closed||false;}if(f.profile==='region')f.region=clone(regionPayload);if(polygonMode&&stage==='sketch'){const count=Number($('polygon-sides').value),radius=f.diameter/2;if(!Number.isInteger(count)||count<3||count>64)throw Error('辺の数は3〜64で指定してください');const o=planeCoordinates(f),angle=f.angle*Math.PI/180;f.profile='polyline';f.closed=true;f.name=count+'角形';f.points=Array.from({length:count},(_,i)=>[o.u+radius*Math.cos(angle+i*Math.PI*2/count),o.v+radius*Math.sin(angle+i*Math.PI*2/count)]);}f.holesOnly=f.operation==='newHoles';if(f.holesOnly)f.operation='new';f.throughAll=f.operation==='cut'&&$('through-all').checked;f.targetAllBodies=stage==='extrusion'&&f.operation!=='new'&&$('target').value===ALL_BODIES_TARGET;if($('target').value===ALL_BODIES_TARGET)f.target=(source?.kind==='extrusion'?source.target:null)||regionPayload?.cadFace?.bodyId||regionPayload?.bodyId||availableTargets()[0]?.id||'';f.cutAllBodies=f.operation==='cut'&&f.targetAllBodies&&!$('until-solid').checked;f.gridExtentPlane=stage==='extrusion'&&$('grid-extent').checked?extrusionGridPlane:undefined;f.untilSolid=stage==='extrusion'&&$('until-solid').checked;f.contactOnly=f.untilSolid&&$('contact-only').checked;f.capHoles=stage==='extrusion'&&mode==='solid'&&f.profile==='region'&&$('cap-holes').checked;f.skipHoleWalls=stage==='extrusion'&&mode==='thin'&&f.profile==='region'&&$('skip-hole-walls').checked;if(f.holesOnly)f.capHoles=false;if(stage==='sketch'){f.holesOnly=false;f.depth=defaults.depth;f.taperAngle=0;f.wall=2;f.operation='new';f.mode=f.profile==='line'?'thin':'solid';}return f;}
 function availableTargets(){if(!selected)return [...meshes.keys()].map(id=>({id,name:features.find(f=>f.id===id)?.name||'ボディ'}));const list=selected?features.slice(0,features.findIndex(f=>f.id===selected)):features;const bodies=new Map();for(const f of list){const result=f.cadResult||(f.kind==='cadop'?f:null);if(result){for(const id of result.remove)bodies.delete(id);for(const o of result.outputs)if(!bodies.has(o.id))bodies.set(o.id,{id:o.id,name:f.name});}else if(f.operation==='new'&&f.kind!=='sketch'&&f.kind!=='plane'&&f.kind!=='referenceImage')bodies.set(f.id,f);}return [...bodies.values()];}
-function updateTargets(preferred){const old=preferred??$('target').value;$('target').replaceChildren();for(const f of availableTargets()){const opt=document.createElement('option');opt.value=f.id;opt.textContent=f.name;$('target').append(opt);}if([...$('target').options].some(o=>o.value===old))$('target').value=old;}
+function updateTargets(preferred){const old=preferred||$('target').value||ALL_BODIES_TARGET,targets=availableTargets(),all=new Option('全て',ALL_BODIES_TARGET);all.disabled=!targets.length;$('target').replaceChildren(all);for(const f of targets){const opt=document.createElement('option');opt.value=f.id;opt.textContent=f.name;$('target').append(opt);}$('target').value=[...$('target').options].some(o=>o.value===old)?old:ALL_BODIES_TARGET;syncTargetSelectors();}
 function holesOnlySelectionProblem(){
  return holesOnlyProblem({holesOnly:true,mode,profile:$('profile').value,region:regionPayload},selectedRegions.length?selectedRegions:[regionPayload]);
 }
@@ -256,7 +257,7 @@ function updatePreview(){dropPreview();$('error').textContent='';$('viewport-dep
  preview=sketchLine(makeSketchGeometry(f),{color:0x087ca5,depthTest:false,order:5});preview.renderOrder=5;scene.add(preview);host.dataset.previewKind='sketch-line';
  $('status').textContent='線でスケッチ → スケッチを確定 → 押し出し';return;
  }host.dataset.previewKind='extrusion';const batch=!selected&&selectedRegions.length>1?regionExtrusions(f,selectedRegions,$('viewport-combine').value==='join'):[f];preview=new THREE.Group();preview.userData.extrusionOperation=f.operation;preview.userData.holesOnly=f.holesOnly;if(f.untilSolid||f.taperAngle){validateFeature(f);scene.add(preview);scheduleContactPreview(batch);$('status').textContent=f.untilSolid?'ソリッドとの接触位置を計算中…':'テーパー形状を計算中…';return;}const geometries=batch.length>1&&f.operation==='new'&&$('viewport-combine').value==='join'?[...rebuild(batch).values()].map(b=>b.geometry):batch.map(item=>{let f=item;if(f.throughAll){const targets=f.cutAllBodies?[...meshes.values()]:[meshes.get(f.target)].filter(Boolean);if(targets.length){const b=new THREE.Box3();for(const target of targets)b.union(new THREE.Box3().setFromObject(target));f={...f,depth:throughDepth(f,[b.min.toArray(),b.max.toArray()])};}}return makeGeometry(f);});updateExtrusionTip(batch,geometries.map(g=>g.attributes.position.array));for(const g of geometries){const m=new THREE.MeshStandardMaterial({color:f.operation==='cut'?0xe78065:0x47bdd3,transparent:true,opacity:.30,depthWrite:false,roughness:.45,side:THREE.DoubleSide}),mesh=new THREE.Mesh(g,m);mesh.renderOrder=2;mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(g,25),new THREE.LineBasicMaterial({color:f.operation==='cut'?0xb15240:0x1f849b,transparent:true,opacity:.7})));preview.add(mesh);}scene.add(preview);scheduleExtrusionRemoval(batch);host.dataset.extrusionPreviewCount=String(batch.length);$('status').textContent=selected?'寸法を変更して「変更を適用」':'プレビューを確認して「作成」';}catch(e){$('error').textContent=e.message;$('viewport-depth-error').textContent=e.message;$('extrusion-tip-size').textContent='先端寸法：形状を確認してください';}}
-function fillForm(f){contactAutoDepth=false;contactDistanceLimit=null;$('through-all').checked=!!f.throughAll;$('cut-all-bodies').checked=!!f.cutAllBodies;$('grid-extent').checked=!!f.gridExtentPlane;$('until-solid').checked=!!f.untilSolid;$('contact-only').checked=!!f.contactOnly;extrusionGridPlane=f.gridExtentPlane||gridPlane;extrusionDefaultOperation=f.operation;extrusionManualOperation=!!selected;$('cap-holes').checked=!!f.capHoles;$('skip-hole-walls').checked=!!f.skipHoleWalls;activeFrame=f.frame?clone(f.frame):null;if(['spline','polyline'].includes(f.profile))splinePoints=clone(f.points||[]);draftTouched=false;regionPayload=f.region?clone(f.region):null;mode=f.mode;for(const k of settings)if(k==='depth')displayDepth(f.depth);else if(k!=='target')$(k).value=k==='operation'&&f.holesOnly?'newHoles':k==='taperAngle'?(f[k]??0):f[k];$('name').value=f.name;updateTargets(f.target);syncFields();}
+function fillForm(f){contactAutoDepth=false;contactDistanceLimit=null;$('through-all').checked=!!f.throughAll;$('cut-all-bodies').checked=!!f.cutAllBodies;$('grid-extent').checked=!!f.gridExtentPlane;$('until-solid').checked=!!f.untilSolid;$('contact-only').checked=!!f.contactOnly;extrusionGridPlane=f.gridExtentPlane||gridPlane;extrusionDefaultOperation=f.operation;extrusionManualOperation=!!selected;$('cap-holes').checked=!!f.capHoles;$('skip-hole-walls').checked=!!f.skipHoleWalls;activeFrame=f.frame?clone(f.frame):null;if(['spline','polyline'].includes(f.profile))splinePoints=clone(f.points||[]);draftTouched=false;regionPayload=f.region?clone(f.region):null;mode=f.mode;for(const k of settings)if(k==='depth')displayDepth(f.depth);else if(k!=='target')$(k).value=k==='operation'&&f.holesOnly?'newHoles':k==='taperAngle'?(f[k]??0):f[k];$('name').value=f.name;updateTargets(allExtrusionTargets(f)||!selected?ALL_BODIES_TARGET:f.target);syncFields();}
 function startFeature(profile='rect',newMode='solid',operation='new'){bodyDisplay?.stopExploded();if(editingSectionSplitId)sectionControl.cancel();centerRectangle=false;const preserveView=stage==='sketch'&&!selectedFace;if(stage!=='sketch'){activeSketchGroup=null;editingSketchGroup=null;}
  const previous=selectedFace?{...current(),plane:'CUSTOM',frame:selectedFace.frame,...Object.fromEntries(['x','y','z'].map((k,i)=>[k,selectedFace.frame.n[i]*selectedFace.offset]))}:(stage==='sketch'?current():{...defaults,plane:gridPlane});const keepPlane=previous.plane,keepOffset=planeCoordinates(previous).offset;
  chosenRegion=null;regionPayload=null;pendingExtrude=false;$('measurement').hidden=true;finishSketch(false);stage=operation==='cut'?'extrusion':'sketch';selected=null;const f={...defaults,frame:previous.frame,plane:keepPlane,x:keepPlane==='YZ'?keepOffset:0,y:keepPlane==='XZ'?keepOffset:0,z:keepPlane==='XY'?keepOffset:0,profile,mode:profile==='line'?'thin':newMode,operation,name:operation==='cut'?'穴あけ':'スケッチ'};if(previous.frame)for(const [i,k] of ['x','y','z'].entries())f[k]=previous.frame.n[i]*keepOffset;pendingDrawingView=preserveView?{basis:basisFor(f),offset:planeCoordinates(f).offset}:null;selectedFace=null;fillForm(f);renderTree();$('properties')?.scrollIntoView();if(stage==='sketch')notifySketchEntered(sketchEntryNumber(f));else enteredSketchNumber=null;
@@ -307,8 +308,8 @@ function resolveAutoCut(){
  }catch{return;}
  const preferred=matches.some(item=>item.id===source)?source:matches[0]?.id||source;
  const next=matches.length?'cut':extrusionDefaultOperation;
- if($('operation').value!==next){$('operation').value=next;updateTargets(preferred);}
- if(preferred&&['cut','join'].includes(next)&&$('target').value!==preferred)$('target').value=preferred;
+ if($('operation').value!==next){$('operation').value=next;updateTargets();}
+ if(preferred&&['cut','join'].includes(next)&&$('target').value!==ALL_BODIES_TARGET&&$('target').value!==preferred)$('target').value=preferred;
  syncFields();
 }
 function scheduleAutoCut(){
@@ -329,7 +330,7 @@ function scheduleAutoCut(){
  if(k==='operation')updateTargets();
  syncFields();
 });
-for(const id of ['operation','target'])$(id).addEventListener('change',()=>{if(stage==='extrusion')extrusionManualOperation=true;});
+for(const id of ['operation','target'])$(id).addEventListener('change',()=>{if(stage==='extrusion'){extrusionManualOperation=true;syncViewportOperation();}});
 
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;syncFields();});
 function renderRegions(){
@@ -1521,14 +1522,18 @@ fitCommandToolbar(document.querySelector('.command-toolbar'));
 warmKernelOnInteraction(kernelClient);
 
 const extrusionWheel=createExtrusionWheel(host.parentElement,value=>{$('viewport-operation').value=value;$('viewport-operation').dispatchEvent(new Event('change',{bubbles:true}));});
+function syncTargetSelectors(){
+ const source=$('target'),target=$('viewport-target'),hasTarget=[...source.options].some(o=>o.value!==ALL_BODIES_TARGET);
+ if(target.innerHTML!==source.innerHTML)target.innerHTML=source.innerHTML;
+ if(target.value!==source.value)target.value=source.value;
+ for(const option of $('viewport-operation').options)if(['join','cut'].includes(option.value)&&option.disabled!==!hasTarget)option.disabled=!hasTarget;
+ return hasTarget;
+}
 function syncViewportOperation(){
  if($('viewport-operation').value!==$('operation').value)$('viewport-operation').value=$('operation').value;
- const source=$('target'),target=$('viewport-target');
- if(target.innerHTML!==source.innerHTML)target.innerHTML=source.innerHTML;
- if(target.value!==source.value)target.value=source.value;$('viewport-target-label').hidden=['new','newHoles'].includes($('operation').value);
- for(const option of $('viewport-operation').options)if(['join','cut'].includes(option.value)){const disabled=!source.options.length;if(option.disabled!==disabled)option.disabled=disabled;}
+ const hasTarget=syncTargetSelectors();$('viewport-target-label').hidden=['new','newHoles'].includes($('operation').value);
  const holesProblem=syncHolesOnlyOptions();
- extrusionWheel.update($('operation').value,{hasTarget:!!source.options.length,busy:extrusionBusy,holesProblem});
+ extrusionWheel.update($('operation').value,{hasTarget,busy:extrusionBusy,holesProblem});
 }
 $('viewport-operation').onchange=()=>{extrusionManualOperation=true;$('operation').value=$('viewport-operation').value;$('operation').dispatchEvent(new Event('input',{bubbles:true}));syncViewportOperation();};
 $('viewport-target').onchange=()=>{extrusionManualOperation=true;$('target').value=$('viewport-target').value;$('target').dispatchEvent(new Event('input',{bubbles:true}));};
@@ -2070,7 +2075,7 @@ function suggestContactLimit(){
  displayDepth(sign*Math.min(10000,Math.max(Math.abs(f.depth),far+.1)));
 }
 function syncCutOptions(){
- const cut=$('operation').value==='cut';
+ const cut=$('operation').value==='cut';$('cut-all-bodies').checked=cut&&$('target').value===ALL_BODIES_TARGET&&!$('until-solid').checked;
  const showSkipHoleWalls=stage==='extrusion'&&mode==='thin'&&$('profile').value==='region'&&
   (Boolean(regionPayload?.holes?.length)||selectedRegions.some(region=>region.holes?.length));
  for(const prefix of ['', 'viewport-']){
@@ -2114,11 +2119,11 @@ for(const prefix of ['', 'viewport-'])for(const field of ['through-all','cut-all
  }
  else if(field==='until-solid'){
   $('until-solid').checked=$(prefix+field).checked;contactDistanceLimit=null;contactAutoDepth=false;
-  if($('until-solid').checked){$('grid-extent').checked=false;$('through-all').checked=false;$('cut-all-bodies').checked=false;if(!extrusionManualOperation&&pendingOperation!=='cut'){$('operation').value=extrusionDefaultOperation;const source=regionPayload?.cadFace?.bodyId||regionPayload?.bodyId;if(source&&extrusionDefaultOperation==='join')updateTargets(source);}
+  if($('until-solid').checked){$('grid-extent').checked=false;$('through-all').checked=false;$('cut-all-bodies').checked=false;if(!extrusionManualOperation&&pendingOperation!=='cut'){$('operation').value=extrusionDefaultOperation;const source=regionPayload?.cadFace?.bodyId||regionPayload?.bodyId;if(source&&extrusionDefaultOperation==='join')updateTargets();}
    try{suggestContactLimit();contactAutoDepth=true;$('error').textContent='';}catch(error){$('until-solid').checked=false;$('error').textContent=error.message;notify(error.message);}
   }
  }
- else{$(field).checked=$(prefix+field).checked;if(field==='through-all'&&$('through-all').checked){$('grid-extent').checked=false;$('until-solid').checked=false;}if(field==='cut-all-bodies'&&$('cut-all-bodies').checked)$('until-solid').checked=false;}
+ else{if(field==='cut-all-bodies'){extrusionManualOperation=true;$('target').value=$(prefix+field).checked?ALL_BODIES_TARGET:availableTargets()[0]?.id||ALL_BODIES_TARGET;}$(field).checked=$(prefix+field).checked;if(field==='through-all'&&$('through-all').checked){$('grid-extent').checked=false;$('until-solid').checked=false;}if(field==='cut-all-bodies'&&$('cut-all-bodies').checked)$('until-solid').checked=false;}
  syncFields();if(field==='until-solid'&&!$('until-solid').checked)scheduleAutoCut();
 });
 function openSectionSplitEdit(id){
