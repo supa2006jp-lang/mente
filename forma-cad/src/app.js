@@ -1,3 +1,4 @@
+import {installRenderRecovery} from './render-recovery.js';
 import {zoomAtPointer,fitSelectionBox} from './selection-view.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains} from './face-grid.js';
 import {planeViewBounds,viewportGridLayout,fitCameraDepth} from './viewport-grid.js';
@@ -2190,3 +2191,20 @@ renderer.domElement.addEventListener('dblclick',e=>{
 });
 
 drawingController=installDrawing({onChange:()=>{modified=true;renderTree();},getFeatures:()=>features,getVisible:()=>[...meshes].filter(([id,m])=>m.visible).map(([id])=>id),getSelected:()=>[...new Set([...selectedBodies,...selectedFaces.map(f=>f.bodyId),...selectedEdges.map(e=>e.bodyId)])],download});
+
+// OS screen capture can interrupt pointer-up events without ending a CAD command.
+function cancelCaptureInteraction(){
+ middleConfirm.cancel();boxSelection?.cancel();cancelPanelDrags();cancelDialogDrags();
+ const cancelEvent=id=>({pointerId:id,type:'pointercancel',preventDefault(){},stopImmediatePropagation(){}});
+ if(shiftOrbit)endShiftOrbit(cancelEvent(shiftOrbit.id));
+ if(sketchPan)endSketchPan(cancelEvent(sketchPan.id));
+ if(extrusionDrag)endExtrusionDrag(cancelEvent(extrusionDrag.id));
+ if(taperDrag)endTaperDrag(cancelEvent(taperDrag.id));
+ if(splitDrag)endSplitDrag(cancelEvent(splitDrag.id));
+ endCoilSplitDrag(null,false);endCoilStopFaceDrag(null,false);endCoilFilletDrag();
+ if(arcDrag)clearArcDrag();
+ down=null;sketchRightDown=null;escapePressed=false;hoverEdge=null;referencePointer=null;
+ resetViewControls(controls.target.clone(),controls.enabled);host.style.cursor=sketch?'crosshair':'';
+}
+const redrawButton=document.createElement('button');redrawButton.id='redraw-view';redrawButton.type='button';redrawButton.textContent='↻ 再描画';redrawButton.title='画面の表示が崩れたときに再描画します';$('edges-toggle').after(redrawButton);
+installRenderRecovery({renderer,scene,host,button:redrawButton,cancelInput:cancelCaptureInteraction,refreshGrids:()=>{modelGridKey='';sketchGridKey='';updateSketchGrid();}});
