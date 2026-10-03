@@ -33,18 +33,22 @@ try{
  const source=project.features.find(f=>f.kind==='extrusion'),radius=source.profile==='circle'?source.diameter/2:30,height=source.depth,target=project.features.findLast(f=>f.spec?.type==='svgWrap').spec.target;
  async function load(model){await page.locator('#file').setInputFiles({name:'shell.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(model))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.waitForTimeout(200);}
  async function save(){const wait=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await wait).path(),'utf8'));}
+ const thickness=Number(process.env.FORMA_SHELL_THICKNESS||2);
  const before=R.deserializeShape(project.features.at(-1).outputs[0].brep).asShape3D(),beforeVolume=R.measureVolume(before);before.delete();
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();await load(project);
  await page.locator('#selection-mode').selectOption('face');const bounds=await page.locator('canvas').boundingBox();await page.mouse.click(bounds.x+bounds.width/2+30,bounds.y+bounds.height/2+20);
- await page.locator('#shell-tool').click();await page.locator('#cad-thickness').fill('2');await page.locator('#cad-direction').selectOption('内側');await page.locator('#cad-apply').click();
+ await page.locator('#shell-tool').click();await page.locator('#cad-thickness').fill(String(thickness));await page.locator('#cad-direction').selectOption('内側');
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.machiningPreview==='shell',null,{timeout:45000});
+ assert.equal(await page.locator('#canvas-host').getAttribute('data-removed-preview-count'),'1');assert.doesNotMatch(await page.locator('#cad-error').textContent(),/長引|失敗/);
+ await page.locator('#cad-apply').click();
  try{await page.waitForFunction(()=>!document.getElementById('tools-dialog').open,null,{timeout:90000});}catch(e){console.log('SHELL_ERROR',await page.locator('#cad-error').textContent());throw e;}
- const saved=await save(),last=saved.features.at(-1);assert.equal(last.spec.type,'shell');assert.equal(last.spec.target,target);assert.equal(last.spec.thickness,2);assert.equal(await page.locator('#body-count').textContent(),'1');
+ const saved=await save(),last=saved.features.at(-1);assert.equal(last.spec.type,'shell');assert.equal(last.spec.target,target);assert.equal(last.spec.thickness,thickness);assert.equal(await page.locator('#body-count').textContent(),'1');
  const solid=R.deserializeShape(last.outputs[0].brep).asShape3D(),check=new (R.getOC().BRepCheck_Analyzer)(solid.wrapped,true,false),parts=solid.solids;
- try{assert.ok(check.IsValid());assert.equal(parts.length,1);assert.ok(Math.abs(R.measureVolume(solid)-(beforeVolume-Math.PI*(radius-2)**2*(height-2)))<.03);}finally{check.delete();parts.forEach(p=>p.delete());solid.delete();}
+ try{assert.ok(check.IsValid());assert.equal(parts.length,1);assert.ok(Math.abs(R.measureVolume(solid)-(beforeVolume-Math.PI*(radius-thickness)**2*(height-thickness)))<.03);}finally{check.delete();parts.forEach(p=>p.delete());solid.delete();}
  await page.locator('[data-view=iso]').dispatchEvent('keydown',{key:'Enter'});await page.waitForTimeout(200);await page.screenshot({path:'.sites-runtime/shell-svg-result.png'});
  await page.locator('#undo').click();assert.equal((await save()).features.at(-1).spec.type,'svgWrap');await page.locator('#redo').click();assert.equal((await save()).features.at(-1).spec.type,'shell');
  await load(saved);assert.equal((await save()).features.at(-1).spec.type,'shell');assert.deepEqual(errors,[]);
  if(process.env.FORMA_SHELL_OUTPUT)await fs.writeFile(process.env.FORMA_SHELL_OUTPUT,JSON.stringify(saved));
- console.log('PASS browser SVG relief -> shell2 mm, valid cavity, saved BRep, undo/redo and reopen');
+ console.log('PASS browser SVG relief -> waited for removal preview -> shell, valid cavity, saved BRep, undo/redo and reopen');
  await context.close();
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

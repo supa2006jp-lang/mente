@@ -187,7 +187,7 @@ export function runOperation(features,spec,onProgress,context={}){
   finally{tool?.delete();for(const body of bodies.values())body.delete();}
  }
  if(spec.type==='preview'){
-  const operation=spec.operation,result=runOperation(features,operation,onProgress,{coilPreview:operation.type==='coilJoint'});if(['coilJoint','coilTestPiece'].includes(operation.type))return {...result,removed:[]};const before=kernelBodies(features),removed=[];
+  const operation=spec.operation,result=runOperation(features,operation,onProgress,{coilPreview:operation.type==='coilJoint',shellPreview:operation.type==='shell'});if(result.removed!==undefined)return result;if(['coilJoint','coilTestPiece'].includes(operation.type))return {...result,removed:[]};const before=kernelBodies(features),removed=[];
   try{for(const o of result.outputs){const base=before.get(o.id);if(!base)continue;let tool,cut,after;
    try{
     if(operation.type==='extrusion'&&operation.feature.operation==='cut')tool=extrusionTool(operation.feature,before);
@@ -200,7 +200,7 @@ export function runOperation(features,spec,onProgress,context={}){
   }for(const id of result.remove){const body=before.get(id);if(body)removed.push({id,...body.mesh({tolerance:.08,angularTolerance:.15})});}return {...result,removed};}finally{for(const b of before.values())b.delete();}
  }
  if(spec.type==='deleteBodies'){const bodies=kernelBodies(features);try{const ids=[...new Set(spec.targets||[])];if(!ids.length||ids.some(id=>!bodies.has(id)))throw Error('削除するボディを選択してください');return {outputs:[],remove:ids};}finally{for(const b of bodies.values())b.delete();}}
-if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.features){const f=batchExtrusionFeature(original,added),history=[...features,...added],input=multipleExtrusionTargets(f)||f.untilSolid?history:extrusionTargetHistory(history,f.target,f.region?.cadFace?.bodyId||f.region?.bodyId);const cadResult=runOperation(input,{type:'extrusion',target:f.target,feature:f});added.push({...f,cadResult});}return {features:added};}if(spec.type==='replay')return {features:replayHistory(spec.before,features,spec.start,(history,operation)=>runOperation(history,operation,onProgress),remapHistoryReferences)};const bodies=kernelBodies(features),outputs=[],remove=[];let analysis;const base=bodies.get(spec.target);const axis={X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[spec.axis]||[0,0,1];const emit=(id,shape)=>{if(!shape)throw Error('形状を作成できません');const mesh=shape.mesh({tolerance:.08,angularTolerance:.15});if(!mesh.triangles.length)throw Error('立体が空です');const brep=shape.serialize();rememberBody(brep,shape);outputs.push({id,...mesh,planarFaces:shape.faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode),brep});};const p=spec;try{
+if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.features){const f=batchExtrusionFeature(original,added),history=[...features,...added],input=multipleExtrusionTargets(f)||f.untilSolid?history:extrusionTargetHistory(history,f.target,f.region?.cadFace?.bodyId||f.region?.bodyId);const cadResult=runOperation(input,{type:'extrusion',target:f.target,feature:f});added.push({...f,cadResult});}return {features:added};}if(spec.type==='replay')return {features:replayHistory(spec.before,features,spec.start,(history,operation)=>runOperation(history,operation,onProgress),remapHistoryReferences)};const bodies=kernelBodies(features),outputs=[],remove=[];let analysis,removedPreview;const base=bodies.get(spec.target);const axis={X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[spec.axis]||[0,0,1];const emit=(id,shape)=>{if(!shape)throw Error('形状を作成できません');const mesh=shape.mesh({tolerance:.08,angularTolerance:.15});if(!mesh.triangles.length)throw Error('立体が空です');const brep=shape.serialize();rememberBody(brep,shape);outputs.push({id,...mesh,planarFaces:shape.faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode),brep});};const p=spec;try{
  if(['coilJoint','enclose','shell','fillet','move','join','split','mirror','circular','rectangular'].includes(p.type)&&!base)throw Error('対象ボディを選択してください');
  if(p.type==='deleteFragment'){
   if(!base)throw Error('削除するソリッドを選択してください');
@@ -250,7 +250,17 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
   let shape;
   if(sourceHistory){
    const sourceBodies=kernelBodies(sourceHistory);
-   try{const source=sourceBodies.get(p.target),info=svgCylinderInfo(source,features[sourceHistory.length].spec.surfacePoint);shape=shellDecoratedBody(base,source,p,circularLoftInfoForBody(sourceHistory,p.target),info.radius);}
+   try{
+    const source=sourceBodies.get(p.target),info=svgCylinderInfo(source,features[sourceHistory.length].spec.surfacePoint);
+    const captureRemoved=context.shellPreview?cavity=>{
+     // Intersect with the simple cavity directly. Subtracting two decorated
+     // bodies repeats the expensive comparison of every identical SVG face.
+     const removed=base.intersect(cavity);
+     try{removedPreview=R.measureVolume(removed)>1e-7?[{id:p.target,...removed.mesh({tolerance:.08,angularTolerance:.15})}]:[];}
+     finally{removed.delete();}
+    }:null;
+    shape=shellDecoratedBody(base,source,p,circularLoftInfoForBody(sourceHistory,p.target),info.radius,captureRemoved);
+   }
    finally{for(const body of sourceBodies.values())body.delete();}
   }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target));
   try{emit(p.target,shape);}finally{shape.delete();}
@@ -324,7 +334,7 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
  try{emit(p.target,fuseThread(threadBase,ridge));}finally{if(threadBase!==base)threadBase.delete();}if(nominal)outputs.at(-1).threadSource={features,spec:{...p,threadInternal:selected.internal}};}
  else if(p.type==='coil'&&p.rim){emit(p.target,coilOnRim(base,p));}
  else if(p.type==='coil'||p.type==='thread'){if(p.pitch<=p.wire*1.05)throw Error('ピッチを断面の太さより大きくしてください');const path=R.makeHelix(p.pitch,p.pitch*p.turns,p.radius);const section=p.type==='coil'?R.drawCircle(p.wire/2).sketchOnPlane(new R.Plane([p.radius,0,0],[1,0,0],[0,-1,0])).wire:R.draw([-p.wire/2,-p.wire/2]).lineTo([p.wire/2,0]).lineTo([-p.wire/2,p.wire/2]).close().sketchOnPlane(new R.Plane([p.radius,0,0],[1,0,0],[0,-1,0])).wire;let shape=R.genericSweep(section,path,{frenet:true});if(p.type==='thread')shape=shape.fuse(R.makeCylinder(p.radius-p.wire*.25,p.pitch*p.turns));emit(p.id,shape.translate([p.x,p.y,p.z]));}
- else throw Error('未対応の形状操作です');return {outputs,remove,...(analysis?{analysis}:{})};}finally{for(const body of bodies.values())body.delete();}}
+ else throw Error('未対応の形状操作です');return {outputs,remove,...(analysis?{analysis}:{}),...(removedPreview!==undefined?{removed:removedPreview}:{})};}finally{for(const body of bodies.values())body.delete();}}
 
 function remapHistoryReferences(before,after,spec){
  const oldBodies=kernelBodies(before),newBodies=kernelBodies(after);
