@@ -1,0 +1,6 @@
+import assert from 'node:assert/strict';
+import {scopedFaceGrid,faceGridContains} from '../src/face-grid.js';
+import {regionContains} from '../src/regions.js';
+const circle=(r,n=96)=>Array.from({length:n},(_,i)=>[Math.cos(i/n*Math.PI*2)*r,Math.sin(i/n*Math.PI*2)*r]);
+for(const face of [{outer:circle(30),holes:[circle(20)]},{outer:[[0,0],[60,0],[60,20],[20,20],[20,60],[0,60]],holes:[]}]){const {grid}=scopedFaceGrid(face,'face',5),p=grid.geometry.attributes.position;assert.ok(p.count>0);for(let i=0;i<p.count;i+=2){const midpoint=[(p.getX(i)+p.getX(i+1))/2,(p.getZ(i)+p.getZ(i+1))/2];assert.ok(regionContains(face,midpoint),'face grid never crosses hole or concave exterior');}grid.geometry.dispose();grid.material.dispose();}
+const face={outer:[[10,20],[50,20],[50,60],[10,60]],holes:[]},result=scopedFaceGrid(face,'200',10);assert.deepEqual(result.bounds,{u:[-70,130],v:[-60,140]});assert.equal(faceGridContains(face,[120,130],'face'),false);assert.equal(faceGridContains(face,[120,130],'200'),true);assert.equal(faceGridContains(face,[140,130],'200'),false);assert.equal(faceGridContains(face,[140,130],'unlimited'),true);result.grid.geometry.dispose();result.grid.material.dispose();console.log('PASS circular/holed/concave face grid clipping and centered 200 mm grid/click bounds');

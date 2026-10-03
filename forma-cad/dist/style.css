@@ -253,3 +253,5 @@
 #section-panel label{margin:8px 0}#section-panel small{margin:8px 0;font-size:11px}
 
 .body-display-tools{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px}.body-display-tools button{font-size:12px;padding:5px 8px;flex:1}.body-display-tools label{font-size:12px;display:flex;align-items:center;gap:6px;margin:0;padding:4px 0;width:100%}.body-display-tools input{width:65px;padding:4px 6px}.tree-row .body-isolate{flex-shrink:0;font-size:11px;padding:3px 5px;border:1px solid #405468;border-radius:4px;color:#aad6e5}#body-display-notice{position:absolute;left:18px;top:14px;z-index:8;padding:7px 10px;border-radius:6px;background:#fff1c8;color:#614b13;border:1px solid #d6b956;font-size:12px;pointer-events:none}
+
+#face-grid-scope-row[hidden]{display:none!important}#face-grid-scope{max-width:180px}.navigation{flex-wrap:wrap;max-width:calc(100% - 24px)}

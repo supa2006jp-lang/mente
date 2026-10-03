@@ -1,3 +1,5 @@
+import {zoomAtPointer,fitSelectionBox} from './selection-view.js';
+import {scopedFaceGrid,faceGridBounds,faceGridContains} from './face-grid.js';
 import {planeViewBounds,viewportGridLayout,fitCameraDepth} from './viewport-grid.js';
 import {createBodyDisplay} from './body-display.js';
 import {isSectionSplit,sectionBodyStyles} from './section-split.js';
@@ -132,7 +134,7 @@ function pressWheelEnter(focus){
  target.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true,cancelable:true}));
 }
 function confirmVisibleForm(){const form=document.querySelector('dialog[open] form')||(moveTool?.active?$('move-panel'):holeActive?$('hole-panel'):stage==='extrusion'&&!pendingExtrude?$('extrude-distance'):stage==='sketch'&&!sketch?$('editor'):null);if(!form||!form.getClientRects().length)return false;const submit=[...form.querySelectorAll('button,input')].find(el=>el.type==='submit'&&!el.disabled);if(!submit)return false;form.requestSubmit(submit);return true;}
-let controls=new OrbitControls(camera,renderer.domElement);controls.mouseButtons.LEFT=null;controls.mouseButtons.MIDDLE=THREE.MOUSE.PAN;controls.enableDamping=true;controls.dampingFactor=.12;controls.target.set(0,0,12);controls.minDistance=2;controls.maxDistance=50000;controls.minZoom=.002;controls.maxZoom=10000;
+let controls=new OrbitControls(camera,renderer.domElement);controls.zoomToCursor=true;controls.mouseButtons.LEFT=null;controls.mouseButtons.MIDDLE=THREE.MOUSE.PAN;controls.enableDamping=true;controls.dampingFactor=.12;controls.target.set(0,0,12);controls.minDistance=2;controls.maxDistance=50000;controls.minZoom=.002;controls.maxZoom=10000;
 scene.add(new THREE.HemisphereLight(0xffffff,0x77756e,1.2));const key=new THREE.DirectionalLight(0xffffff,2.0);key.position.set(-100,-180,240);scene.add(key);const fill=new THREE.DirectionalLight(0xffffff,.3);fill.position.set(-100,40,60);scene.add(fill);
 let grid=cadGrid(10,100);grid.rotation.x=Math.PI/2;grid.position.z=-.05;scene.add(grid);
 const axisGroup=new THREE.Group();
@@ -406,7 +408,18 @@ function updateCameraDepth(){const apply=()=>fitCameraDepth(camera,controls.targ
 function visibilityRay(point){const ndc=point.clone().project(camera),ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2(ndc.x,ndc.y),camera);return ray;}
 function fit(){const box=bodyDisplay?bodyDisplay.withDisplay(()=>new THREE.Box3().setFromObject(modelGroup)):new THREE.Box3().setFromObject(modelGroup);box.union(new THREE.Box3().setFromObject(sketchGroup));if(imageReferences)box.union(new THREE.Box3().setFromObject(imageReferences.group));if(box.isEmpty()){controls.target.set(0,0,0);camera.position.set(140,-180,150);camera.zoom=1;}else{const center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3()),direction=camera.position.clone().sub(controls.target).normalize();controls.target.copy(center);camera.position.copy(center).addScaledVector(direction,Math.max(size.length()*2,180));camera.zoom=200/(Math.max(size.length(),20)*1.25/Math.min(host.clientWidth/host.clientHeight,1));}camera.updateProjectionMatrix();controls.update();}
 
-function resetViewControls(target,enabled=true){controls.dispose();controls=new OrbitControls(camera,renderer.domElement);controls.mouseButtons.LEFT=null;controls.mouseButtons.MIDDLE=THREE.MOUSE.PAN;controls.target.copy(target);controls.minDistance=2;controls.maxDistance=50000;controls.minZoom=.002;controls.maxZoom=10000;controls.update();controls.enableDamping=true;controls.dampingFactor=.12;controls.enabled=enabled&&!moveTool?.active;}
+function hasFitSelection(){return [...selectedBodies].some(id=>meshes.get(id)?.visible)||selectedFaces.some(f=>meshes.get(f.bodyId)?.visible)||selectedEdges.length>0||selectedSketchSegments.size>0||!!selectedFace?.outer||!!features.find(f=>f.id===selected&&(f.kind==='sketch'||meshes.get(f.id)?.visible));}
+function fitSelection(){
+ const collect=()=>{const box=new THREE.Box3(),append=(geometry,matrix)=>{if(!geometry.boundingBox)geometry.computeBoundingBox();const bounds=geometry.boundingBox.clone();if(matrix)bounds.applyMatrix4(matrix);box.union(bounds);};
+  if(selectedBodies.size){for(const id of selectedBodies){const mesh=meshes.get(id);if(mesh?.visible){mesh.updateMatrixWorld(true);append(mesh.geometry,mesh.matrixWorld);}}}
+  else if(selectedFaces.length){for(const f of selectedFaces){const mesh=meshes.get(f.bodyId);if(mesh?.visible){mesh.updateMatrixWorld(true);append(f.geometry,mesh.matrixWorld);}}}
+  else if(selectedEdges.length){for(const edge of selectedEdges)for(const point of (edge.circle||edge.arc)?.points||[edge.a,edge.b])box.expandByPoint(new THREE.Vector3(...point));}
+  else if(selectedFace?.outer){for(const point of selectedFace.outer)box.expandByPoint(worldPoint(selectedFace,point).add(bodyDisplay?.offset(selectedFace.bodyId)||new THREE.Vector3()));}
+  else{const ids=selectedSketchSegments.size?[...selectedSketchSegments.keys()]:[selected];for(const id of ids){const f=features.find(item=>item.id===id);if(f?.kind==='sketch'){const geometry=makeSketchGeometry(f);append(geometry);geometry.dispose();}else{const mesh=meshes.get(id);if(mesh?.visible){mesh.updateMatrixWorld(true);append(mesh.geometry,mesh.matrixWorld);}}}}return box;};
+ const box=bodyDisplay?bodyDisplay.withDisplay(collect):collect(),enabled=controls.enabled,target=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(target)resetViewControls(target,enabled);
+}
+$('fit-selection').onclick=fitSelection;
+function resetViewControls(target,enabled=true){controls.dispose();controls=new OrbitControls(camera,renderer.domElement);controls.zoomToCursor=true;controls.mouseButtons.LEFT=null;controls.mouseButtons.MIDDLE=THREE.MOUSE.PAN;controls.target.copy(target);controls.minDistance=2;controls.maxDistance=50000;controls.minZoom=.002;controls.maxZoom=10000;controls.update();controls.enableDamping=true;controls.dampingFactor=.12;controls.enabled=enabled&&!moveTool?.active;}
 function setView(v){if(!(sketch&&$('profile').value==='point'))finishSketch(false);const dist=camera.position.distanceTo(controls.target);let direction;camera.up.set(0,0,1);if(v==='top'){direction=new THREE.Vector3(0,0,1);camera.up.set(0,1,0);}else if(v==='front')direction=new THREE.Vector3(0,-1,0);else if(v==='right')direction=new THREE.Vector3(1,0,0);else direction=new THREE.Vector3(1,-1.3,1).normalize();const target=controls.target.clone();camera.position.copy(target).addScaledVector(direction,dist);resetViewControls(target);$('view-label').textContent={top:'上面',front:'正面',right:'右側面',iso:'平行投影'}[v];}
 let cubeOrbit=null;
 function setCubeView(direction,label){if(!(sketch&&$('profile').value==='point'))finishSketch(false);const target=controls.target.clone(),distance=camera.position.distanceTo(target);camera.up.set(0,0,1);if(Math.abs(direction.z)>.999)camera.up.set(0,direction.z>0?1:-1,0);camera.position.copy(target).addScaledVector(direction,distance);camera.lookAt(target);resetViewControls(target);$('view-label').textContent=label+'の視点';viewCube.update();}
@@ -521,11 +534,9 @@ renderer.domElement.addEventListener('wheel',e=>{
  }
  const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?100:1)*(e.ctrlKey?10:1);
  if(!Number.isFinite(delta)||!delta)return;
- camera.zoom=THREE.MathUtils.clamp(camera.zoom*Math.pow(.95,controls.zoomSpeed*delta*.01),controls.minZoom,controls.maxZoom);
- camera.updateProjectionMatrix();
- camera.updateMatrixWorld(true);
+ zoomAtPointer(camera,controls.target,renderer.domElement.getBoundingClientRect(),e.clientX,e.clientY,THREE.MathUtils.clamp(camera.zoom*Math.pow(.95,controls.zoomSpeed*delta*.01),controls.minZoom,controls.maxZoom));
 },{capture:true,passive:false});
-renderer.domElement.addEventListener('wheel',e=>{if(!sketch)return;e.preventDefault();camera.zoom=THREE.MathUtils.clamp(camera.zoom*Math.exp(-Math.sign(e.deltaY)*.15),.002,10000);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);refreshGrid();},{passive:false});
+renderer.domElement.addEventListener('wheel',e=>{if(!sketch)return;e.preventDefault();zoomAtPointer(camera,controls.target,renderer.domElement.getBoundingClientRect(),e.clientX,e.clientY,THREE.MathUtils.clamp(camera.zoom*Math.exp(-Math.sign(e.deltaY)*.15),.002,10000));refreshGrid();},{passive:false});
 function updateSplinePreview(hit=null){
  const points=splinePoints.map(p=>[...p]);
  if(hit&&points.length){const next=[hit.dot(sketchBasis.u),hit.dot(sketchBasis.v)],last=points.at(-1);if(Math.hypot(next[0]-last[0],next[1]-last[1])>1e-7)points.push(next);}
@@ -1304,6 +1315,7 @@ function updateModelGrid(){
 }
 function updateSketchGrid(){
  const face=!sketch&&stage==='model'?(holeActive?holeHoverFace:selectedFace):null,basis=sketch?sketchBasis:face?basisFor(face):null,visible=!!basis&&gridVisibility[sketch?$('plane').value:face?.plane||'CUSTOM']!==false;
+ const scopedFace=face?.bodyId&&face.outer?face:null,scope=scopedFace?$('face-grid-scope').value:'unlimited';$('face-grid-scope-row').hidden=!scopedFace;
  // Show one working grid, and only the world axes lying in its plane.
  if(!basis)updateModelGrid();
  grid.visible=!basis&&gridVisibility[grid.userData.plane||'XY']!==false;
@@ -1317,17 +1329,21 @@ function updateSketchGrid(){
  host.dataset.visibleAxes=axisGroup.children.map((axis,i)=>axis.visible?'XYZ'[i]:'').join('');
  if(!visible){if(sketchGrid)sketchGrid.visible=false;host.dataset.sketchGridVisible='false';delete host.dataset.sketchGridBounds;delete host.dataset.sketchGridDisplayStep;const label='1目盛り：'+fmt(gridStep)+' mm';if(basis&&$('grid-scale').textContent!==label)$('grid-scale').textContent=label;return;}
  const offset=sketch?sketchOrigin.dot(basis.n):face.offset+(bodyDisplay?.offset(face.bodyId).dot(basis.n)||0),view=gridViewBounds(basis,offset);
- const layout=viewportGridLayout(view,gridStep),displayStep=layout.step,centerU=layout.u,centerV=layout.v,divisions=layout.divisions,key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,divisions]);
- if(key!==sketchGridKey){if(sketchGrid)disposeObject(sketchGrid);sketchGridKey=key;sketchGrid=cadGrid(displayStep,divisions,false);sketchGrid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));sketchGrid.traverse(o=>{if(o.material){o.material.vertexColors=false;o.material.color.set(0x9554c9);o.material.transparent=true;o.material.opacity=.3;o.material.depthWrite=false;o.material.depthTest=false;}});sketchGrid.renderOrder=3;scene.add(sketchGrid);}
- sketchGrid.position.copy(basis.u).multiplyScalar(centerU).addScaledVector(basis.v,centerV).addScaledVector(basis.n,offset);
- const halfSpan=divisions*displayStep/2;host.dataset.sketchGridBounds=JSON.stringify({u:[centerU-halfSpan,centerU+halfSpan],v:[centerV-halfSpan,centerV+halfSpan]});host.dataset.sketchGridDisplayStep=String(displayStep);
+ const scoped=scopedFace&&scope!=='unlimited',layout=scoped?null:viewportGridLayout(view,gridStep),bounds=scoped?faceGridBounds(scopedFace,scope):layout.bounds;
+ let displayStep=scoped?gridStep:layout.step;if(scoped)while(Math.max(bounds.u[1]-bounds.u[0],bounds.v[1]-bounds.v[0])/displayStep>180)displayStep*=2;
+ const key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,scope,scoped?scopedFace.id:layout.divisions]);
+ if(key!==sketchGridKey){if(sketchGrid)disposeObject(sketchGrid);sketchGridKey=key;sketchGrid=scoped?scopedFaceGrid(scopedFace,scope,gridStep).grid:cadGrid(displayStep,layout.divisions,false);sketchGrid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));sketchGrid.traverse(o=>{if(o.material){o.material.vertexColors=false;o.material.color.set(0x9554c9);o.material.transparent=true;o.material.opacity=.3;o.material.depthWrite=false;o.material.depthTest=false;}});sketchGrid.renderOrder=3;scene.add(sketchGrid);}
+ sketchGrid.position.copy(basis.n).multiplyScalar(offset);if(!scoped)sketchGrid.position.addScaledVector(basis.u,layout.u).addScaledVector(basis.v,layout.v);else{const shift=bodyDisplay?.offset(scopedFace.bodyId)||new THREE.Vector3();sketchGrid.position.addScaledVector(basis.u,shift.dot(basis.u)).addScaledVector(basis.v,shift.dot(basis.v));}
+ const displayBounds=scoped?Object.fromEntries(['u','v'].map(axis=>{const delta=(bodyDisplay?.offset(scopedFace.bodyId)||new THREE.Vector3()).dot(basis[axis]);return [axis,bounds[axis].map(value=>value+delta)];})):bounds;
+ host.dataset.sketchGridBounds=JSON.stringify(displayBounds);host.dataset.sketchGridDisplayStep=String(displayStep);host.dataset.faceGridScope=scope;
  const label=displayStep===gridStep?'1目盛り：'+fmt(gridStep)+' mm':'表示1目盛り：'+fmt(displayStep)+' mm（吸着：'+fmt(gridStep)+' mm）';if($('grid-scale').textContent!==label)$('grid-scale').textContent=label;
  sketchGrid.visible=true;host.dataset.sketchGridVisible='true';host.dataset.sketchGridOffset=String(offset);
 }
 function selectFaceGrid(){
  if(!selectedFace||!sketchGrid?.visible||stage!=='model')return false;
- const face=selectedFace,b=basisFor(face),point=raycaster.ray.intersectPlane(new THREE.Plane(b.n,-face.offset),new THREE.Vector3());
- if(!point)return false;
+ const face=selectedFace,b=basisFor(face),shift=bodyDisplay?.offset(face.bodyId)||new THREE.Vector3(),point=raycaster.ray.intersectPlane(new THREE.Plane(b.n,-face.offset-shift.dot(b.n)),new THREE.Vector3());
+ if(!point)return false;point.sub(shift);
+ if(face.bodyId&&face.outer&&!faceGridContains(face,[point.dot(b.u),point.dot(b.v)],$('face-grid-scope').value))return false;
  clearFaceSelection(); clearEdgeSelection();selected=null;selectedSurface=null;selectedBody=face.bodyId||selectedBody;chosenRegion=face.outer?face:null;activeFrame=face.frame;syncFields();
  $('measurement').hidden=false;$('measurement-title').textContent='選択した面のグリッド';$('measurement-length').textContent='1目盛り：'+fmt(gridStep)+' mm';$('measurement-angle').textContent='スケッチ / オフセット平面 / 分割'+(face.outer?' / 押し出し':'');$('status').textContent='作業平面を選択しました。上のツールからコマンドを選んでください';host.dataset.selectedFaceGrid='true';return true;
 }
@@ -2156,7 +2172,7 @@ $('align-hinge-sketch').onclick=()=>{
 };
 imageReferences=referenceImages({onSvg:()=>{stage='model';selected=null;syncFields();fit();},scene,camera,canvas:renderer.domElement,host,getFeatures:()=>features,setFeatures:next=>{setProject(next);updateTargets();},getPlane:()=>{const f=selectedFace||{plane:$('plane').value,frame:activeFrame,offset:planeCoordinates(current()).offset},b=basisFor(f);return {plane:f.plane,frame:{u:b.u.toArray(),v:b.v.toArray(),n:b.n.toArray()},offset:f.offset||0};},prepare:()=>{moveTool?.cancel();finishSketch(false);stage='model';dropPreview();syncFields();},viewPlane:f=>{const b=basisFor(f),origin=b.u.clone().multiplyScalar(f.center[0]).addScaledVector(b.v,f.center[1]).addScaledVector(b.n,f.offset);camera.up.copy(b.v);camera.position.copy(origin).addScaledVector(b.n,180);resetViewControls(origin);camera.zoom=200/(Math.max(f.width/(host.clientWidth/host.clientHeight),f.height)*1.3);camera.lookAt(origin);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);},startSketch:f=>{chooseConstructionPlane({...f,kind:'plane'});$('new-line').click();},notify});imageReferences.refresh();
 
-function updateSelectionUI(){bodyDisplay?.update();
+function updateSelectionUI(){bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
  oppositePlaneButton.hidden=!oppositePlaneBusy&&!(selectedFace?.bodyId&&meshes.has(selectedFace.bodyId)&&selectedFaces.length<=1&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));
  const parts=[];if(selectedBodies.size)parts.push('ボディ '+selectedBodies.size+' 個');if(selectedFaces.length)parts.push('面 '+selectedFaces.length+' 枚');if(selectedEdges.length)parts.push('辺 '+selectedEdges.length+' 本');
  let lines=0,points=0;for(const [id,indices] of selectedSketchSegments){const f=features.find(f=>f.id===id);if(!f)continue;if(f.profile==='point')points++;else lines+=['circle','spline'].includes(f.profile)||f.arc?Number(indices.size>0):indices.size;}
