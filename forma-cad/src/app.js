@@ -1315,8 +1315,9 @@ function updateModelGrid(){
 }
 function updateSketchGrid(){
  const face=!sketch&&stage==='model'?(holeActive?holeHoverFace:selectedFace):null,basis=sketch?sketchBasis:face?basisFor(face):null;
- const originSketch=sketch&&['XY','XZ','YZ'].includes($('plane').value)&&Math.abs(sketchOrigin.dot(basis.n))<1e-5;
- if(originSketch)gridPlane=$('plane').value;
+ const originPlane=sketch?(Math.abs(basis.n.z)>.999999?'XY':Math.abs(basis.n.y)>.999999?'XZ':Math.abs(basis.n.x)>.999999?'YZ':null):null;
+ const originSketch=!!originPlane&&Math.abs(sketchOrigin.dot(basis.n))<1e-5;
+ if(originSketch)gridPlane=originPlane;
  const visible=!!basis&&!originSketch&&gridVisibility[sketch?$('plane').value:face?.plane||'CUSTOM']!==false;
  const scopedFace=face?.bodyId&&face.outer?face:null,scope=scopedFace?$('face-grid-scope').value:'unlimited';$('face-grid-scope-row').hidden=!scopedFace;
  // Keep the origin plane alongside the working grid.
