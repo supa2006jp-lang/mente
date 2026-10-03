@@ -15,7 +15,7 @@ function triangleVertices(mesh,t,target){const {vertices,triangles}=mesh.output;
 // World-space mesh warnings in the supplied print orientation. Overhang angle
 // is measured from vertical; horizontal undersides are 90 degrees. This local
 // surface check is not a slicer or proof of physically disconnected components.
-export async function analyzeCoilPrint(outputs,{minThickness=.8,overhangAngle=50,shouldCancel}={}){
+export async function analyzeCoilPrint(outputs,{minThickness=.8,overhangAngle=50,checkOverhang=true,shouldCancel}={}){
  if(!Array.isArray(outputs)||!Number.isFinite(minThickness)||minThickness<=offset*2||!Number.isFinite(overhangAngle)||overhangAngle<0||overhangAngle>=90)throw Error('印刷チェックの設定が不正です');
  const meshes=[],result={kind:'mesh-print-warning',outputs:[],stats:stats(),settings:{minThickness,overhangAngle,supportDistance},cancelled:false},centroid=new THREE.Vector3(),normal=new THREE.Vector3(),hitNormal=new THREE.Vector3(),ray=new THREE.Ray(),down=new THREE.Vector3(0,0,-1),bedTolerance=.03,overhangLimit=-Math.sin(overhangAngle*Math.PI/180);let lastYield=performance.now();
  try{
@@ -30,7 +30,7 @@ export async function analyzeCoilPrint(outputs,{minThickness=.8,overhangAngle=50
     // the starting face. Opposite normals exclude tangential seams.
     const hit=mesh.bvh.raycastFirst(ray,THREE.BackSide,offset*.5,minThickness-offset);
     if(hit&&hit.faceIndex!==t){hitNormal.fromArray(mesh.normals,hit.faceIndex*3);if(hit.distance+offset<minThickness-1e-5&&normal.dot(hitNormal)<-.25){triangleVertices(mesh,t,entry.thin);entry.stats.thinTriangles++;}}
-    if(normal.z>=overhangLimit-1e-8)continue;
+    if(!checkOverhang||normal.z>=overhangLimit-1e-8)continue;
     const {vertices,triangles}=mesh.output,zs=[0,1,2].map(j=>vertices[triangles[t*3+j]*3+2]);
     // The bed is world Z=0, not each floating component's own lowest point.
     if(zs.every(z=>Math.abs(z)<=bedTolerance))continue;

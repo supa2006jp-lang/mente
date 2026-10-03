@@ -1,0 +1,8 @@
+import assert from 'node:assert/strict';import {MachiningPreviewCache} from '../src/machining-preview-cache.js';
+const cache=new MachiningPreviewCache(),features=[{id:'c'}],spec={type:'shell',id:'preview',target:'c',thickness:1.5,faces:[{point:[0,0,40],normal:[0,0,1]}]},result={outputs:[{id:'c',brep:'exact',vertices:[0,0,0]}],remove:[],removed:[{id:'c'}]};
+cache.store(features,spec,result);const hit=cache.get(features,{faces:spec.faces,target:'c',thickness:1.5,id:'real',type:'shell'});assert.equal(hit.outputs[0].brep,'exact');assert.equal(hit.outputs[0].id,'c');assert.equal(hit.removed,undefined);hit.outputs[0].brep='changed';assert.equal(cache.get(features,spec).outputs[0].brep,'exact');
+for(const patch of [{thickness:2},{direction:'外側'},{faces:[{point:[0,0,0],normal:[0,0,-1]}]},{target:'other'}])assert.equal(cache.get(features,{...spec,...patch}),null);
+assert.equal(cache.get([...features],spec),null);assert.equal(cache.get(features,spec,'other-edit'),null);cache.store(features,spec,result,'shell-edit');assert.ok(cache.get(features,spec,'shell-edit'));assert.equal(cache.get(features,spec),null);
+const enclosure={type:'enclose',id:'preview',target:'c'};cache.store(features,enclosure,{outputs:[{id:'preview'},{id:'preview-part2'}],remove:[]});assert.deepEqual(cache.get(features,{...enclosure,id:'new'}).outputs.map(o=>o.id),['new','new-part2']);
+cache.store(features,{type:'coilJoint',id:'preview'},result);assert.equal(cache.get(features,{type:'coilJoint',id:'real'}),null,'coil apply must still perform its final interference checks');cache.clear();assert.equal(cache.get(features,spec),null);
+console.log('PASS exact preview reuse, geometry and face invalidation, editing scope, immutable result copies, generated IDs, coil validation and clear');
