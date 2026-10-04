@@ -280,3 +280,5 @@
 #svg-wrap-raster-flat{display:block;width:100%;height:110px;border:1px solid #8cadba;border-radius:5px;background:#f6fafc}#svg-wrap-image-fields{border:1px solid #466579;border-radius:6px;padding:0 10px;background:#10212b}
 
 #svg-wrap-image-pick{display:block;width:100%;margin-top:7px;padding:8px}#svg-wrap-image-name{display:block;margin:6px 0;color:#86dce6;font-size:12px;overflow-wrap:anywhere}
+
+#image-relief-selected-cylinder{pointer-events:auto;margin-top:6px;padding:8px 10px;background:#087eac;color:white;border:1px solid #076d92;border-radius:5px;font-weight:600}
