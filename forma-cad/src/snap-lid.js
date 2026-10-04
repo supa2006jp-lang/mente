@@ -1,5 +1,5 @@
 import {snapLidOpeningSettings,cutSnapLidOpenings} from './snap-lid-opening.js';
-import {snapLidFilletSettings,roundSnapProfile,offsetSnapProfile,filletSnapEnd,filletSnapOutside} from './snap-lid-fillet.js';
+import {snapLidFilletSettings,roundSnapProfile,filletSnapEnd,filletSnapOutside} from './snap-lid-fillet.js';
 import * as R from 'replicad';
 const fail='上下が同じ輪郭で、XY平面で接する2つのボディを選択してください';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
@@ -21,18 +21,17 @@ export function makeSnapLid(lower,upper,p){
   if(p.lidWall-p.ridge<1.2)throw Error('溝の外側に1.2 mm以上の肉厚が必要です。山高さを小さくするか蓋壁厚を増やしてください');
   if(bodyHeight<=p.floor+1||lidHeight<=p.floor+p.insertion+p.clearance)throw Error('本体や蓋の高さが足りません。底厚・差し込み高さを小さくしてください');
   const face=hold(cap(lower,seam)),area=R.measureArea(face),fillet=snapLidFilletSettings(p,info,face);
-  const opening=snapLidOpeningSettings(face,p,fillet);
+  const opening=snapLidOpeningSettings(face,p,fillet,info);
   const roundedLower=filletSnapOutside(lower,info.lowerMin,fillet.outerRadius),roundedUpper=filletSnapOutside(upper,info.upperMax,fillet.outerRadius);hold(roundedLower.shape);hold(roundedUpper.shape);fillet.outerEdges=roundedLower.edges+roundedUpper.edges;
   function sharpInset(distance){if(Math.abs(distance)<1e-9)return face.clone();for(const sign of [-1,1]){let w,f;try{w=face.clone().outerWire().offset2D(sign*distance,'intersection');f=R.makeFace(w);const a=R.measureArea(f);if(a>1e-6&&a<area){w.delete();return f;}}catch{}w?.delete();f?.delete();}throw Error('この輪郭では内側の空間を作れません。壁厚を小さくしてください');}
-  const receiver=fillet.innerRadius?hold(roundSnapProfile(hold(sharpInset(p.lidWall)),fillet.innerRadius)):null;
-  function inset(distance){if(!receiver)return sharpInset(distance);if(Math.abs(distance-p.bodyWall)<1e-8)return roundSnapProfile(hold(sharpInset(distance)),fillet.innerRadius);return offsetSnapProfile(receiver,distance-p.lidWall);}
-  function prism(offset,z,height,endZ=null){const f=hold(inset(offset));const s=hold(extrude(f,height));const positioned=hold(s.translate([0,0,z-seam]));if(endZ===null||!fillet.innerEndRadius)return positioned;const rounded=filletSnapEnd(positioned,endZ,fillet.innerEndRadius);fillet.innerEdges+=rounded.edges;return hold(rounded.shape);}
+  const inset=sharpInset;
+  function prism(offset,z,height,endZ=null,bodyInner=false){let f=hold(inset(offset));if(bodyInner&&fillet.innerRadius)f=hold(roundSnapProfile(f,fillet.innerRadius));const s=hold(extrude(f,height));const positioned=hold(s.translate([0,0,z-seam]));if(!bodyInner||endZ===null||!fillet.innerEndRadius)return positioned;const rounded=filletSnapEnd(positioned,endZ,fillet.innerEndRadius);fillet.innerEdges+=rounded.edges;return hold(rounded.shape);}
   function taper(sections){const wires=sections.map(([z,offset])=>hold(hold(hold(inset(offset)).translate([0,0,z-seam])).outerWire()));return hold(R.loft(wires,{ruled:true}));}
-  const cavity=prism(p.bodyWall,info.lowerMin+p.floor,bodyHeight-p.floor+p.insertion+1,info.lowerMin+p.floor),bodyHollow=hold(roundedLower.shape.cut(cavity));
+  const cavity=prism(p.bodyWall,info.lowerMin+p.floor,bodyHeight-p.floor+p.insertion+1,info.lowerMin+p.floor,true),bodyHollow=hold(roundedLower.shape.cut(cavity));
   const neckOuter=prism(neckOffset,seam-.02,p.insertion+.02),neckInner=prism(p.bodyWall,seam-.1,p.insertion+.2),neck=hold(neckOuter.cut(neckInner));
   const peak=seam+p.insertion*.5,half=p.ridge+.15,ridgeOuter=taper([[peak-half,neckOffset],[peak,neckOffset-p.ridge],[peak+half,neckOffset]]),ridgeInner=prism(p.bodyWall,peak-half-.1,half*2+.2),ridge=hold(ridgeOuter.cut(ridgeInner));
   const neckRidge=hold(neck.fuse(ridge)),body=hold(bodyHollow.fuse(neckRidge));
-  const lidCavity=prism(p.lidWall,seam-.1,lidHeight-p.floor+.1,info.upperMax-p.floor),lidHollow=hold(roundedUpper.shape.cut(lidCavity));
+  const lidCavity=prism(p.lidWall,seam-.1,lidHeight-p.floor+.1),lidHollow=hold(roundedUpper.shape.cut(lidCavity));
   const grooveOuter=taper([[peak-half-p.clearance,p.lidWall],[peak,p.lidWall-p.ridge],[peak+half+p.clearance,p.lidWall]]),lidRetained=hold(lidHollow.cut(grooveOuter)),lid=hold(cutSnapLidOpenings(lidRetained,seam,opening));
   valid(body,'本体');valid(lid,'蓋');const common=hold(body.intersect(lid)),overlap=R.measureVolume(common);if(overlap>1e-5)throw Error('本体と蓋が干渉します。すき間を増やしてください');
   let bodyOut=body.clone(),lidOut=lid.clone();
