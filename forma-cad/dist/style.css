@@ -282,3 +282,5 @@
 #svg-wrap-image-pick{display:block;width:100%;margin-top:7px;padding:8px}#svg-wrap-image-name{display:block;margin:6px 0;color:#86dce6;font-size:12px;overflow-wrap:anywhere}
 
 #image-relief-selected-cylinder{pointer-events:auto;margin-top:6px;padding:8px 10px;background:#087eac;color:white;border:1px solid #076d92;border-radius:5px;font-weight:600}
+
+#svg-wrap-crisp{margin:6px 0;padding:8px 12px;border:1px solid #6aa6b7;color:#b8f2ff;background:#174656;border-radius:5px}

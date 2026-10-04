@@ -1,9 +1,8 @@
 import * as R from 'replicad';
 import * as THREE from 'three';
-import {rasterRelief} from './raster-relief.js';
-import {fuseSolid} from './solid-fuse.js';
+import {rasterRelief,rasterResolution} from './raster-relief.js';
 function rasterEnvelope(spec,info,relief,count,onProgress){
- const oc=R.getOC(),segments=Math.ceil(relief.columns/(2*count))*count,uCount=2*segments+1,vCount=relief.rows+1,c=Math.cos(Math.PI/segments),angle=spec.angle*Math.PI/180,sign=spec.operation==='engrave'?-1:1,objects=[],keep=o=>(objects.push(o),o);
+ const oc=R.getOC(),resolution=rasterResolution(spec.raster,spec.rasterSettings,spec.seam,spec.repeatCount),segments=resolution.segments,uCount=2*segments+1,vCount=resolution.rows+1,c=Math.cos(Math.PI/segments),angle=spec.angle*Math.PI/180,sign=spec.operation==='engrave'?-1:1,objects=[],keep=o=>(objects.push(o),o);
  const poles=keep(new oc.NCollection_Array2_gp_Pnt(1,uCount,1,vCount)),weights=keep(new oc.NCollection_Array2_double(1,uCount,1,vCount)),uk=keep(new oc.NCollection_Array1_double(1,segments+1)),um=keep(new oc.NCollection_Array1_int(1,segments+1)),vk=keep(new oc.NCollection_Array1_double(1,vCount-2)),vm=keep(new oc.NCollection_Array1_int(1,vCount-2));let face,top,bottom;
  try{
   for(let i=0;i<=segments;i++){uk.SetValue(i+1,i);um.SetValue(i+1,i===0||i===segments?3:2);}
@@ -22,7 +21,7 @@ function rasterEnvelope(spec,info,relief,count,onProgress){
 }
 export function wrapRasterSolid(base,spec,info,onProgress){
  const relief=rasterRelief(spec.raster,spec.rasterSettings),count=spec.seam==='repeat'?spec.repeatCount:spec.seam==='mirror'?2:1;
- if(!Number.isInteger(count)||count<1||count>12||relief.columns/count<8)throw Error('画像の繰り返しが細かすぎます。1枚の幅を大きくするか、細かさを上げてください');
+ if(!Number.isInteger(count)||count<1||count>12)throw Error('画像の繰り返しが細かすぎます。1枚の幅を大きくするか、細かさを上げてください');
  if(Math.max(...relief.values)<1e-5)throw Error('凹凸にできる明るい部分がありません。白黒を反転するか画像を変更してください');
  const {radius,height:bodyHeight}=info,sign=spec.operation==='engrave'?-1:1,margin=Math.min(.25,radius*.05),innerRadius=radius-(sign<0?spec.depth:0)-margin;
  if(innerRadius<=.1)throw Error('凹凸の深さを小さくしてください');
@@ -31,17 +30,19 @@ export function wrapRasterSolid(base,spec,info,onProgress){
  const place=shape=>shape.clone().rotate(turn,[0,0,0],rotation.toArray()).translate(info.origin);
  try{
   envelope=rasterEnvelope(spec,info,relief,count,onProgress);
-  // Bound spline overshoot by the requested maximum relief depth.
-  if(sign>0){const limit=R.makeCylinder(radius+spec.depth,spec.height,[0,0,spec.offset]);try{const bounded=envelope.intersect(limit);envelope.delete();envelope=bounded;}finally{limit.delete();}}
-  // Positive rational weights already bound engraving by radius-depth. Avoid a
-  // redundant coincident-cylinder union on uniform white regions.
+  // Every local spline support spans less than 90 degrees. Its positive rational
+  // weights keep radii between the minimum and maximum height controls. A second
+  // cylinder clamp is redundant and expensive on detailed, repeated drawings.
   if(sign<0){outer=R.makeCylinder(radius+.01,spec.height,[0,0,spec.offset]);tool=outer.cut(envelope);placed=place(tool);onProgress?.({stage:'画像の凹凸を彫り込んでいます',current:2,total:3});result=base.cut(placed);}
   else{core=R.makeCylinder(innerRadius,bodyHeight+2,[0,0,-1]);tool=envelope.cut(core);placed=place(tool);
   // Replace only a thin outer band; the inner cavity and bottom remain intact.
   outer=R.makeCylinder(radius+.01,spec.height,[0,0,spec.offset]);inner=R.makeCylinder(innerRadius+.05,spec.height+2,[0,0,spec.offset-1]);band=outer.cut(inner);
   const contactOuter=R.makeCylinder(radius,spec.height,[0,0,spec.offset]);let contactBand,positionedContact,present;try{contactBand=contactOuter.cut(inner);positionedContact=place(contactBand);present=base.intersect(positionedContact);const expected=R.measureVolume(contactBand);if(Math.abs(R.measureVolume(present)-expected)>Math.max(.001,expected*1e-5))throw Error('模様の範囲に穴や薄い壁があります。範囲を狭くするか、壁厚を増やしてください');}finally{present?.delete();positionedContact?.delete();contactBand?.delete();contactOuter.delete();}
   const positionedBand=place(band);try{remainder=base.cut(positionedBand);}finally{positionedBand.delete();}
-  onProgress?.({stage:'画像の凹凸を本体に接合しています',current:2,total:3});result=fuseSolid(remainder,placed);}
+  onProgress?.({stage:'画像の凹凸を本体に接合しています',current:2,total:3});
+  // A detailed trimmed spline has approximate volume quadrature; validate its
+  // topology and cavity directly instead of comparing separately integrated volumes.
+  result=remainder.fuse(placed);}
   const oc=R.getOC(),check=new oc.BRepCheck_Analyzer(result.wrapped,true,false),before=base.solids,after=result.solids;try{if(!check.IsValid()||after.length!==before.length||!(R.measureVolume(result)>0))throw Error('この画像では正常なソリッドを作れません。滑らかさを上げるか、凹凸を小さくしてください');}finally{check.delete();for(const s of [...before,...after])s.delete();}
   onProgress?.({stage:'画像の凹凸を確認しています',current:3,total:3});const shape=result;result=null;return {shape,info};
  }finally{result?.delete();placed?.delete();remainder?.delete();band?.delete();inner?.delete();outer?.delete();tool?.delete();core?.delete();envelope?.delete();}
