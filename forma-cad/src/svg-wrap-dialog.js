@@ -5,7 +5,7 @@ import {surfacePattern,surfacePatternNames} from './surface-pattern.js';
 export function svgWrapDialog({scene,meshes,host,kernel,getFeatures,apply,notify}){
  const dialog=document.createElement('dialog');dialog.id='svg-wrap-dialog';dialog.innerHTML=`<form id="svg-wrap-form"><h2 id="svg-wrap-title">SVGを円柱に巻き付け</h2><p id="svg-wrap-info"></p>
  <label>模様の作り方<select id="svg-wrap-source"><option value="generated">模様を自動生成</option><option value="svg">SVGファイルを読み込む</option></select></label>
- <div id="svg-wrap-auto-fields" hidden><label>模様の種類<select id="svg-wrap-kind"><option value="scales">うろこ</option><option value="wave">波</option><option value="grid">網目</option><option value="stone">石目</option></select></label>
+ <div id="svg-wrap-auto-fields" hidden><label>模様の種類<select id="svg-wrap-kind">${Object.entries(surfacePatternNames).map(([value,name])=>'<option value="'+value+'">'+name+'</option>').join('')}</select></label>
  <label>1模様の幅の目安 (mm)<input id="svg-wrap-size" type="number" value="20" min="0.1" step="any" required></label>
  <label>段数<input id="svg-wrap-rows" type="number" value="3" min="1" max="8" step="1" required></label>
  <label id="svg-wrap-line-width-label">線の太さ (mm)<input id="svg-wrap-line-width" type="number" value="0.8" min="0.2" step="any" required></label>
@@ -28,7 +28,7 @@ export function svgWrapDialog({scene,meshes,host,kernel,getFeatures,apply,notify
  function showMode(){const auto=generated();$('title').textContent=auto?'円柱の模様を生成':'SVGを円柱に巻き付け';dialog.dataset.patternSource=auto?'generated':'svg';
   for(const [id,hide]of [['auto-fields',!auto],['file-fields',auto],['svg-layout',auto]]){$(id).hidden=hide;for(const el of $(id).querySelectorAll('input,select'))el.disabled=hide||!info;}
   $('seed-label').hidden=$('kind').value!=='stone';$('seed').disabled=!auto||!info||$('kind').value!=='stone';
-  $('line-width-label').firstChild.textContent=$('kind').value==='stone'?'石の間のすき間 (mm)':'線の太さ (mm)';
+  $('line-width-label').firstChild.textContent=$('kind').value==='stone'?'石の間のすき間 (mm)':['dots','diamonds','bricks'].includes($('kind').value)?'模様のすき間 (mm)':'線の太さ (mm)';
   $('mode-help').textContent=auto?'幅を円周に合わせ、継ぎ目がつながるよう自動で配置します。作成後は履歴の「模様生成」から再編集できます。':'SVGの塗り・線を立体化します。文字と画像はパスに変換してください。';
  }
  function clear(){if(preview){preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview.removeFromParent();preview=null;}if(hidden){const [mesh,visible]=hidden;if(mesh.parent)mesh.visible=visible;hidden=null;}delete host.dataset.svgWrapPreview;}
