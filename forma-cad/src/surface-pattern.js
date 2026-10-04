@@ -1,10 +1,14 @@
 import {polygonRegions,svgWrapPieces} from './svg-wrap-pattern.js';
 export const surfacePatternNames={scales:'うろこ',wave:'波',grid:'網目',stone:'石目',zigzag:'ジグザグ',dots:'水玉',diamonds:'ひし形',honeycomb:'ハニカム',bricks:'レンガ',weave:'かご編み'};
 export function surfacePattern(circumference,height,settings={}){
- const p={version:1,kind:'scales',size:20,rows:3,lineWidth:.8,stagger:.5,seed:1,...settings};
+ const p={version:1,kind:'scales',size:20,rows:3,lineWidth:.8,stagger:.5,seed:1,autoRows:false,...settings};
  if(!Number.isFinite(circumference)||circumference<=0||!Number.isFinite(height)||height<=0)throw Error('円柱と模様の高さを確認してください');
- if(!Object.hasOwn(surfacePatternNames,p.kind)||p.version!==1||!Number.isFinite(p.size)||p.size<.1||!Number.isInteger(p.rows)||p.rows<1||p.rows>8||!Number.isFinite(p.lineWidth)||p.lineWidth<.2||!Number.isFinite(p.stagger)||p.stagger<0||p.stagger>1||!Number.isInteger(p.seed)||p.seed<0||p.seed>9999)throw Error('模様の設定範囲を確認してください');
- const requested=Math.max(2,Math.round(circumference/p.size)),count=p.kind==='weave'?Math.max(2,Math.round(requested/2)*2):requested,width=circumference/count,rowHeight=height/p.rows;
+ if(!Object.hasOwn(surfacePatternNames,p.kind)||p.version!==1||!Number.isFinite(p.size)||p.size<.1||typeof p.autoRows!=='boolean'||!Number.isFinite(p.lineWidth)||p.lineWidth<.2||!Number.isFinite(p.stagger)||p.stagger<0||p.stagger>1||!Number.isInteger(p.seed)||p.seed<0||p.seed>9999)throw Error('模様の設定範囲を確認してください');
+ const requested=Math.max(2,Math.round(circumference/p.size)),count=p.kind==='weave'?Math.max(2,Math.round(requested/2)*2):requested,width=circumference/count;
+ // Old saved generators omit autoRows and retain their manual row count.
+ if(p.autoRows)p.rows=Math.max(1,Math.round(height/width));
+ if(!Number.isInteger(p.rows)||p.rows<1||p.rows>8)throw Error(p.autoRows?'段数が多すぎます。模様の大きさを上げてください（8段まで）':'模様の設定範囲を確認してください');
+ const rowHeight=height/p.rows;
  if(count>24||count*p.rows>48)throw Error('模様が細かすぎます。幅を大きくするか段数を減らしてください（1周24枚・合計48枚まで）');
  if(p.lineWidth>=Math.min(width,rowHeight)*.35)throw Error('線の太さを模様の幅・段の高さの35%未満にしてください');
  const raw=[];const normalized=ring=>ring.map(([x,y])=>[x/circumference,y/height]);const add=(outer,holes=[])=>raw.push({outer:normalized(outer),holes:holes.map(normalized)});
@@ -51,4 +55,10 @@ export function surfacePattern(circumference,height,settings={}){
  if(!regions.length||regions.length>80||vertices>2500)throw Error('模様が複雑すぎます。幅を大きくするか段数を減らしてください');
  svgWrapPieces(regions,'single');
  return {regions,settings:p,count,width,rowHeight,aspect:height/circumference};
+}
+
+export function surfacePatternThumbnail(kind){
+ const {regions}=surfacePattern(120,60,{kind,size:30,rows:2,lineWidth:1.2});
+ const d=regions.map(r=>[r.outer,...r.holes].map(ring=>'M'+ring.map(([x,y])=>(x*120).toFixed(3)+','+((1-y)*60).toFixed(3)).join('L')+'Z').join('')).join('');
+ return `<svg viewBox="0 0 120 60" aria-hidden="true" focusable="false"><path d="${d}" fill="currentColor" fill-rule="evenodd"/></svg>`;
 }

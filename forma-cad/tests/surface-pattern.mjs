@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {surfacePattern,surfacePatternNames} from '../src/surface-pattern.js';
+import {surfacePattern,surfacePatternNames,surfacePatternThumbnail} from '../src/surface-pattern.js';
 import {svgWrapPieces} from '../src/svg-wrap-pattern.js';
 const C=60*Math.PI,H=48;
 function profile(regions,x){const ys=[];for(const r of regions)for(const ring of [r.outer,...r.holes])for(let i=0;i<ring.length;i++){const a=ring[i],b=ring[(i+1)%ring.length];if((a[0]<=x&&b[0]>x)||(b[0]<=x&&a[0]>x))ys.push(a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0]));}return ys.sort((a,b)=>a-b);}
@@ -15,3 +15,20 @@ for(const kind of Object.keys(surfacePatternNames))assert.notDeepEqual(surfacePa
 for(const p of [{kind:'bad'},{kind:'toString'},{version:2},{size:0},{size:.5},{rows:1.5},{rows:0},{rows:9},{rows:8},{lineWidth:0},{lineWidth:9},{stagger:-1},{seed:NaN},{seed:10000}])assert.throws(()=>surfacePattern(C,H,p));
 assert.throws(()=>surfacePattern(NaN,H));assert.throws(()=>surfacePattern(C,0));
 console.log('PASS ten procedural patterns, deterministic stone variants, size/stagger changes, exact periodic seam profiles, bounded complexity and invalid settings');
+
+const thumbnails=new Set();
+for(const kind of Object.keys(surfacePatternNames)){
+ const a=surfacePattern(40*Math.PI,24,{kind,size:kind==='weave'?20:10,autoRows:true,rows:7});
+ assert.equal(a.settings.rows,Math.max(1,Math.round(24/a.width)));
+ assert.ok(Math.abs(a.rowHeight-a.width)<4);
+ assert.deepEqual(a,surfacePattern(40*Math.PI,24,a.settings));
+ const b=surfacePattern(40*Math.PI,36,{kind,size:20,autoRows:true});assert.equal(b.settings.rows,2);
+ const svg=surfacePatternThumbnail(kind);assert.match(svg,/^<svg/);assert.ok(!/NaN|Infinity|script/.test(svg));thumbnails.add(svg);
+}
+assert.equal(thumbnails.size,10);
+const old=surfacePattern(C,H,{size:30,rows:3});assert.equal(old.settings.rows,3);
+assert.deepEqual(old.regions,surfacePattern(C,H,{size:30,rows:3,autoRows:false}).regions);
+assert.throws(()=>surfacePattern(C,H,{autoRows:'yes'}));
+assert.throws(()=>surfacePattern(C,200,{size:10,autoRows:true}),/段数が多すぎ/);
+assert.throws(()=>surfacePattern(C,H,{size:10,autoRows:true}),/細かすぎ/);
+console.log('PASS ten distinct thumbnails, linked dimensions, replay, legacy manual rows and complexity limits');
