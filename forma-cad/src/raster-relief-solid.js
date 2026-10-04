@@ -1,20 +1,21 @@
+import {singlePatternFraction} from './single-pattern-layout.js';
 import * as R from 'replicad';
 import * as THREE from 'three';
 import {rasterRelief,rasterResolution} from './raster-relief.js';
 function rasterEnvelope(spec,info,relief,count,onProgress){
- const oc=R.getOC(),resolution=rasterResolution(spec.raster,spec.rasterSettings,spec.seam,spec.repeatCount),segments=resolution.segments,perTile=segments/count,vCount=resolution.rows+1,c=Math.cos(Math.PI/segments),angle=spec.angle*Math.PI/180,sign=spec.operation==='engrave'?-1:1,faces=[];
+ const oc=R.getOC(),resolution=rasterResolution(spec.raster,spec.rasterSettings,spec.seam,spec.repeatCount),segments=resolution.segments,perTile=segments/count,fraction=spec.seam==='fit'?singlePatternFraction(spec.singleWidth,2*Math.PI*info.radius):1,angle=spec.angle*Math.PI/180,sign=spec.operation==='engrave'?-1:1,faces=[];
  // Each repeated face shares one detailed surface instead of spending a fixed
  // full-circle sampling budget on all copies. Rigid locations keep the native
  // surface shared in the saved BREP. Additional vertical controls retain edges.
- const tileFace=tile=>{
-  const uCount=2*perTile+1,objects=[],keep=o=>(objects.push(o),o);
+ const tileFace=(tile,span=1/count)=>{
+  const vCount=resolution.rows+1,c=Math.cos(Math.PI*span/perTile),uCount=2*perTile+1,objects=[],keep=o=>(objects.push(o),o);
   const poles=keep(new oc.NCollection_Array2_gp_Pnt(1,uCount,1,vCount)),weights=keep(new oc.NCollection_Array2_double(1,uCount,1,vCount)),uk=keep(new oc.NCollection_Array1_double(1,perTile+1)),um=keep(new oc.NCollection_Array1_int(1,perTile+1)),vk=keep(new oc.NCollection_Array1_double(1,vCount-2)),vm=keep(new oc.NCollection_Array1_int(1,vCount-2));
   try{
    for(let i=0;i<=perTile;i++){uk.SetValue(i+1,i);um.SetValue(i+1,i===0||i===perTile?3:2);}
    const span=vCount-3,fullKnots=[0,0,0,0,...Array.from({length:span-1},(_,i)=>i+1),span,span,span,span];for(let j=0;j<=span;j++){vk.SetValue(j+1,j);vm.SetValue(j+1,j===0||j===span?4:1);}
    for(let j=0;j<vCount;j++){const v=(fullKnots[j+1]+fullKnots[j+2]+fullKnots[j+3])/(3*span),z=spec.offset+spec.height*v;
     onProgress?.({stage:'画像の細部から曲面を作成しています',current:j+1,total:vCount});
-    const middle=i=>{const u=(tile*perTile+i+.5)/segments,a=u*2*Math.PI+angle,value=j<2||j>=vCount-2?0:relief.sample(u,v,spec.seam,spec.repeatCount),r=(info.radius+sign*spec.depth*value)/c;return [r*Math.cos(a),r*Math.sin(a),z];};
+    const middle=i=>{const u=spec.seam==='fit'?fraction*(i+.5)/perTile:(tile*perTile+i+.5)/segments,a=u*2*Math.PI+angle,value=j<2||j>=vCount-2||spec.seam==='fit'&&(i<1||i>=perTile-1)?0:relief.sample(u,v,spec.seam,spec.repeatCount,fraction),r=(info.radius+sign*spec.depth*value)/c;return [r*Math.cos(a),r*Math.sin(a),z];};
     for(let i=0;i<uCount;i++){const index=Math.floor(i/2),p=i%2?middle(index):middle(index).map((a,k)=>(a+middle(index-1)[k])/2),point=new oc.gp_Pnt(...p);try{poles.SetValue(i+1,j+1,point);weights.SetValue(i+1,j+1,i%2?c:1);}finally{point.delete();}}
    }
    const surface=keep(new oc.Geom_BSplineSurface(poles,weights,uk,vk,um,vm,2,3,false,false)),maker=keep(new oc.BRepBuilderAPI_MakeFace(surface,1e-7));return new R.Face(maker.Face());
@@ -22,7 +23,11 @@ function rasterEnvelope(spec,info,relief,count,onProgress){
  };
  const cap=z=>{const edge=R.makeCircle(info.radius,[0,0,z]),wire=R.assembleWire([edge]);try{return R.makeFace(wire);}finally{wire.delete();edge.delete();}};
  try{
-  if(spec.seam==='repeat'){
+  if(spec.seam==='fit'){
+   faces.push(tileFace(0,fraction));
+   const cylinder=R.makeCylinder(info.radius,spec.height,[0,0,spec.offset]),cylinderFaces=cylinder.faces,reference=cylinderFaces.find(f=>f.geomType==='CYLINDRE');let surface,maker;
+   try{surface=oc.BRep_Tool.Surface(reference.wrapped);const bounds=reference.UVBounds;maker=new oc.BRepBuilderAPI_MakeFace(surface,angle+fraction*2*Math.PI,angle+2*Math.PI,bounds.vMin,bounds.vMax,1e-7);faces.push(new R.Face(maker.Face()));}finally{maker?.delete();surface?.delete();for(const face of cylinderFaces)face.delete();cylinder.delete();}
+  }else if(spec.seam==='repeat'){
    const prototype=tileFace(0);faces.push(prototype);
    for(let tile=1;tile<count;tile++){const transform=new R.Transformation();let maker;try{transform.rotate(tile*360/count);maker=new oc.BRepBuilderAPI_Transform(prototype.wrapped,transform.wrapped,false,false);faces.push(new R.Face(maker.Shape()));}finally{maker?.delete();transform.delete();}}
   }else for(let tile=0;tile<count;tile++)faces.push(tileFace(tile));
@@ -43,7 +48,7 @@ export function wrapRasterSolid(base,spec,info,onProgress){
   // Every local spline support spans less than 90 degrees. Its positive rational
   // weights keep radii between the minimum and maximum height controls. A second
   // cylinder clamp is redundant and expensive on detailed, repeated drawings.
-  if(sign<0){outer=R.makeCylinder(radius+.01,spec.height,[0,0,spec.offset]);tool=outer.cut(envelope);placed=place(tool);onProgress?.({stage:'画像の凹凸を彫り込んでいます',current:2,total:3});result=base.cut(placed);}
+  if(sign<0&&spec.seam!=='fit'){outer=R.makeCylinder(radius+.01,spec.height,[0,0,spec.offset]);tool=outer.cut(envelope);placed=place(tool);onProgress?.({stage:'画像の凹凸を彫り込んでいます',current:2,total:3});result=base.cut(placed);}
   else{core=R.makeCylinder(innerRadius,bodyHeight+2,[0,0,-1]);tool=envelope.cut(core);placed=place(tool);
   // Replace only a thin outer band; the inner cavity and bottom remain intact.
   outer=R.makeCylinder(radius+.01,spec.height,[0,0,spec.offset]);inner=R.makeCylinder(innerRadius+.05,spec.height+2,[0,0,spec.offset-1]);band=outer.cut(inner);

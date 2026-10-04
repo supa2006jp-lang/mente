@@ -20,13 +20,14 @@ export function svgRepeatLayout(circumference,tileWidth){
  if(count>24)throw Error('繰り返しは24回までです。1枚の幅を大きくしてください');
  return {count,width:circumference/count};
 }
-export function periodicSvgRegions(regions,seam='mirror',repeatCount=1){
+export function periodicSvgRegions(regions,seam='mirror',repeatCount=1,fraction=1){
  if(seam==='repeat'&&(!Number.isInteger(repeatCount)||repeatCount<1||repeatCount>24))throw Error('繰り返し回数は1〜24の整数にしてください');
- const mapped=seam==='repeat'?regions.flatMap(r=>Array.from({length:repeatCount},(_,copy)=>({outer:r.outer.map(([x,y])=>[(x+copy)/repeatCount,y]),holes:r.holes.map(h=>h.map(([x,y])=>[(x+copy)/repeatCount,y]))}))):seam==='mirror'?regions.flatMap(r=>[0,1].map(copy=>({outer:r.outer.map(([x,y])=>[copy?(2-x)/2:x/2,y]),holes:r.holes.map(h=>h.map(([x,y])=>[copy?(2-x)/2:x/2,y]))}))):regions;
+ if(seam==='fit'&&(!Number.isFinite(fraction)||fraction<=0||fraction>=1))throw Error('模様1個の幅を確認してください');
+ const mapped=seam==='fit'?regions.map(r=>({outer:r.outer.map(([x,y])=>[x*fraction,y]),holes:r.holes.map(h=>h.map(([x,y])=>[x*fraction,y]))})):seam==='repeat'?regions.flatMap(r=>Array.from({length:repeatCount},(_,copy)=>({outer:r.outer.map(([x,y])=>[(x+copy)/repeatCount,y]),holes:r.holes.map(h=>h.map(([x,y])=>[(x+copy)/repeatCount,y]))}))):seam==='mirror'?regions.flatMap(r=>[0,1].map(copy=>({outer:r.outer.map(([x,y])=>[copy?(2-x)/2:x/2,y]),holes:r.holes.map(h=>h.map(([x,y])=>[copy?(2-x)/2:x/2,y]))}))):regions;
  return polygonRegions(mapped,[0,0,1,1]);
 }
-export function svgWrapPieces(pattern,seam='mirror',repeatCount=1){
- const regions=periodicSvgRegions(pattern,seam,repeatCount),pieces=[];
+export function svgWrapPieces(pattern,seam='mirror',repeatCount=1,fraction=1){
+ const regions=periodicSvgRegions(pattern,seam,repeatCount,fraction),pieces=[];
  for(let i=0;i<4;i++)pieces.push(...polygonRegions(regions,[i/4,0,(i+1)/4,1]));
  if(!pieces.length)throw Error('SVGに加工できる塗りの領域がありません');if(pieces.length>100)throw Error('図案が細かすぎます。輪郭を減らしてください');return pieces;
 }

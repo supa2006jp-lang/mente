@@ -16,7 +16,7 @@ export function rasterRelief(raster,settings={}){
  for(let pass=0;pass<p.smoothing;pass++){const next=values.map((v,i)=>{const x=i%w,y=Math.floor(i/w),at=(a,b)=>values[Math.max(0,Math.min(h-1,b))*w+Math.max(0,Math.min(w-1,a))];return (at(x-1,y)+2*v+at(x+1,y)+at(x,y-1)+at(x,y+1))/6;});values=next;}
  values=values.map((v,i)=>v*(raster.alpha?.[i]??255)/255);
  const at=(x,y,wrap)=>values[Math.max(0,Math.min(h-1,y))*w+(wrap?((x%w)+w)%w:Math.max(0,Math.min(w-1,x)))];
- function sample(u,v,seam='single',count=1){let t=((u%1)+1)%1,wrap=true;if(seam==='repeat')t=(t*count)%1;if(seam==='mirror'){t=t*2;t=t<=1?t:2-t;wrap=false;}const x=t*w-.5,y=(1-Math.max(0,Math.min(1,v)))*(h-1),a=Math.floor(x),b=Math.floor(y),fx=x-a,fy=y-b;return clamp((1-fy)*((1-fx)*at(a,b,wrap)+fx*at(a+1,b,wrap))+fy*((1-fx)*at(a,b+1,wrap)+fx*at(a+1,b+1,wrap)));}
+ function sample(u,v,seam='single',count=1,fraction=1){let t=((u%1)+1)%1,wrap=true;if(seam==='fit'){if(!Number.isFinite(fraction)||fraction<=0||fraction>=1)throw Error('模様1個の幅を確認してください');if(t>fraction)return 0;t/=fraction;wrap=false;}if(seam==='repeat')t=(t*count)%1;if(seam==='mirror'){t=t*2;t=t<=1?t:2-t;wrap=false;}const x=t*w-.5,y=(1-Math.max(0,Math.min(1,v)))*(h-1),a=Math.floor(x),b=Math.floor(y),fx=x-a,fy=y-b;return clamp((1-fy)*((1-fx)*at(a,b,wrap)+fx*at(a+1,b,wrap))+fy*((1-fx)*at(a,b+1,wrap)+fx*at(a+1,b+1,wrap)));}
  return {sample,settings:p,values,width:w,height:h,...rasterQualities[p.quality]};
 }
 export async function readRasterFile(file){

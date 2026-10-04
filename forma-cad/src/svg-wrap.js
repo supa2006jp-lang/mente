@@ -1,3 +1,4 @@
+import {singlePatternFraction} from './single-pattern-layout.js';
 import {wrapRasterSolid} from './raster-relief-solid.js';
 import {surfacePattern} from './surface-pattern.js';
 import * as R from 'replicad';
@@ -33,13 +34,14 @@ export function wrapSvgSolid(base,spec,onProgress){
  const info=svgCylinderInfo(base,spec.surfacePoint),{radius}=info;
  if(!Number.isFinite(spec.depth)||spec.depth<.01||spec.depth>Math.min(10,radius*.8))throw Error('凹凸の深さは0.01 mm以上、半径の80%以下で指定してください');
  if(!Number.isFinite(spec.height)||spec.height<=0||!Number.isFinite(spec.offset)||spec.offset<0||spec.offset+spec.height>info.height+.0001)throw Error('模様の高さと下端の位置を円柱の側面内に収めてください');
- if(!Number.isFinite(spec.angle)||!['mirror','single','repeat'].includes(spec.seam)||!['emboss','engrave'].includes(spec.operation))throw Error('巻き付け設定を確認してください');
+ if(!Number.isFinite(spec.angle)||!['mirror','single','repeat','fit'].includes(spec.seam)||!['emboss','engrave'].includes(spec.operation))throw Error('巻き付け設定を確認してください');
+ const singleFraction=spec.seam==='fit'?singlePatternFraction(spec.singleWidth,2*Math.PI*radius):1;
  if(spec.raster)return wrapRasterSolid(base,spec,info,onProgress);
  if(!Array.isArray(spec.pattern)||!spec.pattern.length||spec.pattern.length>80||spec.pattern.some(r=>!Array.isArray(r.outer)||!Array.isArray(r.holes)||[r.outer,...r.holes].some(ring=>ring.length<3||ring.length>2500||ring.some(p=>!Array.isArray(p)||p.length!==2||p.some(v=>!Number.isFinite(v)||v<-.0001||v>1.0001)))))throw Error('SVG図案のデータを確認してください');
  if(spec.pattern.reduce((count,r)=>count+[r.outer,...r.holes].reduce((n,ring)=>n+ring.length,0),0)>2500)throw Error('図案が細かすぎます。輪郭を減らしてください');
  if(spec.seam==='repeat'&&(!Number.isInteger(spec.repeatCount)||spec.repeatCount<1||spec.repeatCount>24))throw Error('繰り返し回数は1〜24の整数にしてください');
  if(spec.generator)spec={...spec,pattern:surfacePattern(2*Math.PI*radius,spec.height,spec.generator).regions,seam:'single'};
- const pieces=svgWrapPieces(spec.pattern,spec.seam,spec.repeatCount),cylinder=R.makeCylinder(radius,info.height),faces=cylinder.faces,reference=faces.find(f=>f.geomType==='CYLINDRE'),oc=R.getOC();let result=base.clone();
+ const pieces=svgWrapPieces(spec.pattern,spec.seam,spec.repeatCount,singleFraction),cylinder=R.makeCylinder(radius,info.height),faces=cylinder.faces,reference=faces.find(f=>f.geomType==='CYLINDRE'),oc=R.getOC();let result=base.clone();
  for(const face of faces)if(face!==reference)face.delete();
  const solids=base.solids,expectedSolidCount=solids.length;for(const solid of solids)solid.delete();
  const sign=spec.operation==='engrave'?-1:1,axis=new THREE.Vector3(...info.axis),z=new THREE.Vector3(0,0,1),turn=z.angleTo(axis)*180/Math.PI,rotation=z.clone().cross(axis);if(rotation.lengthSq()<1e-16)rotation.set(1,0,0);else rotation.normalize();
