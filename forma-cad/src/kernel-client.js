@@ -8,7 +8,7 @@ export function kernelTimeout(features,spec){
  return coil?600000:svgWrap?300000:['pull','stepImport'].includes(operation?.type)?300000:90000;
 }
 export class KernelClient {
- constructor(factory=()=>new Worker(new URL('kernel-worker.js',location.href),{type:'module'})){this.factory=factory;this.worker=null;this.pending=new Map();this.next=0;this.active=null;}
+ constructor(factory=()=>{const url=new URL('kernel-worker.js',import.meta.url);url.search=new URL(import.meta.url).search;return new Worker(url,{type:'module'});}){this.factory=factory;this.worker=null;this.pending=new Map();this.next=0;this.active=null;}
  reset(error=new Error('計算をキャンセルしました')){this.worker?.terminate();this.worker=null;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(error);}this.pending.clear();}
  cancelPreviews(){if(this.pending.get(this.active)?.payload.spec?.type==='preview'){this.reset();return;}for(const [id,p] of this.pending)if(p.payload.spec?.type==='preview'){clearTimeout(p.timer);this.pending.delete(id);p.reject(new Error('計算をキャンセルしました'));}}
  cancelQueuedExtrusions(){for(const [id,p] of this.pending)if(id!==this.active&&(p.payload.spec?.type==='extrusionToolPreview'||p.payload.spec?.type==='preview'&&p.payload.spec.operation?.type==='extrusion')){this.pending.delete(id);p.reject(new Error('計算をキャンセルしました'));}}

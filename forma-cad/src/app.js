@@ -83,6 +83,9 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 import {defaults,makeSketchGeometry,makeGeometry,rebuild,validateProject,validateFeature,volume} from './geometry.js';
 const $=id=>document.getElementById(id),clone=x=>structuredClone(x);
+// Keep this entry point available when a cached HTML document predates the tool.
+if(!$('image-relief-selected-cylinder')){const button=document.createElement('button');button.id='image-relief-selected-cylinder';button.type='button';button.hidden=true;button.textContent='この円柱に画像の凹凸を作成';Object.assign(button.style,{pointerEvents:'auto',marginTop:'6px',padding:'8px 10px',background:'#087eac',color:'white',border:'1px solid #076d92',borderRadius:'5px'});$('pattern-selected-cylinder').before(button);}
+if(!$('cad-command').querySelector('[value="imageRelief"]'))$('cad-command').add(new Option('画像の明暗から凹凸を作成','imageRelief'));
 draggableDialog(document.getElementById('tools-dialog'));
 const numeric=['width','height','diameter','depth','wall','x','y','z','angle','taperAngle'];
 const settings=['profile','side','plane','operation','target',...numeric];
