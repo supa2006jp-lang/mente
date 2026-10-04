@@ -1,6 +1,6 @@
-export const rasterQualities={draft:{columns:64,rows:24,name:'軽量'},standard:{columns:128,rows:48,name:'標準'},fine:{columns:192,rows:64,name:'細かい'}};
+export const rasterQualities={draft:{columns:64,rows:24,name:'軽量'},standard:{columns:96,rows:96,name:'標準'},fine:{columns:192,rows:192,name:'細かい'}};
 export function validateRaster(raster){
- if(!raster||raster.version!==1||!Number.isInteger(raster.width)||!Number.isInteger(raster.height)||raster.width<2||raster.height<2||raster.width>256||raster.height>256||!Array.isArray(raster.values)||raster.values.length!==raster.width*raster.height||raster.values.some(v=>!Number.isInteger(v)||v<0||v>255)||raster.alpha!==undefined&&(!Array.isArray(raster.alpha)||raster.alpha.length!==raster.values.length||raster.alpha.some(v=>!Number.isInteger(v)||v<0||v>255)))throw Error('画像の明暗データが不正です');
+ if(!raster||raster.version!==1||!Number.isInteger(raster.width)||!Number.isInteger(raster.height)||raster.width<2||raster.height<2||raster.width>512||raster.height>512||!Array.isArray(raster.values)||raster.values.length!==raster.width*raster.height||raster.values.some(v=>!Number.isInteger(v)||v<0||v>255)||raster.alpha!==undefined&&(!Array.isArray(raster.alpha)||raster.alpha.length!==raster.values.length||raster.alpha.some(v=>!Number.isInteger(v)||v<0||v>255)))throw Error('画像の明暗データが不正です');
  return raster;
 }
 export function rgbaRaster(width,height,rgba){
@@ -22,7 +22,7 @@ export function rasterRelief(raster,settings={}){
 export async function readRasterFile(file){
  if(!file||file.size>10000000)throw Error('画像は10MB以下のPNGまたはJPEGを選択してください');
  const head=new Uint8Array(await file.slice(0,12).arrayBuffer()),png=[137,80,78,71,13,10,26,10].every((v,i)=>head[i]===v),jpeg=head[0]===255&&head[1]===216&&head[2]===255;if(!png&&!jpeg)throw Error('PNGまたはJPEGの画像を選択してください');
- let bitmap;try{bitmap=await createImageBitmap(file);if(bitmap.width*bitmap.height>50000000)throw Error('画像が大きすぎます。5000万画素以内に縮小してください');const scale=Math.min(1,256/Math.max(bitmap.width,bitmap.height)),w=Math.max(2,Math.round(bitmap.width*scale)),h=Math.max(2,Math.round(bitmap.height*scale)),canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)throw Error('画像を読み込めませんでした');ctx.drawImage(bitmap,0,0,w,h);const raster=rgbaRaster(w,h,ctx.getImageData(0,0,w,h).data);return {raster,aspect:bitmap.height/bitmap.width};}catch(error){if(/[\u3040-\u9fff]/.test(error.message||''))throw error;throw Error('画像を読み込めませんでした。PNGまたはJPEGを選択してください');}finally{bitmap?.close();}
+ let bitmap;try{bitmap=await createImageBitmap(file);if(bitmap.width*bitmap.height>50000000)throw Error('画像が大きすぎます。5000万画素以内に縮小してください');const scale=Math.min(1,512/Math.max(bitmap.width,bitmap.height)),w=Math.max(2,Math.round(bitmap.width*scale)),h=Math.max(2,Math.round(bitmap.height*scale)),canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)throw Error('画像を読み込めませんでした');ctx.drawImage(bitmap,0,0,w,h);const raster=rgbaRaster(w,h,ctx.getImageData(0,0,w,h).data);return {raster,aspect:bitmap.height/bitmap.width};}catch(error){if(/[\u3040-\u9fff]/.test(error.message||''))throw error;throw Error('画像を読み込めませんでした。PNGまたはJPEGを選択してください');}finally{bitmap?.close();}
 }
 
 export function rasterImageDefaults(raster){
@@ -34,7 +34,6 @@ export function rasterResolution(raster,settings,seam='single',repeatCount=1){
  const quality=rasterRelief(raster,settings),count=seam==='repeat'?repeatCount:seam==='mirror'?2:1;
  if(!Number.isInteger(count)||count<1||count>12)throw Error('画像の繰り返しは1〜12回にしてください');
  // Keep samples per image instead of dividing one fixed grid among all repeats.
- const perTile=Math.ceil(Math.min(quality.columns,2*raster.width)/2);
- const segments=Math.min(Math.floor(512/count),Math.max(12,perTile))*count;
- return {segments,rows:Math.min(quality.rows,Math.max(12,2*raster.height),Math.floor(50000/(2*segments+1))-1)};
+ const perTile=Math.max(12,Math.min(quality.columns,raster.width));
+ return {segments:perTile*count,rows:Math.min(quality.rows,Math.max(12,raster.height-1))};
 }
