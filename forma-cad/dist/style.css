@@ -272,3 +272,5 @@
 #svg-wrap-tile-width-label[hidden]{display:none!important}
 
 .print-quality-panel{--print-top:clamp(12px,18%,185px);position:absolute;z-index:35;right:18px;top:var(--print-top);width:min(310px,calc(100% - 36px));max-height:calc(100% - var(--print-top) - 16px);overflow:auto;background:#172635;color:#c3e6f8;border:1px solid #4e748a;border-radius:10px;padding:16px;box-shadow:0 12px 34px #0004}.print-quality-panel label{display:grid;gap:6px;margin:12px 0}.print-quality-panel input,.print-quality-panel select{width:100%;box-sizing:border-box}.print-quality-panel button{margin:5px 4px 0 0}.print-quality-hint{font-size:12px;line-height:1.5;color:#a9becb}#print-quality-legend{color:#ffcf7b;font-weight:600;font-size:13px}#print-quality-status{font-size:13px;line-height:1.5}
+
+#svg-wrap-dialog [hidden]{display:none!important}#pattern-selected-cylinder{pointer-events:auto;margin-top:6px;padding:7px 10px;background:#087eac;color:white;border:1px solid #076d92;border-radius:5px}#svg-wrap-auto-fields{border:1px solid #466579;border-radius:6px;padding:0 10px;background:#10212b}#svg-wrap-dialog[data-pattern-source="generated"] #svg-wrap-flat{height:100px}
