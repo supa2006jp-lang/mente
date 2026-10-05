@@ -30,6 +30,15 @@ for(const angle of [0,27])for(const direction of ['short','long'])for(const fill
  }finally{result.body.delete();result.lid.delete();original.body.delete();original.lid.delete();lower.delete();upper.delete();}
  console.log('PASS centered '+direction+' divider at '+angle+' degrees, fillet '+fillet+', solid continuity, two compartments and unchanged fit');
 }
+
+for(const direction of ['short','long']){
+ const lower=R.drawRoundedRectangle(80,50,10).sketchOnPlane('XY').extrude(30),upper=R.drawRoundedRectangle(80,50,10).sketchOnPlane('XY',30).extrude(12);
+ const result=makeSnapLid(lower,upper,{...params,divider:true,dividerDirection:direction});try{
+  valid(result.body);const d=result.analysis.divider;assert.ok(Math.abs(d.span-((direction==='short'?50:80)-8.4))<1e-6);
+  for(const sign of [-1,1])assert.ok(probe(result.body,[d.center[0]+sign*d.tangent[0]*(d.span/2-.1),d.center[1]+sign*d.tangent[1]*(d.span/2-.1),15])>1e-5,'pre-rounded box divider reaches walls');
+ }finally{result.body.delete();result.lid.delete();lower.delete();upper.delete();}
+ console.log('PASS pre-rounded box divider joins both walls in '+direction+' direction');
+}
 const base={...defaults,id:'body',kind:'extrusion',name:'本体',width:80,height:50,depth:30,z:3},upper={...base,id:'lid',name:'蓋',z:33,depth:12},history=[base,upper],spec={...params,type:'snapLid',id:'closure',target:'body',lidTarget:'lid',divider:true,dividerThickness:1.2,dividerDirection:'long',pose:'print'};
 const result=runOperation(history,spec);for(const o of result.outputs){const b=R.deserializeShape(o.brep).asShape3D();try{valid(b);assert.ok(Math.abs(Math.min(...o.vertices.filter((_,i)=>i%3===2)))<1e-5);}finally{b.delete();}}
 const operation={kind:'cadop',id:spec.id,name:'被せ蓋',spec,...result},layoutSpec={type:'printLayout',id:'plate',targets:['body','lid'],margin:2,gap:3,allowRotation:true},layout=runOperation([...history,operation],layoutSpec),before=[...history,operation,{kind:'cadop',id:'plate',name:'印刷配置',spec:layoutSpec,...layout}];

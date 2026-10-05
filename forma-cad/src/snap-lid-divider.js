@@ -11,9 +11,10 @@ export function snapLidDividerSettings(face,p,info){
  const side=sides.reduce((a,b)=>(direction==='short'?b.length<a.length-1e-6:b.length>a.length+1e-6)?b:a);
  const center=sides.reduce((sum,s)=>[sum[0]+s.center[0]/4,sum[1]+s.center[1]/4],[0,0]);
  const across=Math.max(...sides.map(s=>Math.abs((s.center[0]-center[0])*side.normal[0]+(s.center[1]-center[1])*side.normal[1])))*2;
- const compartmentWidth=(across-2*p.bodyWall-thickness)/2,span=side.length-2*p.bodyWall;
+ const along=Math.max(...sides.map(s=>Math.abs((s.center[0]-center[0])*side.tangent[0]+(s.center[1]-center[1])*side.tangent[1])))*2;
+ const compartmentWidth=(across-2*p.bodyWall-thickness)/2,span=along-2*p.bodyWall;
  if(compartmentWidth<1.2||span<1.2)throw Error('仕切りを入れる空間が足りません。仕切り・本体壁厚を小さくするか箱を大きくしてください');
- return {thickness,direction,center,tangent:side.tangent,normal:side.normal,span,outerSpan:side.length+2,height:info.bodyHeight-p.floor,zMin:info.lowerMin+p.floor,zMax:info.seam,compartmentWidth};
+ return {thickness,direction,center,tangent:side.tangent,normal:side.normal,span,outerSpan:along+2,height:info.bodyHeight-p.floor,zMin:info.lowerMin+p.floor,zMax:info.seam,compartmentWidth};
 }
 
 export function makeSnapLidDivider(q){
