@@ -15,15 +15,17 @@ for(const angle of [0,27])for(const direction of ['short','long'])for(const fill
  const original=makeSnapLid(lower,upper,settings),result=makeSnapLid(lower,upper,{...settings,divider:true,dividerDirection:direction,dividerThickness:2.4});
  try{
   valid(result.body);valid(result.lid);const d=result.analysis.divider,z=(d.zMin+d.zMax)/2;
-  assert.equal(d.height,27.6);assert.equal(d.thickness,2.4);assert.equal(d.zMax,33);assert.ok(result.analysis.overlap<1e-5);
+  assert.equal(d.height,31.6);assert.equal(d.thickness,2.4);assert.equal(d.zMax,37);assert.ok(result.analysis.overlap<1e-5);
   assert.ok(probe(result.body,[...d.center,z])>1e-5,'center contains material');
   for(const side of [-1,1]){
    assert.ok(probe(result.body,[d.center[0]+d.normal[0]*side*5,d.center[1]+d.normal[1]*side*5,z])<1e-8,'both compartments remain empty');
    assert.ok(probe(result.body,[d.center[0]+d.tangent[0]*side*(d.span/2+.2),d.center[1]+d.tangent[1]*side*(d.span/2+.2),z])>1e-5,'joins both side walls');
   }
   assert.ok(probe(result.body,[...d.center,d.zMin-.1])>1e-5,'joins floor');
-  assert.ok(probe(result.body,[...d.center,33.1])<1e-8,'stops below mating neck');
-  const outside=result.body.cut(lower);const oldOutside=original.body.cut(lower);try{assert.ok(Math.abs(R.measureVolume(outside)-R.measureVolume(oldOutside))<1e-5,'outer neck unchanged');}finally{outside.delete();oldOutside.delete();}
+  assert.ok(probe(result.body,[...d.center,36.9])>1e-5,'extends to the inner wall top');
+  assert.ok(probe(result.body,[...d.center,37.1])<1e-8,'stops at the inner wall top');
+  for(const sign of [-1,1])assert.ok(probe(result.body,[d.center[0]+sign*d.tangent[0]*(d.span/2+.2),d.center[1]+sign*d.tangent[1]*(d.span/2+.2),36.9])>1e-5,'joins both neck walls at the top');
+  const added=result.body.cut(original.body),inner=R.makeBox([-30+params.bodyWall,-25+params.bodyWall,3+params.floor-.01],[50-params.bodyWall,25-params.bodyWall,37.01]).rotate(angle,[0,0,0],[0,0,1]),outside=added.cut(inner);try{assert.ok(R.measureVolume(outside)<1e-7,'all added material is inside the cavity; outer neck and ridge unchanged');}finally{added.delete();inner.delete();outside.delete();}
   assert.ok(Math.abs(R.measureVolume(result.lid)-R.measureVolume(original.lid))<1e-6,'lid unchanged');
   const lidDifference=result.lid.cut(original.lid);try{assert.ok(R.measureVolume(lidDifference)<1e-8);}finally{lidDifference.delete();}
   assert.ok(R.measureVolume(result.body)>R.measureVolume(original.body),'divider adds volume');
@@ -40,6 +42,13 @@ for(const direction of ['short','long']){
  console.log('PASS pre-rounded box divider joins both walls in '+direction+' direction');
 }
 const base={...defaults,id:'body',kind:'extrusion',name:'本体',width:80,height:50,depth:30,z:3},upper={...base,id:'lid',name:'蓋',z:33,depth:12},history=[base,upper],spec={...params,type:'snapLid',id:'closure',target:'body',lidTarget:'lid',divider:true,dividerThickness:1.2,dividerDirection:'long',pose:'print'};
+for(const insertion of [2.5,6]){
+ const r=runOperation(history,{...spec,pose:'assembled',insertion}),d=r.analysis.divider,b=R.deserializeShape(r.outputs[0].brep).asShape3D();try{
+  assert.equal(d.zMax,33+insertion);assert.equal(d.height,27.6+insertion);
+  assert.ok(probe(b,[...d.center,d.zMax-.05])>1e-5);assert.ok(probe(b,[...d.center,d.zMax+.05])<1e-8);assert.ok(r.analysis.overlap<1e-5);
+ }finally{b.delete();}
+ console.log('PASS divider top follows insertion height '+insertion+' mm');
+}
 const result=runOperation(history,spec);for(const o of result.outputs){const b=R.deserializeShape(o.brep).asShape3D();try{valid(b);assert.ok(Math.abs(Math.min(...o.vertices.filter((_,i)=>i%3===2)))<1e-5);}finally{b.delete();}}
 const operation={kind:'cadop',id:spec.id,name:'被せ蓋',spec,...result},layoutSpec={type:'printLayout',id:'plate',targets:['body','lid'],margin:2,gap:3,allowRotation:true},layout=runOperation([...history,operation],layoutSpec),before=[...history,operation,{kind:'cadop',id:'plate',name:'印刷配置',spec:layoutSpec,...layout}];
 const proposed=structuredClone(before);proposed[2].spec.dividerThickness=3;const replay=runOperation(proposed,{type:'replay',before,start:2});assert.equal(replay.features[2].analysis.divider.thickness,3);assert.equal(replay.features[3].outputs.length,2);validateProject({format:'forma-cad',version:1,features:replay.features});

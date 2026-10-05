@@ -29,8 +29,8 @@ export function makeSnapLid(lower,upper,p){
   function prism(offset,z,height,endZ=null,bodyInner=false){let f=hold(inset(offset));if(bodyInner&&fillet.innerRadius)f=hold(roundSnapProfile(f,fillet.innerRadius));const s=hold(extrude(f,height));const positioned=hold(s.translate([0,0,z-seam]));if(!bodyInner||endZ===null||!fillet.innerEndRadius)return positioned;const rounded=filletSnapEnd(positioned,endZ,fillet.innerEndRadius);fillet.innerEdges+=rounded.edges;return hold(rounded.shape);}
   function taper(sections){const wires=sections.map(([z,offset])=>hold(hold(hold(inset(offset)).translate([0,0,z-seam])).outerWire()));return hold(R.loft(wires,{ruled:true}));}
   const cavity=prism(p.bodyWall,info.lowerMin+p.floor,bodyHeight-p.floor+p.insertion+1,info.lowerMin+p.floor,true);
-  const hollowTool=divider?hold(cavity.cut(hold(makeSnapLidDivider(divider)))):cavity,bodyHollow=hold(roundedLower.shape.cut(hollowTool));
-  const neckOuter=prism(neckOffset,seam-.02,p.insertion+.02),neckInner=prism(p.bodyWall,seam-.1,p.insertion+.2,null,true),neck=hold(neckOuter.cut(neckInner));
+  const dividerTool=divider?hold(makeSnapLidDivider(divider)):null,hollowTool=dividerTool?hold(cavity.cut(dividerTool)):cavity,bodyHollow=hold(roundedLower.shape.cut(hollowTool));
+  const neckOuter=prism(neckOffset,seam-.02,p.insertion+.02),neckInner=prism(p.bodyWall,seam-.1,p.insertion+.2,null,true),neckHollowTool=dividerTool?hold(neckInner.cut(dividerTool)):neckInner,neck=hold(neckOuter.cut(neckHollowTool));
   const peak=seam+p.insertion*.5,half=p.ridge+.15,ridgeOuter=taper([[peak-half,neckOffset],[peak,neckOffset-p.ridge],[peak+half,neckOffset]]),ridgeInner=prism(p.bodyWall,peak-half-.1,half*2+.2,null,true),ridge=hold(ridgeOuter.cut(ridgeInner));
   const neckRidge=hold(neck.fuse(ridge)),body=hold(bodyHollow.fuse(neckRidge));
   const lidCavity=prism(p.lidWall,seam-.1,lidHeight-p.floor+.1),lidHollow=hold(roundedUpper.shape.cut(lidCavity));

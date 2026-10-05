@@ -14,12 +14,12 @@ export function snapLidDividerSettings(face,p,info){
  const along=Math.max(...sides.map(s=>Math.abs((s.center[0]-center[0])*side.tangent[0]+(s.center[1]-center[1])*side.tangent[1])))*2;
  const compartmentWidth=(across-2*p.bodyWall-thickness)/2,span=along-2*p.bodyWall;
  if(compartmentWidth<1.2||span<1.2)throw Error('仕切りを入れる空間が足りません。仕切り・本体壁厚を小さくするか箱を大きくしてください');
- return {thickness,direction,center,tangent:side.tangent,normal:side.normal,span,outerSpan:along+2,height:info.bodyHeight-p.floor,zMin:info.lowerMin+p.floor,zMax:info.seam,compartmentWidth};
+ return {thickness,direction,center,tangent:side.tangent,normal:side.normal,span,outerSpan:along+2,height:info.bodyHeight-p.floor+p.insertion,zMin:info.lowerMin+p.floor,zMax:info.seam+p.insertion,compartmentWidth};
 }
 
 export function makeSnapLidDivider(q){
  // Reserve material within the cavity, joining the existing floor and walls.
- // Stop at the shoulder so the neck, retaining ridge and lid stay unchanged.
+ // Continue to the inner wall top, clipped by the body and neck envelopes.
  return R.makeBox([-q.outerSpan/2,-q.thickness/2,q.zMin-.02],[q.outerSpan/2,q.thickness/2,q.zMax])
   .rotate(Math.atan2(q.tangent[1],q.tangent[0])*180/Math.PI,[0,0,0],[0,0,1])
   .translate([q.center[0],q.center[1],0]);
