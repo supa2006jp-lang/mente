@@ -1,4 +1,4 @@
-import {snapLidOpeningSettings,cutSnapLidOpenings} from './snap-lid-opening.js';
+import {snapLidOpeningSettings,cutSnapLidOpenings,snapLidSides} from './snap-lid-opening.js';
 import {snapLidFilletSettings,roundSnapProfile,filletSnapEnd,filletSnapOutside} from './snap-lid-fillet.js';
 import * as R from 'replicad';
 const fail='上下が同じ輪郭で、XY平面で接する2つのボディを選択してください';
@@ -34,8 +34,9 @@ export function makeSnapLid(lower,upper,p){
   const lidCavity=prism(p.lidWall,seam-.1,lidHeight-p.floor+.1),lidHollow=hold(roundedUpper.shape.cut(lidCavity));
   const grooveOuter=taper([[peak-half-p.clearance,p.lidWall],[peak,p.lidWall-p.ridge],[peak+half+p.clearance,p.lidWall]]),lidRetained=hold(lidHollow.cut(grooveOuter)),lid=hold(cutSnapLidOpenings(lidRetained,seam,opening));
   valid(body,'本体');valid(lid,'蓋');const common=hold(body.intersect(lid)),overlap=R.measureVolume(common);if(overlap>1e-5)throw Error('本体と蓋が干渉します。すき間を増やしてください');
-  let bodyOut=body.clone(),lidOut=lid.clone();
-  if(p.pose==='print'){bodyOut=bodyOut.translate([0,0,-info.lowerMin]);lidOut=lidOut.rotate(180,[0,0,info.upperMax],[1,0,0]);const lb=bounds(lidOut),bb=bounds(bodyOut);lidOut=lidOut.translate([bb[1][0]-lb[0][0]+10,0,-lb[0][2]]);}
-  return {body:bodyOut,lid:lidOut,analysis:{...info,neckWall,overlap,fillet,opening,retention:Math.max(0,p.ridge-p.clearance)}};
+  let bodyOut=body.clone(),lidOut=lid.clone(),lidPose=null;
+  let sectionSides;try{sectionSides=snapLidSides(face).map(({center,normal,length})=>({center,normal,length}));}catch{sectionSides=[{center:[info.bounds[1][0],(info.bounds[0][1]+info.bounds[1][1])/2],normal:[1,0,0]}];}
+  if(p.pose==='print'){bodyOut=bodyOut.translate([0,0,-info.lowerMin]);lidOut=lidOut.rotate(180,[0,0,info.upperMax],[1,0,0]);const lb=bounds(lidOut),bb=bounds(bodyOut);lidPose={pivot:[0,0,info.upperMax],translation:[bb[1][0]-lb[0][0]+10,0,-lb[0][2]]};lidOut=lidOut.translate(lidPose.translation);}
+  return {body:bodyOut,lid:lidOut,analysis:{...info,neckWall,overlap,fillet,opening,sectionSides,lidPose,retention:Math.max(0,p.ridge-p.clearance)}};
  }finally{for(const object of objects.reverse())object.delete();}
 }

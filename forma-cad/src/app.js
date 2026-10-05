@@ -2324,7 +2324,7 @@ $('image-relief-tool')?.addEventListener('click',()=>openSvgWrap('image'));
 $('image-relief-selected-cylinder')?.addEventListener('click',()=>openSvgWrap('image'));
 $('surface-pattern-tool').onclick=$('pattern-selected-cylinder').onclick=()=>openSvgWrap('generated');
 
-const snapLidController=snapLidDialog({scene,meshes,kernel:kernelClient,getFeatures:()=>features,getSelection:()=>[...selectedBodies],bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,apply:async(spec,result,editing,original,isCurrent)=>{
+const snapLidController=snapLidDialog({scene,meshes,camera,canvas:renderer.domElement,host,kernel:kernelClient,getFeatures:()=>features,getSelection:()=>[...selectedBodies],bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,apply:async(spec,result,editing,original,isCurrent)=>{
  if(features!==original||!isCurrent())throw Error('モデルが変更されました');
  if(editing){const index=features.findIndex(f=>f.id===editing.id);if(index<0)throw Error('工程が見つかりません');const next=clone(features);next[index]={...next[index],spec,...result};const updated=index+1<next.length?await kernelClient.run(next,{type:'replay',before:original,start:index+1}):{features:next};if(features!==original||!isCurrent())throw Error('計算をキャンセルしました');setProject(updated.features);}
  else setProject([...features,{kind:'cadop',id:spec.id,name:'被せ蓋',spec,...result}]);selected=null;stage='model';dropPreview();syncFields();renderTree();
