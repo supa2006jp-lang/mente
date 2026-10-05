@@ -1,0 +1,6 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {validateSnapLidPreset} from '../src/snap-lid-presets.js';
+const p={bodyWall:4.2,lidWall:2.4,floor:2.4,insertion:4,clearance:.25,ridge:.4,divider:true,dividerThickness:2.4,dividerDirection:'short',dividerCompartments:3,dividerOffsets:[-3,2],filletInside:true,filletOutside:false,innerFilletRadius:1,outerFilletRadius:1,openingGroove:false,openingWidth:24,openingHeight:3,openingDepth:.8,openingMode:'both',openingSide:0,pose:'print'};
+test('presets whitelist settings and clone offsets, without body IDs or selected geometry',()=>{const safe=validateSnapLidPreset({...p,target:'old',lidTarget:'old lid',openingFace:{point:[0,0,0]},outputs:['geometry']});assert.deepEqual(safe,p);safe.dividerOffsets[0]=100;assert.equal(p.dividerOffsets[0],-3);});
+test('reject malformed and out-of-range settings before saving or applying',()=>{for(const bad of [null,{}, {...p,dividerCompartments:5},{...p,dividerOffsets:[0]},{...p,dividerOffsets:[NaN,0]},{...p,dividerThickness:1},{...p,bodyWall:Infinity},{...p,filletInside:'true'},{...p,openingMode:'bad'},{...p,openingSide:2},{...p,pose:'bad'},{...p,clearance:2}])assert.throws(()=>validateSnapLidPreset(bad));});

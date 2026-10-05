@@ -31,7 +31,7 @@ export function makeSnapLid(lower,upper,p){
   const inset=sharpInset;
   function prism(offset,z,height,endZ=null,bodyInner=false,partition=false){
    let f=hold(inset(offset)),profiles;
-   if(partition&&dividerTool&&fillet.innerRadius)profiles=roundSnapCompartmentProfiles(f,dividerTool,fillet.innerRadius).map(hold);
+   if(partition&&dividerTool&&fillet.innerRadius)profiles=roundSnapCompartmentProfiles(f,dividerTool,fillet.innerRadius,divider.compartments).map(hold);
    else{if(bodyInner&&fillet.innerRadius)f=hold(roundSnapProfile(f,fillet.innerRadius));profiles=[f];}
    const parts=profiles.map(profile=>{
     const positioned=hold(hold(extrude(profile,height)).translate([0,0,z-seam]));
