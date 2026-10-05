@@ -1,5 +1,6 @@
 import * as R from 'replicad';
 import {snapLidSides} from './snap-lid-opening.js';
+import {roundSnapProfile} from './snap-lid-fillet.js';
 
 export function snapLidDividerSettings(face,p,info){
  if(p.divider!==undefined&&typeof p.divider!=='boolean')throw Error('中央仕切りの設定を確認してください');
@@ -23,4 +24,18 @@ export function makeSnapLidDivider(q){
  return R.makeBox([-q.outerSpan/2,-q.thickness/2,q.zMin-.02],[q.outerSpan/2,q.thickness/2,q.zMax])
   .rotate(Math.atan2(q.tangent[1],q.tangent[0])*180/Math.PI,[0,0,0],[0,0,1])
   .translate([q.center[0],q.center[1],0]);
+}
+
+// Use each compartment's outline so its new wall junctions are rounded for
+// the entire height, including the neck. Bottom fillets are applied afterward.
+export function roundSnapCompartmentProfiles(face,tool,radius){
+ let vector,slice,divided;const result=[];let faces=[];
+ try{
+  const center=face.center;let z;try{z=center.toTuple()[2];}finally{center.delete();}
+  vector=new R.Vector([0,0,.02]);slice=R.basicFaceExtrusion(face,vector);divided=slice.cut(tool);faces=divided.faces;
+  for(const f of faces){if(f.geomType!=='PLANE')continue;const center=f.center;let atZ;try{atZ=center.toTuple()[2];}finally{center.delete();}if(Math.abs(atZ-z)<1e-5)result.push(roundSnapProfile(f,radius));}
+  if(result.length!==2)throw Error('収納部分を2つの空間にできません');
+  return result;
+ }catch{for(const f of result)f.delete();throw Error('仕切りの接合部を丸められません。フィレット半径を小さくしてください');}
+ finally{faces.forEach(f=>f.delete());divided?.delete();slice?.delete();vector?.delete();}
 }

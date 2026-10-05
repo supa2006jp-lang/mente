@@ -1,7 +1,7 @@
 import {snapLidOpeningSettings,cutSnapLidOpenings,snapLidSides} from './snap-lid-opening.js';
 import {snapLidFilletSettings,roundSnapProfile,filletSnapEnd,filletSnapOutside} from './snap-lid-fillet.js';
 import * as R from 'replicad';
-import {snapLidDividerSettings,makeSnapLidDivider} from './snap-lid-divider.js';
+import {snapLidDividerSettings,makeSnapLidDivider,roundSnapCompartmentProfiles} from './snap-lid-divider.js';
 const fail='上下が同じ輪郭で、XY平面で接する2つのボディを選択してください';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
 function bounds(shape){const box=shape.boundingBox;try{return box.bounds;}finally{box.delete();}}
@@ -23,15 +23,28 @@ export function makeSnapLid(lower,upper,p){
   if(bodyHeight<=p.floor+1||lidHeight<=p.floor+p.insertion+p.clearance)throw Error('本体や蓋の高さが足りません。底厚・差し込み高さを小さくしてください');
   const face=hold(cap(lower,seam)),area=R.measureArea(face),fillet=snapLidFilletSettings(p,info,face);
   const opening=snapLidOpeningSettings(face,p,fillet,info),divider=snapLidDividerSettings(face,p,info);
+  if(divider&&fillet.innerRadius){fillet.innerRadius=Math.min(fillet.innerRadius,divider.compartmentWidth/4,divider.span/4);fillet.innerEndRadius=Math.min(fillet.innerEndRadius,fillet.innerRadius);}
+  if(divider){divider.filletRadius=fillet.innerRadius;divider.bottomFilletRadius=fillet.innerEndRadius;}
+  const dividerTool=divider?hold(makeSnapLidDivider(divider)):null;
   const roundedLower=filletSnapOutside(lower,info.lowerMin,fillet.outerRadius),roundedUpper=filletSnapOutside(upper,info.upperMax,fillet.outerRadius);hold(roundedLower.shape);hold(roundedUpper.shape);fillet.outerEdges=roundedLower.edges+roundedUpper.edges;
   function sharpInset(distance){if(Math.abs(distance)<1e-9)return face.clone();for(const sign of [-1,1]){let w,f;try{w=face.clone().outerWire().offset2D(sign*distance,'intersection');f=R.makeFace(w);const a=R.measureArea(f);if(a>1e-6&&a<area){w.delete();return f;}}catch{}w?.delete();f?.delete();}throw Error('この輪郭では内側の空間を作れません。壁厚を小さくしてください');}
   const inset=sharpInset;
-  function prism(offset,z,height,endZ=null,bodyInner=false){let f=hold(inset(offset));if(bodyInner&&fillet.innerRadius)f=hold(roundSnapProfile(f,fillet.innerRadius));const s=hold(extrude(f,height));const positioned=hold(s.translate([0,0,z-seam]));if(!bodyInner||endZ===null||!fillet.innerEndRadius)return positioned;const rounded=filletSnapEnd(positioned,endZ,fillet.innerEndRadius);fillet.innerEdges+=rounded.edges;return hold(rounded.shape);}
+  function prism(offset,z,height,endZ=null,bodyInner=false,partition=false){
+   let f=hold(inset(offset)),profiles;
+   if(partition&&dividerTool&&fillet.innerRadius)profiles=roundSnapCompartmentProfiles(f,dividerTool,fillet.innerRadius).map(hold);
+   else{if(bodyInner&&fillet.innerRadius)f=hold(roundSnapProfile(f,fillet.innerRadius));profiles=[f];}
+   const parts=profiles.map(profile=>{
+    const positioned=hold(hold(extrude(profile,height)).translate([0,0,z-seam]));
+    if(!bodyInner||endZ===null||!fillet.innerEndRadius)return positioned;
+    const rounded=filletSnapEnd(positioned,endZ,fillet.innerEndRadius);fillet.innerEdges+=rounded.edges;return hold(rounded.shape);
+   });
+   return parts.length===1?parts[0]:hold(R.makeCompound(parts.map(part=>part.clone())).asShape3D());
+  }
   function taper(sections){const wires=sections.map(([z,offset])=>hold(hold(hold(inset(offset)).translate([0,0,z-seam])).outerWire()));return hold(R.loft(wires,{ruled:true}));}
-  const cavity=prism(p.bodyWall,info.lowerMin+p.floor,bodyHeight-p.floor+p.insertion+1,info.lowerMin+p.floor,true);
-  const dividerTool=divider?hold(makeSnapLidDivider(divider)):null,hollowTool=dividerTool?hold(cavity.cut(dividerTool)):cavity,bodyHollow=hold(roundedLower.shape.cut(hollowTool));
-  const neckOuter=prism(neckOffset,seam-.02,p.insertion+.02),neckInner=prism(p.bodyWall,seam-.1,p.insertion+.2,null,true),neckHollowTool=dividerTool?hold(neckInner.cut(dividerTool)):neckInner,neck=hold(neckOuter.cut(neckHollowTool));
-  const peak=seam+p.insertion*.5,half=p.ridge+.15,ridgeOuter=taper([[peak-half,neckOffset],[peak,neckOffset-p.ridge],[peak+half,neckOffset]]),ridgeInner=prism(p.bodyWall,peak-half-.1,half*2+.2,null,true),ridge=hold(ridgeOuter.cut(ridgeInner));
+  const cavity=prism(p.bodyWall,info.lowerMin+p.floor,bodyHeight-p.floor+p.insertion+1,info.lowerMin+p.floor,true,true);
+  const hollowTool=dividerTool?hold(cavity.cut(dividerTool)):cavity,bodyHollow=hold(roundedLower.shape.cut(hollowTool));
+  const neckOuter=prism(neckOffset,seam-.02,p.insertion+.02),neckInner=prism(p.bodyWall,seam-.1,p.insertion+.2,null,true,true),neckHollowTool=dividerTool?hold(neckInner.cut(dividerTool)):neckInner,neck=hold(neckOuter.cut(neckHollowTool));
+  const peak=seam+p.insertion*.5,half=p.ridge+.15,ridgeOuter=taper([[peak-half,neckOffset],[peak,neckOffset-p.ridge],[peak+half,neckOffset]]),ridgeInner=prism(p.bodyWall,peak-half-.1,half*2+.2,null,true,true),ridge=hold(ridgeOuter.cut(ridgeInner));
   const neckRidge=hold(neck.fuse(ridge)),body=hold(bodyHollow.fuse(neckRidge));
   const lidCavity=prism(p.lidWall,seam-.1,lidHeight-p.floor+.1),lidHollow=hold(roundedUpper.shape.cut(lidCavity));
   const grooveOuter=taper([[peak-half-p.clearance,p.lidWall],[peak,p.lidWall-p.ridge],[peak+half+p.clearance,p.lidWall]]),lidRetained=hold(lidHollow.cut(grooveOuter)),lid=hold(cutSnapLidOpenings(lidRetained,seam,opening));
