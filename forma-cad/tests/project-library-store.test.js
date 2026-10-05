@@ -1,0 +1,5 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {projectLibraryEntry,createProjectLibraryStore} from '../src/project-library-store.js';
+test('same filename and content identify a single version, with byte-accurate metadata',async()=>{const values={name:'箱.forma.json',text:'日本語のモデルデータ',preview:null,featureCount:2,savedAt:10},a=await projectLibraryEntry(values),again=await projectLibraryEntry({...values,savedAt:20}),changed=await projectLibraryEntry({...values,text:'変更したデータ'}),renamed=await projectLibraryEntry({...values,name:'別名.forma.json'});assert.equal(a.id,again.id);assert.notEqual(a.id,changed.id);assert.notEqual(a.id,renamed.id);assert.equal(a.bytes,new TextEncoder().encode(values.text).length);assert.equal(a.featureCount,2);assert.equal(a.savedAt,10);});
+test('unavailable browser storage rejects cleanly and can be retried',async()=>{const store=createProjectLibraryStore({indexedDB:null});await assert.rejects(store.list(),/保存領域/);await assert.rejects(store.list(),/保存領域/);});
