@@ -1,6 +1,7 @@
 import {snapLidOpeningSettings,cutSnapLidOpenings,snapLidSides} from './snap-lid-opening.js';
 import {snapLidFilletSettings,roundSnapProfile,filletSnapEnd,filletSnapOutside} from './snap-lid-fillet.js';
 import * as R from 'replicad';
+import {snapLidDividerSettings,makeSnapLidDivider} from './snap-lid-divider.js';
 const fail='上下が同じ輪郭で、XY平面で接する2つのボディを選択してください';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
 function bounds(shape){const box=shape.boundingBox;try{return box.bounds;}finally{box.delete();}}
@@ -21,13 +22,14 @@ export function makeSnapLid(lower,upper,p){
   if(p.lidWall-p.ridge<1.2)throw Error('溝の外側に1.2 mm以上の肉厚が必要です。山高さを小さくするか蓋壁厚を増やしてください');
   if(bodyHeight<=p.floor+1||lidHeight<=p.floor+p.insertion+p.clearance)throw Error('本体や蓋の高さが足りません。底厚・差し込み高さを小さくしてください');
   const face=hold(cap(lower,seam)),area=R.measureArea(face),fillet=snapLidFilletSettings(p,info,face);
-  const opening=snapLidOpeningSettings(face,p,fillet,info);
+  const opening=snapLidOpeningSettings(face,p,fillet,info),divider=snapLidDividerSettings(face,p,info);
   const roundedLower=filletSnapOutside(lower,info.lowerMin,fillet.outerRadius),roundedUpper=filletSnapOutside(upper,info.upperMax,fillet.outerRadius);hold(roundedLower.shape);hold(roundedUpper.shape);fillet.outerEdges=roundedLower.edges+roundedUpper.edges;
   function sharpInset(distance){if(Math.abs(distance)<1e-9)return face.clone();for(const sign of [-1,1]){let w,f;try{w=face.clone().outerWire().offset2D(sign*distance,'intersection');f=R.makeFace(w);const a=R.measureArea(f);if(a>1e-6&&a<area){w.delete();return f;}}catch{}w?.delete();f?.delete();}throw Error('この輪郭では内側の空間を作れません。壁厚を小さくしてください');}
   const inset=sharpInset;
   function prism(offset,z,height,endZ=null,bodyInner=false){let f=hold(inset(offset));if(bodyInner&&fillet.innerRadius)f=hold(roundSnapProfile(f,fillet.innerRadius));const s=hold(extrude(f,height));const positioned=hold(s.translate([0,0,z-seam]));if(!bodyInner||endZ===null||!fillet.innerEndRadius)return positioned;const rounded=filletSnapEnd(positioned,endZ,fillet.innerEndRadius);fillet.innerEdges+=rounded.edges;return hold(rounded.shape);}
   function taper(sections){const wires=sections.map(([z,offset])=>hold(hold(hold(inset(offset)).translate([0,0,z-seam])).outerWire()));return hold(R.loft(wires,{ruled:true}));}
-  const cavity=prism(p.bodyWall,info.lowerMin+p.floor,bodyHeight-p.floor+p.insertion+1,info.lowerMin+p.floor,true),bodyHollow=hold(roundedLower.shape.cut(cavity));
+  const cavity=prism(p.bodyWall,info.lowerMin+p.floor,bodyHeight-p.floor+p.insertion+1,info.lowerMin+p.floor,true);
+  const hollowTool=divider?hold(cavity.cut(hold(makeSnapLidDivider(divider)))):cavity,bodyHollow=hold(roundedLower.shape.cut(hollowTool));
   const neckOuter=prism(neckOffset,seam-.02,p.insertion+.02),neckInner=prism(p.bodyWall,seam-.1,p.insertion+.2,null,true),neck=hold(neckOuter.cut(neckInner));
   const peak=seam+p.insertion*.5,half=p.ridge+.15,ridgeOuter=taper([[peak-half,neckOffset],[peak,neckOffset-p.ridge],[peak+half,neckOffset]]),ridgeInner=prism(p.bodyWall,peak-half-.1,half*2+.2,null,true),ridge=hold(ridgeOuter.cut(ridgeInner));
   const neckRidge=hold(neck.fuse(ridge)),body=hold(bodyHollow.fuse(neckRidge));
@@ -37,6 +39,6 @@ export function makeSnapLid(lower,upper,p){
   let bodyOut=body.clone(),lidOut=lid.clone(),lidPose=null;
   let sectionSides;try{sectionSides=snapLidSides(face).map(({center,normal,length})=>({center,normal,length}));}catch{sectionSides=[{center:[info.bounds[1][0],(info.bounds[0][1]+info.bounds[1][1])/2],normal:[1,0,0]}];}
   if(p.pose==='print'){bodyOut=bodyOut.translate([0,0,-info.lowerMin]);lidOut=lidOut.rotate(180,[0,0,info.upperMax],[1,0,0]);const lb=bounds(lidOut),bb=bounds(bodyOut);lidPose={pivot:[0,0,info.upperMax],translation:[bb[1][0]-lb[0][0]+10,0,-lb[0][2]]};lidOut=lidOut.translate(lidPose.translation);}
-  return {body:bodyOut,lid:lidOut,analysis:{...info,neckWall,overlap,fillet,opening,sectionSides,lidPose,retention:Math.max(0,p.ridge-p.clearance)}};
+  return {body:bodyOut,lid:lidOut,analysis:{...info,neckWall,overlap,fillet,opening,divider,sectionSides,lidPose,retention:Math.max(0,p.ridge-p.clearance)}};
  }finally{for(const object of objects.reverse())object.delete();}
 }
