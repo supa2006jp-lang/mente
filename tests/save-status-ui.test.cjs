@@ -159,3 +159,34 @@ test('the details show backup history and the active origin, then a newer backup
     });
     assert.match(nodes['app-storage-last-backup'].textContent, /2026\/10\/02.*14:20/);
 });
+test('sudden-decrease status survives dirty and saving events until confirmation saves', () => {
+    const { app, nodes, window } = harness({ lastSavedAt: '2026-10-06T08:00:00' });
+    app.setupSaveStatusIndicator();
+    const priorTime = nodes['app-storage-last-saved'].textContent;
+    window.dispatchEvent({
+        type: 'maintenance-save-status',
+        detail: {
+            status: 'shrink',
+            error: new Error('sudden decrease'),
+            beforeCount: 100,
+            afterCount: 0,
+            savedAt: '2026-10-06T08:00:00'
+        }
+    });
+    window.dispatchEvent({ type: 'maintenance-save-status', detail: { status: 'dirty' } });
+    window.dispatchEvent({ type: 'maintenance-save-status', detail: { status: 'saving' } });
+
+    assert.match(nodes['app-save-status'].className, /shrink/);
+    assert.equal(nodes['app-storage-alert'].hidden, false);
+    assert.equal(nodes['app-storage-retry'].hidden, true);
+    assert.equal(nodes['app-storage-reload'].hidden, false);
+    assert.equal(nodes['app-storage-last-saved'].textContent, priorTime);
+
+    window.dispatchEvent({
+        type: 'maintenance-save-status',
+        detail: { status: 'saved', at: '2026-10-06T11:30:00' }
+    });
+    assert.match(nodes['app-save-status'].className, /saved/);
+    assert.equal(nodes['app-storage-alert'].hidden, true);
+    assert.match(nodes['app-storage-last-saved'].textContent, /2026\/10\/06.*11:30/);
+});

@@ -363,10 +363,11 @@ class MaintenanceApp {
     }
 
     updateSaveStatus(status = 'ready', detail = {}) {
-        const validStates = ['ready', 'dirty', 'saving', 'saved', 'error', 'conflict'];
+        const validStates = ['ready', 'dirty', 'saving', 'saved', 'error', 'conflict', 'shrink'];
         if (!validStates.includes(status)) status = 'error';
         // A stale tab must stay blocked until the user deliberately reloads it.
         if (this._saveStatus === 'conflict' && status !== 'conflict') return;
+        if (this._saveStatus === 'shrink' && !['shrink', 'saved', 'conflict'].includes(status)) return;
         if (status === 'dirty' && this._saveStatus === 'error') return;
         if (status === 'saved') {
             this._lastSavedAt = this.parseStorageDate(detail.at)
@@ -386,7 +387,8 @@ class MaintenanceApp {
             saving: { icon: 'fa-spinner fa-spin', text: '保存中' },
             saved: { icon: 'fa-circle-check', text: '保存済み' },
             error: { icon: 'fa-triangle-exclamation', text: '保存失敗' },
-            conflict: { icon: 'fa-triangle-exclamation', text: '保存競合' }
+            conflict: { icon: 'fa-triangle-exclamation', text: '保存競合' },
+            shrink: { icon: 'fa-triangle-exclamation', text: 'データ急減・保存停止' }
         };
         const status = this._saveStatus || 'ready';
         const state = states[status] || states.ready;
@@ -425,23 +427,30 @@ class MaintenanceApp {
         if (!alertBox) return;
         const conflict = this._saveStatus === 'conflict';
         const failed = this._saveStatus === 'error';
-        alertBox.hidden = !(conflict || failed);
+        const shrink = this._saveStatus === 'shrink';
+        alertBox.hidden = !(conflict || failed || shrink);
         if (alertBox.hidden) return;
-        alertBox.classList.toggle('conflict', conflict);
+        alertBox.classList.toggle('conflict', conflict || shrink);
         const heading = document.getElementById('app-storage-alert-heading');
         const message = document.getElementById('app-storage-alert-message');
-        if (heading) heading.textContent = conflict ? '別のタブで更新されました。保存を停止しています。' : '保存に失敗しました。変更はまだ保存されていません。';
+        if (heading) heading.textContent = conflict
+            ? '別のタブで更新されました。保存を停止しています。'
+            : shrink
+                ? 'データが急に少なくなりました。保存を一時停止しています。'
+                : '保存に失敗しました。変更はまだ保存されていません。';
         if (message) {
             const detail = error?.message || (typeof error === 'string' ? error : '');
             message.textContent = (conflict
                 ? '必要な編集内容をJSON出力してから、このページを再読み込みしてください。JSONに動画・音声の実体は含まれません。'
-                : '保存領域を確認してから再試行してください。')
+                : shrink
+                    ? '確認画面で「前回保存した記録に戻す」か「減った内容を保存する」を選んでください。'
+                    : '保存領域を確認してから再試行してください。')
                 + (detail ? ' 詳細: ' + detail : '');
         }
         const retry = document.getElementById('app-storage-retry');
         const reload = document.getElementById('app-storage-reload');
-        if (retry) retry.hidden = conflict;
-        if (reload) reload.hidden = !conflict;
+        if (retry) retry.hidden = conflict || shrink;
+        if (reload) reload.hidden = !(conflict || shrink);
     }
 
     async retryFailedSave() {

@@ -542,3 +542,436 @@ test('boot waits for explicit new-data choice when storage is genuinely empty', 
     assert.equal(diagnosticsScheduled, 1);
     assert.equal(document.getElementById('maintenance-storage-gate'), null);
 });
+function dataWithMachineCounts(counts) {
+    const data = sampleData();
+    data.departments = Object.keys(counts).map(id => ({ id, name: id }));
+    data.currentDepartmentId = data.departments[0].id;
+    data.deptData = Object.fromEntries(Object.entries(counts).map(([id, count]) => [id, {
+        machines: Array.from({ length: count }, (_, index) => ({
+            id: id + '-' + index,
+            name: 'Machine ' + index
+        })),
+        tasks: [],
+        history: [],
+        partsMaster: []
+    }]));
+    return data;
+}
+
+test('a sudden collapse of persisted inventory asks before replacing the saved state', async () => {
+    const original = dataWithMachineCounts({ dept_default: 100 });
+    const savedAt = '2026-10-06T02:30:00.000Z';
+    const { store, idb, events } = loadStore({
+        idb: { record: original, revision: { revision: 7, savedAt } }
+    });
+    await store.init();
+    store.activeData.machines.length = 0;
+
+    await assert.rejects(store.save(), error => error.code === 'SUDDEN_DATA_DECREASE');
+    assert.equal(idb.record.deptData.dept_default.machines.length, 100);
+    assert.equal(idb.revision.revision, 7);
+    assert.equal(idb.puts.length, 0);
+    assert.equal(store.lastSavedAt, savedAt);
+    const warning = events.find(event => event.status === 'shrink');
+    assert.ok(warning);
+    assert.equal(warning.beforeCount, 100);
+    assert.equal(warning.afterCount, 0);
+    assert.equal(warning.savedAt, savedAt);
+    assert.ok(!events.some(event => event.status === 'saved'));
+
+    // The pending choice remains in force even when memory changes again.
+    store.activeData.machines.push({ id: 'replacement', name: 'Replacement' });
+    await assert.rejects(store.save(), error => error.code === 'SUDDEN_DATA_DECREASE');
+    assert.equal(idb.record.deptData.dept_default.machines.length, 100);
+    assert.equal(idb.puts.length, 0);
+});
+
+test('confirming an intentional sudden decrease commits it and clears the save latch', async () => {
+    const { store, idb, statuses } = loadStore({
+        idb: { record: dataWithMachineCounts({ dept_default: 100 }) }
+    });
+    await store.init();
+    store.activeData.machines.length = 0;
+    await assert.rejects(store.save(), error => error.code === 'SUDDEN_DATA_DECREASE');
+
+    await store.confirmSuddenDecrease();
+    assert.equal(idb.record.deptData.dept_default.machines.length, 0);
+    assert.equal(idb.revision.revision, 1);
+    assert.ok(statuses.includes('saved'));
+
+    store.activeData.machines.push({ id: 'later', name: 'Later' });
+    await store.save();
+    assert.equal(idb.record.deptData.dept_default.machines[0].id, 'later');
+    assert.equal(idb.revision.revision, 2);
+});
+
+test('a normal partial deletion does not require a sudden-decrease confirmation', async () => {
+    const { store, idb, statuses } = loadStore({
+        idb: { record: dataWithMachineCounts({ dept_default: 100 }) }
+    });
+    await store.init();
+    store.activeData.machines.splice(90);
+    await store.save();
+    assert.equal(idb.record.deptData.dept_default.machines.length, 90);
+    assert.equal(idb.revision.revision, 1);
+    assert.ok(!statuses.includes('shrink'));
+});
+
+test('deleting the only few records does not trigger the large-data safety prompt', async () => {
+    const { store, idb, statuses } = loadStore({
+        idb: { record: dataWithMachineCounts({ dept_default: 2 }) }
+    });
+    await store.init();
+    store.activeData.machines.length = 0;
+    await store.save();
+    assert.equal(idb.record.deptData.dept_default.machines.length, 0);
+    assert.ok(!statuses.includes('shrink'));
+});
+
+test('the sudden-decrease threshold counts records across all departments', async () => {
+    const original = dataWithMachineCounts({ dept_default: 100, dept_other: 1 });
+    original.currentDepartmentId = 'dept_other';
+    const { store, idb, events } = loadStore({ idb: { record: original } });
+    await store.init();
+    store.data.deptData.dept_default.machines.length = 0;
+
+    await assert.rejects(store.save(), error => error.code === 'SUDDEN_DATA_DECREASE');
+    const warning = events.find(event => event.status === 'shrink');
+    assert.ok(warning);
+    assert.equal(warning.beforeCount, 101);
+    assert.equal(warning.afterCount, 1);
+    assert.equal(idb.record.deptData.dept_default.machines.length, 100);
+    assert.equal(idb.record.deptData.dept_other.machines.length, 1);
+});
+
+test('a stale tab reports a revision conflict before it can confirm a decrease', async () => {
+    const shared = fakeIndexedDB({ record: dataWithMachineCounts({ dept_default: 100 }) });
+    const first = loadStore({ idbService: shared });
+    const second = loadStore({ idbService: shared });
+    await Promise.all([first.store.init(), second.store.init()]);
+
+    first.store.activeData.machines[0].name = 'Newer edit';
+    await first.store.save();
+    second.store.activeData.machines.length = 0;
+    await assert.rejects(second.store.save(), error => error.code === 'STORAGE_CONFLICT');
+    assert.ok(second.statuses.includes('conflict'));
+    assert.ok(!second.statuses.includes('shrink'));
+    assert.equal(shared.state.record.deptData.dept_default.machines.length, 100);
+    assert.equal(shared.state.record.deptData.dept_default.machines[0].name, 'Newer edit');
+});
+function runtimeShrinkBootHarness(confirmSuddenDecrease = async () => {}, verifySuddenDecreaseSource = async () => true) {
+    const listeners = new Map();
+    let reloads = 0;
+    let appCount = 0;
+    let confirmations = 0;
+    let verifications = 0;
+    function element(tagName) {
+        return {
+            tagName,
+            children: [],
+            parent: null,
+            listeners: {},
+            style: {},
+            textContent: '',
+            disabled: false,
+            appendChild(child) {
+                child.parent = this;
+                this.children.push(child);
+                return child;
+            },
+            append(...children) { children.forEach(child => this.appendChild(child)); },
+            remove() {
+                if (this.parent) {
+                    this.parent.children = this.parent.children.filter(child => child !== this);
+                    this.parent = null;
+                }
+            },
+            addEventListener(type, callback) { this.listeners[type] = callback; },
+            focus() { this.focused = true; }
+        };
+    }
+    const root = element('body');
+    const find = predicate => {
+        const visit = node => predicate(node)
+            ? node
+            : node.children.map(visit).find(Boolean);
+        return visit(root);
+    };
+    const document = {
+        body: root,
+        createElement: element,
+        getElementById(id) { return find(node => node.id === id) || null; }
+    };
+    const window = {
+        addEventListener(type, callback) {
+            const callbacks = listeners.get(type) || [];
+            callbacks.push(callback);
+            listeners.set(type, callbacks);
+        },
+        dispatchEvent(event) {
+            for (const callback of listeners.get(event.type) || []) callback(event);
+        },
+        setTimeout() {},
+        location: { reload() { reloads += 1; } }
+    };
+    const store = {
+        init: async () => 'loaded',
+        save() { throw new Error('the warning must never trigger a save'); },
+        async verifySuddenDecreaseSource() { verifications += 1; return verifySuddenDecreaseSource(); },
+        async confirmSuddenDecrease() {
+            confirmations += 1;
+            return confirmSuddenDecrease();
+        }
+    };
+    const context = vm.createContext({
+        document,
+        window,
+        store,
+        MaintenanceApp: class { constructor() { appCount += 1; } },
+        console: { error() {} },
+        alert() {}
+    });
+    vm.runInContext(bootSource, context, { filename: 'app-boot.js' });
+    return {
+        async boot() {
+            for (const callback of listeners.get('DOMContentLoaded') || []) await callback();
+        },
+        warn(detail = {}) {
+            window.dispatchEvent({
+                type: 'maintenance-save-status',
+                detail: {
+                    status: 'shrink',
+                    beforeCount: 100,
+                    afterCount: 0,
+                    savedAt: '2026-10-06T02:30:00.000Z',
+                    ...detail
+                }
+            });
+        },
+        find,
+        document,
+        get reloads() { return reloads; },
+        get appCount() { return appCount; },
+        get confirmations() { return confirmations; },
+        get verifications() { return verifications; }
+    };
+}
+
+test('runtime shrink warning offers restoration by reloading the persisted state', async () => {
+    let resolveVerification;
+    const verification = new Promise(resolve => { resolveVerification = resolve; });
+    const harness = runtimeShrinkBootHarness(async () => {}, () => verification);
+    await harness.boot();
+    assert.equal(harness.appCount, 1);
+    assert.equal(harness.document.getElementById('maintenance-storage-gate'), null);
+
+    harness.warn();
+    assert.ok(harness.document.getElementById('maintenance-storage-gate'));
+    assert.match(harness.find(node => node.tagName === 'p')?.textContent || '', /100.*0/);
+    const restore = harness.find(node => node.textContent === '前回保存した記録に戻す');
+    assert.ok(restore);
+    assert.equal(restore.focused, true);
+    assert.equal(harness.confirmations, 0);
+
+    const click = restore.listeners.click();
+    assert.equal(harness.verifications, 1);
+    assert.equal(harness.reloads, 0);
+    resolveVerification(true);
+    await click;
+    assert.equal(harness.reloads, 1);
+    assert.equal(harness.confirmations, 0);
+});
+
+test('runtime shrink warning reloads only after explicit reduced-data save succeeds', async () => {
+    let resolveConfirmation;
+    const confirmation = new Promise(resolve => { resolveConfirmation = resolve; });
+    const harness = runtimeShrinkBootHarness(() => confirmation);
+    await harness.boot();
+    harness.warn();
+    const restore = harness.find(node => node.textContent === '前回保存した記録に戻す');
+    const keep = harness.find(node => node.textContent === '減った内容を保存する');
+    assert.ok(restore);
+    assert.ok(keep);
+
+    const click = keep.listeners.click();
+    assert.equal(harness.confirmations, 1);
+    assert.equal(harness.reloads, 0);
+    assert.ok(harness.document.getElementById('maintenance-storage-gate'));
+    assert.equal(restore.disabled, true);
+    assert.equal(keep.disabled, true);
+
+    resolveConfirmation();
+    await click;
+    assert.ok(harness.document.getElementById('maintenance-storage-gate'));
+    assert.equal(harness.reloads, 1);
+});
+
+test('failed reduced-data confirmation keeps a blocking recovery gate', async () => {
+    const harness = runtimeShrinkBootHarness(async () => {
+        throw new Error('write failed');
+    });
+    await harness.boot();
+    harness.warn();
+    const keep = harness.find(node => node.textContent === '減った内容を保存する');
+    await keep.listeners.click();
+
+    assert.equal(harness.confirmations, 1);
+    assert.equal(harness.reloads, 0);
+    assert.ok(harness.document.getElementById('maintenance-storage-gate'));
+    assert.ok(harness.find(node => node.textContent === '減った内容を保存できませんでした'));
+    assert.ok(harness.find(node => node.textContent === '再読み込み'));
+});
+test('notebook rows alone trigger a decrease warning when a date is emptied', async () => {
+    const original = dataWithMachineCounts({ dept_default: 0 });
+    original.deptData.dept_default.shiftNotebooks = {
+        '2026-10-06': {
+            day: { rows: Array.from({ length: 20 }, (_, index) => ({
+                id: 'note-' + index,
+                text: 'Notebook entry ' + index
+            })) }
+        }
+    };
+    const { store, idb, events } = loadStore({ idb: { record: original } });
+    await store.init();
+    store.activeData.shiftNotebooks = {};
+
+    await assert.rejects(store.save(), error => error.code === 'SUDDEN_DATA_DECREASE');
+    const warning = events.find(event => event.status === 'shrink');
+    assert.ok(warning);
+    assert.equal(warning.beforeCount, 20);
+    assert.equal(warning.afterCount, 0);
+    assert.equal(idb.record.deptData.dept_default.shiftNotebooks['2026-10-06'].day.rows.length, 20);
+    assert.equal(idb.puts.length, 0);
+});
+
+test('restoration verifies the committed source and rejects a newer tab revision', async () => {
+    const shared = fakeIndexedDB({ record: dataWithMachineCounts({ dept_default: 100 }) });
+    const first = loadStore({ idbService: shared });
+    const second = loadStore({ idbService: shared });
+    await Promise.all([first.store.init(), second.store.init()]);
+
+    first.store.activeData.machines.length = 0;
+    await assert.rejects(first.store.save(), error => error.code === 'SUDDEN_DATA_DECREASE');
+    assert.equal(await first.store.verifySuddenDecreaseSource(), true);
+
+    second.store.activeData.machines[0].name = 'Updated elsewhere';
+    await second.store.save();
+    await assert.rejects(first.store.verifySuddenDecreaseSource(),
+        error => error.code === 'STORAGE_CONFLICT');
+    assert.ok(first.statuses.includes('conflict'));
+    assert.equal(shared.state.record.deptData.dept_default.machines[0].name, 'Updated elsewhere');
+});
+
+test('restoration rejects a missing or invalid persisted source even when its revision is unchanged', async () => {
+    for (const missingOrInvalid of [undefined, { deptData: {} }]) {
+        const shared = fakeIndexedDB({ record: dataWithMachineCounts({ dept_default: 100 }) });
+        const { store, statuses } = loadStore({ idbService: shared });
+        await store.init();
+        store.activeData.machines.length = 0;
+        await assert.rejects(store.save(), error => error.code === 'SUDDEN_DATA_DECREASE');
+        shared.state.record = missingOrInvalid;
+
+        await assert.rejects(store.verifySuddenDecreaseSource(),
+            error => error.code === 'STORAGE_CONFLICT');
+        assert.ok(statuses.includes('conflict'));
+        assert.equal(shared.state.puts.length, 0);
+    }
+});
+
+test('duplicate decrease warnings do not rebuild the gate during explicit save', async () => {
+    let resolveConfirmation;
+    const confirmation = new Promise(resolve => { resolveConfirmation = resolve; });
+    const harness = runtimeShrinkBootHarness(() => confirmation);
+    await harness.boot();
+    harness.warn();
+    const originalGate = harness.document.getElementById('maintenance-storage-gate');
+    const keep = harness.find(node => node.textContent === '減った内容を保存する');
+    const click = keep.listeners.click();
+    assert.equal(keep.disabled, true);
+
+    harness.warn();
+    assert.equal(harness.document.getElementById('maintenance-storage-gate'), originalGate);
+    assert.equal(keep.disabled, true);
+    assert.equal(harness.confirmations, 1);
+
+    resolveConfirmation();
+    await click;
+    assert.ok(harness.document.getElementById('maintenance-storage-gate'));
+    assert.equal(harness.reloads, 1);
+});
+
+test('failed source verification keeps the recovery gate and never reloads automatically', async () => {
+    const harness = runtimeShrinkBootHarness(async () => {}, async () => {
+        throw new Error('source changed');
+    });
+    await harness.boot();
+    harness.warn();
+    const restore = harness.find(node => node.textContent === '前回保存した記録に戻す');
+    await restore.listeners.click();
+
+    assert.equal(harness.verifications, 1);
+    assert.equal(harness.reloads, 0);
+    assert.ok(harness.document.getElementById('maintenance-storage-gate'));
+    assert.ok(harness.find(node => node.textContent === '前回保存した記録を確認できませんでした'));
+    const reload = harness.find(node => node.textContent === '再読み込み');
+    assert.ok(reload);
+    reload.listeners.click();
+    assert.equal(harness.reloads, 1);
+});
+test('confirmation rejects a further same-tab drop until the new count is confirmed', async () => {
+    const { store, idb, events } = loadStore({
+        idb: { record: dataWithMachineCounts({ dept_default: 100 }) }
+    });
+    await store.init();
+    store.activeData.machines.length = 9;
+    await assert.rejects(store.save(), error => error.code === 'SUDDEN_DATA_DECREASE'
+        && error.beforeCount === 100 && error.afterCount === 9);
+    assert.equal(idb.record.deptData.dept_default.machines.length, 100);
+
+    store.activeData.machines.length = 0;
+    await assert.rejects(store.confirmSuddenDecrease(),
+        error => error.code === 'SUDDEN_DATA_DECREASE'
+            && error.beforeCount === 100 && error.afterCount === 0);
+    assert.equal(idb.record.deptData.dept_default.machines.length, 100);
+    assert.equal(idb.revision, undefined);
+    assert.equal(idb.puts.length, 0);
+    assert.equal(events.filter(event => event.status === 'shrink').at(-1).afterCount, 0);
+
+    await store.confirmSuddenDecrease();
+    assert.equal(idb.record.deptData.dept_default.machines.length, 0);
+    assert.equal(idb.revision.revision, 1);
+});
+test('a changed decrease count refreshes the gate and requests a second explicit confirmation', async () => {
+    let confirmations = 0;
+    const harness = runtimeShrinkBootHarness(async () => {
+        confirmations += 1;
+        if (confirmations === 1) {
+            const error = new Error('count changed again');
+            error.code = 'SUDDEN_DATA_DECREASE';
+            error.beforeCount = 100;
+            error.afterCount = 0;
+            error.savedAt = '2026-10-06T02:30:00.000Z';
+            throw error;
+        }
+    });
+    await harness.boot();
+    harness.warn({ afterCount: 9 });
+    const firstGate = harness.document.getElementById('maintenance-storage-gate');
+    harness.warn({ afterCount: 9 });
+    assert.equal(harness.document.getElementById('maintenance-storage-gate'), firstGate);
+
+    const firstKeep = harness.find(node => node.textContent === '減った内容を保存する');
+    await firstKeep.listeners.click();
+    const refreshedGate = harness.document.getElementById('maintenance-storage-gate');
+    assert.ok(refreshedGate);
+    assert.notEqual(refreshedGate, firstGate);
+    assert.match(harness.find(node => node.tagName === 'p')?.textContent || '', /100 件.*0 件/);
+    assert.equal(harness.reloads, 0);
+    assert.equal(harness.find(node => node.textContent === '減った内容を保存できませんでした'), undefined);
+
+    const secondKeep = harness.find(node => node.textContent === '減った内容を保存する');
+    await secondKeep.listeners.click();
+    assert.equal(harness.confirmations, 2);
+    assert.equal(harness.reloads, 1);
+    assert.equal(harness.document.getElementById('maintenance-storage-gate'), refreshedGate);
+});

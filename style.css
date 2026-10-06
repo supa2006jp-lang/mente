@@ -7735,6 +7735,12 @@ body {
     color: #991b1b;
 }
 
+.app-save-status.shrink {
+    border-color: #fbbf24;
+    background: #fffbeb;
+    color: #92400e;
+}
+
 .app-save-status-time {
     padding-left: 7px;
     margin-left: 2px;

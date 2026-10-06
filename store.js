@@ -9,6 +9,17 @@ class StorageConflictError extends Error {
     }
 }
 
+class SuddenDataDecreaseError extends Error {
+    constructor(beforeCount, afterCount, savedAt) {
+        super(`保存データが急に少なくなりました（${beforeCount}件 → ${afterCount}件）。確認するまで保存を停止します。`);
+        this.name = 'SuddenDataDecreaseError';
+        this.code = 'SUDDEN_DATA_DECREASE';
+        this.beforeCount = beforeCount;
+        this.afterCount = afterCount;
+        this.savedAt = savedAt;
+    }
+}
+
 class MaintenanceStore {
     constructor() {
         this.DB_NAME = 'FactoryMaintenanceDB';
@@ -20,6 +31,8 @@ class MaintenanceStore {
         this.REVISION_KEY = `${this.STORAGE_KEY}__revision`;
         this._revision = 0;
         this.lastSavedAt = null;
+        this._persistedRecordCount = 0;
+        this._suddenDecrease = null;
         this._saveQueue = Promise.resolve();
         this._saveBlocked = false;
         this._conflictError = null;
@@ -184,6 +197,7 @@ class MaintenanceStore {
                             this._revision = metadata.revision;
                             this.lastSavedAt = metadata.savedAt;
                             this.normalizeData();
+                            this._persistedRecordCount = this.countStoredRecords(this.data);
                             settled = true;
                             resolve('loaded');
                             return;
@@ -197,6 +211,7 @@ class MaintenanceStore {
                         if (this.loadLegacy()) {
                             this._revision = metadata.revision;
                             this.lastSavedAt = metadata.savedAt;
+                            this._persistedRecordCount = 0;
                             settled = true;
                             resolve('legacy');
                             return;
@@ -204,6 +219,7 @@ class MaintenanceStore {
                         this._revision = metadata.revision;
                         this.lastSavedAt = metadata.savedAt;
                         this.normalizeData();
+                        this._persistedRecordCount = 0;
                         settled = true;
                         resolve('empty');
                     } catch (error) {
@@ -227,6 +243,65 @@ class MaintenanceStore {
             throw new Error('最終保存日時の形式を確認できませんでした。');
         }
         return { revision: value.revision, savedAt: value.savedAt };
+    }
+
+    countStoredRecords(value = this.data) {
+        const departments = value?.deptData;
+        if (!departments || typeof departments !== 'object' || Array.isArray(departments)) return 0;
+        const listKeys = [
+            'machines', 'tasks', 'history', 'partsMaster', 'partStockMovements',
+            'localTodos', 'localTodoLogs', 'photoManagerLibrary', 'photoManagerTrash',
+            'photoManagerVideos', 'photoManagerAudios', 'photoManagerBlankTemplates',
+            'tipsNotes', 'shiftNotebookRowTemplates', 'shiftNotebookGroupPresets',
+            'archivedWorkers', 'archivedTasks', 'archivedParts',
+            'archivedMaintenanceTasks', 'archivedGuides', 'machineCategories',
+            'archivedMachineCategories', 'shiftPhotoCompareMarkTemplates',
+            'shiftPhotoCompareAnimationTimelines', 'shiftPhotoCompareVideoFrames'
+        ];
+        const mapKeys = ['memos', 'photoManagerOverlays', 'photoManagerReadings'];
+        let count = 0;
+        for (const department of Object.values(departments)) {
+            if (!department || typeof department !== 'object' || Array.isArray(department)) continue;
+            for (const key of listKeys) {
+                const collection = department[key];
+                if (Array.isArray(collection)) count += collection.length;
+                else if (collection && typeof collection === 'object') count += Object.keys(collection).length;
+            }
+            for (const key of mapKeys) {
+                const collection = department[key];
+                if (collection && typeof collection === 'object' && !Array.isArray(collection)) {
+                    count += Object.keys(collection).length;
+                }
+            }
+            const notebooks = department.shiftNotebooks;
+            if (notebooks && typeof notebooks === 'object' && !Array.isArray(notebooks)) {
+                for (const shifts of Object.values(notebooks)) {
+                    if (!shifts || typeof shifts !== 'object') continue;
+                    for (const [shiftName, entry] of Object.entries(shifts)) {
+                        if (shiftName === 'sharedRows' && Array.isArray(entry)) {
+                            count += entry.length;
+                        } else if (Array.isArray(entry)) {
+                            count += Math.max(1, entry.length);
+                        } else if (entry && typeof entry === 'object') {
+                            count += Math.max(1, Array.isArray(entry.rows) ? entry.rows.length : 0);
+                        }
+                    }
+                }
+            }
+            const outlook = department.outlookAssist;
+            if (outlook && typeof outlook === 'object') {
+                for (const key of ['draftsByWorker', 'templates', 'recipientSets', 'recipientContacts']) {
+                    const collection = outlook[key];
+                    if (collection && typeof collection === 'object') count += Object.keys(collection).length;
+                }
+            }
+        }
+        return count;
+    }
+
+    isSuddenDataDecrease(beforeCount, afterCount) {
+        return (beforeCount >= 5 && afterCount === 0)
+            || (beforeCount >= 10 && afterCount <= Math.max(1, Math.floor(beforeCount * 0.1)));
     }
 
     loadLegacy() {
@@ -374,7 +449,7 @@ class MaintenanceStore {
         });
     }
 
-    save() {
+    save({ confirmedDecreaseRevision = null } = {}) {
         const notify = (status, detail = {}) => {
             window.dispatchEvent(new CustomEvent('maintenance-save-status', {
                 detail: { status, ...detail }
@@ -394,22 +469,103 @@ class MaintenanceStore {
             rejected.catch(() => {});
             return rejected;
         }
+        const pending = this._suddenDecrease;
+        if (pending && confirmedDecreaseRevision !== pending.revision) {
+            notify('shrink', {
+                error: pending,
+                beforeCount: pending.beforeCount,
+                afterCount: pending.afterCount,
+                savedAt: pending.savedAt
+            });
+            const rejected = Promise.reject(pending);
+            rejected.catch(() => {});
+            return rejected;
+        }
         notify('saving');
         // Calls from this tab are serialized so a later save observes the prior committed revision.
-        const operation = this._saveQueue.then(() => this.commitSave(notify));
+        const operation = this._saveQueue.then(() => this.commitSave(notify, confirmedDecreaseRevision));
         this._saveQueue = operation.catch(() => {});
         return operation;
     }
 
-    commitSave(notify) {
+    confirmSuddenDecrease() {
+        if (!this._suddenDecrease) return Promise.reject(new Error('確認が必要なデータ減少はありません。'));
+        return this.save({ confirmedDecreaseRevision: this._suddenDecrease.revision });
+    }
+
+    verifySuddenDecreaseSource() {
+        const pending = this._suddenDecrease;
+        if (!pending || !this.db || this._loadStatus !== 'ready') {
+            return Promise.reject(new Error('復元元の保存状態を確認できません。'));
+        }
+        return new Promise((resolve, reject) => {
+            let tx;
+            let request;
+            let stateRequest;
+            let settled = false;
+            const fail = error => {
+                if (settled) return;
+                settled = true;
+                reject(error || new Error('復元元の保存状態を確認できません。'));
+            };
+            try {
+                tx = this.db.transaction(this.STORE_NAME, 'readonly');
+                const os = tx.objectStore(this.STORE_NAME);
+                request = os.get(this.REVISION_KEY);
+                stateRequest = os.get(this.STORAGE_KEY);
+                request.onerror = () => fail(request.error);
+                stateRequest.onerror = () => fail(stateRequest.error);
+                tx.onerror = () => fail(tx.error);
+                tx.onabort = () => fail(tx.error);
+                tx.oncomplete = () => {
+                    if (settled) return;
+                    try {
+                        const current = this.readRevisionMetadata(request.result);
+                        if (current.revision !== pending.revision
+                            || !this.isValidStoredState(stateRequest.result)
+                            || this.countStoredRecords(stateRequest.result) !== pending.beforeCount) {
+                            const conflict = new StorageConflictError('前回保存した記録が変更されました。再読み込みして最新の保存状態を確認してください。');
+                            this._saveBlocked = true;
+                            this._conflictError = conflict;
+                            window.dispatchEvent(new CustomEvent('maintenance-save-status', {
+                                detail: { status: 'conflict', error: conflict }
+                            }));
+                            fail(conflict);
+                            return;
+                        }
+                        settled = true;
+                        resolve(true);
+                    } catch (error) {
+                        fail(error);
+                    }
+                };
+            } catch (error) {
+                fail(error);
+            }
+        });
+    }
+
+    commitSave(notify, confirmedDecreaseRevision = null) {
         if (this._saveBlocked) {
             const error = this._conflictError || new StorageConflictError();
             notify('conflict', { error });
             return Promise.reject(error);
         }
+        const pending = this._suddenDecrease;
+        const allowSuddenDecrease = pending && confirmedDecreaseRevision === pending.revision;
+        if (pending && !allowSuddenDecrease) {
+            notify('shrink', {
+                error: pending,
+                beforeCount: pending.beforeCount,
+                afterCount: pending.afterCount,
+                savedAt: pending.savedAt
+            });
+            return Promise.reject(pending);
+        }
         return new Promise((resolve, reject) => {
             let tx;
             let settled = false;
+            let nextRecordCount;
             const fail = (error, status = 'error') => {
                 if (settled) return;
                 settled = true;
@@ -418,8 +574,16 @@ class MaintenanceStore {
                     this._saveBlocked = true;
                     this._conflictError = reason;
                 }
-                console.error('Save failed', reason);
-                notify(status, { error: reason });
+                if (status === 'shrink') console.warn('Save paused after sudden data decrease', reason);
+                else console.error('Save failed', reason);
+                notify(status, status === 'shrink'
+                    ? {
+                        error: reason,
+                        beforeCount: reason.beforeCount,
+                        afterCount: reason.afterCount,
+                        savedAt: reason.savedAt
+                    }
+                    : { error: reason });
                 reject(reason);
             };
             try {
@@ -442,6 +606,19 @@ class MaintenanceStore {
                         if (current.revision >= Number.MAX_SAFE_INTEGER) {
                             throw new Error('保存世代の上限に達しました。');
                         }
+                        nextRecordCount = this.countStoredRecords(this.data);
+                        if (this.isSuddenDataDecrease(this._persistedRecordCount, nextRecordCount)
+                            && (!allowSuddenDecrease || pending.afterCount !== nextRecordCount)) {
+                            const warning = new SuddenDataDecreaseError(this._persistedRecordCount, nextRecordCount, this.lastSavedAt);
+                            warning.revision = current.revision;
+                            this._suddenDecrease = warning;
+                            fail(warning, 'shrink');
+                            tx.abort();
+                            return;
+                        }
+                        if (!this.isValidStoredState(this.data)) {
+                            throw new Error('保存データの形式を確認できなかったため、上書きを停止しました。');
+                        }
                         nextRevision = current.revision + 1;
                         savedAt = new Date().toISOString();
                         os.put(this.data, this.STORAGE_KEY);
@@ -458,6 +635,8 @@ class MaintenanceStore {
                     settled = true;
                     this._revision = nextRevision;
                     this.lastSavedAt = savedAt;
+                    this._persistedRecordCount = nextRecordCount;
+                    this._suddenDecrease = null;
                     this.markStoredStatePresent();
                     notify('saved', { at: savedAt });
                     resolve();
