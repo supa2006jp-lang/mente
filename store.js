@@ -8,6 +8,8 @@ class MaintenanceStore {
         this.STORE_NAME = 'state';
         this.MEDIA_STORE_NAME = 'media';
         this.STORAGE_KEY = 'factory_maintenance_next_data_v2'; // Versioning for department support
+        this.STORAGE_MARKER_KEY = 'factory_maintenance_state_present_v1';
+        this._loadStatus = 'not-started';
         this.data = {
             currentDepartmentId: 'dept_default',
             departments: [
@@ -47,84 +49,167 @@ class MaintenanceStore {
     }
 
     async init() {
-        return new Promise((resolve) => {
-            const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
-            
-            request.onupgradeneeded = (e) => {
-                const db = e.target.result;
-                if (!db.objectStoreNames.contains(this.STORE_NAME)) {
-                    db.createObjectStore(this.STORE_NAME);
-                }
-                if (!db.objectStoreNames.contains(this.MEDIA_STORE_NAME)) {
-                    db.createObjectStore(this.MEDIA_STORE_NAME);
-                }
-            };
-            
-            request.onsuccess = async (e) => {
-                this.db = e.target.result;
-                await this.loadFromIDB();
-                await this.purgeRemovedAutoBackups();
-                resolve();
-            };
-            
-            request.onerror = (e) => {
-                console.error("IndexedDB error, falling back to LocalStorage", e);
-                this.loadLegacy();
-                resolve();
-            };
-        });
+        if (this._loadStatus === 'ready') return 'loaded';
+        if (this._loadStatus === 'loading') throw new Error('保存データの読み込み中です。');
+        this._loadStatus = 'loading';
+        try {
+            this.db = await new Promise((resolve, reject) => {
+                const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+                let settled = false;
+                const fail = error => {
+                    if (settled) return;
+                    settled = true;
+                    reject(error || new Error('保存領域を開けませんでした。'));
+                };
+                request.onupgradeneeded = event => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(this.STORE_NAME)) db.createObjectStore(this.STORE_NAME);
+                    if (!db.objectStoreNames.contains(this.MEDIA_STORE_NAME)) db.createObjectStore(this.MEDIA_STORE_NAME);
+                };
+                request.onblocked = () => fail(new Error('他のタブが保存領域を使用しているため開けませんでした。'));
+                request.onerror = () => fail(request.error || new Error('保存領域を開けませんでした。'));
+                request.onsuccess = event => {
+                    const db = event.target.result;
+                    if (settled) {
+                        db.close();
+                        return;
+                    }
+                    settled = true;
+                    resolve(db);
+                };
+            });
+            const source = await this.loadFromIDB();
+            if (source === 'empty') {
+                this._loadStatus = 'empty-unconfirmed';
+                return 'empty-unconfirmed';
+            }
+            this._loadStatus = 'ready';
+            if (source === 'legacy') await this.save();
+            else this.markStoredStatePresent();
+            return source;
+        } catch (error) {
+            this._loadStatus = 'failed';
+            this.db?.close();
+            this.db = null;
+            throw error;
+        }
     }
 
-    async loadFromIDB() {
-        return new Promise((resolve) => {
-            const tx = this.db.transaction(this.STORE_NAME, 'readonly');
-            const os = tx.objectStore(this.STORE_NAME);
-            const request = os.get(this.STORAGE_KEY);
-            
-            request.onsuccess = () => {
-                if (request.result) {
-                    this.data = request.result;
-                } else {
-                    // Try to migrate from LocalStorage
-                    this.loadLegacy();
-                    if (this.data) this.save(); // Migrate immediately to IndexedDB
-                }
-                this.normalizeData();
-                resolve();
+    confirmEmptyStore() {
+        if (this._loadStatus !== 'empty-unconfirmed' || !this.db) {
+            throw new Error('空の保存領域を確認できません。');
+        }
+        this._loadStatus = 'ready';
+    }
+
+    markStoredStatePresent() {
+        try {
+            localStorage.setItem(this.STORAGE_MARKER_KEY, '1');
+        } catch (error) {
+            console.warn('保存データの確認印を記録できませんでした。', error);
+        }
+    }
+
+    isValidStoredState(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+        if (value.deptData && typeof value.deptData === 'object' && !Array.isArray(value.deptData)) {
+            const departments = Array.isArray(value.departments) ? value.departments : [];
+            const ids = Object.keys(value.deptData);
+            return departments.length > 0 && ids.length > 0
+                && ids.every(id => value.deptData[id] && typeof value.deptData[id] === 'object' && !Array.isArray(value.deptData[id]));
+        }
+        return ['machines', 'tasks', 'history'].some(key => Array.isArray(value[key]));
+    }
+
+    loadFromIDB() {
+        if (!this.db) return Promise.reject(new Error('保存領域が開かれていません。'));
+        return new Promise((resolve, reject) => {
+            let tx;
+            let stateRequest;
+            let keysRequest;
+            let settled = false;
+            const fail = error => {
+                if (settled) return;
+                settled = true;
+                reject(error || new Error('保存データを読み込めませんでした。'));
             };
-            request.onerror = () => {
-                this.loadLegacy();
-                resolve();
-            };
+            try {
+                tx = this.db.transaction(this.STORE_NAME, 'readonly');
+                const os = tx.objectStore(this.STORE_NAME);
+                stateRequest = os.get(this.STORAGE_KEY);
+                keysRequest = os.getAllKeys();
+                stateRequest.onerror = () => fail(stateRequest.error || new Error('保存データを読み込めませんでした。'));
+                keysRequest.onerror = () => fail(keysRequest.error || new Error('保存領域を確認できませんでした。'));
+                tx.onerror = () => fail(tx.error || new Error('保存データの読み込みに失敗しました。'));
+                tx.onabort = () => fail(tx.error || new Error('保存データの読み込みが中断されました。'));
+                tx.oncomplete = () => {
+                    if (settled) return;
+                    try {
+                        const stored = stateRequest.result;
+                        if (stored !== undefined) {
+                            if (!this.isValidStoredState(stored)) {
+                                throw new Error('保存データの形式を確認できませんでした。');
+                            }
+                            this.data = stored;
+                            this.normalizeData();
+                            settled = true;
+                            resolve('loaded');
+                            return;
+                        }
+                        const marker = localStorage.getItem(this.STORAGE_MARKER_KEY);
+                        const otherKeys = (keysRequest.result || [])
+                            .filter(key => String(key) !== this.STORAGE_KEY);
+                        if (marker === '1' || otherKeys.length) {
+                            throw new Error('以前の保存データが見つかりません。空データでの上書きを停止しました。');
+                        }
+                        if (this.loadLegacy()) {
+                            settled = true;
+                            resolve('legacy');
+                            return;
+                        }
+                        this.normalizeData();
+                        settled = true;
+                        resolve('empty');
+                    } catch (error) {
+                        fail(error);
+                    }
+                };
+            } catch (error) {
+                fail(error);
+            }
         });
     }
 
     loadLegacy() {
-        const saved = localStorage.getItem(this.STORAGE_KEY) || localStorage.getItem('factory_maintenance_next_data');
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                
-                // Migration: From single-dept to multi-dept
-                if (parsed.machines || parsed.history || parsed.tasks) {
-                    console.log('Migrating legacy data to department structure...');
-                    this.data.deptData['dept_default'] = {
-                        machines: parsed.machines || [],
-                        tasks: parsed.tasks || [],
-                        history: parsed.history || [],
-                        partsMaster: parsed.partsMaster || [],
-                        archivedWorkers: parsed.archivedWorkers || [],
-                        archivedTasks: parsed.archivedTasks || []
-                    };
-                    if (parsed.settings) this.data.settings = parsed.settings;
-                } else {
-                    this.data = parsed;
-                }
-            } catch (e) {
-                console.error('Failed to parse storage data', e);
-            }
+        const current = localStorage.getItem(this.STORAGE_KEY);
+        const saved = current === null
+            ? localStorage.getItem('factory_maintenance_next_data')
+            : current;
+        if (saved === null) return false;
+        let parsed;
+        try {
+            parsed = JSON.parse(saved);
+        } catch (error) {
+            throw new Error('旧保存データを解析できませんでした。', { cause: error });
+        }
+        if (!this.isValidStoredState(parsed)) {
+            throw new Error('旧保存データの形式を確認できませんでした。');
+        }
+        if (parsed.machines || parsed.history || parsed.tasks) {
+            this.data.deptData.dept_default = {
+                machines: parsed.machines || [],
+                tasks: parsed.tasks || [],
+                history: parsed.history || [],
+                partsMaster: parsed.partsMaster || [],
+                archivedWorkers: parsed.archivedWorkers || [],
+                archivedTasks: parsed.archivedTasks || []
+            };
+            if (parsed.settings) this.data.settings = parsed.settings;
+        } else {
+            this.data = parsed;
         }
         this.normalizeData();
+        return true;
     }
 
     normalizeData() {
@@ -246,30 +331,39 @@ class MaintenanceStore {
                 detail: { status, ...detail }
             }));
         };
-        notify('saving');
-        if (!this.db) {
-            try {
-                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
-                notify('saved');
-            } catch (error) {
-                notify('error', { error });
-                throw error;
-            }
-            return;
+        if (this._loadStatus !== 'ready' || !this.db) {
+            const error = new Error('保存データを安全に読み込めていないため、保存を停止しました。');
+            notify('error', { error });
+            throw error;
         }
+        notify('saving');
         return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
-            const os = tx.objectStore(this.STORE_NAME);
-            const req = os.put(this.data, this.STORAGE_KEY);
-            req.onsuccess = () => {
-                notify('saved');
-                resolve();
+            let tx;
+            let settled = false;
+            const fail = error => {
+                if (settled) return;
+                settled = true;
+                const reason = error || new Error('保存処理が完了しませんでした。');
+                console.error('Save failed', reason);
+                notify('error', { error: reason });
+                reject(reason);
             };
-            req.onerror = e => {
-                console.error('Save failed', e);
-                notify('error', { error: e });
-                reject(e);
-            };
+            try {
+                tx = this.db.transaction(this.STORE_NAME, 'readwrite');
+                const request = tx.objectStore(this.STORE_NAME).put(this.data, this.STORAGE_KEY);
+                request.onerror = () => fail(request.error || new Error('保存データを書き込めませんでした。'));
+                tx.onerror = () => fail(tx.error || new Error('保存処理に失敗しました。'));
+                tx.onabort = () => fail(tx.error || new Error('保存処理が中断されました。'));
+                tx.oncomplete = () => {
+                    if (settled) return;
+                    settled = true;
+                    this.markStoredStatePresent();
+                    notify('saved');
+                    resolve();
+                };
+            } catch (error) {
+                fail(error);
+            }
         });
     }
 
