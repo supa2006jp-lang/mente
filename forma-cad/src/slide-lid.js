@@ -1,3 +1,4 @@
+import {slideSurfaceGrip} from './slide-lid-surface-grip.js';
 import {topSlideLayout,topSlideBlank,topSlideSweep,topSlideGrip,slideFinishingOptions,slideLeadIn} from './slide-lid-top.js';
 import * as R from 'replicad';
 import {slideLabelLayout,applySlideLabels} from './slide-lid-labels.js';
@@ -55,6 +56,7 @@ export function makeSlideLid(source,p){
   const front=-L/2+g,back=L/2-w-g,lidBlank=top?topSlideBlank(top,info,sectionPrism,hold,finishing.lidCorners):hold(sectionPrism(lidPoints,front,back));let lid=lidBlank,grip=null;
   if(p.grip&&top){const out=topSlideGrip(lid,top,info,p,hold);lid=out.lid;grip=out.grip;}
   if(p.grip&&!top){const width=Math.min(18,2*root-3),depth=Math.min(.8,t-1.2),gripLength=Math.min(6,back-front-4);if(width<3||gripLength<2)throw Error('指掛け溝を入れる余裕がありません');const tool=hold(R.drawRoundedRectangle(gripLength,width,.8).sketchOnPlane('XY',high-depth).extrude(depth+.02).translate([front+2+gripLength/2,0,0]));lid=hold(lidBlank.cut(tool));grip={width,length:gripLength,depth};}
+  const textured=slideSurfaceGrip(lid,p,info,top,upper,hold);lid=textured.lid;const surfaceGrip=textured.surfaceGrip;
   ({body,lid}=slideLeadIn(body,lid,p,info,top,lower,hold,finishing.leadIn));
   if(labels.length)body=hold(applySlideLabels(body,p,labels));
   const clearPathBody=body;let lock=null;
@@ -66,7 +68,7 @@ export function makeSlideLid(source,p){
   const toWorld=shape=>shape.clone().rotate(info.angle,[0,0,0],[0,0,1]).translate(info.center);
   let bodyOut=toWorld(body),lidOut=toWorld(lid);let printTranslation=null;
   try{if(p.pose==='print'){if(top){lidOut.delete();const flipped=lid.clone().rotate(180,[0,0,0],[1,0,0]);try{lidOut=toWorld(flipped);}finally{flipped.delete();}}bodyOut=bodyOut.translate([0,0,-info.center[2]]);const bb=bounds(bodyOut),lb=bounds(lidOut);printTranslation=[bb[1][0]-lb[0][0]+10,0,-lb[0][2]];lidOut=lidOut.translate(printTranslation);}
-   return {body:bodyOut,lid:lidOut,analysis:{...info,lidStyle:top?'top':'inset',...finishing,bodyHeight,capLower:top?.capLower??null,capUpper:top?.capUpper??null,railStemWidth:top?.stemWidth??null,printFlipped:!!top,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,tipHeight,remainingWall:w-d,engagement:d-g,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,lock,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
+   return {body:bodyOut,lid:lidOut,analysis:{...info,lidStyle:top?'top':'inset',...finishing,bodyHeight,capLower:top?.capLower??null,capUpper:top?.capUpper??null,railStemWidth:top?.stemWidth??null,printFlipped:!!top,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,tipHeight,remainingWall:w-d,engagement:d-g,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,surfaceGrip,lock,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
   }catch(error){bodyOut.delete();lidOut.delete();throw error;}
  }finally{objects.reverse().forEach(shape=>shape.delete());}
 }
