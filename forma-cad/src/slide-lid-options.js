@@ -1,19 +1,14 @@
 import * as R from 'replicad';
+import {slideDividerLayout} from './slide-divider-layout.js';
 import {filletSnapEnd,filletSnapOutside} from './snap-lid-fillet.js';
 const positive=(v,label,min=.05,max=1000)=>{if(!Number.isFinite(v)||v<min||v>max)throw Error(label+'は'+min+'〜'+max+' mmで指定してください');return v;};
 export function slideLidOptions(p,{length:L,width:W,height:H},lower){
  for(const key of ['lock','filletInside','filletOutside','divider'])if(p[key]!==undefined&&typeof p[key]!=='boolean')throw Error('オプションの設定を確認してください');
  const length=L-2*p.wall,width=W-2*p.wall,range=[[-length/2,-width/2],[length/2,width/2]];let divider=null,pockets=[range];
  if(p.divider){
-  const compartments=p.dividerCompartments??2,direction=p.dividerDirection??'short',thickness=positive(p.dividerThickness??2.4,'仕切りの厚さ',1.2);
-  if(!Number.isInteger(compartments)||compartments<2||compartments>4)throw Error('収納部分は2〜4分割で指定してください');
-  if(!['short','long'].includes(direction))throw Error('仕切りの向きを選択してください');
-  const offsets=p.dividerOffsets??Array(compartments-1).fill(0);
-  if(!Array.isArray(offsets)||offsets.length!==compartments-1||!offsets.every(Number.isFinite))throw Error('各仕切りの位置を正しい数値で指定してください');
-  const index=direction==='short'?0:1,span=index===0?length:width,equal=(span-(compartments-1)*thickness)/compartments,positions=offsets.map((v,i)=>-span/2+(i+1)*equal+(i+.5)*thickness+v);
-  pockets=Array.from({length:compartments},(_,i)=>{const a=[...range[0]],b=[...range[1]];a[index]=i===0?-span/2:positions[i-1]+thickness/2;b[index]=i===compartments-1?span/2:positions[i]-thickness/2;return [a,b];});
-  const compartmentWidths=pockets.map(([a,b])=>b[index]-a[index]);if(Math.min(...compartmentWidths)<6-1e-6)throw Error('仕切りを入れる空間が足りません。各部屋に6 mm以上を残してください。位置を戻すか仕切りを薄くしてください');
-  divider={compartments,direction,thickness,offsets:[...offsets],positions,compartmentWidths,zMin:p.floor,zMax:lower,height:lower-p.floor,lidClearance:p.clearance};
+  const layout=slideDividerLayout(p,length,width),{compartments,direction,thickness,index,positions,offsets,compartmentWidths}=layout;
+  pockets=Array.from({length:compartments},(_,i)=>{const a=[...range[0]],b=[...range[1]],span=layout.span;a[index]=i===0?-span/2:positions[i-1]+thickness/2;b[index]=i===compartments-1?span/2:positions[i]-thickness/2;return [a,b];});
+  divider={compartments,direction,thickness,sizing:layout.sizing,requestedWidths:layout.requestedWidths,offsets,positions,compartmentWidths,zMin:p.floor,zMax:lower,height:lower-p.floor,lidClearance:p.clearance};
  }
  let fillet=null;
  if(p.filletInside||p.filletOutside){
