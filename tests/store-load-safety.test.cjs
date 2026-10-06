@@ -103,6 +103,7 @@ function fakeIndexedDB(options = {}) {
                                     return;
                                 }
                                 staged.push({ key, value: snapshot });
+                                options.afterPut?.({ key, value: snapshot });
                             });
                         },
                         delete(key) {
@@ -974,4 +975,260 @@ test('a changed decrease count refreshes the gate and requests a second explicit
     assert.equal(harness.confirmations, 2);
     assert.equal(harness.reloads, 1);
     assert.equal(harness.document.getElementById('maintenance-storage-gate'), refreshedGate);
+});
+
+function importSkillStorage() {
+    return fakeLocalStorage({
+        skillEvaluations: '{"existing":{"rating":2}}',
+        manualSkills: '[{"id":"existing","name":"Existing skill"}]'
+    });
+}
+
+function importPayload(format, machineCount = 2) {
+    const importedMachines = Array.from({ length: machineCount }, (_, index) => ({
+        id: 'imported-' + index,
+        name: 'Imported ' + index
+    }));
+    const skillEvaluations = { imported: { rating: 5 } };
+    const manualSkills = [{ id: 'imported', name: 'Imported skill' }];
+    if (format === 'whole') {
+        const mainData = sampleData();
+        mainData.deptData.dept_default.machines = importedMachines;
+        mainData.settings.theme = 'dark';
+        return JSON.stringify({ mainData, skillEvaluations, manualSkills });
+    }
+    return JSON.stringify({
+        type: 'single_department_backup',
+        departmentName: '工程',
+        data: { machines: importedMachines, tasks: [], history: [], partsMaster: [] },
+        skillEvaluations,
+        manualSkills
+    });
+}
+
+function importSnapshot(store, storage) {
+    return {
+        data: clone(store.data),
+        skillEvaluations: storage.getItem('skillEvaluations'),
+        manualSkills: storage.getItem('manualSkills')
+    };
+}
+
+function assertImportSnapshot(store, storage, expected) {
+    assert.deepStrictEqual(clone(store.data), expected.data);
+    assert.equal(storage.getItem('skillEvaluations'), expected.skillEvaluations);
+    assert.equal(storage.getItem('manualSkills'), expected.manualSkills);
+}
+
+for (const format of ['whole', 'single']) {
+    for (const failure of ['abort', 'conflict', 'pending shrink']) {
+        test(format + ' import preserves memory and skills when save fails: ' + failure, async () => {
+            const original = failure === 'pending shrink'
+                ? dataWithMachineCounts({ dept_default: 100 })
+                : sampleData();
+            const shared = fakeIndexedDB({
+                record: original,
+                abortPut: failure === 'abort'
+            });
+            const storage = importSkillStorage();
+            const { store, statuses } = loadStore({ idbService: shared, localStorage: storage });
+            await store.init();
+
+            if (failure === 'conflict') {
+                const otherTab = loadStore({ idbService: shared });
+                await otherTab.store.init();
+                otherTab.store.activeData.machines[0].name = 'Changed in another tab';
+                await otherTab.store.save();
+            }
+            if (failure === 'pending shrink') {
+                store.activeData.machines.length = 0;
+                await assert.rejects(store.save(), error => error.code === 'SUDDEN_DATA_DECREASE');
+            }
+
+            const before = importSnapshot(store, storage);
+            const savedBefore = clone(shared.state.record);
+            const payload = importPayload(format);
+            const result = format === 'whole'
+                ? await store.importFromJSON(payload)
+                : await store.importToCurrentDeptFromJSON(payload);
+
+            assert.equal(format === 'whole' ? result : result.success, false);
+            assertImportSnapshot(store, storage, before);
+            assert.deepStrictEqual(shared.state.record, savedBefore);
+            assert.ok(statuses.includes(failure === 'pending shrink' ? 'shrink'
+                : failure === 'abort' ? 'error' : 'conflict'));
+        });
+    }
+}
+
+test('successful whole-data import saves replacement records and both skill collections', async () => {
+    const storage = importSkillStorage();
+    const { store, idb } = loadStore({ idb: { record: sampleData() }, localStorage: storage });
+    await store.init();
+
+    assert.equal(await store.importFromJSON(importPayload('whole')), true);
+    assert.equal(store.activeData.machines[0].name, 'Imported 0');
+    assert.equal(idb.record.deptData.dept_default.machines[1].name, 'Imported 1');
+    assert.equal(idb.record.settings.theme, 'dark');
+    assert.deepStrictEqual(JSON.parse(storage.getItem('skillEvaluations')),
+        { imported: { rating: 5 } });
+    assert.deepStrictEqual(JSON.parse(storage.getItem('manualSkills')),
+        [{ id: 'imported', name: 'Imported skill' }]);
+});
+
+test('successful single-department import saves records and merges skill collections', async () => {
+    const storage = importSkillStorage();
+    const { store, idb } = loadStore({ idb: { record: sampleData() }, localStorage: storage });
+    await store.init();
+
+    const result = await store.importToCurrentDeptFromJSON(importPayload('single'));
+    assert.equal(result.success, true);
+    assert.equal(result.departmentName, '工程');
+    assert.equal(store.activeData.machines[0].name, 'Imported 0');
+    assert.equal(idb.record.deptData.dept_default.machines[1].name, 'Imported 1');
+    assert.deepStrictEqual(JSON.parse(storage.getItem('skillEvaluations')),
+        { existing: { rating: 2 }, imported: { rating: 5 } });
+    assert.deepStrictEqual(JSON.parse(storage.getItem('manualSkills')), [
+        { id: 'existing', name: 'Existing skill' },
+        { id: 'imported', name: 'Imported skill' }
+    ]);
+});
+
+test('confirmed full import may intentionally replace many records with an empty backup', async () => {
+    const storage = importSkillStorage();
+    const { store, idb, statuses } = loadStore({
+        idb: { record: dataWithMachineCounts({ dept_default: 100 }) },
+        localStorage: storage
+    });
+    await store.init();
+
+    assert.equal(await store.importFromJSON(importPayload('whole', 0)), true);
+    assert.equal(store.activeData.machines.length, 0);
+    assert.equal(idb.record.deptData.dept_default.machines.length, 0);
+    assert.ok(!statuses.includes('shrink'));
+});
+
+for (const format of ['whole', 'single']) {
+    test(format + ' import rolls back a partially written skill update when localStorage fails', async () => {
+        const storage = importSkillStorage();
+        const originalSetItem = storage.setItem;
+        storage.setItem = (key, value) => {
+            if (key === 'manualSkills' && String(value).includes('Imported skill')) {
+                throw new Error('localStorage quota exceeded');
+            }
+            originalSetItem(key, value);
+        };
+        const { store, idb } = loadStore({
+            idb: { record: sampleData() },
+            localStorage: storage
+        });
+        await store.init();
+        const before = importSnapshot(store, storage);
+        const savedBefore = clone(idb.record);
+
+        const result = format === 'whole'
+            ? await store.importFromJSON(importPayload(format))
+            : await store.importToCurrentDeptFromJSON(importPayload(format));
+
+        assert.equal(format === 'whole' ? result : result.success, false);
+        assertImportSnapshot(store, storage, before);
+        assert.deepStrictEqual(idb.record, savedBefore);
+        assert.equal(idb.puts.length, 0);
+    });
+}
+
+test('legacy single-department JSON import preserves current data after a failed save', async () => {
+    const storage = importSkillStorage();
+    const { store, idb } = loadStore({
+        idb: { record: sampleData(), abortPut: true },
+        localStorage: storage
+    });
+    await store.init();
+    const before = importSnapshot(store, storage);
+    const savedBefore = clone(idb.record);
+
+    const result = await store.importFromJSON(JSON.stringify({
+        machines: [{ id: 'legacy', name: 'Legacy machine' }],
+        tasks: [],
+        history: [],
+        settings: { theme: 'dark' }
+    }));
+
+    assert.equal(result, false);
+    assertImportSnapshot(store, storage, before);
+    assert.deepStrictEqual(idb.record, savedBefore);
+});
+
+test('queued same-tab save wins over an import prepared against its old revision', async () => {
+    const storage = importSkillStorage();
+    const { store, idb } = loadStore({ idb: { record: sampleData() }, localStorage: storage });
+    await store.init();
+    store.activeData.machines[0].name = 'Earlier same-tab edit';
+
+    const earlierSave = store.save();
+    const beforeImport = importSnapshot(store, storage);
+    const importResult = store.importFromJSON(importPayload('whole'));
+    await earlierSave;
+
+    assert.equal(await importResult, false);
+    assertImportSnapshot(store, storage, beforeImport);
+    assert.equal(idb.record.deptData.dept_default.machines[0].name, 'Earlier same-tab edit');
+    assert.equal(idb.revision.revision, 1);
+});
+
+test('an edit saved while an import waits wins and the stale import rolls back', async () => {
+    const storage = importSkillStorage();
+    const { store, idb } = loadStore({ idb: { record: sampleData() }, localStorage: storage });
+    await store.init();
+    const originalSkills = importSnapshot(store, storage);
+
+    let releaseQueue;
+    store._saveQueue = new Promise(resolve => { releaseQueue = resolve; });
+    const importResult = store.importFromJSON(importPayload('whole'));
+    store.activeData.machines[0].name = 'Edited while import waited';
+    const editSave = store.save();
+    releaseQueue();
+
+    assert.equal(await importResult, false);
+    await editSave;
+    assert.equal(store.activeData.machines[0].name, 'Edited while import waited');
+    assert.equal(idb.record.deptData.dept_default.machines[0].name, 'Edited while import waited');
+    assert.equal(storage.getItem('skillEvaluations'), originalSkills.skillEvaluations);
+    assert.equal(storage.getItem('manualSkills'), originalSkills.manualSkills);
+    assert.equal(idb.revision.revision, 1);
+});
+
+test('an edit after import IDB put is restored before the import reports failure', async () => {
+    const storage = importSkillStorage();
+    const initialSkills = {
+        skillEvaluations: storage.getItem('skillEvaluations'),
+        manualSkills: storage.getItem('manualSkills')
+    };
+    let store;
+    let editSave;
+    let injected = false;
+    const shared = fakeIndexedDB({
+        record: sampleData(),
+        afterPut({ key, value }) {
+            if (key !== 'factory_maintenance_next_data_v2'
+                || value?.deptData?.dept_default?.machines?.[0]?.id !== 'imported-0') return;
+            injected = true;
+            store.activeData.machines[0].name = 'Edited after import put';
+            editSave = store.save();
+        }
+    });
+    const harness = loadStore({ idbService: shared, localStorage: storage });
+    store = harness.store;
+    await store.init();
+
+    const result = await store.importFromJSON(importPayload('whole'));
+    assert.equal(injected, true);
+    assert.equal(result, false);
+    await editSave;
+
+    assert.equal(store.activeData.machines[0].name, 'Edited after import put');
+    assert.equal(shared.state.record.deptData.dept_default.machines[0].name, 'Edited after import put');
+    assert.equal(shared.state.revision.revision, 2);
+    assert.equal(storage.getItem('skillEvaluations'), initialSkills.skillEvaluations);
+    assert.equal(storage.getItem('manualSkills'), initialSkills.manualSkills);
 });

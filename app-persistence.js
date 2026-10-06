@@ -162,22 +162,45 @@
             importBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中...';
         }
         const backupFilename = `maintenance_before_import_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-        this.downloadJsonText?.(
-            backupFilename,
-            store.exportAsJSON({ optimizeImages: true, mode: 'complete' }),
-            '取込前バックアップを出力しました'
-        );
-        this.recordAdminBackupLog?.('import', backupFilename);
-        this.recordAdminOperationLog?.('import', '全データ取込を実行', preview.fileName || preview.typeLabel || 'JSON', { tab: 'backup' });
+        try {
+            if (typeof this.downloadJsonText !== 'function') throw new Error('バックアップ出力を利用できません。');
+            this.downloadJsonText(
+                backupFilename,
+                store.exportAsJSON({ optimizeImages: true, mode: 'complete' }),
+                '取込前バックアップを出力しました'
+            );
+        } catch (error) {
+            console.error('取込前バックアップを出力できませんでした。', error);
+            if (importBtn) {
+                importBtn.disabled = false;
+                importBtn.innerHTML = '<i class="fa-solid fa-upload"></i> バックアップして取込';
+            }
+            alert('取込前バックアップを出力できなかったため、取込を中止しました。保存状態を確認してください。');
+            return;
+        }
+        try {
+            this.recordAdminBackupLog?.('import', backupFilename);
+        } catch (error) {
+            console.warn('バックアップ履歴を記録できませんでした。', error);
+        }
         if (await store.importFromJSON(preview.jsonText)) {
-            localStorage.setItem('maintenance_pending_import_result', JSON.stringify({
-                at: new Date().toISOString(),
-                fileName: preview.fileName,
-                typeLabel: preview.typeLabel,
-                incomingDeptName: preview.incomingDeptName,
-                incomingCounts: preview.incomingCounts,
-                currentCounts: preview.currentCounts
-            }));
+            try {
+                this.recordAdminOperationLog?.('import', '全データ取込を実行', preview.fileName || preview.typeLabel || 'JSON', { tab: 'backup' });
+            } catch (error) {
+                console.warn('取込ログを記録できませんでした。', error);
+            }
+            try {
+                localStorage.setItem('maintenance_pending_import_result', JSON.stringify({
+                    at: new Date().toISOString(),
+                    fileName: preview.fileName,
+                    typeLabel: preview.typeLabel,
+                    incomingDeptName: preview.incomingDeptName,
+                    incomingCounts: preview.incomingCounts,
+                    currentCounts: preview.currentCounts
+                }));
+            } catch (error) {
+                console.warn('取込結果を記録できませんでした。', error);
+            }
             this.pendingFullImportPreview = null;
             location.reload();
         } else {
@@ -185,7 +208,7 @@
                 importBtn.disabled = false;
                 importBtn.innerHTML = '<i class="fa-solid fa-upload"></i> バックアップして取込';
             }
-            alert('インポートに失敗しました。ファイル形式を確認してください。');
+            alert('インポートに失敗しました。ファイル形式と保存状態を確認してください。保存エラーが表示されている場合は、その内容を確認してください。');
         }
     }
 
@@ -420,7 +443,7 @@
                         const preview = this.getImportPreviewInfo(text, file.name);
                         this.openImportPreviewModal(preview);
                     } catch (error) {
-                        alert('インポートに失敗しました。ファイル形式を確認してください。');
+                        alert('インポートに失敗しました。ファイル形式と保存状態を確認してください。保存エラーが表示されている場合は、その内容を確認してください。');
                     }
                     fileInput.value = '';
                 };

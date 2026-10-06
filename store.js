@@ -34,6 +34,8 @@ class MaintenanceStore {
         this._persistedRecordCount = 0;
         this._suddenDecrease = null;
         this._saveQueue = Promise.resolve();
+        this._saveSequence = 0;
+        this._importPending = false;
         this._saveBlocked = false;
         this._conflictError = null;
         this._loadStatus = 'not-started';
@@ -449,7 +451,7 @@ class MaintenanceStore {
         });
     }
 
-    save({ confirmedDecreaseRevision = null } = {}) {
+    save({ confirmedDecreaseRevision = null, candidateData = null, confirmedImport = false, expectedRevision = null, expectedLiveData = null } = {}) {
         const notify = (status, detail = {}) => {
             window.dispatchEvent(new CustomEvent('maintenance-save-status', {
                 detail: { status, ...detail }
@@ -481,9 +483,10 @@ class MaintenanceStore {
             rejected.catch(() => {});
             return rejected;
         }
+        const saveSequence = ++this._saveSequence;
         notify('saving');
         // Calls from this tab are serialized so a later save observes the prior committed revision.
-        const operation = this._saveQueue.then(() => this.commitSave(notify, confirmedDecreaseRevision));
+        const operation = this._saveQueue.then(() => this.commitSave(notify, confirmedDecreaseRevision, candidateData, confirmedImport, expectedRevision, expectedLiveData, saveSequence));
         this._saveQueue = operation.catch(() => {});
         return operation;
     }
@@ -545,12 +548,32 @@ class MaintenanceStore {
         });
     }
 
-    commitSave(notify, confirmedDecreaseRevision = null) {
+    commitSave(notify, confirmedDecreaseRevision = null, candidateData = null, confirmedImport = false, expectedRevision = null, expectedLiveData = null, saveSequence = null) {
         if (this._saveBlocked) {
             const error = this._conflictError || new StorageConflictError();
             notify('conflict', { error });
             return Promise.reject(error);
         }
+        if (expectedRevision !== null && this._revision !== expectedRevision) {
+            const error = new Error('取込準備中に保存データが変更されました。取込をもう一度実行してください。');
+            error.code = 'IMPORT_STATE_CHANGED';
+            notify('error', { error });
+            return Promise.reject(error);
+        }
+        const importStateChanged = () => {
+            if (!candidateData) return false;
+            if (this._saveSequence !== saveSequence) return true;
+            try {
+                return JSON.stringify(this.data) !== expectedLiveData;
+            } catch (_) {
+                return true;
+            }
+        };
+        const importStateChangedError = () => {
+            const error = new Error('取込中に現在のデータが編集されました。編集内容を保護するため、取込を中断しました。もう一度実行してください。');
+            error.code = 'IMPORT_STATE_CHANGED';
+            return error;
+        };
         const pending = this._suddenDecrease;
         const allowSuddenDecrease = pending && confirmedDecreaseRevision === pending.revision;
         if (pending && !allowSuddenDecrease) {
@@ -606,8 +629,11 @@ class MaintenanceStore {
                         if (current.revision >= Number.MAX_SAFE_INTEGER) {
                             throw new Error('保存世代の上限に達しました。');
                         }
-                        nextRecordCount = this.countStoredRecords(this.data);
-                        if (this.isSuddenDataDecrease(this._persistedRecordCount, nextRecordCount)
+                        if (importStateChanged()) throw importStateChangedError();
+                        const dataToSave = candidateData || this.data;
+                        nextRecordCount = this.countStoredRecords(dataToSave);
+                        // Import has a separate destructive preview and confirmation in the UI.
+                        if (!confirmedImport && this.isSuddenDataDecrease(this._persistedRecordCount, nextRecordCount)
                             && (!allowSuddenDecrease || pending.afterCount !== nextRecordCount)) {
                             const warning = new SuddenDataDecreaseError(this._persistedRecordCount, nextRecordCount, this.lastSavedAt);
                             warning.revision = current.revision;
@@ -616,12 +642,12 @@ class MaintenanceStore {
                             tx.abort();
                             return;
                         }
-                        if (!this.isValidStoredState(this.data)) {
+                        if (!this.isValidStoredState(dataToSave)) {
                             throw new Error('保存データの形式を確認できなかったため、上書きを停止しました。');
                         }
                         nextRevision = current.revision + 1;
                         savedAt = new Date().toISOString();
-                        os.put(this.data, this.STORAGE_KEY);
+                        os.put(dataToSave, this.STORAGE_KEY);
                         os.put({ revision: nextRevision, savedAt }, this.REVISION_KEY);
                     } catch (error) {
                         fail(error);
@@ -632,12 +658,20 @@ class MaintenanceStore {
                 tx.onabort = () => fail(tx.error || new Error('保存処理が中断されました。'));
                 tx.oncomplete = () => {
                     if (settled) return;
-                    settled = true;
                     this._revision = nextRevision;
                     this.lastSavedAt = savedAt;
                     this._persistedRecordCount = nextRecordCount;
                     this._suddenDecrease = null;
                     this.markStoredStatePresent();
+                    if (importStateChanged()) {
+                        const error = importStateChangedError();
+                        error.committedImport = true;
+                        error.committedRevision = nextRevision;
+                        fail(error);
+                        return;
+                    }
+                    settled = true;
+                    if (candidateData) this.data = candidateData;
                     notify('saved', { at: savedAt });
                     resolve();
                 };
@@ -1451,53 +1485,157 @@ class MaintenanceStore {
             : JSON.stringify(payload, null, 2);
     }
 
+    cloneImportData(value) {
+        return typeof structuredClone === 'function'
+            ? structuredClone(value)
+            : JSON.parse(JSON.stringify(value));
+    }
+
+    normalizeImportCandidate(candidate) {
+        if (!this.isValidStoredState(candidate)) throw new Error('取込ファイルの保存データ形式が正しくありません。');
+        const previous = this.data;
+        try {
+            this.data = candidate;
+            this.normalizeData();
+            if (!this.isValidStoredState(this.data)) throw new Error('取込ファイルの保存データ形式が正しくありません。');
+            return this.data;
+        } finally {
+            this.data = previous;
+        }
+    }
+
+    buildImportSkillUpdates(imported, merge = false) {
+        const updates = {};
+        if (Object.prototype.hasOwnProperty.call(imported, 'skillEvaluations') && imported.skillEvaluations !== null) {
+            const incoming = imported.skillEvaluations;
+            if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+                throw new Error('スキル評価の形式が正しくありません。');
+            }
+            if (merge) {
+                const current = JSON.parse(localStorage.getItem('skillEvaluations') || '{}');
+                if (!current || typeof current !== 'object' || Array.isArray(current)) {
+                    throw new Error('現在のスキル評価を読み取れません。');
+                }
+                updates.skillEvaluations = JSON.stringify({ ...current, ...incoming });
+            } else {
+                updates.skillEvaluations = JSON.stringify(incoming);
+            }
+        }
+        if (Object.prototype.hasOwnProperty.call(imported, 'manualSkills') && imported.manualSkills !== null) {
+            const incoming = imported.manualSkills;
+            if (!Array.isArray(incoming)) throw new Error('手動スキルの形式が正しくありません。');
+            if (merge) {
+                const current = JSON.parse(localStorage.getItem('manualSkills') || '[]');
+                if (!Array.isArray(current)) throw new Error('現在の手動スキルを読み取れません。');
+                const seen = new Set();
+                const unique = [...current, ...incoming].filter(item => {
+                    const key = JSON.stringify(item);
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+                updates.manualSkills = JSON.stringify(unique);
+            } else {
+                updates.manualSkills = JSON.stringify(incoming);
+            }
+        }
+        return updates;
+    }
+
+    async applyImportedCandidate(candidate, skillUpdates) {
+        const keys = Object.keys(skillUpdates);
+        const previous = new Map();
+        const attempted = [];
+        const expectedRevision = this._revision;
+        const expectedLiveData = JSON.stringify(this.data);
+        if (this._importPending) throw new Error('別の取込処理が進行中です。');
+        this._importPending = true;
+        try {
+            for (const key of keys) previous.set(key, localStorage.getItem(key));
+            for (const key of keys) {
+                attempted.push(key);
+                localStorage.setItem(key, skillUpdates[key]);
+            }
+            // The UI already asks for explicit confirmation before destructive imports.
+            await this.save({ candidateData: candidate, confirmedImport: true, expectedRevision, expectedLiveData });
+        } catch (error) {
+            const rollbackErrors = [];
+            for (const key of attempted.reverse()) {
+                try {
+                    // Preserve a newer value if another tab changed it during the import.
+                    if (localStorage.getItem(key) !== skillUpdates[key]) continue;
+                    const original = previous.get(key);
+                    if (original === null) localStorage.removeItem(key);
+                    else localStorage.setItem(key, original);
+                } catch (rollbackError) {
+                    rollbackErrors.push(rollbackError);
+                }
+            }
+            if (error.committedImport) {
+                try {
+                    // Let a queued edit save finish; otherwise save the live data ourselves.
+                    await this._saveQueue;
+                    if (this._revision === error.committedRevision) await this.save();
+                } catch (restoreError) {
+                    rollbackErrors.push(restoreError);
+                }
+            }
+            if (rollbackErrors.length) {
+                const rollbackFailure = new Error('取込に失敗し、一部のデータを元に戻せませんでした。ページを再読み込みして保存状態を確認してください。', { cause: error });
+                window.dispatchEvent(new CustomEvent('maintenance-save-status', {
+                    detail: { status: 'error', error: rollbackFailure }
+                }));
+                throw rollbackFailure;
+            }
+            throw error;
+        } finally {
+            this._importPending = false;
+        }
+    }
+
     async importFromJSON(jsonString) {
+        this.lastImportError = null;
         try {
             const imported = this.hydratePackedImageData(JSON.parse(jsonString));
-            let dataToLoad = imported;
-
-            // Check if this is the new payload format (includes skills)
-            if (imported.mainData) {
-                dataToLoad = imported.mainData;
-                if (imported.skillEvaluations) {
-                    localStorage.setItem('skillEvaluations', JSON.stringify(imported.skillEvaluations));
-                }
-                if (imported.manualSkills) {
-                    localStorage.setItem('manualSkills', JSON.stringify(imported.manualSkills));
-                }
+            if (!imported || typeof imported !== 'object' || Array.isArray(imported)) {
+                throw new Error('取込ファイルの形式が正しくありません。');
             }
-
-            // Case 1: New multi-dept format
-            if (dataToLoad.departments && dataToLoad.deptData) {
-                this.data = dataToLoad;
-                this.normalizeData();
-                await this.save();
-                return true;
-            }
-            // Case 2: Legacy single-dept format
-            if (dataToLoad.machines || dataToLoad.history || dataToLoad.tasks) {
-                const currentId = this.data.currentDepartmentId;
-                if (!this.data.deptData[currentId]) {
-                    this.data.deptData[currentId] = { machines: [], tasks: [], history: [], partsMaster: [], archivedWorkers: [], archivedTasks: [] };
+            const wrapped = Object.prototype.hasOwnProperty.call(imported, 'mainData');
+            const dataToLoad = wrapped ? imported.mainData : imported;
+            let candidate;
+            if (dataToLoad?.departments && dataToLoad?.deptData) {
+                candidate = this.normalizeImportCandidate(dataToLoad);
+            } else if (['machines', 'tasks', 'history'].some(key => Array.isArray(dataToLoad?.[key]))) {
+                for (const key of ['machines', 'tasks', 'history', 'partsMaster', 'archivedWorkers', 'archivedTasks']) {
+                    if (dataToLoad[key] != null && !Array.isArray(dataToLoad[key])) {
+                        throw new Error('取込ファイルの記録形式が正しくありません。');
+                    }
                 }
-                const active = this.data.deptData[currentId];
+                candidate = this.cloneImportData(this.data);
+                const currentId = candidate.currentDepartmentId;
+                if (!candidate.deptData[currentId]) {
+                    candidate.deptData[currentId] = { machines: [], tasks: [], history: [], partsMaster: [], archivedWorkers: [], archivedTasks: [] };
+                }
+                const active = candidate.deptData[currentId];
                 active.machines = dataToLoad.machines || [];
                 active.tasks = dataToLoad.tasks || [];
                 active.history = dataToLoad.history || [];
                 active.partsMaster = dataToLoad.partsMaster || [];
                 active.archivedWorkers = dataToLoad.archivedWorkers || [];
                 active.archivedTasks = dataToLoad.archivedTasks || [];
-                
-                if (dataToLoad.settings) this.data.settings = dataToLoad.settings;
-                
-                this.normalizeData();
-                await this.save();
-                return true;
+                if (dataToLoad.settings) candidate.settings = dataToLoad.settings;
+                candidate = this.normalizeImportCandidate(candidate);
+            } else {
+                throw new Error('取込ファイルの保存データ形式が正しくありません。');
             }
-        } catch (e) {
-            console.error('Import failed', e);
+            const skillUpdates = wrapped ? this.buildImportSkillUpdates(imported) : {};
+            await this.applyImportedCandidate(candidate, skillUpdates);
+            return true;
+        } catch (error) {
+            this.lastImportError = error;
+            console.error('Import failed', error);
+            return false;
         }
-        return false;
     }
 
     // --- Single Department Support ---
@@ -1522,43 +1660,26 @@ class MaintenanceStore {
     async importToCurrentDeptFromJSON(jsonString) {
         try {
             const imported = this.hydratePackedImageData(JSON.parse(jsonString));
-            
-            // Validate type
-            if (imported.type !== 'single_department_backup') {
+            if (imported?.type !== 'single_department_backup') {
                 return { success: false, message: 'このファイルは個人・単独部署用ではありません。「全データ取込」を使用してください。' };
             }
-
-            // Confirm department name mismatch (optional warning, handled by UI)
-            
-            // Overwrite current department data
-            const active = this.activeData;
-            if (imported.data) {
-                Object.keys(active).forEach(key => delete active[key]);
-                Object.entries(imported.data).forEach(([key, value]) => {
-                    if (!['__proto__', 'prototype', 'constructor'].includes(key)) active[key] = value;
-                });
-                this.normalizeData();
+            if (!imported.data || typeof imported.data !== 'object' || Array.isArray(imported.data)) {
+                throw new Error('部署データの形式が正しくありません。');
             }
-
-            // Merge skills (overwrite specific keys if present)
-            if (imported.skillEvaluations) {
-                const currentSkills = JSON.parse(localStorage.getItem('skillEvaluations') || '{}');
-                const merged = { ...currentSkills, ...imported.skillEvaluations };
-                localStorage.setItem('skillEvaluations', JSON.stringify(merged));
+            const candidate = this.cloneImportData(this.data);
+            const currentId = candidate.currentDepartmentId;
+            const cleanDepartment = {};
+            for (const [key, value] of Object.entries(imported.data)) {
+                if (!['__proto__', 'prototype', 'constructor'].includes(key)) cleanDepartment[key] = value;
             }
-            if (imported.manualSkills) {
-                const currentManual = JSON.parse(localStorage.getItem('manualSkills') || '[]');
-                // Merge without duplicates based on content? For now just append and unique
-                const combined = [...currentManual, ...imported.manualSkills];
-                const unique = combined.filter((v, i, a) => a.findIndex(t => JSON.stringify(t) === JSON.stringify(v)) === i);
-                localStorage.setItem('manualSkills', JSON.stringify(unique));
-            }
-
-            await this.save();
+            candidate.deptData[currentId] = cleanDepartment;
+            const normalized = this.normalizeImportCandidate(candidate);
+            const skillUpdates = this.buildImportSkillUpdates(imported, true);
+            await this.applyImportedCandidate(normalized, skillUpdates);
             return { success: true, departmentName: imported.departmentName };
-        } catch (e) {
-            console.error('Dept import failed', e);
-            return { success: false, message: 'ファイルの解析に失敗しました。' };
+        } catch (error) {
+            console.error('Dept import failed', error);
+            return { success: false, message: '取込に失敗しました。保存状態とファイル形式を確認してください。' };
         }
     }
 
