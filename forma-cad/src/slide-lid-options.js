@@ -19,7 +19,8 @@ export function slideLidOptions(p,{length:L,width:W,height:H},lower){
  }
  const lockHeight=p.lock?positive(p.lockHeight??.35,'抜け止めの掛かり',.1,.6):0;
  if(p.lock&&(p.wall/2<p.clearance+lockHeight+.13||p.wall/2-p.clearance-lockHeight-p.clearance*Math.SQRT2-.05<.6))throw Error('抜け止めを内側に収める壁厚が足りません。壁厚を増やすか掛かり・すき間を小さくしてください');
- if(p.lock&&p.lidThickness-lockHeight-p.clearance*Math.SQRT2<1.2-1e-6)throw Error('抜け止めの溝の上に1.2 mm以上の蓋厚が必要です。蓋を厚くするか掛かりを小さくしてください');
+ const lockThickness=p.lidStyle==='top'?2*p.railDepth+1.2+2*p.clearance*(Math.SQRT2-1):p.lidThickness;
+ if(p.lock&&lockThickness-lockHeight-p.clearance*Math.SQRT2<1.2-1e-6)throw Error('抜け止めの溝の上に1.2 mm以上の蓋厚が必要です。蓋を厚くするか掛かりを小さくしてください');
  return {pockets,divider,fillet,lockHeight};
 }
 export function slideOuterFillet(shape,q){return filletSnapOutside(shape,0,q.outerRadius);}
@@ -29,10 +30,10 @@ export function slidePocket([a,b],floor,top,q){
  return tool;
 }
 function triangle(x,z,r,y,width){let plane;try{plane=new R.Plane([0,y+width/2,0],[1,0,0],[0,-1,0]);return R.draw([x-r,z-r]).lineTo([x+r,z-r]).lineTo([x,z]).close().sketchOnPlane(plane).extrude(width);}finally{plane?.delete();}}
-export function slideLock(body,lid,p,{length:L,width:W},lower){
- const g=p.clearance,h=p.lockHeight??.35,S=W/2-p.wall,x=-L/2+p.wall/2,low=lower+g,peak=low+h,width=Math.min(6,2*S-2),centers=2*S>=18?[-S+4,S-4]:[0],owned=[],hold=s=>(owned.push(s),s);let outBody,outLid;
+export function slideLock(body,lid,p,{length:L,width:W,lockCenters,lockWidth,lockThickness=p.lidThickness},lower){
+ const g=p.clearance,h=p.lockHeight??.35,S=W/2-p.wall,x=-L/2+p.wall/2,low=lower+g,peak=low+h,width=lockWidth??Math.min(6,2*S-2),centers=lockCenters??(2*S>=18?[-S+4,S-4]:[0]),owned=[],hold=s=>(owned.push(s),s);let outBody,outLid;
  try{
   for(const y of centers){const bump=hold(triangle(x,peak,g+h+.08,y,width)),groovePeak=peak+g*Math.SQRT2,groove=hold(triangle(x,groovePeak,groovePeak-low+.05,y,width+2*g));outBody=hold((outBody||body).fuse(bump));outLid=hold((outLid||lid).cut(groove));}
-  return {body:outBody.clone(),lid:outLid.clone(),analysis:{height:h,width,count:centers.length,x,ys:centers,peak,grooveDepth:h+g*Math.SQRT2,remainingLid:p.lidThickness-h-g*Math.SQRT2,requiredFlex:Math.max(0,h-g),slidingContact:0}};
+  return {body:outBody.clone(),lid:outLid.clone(),analysis:{height:h,width,count:centers.length,x,ys:centers,peak,grooveDepth:h+g*Math.SQRT2,remainingLid:lockThickness-h-g*Math.SQRT2,requiredFlex:Math.max(0,h-g),slidingContact:0}};
  }finally{owned.reverse().forEach(s=>s.delete());}
 }

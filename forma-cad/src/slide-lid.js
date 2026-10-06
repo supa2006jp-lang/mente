@@ -1,3 +1,4 @@
+import {topSlideLayout,topSlideBlank,topSlideSweep,topSlideGrip} from './slide-lid-top.js';
 import * as R from 'replicad';
 import {slideLabelLayout,applySlideLabels} from './slide-lid-labels.js';
 import {snapLidSides} from './snap-lid-opening.js';
@@ -25,19 +26,21 @@ function sectionPrism(points,start,end){
 }
 function valid(shape,label){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false),solids=shape.solids;try{if(!check.IsValid()||solids.length!==1||!(R.measureVolume(shape)>1e-7))throw Error(label+'を有効なソリッドにできません。寸法を調整してください');}finally{check.delete();solids.forEach(s=>s.delete());}}
 export function makeSlideLid(source,p){
+ if(p.lidStyle!==undefined&&!['top','inset'].includes(p.lidStyle))throw Error('蓋の形を選択してください');
  if(!['print','assembled'].includes(p.pose))throw Error('配置を選択してください');
  const info=slideLidInfo(source,p.direction,p.entry),{length:L,width:W,height:H}=info;
  for(const key of ['wall','floor','lidThickness','railDepth','cover','clearance'])if(!Number.isFinite(p[key])||p[key]<=0)throw Error('壁厚・底厚・蓋厚・溝の寸法は0より大きい数値で指定してください');
  const {wall:w,floor,railDepth:d,cover,clearance:g,lidThickness:t}=p;
  if(Math.min(w,floor,t,cover)<1.2||d<.6||g<.05||g>1)throw Error('0.6 mmノズル用に壁・底・蓋・溝上部の厚さは1.2 mm以上、溝深さは0.6 mm以上、すき間は0.05〜1 mmにしてください');
  if(w-d<1.2-1e-6||d-g<.6-1e-6)throw Error('溝の外側に1.2 mm以上の肉厚、蓋の掛かりに0.6 mm以上が必要です。壁厚・溝深さ・すき間を調整してください');
- const S=W/2-w,upper=H-cover,lower=upper-t-2*g,k=g*(Math.SQRT2-1),tipHeight=upper-lower-2*d-2*k;
+ const top=p.lidStyle==='top'?topSlideLayout(info,p):null,bodyHeight=top?.bodyHeight??H,S=W/2-w,upper=top?.upper??H-cover,lower=top?.lower??upper-t-2*g,k=g*(Math.SQRT2-1),tipHeight=top?.tipHeight??upper-lower-2*d-2*k;
  if(tipHeight<1.2-1e-6)throw Error('蓋の両端が薄くなりすぎます。蓋厚を増やすか溝深さを小さくしてください');
  if(L-2*w<6||W-2*w<6||lower-floor<3)throw Error('収納部分の大きさが足りません。壁・底・蓋を薄くするか、元の直方体を大きくしてください');
  if(p.grip!==undefined&&typeof p.grip!=='boolean')throw Error('指掛け溝の設定を確認してください');
  const options=slideLidOptions(p,info,lower),labels=slideLabelLayout(p,options,lower);const objects=[],hold=shape=>(objects.push(shape),shape);
  try{
   let hollow=hold(source.clone().translate(info.center.map(v=>-v)).rotate(-info.angle,[0,0,0],[0,0,1]));
+  if(top)hollow=hold(hollow.cut(hold(R.makeBox([-L/2-1,-W/2-1,bodyHeight],[L/2+1,W/2+1,H+1]))));
   if(options.fillet?.outerRadius){const rounded=slideOuterFillet(hollow,options.fillet);hollow=hold(rounded.shape);options.fillet.outerEdges=rounded.edges;}
   for(const pocket of options.pockets){const cavity=hold(slidePocket(pocket,floor,H+1,options.fillet));hollow=hold(hollow.cut(cavity));}
   // Clear everything above the divider/fillet tops without changing the sliding rails.
@@ -49,19 +52,20 @@ export function makeSlideLid(source,p){
   // Inset every channel surface by the same normal clearance, including 45 degree edges.
   const root=S-k,tip=S+d-g,low=lower+g,high=upper-g;
   const lidPoints=[[-root,low],[root,low],[tip,lower+d+k],[tip,upper-d-k],[root,high],[-root,high],[-tip,upper-d-k],[-tip,lower+d+k]];
-  const front=-L/2+g,back=L/2-w-g,lidBlank=hold(sectionPrism(lidPoints,front,back));let lid=lidBlank,grip=null;
-  if(p.grip){const width=Math.min(18,2*root-3),depth=Math.min(.8,t-1.2),gripLength=Math.min(6,back-front-4);if(width<3||gripLength<2)throw Error('指掛け溝を入れる余裕がありません');const tool=hold(R.drawRoundedRectangle(gripLength,width,.8).sketchOnPlane('XY',high-depth).extrude(depth+.02).translate([front+2+gripLength/2,0,0]));lid=hold(lidBlank.cut(tool));grip={width,length:gripLength,depth};}
+  const front=-L/2+g,back=L/2-w-g,lidBlank=top?topSlideBlank(top,info,sectionPrism,hold):hold(sectionPrism(lidPoints,front,back));let lid=lidBlank,grip=null;
+  if(p.grip&&top){const out=topSlideGrip(lid,top,info,p,hold);lid=out.lid;grip=out.grip;}
+  if(p.grip&&!top){const width=Math.min(18,2*root-3),depth=Math.min(.8,t-1.2),gripLength=Math.min(6,back-front-4);if(width<3||gripLength<2)throw Error('指掛け溝を入れる余裕がありません');const tool=hold(R.drawRoundedRectangle(gripLength,width,.8).sketchOnPlane('XY',high-depth).extrude(depth+.02).translate([front+2+gripLength/2,0,0]));lid=hold(lidBlank.cut(tool));grip={width,length:gripLength,depth};}
   if(labels.length)body=hold(applySlideLabels(body,p,labels));
   const clearPathBody=body;let lock=null;
-  if(p.lock){const locked=slideLock(body,lid,p,info,lower);body=hold(locked.body);lid=hold(locked.lid);lock=locked.analysis;}
+  if(p.lock){const locked=slideLock(body,lid,p,top?{...info,lockCenters:[-(S-g-top.stemWidth/2),S-g-top.stemWidth/2],lockWidth:top.stemWidth,lockThickness:top.railCore}:info,lower);body=hold(locked.body);lid=hold(locked.lid);lock=locked.analysis;}
   valid(body,'本体');valid(lid,'蓋');
-  const overlap=R.measureVolume(hold(body.intersect(lid))),travel=L-w,swept=hold(sectionPrism(lidPoints,front-travel,back)),slidingOverlap=R.measureVolume(hold(clearPathBody.intersect(swept)));
+  const overlap=R.measureVolume(hold(body.intersect(lid))),travel=top?L+2*g:L-w,swept=top?topSlideSweep(top,info,travel,sectionPrism,hold):hold(sectionPrism(lidPoints,front-travel,back)),slidingOverlap=R.measureVolume(hold(clearPathBody.intersect(swept)));
   if(lock)lock.slidingContact=R.measureVolume(hold(body.intersect(swept)));
   if(overlap>1e-5||slidingOverlap>1e-5)throw Error('蓋の開閉経路が本体と干渉します。寸法を調整してください');
   const toWorld=shape=>shape.clone().rotate(info.angle,[0,0,0],[0,0,1]).translate(info.center);
   let bodyOut=toWorld(body),lidOut=toWorld(lid);let printTranslation=null;
-  try{if(p.pose==='print'){bodyOut=bodyOut.translate([0,0,-info.center[2]]);const bb=bounds(bodyOut),lb=bounds(lidOut);printTranslation=[bb[1][0]-lb[0][0]+10,0,-lb[0][2]];lidOut=lidOut.translate(printTranslation);}
-   return {body:bodyOut,lid:lidOut,analysis:{...info,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,tipHeight,remainingWall:w-d,engagement:d-g,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,lock,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
+  try{if(p.pose==='print'){if(top){lidOut.delete();const flipped=lid.clone().rotate(180,[0,0,0],[1,0,0]);try{lidOut=toWorld(flipped);}finally{flipped.delete();}}bodyOut=bodyOut.translate([0,0,-info.center[2]]);const bb=bounds(bodyOut),lb=bounds(lidOut);printTranslation=[bb[1][0]-lb[0][0]+10,0,-lb[0][2]];lidOut=lidOut.translate(printTranslation);}
+   return {body:bodyOut,lid:lidOut,analysis:{...info,lidStyle:top?'top':'inset',bodyHeight,capLower:top?.capLower??null,capUpper:top?.capUpper??null,railStemWidth:top?.stemWidth??null,printFlipped:!!top,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,tipHeight,remainingWall:w-d,engagement:d-g,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,lock,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
   }catch(error){bodyOut.delete();lidOut.delete();throw error;}
  }finally{objects.reverse().forEach(shape=>shape.delete());}
 }
