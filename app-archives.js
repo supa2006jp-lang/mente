@@ -296,15 +296,24 @@
             import: '取込前バックアップ'
         };
         const logs = this.getAdminBackupLogs();
+        const at = new Date().toISOString();
         logs.unshift({
             id: `backup_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            at: new Date().toISOString(),
+            at,
             type,
             label: labels[type] || 'バックアップ',
             filename,
             counts
         });
         this.saveAdminBackupLogs(logs);
+        try {
+            localStorage.setItem('maintenance-last-backup-at', at);
+        } catch (error) {
+            console.warn('Could not record backup export time', error);
+        }
+        window.dispatchEvent(new CustomEvent('maintenance-backup-created', {
+            detail: { at, type, filename }
+        }));
     }
 
     formatAdminBackupTime(iso) {

@@ -251,6 +251,7 @@ class MaintenanceApp {
     }
 
     init() {
+        this.setupSaveStatusIndicator();
         this.setupNavigation();
         this.setupCalendarControls();
         this.updateDepartmentUI(); // Initialize department label
@@ -265,15 +266,28 @@ class MaintenanceApp {
         this.restoreStatsState();
         this.setupShiftNoteFormatMenuClose();
         this.setupDelegatedActions?.();
-        this.setupSaveStatusIndicator();
         this.updateTodoRequestCountBadge();
         this.cleanupExpiredShiftNotebookPhotos?.();
     }
 
     setupSaveStatusIndicator() {
-        this.updateSaveStatus('saved');
+        this._saveStatus = 'ready';
+        this._lastSavedAt = this.parseStorageDate(store.lastSavedAt);
+        this._lastBackupAt = this.getLastBackupExportAt();
+        this.updateSaveStatus(this._lastSavedAt ? 'saved' : 'ready', { at: this._lastSavedAt });
+
         window.addEventListener('maintenance-save-status', (event) => {
-            this.updateSaveStatus(event.detail?.status || 'saved');
+            const detail = event.detail || {};
+            this.updateSaveStatus(detail.status || 'error', detail);
+        });
+        window.addEventListener('maintenance-backup-created', (event) => {
+            this._lastBackupAt = this.parseStorageDate(event.detail?.at) || this.getLastBackupExportAt();
+            this.renderStorageDetails();
+        });
+        window.addEventListener('storage', (event) => {
+            if (event.key !== 'maintenance-last-backup-at') return;
+            this._lastBackupAt = this.parseStorageDate(event.newValue) || this.getLastBackupExportAt();
+            this.renderStorageDetails();
         });
         document.addEventListener('input', (event) => {
             if (event.target?.closest?.('#modal-content')) this.updateSaveStatus('dirty');
@@ -281,26 +295,162 @@ class MaintenanceApp {
         document.addEventListener('change', (event) => {
             if (event.target?.closest?.('#modal-content')) this.updateSaveStatus('dirty');
         }, true);
+
+        const detailsButton = document.getElementById('app-save-status');
+        const detailsPanel = document.getElementById('app-storage-details');
+        detailsButton?.addEventListener('click', () => {
+            if (!detailsPanel) return;
+            detailsPanel.hidden = !detailsPanel.hidden;
+            detailsButton.setAttribute('aria-expanded', String(!detailsPanel.hidden));
+            if (!detailsPanel.hidden) this.renderStorageDetails();
+        });
+        document.addEventListener('click', (event) => {
+            if (!detailsPanel || detailsPanel.hidden) return;
+            if (detailsPanel.contains(event.target) || detailsButton?.contains(event.target)) return;
+            detailsPanel.hidden = true;
+            detailsButton?.setAttribute('aria-expanded', 'false');
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape' || !detailsPanel || detailsPanel.hidden) return;
+            detailsPanel.hidden = true;
+            detailsButton?.setAttribute('aria-expanded', 'false');
+            detailsButton?.focus();
+        });
+        document.getElementById('app-storage-retry')?.addEventListener('click', () => this.retryFailedSave());
+        document.getElementById('app-storage-export')?.addEventListener('click', () => this.exportOptimizedBackup?.('complete', 'all'));
+        document.getElementById('app-storage-reload')?.addEventListener('click', () => window.location.reload());
+
+        const modalContainer = document.getElementById('modal-container');
+        if (modalContainer && typeof MutationObserver !== 'undefined') {
+            this._saveStatusModalObserver = new MutationObserver((records) => {
+                const addedBadge = records.some(record => Array.from(record.addedNodes).some(node =>
+                    node.nodeType === 1 && (node.matches?.('.modal-save-status') || node.querySelector?.('.modal-save-status'))
+                ));
+                if (addedBadge) this.renderSaveStatusIndicators();
+            });
+            this._saveStatusModalObserver.observe(modalContainer, { childList: true, subtree: true });
+        }
     }
 
-    updateSaveStatus(status = 'saved') {
-        const elements = document.querySelectorAll('.app-save-status');
-        if (!elements.length) return;
+    parseStorageDate(value) {
+        if (!value) return null;
+        const date = value instanceof Date ? value : new Date(value);
+        return Number.isFinite(date.getTime()) ? date : null;
+    }
+
+    getLastBackupExportAt() {
+        try {
+            const saved = this.parseStorageDate(localStorage.getItem('maintenance-last-backup-at'));
+            if (saved) return saved;
+        } catch (error) {
+            console.warn('バックアップ出力日時を読み込めませんでした。', error);
+        }
+        return this.parseStorageDate(this.getAdminBackupLogs?.()?.[0]?.at);
+    }
+
+    formatStorageDate(value, compact = false) {
+        const date = this.parseStorageDate(value);
+        if (!date) return '記録なし';
+        const options = compact
+            ? { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }
+            : { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+        return new Intl.DateTimeFormat('ja-JP', options).format(date);
+    }
+
+    getStoragePageUrl() {
+        if (window.location.protocol === 'file:') return window.location.href.split('#')[0].split('?')[0];
+        return window.location.origin + window.location.pathname;
+    }
+
+    updateSaveStatus(status = 'ready', detail = {}) {
+        const validStates = ['ready', 'dirty', 'saving', 'saved', 'error', 'conflict'];
+        if (!validStates.includes(status)) status = 'error';
+        // A stale tab must stay blocked until the user deliberately reloads it.
+        if (this._saveStatus === 'conflict' && status !== 'conflict') return;
+        if (status === 'dirty' && this._saveStatus === 'error') return;
+        if (status === 'saved') {
+            this._lastSavedAt = this.parseStorageDate(detail.at)
+                || this.parseStorageDate(store.lastSavedAt)
+                || this._lastSavedAt
+                || null;
+        }
+        this._saveStatus = status;
+        this.renderSaveStatusIndicators();
+        this.renderStorageAlert(detail.error);
+    }
+
+    renderSaveStatusIndicators() {
         const states = {
+            ready: { icon: 'fa-circle-info', text: '読込完了' },
             dirty: { icon: 'fa-circle-exclamation', text: '未保存' },
             saving: { icon: 'fa-spinner fa-spin', text: '保存中' },
             saved: { icon: 'fa-circle-check', text: '保存済み' },
-            error: { icon: 'fa-triangle-exclamation', text: '保存失敗' }
+            error: { icon: 'fa-triangle-exclamation', text: '保存失敗' },
+            conflict: { icon: 'fa-triangle-exclamation', text: '保存競合' }
         };
-        const state = states[status] || states.saved;
-        const title = status === 'saved'
-            ? `保存済み ${new Date().toLocaleTimeString()}`
-            : (status === 'error' ? '保存に失敗しました' : state.text);
-        elements.forEach(el => {
-            el.className = `app-save-status ${status}${el.classList.contains('modal-save-status') ? ' modal-save-status' : ''}`;
-            el.innerHTML = `<i class="fa-solid ${state.icon}"></i><span>${state.text}</span>`;
-            el.title = title;
+        const status = this._saveStatus || 'ready';
+        const state = states[status] || states.ready;
+        const savedText = this.formatStorageDate(this._lastSavedAt);
+        document.querySelectorAll('.app-save-status').forEach(el => {
+            const isModal = el.classList.contains('modal-save-status');
+            el.className = 'app-save-status ' + status + (isModal ? ' modal-save-status' : '');
+            const icon = document.createElement('i');
+            icon.className = 'fa-solid ' + state.icon;
+            icon.setAttribute('aria-hidden', 'true');
+            const label = document.createElement('span');
+            label.textContent = state.text;
+            el.replaceChildren(icon, label);
+            if (!isModal) {
+                const time = document.createElement('small');
+                time.className = 'app-save-status-time';
+                time.textContent = this._lastSavedAt ? this.formatStorageDate(this._lastSavedAt, true) : '時刻記録なし';
+                el.appendChild(time);
+            }
+            el.title = state.text + ' / 最終保存: ' + savedText + ' / 利用中のURL: ' + this.getStoragePageUrl();
         });
+        this.renderStorageDetails();
+    }
+
+    renderStorageDetails() {
+        const saved = document.getElementById('app-storage-last-saved');
+        const backup = document.getElementById('app-storage-last-backup');
+        const pageUrl = document.getElementById('app-storage-page-url');
+        if (saved) saved.textContent = this.formatStorageDate(this._lastSavedAt);
+        if (backup) backup.textContent = this.formatStorageDate(this._lastBackupAt);
+        if (pageUrl) pageUrl.textContent = this.getStoragePageUrl();
+    }
+
+    renderStorageAlert(error) {
+        const alertBox = document.getElementById('app-storage-alert');
+        if (!alertBox) return;
+        const conflict = this._saveStatus === 'conflict';
+        const failed = this._saveStatus === 'error';
+        alertBox.hidden = !(conflict || failed);
+        if (alertBox.hidden) return;
+        alertBox.classList.toggle('conflict', conflict);
+        const heading = document.getElementById('app-storage-alert-heading');
+        const message = document.getElementById('app-storage-alert-message');
+        if (heading) heading.textContent = conflict ? '別のタブで更新されました。保存を停止しています。' : '保存に失敗しました。変更はまだ保存されていません。';
+        if (message) {
+            const detail = error?.message || (typeof error === 'string' ? error : '');
+            message.textContent = (conflict
+                ? '必要な編集内容をJSON出力してから、このページを再読み込みしてください。JSONに動画・音声の実体は含まれません。'
+                : '保存領域を確認してから再試行してください。')
+                + (detail ? ' 詳細: ' + detail : '');
+        }
+        const retry = document.getElementById('app-storage-retry');
+        const reload = document.getElementById('app-storage-reload');
+        if (retry) retry.hidden = conflict;
+        if (reload) reload.hidden = !conflict;
+    }
+
+    async retryFailedSave() {
+        if (this._saveStatus !== 'error') return;
+        try {
+            await store.save();
+        } catch (error) {
+            this.updateSaveStatus(error?.name === 'StorageConflictError' ? 'conflict' : 'error', { error });
+        }
     }
 
     setupShiftNoteFormatMenuClose() {

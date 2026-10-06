@@ -1,14 +1,28 @@
 /** 
  * Store.js - Data Management & Persistence
  */
+class StorageConflictError extends Error {
+    constructor(message = '別のタブで保存データが更新されました。このタブでの保存を停止しました。再読み込みして最新データを確認してください。') {
+        super(message);
+        this.name = 'StorageConflictError';
+        this.code = 'STORAGE_CONFLICT';
+    }
+}
+
 class MaintenanceStore {
     constructor() {
         this.DB_NAME = 'FactoryMaintenanceDB';
-        this.DB_VERSION = 2;
+        this.DB_VERSION = 3;
         this.STORE_NAME = 'state';
         this.MEDIA_STORE_NAME = 'media';
         this.STORAGE_KEY = 'factory_maintenance_next_data_v2'; // Versioning for department support
         this.STORAGE_MARKER_KEY = 'factory_maintenance_state_present_v1';
+        this.REVISION_KEY = `${this.STORAGE_KEY}__revision`;
+        this._revision = 0;
+        this.lastSavedAt = null;
+        this._saveQueue = Promise.resolve();
+        this._saveBlocked = false;
+        this._conflictError = null;
         this._loadStatus = 'not-started';
         this.data = {
             currentDepartmentId: 'dept_default',
@@ -74,10 +88,22 @@ class MaintenanceStore {
                         db.close();
                         return;
                     }
+                    db.onversionchange = () => {
+                        const error = new StorageConflictError('保存領域が別のタブで更新されました。このタブを再読み込みしてください。');
+                        this._saveBlocked = true;
+                        this._conflictError = error;
+                        this._loadStatus = 'failed';
+                        db.close();
+                        if (this.db === db) this.db = null;
+                        window.dispatchEvent(new CustomEvent('maintenance-save-status', {
+                            detail: { status: 'conflict', error }
+                        }));
+                    };
                     settled = true;
                     resolve(db);
                 };
             });
+            if (this._saveBlocked) throw this._conflictError;
             const source = await this.loadFromIDB();
             if (source === 'empty') {
                 this._loadStatus = 'empty-unconfirmed';
@@ -126,6 +152,7 @@ class MaintenanceStore {
         return new Promise((resolve, reject) => {
             let tx;
             let stateRequest;
+            let revisionRequest;
             let keysRequest;
             let settled = false;
             const fail = error => {
@@ -137,8 +164,10 @@ class MaintenanceStore {
                 tx = this.db.transaction(this.STORE_NAME, 'readonly');
                 const os = tx.objectStore(this.STORE_NAME);
                 stateRequest = os.get(this.STORAGE_KEY);
+                revisionRequest = os.get(this.REVISION_KEY);
                 keysRequest = os.getAllKeys();
                 stateRequest.onerror = () => fail(stateRequest.error || new Error('保存データを読み込めませんでした。'));
+                revisionRequest.onerror = () => fail(revisionRequest.error || new Error('保存世代を読み込めませんでした。'));
                 keysRequest.onerror = () => fail(keysRequest.error || new Error('保存領域を確認できませんでした。'));
                 tx.onerror = () => fail(tx.error || new Error('保存データの読み込みに失敗しました。'));
                 tx.onabort = () => fail(tx.error || new Error('保存データの読み込みが中断されました。'));
@@ -146,11 +175,14 @@ class MaintenanceStore {
                     if (settled) return;
                     try {
                         const stored = stateRequest.result;
+                        const metadata = this.readRevisionMetadata(revisionRequest.result);
                         if (stored !== undefined) {
                             if (!this.isValidStoredState(stored)) {
                                 throw new Error('保存データの形式を確認できませんでした。');
                             }
                             this.data = stored;
+                            this._revision = metadata.revision;
+                            this.lastSavedAt = metadata.savedAt;
                             this.normalizeData();
                             settled = true;
                             resolve('loaded');
@@ -163,10 +195,14 @@ class MaintenanceStore {
                             throw new Error('以前の保存データが見つかりません。空データでの上書きを停止しました。');
                         }
                         if (this.loadLegacy()) {
+                            this._revision = metadata.revision;
+                            this.lastSavedAt = metadata.savedAt;
                             settled = true;
                             resolve('legacy');
                             return;
                         }
+                        this._revision = metadata.revision;
+                        this.lastSavedAt = metadata.savedAt;
                         this.normalizeData();
                         settled = true;
                         resolve('empty');
@@ -178,6 +214,19 @@ class MaintenanceStore {
                 fail(error);
             }
         });
+    }
+
+    readRevisionMetadata(value) {
+        if (value === undefined) return { revision: 0, savedAt: null }; // Records saved before revision tracking.
+        if (!value || typeof value !== 'object' || !Number.isSafeInteger(value.revision)
+            || value.revision < 1 || typeof value.savedAt !== 'string') {
+            throw new Error('保存世代の形式を確認できませんでした。');
+        }
+        const parsedAt = new Date(value.savedAt);
+        if (Number.isNaN(parsedAt.getTime()) || parsedAt.toISOString() !== value.savedAt) {
+            throw new Error('最終保存日時の形式を確認できませんでした。');
+        }
+        return { revision: value.revision, savedAt: value.savedAt };
     }
 
     loadLegacy() {
@@ -325,40 +374,92 @@ class MaintenanceStore {
         });
     }
 
-    async save() {
+    save() {
         const notify = (status, detail = {}) => {
             window.dispatchEvent(new CustomEvent('maintenance-save-status', {
                 detail: { status, ...detail }
             }));
         };
+        if (this._saveBlocked) {
+            const error = this._conflictError || new StorageConflictError();
+            notify('conflict', { error });
+            const rejected = Promise.reject(error);
+            rejected.catch(() => {}); // Most callers do not await save(); keep their failures in the status event.
+            return rejected;
+        }
         if (this._loadStatus !== 'ready' || !this.db) {
             const error = new Error('保存データを安全に読み込めていないため、保存を停止しました。');
             notify('error', { error });
-            throw error;
+            const rejected = Promise.reject(error);
+            rejected.catch(() => {});
+            return rejected;
         }
         notify('saving');
+        // Calls from this tab are serialized so a later save observes the prior committed revision.
+        const operation = this._saveQueue.then(() => this.commitSave(notify));
+        this._saveQueue = operation.catch(() => {});
+        return operation;
+    }
+
+    commitSave(notify) {
+        if (this._saveBlocked) {
+            const error = this._conflictError || new StorageConflictError();
+            notify('conflict', { error });
+            return Promise.reject(error);
+        }
         return new Promise((resolve, reject) => {
             let tx;
             let settled = false;
-            const fail = error => {
+            const fail = (error, status = 'error') => {
                 if (settled) return;
                 settled = true;
                 const reason = error || new Error('保存処理が完了しませんでした。');
+                if (status === 'conflict') {
+                    this._saveBlocked = true;
+                    this._conflictError = reason;
+                }
                 console.error('Save failed', reason);
-                notify('error', { error: reason });
+                notify(status, { error: reason });
                 reject(reason);
             };
             try {
                 tx = this.db.transaction(this.STORE_NAME, 'readwrite');
-                const request = tx.objectStore(this.STORE_NAME).put(this.data, this.STORAGE_KEY);
-                request.onerror = () => fail(request.error || new Error('保存データを書き込めませんでした。'));
+                const os = tx.objectStore(this.STORE_NAME);
+                const revisionRequest = os.get(this.REVISION_KEY);
+                let nextRevision;
+                let savedAt;
+                revisionRequest.onerror = () => fail(revisionRequest.error || new Error('保存世代を確認できませんでした。'));
+                revisionRequest.onsuccess = () => {
+                    if (settled) return;
+                    try {
+                        const current = this.readRevisionMetadata(revisionRequest.result);
+                        if (current.revision !== this._revision) {
+                            const conflict = new StorageConflictError();
+                            fail(conflict, 'conflict');
+                            tx.abort();
+                            return;
+                        }
+                        if (current.revision >= Number.MAX_SAFE_INTEGER) {
+                            throw new Error('保存世代の上限に達しました。');
+                        }
+                        nextRevision = current.revision + 1;
+                        savedAt = new Date().toISOString();
+                        os.put(this.data, this.STORAGE_KEY);
+                        os.put({ revision: nextRevision, savedAt }, this.REVISION_KEY);
+                    } catch (error) {
+                        fail(error);
+                        try { tx.abort(); } catch (_) { /* The transaction may already be inactive. */ }
+                    }
+                };
                 tx.onerror = () => fail(tx.error || new Error('保存処理に失敗しました。'));
                 tx.onabort = () => fail(tx.error || new Error('保存処理が中断されました。'));
                 tx.oncomplete = () => {
                     if (settled) return;
                     settled = true;
+                    this._revision = nextRevision;
+                    this.lastSavedAt = savedAt;
                     this.markStoredStatePresent();
-                    notify('saved');
+                    notify('saved', { at: savedAt });
                     resolve();
                 };
             } catch (error) {

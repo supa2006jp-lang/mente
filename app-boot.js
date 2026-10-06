@@ -71,9 +71,12 @@
             startApp();
         } catch (error) {
             console.error('Failed to initialize app state:', error);
+            const action = String(error?.message || '').includes('他のタブ')
+                ? 'このアプリを開いている別のタブを閉じてから再読み込みしてください。'
+                : 'ChromeのプロフィールとURLを確認し、再読み込みしてください。';
             showStorageGate(
                 '保存データを読み込めませんでした',
-                '空のデータで既存情報を上書きしないよう、編集と保存を停止しました。ChromeのプロフィールとURLを確認し、再読み込みしてください。\n詳細: ' + (error?.message || '不明なエラー')
+                '空のデータで既存情報を上書きしないよう、編集と保存を停止しました。' + action + '\n詳細: ' + (error?.message || '不明なエラー')
             );
         }
     });

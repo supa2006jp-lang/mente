@@ -12,7 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="all.min.css?v=6.5.1-embedded3">
-    <link rel="stylesheet" href="style.css?v=20260906-avatar-stage72">
+    <link rel="stylesheet" href="style.css?v=20261006-storage-status2">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -355,12 +355,35 @@
                     </button>
                 </div>
                 <div class="header-right">
-                    <div id="app-save-status" class="app-save-status saved" title="保存状態">
-                        <i class="fa-solid fa-circle-check"></i>
-                        <span>保存済み</span>
-                    </div>
+                    <button type="button" id="app-save-status" class="app-save-status ready" title="保存状態の詳細" aria-expanded="false" aria-controls="app-storage-details">
+                        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                        <span>読込中</span>
+                    </button>
                 </div>
             </header>
+
+            <section id="app-storage-details" class="app-storage-details-panel" aria-label="保存状態の詳細" hidden>
+                <h3><i class="fa-solid fa-hard-drive" aria-hidden="true"></i> 保存状態</h3>
+                <dl>
+                    <div><dt>最終成功保存</dt><dd id="app-storage-last-saved">記録なし</dd></div>
+                    <div><dt>最終バックアップ出力操作</dt><dd id="app-storage-last-backup">記録なし</dd></div>
+                    <div><dt>利用中のURL</dt><dd id="app-storage-page-url"></dd></div>
+                </dl>
+                <p>ブラウザの保存領域はURLとChromeプロフィールごとに異なります。バックアップ日時は出力操作の記録で、ダウンロード先のファイル確認ではありません。</p>
+            </section>
+
+            <div id="app-storage-alert" class="app-storage-alert" role="alert" aria-live="assertive" hidden>
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div class="app-storage-alert-copy">
+                    <strong id="app-storage-alert-heading"></strong>
+                    <span id="app-storage-alert-message"></span>
+                </div>
+                <div class="app-storage-alert-actions">
+                    <button type="button" id="app-storage-export" title="JSONには動画・音声の実体は含まれません">現在内容をJSON出力</button>
+                    <button type="button" id="app-storage-retry">保存を再試行</button>
+                    <button type="button" id="app-storage-reload" hidden>再読み込み</button>
+                </div>
+            </div>
 
             <div id="content-viewport" class="viewport">
                 <!-- Views will be rendered here -->
@@ -1233,8 +1256,8 @@
     <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
-    <script src="store.js?v=20261006-storage-safe1"></script>
-    <script src="app.js?v=20260824-skill-header-move1"></script>
+    <script src="store.js?v=20261006-storage-status2"></script>
+    <script src="app.js?v=20261006-storage-status2"></script>
     <script src="app-settings.js?v=20260711-guide-bulk-compress"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
@@ -1253,9 +1276,9 @@
     <script src="app-skills.js?v=20260826-skill-click-target"></script>
     <script src="app-outlook-assist.js?v=20260823-outlook-input-background2"></script>
     <script src="app-worktime.js?v=20260803-worktime-history-all2"></script>
-    <script src="app-archives.js?v=20260606-admin-log-targets"></script>
+    <script src="app-archives.js?v=20261006-storage-status2"></script>
     <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
-    <script src="app-persistence.js?v=20260625-dept-import-warning"></script>
+    <script src="app-persistence.js?v=20261006-storage-status2"></script>
     <script src="app-csv.js?v=20260803-single-maintenance1"></script>
     <script src="app-misc-analysis.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
@@ -1264,7 +1287,7 @@
     <script src="app-shift-photo-camera.js?v=20260906-avatar-stage72"></script>
     <script src="app-shift-photo-reveal.js?v=20260906-avatar-stage72"></script>
     <script src="app-shift-avatar-conversation.js?v=20260906-avatar-stage72"></script>
-    <script src="app-boot.js?v=20261006-storage-safe1"></script>
+    <script src="app-boot.js?v=20261006-storage-status2"></script>
 </body>
 </html>
 

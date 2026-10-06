@@ -373,6 +373,7 @@
         } else {
             setTimeout(() => URL.revokeObjectURL(url), 120);
         }
+        this.recordAdminBackupLog?.('manual', filename);
         this.showToast?.(`${options.mode === 'light' ? '軽量' : '完全'}バックアップを出力しました（${this.formatExportBytes(blob.size)}）`, 'success');
         this.closeModal();
     }
