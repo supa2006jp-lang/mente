@@ -1,0 +1,23 @@
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import * as R from 'replicad';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
+import {makeSlideLid} from '../src/slide-lid.js';import {runOperation} from '../src/kernel.js';import {defaults,validateProject} from '../src/geometry.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const p={lidStyle:'top',wall:4.2,floor:2.4,lidThickness:3.6,railDepth:1.2,cover:1.2,clearance:.25,direction:'long',entry:'negative',pose:'assembled',grip:false,leadIn:true,leadInSize:.6,surfaceGrip:true,surfaceGripCentered:true};
+function hit(s,point){const b=R.makeBox(point.map(v=>v-.003),point.map(v=>v+.003)),a=s.intersect(b);try{return R.measureVolume(a);}finally{a.delete();b.delete();}}
+function valid(s){const c=new (R.getOC().BRepCheck_Analyzer)(s.wrapped,true,false),solids=s.solids;try{assert.ok(c.IsValid());assert.equal(solids.length,1);}finally{c.delete();solids.forEach(s=>s.delete());}}
+for(const pattern of ['transverse','diagonal','grid'])for(const direction of ['long','short'])for(const lidStyle of ['top','inset']){
+ const source=R.makeBox([-40,-25,3],[40,25,33]).rotate(27,[0,0,0],[0,0,1]).translate([12,-7,0]),input={...p,direction,lidStyle,entry:direction==='short'?'positive':'negative',surfaceGripPattern:pattern},plain=makeSlideLid(source,{...input,surfaceGrip:false}),r=makeSlideLid(source,input),a=r.analysis,q=a.surfaceGrip,t=a.angle*Math.PI/180;
+ const world=(x,y,z)=>[a.center[0]+Math.cos(t)*x-Math.sin(t)*y,a.center[1]+Math.sin(t)*x+Math.cos(t)*y,a.center[2]+z];
+ try{
+  valid(r.body);valid(r.lid);assert.equal(q.pattern,pattern);assert.equal(q.centered,true);assert.ok(Math.abs(q.front+q.fromFront+q.span/2-(q.front+q.back)/2)<1e-8);assert.equal(q.opening,2*q.depth);assert.ok(q.remainingThickness>=1.2);assert.equal(a.slidingOverlap,0);assert.ok(Math.abs(R.measureVolume(r.body)-R.measureVolume(plain.body))<1e-5);
+  for(const segment of q.segments){const x=(segment.start[0]+segment.end[0])/2,y=(segment.start[1]+segment.end[1])/2;assert.equal(hit(r.lid,world(x,y,q.zTop-.1)),0,'real groove center removed');assert.ok(hit(r.lid,world(x,y,q.zTop-q.depth-.1))>0,'material below grooves and intersections intact');}
+  if(pattern==='diagonal'){assert.ok(Math.abs(R.measureVolume(plain.lid)-R.measureVolume(r.lid)-q.count*q.lineLength*q.depth*q.depth)<1e-4,'diagonal cuts have exact V volume');const s=q.segments[0],x=(s.start[0]+s.end[0])/2,y=(s.start[1]+s.end[1])/2;assert.ok(hit(r.lid,world(x-.5*Math.SQRT1_2,y+.5*Math.SQRT1_2,q.zTop-.5))>0,'diagonal slope remains 45 degrees');}
+  if(pattern==='grid'){assert.equal(q.crossCount,5);const x=q.positions[0]+q.pitch/2,y=q.offsetY-q.pitch*(q.crossCount-1)/2+q.pitch/2;assert.ok(hit(r.lid,world(x,y,q.zTop-.1))>0,'grid cells remain solid');}
+  console.log('PASS native '+pattern+' / '+direction+' / '+lidStyle+': actual engraving, valid single solid, central placement, intact floor and opening');
+ }finally{source.delete();r.body.delete();r.lid.delete();plain.body.delete();plain.lid.delete();}
+}
+const source=R.makeBox([-40,-25,0],[40,25,30]);
+try{for(const pattern of ['diagonal','grid']){const r=makeSlideLid(source,{...p,surfaceGripPattern:pattern,surfaceGripCount:30,surfaceGripPitch:3,roundLidCorners:true,lidCornerRadius:2});try{valid(r.lid);assert.ok(r.analysis.surfaceGrip.count<=30);assert.equal(r.analysis.slidingOverlap,0);console.log('PASS maximum-count '+pattern);}finally{r.body.delete();r.lid.delete();}}}finally{source.delete();}
+const base={...defaults,id:'box',kind:'extrusion',name:'直方体',width:80,height:50,depth:30,z:3},spec={...p,type:'slideLid',id:'slide',target:'box',pose:'print',surfaceGripPattern:'grid'},op={kind:'cadop',id:'slide',name:'スライド蓋',spec,...runOperation([base],spec)},before=[base,op],next=structuredClone(before);
+next[0].width=100;next[1].spec.surfaceGripCount=9;next[1].spec.surfaceGripPitch=4;next[1].spec.surfaceGripPattern='diagonal';
+const replay=runOperation(next,{type:'replay',before,start:0}),q=replay.features[1].analysis.surfaceGrip;assert.equal(q.pattern,'diagonal');assert.equal(q.count,9);assert.ok(Math.abs(q.front+q.fromFront+q.span/2-(q.front+q.back)/2)<1e-8);assert.equal(q.offsetY,0);for(const o of replay.features[1].outputs)assert.ok(Math.abs(Math.min(...o.vertices.filter((_,i)=>i%3===2)))<1e-5);validateProject({format:'forma-cad',version:1,features:replay.features});console.log('PASS replay after source resize/count/pitch/pattern edits, central flag persists and both printed bottoms stay Z=0');
