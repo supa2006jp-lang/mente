@@ -1,0 +1,50 @@
+import * as THREE from 'three';
+import {defaults} from '../src/geometry.js';
+import {chromium} from 'playwright';
+import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const prefix='/mente/forma-cad/',root=path.resolve('.');
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
+const server=http.createServer(async(req,res)=>{
+ try{
+  let url=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
+  if(!url.startsWith(prefix)){res.writeHead(404);return res.end();}
+  let relative=url.slice(prefix.length)||'index.html';if(relative.endsWith('/'))relative+='index.html';
+  const file=path.resolve(root,relative);if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end();}
+  const data=await fs.readFile(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(data);
+ }catch{res.writeHead(404);res.end();}
+});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+try{
+ const context=await browser.newContext({viewport:{width:1900,height:1150},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
+ await page.addInitScript(()=>{window.cadJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec){window.cadJobs.push(payload.spec.type);window.latestSpec=payload.spec;}return post.call(this,payload,...args);};});
+ await page.addInitScript(()=>{const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(m,...args){const op=m.spec?.type==='preview'?m.spec.operation:m.spec;if(window.forceCadError&&['fillet','shell'].includes(op?.type)){const error=window.forceCadError;setTimeout(()=>this.onmessage?.({data:{id:m.id,error}}),5);return;}return post.call(this,m,...args);};});
+ await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();
+
+
+
+
+
+ const host=page.locator('#canvas-host'),canvas=page.locator('canvas'),picker=page.locator('#selection-candidates');
+ const back={...defaults,id:'back',name:'奥の本体',kind:'extrusion',width:40,height:30,depth:10,z:0},front={...back,id:'front',name:'手前の本体',z:20};
+ async function load(features){await page.keyboard.press('Escape');await page.locator('#file').setInputFiles({name:'overlap.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.waitForTimeout(100);}
+ async function screen(point){const r=await canvas.boundingBox(),s=JSON.parse(await host.getAttribute('data-camera-state')),clip=JSON.parse(await host.getAttribute('data-camera-clip')),c=new THREE.OrthographicCamera(-100*r.width/r.height,100*r.width/r.height,100,-100,...clip);c.position.fromArray(s);c.quaternion.fromArray(s,3);c.zoom=s[7];c.updateProjectionMatrix();c.updateMatrixWorld(true);const p=new THREE.Vector3(...point).project(c);return [r.x+(p.x+1)*r.width/2,r.y+(1-p.y)*r.height/2];}
+ async function save(){const promise=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await promise).path(),'utf8'));}
+ await load([back,front]);const original=(await save()).features;
+ await page.locator('#selection-mode').selectOption('face');await page.mouse.click(...await screen([0,0,30]));await picker.waitFor();assert.equal(await picker.locator('[data-kind=face]').count(),4);assert.equal(await picker.locator('[data-kind=body],[data-kind=edge]').count(),0);const rearFace=picker.locator('[data-kind=face][data-body-id=back]').first(),rearKey=await rearFace.getAttribute('data-key');await rearFace.hover();assert.equal(await host.getAttribute('data-selection-candidate-preview'),rearKey);await page.screenshot({path:'.sites-runtime/overlap-face-candidates.png'});await rearFace.click();assert.equal(await host.getAttribute('data-selected-face-count'),'1');assert.equal(await host.getAttribute('data-selection-candidate-active'),rearKey);
+ await page.keyboard.press('Tab');const next=await host.getAttribute('data-selection-candidate-active');assert.notEqual(next,rearKey);await page.keyboard.press('Shift+Tab');assert.equal(await host.getAttribute('data-selection-candidate-active'),rearKey);assert.equal(await picker.locator('[aria-pressed=true]').count(),1);await page.locator('#advanced-tools').click();assert.equal(await picker.isVisible(),false);await page.locator('#cad-command').selectOption('shell');assert.equal(await page.locator('#cad-target').inputValue(),'back','chosen hidden face drives actual CAD target');await page.keyboard.press('Escape');assert.deepEqual((await save()).features,original);
+ await page.locator('#selection-mode').selectOption('body');await page.mouse.click(...await screen([0,0,30]));await picker.waitFor();assert.equal(await picker.locator('[data-kind=body]').count(),2);assert.equal(await picker.locator('[data-kind=face],[data-kind=edge]').count(),0);await picker.locator('[data-body-id=back]').click();assert.equal(await host.getAttribute('data-selected-body-count'),'1');assert.match(await page.locator('#measurement-length').textContent(),/奥の本体/);await page.keyboard.press('Tab');assert.match(await page.locator('#measurement-length').textContent(),/手前の本体/);await page.keyboard.press('Escape');assert.equal(await picker.isVisible(),false);assert.equal(await host.getAttribute('data-selected-body-count'),'0');
+ await page.locator('#selection-mode').selectOption('edge');await page.mouse.click(...await screen([19.8,0,30]));await picker.waitFor();assert.ok(await picker.locator('[data-kind=edge]').count()>=4);assert.equal(await picker.locator('[data-kind=body],[data-kind=face]').count(),0);const rearEdge=picker.locator('[data-kind=edge][data-body-id=back]').first();await rearEdge.hover();assert.ok(await host.getAttribute('data-selection-candidate-preview'));await rearEdge.click();assert.equal(await host.getAttribute('data-selected-edge-count'),'1');await page.locator('#advanced-tools').click();await page.locator('#cad-command').selectOption('fillet');assert.equal(await page.locator('#cad-target').inputValue(),'back');await page.keyboard.press('Escape');
+ await page.locator('#selection-mode').selectOption('auto');await page.mouse.click(...await screen([19.8,0,30]));await picker.waitFor();for(const kind of ['face','edge','body'])assert.ok(await picker.locator('[data-kind='+kind+']').count()>0);await page.locator('#selection-mode').selectOption('body');assert.equal(await picker.isVisible(),false);
+ // Hidden bodies are excluded, and camera changes discard stale candidates.
+ await page.locator('#bodies .eye').first().click();await page.mouse.click(...await screen([0,0,30]));assert.equal(await picker.isVisible(),false);await page.locator('#bodies .eye').first().click();await page.mouse.click(...await screen([0,0,30]));await picker.waitFor();await page.mouse.wheel(0,80);await picker.waitFor({state:'hidden'});assert.deepEqual((await save()).features,original);
+ console.log('PASS hidden face/body/coincident-edge selection, preview without commit, forward/reverse Tab, CAD target, filter modes, hidden-body exclusion, Esc, camera invalidation and unchanged model');
+ // Input fields retain Tab navigation; calculation failures get operation-specific advice.
+ await page.locator('#selection-mode').selectOption('face');await page.mouse.click(...await screen([0,0,30]));await picker.waitFor();await picker.locator('[data-kind=face][data-body-id=back]').first().click();await page.evaluate(()=>window.forceCadError='StdFail_NotDone');await page.locator('#advanced-tools').click();await page.locator('#cad-command').selectOption('fillet');await page.waitForFunction(()=>document.getElementById('cad-error').textContent.includes('半径を小さく'));assert.ok(!(await page.locator('#cad-error').textContent()).includes('StdFail'));await page.locator('#cad-radius').focus();await page.keyboard.press('Tab');assert.notEqual(await page.evaluate(()=>document.activeElement.id),'cad-radius');await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('cad-apply').disabled);assert.match(await page.locator('#cad-error').textContent(),/フィレット.*半径を小さく/);
+ await page.evaluate(()=>window.forceCadError='index out of bounds');await page.locator('#cad-command').selectOption('shell');await page.waitForFunction(()=>document.getElementById('cad-error').textContent.includes('壁厚を小さく'));assert.match(await page.locator('#cad-error').textContent(),/内部エラー/);await page.screenshot({path:'.sites-runtime/cad-error-advice.png'});await page.keyboard.press('Escape');assert.deepEqual((await save()).features,original);await page.evaluate(()=>window.forceCadError=null);
+ await load([back,front]);assert.equal(await picker.isVisible(),false);await page.locator('#advanced-tools').click();await page.locator('#cad-command').selectOption('fillet');await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.machiningPreview==='fillet',null,{timeout:90000});await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('tools-dialog').open,null,{timeout:90000});assert.equal((await save()).features.at(-1).spec.type,'fillet');assert.deepEqual(errors,[]);console.log('PASS Japanese fillet/shell remedies in preview and apply, numeric field Tab unchanged, model preserved after errors and subsequent operation recovery');await context.close();
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
