@@ -56,7 +56,7 @@ export function makeSlideLid(source,p){
   const front=-L/2+g,back=L/2-w-g,lidBlank=top?topSlideBlank(top,info,sectionPrism,hold,finishing.lidCorners):hold(sectionPrism(lidPoints,front,back));let lid=lidBlank,grip=null;
   if(p.grip&&top){const out=topSlideGrip(lid,top,info,p,hold);lid=out.lid;grip=out.grip;}
   if(p.grip&&!top){const width=Math.min(18,2*root-3),depth=Math.min(.8,t-1.2),gripLength=Math.min(6,back-front-4);if(width<3||gripLength<2)throw Error('指掛け溝を入れる余裕がありません');const tool=hold(R.drawRoundedRectangle(gripLength,width,.8).sketchOnPlane('XY',high-depth).extrude(depth+.02).translate([front+2+gripLength/2,0,0]));lid=hold(lidBlank.cut(tool));grip={width,length:gripLength,depth};}
-  const textured=slideSurfaceGrip(lid,p,info,top,upper,hold);lid=textured.lid;const surfaceGrip=textured.surfaceGrip;
+  const textured=slideSurfaceGrip(lid,p,info,top,upper,hold,finishing.lidCorners);lid=textured.lid;const surfaceGrip=textured.surfaceGrip;
   ({body,lid}=slideLeadIn(body,lid,p,info,top,lower,hold,finishing.leadIn));
   if(labels.length)body=hold(applySlideLabels(body,p,labels));
   const clearPathBody=body;let lock=null;
