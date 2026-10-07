@@ -32,7 +32,7 @@ export function makeSlideLid(source,p){
  const info=slideLidInfo(source,p.direction,p.entry),{length:L,width:W,height:H}=info;
  for(const key of ['wall','floor','lidThickness','railDepth','cover','clearance'])if(!Number.isFinite(p[key])||p[key]<=0)throw Error('壁厚・底厚・蓋厚・溝の寸法は0より大きい数値で指定してください');
  const {wall:w,floor,railDepth:d,cover,clearance:g,lidThickness:t}=p;
- if(Math.min(w,floor,t,cover)<1.2||d<.6||g<.05||g>1)throw Error('0.6 mmノズル用に壁・底・蓋・溝上部の厚さは1.2 mm以上、溝深さは0.6 mm以上、すき間は0.05〜1 mmにしてください');
+ if(Math.min(w,floor,t,cover)<1.2||d<.6||g<.05||g>2)throw Error('0.6 mmノズル用に壁・底・蓋・溝上部の厚さは1.2 mm以上、溝深さは0.6 mm以上、すき間は0.05〜2 mmにしてください');
  if(w-d<1.2-1e-6||d-g<.6-1e-6)throw Error('溝の外側に1.2 mm以上の肉厚、蓋の掛かりに0.6 mm以上が必要です。壁厚・溝深さ・すき間を調整してください');
  const top=p.lidStyle==='top'?topSlideLayout(info,p):null,bodyHeight=top?.bodyHeight??H,S=W/2-w,upper=top?.upper??H-cover,lower=top?.lower??upper-t-2*g,k=g*(Math.SQRT2-1),tipHeight=top?.tipHeight??upper-lower-2*d-2*k;
  if(tipHeight<1.2-1e-6)throw Error('蓋の両端が薄くなりすぎます。蓋厚を増やすか溝深さを小さくしてください');
