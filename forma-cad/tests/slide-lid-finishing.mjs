@@ -10,7 +10,7 @@ for(const direction of ['long','short'])for(const entry of ['negative','positive
  const world=(x,y,z)=>{const a=q.angle*Math.PI/180;return [q.center[0]+Math.cos(a)*x-Math.sin(a)*y,q.center[1]+Math.sin(a)*x+Math.cos(a)*y,q.center[2]+z];};const S=q.width/2-p.wall,front=-q.length/2,back=q.length/2-p.wall-p.clearance,tip=S+p.railDepth-p.clearance;
  try{valid(result.body);valid(result.lid);assert.equal(q.overlap,0);assert.equal(q.slidingOverlap,0);assert.equal(q.leadIn.entrance,.6);assert.equal(q.leadIn.ridge,.6);assert.equal(q.lidCorners.radius,2);assert.ok(q.lock.slidingContact>0);
  for(const side of [-1,1]){
-  const mouth=world(front+.1,side*(S+p.railDepth+.15),q.grooveUpper-.3);assert.ok(hit(plain.body,mouth)>0);assert.equal(hit(result.body,mouth),0,'entrance actually widened');
+  const mouth=world(front+p.wall+.1,side*(S+p.railDepth+.15),q.grooveUpper-.3);assert.ok(hit(plain.body,mouth)>0);assert.equal(hit(result.body,mouth),0,'entrance actually widened');
   const nose=world(back-.1,side*(tip-.15),(q.grooveLower+q.grooveUpper)/2);assert.ok(hit(plain.lid,nose)>0);assert.equal(hit(result.lid,nose),0,'insertion end of ridge actually chamfered');
   for(const x of [0,back-.1])assert.ok(hit(result.lid,world(x,side*(S-p.clearance-q.railStemWidth/2),q.capLower-.5))>0,'stem intact');
   assert.ok(hit(result.lid,world(0,side*(tip-.15),(q.grooveLower+q.grooveUpper)/2))>0,'main engagement untouched');

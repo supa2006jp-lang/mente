@@ -5,14 +5,17 @@ export function topSlideLayout({length:L,width:W,height:H},p){
  if(2*stemInner<2)throw Error('蓋裏のレールを入れる幅が足りません。元の直方体を広げるか壁を薄くしてください');
  // Every outward expansion rises at 45 degrees with the cap face on the print bed.
  const right=[[stemInner,low],[root,low],[tip,lower+d+k],[tip,upper-d-k],[root,high],[stemOuter,high+root-stemOuter],[stemOuter,capLower+.05],[stemInner,capLower+.05]],left=right.map(([y,z])=>[-y,z]).reverse();
- return {bodyHeight,capLower,capUpper:H,upper,lower,railCore,tipHeight:1.2,stemWidth,right,left,railFront:-L/2+g,railBack:L/2-w-g,capFront:-L/2,capBack:L/2,printFlipped:true};
+ // The full-width front wall closes the entrance, including the ends of the rails.
+ // Its vertical sides stay within the cap footprint when printed cap-face down.
+ const frontWall={front:-L/2,back:-L/2+w-g,thickness:w-g,lower:low,upper:capLower};
+ return {frontWall,bodyHeight,capLower,capUpper:H,upper,lower,railCore,tipHeight:1.2,stemWidth,right,left,railFront:-L/2+g,railBack:L/2-w-g,capFront:-L/2,capBack:L/2,printFlipped:true};
 }
 export function topSlideBlank(q,{length:L,width:W},section,hold,corners=null){
  let lid=hold(corners?R.drawRoundedRectangle(L,W,corners.radius).sketchOnPlane("XY",q.capLower).extrude(q.capUpper-q.capLower):R.makeBox([q.capFront,-W/2,q.capLower],[q.capBack,W/2,q.capUpper]));
- for(const points of [q.right,q.left])lid=hold(fuseSolid(lid,hold(section(points,q.railFront,q.railBack))));return lid;
+ for(const points of [q.right,q.left])lid=hold(fuseSolid(lid,hold(section(points,q.railFront,q.railBack))));const f=q.frontWall;let wall=hold(corners?R.drawRoundedRectangle(L,W,corners.radius).sketchOnPlane('XY',f.lower).extrude(q.capLower+.05-f.lower):R.makeBox([f.front,-W/2,f.lower],[f.back,W/2,q.capLower+.05]));if(corners)wall=hold(wall.intersect(hold(R.makeBox([f.front-.02,-W/2-.02,f.lower-.02],[f.back,W/2+.02,q.capLower+.1]))));lid=hold(fuseSolid(lid,wall));return lid;
 }
 export function topSlideSweep(q,{width:W},travel,section,hold){
- let swept=hold(R.makeBox([q.capFront-travel,-W/2,q.capLower],[q.capBack,W/2,q.capUpper]));for(const points of [q.right,q.left])swept=hold(swept.fuse(hold(section(points,q.railFront-travel,q.railBack))));return swept;
+ let swept=hold(R.makeBox([q.capFront-travel,-W/2,q.capLower],[q.capBack,W/2,q.capUpper]));for(const points of [q.right,q.left])swept=hold(swept.fuse(hold(section(points,q.railFront-travel,q.railBack))));swept=hold(swept.fuse(hold(R.makeBox([q.frontWall.front-travel,-W/2,q.frontWall.lower],[q.frontWall.back,W/2,q.capLower+.05]))));return swept;
 }
 export function topSlideGrip(lid,q,{width:W},p,hold){
  const width=Math.min(18,W-3),depth=Math.min(.8,p.lidThickness-1.2);if(depth<.05)return {lid,grip:null};let plane;
@@ -27,7 +30,7 @@ export function slideFinishingOptions(p,{length:L,width:W},top){
  return {leadIn,lidCorners};
 }
 export function slideLeadIn(body,lid,p,info,top,lower,hold,q){
- if(!q)return {body,lid};const {length:L,width:W,height:H}=info,S=W/2-p.wall,front=-L/2,back=L/2-p.wall-p.clearance;
+ if(!q)return {body,lid};const {length:L,width:W,height:H}=info,S=W/2-p.wall,front=-L/2+(top?p.wall:0),back=L/2-p.wall-p.clearance;
  const prism=(points,z0,z1)=>{let d=R.draw(points[0]);for(const point of points.slice(1))d=d.lineTo(point);return hold(d.close().sketchOnPlane('XY',z0).extrude(z1-z0));};
  for(const side of [-1,1]){
   if(q.entrance>1e-6){const c=q.entrance,y=S+p.railDepth;const tool=prism([[front-.02,side*(y-.02)],[front-.02,side*(y+c+.02)],[front+c+.02,side*(y-.02)]],lower,H+.02);body=hold(body.cut(tool));}

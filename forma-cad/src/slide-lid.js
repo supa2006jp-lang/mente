@@ -49,7 +49,7 @@ export function makeSlideLid(source,p){
   const channelPoints=[[-S,lower],[S,lower],[S+d,lower+d],[S+d,upper-d],[S,upper],[-S,upper],[-S-d,upper-d],[-S-d,lower+d]];
   const channel=hold(sectionPrism(channelPoints,-L/2-.02,L/2-w)),grooved=hold(hollow.cut(channel));
   // Remove the entrance roof entirely so no bridge spans the open end when printed.
-  const entrance=hold(R.makeBox([-L/2-.02,-S-d,lower],[ -L/2+w+.02,S+d,H+.02]));let body=hold(grooved.cut(entrance));
+  const entrance=hold(R.makeBox([-L/2-.02,top?-W/2-.02:-S-d,lower],[ -L/2+w+.02,top?W/2+.02:S+d,H+.02]));let body=hold(grooved.cut(entrance));
   // Inset every channel surface by the same normal clearance, including 45 degree edges.
   const root=S-k,tip=S+d-g,low=lower+g,high=upper-g;
   const lidPoints=[[-root,low],[root,low],[tip,lower+d+k],[tip,upper-d-k],[root,high],[-root,high],[-tip,upper-d-k],[-tip,lower+d+k]];
@@ -68,7 +68,7 @@ export function makeSlideLid(source,p){
   const toWorld=shape=>shape.clone().rotate(info.angle,[0,0,0],[0,0,1]).translate(info.center);
   let bodyOut=toWorld(body),lidOut=toWorld(lid);let printTranslation=null;
   try{if(p.pose==='print'){if(top){lidOut.delete();const flipped=lid.clone().rotate(180,[0,0,0],[1,0,0]);try{lidOut=toWorld(flipped);}finally{flipped.delete();}}bodyOut=bodyOut.translate([0,0,-info.center[2]]);const bb=bounds(bodyOut),lb=bounds(lidOut);printTranslation=[bb[1][0]-lb[0][0]+10,0,-lb[0][2]];lidOut=lidOut.translate(printTranslation);}
-   return {body:bodyOut,lid:lidOut,analysis:{...info,lidStyle:top?'top':'inset',...finishing,bodyHeight,capLower:top?.capLower??null,capUpper:top?.capUpper??null,railStemWidth:top?.stemWidth??null,printFlipped:!!top,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,tipHeight,remainingWall:w-d,engagement:d-g,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,surfaceGrip,lock,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
+   return {body:bodyOut,lid:lidOut,analysis:{...info,lidStyle:top?'top':'inset',...finishing,bodyHeight,capLower:top?.capLower??null,capUpper:top?.capUpper??null,railStemWidth:top?.stemWidth??null,frontClosure:top?{front:top.frontWall.front,back:top.frontWall.back,thickness:top.frontWall.thickness,lower:top.frontWall.lower,upper:top.frontWall.upper}:null,printFlipped:!!top,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,tipHeight,remainingWall:w-d,engagement:d-g,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,surfaceGrip,lock,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
   }catch(error){bodyOut.delete();lidOut.delete();throw error;}
  }finally{objects.reverse().forEach(shape=>shape.delete());}
 }
