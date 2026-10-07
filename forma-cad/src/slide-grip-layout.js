@@ -37,3 +37,8 @@ export function clampGripPosition(q,fromFront,offsetY,start={fromFront:q.fromFro
  for(let i=0;i<32;i++){const t=(lo+hi)/2,p={fromFront:round(start.fromFront+(goal.fromFront-start.fromFront)*t),offsetY:round(start.offsetY+(goal.offsetY-start.offsetY)*t)};if(gripInsideCorners(q,p.fromFront,p.offsetY)){lo=t;result=p;}else hi=t;}
  return result;
 }
+
+export function centerGripPosition(q){
+ // Center the whole group within the lid footprint, including inset lids.
+ return clampGripPosition(q,(q.back-q.front-q.span)/2,0);
+}
