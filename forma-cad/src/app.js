@@ -58,6 +58,7 @@ import {rangeSketchHits,sketchSegments,deleteSketchSelection,offsetSketchSelecti
 let selectedSketchSegments=new Map(),sketchSelectionHighlight=null;
 import {cadGrid} from './cad-grid.js';
 import {createExtrusionWheel} from './extrusion-wheel.js';
+import {createThinExtrusionControls} from './thin-extrusion-controls.js';
 import {projectedBounds,findPanelSpace} from './panel-placement.js';
 import {extrusionDragAxis,extrusionArrowAngle,extrusionDragDistance} from './extrusion-drag.js';
 import {holesOnlyProblem} from './holes-only-options.js';
@@ -1580,6 +1581,7 @@ fitCommandToolbar(document.querySelector('.command-toolbar'));
 warmKernelOnInteraction(kernelClient);
 
 const extrusionWheel=createExtrusionWheel(host.parentElement,value=>{$('viewport-operation').value=value;$('viewport-operation').dispatchEvent(new Event('change',{bubbles:true}));});
+const thinExtrusionControls=createThinExtrusionControls({panel:$('extrude-distance'),side:$('side'),wall:$('wall'),hint:$('thin-hint')});
 function syncTargetSelectors(){
  const source=$('target'),target=$('viewport-target'),hasTarget=[...source.options].some(o=>![ALL_BODIES_TARGET,SELECTED_BODIES_TARGET].includes(o.value));
  if(target.innerHTML!==source.innerHTML)target.innerHTML=source.innerHTML;
@@ -1588,6 +1590,7 @@ function syncTargetSelectors(){
  syncExtrusionTargetChecks();return hasTarget;
 }
 function syncViewportOperation(){
+ thinExtrusionControls.sync({active:stage==='extrusion'&&!pendingExtrude&&mode==='thin',busy:extrusionBusy});
  if($('viewport-operation').value!==$('operation').value)$('viewport-operation').value=$('operation').value;
  const hasTarget=syncTargetSelectors();$('viewport-target-label').hidden=['new','newHoles'].includes($('operation').value);
  const holesProblem=syncHolesOnlyOptions();
