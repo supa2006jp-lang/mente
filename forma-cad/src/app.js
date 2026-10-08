@@ -15,6 +15,7 @@ import {ALL_BODIES_TARGET,SELECTED_BODIES_TARGET,allExtrusionTargets,extrusionTa
 import {edgeTurnFrame,upperEdgeBody,edgeQuarterTurn} from './edge-quarter-turn.js';
 import {installRenderRecovery} from './render-recovery.js';
 import {zoomAtPointer,fitSelectionBox} from './selection-view.js';
+import {faceGridCellRegions} from './grid-cell.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains,faceGridPatches} from './face-grid.js';
 import {planeViewBounds,viewportGridLayout,fitCameraDepth} from './viewport-grid.js';
 import {createBodyDisplay} from './body-display.js';
@@ -1698,7 +1699,20 @@ function selectedSketchAt(event){
  }
  return best;
 }
-function closeSolidFaceMenu(restoreFocus=false){const menu=$('solid-face-menu');if(!menu)return;const focused=menu.contains(document.activeElement);menu.remove();if(restoreFocus&&focused)renderer.domElement.focus();}
+let gridCellHighlight=null;
+function closeSolidFaceMenu(restoreFocus=false){if(gridCellHighlight){disposeObject(gridCellHighlight);gridCellHighlight=null;}const menu=$('solid-face-menu');if(!menu)return;const focused=menu.contains(document.activeElement);menu.remove();if(restoreFocus&&focused)renderer.domElement.focus();}
+function openGridCellMenu(event){
+ if(!sketchGrid?.visible||stage==='extrusion'||pendingExtrude||holeActive||moveTool?.active||imageReferences?.picking||extrusionBusy||document.querySelector('dialog[open]')||event.target!==renderer.domElement)return false;
+ const face=sketch?sketchWorkingFace:selectedFace;if(!face)return false;const basis=basisFor(face),shift=sketch?new THREE.Vector3():bodyDisplay?.offset(face.bodyId)||new THREE.Vector3(),offset=sketch?sketchOrigin.dot(basis.n):face.offset;
+ const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2);raycaster.setFromCamera(pointer,camera);const point=raycaster.ray.intersectPlane(new THREE.Plane(basis.n,-offset-shift.dot(basis.n)),new THREE.Vector3());if(!point)return false;
+ const hit=raycaster.intersectObjects([...meshes.values()].filter(m=>m.visible),false)[0];if(hit&&hit.distance<point.distanceTo(raycaster.ray.origin)-.05)return false;
+ point.sub(shift);const step=Number(host.dataset.sketchGridDisplayStep)||gridStep,scope=face.bodyId&&face.outer?$('face-grid-scope').value:'unlimited',patches=JSON.parse(host.dataset.sketchGridExtensions||'[]'),regions=faceGridCellRegions({...face,offset},[point.dot(basis.u),point.dot(basis.v)],step,{mode:scope,patches});if(!regions.length)return false;
+ closeSolidFaceMenu();$('sketch-group-menu')?.remove();selectionPicker?.close();gridCellHighlight=new THREE.Group();for(const r of regions){const mesh=new THREE.Mesh(regionFaceGeometry(r),new THREE.MeshBasicMaterial({color:0x087eac,transparent:true,opacity:.45,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3}));mesh.renderOrder=6;gridCellHighlight.add(mesh);}scene.add(gridCellHighlight);
+ const menu=document.createElement('div');menu.id='solid-face-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','紫グリッドの1マスの操作');const title=document.createElement('div');title.className='solid-face-menu-title';title.textContent='紫グリッド '+fmt(step)+' × '+fmt(step)+' mm（'+fmt(regions.reduce((s,r)=>s+r.area,0))+' mm²）';
+ const button=document.createElement('button');button.id='context-grid-cell-extrude';button.type='button';button.setAttribute('role','menuitem');button.textContent='この1マスを押し出す';button.onclick=()=>{closeSolidFaceMenu();const source=face.bodyId;finishSketch(false);clearFaceSelection();clearEdgeSelection();selectedFace=null;selected=null;stage='model';selectedRegions=regions;chosenRegion=regions.at(-1);pendingOperation=source?'join':'new';beginExtrusion('solid');$('status').textContent='グリッドの残っている部分を押し出します。距離と操作を指定してください';};menu.append(title,button);
+ if(!sketch&&selectedFace?.bodyId){const ground=document.createElement('button');ground.id='context-opposite-face-ground';ground.type='button';ground.setAttribute('role','menuitem');ground.textContent='反対面をXYに接地';ground.onclick=groundOppositeFace;menu.append(ground);}
+ document.body.append(menu);const bounds=menu.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(event.clientX,innerWidth-bounds.width-8))+'px';menu.style.top=Math.max(8,Math.min(event.clientY,innerHeight-bounds.height-8))+'px';button.focus();return true;
+}
 function openSolidFaceMenu(event){
  closeSolidFaceMenu();$('sketch-group-menu')?.remove();
  if(!canResumeSelectedSketch()||stage==='extrusion'||oppositePlaneBusy)return false;
@@ -1727,11 +1741,12 @@ document.addEventListener('pointerup',e=>{
  if(e.button!==2||e.pointerId!==sketchRightDown?.id)return;
  const menuOpen=sketchRightDown.menuOpen,moved=sketchRightDown.moved||Math.hypot(e.clientX-sketchRightDown.x,e.clientY-sketchRightDown.y)>5;sketchRightDown=null;if(moved)return;
  e.preventDefault();
+ if(menuOpen)return;
+ if(openGridCellMenu(e))return;
  if(canResumeSelectedSketch()){
   const f=selectedSketchAt(e);if(f){closeSolidFaceMenu();openSketchResumeMenu(e,f);return;}
   if(openSolidFaceMenu(e))return;
  }
- if(menuOpen)return; // The pointerdown listener already dismissed the menu, as Escape does.
  // Share the Escape action without changing the keyboard's pressed/keyup state.
  queueMicrotask(performToolEscape);
 },{capture:true});
