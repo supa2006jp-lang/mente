@@ -15,7 +15,7 @@ export function reverseExtrusionFrame(feature){
 }
 
 export function outwardExtrusion(feature,bodies){
- if(feature.operation==='cut'||!bodies.size)return feature;
+ if(feature.operation==='cut'||feature.region?.gridSourceBodyId||!bodies.size)return feature;
  const probe={...feature,depth:Math.max(.1,Math.abs(feature.depth)),taperAngle:0};
  try{
   const forward=extrusionIntersections(probe,bodies);

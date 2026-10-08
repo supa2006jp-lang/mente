@@ -38,3 +38,13 @@ export function extrusionIntersections(feature,bodies){
  }finally{geometry.dispose();}
  return matches.sort((a,b)=>b.volume-a.volume);
 }
+// Grid profiles deliberately omit CAD-face references so only their clipped
+// polygons are extruded. Keep their source body for the operation decision:
+// outward contact with that source is join, even with tessellation slivers.
+export function extrusionCutMatches(feature,bodies,source=feature.region?.cadFace?.bodyId||feature.region?.bodyId||feature.region?.gridSourceBodyId){
+ const sourceFace=source&&feature.region?.outer&&bodies.get(source)?.visible;
+ if(!sourceFace)return extrusionIntersections(feature,bodies);
+ if(feature.depth<0)return feature.region.gridSourceBodyId?extrusionIntersections(feature,bodies):[{id:source,volume:Infinity}];
+ const others=new Map([...bodies].filter(([id])=>id!==source));
+ return others.size?extrusionIntersections(feature,others):[];
+}

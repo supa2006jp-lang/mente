@@ -15,7 +15,7 @@ assert.equal(area(cells(face,[49,49],10,{mode:'100'})),100);
 assert.equal(area(cells(face,[51,51],10,{mode:'100'})),0);
 assert.equal(area(cells(face,[99,99],10,{mode:'200'})),100);
 assert.equal(area(cells(face,[500,500],10,{mode:'unlimited'})),100);
-for(const r of cells(face,[11,11],10)){assert.equal(r.offset,20);assert.equal(r.bodyId,undefined);assert.equal(r.cadFace,undefined);}
+for(const r of cells(face,[11,11],10)){assert.equal(r.offset,20);assert.equal(r.bodyId,undefined);assert.equal(r.cadFace,undefined);assert.equal(r.gridSourceBodyId,'source');}
 console.log('PASS grid cell clipping, negative coordinates, holes, disconnected pieces, local patches and fixed scopes');
 
 const THREE=await import('three'),{gridCellOccluders}=await import('../src/grid-cell-occlusion.js'),{defaults,makeGeometry}=await import('../src/geometry.js');
