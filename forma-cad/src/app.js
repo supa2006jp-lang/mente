@@ -15,7 +15,7 @@ import {ALL_BODIES_TARGET,SELECTED_BODIES_TARGET,allExtrusionTargets,extrusionTa
 import {edgeTurnFrame,upperEdgeBody,edgeQuarterTurn} from './edge-quarter-turn.js';
 import {installRenderRecovery} from './render-recovery.js';
 import {zoomAtPointer,fitSelectionBox} from './selection-view.js';
-import {scopedFaceGrid,faceGridBounds,faceGridContains} from './face-grid.js';
+import {scopedFaceGrid,faceGridBounds,faceGridContains,faceGridPatches} from './face-grid.js';
 import {planeViewBounds,viewportGridLayout,fitCameraDepth} from './viewport-grid.js';
 import {createBodyDisplay} from './body-display.js';
 import {isSectionSplit,sectionBodyStyles} from './section-split.js';
@@ -603,7 +603,7 @@ function updateSplinePreview(hit=null){
  if(splinePreview){updateSketchLine(splinePreview,geometry);}
  else{splinePreview=sketchLine(geometry,{color:0x087ca5,depthTest:false,order:5});splinePreview.renderOrder=5;scene.add(splinePreview);}
 }
-renderer.domElement.addEventListener('pointermove',e=>{if(holeActive){if(e.buttons){holeHoverFace=null;$('snap-icon').hidden=true;$('snap-readout').hidden=true;return;}hoverHolePoint(e);return;}if(!sketch)return;if(arcDrag){updateArcDrag(e);return;}const hit=planePoint(e);if(hit){if($('profile').value==='spline'){updateSplinePreview(hit);showSnap(hit);return;}if(firstPoint)previewEndpoint(hit);else showSnap(hit);}});
+renderer.domElement.addEventListener('pointermove',e=>{if(holeActive){if(e.buttons){holeHoverFace=null;$('snap-icon').hidden=true;$('snap-readout').hidden=true;return;}hoverHolePoint(e);return;}if(!sketch)return;if(arcDrag){updateArcDrag(e);return;}const hit=planePoint(e);if(hit){if($('profile').value==='spline'){lastDrawPoint=hit.clone();updateSplinePreview(hit);showSnap(hit);return;}if(firstPoint)previewEndpoint(hit);else showSnap(hit);}});
 renderer.domElement.addEventListener('pointerleave',()=>{if(sketch||holeActive){$('snap-icon').hidden=true;$('snap-readout').hidden=true;if(holeActive)holeHoverFace=null;if(sketch&&$('profile').value==='spline')updateSplinePreview();}});
 let down=null;renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};startArcDrag(e);});
 renderer.domElement.addEventListener('pointerup',e=>{
@@ -1439,6 +1439,17 @@ function updateModelGrid(){
  return layout;
 }
 const sketchOnFaceGrid=document.createElement('button');sketchOnFaceGrid.id='sketch-on-face-grid';sketchOnFaceGrid.type='button';sketchOnFaceGrid.hidden=true;Object.assign(sketchOnFaceGrid.style,{gridColumn:'1 / -1',padding:'6px 8px',color:'#59358a',background:'#f5edff',border:'1px solid #b58bd8',borderRadius:'4px',fontSize:'12px'});sketchOnFaceGrid.textContent='紫グリッドでスケッチ';sketchOnFaceGrid.title='基準平面の設定を変えず、選択した面の紫グリッドで作図';sketchOnFaceGrid.onclick=()=>{if(!selectedFace||sketch||holeActive)return;startFeature('line','thin');$('draw').click();};$('reference-plane-control').append(sketchOnFaceGrid);
+let sketchGridPatchCache=null;
+function workingGridPatches(face,basis,step){
+ const offset=sketchOrigin.dot(basis.n),key=JSON.stringify([face.id,basis.n.toArray(),offset,step]);
+ if(sketchGridPatchCache?.features!==features||sketchGridPatchCache.key!==key){
+  const points=[];for(const f of features){if(f.kind!=='sketch'||f.groupHidden)continue;const b=basisFor(f),o=planeCoordinates(f);if(Math.abs(b.n.dot(basis.n))<.999999)continue;for(const p of sketchPoints(f)){const world=worldPoint({...f,offset:o.offset},p);if(Math.abs(world.dot(basis.n)-offset)<1e-5)points.push([world.dot(basis.u),world.dot(basis.v)]);}}
+  sketchGridPatchCache={features,key,patches:faceGridPatches(face,points,step)};
+ }
+ const points=[];if(firstPoint){points.push([firstPoint.dot(basis.u),firstPoint.dot(basis.v)]);if(lastDrawPoint)try{const p=constrainedPoint(lastDrawPoint);points.push([p.dot(basis.u),p.dot(basis.v)]);}catch{}}
+ if($('profile').value==='spline'&&splinePoints.length){points.push(...splinePoints);if(lastDrawPoint)points.push([lastDrawPoint.dot(basis.u),lastDrawPoint.dot(basis.v)]);}
+ const patches=new Map();for(const p of [...sketchGridPatchCache.patches,...faceGridPatches(face,points,step)])patches.set(JSON.stringify(p),p);return [...patches.values()].sort((a,b)=>a.u[0]-b.u[0]||a.v[0]-b.v[0]);
+}
 function updateSketchGrid(){
  const face=sketch?sketchWorkingFace:stage==='model'?(holeActive?holeHoverFace:selectedFace):null,basis=sketch?sketchBasis:face?basisFor(face):null;
  const originPlane=sketch?(Math.abs(basis.n.z)>.999999?'XY':Math.abs(basis.n.y)>.999999?'XZ':Math.abs(basis.n.x)>.999999?'YZ':null):null;
@@ -1455,12 +1466,13 @@ function updateSketchGrid(){
  host.dataset.activePlane=planeName;host.dataset.referencePlane=gridPlane;
  axisGroup.children.forEach((axis,i)=>{axis.visible=(grid.visible&&Math.abs(worldNormal.getComponent(i))<1e-6)||(visible&&Math.abs(normal.getComponent(i))<1e-6);});
  host.dataset.visibleAxes=axisGroup.children.map((axis,i)=>axis.visible?'XYZ'[i]:'').join('');
- if(!visible){if(sketchGrid)sketchGrid.visible=false;host.dataset.sketchGridVisible='false';delete host.dataset.sketchGridBounds;delete host.dataset.sketchGridDisplayStep;const label='1目盛り：'+fmt(gridStep)+' mm';if(basis&&!originSketch&&$('grid-scale').textContent!==label)$('grid-scale').textContent=label;return;}
+ if(!visible){if(sketchGrid)sketchGrid.visible=false;host.dataset.sketchGridVisible='false';delete host.dataset.sketchGridBounds;delete host.dataset.sketchGridDisplayStep;delete host.dataset.sketchGridExtensions;const label='1目盛り：'+fmt(gridStep)+' mm';if(basis&&!originSketch&&$('grid-scale').textContent!==label)$('grid-scale').textContent=label;return;}
  const offset=sketch?sketchOrigin.dot(basis.n):face.offset+(bodyDisplay?.offset(face.bodyId).dot(basis.n)||0),view=gridViewBounds(basis,offset);
  const scoped=scopedFace&&scope!=='unlimited',layout=scoped?null:viewportGridLayout(view,gridStep),bounds=scoped?faceGridBounds(scopedFace,scope):layout.bounds;
  let displayStep=scoped?gridStep:layout.step;if(scoped)while(Math.max(bounds.u[1]-bounds.u[0],bounds.v[1]-bounds.v[0])/displayStep>180)displayStep*=2;
- const key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,scope,!!scopedFace,scoped?scopedFace.id:layout.divisions]);
- if(key!==sketchGridKey){if(sketchGrid)disposeObject(sketchGrid);sketchGridKey=key;sketchGrid=scoped?scopedFaceGrid(scopedFace,scope,gridStep).grid:cadGrid(displayStep,layout.divisions,false);sketchGrid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));sketchGrid.traverse(o=>{if(o.material){o.material.vertexColors=false;o.material.color.set(scopedFace?0xb678e8:0x9554c9);o.material.transparent=true;o.material.opacity=scopedFace ? .85 : .3;o.material.depthWrite=false;o.material.depthTest=true;}});sketchGrid.renderOrder=3;scene.add(sketchGrid);}
+ const patches=sketch&&scopedFace&&scope==='face'?workingGridPatches(scopedFace,basis,displayStep):[];host.dataset.sketchGridExtensions=JSON.stringify(patches);
+ const key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,scope,!!scopedFace,scoped?scopedFace.id:layout.divisions,patches]);
+ if(key!==sketchGridKey){if(sketchGrid)disposeObject(sketchGrid);sketchGridKey=key;sketchGrid=scoped?scopedFaceGrid(scopedFace,scope,gridStep,patches).grid:cadGrid(displayStep,layout.divisions,false);sketchGrid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));sketchGrid.traverse(o=>{if(o.material){o.material.vertexColors=false;o.material.color.set(scopedFace?0xb678e8:0x9554c9);o.material.transparent=true;o.material.opacity=scopedFace ? .85 : .3;o.material.depthWrite=false;o.material.depthTest=true;}});sketchGrid.renderOrder=3;scene.add(sketchGrid);}
  // Lift face grids slightly above their supporting face; depth testing still hides them behind solids.
  sketchGrid.position.copy(basis.n).multiplyScalar(offset+(scopedFace?.02:0));if(!scoped)sketchGrid.position.addScaledVector(basis.u,layout.u).addScaledVector(basis.v,layout.v);else{const shift=bodyDisplay?.offset(scopedFace.bodyId)||new THREE.Vector3();sketchGrid.position.addScaledVector(basis.u,shift.dot(basis.u)).addScaledVector(basis.v,shift.dot(basis.v));}
  const displayBounds=scoped?Object.fromEntries(['u','v'].map(axis=>{const delta=(bodyDisplay?.offset(scopedFace.bodyId)||new THREE.Vector3()).dot(basis[axis]);return [axis,bounds[axis].map(value=>value+delta)];})):bounds;
