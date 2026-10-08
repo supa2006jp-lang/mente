@@ -1,0 +1,57 @@
+import {basisFor,worldPoint} from '../src/frames.js';
+import * as THREE from 'three';
+import {defaults,rebuild} from '../src/geometry.js';
+import {chromium} from 'playwright';
+import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const prefix='/mente/forma-cad/',root=path.resolve('.');
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
+const server=http.createServer(async(req,res)=>{
+ try{
+  let url=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
+  if(!url.startsWith(prefix)){res.writeHead(404);return res.end();}
+  let relative=url.slice(prefix.length)||'index.html';if(relative.endsWith('/'))relative+='index.html';
+  const file=path.resolve(root,relative);if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end();}
+  const data=await fs.readFile(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(data);
+ }catch{res.writeHead(404);res.end();}
+});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+try{
+ const context=await browser.newContext({viewport:{width:1900,height:1150},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
+ await page.addInitScript(()=>{window.cadJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec){window.cadJobs.push(payload.spec.type);window.latestSpec=payload.spec;}return post.call(this,payload,...args);};});
+ await page.addInitScript(()=>{const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(m,...args){const op=m.spec?.type==='preview'?m.spec.operation:m.spec;if(window.forceCadError&&['fillet','shell'].includes(op?.type)){const error=window.forceCadError;setTimeout(()=>this.onmessage?.({data:{id:m.id,error}}),5);return;}return post.call(this,m,...args);};});
+ await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();
+
+
+
+
+
+ const host=page.locator('#canvas-host'),canvas=page.locator('canvas'),picker=page.locator('#selection-candidates');
+ const back={...defaults,id:'back',name:'奥の本体',kind:'extrusion',width:40,height:30,depth:10,z:0},front={...back,id:'front',name:'手前の本体',z:20};
+ async function load(features){await page.keyboard.press('Escape');await page.locator('#file').setInputFiles({name:'overlap.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.waitForTimeout(100);}
+ async function screen(point){const r=await canvas.boundingBox(),s=JSON.parse(await host.getAttribute('data-camera-state')),clip=JSON.parse(await host.getAttribute('data-camera-clip')),c=new THREE.OrthographicCamera(-100*r.width/r.height,100*r.width/r.height,100,-100,...clip);c.position.fromArray(s);c.quaternion.fromArray(s,3);c.zoom=s[7];c.updateProjectionMatrix();c.updateMatrixWorld(true);const p=new THREE.Vector3(...point).project(c);return [r.x+(p.x+1)*r.width/2,r.y+(1-p.y)*r.height/2];}
+ async function save(){const promise=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await promise).path(),'utf8'));}
+
+
+
+
+ const body={...back,x:-20};
+ async function selectSide(){await page.locator('[data-view=right]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.waitForTimeout(100);await page.locator('#selection-mode').selectOption('face');await page.mouse.click(...await screen([0,6,7]));await picker.waitFor();await picker.locator('[data-kind=face]').filter({hasText:'X＋'}).click();await picker.locator('[data-close]').click();await page.mouse.move(30,30);await page.waitForTimeout(60);assert.equal(await page.locator('#active-plane').textContent(),'選択面：YZ');}
+ async function drawLine(a,b){await page.mouse.click(...await screen(a));await page.mouse.click(...await screen(b));await page.waitForTimeout(80);}
+ for(const plane of ['XY','XZ','YZ']){
+  await load([body]);await page.locator('#reference-plane').selectOption(plane);await selectSide();assert.equal(await page.locator('#reference-plane').inputValue(),plane);
+  await page.locator('#start-sketch').click();assert.equal(await page.locator('#plane').inputValue(),plane);await page.locator('#new-line').click();await page.waitForTimeout(150);assert.equal(await page.locator('#reference-plane').inputValue(),plane);await page.waitForFunction(p=>document.getElementById('active-plane').textContent==='作図中：'+p,plane);assert.equal(await host.getAttribute('data-sketch-grid-visible'),'false');
+  const region={plane,offset:0};await drawLine(worldPoint(region,[-35,-20]).toArray(),worldPoint(region,[-10,-20]).toArray());const saved=await save(),line=saved.features.at(-1);assert.equal(line.kind,'sketch');assert.equal(line.profile,'line');assert.equal(line.plane,plane);assert.equal(line.frame,undefined);assert.ok(Math.abs(new THREE.Vector3(line.x,line.y,line.z).dot(basisFor(line).n))<1e-6);
+  await page.locator('#new-circle').click();assert.equal(await page.locator('#reference-plane').inputValue(),plane);await page.waitForFunction(p=>document.getElementById('active-plane').textContent==='作図中：'+p,plane);await page.keyboard.press('Escape');assert.equal(await page.locator('#reference-plane').inputValue(),plane);
+ }
+ // Explicitly choosing the purple grid keeps that face usable without changing the base plane.
+ await load([body]);await page.locator('#reference-plane').selectOption('XY');await selectSide();await page.locator('#sketch-on-face-grid').click();await page.waitForTimeout(100);assert.equal(await page.locator('#reference-plane').inputValue(),'XY');await page.waitForFunction(()=>document.getElementById('active-plane').textContent==='作図中：YZ');assert.equal(await host.getAttribute('data-sketch-grid-visible'),'true');assert.equal(await host.getAttribute('data-sketch-grid-offset'),'0');await drawLine([0,20,15],[0,40,15]);let saved=await save(),line=saved.features.at(-1);assert.equal(line.kind,'sketch');assert.equal(line.plane,'CUSTOM');assert.deepEqual(line.frame.n,[1,0,0]);assert.ok(Math.abs(line.x)<1e-6);await page.locator('#finish-sketch-tool').click();assert.equal(await page.locator('#reference-plane').inputValue(),'XY');await page.locator('[data-sketch-group="'+line.groupId+'"] .row-label').click();await page.locator('#new-circle').click();await page.waitForFunction(()=>document.getElementById('active-plane').textContent==='作図中：YZ');assert.equal(await page.locator('#reference-plane').inputValue(),'XY');await page.locator('#finish-sketch-tool').click();await page.locator('#new-line').click();assert.equal(await page.locator('#plane').inputValue(),'XY');await page.keyboard.press('Escape');
+ // A purple grid can also be explicitly selected outside the solid in 200 mm mode.
+ await load([body]);await page.locator('#reference-plane').selectOption('XY');await selectSide();await page.locator('#face-grid-scope').selectOption('200');await page.waitForTimeout(80);await page.mouse.click(...await screen([0,45,5]));assert.equal(await host.getAttribute('data-selected-face-grid'),'true');await page.locator('#new-circle').click();await page.waitForTimeout(120);await page.waitForFunction(()=>document.getElementById('active-plane').textContent==='作図中：YZ');assert.equal(await page.locator('#reference-plane').inputValue(),'XY');await page.keyboard.press('Escape');
+ // Face grids away from the origin and camera operations retain the reference setting too.
+ await load([body]);await page.locator('#reference-plane').selectOption('XZ');await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.mouse.click(...await screen([-14,6,10]));await picker.waitFor();await picker.locator('[data-kind=face]').filter({hasText:'上面'}).click();await picker.locator('[data-close]').click();await page.locator('#sketch-on-face-grid').click();await page.waitForTimeout(80);assert.equal(await page.locator('#reference-plane').inputValue(),'XZ');assert.equal(await host.getAttribute('data-sketch-grid-offset'),'10');await page.mouse.move(...await screen([-5,5,10]));await page.mouse.wheel(0,-100);await page.waitForTimeout(80);assert.equal(await page.locator('#reference-plane').inputValue(),'XZ');await page.locator('#new-rect').click();await page.waitForFunction(()=>document.getElementById('active-plane').textContent==='作図中：XY');assert.equal(await page.locator('#reference-plane').inputValue(),'XZ');await page.mouse.move(30,30);await page.screenshot({path:'.sites-runtime/sketch-plane-choice.png'});await page.keyboard.press('Escape');assert.deepEqual(errors,[]);console.log('PASS selected solids do not change XY/XZ/YZ at sketch start, actual saved lines, tool switching, explicit purple button/grid and offset grids keep working with stable reference plane');await context.close();
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
