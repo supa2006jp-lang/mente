@@ -1,0 +1,37 @@
+import * as THREE from 'three';
+import {defaults} from '../src/geometry.js';
+import {chromium} from 'playwright';
+import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const prefix='/mente/forma-cad/',root=path.resolve('.');
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
+const server=http.createServer(async(req,res)=>{
+ try{
+  let url=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
+  if(!url.startsWith(prefix)){res.writeHead(404);return res.end();}
+  let relative=url.slice(prefix.length)||'index.html';if(relative.endsWith('/'))relative+='index.html';
+  const file=path.resolve(root,relative);if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end();}
+  const data=await fs.readFile(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(data);
+ }catch{res.writeHead(404);res.end();}
+});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+try{
+ const context=await browser.newContext({viewport:{width:1700,height:1100},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();
+ const one={...defaults,id:'one',name:'長方形1',kind:'sketch',profile:'rect',width:20,height:20,x:-40,groupId:'g1',groupNumber:1},member={...one,id:'member',name:'線1',profile:'line',mode:'thin',y:35},two={...one,id:'two',name:'長方形2',x:40,groupId:'g2',groupNumber:2},three={...one,id:'three',name:'長方形3',x:0,y:50,groupId:'g3',groupNumber:3,groupHidden:true},body={...defaults,id:'body',kind:'extrusion',name:'本体',width:8,height:8,depth:5,y:-30};
+ const groups=page.locator('#sketches [data-sketch-group]'),row=id=>page.locator('#sketches [data-sketch-group="'+id+'"]');
+ async function load(features){await page.keyboard.press('Escape');await page.locator('#file').setInputFiles({name:'groups.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();}
+ async function save(){const promise=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await promise).path(),'utf8'));}
+ async function visibility(values){for(const [id,shown]of Object.entries(values))assert.equal(await row(id).locator('.eye').getAttribute('aria-pressed'),String(shown),'visibility '+id);}
+ await load([one,member,two,three,body]);await visibility({g1:true,g2:true,g3:false});
+ await row('g2').locator('.row-label').click();await visibility({g1:false,g2:true,g3:false});assert.equal(await page.locator('#region-count').textContent(),'1');assert.equal(await page.locator('#body-count').textContent(),'1');assert.equal(await page.locator('#bodies .eye').getAttribute('aria-pressed'),'true');let data=await save();assert.ok(data.features.filter(f=>f.groupId==='g1').every(f=>f.groupHidden));assert.deepEqual(data.features.find(f=>f.id==='body'),body);
+ await page.locator('#features .row-label').filter({hasText:'スケッチ1'}).click();await visibility({g1:true,g2:false,g3:false});assert.equal(await page.locator('.sketch-member').count(),2);
+ await row('g2').locator('.eye').click();await visibility({g1:true,g2:true,g3:false});await page.locator('.sketch-member').first().click();await visibility({g1:true,g2:true,g3:false});await page.locator('#width').fill('25');await page.locator('#apply').click();assert.equal((await save()).features.find(f=>f.id==='one').width,25);await page.locator('#undo').click();assert.equal((await save()).features.find(f=>f.id==='one').width,20,'auto visibility creates no modeling undo step');
+ await row('g3').click({button:'right'});await page.locator('#sketch-group-menu').click();await visibility({g1:false,g2:false,g3:true});assert.match(await page.locator('#sketch-notice').textContent(),/スケッチ3/);await page.locator('#finish-sketch-tool').click();await visibility({g1:false,g2:false,g3:true});data=await save();await load(data.features);await visibility({g1:false,g2:false,g3:true});
+ await page.locator('#start-sketch').click();assert.match(await page.locator('#sketch-notice').textContent(),/スケッチ4/);await visibility({g1:false,g2:false,g3:false});assert.equal(await page.locator('#region-count').textContent(),'0');await page.locator('#new-rect').click();const r=await page.locator('canvas').boundingBox();await page.mouse.click(r.x+r.width*.4,r.y+r.height*.5);await page.mouse.click(r.x+r.width*.5,r.y+r.height*.6);await page.locator('#finish-sketch-tool').click();data=await save();const added=data.features.at(-1);assert.equal(added.groupNumber,4);assert.equal(added.groupHidden,false);assert.ok(data.features.filter(f=>f.kind==='sketch'&&f.groupNumber!==4).every(f=>f.groupHidden));assert.equal(await groups.count(),4);
+ await row('g1').locator('.row-label').click();await visibility({g1:true,g2:false,g3:false});assert.equal(await page.locator('#new-circle').isVisible(),true);await page.locator('#new-circle').click();assert.match(await page.locator('#sketch-notice').textContent(),/スケッチ1/);await page.locator('#finish-sketch-tool').click();data=await save();assert.equal(data.features.filter(f=>f.groupNumber===1).length,2,'changing tools creates no feature');assert.equal(data.features.find(f=>f.groupNumber===4).groupHidden,true);assert.equal(data.features.find(f=>f.id==='body').depth,5);
+ assert.deepEqual(errors,[]);await context.close();console.log('PASS sketch number switching hides others, hidden-group reentry, timeline/context/member entry, manual eyes, region visibility, new groups, geometry undo and save/reload');
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
