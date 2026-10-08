@@ -24,4 +24,28 @@ export function faceCenterCandidate(hit,features=[]){
  }
  if(!point)return null;mesh.updateMatrixWorld(true);const world=point.clone().applyMatrix4(mesh.matrixWorld),n=normal.applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld)).toArray();return {mesh,point:world,reference:{bodyId:mesh.userData.bodyId,point:world.toArray(),normal:n,name:'ソリッド面',kind:'center'}};
 }
-export function selectionCandidates(hits,edges,{mode='auto',name=id=>id,features=[],midpoints=[]}={}){const out=[],seen=new Set(),counts={face:0,edge:0,body:0,midpoint:0,faceCenter:0},front=hits[0]?.distance??Infinity;const add=(kind,key,hit,bodyId,behind)=>{if(seen.has(key))return;seen.add(key);const number=++counts[kind],title=kind==='body'?'ボディ全体':(kind==='face'?'面':kind==='midpoint'?'中点':kind==='faceCenter'?'面の中心':'辺')+' '+number;out.push({kind,key,hit,bodyId,label:title+' — '+name(bodyId)+(behind?'（奥）':'')});};if(['auto','edge'].includes(mode))for(const m of midpoints)add('midpoint',midpointCandidateKey(m),m,m.mesh.userData.bodyId,false);if(['auto','edge'].includes(mode))for(const e of edges)add('edge',edgeCandidateKey(e),e,e.mesh.userData.bodyId,false);if(['auto','face'].includes(mode))for(const h of hits){const key=faceCandidateKey(h,features);if(seen.has(key))continue;add('face',key,h,h.object.userData.bodyId,h.distance>front+.05);const center=faceCenterCandidate(h,features);if(center)add('faceCenter',key+':center',center,h.object.userData.bodyId,h.distance>front+.05);}if(['auto','body'].includes(mode))for(const h of hits)add('body',h.object.userData.bodyId+':body',h,h.object.userData.bodyId,h.distance>front+.05);return out;}
+function faceDirection(hit,features){
+ const mesh=hit.object,group=cadFaceGroup(mesh.geometry,hit.faceIndex);
+ if(group?.cylinder||faceCandidateKey(hit,features).includes(':cylinder:'))return '曲面';
+ mesh.updateMatrixWorld(true);
+ const n=hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld));
+ if(n.z>.999)return '上面';if(n.z<-.999)return '底面';
+ if(Math.abs(n.x)>.999)return '側面（X'+(n.x>0?'＋':'−')+'）';
+ if(Math.abs(n.y)>.999)return '側面（Y'+(n.y>0?'＋':'−')+'）';
+ return '斜面';
+}
+const coordinates=point=>point.map((v,i)=>['X','Y','Z'][i]+' '+(Math.abs(v)<.005?0:v).toFixed(2)).join(' / ')+' mm';
+export function selectionCandidates(hits,edges,{mode='auto',name=id=>id,features=[],midpoints=[]}={}){
+ const out=[],seen=new Set(),counts={edge:0,midpoint:0},front=hits[0]?.distance??Infinity;
+ const add=(kind,key,hit,bodyId,behind,direction='')=>{
+  if(seen.has(key))return;seen.add(key);
+  const title=kind==='body'?'ボディ全体':kind==='face'?direction:kind==='faceCenter'?'面の中心 · '+direction:(kind==='midpoint'?'中点':'辺')+' '+(++counts[kind]);
+  const center=kind==='face'?faceCenterCandidate(hit,features):null,point=['midpoint','faceCenter'].includes(kind)?hit.reference.point:center?.reference.point;
+  out.push({kind,key,hit,bodyId,label:title+' — '+name(bodyId)+(behind?'（奥）':''),detail:point?coordinates(point):''});
+ };
+ if(['auto','edge'].includes(mode))for(const m of midpoints)add('midpoint',midpointCandidateKey(m),m,m.mesh.userData.bodyId,false);
+ if(['auto','edge'].includes(mode))for(const e of edges)add('edge',edgeCandidateKey(e),e,e.mesh.userData.bodyId,false);
+ if(['auto','face'].includes(mode))for(const h of hits){const key=faceCandidateKey(h,features);if(seen.has(key))continue;const direction=faceDirection(h,features);add('face',key,h,h.object.userData.bodyId,h.distance>front+.05,direction);const center=faceCenterCandidate(h,features);if(center)add('faceCenter',key+':center',center,h.object.userData.bodyId,h.distance>front+.05,direction);}
+ if(['auto','body'].includes(mode))for(const h of hits)add('body',h.object.userData.bodyId+':body',h,h.object.userData.bodyId,h.distance>front+.05);
+ return out;
+}
