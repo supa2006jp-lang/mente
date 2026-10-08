@@ -13,19 +13,19 @@ export function createPointDistance({host,canvas,camera,container,getRevision,ge
  let source=null,target=null,revision=null;
  const at=selector=>section.querySelector(selector),copy=ref=>({...ref,point:[...ref.point],normal:[...(ref.normal||[0,0,1])]});
  function reset(){source=target=revision=null;section.hidden=true;svg.setAttribute('hidden','');delete host.dataset.pointDistance;}
- function begin(reference){distanceBetweenPoints(reference.point,reference.point);source=copy(reference);target=null;revision=getRevision();onHint?.('2点目の中心・中点を選択してください');render();}
+ function begin(reference){distanceBetweenPoints(reference.point,reference.point);source=copy(reference);target=null;revision=getRevision();onHint?.('2点目の中心・中点・頂点を選択してください');render();}
  function render(){
   if(!source)return;
   const label=ref=>pointReferenceLabel(ref,getBodyName)+' ('+ref.point.map(fixed).join(', ')+') mm';
-  at('[data-a]').textContent='A：'+label(source);at('[data-b]').textContent=target?'B：'+label(target):'B：中心・中点を選択してください';
+  at('[data-a]').textContent='A：'+label(source);at('[data-b]').textContent=target?'B：'+label(target):'B：中心・中点・頂点を選択してください';
   const result=target?distanceBetweenPoints(source.point,target.point):null;
   at('[data-distance]').textContent=result?fixed(result.distance)+' mm':'';
   at('[data-delta]').textContent=result?result.delta.map((v,i)=>'Δ'+['X','Y','Z'][i]+' '+(v>=.005?'+':'')+fixed(v)).join(' / ')+' mm':'';
-  at('[data-hint]').textContent=result?'差はAからBの方向です。別の点を選ぶとBを更新します。':'面や辺をクリックし、選択候補から中心・中点を選べます。';
+  at('[data-hint]').textContent=result?'差はAからBの方向です。別の点を選ぶとBを更新します。':'面や辺をクリックし、選択候補から中心・中点・頂点を選べます。';
   at('[data-again]').hidden=!target;
   host.dataset.pointDistance=JSON.stringify({a:source.point,b:target?.point||null,aBody:source.bodyId||null,bBody:target?.bodyId||null,...result});
  }
- at('[data-clear]').onclick=reset;at('[data-again]').onclick=()=>{target=null;render();onHint?.('2点目の中心・中点を選び直してください');};
+ at('[data-clear]').onclick=reset;at('[data-again]').onclick=()=>{target=null;render();onHint?.('2点目の中心・中点・頂点を選び直してください');};
  const project=point=>{const p=new THREE.Vector3(...point).project(camera);if(p.z< -1||p.z>1)return null;const r=canvas.getBoundingClientRect(),v=host.parentElement.getBoundingClientRect();return {x:r.left-v.left+(p.x+1)*r.width/2,y:r.top-v.top+(1-p.y)*r.height/2};};
  function update(enabled=true){
   if(source&&(revision!==getRevision()||![source,target].filter(Boolean).every(isVisible)))reset();

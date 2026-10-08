@@ -2,7 +2,7 @@ import * as THREE from 'three';
 // A separate overlay keeps the chosen point visible without changing hover snapping.
 export function pointReferenceLabel(reference,getBodyName=id=>id){
  if(!reference)return '';
- let location=reference.kind==='midpoint'?'辺の中点':reference.kind==='intersection'?'交点':reference.name==='ヒンジ軸中心'?'ヒンジ軸中心':(reference.name||'図形')+'の中心';
+ let location=reference.kind==='vertex'?'角の頂点':reference.kind==='midpoint'?'辺の中点':reference.kind==='intersection'?'交点':reference.name==='ヒンジ軸中心'?'ヒンジ軸中心':(reference.name||'図形')+'の中心';
  if(reference.kind==='center'&&reference.name==='ソリッド面'){
   const [x,y,z]=reference.normal||[0,0,1],face=reference.faceName||(z>.999?'上面':z<-.999?'底面':Math.abs(x)>.999?'側面（X'+(x>0?'＋':'−')+'）':Math.abs(y)>.999?'側面（Y'+(y>0?'＋':'−')+'）':'斜面');location=face+'の中心';
  }
