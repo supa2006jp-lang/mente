@@ -9,11 +9,10 @@ for(const frame of [undefined,{u:[1,0,0],v:[0,0,1],n:[0,-1,0]}]){
  const base={...defaults,id:'base',plane:frame?'CUSTOM':'XY',frame,width:80,height:60,depth:20};
  const slope=.81234,intercept=-.00001,ridge=extrusion('ridge',region([[-35,-35*slope+intercept],[35,35*slope+intercept],[35,35*slope+intercept+3],[-35,-35*slope+intercept+3]]));
  let history=[base,...runOperation([base],{type:'extrusionBatch',features:[ridge]}).features];
- const n=new THREE.Vector3(...(frame?.n||[0,0,1])),camera=new THREE.OrthographicCamera(-100,100,100,-100,.1,1000);camera.position.copy(n).multiplyScalar(100);camera.up.fromArray(frame?.v||[0,1,0]);camera.lookAt(n.clone().multiplyScalar(20));camera.updateMatrixWorld();
  let small=false;
  for(const [i,point] of [[5,5],[15,15],[25,25],[5,15],[15,5]].entries()){
   const bodies=rebuild(history),mesh=bodies.get('base');mesh.visible=true;mesh.userData.bodyId='base';
-  const face=region([[-40,-30],[40,-30],[40,30],[-40,30]]),cells=faceGridCellRegions(face,point,10,{occluders:gridCellOccluders(face,point,10,[mesh],camera)});
+  const face=region([[-40,-30],[40,-30],[40,30],[-40,30]]),cells=faceGridCellRegions(face,point,10,{occluders:gridCellOccluders(face,point,10,[mesh])});
   for(const body of bodies.values())body.geometry.dispose();assert.ok(cells.length);const cell=cells[0];small||=cell.area<20;
   const prior=kernelBodies(history);let before;try{before=R.measureVolume(prior.get('base'));}finally{for(const body of prior.values())body.delete();}
   const f=extrusion('cell'+i,cell),added=runOperation(history,{type:'extrusionBatch',features:[f]}).features,output=added[0].cadResult.outputs[0],shape=R.deserializeShape(output.brep).asShape3D();
