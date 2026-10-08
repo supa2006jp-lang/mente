@@ -45,7 +45,7 @@ export function selectionCandidates(hits,edges,{mode='auto',name=id=>id,features
  };
  if(['auto','edge'].includes(mode))for(const m of midpoints)add('midpoint',midpointCandidateKey(m),m,m.mesh.userData.bodyId,false);
  if(['auto','edge'].includes(mode))for(const e of edges)add('edge',edgeCandidateKey(e),e,e.mesh.userData.bodyId,false);
- if(['auto','face'].includes(mode))for(const h of hits){const key=faceCandidateKey(h,features);if(seen.has(key))continue;const direction=faceDirection(h,features);add('face',key,h,h.object.userData.bodyId,h.distance>front+.05,direction);const center=faceCenterCandidate(h,features);if(center)add('faceCenter',key+':center',center,h.object.userData.bodyId,h.distance>front+.05,direction);}
+ if(['auto','face'].includes(mode))for(const h of hits){const key=faceCandidateKey(h,features);if(seen.has(key))continue;const direction=faceDirection(h,features);add('face',key,h,h.object.userData.bodyId,h.distance>front+.05,direction);const center=faceCenterCandidate(h,features);if(center){center.reference.faceName=direction;add('faceCenter',key+':center',center,h.object.userData.bodyId,h.distance>front+.05,direction);}}
  if(['auto','body'].includes(mode))for(const h of hits)add('body',h.object.userData.bodyId+':body',h,h.object.userData.bodyId,h.distance>front+.05);
  return out;
 }
