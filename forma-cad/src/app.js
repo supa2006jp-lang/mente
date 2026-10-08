@@ -56,6 +56,7 @@ let activeSketchGroup=null,editingSketchGroup=null,pendingDrawingView=null,pendi
 let polygonMode=false;
 import {tangentArc} from './tangent-arc.js';
 import {extrusionView} from './extrusion-view.js';
+import {outwardExtrusion} from './extrusion-direction.js';
 import {sketchViewUp} from './sketch-view.js';
 import {kernelClient} from './kernel-client.js';
 import {patternSketch} from './patterns.js';
@@ -416,10 +417,10 @@ function beginExtrusion(nextMode='solid',{preserveView=false}={}){bodyDisplay?.s
  if(stage==='extrusion'&&selected&&pendingOperation==='cut'){selected=null;chosenRegion=null;stage='model';}else if(stage==='extrusion'&&selected){mode=nextMode;syncFields();return;}
  const saved=features.find(f=>f.id===selected);if(pendingOperation==='cut'&&!chosenRegion&&saved?.kind==='sketch')chosenRegion=regionList.find(r=>r.sourceIds.includes(saved.id))||null;finishSketch(false);draftTouched=false;$('measurement').hidden=true;
  if(nextMode==='thin'&&!chosenRegion&&saved?.kind==='sketch'&&saved.profile==='line'){
-  if(!preserveView)revealExtrusion(saved);selected=null;stage='extrusion';mode='thin';pendingExtrude=false;fillForm({...saved,id:crypto.randomUUID(),kind:'extrusion',name:'薄い押し出し',operation:'new'});return;
+  if(!preserveView)revealExtrusion(saved);selected=null;stage='extrusion';mode='thin';pendingExtrude=false;fillForm(outwardExtrusion({...saved,id:crypto.randomUUID(),kind:'extrusion',name:'薄い押し出し',depth:Math.abs(defaults.depth),operation:'new'},meshes));return;
  }
  if(!chosenRegion){stage='model';selected=null;pendingExtrude=true;mode=nextMode;dropPreview();syncFields();renderRegions();$('status').textContent=nextMode==='thin'?'閉じた領域、または開いた線を選択してください':'青く塗られた閉じた領域をクリックしてください';notify($('status').textContent);return;}
- const r=chosenRegion;if(!preserveView)revealExtrusion(r);selected=null;stage='extrusion';pendingExtrude=false;mode=nextMode;extrusionManualOperation=false;
+ let r=chosenRegion;if(pendingOperation!=='cut'){const orient=region=>outwardExtrusion({...defaults,profile:'region',region,plane:region.plane,frame:region.frame,mode:nextMode},meshes).region;selectedRegions=selectedRegions.map(orient);r=chosenRegion=selectedRegions.find(region=>region.id===r.id)||orient(r);}if(!preserveView)revealExtrusion(r);selected=null;stage='extrusion';pendingExtrude=false;mode=nextMode;extrusionManualOperation=false;
  const f={...defaults,profile:'region',region:clone(r),plane:r.plane,frame:r.frame,name:pendingOperation==='cut'?'穴あけ':nextMode==='thin'?'薄い押し出し':'押し出し',depth:pendingOperation==='cut'&&selectedFace?-defaults.depth:defaults.depth,mode:nextMode,operation:pendingOperation,target:selectedFace?.bodyId||'',x:r.plane==='YZ'?r.offset:0,y:r.plane==='XZ'?r.offset:0,z:r.plane==='XY'?r.offset:0};
  if(pendingOperation==='cut'){const target=meshes.get(f.target)||meshes.values().next().value;if(target){f.target=target.userData.bodyId;const center=new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3()),n=basisFor(r).n;f.depth=center.dot(n)<r.offset?-20:20;}}fillForm(f);renderTree();scheduleAutoCut();
 }
