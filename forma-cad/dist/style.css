@@ -293,3 +293,10 @@
 #project-library-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(235px,100%),1fr));gap:16px;margin-top:16px}
 .project-library-card{min-width:0;background:#1d2c3b;border:1px solid #425768;border-radius:9px;overflow:hidden}.project-library-open{display:flex;flex-direction:column;align-items:stretch;width:100%;padding:0;border:0;border-radius:0;text-align:left;white-space:normal}.project-library-picture{display:grid;place-items:center;aspect-ratio:4/3;background:#fff;color:#617483;overflow:hidden}.project-library-picture img{width:100%;height:100%;object-fit:contain}.project-library-name{font-size:14px;line-height:1.5;padding:12px 12px 4px;overflow-wrap:anywhere}.project-library-details{font-size:11px;color:#b6c9d6;padding:0 12px 12px;line-height:1.5}.project-library-remove{font-size:12px;margin:0 12px 12px;padding:5px 8px;color:#b9cddc}
 @media(max-width:600px){#project-library{padding:14px}#project-library h2{font-size:17px}.project-library-toolbar{align-items:stretch}.project-library-toolbar button{flex:1}.project-library-toolbar label:has(input){flex-basis:100%}}
+
+#sketches .tree-row.sketch-editing{background:#332743;border-color:#9864c4;box-shadow:inset 3px 0 #c48cf1}
+#sketches .tree-row.sketch-editing .row-label{color:#edceff;font-weight:600}
+#sketches .tree-row .row-label{flex-direction:row;align-items:center;gap:8px}
+#sketches .tree-row .row-label>span:first-child{overflow:hidden;text-overflow:ellipsis}
+#sketches .sketch-editing-badge{flex-shrink:0;font-size:11px;line-height:1.5;padding:1px 5px;border-radius:4px;background:#664486;color:#f7eaff;font-weight:600}
+#sketches .tree-row.sketch-editing .eye{color:#d0a5ed}
