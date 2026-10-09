@@ -2,6 +2,7 @@ import * as R from 'replicad';
 import * as THREE from 'three';
 import {cylinderJointInfo} from './coil-joint.js';
 import {fuseSolid} from './solid-fuse.js';
+import {ballJointMountBase} from './ball-joint-mount.js';
 
 export {cylinderJointInfo as ballJointInfo};
 import {ballJointDefaults,ballJointSettings} from './ball-joint-settings.js';
@@ -21,14 +22,14 @@ function place(shapes,info,s,hold){
  let edge=0;return shapes.map((shape,i)=>{let copy=hold(shape.clone());if(i===1)copy=hold(copy.rotate(180,[0,0,0],[1,0,0]));const box=copy.boundingBox;let b;try{b=box.bounds;}finally{box.delete();}copy=hold(copy.translate([edge-b[0][0],-b[0][1],-b[0][2]]));edge+=b[1][0]-b[0][0]+8;return copy.clone();});
 }
 let cachedJoint=null;
-function describe(info,s,overlap){return {...info,settings:Object.fromEntries(Object.keys(ballJointDefaults(info)).map(k=>[k,s[k]])),splitPosition:s.splitPosition,ballDiameter:s.ballDiameter,mouthDiameter:s.mouthRadius*2,neckDiameter:s.neckDiameter,socketDiameter:2*(s.core+s.depth),nutDiameter:s.nutRadius*2,slotCount:s.slotCount,threadPitch:s.threadPitch,engagedTurns:(s.nutTop-s.threadStart)/s.threadPitch,contactTravel:s.contactTravel,clampingTravel:s.clampingTravel,availableTravel:s.availableTravel,overlap,roles:['ball','socket','nut'],pose:s.pose};}
+function describe(info,s,overlap){return {...info,settings:Object.fromEntries(Object.keys(ballJointDefaults(info)).map(k=>[k,s[k]])),splitPosition:s.splitPosition,ballDiameter:s.ballDiameter,mouthDiameter:s.mouthRadius*2,neckDiameter:s.neckDiameter,socketDiameter:2*(s.core+s.depth),nutDiameter:s.nutRadius*2,slotCount:s.slotCount,threadPitch:s.threadPitch,engagedTurns:(s.nutTop-s.threadStart)/s.threadPitch,contactTravel:s.contactTravel,clampingTravel:s.clampingTravel,availableTravel:s.availableTravel,overlap,mountingThreads:s.mountingThreads,roles:['ball','socket','nut'],pose:s.pose};}
 export function makeBallJoint(source,p,onProgress){
  const info=cylinderJointInfo(source),s=ballJointSettings(info,p),owned=[],hold=shape=>(owned.push(shape),shape);let outputs;
  try{
   const key=JSON.stringify([info.radius,info.height,...Object.keys(ballJointDefaults(info)).filter(k=>k!=='pose').map(k=>s[k])]);
   if(cachedJoint?.key===key){outputs=place(cachedJoint.parts,info,s,hold);return {parts:outputs,analysis:describe(info,s,cachedJoint.overlap)};}
-  onProgress?.({stage:'球と首を作成しています'});const lower=hold(R.makeCylinder(info.radius,s.lowerEnd)),neck=hold(R.makeCylinder(s.neckDiameter/2,s.r+s.neckLength+.3,[0,0,s.lowerEnd-.2])),sphere=hold(R.makeSphere(s.r).translate([0,0,s.splitPosition]));const ball=hold(fuseSolid(hold(fuseSolid(lower,neck)),sphere));valid(ball,'球側');
-  const upper=hold(R.makeCylinder(info.radius,info.height-s.socketTop,[0,0,s.socketTop])),outer=hold(radialSolid([[0,s.mouth],[s.core-s.coneDepth,s.mouth],[s.core,s.coneEnd],[s.core,s.socketTop+.2],[0,s.socketTop+.2]])),cavity=hold(R.makeSphere(s.r+s.clearance).translate([0,0,s.splitPosition])),entry=hold(R.makeCylinder(s.mouthRadius,s.mouth+1,[0,0,-1]));let socket=hold(hold(fuseSolid(upper,outer)).cut(cavity));socket=hold(socket.cut(entry));
+  onProgress?.({stage:'球と首を作成しています'});if(s.mountThread)onProgress?.({stage:'土台側面の取付ねじを作成しています'});const lower=hold(ballJointMountBase(info.radius,s.lowerEnd,s,'ball')),neck=hold(R.makeCylinder(s.neckDiameter/2,s.r+s.neckLength+.3,[0,0,s.lowerEnd-.2])),sphere=hold(R.makeSphere(s.r).translate([0,0,s.splitPosition]));const ball=hold(fuseSolid(hold(fuseSolid(lower,neck)),sphere));valid(ball,'球側');
+  const upper=hold(ballJointMountBase(info.radius,info.height-s.socketTop,s,'socket').translate([0,0,s.socketTop])),outer=hold(radialSolid([[0,s.mouth],[s.core-s.coneDepth,s.mouth],[s.core,s.coneEnd],[s.core,s.socketTop+.2],[0,s.socketTop+.2]])),cavity=hold(R.makeSphere(s.r+s.clearance).translate([0,0,s.splitPosition])),entry=hold(R.makeCylinder(s.mouthRadius,s.mouth+1,[0,0,-1]));let socket=hold(hold(fuseSolid(upper,outer)).cut(cavity));socket=hold(socket.cut(entry));
   onProgress?.({stage:'受けのねじ山を作成しています'});socket=hold(fuseSolid(socket,ridge(s,0,hold)));
   for(let i=0;i<s.slotCount;i++){const tool=hold(R.makeBox([0,-s.slotWidth/2,s.mouth-.1],[s.core+s.depth+1,s.slotWidth/2,s.root-s.wall*.65]).rotate(i*360/s.slotCount,[0,0,0],[0,0,1]));socket=hold(socket.cut(tool));}valid(socket,'切り込み付き受け');
   onProgress?.({stage:'専用ナットのねじと締め付け面を作成しています'});let nut=hold(R.makeCylinder(s.nutRadius,s.nutTop-s.nutBottom,[0,0,s.nutBottom]));const slope=s.coneDepth/s.coneHeight,bottomRadius=s.core-s.coneDepth+s.threadClearance-(s.mouth-s.nutBottom+.1)*slope,inner=hold(radialSolid([[0,s.nutBottom-.1],[bottomRadius,s.nutBottom-.1],[s.core+s.threadClearance,s.coneEnd],[s.core+s.threadClearance,s.nutTop+.1],[0,s.nutTop+.1]]));nut=hold(nut.cut(inner));nut=hold(nut.cut(ridge(s,s.threadClearance,hold)));
