@@ -27,13 +27,28 @@ console.log('PASS standard screw motion and smallest/largest preset geometry');
 // Existing external mounting threads can coexist without losing their ridges.
 const mounting={...s,mountThread:true,mountSide:'both',mountLength:4,mountPitch:1.5,mountClearance:.15};
 for(const role of ['ball','socket']){const external=ballJointMountBase(12,10,mounting,role),result=ballJointFixHole(external,10,mounting,role);check(result);const region=R.makeBox([5,-20,-1],[20,20,11]),a=external.intersect(region),c=result.intersect(region);same(a,c);[external,result,region,a,c].forEach(s=>s.delete());}
-reference.delete();base.delete();console.log('PASS side mounting thread coexistence');
-const info={radius:12,height:40},spec={...ballJointDefaults(info),type:'ballJoint',id:'joint',target:'c',pose:'assembled',fixHole:true},cylinder={...defaults,id:'c',name:'円柱',profile:'circle',diameter:24,depth:40};
-const settings=ballJointSettings(info,spec),joint=runOperation([cylinder],spec);assert.equal(joint.outputs.length,3);assert.equal(joint.analysis.fixingHoles.length,2);assert.ok(joint.analysis.overlap.every(v=>v<1e-5));for(const out of joint.outputs){const sh=shape(out);check(sh);sh.delete();}
+const independent={fixHole:true,fixSide:'both',fixBallDiameter:4,fixBallPitch:.7,fixBallDepth:4,fixSocketDiameter:8,fixSocketPitch:1.25,fixSocketDepth:6};
+for(const role of ['ball','socket']){
+ const prefix=role==='ball'?'fixBall':'fixSocket',actual=ballJointFixHole(base,10,independent,role),expected=ballJointFixHole(base,10,{...s,fixDiameter:independent[prefix+'Diameter'],fixPitch:independent[prefix+'Pitch'],fixDepth:independent[prefix+'Depth']},role);
+ check(actual);same(actual,expected);actual.delete();expected.delete();
+}
+reference.delete();base.delete();console.log('PASS side mounting thread coexistence and independent per-side real geometry');
+const info={radius:12,height:40},spec={...ballJointDefaults(info),type:'ballJoint',id:'joint',target:'c',pose:'assembled',fixHole:true,fixBallDiameter:4,fixBallPitch:.7,fixBallDepth:4,fixSocketDiameter:8,fixSocketPitch:1.25,fixSocketDepth:2.8},cylinder={...defaults,id:'c',name:'円柱',profile:'circle',diameter:24,depth:40};
+const settings=ballJointSettings(info,spec);assert.deepEqual(settings.fixingHoles.map(h=>[h.role,h.diameter,h.pitch,h.depth]),[['ball',4,.7,4],['socket',8,1.25,2.8]]);const joint=runOperation([cylinder],spec);assert.equal(joint.outputs.length,3);assert.equal(joint.analysis.fixingHoles.length,2);assert.ok(joint.analysis.overlap.every(v=>v<1e-5));for(const out of joint.outputs){const sh=shape(out);check(sh);sh.delete();}
 validateProject({format:'forma-cad',version:1,features:[cylinder,{kind:'cadop',id:'joint',name:'固定ねじ穴付きボールジョイント',spec,...joint}]});
 for(const pose of ['print','exploded']){const result=runOperation([cylinder],{...spec,pose});assert.equal(result.analysis.fixingHoles.length,2);if(pose==='print')for(const out of result.outputs)assert.ok(Math.abs(out.vertices.reduce((min,v,i)=>i%3===2?Math.min(min,v):min,Infinity))<1e-5);}
 for(const plane of ['XZ','YZ']){const result=runOperation([{...cylinder,plane,x:7,y:-3,z:9}],spec);assert.ok(Math.abs(result.analysis.axis[plane==='XZ'?1:0])>.999);assert.equal(result.analysis.fixingHoles.length,2);}
 for(const side of ['ball','socket'])assert.deepEqual(ballJointSettings(info,{...spec,fixSide:side}).fixingHoles.map(h=>h.role),[side]);
-for(const bad of [{fixHole:'yes'},{fixSide:'nut'},{fixDiameter:24},{fixDiameter:NaN},{fixPitch:.4},{fixPitch:4},{fixDepth:20},{fixDepth:1},{fixDepth:Infinity},{mountThread:true,mountLength:2.8,mountPitch:1,fixDiameter:21.4}])assert.throws(()=>ballJointSettings(info,{...spec,...bad}));
-assert.equal(ballJointSettings(info,{}).fixHole,false);assert.deepEqual(ballJointSettings(info,{...spec,fixHole:false,fixDepth:NaN}).fixingHoles,[]);assert.equal(settings.fixingHoles[1].start,40);assert.equal(settings.fixingHoles[0].wallDiameter,6.4);
+for(const bad of [{fixHole:'yes'},{fixSide:'nut'},{fixBallDiameter:24},{fixBallDiameter:NaN},{fixBallPitch:.4},{fixBallPitch:4},{fixBallDepth:20},{fixBallDepth:1},{fixBallDepth:Infinity},{mountThread:true,mountLength:2.8,mountPitch:1,fixBallDiameter:21.4}])assert.throws(()=>ballJointSettings(info,{...spec,...bad}));
+assert.equal(ballJointSettings(info,{}).fixHole,false);assert.deepEqual(ballJointSettings(info,{...spec,fixHole:false,fixBallDepth:NaN,fixSocketDepth:NaN}).fixingHoles,[]);assert.equal(settings.fixingHoles[1].start,40);assert.equal(settings.fixingHoles[0].wallDiameter,4.4);
 console.log('PASS complete joint, poses, translated/rotated axes, persistence, legacy defaults and invalid dimensions');
+
+const legacy={type:'ballJoint',printSafe:true,fixHole:true,fixSide:'both',fixDiameter:6,fixPitch:1,fixDepth:2.8};
+assert.deepEqual(ballJointSettings(info,legacy).fixingHoles.map(h=>[h.diameter,h.pitch,h.depth]),[[6,1,2.8],[6,1,2.8]]);
+assert.equal(ballJointSettings(info,{...legacy,fixBallDiameter:4}).fixingHoles[0].diameter,4);
+for(const role of ['ball','socket']){
+ const inactive=role==='ball'?'fixSocket':'fixBall';
+ assert.equal(ballJointSettings(info,{...spec,fixSide:role,[inactive+'Diameter']:NaN,[inactive+'Pitch']:NaN,[inactive+'Depth']:NaN}).fixingHoles.length,1);
+ assert.throws(()=>ballJointSettings(info,{...spec,fixSide:'both',[inactive+'Depth']:20}),new RegExp(role==='ball'?'受け側':'球側'));
+}
+console.log('PASS shared legacy dimensions migrate to both sides, explicit side overrides and inactive-side validation');
