@@ -4,10 +4,14 @@ export const ballJointFixSizes=[[3,.5],[4,.7],[5,.8],[6,1],[8,1.25],[10,1.5],[12
 // Explicit per-side values take precedence; old shared dimensions migrate to both sides.
 export function ballJointFixDimensions(values,role,fallback={}){
  const prefix=role==='ball'?'fixBall':'fixSocket';
- return Object.fromEntries(['Diameter','Pitch','Depth'].map(key=>[key.toLowerCase(),values[prefix+key]!==undefined?values[prefix+key]:values['fix'+key]!==undefined?values['fix'+key]:fallback[prefix+key]]));
+ return Object.fromEntries(['Diameter','Pitch','Depth','Chamfer','ChamferSize'].map(key=>[key[0].toLowerCase()+key.slice(1),values[prefix+key]!==undefined?values[prefix+key]:values['fix'+key]!==undefined?values['fix'+key]:fallback[prefix+key]]));
 }
 export function ballJointFixSettings(values={},fallback={}){
  return Object.fromEntries(['ball','socket'].flatMap(role=>Object.entries(ballJointFixDimensions(values,role,fallback)).map(([key,value])=>[(role==='ball'?'fixBall':'fixSocket')+key[0].toUpperCase()+key.slice(1),value])));
+}
+export function ballJointFixChamferDimensions(diameter,pitch,size){
+ const wallRadius=diameter/2+.2,endRadius=diameter/2-.6*pitch;
+ return {entryRadius:wallRadius+size,endRadius,leadDepth:wallRadius+size-endRadius};
 }
 export const ballJointMountPitches=[.7,.75,.8,1,1.25,1.5,1.75,2,2.5,3,3.5,4,5];
 function dimensions(s){
@@ -20,7 +24,7 @@ export function ballJointDefaults(info){
  const s={splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
  s.threadPitch=ballJointThreadDimensions(s).minPitch;
  const d=dimensions(s),mountLength=Math.max(1,Math.floor(Math.min(6,d.lowerEnd-1.2,info.height-d.socketTop-1.2)*10)/10);
- return {...s,...ballJointFixSettings({fixDiameter:6,fixPitch:1,fixDepth:Math.max(.1,mountLength)}),mountPitch:ballJointMountPitches.filter(p=>p<=Math.min(1.5,mountLength/2.5)).at(-1)||.7,mountLength};
+ return {...s,...ballJointFixSettings({fixDiameter:6,fixPitch:1,fixDepth:Math.max(.1,mountLength),fixChamfer:false,fixChamferSize:.3}),mountPitch:ballJointMountPitches.filter(p=>p<=Math.min(1.5,mountLength/2.5)).at(-1)||.7,mountLength};
 }
 export function ballJointSettings(info,p){
  const defaults=ballJointDefaults(info),s={...defaults,...p,...ballJointFixSettings(p,defaults),printSafe:p.printSafe??false};
@@ -57,7 +61,7 @@ export function ballJointSettings(info,p){
  const fixingHoles=[];
  if(s.fixHole){
   for(const [role,height,start]of [['ball',lowerEnd,0],['socket',info.height-socketTop,info.height]])if(s.fixSide===role||s.fixSide==='both'){
-   const {diameter,pitch,depth:holeDepth}=ballJointFixDimensions(s,role),label=role==='ball'?'球側':'受け側';
+   const {diameter,pitch,depth:holeDepth,chamfer,chamferSize}=ballJointFixDimensions(s,role),label=role==='ball'?'球側':'受け側';
    for(const [value,min,max,name]of [[diameter,3,40,'固定ねじの呼び径'],[pitch,.5,5,'固定ねじのピッチ'],[holeDepth,.1,100,'固定ねじ穴の深さ']])if(!Number.isFinite(value)||value<min||value>max)throw Error(label+'の'+name+'を '+min+'〜'+max+' mmで指定してください');
    if(pitch>=diameter/2)throw Error(label+'の固定ねじのピッチを呼び径の半分より小さくしてください');
    if(holeDepth<2*pitch+.2)throw Error(label+'の固定ねじ穴は2巻き以上必要です。深さを増やすかピッチを小さくしてください');
@@ -65,7 +69,14 @@ export function ballJointSettings(info,p){
    if(holeDepth>height-1.2+1e-7)throw Error(label+'の固定ねじ穴が深すぎます。深さを '+Math.max(0,Math.floor((height-1.2)*10)/10)+' mm以下にしてください（穴底に1.2 mmを残します）');
    const outside=mountingThreads.some(t=>t.role===role)?info.radius-s.mountClearance-s.mountPitch*.561266:info.radius;
    if(outside-diameter/2-.2<1.2)throw Error(label+'の固定ねじ穴の周囲が薄すぎます。呼び径を小さくしてください（外周に1.2 mmを残します）');
-   fixingHoles.push({role,diameter,pitch,depth:holeDepth,pull:-.2,wallDiameter:diameter+.4,start,rightHand:true});
+   if(typeof chamfer!=='boolean')throw Error(label+'の入口の面取り設定を確認してください');
+   const lead=chamfer?ballJointFixChamferDimensions(diameter,pitch,chamferSize):null;
+   if(chamfer){
+    if(!Number.isFinite(chamferSize)||chamferSize<.1||chamferSize>5)throw Error(label+'の面取り幅を 0.1〜5 mmで指定してください');
+    if(outside-lead.entryRadius<1.2-1e-7)throw Error(label+'の面取り後の入口が薄すぎます。面取り幅か呼び径を小さくしてください（外周に1.2 mmを残します）');
+    if(holeDepth-lead.leadDepth<pitch+.2-1e-7)throw Error(label+'の面取り後のねじが短すぎます。面取り幅を小さくするか、穴の深さを増やしてください（面取りの奥に1巻き以上を残します）');
+   }
+   fixingHoles.push({role,diameter,pitch,depth:holeDepth,pull:-.2,wallDiameter:diameter+.4,start,rightHand:true,chamfer,chamferSize:chamfer?chamferSize:0,entryDiameter:2*(lead?.entryRadius??diameter/2+.2),leadDepth:lead?.leadDepth??0});
   }
  }
  return {...s,...d,mountingThreads,fixingHoles,nutRadius:core+depth+s.threadClearance+s.nutWall+.7};
