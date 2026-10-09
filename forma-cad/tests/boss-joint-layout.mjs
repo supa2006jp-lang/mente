@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import {moveBossJoint,bossJointTransform,bossJointPoint} from '../src/boss-joint-layout.js';
+const two={positions:[{uv:[-10,0]},{uv:[10,0]}],layout:{center:[0,0],long:0}};
+assert.deepEqual(moveBossJoint(two,0,[-12,3]),[[-12,3],[12,3]]);
+assert.deepEqual(moveBossJoint(two,1,[15,2],false),[[-10,0],[15,2]]);
+const four={positions:[{uv:[-10,-5]},{uv:[-10,5]},{uv:[10,-5]},{uv:[10,5]}],layout:{center:[0,0],long:0}};
+assert.deepEqual(moveBossJoint(four,1,[-12,7]),[[-12,-7],[-12,7],[12,-7],[12,7]]);
+const longY={positions:[{uv:[-5,-10]},{uv:[5,-10]},{uv:[-5,10]},{uv:[5,10]}],layout:{center:[0,0],long:1}};
+assert.deepEqual(moveBossJoint(longY,2,[-7,12]),[[-7,-12],[7,-12],[-7,12],[7,12]]);
+assert.deepEqual(moveBossJoint({positions:[{uv:[2,3]}]},0,[2.24,3.36]),[[2.2,3.4]]);
+assert.throws(()=>moveBossJoint(two,0,[NaN,1]),/不正/);
+const frame={u:[1,0,0],v:[0,1,0],n:[0,0,1]},analysis={frame,offset:15,length:4,placements:[{angle:0,axis:[1,0,0],translation:[30,20,0]},{angle:180,axis:[1,0,0],translation:[100,20,30]}]};
+assert.deepEqual(bossJointPoint(analysis,[4,5],0).toArray(),[34,25,15]);
+const point=bossJointPoint(analysis,[4,5],1);assert.ok(point.distanceTo(new THREE.Vector3(104,15,19))<1e-9);point.applyMatrix4(bossJointTransform(analysis,1).invert());assert.ok(point.distanceTo(new THREE.Vector3(4,5,11))<1e-9);
+console.log('PASS boss drag symmetry 1/2/4, independent positioning, snapping and print-transform mapping');

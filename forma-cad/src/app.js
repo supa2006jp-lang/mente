@@ -459,6 +459,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(bossJointController?.cancelDrag())return;
  if($('solid-face-menu')){closeSolidFaceMenu(true);return;}
  if($('sketch-group-menu')){$('sketch-group-menu').remove();return;}
  const endingSketch=stage==='sketch',session=endingSketch?sketchSession():null;cancelAllTools();if(endingSketch)notifySketchFinished(session);
@@ -2441,7 +2442,7 @@ const slideLidController=slideLidDialog({getControls:()=>controls,viewGrip:()=>s
 const slideLidButton=document.createElement('button');slideLidButton.id='slide-lid-tool';slideLidButton.type='button';slideLidButton.title='直方体を自動で中空にして、横から差し込むスライド蓋を作成';slideLidButton.innerHTML='<svg class="cad-tool-icon" width="28" height="28" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 15 11-4 11 4-11 4Z M3 15v11l11 5 11-5V15M14 19v12"/><path d="m8 8 11-4 11 4-11 4Z" fill="currentColor" fill-opacity=".2"/><path d="M8 8v2l11 4 11-4V8M2 3h10M5 0 2 3l3 3"/></svg>スライド蓋';snapLidButton.after(slideLidButton);
 slideLidButton.onclick=()=>{if(stage!=='model'||document.querySelector('dialog[open]')||pendingExtrude||extrusionBusy||moveTool?.active){notify('編集中の操作を終了してからスライド蓋を作成してください');return;}bodyDisplay?.stopExploded();sectionControl?.cancel();printQuality?.close();finishSketch(false);$('measurement').hidden=true;slideLidController.open();clearEdgeSelection();clearFaceSelection();};
 
-const bossJointController=bossJointDialog({scene,meshes,host,kernel:kernelClient,getFeatures:()=>features,getSelection:()=>[...selectedBodies,...selectedFaces.map(f=>f.bodyId),selectedBody].filter(Boolean),bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,apply:async(spec,result,editing,original,isCurrent)=>{
+const bossJointController=bossJointDialog({scene,meshes,host,camera,getControls:()=>controls,kernel:kernelClient,getFeatures:()=>features,getSelection:()=>[...selectedBodies,...selectedFaces.map(f=>f.bodyId),selectedBody].filter(Boolean),bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,apply:async(spec,result,editing,original,isCurrent)=>{
  if(features!==original||!isCurrent())throw Error('モデルが変更されました');
  if(editing){const index=features.findIndex(f=>f.id===editing.id);if(index<0)throw Error('工程が見つかりません');const next=clone(features);next[index]={...next[index],spec,...result};const updated=index+1<next.length?await kernelClient.run(next,{type:'replay',before:original,start:index+1}):{features:next};if(features!==original||!isCurrent())throw Error('計算をキャンセルしました');setProject(updated.features);}
  else setProject([...features,{kind:'cadop',id:spec.id,name:'ボス接合',spec,...result}]);selected=null;stage='model';dropPreview();syncFields();renderTree();
