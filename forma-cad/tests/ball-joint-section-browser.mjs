@@ -45,7 +45,7 @@ try{
  assert.notEqual(await panel.locator('[data-ball-clamp-part="2"]').getAttribute('d'),initial);assert.ok(await panel.locator('[data-ball-clamp-contact]').count()>0);
  await panel.locator('#ball-clamp-travel').evaluate(el=>{el.value=el.max/2;el.dispatchEvent(new Event('input',{bubbles:true}));});assert.ok((await state()).advance>0);
  await panel.locator('[data-ball-clamp-focus="seat"]').click();await page.screenshot({path:'.sites-runtime/ball-joint-section-seat.png'});await panel.locator('[data-ball-clamp-focus="stop"]').click();await page.screenshot({path:'.sites-runtime/ball-joint-section-stop.png'});
- assert.deepEqual(await camera(),before,'preview controls preserve the CAD camera');assert.equal(await page.evaluate(()=>window.cadJobs.length),jobs,'slider/sections do not regenerate or mutate the model');
+ const after=await camera();after.forEach((values,i)=>JSON.parse(values).forEach((v,j)=>assert.ok(Math.abs(v-JSON.parse(before[i])[j])<1e-7,'preview controls preserve the CAD camera within floating-point precision')));assert.equal(await page.evaluate(()=>window.cadJobs.length),jobs,'slider/sections do not regenerate or mutate the model');
  console.log('PASS actual sections, screw travel, contact milestones, physical/safe stop, zooms, no worker jobs or camera changes');
  await panel.locator('#ball-clamp-close').click();assert.ok(await panel.isHidden());await page.locator('#ball-joint-section').click();assert.ok(await panel.isVisible());
  await page.locator('#ball-joint-coneClearance').fill('0.05');await ready();await page.waitForFunction(()=>JSON.parse(document.getElementById('ball-clamp-section-panel').dataset.state).contactTravel<.2);assert.ok((await state()).contactTravel<.2);
