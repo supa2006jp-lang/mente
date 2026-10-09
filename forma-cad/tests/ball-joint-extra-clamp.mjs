@@ -1,0 +1,23 @@
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import * as R from 'replicad';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
+import {runOperation} from '../src/kernel.js';import {defaults,validateProject} from '../src/geometry.js';
+import {ballJointThreadDimensions} from '../src/ball-joint-thread.js';
+import {ballJointDefaults,ballJointSettings} from '../src/ball-joint-settings.js';import {solidMeshComplete} from '../src/solid-mesh.js';import {createBallClampSectionModel} from '../src/ball-joint-section.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const volume=s=>Math.abs(R.measureVolume(s)),shape=o=>R.deserializeShape(o.brep).asShape3D(),info={radius:12,height:40},source={...defaults,id:'c',name:'円柱',profile:'circle',diameter:24,depth:40},preset=ballJointDefaults(info),spec={...preset,type:'ballJoint',id:'joint',target:'c',pose:'assembled',coneClearance:.05};delete spec.extraClampTravel;
+function same(a,b){const ab=a.cut(b),ba=b.cut(a);try{assert.ok(volume(ab)+volume(ba)<1e-5,'CAD shapes remain compatible');}finally{ab.delete();ba.delete();}}
+const old=runOperation([source],spec),oldParts=old.outputs.map(shape),oldS=ballJointSettings(info,spec),explicit=runOperation([source],{...spec,extraClampTravel:0});assert.equal(old.analysis.extraClampTravel,0);explicit.outputs.forEach((o,i)=>{const s=shape(o);same(s,oldParts[i]);s.delete();});
+const nextSpec={...spec,extraClampTravel:.6},next=runOperation([source],nextSpec),parts=next.outputs.map(shape),s=ballJointSettings(info,nextSpec);
+same(parts[0],oldParts[0]);same(parts[1],oldParts[1]);assert.equal(s.socketTop,oldS.socketTop);assert.equal(s.threadStart,oldS.threadStart);assert.equal(s.threadLength,oldS.threadLength);assert.equal(s.coneClearance,oldS.coneClearance);assert.equal(s.threadClearance,oldS.threadClearance);assert.ok(next.analysis.engagedTurns>=2);assert.ok(Math.abs(next.analysis.availableTravel-old.analysis.availableTravel-.6)<1e-9);assert.ok(Math.abs(next.analysis.clampReserve-.431762495)<1e-8);
+const clip=R.makeBox([-50,-50,-1],[50,50,s.nutTop]),shortened=oldParts[2].intersect(clip);same(parts[2],shortened);shortened.delete();clip.delete();
+for(const p of parts){const check=new (R.getOC().BRepCheck_Analyzer)(p.wrapped,true,false),solids=p.solids;try{assert.ok(check.IsValid());assert.equal(solids.length,1);assert.ok(solidMeshComplete(p));}finally{check.delete();solids.forEach(s=>s.delete());}}
+assert.ok(next.analysis.overlap.every(v=>v<1e-5));
+console.log('PASS old-model compatibility, unchanged matching parts, nut trim and valid solids');
+let previousPressure;
+for(const [label,nut,advance]of [['old',oldParts[2],oldS.availableTravel],['extra',parts[2],s.availableTravel]]){const moved=nut.clone().rotate(advance/s.threadPitch*360,[0,0,0],[0,0,1]).translate([0,0,advance]),hit=parts[1].intersect(moved),above=R.makeBox([-40,-40,s.coneEnd+advance+.001],[40,40,50]),threadHit=hit.intersect(above);assert.ok(volume(threadHit)<1e-5,'matching thread travels without tooth or shoulder collision');const pressure=volume(hit);assert.ok(pressure>.01);if(label==='old')previousPressure=pressure;else assert.ok(pressure>previousPressure+.01,'more conical compression before bottoming');threadHit.delete();above.delete();hit.delete();moved.delete();}
+console.log('PASS extra screw travel and cone pressure without tooth/shoulder collisions');
+for(const pose of ['assembled','print','exploded']){const r=runOperation([source],{...nextSpec,pose}),model=createBallClampSectionModel(r);assert.ok(Math.abs(model.stopTravel-oldS.availableTravel-.15-.6)<1e-9);assert.ok(Math.abs(model.slice(s.availableTravel).remaining-.15)<1e-9);model.dispose();}
+validateProject({format:'forma-cad',version:1,features:[source,{kind:'cadop',id:'joint',name:'追加締め代',spec:nextSpec,...next}]});
+for(const value of [-.1,NaN,1.6])assert.throws(()=>ballJointSettings(info,{...spec,extraClampTravel:value}),/追加締め代/);assert.throws(()=>ballJointSettings(info,{...spec,extraClampTravel:1.2}),/2巻/);
+for(const threadNozzle of [.4,.6,.8]){const d=ballJointDefaults({radius:15,height:55}),p={...d,threadNozzle,threadPitch:ballJointThreadDimensions({...d,threadNozzle}).minPitch,extraClampTravel:.6};assert.ok(ballJointSettings({radius:15,height:55},p).nutTop>0);}
+oldParts.forEach(s=>s.delete());parts.forEach(s=>s.delete());console.log('PASS unchanged old models, identical ball/socket and matching thread phase, nut shortened only at shoulder, valid printable solids, additional cone travel/pressure, two-turn guard, section/save/poses and nozzle settings');
