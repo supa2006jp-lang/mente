@@ -6,6 +6,7 @@ import {runOperation,kernelBodies} from '../src/kernel.js';
 import {defaults,validateProject} from '../src/geometry.js';
 import * as THREE from 'three';
 import {applyBossSection,createBossSectionModel} from '../src/boss-joint-section.js';
+import {solidMeshComplete} from '../src/solid-mesh.js';
 import {makeBossJoint} from '../src/boss-joint.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const base={...defaults,id:'base',kind:'extrusion',name:'本体',width:60,height:40,depth:30},spec={type:'bossJoint',mode:'split',id:'joint',target:'base',plane:'XY',offset:15,pose:'assembled',count:2,diameter:3,length:4,clearance:.25,bossWall:1.6,bossHeight:8,spacing:0,offsetU:0,offsetV:0,shellEnabled:true,shellThickness:2,alignmentEnabled:true,alignmentHeight:1.5,alignmentWidth:.8,alignmentClearance:.25};
@@ -33,4 +34,23 @@ try{
  }
 }finally{model.dispose();printModel.dispose();}
 const preview=new THREE.Group(),camera=new THREE.PerspectiveCamera();camera.position.set(70,-80,60);camera.lookAt(0,0,15);camera.updateMatrixWorld();for(const output of aligned.outputs){const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(output.vertices,3));geometry.setIndex(output.triangles);const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial());mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry),new THREE.LineBasicMaterial()));preview.add(mesh);}const clipModel=createBossSectionModel(aligned);try{const counts=preview.children.map(m=>m.geometry.index.count);applyBossSection(preview,clipModel.slice(0),camera);assert.equal(preview.getObjectByName('boss-section-caps').children.length,2);const normal=preview.children[0].material.clippingPlanes[0].normal.clone();assert.ok(preview.children[0].children[0].material.clippingPlanes.length);applyBossSection(preview,clipModel.slice(0),camera,true);assert.ok(normal.dot(preview.children[0].material.clippingPlanes[0].normal)<-.999);applyBossSection(preview,null,camera);assert.equal(preview.getObjectByName('boss-section-caps'),undefined);assert.ok(preview.children.every(m=>m.material.clippingPlanes.length===0));assert.deepEqual(preview.children.map(m=>m.geometry.index.count),counts,'sectioning never modifies the exported geometry');}finally{clipModel.dispose();preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});}
+// A 0.6 mm nozzle needs printable walls beside the lid groove, not merely
+// a valid solid. Probe the actual saved BREP across both walls and the floor.
+const safeSpec={...spec,alignmentPrintSafe:true},safe=runOperation([base],safeSpec);valid(safe);
+assert.equal(safe.analysis.alignment.width,1.2);assert.equal(safe.analysis.alignment.outerLand,1.2);assert.equal(safe.analysis.alignment.innerLand,1.2);assert.equal(safe.analysis.alignment.floor,1.2);assert.ok(safe.analysis.alignment.collarAddedVolume>0);
+const safeHistory=[base,{kind:'cadop',id:spec.id,name:'0.6 mmノズル用位置決め',spec:safeSpec,...safe}];validateProject({format:'forma-cad',version:1,features:safeHistory});
+const safeBodies=kernelBodies(safeHistory);try{
+ function full(id,x,z,r=.04){const probe=R.makeCylinder(r,.08,[x,0,z]),hit=safeBodies.get(id).intersect(probe);try{return Math.abs(R.measureVolume(hit)-R.measureVolume(probe))<1e-7;}finally{probe.delete();hit.delete();}}
+ for(const x of [29.95,29.4,28.85])assert.ok(full('joint-pin',x,15.7),'outer lid wall has a full 1.2 mm width');
+ for(const x of [27.05,26.5,25.95])assert.ok(full('joint-pin',x,15.7),'inner lid wall has a full 1.2 mm width');
+ for(const x of [28.5,27.9,27.4]){assert.ok(full('base',x,15.7),'lip is at least two nozzle widths');assert.ok(!full('joint-pin',x,15.7),'groove remains open');assert.ok(full('joint-pin',x,17.95),'groove floor is 1.2 mm thick');}
+ assert.ok(full('joint-pin',26.5,18.3)&&!full('joint-pin',26.5,19.8),'inside collar transitions back to the original wall');
+ assert.ok(!full('base',0,5)&&!full('joint-pin',0,20),'local reinforcement keeps the central cavity hollow');
+ for(const shape of safeBodies.values()){assert.ok(solidMeshComplete(shape),'printable rim and groove keep a complete export mesh');const box=shape.boundingBox;try{assert.ok(Math.abs(box.bounds[0][0]+30)<1e-5&&Math.abs(box.bounds[1][0]-30)<1e-5);}finally{box.delete();}}
+}finally{safeBodies.forEach(s=>s.delete());}
+for(const change of [{profile:'circle'},{plane:'XZ',offset:0},{pose:'print'},{shellEnabled:false},{shellThickness:1.6}]){const {profile,...settings}=change,result=runOperation([{...base,...(profile?{profile,diameter:50}:{})}],{...safeSpec,...settings});valid(result);assert.ok(result.analysis.alignment.printSafe);}
+assert.throws(()=>runOperation([base],{...safeSpec,offset:27.5}),/位置決め.*深さ/);
+assert.throws(()=>runOperation([base],{...safeSpec,alignmentPrintSafe:'yes'}),/印刷補強/);
+assert.equal(aligned.analysis.alignment.outerLand,.4,'legacy saved dimensions remain unchanged');
+console.log('PASS 0.6 mm alignment reinforcement, printable groove walls/floor, 45-degree local collar, clearance, original outer size/cavity and legacy compatibility');
 console.log('PASS alignment lip/groove with side and bottom clearance, hollow/solid/circular/XZ/YZ/pair/rotated/print, reinforcement, walls, invalid inputs and actual section pose/holes');
