@@ -15,15 +15,15 @@ export function ballJointFixChamferDimensions(diameter,pitch,size){
 }
 export const ballJointMountPitches=[.7,.75,.8,1,1.25,1.5,1.75,2,2.5,3,3.5,4,5];
 function dimensions(s){
- const r=s.ballDiameter/2,core=r+s.clearance+s.wall,mouthRadius=r*.94,mouth=s.splitPosition-Math.sqrt((r+s.clearance)**2-mouthRadius**2),coneEnd=s.splitPosition+r*.15,root=s.splitPosition+r+s.wall,lowerEnd=s.splitPosition-r-s.neckLength,coneDepth=Math.min(1.2,s.wall*.5,core-mouthRadius-1.2),coneHeight=coneEnd-mouth,contactTravel=s.coneClearance*coneHeight/coneDepth,clampingTravel=(s.coneClearance+s.clearance)*coneHeight/coneDepth;
+ const r=s.ballDiameter/2,core=r+s.clearance+s.wall,mouthRadius=r*.94,mouth=s.splitPosition-Math.sqrt((r+s.clearance)**2-mouthRadius**2),coneEnd=s.splitPosition+r*.15,root=s.splitPosition+r+s.wall,lowerEnd=s.splitPosition-r-s.neckLength,coneDepth=Math.min(1.2,s.wall*.5,core-mouthRadius-1.2),coneHeight=coneEnd-mouth,contactTravel=s.coneClearance*coneHeight/coneDepth,effectiveBallClearance=s.clearance-s.socketInset,clampingTravel=(s.coneClearance+effectiveBallClearance)*coneHeight/coneDepth;
  // Keep the ball/socket and helical thread phase identical to the original joint.
  // Shorten only the nut's shoulder end to permit additional axial tightening.
  const t=ballJointThreadDimensions(s),baseAvailableTravel=s.printSafe?(s.threadClearance+s.clearance)*coneHeight/coneDepth+.3:2*s.threadPitch-.15,threadStart=coneEnd+(s.printSafe?baseAvailableTravel+.15:2*s.threadPitch),baseNutTop=s.printSafe?Math.max(root,threadStart+2.25*s.threadPitch):root,socketTop=s.printSafe?baseNutTop+baseAvailableTravel+.15:root+2*s.threadPitch,threadLength=baseNutTop-coneEnd,nutBottom=mouth-.6,nutTop=baseNutTop-s.extraClampTravel,availableTravel=baseAvailableTravel+s.extraClampTravel,extraClampMax=Math.max(0,Math.min(1.5,baseNutTop-threadStart-2*s.threadPitch));
- return {extraClampMax,r,core,mouthRadius,mouth,coneEnd,root,lowerEnd,coneDepth,coneHeight,contactTravel,clampingTravel,threadStart,nutTop,availableTravel,socketTop,threadLength,nutBottom,depth:t.depth,threadProfile:t,clampReserve:(availableTravel-clampingTravel)*coneDepth/coneHeight};
+ return {effectiveBallClearance,extraClampMax,r,core,mouthRadius,mouth,coneEnd,root,lowerEnd,coneDepth,coneHeight,contactTravel,clampingTravel,threadStart,nutTop,availableTravel,socketTop,threadLength,nutBottom,depth:t.depth,threadProfile:t,clampReserve:(availableTravel-clampingTravel)*coneDepth/coneHeight};
 }
 export function ballJointDefaults(info){
  const radius=Math.min(info.radius*.65,info.height*.18),wall=Math.max(1.8,round(radius*.3));
- const s={splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
+ const s={splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
  s.threadPitch=ballJointThreadDimensions(s).minPitch;
  const d=dimensions(s),mountLength=Math.max(1,Math.floor(Math.min(6,d.lowerEnd-1.2,info.height-d.socketTop-1.2)*10)/10);
  return {...s,...ballJointFixSettings({fixDiameter:6,fixPitch:1,fixDepth:Math.max(.1,mountLength),fixChamfer:false,fixChamferSize:.3}),mountPitch:ballJointMountPitches.filter(p=>p<=Math.min(1.5,mountLength/2.5)).at(-1)||.7,mountLength};
@@ -33,7 +33,7 @@ export function ballJointSettings(info,p){
  // Saved joints without the separate seat gap retain their original geometry.
  if(p.coneClearance===undefined)s.coneClearance=s.threadClearance;
  if(!s.printSafe&&p.threadPitch===undefined)s.threadPitch=Math.max(.8,round(Math.min(info.radius*.65,info.height*.18)*.25));
- for(const [key,min,max,label]of [['splitPosition',.1,10000,'分割位置'],['ballDiameter',6,120,'球の直径'],['neckDiameter',2,100,'首の直径'],['neckLength',1,50,'首の長さ'],['clearance',.05,.8,'球と受けの片側すき間'],['wall',1.2,10,'受けの厚さ'],['threadPitch',.6,8,'ねじピッチ'],['threadClearance',.1,.6,'ねじの片側すき間'],['coneClearance',.02,.6,'締め付け面の片側すき間'],['extraClampTravel',0,1.5,'追加締め代'],['slotWidth',.6,3,'切り込み幅'],['nutWall',1.6,10,'ナットの厚さ']])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+'を '+min+'〜'+max+' mmで指定してください');
+ for(const [key,min,max,label]of [['splitPosition',.1,10000,'分割位置'],['ballDiameter',6,120,'球の直径'],['neckDiameter',2,100,'首の直径'],['neckLength',1,50,'首の長さ'],['clearance',.05,.8,'球と受けの片側すき間'],['wall',1.2,10,'受けの厚さ'],['threadPitch',.6,8,'ねじピッチ'],['threadClearance',.1,.6,'ねじの片側すき間'],['coneClearance',.02,.6,'締め付け面の片側すき間'],['socketInset',0,.75,'受け内面を狭める量'],['extraClampTravel',0,1.5,'追加締め代'],['slotWidth',.6,3,'切り込み幅'],['nutWall',1.6,10,'ナットの厚さ']])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+'を '+min+'〜'+max+' mmで指定してください');
  if(![4,6].includes(s.slotCount))throw Error('切り込みの数は4・6本から選択してください');if(!['print','assembled','exploded'].includes(s.pose))throw Error('配置を選択してください');
  if(typeof s.mountThread!=='boolean')throw Error('取付ねじの設定を確認してください');
  if(!['ball','socket','both'].includes(s.mountSide))throw Error('取付ねじを付ける土台を選択してください');
@@ -42,6 +42,7 @@ export function ballJointSettings(info,p){
  if(!['ball','socket','both'].includes(s.fixSide))throw Error('固定用ねじ穴を付ける側を選択してください');
  if(typeof s.printSafe!=='boolean'||![.4,.6,.8].includes(s.threadNozzle))throw Error('印刷向けねじの設定を確認してください');
  const d=dimensions(s),{r,core,mouthRadius,mouth,coneEnd,root,lowerEnd,coneDepth,threadLength,depth,threadStart,socketTop,nutTop,nutBottom,coneHeight,contactTravel,clampingTravel,availableTravel,threadProfile}=d;
+ if(d.effectiveBallClearance<.05-1e-7)throw Error('受け内面を狭める量を '+Math.max(0,round(s.clearance-.05))+' mm以下にしてください（球の片側すき間を0.05 mm以上残します）');
  if(s.extraClampTravel>d.extraClampMax+1e-7)throw Error('追加締め代を '+Math.max(0,Math.floor(d.extraClampMax*100)/100)+' mm以下にしてください（ねじの重なる長さを2巻き以上残します）');
  if(s.printSafe&&depth-s.threadClearance<s.threadNozzle*.5-1e-7)throw Error('ねじのすき間が大きすぎて山がかみ合いません。片側すき間を小さくしてください');
  if(s.printSafe&&s.threadPitch<threadProfile.minPitch-1e-7)throw Error('印刷向けの太いねじはピッチ '+threadProfile.minPitch.toFixed(2)+' mm以上にしてください。「ノズルに合わせる」で設定できます');
