@@ -8,7 +8,7 @@ import {ballJointDefaults,ballJointSettings} from '../src/ball-joint-settings.js
 import {ballJointMountBase} from '../src/ball-joint-mount.js';
 import {solidMeshComplete} from '../src/solid-mesh.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const info={radius:12,height:40},p={...ballJointDefaults(info),mountThread:true,mountLength:4,mountPitch:1.5},s=ballJointSettings(info,p);
+const info={radius:12,height:40},p={...ballJointDefaults(info),printSafe:false,threadPitch:1.8,mountThread:true,mountLength:4,mountPitch:1.5},s=ballJointSettings(info,p);
 const volume=shape=>Math.abs(R.measureVolume(shape));
 function check(shape){const analyzer=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false),solids=shape.solids;try{assert.ok(analyzer.IsValid());assert.equal(solids.length,1);assert.ok(solidMeshComplete(shape));}finally{analyzer.delete();solids.forEach(x=>x.delete());}}
 assert.equal(ballJointSettings(info,{}).mountThread,false,'old saves leave the bases unchanged');
