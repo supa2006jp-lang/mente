@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {basisFor} from './frames.js';
 import {fuseSolid} from './solid-fuse.js';
 import {bossReinforcementSettings,reinforceBossRoot} from './boss-joint-reinforcement.js';
+import {bossShellSettings,shellBossPart} from './boss-joint-shell.js';
 
 const EPS=.001;
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
@@ -52,14 +53,14 @@ function printParts(shapes,basis){
  }return {parts:out,placements};}catch(e){out.forEach(s=>s.delete());throw e;}
 }
 export function makeBossJoint(source,other,p,onProgress){
- checkSettings(p);const reinforcement=bossReinforcementSettings(p);if(!source)throw Error('対象のソリッドを選択してください');if(p.mode==='pair'&&(!other||p.target===p.pinTarget))throw Error('ボス側と棒側には別のパーツを選択してください');
+ checkSettings(p);const reinforcement=bossReinforcementSettings(p),shell=bossShellSettings(p);if(!source)throw Error('対象のソリッドを選択してください');if(p.mode==='pair'&&(!other||p.target===p.pinTarget))throw Error('ボス側と棒側には別のパーツを選択してください');
  const owned=[],hold=s=>(owned.push(s),s);let a,b,requested;
  try{
   if(p.mode==='split'){
    if(!['XY','XZ','YZ'].includes(p.plane)||!Number.isFinite(p.offset))throw Error('分割平面と位置を指定してください');const basis=basisFor({plane:p.plane}),l=limits(source,basis);if(p.offset<=l.min[2]+.01||p.offset>=l.max[2]-.01)throw Error('分割位置をソリッドの内部にしてください');
    const plane=new R.Plane(basis.n.clone().multiplyScalar(p.offset).toArray(),basis.u.toArray(),basis.n.toArray()),split=source.split(plane,0);a=split.negative&&hold(split.negative);b=split.positive&&hold(split.positive);if(!a||!b)throw Error('この位置ではソリッドを2つに分割できません');requested={n:basis.n,offset:p.offset};
   }else{a=source;b=other;}
-  valid(a,'ボス側');valid(b,'棒側');const info=matchingPlane(a,b,requested);hold(info.footprint);const {basis,offset}=info,r=p.diameter/2,holeR=r+p.clearance,outerR=holeR+p.bossWall,layout=candidates(info,p,outerR),positions=[];
+  valid(a,'ボス側');valid(b,'棒側');const info=matchingPlane(a,b,requested);hold(info.footprint);if(shell.enabled){onProgress?.({stage:'分割した2パーツを中空にしています'});const receiver=shellBossPart(a,info,1,shell.thickness,'ボス側');a=hold(receiver.shape);const male=shellBossPart(b,info,-1,shell.thickness,'棒側');b=hold(male.shape);shell.parts=[{status:receiver.status,removedVolume:receiver.removedVolume},{status:male.status,removedVolume:male.removedVolume}];valid(a,'中空化したボス側');valid(b,'中空化した棒側');}const {basis,offset}=info,r=p.diameter/2,holeR=r+p.clearance,outerR=holeR+p.bossWall,layout=candidates(info,p,outerR),positions=[];
   onProgress?.({stage:'ボスと棒の接合位置を探しています'});
   for(const desired of layout.desired){
    const options=(p.jointPositions||p.spacing||p.offsetU||p.offsetV?[desired]:[desired,...layout.grid]).sort((x,y)=>Math.hypot(x[0]-desired[0],x[1]-desired[1])-Math.hypot(y[0]-desired[0],y[1]-desired[1]));let accepted;
@@ -85,7 +86,7 @@ export function makeBossJoint(source,other,p,onProgress){
    position.nearWall=nearWall;if(nearWall)warnings.push('接合'+(index+1)+'は壁・外周との余裕が1 mm未満です。位置や補強サイズを確認してください');
   }
   valid(receiver,'ボス側');valid(male,'棒側');const common=hold(receiver.intersect(male)),overlap=R.measureVolume(common);if(overlap>1e-5)throw Error('パーツ同士が干渉します。すき間や接合位置を変更してください');
-  const analysis={count:p.count,diameter:p.diameter,holeDiameter:p.diameter+p.clearance*2,outerDiameter:outerR*2,length:p.length,clearance:p.clearance,overlap,offset,frame:Object.fromEntries(Object.entries(basis).map(([k,v])=>[k,v.toArray()])),positions:positions.map(q=>({...q,bossHeight:offset-q.root})),area:info.area,reinforcement:{type:reinforcement.type,size:reinforcement.size,applied:positions.filter(q=>q.reinforcement.boss||q.reinforcement.pin).length},warnings,layout:{center:p.jointPositions?positions.reduce((a,q)=>a.map((v,i)=>v+q.uv[i]/positions.length),[0,0]):layout.center,long:layout.long,bounds:[layout.min.slice(0,2),layout.max.slice(0,2)]}};
+  const analysis={count:p.count,diameter:p.diameter,holeDiameter:p.diameter+p.clearance*2,outerDiameter:outerR*2,length:p.length,clearance:p.clearance,overlap,offset,frame:Object.fromEntries(Object.entries(basis).map(([k,v])=>[k,v.toArray()])),positions:positions.map(q=>({...q,bossHeight:offset-q.root})),area:info.area,shell,reinforcement:{type:reinforcement.type,size:reinforcement.size,applied:positions.filter(q=>q.reinforcement.boss||q.reinforcement.pin).length},warnings,layout:{center:p.jointPositions?positions.reduce((a,q)=>a.map((v,i)=>v+q.uv[i]/positions.length),[0,0]):layout.center,long:layout.long,bounds:[layout.min.slice(0,2),layout.max.slice(0,2)]}};
   if(p.pose==='print'){const result=printParts([receiver,male],basis);return {...result,analysis:{...analysis,placements:result.placements}};}
   return {parts:[receiver.clone(),male.clone()],analysis};
  }finally{owned.reverse().forEach(s=>s.delete());}
