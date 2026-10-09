@@ -1,3 +1,4 @@
+import {makeBossFitTest} from './boss-fit-test.js';
 import {makeBallJoint,ballJointInfo} from './ball-joint.js';
 import {makeBossJoint} from './boss-joint.js';
 import {makeSlideLid} from './slide-lid.js';
@@ -239,6 +240,7 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
  }
  else if(p.type==='ballJointInfo'){analysis=ballJointInfo(base);}
  else if(p.type==='ballJoint'){if(bodies.has(p.id+'-socket')||bodies.has(p.id+'-nut'))throw Error('ジョイントのボディIDが重複しています');const result=makeBallJoint(base,p,onProgress);try{for(const [i,id]of [p.target,p.id+'-socket',p.id+'-nut'].entries())emit(id,result.parts[i]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
+ else if(p.type==='bossFitTest'){const result=makeBossFitTest(p,onProgress);try{for(const part of result.parts)emit(p.id+'-'+part.role+'-'+Math.round(part.clearance*100),part.shape);analysis=result.analysis;}finally{result.parts.forEach(part=>part.shape.delete());}}
  else if(p.type==='bossJoint'){const pinId=p.mode==='split'?p.id+'-pin':p.pinTarget;if(p.mode==='split'&&bodies.has(pinId))throw Error('棒側のボディIDが重複しています');const result=makeBossJoint(base,bodies.get(p.pinTarget),p,onProgress);try{emit(p.target,result.parts[0]);emit(pinId,result.parts[1]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='slideLid'){const lidId=p.id+'-lid';if(bodies.has(lidId))throw Error('蓋のボディIDが既存のボディと重なっています');const result=makeSlideLid(base,p);try{emit(p.target,result.body);emit(lidId,result.lid);analysis=result.analysis;}finally{result.body.delete();result.lid.delete();}}
  else if(p.type==='snapLid'){if(p.target===p.lidTarget)throw Error('本体と蓋は別のボディを選択してください');const result=makeSnapLid(base,bodies.get(p.lidTarget),p);try{emit(p.target,result.body);emit(p.lidTarget,result.lid);analysis=result.analysis;}finally{result.body.delete();result.lid.delete();}}
