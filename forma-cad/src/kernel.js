@@ -1,3 +1,4 @@
+import {cutEntryTool} from './cut-entry.js';
 import {makeBossFitTest} from './boss-fit-test.js';
 import {makeBallJoint,ballJointInfo} from './ball-joint.js';
 import {makeCylinderHinge,cylinderHingeInfo,makeCylinderHolderTest} from './cylinder-hinge.js';
@@ -142,7 +143,7 @@ if(f.hole&&f.operation==='cut'){const n=basisFor(f).n,margin=.001,sign=Math.sign
 }
 function extrusionTool(f,bodies,contactInfo){
  let tool=featureSolid(f,bodies);
- if(!f.untilSolid)return tool;
+ if(!f.untilSolid)return cutEntryTool(tool,f,extrusionTargetEntries(f,bodies||new Map()).map(([,body])=>body));
  const sourceId=f.region?.cadFace?.bodyId||f.region?.bodyId;
  const blockers=(f.targetBodies?extrusionTargetEntries(f,bodies):[...bodies]).filter(([id])=>id!==sourceId&&(f.operation!=='cut'||id!==f.target)).map(([,shape])=>shape);
  const direction=basisFor(f.region||f).n.multiplyScalar(Math.sign(f.depth)).toArray();
@@ -150,7 +151,8 @@ function extrusionTool(f,bodies,contactInfo){
   const searchDepth=contactSearchDistance(tool,blockers,direction);
   const searchTool=featureSolid({...f,depth:Math.sign(f.depth)*searchDepth},bodies);
   tool.delete();tool=searchTool;
-  return clipExtrusionAtSolids(tool,blockers,direction,searchDepth,{maxDepth:Math.abs(f.depth),contactInfo,contactOnly:f.contactOnly===true});
+  const clipped=clipExtrusionAtSolids(tool,blockers,direction,searchDepth,{maxDepth:Math.abs(f.depth),contactInfo,contactOnly:f.contactOnly===true});
+  return cutEntryTool(clipped,f,extrusionTargetEntries(f,bodies).map(([,body])=>body));
  }finally{tool.delete();}
 }
 export function kernelBodies(features){const bodies=new Map(),tokens=new Map();const put=(id,entry)=>{bodies.get(id)?.delete();bodies.set(id,entry.shape);tokens.set(id,entry.token);};try{for(let f of features){if(f.cadResult)f={kind:'cadop',...f.cadResult};if(f.kind==='sketch'||f.kind==='plane'||f.kind==='referenceImage')continue;if(f.kind==='cadop'){for(const id of f.remove){bodies.get(id)?.delete();bodies.delete(id);tokens.delete(id);}for(const o of f.outputs){if(!o.brep)throw Error('このボディにはCAD形状データがありません');put(o.id,cachedBody('brep:'+o.brep,()=>R.deserializeShape(o.brep).asShape3D()));}continue;}const base=bodies.get(f.target);if(f.operation!=='new'&&!base)throw Error('対象ボディがありません');const key=JSON.stringify([f,f.untilSolid?[...tokens]:f.operation==='new'?(f.holesOnly?tokens.get(f.region?.cadFace?.bodyId||f.region?.bodyId):null):tokens.get(f.target)]);put(f.operation==='new'?f.id:f.target,cachedBody(key,()=>{const shape=extrusionTool(f,bodies);if(f.operation==='new')return shape;try{return f.operation==='cut'?base.cut(shape):base.fuse(shape);}finally{shape.delete();}}));}return bodies;}catch(e){for(const body of bodies.values())body.delete();throw e;}}
