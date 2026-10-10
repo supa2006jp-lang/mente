@@ -35,6 +35,7 @@ try{
 
 const cylinder={...defaults,id:'cylinder',kind:'extrusion',name:'円柱',profile:'circle',diameter:60,depth:80};
  await load([cylinder]);await page.locator('#cylinder-hinge-tool').dispatchEvent('click');await ready();
+ assert.equal(await page.locator('#cylinder-hinge-lidThickness').inputValue(),'4.8');
  let a=await analysis();assert.equal(a.pose,'print');assert.equal(a.angle,90);assert.equal(a.autoHollow,true);assert.ok(await page.locator('#cylinder-hinge-angle').isDisabled());
  await page.locator('#cylinder-hinge-pose').selectOption('closed');await ready();assert.equal((await analysis()).angle,0);
  await page.locator('#cylinder-hinge-pose').selectOption('open');await ready();assert.equal((await analysis()).angle,110);assert.equal(await page.locator('#cylinder-hinge-angle').isDisabled(),false);
@@ -44,8 +45,10 @@ const cylinder={...defaults,id:'cylinder',kind:'extrusion',name:'円柱',profile
  await page.locator('#cylinder-hinge-apply').click();await page.waitForFunction(()=>!document.getElementById('cylinder-hinge-dialog').open);
  const saved=await save();const stlDownload=page.waitForEvent('download');await page.locator('#export').click();const stl=await fs.readFile(await(await stlDownload).path());const triangleCount=saved.features.at(-1).outputs.reduce((sum,o)=>sum+o.triangles.length/3,0);assert.equal(stl.readUInt32LE(80),triangleCount);assert.equal(stl.length,84+triangleCount*50,'single STL contains the captive assembly in its shared placement');assert.equal(saved.features.at(-1).spec.radialGap,.5);assert.equal(saved.features.at(-1).outputs.length,2);
  await page.locator('#undo').click();assert.equal((await save()).features.length,1);await page.locator('#redo').click();assert.equal((await save()).features.at(-1).spec.radialGap,.5);
- await load(saved.features);await page.locator('[data-cylinder-hinge-id]').first().click();await ready();assert.equal(await page.locator('#cylinder-hinge-radialGap').inputValue(),'0.5');await page.locator('#cylinder-hinge-lidThickness').fill('3');await close();assert.equal((await save()).features.at(-1).spec.lidThickness,2.4);
+ await load(saved.features);await page.locator('[data-cylinder-hinge-id]').first().click();await ready();assert.equal(await page.locator('#cylinder-hinge-radialGap').inputValue(),'0.5');await page.locator('#cylinder-hinge-lidThickness').fill('3');await close();assert.equal((await save()).features.at(-1).spec.lidThickness,4.8);
  await page.locator('[data-cylinder-hinge-id]').first().click();await ready();await page.locator('#cylinder-hinge-lidThickness').fill('3');await ready();await page.locator('#cylinder-hinge-apply').click();await page.waitForFunction(()=>!document.getElementById('cylinder-hinge-dialog').open);assert.equal((await save()).features.at(-1).spec.lidThickness,3);
+ const oldSaved=structuredClone(saved.features);oldSaved.at(-1).spec.lidThickness=2.4;
+ await load(oldSaved);await page.locator('[data-cylinder-hinge-id]').first().click();await ready();assert.equal(await page.locator('#cylinder-hinge-lidThickness').inputValue(),'2.4');await close();
  console.log('PASS solid shell preview, open/closed/print poses, gap guard, create, save/reload/edit/cancel and undo/redo');
  const hollow={...defaults,id:'bore',kind:'extrusion',name:'中空',profile:'circle',operation:'cut',target:'cylinder',diameter:54,depth:80,z:4};
  await load([cylinder,hollow]);await page.locator('#cylinder-hinge-tool').dispatchEvent('click');await ready();assert.equal((await analysis()).hollow,true);assert.equal((await analysis()).innerRadius,27);assert.ok(await page.locator('#cylinder-hinge-wall').isDisabled());assert.ok(await page.locator('#cylinder-hinge-floor').isDisabled());await close();

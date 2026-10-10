@@ -46,7 +46,7 @@ function holderFit(info,s){
 
 export function makeCylinderHinge(base,p,onProgress=()=>{}){
  const info=cylinderHingeInfo(base),{radius:r,height:h}=info;
- const s={wall:2.4,floor:2.4,lidThickness:2.4,pinDiameter:3.6,hingeWall:2.4,radialGap:.4,axialGap:.4,seam:.3,hingeWidth:18,azimuth:0,angle:110,pose:'print',openBottom:false,holderLip:false,lipInset:1.2,lipHeight:2.4,fingerTab:false,tabWidth:18,tabReach:6,fitHolder:false,holderDiameter:0,holderGap:.3,printArrange:false,printMargin:2,...p};
+ const s={wall:2.4,floor:2.4,lidThickness:4.8,pinDiameter:3.6,hingeWall:2.4,radialGap:.4,axialGap:.4,seam:.3,hingeWidth:18,azimuth:0,angle:110,pose:'print',openBottom:false,holderLip:false,lipInset:1.2,lipHeight:2.4,fingerTab:false,tabWidth:18,tabReach:6,fitHolder:false,holderDiameter:0,holderGap:.3,printArrange:false,printMargin:2,...p};
  for(const [key,label,min,max]of [['wall','本体壁厚',1.2,r-2],['floor','底厚',1.2,h-3],['lidThickness','蓋厚',1.2,10],['pinDiameter','軸径',2.4,10],['hingeWall','ヒンジ肉厚',1.2,8],['radialGap','軸の片側すき間',.25,1.5],['axialGap','軸方向のすき間',.25,1.5],['seam','蓋と本体のすき間',.2,2],['hingeWidth','ヒンジ幅',12,r*1.5],['azimuth','ヒンジ位置',0,360],['angle','開き角度',0,180]])if(!(key==='wall'&&s.fitHolder===true)&&(!Number.isFinite(s[key])||s[key]<min||s[key]>max))throw Error(label+' は '+min+'〜'+max+' で指定してください');
  for(const key of ['openBottom','holderLip','fingerTab','fitHolder','printArrange'])if(typeof s[key]!=='boolean')throw Error('底・掛かり段差・指掛けの設定が不正です');
  if(!['print','closed','open'].includes(s.pose))throw Error('配置を選び直してください');
