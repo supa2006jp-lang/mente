@@ -300,3 +300,11 @@
 #sketches .tree-row .row-label>span:first-child{overflow:hidden;text-overflow:ellipsis}
 #sketches .sketch-editing-badge{flex-shrink:0;font-size:11px;line-height:1.5;padding:1px 5px;border-radius:4px;background:#664486;color:#f7eaff;font-weight:600}
 #sketches .tree-row.sketch-editing .eye{color:#d0a5ed}
+
+
+/* Two command rows retain full labels and share the available width. */
+.command-toolbar{flex-direction:column;align-items:stretch;gap:2px;overflow-x:auto;overflow-y:hidden}
+.command-toolbar .command-row{display:flex;align-items:center;gap:2px;min-height:44px;width:max-content;min-width:100%;flex-shrink:0}
+.command-toolbar .command-row> *{flex-shrink:0}
+.command-toolbar .history-tools{margin-left:0}
+.command-toolbar .selection-mode-label select{margin-top:0}
