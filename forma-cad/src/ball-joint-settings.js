@@ -23,7 +23,7 @@ function dimensions(s){
 }
 export function ballJointDefaults(info){
  const radius=Math.min(info.radius*.65,info.height*.18),wall=Math.max(1.8,round(radius*.3));
- const s={splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
+ const s={splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,neckExtension:0,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
  s.threadPitch=ballJointThreadDimensions(s).minPitch;
  const d=dimensions(s),mountLength=Math.max(1,Math.floor(Math.min(6,d.lowerEnd-1.2,info.height-d.socketTop-1.2)*10)/10);
  return {...s,...ballJointFixSettings({fixDiameter:6,fixPitch:1,fixDepth:Math.max(.1,mountLength),fixChamfer:false,fixChamferSize:.3}),mountPitch:ballJointMountPitches.filter(p=>p<=Math.min(1.5,mountLength/2.5)).at(-1)||.7,mountLength};
@@ -33,7 +33,7 @@ export function ballJointSettings(info,p){
  // Saved joints without the separate seat gap retain their original geometry.
  if(p.coneClearance===undefined)s.coneClearance=s.threadClearance;
  if(!s.printSafe&&p.threadPitch===undefined)s.threadPitch=Math.max(.8,round(Math.min(info.radius*.65,info.height*.18)*.25));
- for(const [key,min,max,label]of [['splitPosition',.1,10000,'分割位置'],['ballDiameter',6,120,'球の直径'],['neckDiameter',2,100,'首の直径'],['neckLength',1,50,'首の長さ'],['clearance',.05,.8,'球と受けの片側すき間'],['wall',1.2,10,'受けの厚さ'],['threadPitch',.6,8,'ねじピッチ'],['threadClearance',.1,.6,'ねじの片側すき間'],['coneClearance',.02,.6,'締め付け面の片側すき間'],['socketInset',0,.75,'受け内面を狭める量'],['extraClampTravel',0,1.5,'追加締め代'],['slotWidth',.6,3,'切り込み幅'],['nutWall',1.6,10,'ナットの厚さ']])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+'を '+min+'〜'+max+' mmで指定してください');
+ for(const [key,min,max,label]of [['splitPosition',.1,10000,'分割位置'],['ballDiameter',6,120,'球の直径'],['neckDiameter',2,100,'首の直径'],['neckLength',1,50,'棒の基本長さ'],['neckExtension',0,100,'棒の追加長さ'],['clearance',.05,.8,'球と受けの片側すき間'],['wall',1.2,10,'受けの厚さ'],['threadPitch',.6,8,'ねじピッチ'],['threadClearance',.1,.6,'ねじの片側すき間'],['coneClearance',.02,.6,'締め付け面の片側すき間'],['socketInset',0,.75,'受け内面を狭める量'],['extraClampTravel',0,1.5,'追加締め代'],['slotWidth',.6,3,'切り込み幅'],['nutWall',1.6,10,'ナットの厚さ']])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+'を '+min+'〜'+max+' mmで指定してください');
  if(![4,6].includes(s.slotCount))throw Error('切り込みの数は4・6本から選択してください');if(!['print','assembled','exploded'].includes(s.pose))throw Error('配置を選択してください');
  if(typeof s.mountThread!=='boolean')throw Error('取付ねじの設定を確認してください');
  if(!['ball','socket','both'].includes(s.mountSide))throw Error('取付ねじを付ける土台を選択してください');
@@ -61,7 +61,7 @@ export function ballJointSettings(info,p){
   if(rootRadius<1.2)throw Error('土台径に対して取付ねじのピッチ・すき間が大きすぎます');
   for(const [role,height,start]of [['ball',lowerEnd,0],['socket',info.height-socketTop,info.height-s.mountLength]])if(s.mountSide===role||s.mountSide==='both'){
    if(s.mountLength>height-1.2+1e-7)throw Error((role==='ball'?'球側':'受け側')+'の土台が短すぎます。取付ねじの長さを '+Math.max(0,Math.floor((height-1.2)*10)/10)+' mm以下にするか、分割位置・球径を調整してください（根元に1.2 mmを確保します）');
-   mountingThreads.push({role,diameter:info.radius*2,actualDiameter:2*(info.radius-s.mountClearance),rootDiameter:rootRadius*2,pitch:s.mountPitch,length:s.mountLength,clearance:s.mountClearance,turns:s.mountLength/s.mountPitch,start,rightHand:true});
+   mountingThreads.push({role,diameter:info.radius*2,actualDiameter:2*(info.radius-s.mountClearance),rootDiameter:rootRadius*2,pitch:s.mountPitch,length:s.mountLength,clearance:s.mountClearance,turns:s.mountLength/s.mountPitch,start:role==='ball'&&s.neckExtension?-s.neckExtension:start,rightHand:true});
   }
  }
  const fixingHoles=[];
@@ -82,7 +82,7 @@ export function ballJointSettings(info,p){
     if(outside-lead.entryRadius<1.2-1e-7)throw Error(label+'の面取り後の入口が薄すぎます。面取り幅か呼び径を小さくしてください（外周に1.2 mmを残します）');
     if(holeDepth-lead.leadDepth<pitch+.2-1e-7)throw Error(label+'の面取り後のねじが短すぎます。面取り幅を小さくするか、穴の深さを増やしてください（面取りの奥に1巻き以上を残します）');
    }
-   fixingHoles.push({role,diameter,pitch,depth:holeDepth,pull:-.2,wallDiameter:diameter+.4,start,rightHand:true,chamfer,chamferSize:chamfer?chamferSize:0,entryDiameter:2*(lead?.entryRadius??diameter/2+.2),leadDepth:lead?.leadDepth??0});
+   fixingHoles.push({role,diameter,pitch,depth:holeDepth,pull:-.2,wallDiameter:diameter+.4,start:role==='ball'&&s.neckExtension?-s.neckExtension:start,rightHand:true,chamfer,chamferSize:chamfer?chamferSize:0,entryDiameter:2*(lead?.entryRadius??diameter/2+.2),leadDepth:lead?.leadDepth??0});
   }
  }
  return {...s,...d,mountingThreads,fixingHoles,nutRadius:core+depth+s.threadClearance+s.nutWall+.7};

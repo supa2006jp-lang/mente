@@ -9,7 +9,7 @@ import {fuseThread} from './thread-fuse.js';
 export function ballJointFixHole(base,height,s,role){
  if(!s.fixHole||(s.fixSide!=='both'&&s.fixSide!==role))return base.clone();
  const {diameter,pitch,depth:length,chamfer,chamferSize}=ballJointFixDimensions(s,role),radius=diameter/2,spec=allThreadPullSpec({pitch},-.2),owned=[],hold=shape=>(owned.push(shape),shape),pieces=[],edges=[];let wire,path;
- const place=shape=>role==='socket'?hold(hold(shape.rotate(180,[0,0,0],[1,0,0])).translate([0,0,height])):shape;
+ const place=shape=>role==='socket'?hold(hold(shape.rotate(180,[0,0,0],[1,0,0])).translate([0,0,height])):role==='ball'&&s.neckExtension?hold(shape.translate([0,0,-s.neckExtension])):shape;
  try{
   const offsets=[...spec.threadFaceOffsets];offsets[3]=Math.max(offsets[3]||0,-spec.threadCylinderOffset);
   const points=offsetThreadProfile([[pitch*.02,-pitch*.45],[-pitch*.541266,-pitch*.125],[-pitch*.541266,pitch*.125],[pitch*.02,pitch*.45]],offsets);
