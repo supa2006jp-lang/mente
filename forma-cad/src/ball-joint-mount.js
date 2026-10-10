@@ -5,7 +5,7 @@ import {fuseSolid} from './solid-fuse.js';
 // Work from the free end toward the shoulder; rotate the socket base, never mirror it.
 export function ballJointMountBase(radius,height,s,role){
  if(!s.mountThread||(s.mountSide!=='both'&&s.mountSide!==role))return R.makeCylinder(radius,height);
- const owned=[],hold=shape=>(owned.push(shape),shape),pitch=s.mountPitch,length=s.mountLength;
+ const owned=[],hold=shape=>(owned.push(shape),shape),pitch=s.mountPitch,length=s.mountThreadLength??s.mountLength;
  const major=radius-s.mountClearance,root=major-pitch*.561266,lead=Math.min(.6,pitch*.4),slope=.325/.561266;
  const crestHalf=pitch*(.05+.02*slope),rootHalf=pitch*(.375+.04*slope);
  let wire,path;
