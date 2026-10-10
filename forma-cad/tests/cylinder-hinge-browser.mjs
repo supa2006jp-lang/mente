@@ -35,7 +35,7 @@ try{
 
 const cylinder={...defaults,id:'cylinder',kind:'extrusion',name:'円柱',profile:'circle',diameter:60,depth:80};
  await load([cylinder]);await page.locator('#cylinder-hinge-tool').dispatchEvent('click');await ready();
- let a=await analysis();assert.equal(a.pose,'print');assert.equal(a.angle,180);assert.equal(a.autoHollow,true);assert.ok(await page.locator('#cylinder-hinge-angle').isDisabled());
+ let a=await analysis();assert.equal(a.pose,'print');assert.equal(a.angle,90);assert.equal(a.autoHollow,true);assert.ok(await page.locator('#cylinder-hinge-angle').isDisabled());
  await page.locator('#cylinder-hinge-pose').selectOption('closed');await ready();assert.equal((await analysis()).angle,0);
  await page.locator('#cylinder-hinge-pose').selectOption('open');await ready();assert.equal((await analysis()).angle,110);assert.equal(await page.locator('#cylinder-hinge-angle').isDisabled(),false);
  await page.locator('#cylinder-hinge-angle').fill('45');await ready();assert.equal((await analysis()).angle,45);

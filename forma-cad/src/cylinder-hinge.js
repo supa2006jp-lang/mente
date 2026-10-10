@@ -72,7 +72,7 @@ export function makeCylinderHinge(base,p,onProgress=()=>{}){
   if(!valid(body)||!valid(lid))throw Error('ヒンジと円筒をつなげられません。ヒンジ幅・壁厚を調整してください');
   const motion=[];
   for(const angle of [...new Set([0,30,60,90,120,150,180,s.angle])].sort((a,b)=>a-b)){const moved=lid.clone().rotate(angle,hinge,[1,0,0]);try{const volume=overlap(body,moved),distance=R.measureDistanceBetween(body,moved);if(volume>1e-5||distance<.15)throw Error('開閉中にヒンジが干渉します。すき間を増やしてください');motion.push({angle,distance,overlap:volume});}finally{moved.delete();}}
-  const angle=s.pose==='print'?180:s.pose==='closed'?0:s.angle;
+  const angle=s.pose==='print'?90:s.pose==='closed'?0:s.angle;
   if(angle)lid=lid.rotate(angle,hinge,[1,0,0]);
   if(s.pose==='print'){
    // Keep both bodies together with a vertical captive pin. Outside supports may be required.
