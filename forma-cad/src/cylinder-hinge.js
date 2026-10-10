@@ -32,10 +32,13 @@ const overlap=(a,b)=>{const s=a.intersect(b);try{return Math.abs(R.measureVolume
 
 export function makeCylinderHinge(base,p,onProgress=()=>{}){
  const info=cylinderHingeInfo(base),{radius:r,height:h}=info;
- const s={wall:2.4,floor:2.4,lidThickness:2.4,pinDiameter:3.6,hingeWall:2.4,radialGap:.4,axialGap:.4,seam:.3,hingeWidth:18,azimuth:0,angle:110,pose:'print',...p};
+ const s={wall:2.4,floor:2.4,lidThickness:2.4,pinDiameter:3.6,hingeWall:2.4,radialGap:.4,axialGap:.4,seam:.3,hingeWidth:18,azimuth:0,angle:110,pose:'print',openBottom:false,holderLip:false,lipInset:1.2,lipHeight:2.4,fingerTab:false,tabWidth:18,tabReach:6,...p};
  for(const [key,label,min,max]of [['wall','本体壁厚',1.2,r-2],['floor','底厚',1.2,h-3],['lidThickness','蓋厚',1.2,10],['pinDiameter','軸径',2.4,10],['hingeWall','ヒンジ肉厚',1.2,8],['radialGap','軸の片側すき間',.25,1.5],['axialGap','軸方向のすき間',.25,1.5],['seam','蓋と本体のすき間',.2,2],['hingeWidth','ヒンジ幅',12,r*1.5],['azimuth','ヒンジ位置',0,360],['angle','開き角度',0,180]])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+' は '+min+'〜'+max+' で指定してください');
+ for(const key of ['openBottom','holderLip','fingerTab'])if(typeof s[key]!=='boolean')throw Error('底・掛かり段差・指掛けの設定が不正です');
  if(!['print','closed','open'].includes(s.pose))throw Error('配置を選び直してください');
  const innerRadius=info.hollow?info.innerRadius:r-s.wall,remainingWall=r-innerRadius;if(remainingWall<1.2-1e-5)throw Error('ヒンジを付けるには円筒の壁厚が1.2 mm以上必要です');
+ if(s.holderLip)for(const [key,label,min,max]of [['lipInset','上端の段差の出幅',.6,Math.min(8,innerRadius-2)],['lipHeight','上端の段差の高さ',1.2,Math.min(12,h-1.2)]])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+' は '+min+'〜'+max+' mmで指定してください');
+ if(s.fingerTab)for(const [key,label,min,max]of [['tabWidth','くちばしの幅',4.8,r*1.5],['tabReach','くちばしの出幅',2,20]])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+' は '+min+'〜'+max+' mmで指定してください');
  const pin=s.pinDiameter/2,barrel=pin+s.radialGap+s.hingeWall,width=s.hingeWidth,end=width*.25,first=-width/2,last=width/2,middleStart=first+end+s.axialGap,middleEnd=last-end-s.axialGap;
  if(h<barrel+1.2)throw Error('ヒンジを付けるには本体の高さが不足しています');
  if(middleEnd-middleStart<2.4)throw Error('ヒンジ幅を広げるか、軸方向のすき間を小さくしてください');
@@ -50,11 +53,20 @@ export function makeCylinderHinge(base,p,onProgress=()=>{}){
   body=orient(base.clone().translate(info.origin.map(x=>-x)),info.axis,true);
   if(s.azimuth)body=body.rotate(-s.azimuth,[0,0,0],[0,0,1]);
   // Existing cups/tubes retain their cavity and bottom. Only a top cap is opened.
-  body=cut(body,R.makeCylinder(innerRadius,h+2,[0,0,info.hollow?info.innerTop:s.floor]));
+  body=cut(body,R.makeCylinder(innerRadius,h+2,[0,0,s.openBottom?-1:info.hollow?info.innerTop:s.floor]));
   lid=R.makeCylinder(r,s.lidThickness,[0,0,h+s.seam]);
   for(const [from,to]of [[first,first+end],[last-end,last]])body=join(body,join(cyl(barrel,from,to),web(from,to,false)));
   body=join(body,cyl(pin,first,last));
-  body=cut(body,R.makeCylinder(innerRadius,h+2,[0,0,info.hollow?info.innerBottom:s.floor]));
+  body=cut(body,R.makeCylinder(innerRadius,h+2,[0,0,s.openBottom?-1:info.hollow?info.innerBottom:s.floor]));
+  if(s.holderLip){
+   // A horizontal underside seats on the existing holder rim. The outside stays unchanged.
+   const ring=cut(R.makeCylinder(r,s.lipHeight,[0,0,h-s.lipHeight]),R.makeCylinder(innerRadius-s.lipInset,s.lipHeight+2,[0,0,h-s.lipHeight-1]));body=join(body,ring);
+  }
+  if(s.fingerTab){
+   // Broad, shallow triangular tab opposite the hinge. Round its pointed end in plan view.
+   const half=s.tabWidth/2,root=Math.sqrt(r*r-half*half)-.6,tip=r+s.tabReach,round=Math.min(1.2,s.tabWidth*.1,s.tabReach*.25);
+   const tab=R.draw([-half,root]).lineTo([half,root]).lineTo([round,tip-round]).threePointsArcTo([-round,tip-round],[0,tip]).close().sketchOnPlane('XY',h+s.seam).extrude(s.lidThickness);lid=join(lid,tab);
+  }
   lid=join(lid,join(cyl(barrel,middleStart,middleEnd),web(middleStart,middleEnd,true)));
   lid=cut(lid,cyl(pin+s.radialGap,middleStart-.1,middleEnd+.1));
   if(!valid(body)||!valid(lid))throw Error('ヒンジと円筒をつなげられません。ヒンジ幅・壁厚を調整してください');
@@ -72,6 +84,6 @@ export function makeCylinderHinge(base,p,onProgress=()=>{}){
    body=orient(body,info.axis).translate(info.origin);lid=orient(lid,info.axis).translate(info.origin);
   }
   parts.push(body,lid);body=lid=null;
-  return {parts,analysis:{...info,wall:remainingWall,innerRadius,autoHollow:!info.hollow,hinge,angle,radialGap:s.radialGap,axialGap:s.axialGap,pinDiameter:s.pinDiameter,captive:true,motion,pose:s.pose,supportRequired:s.pose==='print'}};
+  return {parts,analysis:{...info,wall:remainingWall,innerRadius,autoHollow:!info.hollow,openBottom:s.openBottom,holderLip:s.holderLip,lipInset:s.holderLip?s.lipInset:0,lipHeight:s.holderLip?s.lipHeight:0,mouthRadius:innerRadius-(s.holderLip?s.lipInset:0),fingerTab:s.fingerTab,tabWidth:s.fingerTab?s.tabWidth:0,tabReach:s.fingerTab?s.tabReach:0,hinge,angle,radialGap:s.radialGap,axialGap:s.axialGap,pinDiameter:s.pinDiameter,captive:true,motion,pose:s.pose,supportRequired:s.pose==='print'}};
  }catch(e){parts.forEach(s=>s.delete());throw e;}finally{body?.delete();lid?.delete();}
 }
