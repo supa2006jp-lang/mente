@@ -4,7 +4,7 @@ import * as THREE from 'three';
 export function hingePlate(bounds,materials){
  const group=new THREE.Group();group.name='cylinder-hinge-plate';
  const cx=(bounds.min[0]+bounds.max[0])/2,cy=(bounds.min[1]+bounds.max[1])/2,half=bounds.plateSize/2;
- const min=new THREE.Vector2(cx-half,cy-half),max=new THREE.Vector2(cx+half,cy+half);
+ const margin=bounds.margin??0,min=new THREE.Vector2(cx-half+margin,cy-half+margin),max=new THREE.Vector2(cx+half-margin,cy+half-margin);
  for(const material of materials){
   material.onBeforeCompile=shader=>{
    shader.uniforms.hingePlateMin={value:min};shader.uniforms.hingePlateMax={value:max};
@@ -16,8 +16,9 @@ export function hingePlate(bounds,materials){
   material.customProgramCacheKey=()=> 'cylinder-hinge-plate-mask-v1';material.needsUpdate=true;
  }
  const plane=new THREE.Mesh(new THREE.PlaneGeometry(bounds.plateSize,bounds.plateSize),new THREE.MeshBasicMaterial({color:0x55c5d5,opacity:.12,transparent:true,depthWrite:false,side:THREE.DoubleSide}));plane.position.set(cx,cy,-.06);group.add(plane);
- const corners=[[min.x,min.y],[max.x,min.y],[max.x,max.y],[min.x,max.y],[min.x,min.y]].map(([x,y])=>new THREE.Vector3(x,y,-.03));
+ const corners=[[cx-half,cy-half],[cx+half,cy-half],[cx+half,cy+half],[cx-half,cy+half],[cx-half,cy-half]].map(([x,y])=>new THREE.Vector3(x,y,-.03));
  group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(corners),new THREE.LineBasicMaterial({color:bounds.fits?0x0084a6:0xff4433})));
+ if(margin>0){const points=[[min.x,min.y],[max.x,min.y],[max.x,max.y],[min.x,max.y],[min.x,min.y]].map(([x,y])=>new THREE.Vector3(x,y,-.02));const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineDashedMaterial({color:0xb47813,dashSize:2,gapSize:2}));line.computeLineDistances();group.add(line);}
  return group;
 }
 

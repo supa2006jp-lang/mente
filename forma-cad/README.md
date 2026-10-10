@@ -183,6 +183,10 @@ Sitesの既存公開先は .openai/hosting.json に保持しています。GitHu
 
 一体印刷用のプレビューには、正確なソリッド外形から計算した配置全体の縦横寸法と180 × 180 mm枠を表示します。枠は本体と蓋を合わせた中心に置き、枠を超えた部分は赤色にします。印刷範囲を確認するための表示で、形状や本体と蓋の位置関係は変えません。
 
+「本体と蓋を一組で自動配置」をオンにすると、一体印刷用の90°開きを保って同じ回転・移動を両部品に適用します。プレート上の回転角を調べ、外形の大きい辺が小さくなる配置を180 mmプレートの原点中心に置きます。端の余白は初期2 mmで変更できます。余白内の枠は破線で示し、超える部分は赤色にします。収まらない場合は、その配置に必要な縦横寸法と正方形プレートの寸法を表示します。寸法・ヒンジのすき間・部品同士の位置関係は保ち、設定は保存・再編集できます。オフと旧保存データでは従来の配置を保ちます。
+
+「はめ合い確認リングをSTL出力」は編集中の外径・内径・掛かり段差を使い、最低高さ6 mm（段差の下に最低2.4 mmを確保）の短いリングを1個出力します。底面はZ=0、軸は縦、下端は貫通です。上端の段差をオフにすると直筒リングになります。保存前の寸法でも試し刷りでき、モデル・履歴・編集中の本体には追加しません。実際のホルダーで内径のすき間と縁への掛かりを確認してから本体を印刷してください。
+
 「閉じた状態」「開いた状態」で確認し、印刷時は「一体印刷用」に戻します。一体印刷用は90°開いたまま軸を縦に向け、両部品をプレート上へ置きます。本体と蓋を一緒にSTL出力し、スライサーで部品を個別に再配置しないでください。横向きの筒など外側にはサポートが必要です。ヒンジのすき間にはサポートを入れない設定にしてください。材料・ノズル・印刷精度に合わせてすき間を調整し、実物の可動は試し刷りで確認してください。履歴またはボディの「再編集」から寸法を変更でき、保存・読み込み・元に戻すにも対応します。
 
-検証: node tests/cylinder-hinge.mjs / node tests/cylinder-hinge-browser.mjs / node tests/cylinder-holder.mjs / node tests/cylinder-holder-browser.mjs / node tests/cylinder-holder-fit.mjs / node tests/cylinder-holder-fit-browser.mjs。
+検証: node tests/cylinder-hinge.mjs / node tests/cylinder-hinge-browser.mjs / node tests/cylinder-holder.mjs / node tests/cylinder-holder-browser.mjs / node tests/cylinder-holder-fit.mjs / node tests/cylinder-holder-fit-browser.mjs / node tests/cylinder-holder-print.mjs / node tests/cylinder-holder-print-browser.mjs。

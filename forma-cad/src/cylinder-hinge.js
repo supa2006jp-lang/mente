@@ -1,5 +1,6 @@
 import * as R from 'replicad';
 import * as THREE from 'three';
+import {arrangeHingePair,pairBounds} from './cylinder-hinge-print.js';
 import {fuseSolid} from './solid-fuse.js';
 
 const v=a=>new THREE.Vector3(...a);
@@ -30,19 +31,26 @@ function join(a,b){try{return fuseSolid(a,b);}finally{a.delete();b.delete();}}
 function cut(a,b){try{return a.cut(b);}finally{a.delete();b.delete();}}
 const overlap=(a,b)=>{const s=a.intersect(b);try{return Math.abs(R.measureVolume(s));}finally{s.delete();}};
 
-export function makeCylinderHinge(base,p,onProgress=()=>{}){
- const info=cylinderHingeInfo(base),{radius:r,height:h}=info;
- const s={wall:2.4,floor:2.4,lidThickness:2.4,pinDiameter:3.6,hingeWall:2.4,radialGap:.4,axialGap:.4,seam:.3,hingeWidth:18,azimuth:0,angle:110,pose:'print',openBottom:false,holderLip:false,lipInset:1.2,lipHeight:2.4,fingerTab:false,tabWidth:18,tabReach:6,fitHolder:false,holderDiameter:0,holderGap:.3,...p};
- for(const [key,label,min,max]of [['wall','本体壁厚',1.2,r-2],['floor','底厚',1.2,h-3],['lidThickness','蓋厚',1.2,10],['pinDiameter','軸径',2.4,10],['hingeWall','ヒンジ肉厚',1.2,8],['radialGap','軸の片側すき間',.25,1.5],['axialGap','軸方向のすき間',.25,1.5],['seam','蓋と本体のすき間',.2,2],['hingeWidth','ヒンジ幅',12,r*1.5],['azimuth','ヒンジ位置',0,360],['angle','開き角度',0,180]])if(!(key==='wall'&&s.fitHolder===true)&&(!Number.isFinite(s[key])||s[key]<min||s[key]>max))throw Error(label+' は '+min+'〜'+max+' で指定してください');
- for(const key of ['openBottom','holderLip','fingerTab','fitHolder'])if(typeof s[key]!=='boolean')throw Error('底・掛かり段差・指掛けの設定が不正です');
- if(!['print','closed','open'].includes(s.pose))throw Error('配置を選び直してください');
+function holderFit(info,s){
+ const {radius:r,height:h}=info;
+ for(const key of ['fitHolder','holderLip'])if(typeof s[key]!=='boolean')throw Error('ホルダー設定が不正です');
  if(s.fitHolder){
   if(!Number.isFinite(s.holderDiameter)||s.holderDiameter<4)throw Error('ホルダー外径は4 mm以上で指定してください');
   if(!Number.isFinite(s.holderGap)||s.holderGap<0||s.holderGap>2)throw Error('ホルダーの片側すき間は0〜2 mmで指定してください');
  }
- const innerRadius=s.fitHolder?s.holderDiameter/2+s.holderGap:info.hollow?info.innerRadius:r-s.wall,remainingWall=r-innerRadius;if(remainingWall<1.2-1e-5)throw Error('ヒンジを付けるには円筒の壁厚が1.2 mm以上必要です');
+ const innerRadius=s.fitHolder?s.holderDiameter/2+s.holderGap:info.hollow?info.innerRadius:r-s.wall,remainingWall=r-innerRadius;if(!Number.isFinite(innerRadius)||innerRadius<=0||remainingWall<1.2-1e-5)throw Error('ヒンジを付けるには円筒の壁厚が1.2 mm以上必要です');
  if(s.holderLip)for(const [key,label,min,max]of [['lipInset','上端の段差の出幅',.6,Math.min(8,innerRadius-2)],['lipHeight','上端の段差の高さ',1.2,Math.min(12,h-1.2)]])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+' は '+min+'〜'+max+' mmで指定してください');
  if(s.fitHolder&&s.holderLip&&s.lipInset<=s.holderGap+1e-5)throw Error('ホルダーの縁に掛かるよう、段差の出幅を片側すき間より大きくしてください');
+ return {innerRadius,remainingWall};
+}
+
+export function makeCylinderHinge(base,p,onProgress=()=>{}){
+ const info=cylinderHingeInfo(base),{radius:r,height:h}=info;
+ const s={wall:2.4,floor:2.4,lidThickness:2.4,pinDiameter:3.6,hingeWall:2.4,radialGap:.4,axialGap:.4,seam:.3,hingeWidth:18,azimuth:0,angle:110,pose:'print',openBottom:false,holderLip:false,lipInset:1.2,lipHeight:2.4,fingerTab:false,tabWidth:18,tabReach:6,fitHolder:false,holderDiameter:0,holderGap:.3,printArrange:false,printMargin:2,...p};
+ for(const [key,label,min,max]of [['wall','本体壁厚',1.2,r-2],['floor','底厚',1.2,h-3],['lidThickness','蓋厚',1.2,10],['pinDiameter','軸径',2.4,10],['hingeWall','ヒンジ肉厚',1.2,8],['radialGap','軸の片側すき間',.25,1.5],['axialGap','軸方向のすき間',.25,1.5],['seam','蓋と本体のすき間',.2,2],['hingeWidth','ヒンジ幅',12,r*1.5],['azimuth','ヒンジ位置',0,360],['angle','開き角度',0,180]])if(!(key==='wall'&&s.fitHolder===true)&&(!Number.isFinite(s[key])||s[key]<min||s[key]>max))throw Error(label+' は '+min+'〜'+max+' で指定してください');
+ for(const key of ['openBottom','holderLip','fingerTab','fitHolder','printArrange'])if(typeof s[key]!=='boolean')throw Error('底・掛かり段差・指掛けの設定が不正です');
+ if(!['print','closed','open'].includes(s.pose))throw Error('配置を選び直してください');
+ const {innerRadius,remainingWall}=holderFit(info,s);
  if(s.fingerTab)for(const [key,label,min,max]of [['tabWidth','くちばしの幅',4.8,r*1.5],['tabReach','くちばしの出幅',2,20]])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+' は '+min+'〜'+max+' mmで指定してください');
  const pin=s.pinDiameter/2,barrel=pin+s.radialGap+s.hingeWall,width=s.hingeWidth,end=width*.25,first=-width/2,last=width/2,middleStart=first+end+s.axialGap,middleEnd=last-end-s.axialGap;
  if(h<barrel+1.2)throw Error('ヒンジを付けるには本体の高さが不足しています');
@@ -52,7 +60,7 @@ export function makeCylinderHinge(base,p,onProgress=()=>{}){
  // Reach into the circular wall at both ends of each web without filling the bore.
  const innerEdge=-Math.sqrt(r*r-(width/2)**2)+Math.min(remainingWall*.6,1.2);
  const web=(from,to,lid)=>R.makeBox([from,hy,lid?h+s.seam:h-Math.max(s.lidThickness,barrel)],[to,innerEdge,lid?h+s.seam+s.lidThickness:h]);
- let body,lid;const parts=[];
+ let body,lid,layout=null;const parts=[];
  try{
   onProgress({stage:'円柱の開口と一体ヒンジを作成しています…'});
   // Explicit holder sizing rebuilds the uniform outer cylinder, allowing either a smaller or larger bore.
@@ -85,16 +93,31 @@ export function makeCylinderHinge(base,p,onProgress=()=>{}){
    body=body.rotate(90,[0,0,0],[0,1,0]);lid=lid.rotate(90,[0,0,0],[0,1,0]);
    const boxes=[body.boundingBox,lid.boundingBox];let low;try{low=Math.min(...boxes.map(b=>b.bounds[0][2]));}finally{boxes.forEach(b=>b.delete());}
    body=body.translate([0,0,-low]);lid=lid.translate([0,0,-low]);
+   if(s.printArrange){onProgress({stage:'本体と蓋を一組でプレートに配置しています…'});const placed=arrangeHingePair([body,lid],s.printMargin);body.delete();lid.delete();[body,lid]=placed.parts;layout=placed.layout;}
+
   }else{
    if(s.azimuth){body=body.rotate(s.azimuth,[0,0,0],[0,0,1]);lid=lid.rotate(s.azimuth,[0,0,0],[0,0,1]);}
    body=orient(body,info.axis).translate(info.origin);lid=orient(lid,info.axis).translate(info.origin);
   }
   let printBounds=null;
   if(s.pose==='print'){
-   const boxes=[body.boundingBox,lid.boundingBox];
-   try{const min=[0,1,2].map(i=>Math.min(...boxes.map(b=>b.bounds[0][i]))),max=[0,1,2].map(i=>Math.max(...boxes.map(b=>b.bounds[1][i]))),width=max[0]-min[0],depth=max[1]-min[1];printBounds={min,max,width,depth,plateSize:180,fits:width<=180+1e-5&&depth<=180+1e-5};}finally{boxes.forEach(b=>b.delete());}
+   const bounds=pairBounds([body,lid]),margin=layout?.margin??0;
+   printBounds={...bounds,plateSize:180,margin,fits:bounds.width+2*margin<=180+1e-5&&bounds.depth+2*margin<=180+1e-5};
   }
   parts.push(body,lid);body=lid=null;
-  return {parts,analysis:{...info,wall:remainingWall,innerRadius,autoHollow:!info.hollow,fitHolder:s.fitHolder,holderDiameter:s.fitHolder?s.holderDiameter:null,holderGap:s.fitHolder?s.holderGap:null,holderSeatHeight:s.holderLip?h-s.lipHeight:null,holderOverlap:s.fitHolder&&s.holderLip?s.lipInset-s.holderGap:0,printBounds,openBottom:s.openBottom,holderLip:s.holderLip,lipInset:s.holderLip?s.lipInset:0,lipHeight:s.holderLip?s.lipHeight:0,mouthRadius:innerRadius-(s.holderLip?s.lipInset:0),fingerTab:s.fingerTab,tabWidth:s.fingerTab?s.tabWidth:0,tabReach:s.fingerTab?s.tabReach:0,hinge,angle,radialGap:s.radialGap,axialGap:s.axialGap,pinDiameter:s.pinDiameter,captive:true,motion,pose:s.pose,supportRequired:s.pose==='print'}};
+  return {parts,analysis:{...info,wall:remainingWall,innerRadius,autoHollow:!info.hollow,fitHolder:s.fitHolder,holderDiameter:s.fitHolder?s.holderDiameter:null,holderGap:s.fitHolder?s.holderGap:null,holderSeatHeight:s.holderLip?h-s.lipHeight:null,holderOverlap:s.fitHolder&&s.holderLip?s.lipInset-s.holderGap:0,printBounds,printArrange:s.printArrange,layout,openBottom:s.openBottom,holderLip:s.holderLip,lipInset:s.holderLip?s.lipInset:0,lipHeight:s.holderLip?s.lipHeight:0,mouthRadius:innerRadius-(s.holderLip?s.lipInset:0),fingerTab:s.fingerTab,tabWidth:s.fingerTab?s.tabWidth:0,tabReach:s.fingerTab?s.tabReach:0,hinge,angle,radialGap:s.radialGap,axialGap:s.axialGap,pinDiameter:s.pinDiameter,captive:true,motion,pose:s.pose,supportRequired:s.pose==='print'}};
  }catch(e){parts.forEach(s=>s.delete());throw e;}finally{body?.delete();lid?.delete();}
+}
+
+export function makeCylinderHolderTest(base,p,onProgress=()=>{}){
+ const info=cylinderHingeInfo(base),s={wall:2.4,fitHolder:false,holderDiameter:0,holderGap:.3,holderLip:false,lipInset:1.2,lipHeight:2.4,...p};
+ const {innerRadius,remainingWall}=holderFit(info,s),height=Math.max(6,(s.holderLip?s.lipHeight:0)+2.4),mouthRadius=innerRadius-(s.holderLip?s.lipInset:0);let ring;
+ try{
+  onProgress({stage:'内径と掛かり段差を再現した試着リングを作成しています…'});
+  ring=cut(R.makeCylinder(info.radius,height),R.makeCylinder(innerRadius,height+2,[0,0,-1]));
+  if(s.holderLip){const ledge=cut(R.makeCylinder(info.radius,s.lipHeight,[0,0,height-s.lipHeight]),R.makeCylinder(mouthRadius,s.lipHeight+2,[0,0,height-s.lipHeight-1]));ring=join(ring,ledge);}
+  if(!valid(ring))throw Error('試着リングを作成できません。内径と段差を確認してください');
+  const analysis={outerDiameter:info.radius*2,innerDiameter:innerRadius*2,mouthDiameter:mouthRadius*2,height,wall:remainingWall,holderLip:s.holderLip,lipInset:s.holderLip?s.lipInset:0,lipHeight:s.holderLip?s.lipHeight:0,holderGap:s.fitHolder?s.holderGap:null,plateFits:info.radius*2<=180+1e-5};
+  return {parts:[ring],analysis};
+ }catch(e){ring?.delete();throw e;}
 }
