@@ -310,7 +310,13 @@
 .command-toolbar .selection-mode-label select{margin-top:0}
 
 /* Distinguish the all-commands menu from individual modeling commands. */
-.command-toolbar #advanced-tools{color:#ffe1a1;background:#59431e;border-color:#ae8036;font-weight:600}
-.command-toolbar #advanced-tools span{color:#ffd078}
-.command-toolbar #advanced-tools:hover{background:#745725;border-color:#e6b65e}
-.command-toolbar #advanced-tools:focus-visible{outline-color:#ffd078}
+.command-toolbar #advanced-tools{color:#b5ffe1;background:#145840;border-color:#2eae7d;font-weight:600}
+.command-toolbar #advanced-tools span{color:#64e8ad;font-size:28px;line-height:1}
+.command-toolbar #advanced-tools:hover{background:#1c7453;border-color:#64e8ad}
+.command-toolbar #advanced-tools:focus-visible{outline-color:#64e8ad}
+
+
+.command-toolbar .history-tools button{color:#64e8ad;width:44px;height:44px;padding:7px;justify-content:center}
+.command-toolbar .history-tools button svg{width:28px;height:28px;flex:0 0 28px}
+.command-toolbar .history-tools button:disabled{opacity:.5}
+.command-toolbar .history-tools button:not(:disabled):hover{background:#145840;border-color:#2eae7d}
