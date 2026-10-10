@@ -1,5 +1,6 @@
 import {makeBossFitTest} from './boss-fit-test.js';
 import {makeBallJoint,ballJointInfo} from './ball-joint.js';
+import {makeCylinderHinge,cylinderHingeInfo} from './cylinder-hinge.js';
 import {makeBossJoint} from './boss-joint.js';
 import {makeSlideLid} from './slide-lid.js';
 import {planPrintLayout,printLayoutBounds} from './print-layout.js';
@@ -238,6 +239,8 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
    if(p.feature.operation==='join'&&R.measureDistanceBetween(base,tool)>1e-6)throw Error('押し出し形状が結合対象のボディと接していません。方向・距離・対象を確認してください');
    shape=p.feature.operation==='cut'?base.cut(tool):fuseSolid(base,tool,fuseOptions);if(p.feature.operation==='cut'&&Math.abs(R.measureVolume(shape))<1e-9){remove.push(p.target);return {outputs,remove};}if(p.feature.operation==='cut'&&Math.abs(R.measureVolume(base)-R.measureVolume(shape))<=Math.max(1e-7,R.measureVolume(base)*1e-9))throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(p.target,shape);}finally{shape?.delete();tool.delete();}
  }
+ else if(p.type==='cylinderHingeInfo'){analysis=cylinderHingeInfo(base);}
+ else if(p.type==='cylinderHinge'){if(bodies.has(p.id+'-lid'))throw Error('蓋のボディIDが重複しています');const result=makeCylinderHinge(base,p,onProgress);try{emit(p.target,result.parts[0]);emit(p.id+'-lid',result.parts[1]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='ballJointInfo'){analysis=ballJointInfo(base);}
  else if(p.type==='ballJoint'){if(bodies.has(p.id+'-socket')||bodies.has(p.id+'-nut'))throw Error('ジョイントのボディIDが重複しています');const result=makeBallJoint(base,p,onProgress);try{for(const [i,id]of [p.target,p.id+'-socket',p.id+'-nut'].entries())emit(id,result.parts[i]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='bossFitTest'){const result=makeBossFitTest(p,onProgress);try{for(const part of result.parts)emit(p.id+'-'+part.role+'-'+Math.round(part.clearance*100),part.shape);analysis=result.analysis;}finally{result.parts.forEach(part=>part.shape.delete());}}
