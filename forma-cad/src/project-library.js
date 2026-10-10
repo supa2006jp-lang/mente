@@ -27,13 +27,13 @@ export function createProjectLibrary({parse,onChoose,getRevision,getModified,sto
  }
  async function choose(entry,button){
   if(busy)return;const current=revision,request=getRevision();button.disabled=true;busy=true;controls();
-  try{const text=memory.get(entry.id)??await store.read(entry.id);if(current!==revision||!dialog.open||request!==getRevision())return;if(text===null)throw Error('作業データが見つかりません。保存ファイルを追加し直してください');const data=parse(text);dialog.close();onChoose({file:{name:entry.name,size:entry.bytes},...data,modified:getModified(),request});}
+  try{const text=memory.get(entry.id)??await store.read(entry.id);if(current!==revision||!dialog.open||request!==getRevision())return;if(text===null)throw Error('作業データが見つかりません。保存ファイルを追加し直してください');const data=parse(text);dialog.close();onChoose({file:{name:entry.name,size:entry.bytes},libraryId:entry.id,...data,modified:getModified(),request});}
   catch(error){if(current===revision&&dialog.open)status('読み込みできません：'+error.message);}
   finally{if(current===revision){busy=false;button.disabled=false;controls();}}
  }
- async function register({name,text,data,savedAt,relativePath},keepMemory=false){
+ async function register({name,text,data,savedAt,relativePath,replaceId},keepMemory=false){
   const entry=await projectLibraryEntry({name,text,preview:data.preview,featureCount:data.next.length,savedAt,relativePath});
-  try{await store.write(entry,text);memory.delete(entry.id);}catch(error){if(!keepMemory)throw error;memory.set(entry.id,text);entries.set(entry.id,entry);return {entry,persisted:false};}
+  try{await store.write(entry,text,{replaceId});memory.delete(entry.id);if(replaceId&&replaceId!==entry.id){entries.delete(replaceId);memory.delete(replaceId);}}catch(error){if(!keepMemory)throw error;memory.set(entry.id,text);entries.set(entry.id,entry);return {entry,persisted:false};}
   entries.set(entry.id,entry);return {entry,persisted:true};
  }
  async function importFiles(files){
@@ -56,7 +56,7 @@ export function createProjectLibrary({parse,onChoose,getRevision,getModified,sto
  for(const id of ['files','directory'])$(id).onchange=()=>{const files=[...$(id).files];$(id).value='';if(files.length)importFiles(files);};
  return {
   async open(){if(dialog.open)return;const current=++revision;busy=false;controls();$('warning').hidden=!getModified();status('保存履歴を読み込み中…');render();dialog.showModal();try{const saved=await store.list();if(current!==revision||!dialog.open)return;entries=new Map([...entries].filter(([id])=>memory.has(id)));for(const entry of saved)entries.set(entry.id,entry);render();status(entries.size+' 件。画像をクリックすると内容を確認して開けます。');}catch{if(current===revision&&dialog.open)status('保存履歴を読み込めません。ファイルを追加すると画像を確認して開けます。');}},
-  async remember({name,text,data}){await register({name,text,data});if(dialog.open)render();},
+  async remember({name,text,data,replaceId}){const {entry}=await register({name,text,data,replaceId});if(dialog.open)render();return entry.id;},
   cancel(){if(dialog.open)dialog.close();}
  };
 }

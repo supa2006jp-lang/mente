@@ -87,6 +87,8 @@ import {orbitView} from './view-orbit.js';
 import {drawingCrosshair} from './drawing-crosshair.js';
 import {renderThreadPullOptions,threadPullOptions} from './thread-pull-dialog.js';
 import {saveStl} from './save-stl.js';
+import {createProjectFileTarget} from './project-file-target.js';
+import {projectLibraryEntry} from './project-library-store.js';
 import {renderThreadDialog,threadDialogSpec} from './thread-dialog.js';
 import {cylindricalSelection} from './cylindrical-selection.js';
 import {sketchIntersections} from './sketch-intersections.js';
@@ -647,16 +649,69 @@ function showMeasurement(f,edgeIndex=0){if(f.profile==='point'){$('measurement')
  $('measurement-title').textContent=f.profile==='line'?'選択した線':'選択した長方形の辺';$('measurement-length').textContent=fmt(length)+' mm';$('measurement-angle').textContent='角度 '+fmt(angle)+'° · '+f.plane+' 平面';}
 }
 function download(data,name,type){const url=URL.createObjectURL(new Blob([data],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);}
-let projectFileName='design.forma.json';
-const projectLoadPreview=createProjectLoadPreview({onChoose:()=>$('file').click(),onOpen:item=>{
- if(item.request!==toolCancelRevision)return;
- try{cancelAllTools();activeSketchGroup=null;editingSketchGroup=null;setProject(item.next);drawingController?.loadState(item.drawingData);selected=null;chosenRegion=null;regionPayload=null;stage='model';pendingExtrude=false;hiddenBodies.clear();for(const m of meshes.values())m.visible=true;dropPreview();finishSketch(false);updateTargets();modified=false;projectFileName=item.file.name;renderTree();$('delete').hidden=true;$('apply').textContent='作成';$('editor-title').textContent='新しい工程';fit();notify('作業データを読み込みました');}catch(e){notify('読み込みできません: '+e.message);}
-}});
+let projectFileName='design.forma.json',projectLibraryId=null,projectDocumentRevision=0;
+const projectFileTarget=createProjectFileTarget({host:window});
+function setProjectFileName(name){projectFileName=name;const label=document.querySelector('.filename');label.firstChild.textContent=name+' ';label.title=name;$('save-overwrite').title='上書き保存（Ctrl+S）：'+name+'。保存先が未指定の場合はファイルを選びます。';}
+function attachProjectFile({name='design.forma.json',handle=null,libraryId=null}={}){
+ projectDocumentRevision++;projectLibraryId=libraryId;projectFileTarget.attach(handle);setProjectFileName(name);
+}
+function projectFileControls(busy){for(const id of ['save','save-overwrite','load','load-images','clear'])$(id).disabled=busy;}
+const projectLoadPreview=createProjectLoadPreview({onChoose:()=>chooseProjectFile(),onOpen:item=>{if(item.request!==toolCancelRevision||projectFileTarget.busy)return;try{cancelAllTools();activeSketchGroup=null;editingSketchGroup=null;setProject(item.next);drawingController?.loadState(item.drawingData);selected=null;chosenRegion=null;regionPayload=null;stage='model';pendingExtrude=false;hiddenBodies.clear();for(const m of meshes.values())m.visible=true;dropPreview();finishSketch(false);updateTargets();modified=false;attachProjectFile({name:item.file.name,handle:item.handle,libraryId:item.libraryId});renderTree();$('delete').hidden=true;$('apply').textContent='作成';$('editor-title').textContent='新しい工程';fit();notify('作業データを読み込みました');}catch(e){notify('読み込みできません: '+e.message);}}});
 function readProjectDocument(text){const documentData=JSON.parse(text);return {next:validateProject(documentData),drawingData:readDrawingState(documentData.drawing),preview:documentData.preview};}
 const projectLibrary=createProjectLibrary({parse:readProjectDocument,onChoose:item=>projectLoadPreview.show(item),getRevision:()=>toolCancelRevision,getModified:()=>modified});
 $('load-images').onclick=()=>{projectLoadPreview.cancel();projectLibrary.open();};
-$('save').onclick=()=>{const entered=window.prompt('保存するファイル名を入力してください（.forma.json は自動で付きます）',projectFileName);if(entered===null)return;let name=entered.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_');if(!name){notify('ファイル名を入力してください');return;}if(!/\.forma\.json$/i.test(name))name=name.replace(/\.json$/i,'')+'.forma.json';let previewImage=null;try{previewImage=captureProjectPreview({renderer,camera,meshes:meshes.values(),sketches:sketchGroup.children});}catch(e){console.warn('モデル画像を保存できませんでした',e);}const text=JSON.stringify({format:'forma-cad',version:1,units:'mm',features,drawing:drawingController?.getState()||null,...(previewImage?{preview:previewImage}:{})},null,2);download(text,name,'application/json');projectLibrary.remember({name,text,data:{next:features,preview:previewImage}}).catch(()=>notify(name+' のファイル保存は完了しました。画像一覧への登録に失敗したため「ファイルを追加」で選んでください。'));projectFileName=name;modified=false;renderTree();notify(name+' を保存しました'+(!previewImage&&meshes.size?'（プレビュー画像なし）':''));};
-$('load').onclick=()=>{projectLibrary.cancel();$('file').click();};let projectReadRevision=0;$('file').onchange=async()=>{const file=$('file').files[0];if(!file)return;const request=toolCancelRevision,read=++projectReadRevision;projectLoadPreview.cancel();try{if(file.size>80_000_000)throw Error('ファイルは80MB以下にしてください。');const text=await file.text();if(request!==toolCancelRevision||read!==projectReadRevision)return;const data=readProjectDocument(text);projectLoadPreview.show({file,...data,modified,request});}catch(e){if(request===toolCancelRevision&&read===projectReadRevision)notify('読み込みできません: '+e.message);}finally{if(read===projectReadRevision)$('file').value='';}};
+function projectSaveSnapshot(){
+ const source=features,drawing=drawingController?.getState()||null;
+ let previewImage=null;try{previewImage=captureProjectPreview({renderer,camera,meshes:meshes.values(),sketches:sketchGroup.children});}catch(e){console.warn('モデル画像を保存できませんでした',e);}
+ return {text:JSON.stringify({format:'forma-cad',version:1,units:'mm',features:source,drawing,...(previewImage?{preview:previewImage}:{})},null,2),data:{next:source,preview:previewImage},source,drawingText:JSON.stringify(drawing),documentRevision:projectDocumentRevision};
+}
+function markProjectSaved(snapshot){
+ if(snapshot.documentRevision!==projectDocumentRevision)return;
+ if(snapshot.source===features&&snapshot.drawingText===JSON.stringify(drawingController?.getState()||null))modified=false;
+ renderTree();
+}
+async function rememberProjectSave(snapshot,name,replaceId=null){
+ try{const id=await projectLibrary.remember({name,text:snapshot.text,data:snapshot.data,replaceId});if(snapshot.documentRevision===projectDocumentRevision)projectLibraryId=id;}
+ catch{notify(name+' のファイル保存は完了しました。画像一覧への登録に失敗したため「ファイルを追加」で選んでください。');}
+}
+$('save').onclick=()=>{
+ if(projectFileTarget.busy)return;
+ const entered=window.prompt('保存するファイル名を入力してください（.forma.json は自動で付きます）',projectFileName);if(entered===null)return;
+ let name=entered.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_');if(!name){notify('ファイル名を入力してください');return;}if(!/\.forma\.json$/i.test(name))name=name.replace(/\.json$/i,'')+'.forma.json';
+ const snapshot=projectSaveSnapshot();download(snapshot.text,name,'application/json');
+ attachProjectFile({name});snapshot.documentRevision=projectDocumentRevision;markProjectSaved(snapshot);
+ notify(name+' を保存しました'+(!snapshot.data.preview&&meshes.size?'（プレビュー画像なし）':''));
+ rememberProjectSave(snapshot,name);
+};
+$('save-overwrite').onclick=async()=>{
+ if(projectFileTarget.busy)return;
+ projectFileControls(true);
+ try{
+  const snapshot=await projectFileTarget.save(projectSaveSnapshot,{suggestedName:projectFileName});if(!snapshot)return;
+  if(snapshot.documentRevision!==projectDocumentRevision)return;
+  const replaceId=snapshot.name===projectFileName?projectLibraryId:null;
+  setProjectFileName(snapshot.name);markProjectSaved(snapshot);
+  notify(snapshot.name+' に上書き保存しました'+(!snapshot.data.preview&&meshes.size?'（プレビュー画像なし）':''));
+  await rememberProjectSave(snapshot,snapshot.name,replaceId);
+ }catch(error){notify('上書き保存できません: '+error.message);}
+ finally{projectFileControls(false);}
+};
+window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if(!e.repeat&&!document.querySelector('dialog[open]'))$(e.shiftKey?'save':'save-overwrite').click();}});
+let projectReadRevision=0;
+async function previewProjectFile(file,handle,request,read){
+ try{if(file.size>80_000_000)throw Error('ファイルは80MB以下にしてください。');const text=await file.text();if(request!==toolCancelRevision||read!==projectReadRevision)return;const data=readProjectDocument(text),{id:libraryId}=await projectLibraryEntry({name:file.name,text});if(request!==toolCancelRevision||read!==projectReadRevision)return;projectLoadPreview.show({file,handle,libraryId,...data,modified,request});}
+ catch(e){if(request===toolCancelRevision&&read===projectReadRevision)notify('読み込みできません: '+e.message);}
+}
+async function chooseProjectFile(){
+ if(projectFileTarget.busy)return;
+ projectLibrary.cancel();projectLoadPreview.cancel();
+ if(typeof window.showOpenFilePicker!=='function'){$('file').click();return;}
+ const request=toolCancelRevision,read=++projectReadRevision;
+ try{const [handle]=await window.showOpenFilePicker({types:[{description:'FORMA CAD 作業データ',accept:{'application/json':['.json','.forma']}}],multiple:false});if(handle&&read===projectReadRevision&&request===toolCancelRevision)await previewProjectFile(await handle.getFile(),handle,request,read);}
+ catch(error){if(error.name!=='AbortError'&&read===projectReadRevision)notify('読み込みできません: '+error.message);}
+}
+$('load').onclick=chooseProjectFile;
+$('file').onchange=async()=>{const file=$('file').files[0];if(!file||projectFileTarget.busy)return;const request=toolCancelRevision,read=++projectReadRevision;projectLoadPreview.cancel();try{await previewProjectFile(file,null,request,read);}finally{if(read===projectReadRevision)$('file').value='';}};
 $('export').onclick=async()=>{if(!meshes.size||$('export').disabled)return;$('export').disabled=true;try{const message=await saveStl(()=>{const exportGroup=new THREE.Group();for(const m of meshes.values())if(m.visible)exportGroup.add(new THREE.Mesh(m.geometry));if(!exportGroup.children.length)throw Error('表示中のソリッドがありません');exportGroup.updateMatrixWorld(true);return new STLExporter().parse(exportGroup,{binary:true});},download);if(message)notify(message);}catch(error){notify('STL保存に失敗しました：'+error.message);}finally{$('export').disabled=false;}};
 function hingeReference(feature){
  const p=feature.spec,hardwareScale=Number.isFinite(p.hardwareScale)?p.hardwareScale:1,source=meshes.get(p?.target);
@@ -795,8 +850,8 @@ $('export-enclosure').onclick=async()=>{
  finally{button.disabled=false;}
 };
 const sample=()=>[{...defaults,id:'sample-base',name:'ベースプレート',width:80,height:60,depth:4},{...defaults,id:'sample-wall',name:'薄い押し出し',mode:'thin',width:80,height:60,wall:3,depth:26,z:4,operation:'join',target:'sample-base'}];
-$('sample').onclick=()=>{if(modified&&!confirm('未保存の変更があります。サンプルを開きますか？'))return;setProject(sample());drawingController?.loadState(null);hiddenBodies.clear();for(const m of meshes.values())m.visible=true;selectFeature('sample-wall');dropPreview();setView('iso');fit();notify('底面＋壁厚3mmのサンプルです');};
-$('clear').onclick=()=>{if(features.length&&!confirm('新しいデザインを作成しますか？現在の作業は「戻す」で復元できます。'))return;setProject([]);drawingController?.loadState(null);hiddenBodies.clear();stage='model';selected=null;chosenRegion=null;pendingExtrude=false;draftTouched=false;fillForm({...defaults,name:'スケッチ'});dropPreview();syncFields();fit();};
+$('sample').onclick=()=>{if(projectFileTarget.busy)return;if(modified&&!confirm('未保存の変更があります。サンプルを開きますか？'))return;setProject(sample());attachProjectFile();drawingController?.loadState(null);hiddenBodies.clear();for(const m of meshes.values())m.visible=true;selectFeature('sample-wall');dropPreview();setView('iso');fit();notify('底面＋壁厚3mmのサンプルです');};
+$('clear').onclick=()=>{if(projectFileTarget.busy)return;if(features.length&&!confirm('新しいデザインを作成しますか？現在の作業は「戻す」で復元できます。'))return;setProject([]);attachProjectFile();drawingController?.loadState(null);hiddenBodies.clear();stage='model';selected=null;chosenRegion=null;pendingExtrude=false;draftTouched=false;fillForm({...defaults,name:'スケッチ'});dropPreview();syncFields();fit();};
 window.addEventListener('beforeunload',e=>{if(modified){e.preventDefault();e.returnValue='';}});
 fillForm({...defaults,name:'スケッチ'});setProject([],{record:false});stage='model';selected=null;syncFields();dropPreview();modified=false;renderTree();fit();$('status').textContent='スケッチを作成し、閉じた領域から立体を作ります';
 // A single real action is shared by the visible editor and WebMCP.

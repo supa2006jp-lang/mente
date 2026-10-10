@@ -22,7 +22,7 @@ export function createProjectLibraryStore({indexedDB=globalThis.indexedDB}={}){
  return {
   list:()=>transaction(['entries'],'readonly',tx=>tx.objectStore('entries').getAll()),
   read:id=>transaction(['projects'],'readonly',tx=>tx.objectStore('projects').get(id)).then(item=>item?.text??null),
-  write:(entry,text)=>transaction(['entries','projects'],'readwrite',tx=>{tx.objectStore('projects').put({id:entry.id,text});tx.objectStore('entries').put(entry);}),
+  write:(entry,text,{replaceId}={})=>transaction(['entries','projects'],'readwrite',tx=>{tx.objectStore('projects').put({id:entry.id,text});tx.objectStore('entries').put(entry);if(replaceId&&replaceId!==entry.id){tx.objectStore('projects').delete(replaceId);tx.objectStore('entries').delete(replaceId);}}),
   remove:id=>transaction(['entries','projects'],'readwrite',tx=>{tx.objectStore('entries').delete(id);tx.objectStore('projects').delete(id);})
  };
 }
