@@ -1,0 +1,64 @@
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import * as R from 'replicad';
+import * as THREE from 'three';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {runOperation} from '../src/kernel.js';
+import {defaults,validateProject} from '../src/geometry.js';
+import {ballJointDefaults,ballJointSettings} from '../src/ball-joint-settings.js';
+import {ballJointNeckLayout,ballJointBasePoint,ballJointBaseTiltMinLength} from '../src/ball-joint-neck-layout.js';
+import {placeBallJointBase} from '../src/ball-joint-neck.js';
+import {ballJointMountBase} from '../src/ball-joint-mount.js';
+import {ballJointFixHole} from '../src/ball-joint-fix-hole.js';
+import {solidMeshComplete} from '../src/solid-mesh.js';
+import {createBallClampSectionModel} from '../src/ball-joint-section.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const source={...defaults,id:'c',name:'円柱',kind:'extrusion',profile:'circle',diameter:24,depth:40};
+const info=runOperation([source],{type:'ballJointInfo',target:'c'}).analysis;
+const p={...ballJointDefaults(info),type:'ballJoint',id:'joint',target:'c',pose:'assembled',neckBend:true,neckExtension:15};
+const shape=o=>R.deserializeShape(o.brep).asShape3D(),vol=s=>Math.abs(R.measureVolume(s));
+function same(a,b){const ab=a.cut(b),ba=b.cut(a);try{assert.ok(vol(ab)+vol(ba)<1e-4);}finally{ab.delete();ba.delete();}}
+function valid(s){const check=new (R.getOC().BRepCheck_Analyzer)(s.wrapped,true,false),solids=s.solids;try{assert.ok(check.IsValid());assert.equal(solids.length,1);assert.ok(solidMeshComplete(s));}finally{check.delete();solids.forEach(s=>s.delete());}}
+const keep=ballJointSettings(info,p);
+assert.equal(keep.neckBaseTilt,false);
+assert.equal(ballJointSettings(info,{...p,neckBend:false,neckBaseTilt:true}).neckBaseTilt,true);
+assert.throws(()=>ballJointSettings(info,{...p,neckBaseTilt:'yes'}),/傾ける設定/);
+assert.throws(()=>ballJointSettings(info,{...p,neckBaseTilt:true,neckExtension:0}),/合計長さ/);
+for(const angle of [0,90,180,270]){
+ const s=ballJointSettings(info,{...p,neckBaseTilt:true,neckBendDirection:angle}),q=ballJointNeckLayout(s);
+ const bottom=ballJointBasePoint(s,[0,0,s.ballBaseStart]),top=ballJointBasePoint(s,[0,0,s.ballBaseStart+s.ballBaseHeight]);
+ assert.ok(Math.hypot(...top.map((v,i)=>v-q.base[i]))<1e-9);
+ assert.ok(Math.abs(Math.hypot(...top.map((v,i)=>v-bottom[i]))-s.ballBaseHeight)<1e-9);
+ assert.ok(Math.abs((top[2]-bottom[2])/s.ballBaseHeight-Math.SQRT1_2)<1e-9);
+ const owned=[],hold=x=>(owned.push(x),x),base=hold(R.makeCylinder(info.radius,s.ballBaseHeight,[0,0,s.ballBaseStart])),placed=placeBallJointBase(hold(base.clone()),s,hold);
+ const faceNormals=placed.faces.map(f=>{const n=f.normalAt();try{return n.toTuple();}finally{n.delete();f.delete();}});
+ assert.ok(faceNormals.some(n=>n.every((v,i)=>Math.abs(v+q.direction[i])<1e-6)),'free end normal follows tilted rod');
+ owned.reverse().forEach(s=>s.delete());
+}
+const oldResult=runOperation([source],p),minimum=ballJointBaseTiltMinLength(info.radius),minSpec={...p,neckBaseTilt:true,neckExtension:minimum-p.neckLength},atMin=runOperation([source],minSpec);
+assert.equal(atMin.analysis.neckBaseTiltAngle,45);assert.ok(atMin.analysis.overlap.every(v=>v<1e-5));
+for(let i=0;i<3;i++){const a=shape(atMin.outputs[i]),b=shape(oldResult.outputs[i]);valid(a);if(i)same(a,b);a.delete();b.delete();}
+console.log('PASS minimum length, valid tilted base/rod, unchanged sphere/socket/nut, initial clearance');
+const fixedSpec={...p,neckBaseTilt:true,neckBendDirection:90,mountThread:true,mountSide:'ball',mountPitch:1.5,mountLength:4,fixHole:true,fixSide:'ball',fixBallDiameter:4,fixBallPitch:.7,fixBallDepth:4,fixBallChamfer:true,fixBallChamferSize:.3};
+const fixed=runOperation([source],fixedSpec),s=ballJointSettings(info,fixedSpec),q=ballJointNeckLayout(s),ball=shape(fixed.outputs[0]);valid(ball);assert.ok(fixed.analysis.overlap.every(v=>v<1e-5));
+const owned=[],hold=x=>(owned.push(x),x),plain={...s,neckBend:false,neckBaseTilt:false,neckBaseOffset:[0,0,0]};
+let reference=hold(ballJointMountBase(info.radius,s.ballBaseHeight,plain,'ball').translate([0,0,s.ballBaseStart]));
+reference=hold(ballJointFixHole(reference,info.height,plain,'ball'));
+reference=placeBallJointBase(hold(reference.clone()),s,hold);
+const region=placeBallJointBase(hold(R.makeCylinder(info.radius+1,s.ballBaseHeight-.3,[0,0,s.ballBaseStart])),s,hold);
+const a=hold(ball.intersect(region)),b=hold(reference.intersect(region));same(a,b);
+const hole=fixed.analysis.fixingHoles[0],center=ballJointBasePoint(s,[0,0,s.ballBaseStart]);assert.deepEqual(hole.center,center);assert.deepEqual(hole.axis,q.direction);assert.equal(hole.pull,-.2);
+const probe=hold(R.makeCylinder(.1,1,center.map((v,i)=>v+q.direction[i]*.2),q.direction)),empty=hold(ball.intersect(probe));assert.ok(vol(empty)<1e-6,'fixing hole enters from the tilted free end');
+owned.reverse().forEach(s=>s.delete());ball.delete();console.log('PASS mounting thread, right-handed fixing thread/chamfer and actual opening follow the tilted base');
+const printed=runOperation([source],{...fixedSpec,pose:'print'});
+for(const output of printed.outputs)assert.ok(Math.abs(output.vertices.reduce((m,v,i)=>i%3===2?Math.min(m,v):m,Infinity))<1e-5);
+const placement=new THREE.Matrix4().fromArray(printed.analysis.placements[0]),normal=new THREE.Vector3(...q.direction).transformDirection(placement);
+assert.ok(normal.distanceTo(new THREE.Vector3(0,0,1))<1e-9,'tilted base prints flat on the plate');
+const printedBall=shape(printed.outputs[0]);valid(printedBall);
+const faces=printedBall.faces;assert.ok(faces.some(face=>{if(face.geomType!=='PLANE')return false;const c=face.center,n=face.normalAt();try{return Math.abs(c.z)<1e-5&&n.z<-.999;}finally{c.delete();n.delete();}}),'actual planar bottom lies on the bed');faces.forEach(f=>f.delete());printedBall.delete();
+const section=createBallClampSectionModel(printed);assert.ok(section.slice(0).parts[0].segments.length);section.dispose();
+console.log('PASS print bed alignment and exact section placement');
+const feature={kind:'cadop',id:'joint',name:'土台を傾けたボール接合',spec:fixedSpec,...fixed},history=[source,feature];
+validateProject({format:'forma-cad',version:1,features:history});const replay=runOperation(history,{type:'replay',before:history,start:1});
+assert.equal(replay.features[1].analysis.neckBaseTiltAngle,45);
+console.log('PASS bed-aligned base, recorded placement/section, saved history/replay and legacy defaults');

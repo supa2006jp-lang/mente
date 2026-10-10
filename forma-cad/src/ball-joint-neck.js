@@ -12,3 +12,10 @@ export function ballJointNeck(s,hold){
  const elbow=hold(R.makeSphere(radius).translate(q.bend));
  return hold(fuseSolid(hold(fuseSolid(upper,elbow)),lower));
 }
+
+export function placeBallJointBase(shape,s,hold){
+ if(!s.neckBend)return shape;
+ const q=ballJointNeckLayout(s);
+ if(q.tilt)shape=hold(shape.rotate(q.tilt,[0,0,q.bottom],q.rotationAxis));
+ return hold(shape.translate(q.offset));
+}

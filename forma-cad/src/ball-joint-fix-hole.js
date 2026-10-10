@@ -1,3 +1,4 @@
+import {placeBallJointBase} from './ball-joint-neck.js';
 import * as R from 'replicad';
 import {allThreadPullSpec} from './thread-pull-spec.js';
 import {offsetThreadProfile} from './thread-pull.js';
@@ -10,7 +11,7 @@ export function ballJointFixHole(base,height,s,role){
  if(!s.fixHole||(s.fixSide!=='both'&&s.fixSide!==role))return base.clone();
  const {diameter,pitch,depth:length,chamfer,chamferSize}=ballJointFixDimensions(s,role),radius=diameter/2,spec=allThreadPullSpec({pitch},-.2),owned=[],hold=shape=>(owned.push(shape),shape),pieces=[],edges=[];let wire,path;
  const start=s.ballBaseStart??-(s.neckExtension||0),end=s.socketBaseEnd??height;
- const place=shape=>role==='socket'?hold(hold(shape.rotate(180,[0,0,0],[1,0,0])).translate([0,0,end])):hold(shape.translate([s.neckBaseOffset?.[0]||0,s.neckBaseOffset?.[1]||0,start+(s.neckBaseOffset?.[2]||0)]));
+ const place=shape=>role==='socket'?hold(hold(shape.rotate(180,[0,0,0],[1,0,0])).translate([0,0,end])):placeBallJointBase(hold(shape.translate([0,0,start])),s,hold);
  try{
   const offsets=[...spec.threadFaceOffsets];offsets[3]=Math.max(offsets[3]||0,-spec.threadCylinderOffset);
   const points=offsetThreadProfile([[pitch*.02,-pitch*.45],[-pitch*.541266,-pitch*.125],[-pitch*.541266,pitch*.125],[pitch*.02,pitch*.45]],offsets);
