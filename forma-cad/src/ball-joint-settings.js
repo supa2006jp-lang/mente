@@ -1,3 +1,4 @@
+import {ballJointNeckLayout} from './ball-joint-neck-layout.js';
 import {metricThreadPitches,defaultMetricThreadPitch} from './metric-thread-pitches.js';
 import {ballJointThreadDimensions} from './ball-joint-thread.js';
 const round=v=>Number(v.toFixed(3));
@@ -24,7 +25,7 @@ function dimensions(s){
 }
 export function ballJointDefaults(info){
  const radius=Math.min(info.radius*.65,info.height*.18),wall=Math.max(1.8,round(radius*.3));
- const s={splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,neckExtension:0,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountAutoExtend:true,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
+ const s={splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,neckExtension:0,neckBend:false,neckBendDirection:0,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountAutoExtend:true,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
  s.threadPitch=ballJointThreadDimensions(s).minPitch;
  const d=dimensions(s),mountPitch=defaultMetricThreadPitch(info.radius*2),mountLength=Math.max(1,Math.floor(Math.min(Math.max(6,2*mountPitch+.2),d.lowerEnd-1.2,info.height-d.socketTop-1.2)*10)/10);
  return {...s,...ballJointFixSettings({fixDiameter:6,fixPitch:1,fixDepth:Math.max(.1,Math.min(6,mountLength)),fixChamfer:false,fixChamferSize:.3}),mountPitch,mountLength};
@@ -36,6 +37,8 @@ export function ballJointSettings(info,p){
  if(!s.printSafe&&p.threadPitch===undefined)s.threadPitch=Math.max(.8,round(Math.min(info.radius*.65,info.height*.18)*.25));
  for(const [key,min,max,label]of [['splitPosition',.1,10000,'分割位置'],['ballDiameter',6,120,'球の直径'],['neckDiameter',2,100,'首の直径'],['neckLength',1,50,'棒の基本長さ'],['neckExtension',0,100,'棒の追加長さ'],['clearance',.05,.8,'球と受けの片側すき間'],['wall',1.2,10,'受けの厚さ'],['threadPitch',.6,8,'ねじピッチ'],['threadClearance',.1,.6,'ねじの片側すき間'],['coneClearance',.02,.6,'締め付け面の片側すき間'],['socketInset',0,.75,'受け内面を狭める量'],['extraClampTravel',0,1.5,'追加締め代'],['slotWidth',.6,3,'切り込み幅'],['nutWall',1.6,10,'ナットの厚さ']])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+'を '+min+'〜'+max+' mmで指定してください');
  if(![4,6].includes(s.slotCount))throw Error('切り込みの数は4・6本から選択してください');if(!['print','assembled','exploded'].includes(s.pose))throw Error('配置を選択してください');
+ if(typeof s.neckBend!=='boolean')throw Error('棒を45°曲げる設定を確認してください');
+ if(![0,90,180,270].includes(s.neckBendDirection))throw Error('棒を曲げる向きを選択してください');
  if(typeof s.mountAutoExtend!=='boolean')throw Error('土台の自動延長の設定を確認してください');
  if(typeof s.mountThread!=='boolean')throw Error('取付ねじの設定を確認してください');
  if(!['ball','socket','both'].includes(s.mountSide))throw Error('取付ねじを付ける土台を選択してください');
@@ -92,5 +95,7 @@ export function ballJointSettings(info,p){
    fixingHoles.push({role,diameter,pitch,depth:holeDepth,pull:-.2,wallDiameter:diameter+.4,start,rightHand:true,chamfer,chamferSize:chamfer?chamferSize:0,entryDiameter:2*(lead?.entryRadius??diameter/2+.2),leadDepth:lead?.leadDepth??0});
   }
  }
- return {...s,...d,mountThreadLength,baseExtensions,ballBaseHeight,socketBaseHeight,ballBaseStart,socketBaseEnd,mountingThreads,fixingHoles,nutRadius:core+depth+s.threadClearance+s.nutWall+.7};
+ const neckBaseOffset=ballJointNeckLayout({...s,...d}).offset;
+ for(const item of [...mountingThreads,...fixingHoles])if(item.role==='ball'){item.start+=neckBaseOffset[2];item.center=[neckBaseOffset[0],neckBaseOffset[1],item.start];}
+ return {...s,...d,neckBaseOffset,mountThreadLength,baseExtensions,ballBaseHeight,socketBaseHeight,ballBaseStart,socketBaseEnd,mountingThreads,fixingHoles,nutRadius:core+depth+s.threadClearance+s.nutWall+.7};
 }
