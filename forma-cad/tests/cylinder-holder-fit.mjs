@@ -1,0 +1,30 @@
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import * as R from 'replicad';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {makeCylinderHinge} from '../src/cylinder-hinge.js';
+import {runOperation} from '../src/kernel.js';
+import {defaults,validateProject} from '../src/geometry.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const volume=s=>Math.abs(R.measureVolume(s)),hit=(a,b)=>{const c=a.intersect(b);try{return volume(c);}finally{c.delete();}};
+function valid(s){const c=new (R.getOC().BRepCheck_Analyzer)(s.wrapped,true,false);try{assert.ok(c.IsValid());}finally{c.delete();}}
+const source=R.makeCylinder(30,80),options={pose:'closed',fitHolder:true,holderDiameter:52,holderGap:.3,holderLip:true,lipInset:1.2,lipHeight:2.4,openBottom:true};
+const small=makeCylinderHinge(source,options);small.parts.forEach(valid);
+assert.equal(small.analysis.innerRadius,26.3);assert.ok(Math.abs(small.analysis.wall-3.7)<1e-7);assert.ok(Math.abs(small.analysis.holderOverlap-.9)<1e-7);
+assert.equal(small.analysis.holderSeatHeight,77.6);
+const bore=R.makeCylinder(28,82,[0,0,-1]),tube=source.cut(bore),before=tube.serialize();
+const resized=makeCylinderHinge(tube,options),probe=R.makeBox([-.1,26.5,10],[.1,27.5,30]);resized.parts.forEach(valid);assert.ok(hit(resized.parts[0],probe)>3,'smaller bore adds wall material');assert.equal(tube.serialize(),before);
+const wider=makeCylinderHinge(tube,{...options,holderDiameter:56}),wideProbe=R.makeCylinder(28.29,76,[0,0,0]);assert.ok(hit(wider.parts[0],wideProbe)<1e-5,'larger bore is empty');
+const holderOuter=R.makeCylinder(26,77.59),holderInner=R.makeCylinder(24,80,[0,0,-1]),holder=holderOuter.cut(holderInner);
+assert.ok(hit(small.parts[0],holder)<1e-5);const lifted=holder.clone().translate([0,0,1]);assert.ok(hit(small.parts[0],lifted)>1,'rim seats against ledge');
+const cupTool=R.makeCylinder(28,80,[0,0,4]),cup=source.cut(cupTool),kept=makeCylinderHinge(cup,{...options,openBottom:false}),floorProbe=R.makeCylinder(20,3,[0,0,.1]);assert.ok(hit(kept.parts[0],floorProbe)>3000,'existing floor survives bore resize');
+const tilted=tube.clone().rotate(48,[0,0,0],[1,1,0]).translate([17,-12,20]),moved=makeCylinderHinge(tilted,{...options,azimuth:130});moved.parts.forEach(valid);assert.ok(hit(...moved.parts)<1e-5);
+for(const p of [{holderDiameter:59},{holderDiameter:NaN},{holderGap:-.1},{holderGap:3},{holderGap:1.2},{fitHolder:'true'}])assert.throws(()=>makeCylinderHinge(source,{...options,...p}));
+const large=R.makeCylinder(45,70),compact=makeCylinderHinge(large,{pose:'print',fingerTab:true}),tall=R.makeCylinder(45,100),overflow=makeCylinderHinge(tall,{pose:'print',fingerTab:true});
+assert.equal(compact.analysis.printBounds.fits,true);assert.equal(overflow.analysis.printBounds.fits,false);
+for(const result of [compact,overflow]){const b=result.parts.map(s=>s.boundingBox);try{for(const axis of [0,1,2]){assert.ok(Math.abs(result.analysis.printBounds.min[axis]-Math.min(...b.map(v=>v.bounds[0][axis])))<1e-7);assert.ok(Math.abs(result.analysis.printBounds.max[axis]-Math.max(...b.map(v=>v.bounds[1][axis])))<1e-7);}}finally{b.forEach(v=>v.delete());}}
+assert.equal(small.analysis.printBounds,null);
+const f={...defaults,id:'c',name:'円柱',profile:'circle',diameter:60,depth:80},spec={...options,type:'cylinderHinge',id:'hinge',target:'c'},result=runOperation([f],spec),feature={kind:'cadop',id:'hinge',name:'円柱のヒンジ蓋',spec,...result};validateProject({format:'forma-cad',version:1,features:[f,feature]});assert.equal(result.analysis.fitHolder,true);
+const replay=runOperation([f,feature],{type:'replay',before:[f,feature],start:0});assert.equal(replay.features.at(-1).outputs.length,2);
+[source,bore,tube,probe,wideProbe,holderOuter,holderInner,holder,lifted,cupTool,cup,floorProbe,tilted,large,tall,...[small,resized,wider,kept,moved,compact,overflow].flatMap(r=>r.parts)].forEach(s=>s.delete());
+console.log('PASS exact plate bounds and overflow, holder diameter/gap, resized hollow walls in both directions, retained floor, actual rim stop, moved source, invalid fit rejection and save/replay');

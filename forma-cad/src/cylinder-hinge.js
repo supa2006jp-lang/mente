@@ -32,12 +32,17 @@ const overlap=(a,b)=>{const s=a.intersect(b);try{return Math.abs(R.measureVolume
 
 export function makeCylinderHinge(base,p,onProgress=()=>{}){
  const info=cylinderHingeInfo(base),{radius:r,height:h}=info;
- const s={wall:2.4,floor:2.4,lidThickness:2.4,pinDiameter:3.6,hingeWall:2.4,radialGap:.4,axialGap:.4,seam:.3,hingeWidth:18,azimuth:0,angle:110,pose:'print',openBottom:false,holderLip:false,lipInset:1.2,lipHeight:2.4,fingerTab:false,tabWidth:18,tabReach:6,...p};
- for(const [key,label,min,max]of [['wall','本体壁厚',1.2,r-2],['floor','底厚',1.2,h-3],['lidThickness','蓋厚',1.2,10],['pinDiameter','軸径',2.4,10],['hingeWall','ヒンジ肉厚',1.2,8],['radialGap','軸の片側すき間',.25,1.5],['axialGap','軸方向のすき間',.25,1.5],['seam','蓋と本体のすき間',.2,2],['hingeWidth','ヒンジ幅',12,r*1.5],['azimuth','ヒンジ位置',0,360],['angle','開き角度',0,180]])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+' は '+min+'〜'+max+' で指定してください');
- for(const key of ['openBottom','holderLip','fingerTab'])if(typeof s[key]!=='boolean')throw Error('底・掛かり段差・指掛けの設定が不正です');
+ const s={wall:2.4,floor:2.4,lidThickness:2.4,pinDiameter:3.6,hingeWall:2.4,radialGap:.4,axialGap:.4,seam:.3,hingeWidth:18,azimuth:0,angle:110,pose:'print',openBottom:false,holderLip:false,lipInset:1.2,lipHeight:2.4,fingerTab:false,tabWidth:18,tabReach:6,fitHolder:false,holderDiameter:0,holderGap:.3,...p};
+ for(const [key,label,min,max]of [['wall','本体壁厚',1.2,r-2],['floor','底厚',1.2,h-3],['lidThickness','蓋厚',1.2,10],['pinDiameter','軸径',2.4,10],['hingeWall','ヒンジ肉厚',1.2,8],['radialGap','軸の片側すき間',.25,1.5],['axialGap','軸方向のすき間',.25,1.5],['seam','蓋と本体のすき間',.2,2],['hingeWidth','ヒンジ幅',12,r*1.5],['azimuth','ヒンジ位置',0,360],['angle','開き角度',0,180]])if(!(key==='wall'&&s.fitHolder===true)&&(!Number.isFinite(s[key])||s[key]<min||s[key]>max))throw Error(label+' は '+min+'〜'+max+' で指定してください');
+ for(const key of ['openBottom','holderLip','fingerTab','fitHolder'])if(typeof s[key]!=='boolean')throw Error('底・掛かり段差・指掛けの設定が不正です');
  if(!['print','closed','open'].includes(s.pose))throw Error('配置を選び直してください');
- const innerRadius=info.hollow?info.innerRadius:r-s.wall,remainingWall=r-innerRadius;if(remainingWall<1.2-1e-5)throw Error('ヒンジを付けるには円筒の壁厚が1.2 mm以上必要です');
+ if(s.fitHolder){
+  if(!Number.isFinite(s.holderDiameter)||s.holderDiameter<4)throw Error('ホルダー外径は4 mm以上で指定してください');
+  if(!Number.isFinite(s.holderGap)||s.holderGap<0||s.holderGap>2)throw Error('ホルダーの片側すき間は0〜2 mmで指定してください');
+ }
+ const innerRadius=s.fitHolder?s.holderDiameter/2+s.holderGap:info.hollow?info.innerRadius:r-s.wall,remainingWall=r-innerRadius;if(remainingWall<1.2-1e-5)throw Error('ヒンジを付けるには円筒の壁厚が1.2 mm以上必要です');
  if(s.holderLip)for(const [key,label,min,max]of [['lipInset','上端の段差の出幅',.6,Math.min(8,innerRadius-2)],['lipHeight','上端の段差の高さ',1.2,Math.min(12,h-1.2)]])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+' は '+min+'〜'+max+' mmで指定してください');
+ if(s.fitHolder&&s.holderLip&&s.lipInset<=s.holderGap+1e-5)throw Error('ホルダーの縁に掛かるよう、段差の出幅を片側すき間より大きくしてください');
  if(s.fingerTab)for(const [key,label,min,max]of [['tabWidth','くちばしの幅',4.8,r*1.5],['tabReach','くちばしの出幅',2,20]])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+' は '+min+'〜'+max+' mmで指定してください');
  const pin=s.pinDiameter/2,barrel=pin+s.radialGap+s.hingeWall,width=s.hingeWidth,end=width*.25,first=-width/2,last=width/2,middleStart=first+end+s.axialGap,middleEnd=last-end-s.axialGap;
  if(h<barrel+1.2)throw Error('ヒンジを付けるには本体の高さが不足しています');
@@ -50,7 +55,8 @@ export function makeCylinderHinge(base,p,onProgress=()=>{}){
  let body,lid;const parts=[];
  try{
   onProgress({stage:'円柱の開口と一体ヒンジを作成しています…'});
-  body=orient(base.clone().translate(info.origin.map(x=>-x)),info.axis,true);
+  // Explicit holder sizing rebuilds the uniform outer cylinder, allowing either a smaller or larger bore.
+  body=s.fitHolder?R.makeCylinder(r,h):orient(base.clone().translate(info.origin.map(x=>-x)),info.axis,true);
   if(s.azimuth)body=body.rotate(-s.azimuth,[0,0,0],[0,0,1]);
   // Existing cups/tubes retain their cavity and bottom. Only a top cap is opened.
   body=cut(body,R.makeCylinder(innerRadius,h+2,[0,0,s.openBottom?-1:info.hollow?info.innerTop:s.floor]));
@@ -83,7 +89,12 @@ export function makeCylinderHinge(base,p,onProgress=()=>{}){
    if(s.azimuth){body=body.rotate(s.azimuth,[0,0,0],[0,0,1]);lid=lid.rotate(s.azimuth,[0,0,0],[0,0,1]);}
    body=orient(body,info.axis).translate(info.origin);lid=orient(lid,info.axis).translate(info.origin);
   }
+  let printBounds=null;
+  if(s.pose==='print'){
+   const boxes=[body.boundingBox,lid.boundingBox];
+   try{const min=[0,1,2].map(i=>Math.min(...boxes.map(b=>b.bounds[0][i]))),max=[0,1,2].map(i=>Math.max(...boxes.map(b=>b.bounds[1][i]))),width=max[0]-min[0],depth=max[1]-min[1];printBounds={min,max,width,depth,plateSize:180,fits:width<=180+1e-5&&depth<=180+1e-5};}finally{boxes.forEach(b=>b.delete());}
+  }
   parts.push(body,lid);body=lid=null;
-  return {parts,analysis:{...info,wall:remainingWall,innerRadius,autoHollow:!info.hollow,openBottom:s.openBottom,holderLip:s.holderLip,lipInset:s.holderLip?s.lipInset:0,lipHeight:s.holderLip?s.lipHeight:0,mouthRadius:innerRadius-(s.holderLip?s.lipInset:0),fingerTab:s.fingerTab,tabWidth:s.fingerTab?s.tabWidth:0,tabReach:s.fingerTab?s.tabReach:0,hinge,angle,radialGap:s.radialGap,axialGap:s.axialGap,pinDiameter:s.pinDiameter,captive:true,motion,pose:s.pose,supportRequired:s.pose==='print'}};
+  return {parts,analysis:{...info,wall:remainingWall,innerRadius,autoHollow:!info.hollow,fitHolder:s.fitHolder,holderDiameter:s.fitHolder?s.holderDiameter:null,holderGap:s.fitHolder?s.holderGap:null,holderSeatHeight:s.holderLip?h-s.lipHeight:null,holderOverlap:s.fitHolder&&s.holderLip?s.lipInset-s.holderGap:0,printBounds,openBottom:s.openBottom,holderLip:s.holderLip,lipInset:s.holderLip?s.lipInset:0,lipHeight:s.holderLip?s.lipHeight:0,mouthRadius:innerRadius-(s.holderLip?s.lipInset:0),fingerTab:s.fingerTab,tabWidth:s.fingerTab?s.tabWidth:0,tabReach:s.fingerTab?s.tabReach:0,hinge,angle,radialGap:s.radialGap,axialGap:s.axialGap,pinDiameter:s.pinDiameter,captive:true,motion,pose:s.pose,supportRequired:s.pose==='print'}};
  }catch(e){parts.forEach(s=>s.delete());throw e;}finally{body?.delete();lid?.delete();}
 }
