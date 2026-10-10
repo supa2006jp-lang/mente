@@ -6,11 +6,24 @@ import {defaults,validateProject} from '../src/geometry.js';
 import {runOperation} from '../src/kernel.js';
 import {ballJointDefaults,ballJointSettings} from '../src/ball-joint-settings.js';
 import {ballJointMountBase} from '../src/ball-joint-mount.js';
+import {metricThreadPitches,defaultMetricThreadPitch} from '../src/metric-thread-pitches.js';
+import {ballJointMountPitches} from '../src/ball-joint-settings.js';
 import {solidMeshComplete} from '../src/solid-mesh.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const info={radius:12,height:40},p={...ballJointDefaults(info),printSafe:false,threadPitch:1.8,mountThread:true,mountLength:4,mountPitch:1.5},s=ballJointSettings(info,p);
 const volume=shape=>Math.abs(R.measureVolume(shape));
 function check(shape){const analyzer=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false),solids=shape.solids;try{assert.ok(analyzer.IsValid());assert.equal(solids.length,1);assert.ok(solidMeshComplete(shape));}finally{analyzer.delete();solids.forEach(x=>x.delete());}}
+assert.deepEqual(ballJointMountPitches,metricThreadPitches,'same pitch catalog as normal thread command');
+for(const diameter of [4,6,10,16,24,30,40]){
+ const defaults=ballJointDefaults({radius:diameter/2,height:80});
+ assert.equal(defaults.mountPitch,defaultMetricThreadPitch(diameter));
+}
+const roomy={radius:12,height:60},roomyDefaults=ballJointDefaults(roomy);
+assert.equal(roomyDefaults.mountPitch,3);
+assert.equal(roomyDefaults.mountLength,6.2);
+assert.equal(ballJointSettings(roomy,{...roomyDefaults,mountThread:true}).mountPitch,3);
+assert.equal(ballJointDefaults(info).mountPitch,3,'short base never silently substitutes a different pitch');
+assert.throws(()=>ballJointSettings(info,{...ballJointDefaults(info),mountThread:true}),/6.2 mm以上/);
 assert.equal(ballJointSettings(info,{}).mountThread,false,'old saves leave the bases unchanged');
 assert.equal(s.mountingThreads.length,2);
 for(const role of ['ball','socket']){

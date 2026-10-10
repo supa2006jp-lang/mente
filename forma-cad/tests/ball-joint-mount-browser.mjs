@@ -35,7 +35,7 @@ try{
 
  const cylinder={...defaults,id:'cylinder',kind:'extrusion',name:'円柱',profile:'circle',diameter:24,depth:40};
  await load([cylinder]);await page.locator('#ball-joint-tool').click();await ready();
- assert.equal(await page.locator('#ball-joint-mountThread').isChecked(),false);assert.ok(await page.locator('#ball-joint-mountLength').isDisabled());assert.equal((await analysis()).mountingThreads.length,0);
+ assert.equal(await page.locator('#ball-joint-mountPitch').inputValue(),'3');assert.match(await page.locator('#ball-joint-mount-pitch-info').textContent(),/M24 × 3 mm/);assert.match(await page.locator('#ball-joint-mount-pitch-info').textContent(),/6.2 mm以上/);assert.equal(await page.locator('#ball-joint-mountThread').isChecked(),false);assert.ok(await page.locator('#ball-joint-mountLength').isDisabled());assert.equal((await analysis()).mountingThreads.length,0);
  await page.locator('#ball-joint-printSafe').uncheck();await page.locator('#ball-joint-mountThread').check();await page.locator('#ball-joint-mountLength').fill('4');await page.locator('#ball-joint-mountPitch').selectOption('1.5');await ready();let a=await analysis();assert.equal(a.mountingThreads.length,2);assert.equal(a.mountingThreads[0].pitch,1.5);assert.equal(await page.locator('#ball-joint-mountPitch').evaluate(el=>el.tagName),'SELECT');assert.equal(a.mountingThreads[0].actualDiameter,23.7);assert.ok(a.overlap.every(v=>v<1e-5));
  await page.locator('#ball-joint-mountThread').scrollIntoViewIfNeeded();await page.screenshot({path:'.sites-runtime/ball-joint-mount-controls.png'});
  await page.locator('#ball-joint-mountSide').selectOption('ball');await ready();assert.deepEqual((await analysis()).mountingThreads.map(t=>t.role),['ball']);
@@ -50,5 +50,9 @@ try{
  // Re-edit a legacy feature whose spec has none of the new fields.
  const legacy=structuredClone(saved.features);for(const key of ['mountThread','mountSide','mountPitch','mountLength','mountClearance'])delete legacy.at(-1).spec[key];await load(legacy);await page.locator('#bodies [data-ball-joint-id]').first().click();await ready();assert.equal(await page.locator('#ball-joint-mountThread').isChecked(),false);assert.equal((await analysis()).mountingThreads.length,0);await close();
  await load([cylinder]);await page.setViewportSize({width:1280,height:900});await page.locator('#advanced-tools').click();await page.locator('#cad-command').selectOption('ballJoint');await ready();await page.locator('#ball-joint-mountThread').check();await close();await page.waitForTimeout(500);assert.equal(await page.locator('[data-ball-joint]').count(),0);assert.equal((await save()).features.length,1);assert.deepEqual(errors,[]);
- console.log('PASS mounting thread optional/targets, nominal diameter and gap, invalid recovery, save/reload/reedit, undo/redo, cancellation, legacy opt-out and small viewport');await context.close();
+ const mountingOptions=await page.locator('#ball-joint-mountPitch option').evaluateAll(items=>items.map(o=>o.value));
+ await page.evaluate(async()=>{const {renderThreadDialog}=await import('/mente/forma-cad/src/thread-dialog.js');renderThreadDialog({radius:12,internal:true});});
+ assert.equal(await page.locator('#thread-designation').inputValue(),'3');
+ assert.deepEqual(await page.locator('#thread-designation option').evaluateAll(items=>items.map(o=>o.value)),mountingOptions);
+ console.log('PASS common normal/mount pitch defaults and options, explicit length requirements; mounting thread optional/targets, nominal diameter and gap, invalid recovery, save/reload/reedit, undo/redo, cancellation, legacy opt-out and small viewport');await context.close();
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

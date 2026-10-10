@@ -1,14 +1,14 @@
+import {metricThreadPitchOptions,defaultMetricThreadPitch} from './metric-thread-pitches.js';
 import {rememberedDistance,rememberDistance} from './thread-pull-preference.js';
 import {allThreadPullSpec} from './thread-pull-spec.js';
 const $=id=>document.getElementById(id);
-const pitches=[.25,.35,.4,.5,.7,.75,.8,1,1.25,1.5,1.75,2,2.5,3,3.5,4,5,6];
 export function renderThreadDialog(surface){
  const diameter=surface?.radius?Number((surface.radius*2).toFixed(4)):0;
- const pitch=diameter<=4?.7:diameter<=6?1:diameter<=10?1.5:diameter<=16?2:diameter<=24?3:4;
+ const pitch=defaultMetricThreadPitch(diameter);
  $('cad-fields').innerHTML='<div class="thread-settings"><label>面<output id="thread-face"></output></label><label>モデル化<output>常に実行</output></label><label>全体の長さ<input id="thread-full" type="checkbox" checked></label><label>オフセット (mm)<input id="thread-offset" type="number" value="0" min="0" step="any" disabled></label><label>長さ (mm)<input id="thread-length" type="number" value="10" min="0.1" step="any" disabled></label><label>ねじのタイプ<select id="thread-type"><option>メートルねじ（60°・簡易形状）</option></select></label><label>サイズ<output id="thread-size"></output></label><label>表示記号<select id="thread-designation"></select></label><label>クラス<output>基本形状 / 公差指定なし</output></label><label>方向<select id="thread-direction"><option value="right">右手</option><option value="left">左手</option></select></label><p>オフセットは、面をクリックした位置に近い端から内側へ測ります。そこから指定した長さのねじを作ります。「全体の長さ」ではオフセットは0です。</p><p>サイズは共通の呼び径です。オネジは指定径の円柱から溝を削り、最大外径を保ちます。メネジは同径の穴の内側に対応する山を作ります。同じ径・ピッチ・方向で組み合わせ、必要な余裕はプルで調整してください。規格公差には未対応です。</p></div>';
  $('thread-face').textContent=surface?'1 選択済み'+(surface.internal?'（穴の内壁）':'（円柱側面）'):'未選択：先に円筒面を選択してください';
  $('thread-size').textContent=diameter?diameter+' mm':surface?'円筒面から自動判定':'面を選択';
- for(const p of pitches.filter(p=>p<Math.max(diameter/2,1)))$('thread-designation').add(new Option((diameter?'M'+diameter:'選択径')+' × '+p,String(p)));
+ for(const p of metricThreadPitchOptions(diameter))$('thread-designation').add(new Option((diameter?'M'+diameter:'選択径')+' × '+p,String(p)));
  $('thread-designation').value=String(pitch);
  if($('thread-designation').selectedIndex<0)$('thread-designation').selectedIndex=0;
  $('thread-full').onchange=()=>{for(const id of ['thread-offset','thread-length'])$(id).disabled=$('thread-full').checked;};

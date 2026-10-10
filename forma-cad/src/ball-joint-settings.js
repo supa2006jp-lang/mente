@@ -1,3 +1,4 @@
+import {metricThreadPitches,defaultMetricThreadPitch} from './metric-thread-pitches.js';
 import {ballJointThreadDimensions} from './ball-joint-thread.js';
 const round=v=>Number(v.toFixed(3));
 export const ballJointFixSizes=[[3,.5],[4,.7],[5,.8],[6,1],[8,1.25],[10,1.5],[12,1.75],[16,2]];
@@ -13,7 +14,7 @@ export function ballJointFixChamferDimensions(diameter,pitch,size){
  const wallRadius=diameter/2+.2,endRadius=diameter/2-.6*pitch;
  return {entryRadius:wallRadius+size,endRadius,leadDepth:wallRadius+size-endRadius};
 }
-export const ballJointMountPitches=[.7,.75,.8,1,1.25,1.5,1.75,2,2.5,3,3.5,4,5];
+export const ballJointMountPitches=metricThreadPitches;
 function dimensions(s){
  const r=s.ballDiameter/2,core=r+s.clearance+s.wall,mouthRadius=r*.94,mouth=s.splitPosition-Math.sqrt((r+s.clearance)**2-mouthRadius**2),coneEnd=s.splitPosition+r*.15,root=s.splitPosition+r+s.wall,lowerEnd=s.splitPosition-r-s.neckLength,coneDepth=Math.min(1.2,s.wall*.5,core-mouthRadius-1.2),coneHeight=coneEnd-mouth,contactTravel=s.coneClearance*coneHeight/coneDepth,effectiveBallClearance=s.clearance-s.socketInset,clampingTravel=(s.coneClearance+effectiveBallClearance)*coneHeight/coneDepth;
  // Keep the ball/socket and helical thread phase identical to the original joint.
@@ -25,8 +26,8 @@ export function ballJointDefaults(info){
  const radius=Math.min(info.radius*.65,info.height*.18),wall=Math.max(1.8,round(radius*.3));
  const s={splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,neckExtension:0,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
  s.threadPitch=ballJointThreadDimensions(s).minPitch;
- const d=dimensions(s),mountLength=Math.max(1,Math.floor(Math.min(6,d.lowerEnd-1.2,info.height-d.socketTop-1.2)*10)/10);
- return {...s,...ballJointFixSettings({fixDiameter:6,fixPitch:1,fixDepth:Math.max(.1,mountLength),fixChamfer:false,fixChamferSize:.3}),mountPitch:ballJointMountPitches.filter(p=>p<=Math.min(1.5,mountLength/2.5)).at(-1)||.7,mountLength};
+ const d=dimensions(s),mountPitch=defaultMetricThreadPitch(info.radius*2),mountLength=Math.max(1,Math.floor(Math.min(Math.max(6,2*mountPitch+.2),d.lowerEnd-1.2,info.height-d.socketTop-1.2)*10)/10);
+ return {...s,...ballJointFixSettings({fixDiameter:6,fixPitch:1,fixDepth:Math.max(.1,Math.min(6,mountLength)),fixChamfer:false,fixChamferSize:.3}),mountPitch,mountLength};
 }
 export function ballJointSettings(info,p){
  const defaults=ballJointDefaults(info),s={...defaults,...p,...ballJointFixSettings(p,defaults),printSafe:p.printSafe??false};
@@ -37,7 +38,7 @@ export function ballJointSettings(info,p){
  if(![4,6].includes(s.slotCount))throw Error('切り込みの数は4・6本から選択してください');if(!['print','assembled','exploded'].includes(s.pose))throw Error('配置を選択してください');
  if(typeof s.mountThread!=='boolean')throw Error('取付ねじの設定を確認してください');
  if(!['ball','socket','both'].includes(s.mountSide))throw Error('取付ねじを付ける土台を選択してください');
- if(s.mountThread)for(const [key,min,max,label]of [['mountPitch',.6,5,'取付ねじピッチ'],['mountLength',1,100,'取付ねじの長さ'],['mountClearance',0,.6,'取付ねじの片側すき間']])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+'を '+min+'〜'+max+' mmで指定してください');
+ if(s.mountThread)for(const [key,min,max,label]of [['mountPitch',.25,6,'取付ねじピッチ'],['mountLength',1,100,'取付ねじの長さ'],['mountClearance',0,.6,'取付ねじの片側すき間']])if(!Number.isFinite(s[key])||s[key]<min||s[key]>max)throw Error(label+'を '+min+'〜'+max+' mmで指定してください');
  if(typeof s.fixHole!=='boolean')throw Error('固定用ねじ穴の設定を確認してください');
  if(!['ball','socket','both'].includes(s.fixSide))throw Error('固定用ねじ穴を付ける側を選択してください');
  if(typeof s.printSafe!=='boolean'||![.4,.6,.8].includes(s.threadNozzle))throw Error('印刷向けねじの設定を確認してください');
@@ -55,7 +56,7 @@ export function ballJointSettings(info,p){
  const mountingThreads=[];
  if(s.mountThread){
   if(!ballJointMountPitches.includes(s.mountPitch)||s.mountPitch>=info.radius)throw Error('取付ねじピッチは一覧から、土台の半径より小さい値を選んでください');
-  if(s.mountLength<2*s.mountPitch+.2)throw Error('取付ねじは2巻き以上必要です。長さを増やすかピッチを小さくしてください');
+  if(s.mountLength<2*s.mountPitch+.2)throw Error('取付ねじは2巻き以上必要です。ピッチ '+s.mountPitch+' mmでは長さ '+round(2*s.mountPitch+.2)+' mm以上を確保してください。土台が短い場合は球径・分割位置を調整するか、相手のねじと両方のピッチを小さくしてください');
   if(s.mountLength/s.mountPitch>20)throw Error('取付ねじは20巻き以内にしてください');
   const rootRadius=info.radius-s.mountClearance-s.mountPitch*.561266;
   if(rootRadius<1.2)throw Error('土台径に対して取付ねじのピッチ・すき間が大きすぎます');
