@@ -4,6 +4,7 @@ export function createProjectFileTarget({host=globalThis}={}){
  return {
   attach(next=null){handle=next;revision++;},
   get busy(){return busy;},
+  get hasTarget(){return handle!==null;},
   async save(createData,{suggestedName='design.forma.json'}={}){
    if(busy)return null;
    if(!handle&&typeof host.showSaveFilePicker!=='function')throw Error('このブラウザーでは直接上書きできません。Chrome / Edgeで開くか「名前を付けて保存」を使ってください。');

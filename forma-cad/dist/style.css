@@ -323,3 +323,19 @@
 
 /* Keep file actions reachable as filenames and save labels grow. */
 header .filename{min-width:0;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}header .file-actions{min-width:0;overflow-x:auto;scrollbar-width:thin}header .file-actions button{flex-shrink:0;white-space:nowrap}
+
+/* File name and explicit save state stay visible independently of command buttons. */
+body>header{height:auto;min-height:62px;padding-top:8px;padding-bottom:8px;gap:20px}
+.project-file-info{flex:1;min-width:330px;max-width:490px;display:flex;flex-direction:column;gap:5px}
+header .project-file-info .filename{display:flex;align-items:center;max-width:none;flex:none;overflow:hidden}
+header .filename #project-file-name{color:inherit;margin-left:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+header .filename #dirty{flex-shrink:0}
+#project-save-status{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:11px;line-height:1.4}
+#project-save-status>span,#project-save-status>time{white-space:nowrap;padding:2px 6px;border-radius:4px;border:1px solid #3d5061;color:#c0ccd6;background:#20303e}
+#project-save-state[data-state="unsaved"],#project-save-target[data-configured="false"]{color:#ffda89;background:#3a3020;border-color:#68512b}
+#project-save-state[data-state="saved"],#project-save-target[data-configured="true"]{color:#8ce5bb;background:#163a2d;border-color:#2d6850}
+#project-save-state[data-state="saving"],#project-save-state[data-state="downloaded"]{color:#a6e1ff;background:#153749;border-color:#32647d}
+#project-save-state[data-state="error"]{color:#ffc0b8;background:#482b2b;border-color:#8c4a45}
+#project-save-status>time{color:#a9bac9;background:transparent;border-color:transparent;padding-left:0}
+@media(max-width:1400px){body>header{flex-wrap:wrap;gap:8px 16px}header .project-file-info{min-width:0;max-width:none}header .file-actions{flex:1 0 100%;width:100%;margin-left:0}}
+@media(max-width:600px){body>header{gap:8px}body>header .brand{flex-shrink:0}.project-file-info{flex:1 0 100%}}
