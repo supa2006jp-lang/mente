@@ -49,5 +49,11 @@ export function sketchLine(geometry,{color=0x245d99,depthTest=true,order=4,segme
 }
 export function updateSketchLine(line,geometry){
  line.geometry.dispose();line.geometry=geometry;
- for(const child of line.children)if(child.userData.sketchStroke)child.geometry.setPositions(Array.from(geometry.attributes.position.array));
+ const positions=Array.from(geometry.attributes.position.array);
+ for(const child of line.children)if(child.userData.sketchStroke){
+  // The renderer caches the first instanced vertex count. Replacing the stroke
+  // geometry lets growing previews draw every segment and frees old GPU buffers.
+  const next=child.geometry.isLineGeometry?new LineGeometry():new LineSegmentsGeometry();
+  next.setPositions(positions);child.geometry.dispose();child.geometry=next;
+ }
 }
