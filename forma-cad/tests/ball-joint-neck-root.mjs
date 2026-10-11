@@ -12,17 +12,12 @@ import {ballJointNeck,placeBallJointBase} from '../src/ball-joint-neck.js';
 import {ballJointNeckRootDimensions} from '../src/ball-joint-neck-root.js';
 import {ballJointMountBase} from '../src/ball-joint-mount.js';
 import {ballJointFixHole} from '../src/ball-joint-fix-hole.js';
-import {fuseSolid} from '../src/solid-fuse.js';
 import {solidMeshComplete} from '../src/solid-mesh.js';
 import {cleanBinaryStl} from '../src/clean-stl.js';
 import {binaryStlReport} from './stl-topology.mjs';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const volume=s=>Math.abs(R.measureVolume(s));
 function stl(output){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(output.vertices,3));g.setIndex(output.triangles);const mesh=new THREE.Mesh(g);mesh.updateMatrixWorld(true);try{return cleanBinaryStl(new STLExporter().parse(mesh,{binary:true}));}finally{g.dispose();mesh.material.dispose();}}
-function boundaryEdges(data){
- const edges=new Map();for(let i=0;i<data.getUint32(80,true);i++){const p=Array.from({length:3},(_,j)=>Array.from({length:3},(_,k)=>data.getFloat32(96+i*50+j*12+k*4,true)).join(','));for(let j=0;j<3;j++){const key=[p[j],p[(j+1)%3]].sort().join('|');edges.set(key,(edges.get(key)||0)+1);}}
- return [...edges.entries()].filter(([,n])=>n===1).map(([k])=>k).sort();
-}
 
 const source={...defaults,id:'c',name:'円柱',kind:'extrusion',profile:'circle',diameter:24,depth:40};
 const cases=[
@@ -57,14 +52,7 @@ for(const {name,height=40,extra} of cases.filter(c=>!process.env.FORMA_ROOT_CASE
    try{assert.ok(check.IsValid());assert.equal(solids.length,1);assert.ok(solidMeshComplete(shape));}finally{check.delete();solids.forEach(x=>x.delete());}
    const data=stl(output),report=binaryStlReport(data);
    for(const k of ['degenerate','nonmanifold','orientation'])assert.equal(report[k],0,name+' '+result.analysis.roles[outputIndex]+' STL '+k);
-   if(name==='threaded base and fixing hole'&&outputIndex===0){
-    // The pre-existing mounting-thread face has mismatched tessellation edges.
-    // Compare their exact coordinates to the original, unreinforced part:
-    // reinforcement must neither add nor move these unrelated boundaries.
-    const original=hold(ballJointFixHole(hold(fuseSolid(hold(fuseSolid(base,bare)),sphere)),height,s,'ball'));
-    assert.deepEqual(boundaryEdges(data),boundaryEdges(stl(original.mesh({tolerance:.08,angularTolerance:.15}))),'existing mounting-thread boundaries stay unchanged');
-    console.log('PASS existing threaded-base STL boundaries unchanged',report.boundary);
-   }else assert.equal(report.boundary,0,name+' '+result.analysis.roles[outputIndex]+' STL boundary');
+   assert.equal(report.boundary,0,name+' '+result.analysis.roles[outputIndex]+' STL boundary');
   }
   const feature={kind:'cadop',id:'joint',name:'根元を補強したボール接合',spec:p,...result},history=[src,feature];validateProject({format:'forma-cad',version:1,features:history});
   if(name==='straight'){
@@ -74,4 +62,4 @@ for(const {name,height=40,extra} of cases.filter(c=>!process.env.FORMA_ROOT_CASE
   console.log('PASS root reinforcement',{name,width:d.width,height:d.height,addedVolume:volume(added)});
  }finally{owned.reverse().forEach(x=>x.delete());}
 }
-console.log('PASS material added only at the solid root, larger contact section, valid single solids, closed STL on plain bases, unchanged legacy threaded-base boundaries, no joint interference and saved replay');
+console.log('PASS material added only at the solid root, larger contact section, valid single solids, closed STL including threaded bases, no joint interference and saved replay');

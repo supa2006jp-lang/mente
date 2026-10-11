@@ -22,8 +22,11 @@ export function ballJointMountBase(radius,height,s,role){
   const swept=hold(R.genericSweep(wire,path,{frenet:true}).rotate(180,[0,0,0],[0,0,1]));
   const clip=hold(R.makeCylinder(major+.01,length-.0002,[0,0,.0001])),teeth=hold(swept.intersect(clip));
   base=hold(fuseSolid(base,teeth));
-  // A lead-in removes only the first thread crest and keeps the original end plane.
-  const envelope=hold(R.draw([0,0]).lineTo([root+.05,0]).lineTo([major,lead]).lineTo([radius,lead]).lineTo([radius,height]).lineTo([0,height]).close().sketchOnPlane(new R.Plane([0,0,0],[1,0,0],[0,-1,0])).revolve([0,0,1]));
+  // Continue the lead-in cone beyond the tooth crest. A horizontal ledge at
+  // exactly the crest radius creates tangent sliver faces with mismatched
+  // tessellation edges. This has the same cutting profile within the thread
+  // radius, without that ledge; pitch, fit and the end plane stay unchanged.
+  const envelope=hold(R.draw([0,0]).lineTo([root+.05,0]).lineTo([radius,lead*(radius-root-.05)/(major-root-.05)]).lineTo([radius,height]).lineTo([0,height]).close().sketchOnPlane(new R.Plane([0,0,0],[1,0,0],[0,-1,0])).revolve([0,0,1]));
   base=hold(base.intersect(envelope));
   if(role==='socket')base=hold(hold(base.rotate(180,[0,0,0],[1,0,0])).translate([0,0,height]));
   return base.clone();
