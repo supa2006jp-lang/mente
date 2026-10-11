@@ -4,16 +4,17 @@ import * as THREE from 'three';
 export function splineEndpoint(feature,end){
  const ps=feature.points,i=end==='start'?0:ps.length-1,p=ps[i],q=ps[end==='start'?1:i-1];
  const dx=end==='start'?q[0]-p[0]:p[0]-q[0],dy=end==='start'?q[1]-p[1]:p[1]-q[1];
- return {point:p,angle:feature.tangents?.[end]??Math.atan2(dy,dx)*180/Math.PI,length:Math.hypot(dx,dy)};
+ const length=Math.hypot(dx,dy);
+ return {point:p,angle:feature.tangents?.[end]??Math.atan2(dy,dx)*180/Math.PI,length,handleLength:feature.tangentLengths?.[end]??length/3};
 }
 export function splineCurve(feature){
  const base=new THREE.CatmullRomCurve3(feature.points.map(p=>new THREE.Vector3(...p,0)),!!feature.closed,'centripetal');
- if(feature.closed||!['start','end'].some(k=>Number.isFinite(feature.tangents?.[k])))return base;
+ if(feature.closed||!['start','end'].some(k=>Number.isFinite(feature.tangents?.[k])||Number.isFinite(feature.tangentLengths?.[k])))return base;
  const intervals=feature.points.length-1,deltas={};
- for(const end of ['start','end'])if(Number.isFinite(feature.tangents?.[end])){
-  const {angle,length}=splineEndpoint(feature,end),a=angle*Math.PI/180;
+ for(const end of ['start','end'])if(Number.isFinite(feature.tangents?.[end])||Number.isFinite(feature.tangentLengths?.[end])){
+  const {angle,handleLength}=splineEndpoint(feature,end),a=angle*Math.PI/180;
   const p=feature.points,q=end==='start'?new THREE.Vector3(p[1][0]-p[0][0],p[1][1]-p[0][1],0):new THREE.Vector3(p.at(-1)[0]-p.at(-2)[0],p.at(-1)[1]-p.at(-2)[1],0);
-  deltas[end]=new THREE.Vector3(Math.cos(a)*length,Math.sin(a)*length,0).sub(q);
+  deltas[end]=new THREE.Vector3(Math.cos(a)*handleLength*3,Math.sin(a)*handleLength*3,0).sub(q);
  }
  const curve=new THREE.Curve();
  curve.getPoint=(t,target=new THREE.Vector3())=>{
