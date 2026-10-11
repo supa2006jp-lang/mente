@@ -1,3 +1,4 @@
+import {splineSamples} from './spline-curve.js';
 import {taperGeometry} from './taper.js';
 import {basisFor,frameMatrix,validateFrame} from './frames.js';
 import * as THREE from 'three';
@@ -9,7 +10,7 @@ export function pointInRing(p,ring){let inside=false;for(let i=0,j=ring.length-1
 export function regionContains(r,p){return pointInRing(p,r.outer)&&!r.holes.some(h=>pointInRing(p,h));}
 export function planeCoordinates(f){if(f.frame){const b=basisFor(f),p=new THREE.Vector3(f.x,f.y,f.z);return {u:p.dot(b.u),v:p.dot(b.v),offset:p.dot(b.n)};}return f.plane==='XY'?{u:f.x,v:f.y,offset:f.z}:f.plane==='XZ'?{u:f.x,v:-f.z,offset:f.y}:{u:-f.z,v:f.y,offset:f.x};}
 export function sketchPoints(f){if(f.profile==='point'){const o=planeCoordinates(f);return [[o.u,o.v]];}
- const local=[];if(f.profile==='polyline'){const points=f.points.map(p=>[...p]);if(f.closed)points.push([...points[0]]);return points;}if(f.profile==='spline'){const curve=new THREE.CatmullRomCurve3(f.points.map(p=>new THREE.Vector3(...p,0)),!!f.closed,'centripetal');return curve.getPoints(Math.max(32,f.points.length*16)).map(p=>[p.x,p.y]);}if(f.profile==='line')local.push([-f.width/2,0],[f.width/2,0]);
+ const local=[];if(f.profile==='polyline'){const points=f.points.map(p=>[...p]);if(f.closed)points.push([...points[0]]);return points;}if(f.profile==='spline')return splineSamples(f);if(f.profile==='line')local.push([-f.width/2,0],[f.width/2,0]);
  else if(f.profile==='rect')local.push([-f.width/2,-f.height/2],[f.width/2,-f.height/2],[f.width/2,f.height/2],[-f.width/2,f.height/2],[-f.width/2,-f.height/2]);
  else if(f.profile==='circle')for(let i=0;i<=128;i++)local.push([Math.cos(i*Math.PI/64)*f.diameter/2,Math.sin(i*Math.PI/64)*f.diameter/2]);
  const a=f.angle*Math.PI/180,c=Math.cos(a),s=Math.sin(a),o=planeCoordinates(f);return local.map(([x,y])=>[o.u+x*c-y*s,o.v+x*s+y*c]);

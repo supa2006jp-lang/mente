@@ -1,11 +1,12 @@
 import * as THREE from 'three';
+import {splineCurve} from './spline-curve.js';
 
 // Locate the clicked segment in the same sampled curve used by the viewport.
 // Catmull-Rom parameters advance one interval per pair of fit points, including
 // the last-to-first interval of a closed curve.
 export function splinePointInsertion(feature,pointer,project,tolerance=9){
  const points=feature.points;if(points.length<2)return null;
- const curve=new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p,0)),!!feature.closed,'centripetal');
+ const curve=splineCurve(feature);
  const divisions=Math.max(32,points.length*16),intervals=points.length-(feature.closed?0:1);
  let previous=project(points[0]),best=null,distance=tolerance;
  for(let i=1;i<=divisions;i++){
