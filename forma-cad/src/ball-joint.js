@@ -39,7 +39,18 @@ export function makeBallJoint(source,p,onProgress){
  try{
   const key=JSON.stringify([info.radius,info.height,...Object.keys(ballJointDefaults(info)).filter(k=>k!=='pose').map(k=>s[k])]);
   if(cachedJoint?.key===key){outputs=place(cachedJoint.parts,info,s,hold,placements);return {parts:outputs,analysis:describe(info,s,cachedJoint.overlap,placements)};}
-  onProgress?.({stage:'球と首を作成しています'});if(s.mountThread)onProgress?.({stage:'土台側面の取付ねじを作成しています'});const lower=placeBallJointBase(hold(ballJointMountBase(info.radius,s.ballBaseHeight,s,'ball').translate([0,0,s.ballBaseStart])),s,hold),neck=ballJointNeck(s,hold),sphere=hold(R.makeSphere(s.r).translate([0,0,s.splitPosition]));let ball=hold(fuseSolid(hold(fuseSolid(lower,neck)),sphere));if(s.fixHole){onProgress?.({stage:'球側の固定用ねじ穴を作成しています'});ball=hold(ballJointFixHole(ball,info.height,s,'ball'));}valid(ball,'球側');
+  onProgress?.({stage:'球と首を作成しています'});
+  if(s.mountThread)onProgress?.({stage:'土台側面の取付ねじを作成しています'});
+  const lower=placeBallJointBase(hold(ballJointMountBase(info.radius,s.ballBaseHeight,s,'ball').translate([0,0,s.ballBaseStart])),s,hold);
+  // Fuse the sphere and bent rod in one canonical direction before turning.
+  // This avoids direction-dependent boolean failures at the sphere's pole,
+  // while preserving the mounting thread's original phase on the base.
+  const neck=ballJointNeck(s.neckBend?{...s,neckBendDirection:0}:s,hold,info.radius),sphere=hold(R.makeSphere(s.r).translate([0,0,s.splitPosition]));
+  let head=hold(fuseSolid(neck,sphere));
+  if(s.neckBend&&s.neckBendDirection)head=hold(head.rotate(s.neckBendDirection,[0,0,0],[0,0,1]));
+  let ball=hold(fuseSolid(lower,head));
+  if(s.fixHole){onProgress?.({stage:'球側の固定用ねじ穴を作成しています'});ball=hold(ballJointFixHole(ball,info.height,s,'ball'));}
+  valid(ball,'球側');
   const entryBottom=Math.min(-1,s.mouth-1),upper=hold(ballJointMountBase(info.radius,s.socketBaseHeight,s,'socket').translate([0,0,s.socketTop])),outer=hold(radialSolid([[0,s.mouth],[s.core-s.coneDepth,s.mouth],[s.core,s.coneEnd],[s.core,s.socketTop+.2],[0,s.socketTop+.2]])),cavity=hold(R.makeSphere(s.r+s.effectiveBallClearance).translate([0,0,s.splitPosition])),entry=hold(R.makeCylinder(s.mouthRadius,s.mouth-entryBottom,[0,0,entryBottom]));let socket=hold(hold(fuseSolid(upper,outer)).cut(cavity));socket=hold(socket.cut(entry));
   onProgress?.({stage:'受けのねじ山を作成しています'});const socketBefore=R.measureVolume(socket);socket=hold(fuseSolid(socket,ridge(s,0,hold)));if(!(R.measureVolume(socket)>socketBefore+1e-4))throw Error('受けにねじ山を作成できませんでした。寸法を変更してください');
   for(let i=0;i<s.slotCount;i++){const tool=hold(R.makeBox([0,-s.slotWidth/2,s.mouth-.1],[s.core+s.depth+1,s.slotWidth/2,s.root-s.wall*.65]).rotate(i*360/s.slotCount,[0,0,0],[0,0,1]));socket=hold(socket.cut(tool));}if(s.fixHole){onProgress?.({stage:'受け側の固定用ねじ穴を作成しています'});socket=hold(ballJointFixHole(socket,info.height,s,'socket'));}valid(socket,'切り込み付き受け');
