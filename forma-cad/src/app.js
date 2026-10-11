@@ -468,6 +468,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(splineEditor?.closeMenu())return;
  if(splineEditor?.cancelDrag())return;
  if(bossJointController?.cancelDrag())return;
  if($('solid-face-menu')){closeSolidFaceMenu(true);return;}
@@ -537,7 +538,7 @@ function snapToGrid(hit){
 function showSnap(hit,basis=sketchBasis){
  const kind=host.dataset.snapKind||'grid',labels={endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm';
 }
-function finishSketch(message=true){splineEditor?.cancelDrag();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
+function finishSketch(message=true){splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
 function stopLineDrawing(){if(stage!=='sketch'||$('profile').value!=='line')return false;$('cancel').click();$('status').textContent='線分の作図を終了しました。確定済みの線は残ります';return true;}
 $('end-sketch').onclick=()=>{if(!stopLineDrawing())finishSketch();};
 $('draw').onclick=()=>{const wasSketchStage=stage==='sketch',workingFace=pendingDrawingFace||sketchWorkingFace,previousZoom=camera.zoom;
@@ -623,7 +624,7 @@ function updateSplinePreview(hit=null){
  if(splinePreview){updateSketchLine(splinePreview,geometry);}
  else{splinePreview=sketchLine(geometry,{color:0x087ca5,depthTest:false,order:5});splinePreview.renderOrder=5;scene.add(splinePreview);}
 }
-renderer.domElement.addEventListener('pointermove',e=>{if(holeActive){if(e.buttons){holeHoverFace=null;$('snap-icon').hidden=true;$('snap-readout').hidden=true;return;}hoverHolePoint(e);return;}if(!sketch)return;if(arcDrag){updateArcDrag(e);return;}const hit=planePoint(e);if(hit){if($('profile').value==='spline'){lastDrawPoint=hit.clone();updateSplinePreview(hit);showSnap(hit);return;}if(firstPoint)previewEndpoint(hit);else showSnap(hit);}});
+renderer.domElement.addEventListener('pointermove',e=>{if(holeActive){if(e.buttons){holeHoverFace=null;$('snap-icon').hidden=true;$('snap-readout').hidden=true;return;}hoverHolePoint(e);return;}if(!sketch||splineEditor?.menuOpen)return;if(arcDrag){updateArcDrag(e);return;}const hit=planePoint(e);if(hit){if($('profile').value==='spline'){lastDrawPoint=hit.clone();updateSplinePreview(hit);showSnap(hit);return;}if(firstPoint)previewEndpoint(hit);else showSnap(hit);}});
 renderer.domElement.addEventListener('pointerleave',()=>{if(sketch||holeActive){$('snap-icon').hidden=true;$('snap-readout').hidden=true;if(holeActive)holeHoverFace=null;if(sketch&&$('profile').value==='spline')updateSplinePreview();}});
 let down=null;renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};startArcDrag(e);});
 renderer.domElement.addEventListener('pointerup',e=>{
@@ -1842,13 +1843,14 @@ function openSketchResumeMenu(event,f){
 }
 let sketchRightDown=null;
 function faceMenuPointerTarget(event){return event.target===renderer.domElement||!!event.target.closest?.('.center-marker');}
-document.addEventListener('pointerdown',e=>{if(e.button===2&&faceMenuPointerTarget(e))sketchRightDown={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,menuOpen:!!($('solid-face-menu')||$('sketch-group-menu'))};},{capture:true});
+document.addEventListener('pointerdown',e=>{if(e.button===2&&faceMenuPointerTarget(e)){sketchRightDown={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,menuOpen:!!($('solid-face-menu')||$('sketch-group-menu'))};if(sketch&&$('profile').value==='spline')updateSplinePreview();}},{capture:true});
 document.addEventListener('pointermove',e=>{if(e.pointerId===sketchRightDown?.id&&Math.hypot(e.clientX-sketchRightDown.x,e.clientY-sketchRightDown.y)>5)sketchRightDown.moved=true;},{capture:true});
 document.addEventListener('pointerup',e=>{
  if(e.button!==2||e.pointerId!==sketchRightDown?.id)return;
  const menuOpen=sketchRightDown.menuOpen,moved=sketchRightDown.moved||Math.hypot(e.clientX-sketchRightDown.x,e.clientY-sketchRightDown.y)>5;sketchRightDown=null;if(moved)return;
  e.preventDefault();
  if(menuOpen)return;
+ if(splineEditor?.openPointMenu(e))return;
  if(openGridCellMenu(e))return;
  if(canResumeSelectedSketch()){
   const f=selectedSketchAt(e);if(f){closeSolidFaceMenu();openSketchResumeMenu(e,f);return;}
@@ -2620,8 +2622,8 @@ async function commitSplineEdit(before){
  if(sketch)return;
  const id=selected,revision=toolCancelRevision,isCurrent=()=>selected===id&&stage==='sketch'&&revision===toolCancelRevision;
  splineEditBusy=true;
- try{await applyHistoryEdit({isCurrent});const f=features.find(f=>f.id===selected);if(f)showMeasurement(f);}
- catch(error){if(isCurrent()){splinePoints=clone(before.points);splineClosed=before.closed;draftTouched=before.touched;dropPreview();renderTree();$('error').textContent=appErrorMessage(error);$('status').textContent='変更できなかったため、元の曲線を保持しました';notify(appErrorMessage(error));}}
+ try{await applyHistoryEdit({isCurrent});const f=features.find(f=>f.id===selected);if(f)showMeasurement(f);return true;}
+ catch(error){if(isCurrent()){splinePoints=clone(before.points);splineClosed=before.closed;draftTouched=before.touched;dropPreview();renderTree();$('error').textContent=appErrorMessage(error);$('status').textContent='変更できなかったため、元の曲線を保持しました';notify(appErrorMessage(error));}return false;}
  finally{splineEditBusy=false;}
 }
 function undoSplinePoint(){
@@ -2641,7 +2643,7 @@ async function closeSpline(){
 }
 splineEditor=installSplineEditor({host,banner:$('sketch-banner'),sidebar:document.querySelector('.sketch-geometry-fields'),getState:splineEditorState,getControls:()=>controls,
  project:(point,state)=>{const f=state.feature;return screenPoint(worldPoint({...f,offset:planeCoordinates(f).offset},point));},
- onUndo:undoSplinePoint,onClose:closeSpline,onCommit:commitSplineEdit,
+ onUndo:undoSplinePoint,onClose:closeSpline,onCommit:commitSplineEdit,onInsert:insertion=>editSplinePoint({insertion}),onDelete:index=>editSplinePoint({index}),
  onRestore:before=>{splinePoints=clone(before.points);splineClosed=before.closed;draftTouched=before.touched;if(sketch)updateSplinePreview();else{dropPreview();renderTree();if(draftTouched)previewSplineEdit();}},
  onMove:(index,event)=>{
   const f=current(),basis=basisFor(f),offset=planeCoordinates(f).offset,r=renderer.domElement.getBoundingClientRect(),ray=new THREE.Raycaster(),hit=new THREE.Vector3();
@@ -2653,3 +2655,19 @@ splineEditor=installSplineEditor({host,banner:$('sketch-banner'),sidebar:documen
   splinePoints[index]=point;lastDrawPoint=null;previewSplineEdit();
  }
 });
+
+async function editSplinePoint({insertion,index}){
+ const state=splineEditorState();if(!state||state.busy||splineEditor?.dragging)return;
+ const before={points:clone(splinePoints),closed:splineClosed,touched:draftTouched};
+ if(insertion){
+  if(splinePoints.length>=200||!Number.isInteger(insertion.index)||insertion.index<1||insertion.index>splinePoints.length)return;
+  if(insertion.point.some(x=>!Number.isFinite(x)||Math.abs(x)>25000)||splinePoints.some(p=>Math.hypot(p[0]-insertion.point[0],p[1]-insertion.point[1])<1e-7))return;
+  splinePoints.splice(insertion.index,0,[...insertion.point]);
+ }else{
+  if(!Number.isInteger(index)||index<0||index>=splinePoints.length||!state.drawing&&splinePoints.length<=(splineClosed?3:2))return;
+  splinePoints.splice(index,1);
+ }
+ lastDrawPoint=null;previewSplineEdit();splineEditor.update();
+ const applied=state.drawing||await commitSplineEdit(before);
+ if(applied){splineEditor.update();notify(insertion?'曲線の途中にフィット点を追加しました':'選んだフィット点を削除しました');}
+}
