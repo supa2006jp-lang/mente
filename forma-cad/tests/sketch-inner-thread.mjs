@@ -1,0 +1,65 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import * as THREE from 'three';
+import * as R from 'replicad';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import {defaults,rebuild,validateProject} from '../src/geometry.js';
+import {findRegions,sketchPoints} from '../src/regions.js';
+import {basisFor,worldPoint} from '../src/frames.js';
+import {kernelBodies,runOperation} from '../src/kernel.js';
+import {cylindricalSelection} from '../src/cylindrical-selection.js';
+import {circularRing} from '../src/circular-ring.js';
+import {extrusionCircularWalls} from '../src/extrusion-circular-walls.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const circles=[30,16].map((diameter,i)=>({...defaults,kind:'sketch',id:'s'+i,name:'円',profile:'circle',diameter}));
+const region=findRegions(circles).find(r=>r.holes.length);
+const ring={...defaults,kind:'extrusion',id:'ring',name:'円筒',profile:'region',region,depth:8};
+const exact=runOperation(circles,{type:'extrusionBatch',features:[ring]}).features[0];
+await fs.writeFile('.sites-runtime/sketch-inner-thread-new.forma.json',JSON.stringify({format:'forma-cad',version:1,features:[...circles,exact]}));
+assert.equal(extrusionCircularWalls({...ring,mode:'thin',skipHoleWalls:true}).length,2,'omitted hole walls do not become selection candidates');
+const legacyWire=points=>{const edges=points.map((p,i)=>R.makeLine(worldPoint(region,p).toArray(),worldPoint(region,points[(i+1)%points.length]).toArray()));try{return R.assembleWire(edges);}finally{edges.forEach(e=>e.delete());}};
+const outer=legacyWire(region.outer),inner=legacyWire([...region.holes[0]].reverse()),face=R.makeFace(outer,[inner]),vector=new R.Vector([0,0,8]),legacyShape=R.basicFaceExtrusion(face,vector);
+const legacy={...ring,cadResult:{outputs:[{id:'ring',...legacyShape.mesh({tolerance:.08,angularTolerance:.15}),planarFaces:legacyShape.faces.map(f=>f.hashCode),brep:legacyShape.serialize()}],remove:[]}};
+await fs.writeFile('.sites-runtime/sketch-inner-thread-legacy.forma.json',JSON.stringify({format:'forma-cad',version:1,features:[...circles,legacy]}));
+const select=(features,id,origin,direction)=>{
+ const meshes=rebuild(features),mesh=meshes.get(id);mesh.updateMatrixWorld(true);
+ const hit=new THREE.Raycaster(origin,direction).intersectObject(mesh)[0];assert.ok(hit);
+ const surface=cylindricalSelection(features,id,mesh.geometry,hit.faceIndex,hit.point);
+ const capHit=new THREE.Raycaster(new THREE.Vector3(12,0,12),new THREE.Vector3(0,0,-1)).intersectObject(mesh)[0];
+ if(capHit)assert.equal(cylindricalSelection(features,id,mesh.geometry,capHit.faceIndex,capHit.point),null,'flat end must stay planar');
+ for(const mesh of meshes.values())mesh.geometry.dispose();return {surface,point:hit.point.toArray()};
+};
+for(const [name,f] of [['new',exact],['saved legacy',legacy]]){
+ const features=[...circles,f],{surface,point}=select(features,'ring',new THREE.Vector3(0,0,4),new THREE.Vector3(0,1,0));
+ assert.ok(surface?.internal,name+' inner wall must be cylindrical');assert.ok(Math.abs(surface.radius-8)<1e-5);assert.ok(surface.geometry.attributes.position.count>500);surface.geometry.dispose();
+ const bodies=kernelBodies(features),base=bodies.get('ring');
+ if(name==='new')assert.equal(base.faces.filter(f=>f.geomType==='CYLINDRE').length,2);
+ const spec={type:'thread',target:'ring',surfacePoint:point,pitch:2,profile:'metric60',threadVersion:2,fullLength:true};
+ const result=runOperation(features,spec),shape=R.deserializeShape(result.outputs[0].brep).asShape3D(),check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);
+ assert.ok(check.IsValid());check.delete();assert.ok(R.measureVolume(shape)>Math.PI*(225-64)*8+1,'internal thread adds inward ridges');
+ const solids=shape.solids;assert.equal(solids.length,1);solids.forEach(s=>s.delete());shape.delete();bodies.forEach(b=>b.delete());
+ validateProject({format:'forma-cad',version:1,features:[...features,{kind:'cadop',id:'thread',name:'ねじ',spec,...result}]});
+ console.log('PASS',name,'circle sketch wall selection, valid internal thread and saved output');
+}
+// Repair must replay later edits rather than discard them.
+const notch={...defaults,kind:'extrusion',id:'notch',name:'切り欠き',operation:'cut',target:'ring',x:14,width:4,height:5,depth:8};
+const notched=[...circles,legacy,...runOperation([...circles,legacy],{type:'extrusionBatch',features:[notch]}).features];
+const notchedThread=runOperation(notched,{type:'thread',target:'ring',surfacePoint:[0,8,4],pitch:2,profile:'metric60',threadVersion:2,fullLength:true});
+const repaired=R.deserializeShape(notchedThread.outputs[0].brep).asShape3D(),removed=R.makeBox([12,-2.5,0],[16,2.5,8]),overlap=repaired.intersect(removed);
+assert.ok(Math.abs(R.measureVolume(overlap))<1e-5,'later notch remains empty after legacy recovery');overlap.delete();removed.delete();repaired.delete();
+console.log('PASS legacy recovery retains later cuts');
+// Multiple hole boundaries on a custom plane, with negative extrusion.
+const frame={u:[1,0,0],v:[0,Math.SQRT1_2,Math.SQRT1_2],n:[0,-Math.SQRT1_2,Math.SQRT1_2]};
+const hole=x=>sketchPoints({...defaults,profile:'circle',diameter:10,x,y:0,z:0}).slice(0,-1);
+const r={plane:'CUSTOM',frame,offset:13,outer:[[-25,-15],[25,-15],[25,15],[-25,15]],holes:[hole(-12),hole(12)]};
+const f={...defaults,kind:'extrusion',id:'plate',name:'穴付き板',profile:'region',plane:'CUSTOM',frame,region:r,depth:-6};
+const bodies=kernelBodies([f]),base=bodies.get('plate');assert.equal(base.faces.filter(f=>f.geomType==='CYLINDRE').length,2);
+const b=basisFor(r),origin=worldPoint(r,[-12,0]).addScaledVector(b.n,-3),{surface,point}=select([f],'plate',origin,b.v);
+assert.ok(surface?.internal);assert.ok(Math.abs(surface.radius-5)<1e-7);surface.geometry.dispose();
+const result=runOperation([f],{type:'thread',target:'plate',surfacePoint:point,pitch:2,profile:'metric60',threadVersion:2,fullLength:true});
+const shape=R.deserializeShape(result.outputs[0].brep).asShape3D();assert.ok(R.measureVolume(shape)>R.measureVolume(base)+1);shape.delete();bodies.forEach(b=>b.delete());
+assert.equal(circularRing(Array.from({length:64},(_,i)=>[Math.cos(i*Math.PI/32)*10,Math.sin(i*Math.PI/32)*5])),null,'ellipse is not a circle');
+assert.equal(circularRing(region.outer.slice(0,60)),null,'partial arc is not a circle');
+assert.equal(circularRing([[0,0],[10,0],[10,10],[0,10]]),null,'rectangle is not a circle');
+vector.delete();face.delete();outer.delete();inner.delete();legacyShape.delete();
+console.log('PASS negative extrusion, custom plane, multiple holes and noncircular guards');
