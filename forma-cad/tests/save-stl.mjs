@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {saveStl} from '../src/save-stl.js';
 let generated=0,closed=false,aborted=false,written,options;
-const data=new DataView(new ArrayBuffer(134));data.setUint32(80,1,true);
+const data=new DataView(new ArrayBuffer(134));data.setUint32(80,1,true);data.setFloat32(108,1,true);data.setFloat32(124,1,true);
 const create=()=>{generated++;return data;};
 const unexpected=()=>assert.fail('Unexpected download');
 globalThis.window={showSaveFilePicker:async value=>{options=value;return {createWritable:async()=>({write:async value=>{written=value;},close:async()=>{closed=true;}})};}};
