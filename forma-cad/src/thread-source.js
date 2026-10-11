@@ -26,3 +26,8 @@ export function threadSource(features,id){
  }
  return null;
 }
+
+export function threadMateSource(features,id){
+ const source=id&&threadSource(features,id),spec=source?.spec;
+ return spec?.type==='thread'&&spec.profile==='metric60'&&spec.threadVersion===2?source:null;
+}

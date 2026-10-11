@@ -1,3 +1,5 @@
+import {threadCylinderInfo} from './thread-cylinder.js';
+import {makeThreadMate} from './thread-mate.js';
 import {circularRing} from './circular-ring.js';
 import {matchingExtrusionWall} from './extrusion-circular-walls.js';
 import {cutEntryTool} from './cut-entry.js';
@@ -190,6 +192,7 @@ function jointSourceAxis(features,target){
  let axis=null;for(const f of features){if(f.id===target&&f.profile&&f.kind!=='sketch')axis=basisFor(f).n.clone();if(f.kind!=='cadop'||!f.outputs?.some(o=>o.id===target)||!axis)continue;const p=f.spec;if(p?.type==='move'&&p.target===target){if(p.rotation){for(let i=0;i<3;i++)axis.applyAxisAngle(new THREE.Vector3(...[[1,0,0],[0,1,0],[0,0,1]][i]),(p.rotation[i]||0)*Math.PI/180);}else axis.applyAxisAngle(new THREE.Vector3(...({X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[p.axis]||[0,0,1])),(p.angle||0)*Math.PI/180);}else axis=null;}return axis?.toArray();
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(['threadMateInfo','threadMate'].includes(spec.type))return makeThreadMate(features,spec,{bodies:kernelBodies,run:(history,operation)=>runOperation(history,operation,onProgress)});
  if(spec.type==='printLayoutInfo'){const bodies=kernelBodies(features);try{return {items:printLayoutBounds(bodies,spec.targets)};}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='coilJointInfo'){const bodies=kernelBodies(features);try{return coilJointInfo(bodies.get(spec.target),spec,jointSourceAxis(features,spec.target));}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='coilTestPiece'){const bodies=kernelBodies(features);let result;try{result=makeCoilTestPiece(bodies.get(spec.target),spec,onProgress,{preferredAxis:jointSourceAxis(features,spec.target)});return {outputs:result.parts.map((shape,i)=>({id:i?'coil-test-lid':'coil-test-body',...shape.mesh({tolerance:.08,angularTolerance:.15})})),analysis:result.analysis};}finally{result?.parts.forEach(shape=>shape.delete());for(const body of bodies.values())body.delete();}}
@@ -344,7 +347,7 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
   else {if(!base)throw Error('対象ボディを選択してください');const result=p.operation==='cut'?base.cut(shape):base.fuse(shape);if(p.operation==='cut'&&Math.abs(R.measureVolume(base)-R.measureVolume(result))<1e-7)throw Error('回転形状が対象ボディと重なっていません');emit(p.target,result);}
  }
  else if(p.type==='loft'){if(!p.sections||p.sections.length<2)throw Error('断面を2つ以上選択してください');const circle=coaxialCircularLoftInfo(p.sections);emit(p.id,circle?makeCoaxialCircularLoft(circle):profileSketch(p.sections[0]).loftWith(p.sections.slice(1).map(profileSketch)));}
- else if(p.type==='thread'&&p.target){if(!base||!p.surfacePoint)throw Error('ねじにする円柱の側面を選択してください');const point=new THREE.Vector3(...p.surfacePoint);let selected=null;for(const face of base.faces){if(face.geomType!=='CYLINDRE')continue;const cyl=face.surface.wrapped.Cylinder(),loc=cyl.Location(),dir=cyl.Axis().Direction(),origin=new THREE.Vector3(loc.X(),loc.Y(),loc.Z()),normal=new THREE.Vector3(dir.X(),dir.Y(),dir.Z()),bounds=face.UVBounds,delta=point.clone().sub(origin),v=delta.dot(normal),radius=cyl.Radius(),radial=delta.addScaledVector(normal,-v);if(Math.abs(radial.length()-radius)<.3&&v>=bounds.vMin-.1&&v<=bounds.vMax+.1){selected={origin:origin.addScaledVector(normal,bounds.vMin),normal,radius,internal:new THREE.Vector3(...face.normalAt(point.toArray()).toTuple()).dot(radial)<0,height:bounds.vMax-bounds.vMin,fromTop:v>(bounds.vMin+bounds.vMax)/2};break;}}if(!selected&&!context.circularWallRecovered){
+ else if(p.type==='thread'&&p.target){if(!base||!p.surfacePoint)throw Error('ねじにする円柱の側面を選択してください');const point=new THREE.Vector3(...p.surfacePoint);let selected=threadCylinderInfo(base,p.surfacePoint);if(!selected&&!context.circularWallRecovered){
  // Older region extrusions stored every circle chord as a separate CAD plane.
  // Replay their original sketches so existing files also gain true cylinders.
  const start=features.findIndex(f=>f.kind==='extrusion'&&f.cadResult&&f.profile==='region'&&(f.operation==='new'?f.id===p.target:f.target===p.target)&&matchingExtrusionWall(f,point));
