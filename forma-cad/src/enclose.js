@@ -195,7 +195,9 @@ function hingeAssembly(base,lid,outerBounds,p){
  if(!Number.isFinite(radial)||radial<.2||radial>3||!Number.isFinite(axial)||axial<.2||axial>3)throw Error('ヒンジのすき間は0.2〜3 mmで指定してください');
  if(!Number.isFinite(angle)||angle<0||angle>180)throw Error('蓋の角度は0〜180°で指定してください');
  const t=p.thickness,{pinRadius,radius}=hingeRadii(p),[low,high]=outerBounds;
- const first=low[u]+Math.min(1,Math.max(.2,(high[u]-low[u])*.05)),last=high[u]-Math.min(1,Math.max(.2,(high[u]-low[u])*.05)),length=last-first;
+ // The hinge axis is vertical in the print pose. Keep its fixed ends flush with
+ // the BOX ends so the lower knuckle and pin start on the same print-bed plane.
+ const first=low[u],last=high[u],length=last-first;
  if(length<Math.max(9,axial*8+pinRadius*4))throw Error('この辺はヒンジに短すぎます。別の辺か大きいBOXを選択してください');
  const end=length*.25,middleStart=first+end+axial,middleEnd=last-end-axial;
  if(middleEnd-middleStart<Math.max(2,pinRadius*2))throw Error('軸方向のすき間が大きすぎます');
