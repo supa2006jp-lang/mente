@@ -93,6 +93,18 @@ function addChestRoof(shell,low,high,{thickness,enclosureSplit,hingeEdge,faces})
    const center=low[u]+length*(i+1)/(count+1);
    result=join(result,roof(center-bandWidth/2,center+bandWidth/2,bandHeight));
   }
+  // Extend the rectangular cavity up to a concentric inner arch. Cutting after
+  // the decorative bands leaves their extra material outside the roof wall.
+  const radius=span*span/(8*rise)+rise/2,innerRadius=radius-thickness;
+  const centerHeight=rise-radius,halfInnerSpan=span/2-thickness;
+  const innerEdge=centerHeight+Math.sqrt(innerRadius*innerRadius-halfInnerSpan*halfInnerSpan);
+  const overlap=Math.min(.01,thickness*.1,(high[n]-low[n]-2*thickness)*.25);
+  const origin=[0,0,0];origin[v]=low[v];origin[n]=high[n];origin[u]=normal[u]>0?low[u]+thickness:high[u]-thickness;
+  const cavity=R.draw([thickness,-thickness-overlap]).lineTo([span-thickness,-thickness-overlap])
+   .lineTo([span-thickness,innerEdge])
+   .threePointsArcTo([thickness,innerEdge],[span/2,rise-thickness]).close()
+   .sketchOnPlane(new R.Plane(origin,xAxis,normal)).extrude(length-2*thickness);
+  result=subtract(result,cavity);
   const output=result;result=null;return output;
  }finally{result?.delete();}
 }
