@@ -23,15 +23,18 @@ function dimensions(s){
  const t=ballJointThreadDimensions(s),baseAvailableTravel=s.printSafe?(s.threadClearance+s.clearance)*coneHeight/coneDepth+.3:2*s.threadPitch-.15,threadStart=coneEnd+(s.printSafe?baseAvailableTravel+.15:2*s.threadPitch),baseNutTop=s.printSafe?Math.max(root,threadStart+2.25*s.threadPitch):root,socketTop=s.printSafe?baseNutTop+baseAvailableTravel+.15:root+2*s.threadPitch,threadLength=baseNutTop-coneEnd,nutBottom=mouth-.6,nutTop=baseNutTop-s.extraClampTravel,availableTravel=baseAvailableTravel+s.extraClampTravel,extraClampMax=Math.max(0,Math.min(1.5,baseNutTop-threadStart-2*s.threadPitch));
  return {effectiveBallClearance,extraClampMax,r,core,mouthRadius,mouth,coneEnd,root,lowerEnd,coneDepth,coneHeight,contactTravel,clampingTravel,threadStart,nutTop,availableTravel,socketTop,threadLength,nutBottom,depth:t.depth,threadProfile:t,clampReserve:(availableTravel-clampingTravel)*coneDepth/coneHeight};
 }
-export function ballJointDefaults(info){
- const radius=Math.min(info.radius*.65,info.height*.18),wall=Math.max(1.8,round(radius*.3));
- const s={splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,neckExtension:0,neckBend:false,neckBendDirection:0,neckBaseTilt:false,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountAutoExtend:true,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
+export function ballJointDefaults(info){return jointDefaults(info,info.radius*.65,true);}
+// Old projects without explicit dimensions retain their original height-based defaults.
+export function ballJointSavedDefaults(info){return jointDefaults(info,Math.min(info.radius*.65,info.height*.18),false);}
+function jointDefaults(info,radius,autoExtend){
+ const wall=Math.max(1.8,round(radius*.3));
+ const s={autoExtend,splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,neckExtension:0,neckBend:false,neckBendDirection:0,neckBaseTilt:false,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountAutoExtend:true,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
  s.threadPitch=ballJointThreadDimensions(s).minPitch;
  const d=dimensions(s),mountPitch=defaultMetricThreadPitch(info.radius*2),mountLength=Math.max(1,Math.floor(Math.min(Math.max(6,2*mountPitch+.2),d.lowerEnd-1.2,info.height-d.socketTop-1.2)*10)/10);
  return {...s,...ballJointFixSettings({fixDiameter:6,fixPitch:1,fixDepth:Math.max(.1,Math.min(6,mountLength)),fixChamfer:false,fixChamferSize:.3}),mountPitch,mountLength};
 }
 export function ballJointSettings(info,p){
- const defaults=ballJointDefaults(info),s={...defaults,...p,...ballJointFixSettings(p,defaults),printSafe:p.printSafe??false,mountAutoExtend:p.mountAutoExtend??false};
+ const defaults=ballJointSavedDefaults(info),s={...defaults,...p,...ballJointFixSettings(p,defaults),printSafe:p.printSafe??false,mountAutoExtend:p.mountAutoExtend??false};
  // Saved joints without the separate seat gap retain their original geometry.
  if(p.coneClearance===undefined)s.coneClearance=s.threadClearance;
  if(!s.printSafe&&p.threadPitch===undefined)s.threadPitch=Math.max(.8,round(Math.min(info.radius*.65,info.height*.18)*.25));
@@ -40,6 +43,7 @@ export function ballJointSettings(info,p){
  if(typeof s.neckBend!=='boolean')throw Error('棒を45°曲げる設定を確認してください');
  if(typeof s.neckBaseTilt!=='boolean')throw Error('土台を棒に合わせて傾ける設定を確認してください');
  if(![0,90,180,270].includes(s.neckBendDirection))throw Error('棒を曲げる向きを選択してください');
+ if(typeof s.autoExtend!=='boolean')throw Error('高さ不足時の自動延長の設定を確認してください');
  if(typeof s.mountAutoExtend!=='boolean')throw Error('土台の自動延長の設定を確認してください');
  if(typeof s.mountThread!=='boolean')throw Error('取付ねじの設定を確認してください');
  if(!['ball','socket','both'].includes(s.mountSide))throw Error('取付ねじを付ける土台を選択してください');
@@ -55,7 +59,7 @@ export function ballJointSettings(info,p){
  if(s.neckDiameter>s.ballDiameter*.65||s.neckDiameter>info.radius*1.8)throw Error('首の直径を球径の65%以下、元の円柱径より小さくしてください');
  // Extend free ends only; the shoulders and all joint contact surfaces stay fixed.
  const mountThreadLength=s.mountThread&&s.mountAutoExtend?Math.max(s.mountLength,round(2*s.mountPitch+.2)):s.mountLength;
- const grow=height=>Math.max(0,Math.ceil((mountThreadLength+1.2-height-1e-7)*1000)/1000),baseExtensions={ball:s.mountThread&&s.mountAutoExtend&&s.mountSide!=='socket'?grow(lowerEnd):0,socket:s.mountThread&&s.mountAutoExtend&&s.mountSide!=='ball'?grow(info.height-socketTop):0};
+ const grow=(height,role)=>{const threaded=s.mountThread&&s.mountAutoExtend&&(s.mountSide==='both'||s.mountSide===role),minimum=Math.max(s.autoExtend?2:0,threaded?mountThreadLength+1.2:0);return minimum?Math.max(0,Math.ceil((minimum-height-1e-7)*1000)/1000):0;},baseExtensions={ball:grow(lowerEnd,'ball'),socket:grow(info.height-socketTop,'socket')};
  const ballBaseHeight=lowerEnd+baseExtensions.ball,socketBaseHeight=info.height-socketTop+baseExtensions.socket,ballBaseStart=-(s.neckExtension+baseExtensions.ball)||0,socketBaseEnd=info.height+baseExtensions.socket;
  if(s.splitPosition>=info.height)throw Error('分割位置を元の円柱の長さより小さくしてください');
  if(ballBaseHeight<2||socketBaseHeight<2)throw Error('球と受けを収める長さが足りません。分割位置を変えるか、球径・首の長さ・受け厚さを小さくしてください（両端に2 mm以上必要です）');

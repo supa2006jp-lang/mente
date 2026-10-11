@@ -10,7 +10,7 @@ const info={radius:12,height:40},initial=ballJointDefaults(info);
 assert.equal(initial.mountAutoExtend,true);
 assert.equal(ballJointSettings(info,{}).mountAutoExtend,false,'old saves retain their geometry');
 const basic=ballJointSettings(info,{...initial,mountThread:true});
-assert.equal(basic.mountPitch,3);assert.equal(basic.mountLength,2.8);assert.equal(basic.mountThreadLength,6.2);
+assert.equal(basic.mountPitch,3);assert.equal(basic.mountLength,2.7);assert.equal(basic.mountThreadLength,6.2);
 assert.equal(basic.baseExtensions.ball,0);assert.ok(basic.baseExtensions.socket>3.38);
 for(const side of ['ball','socket','both']){
  const s=ballJointSettings(info,{...initial,mountThread:true,mountSide:side,mountLength:12,neckExtension:7});

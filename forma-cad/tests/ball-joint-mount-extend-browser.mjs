@@ -38,13 +38,13 @@ try{
  assert.ok(await page.locator('#ball-joint-mountAutoExtend').isChecked());
  await page.locator('#ball-joint-mountThread').check();await ready();
  let a=await analysis();assert.equal(a.mountThreadLength,6.2);assert.equal(a.baseExtensions.ball,0);assert.ok(a.baseExtensions.socket>3.38);
- assert.match(await page.locator('#ball-joint-mount-fit-info').textContent(),/受け側 \+3.389 mm/);
+ assert.match(await page.locator('#ball-joint-mount-fit-info').textContent(),/受け側 \+3.436 mm/);
  await page.locator('#ball-joint-mountAutoExtend').uncheck();
  await page.waitForFunction(()=>document.getElementById('ball-joint-error').textContent.includes('6.2 mm以上'));assert.ok(await page.locator('#ball-joint-apply').isDisabled());
  await page.locator('#ball-joint-mountAutoExtend').check();await ready();
  await page.locator('#ball-joint-mount-fit-info').scrollIntoViewIfNeeded();await page.screenshot({path:'.sites-runtime/ball-joint-auto-extend.png'});
  await page.locator('#ball-joint-apply').click();await page.waitForFunction(()=>!document.getElementById('ball-joint-dialog').open);
- const saved=await save();assert.equal(saved.features.at(-1).spec.mountAutoExtend,true);assert.equal(saved.features.at(-1).spec.mountLength,2.8);
+ const saved=await save();assert.equal(saved.features.at(-1).spec.mountAutoExtend,true);assert.equal(saved.features.at(-1).spec.mountLength,2.7);
  await load(saved.features);await page.locator('#bodies [data-ball-joint-id]').first().click();await ready();
  assert.ok(await page.locator('#ball-joint-mountAutoExtend').isChecked());assert.equal((await analysis()).baseExtensions.socket,a.baseExtensions.socket);await close();
  assert.deepEqual(errors,[]);console.log('PASS automatic extension controls, live quantities, manual opt-out, save/reload and unchanged requested length');
