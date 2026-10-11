@@ -8,7 +8,7 @@ export function ballJointNeckLayout(s){
  const a=(s.neckBendDirection||0)*Math.PI/180,c=Math.SQRT1_2;
  const offset=s.neckBend?[half*c*Math.cos(a),half*c*Math.sin(a),half*(1-c)]:[0,0,0];
  const bottom=s.lowerEnd-s.neckExtension;
- return {length,offset,bottom,base:[offset[0],offset[1],bottom+offset[2]],bend:[0,0,s.splitPosition-s.r-half],direction:[-c*Math.cos(a),-c*Math.sin(a),c],tilt:s.neckBend&&s.neckBaseTilt?45:0,rotationAxis:[Math.sin(a),-Math.cos(a),0]};
+ return {length,offset,bottom,base:[offset[0],offset[1],bottom+offset[2]],bend:[0,0,s.splitPosition-s.r-half],direction:[-c*Math.cos(a),-c*Math.sin(a),c],tilt:s.neckBend&&(s.neckBendStyle==='upper'||s.neckBaseTilt)?45:0,rotationAxis:[Math.sin(a),-Math.cos(a),0]};
 }
 // Points are expressed in the original, upright base frame, before placement.
 export function ballJointBasePoint(s,point){

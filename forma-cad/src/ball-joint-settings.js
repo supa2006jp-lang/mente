@@ -28,7 +28,7 @@ export function ballJointDefaults(info){return jointDefaults(info,info.radius*.6
 export function ballJointSavedDefaults(info){return jointDefaults(info,Math.min(info.radius*.65,info.height*.18),false);}
 function jointDefaults(info,radius,autoExtend){
  const wall=Math.max(1.8,round(radius*.3));
- const s={autoExtend,splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,neckExtension:0,neckBend:false,neckBendDirection:0,neckBaseTilt:false,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountAutoExtend:true,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
+ const s={autoExtend,splitPosition:round(info.height/2),ballDiameter:round(radius*2),neckDiameter:round(Math.max(2.5,radius*.8)),neckLength:2.5,neckExtension:0,neckBend:false,neckBendStyle:autoExtend?'upper':'lower',neckBendDirection:0,neckBaseTilt:false,clearance:.25,wall,threadPitch:Math.max(.8,round(radius*.25)),threadClearance:.25,coneClearance:.1,extraClampTravel:0,socketInset:0,slotWidth:1,slotCount:4,nutWall:2,pose:'print',printSafe:true,threadNozzle:.6,mountThread:false,mountAutoExtend:true,mountSide:'both',mountClearance:.15,fixHole:false,fixSide:'both'};
  s.threadPitch=ballJointThreadDimensions(s).minPitch;
  const d=dimensions(s),mountPitch=defaultMetricThreadPitch(info.radius*2),mountLength=Math.max(1,Math.floor(Math.min(Math.max(6,2*mountPitch+.2),d.lowerEnd-1.2,info.height-d.socketTop-1.2)*10)/10);
  return {...s,...ballJointFixSettings({fixDiameter:6,fixPitch:1,fixDepth:Math.max(.1,Math.min(6,mountLength)),fixChamfer:false,fixChamferSize:.3}),mountPitch,mountLength};
@@ -42,7 +42,8 @@ export function ballJointSettings(info,p){
  if(![4,6].includes(s.slotCount))throw Error('切り込みの数は4・6本から選択してください');if(!['print','assembled','exploded'].includes(s.pose))throw Error('配置を選択してください');
  if(typeof s.neckBend!=='boolean')throw Error('棒を45°曲げる設定を確認してください');
  if(typeof s.neckBaseTilt!=='boolean')throw Error('土台を棒に合わせて傾ける設定を確認してください');
- if(![0,90,180,270].includes(s.neckBendDirection))throw Error('棒を曲げる向きを選択してください');
+ if(!['upper','lower'].includes(s.neckBendStyle))throw Error('棒を曲げる部分を選択してください');
+ if(![0,45,90,135,180,225,270,315].includes(s.neckBendDirection))throw Error('棒を曲げる向きを選択してください');
  if(typeof s.autoExtend!=='boolean')throw Error('高さ不足時の自動延長の設定を確認してください');
  if(typeof s.mountAutoExtend!=='boolean')throw Error('土台の自動延長の設定を確認してください');
  if(typeof s.mountThread!=='boolean')throw Error('取付ねじの設定を確認してください');
@@ -101,7 +102,7 @@ export function ballJointSettings(info,p){
   }
  }
  const neckTiltMinLength=ballJointBaseTiltMinLength(info.radius);
- if(s.neckBend&&s.neckBaseTilt&&s.neckLength+s.neckExtension<neckTiltMinLength-1e-7)throw Error('土台と球の干渉を避けるため、棒の合計長さを '+neckTiltMinLength.toFixed(2)+' mm以上にしてください（追加長さを増やしてください）');
+ if(s.neckBend&&(s.neckBendStyle==='upper'||s.neckBaseTilt)&&s.neckLength+s.neckExtension<neckTiltMinLength-1e-7)throw Error('土台と球の干渉を避けるため、棒の合計長さを '+neckTiltMinLength.toFixed(2)+' mm以上にしてください（追加長さを増やしてください）');
  const neckLayout=ballJointNeckLayout({...s,...d}),neckBaseOffset=neckLayout.offset;
 
  for(const item of [...mountingThreads,...fixingHoles])if(item.role==='ball'){item.center=ballJointBasePoint({...s,...d},[0,0,item.start]);item.start=item.center[2];item.axis=neckLayout.tilt?neckLayout.direction:[0,0,1];}

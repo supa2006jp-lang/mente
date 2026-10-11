@@ -39,7 +39,7 @@ try{
  const meshVolume=o=>{let v=0;for(let i=0;i<o.triangles.length;i+=3){const p=o.triangles.slice(i,i+3).map(j=>o.vertices.slice(j*3,j*3+3)),[a,b,c]=p;v+=(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6;}return Math.abs(v);};
  assert.ok(Math.abs(meshVolume(saved.features.at(-1).outputs[0])-meshVolume(expected.features.at(-1).outputs[0]))<1e-5,'browser worker generates reinforced geometry');
  await load(saved.features);await page.locator('#bodies [data-ball-joint-id]').first().click();await ready();
- await page.locator('#ball-joint-neckExtension').fill('15');await page.locator('#ball-joint-neckBend').check();await ready();
+ await page.locator('#ball-joint-neckExtension').fill('15');await page.locator('#ball-joint-neckBend').check();await page.locator('#ball-joint-neckBendStyle').selectOption('lower');await ready();
  await page.locator('#ball-joint-neckBaseTilt').check();await ready();
  const bent=await analysis();assert.equal(bent.neckBendAngle,45);assert.equal(bent.neckBaseTiltAngle,45);assert.equal(bent.ballDiameter,a.ballDiameter);assert.ok(bent.overlap.every(v=>v<1e-5));
  await page.locator('#ball-joint-neckBend').scrollIntoViewIfNeeded();

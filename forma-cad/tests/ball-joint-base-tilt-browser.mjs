@@ -34,7 +34,7 @@ try{
  assert.equal(await page.locator('#ball-joint-neckBaseTilt').isChecked(),false);
  assert.ok(await page.locator('#ball-joint-neckBaseTilt-label').isHidden());
  assert.ok(await page.locator('#ball-joint-neckBaseTilt').isDisabled());
- await page.locator('#ball-joint-neckBend').check();
+ await page.locator('#ball-joint-neckBend').check();await page.locator('#ball-joint-neckBendStyle').selectOption('lower');
  assert.ok(await page.locator('#ball-joint-neckBaseTilt-label').isVisible());
  await page.locator('#ball-joint-neckBaseTilt').check();await ready();
  let a=await analysis();

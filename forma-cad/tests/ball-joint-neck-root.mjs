@@ -34,7 +34,7 @@ const cases=[
  {name:'threaded base and fixing hole',extra:{neckBend:true,neckExtension:15,neckBaseTilt:true,neckBendDirection:90,mountThread:true,mountSide:'ball',mountPitch:1.5,mountLength:4,fixHole:true,fixSide:'ball',fixBallDiameter:4,fixBallPitch:.7,fixBallDepth:4}}
 ];
 for(const {name,height=40,extra} of cases.filter(c=>!process.env.FORMA_ROOT_CASE||c.name===process.env.FORMA_ROOT_CASE)){
- const src={...source,depth:height},info={radius:12,height},p={...ballJointDefaults(info),...extra,type:'ballJoint',id:'joint',target:'c',pose:'assembled'},s=ballJointSettings(info,p),q=ballJointNeckLayout(s),d=ballJointNeckRootDimensions(s,info.radius),owned=[],hold=x=>(owned.push(x),x);
+ const src={...source,depth:height},info={radius:12,height},p={...ballJointDefaults(info),neckBendStyle:'lower',...extra,type:'ballJoint',id:'joint',target:'c',pose:'assembled'},s=ballJointSettings(info,p),q=ballJointNeckLayout(s),d=ballJointNeckRootDimensions(s,info.radius),owned=[],hold=x=>(owned.push(x),x);
  try{
   const base=placeBallJointBase(hold(ballJointMountBase(info.radius,s.ballBaseHeight,s,'ball').translate([0,0,s.ballBaseStart])),s,hold);
   // Radius zero disables the added root for an exact pre-change reference.

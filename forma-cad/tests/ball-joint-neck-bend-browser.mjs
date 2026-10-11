@@ -35,7 +35,7 @@ try{
  assert.ok(await page.locator('#ball-joint-neckBendDirection').isDisabled());
  assert.ok(await page.locator('#ball-joint-neckBendDirection-label').isHidden());
  await page.locator('#ball-joint-neckExtension').fill('15');
- await page.locator('#ball-joint-neckBend').check();await ready();
+ await page.locator('#ball-joint-neckBend').check();await page.locator('#ball-joint-neckBendStyle').selectOption('lower');await ready();
  assert.equal((await analysis()).neckBendAngle,45);
  assert.equal((await analysis()).neckLength,17.5);
  assert.ok(await page.locator('#ball-joint-neckBendDirection-label').isVisible());

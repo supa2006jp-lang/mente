@@ -15,7 +15,7 @@ import {createBallClampSectionModel} from '../src/ball-joint-section.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const source={...defaults,id:'c',name:'円柱',kind:'extrusion',profile:'circle',diameter:24,depth:40};
 const info=runOperation([source],{type:'ballJointInfo',target:'c'}).analysis;
-const p={...ballJointDefaults(info),type:'ballJoint',id:'joint',target:'c',pose:'assembled',neckBend:true,neckExtension:15};
+const p={...ballJointDefaults(info),neckBendStyle:'lower',type:'ballJoint',id:'joint',target:'c',pose:'assembled',neckBend:true,neckExtension:15};
 const shape=o=>R.deserializeShape(o.brep).asShape3D(),vol=s=>Math.abs(R.measureVolume(s));
 function same(a,b){const ab=a.cut(b),ba=b.cut(a);try{assert.ok(vol(ab)+vol(ba)<1e-4);}finally{ab.delete();ba.delete();}}
 function valid(s){const check=new (R.getOC().BRepCheck_Analyzer)(s.wrapped,true,false),solids=s.solids;try{assert.ok(check.IsValid());assert.equal(solids.length,1);assert.ok(solidMeshComplete(s));}finally{check.delete();solids.forEach(s=>s.delete());}}

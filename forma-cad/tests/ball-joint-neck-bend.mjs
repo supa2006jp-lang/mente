@@ -10,7 +10,7 @@ import {solidMeshComplete} from '../src/solid-mesh.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const source={...defaults,id:'c',name:'円柱',kind:'extrusion',profile:'circle',diameter:24,depth:40};
 const info=runOperation([source],{type:'ballJointInfo',target:'c'}).analysis;
-const p={...ballJointDefaults(info),type:'ballJoint',id:'joint',target:'c',pose:'assembled'};
+const p={...ballJointDefaults(info),neckBendStyle:'lower',type:'ballJoint',id:'joint',target:'c',pose:'assembled'};
 const shape=o=>R.deserializeShape(o.brep).asShape3D(),vol=s=>Math.abs(R.measureVolume(s));
 function same(a,b){const ab=a.cut(b),ba=b.cut(a);try{assert.ok(vol(ab)+vol(ba)<1e-4);}finally{ab.delete();ba.delete();}}
 function valid(s){const c=new (R.getOC().BRepCheck_Analyzer)(s.wrapped,true,false),solids=s.solids;try{assert.ok(c.IsValid());assert.equal(solids.length,1);assert.ok(solidMeshComplete(s));}finally{c.delete();solids.forEach(s=>s.delete());}}
@@ -49,5 +49,5 @@ const replay=runOperation(history,{type:'replay',before:history,start:1});assert
 const legacy={...p};delete legacy.neckBend;delete legacy.neckBendDirection;
 assert.equal(ballJointSettings(info,legacy).neckBend,false);
 assert.throws(()=>ballJointSettings(info,{...p,neckBend:'yes'}),/45°/);
-assert.throws(()=>ballJointSettings(info,{...p,neckBendDirection:45}),/向き/);
+assert.throws(()=>ballJointSettings(info,{...p,neckBendDirection:22.5}),/向き/);
 console.log('PASS 45-degree centre line, connected valid meshes, unchanged socket/nut, direction, translated base/threads/holes, bed placement, replay and legacy compatibility');
