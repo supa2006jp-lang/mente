@@ -381,6 +381,7 @@ function remapHistoryReferences(before,after,spec){
    if(a.faces.length!==b.faces.length||a.edges.length!==b.edges.length)throw Error('面・辺の構成が変わりました。加工対象を選び直してください');
    const lo=bounds(a),hi=bounds(b);return p.map((v,i)=>hi.min[i]+(v-lo.min[i])*(hi.max[i]-hi.min[i])/Math.max(1e-9,lo.max[i]-lo.min[i]));};
   for(const key of ['faces','edges'])if(spec[key])spec[key]=spec[key].map(r=>({...r,point:point(r.bodyId||spec.target,r.point)}));
+  if(spec.type==='threadMate'&&spec.destination==='existing'&&spec.placement)spec.placement={...spec.placement,point:point(spec.placement.bodyId,spec.placement.point)};
   if(spec.edgePoint)spec.edgePoint=point(spec.target,spec.edgePoint);
   if(spec.surfacePoint)spec.surfacePoint=point(spec.target,spec.surfacePoint);
   for(const r of [spec.face,...(spec.sections||[]),spec.region].filter(Boolean)){if(r.bodyId&&oldBodies.get(r.bodyId)?.serialize()!==newBodies.get(r.bodyId)?.serialize())throw Error('参照するソリッドの面が変わりました。面を選び直してください');if(!r.bodyId&&!r.sourceIds?.length&&[...oldBodies].some(([id,b])=>b.serialize()!==newBodies.get(id)?.serialize()))throw Error('この工程の古い面参照は自動更新できません。面を選び直してください');}

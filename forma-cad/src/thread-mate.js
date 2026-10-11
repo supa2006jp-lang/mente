@@ -2,6 +2,7 @@ import {defaults} from './geometry.js';
 import {threadMateSource} from './thread-source.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
 import {allThreadPullSpec} from './thread-pull-spec.js';
+import {machineThreadMate} from './thread-mate-existing.js';
 
 export function makeThreadMate(features,spec,{bodies,run}){
  const source=threadMateSource(features,spec.target);
@@ -17,11 +18,13 @@ export function makeThreadMate(features,spec,{bodies,run}){
   for(const body of current.values()){const box=body.boundingBox;try{const [lo,hi]=box.bounds;maxX=Math.max(maxX,hi[0]);minY=Math.min(minY,lo[1]);maxY=Math.max(maxY,hi[1]);}finally{box.delete();}}
  }finally{current.forEach(b=>b.delete());}
  if(spec.type==='threadMateInfo')return {analysis:info};
- const q={...info,length:spec.length,wall:spec.wall,clearance:spec.clearance};
+ const q={...info,length:spec.length,wall:spec.destination==='existing'?info.wall:spec.wall,clearance:spec.clearance};
  if(!spec.id||features.some(f=>f.id===spec.id||(f.outputs||f.cadResult?.outputs)?.some(o=>o.id===spec.id)))throw Error('相手ねじの工程IDが重複しています');
  if(![q.length,q.wall,q.clearance].every(Number.isFinite)||q.length<.1||q.length>10000||q.length/q.pitch>100||q.wall<.1||q.wall>1000||q.clearance<0||q.clearance>q.pitch*.4)throw Error('長さ・肉厚・逃がし量を確認してください。逃がし量はピッチの40%以内です');
  if(q.internal&&q.wall-q.clearance<.1)throw Error('逃がし量を引いた後の肉厚を0.1 mm以上残してください');
  if(!q.internal&&q.diameter/2-q.pitch*.561266-q.clearance<=.1)throw Error('この径・ピッチ・逃がし量では雄ねじの芯が細くなりすぎます');
+ if(spec.destination==='existing')return machineThreadMate(features,spec,q,{bodies,run});
+ if(spec.destination!==undefined&&spec.destination!=='new')throw Error('相手ねじの作成先が不正です');
  const radius=q.diameter/2,outer=radius+(q.internal?q.wall:0),x=maxX+10+outer,y=(minY+maxY)/2;
  const primitive={...defaults,kind:'extrusion',id:spec.id,name:q.internal?'相手ねじ ナット':'相手ねじ 円柱',profile:'circle',mode:q.internal?'thin':'solid',side:'outside',diameter:q.diameter,wall:q.wall,depth:q.length,x,y,z:0};
  let thread={type:'thread',target:spec.id,surfacePoint:[x+radius,y,q.length/2],pitch:q.pitch,fullLength:true,leftHand:q.leftHand,profile:'metric60',threadVersion:2,modeled:true,designation:q.designation};
