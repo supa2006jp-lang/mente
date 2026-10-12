@@ -13,6 +13,7 @@ import {makeSnapLid,snapLidInfo} from './snap-lid.js';
 import {svgCylinderInfo,wrapSvgSolid} from './svg-wrap.js';
 import {allExtrusionTargets,multipleExtrusionTargets,extrusionTargetEntries,batchExtrusionFeature} from './extrusion-targets.js';
 import {validateTaperAngle} from './taper.js';
+import {validateExtrusionSymmetry} from './extrusion-symmetry.js';
 import {draftExtrusion} from './extrusion-taper.js';
 import {cutWithClearance} from './cut-clearance.js';
 import {encloseParts} from './enclose.js';
@@ -116,7 +117,19 @@ function extrudeCadFaceThin(face,region,depth,wall,side,skipHoleWalls=false){
   return tool;
  }finally{for(const part of parts)part.delete();for(const shape of resources)shape.delete();face.delete();}
 }
-export function featureSolid(f,bodies){validateTaperAngle(f.taperAngle??0);return draftExtrusion(untaperedFeatureSolid({...f,taperAngle:0},bodies),f);}
+export function featureSolid(f,bodies){
+ validateTaperAngle(f.taperAngle??0);validateExtrusionSymmetry(f);
+ if(!f.symmetric)return draftExtrusion(untaperedFeatureSolid({...f,taperAngle:0},bodies),f);
+ let depth=Math.abs(f.depth);
+ if(f.operation==='cut'&&f.throughAll&&bodies){
+  const targets=extrusionTargetEntries(f,bodies),min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
+  for(const [,body] of targets){const box=body.boundingBox;try{for(let i=0;i<3;i++){min[i]=Math.min(min[i],box.bounds[0][i]);max[i]=Math.max(max[i],box.bounds[1][i]);}}finally{box.delete();}}
+  if(targets.length)depth=Math.abs(throughDepth(f,[min,max]));
+ }
+ const oneSide={...f,symmetric:false,throughAll:false,depth};
+ if(!f.taperAngle)return featureSolid({...oneSide,depth:depth*2},bodies).translate(basisFor(f.region||f).n.multiplyScalar(-depth).toArray());
+ let positive,negative;try{positive=featureSolid(oneSide,bodies);negative=featureSolid({...oneSide,depth:-depth},bodies);return positive.fuse(negative);}finally{positive?.delete();negative?.delete();}
+}
 function untaperedFeatureSolid(f,bodies){
  if(f.region?.id?.startsWith('grid-cell-'))f={...f,region:snapGridCellProfile(f.region,bodies)};
  if(f.holesOnly){if(f.mode!=='solid'||f.profile!=='region'||!f.region?.holes?.length)throw Error('穴のある平面を選択してください');const input={...f,holesOnly:false},filled=featureSolid({...input,capHoles:true},bodies),original=featureSolid({...input,capHoles:false},bodies);let plug;try{plug=filled.cut(original);const sourceId=f.region.cadFace?.bodyId||f.region.bodyId,source=bodies?.get(sourceId);return source?plug.cut(source):plug.clone();}finally{plug?.delete();filled.delete();original.delete();}}

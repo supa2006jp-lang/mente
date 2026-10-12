@@ -1,8 +1,8 @@
 import {basisFor} from './frames.js';
 export function throughDepth(f,bounds){
  const n=basisFor(f.region||f).n,origin=f.region?f.region.offset:n.x*f.x+n.y*f.y+n.z*f.z,sign=Math.sign(f.depth)||1;
- let far=0;for(const x of [bounds[0][0],bounds[1][0]])for(const y of [bounds[0][1],bounds[1][1]])for(const z of [bounds[0][2],bounds[1][2]])far=Math.max(far,sign*(n.x*x+n.y*y+n.z*z-origin));
- return sign*Math.max(.1,far+.1);
+ let far=0;for(const x of [bounds[0][0],bounds[1][0]])for(const y of [bounds[0][1],bounds[1][1]])for(const z of [bounds[0][2],bounds[1][2]]){const distance=n.x*x+n.y*y+n.z*z-origin;far=Math.max(far,f.symmetric?Math.abs(distance):sign*distance);}
+ return (f.symmetric?1:sign)*Math.max(.1,far+.1);
 }
 
 export function depthToGridPlane(feature, gridPlane){

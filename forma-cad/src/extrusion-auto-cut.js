@@ -42,6 +42,7 @@ export function extrusionIntersections(feature,bodies){
 // polygons are extruded. Keep their source body for the operation decision:
 // outward contact with that source is join, even with tessellation slivers.
 export function extrusionCutMatches(feature,bodies,source=feature.region?.cadFace?.bodyId||feature.region?.bodyId||feature.region?.gridSourceBodyId){
+ if(feature.symmetric)return extrusionIntersections(feature,bodies);
  const sourceFace=source&&feature.region?.outer&&bodies.get(source)?.visible;
  if(!sourceFace)return extrusionIntersections(feature,bodies);
  if(feature.depth<0)return feature.region.gridSourceBodyId?extrusionIntersections(feature,bodies):[{id:source,volume:Infinity}];
