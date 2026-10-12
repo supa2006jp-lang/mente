@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {defaults,validateFeature,validateProject} from '../src/geometry.js';
+import {findRegions} from '../src/regions.js';
+import {hideExtrudedSketches} from '../src/extruded-sketch-visibility.js';
+const rect={...defaults,id:'r',name:'長方形',kind:'sketch',groupId:'one',groupNumber:1,width:20,height:10,groupHidden:false};
+const extrusion=sketches=>({kind:'extrusion',id:'ex',region:findRegions(sketches)[0]});
+const single=[rect,{...rect,id:'unrelated',groupId:'other',groupNumber:2,x:70}],snapshot=structuredClone(single),result=hideExtrudedSketches(single,[extrusion([rect])]);assert.equal(result[0].groupHidden,true);assert.equal(result[1].groupHidden,false);assert.deepEqual(single,snapshot);
+const loose={...rect,id:'loose',profile:'line',mode:'thin',y:50},withOpen=[rect,loose];assert.ok(hideExtrudedSketches(withOpen,[extrusion([rect])]).every(f=>f.groupHidden),'hide every member of the single-region group');
+const two=[rect,{...rect,id:'r2',x:50}];assert.deepEqual(hideExtrudedSketches(two,[extrusion(two)]),two);assert.deepEqual(hideExtrudedSketches(two,findRegions(two).map(region=>({kind:'extrusion',region}))),two,'even batch extrusion leaves a multi-region group visible');
+const divided=[rect,{...rect,id:'divider',profile:'line',width:20}];assert.equal(findRegions(divided).length,2);assert.deepEqual(hideExtrudedSketches(divided,[extrusion(divided)]),divided);
+const nested=[rect,{...rect,id:'inner',width:5,height:5}];assert.equal(findRegions(nested).length,2);assert.deepEqual(hideExtrudedSketches(nested,[extrusion(nested)]),nested);
+const lines=[[-10,-5,20,0],[10,0,10,90],[0,5,20,0],[-10,0,10,90]].map(([x,y,width,angle],i)=>({...rect,id:'l'+i,profile:'line',x,y,width,angle}));
+// A closed contour built from separate segments still counts as one figure.
+lines[0].x=0;assert.equal(findRegions(lines).length,1);assert.ok(hideExtrudedSketches(lines,[extrusion(lines)]).every(f=>f.groupHidden));
+assert.equal(hideExtrudedSketches([loose],[{kind:'extrusion',sourceSketchIds:['loose']}])[0].groupHidden,true,'thin open-line extrusion');
+assert.deepEqual(hideExtrudedSketches(single,[{kind:'extrusion',region:{sourceIds:[]}}]),single,'solid/grid extrusion does not hide unrelated sketches');
+assert.deepEqual(hideExtrudedSketches(single,[]),single,'cancel/failure has no visibility changes');
+const thin={...defaults,id:'thin',name:'薄い押し出し',kind:'extrusion',profile:'line',mode:'thin',sourceSketchIds:['loose']};validateFeature(thin);assert.deepEqual(validateProject({format:'forma-cad',version:1,features:[loose,thin]})[1].sourceSketchIds,['loose']);
+for(const sourceSketchIds of ['loose',{},[3],['']])assert.throws(()=>validateFeature({...thin,sourceSketchIds}),/スケッチ情報/);
+console.log('PASS extrusion source visibility: single contour, separate segments, open line, group members, multiple/nested/divided regions, batch, unrelated groups and immutable input');
