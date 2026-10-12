@@ -22,7 +22,8 @@ class SuddenDataDecreaseError extends Error {
 
 class MaintenanceStore {
     constructor() {
-        this.DB_NAME = 'FactoryMaintenanceDB';
+        this.DB_NAME = window.maintenanceWorkspace?.separate
+            ? 'FactoryMaintenanceDB_Separate_v1' : 'FactoryMaintenanceDB';
         this.DB_VERSION = 3;
         this.STORE_NAME = 'state';
         this.MEDIA_STORE_NAME = 'media';
@@ -39,6 +40,7 @@ class MaintenanceStore {
         this._saveBlocked = false;
         this._conflictError = null;
         this._loadStatus = 'not-started';
+        this._legacyRecovery = null;
         this.data = {
             currentDepartmentId: 'dept_default',
             departments: [
@@ -82,6 +84,13 @@ class MaintenanceStore {
         if (this._loadStatus === 'loading') throw new Error('保存データの読み込み中です。');
         this._loadStatus = 'loading';
         try {
+            const search = window.location?.search || '';
+            const separateRequested = typeof URLSearchParams === 'function'
+                ? new URLSearchParams(search).get('workspace') === 'separate'
+                : /(?:^|[?&])workspace=separate(?:&|$)/.test(search);
+            if (separateRequested && !window.maintenanceWorkspace?.separate) {
+                throw new Error('別の作業領域の保存設定を読み込めませんでした。ページを再読み込みしてください。');
+            }
             this.db = await new Promise((resolve, reject) => {
                 const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
                 let settled = false;
@@ -124,6 +133,10 @@ class MaintenanceStore {
                 this._loadStatus = 'empty-unconfirmed';
                 return 'empty-unconfirmed';
             }
+            if (source === 'legacy-recovery-unconfirmed') {
+                this._loadStatus = source;
+                return source;
+            }
             this._loadStatus = 'ready';
             if (source === 'legacy') await this.save();
             else this.markStoredStatePresent();
@@ -141,6 +154,21 @@ class MaintenanceStore {
             throw new Error('空の保存領域を確認できません。');
         }
         this._loadStatus = 'ready';
+    }
+
+    async confirmLegacyRecovery() {
+        if (this._loadStatus !== 'legacy-recovery-unconfirmed' || !this.db || !this._legacyRecovery) {
+            throw new Error('復元できる旧データを確認できません。');
+        }
+        const expectedRevision = this._revision;
+        this._loadStatus = 'ready';
+        try {
+            await this.save({ expectedRevision, expectedMissingState: true });
+            this._legacyRecovery = null;
+        } catch (error) {
+            this._loadStatus = 'legacy-recovery-unconfirmed';
+            throw error;
+        }
     }
 
     markStoredStatePresent() {
@@ -208,6 +236,19 @@ class MaintenanceStore {
                         const otherKeys = (keysRequest.result || [])
                             .filter(key => String(key) !== this.STORAGE_KEY);
                         if (marker === '1' || otherKeys.length) {
+                            if (this.loadLegacy()) {
+                                this._revision = metadata.revision;
+                                this.lastSavedAt = metadata.savedAt;
+                                this._persistedRecordCount = 0;
+                                const recoveryCount = this.countStoredRecords(this.data);
+                                if (recoveryCount === 0) {
+                                    throw new Error('旧保存データにも記録がないため、空データでの復元を停止しました。');
+                                }
+                                this._legacyRecovery = { recordCount: recoveryCount };
+                                settled = true;
+                                resolve('legacy-recovery-unconfirmed');
+                                return;
+                            }
                             throw new Error('以前の保存データが見つかりません。空データでの上書きを停止しました。');
                         }
                         if (this.loadLegacy()) {
@@ -451,7 +492,7 @@ class MaintenanceStore {
         });
     }
 
-    save({ confirmedDecreaseRevision = null, candidateData = null, confirmedImport = false, expectedRevision = null, expectedLiveData = null } = {}) {
+    save({ confirmedDecreaseRevision = null, candidateData = null, confirmedImport = false, expectedRevision = null, expectedLiveData = null, expectedMissingState = false } = {}) {
         const notify = (status, detail = {}) => {
             window.dispatchEvent(new CustomEvent('maintenance-save-status', {
                 detail: { status, ...detail }
@@ -486,7 +527,7 @@ class MaintenanceStore {
         const saveSequence = ++this._saveSequence;
         notify('saving');
         // Calls from this tab are serialized so a later save observes the prior committed revision.
-        const operation = this._saveQueue.then(() => this.commitSave(notify, confirmedDecreaseRevision, candidateData, confirmedImport, expectedRevision, expectedLiveData, saveSequence));
+        const operation = this._saveQueue.then(() => this.commitSave(notify, confirmedDecreaseRevision, candidateData, confirmedImport, expectedRevision, expectedLiveData, saveSequence, expectedMissingState));
         this._saveQueue = operation.catch(() => {});
         return operation;
     }
@@ -548,7 +589,7 @@ class MaintenanceStore {
         });
     }
 
-    commitSave(notify, confirmedDecreaseRevision = null, candidateData = null, confirmedImport = false, expectedRevision = null, expectedLiveData = null, saveSequence = null) {
+    commitSave(notify, confirmedDecreaseRevision = null, candidateData = null, confirmedImport = false, expectedRevision = null, expectedLiveData = null, saveSequence = null, expectedMissingState = false) {
         if (this._saveBlocked) {
             const error = this._conflictError || new StorageConflictError();
             notify('conflict', { error });
@@ -612,14 +653,23 @@ class MaintenanceStore {
             try {
                 tx = this.db.transaction(this.STORE_NAME, 'readwrite');
                 const os = tx.objectStore(this.STORE_NAME);
+                // A recovery must never replace data created by another tab after the check.
+                const stateRequest = expectedMissingState ? os.get(this.STORAGE_KEY) : null;
                 const revisionRequest = os.get(this.REVISION_KEY);
                 let nextRevision;
                 let savedAt;
+                if (stateRequest) stateRequest.onerror = () => fail(stateRequest.error || new Error('既存データを確認できませんでした。'));
                 revisionRequest.onerror = () => fail(revisionRequest.error || new Error('保存世代を確認できませんでした。'));
                 revisionRequest.onsuccess = () => {
                     if (settled) return;
                     try {
                         const current = this.readRevisionMetadata(revisionRequest.result);
+                        if (expectedMissingState && stateRequest.result !== undefined) {
+                            const conflict = new StorageConflictError('別のタブで保存データが作成されました。復元を中止しました。再読み込みしてください。');
+                            fail(conflict, 'conflict');
+                            tx.abort();
+                            return;
+                        }
                         if (current.revision !== this._revision) {
                             const conflict = new StorageConflictError();
                             fail(conflict, 'conflict');

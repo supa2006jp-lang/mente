@@ -1,5 +1,21 @@
 (function () {
-    function showStorageGate(title, message, { allowNew = false, onNew = null, customize = null, onReload = null } = {}) {
+    function isSeparateWorkspace() {
+        if (window.maintenanceWorkspace?.separate === true) return true;
+        const search = window.location?.search || '';
+        return typeof URLSearchParams === 'function'
+            ? new URLSearchParams(search).get('workspace') === 'separate'
+            : /(?:^|[?&])workspace=separate(?:&|$)/.test(search);
+    }
+
+    function getWorkspaceUrl(separate) {
+        const url = new URL(window.location.href);
+        if (separate) url.searchParams.set('workspace', 'separate');
+        else url.searchParams.delete('workspace');
+        url.hash = '';
+        return url.href;
+    }
+
+    function showStorageGate(title, message, { allowNew = false, allowSeparate = false, onNew = null, customize = null, onReload = null } = {}) {
         if (typeof document === 'undefined' || !document.body) {
             alert(message);
             return;
@@ -25,6 +41,28 @@
         reload.addEventListener('click', () =>
             onReload ? onReload({ gate, actions, reload }) : window.location.reload());
         actions.appendChild(reload);
+        if (isSeparateWorkspace() || allowSeparate) {
+            const switchWorkspace = document.createElement('button');
+            switchWorkspace.type = 'button';
+            switchWorkspace.textContent = isSeparateWorkspace()
+                ? '元の保存領域へ戻る' : '別の作業領域で入力する';
+            switchWorkspace.style.cssText = 'padding:10px 16px;border:1px solid #0f766e;border-radius:8px;background:#f0fdfa;color:#115e59;font:inherit;cursor:pointer;';
+            switchWorkspace.addEventListener('click', async () => {
+                if (isSeparateWorkspace() && window.app) {
+                    switchWorkspace.disabled = true;
+                    try {
+                        await store.save();
+                    } catch (error) {
+                        console.error('Could not save separate workspace before leaving:', error);
+                        alert('別の作業領域を保存できませんでした。画面内からJSONを出力してから移動してください。\n詳細: ' + (error?.message || '不明なエラー'));
+                        switchWorkspace.disabled = false;
+                        return;
+                    }
+                }
+                window.location.assign(getWorkspaceUrl(!isSeparateWorkspace()));
+            });
+            actions.appendChild(switchWorkspace);
+        }
         if (allowNew) {
             const startNew = document.createElement('button');
             startNew.type = 'button';
@@ -116,23 +154,120 @@
         );
     }
 
+    function showLegacyRecoveryGate() {
+        const count = Number(store._legacyRecovery?.recordCount || 0).toLocaleString('ja-JP');
+        showStorageGate(
+            '旧保存データの復元候補が見つかりました',
+            `現在の保存データ本体は見つかりませんが、旧保存領域に ${count} 件の記録があります。最新の状態とは限りません。復元候補をJSONで保管し、内容を確認してから復元してください。`,
+            {
+                allowSeparate: true,
+                customize: ({ actions }) => {
+                    const exportButton = document.createElement('button');
+                    exportButton.type = 'button';
+                    exportButton.textContent = '復元候補をJSON出力';
+                    exportButton.style.cssText = 'padding:10px 16px;border:1px solid #64748b;border-radius:8px;background:#f8fafc;color:#0f172a;font:inherit;cursor:pointer;';
+                    exportButton.addEventListener('click', () => {
+                        try {
+                            let jsonText;
+                            let dataOnly = false;
+                            try {
+                                jsonText = store.exportAsJSON();
+                            } catch (error) {
+                                // A broken skill entry must not prevent the main recovery data from being exported.
+                                jsonText = JSON.stringify({ mainData: store.data }, null, 2);
+                                dataOnly = true;
+                            }
+                            const blob = new Blob([jsonText], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `maintenance_recovery_candidate_${new Date().toISOString().slice(0, 10)}.json`;
+                            link.click();
+                            setTimeout(() => URL.revokeObjectURL(url), 120);
+                            alert(dataOnly
+                                ? 'データ本体のみのダウンロードを開始しました。スキル情報は含まれません。ファイルが保存されたか確認してください。'
+                                : 'ダウンロードを開始しました。ファイルが保存されたか確認してください。');
+                        } catch (error) {
+                            console.error('Could not export recovery candidate:', error);
+                            alert('復元候補を出力できませんでした。保存領域を消去せず、管理者に相談してください。');
+                        }
+                    });
+                    actions.appendChild(exportButton);
+                    const restoreButton = document.createElement('button');
+                    restoreButton.type = 'button';
+                    restoreButton.textContent = '旧データを復元する';
+                    restoreButton.style.cssText = 'padding:10px 16px;border:1px solid #1d4ed8;border-radius:8px;background:#1d4ed8;color:#fff;font:inherit;cursor:pointer;';
+                    restoreButton.addEventListener('click', async () => {
+                        if (!confirm('旧保存領域のデータを復元します。最新の状態とは限りません。続行しますか？')) return;
+                        Array.from(actions.children).forEach(button => { button.disabled = true; });
+                        try {
+                            await store.confirmLegacyRecovery();
+                            window.location.reload();
+                        } catch (error) {
+                            console.error('Could not restore legacy data:', error);
+                            showStorageGate('旧データを復元できませんでした',
+                                '保存領域を消去せず、再読み込みして状態を確認してください。\n詳細: ' + (error?.message || '不明なエラー'),
+                                { allowSeparate: true });
+                        }
+                    });
+                    actions.appendChild(restoreButton);
+                }
+            }
+        );
+    }
+
     window.addEventListener('maintenance-save-status', (event) => {
         if (event.detail?.status === 'shrink') showSuddenDecreaseGate(event.detail);
     });
+    function showSeparateWorkspaceBadge() {
+        if (!window.maintenanceWorkspace?.separate) return;
+        document.getElementById('maintenance-workspace-badge')?.remove();
+        const badge = document.createElement('div');
+        badge.id = 'maintenance-workspace-badge';
+        badge.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147483000;display:flex;align-items:center;flex-wrap:wrap;gap:8px;max-width:calc(100vw - 24px);padding:8px 10px;border:1px solid #0f766e;border-radius:9px;background:#f0fdfa;color:#115e59;box-shadow:0 4px 16px rgba(0,0,0,.2);font:600 13px system-ui,sans-serif;';
+        const label = document.createElement('span');
+        label.textContent = '別の作業領域で作業中（元の保存領域には保存しません）';
+        const back = document.createElement('button');
+        back.type = 'button';
+        back.textContent = '元の保存領域へ戻る';
+        back.style.cssText = 'padding:5px 9px;border:1px solid #0f766e;border-radius:6px;background:#fff;color:#115e59;font:inherit;cursor:pointer;';
+        back.addEventListener('click', async () => {
+            back.disabled = true;
+            try {
+                await store.save();
+                window.location.assign(getWorkspaceUrl(false));
+            } catch (error) {
+                console.error('Could not save separate workspace before leaving:', error);
+                alert('別の作業領域を保存できませんでした。画面内からJSONを出力してから移動してください。\n詳細: ' + (error?.message || '不明なエラー'));
+                back.disabled = false;
+            }
+        });
+        badge.append(label, back);
+        document.body.appendChild(badge);
+    }
     function startApp() {
         window.app = new MaintenanceApp();
+        showSeparateWorkspaceBadge();
         window.setTimeout(() => window.app?.runScheduledDataDiagnostics?.(false), 1200);
     }
 
     window.addEventListener('DOMContentLoaded', async () => {
         try {
             const loadStatus = await store.init();
+            if (loadStatus === 'legacy-recovery-unconfirmed') {
+                showLegacyRecoveryGate();
+                return;
+            }
             if (loadStatus === 'empty-unconfirmed') {
+                const separate = window.maintenanceWorkspace?.separate;
                 showStorageGate(
-                    '保存データが見つかりません',
-                    '以前のデータがある場合は、同じChromeプロフィールと同じURLで開いているか確認してください。新しく使い始める場合だけ「新規データで開始」を選んでください。',
+                    separate ? '別の作業領域は空です' : '保存データが見つかりません',
+                    separate
+                        ? 'ここは元の保存領域とは別です。以前のデータは復元されません。この領域で入力した内容だけがここに保存されます。'
+                        : '以前のデータがある場合は、同じChromeプロフィールと同じURLで開いているか確認してください。新しく使い始める場合だけ「新規データで開始」を選んでください。',
                     {
                         allowNew: true,
+                        allowSeparate: !separate,
                         onNew: () => {
                             store.confirmEmptyStore();
                             startApp();
@@ -149,7 +284,8 @@
                 : 'ChromeのプロフィールとURLを確認し、再読み込みしてください。';
             showStorageGate(
                 '保存データを読み込めませんでした',
-                '空のデータで既存情報を上書きしないよう、編集と保存を停止しました。' + action + '\n詳細: ' + (error?.message || '不明なエラー')
+                '空のデータで既存情報を上書きしないよう、編集と保存を停止しました。' + action + '\n詳細: ' + (error?.message || '不明なエラー'),
+                { allowSeparate: true }
             );
         }
     });

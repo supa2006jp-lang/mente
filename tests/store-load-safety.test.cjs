@@ -282,6 +282,79 @@ test('a missing primary record with surviving backup keys cannot be treated as f
     assert.deepEqual(idb.deletes, []);
 });
 
+test('a missing IDB state with the saved-state marker offers legacy recovery without writing', async () => {
+    const legacy = sampleData();
+    const storage = fakeLocalStorage({
+        [MARKER_KEY]: '1',
+        factory_maintenance_next_data_v2: JSON.stringify(legacy)
+    });
+    const { store, idb } = loadStore({ localStorage: storage });
+    assert.equal(await store.init(), 'legacy-recovery-unconfirmed');
+    assert.equal(idb.record, undefined);
+    assert.equal(idb.puts.length, 0);
+    await assert.rejects(store.save());
+    assert.equal(idb.puts.length, 0);
+
+    await store.confirmLegacyRecovery();
+    assert.equal(store.activeData.machines[0].name, 'Press');
+    assert.equal(idb.record.deptData.dept_default.machines[0].name, 'Press');
+    assert.equal(idb.revision.revision, 1);
+});
+
+test('a missing IDB state with only revision metadata also waits for legacy recovery confirmation', async () => {
+    const savedAt = '2026-10-06T02:30:00.000Z';
+    const storage = fakeLocalStorage({
+        factory_maintenance_next_data_v2: JSON.stringify(sampleData())
+    });
+    const { store, idb } = loadStore({
+        localStorage: storage,
+        idb: { revision: { revision: 7, savedAt } }
+    });
+    assert.equal(await store.init(), 'legacy-recovery-unconfirmed');
+    assert.equal(idb.puts.length, 0);
+    await store.confirmLegacyRecovery();
+    assert.equal(idb.record.deptData.dept_default.machines[0].name, 'Press');
+    assert.equal(idb.revision.revision, 8);
+});
+
+test('an empty legacy candidate cannot replace missing previously saved data', async () => {
+    const emptyLegacy = sampleData();
+    emptyLegacy.deptData.dept_default.machines = [];
+    const storage = fakeLocalStorage({
+        [MARKER_KEY]: '1',
+        factory_maintenance_next_data_v2: JSON.stringify(emptyLegacy)
+    });
+    const { store, idb } = loadStore({ localStorage: storage });
+    await assert.rejects(store.init());
+    assert.equal(idb.record, undefined);
+    assert.equal(idb.puts.length, 0);
+});
+test('a saved-state marker with corrupt legacy data remains blocked', async () => {
+    const storage = fakeLocalStorage({
+        [MARKER_KEY]: '1',
+        factory_maintenance_next_data_v2: '{broken json'
+    });
+    const { store, idb } = loadStore({ localStorage: storage });
+    await assert.rejects(store.init());
+    assert.equal(idb.record, undefined);
+    assert.equal(idb.puts.length, 0);
+});
+
+test('legacy recovery cannot overwrite a state another tab created after the prompt', async () => {
+    const storage = fakeLocalStorage({
+        [MARKER_KEY]: '1',
+        factory_maintenance_next_data_v2: JSON.stringify(sampleData())
+    });
+    const { store, idb } = loadStore({ localStorage: storage });
+    assert.equal(await store.init(), 'legacy-recovery-unconfirmed');
+    const current = sampleData();
+    current.deptData.dept_default.machines[0].name = 'Other tab';
+    idb.record = current;
+    idb.revision = { revision: 1, savedAt: '2026-10-13T02:30:00.000Z' };
+    await assert.rejects(store.confirmLegacyRecovery(), error => error.code === 'STORAGE_CONFLICT');
+    assert.equal(idb.record.deptData.dept_default.machines[0].name, 'Other tab');
+    assert.equal(idb.puts.length, 0);
+});
 test('valid legacy data migrates only after it has been parsed', async () => {
     const existing = sampleData();
     const storage = fakeLocalStorage({ factory_maintenance_next_data_v2: JSON.stringify(existing) });
@@ -542,6 +615,131 @@ test('boot waits for explicit new-data choice when storage is genuinely empty', 
     assert.equal(appCount, 1);
     assert.equal(diagnosticsScheduled, 1);
     assert.equal(document.getElementById('maintenance-storage-gate'), null);
+});
+function runtimeLegacyRecoveryBootHarness({ confirmed = true, restore = async () => {} } = {}) {
+    let boot = null;
+    let appCount = 0;
+    let confirmations = 0;
+    let confirmationPrompts = 0;
+    let reloads = 0;
+    function element(tagName) {
+        return {
+            tagName,
+            children: [],
+            parent: null,
+            listeners: {},
+            style: {},
+            textContent: '',
+            disabled: false,
+            appendChild(child) {
+                child.parent = this;
+                this.children.push(child);
+                return child;
+            },
+            append(...children) { children.forEach(child => this.appendChild(child)); },
+            remove() {
+                if (this.parent) {
+                    this.parent.children = this.parent.children.filter(child => child !== this);
+                    this.parent = null;
+                }
+            },
+            addEventListener(type, callback) { this.listeners[type] = callback; },
+            focus() {}
+        };
+    }
+    const root = element('body');
+    const find = predicate => {
+        const visit = node => predicate(node)
+            ? node
+            : node.children.map(visit).find(Boolean);
+        return visit(root);
+    };
+    const document = {
+        body: root,
+        createElement: element,
+        getElementById(id) { return find(node => node.id === id) || null; }
+    };
+    const window = {
+        addEventListener(type, callback) {
+            if (type === 'DOMContentLoaded') boot = callback;
+        },
+        setTimeout() {},
+        location: { reload() { reloads += 1; } }
+    };
+    const context = vm.createContext({
+        document,
+        window,
+        store: {
+            _legacyRecovery: { recordCount: 1 },
+            init: async () => 'legacy-recovery-unconfirmed',
+            async confirmLegacyRecovery() {
+                confirmations += 1;
+                return restore();
+            }
+        },
+        MaintenanceApp: class { constructor() { appCount += 1; } },
+        console: { error() {} },
+        confirm() {
+            confirmationPrompts += 1;
+            return confirmed;
+        },
+        alert() {}
+    });
+    vm.runInContext(bootSource, context, { filename: 'app-boot.js' });
+    return {
+        boot: () => boot(),
+        find,
+        document,
+        get appCount() { return appCount; },
+        get confirmations() { return confirmations; },
+        get confirmationPrompts() { return confirmationPrompts; },
+        get reloads() { return reloads; }
+    };
+}
+
+test('boot keeps legacy recovery behind an explicit confirmation', async () => {
+    const harness = runtimeLegacyRecoveryBootHarness({ confirmed: false });
+    await harness.boot();
+    assert.equal(harness.appCount, 0);
+    assert.equal(harness.confirmations, 0);
+    assert.ok(harness.document.getElementById('maintenance-storage-gate'));
+    const recover = harness.find(node => node.textContent === '旧データを復元する');
+    assert.ok(recover);
+    await recover.listeners.click();
+    assert.equal(harness.confirmationPrompts, 1);
+    assert.equal(harness.confirmations, 0);
+    assert.equal(harness.reloads, 0);
+    assert.ok(harness.document.getElementById('maintenance-storage-gate'));
+});
+
+test('legacy recovery reloads only after the confirmed save succeeds', async () => {
+    let finish;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const harness = runtimeLegacyRecoveryBootHarness({ restore: () => pending });
+    await harness.boot();
+    const recover = harness.find(node => node.textContent === '旧データを復元する');
+    const click = recover.listeners.click();
+    assert.equal(harness.confirmations, 1);
+    assert.equal(harness.appCount, 0);
+    assert.equal(harness.reloads, 0);
+    finish();
+    await click;
+    assert.equal(harness.reloads, 1);
+    assert.equal(harness.appCount, 0);
+});
+
+test('failed legacy recovery keeps the storage gate and never reloads', async () => {
+    const harness = runtimeLegacyRecoveryBootHarness({
+        restore: async () => { throw new Error('write failed'); }
+    });
+    await harness.boot();
+    const recover = harness.find(node => node.textContent === '旧データを復元する');
+    await recover.listeners.click();
+    assert.equal(harness.confirmations, 1);
+    assert.equal(harness.reloads, 0);
+    assert.equal(harness.appCount, 0);
+    assert.ok(harness.document.getElementById('maintenance-storage-gate'));
+    assert.ok(harness.find(node => node.textContent === '旧データを復元できませんでした'));
 });
 function dataWithMachineCounts(counts) {
     const data = sampleData();

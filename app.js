@@ -285,7 +285,7 @@ class MaintenanceApp {
             this.renderStorageDetails();
         });
         window.addEventListener('storage', (event) => {
-            if (event.key !== 'maintenance-last-backup-at') return;
+            if (event.key !== (window.maintenanceWorkspace?.storageKey('maintenance-last-backup-at') || 'maintenance-last-backup-at')) return;
             this._lastBackupAt = this.parseStorageDate(event.newValue) || this.getLastBackupExportAt();
             this.renderStorageDetails();
         });
@@ -358,6 +358,7 @@ class MaintenanceApp {
     }
 
     getStoragePageUrl() {
+        if (window.maintenanceWorkspace?.separate) return window.location.href.split('#')[0];
         if (window.location.protocol === 'file:') return window.location.href.split('#')[0].split('?')[0];
         return window.location.origin + window.location.pathname;
     }
