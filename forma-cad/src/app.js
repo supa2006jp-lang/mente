@@ -86,7 +86,7 @@ import {projectedBounds,findPanelSpace} from './panel-placement.js';
 import {extrusionDragAxis,extrusionArrowAngle,extrusionDragDistance} from './extrusion-drag.js';
 import {holesOnlyProblem} from './holes-only-options.js';
 import {regionExtrusions} from './region-extrusions.js';
-import {hideExtrudedSketches} from './extruded-sketch-visibility.js';
+import {hideExtrudedSketches,sketchExtrusionProgress} from './extruded-sketch-visibility.js';
 let selectedRegions=[];
 import {installPatternPreview} from './pattern-preview.js';
 import {createMoveTool} from './move-tool.js';
@@ -226,14 +226,24 @@ function notifySketchFinished(session){notifySketch((session?'スケッチ'+sess
 function appErrorMessage(error){return cadErrorAdvice(error,{type:$('tools-dialog').open?$('cad-command').value:stage==='extrusion'?'extrusion':''}).message;}
 function notify(s){$('toast').textContent=s;$('toast').style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').style.display='none',3200);}
 let extrusionNoticeTimer,extrusionUndoToken=null;
+const hiddenSketchNotice=document.createElement('span');hiddenSketchNotice.id='extrusion-notice-hidden-sketches';hiddenSketchNotice.hidden=true;$('extrusion-notice-detail').after(hiddenSketchNotice);
+const restoreSketchButton=document.createElement('button');restoreSketchButton.id='extrusion-notice-restore-sketches';restoreSketchButton.type='button';restoreSketchButton.textContent='スケッチを再表示';restoreSketchButton.hidden=true;$('extrusion-notice-close').before(restoreSketchButton);
 function hideExtrusionNotice(){clearTimeout(extrusionNoticeTimer);$('extrusion-notice').hidden=true;extrusionUndoToken=null;}
 function notifyExtrusion(f,{edited=false,count=1}={}){
  clearTimeout(toastTimer);$('toast').style.display='none';clearTimeout(sketchNoticeTimer);$('sketch-notice').hidden=true;
  $('extrusion-notice-title').textContent=(f.name||'押し出し')+'を'+(edited?'更新しました':'確定しました')+(count>1?'（'+count+'領域）':'');
  const operation=f.holesOnly?'新規（穴だけ）':({new:'新規ボディ',join:'結合',cut:'切り取り'}[f.operation]||'押し出し'),depth=f.throughAll?(f.symmetric?'対称・両方向に貫通':'貫通'):f.symmetric?'対称 ±'+fmt(Math.abs(f.depth))+' mm（全体 '+fmt(Math.abs(f.depth)*2)+' mm）':f.gridExtentPlane?f.gridExtentPlane+'グリッドまで':'距離 '+fmt(f.depth)+' mm';
  $('extrusion-notice-detail').textContent=operation+' ／ '+depth+' ／ テーパー '+fmt(f.taperAngle||0)+'°';
- extrusionUndoToken={features,previous:past.at(-1),featureId:f.id};$('extrusion-notice-undo').disabled=!past.length;$('extrusion-notice').hidden=false;clearTimeout(extrusionNoticeTimer);extrusionNoticeTimer=setTimeout(hideExtrusionNotice,9000);
+ const previous= past.at(-1),before=new Map((previous||[]).filter(item=>item.kind==='sketch').map(item=>[item.id,item]));
+ const hiddenGroups=new Map();for(const item of features)if(item.kind==='sketch'&&item.groupHidden&&before.has(item.id)&&!before.get(item.id).groupHidden)hiddenGroups.set(item.groupId,item.groupNumber);
+ hiddenSketchNotice.hidden=!hiddenGroups.size;restoreSketchButton.hidden=!hiddenGroups.size;
+ hiddenSketchNotice.textContent=[...hiddenGroups.values()].map(number=>'スケッチ'+number).join('、')+'はすべて押し出したため非表示にしました。';
+ extrusionUndoToken={features,previous,featureId:f.id,hiddenGroupIds:[...hiddenGroups.keys()]};$('extrusion-notice-undo').disabled=!past.length;$('extrusion-notice').hidden=false;clearTimeout(extrusionNoticeTimer);extrusionNoticeTimer=setTimeout(hideExtrusionNotice,9000);
 }
+restoreSketchButton.onclick=()=>{
+ const token=extrusionUndoToken;if(!token||features!==token.features||stage!=='model'){hideExtrusionNotice();return;}
+ const ids=new Set(token.hiddenGroupIds);setProject(features.map(f=>f.kind==='sketch'&&ids.has(f.groupId)?{...f,groupHidden:false}:f));notify('押し出し元のスケッチを再表示しました');
+};
 $('extrusion-notice-edit').onclick=()=>{
  const token=extrusionUndoToken,f=token&&features===token.features&&features.find(item=>item.id===token.featureId&&item.kind==='extrusion');
  if(!f||stage!=='model'){hideExtrusionNotice();return;}
@@ -2008,7 +2018,50 @@ function updateSketchEditingRows(){
  }
  $('sketch-count').textContent=$('sketches').querySelectorAll('[data-sketch-group]').length;
 }
-function renderSketchGroups(){const groups=new Map();for(const f of features.filter(f=>f.kind==='sketch')){if(!groups.has(f.groupId))groups.set(f.groupId,[]);groups.get(f.groupId).push(f);}if(stage==='sketch'&&enteredSketchNumber!==null&&!features.some(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)){const id='pending-sketch-'+enteredSketchNumber;groups.set(id,[{groupId:id,groupNumber:enteredSketchNumber,groupHidden:false,pending:true}]);}$('sketch-count').textContent=groups.size;for(const [id,members] of groups){const f=members[0],row=document.createElement('div');row.className='tree-row';row.dataset.sketchGroup=id;row.dataset.sketchNumber=f.groupNumber;if(f.pending)row.dataset.pendingSketch='true';const label=document.createElement('button');label.className='row-label';const title=document.createElement('span');title.textContent='╱ スケッチ'+f.groupNumber;const badge=document.createElement('span');badge.className='sketch-editing-badge';badge.textContent='編集中';badge.hidden=true;label.append(title,badge);label.onclick=()=>editSketchGroup(id);const eye=document.createElement('button');eye.className='eye';eye.hidden=!!f.pending;eye.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>'+(f.groupHidden?'<path d="m3 3 18 18"/>':'')+'</svg>';eye.setAttribute('aria-pressed',String(!f.groupHidden));eye.title=f.groupHidden?'スケッチを表示':'スケッチを非表示';eye.setAttribute('aria-label',eye.title);eye.onclick=()=>{finishSketch(false);dropPreview();if(!f.groupHidden&&activeSketchGroup===id){activeSketchGroup=null;editingSketchGroup=null;selected=null;stage='model';draftTouched=false;syncFields();}setProject(features.map(x=>x.groupId===id?{...x,groupHidden:!f.groupHidden}:x));};row.append(label,eye);row.oncontextmenu=e=>{e.preventDefault();if(f.pending)return;document.getElementById('sketch-group-menu')?.remove();const menu=document.createElement('button');menu.id='sketch-group-menu';menu.textContent='再編集';Object.assign(menu.style,{position:'fixed',left:Math.min(e.clientX,innerWidth-140)+'px',top:Math.min(e.clientY,innerHeight-50)+'px',zIndex:1000,background:'white',color:'#173a4f',padding:'10px 24px',border:'1px solid #84aabd',borderRadius:'6px'});menu.onclick=()=>{menu.remove();editSketchGroup(id);};document.body.append(menu);};$('sketches').append(row);if(editingSketchGroup===id&&stage==='sketch')for(const [i,member] of members.entries()){const child=document.createElement('button');child.className='row-label sketch-member';child.textContent='　'+(i+1)+'. '+member.name;child.onclick=()=>selectFeature(member.id);$('sketches').append(child);}}updateSketchEditingRows();}
+function beginRemainingExtrusions(id){
+ if(stage!=='model'||pendingExtrude||extrusionBusy||document.querySelector('dialog[open]')||moveTool?.active){notify('編集中の操作を終了してから残りを押し出してください');return;}
+ const progress=sketchExtrusionProgress(features).get(id);
+ if(!progress?.remaining.length){notify('未押し出しの閉じた領域はありません');return;}
+ if(features.length+progress.remaining.length>150){notify('工程数は150までです。残りの領域を一度に押し出せません');return;}
+ finishSketch(false);clearFaceSelection();clearEdgeSelection();selected=null;selectedFace=null;stage='model';
+ selectedRegions=progress.remaining.map(r=>({...r,offsetGenerated:true}));chosenRegion=selectedRegions.at(-1);pendingOperation='new';
+ host.dataset.selectedRegionCount=String(selectedRegions.length);
+ beginExtrusion('solid',{preserveView:true});
+ $('status').textContent='未押し出し '+progress.remaining.length+'領域を選択しました。距離と操作を指定してください';
+}
+function renderSketchGroups(){
+ const progress=sketchExtrusionProgress(features),groups=new Map([...progress].map(([id,g])=>[id,g.members]));
+ if(stage==='sketch'&&enteredSketchNumber!==null&&!features.some(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)){
+  const id='pending-sketch-'+enteredSketchNumber;groups.set(id,[{groupId:id,groupNumber:enteredSketchNumber,groupHidden:false,pending:true}]);
+ }
+ $('sketch-count').textContent=groups.size;
+ for(const [id,members] of groups){
+  const f=members[0],row=document.createElement('div');row.className='tree-row';row.dataset.sketchGroup=id;row.dataset.sketchNumber=f.groupNumber;
+  if(f.pending)row.dataset.pendingSketch='true';
+  const label=document.createElement('button');label.className='row-label';
+  const title=document.createElement('span');title.textContent='╱ スケッチ'+f.groupNumber;
+  const badge=document.createElement('span');badge.className='sketch-editing-badge';badge.textContent='編集中';badge.hidden=true;
+  label.append(title,badge);label.onclick=()=>editSketchGroup(id);
+  const eye=document.createElement('button');eye.className='eye';eye.hidden=!!f.pending;
+  eye.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>'+(f.groupHidden?'<path d="m3 3 18 18"/>':'')+'</svg>';
+  eye.setAttribute('aria-pressed',String(!f.groupHidden));eye.title=f.groupHidden?'スケッチを表示':'スケッチを非表示';eye.setAttribute('aria-label',eye.title);
+  eye.onclick=()=>{finishSketch(false);dropPreview();if(!f.groupHidden&&activeSketchGroup===id){activeSketchGroup=null;editingSketchGroup=null;selected=null;stage='model';draftTouched=false;syncFields();}setProject(features.map(x=>x.groupId===id?{...x,groupHidden:!f.groupHidden}:x));};
+  row.append(label,eye);
+  const summary=progress.get(id);
+  if(summary){
+   const status=document.createElement('small');status.className='sketch-extrusion-progress';status.textContent='済み'+summary.done+'／残り'+summary.remaining.length;
+   status.title=summary.total?'閉じた領域の押し出し状況':'押し出せる閉じた領域はありません';
+   row.dataset.extrudedRegionCount=String(summary.done);row.dataset.remainingRegionCount=String(summary.remaining.length);row.append(status);
+   const extrude=document.createElement('button');extrude.type='button';extrude.className='sketch-remaining-extrude';extrude.textContent='残りを押し出す（'+summary.remaining.length+'）';
+   extrude.title='未押し出しの閉じた領域だけを選択して押し出す';extrude.setAttribute('aria-label','スケッチ'+f.groupNumber+'の残り'+summary.remaining.length+'領域を押し出す');
+   extrude.hidden=!summary.remaining.length;extrude.disabled=stage!=='model'||pendingExtrude;extrude.onclick=()=>{try{beginRemainingExtrusions(id);}catch(e){notify(appErrorMessage(e));}};row.append(extrude);
+  }
+  row.oncontextmenu=e=>{e.preventDefault();if(f.pending)return;document.getElementById('sketch-group-menu')?.remove();const menu=document.createElement('button');menu.id='sketch-group-menu';menu.textContent='再編集';Object.assign(menu.style,{position:'fixed',left:Math.min(e.clientX,innerWidth-140)+'px',top:Math.min(e.clientY,innerHeight-50)+'px',zIndex:1000,background:'white',color:'#173a4f',padding:'10px 24px',border:'1px solid #84aabd',borderRadius:'6px'});menu.onclick=()=>{menu.remove();editSketchGroup(id);};document.body.append(menu);};
+  $('sketches').append(row);
+  if(editingSketchGroup===id&&stage==='sketch')for(const [i,member] of members.entries()){const child=document.createElement('button');child.className='row-label sketch-member';child.textContent='　'+(i+1)+'. '+member.name;child.onclick=()=>selectFeature(member.id);$('sketches').append(child);}
+ }
+ updateSketchEditingRows();
+}
 function editSketchGroup(id){const first=features.find(f=>f.groupId===id);if(!first)return;finishSketch(false);activeSketchGroup=id;editingSketchGroup=id;selectFeature(first.id);renderTree();$('status').textContent='スケッチ'+first.groupNumber+' を編集中 · 一覧から線を選んで寸法変更、作図ツールで追加';}
 document.addEventListener('pointerdown',e=>{const faceMenu=$('solid-face-menu');if(faceMenu&&!faceMenu.contains(e.target))closeSolidFaceMenu();const menu=$('sketch-group-menu');if(menu&&!menu.contains(e.target))menu.remove();});
 

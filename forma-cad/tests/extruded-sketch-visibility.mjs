@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {defaults,validateFeature,validateProject} from '../src/geometry.js';
 import {findRegions} from '../src/regions.js';
-import {hideExtrudedSketches} from '../src/extruded-sketch-visibility.js';
+import {hideExtrudedSketches,sketchExtrusionProgress} from '../src/extruded-sketch-visibility.js';
 import {reverseExtrusionFrame} from '../src/extrusion-direction.js';
 const rect={...defaults,id:'r',name:'長方形',kind:'sketch',groupId:'one',groupNumber:1,width:20,height:10,groupHidden:false};
 const extrusion=sketches=>({kind:'extrusion',id:'ex',region:findRegions(sketches)[0]});
@@ -11,6 +11,9 @@ const two=[rect,{...rect,id:'r2',x:50}],twoExtrusions=findRegions(two).map((regi
 assert.deepEqual(hideExtrudedSketches(two,[twoExtrusions[0]]),two,'unfinished region keeps the group visible');
 assert.ok(hideExtrudedSketches(two,twoExtrusions).every(f=>f.groupHidden),'batch completes every region');
 const sequential=[...two,twoExtrusions[0],twoExtrusions[1]],finished=hideExtrudedSketches(sequential,[twoExtrusions[1]]);
+const initialProgress=sketchExtrusionProgress(two).get('one');assert.equal(initialProgress.done,0);assert.equal(initialProgress.remaining.length,2);
+const partialProgress=sketchExtrusionProgress([...two,twoExtrusions[0]]).get('one');assert.equal(partialProgress.done,1);assert.deepEqual(partialProgress.remaining.map(r=>r.id),[twoExtrusions[1].region.id]);
+const reloadedProgress=sketchExtrusionProgress(JSON.parse(JSON.stringify(sequential))).get('one');assert.equal(reloadedProgress.done,2);assert.equal(reloadedProgress.remaining.length,0);
 assert.ok(finished.slice(0,2).every(f=>f.groupHidden),'previous and current extrusions together complete the group');
 assert.deepEqual(hideExtrudedSketches([...two,twoExtrusions[0]],[twoExtrusions[0]]),[...two,twoExtrusions[0]],'repeating one region does not complete the other');
 assert.deepEqual(hideExtrudedSketches([...two,twoExtrusions[1]],[twoExtrusions[1]]),[...two,twoExtrusions[1]],'a deleted extrusion no longer counts');

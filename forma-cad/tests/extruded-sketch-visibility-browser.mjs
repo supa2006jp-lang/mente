@@ -23,6 +23,8 @@ try{
  const rect={...defaults,id:'r',name:'長方形',kind:'sketch',profile:'rect',width:20,height:10,x:-20,groupId:'g1',groupNumber:1,groupHidden:false},other={...rect,id:'other',x:40,groupId:'g2',groupNumber:2};
  const eye=id=>page.locator('[data-sketch-group="'+id+'"] .eye');
  async function visible(id,value){assert.equal(await eye(id).getAttribute('aria-pressed'),String(value));}
+ const sketchRow=id=>page.locator('[data-sketch-group="'+id+'"]');
+ async function progress(id,done,remaining){assert.equal(await sketchRow(id).locator('.sketch-extrusion-progress').textContent(),'済み'+done+'／残り'+remaining);}
  async function begin(point){await page.mouse.click(...await screen(point));await page.locator('#solid-tool').click();await panel.waitFor();await page.locator('#viewport-depth').fill('3');await ready();}
  await load([rect,other]);const original=(await save()).features;await begin([-18,1,0]);await page.locator('#cancel').click();await visible('g1',true);await visible('g2',true);assert.deepEqual((await save()).features,original,'cancel leaves visibility unchanged');
  await begin([-18,1,0]);await confirm();await visible('g1',false);await visible('g2',true);assert.equal(await page.locator('#region-count').textContent(),'1');let data=await save();assert.equal(data.features[0].groupHidden,true);assert.equal(data.features[1].groupHidden,false);assert.equal(await page.locator('#body-count').textContent(),'1');
@@ -32,12 +34,25 @@ try{
  await page.keyboard.press('Control+z');await visible('g1',true);assert.equal(await page.locator('#body-count').textContent(),'1');await page.keyboard.press('Control+y');await visible('g1',false);data=await save();await load(data.features);await visible('g1',false);await eye('g1').click();await visible('g1',true);
  // A batch that completes every region also hides the source group.
  await load(two);await page.mouse.click(...await screen([-18,1,0]));await page.keyboard.down('Control');await page.mouse.click(...await screen([22,1,0]));await page.keyboard.up('Control');await page.locator('#solid-tool').click();await panel.waitFor();await page.locator('#viewport-combine').selectOption('separate');await page.locator('#viewport-depth').fill('3');await ready(2);await confirm();await visible('g1',false);assert.equal(await page.locator('#body-count').textContent(),'2');
+ // Progress and remaining-only batch survive reload; cancel changes nothing.
+ const three=[...two,{...rect,id:'r3',x:60}];await load(three);await progress('g1',0,3);await begin([-18,1,0]);await confirm();await progress('g1',1,2);
+ assert.equal(await page.locator('#extrusion-notice-restore-sketches').isVisible(),false,'unfinished group has no hidden notification');
+ data=await save();await load(data.features);await progress('g1',1,2);
+ await page.screenshot({path:'.sites-runtime/extrusion-progress-remaining.png'});
+ await sketchRow('g1').locator('.sketch-remaining-extrude').click();await panel.waitFor();await page.locator('#viewport-depth').fill('4');await ready(2);await page.locator('#cancel').click();assert.deepEqual((await save()).features,data.features);await progress('g1',1,2);
+ await sketchRow('g1').locator('.sketch-remaining-extrude').click();await panel.waitFor();await page.locator('#viewport-combine').selectOption('separate');await page.locator('#viewport-depth').fill('4');await ready(2);await confirm();await progress('g1',3,0);await visible('g1',false);
+ await page.screenshot({path:'.sites-runtime/extrusion-progress-notice.png'});
+ const completed=(await save()).features,completedRegions=completed.filter(f=>f.kind==='extrusion').map(f=>f.region.id);assert.equal(completedRegions.length,3);assert.equal(new Set(completedRegions).size,3,'completed regions are not extruded again');assert.equal(await page.locator('#body-count').textContent(),'3');
+ assert.equal(await page.locator('#extrusion-notice-hidden-sketches').textContent(),'スケッチ1はすべて押し出したため非表示にしました。');await page.locator('#extrusion-notice-restore-sketches').click();await visible('g1',true);await progress('g1',3,0);assert.equal(await page.locator('#body-count').textContent(),'3');assert.equal(await sketchRow('g1').locator('.sketch-remaining-extrude').isVisible(),false);
+ await page.keyboard.press('Control+z');await visible('g1',false);await page.keyboard.press('Control+z');await visible('g1',true);await progress('g1',1,2);await page.keyboard.press('Control+y');await visible('g1',false);await progress('g1',3,0);
+ await page.screenshot({path:'.sites-runtime/extrusion-progress-complete.png'});
  // Separate line features forming a single rectangle hide the entire group.
  const lines=[[-20,-5,20,0],[-10,0,10,90],[-20,5,20,0],[-30,0,10,90]].map(([x,y,width,angle],i)=>({...rect,id:'l'+i,name:'線'+i,profile:'line',mode:'thin',x,y,width,angle}));await load(lines);await begin([-18,1,0]);await confirm();await visible('g1',false);data=await save();assert.ok(data.features.filter(f=>f.kind==='sketch').every(f=>f.groupHidden));
  // Thin extrusion also retains its source link and hides the source group.
  const line={...rect,id:'line',profile:'line',mode:'thin',y:0};await load([line]);await page.locator('[data-sketch-group] .row-label').first().click();await page.locator('#thin-tool').click();await panel.waitFor();await page.locator('#viewport-depth').fill('3');await ready();await confirm();await visible('g1',false);data=await save();assert.deepEqual(data.features.at(-1).sourceSketchIds,['line']);
  // Exact CAD (taper) follows the same visibility rule after successful creation.
  await load([rect]);await begin([-18,1,0]);await page.locator('#viewport-taper-angle').fill('5');await ready();await confirm();await visible('g1',false);data=await save();assert.ok(data.features.at(-1).cadResult);assert.equal(await page.locator('#body-count').textContent(),'1');
+ await load(two);await sketchRow('g1').locator('.sketch-remaining-extrude').click();await panel.waitFor();await page.locator('#viewport-combine').selectOption('separate');await page.locator('#viewport-depth').fill('3');await page.locator('#viewport-taper-angle').fill('5');await ready(2);await confirm();await visible('g1',false);await progress('g1',2,0);assert.equal(await page.locator('#extrusion-notice-restore-sketches').isVisible(),true);data=await save();assert.ok(data.features.filter(f=>f.kind==='extrusion').every(f=>f.cadResult));
  await page.screenshot({path:'.sites-runtime/extruded-sketch-hidden.png'});assert.deepEqual(errors,[]);
- console.log('PASS extrusion auto-hide: single/multi contours, source-only groups, separate lines, thin source link, exact CAD taper, batch, cancel, manual visibility, atomic undo/redo and save/reload');
+ console.log('PASS extrusion progress, remaining-only batch, hidden notice and restore, single/multi contours, thin source link, exact CAD batch, cancel, undo/redo and save/reload');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

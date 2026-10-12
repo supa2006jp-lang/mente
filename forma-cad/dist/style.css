@@ -300,6 +300,13 @@
 #sketches .tree-row .row-label>span:first-child{overflow:hidden;text-overflow:ellipsis}
 #sketches .sketch-editing-badge{flex-shrink:0;font-size:11px;line-height:1.5;padding:1px 5px;border-radius:4px;background:#664486;color:#f7eaff;font-weight:600}
 #sketches .tree-row.sketch-editing .eye{color:#d0a5ed}
+#sketches .tree-row{flex-wrap:wrap}
+#sketches .tree-row .row-label{flex-wrap:wrap}
+#sketches .sketch-extrusion-progress{flex-basis:100%;font-size:12px;color:#a7c9d4;font-variant-numeric:tabular-nums}
+#sketches .tree-row .sketch-remaining-extrude{flex-basis:100%;padding:5px 8px;border:1px solid #356f7c;background:#203e49;color:#9fe5eb;font-size:12px;text-align:center;white-space:normal}
+#sketches .tree-row .sketch-remaining-extrude:hover{background:#2c5260}
+#extrusion-notice>div{flex-wrap:wrap}
+#extrusion-notice-hidden-sketches{font-weight:600}
 
 
 /* Two command rows retain full labels and share the available width. */
