@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {moveBossJoint,bossJointPoint,bossJointTransform} from './boss-joint-layout.js';
 
-export function createBossJointDrag({host,camera,getControls,getSymmetric,onStart,onMove,onCommit,onCancel}){
+export function createBossJointDrag({host,camera,getControls,getSymmetric,getDirection=()=>'free',onStart,onMove,onCommit,onCancel}){
  const layer=document.createElement('div');layer.id='boss-joint-handles';Object.assign(layer.style,{position:'absolute',inset:'0',pointerEvents:'none',zIndex:'82'});host.append(layer);
  let analysis=null,buttons=[],drag=null,raf=0;const raycaster=new THREE.Raycaster();
  function project(point){const p=point.project(camera);return {x:(p.x+1)*host.clientWidth/2,y:(1-p.y)*host.clientHeight/2,z:p.z};}
@@ -17,10 +17,10 @@ export function createBossJointDrag({host,camera,getControls,getSymmetric,onStar
  function update(value){hide();analysis=structuredClone(value);const parts=analysis.placements?[0,1]:[0];
   for(const part of parts)for(let i=0;i<analysis.positions.length;i++){
    const b=document.createElement('button');b.type='button';b.className='boss-joint-drag';b.textContent=String(i+1);b.dataset.jointIndex=i;b.dataset.part=part;b.setAttribute('aria-label',(part?'棒':'ボス')+(i+1)+'の接合位置を移動');b.title='ドラッグで接合位置を移動／矢印キーで1 mm、Shift＋矢印で0.1 mm';Object.assign(b.style,{position:'absolute',pointerEvents:'auto',transform:'translate(-50%,-50%)',minWidth:'30px',height:'30px',padding:'0 5px',border:'2px solid white',borderRadius:'50%',color:'white',cursor:'move',touchAction:'none',boxShadow:'0 2px 7px #0006',fontWeight:'700'});
-   b.addEventListener('pointerdown',e=>{if(e.button!==0||e.shiftKey||!analysis)return;const uv=pointerUV(e,part);if(!uv)return;e.preventDefault();e.stopPropagation();document.activeElement?.blur();drag={id:e.pointerId,button:b,index:i,part,at:uv,analysis:structuredClone(analysis),enabled:getControls().enabled};getControls().enabled=false;onStart();b.setPointerCapture(e.pointerId);});
-   b.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;e.preventDefault();e.stopPropagation();const uv=pointerUV(e,part);if(!uv)return;const start=drag.analysis.positions[i].uv,next=moveBossJoint(drag.analysis,i,uv.map((v,j)=>start[j]+v-drag.at[j]),getSymmetric());analysis.positions.forEach((q,j)=>q.uv=next[j]);onMove(next);drawOnce();});
+   b.addEventListener('pointerdown',e=>{if(e.button!==0||e.shiftKey||!analysis)return;const uv=pointerUV(e,part);if(!uv)return;e.preventDefault();e.stopPropagation();document.activeElement?.blur();drag={id:e.pointerId,button:b,index:i,part,at:uv,direction:getDirection(),analysis:structuredClone(analysis),enabled:getControls().enabled};getControls().enabled=false;onStart();b.setPointerCapture(e.pointerId);});
+   b.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;e.preventDefault();e.stopPropagation();const uv=pointerUV(e,part);if(!uv)return;const start=drag.analysis.positions[i].uv,next=moveBossJoint(drag.analysis,i,uv.map((v,j)=>start[j]+v-drag.at[j]),getSymmetric(),.1,drag.direction);analysis.positions.forEach((q,j)=>q.uv=next[j]);onMove(next);drawOnce();});
    for(const name of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(name,finish);
-   b.addEventListener('keydown',e=>{const dir={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowDown:[0,-1],ArrowUp:[0,1]}[e.key];if(!dir||drag||!analysis)return;e.preventDefault();e.stopPropagation();onStart();const step=e.shiftKey?.1:1,next=moveBossJoint(analysis,i,analysis.positions[i].uv.map((v,j)=>v+dir[j]*step),getSymmetric(),.1);analysis.positions.forEach((q,j)=>q.uv=next[j]);onMove(next);drawOnce();onCommit();});buttons.push(b);layer.append(b);
+   b.addEventListener('keydown',e=>{const dir={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowDown:[0,-1],ArrowUp:[0,1]}[e.key];if(!dir||drag||!analysis)return;e.preventDefault();e.stopPropagation();const direction=getDirection();if(direction==='x'&&!dir[0]||direction==='y'&&!dir[1])return;onStart();const step=e.shiftKey?.1:1,next=moveBossJoint(analysis,i,analysis.positions[i].uv.map((v,j)=>v+dir[j]*step),getSymmetric(),.1,direction);analysis.positions.forEach((q,j)=>q.uv=next[j]);onMove(next);drawOnce();onCommit();});buttons.push(b);layer.append(b);
   }drawOnce();
  }
  hide();return {update,hide,cancel(){if(!drag)return false;restore();return true;},setEnabled(value){for(const b of buttons)b.disabled=!value;},get dragging(){return !!drag;}};

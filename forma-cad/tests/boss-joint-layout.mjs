@@ -10,6 +10,13 @@ const longY={positions:[{uv:[-5,-10]},{uv:[5,-10]},{uv:[-5,10]},{uv:[5,10]}],lay
 assert.deepEqual(moveBossJoint(longY,2,[-7,12]),[[-7,-12],[7,-12],[-7,12],[7,12]]);
 assert.deepEqual(moveBossJoint({positions:[{uv:[2,3]}]},0,[2.24,3.36]),[[2.2,3.4]]);
 assert.throws(()=>moveBossJoint(two,0,[NaN,1]),/不正/);
+const offGrid={positions:[{uv:[2.2345,3.4567]}]};
+assert.deepEqual(moveBossJoint(offGrid,0,[9.87,-5.43],false,.1,'x'),[[9.9,3.4567]],'X movement preserves the exact Y coordinate');
+assert.deepEqual(moveBossJoint(offGrid,0,[9.87,-5.43],false,.1,'y'),[[2.2345,-5.4]],'Y movement preserves the exact X coordinate');
+assert.deepEqual(moveBossJoint(offGrid,0,[9.87,-5.43],false,.1,'free'),[[9.9,-5.4]],'free movement updates both coordinates');
+assert.deepEqual(moveBossJoint(two,0,[-12,3],true,.1,'x'),[[-12,0],[12,0]]);
+assert.deepEqual(moveBossJoint(four,1,[-12,7],true,.1,'y'),[[-10,-7],[-10,7],[10,-7],[10,7]]);
+assert.throws(()=>moveBossJoint(two,0,[1,2],true,.1,'z'),/移動方向/);
 const frame={u:[1,0,0],v:[0,1,0],n:[0,0,1]},analysis={frame,offset:15,length:4,placements:[{angle:0,axis:[1,0,0],translation:[30,20,0]},{angle:180,axis:[1,0,0],translation:[100,20,30]}]};
 assert.deepEqual(bossJointPoint(analysis,[4,5],0).toArray(),[34,25,15]);
 const point=bossJointPoint(analysis,[4,5],1);assert.ok(point.distanceTo(new THREE.Vector3(104,15,19))<1e-9);point.applyMatrix4(bossJointTransform(analysis,1).invert());assert.ok(point.distanceTo(new THREE.Vector3(4,5,11))<1e-9);

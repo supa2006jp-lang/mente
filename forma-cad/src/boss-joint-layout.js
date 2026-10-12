@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 
-export function moveBossJoint(analysis,index,uv,symmetric=true,step=.1){
+export function moveBossJoint(analysis,index,uv,symmetric=true,step=.1,direction='free'){
  if(!analysis?.positions?.[index]||uv.length!==2||uv.some(v=>!Number.isFinite(v)))throw Error('接合位置が不正です');
+ if(!['x','y','free'].includes(direction))throw Error('接合位置の移動方向が不正です');
  const points=analysis.positions.map(p=>[...p.uv]),center=analysis.layout?.center||points.reduce((a,p)=>a.map((v,i)=>v+p[i]/points.length),[0,0]);
- const next=uv.map(v=>Math.round(v/step)*step);points[index]=next;
+ const fixed=direction==='x'?1:direction==='y'?0:-1,next=uv.map((v,i)=>i===fixed?points[index][i]:Math.round(v/step)*step);points[index]=next;
  if(symmetric&&points.length===2){const axis=analysis.layout?.long??0;points[1-index]=next.map((v,i)=>i===axis?2*center[i]-v:v);}
  if(symmetric&&points.length===4){const long=analysis.layout?.long??0,bit=(j,axis)=>axis===long?Math.floor(j/2):j%2;for(let j=0;j<points.length;j++)if(j!==index)points[j]=next.map((v,i)=>center[i]+(bit(j,i)===bit(index,i)?1:-1)*(v-center[i]));
  }
