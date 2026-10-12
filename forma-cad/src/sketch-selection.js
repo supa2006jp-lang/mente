@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import Clipper from 'clipper-lib';
 import {sketchPoints,planeCoordinates,findRegions} from './regions.js';
 import {worldPoint} from './frames.js';
-import {offsetSketch} from './sketch-offset.js';
+import {offsetSketch,offsetSketchAllAround} from './sketch-offset.js';
 export function sketchSegments(f){const ps=sketchPoints(f),r={...f,offset:planeCoordinates(f).offset};return ps.slice(1).map((b,i)=>({index:i,a:worldPoint(r,ps[i]),b:worldPoint(r,b)}));}
 function segmentInRect(a,b,r){let lo=0,hi=1;for(const [p,q] of [[a.x-b.x,a.x-r.left],[b.x-a.x,r.right-a.x],[a.y-b.y,a.y-r.top],[b.y-a.y,r.bottom-a.y]]){if(Math.abs(p)<1e-12){if(q<0)return false;}else if(p<0)lo=Math.max(lo,q/p);else hi=Math.min(hi,q/p);}return lo<=hi;}
 export function rangeSketchHits(features,camera,width,height,rect){const result=new Map(),inside=p=>p.z>=-1&&p.z<=1&&p.x>=rect.left&&p.x<=rect.right&&p.y>=rect.top&&p.y<=rect.bottom,project=v=>{const p=v.clone().project(camera);return {x:(p.x+1)*width/2,y:(1-p.y)*height/2,z:p.z};};
@@ -20,8 +20,8 @@ export function selectedSketchParts(f,indices,keepSelected=true){
  return parts.map((p,i)=>({...structuredClone(f),id:i?crypto.randomUUID():f.id,profile:'polyline',points:p,closed:false}));
 }
 export function deleteSketchSelection(features,selection){return features.flatMap(f=>selection.has(f.id)?selectedSketchParts(f,selection.get(f.id),false):[f]);}
-export function offsetSketchSelection(features,selection,distance){
- const chosen=features.filter(f=>f.profile!=='point'&&selection.has(f.id)).flatMap(f=>selectedSketchParts(f,selection.get(f.id))),regions=findRegions(chosen),groups=new Map();
+export function offsetSketchSelection(features,selection,distance,options={}){
+ const chosen=features.filter(f=>f.profile!=='point'&&selection.has(f.id)).flatMap(f=>selectedSketchParts(f,selection.get(f.id)));if(options.allAround)return offsetSketchAllAround(chosen,distance);const regions=findRegions(chosen),groups=new Map();
  if(!regions.length)return chosen.flatMap(f=>offsetSketch(f,distance));
  for(const r of regions){const key=JSON.stringify([r.plane,r.frame,r.offset]);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);}
  const used=new Set(regions.flatMap(r=>r.sourceIds));const result=chosen.filter(f=>!used.has(f.id)).flatMap(f=>offsetSketch(f,distance)),scale=100000;
