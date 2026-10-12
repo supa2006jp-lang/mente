@@ -10,8 +10,10 @@ export function extrusionTargetEntries(feature,bodies){
 
 // A preceding extrusion in the same command can merge selected body IDs.
 export function batchExtrusionFeature(feature,processed){
- if(!feature.targetBodies)return feature;
+ if(!feature.targetBodies&&!feature.overlapTargets)return feature;
  const resolve=id=>{for(const previous of processed){const result=previous.cadResult;if(previous.operation==='join'&&result?.remove.includes(id))id=result.outputs[0]?.id||id;}return id;};
- const targetBodies=[...new Set(feature.targetBodies.map(resolve))];
- return {...feature,target:resolve(feature.target),targetBodies};
+ const next={...feature,target:resolve(feature.target)};
+ if(feature.targetBodies)next.targetBodies=[...new Set(feature.targetBodies.map(resolve))];
+ if(feature.overlapTargets)next.overlapTargets=[...new Set(feature.overlapTargets.map(resolve))];
+ return next;
 }
