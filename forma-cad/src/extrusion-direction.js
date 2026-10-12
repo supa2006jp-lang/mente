@@ -9,6 +9,7 @@ export function reverseExtrusionFrame(feature){
  if(feature.region){
   const ring=points=>points.map(([u,v])=>[u,-v]).reverse();
   next.region={...feature.region,plane:'CUSTOM',frame,offset:-feature.region.offset,outer:ring(feature.region.outer),holes:feature.region.holes.map(ring)};
+  if(feature.region.overlapSource){const source=feature.region.overlapSource;next.region.overlapSource={...source,plane:'CUSTOM',frame,offset:-source.offset,outer:ring(source.outer),holes:source.holes.map(ring)};}
  }
  if(feature.profile==='line')next.side=feature.side==='inside'?'outside':feature.side==='outside'?'inside':feature.side;
  return next;

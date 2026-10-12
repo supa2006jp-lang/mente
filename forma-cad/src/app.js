@@ -23,6 +23,8 @@ import {edgeTurnFrame,upperEdgeBody,edgeQuarterTurn} from './edge-quarter-turn.j
 import {installRenderRecovery} from './render-recovery.js';
 import {zoomAtPointer,fitSelectionBox} from './selection-view.js';
 import {faceGridCellRegions} from './grid-cell.js';
+import {sketchSolidOverlapRegions} from './sketch-solid-overlap.js';
+let sketchOverlapCache=null;
 import {gridCellOccluders} from './grid-cell-occlusion.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains,faceGridPatches} from './face-grid.js';
 import {planeViewBounds,viewportGridLayout,fitCameraDepth} from './viewport-grid.js';
@@ -422,10 +424,14 @@ document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{mode=b.datase
 function renderRegions(){
  for(const c of [...regionGroup.children])disposeObject(c);
  try{regionList=findRegions(visibleSketchFeatures());}catch(e){$('error').textContent=appErrorMessage(e);regionList=[];}
- if(chosenRegion)chosenRegion=regionList.find(r=>r.id===chosenRegion.id)||selectedRegions.find(r=>r.id===chosenRegion.id&&r.offsetGenerated)||null;
+ const visibleMeshes=[...meshes.values()].filter(m=>m.visible),signature=regionList.map(r=>r.id).join('|'),bodySignature=visibleMeshes.map(m=>m.uuid).join('|');
+ if(!sketchOverlapCache||sketchOverlapCache.features!==features||sketchOverlapCache.signature!==signature||sketchOverlapCache.bodySignature!==bodySignature)sketchOverlapCache={features,signature,bodySignature,regions:sketchSolidOverlapRegions(regionList,visibleMeshes)};
+ const overlapRegions=sketchOverlapCache.regions;
+ if(chosenRegion)chosenRegion=selectedRegions.find(r=>r.id===chosenRegion.id)||regionList.find(r=>r.id===chosenRegion.id)||overlapRegions.find(r=>r.id===chosenRegion.id)||null;
  $('region-count').textContent=regionList.length;
  for(const p of features.filter(f=>f.kind==='plane')){const g=new THREE.PlaneGeometry(120,120),b=basisFor(p),m=new THREE.Matrix4().makeBasis(b.u,b.v,b.n);g.applyMatrix4(m);g.translate(...b.n.clone().multiplyScalar(p.offset).toArray());const plane=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xe4a046,transparent:true,opacity:.055,side:THREE.DoubleSide,depthWrite:false}));plane.userData.constructionPlane=true;plane.userData.planeId=p.id;plane.visible=$('construction-visible').checked;regionGroup.add(plane);}
- for(const r of [...regionList,...selectedRegions.filter(s=>s.offsetGenerated&&!regionList.some(r=>r.id===s.id))]){const active=chosenRegion?.id===r.id||selectedRegions.some(s=>s.id===r.id);const mesh=new THREE.Mesh(regionFaceGeometry(r),new THREE.MeshBasicMaterial({color:active?0x3868ad:0x2f9ede,transparent:true,opacity:active?.55:.16,side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1}));mesh.userData.region=r;mesh.renderOrder=1;regionGroup.add(mesh);}
+ host.dataset.overlapRegionCount=String(overlapRegions.length);
+ for(const r of [...regionList,...overlapRegions,...selectedRegions.filter(s=>s.offsetGenerated&&!regionList.some(r=>r.id===s.id))]){const active=chosenRegion?.id===r.id||selectedRegions.some(s=>s.id===r.id);const mesh=new THREE.Mesh(regionFaceGeometry(r),new THREE.MeshBasicMaterial({color:active?0x3868ad:r.overlapSource?0x159eac:0x2f9ede,transparent:true,opacity:active?.55:r.overlapSource?.24:.16,side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1}));mesh.userData.region=r;mesh.renderOrder=r.overlapSource?2:1;regionGroup.add(mesh);}
 }
 async function completeSketch(){if(selected&&draftTouched){try{await applyHistoryEdit();}catch(e){$('error').textContent=appErrorMessage(e);return;}}if(sketch&&$('profile').value==='spline'&&splinePoints.length>=2){try{applyFeature();}catch(e){notify(appErrorMessage(e));return;}}
  if(stage==='sketch'&&draftTouched&&!sketch){try{applyFeature();}catch(e){$('error').textContent=appErrorMessage(e);return;}}
@@ -445,6 +451,7 @@ function beginExtrusion(nextMode='solid',{preserveView=false}={}){bodyDisplay?.s
  if(!chosenRegion){stage='model';selected=null;pendingExtrude=true;mode=nextMode;dropPreview();syncFields();renderRegions();$('status').textContent=nextMode==='thin'?'閉じた領域、または開いた線を選択してください':'青く塗られた閉じた領域をクリックしてください';notify($('status').textContent);return;}
  let r=chosenRegion;if(pendingOperation!=='cut'){const orient=region=>outwardExtrusion({...defaults,profile:'region',region,plane:region.plane,frame:region.frame,mode:nextMode},meshes).region;selectedRegions=selectedRegions.map(orient);r=chosenRegion=selectedRegions.find(region=>region.id===r.id)||orient(r);}if(!preserveView)revealExtrusion(r);selected=null;stage='extrusion';pendingExtrude=false;mode=nextMode;extrusionManualOperation=false;
  const f={...defaults,profile:'region',region:clone(r),plane:r.plane,frame:r.frame,name:pendingOperation==='cut'?'穴あけ':nextMode==='thin'?'薄い押し出し':'押し出し',depth:pendingOperation==='cut'&&selectedFace?-defaults.depth:defaults.depth,mode:nextMode,operation:pendingOperation,target:selectedFace?.bodyId||'',x:r.plane==='YZ'?r.offset:0,y:r.plane==='XZ'?r.offset:0,z:r.plane==='XY'?r.offset:0};
+ if(r.overlapSource&&nextMode==='solid'){f.overlapOnly=true;f.overlapTargets=[...r.overlapTargets];}
  if(pendingOperation==='cut'){const target=meshes.get(f.target)||meshes.values().next().value;if(target){f.target=target.userData.bodyId;const center=new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3()),n=basisFor(r).n;f.depth=center.dot(n)<r.offset?-20:20;}}fillForm(f);renderTree();scheduleAutoCut();
 }
 function chooseRegion(r,add=false){patternCenter=null;
@@ -458,9 +465,9 @@ function chooseRegion(r,add=false){patternCenter=null;
  draftTouched=false;dropPreview();syncFields();renderRegions();
  host.dataset.selectedRegionCount=String(selectedRegions.length);
  $('measurement').hidden=!chosenRegion;
- $('measurement-title').textContent=selectedRegions.length+' 領域を選択';
+ $('measurement-title').textContent=r.overlapSource?'ソリッドと重なる部分を選択':selectedRegions.length+' 領域を選択';
  $('measurement-length').textContent=fmt(selectedRegions.reduce((sum,s)=>sum+s.area,0))+' mm²';
- $('measurement-angle').textContent='Ctrl＋クリックで追加・解除';
+ $('measurement-angle').textContent=r.overlapSource?'Ctrl＋クリックで追加・解除 · Alt＋クリックで元の領域を選択':'Ctrl＋クリックで追加・解除';
  $('status').textContent='領域を選択しました。押し出し（E）で距離を指定';
  if(shouldExtrude){
   beginExtrusion(nextMode);
@@ -666,6 +673,10 @@ renderer.domElement.addEventListener('pointerup',e=>{
  if(bodyHit){chooseFace(bodyHit,e.ctrlKey||e.metaKey);return;}
  }
  const faceGroup=bodyHit?.object.geometry.userData.faceGroups?.find(f=>bodyHit.faceIndex*3>=f.start&&bodyHit.faceIndex*3<f.start+f.count);
+ if(!e.altKey&&!e.shiftKey&&(!pendingExtrude||mode==='solid')&&!edgeSelectionMode&&selectionMode==='auto'){
+  const overlapHit=raycaster.intersectObjects(regionGroup.children.filter(m=>m.userData.region?.overlapSource),false)[0];
+  if(overlapHit&&(!bodyHit||overlapHit.distance<=bodyHit.distance+.05)){chooseRegion({...overlapHit.object.userData.region,overlapPoint:overlapHit.point.toArray()},e.ctrlKey||e.metaKey);return;}
+ }
  if(!pendingExtrude&&(e.ctrlKey||e.metaKey)&&pickBodyEdge(e))return;
  if(!pendingExtrude&&!edgeSelectionMode&&faceGroup&&!bodyHit.object.geometry.userData.planarFaces?.includes(faceGroup.faceId)){chooseFace(bodyHit,e.shiftKey||e.ctrlKey||e.metaKey);return;}
  if(!pendingExtrude&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&pickBodyEdge(e,bodyHit))return;

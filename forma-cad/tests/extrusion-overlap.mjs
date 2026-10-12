@@ -27,6 +27,12 @@ function manifold(shape){
  try{const report=binaryStlReport(new STLExporter().parse(new THREE.Mesh(g),{binary:true}));assert.equal(report.boundary,0);assert.equal(report.nonmanifold,0);assert.equal(report.orientation,0);}finally{g.dispose();}
 }
 const sector=Math.PI*100/8;
+// A click selects one connected exact patch while retaining circular arcs.
+const selectedPatch={...f,region:{...region,outer:[[0,0],[8,0],[8,8]],area:32,overlapSource:region,overlapPoint:[5,2,10]}};
+{const result=runOperation([base],{type:'extrusionBatch',features:[selectedPatch]}),shape=R.deserializeShape(result.features[0].cadResult.outputs[0].brep).asShape3D();try{inspect(shape,sector*4);manifold(shape);}finally{shape.delete();}}
+{const made=runOperation([base],{type:'extrusionBatch',features:[selectedPatch]}).features[0],saved=validateProject(JSON.parse(JSON.stringify({format:'forma-cad',version:1,features:[base,made]}))),edited=[saved[0],{...saved[1],depth:6}],result=runOperation(edited,{type:'replay',before:saved,start:1}),parts=kernelBodies(result.features);try{inspect(parts.get(f.id),sector*6);}finally{for(const part of parts.values())part.delete();}}
+{const parts=kernelBodies([base]);try{assert.throws(()=>featureSolid({...selectedPatch,region:{...selectedPatch.region,overlapPoint:[20,2,10]}},parts),/重なる部分がありません/);}finally{for(const body of parts.values())body.delete();}}
+{const other={...base,id:'other',x:30},r={id:'both',plane:'XY',offset:10,outer:[[-20,-20],[50,-20],[50,20],[-20,20]],holes:[],area:2800,sourceIds:[]},parts=kernelBodies([base,other]);try{const item={...f,overlapTargets:['cylinder','other'],region:{...r,overlapSource:r,overlapPoint:[0,0,10]}},shape=featureSolid(item,parts);try{close(R.measureVolume(shape),Math.PI*100*4);manifold(shape);}finally{shape.delete();}}finally{for(const body of parts.values())body.delete();}}
 for(const operation of ['new','join','cut']){
  const item={...f,operation,target:'cylinder',depth:operation==='cut'?-4:4};validateFeature(item);
  const result=runOperation([base],{type:'extrusion',target:item.target,feature:item});
