@@ -6,6 +6,7 @@ import {installMoveAxisLabels} from './move-axis-labels.js';
 import {createMoveAxisPicker,moveCenterCandidates,movePointCandidates} from './move-axis-picker.js';
 import {movePointDistanceText} from './move-point-guide.js';
 import {constrainMoveDelta,cursorMovePoint,movePreviewChildMatrix,createMoveGhost,disposeMoveGhost} from './move-cursor.js';
+import {snapshotMoveReferences,transformedMoveReferences,findFreeMoveSnap,createFreeMoveSnapMarker} from './move-free-snap.js';
 export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=()=>[],getReferencePoints=()=>[],getReferenceLines=()=>[],getGridPlane=()=>({normal:[0,0,1],offset:0}),getGridSnap=()=>({enabled:false,step:10,plane:'XY'}),getControls,getSelectedEdge,onStart,onApply,onClose=()=>{}}){
  const control=new TransformControls(camera,canvas),helper=control.getHelper();scene.add(helper);control.setSize(.8);control.setSpace('world');control.enabled=false;
  installMoveAxisLabels(control,helper,camera,canvas,host);
@@ -24,7 +25,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   if(!proxy||!proxyBaseMatrix)return;const child=proxy.children[0];child.matrix.copy(movePreviewChildMatrix(proxyBaseMatrix,proxy.position,center,proxy.quaternion,copying()&&reverse.checked));
   child.matrixWorldNeedsUpdate=true;proxy.updateMatrixWorld(true);
  }
- method.onchange=()=>{error.textContent='';reverseLabel.hidden=!copying();for(const mesh of originals)mesh.visible=copying();if(proxy)mark();};reverse.onchange=()=>{error.textContent='';if(proxy)mark();};
+ method.onchange=()=>{error.textContent='';reverseLabel.hidden=!copying();for(const mesh of originals)mesh.visible=copying();if(proxy)mark();refreshFreeSnap();};reverse.onchange=()=>{error.textContent='';if(proxy)mark();refreshFreeSnap();};
  let revision=0,active=false,busy=false,original=null,originals=[],proxy=null,center=null,enabledBefore=true;
  const previewMeshes=()=>{const meshes=[];proxy?.traverse(o=>{if(o.isMesh)meshes.push(o);});return meshes;};
  const otherMeshes=()=>getMeshes().filter(m=>!originals.includes(m)&&m.visible);
@@ -249,6 +250,9 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  const filterBox=moveOptions.querySelector('fieldset');filterBox.style.cssText='display:flex;flex-wrap:wrap;gap:6px 10px;border:1px solid #b6cbd7;border-radius:5px;padding:6px';
  for(const label of filterBox.querySelectorAll('label'))label.style.cssText='display:flex;align-items:center;gap:3px';
  for(const input of moveOptions.querySelectorAll('input[type=checkbox]'))input.style.cssText='width:auto;margin:0 3px 0 0';
+ const freeSnapLabel=document.createElement('label');freeSnapLabel.innerHTML='<input id="move-free-snap" type="checkbox" checked>自在移動で吸着（Altで一時解除）';freeSnapLabel.querySelector('input').style.cssText='width:auto;margin:0 3px 0 0';moveOptions.append(freeSnapLabel);
+ const freeSnapEnabled=panel.querySelector('#move-free-snap'),freeSnapStatus=document.createElement('p');freeSnapStatus.id='move-free-snap-status';freeSnapStatus.setAttribute('role','status');freeSnapStatus.style.cssText='color:#006847;font-size:12px;margin:6px 0';freeSnapStatus.hidden=true;freeButton.after(freeSnapStatus);
+ const freeSnapMarker=createFreeMoveSnapMarker({host,canvas,camera});
  const directionSelect=panel.querySelector('#move-direction'),hoverPreview=panel.querySelector('#move-hover-preview');
  const pointKinds=()=>[...filterBox.querySelectorAll('input:checked')].map(input=>input.dataset.pointKind);
  const directionNote=()=>directionSelect.value==='free'?'':'（'+directionSelect.selectedOptions[0].textContent+'）';
@@ -267,16 +271,45 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  function stopPointModes(){pointMove=null;closePointPicker();pickingAxis=false;closeAxisPicker();pickButton.setAttribute('aria-pressed','false');pickingCenter=false;closeCenterPicker();control.enabled=!!proxy&&!busy;}
  function finishFreeMove(restore){
   if(!freeMove)return;
-  const start=freeMove.startPosition;freeMove=null;freeButton.setAttribute('aria-pressed','false');delete host.dataset.moveFree;
+  const start=freeMove.startPosition;freeMove=null;freeSnapMarker.close();freeSnapStatus.hidden=true;freeButton.setAttribute('aria-pressed','false');delete host.dataset.moveFree;
   control.enabled=!!proxy&&!busy;helper.visible=!!control.object;
   if(restore&&proxy){proxy.position.copy(start);proxy.updateMatrixWorld(true);translationFields();mark();hint.textContent='自在移動を中止し、開始位置に戻しました';}
  }
+ function freeSourceCandidates(rect){
+  const points=transformedMoveReferences(freeMove.sourceReferences);
+  return {points,candidates:moveCenterCandidates({meshes:[],occluders:previewMeshes(),points,pointKinds:pointKinds(),camera,width:rect.width,height:rect.height})};
+ }
+ function freeTargetCandidates(rect){
+  const meshes=getMeshes().filter(mesh=>mesh.visible),selected=new Set(originals.map(mesh=>mesh.userData.bodyId)),points=getReferencePoints().filter(ref=>!selected.has(ref.bodyId)||copying());
+  for(const mesh of meshes)mesh.updateMatrixWorld(true);
+  const signature=[rect.width,rect.height,...camera.matrixWorld.elements,...camera.projectionMatrix.elements,pointKinds().join(','),...meshes.flatMap(mesh=>[mesh.uuid,...mesh.matrixWorld.elements]),JSON.stringify(points)].join(',');
+  if(signature!==freeMove.targetSignature){
+   freeMove.targetSignature=signature;
+   freeMove.targets=moveCenterCandidates({meshes:[],occluders:meshes,points:[...transformedMoveReferences(snapshotMoveReferences(meshes)),...points.map((ref,i)=>({...ref,key:'reference:'+i})),{point:[0,0,0],name:'原点',kind:'center',key:'origin'}],pointKinds:pointKinds(),camera,width:rect.width,height:rect.height});
+  }
+  return freeMove.targets;
+ }
+ function refreshFreeSnap(){if(freeMove?.lastPointer)followCursor(freeMove.lastPointer);}
  function followCursor(event){
   if(!freeMove||!proxy||busy)return;
-  const point=cursorMovePoint(camera,canvas.getBoundingClientRect(),event.clientX,event.clientY,freeMove.plane);if(!point)return;
-  if(!freeMove.anchor){freeMove.anchor=point;return;}
+  freeMove.lastPointer={clientX:event.clientX,clientY:event.clientY,altKey:event.altKey===true};
+  const rect=canvas.getBoundingClientRect(),point=cursorMovePoint(camera,rect,event.clientX,event.clientY,freeMove.plane);if(!point)return;
+  if(!freeMove.anchor){
+   freeMove.anchor=point;
+   const closest=freeSourceCandidates(rect).candidates.map(candidate=>({candidate,distance:Math.hypot(candidate.screen.x-(event.clientX-rect.left),candidate.screen.y-(event.clientY-rect.top))})).filter(item=>item.distance<=16).sort((a,b)=>a.distance-b.distance)[0];
+   freeMove.gridKey=closest?.candidate.ref.key||null;return;
+  }
   const delta=constrainMoveDelta(point.sub(freeMove.anchor),directionSelect.value);
-  proxy.position.copy(freeMove.basePosition).add(delta);proxy.updateMatrixWorld(true);translationFields();mark();
+  proxy.position.copy(freeMove.basePosition).add(delta);proxy.updateMatrixWorld(true);reflectPreview();
+  let snap=null;const released=event.altKey||freeMove.altPressed;
+  if(freeSnapEnabled.checked&&!released){
+   const sources=freeSourceCandidates(rect),reference=sources.points.find(ref=>ref.key===freeMove.gridKey);
+   snap=findFreeMoveSnap({sources:sources.candidates,targets:freeTargetCandidates(rect),position:proxy.position,pivot:center,direction:directionSelect.value,mirrored:copying()&&reverse.checked,camera,width:rect.width,height:rect.height,grid:getGridSnap(),gridSource:{point:reference?new THREE.Vector3(...reference.point):proxy.position.clone(),name:reference?.name||'移動中心'},previous:freeMove.previousSnap});
+  }
+  if(snap)proxy.position.copy(snap.position);freeMove.previousSnap=snap;
+  proxy.updateMatrixWorld(true);translationFields();mark();freeSnapStatus.hidden=false;
+  if(snap){freeSnapMarker.show(snap);freeSnapStatus.textContent=snap.source+' → '+snap.target+'に吸着';}
+  else{freeSnapMarker.close();freeSnapStatus.textContent=released?'Alt：吸着を一時解除中':freeSnapEnabled.checked?'頂点・中点・中心・グリッドに近づくと吸着':'吸着なしで自在移動';}
   host.dataset.moveFree=JSON.stringify({position:proxy.position.toArray(),direction:directionSelect.value});
  }
  canvas.addEventListener('pointermove',event=>{if(freeMove){followCursor(event);event.stopImmediatePropagation();}},{capture:true});
@@ -284,11 +317,14 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}
   if(freeMove){finishFreeMove(false);hint.textContent='自在移動の位置を決めました。「確定」で適用';return;}
   stopPointModes();mode('translate');control.enabled=false;helper.visible=false;control.axis=null;error.textContent='';
-  freeMove={startPosition:proxy.position.clone(),basePosition:proxy.position.clone(),anchor:null,plane:new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()),proxy.position)};
-  freeButton.setAttribute('aria-pressed','true');host.dataset.moveFree=JSON.stringify({position:proxy.position.toArray(),direction:directionSelect.value});hint.textContent='画面に平行にカーソルへ追従'+directionNote()+'。クリックで位置決定 ／ Escで開始位置へ戻す';
+  freeMove={startPosition:proxy.position.clone(),basePosition:proxy.position.clone(),anchor:null,sourceReferences:snapshotMoveReferences(previewMeshes()),plane:new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()),proxy.position)};
+  freeSnapStatus.hidden=false;freeSnapStatus.textContent='頂点・中点・中心・グリッドに吸着 ／ Altで一時解除';freeButton.setAttribute('aria-pressed','true');host.dataset.moveFree=JSON.stringify({position:proxy.position.toArray(),direction:directionSelect.value});hint.textContent='画面に平行にカーソルへ追従'+directionNote()+'。クリックで位置決定 ／ Escで開始位置へ戻す';
  };
- filterBox.onchange=()=>{hideGhost();if(pointMove)pointPicker.open();else if(pickingCenter)centerPicker.open();else if(pickingAxis)axisPicker.open();};
- directionSelect.onchange=()=>{hideGhost();if(pointResult)closePointPicker();if(pointMove)pointPicker.open();if(freeMove){freeMove.basePosition.copy(proxy.position);freeMove.anchor=null;hint.textContent='カーソルへ追従'+directionNote()+'。クリックで位置決定 ／ Escで開始位置へ戻す';}};
+ filterBox.onchange=()=>{hideGhost();if(pointMove)pointPicker.open();else if(pickingCenter)centerPicker.open();else if(pickingAxis)axisPicker.open();refreshFreeSnap();};
+ directionSelect.onchange=()=>{hideGhost();if(pointResult)closePointPicker();if(pointMove)pointPicker.open();if(freeMove){freeMove.basePosition.copy(proxy.position);freeMove.anchor=null;freeMove.previousSnap=null;freeSnapMarker.close();hint.textContent='カーソルへ追従'+directionNote()+'。クリックで位置決定 ／ Escで開始位置へ戻す';}};
+ freeSnapEnabled.onchange=refreshFreeSnap;
+ for(const type of ['keydown','keyup'])window.addEventListener(type,event=>{if(event.key!=='Alt'||!freeMove)return;event.preventDefault();freeMove.altPressed=type==='keydown';if(freeMove.lastPointer){freeMove.lastPointer.altKey=freeMove.altPressed;refreshFreeSnap();}});
+ window.addEventListener('blur',()=>{if(freeMove){freeMove.altPressed=false;if(freeMove.lastPointer)freeMove.lastPointer.altKey=false;}});
  hoverPreview.onchange=()=>{const candidate=hoverTarget;showGhost(candidate);};
  function updatePointStatus(candidate=null){
   if(pointResult){pointStatus.textContent='移動元：'+pointResult.sourceName+' → 移動先：'+pointResult.targetName+' ／ '+movePointDistanceText(pointResult.source.distanceTo(pointResult.target))+directionNote()+'（確定で反映）';return;}
@@ -321,7 +357,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  for(const [id,delta] of [['move-plus90',90],['move-minus90',-90]])panel.querySelector('#'+id).onclick=()=>{if(!proxy||busy)return;mode('rotate');const input=edgeAxis?edgeInput:fields[3+['X','Y','Z'].indexOf(axisSelect.value)];const angle=(edgeAxis?edgeAngle:degrees()[['X','Y','Z'].indexOf(axisSelect.value)])+delta;input.value=String(angle);input.dispatchEvent(new Event('input',{bubbles:true}));input.value=rotationAngleText(angle);};
  panel.onsubmit=async e=>{e.preventDefault();if(!proxy||busy||!panel.reportValidity())return;finishFreeMove(false);stopPointModes();const v=fields.map(f=>Number(f.value)),request=revision;busy=true;control.enabled=false;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=true;error.textContent='形状を確定中…';try{if(copying()&&reverse.checked&&proxy.position.distanceTo(center)<1e-7)throw Error('鏡写しにする移動方向を指定してください');await onApply({type:'move',copy:copying(),reverseCopy:copying()&&reverse.checked,target:original.userData.bodyId,...(originals.length>1?{targets:originals.map(m=>m.userData.bodyId)}:{}),x:v[0],y:v[1],z:v[2],rotation:degrees(),pivot:center.toArray()});if(request!==revision)return;busy=false;close(false,true);}catch(e){if(request!==revision)return;busy=false;error.textContent=e.message;control.enabled=active;}finally{if(request===revision){for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;axisSelect.disabled=!!edgeAxis;}}};
  window.addEventListener('keydown',e=>{if(active&&e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(freeMove)finishFreeMove(true);else close();}},{capture:true});
- window.addEventListener('keydown',e=>{if(!active||e.key==='Escape')return;if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){if(busy){e.preventDefault();e.stopImmediatePropagation();}else close();}else if(!e.target.matches('input,select,textarea')&&['e','l'].includes(e.key.toLowerCase())){e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
+ window.addEventListener('keydown',e=>{if(!active||e.key==='Escape')return;if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){if(busy){e.preventDefault();e.stopImmediatePropagation();}else close();}else if(!e.target.matches?.('input,select,textarea')&&['e','l'].includes(e.key.toLowerCase())){e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
  document.addEventListener('click',e=>{if(active&&e.target.closest('.toolbar, .command-toolbar')&&!e.target.closest('#move-tool'))close();},{capture:true});
  return {start,fromPoint(reference,action='rotate'){
   if(busy)return;if(!['rotate','origin'].includes(action)||!Array.isArray(reference?.point)||reference.point.length!==3||!reference.point.every(Number.isFinite))throw Error('有効な中心・中点を選択してください');

@@ -10,17 +10,17 @@ for(const x of [-20,20]){
  const mesh=new THREE.Mesh(new THREE.BoxGeometry(20,16,12),new THREE.MeshBasicMaterial({color:0x888880}));mesh.position.set(x,0,6);mesh.userData.bodyId='body-'+x;
  const edges=new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry),new THREE.LineBasicMaterial({color:0x444444}));mesh.add(edges);mesh.userData.references=solidReferencePoints(mesh.geometry,edges.geometry);meshes.push(mesh);scene.add(mesh);
 }
-const controls={enabled:true},applied=[];let tool;
+const controls={enabled:true},applied=[];let tool,selectedIds=meshes.map(mesh=>mesh.userData.bodyId),snapGrid={enabled:false,step:10,plane:'XY'};
 // Match the app's earlier global Escape handler: a submode handles it first.
 window.addEventListener('keydown',event=>{if(event.key==='Escape'&&tool?.cancelFreeMove()){event.preventDefault();event.stopImmediatePropagation();}},{capture:true});
-tool=createMoveTool({scene,camera,canvas,host,getMeshes:()=>meshes,getSelection:()=>meshes.map(m=>m.userData.bodyId),getControls:()=>controls,onStart(){},onApply:async spec=>applied.push(spec)});
+tool=createMoveTool({scene,camera,canvas,host,getMeshes:()=>meshes,getSelection:()=>selectedIds,getGridSnap:()=>snapGrid,getControls:()=>controls,onStart(){},onApply:async spec=>applied.push(spec)});
 function assert(value,message){if(!value)throw Error(message);results.textContent+='✓ '+message+'\n';}
 const position=()=>JSON.parse(host.dataset.movePreview).position;
 const closeTo=(a,b)=>Math.abs(a-b)<1e-6;
 function pointer(type,x,y){const rect=canvas.getBoundingClientRect();canvas.dispatchEvent(new PointerEvent(type,{bubbles:true,clientX:rect.left+x,clientY:rect.top+y,button:0,pointerId:1}));}
 function set(id,value){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));}
 function chooseDirection(value){const input=document.querySelector('#move-direction');input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));}
-function start(){tool.cancel();tool.start();}
+function start(ids=meshes.map(mesh=>mesh.userData.bodyId)){selectedIds=ids;tool.cancel();tool.start();for(const input of document.querySelectorAll('#move-point-filters input'))input.checked=true;}
 document.querySelector('#run-free').onclick=()=>{
  results.textContent='';try{
  start();set('move-x','5');const before=position();document.querySelector('#move-free').click();pointer('pointermove',300,220);assert(position().every((v,i)=>closeTo(v,before[i])),'first cursor event preserves the starting pose');
@@ -49,3 +49,26 @@ document.querySelector('#run-ghost').onclick=async()=>{
  }catch(error){results.textContent+='FAIL '+error.stack;}
 };
 renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+function snapScene(){
+ tool.cancel();snapGrid={enabled:false,step:10,plane:'XY'};meshes[1].visible=true;meshes[1].position.z=6;camera.position.set(0,0,100);camera.up.set(0,1,0);camera.lookAt(0,0,0);camera.updateMatrixWorld(true);
+ start([meshes[0].userData.bodyId]);chooseDirection('X');for(const input of document.querySelectorAll('#move-point-filters input'))input.checked=true;
+ document.querySelector('#move-free-snap').checked=true;document.querySelector('#move-free').click();pointer('pointermove',300,350);pointer('pointermove',417,350);
+}
+document.querySelector('#run-snap').onclick=async()=>{
+ results.textContent='';const savedCamera={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone()};
+ try{
+ snapScene();assert(closeTo(Number(document.querySelector('#move-x').value),20),'a moving source point snaps exactly to the target body');assert(JSON.parse(host.dataset.moveFreeSnap).type==='point','point snap shows a green marker');
+ window.dispatchEvent(new KeyboardEvent('keydown',{key:'Alt',altKey:true,bubbles:true}));assert(closeTo(Number(document.querySelector('#move-x').value),19.5)&&!host.dataset.moveFreeSnap,'Alt immediately restores raw cursor movement without a mouse event');
+ window.dispatchEvent(new KeyboardEvent('keyup',{key:'Alt',bubbles:true}));assert(closeTo(Number(document.querySelector('#move-x').value),20)&&host.dataset.moveFreeSnap,'releasing Alt immediately restores attraction');
+ for(const input of document.querySelectorAll('#move-point-filters input'))input.checked=false;document.querySelector('#move-point-filters').dispatchEvent(new Event('change',{bubbles:true}));assert(!host.dataset.moveFreeSnap&&closeTo(Number(document.querySelector('#move-x').value),19.5),'disabled point categories are not magnetic');
+ const vertices=document.querySelector('[data-point-kind=vertex]');vertices.checked=true;vertices.dispatchEvent(new Event('change',{bubbles:true}));assert(JSON.parse(host.dataset.moveFreeSnap).target==='頂点','vertex-only filter changes the actual snap targets');
+ meshes[1].position.z=16;pointer('pointermove',417,350);assert(!host.dataset.moveFreeSnap,'matching screen coordinates cannot violate depth and X-only constraints');meshes[1].position.z=6;
+ const enabled=document.querySelector('#move-free-snap');enabled.checked=false;enabled.dispatchEvent(new Event('change',{bubbles:true}));assert(!host.dataset.moveFreeSnap,'snap checkbox immediately releases attraction');enabled.checked=true;enabled.dispatchEvent(new Event('change',{bubbles:true}));assert(!!host.dataset.moveFreeSnap,'snap checkbox restores attraction');
+ window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert(tool.active&&!host.dataset.moveFreeSnap&&closeTo(Number(document.querySelector('#move-x').value),0),'Escape clears markers and restores the starting pose');
+ meshes[1].visible=false;snapGrid.enabled=true;document.querySelector('#move-free').click();pointer('pointermove',300,350);pointer('pointermove',357.6,350);assert(closeTo(Number(document.querySelector('#move-x').value),10)&&JSON.parse(host.dataset.moveFreeSnap).type==='grid','free movement snaps its grab reference to the grid');assert(closeTo(Number(document.querySelector('#move-z').value),0),'grid snap preserves height');
+ pointer('pointerdown',357.6,350);assert(!host.dataset.moveFree&&!host.dataset.moveFreeSnap&&closeTo(Number(document.querySelector('#move-x').value),10),'click retains snapped position and clears the overlay');
+ document.querySelector('#move-panel').requestSubmit();await Promise.resolve();await Promise.resolve();assert(applied.at(-1).x===10&&applied.at(-1).target===meshes[0].userData.bodyId,'applied move uses the snapped coordinates');results.textContent+='PASS free point/grid attraction, filters, Alt, constraints, cancel, click and apply\n';
+ }catch(error){results.textContent+='FAIL '+error.stack;}
+ finally{tool.cancel();meshes[1].visible=true;meshes[1].position.z=6;snapGrid.enabled=false;camera.position.copy(savedCamera.position);camera.quaternion.copy(savedCamera.quaternion);camera.up.copy(savedCamera.up);camera.updateMatrixWorld(true);}
+};
+document.querySelector('#show-snap').onclick=()=>{results.textContent='移動中のボディのポイントが、右のボディのポイントに吸着。緑のマーカーを表示。Altで一時解除。';snapScene();};

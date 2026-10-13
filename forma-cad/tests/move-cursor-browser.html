@@ -3,7 +3,7 @@
 <title>移動ツール動作検証</title>
 <!--
 Build: node_modules/.bin/esbuild tests/move-cursor-browser.js --bundle --format=esm --outfile=dist/__move-cursor-check.js
-Copy this HTML to dist/__move-cursor-check.html, run node server.mjs, open it and run both checks.
+Copy this HTML to dist/__move-cursor-check.html, run node server.mjs, open it and run all three checks.
 The generated files are temporary test assets and must not be published.
 -->
 <style>
@@ -17,6 +17,8 @@ body{font:14px sans-serif;margin:12px}
 </style>
 <button id="run-free">自在移動を検証</button>
 <button id="run-ghost">複数ボディとプレビューを検証</button>
+<button id="run-snap">自在移動の吸着を検証</button>
+<button id="show-snap">吸着の表示例</button>
 <div id="canvas-host"><canvas></canvas></div>
 <pre id="results" role="status"></pre>
 <script type="module" src="__move-cursor-check.js"></script>
