@@ -2,10 +2,20 @@ import * as THREE from 'three';
 import {cylindricalRimWalls} from './cylindrical-rim-walls.js';
 
 const cache=new WeakMap();
+const meshGroups=new WeakMap();
+// Legacy sketch extrusions may contain only triangles, without CAD face IDs.
+// Create temporary selection parts, without changing the mesh's CAD metadata.
+export function meshCylinderGroup(geometry,faceIndex){
+ let groups=meshGroups.get(geometry);
+ if(!groups){groups=Array.from({length:(geometry.index?.count??geometry.attributes.position.count)/3},(_,i)=>({start:i*3,count:3,faceId:'mesh-'+i}));meshGroups.set(geometry,groups);}
+ const seed=groups[faceIndex];if(!seed)return undefined;
+ const group=facetedCylinderGroup(geometry,seed,groups);
+ return group.cylinder?group:undefined;
+}
 // Older circular extrusions stored each sampled arc segment as a planar CAD face.
 // Use circular recipes or matching top/bottom rims; keep cut planes separate.
-export function facetedCylinderGroup(geometry,group){
- let hints=geometry.userData.circularWalls||[];const groups=geometry.userData.faceGroups;
+export function facetedCylinderGroup(geometry,group,groups=geometry.userData.faceGroups){
+ let hints=geometry.userData.circularWalls||[];
  if(!groups||geometry.userData.planarFaces&&!geometry.userData.planarFaces.includes(group.faceId))return group;
  let entry=cache.get(geometry);if(!entry){entry={groups:new Map(),samples:new Map()};cache.set(geometry,entry);}
  if(entry.groups.has(group))return entry.groups.get(group);
