@@ -11,7 +11,7 @@ export function sketchExtrusionProgress(features,extrusions=[]){
  const completed=new Map();
  for(const f of [...features,...extrusions]){
   if(f.kind!=='extrusion'||!f.region?.id)continue;
-  if(f.overlapOnly&&f.region.overlapSource)continue; // A partial section leaves the original outline unfinished.
+  if(f.region.overlapSource)continue; // A partial section leaves the original outline unfinished.
   for(const sourceId of f.region.sourceIds||[]){
    const source=byId.get(sourceId);if(!source)continue;
    const id=groupKey(source);if(!completed.has(id))completed.set(id,new Set());
@@ -31,7 +31,7 @@ export function hideExtrudedSketches(features,extrusions){
  const byId=new Map(features.filter(f=>f.kind==='sketch').map(f=>[f.id,f])),candidates=new Set();
  for(const f of extrusions){
   if(f.kind!=='extrusion')continue;
-  if(f.overlapOnly&&f.region?.overlapSource)continue;
+  if(f.region?.overlapSource)continue;
   for(const id of [...(f.region?.sourceIds||[]),...(f.sourceSketchIds||[])]){const source=byId.get(id);if(source)candidates.add(groupKey(source));}
  }
  const progress=sketchExtrusionProgress(features,extrusions);

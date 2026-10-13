@@ -11,7 +11,7 @@ export function validateExtrusionOverlap(f){
  if(!Array.isArray(f.overlapTargets)||!f.overlapTargets.length||f.overlapTargets.length>100||new Set(f.overlapTargets).size!==f.overlapTargets.length||f.overlapTargets.some(id=>typeof id!=='string'||!id||id.length>100))throw Error('重なりを判定する対象ボディを選択してください');
 }
 
-function commonSection(face,body){
+export function commonSection(face,body){
  const oc=R.getOC(),argumentsList=new oc.NCollection_List_TopoDS_Shape(),tools=new oc.NCollection_List_TopoDS_Shape(),builder=new oc.BRepAlgoAPI_Common();
  let raw;
  try{

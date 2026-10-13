@@ -14,6 +14,7 @@ for(const plane of ['XY','XZ','YZ']){
   const parts=sketchSolidOverlapRegions([r],[mesh]);assert.equal(parts.length,1);
   const p=parts[0];assert.ok(Math.abs(p.area-Math.PI*100/8)<.1);assert.ok(regionContains(p,[5,2]));assert.ok(!regionContains(p,[12,2]));assert.deepEqual(p.overlapTargets,['cylinder']);
   assert.deepEqual(p.overlapSource,r);assert.deepEqual(r.outer,[[0,0],[30,0],[30,30]]);
+  const seed=new THREE.Vector3(...p.overlapPoint),basis=basisFor(p);assert.ok(regionContains(p,[seed.dot(basis.u),seed.dot(basis.v)]),'dropdown selection has an interior seed');
   p.overlapPoint=worldPoint(p,[5,2]).toArray();
   const reverse=reverseExtrusionFrame({...defaults,profile:'region',plane,region:p});
   assert.ok(worldPoint(reverse.region.overlapSource,reverse.region.overlapSource.outer[1]).distanceTo(worldPoint(r,r.outer.at(-2)))<1e-6);

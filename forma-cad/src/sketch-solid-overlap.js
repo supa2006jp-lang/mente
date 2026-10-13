@@ -5,6 +5,18 @@ import {sectionSegments,sectionCap} from './section-view.js';
 const SCALE=100000;
 function path(ring,outer=true){const p=ring.map(([x,y])=>({X:Math.round(x*SCALE),Y:Math.round(y*SCALE)}));if(Clipper.Clipper.Orientation(p)!==outer)p.reverse();return p;}
 
+// Coplanar hits must prefer the partition over the original filled profile,
+// regardless of insertion order. Alt explicitly selects the original profile.
+export function sketchRegionHit(hits,bodyHit,{whole=false}={}){
+ const visible=hits.filter(hit=>hit.object.visible!==false&&hit.object.userData.region&&(!bodyHit||hit.distance<=bodyHit.distance+.05));
+ const nearest=visible[0];if(!nearest)return null;
+ const samePlane=visible.filter(hit=>Math.abs(hit.distance-nearest.distance)<1e-4);
+ const hit=whole?samePlane.find(hit=>!hit.object.userData.region.overlapSource):samePlane.find(hit=>hit.object.userData.region.overlapSource)||nearest;
+ if(!hit)return null;
+ const region=hit.object.userData.region;
+ return {...hit,region:region.overlapSource?{...region,overlapPoint:hit.point.toArray()}:region};
+}
+
 // Display/picking uses the solid's section on the sketch plane, never its
 // camera silhouette. The original profile is retained for exact BREP extrusion.
 export function sketchSolidOverlapRegions(regions,meshes){
@@ -46,7 +58,11 @@ export function sketchSolidOverlapRegions(regions,meshes){
    const area=(Math.abs(Clipper.Clipper.Area(node.Contour()))-node.Childs().filter(h=>h.IsHole()).reduce((s,h)=>s+Math.abs(Clipper.Clipper.Area(h.Contour())),0))/SCALE**2;
    // A fully covered sketch already has the desired selectable footprint.
    if(area<1e-5||Math.abs(area-r.area)<Math.max(1e-4,r.area*1e-6))continue;
-   result.push({...r,id:r.id+':overlap:'+index++,outer,holes,area,overlapSource:structuredClone(r),overlapTargets:meshes.filter(m=>m.visible).map(m=>m.userData.bodyId)});
+   const contour=outer.map(p=>new THREE.Vector2(...p)),voids=holes.map(h=>h.map(p=>new THREE.Vector2(...p))),vertices=[...outer,...holes.flat()],triangles=THREE.ShapeUtils.triangulateShape(contour,voids);
+   const triangle=triangles.sort((a,c)=>Math.abs(Clipper.Clipper.Area(path(c.map(i=>vertices[i]))))-Math.abs(Clipper.Clipper.Area(path(a.map(i=>vertices[i])))))[0];
+   if(!triangle)continue;
+   const center=triangle.reduce((p,i)=>[p[0]+vertices[i][0]/3,p[1]+vertices[i][1]/3],[0,0]),overlapPoint=b.u.clone().multiplyScalar(center[0]).addScaledVector(b.v,center[1]).addScaledVector(b.n,r.offset).toArray();
+   result.push({...r,id:r.id+':overlap:'+index++,outer,holes,area,overlapSource:structuredClone(r),overlapPoint,overlapTargets:meshes.filter(m=>m.visible).map(m=>m.userData.bodyId)});
   }
  }
  return result;
