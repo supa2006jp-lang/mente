@@ -3,7 +3,8 @@ import {contactTranslation} from './move-contact-geometry.js';
 import * as THREE from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {installMoveAxisLabels} from './move-axis-labels.js';
-import {createMoveAxisPicker} from './move-axis-picker.js';
+import {createMoveAxisPicker,moveCenterCandidates} from './move-axis-picker.js';
+import {moveBodyPointReferences} from './move-reference-points.js';
 export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=()=>[],getReferencePoints=()=>[],getReferenceLines=()=>[],getGridPlane=()=>({normal:[0,0,1],offset:0}),getGridSnap=()=>({enabled:false,step:10,plane:'XY'}),getControls,getSelectedEdge,onStart,onApply,onClose=()=>{}}){
  const control=new TransformControls(camera,canvas),helper=control.getHelper();scene.add(helper);control.setSize(.8);control.setSpace('world');control.enabled=false;
  installMoveAxisLabels(control,helper,camera,canvas,host);
@@ -105,7 +106,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   return world.lengthSq()>1e-8?world.normalize():null;
  }
  function clearPreview(){control.detach();for(const mesh of originals)mesh.visible=true;if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
- function close(force=false,applied=false){if(busy&&!force)return;const targets=originals.map(m=>m.userData.bodyId);++revision;busy=false;control.dragging=false;control.axis=null;if(dragPointer&&canvas.hasPointerCapture(dragPointer.id))canvas.releasePointerCapture(dragPointer.id);dragPointer=null;pointMove=null;pickingCenter=false;centerMarkers.replaceChildren();pickingAxis=false;closeAxisPicker();clearPreview();active=false;control.enabled=false;panel.hidden=true;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;pickButton.setAttribute('aria-pressed','false');getControls().enabled=enabledBefore;host.dataset.moveActive='false';delete host.dataset.movePreview;onClose({targets,applied,force});}
+ function close(force=false,applied=false){if(busy&&!force)return;const targets=originals.map(m=>m.userData.bodyId);++revision;busy=false;control.dragging=false;control.axis=null;if(dragPointer&&canvas.hasPointerCapture(dragPointer.id))canvas.releasePointerCapture(dragPointer.id);dragPointer=null;pointMove=null;pickingCenter=false;closeCenterPicker();centerMarkers.replaceChildren();pickingAxis=false;closeAxisPicker();clearPreview();active=false;control.enabled=false;panel.hidden=true;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;pickButton.setAttribute('aria-pressed','false');getControls().enabled=enabledBefore;host.dataset.moveActive='false';delete host.dataset.movePreview;onClose({targets,applied,force});}
  function mode(value){control.setMode(value);control.setSpace(edgeAxis&&value==='rotate'?'local':'world');control.showX=control.showY=!(edgeAxis&&value==='rotate');control.showZ=true;for(const button of panel.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===value));}
  for(const button of panel.querySelectorAll('[data-mode]'))button.onclick=()=>mode(button.dataset.mode);
  function mark(){reflectPreview();host.dataset.movePreview=JSON.stringify({copy:copying(),reverseCopy:copying()&&reverse.checked,targets:originals.map(m=>m.userData.bodyId),position:proxy.position.toArray(),rotation:degrees().map(x=>x*Math.PI/180),edgeAxis:edgeAxis?.toArray(),pivot:center.toArray(),hingeAngle:edgeAxis?edgeAngle:null});updateGroundButton();}
@@ -135,7 +136,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  }
  function start(){if(active){close();return;}method.value='move';reverse.checked=false;reverseLabel.hidden=true;pointAction=null;chosenCenter=null;chosenAxisPivot=null;chosenEdge=getSelectedEdge?.();const selectedIds=new Set(getSelection());const selectedMeshes=getMeshes().filter(m=>m.visible&&selectedIds.has(m.userData.bodyId));onStart();enabledBefore=getControls().enabled;getControls().enabled=false;active=true;panel.hidden=false;error.textContent='';hint.textContent='移動するボディをクリック';panel.querySelector('#move-apply').disabled=true;fields.forEach((f,i)=>f.value=i<3?'0':'0.0');host.dataset.moveActive='true';mode('translate');if(selectedMeshes.length)select(selectedMeshes);else if(chosenEdge){const mesh=getMeshes().find(m=>m.userData.bodyId===chosenEdge.bodyId);if(mesh)select(mesh);}}
  let dragPointer=null;canvas.addEventListener('pointerdown',e=>{dragPointer={id:e.pointerId,x:e.clientX,y:e.clientY};},{capture:true});canvas.addEventListener('pointermove',e=>{dragPointer={id:e.pointerId,x:e.clientX,y:e.clientY};},{capture:true});
- canvas.addEventListener('pointerdown',e=>{if(!active||busy||e.button!==0||e.shiftKey)return;if(pickingCenter||pointMove){e.preventDefault();e.stopImmediatePropagation();return;}if(pickingAxis){pickAxis(e);e.preventDefault();e.stopImmediatePropagation();return;}if(control.axis)return;const r=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2),camera);const hit=ray.intersectObjects(getMeshes().filter(m=>m.visible),false)[0];if(hit){select(hit.object);e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
+ canvas.addEventListener('pointerdown',e=>{if(!active||busy||e.button!==0||e.shiftKey)return;if(pickingCenter){const candidate=centerPicker.pick(e);if(candidate)chooseCenterCandidate(candidate);else error.textContent='橙色の○で表示された点をクリックしてください';e.preventDefault();e.stopImmediatePropagation();return;}if(pointMove){e.preventDefault();e.stopImmediatePropagation();return;}if(pickingAxis){pickAxis(e);e.preventDefault();e.stopImmediatePropagation();return;}if(control.axis)return;const r=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2),camera);const hit=ray.intersectObjects(getMeshes().filter(m=>m.visible),false)[0];if(hit){select(hit.object);e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
  let dragStartRotation=null,dragHinge=null,dragStartPosition=null,dragStartBounds=null;
  control.addEventListener('mouseDown',()=>{
   dragStartPosition=proxy?.position.clone()||null;dragStartBounds=proxy?new THREE.Box3().setFromObject(proxy):null;
@@ -224,7 +225,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  }
  const axisPicker=createMoveAxisPicker({host,canvas,camera,getSources:axisSources,getRevision:()=>proxy?[...proxy.matrixWorld.elements,...proxy.children[0].matrix.elements].join(','):'',onPick:chooseAxisCandidate,onUpdate:candidates=>{const lines=candidates.filter(c=>c.kind==='line').length,points=candidates.length-lines;axisStatus.textContent=lines||points?'選択可能：直線 '+lines+' 本・点 '+points+' 個。橙色の線・○をクリック':'この視点では候補が見えません。視点を回して確認してください';}});
  function closeAxisPicker(){axisPicker.close();axisStatus.hidden=true;helper.visible=!!control.object;}
- pickButton.onclick=()=>{pointMove=null;if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}pickingCenter=false;centerMarkers.replaceChildren();pickingAxis=!pickingAxis;control.enabled=!pickingAxis;pickButton.setAttribute('aria-pressed',String(pickingAxis));error.textContent='';if(pickingAxis){helper.visible=false;axisStatus.hidden=false;axisPicker.open();}else closeAxisPicker();hint.textContent=pickingAxis?'橙色の直線・○の点から選択。カーソルを合わせると強調表示します':'ボディを選択済み · ドラッグまたは数値で調整';};
+ pickButton.onclick=()=>{pointMove=null;if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}pickingCenter=false;closeCenterPicker();centerMarkers.replaceChildren();pickingAxis=!pickingAxis;control.enabled=!pickingAxis;pickButton.setAttribute('aria-pressed',String(pickingAxis));error.textContent='';if(pickingAxis){helper.visible=false;axisStatus.hidden=false;axisPicker.open();}else closeAxisPicker();hint.textContent=pickingAxis?'橙色の直線・○の点から選択。カーソルを合わせると強調表示します':'ボディを選択済み · ドラッグまたは数値で調整';};
  function chooseAxisCandidate(candidate){
   if(!pickingAxis||!proxy)return;const inverse=axisTransform().invert(),basePoint=point=>point.clone().applyMatrix4(inverse);
   if(candidate.kind==='line')selectAxis({a:basePoint(candidate.a),b:basePoint(candidate.b)});
@@ -245,18 +246,17 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   if(!pointMove||!proxy)return;proxy.updateMatrixWorld(true);centerMarkers.replaceChildren();const rect=canvas.getBoundingClientRect(),parent=host.parentElement.getBoundingClientRect(),candidates=[],copy=proxy.children[0];
   const meshes=pointMove.source?[...previewMeshes(),...otherMeshes()]:previewMeshes();
   const refs=[];
-  for(const mesh of meshes){mesh.updateMatrixWorld(true);const edges=mesh.children[0]?.geometry,positions=edges?.attributes.position,items=[...(mesh.userData.references||[]),...new Set(edges?.userData.circularEdges?.values()||[])].map(r=>r.center?{point:r.center}:r);
-   if(positions)for(let i=0;i<positions.count;i++)items.push({point:new THREE.Vector3().fromBufferAttribute(positions,i).toArray()});
-   for(const item of items){const point=new THREE.Vector3(...item.point).applyMatrix4(mesh.matrixWorld);point.owner=mesh.uuid;refs.push(point);}
+  for(const mesh of meshes){
+   for(const item of moveBodyPointReferences(mesh)){const point=new THREE.Vector3(...item.point);point.owner=item.owner;point.referenceName=item.name;refs.push(point);}
   }
   for(const ref of [...(pointMove.source?[{point:[0,0,0]}]:[]),...getReferencePoints()]){const point=new THREE.Vector3(...ref.point);point.isSketchPoint=ref.name==='スケッチ点';refs.unshift(point);}
   refs.sort((a,b)=>Number(!!b.isSketchPoint)-Number(!!a.isSketchPoint)||a.clone().project(camera).z-b.clone().project(camera).z);
   for(const world of refs){const p=world.clone().project(camera);if(p.z< -1||p.z>1)continue;const x=(p.x+1)*rect.width/2,y=(1-p.y)*rect.height/2;if(x<0||x>rect.width||y<0||y>rect.height||candidates.some(c=>Math.hypot(c.x-x,c.y-y)<12))continue;candidates.push({x,y});
-   const button=document.createElement('button');button.type='button';button.className='move-center-point'+(world.isSketchPoint?' sketch-reference-point':'');button.textContent=world.isSketchPoint?'●':'⊙';button.title=pointMove.source?'移動先の点':'移動元の点';button.dataset.point=JSON.stringify(world.toArray());button.dataset.owner=world.owner||'';button.style.left=(rect.left-parent.left+x)+'px';button.style.top=(rect.top-parent.top+y)+'px';
+   const button=document.createElement('button');button.type='button';button.className='move-center-point'+(world.isSketchPoint?' sketch-reference-point':'');button.textContent=world.isSketchPoint?'●':'⊙';button.title=(pointMove.source?'移動先の点':'移動元の点')+(world.referenceName?'：'+world.referenceName:'');button.dataset.point=JSON.stringify(world.toArray());button.dataset.owner=world.owner||'';button.style.left=(rect.left-parent.left+x)+'px';button.style.top=(rect.top-parent.top+y)+'px';
    button.onpointerdown=e=>{e.preventDefault();e.stopPropagation();if(!pointMove.source){pointMove.source=world.clone();hint.textContent='移動先の点を選択してください';showMovePoints();return;}proxy.position.add(world.clone().sub(pointMove.source));proxy.updateMatrixWorld(true);const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=Number(delta.getComponent(i).toFixed(8)));pointMove=null;centerMarkers.replaceChildren();control.enabled=true;hint.textContent='2点を合わせました。「確定」で適用';error.textContent='';mark();};centerMarkers.append(button);
   }
  }
- pointButton.onclick=()=>{if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}if(pointMove){pointMove=null;centerMarkers.replaceChildren();control.enabled=true;hint.textContent='点から点への移動を中止しました';return;}pickingAxis=false;closeAxisPicker();pickingCenter=false;control.enabled=false;pointMove={source:null};error.textContent='';hint.textContent='移動元の点を選択してください（スケッチ点も選択できます）';showMovePoints();let last='';const refresh=()=>{if(!pointMove)return;const state=camera.matrixWorld.elements.join(',');if(state!==last){last=state;showMovePoints();}requestAnimationFrame(refresh);};requestAnimationFrame(refresh);};
+ pointButton.onclick=()=>{if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}if(pointMove){pointMove=null;centerMarkers.replaceChildren();control.enabled=true;hint.textContent='点から点への移動を中止しました';return;}pickingAxis=false;closeAxisPicker();pickButton.setAttribute('aria-pressed','false');pickingCenter=false;closeCenterPicker();control.enabled=false;pointMove={source:null};error.textContent='';hint.textContent='移動元の点を選択してください（スケッチ点も選択できます）';showMovePoints();let last='';const refresh=()=>{if(!pointMove)return;const state=camera.matrixWorld.elements.join(',');if(state!==last){last=state;showMovePoints();}requestAnimationFrame(refresh);};requestAnimationFrame(refresh);};
  let markerPointer=null;
  function updateMarkerVisibility(){
   let hit=null;if(markerPointer&&proxy){proxy.updateMatrixWorld(true);const rect=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((markerPointer.x-rect.left)/rect.width*2-1,1-(markerPointer.y-rect.top)/rect.height*2),camera);hit=ray.intersectObjects([...previewMeshes(),...otherMeshes()],false)[0];}
@@ -278,39 +278,13 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  function changeCenter(point){
   const oldRotation=rotation(),oldCenter=center.clone(),oldPosition=proxy.position.clone(),target=originals.slice();
   chosenCenter=point.toArray();chosenAxisPivot=null;chosenEdge=null;select(target);if(edgeAxis){baseRotation.copy(oldRotation);proxy.quaternion.copy(oldRotation).multiply(alignment);}else proxy.quaternion.copy(oldRotation);proxy.position.copy(oldPosition).add(center.clone().sub(oldCenter).applyQuaternion(oldRotation));
-  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=Number(delta.getComponent(i).toFixed(5)));fields.slice(3).forEach((f,i)=>f.value=rotationAngleText(degrees()[i]));proxy.updateMatrixWorld(true);pickingCenter=false;centerMarkers.replaceChildren();control.enabled=true;mode('rotate');error.textContent='';hint.textContent=edgeAxis?'ヒンジ軸を選択済み · リング・角度・±90°で調整':'回転中心を選択済み · リング・角度・±90°で調整';panel.querySelector('small').textContent=edgeAxis?'選択した点から奥へ伸びるヒンジ軸で回転します。ホイールで拡大・縮小、Shift＋ホイールで視点を水平回転。':'選択した中心を通るX・Y・Z軸で回転します。';mark();
+  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=Number(delta.getComponent(i).toFixed(5)));fields.slice(3).forEach((f,i)=>f.value=rotationAngleText(degrees()[i]));proxy.updateMatrixWorld(true);pickingCenter=false;closeCenterPicker();centerMarkers.replaceChildren();control.enabled=true;mode('rotate');error.textContent='';hint.textContent=edgeAxis?'ヒンジ軸を選択済み · リング・角度・±90°で調整':'回転中心を選択済み · リング・角度・±90°で調整';panel.querySelector('small').textContent=edgeAxis?'選択した点から奥へ伸びるヒンジ軸で回転します。ホイールで拡大・縮小、Shift＋ホイールで視点を水平回転。':'選択した中心を通るX・Y・Z軸で回転します。';mark();
  }
- function showCenters(){
-  if(!pickingCenter||!proxy)return;
-  proxy.updateMatrixWorld(true);centerMarkers.replaceChildren();
-  const rect=canvas.getBoundingClientRect(),parent=host.parentElement.getBoundingClientRect(),copy=proxy.children[0],candidates=[];
-  const sources=[{children:[],matrixWorld:new THREE.Matrix4(),userData:{references:getReferencePoints()}},...previewMeshes(),...otherMeshes()];
-  const refs=[];
-  for(const mesh of sources){
-   const circular=[...new Set(mesh.children[0]?.geometry?.userData.circularEdges?.values()||[])].map(c=>({point:c.center,name:'円・円弧',kind:'center'}));
-   for(const ref of [...circular,...(mesh.userData.references||[])]){
-    if(ref.kind==='midpoint')continue;
-    const world=new THREE.Vector3(...ref.point).applyMatrix4(mesh.matrixWorld),projected=world.clone().project(camera);
-    refs.push({mesh,ref,world,projected,priority:ref.name==='スケッチ点'?0:ref.name==='ヒンジ軸中心'&&ref.bodyId===original.userData.bodyId?1:ref.name==='ヒンジ軸中心'?2:3});
-   }
-  }
-  // When several points on one hinge axis overlap on screen, use the cap facing the camera.
-  refs.sort((a,b)=>a.priority-b.priority||a.projected.z-b.projected.z);
-  for(const {mesh,ref,world,projected:p} of refs){
-   if(p.z< -1||p.z>1)continue;
-   const x=(p.x+1)*rect.width/2,y=(1-p.y)*rect.height/2;
-   if(x<0||x>rect.width||y<0||y>rect.height||candidates.some(c=>Math.hypot(c.x-x,c.y-y)<12))continue;
-   candidates.push({x,y});
-   const button=document.createElement('button');button.type='button';
-   button.className='move-center-point'+(ref.name==='スケッチ点'?' sketch-reference-point':ref.name==='ヒンジ軸中心'?' hinge-reference-point':'');
-   button.textContent=ref.name==='スケッチ点'?'●':'⊙';button.dataset.point=JSON.stringify(world.toArray());button.dataset.owner=mesh.uuid||'';
-   button.title=ref.name==='ヒンジ軸中心'?'ヒンジ軸中心を選択':ref.name+'の中心';button.setAttribute('aria-label',button.title);
-   button.style.left=(rect.left-parent.left+x)+'px';button.style.top=(rect.top-parent.top+y)+'px';
-   button.onpointerdown=e=>{e.preventDefault();e.stopPropagation();const point=world.clone().sub(proxy.position).applyQuaternion(rotation().invert()).add(center);changeCenter(point);};
-   centerMarkers.append(button);
-  }
- }
- centerButton.onclick=()=>{pointMove=null;if(!proxy||busy){error.textContent='先にボディを選択してください';return;}pickingAxis=false;closeAxisPicker();pickButton.setAttribute('aria-pressed','false');pickingCenter=!pickingCenter;control.enabled=!pickingCenter;hint.textContent=pickingCenter?'円・円弧などの中心マーカー（⊙）をクリック':'ボディを選択済み';centerMarkers.replaceChildren();if(pickingCenter){showCenters();let last=camera.matrixWorld.elements.join(',');const refresh=()=>{if(!pickingCenter)return;const state=camera.matrixWorld.elements.join(',');if(state!==last){last=state;showCenters();}requestAnimationFrame(refresh);};requestAnimationFrame(refresh);}};
+ const centerStatus=document.createElement('small');centerStatus.id='move-center-pick-status';centerStatus.hidden=true;centerStatus.setAttribute('role','status');centerButton.before(centerStatus);
+ const centerPicker=createMoveAxisPicker({host,canvas,camera,id:'move-center-candidates',dataset:'moveCenter',getCandidates:moveCenterCandidates,getSources:()=>{const sources=axisSources(),meshes=[...sources.meshes,...otherMeshes()];return {...sources,meshes,occluders:meshes};},getRevision:()=>proxy?[...proxy.matrixWorld.elements,...proxy.children[0].matrix.elements].join(','):'',onPick:chooseCenterCandidate,onUpdate:candidates=>{centerStatus.textContent=candidates.length?'選択可能：'+candidates.length+' 点。橙色の○をクリック':'この視点では候補が見えません。視点を回して確認してください';}});
+ function closeCenterPicker(){centerPicker.close();centerStatus.hidden=true;centerButton.setAttribute('aria-pressed','false');helper.visible=!!control.object;}
+ function chooseCenterCandidate(candidate){if(!pickingCenter||!proxy||busy)return;const point=candidate.point.clone().applyMatrix4(axisTransform().invert());changeCenter(point);hint.textContent=candidate.ref.name+'を回転中心に設定しました · リング・角度で調整';}
+ centerButton.onclick=()=>{pointMove=null;if(!proxy||busy){error.textContent='先にボディを選択してください';return;}pickingAxis=false;closeAxisPicker();pickButton.setAttribute('aria-pressed','false');pickingCenter=!pickingCenter;control.enabled=!pickingCenter;centerMarkers.replaceChildren();error.textContent='';if(pickingCenter){helper.visible=false;centerButton.setAttribute('aria-pressed','true');centerStatus.hidden=false;centerPicker.open();hint.textContent='橙色の○から回転中心を選択。頂点・辺の中点・面や円の中心・スケッチ点を選べます';}else{closeCenterPicker();hint.textContent='ボディを選択済み';}};
  resetCenter.onclick=()=>{if(proxy&&!busy)changeCenter(selectionBounds().getCenter(new THREE.Vector3()));};
  panel.querySelector('#move-cancel').onclick=()=>close();
  for(const [id,delta] of [['move-plus90',90],['move-minus90',-90]])panel.querySelector('#'+id).onclick=()=>{if(!proxy||busy)return;mode('rotate');const input=edgeAxis?edgeInput:fields[3+['X','Y','Z'].indexOf(axisSelect.value)];const angle=(edgeAxis?edgeAngle:degrees()[['X','Y','Z'].indexOf(axisSelect.value)])+delta;input.value=String(angle);input.dispatchEvent(new Event('input',{bubbles:true}));input.value=rotationAngleText(angle);};
@@ -318,7 +292,6 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  window.addEventListener('keydown',e=>{if(active&&e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();}},{capture:true});
  window.addEventListener('keydown',e=>{if(!active||e.key==='Escape')return;if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){if(busy){e.preventDefault();e.stopImmediatePropagation();}else close();}else if(!e.target.matches('input,select,textarea')&&['e','l'].includes(e.key.toLowerCase())){e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
  document.addEventListener('click',e=>{if(active&&e.target.closest('.toolbar, .command-toolbar')&&!e.target.closest('#move-tool'))close();},{capture:true});
- window.addEventListener('resize',()=>{if(pickingCenter)showCenters();});
  return {start,fromPoint(reference,action='rotate'){
   if(busy)return;if(!['rotate','origin'].includes(action)||!Array.isArray(reference?.point)||reference.point.length!==3||!reference.point.every(Number.isFinite))throw Error('有効な中心・中点を選択してください');
   const point=[...reference.point],bodyId=reference.bodyId;if(active)close();start();chosenEdge=null;chosenAxisPivot=null;chosenCenter=point;pointAction=action;
