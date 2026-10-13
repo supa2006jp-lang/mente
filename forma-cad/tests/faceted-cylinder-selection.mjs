@@ -34,7 +34,7 @@ assert.equal(cadFaceGroup(copy,outerHit.faceIndex).parts.length,outerGroup.parts
 assert.notEqual(cadFaceKey('base',cadFaceGroup(copy,outerHit.faceIndex)),cadFaceKey('base',cadFaceGroup(copy,outerHit.faceIndex+data.triangles.length/3)));
 copy.dispose();curved.geometry.dispose();highlight.dispose();g.dispose();
 const narrow=new THREE.CylinderGeometry(35,35,10,4,1,false,0,Math.PI/32);narrow.userData.faceGroups=narrow.groups.map((p,i)=>({...p,faceId:i}));narrow.userData.planarFaces=[1,2];assert.ok(Math.abs(cadFaceGroup(narrow,0).cylinder.radius-35)<.001,'short true cylindrical arcs remain curved');narrow.dispose();
-const noRecipe=rebuild(features).get('base').geometry;delete noRecipe.userData.circularWalls;assert.equal(cadFaceGroup(noRecipe,outerHit.faceIndex).cylinder,undefined,'ordinary planar patches without a circular recipe are not merged');noRecipe.dispose();
+const noRecipe=rebuild(features).get('base').geometry;delete noRecipe.userData.circularWalls;assert.ok(cadFaceGroup(noRecipe,outerHit.faceIndex).cylinder,'matching circular rims recover saved solids without a circular recipe');noRecipe.dispose();
 await fs.mkdir('outputs/cylinder-selection',{recursive:true});await fs.writeFile('outputs/cylinder-selection/legacy-half-cylinder.forma.json',JSON.stringify({format:'forma-cad',version:1,features}));
 for(const resource of [base,wall,joined,tool,shape])resource.delete();
 console.log('PASS legacy faceted half cylinder: continuous outer/inner side, stable keys, curved candidates, planar caps, full editing selection and disconnected guards');
