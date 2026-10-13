@@ -1018,7 +1018,7 @@ function chooseFace(hit,add=false){edgeSelectionMode=false;
 function selectionFacePlane(entry){
  // Resolve curved-face measurements only when one selected face remains.
  if(entry.surfaceSeed){const {geometry,index,bodyId}=entry.surfaceSeed;const curved=cylindricalSelection(features,bodyId,geometry,index,new THREE.Vector3(...entry.point));if(curved){Object.assign(entry.surface,{radius:curved.radius,internal:curved.internal});curved.geometry.dispose();}delete entry.surfaceSeed;}
- if(!entry.plane&&entry.planeSeed){const {geometry,index,bodyId}=entry.planeSeed;try{const face=planarFace(geometry,index);entry.plane={...face,bodyId,cadFace:{bodyId,point:entry.point,normal:face.frame.n}};}catch{}}
+ if(!entry.plane&&entry.planeSeed){const {geometry,index,bodyId}=entry.planeSeed;if(!cadFaceGroup(geometry,index)?.cylinder)try{const face=planarFace(geometry,index);entry.plane={...face,bodyId,cadFace:{bodyId,point:entry.point,normal:face.frame.n}};}catch{}}
  return entry.plane||null;
 }
 function chooseFaceRange(hits,add){
@@ -1035,7 +1035,7 @@ function chooseFaceRange(hits,add){
    else{try{plane={...planarFace(g,hit.faceIndex),bodyId};geometry=regionFaceGeometry(plane);}catch{continue;}}
    const box=new THREE.Box3().setFromBufferAttribute(geometry.attributes.position);key=bodyId+':'+JSON.stringify([box.min.toArray(),box.max.toArray()].flat().map(n=>Math.round(n*1e4)));if(keys.has(key)){geometry.dispose();continue;}
   }
-  keys.add(key);previous.push({key,bodyId,point:hit.point.toArray(),normal:hit.face.normal.toArray(),geometry,cadSelections:cadFaceSelections(g,group),plane,surface,...(group&&g.userData.planarFaces?.includes(group.faceId)?{planeSeed:{geometry:g,index:hit.faceIndex,bodyId}}:group?{surfaceSeed:{geometry:g,index:hit.faceIndex,bodyId}}:{})});
+  keys.add(key);previous.push({key,bodyId,point:hit.point.toArray(),normal:hit.face.normal.toArray(),geometry,cadSelections:cadFaceSelections(g,group),plane,surface,...(group&&!group.cylinder&&g.userData.planarFaces?.includes(group.faceId)?{planeSeed:{geometry:g,index:hit.faceIndex,bodyId}}:group?{surfaceSeed:{geometry:g,index:hit.faceIndex,bodyId}}:{})});
  }
  selectedFaces=previous;selectedSurface=previous.at(-1)?.surface||null;selectedFace=previous.length===1?selectionFacePlane(previous[0]):null;selectedBody=previous.at(-1)?.bodyId||null;chosenRegion=selectedFace;fragmentSelection=null;selected=null;pendingExtrude=false;stage='model';dropPreview();syncFields();
  for(const child of [...regionGroup.children])if(!child.userData.planeId)disposeObject(child);

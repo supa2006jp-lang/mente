@@ -12,7 +12,7 @@ export function continuousCylinderGroup(geometry,group){
  const fit=part=>{
   if(entry.fits.has(part))return entry.fits.get(part);
   const samples=[],seen=new Set();for(let i=part.start;i<part.start+part.count;i++){const k=ix?ix.getX(i):i;if(seen.has(k))continue;seen.add(k);samples.push({p:new THREE.Vector3().fromBufferAttribute(p,k),n:new THREE.Vector3().fromBufferAttribute(n,k).normalize()});}
-  const first=samples[0],second=first&&samples.find(s=>first.n.clone().cross(s.n).length()>.2);let cylinder=null;
+  const first=samples[0],second=first&&(samples.find(s=>first.n.clone().cross(s.n).length()>.2)||samples.find(s=>first.n.clone().cross(s.n).length()>.001));let cylinder=null;
   if(second){
    const axis=first.n.clone().cross(second.n).normalize();if(axis.toArray().find(v=>Math.abs(v)>1e-6)<0)axis.negate();
    const dn=second.n.clone().sub(first.n),radius=second.p.clone().sub(first.p).dot(dn)/dn.lengthSq(),origin=first.p.clone().addScaledVector(first.n,-radius);origin.addScaledVector(axis,-origin.dot(axis));

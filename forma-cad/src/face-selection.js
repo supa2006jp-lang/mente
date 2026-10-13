@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {continuousCylinderGroup} from './continuous-cylinder-faces.js';
-export function cadFaceGroup(geometry,faceIndex){const group=geometry.userData.faceGroups?.find(f=>faceIndex*3>=f.start&&faceIndex*3<f.start+f.count);return group?continuousCylinderGroup(geometry,group):undefined;}
+import {facetedCylinderGroup} from './faceted-cylinder-faces.js';
+export function cadFaceGroup(geometry,faceIndex){const group=geometry.userData.faceGroups?.find(f=>faceIndex*3>=f.start&&faceIndex*3<f.start+f.count);if(!group)return undefined;const curved=continuousCylinderGroup(geometry,group);return curved.cylinder?curved:facetedCylinderGroup(geometry,group);}
 export function cadFaceKey(bodyId,group){return bodyId+':face:'+group.faceId;}
 export function cadFaceGeometry(geometry,group){
  const p=geometry.attributes.position,ix=geometry.index,positions=[];

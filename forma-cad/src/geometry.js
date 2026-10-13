@@ -1,4 +1,5 @@
 import {validateExtrusionOverlap} from './extrusion-overlap.js';
+import {extrusionCircularWalls} from './extrusion-circular-walls.js';
 import {allExtrusionTargets} from './extrusion-targets.js';
 import {validateExtrusionSymmetry,symmetricSurface} from './extrusion-symmetry.js';
 import {taperGeometry,validateTaperAngle} from './taper.js';
@@ -90,6 +91,7 @@ export function rebuild(features){
     target.geometry.dispose();bodies.set(f.target,result);
    }
   }
+  for(const [id,body] of bodies)body.geometry.userData.circularWalls=features.filter(f=>f.operation==='new'?f.id===id:f.target===id).flatMap(extrusionCircularWalls);
   return bodies;
  }catch(e){for(const b of bodies.values()) b.geometry.dispose();throw e;}
 }
