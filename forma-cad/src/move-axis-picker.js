@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {accelerateMeshPicking} from './mesh-picking.js';
 import {moveBodyPointReferences} from './move-reference-points.js';
+import {movePointGuide,drawMovePointGuide} from './move-point-guide.js';
 
 // The visible paths are also the hit targets, so highlighting and picking agree.
 export function moveAxisCandidates({meshes,occluders,lines=[],points=[],camera,width,height,pointLabel=ref=>(ref.a&&ref.b?'回転軸候補：':'回転中心候補：')+(ref.name||'点')}){
@@ -37,11 +38,13 @@ export function moveAxisCandidates({meshes,occluders,lines=[],points=[],camera,w
  return out;
 }
 
-export function moveCenterCandidates({meshes,occluders,points=[],camera,width,height}){
+export function moveCenterCandidates({meshes,occluders,points=[],camera,width,height,labelPrefix='回転中心候補：'}){
  const refs=[...points];
  for(const mesh of meshes)refs.push(...moveBodyPointReferences(mesh));
- return moveAxisCandidates({meshes:[],occluders,points:refs,camera,width,height,pointLabel:ref=>'回転中心候補：'+(ref.name||'点')});
+ return moveAxisCandidates({meshes:[],occluders,points:refs,camera,width,height,pointLabel:ref=>labelPrefix+(ref.name||'点')});
 }
+
+export function movePointCandidates(options){return moveCenterCandidates({...options,labelPrefix:options.source?'移動先候補：':'移動元候補：'});}
 
 export function nearestMoveAxis(candidates,x,y){
  let point=null,distance=12;for(const c of candidates)if(c.kind==='point'){const d=Math.hypot(c.screen.x-x,c.screen.y-y);if(d<distance){point=c;distance=d;}}if(point)return point;
@@ -50,35 +53,37 @@ export function nearestMoveAxis(candidates,x,y){
  return line;
 }
 
-export function createMoveAxisPicker({host,canvas,camera,getSources,getRevision=()=>'',onPick,onUpdate=()=>{},getCandidates=moveAxisCandidates,id='move-axis-candidates',dataset='moveAxis'}){
+export function createMoveAxisPicker({host,canvas,camera,getSources,getRevision=()=>'',onPick,onUpdate=()=>{},onHover=()=>{},getGuide=()=>null,palette=()=>({color:'#c27b00',hover:'#ff7900',fill:'#ffdb81'}),getCandidates=moveAxisCandidates,id='move-axis-candidates',dataset='moveAxis'}){
  const ns='http://www.w3.org/2000/svg',layer=document.createElementNS(ns,'svg');layer.id=id;layer.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:8;display:none';host.append(layer);
- let active=false,frame=null,signature='',candidates=[],hover=null;const visuals=new Map();
+ let active=false,frame=null,signature='',candidates=[],hover=null,guideLayer=null,viewport=null;const visuals=new Map();
  const create=(type,attrs,parent=layer)=>{const el=document.createElementNS(ns,type);for(const [key,value]of Object.entries(attrs))el.setAttribute(key,value);parent.append(el);return el;};
- function highlight(candidate){if(hover===candidate)return;hover=candidate;for(const [c,el]of visuals){el.setAttribute('stroke',c===candidate?'#ff7900':'#c27b00');el.setAttribute('stroke-width',c===candidate?'4':'2.5');if(c.kind==='point')el.setAttribute('fill',c===candidate?'#ffdb81':'white');}host.dataset[dataset+'Hover']=candidate?.label||'';}
+ function updateGuide(){if(!guideLayer)return;guideLayer.replaceChildren();const guide=getGuide(hover);if(guide)drawMovePointGuide(create,guideLayer,movePointGuide(guide.source,guide.target,camera,viewport.width,viewport.height));}
+ function highlight(candidate){if(hover===candidate)return;hover=candidate;const colors=palette();for(const [c,el]of visuals){el.setAttribute('stroke',c===candidate?colors.hover:colors.color);el.setAttribute('stroke-width',c===candidate?'4':'2.5');if(c.kind==='point')el.setAttribute('fill',c===candidate?colors.fill:'white');}host.dataset[dataset+'Hover']=candidate?.label||'';updateGuide();onHover(candidate);}
  function bind(el,c){el.setAttribute('role','button');el.setAttribute('tabindex','0');el.setAttribute('aria-label',c.label);el.style.pointerEvents='all';el.style.cursor='pointer';el.style.outline='none';create('title',{},el).textContent=c.label;
+  if(c.kind==='point')el.dataset.point=JSON.stringify(c.point.toArray());
   el.onpointerenter=()=>highlight(c);el.onpointerleave=()=>highlight(null);el.onfocus=()=>highlight(c);el.onblur=()=>highlight(null);
   el.onpointerdown=e=>{e.preventDefault();e.stopPropagation();onPick(c);};el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onPick(c);}};
  }
  function render(){
-  const rect=canvas.getBoundingClientRect(),base=host.getBoundingClientRect();layer.setAttribute('viewBox','0 0 '+base.width+' '+base.height);layer.replaceChildren();visuals.clear();hover=null;
+  const rect=canvas.getBoundingClientRect(),base=host.getBoundingClientRect(),colors=palette();viewport={width:rect.width,height:rect.height};layer.setAttribute('viewBox','0 0 '+base.width+' '+base.height);layer.replaceChildren();visuals.clear();hover=null;
   candidates=getCandidates({...getSources(),camera,width:rect.width,height:rect.height});
   const group=create('g',{transform:'translate('+(rect.left-base.left)+' '+(rect.top-base.top)+')'});
   for(const c of candidates){
    if(c.kind==='line'){
     const d=c.segments.map(({a,b})=>'M'+a.x+' '+a.y+'L'+b.x+' '+b.y).join('');
     create('path',{d,fill:'none',stroke:'white','stroke-width':5,'pointer-events':'none'},group);
-    visuals.set(c,create('path',{d,fill:'none',stroke:'#c27b00','stroke-width':2.5,'pointer-events':'none'},group));
+    visuals.set(c,create('path',{d,fill:'none',stroke:colors.color,'stroke-width':2.5,'pointer-events':'none'},group));
     bind(create('path',{d,fill:'none',stroke:'transparent','stroke-width':18},group),c);
    }else{
     const {x:cx,y:cy}=c.screen;create('circle',{cx,cy,r:8,fill:'white','pointer-events':'none'},group);
-    visuals.set(c,create('circle',{cx,cy,r:6,fill:'white',stroke:'#c27b00','stroke-width':2.5,'pointer-events':'none'},group));
+    visuals.set(c,create('circle',{cx,cy,r:6,fill:'white',stroke:colors.color,'stroke-width':2.5,'pointer-events':'none'},group));
     bind(create('circle',{cx,cy,r:12,fill:'transparent'},group),c);
    }
   }
-  host.dataset[dataset+'CandidateCount']=String(candidates.length);onUpdate(candidates);
+  guideLayer=create('g',{'pointer-events':'none','aria-hidden':'true'},group);updateGuide();host.dataset[dataset+'CandidateCount']=String(candidates.length);onUpdate(candidates);
  }
  function tick(){if(!active)return;camera.updateMatrixWorld(true);const r=canvas.getBoundingClientRect(),next=[r.left,r.top,r.width,r.height,...camera.matrixWorld.elements,...camera.projectionMatrix.elements,getRevision()].join(',');if(next!==signature){signature=next;render();}frame=requestAnimationFrame(tick);}
  const pointer=e=>{if(active){const r=canvas.getBoundingClientRect();highlight(nearestMoveAxis(candidates,e.clientX-r.left,e.clientY-r.top));}};canvas.addEventListener('pointermove',pointer);canvas.addEventListener('pointerleave',()=>highlight(null));
- function close(){active=false;if(frame!==null)cancelAnimationFrame(frame);frame=null;layer.style.display='none';layer.replaceChildren();visuals.clear();candidates=[];hover=null;delete host.dataset[dataset+'CandidateCount'];delete host.dataset[dataset+'Hover'];}
+ function close(){active=false;if(frame!==null)cancelAnimationFrame(frame);frame=null;layer.style.display='none';layer.replaceChildren();visuals.clear();candidates=[];hover=null;guideLayer=null;delete host.dataset[dataset+'CandidateCount'];delete host.dataset[dataset+'Hover'];}
  return {open(){close();active=true;layer.style.display='block';signature='';tick();},close,pick(event){const r=canvas.getBoundingClientRect();return nearestMoveAxis(candidates,event.clientX-r.left,event.clientY-r.top);}};
 }

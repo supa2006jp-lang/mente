@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import {mergedStraightEdges,mergedEdgeMidpoints} from '../src/move-edge-midpoints.js';
+import {defaults,rebuild} from '../src/geometry.js';
+import {bodyEdges} from '../src/body-edges.js';
+import {solidReferencePoints} from '../src/reference-points.js';
+
+const positions=[0,0,0,4,0,0,4,0,0,10,0,0,2,0,0,8,0,0,20,0,0,30,0,0,0,1,0,10,1,0,10,0,0,10,5,0];
+const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(positions,3)),refs=[[2,0,0],[7,0,0],[25,0,0],[5,1,0],[10,2.5,0]].map(point=>({point,kind:'midpoint'}));
+let mids=mergedEdgeMidpoints(geometry,refs);assert.equal(mids.length,4,'connected/overlapping segments have one midpoint; gaps, parallel lines and corners stay separate');
+assert.deepEqual(mids.map(r=>r.point),[[5,0,0],[25,0,0],[5,1,0],[10,2.5,0]]);
+assert.deepEqual(mids[0].a,[0,0,0]);assert.deepEqual(mids[0].b,[10,0,0]);
+assert.equal(mergedEdgeMidpoints(geometry,[]).length,0,'only eligible reference edges contribute midpoints');
+geometry.translate(3,0,0);mids=mergedEdgeMidpoints(geometry,refs.map(r=>({point:[r.point[0]+3,r.point[1],r.point[2]]})));assert.deepEqual(mids[0].point,[8,0,0],'geometry changes invalidate the merged-edge cache');
+const curve=new THREE.BufferGeometry().setFromPoints([[0,0,0],[1,0,0],[1,0,0],[2,1,0]].map(p=>new THREE.Vector3(...p)));curve.userData.arcEdges=new Map([[0,{}],[2,{}]]);assert.equal(mergedStraightEdges(curve).length,0,'arc chords are not merged into straight references');
+const source={...defaults,id:'c',profile:'circle',diameter:40,depth:30},cut={...defaults,id:'cut',width:40,height:60,depth:25,x:20,z:10,operation:'cut',target:'c'},model=rebuild([source,cut]).get('c').geometry,edges=bodyEdges(model),midRefs=solidReferencePoints(model,edges).filter(r=>r.kind==='midpoint');
+assert.ok(midRefs.length>2,'regression fixture contains split straight-edge references');
+const merged=mergedEdgeMidpoints(edges,midRefs);assert.equal(merged.length,2,'the stepped cylinder has one midpoint per continuous cut diameter');
+assert.ok(merged.some(r=>new THREE.Vector3(...r.point).distanceTo(new THREE.Vector3(0,0,10))<1e-4));assert.ok(merged.some(r=>new THREE.Vector3(...r.point).distanceTo(new THREE.Vector3(0,0,30))<1e-4));
+for(const g of [geometry,curve,model,edges])g.dispose();
+console.log('PASS connected and overlapping straight-edge merging, separate gaps/parallel/corner edges, curved-rim exclusion, cache invalidation and stepped-cylinder midpoints');

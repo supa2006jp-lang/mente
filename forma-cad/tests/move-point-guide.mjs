@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import {movePointGuide,movePointDistanceText} from '../src/move-point-guide.js';
+import {movePointCandidates,nearestMoveAxis} from '../src/move-axis-picker.js';
+const camera=new THREE.OrthographicCamera(-50,50,50,-50,.1,500);camera.position.set(0,0,100);camera.lookAt(0,0,0);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+const source=new THREE.Vector3(0,0,0),target=new THREE.Vector3(3,4,12),guide=movePointGuide(source,target,camera,500,500);
+assert.equal(guide.distance,13,'guide reports three-dimensional movement, not screen distance');assert.equal(guide.text,'13.00 mm');assert.equal(guide.source.x,250);assert.equal(guide.source.y,250);assert.equal(guide.target.x,265);assert.equal(guide.target.y,230);
+assert.equal(movePointGuide(source,null,camera,500,500).target,null,'selected source remains without a hovered destination');assert.equal(movePointGuide(source,source,camera,500,500).text,'0.00 mm');assert.equal(movePointGuide(new THREE.Vector3(0,0,200),target,camera,500,500),null,'a source behind the camera is not drawn');assert.equal(movePointDistanceText(Math.sqrt(2)),'1.41 mm');
+const options={meshes:[],occluders:[],points:[{point:source.toArray(),name:'スケッチ点'},{point:target.toArray(),name:'原点'}],camera,width:500,height:500};
+let candidates=movePointCandidates(options);assert.ok(candidates.every(c=>c.label.startsWith('移動元候補：')));assert.equal(nearestMoveAxis(candidates,250,250).ref.name,'スケッチ点');
+candidates=movePointCandidates({...options,source:true});assert.ok(candidates.every(c=>c.label.startsWith('移動先候補：')));assert.ok(candidates.some(c=>c.ref.name==='原点'),'origin is a selectable destination');
+console.log('PASS world-distance guide, persistent source, projection, zero-distance formatting and source/destination candidate labels');

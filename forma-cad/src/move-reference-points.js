@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import {solidVertexPoints} from './vertex-points.js';
+import {mergedEdgeMidpoints} from './move-edge-midpoints.js';
 
 // Moving and rotating use geometric references, never the sampled rim vertices.
 export function moveBodyPointReferences(mesh){
  mesh.updateMatrixWorld(true);const edges=mesh.children[0],geometry=edges?.geometry,refs=[],placed=[];
  const add=(ref,matrix)=>{const point=new THREE.Vector3(...ref.point).applyMatrix4(matrix);if(placed.some(p=>p.distanceToSquared(point)<1e-6))return;placed.push(point);refs.push({...ref,point:point.toArray(),owner:mesh.uuid});};
- for(const ref of mesh.userData.references||[])add({...ref,name:ref.kind==='midpoint'?'辺の中点':ref.name==='ソリッド面'?'面の中心':ref.name},mesh.matrixWorld);
+ for(const ref of mesh.userData.references||[])if(ref.kind!=='midpoint')add({...ref,name:ref.name==='ソリッド面'?'面の中心':ref.name},mesh.matrixWorld);
+ for(const ref of mergedEdgeMidpoints(geometry,(mesh.userData.references||[]).filter(r=>r.kind==='midpoint')))add(ref,edges.matrixWorld);
  const arcs=[...new Set(geometry?.userData.arcEdges?.values()||[])],rimCurves=new Set([...(geometry?.userData.circularEdges?.values()||[]),...arcs]);
  for(const curve of rimCurves)if(curve.center)add({point:curve.center,name:'円・円弧の中心',kind:'center'},edges.matrixWorld);
  const positions=geometry?.attributes.position,nodes=new Map(),key=p=>p.toArray().map(v=>Math.round(v*1e4)).join(',');
