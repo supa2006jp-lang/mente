@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import {accelerateMeshPicking} from './mesh-picking.js';
 import {moveBodyPointReferences} from './move-reference-points.js';
 import {movePointGuide,drawMovePointGuide} from './move-point-guide.js';
+import {movePointKind} from './move-cursor.js';
 
 // The visible paths are also the hit targets, so highlighting and picking agree.
-export function moveAxisCandidates({meshes,occluders,lines=[],points=[],camera,width,height,pointLabel=ref=>(ref.a&&ref.b?'回転軸候補：':'回転中心候補：')+(ref.name||'点')}){
+export function moveAxisCandidates({meshes,occluders,lines=[],points=[],pointKinds=null,camera,width,height,pointLabel=ref=>(ref.a&&ref.b?'回転軸候補：':'回転中心候補：')+(ref.name||'点')}){
  const ray=new THREE.Raycaster(),out=[],keys=new Set(),screenLines=new Map();ray.firstHitOnly=true;
  camera.updateMatrixWorld(true);for(const mesh of new Set([...meshes,...occluders])){mesh.updateMatrixWorld(true);accelerateMeshPicking(mesh);}
  const project=point=>{const p=point.clone().project(camera);return {x:(p.x+1)*width/2,y:(1-p.y)*height/2,z:p.z};};
@@ -31,17 +32,17 @@ export function moveAxisCandidates({meshes,occluders,lines=[],points=[],camera,w
  }
  for(const line of lines)addLine(new THREE.Vector3(...line.a),new THREE.Vector3(...line.b),'reference',line.name||'スケッチの直線');
  const placed=[];
- for(const ref of [...points].sort((a,b)=>project(new THREE.Vector3(...a.point)).z-project(new THREE.Vector3(...b.point)).z)){
+ for(const ref of points.filter(ref=>!pointKinds||pointKinds.includes(movePointKind(ref))).sort((a,b)=>project(new THREE.Vector3(...a.point)).z-project(new THREE.Vector3(...b.point)).z)){
   const point=new THREE.Vector3(...ref.point),screen=project(point);if(!visible(point,screen)||placed.some(p=>Math.hypot(p.x-screen.x,p.y-screen.y)<12))continue;placed.push(screen);
   out.push({kind:'point',point,screen,ref,label:pointLabel(ref)});
  }
  return out;
 }
 
-export function moveCenterCandidates({meshes,occluders,points=[],camera,width,height,labelPrefix='回転中心候補：'}){
+export function moveCenterCandidates({meshes,occluders,points=[],camera,width,height,pointKinds=null,labelPrefix='回転中心候補：'}){
  const refs=[...points];
  for(const mesh of meshes)refs.push(...moveBodyPointReferences(mesh));
- return moveAxisCandidates({meshes:[],occluders,points:refs,camera,width,height,pointLabel:ref=>labelPrefix+(ref.name||'点')});
+ return moveAxisCandidates({meshes:[],occluders,points:refs.filter(ref=>!pointKinds||pointKinds.includes(movePointKind(ref))),camera,width,height,pointLabel:ref=>labelPrefix+(ref.name||'点')});
 }
 
 export function movePointCandidates(options){return moveCenterCandidates({...options,labelPrefix:options.source?'移動先候補：':'移動元候補：'});}
@@ -65,6 +66,7 @@ export function createMoveAxisPicker({host,canvas,camera,getSources,getRevision=
   el.onpointerdown=e=>{e.preventDefault();e.stopPropagation();onPick(c);};el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onPick(c);}};
  }
  function render(){
+  const focused=layer.contains(document.activeElement)?document.activeElement.getAttribute('data-point')||document.activeElement.getAttribute('aria-label'):null;
   const rect=canvas.getBoundingClientRect(),base=host.getBoundingClientRect(),colors=palette();viewport={width:rect.width,height:rect.height};layer.setAttribute('viewBox','0 0 '+base.width+' '+base.height);layer.replaceChildren();visuals.clear();hover=null;
   candidates=getCandidates({...getSources(),camera,width:rect.width,height:rect.height});
   const group=create('g',{transform:'translate('+(rect.left-base.left)+' '+(rect.top-base.top)+')'});
@@ -81,6 +83,7 @@ export function createMoveAxisPicker({host,canvas,camera,getSources,getRevision=
    }
   }
   guideLayer=create('g',{'pointer-events':'none','aria-hidden':'true'},group);updateGuide();host.dataset[dataset+'CandidateCount']=String(candidates.length);onUpdate(candidates);
+  if(focused)[...layer.querySelectorAll('[role=button]')].find(el=>(el.getAttribute('data-point')||el.getAttribute('aria-label'))===focused)?.focus({preventScroll:true});
  }
  function tick(){if(!active)return;camera.updateMatrixWorld(true);const r=canvas.getBoundingClientRect(),next=[r.left,r.top,r.width,r.height,...camera.matrixWorld.elements,...camera.projectionMatrix.elements,getRevision()].join(',');if(next!==signature){signature=next;render();}frame=requestAnimationFrame(tick);}
  const pointer=e=>{if(active){const r=canvas.getBoundingClientRect();highlight(nearestMoveAxis(candidates,e.clientX-r.left,e.clientY-r.top));}};canvas.addEventListener('pointermove',pointer);canvas.addEventListener('pointerleave',()=>highlight(null));

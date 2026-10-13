@@ -202,7 +202,7 @@ function pressWheelEnter(focus){
  }
  target.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true,cancelable:true}));
 }
-function confirmVisibleForm(){const form=document.querySelector('dialog[open] form')||(moveTool?.active?$('move-panel'):holeActive?$('hole-panel'):stage==='extrusion'&&!pendingExtrude?$('extrude-distance'):stage==='sketch'&&!sketch?$('editor'):null);if(!form||!form.getClientRects().length)return false;const submit=[...form.querySelectorAll('button,input')].find(el=>el.type==='submit'&&!el.disabled);if(!submit)return false;form.requestSubmit(submit);return true;}
+function confirmVisibleForm(){if(moveTool?.pickingReference)return false;const form=document.querySelector('dialog[open] form')||(moveTool?.active?$('move-panel'):holeActive?$('hole-panel'):stage==='extrusion'&&!pendingExtrude?$('extrude-distance'):stage==='sketch'&&!sketch?$('editor'):null);if(!form||!form.getClientRects().length)return false;const submit=[...form.querySelectorAll('button,input')].find(el=>el.type==='submit'&&!el.disabled);if(!submit)return false;form.requestSubmit(submit);return true;}
 let controls=new OrbitControls(camera,renderer.domElement);controls.zoomToCursor=true;controls.mouseButtons.LEFT=null;controls.mouseButtons.MIDDLE=THREE.MOUSE.PAN;controls.enableDamping=true;controls.dampingFactor=.12;controls.target.set(0,0,12);controls.minDistance=2;controls.maxDistance=50000;controls.minZoom=.002;controls.maxZoom=10000;
 scene.add(new THREE.HemisphereLight(0xffffff,0x77756e,1.2));const key=new THREE.DirectionalLight(0xffffff,2.0);key.position.set(-100,-180,240);scene.add(key);const fill=new THREE.DirectionalLight(0xffffff,.3);fill.position.set(-100,40,60);scene.add(fill);
 let grid=cadGrid(10,100);grid.rotation.x=Math.PI/2;grid.position.z=-.05;scene.add(grid);
@@ -520,6 +520,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(moveTool?.cancelFreeMove())return;
  if(splineEditor?.closeMenu())return;
  if(splineEditor?.cancelDrag())return;
  if(bossJointController?.cancelDrag())return;
@@ -2249,7 +2250,7 @@ function renderEncloseOptions(){
  enclosureFaces=[];enclosurePicking=false;clearFaceSelection();selectedFace=null;selectedSurface=null;chosenRegion=null;
  $('cad-clearance').min=0;
  const controls=document.createElement('div');controls.className='enclose-options';
- controls.innerHTML='<label class="enclose-check"><input type="checkbox" id="cad-boxMode">BOXを作る（直方体の容器）</label><p id="enclose-box-guide">BOXは対象の外接直方体から作ります。開口面を選ばなければ閉じたBOXです。上の分割平面で位置を先に指定できます。未設定のままヒンジを付けるとXY中央に分割されます。</p><label class="enclose-check" id="enclose-chest-option"><input type="checkbox" id="cad-chestStyle">宝箱風にする（丸屋根と帯飾り）</label><p id="enclose-chest-guide">内側の収納寸法を保ち、蓋を丸屋根にします。蓋の内側も丸屋根に沿って空洞にし、設定した壁厚と両端の壁を残します。分割面が未設定ならXY中央に設定し、ヒンジ・爪を有効にします。ヒンジと爪は下で調整できます。</p><div id="enclose-face-controls"><h3>開口面（任意）</h3><p id="enclose-face-guide"></p><div class="enclose-face-actions"><button type="button" id="enclose-pick" aria-pressed="false">開口面を選択</button><button type="button" id="enclose-clear">開口面を解除</button></div><p id="enclose-face-status" role="status"></p></div>';
+ controls.innerHTML='<label class="enclose-check"><input type="checkbox" id="cad-boxMode">BOXを作る（直方体の容器）</label><p id="enclose-box-guide">BOXは対象の外接直方体から作ります。開口面を選ばなければ閉じたBOXです。上の分割平面で位置を先に指定できます。未設定のままヒンジを付けるとXY中央に分割されます。</p><label class="enclose-check" id="enclose-chest-option"><input type="checkbox" id="cad-chestStyle">宝箱風にする（丸屋根と帯飾り）</label><p id="enclose-chest-guide">内側の収納寸法を保ち、蓋を丸屋根にします。上面の外周フレーム・帯と、前後の広い面の縁を浅く浮き出させます。狭い左右の側面は張り出させません。蓋の内側も丸屋根に沿って空洞にし、設定した壁厚と両端の壁を残します。分割面が未設定ならXY中央に設定し、ヒンジ・爪を有効にします。ヒンジと爪は下で調整できます。</p><div id="enclose-face-controls"><h3>開口面（任意）</h3><p id="enclose-face-guide"></p><div class="enclose-face-actions"><button type="button" id="enclose-pick" aria-pressed="false">開口面を選択</button><button type="button" id="enclose-clear">開口面を解除</button></div><p id="enclose-face-status" role="status"></p></div>';
  $('cad-fields').insertBefore(controls,$('cad-thickness').closest('label'));
  const centerButton=document.createElement('button');centerButton.type='button';centerButton.id='enclose-center';centerButton.textContent='分割位置を対象の中央に';
  const splitSettings=document.createElement('fieldset');splitSettings.id='enclose-split-settings';

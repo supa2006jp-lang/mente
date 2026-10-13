@@ -21,7 +21,7 @@ function boxOpeningSide(selection){
  if(Math.abs(normal[axis])<.3)throw Error('BOXの開口面を選び直してください');
  return (normal[axis]>=0?'+':'-')+'XYZ'[axis];
 }
-export function encloseBody(base,thickness,{clearance=0,boxExtra=0,faces=[],boxMode=false,enclosureSplit='分割しない',hingeEdge,chestStyle=false}={}){
+export function encloseBody(base,thickness,{clearance=0,boxExtra=0,faces=[],boxMode=false,enclosureSplit='分割しない',splitOffset,hingeEdge,chestStyle=false}={}){
  if(!Number.isFinite(thickness)||thickness<.1||thickness>1000)throw Error('囲みの厚みは0.1〜1000 mmで指定してください');
  if(!Number.isFinite(clearance)||clearance<0||clearance>1000)throw Error('すき間は0〜1000 mmで指定してください');
  if(!base)throw Error('囲む対象のソリッドを選択してください');
@@ -34,7 +34,7 @@ export function encloseBody(base,thickness,{clearance=0,boxExtra=0,faces=[],boxM
   const outer=R.makeBox(outsideLo,outsideHi),innerBox=R.makeBox(insideLo,insideHi);let result;
   try{
    result=outer.cut(innerBox);
-   if(chestStyle){const decorated=addChestRoof(result,outsideLo,outsideHi,{thickness,enclosureSplit,hingeEdge,faces});result.delete();result=decorated;}
+   if(chestStyle){const decorated=addChestRoof(result,outsideLo,outsideHi,{thickness,enclosureSplit,splitOffset,hingeEdge,faces});result.delete();result=decorated;}
    if(!valid(result)||R.measureVolume(result)<=1e-6)throw Error('BOXを作成できません。開口面を減らすか寸法を調整してください');
    const output=result;result=null;return output;
   }
@@ -64,7 +64,7 @@ export function encloseBody(base,thickness,{clearance=0,boxExtra=0,faces=[],boxM
  }catch(e){throw Error(fail);}finally{openingFaces.forEach(f=>f.delete());result?.delete();overlap?.delete();missing?.delete();expanded?.delete();inner?.delete();source?.delete();}
 }
 const AXES={XY:2,XZ:1,YZ:0};
-function addChestRoof(shell,low,high,{thickness,enclosureSplit,hingeEdge,faces}){
+function addChestRoof(shell,low,high,{thickness,enclosureSplit,splitOffset,hingeEdge,faces}){
  // The split plane's positive normal points into the lid.
  const n=AXES[enclosureSplit];
  if(faces.some(face=>boxOpeningSide(face)==='+'+'XYZ'[n]))throw Error('宝箱風の屋根側は開口できません。開口面を変更してください');
@@ -88,6 +88,13 @@ function addChestRoof(shell,low,high,{thickness,enclosureSplit,hingeEdge,faces})
  let result=shell.clone();
  try{
   result=join(result,roof(low[u],high[u],0));
+  // A complete rim follows the curved top. Its outer edges stop at the roof
+  // bounds, so the narrow side walls remain flush for the printing support face.
+  const rimHeight=Math.min(bandHeight,.8),rimWidth=Math.min(bandWidth,span*.14,(high[n]-low[n])*.12);
+  const rimLo=[...low],rimHi=[...high];rimLo[u]+=rimWidth;rimHi[u]-=rimWidth;rimLo[v]+=rimWidth;rimHi[v]-=rimWidth;
+  rimLo[n]=high[n]-rootDepth-.01;rimHi[n]=high[n]+rise+rimHeight+.01;
+  const rim=subtract(roof(low[u],high[u],rimHeight),boxBetween(rimLo,rimHi));
+  result=join(result,rim);
   const count=length>=75?3:2;
   for(let i=0;i<count;i++){
    const center=low[u]+length*(i+1)/(count+1);
@@ -105,6 +112,29 @@ function addChestRoof(shell,low,high,{thickness,enclosureSplit,hingeEdge,faces})
    .threePointsArcTo([thickness,innerEdge],[span/2,rise-thickness]).close()
    .sketchOnPlane(new R.Plane(origin,xAxis,normal)).extrude(length-2*thickness);
   result=subtract(result,cavity);
+  // Only the two wider faces get relief, even if a different hinge edge is
+  // selected. No decorative material projects beyond the narrower end faces.
+  const frameU=length>=span?u:v,frameV=frameU===u?v:u,frameLength=high[frameU]-low[frameU];
+  const frameHeight=Math.min(bandHeight,.8),frameWidth=Math.min(Math.max(1.2,frameLength*.055),thickness*1.2+1.2,frameLength*.14,(high[n]-low[n])*.12);
+  const seam=Number.isFinite(splitOffset)?splitOffset:(low[n]+high[n])/2;
+  const openings=seam>low[n]+frameWidth&&seam<high[n]-frameWidth?
+   [[low[n]+frameWidth,seam-frameWidth],[seam+frameWidth,high[n]-frameWidth]]:
+   [[low[n]+frameWidth,high[n]-frameWidth]];
+  for(const side of [-1,1]){
+   if(faces.some(face=>boxOpeningSide(face)===(side>0?'+':'-')+'XYZ'[frameV]))continue;
+   const wall=side>0?high[frameV]:low[frameV],a=[...low],b=[...high];
+   a[frameV]=wall-side*rootDepth;b[frameV]=wall+side*frameHeight;
+   let frame=boxBetween(a,b);
+   try{
+    for(const [from,to]of openings){
+     if(to<=from)continue;
+     const lo=[...low],hi=[...high];lo[frameU]+=frameWidth;hi[frameU]-=frameWidth;lo[n]=from;hi[n]=to;
+     lo[frameV]=Math.min(a[frameV],b[frameV])-.01;hi[frameV]=Math.max(a[frameV],b[frameV])+.01;
+     frame=subtract(frame,boxBetween(lo,hi));
+    }
+    const finished=frame;frame=null;result=join(result,finished);
+   }finally{frame?.delete();}
+  }
   const output=result;result=null;return output;
  }finally{result?.delete();}
 }
@@ -258,7 +288,11 @@ function buildEncloseParts(base,p){
    if(!Number.isFinite(gap)||gap<.1||gap>3)throw Error('蓋と本体のすき間は0.1〜3 mmで指定してください');
    lo[n]=p.splitOffset-gap/2;hi[n]=p.splitOffset+gap/2;
    const slab=boxBetween(lo,hi);try{negative=subtract(negative,slab.clone());positive=subtract(positive,slab.clone());}finally{slab.delete();}
-   const output=hingeAssembly(negative,positive,bounds,p);negative=null;positive=null;return output;
+   // Decorative relief must not move the hinge axis or the latch away from
+   // their structural walls; motion diagnostics use these same wall positions.
+   const hardwareBounds=bounds.map(point=>[...point]);
+   if(p.chestStyle){const [sourceLo,sourceHi]=base.boundingBox.bounds,pad=p.thickness+(p.clearance||0)+(p.boxExtra||0);for(const axis of [0,1,2])if(axis!==n){hardwareBounds[0][axis]=sourceLo[axis]-pad;hardwareBounds[1][axis]=sourceHi[axis]+pad;}}
+   const output=hingeAssembly(negative,positive,hardwareBounds,p);negative=null;positive=null;return output;
   }
   const output=[negative,positive];negative=null;positive=null;return output;
  }finally{parts?.negative?.delete();parts?.positive?.delete();negative?.delete();positive?.delete();shape.delete();}

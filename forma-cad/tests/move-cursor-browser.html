@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>移動ツール動作検証</title>
+<!--
+Build: node_modules/.bin/esbuild tests/move-cursor-browser.js --bundle --format=esm --outfile=dist/__move-cursor-check.js
+Copy this HTML to dist/__move-cursor-check.html, run node server.mjs, open it and run both checks.
+The generated files are temporary test assets and must not be published.
+-->
+<style>
+body{font:14px sans-serif;margin:12px}
+#canvas-host{position:relative;width:720px;height:500px}
+#move-panel{position:absolute;right:0;top:50px;width:310px;background:white;border:1px solid #aaa;padding:12px;max-height:640px;overflow:auto}
+#move-panel[hidden]{display:none}
+.move-fields{display:grid;grid-template-columns:1fr 1fr}
+#move-panel input[type=number]{width:110px}
+#results{white-space:pre-wrap}
+</style>
+<button id="run-free">自在移動を検証</button>
+<button id="run-ghost">複数ボディとプレビューを検証</button>
+<div id="canvas-host"><canvas></canvas></div>
+<pre id="results" role="status"></pre>
+<script type="module" src="__move-cursor-check.js"></script>
