@@ -19,7 +19,7 @@ export function sketchRegionHit(hits,bodyHit,{whole=false}={}){
 
 // Display/picking uses the solid's section on the sketch plane, never its
 // camera silhouette. The original profile is retained for exact BREP extrusion.
-export function sketchSolidOverlapRegions(regions,meshes){
+export function sketchSolidOverlapRegions(regions,meshes,{includeOutside=false,includeUnsplit=false}={}){
  const result=[],sections=new Map();
  for(const r of regions){
   const b=basisFor(r),key=[...b.n.toArray(),r.offset,...b.u.toArray(),...b.v.toArray()].join(',');
@@ -46,24 +46,31 @@ export function sketchSolidOverlapRegions(regions,meshes){
    for(const delta of [20,-20]){const offset=new Clipper.ClipperOffset(2),next=[];offset.AddPaths(merged,Clipper.JoinType.jtMiter,Clipper.EndType.etClosedPolygon);offset.Execute(next,delta);merged=next;}
    sections.set(key,merged);
   }
-  const coverage=sections.get(key);if(!coverage.length)continue;
-  const clip=new Clipper.Clipper(),tree=new Clipper.PolyTree();
-  clip.AddPaths([path(r.outer),...r.holes.map(h=>path(h,false))],Clipper.PolyType.ptSubject,true);
-  clip.AddPaths(coverage,Clipper.PolyType.ptClip,true);
-  clip.Execute(Clipper.ClipType.ctIntersection,tree,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
+  const coverage=sections.get(key);if(!coverage.length&&!includeUnsplit)continue;
+  const trees=['inside',...(includeOutside?['outside']:[])].map(side=>{
+   const clip=new Clipper.Clipper(),tree=new Clipper.PolyTree();
+   clip.AddPaths([path(r.outer),...r.holes.map(h=>path(h,false))],Clipper.PolyType.ptSubject,true);
+   clip.AddPaths(coverage,Clipper.PolyType.ptClip,true);
+   clip.Execute(side==='outside'?Clipper.ClipType.ctDifference:Clipper.ClipType.ctIntersection,tree,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
+   return {tree,side};
+  });
+  const patches=[];
+  for(const {tree,side} of trees){
   let index=0;
   for(let node=tree.GetFirst();node;node=node.GetNext()){
    if(node.IsHole())continue;
    const outer=node.Contour().map(p=>[p.X/SCALE,p.Y/SCALE]),holes=node.Childs().filter(h=>h.IsHole()).map(h=>h.Contour().map(p=>[p.X/SCALE,p.Y/SCALE]));
    const area=(Math.abs(Clipper.Clipper.Area(node.Contour()))-node.Childs().filter(h=>h.IsHole()).reduce((s,h)=>s+Math.abs(Clipper.Clipper.Area(h.Contour())),0))/SCALE**2;
    // A fully covered sketch already has the desired selectable footprint.
-   if(area<1e-5||Math.abs(area-r.area)<Math.max(1e-4,r.area*1e-6))continue;
+   if(area<1e-5||!includeUnsplit&&Math.abs(area-r.area)<Math.max(1e-4,r.area*1e-6))continue;
    const contour=outer.map(p=>new THREE.Vector2(...p)),voids=holes.map(h=>h.map(p=>new THREE.Vector2(...p))),vertices=[...outer,...holes.flat()],triangles=THREE.ShapeUtils.triangulateShape(contour,voids);
    const triangle=triangles.sort((a,c)=>Math.abs(Clipper.Clipper.Area(path(c.map(i=>vertices[i]))))-Math.abs(Clipper.Clipper.Area(path(a.map(i=>vertices[i])))))[0];
    if(!triangle)continue;
    const center=triangle.reduce((p,i)=>[p[0]+vertices[i][0]/3,p[1]+vertices[i][1]/3],[0,0]),overlapPoint=b.u.clone().multiplyScalar(center[0]).addScaledVector(b.v,center[1]).addScaledVector(b.n,r.offset).toArray();
-   result.push({...r,id:r.id+':overlap:'+index++,outer,holes,area,overlapSource:structuredClone(r),overlapPoint,overlapTargets:meshes.filter(m=>m.visible).map(m=>m.userData.bodyId)});
+   patches.push({...r,id:r.id+(side==='outside'?':outside:':':overlap:')+index++,outer,holes,area,partitionSide:side,overlapSource:structuredClone(r),overlapPoint,overlapTargets:[...new Set(meshes.filter(m=>m.visible).map(m=>m.userData.bodyId))]});
   }
+  }
+  for(const patch of patches)result.push({...patch,partitionCount:patches.filter(p=>p.partitionSide===patch.partitionSide).length});
  }
  return result;
 }

@@ -6,13 +6,14 @@ export function validateExtrusionOverlap(f){
  if(f.overlapOnly!==undefined&&typeof f.overlapOnly!=='boolean')throw Error('重なる部分だけの押し出し設定が不正です');
  if(!f.overlapOnly)return;
  if(f.region?.overlapSource){validateRegion(f.region.overlapSource);if(f.region.overlapSource.overlapSource)throw Error('重なりの元領域が不正です');}
+ if(f.region?.partitionSide!==undefined&&!['inside','outside'].includes(f.region.partitionSide))throw Error('区切られた領域の内外設定が不正です');
  if(f.region?.overlapPoint&&(!Array.isArray(f.region.overlapPoint)||f.region.overlapPoint.length!==3||f.region.overlapPoint.some(v=>!Number.isFinite(v)||Math.abs(v)>25000)))throw Error('重なる領域の選択位置が不正です');
  if(f.mode!=='solid'||f.holesOnly)throw Error('重なる部分だけの押し出しは通常の押し出しで使用してください');
  if(!Array.isArray(f.overlapTargets)||!f.overlapTargets.length||f.overlapTargets.length>100||new Set(f.overlapTargets).size!==f.overlapTargets.length||f.overlapTargets.some(id=>typeof id!=='string'||!id||id.length>100))throw Error('重なりを判定する対象ボディを選択してください');
 }
 
-export function commonSection(face,body){
- const oc=R.getOC(),argumentsList=new oc.NCollection_List_TopoDS_Shape(),tools=new oc.NCollection_List_TopoDS_Shape(),builder=new oc.BRepAlgoAPI_Common();
+export function commonSection(face,body,operation='common'){
+ const oc=R.getOC(),argumentsList=new oc.NCollection_List_TopoDS_Shape(),tools=new oc.NCollection_List_TopoDS_Shape(),builder=operation==='cut'?new oc.BRepAlgoAPI_Cut():operation==='fuse'?new oc.BRepAlgoAPI_Fuse():new oc.BRepAlgoAPI_Common();
  let raw;
  try{
   argumentsList.Append(face.wrapped);tools.Append(body.wrapped);builder.SetArguments(argumentsList);builder.SetTools(tools);
@@ -20,6 +21,18 @@ export function commonSection(face,body){
   if(!builder.IsDone()||builder.HasErrors())throw Error('スケッチとソリッドの重なりを計算できませんでした');
   raw=builder.Shape();return raw.IsNull()?null:R.cast(raw);
  }finally{raw?.delete();builder.delete();tools.delete();argumentsList.delete();}
+}
+
+// Boolean operations stay on the sketch plane, including native circular edges.
+export function partitionSection(face,bodies,outside=false){
+ let result=outside?face.clone():null;
+ try{
+  for(const body of bodies){
+   if(outside){if(!result)break;const next=commonSection(result,body,'cut');result.delete();result=next;}
+   else {const part=commonSection(face,body);if(!part)continue;try{const next=result?commonSection(result,part,'fuse'):part.clone();result?.delete();result=next;}finally{part.delete();}}
+  }
+  const selected=result;result=null;return selected;
+ }finally{result?.delete();}
 }
 
 // Intersect the sketch-plane face with the actual BREP, then extrude that
@@ -41,8 +54,8 @@ export function overlappingProfileSolid(f,bodies,makeUnclipped){
    try{start=Math.abs(normal.dot({x:center.x,y:center.y,z:center.z})-offset)<1e-6&&Math.abs(normal.dot({x:n.x,y:n.y,z:n.z}))>.999999;}
    finally{center.delete();n.delete();}
    if(!start)continue;
-   for(const target of targets){
-    const section=commonSection(face,target);if(!section)continue;
+   {
+    const section=partitionSection(face,targets,f.region?.partitionSide==='outside');if(!section)continue;
     const sections=section.faces;
     try{
      for(const patch of sections){
