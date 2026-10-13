@@ -1,4 +1,4 @@
-import {softRotationSnap} from './rotation-snap.js';
+import {softRotationSnap,rotationAngleText} from './rotation-snap.js';
 import {contactTranslation} from './move-contact-geometry.js';
 import * as THREE from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
@@ -125,14 +125,14 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   copy.position.sub(center).applyQuaternion(alignment.clone().invert());copy.quaternion.premultiply(alignment.clone().invert());
   copy.traverse(o=>{if(o.material){o.material=o.material.clone();o.userData.moveMaterial=true;if(o.isMesh)o.material.color.set(0x3868ad);}});
   proxy.add(copy);scene.add(proxy);copy.updateMatrix();proxyBaseMatrix=copy.matrix.clone();copy.matrixAutoUpdate=false;
-  for(const mesh of originals)mesh.visible=copying();fields.forEach(f=>f.value='0');edgeInput.value='0';
+  for(const mesh of originals)mesh.visible=copying();fields.forEach((f,i)=>f.value=i<3?'0':'0.0');edgeInput.value='0.0';
   panel.querySelector('#move-edge-angle-label').hidden=!edgeAxis;axisSelect.disabled=!!edgeAxis;fields.slice(3).forEach(f=>f.parentElement.hidden=!!edgeAxis);
   resetCenter.textContent=meshes.length>1?'選択全体の中心に戻す':'ボディ中心に戻す';
   panel.querySelector('small').textContent=edgeAxis?'選択した直線を共通の軸として回転します。ホイールで拡大・縮小。':meshes.length>1?'選択したボディを一緒に動かします。回転中心は選択全体の中心です。「回転中心を選択」で変更できます。':'先端がグリッドの目盛りや他のボディに近づくと吸着します。「回転中心を選択」「回転軸を選択」で基準を変更できます。';
   control.attach(proxy);control.enabled=true;hint.textContent=meshes.length>1?meshes.length+'個のボディをまとめて移動／回転':'ボディを選択済み · ドラッグまたは数値で調整';panel.querySelector('#move-apply').disabled=false;mode(edgeAxis?'rotate':'translate');mark();
   if(pointAction){mode(pointAction==='rotate'?'rotate':'translate');if(pointAction==='origin'){fields.slice(0,3).forEach((f,i)=>f.value=String(-chosenCenter[i]));fields[0].dispatchEvent(new Event('input',{bubbles:true}));}hint.textContent=(pointAction==='rotate'?'選択した点を回転中心に使用':'選択した点を原点（0, 0, 0）に合わせます')+' · 確定で反映';}
  }
- function start(){if(active){close();return;}method.value='move';reverse.checked=false;reverseLabel.hidden=true;pointAction=null;chosenCenter=null;chosenAxisPivot=null;chosenEdge=getSelectedEdge?.();const selectedIds=new Set(getSelection());const selectedMeshes=getMeshes().filter(m=>m.visible&&selectedIds.has(m.userData.bodyId));onStart();enabledBefore=getControls().enabled;getControls().enabled=false;active=true;panel.hidden=false;error.textContent='';hint.textContent='移動するボディをクリック';panel.querySelector('#move-apply').disabled=true;fields.forEach(f=>f.value='0');host.dataset.moveActive='true';mode('translate');if(selectedMeshes.length)select(selectedMeshes);else if(chosenEdge){const mesh=getMeshes().find(m=>m.userData.bodyId===chosenEdge.bodyId);if(mesh)select(mesh);}}
+ function start(){if(active){close();return;}method.value='move';reverse.checked=false;reverseLabel.hidden=true;pointAction=null;chosenCenter=null;chosenAxisPivot=null;chosenEdge=getSelectedEdge?.();const selectedIds=new Set(getSelection());const selectedMeshes=getMeshes().filter(m=>m.visible&&selectedIds.has(m.userData.bodyId));onStart();enabledBefore=getControls().enabled;getControls().enabled=false;active=true;panel.hidden=false;error.textContent='';hint.textContent='移動するボディをクリック';panel.querySelector('#move-apply').disabled=true;fields.forEach((f,i)=>f.value=i<3?'0':'0.0');host.dataset.moveActive='true';mode('translate');if(selectedMeshes.length)select(selectedMeshes);else if(chosenEdge){const mesh=getMeshes().find(m=>m.userData.bodyId===chosenEdge.bodyId);if(mesh)select(mesh);}}
  let dragPointer=null;canvas.addEventListener('pointerdown',e=>{dragPointer={id:e.pointerId,x:e.clientX,y:e.clientY};},{capture:true});canvas.addEventListener('pointermove',e=>{dragPointer={id:e.pointerId,x:e.clientX,y:e.clientY};},{capture:true});
  canvas.addEventListener('pointerdown',e=>{if(!active||busy||e.button!==0||e.shiftKey)return;if(pickingCenter||pointMove){e.preventDefault();e.stopImmediatePropagation();return;}if(pickingAxis){pickAxis(e);e.preventDefault();e.stopImmediatePropagation();return;}if(control.axis)return;const r=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2),camera);const hit=ray.intersectObjects(getMeshes().filter(m=>m.visible),false)[0];if(hit){select(hit.object);e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
  let dragStartRotation=null,dragHinge=null,dragStartPosition=null,dragStartBounds=null;
@@ -164,8 +164,8 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   dragHinge.cameraPosition.copy(camera.position);
   dragHinge.cameraQuaternion.copy(camera.quaternion);
   dragHinge.cameraZoom=camera.zoom;
-  edgeAngle=dragHinge.angle+dragHinge.accum*180/Math.PI;
-  proxy.quaternion.copy(dragHinge.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),dragHinge.accum)).normalize();
+  edgeAngle=softRotationSnap(dragHinge.angle*Math.PI/180+dragHinge.accum)*180/Math.PI;
+  proxy.quaternion.copy(dragHinge.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),(edgeAngle-dragHinge.angle)*Math.PI/180)).normalize();
   proxy.updateMatrixWorld(true);
  }else if(control.dragging&&control.mode==='rotate'&&dragStartRotation){
   const axis=control.rotationAxis.clone().normalize(),local=control.space==='local'&&!['E','XYZE'].includes(control.axis);
@@ -174,8 +174,19 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   if(Math.abs(delta)>1e-10){const correction=new THREE.Quaternion().setFromAxisAngle(axis,delta);if(local)proxy.quaternion.multiply(correction);else proxy.quaternion.premultiply(correction);proxy.updateMatrixWorld(true);}
  }
  if(control.dragging&&control.mode==='translate')softMoveSnap();
- const d=proxy.position.clone().sub(center),e=new THREE.Euler().setFromQuaternion(rotation(),'ZYX'),values=[...d.toArray(),e.x*180/Math.PI,e.y*180/Math.PI,e.z*180/Math.PI];fields.forEach((f,i)=>f.value=Number(values[i].toFixed(5)));if(edgeAxis)edgeInput.value=Number(edgeAngle.toFixed(5));mark();});
- panel.addEventListener('input',()=>{if(!proxy||busy)return;error.textContent='';const v=fields.map(f=>Number(f.value));if(fields.some(f=>!f.value||!f.checkValidity())||v.some(x=>!Number.isFinite(x)))return;proxy.position.copy(center).add(new THREE.Vector3(...v.slice(0,3)));if(edgeAxis){if(!Number.isFinite(Number(edgeInput.value)))return;edgeAngle=Number(edgeInput.value);proxy.quaternion.copy(baseRotation).multiply(alignment).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),Number(edgeInput.value)*Math.PI/180));}else proxy.quaternion.setFromEuler(new THREE.Euler(...v.slice(3).map(x=>x*Math.PI/180),'ZYX'));proxy.updateMatrixWorld(true);mark();});
+ const d=proxy.position.clone().sub(center),e=new THREE.Euler().setFromQuaternion(rotation(),'ZYX'),values=[...d.toArray(),e.x*180/Math.PI,e.y*180/Math.PI,e.z*180/Math.PI];fields.forEach((f,i)=>f.value=i<3?Number(values[i].toFixed(5)):rotationAngleText(values[i]));if(edgeAxis)edgeInput.value=rotationAngleText(edgeAngle);mark();});
+ panel.addEventListener('input',event=>{
+  if(!proxy||busy)return;error.textContent='';const v=fields.map(f=>Number(f.value)),index=fields.indexOf(event.target);
+  if(fields.some(f=>!f.value||!f.checkValidity())||v.some(x=>!Number.isFinite(x)))return;
+  if(index>=0&&index<3)proxy.position.copy(center).add(new THREE.Vector3(...v.slice(0,3)));
+  else if(edgeAxis&&event.target===edgeInput){
+   if(!edgeInput.value||!Number.isFinite(Number(edgeInput.value)))return;edgeAngle=Number(edgeInput.value);
+   proxy.quaternion.copy(baseRotation).multiply(alignment).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),edgeAngle*Math.PI/180));
+  }else if(index>=3&&!edgeAxis){const angles=degrees();angles[index-3]=v[index];proxy.quaternion.setFromEuler(new THREE.Euler(...angles.map(x=>x*Math.PI/180),'ZYX'));}
+  else return;
+  proxy.updateMatrixWorld(true);mark();
+ });
+ for(const field of [...fields.slice(3),edgeInput])field.addEventListener('blur',()=>{if(field.value&&Number.isFinite(Number(field.value)))field.value=rotationAngleText(Number(field.value));});
 
  const groundButton=document.createElement('button');groundButton.type='button';groundButton.id='move-to-grid';groundButton.title='ボディの底面を表示中の基準グリッド平面に合わせます。下にあるボディも上へ戻せます。';panel.querySelector('.move-fields').after(groundButton);
  function updateGroundButton(){
@@ -236,7 +247,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   const oldRotation=rotation(),oldCenter=center.clone(),oldPosition=proxy.position.clone(),target=originals.slice();
   chosenCenter=null;chosenAxisPivot=pivot?.toArray()||null;chosenEdge={bodyId:original.userData.bodyId,a:best.a.toArray(),b:best.b.toArray()};select(target);
   baseRotation.copy(oldRotation);proxy.quaternion.copy(oldRotation).multiply(alignment);proxy.position.copy(oldPosition).add(center.clone().sub(oldCenter).applyQuaternion(oldRotation));
-  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=delta.getComponent(i));fields.slice(3).forEach((f,i)=>f.value=degrees()[i]);proxy.updateMatrixWorld(true);pickingAxis=false;pickButton.setAttribute('aria-pressed','false');control.enabled=true;error.textContent='';hint.textContent='回転軸を選択済み · リング・角度・±90°で調整';mark();
+  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=delta.getComponent(i));fields.slice(3).forEach((f,i)=>f.value=rotationAngleText(degrees()[i]));proxy.updateMatrixWorld(true);pickingAxis=false;pickButton.setAttribute('aria-pressed','false');control.enabled=true;error.textContent='';hint.textContent='回転軸を選択済み · リング・角度・±90°で調整';mark();
  }
 
  const centerMarkers=document.createElement('div');centerMarkers.id='move-center-markers';host.parentElement.append(centerMarkers);
@@ -278,7 +289,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  function changeCenter(point){
   const oldRotation=rotation(),oldCenter=center.clone(),oldPosition=proxy.position.clone(),target=originals.slice();
   chosenCenter=point.toArray();chosenAxisPivot=null;chosenEdge=null;select(target);if(edgeAxis){baseRotation.copy(oldRotation);proxy.quaternion.copy(oldRotation).multiply(alignment);}else proxy.quaternion.copy(oldRotation);proxy.position.copy(oldPosition).add(center.clone().sub(oldCenter).applyQuaternion(oldRotation));
-  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=Number(delta.getComponent(i).toFixed(5)));fields.slice(3).forEach((f,i)=>f.value=degrees()[i]);proxy.updateMatrixWorld(true);pickingCenter=false;centerMarkers.replaceChildren();control.enabled=true;mode('rotate');error.textContent='';hint.textContent=edgeAxis?'ヒンジ軸を選択済み · リング・角度・±90°で調整':'回転中心を選択済み · リング・角度・±90°で調整';panel.querySelector('small').textContent=edgeAxis?'選択した点から奥へ伸びるヒンジ軸で回転します。ホイールで拡大・縮小、Shift＋ホイールで視点を水平回転。':'選択した中心を通るX・Y・Z軸で回転します。';mark();
+  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=Number(delta.getComponent(i).toFixed(5)));fields.slice(3).forEach((f,i)=>f.value=rotationAngleText(degrees()[i]));proxy.updateMatrixWorld(true);pickingCenter=false;centerMarkers.replaceChildren();control.enabled=true;mode('rotate');error.textContent='';hint.textContent=edgeAxis?'ヒンジ軸を選択済み · リング・角度・±90°で調整':'回転中心を選択済み · リング・角度・±90°で調整';panel.querySelector('small').textContent=edgeAxis?'選択した点から奥へ伸びるヒンジ軸で回転します。ホイールで拡大・縮小、Shift＋ホイールで視点を水平回転。':'選択した中心を通るX・Y・Z軸で回転します。';mark();
  }
  function showCenters(){
   if(!pickingCenter||!proxy)return;
@@ -313,7 +324,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  centerButton.onclick=()=>{pointMove=null;if(!proxy||busy){error.textContent='先にボディを選択してください';return;}pickingAxis=false;pickButton.setAttribute('aria-pressed','false');pickingCenter=!pickingCenter;control.enabled=!pickingCenter;hint.textContent=pickingCenter?'円・円弧などの中心マーカー（⊙）をクリック':'ボディを選択済み';centerMarkers.replaceChildren();if(pickingCenter){showCenters();let last=camera.matrixWorld.elements.join(',');const refresh=()=>{if(!pickingCenter)return;const state=camera.matrixWorld.elements.join(',');if(state!==last){last=state;showCenters();}requestAnimationFrame(refresh);};requestAnimationFrame(refresh);}};
  resetCenter.onclick=()=>{if(proxy&&!busy)changeCenter(selectionBounds().getCenter(new THREE.Vector3()));};
  panel.querySelector('#move-cancel').onclick=()=>close();
- for(const [id,delta] of [['move-plus90',90],['move-minus90',-90]])panel.querySelector('#'+id).onclick=()=>{if(!proxy||busy)return;mode('rotate');const input=edgeAxis?edgeInput:fields[3+['X','Y','Z'].indexOf(axisSelect.value)];input.value=Number(input.value)+delta;input.dispatchEvent(new Event('input',{bubbles:true}));};
+ for(const [id,delta] of [['move-plus90',90],['move-minus90',-90]])panel.querySelector('#'+id).onclick=()=>{if(!proxy||busy)return;mode('rotate');const input=edgeAxis?edgeInput:fields[3+['X','Y','Z'].indexOf(axisSelect.value)];const angle=(edgeAxis?edgeAngle:degrees()[['X','Y','Z'].indexOf(axisSelect.value)])+delta;input.value=String(angle);input.dispatchEvent(new Event('input',{bubbles:true}));input.value=rotationAngleText(angle);};
  panel.onsubmit=async e=>{e.preventDefault();if(!proxy||busy||!panel.reportValidity())return;const v=fields.map(f=>Number(f.value)),request=revision;busy=true;control.enabled=false;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=true;error.textContent='形状を確定中…';try{if(copying()&&reverse.checked&&proxy.position.distanceTo(center)<1e-7)throw Error('鏡写しにする移動方向を指定してください');await onApply({type:'move',copy:copying(),reverseCopy:copying()&&reverse.checked,target:original.userData.bodyId,...(originals.length>1?{targets:originals.map(m=>m.userData.bodyId)}:{}),x:v[0],y:v[1],z:v[2],rotation:degrees(),pivot:center.toArray()});if(request!==revision)return;busy=false;close(false,true);}catch(e){if(request!==revision)return;busy=false;error.textContent=e.message;control.enabled=active;}finally{if(request===revision){for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;axisSelect.disabled=!!edgeAxis;}}};
  window.addEventListener('keydown',e=>{if(active&&e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();}},{capture:true});
  window.addEventListener('keydown',e=>{if(!active||e.key==='Escape')return;if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){if(busy){e.preventDefault();e.stopImmediatePropagation();}else close();}else if(!e.target.matches('input,select,textarea')&&['e','l'].includes(e.key.toLowerCase())){e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
