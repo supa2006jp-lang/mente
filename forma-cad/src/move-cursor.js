@@ -1,9 +1,17 @@
 import * as THREE from 'three';
 
-export function constrainMoveDelta(delta,direction='free'){
+export function constrainMoveDelta(delta,direction='free',planeNormal=null){
  const result=delta.clone();
  for(const axis of ['x','y','z'])if(direction!=='free'&&!direction.toLowerCase().includes(axis))result[axis]=0;
+ if(planeNormal){
+  const normal=constrainMoveDelta(planeNormal,direction),length=normal.lengthSq();
+  if(length>1e-14)result.addScaledVector(normal,-result.dot(normal)/length);
+ }
  return result;
+}
+
+export function cursorMovePlane(position,normal){
+ return new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(...normal).normalize(),position);
 }
 
 export function movePointKind(ref){
@@ -12,11 +20,12 @@ export function movePointKind(ref){
  return 'center';
 }
 
-// A fixed view plane and a grab offset keep the first cursor event from jumping.
+// A fixed reference plane through the starting pose preserves its normal offset.
 export function cursorMovePoint(camera,rect,x,y,plane){
  if(rect.width<=0||rect.height<=0)return null;
  camera.updateMatrixWorld(true);
  const ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((x-rect.left)/rect.width*2-1,1-(y-rect.top)/rect.height*2),camera);
+ if(Math.abs(ray.ray.direction.dot(plane.normal))<1e-6)return null;
  return ray.ray.intersectPlane(plane,new THREE.Vector3());
 }
 

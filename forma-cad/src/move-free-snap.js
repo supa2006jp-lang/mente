@@ -21,7 +21,7 @@ function worldTolerance(point,camera,width,height,pixels){
 
 // A mirrored copy's reflection plane follows its total displacement. Solve the
 // final displacement before snapping, so the applied copy still hits the point.
-export function freeSnapPosition({source,target,position,pivot,direction='free',mirrored=false}){
+export function freeSnapPosition({source,target,position,pivot,direction='free',planeNormal=null,mirrored=false}){
  let correction=target.clone().sub(source);
  if(mirrored){
   const displacement=position.clone().sub(pivot),offset=source.clone().sub(position);
@@ -32,12 +32,12 @@ export function freeSnapPosition({source,target,position,pivot,direction='free',
   if(desired.lengthSq()<1e-14)return null;
   correction=pivot.clone().add(desired).sub(position);
  }
- const constrained=constrainMoveDelta(correction,direction);
+ const constrained=constrainMoveDelta(correction,direction,planeNormal);
  if(constrained.distanceToSquared(correction)>1e-12)return null;
  return position.clone().add(constrained);
 }
 
-export function findFreeMoveSnap({sources,targets,position,pivot,direction='free',mirrored=false,camera,width,height,grid,gridSource,previous=null}){
+export function findFreeMoveSnap({sources,targets,position,pivot,direction='free',planeNormal=null,mirrored=false,camera,width,height,grid,gridSource,previous=null}){
  if(width<=0||height<=0)return null;camera.updateMatrixWorld(true);
  let best=null,score=Infinity;const buckets=new Map();
  for(const target of targets){const screen=screenPoint(target.point,camera,width,height),key=Math.floor(screen.x/16)+','+Math.floor(screen.y/16);if(!buckets.has(key))buckets.set(key,[]);buckets.get(key).push({target,screen});}
@@ -49,7 +49,7 @@ export function findFreeMoveSnap({sources,targets,position,pivot,direction='free
   for(const {target,screen:b} of nearby){
    const held=previous?.type==='point'&&previous.sourceKey===source.ref.key&&previous.targetKey===target.ref.key,pixels=held?12:9,distance=Math.hypot(a.x-b.x,a.y-b.y),tolerance=held?heldTolerance:regularTolerance;
    if(distance>pixels||source.point.distanceTo(target.point)>tolerance)continue;
-   const next=freeSnapPosition({source:source.point,target:target.point,position,pivot,direction,mirrored});
+   const next=freeSnapPosition({source:source.point,target:target.point,position,pivot,direction,planeNormal,mirrored});
    if(!next||next.distanceTo(position)>tolerance)continue;
    const rating=distance-(held?2:0);
    if(rating<score){score=rating;best={type:'point',position:next,point:target.point.clone(),source:source.ref.name||'点',target:target.ref.name||'点',sourceKey:source.ref.key,targetKey:target.ref.key};}
@@ -66,7 +66,7 @@ export function findFreeMoveSnap({sources,targets,position,pivot,direction='free
   point[axis]=nearest;axes.push(axis);
  }
  if(!axes.length)return null;
- const next=freeSnapPosition({source:gridSource.point,target:point,position,pivot,direction,mirrored});
+ const next=freeSnapPosition({source:gridSource.point,target:point,position,pivot,direction,planeNormal,mirrored});
  if(!next)return null;
  return {type:'grid',position:next,point,source:gridSource.name||'移動中心',target:'グリッド '+axes.map(axis=>axis.toUpperCase()+'='+Number(point[axis].toFixed(5))).join(' / ')+' mm',axes};
 }

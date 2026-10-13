@@ -5,7 +5,7 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {installMoveAxisLabels} from './move-axis-labels.js';
 import {createMoveAxisPicker,moveCenterCandidates,movePointCandidates} from './move-axis-picker.js';
 import {movePointDistanceText} from './move-point-guide.js';
-import {constrainMoveDelta,cursorMovePoint,movePreviewChildMatrix,createMoveGhost,disposeMoveGhost} from './move-cursor.js';
+import {constrainMoveDelta,cursorMovePlane,cursorMovePoint,movePreviewChildMatrix,createMoveGhost,disposeMoveGhost} from './move-cursor.js';
 import {snapshotMoveReferences,transformedMoveReferences,findFreeMoveSnap,createFreeMoveSnapMarker} from './move-free-snap.js';
 export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=()=>[],getReferencePoints=()=>[],getReferenceLines=()=>[],getGridPlane=()=>({normal:[0,0,1],offset:0}),getGridSnap=()=>({enabled:false,step:10,plane:'XY'}),getControls,getSelectedEdge,onStart,onApply,onClose=()=>{}}){
  const control=new TransformControls(camera,canvas),helper=control.getHelper();scene.add(helper);control.setSize(.8);control.setSpace('world');control.enabled=false;
@@ -290,21 +290,23 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   return freeMove.targets;
  }
  function refreshFreeSnap(){if(freeMove?.lastPointer)followCursor(freeMove.lastPointer);}
+ function freeMoveHint(){return getGridSnap().plane+'基準平面に平行にカーソルへ追従'+directionNote()+'。クリックで位置決定 ／ Escで開始位置へ戻す';}
  function followCursor(event){
   if(!freeMove||!proxy||busy)return;
   freeMove.lastPointer={clientX:event.clientX,clientY:event.clientY,altKey:event.altKey===true};
-  const rect=canvas.getBoundingClientRect(),point=cursorMovePoint(camera,rect,event.clientX,event.clientY,freeMove.plane);if(!point)return;
+  const rect=canvas.getBoundingClientRect(),point=cursorMovePoint(camera,rect,event.clientX,event.clientY,freeMove.plane);if(!point){hint.textContent='基準平面が線状に見えています。視点を少し回転してください';return;}
+  hint.textContent=freeMoveHint();
   if(!freeMove.anchor){
    freeMove.anchor=point;
    const closest=freeSourceCandidates(rect).candidates.map(candidate=>({candidate,distance:Math.hypot(candidate.screen.x-(event.clientX-rect.left),candidate.screen.y-(event.clientY-rect.top))})).filter(item=>item.distance<=16).sort((a,b)=>a.distance-b.distance)[0];
    freeMove.gridKey=closest?.candidate.ref.key||null;return;
   }
-  const delta=constrainMoveDelta(point.sub(freeMove.anchor),directionSelect.value);
+  const delta=constrainMoveDelta(point.sub(freeMove.anchor),directionSelect.value,freeMove.plane.normal);
   proxy.position.copy(freeMove.basePosition).add(delta);proxy.updateMatrixWorld(true);reflectPreview();
   let snap=null;const released=event.altKey||freeMove.altPressed;
   if(freeSnapEnabled.checked&&!released){
    const sources=freeSourceCandidates(rect),reference=sources.points.find(ref=>ref.key===freeMove.gridKey);
-   snap=findFreeMoveSnap({sources:sources.candidates,targets:freeTargetCandidates(rect),position:proxy.position,pivot:center,direction:directionSelect.value,mirrored:copying()&&reverse.checked,camera,width:rect.width,height:rect.height,grid:getGridSnap(),gridSource:{point:reference?new THREE.Vector3(...reference.point):proxy.position.clone(),name:reference?.name||'移動中心'},previous:freeMove.previousSnap});
+   snap=findFreeMoveSnap({sources:sources.candidates,targets:freeTargetCandidates(rect),position:proxy.position,pivot:center,direction:directionSelect.value,planeNormal:freeMove.plane.normal,mirrored:copying()&&reverse.checked,camera,width:rect.width,height:rect.height,grid:getGridSnap(),gridSource:{point:reference?new THREE.Vector3(...reference.point):proxy.position.clone(),name:reference?.name||'移動中心'},previous:freeMove.previousSnap});
   }
   if(snap)proxy.position.copy(snap.position);freeMove.previousSnap=snap;
   proxy.updateMatrixWorld(true);translationFields();mark();freeSnapStatus.hidden=false;
@@ -317,11 +319,11 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}
   if(freeMove){finishFreeMove(false);hint.textContent='自在移動の位置を決めました。「確定」で適用';return;}
   stopPointModes();mode('translate');control.enabled=false;helper.visible=false;control.axis=null;error.textContent='';
-  freeMove={startPosition:proxy.position.clone(),basePosition:proxy.position.clone(),anchor:null,sourceReferences:snapshotMoveReferences(previewMeshes()),plane:new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()),proxy.position)};
-  freeSnapStatus.hidden=false;freeSnapStatus.textContent='頂点・中点・中心・グリッドに吸着 ／ Altで一時解除';freeButton.setAttribute('aria-pressed','true');host.dataset.moveFree=JSON.stringify({position:proxy.position.toArray(),direction:directionSelect.value});hint.textContent='画面に平行にカーソルへ追従'+directionNote()+'。クリックで位置決定 ／ Escで開始位置へ戻す';
+  freeMove={startPosition:proxy.position.clone(),basePosition:proxy.position.clone(),anchor:null,sourceReferences:snapshotMoveReferences(previewMeshes()),plane:cursorMovePlane(proxy.position,getGridPlane().normal)};
+  freeSnapStatus.hidden=false;freeSnapStatus.textContent='頂点・中点・中心・グリッドに吸着 ／ Altで一時解除';freeButton.setAttribute('aria-pressed','true');host.dataset.moveFree=JSON.stringify({position:proxy.position.toArray(),direction:directionSelect.value});hint.textContent=freeMoveHint();
  };
  filterBox.onchange=()=>{hideGhost();if(pointMove)pointPicker.open();else if(pickingCenter)centerPicker.open();else if(pickingAxis)axisPicker.open();refreshFreeSnap();};
- directionSelect.onchange=()=>{hideGhost();if(pointResult)closePointPicker();if(pointMove)pointPicker.open();if(freeMove){freeMove.basePosition.copy(proxy.position);freeMove.anchor=null;freeMove.previousSnap=null;freeSnapMarker.close();hint.textContent='カーソルへ追従'+directionNote()+'。クリックで位置決定 ／ Escで開始位置へ戻す';}};
+ directionSelect.onchange=()=>{hideGhost();if(pointResult)closePointPicker();if(pointMove)pointPicker.open();if(freeMove){freeMove.basePosition.copy(proxy.position);freeMove.anchor=null;freeMove.previousSnap=null;freeSnapMarker.close();hint.textContent=freeMoveHint();}};
  freeSnapEnabled.onchange=refreshFreeSnap;
  for(const type of ['keydown','keyup'])window.addEventListener(type,event=>{if(event.key!=='Alt'||!freeMove)return;event.preventDefault();freeMove.altPressed=type==='keydown';if(freeMove.lastPointer){freeMove.lastPointer.altKey=freeMove.altPressed;refreshFreeSnap();}});
  window.addEventListener('blur',()=>{if(freeMove){freeMove.altPressed=false;if(freeMove.lastPointer)freeMove.lastPointer.altKey=false;}});

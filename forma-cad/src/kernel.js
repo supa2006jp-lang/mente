@@ -18,7 +18,8 @@ import {draftExtrusion} from './extrusion-taper.js';
 import {cutWithClearance} from './cut-clearance.js';
 import {encloseParts} from './enclose.js';
 import {patternSolids} from './pattern-solids.js';
-import {fuseSolid} from './solid-fuse.js';
+import {fuseSolid,fuseSolids} from './solid-fuse.js';
+import {filletSolid} from './solid-fillet.js';
 import {solidMeshComplete} from './solid-mesh.js';
 import {overlappingProfileSolid,validateExtrusionOverlap} from './extrusion-overlap.js';
 import {selectedProfileFaces} from './sketch-solid-profile.js';
@@ -340,7 +341,16 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
   }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target));
   try{emit(p.target,shape);}finally{shape.delete();}
  }
- else if(p.type==='fillet'){const groups=p.edges?.length?[...new Set(p.edges.map(e=>e.bodyId))]:[p.target];for(const id of groups){const solid=bodies.get(id);if(!solid)throw Error('対象ボディを選択してください');let filter;const points=p.edges?.length?p.edges.filter(e=>e.bodyId===id).map(e=>e.point):p.edgePoint?[p.edgePoint]:[];if(points.length){const edges=points.map(coords=>{const point=new THREE.Vector3(...coords),candidates=solid.edges.map(edge=>{let distance=Infinity;for(let i=0;i<=128;i++)distance=Math.min(distance,new THREE.Vector3(...edge.pointAt(i/128).toTuple()).distanceTo(point));return {edge,distance};}).sort((a,b)=>a.distance-b.distance);if(!candidates.length||candidates[0].distance>1)throw Error('選択した辺を特定できません。辺の中央付近を選び直してください');return candidates[0].edge;});filter=e=>e.inList(edges);}else if(p.face){const b=basisFor(p.face),plane=new R.Plane(b.n.clone().multiplyScalar(p.face.offset).toArray(),b.u.toArray(),b.n.toArray());filter=e=>e.inPlane(plane);}if(!Number.isFinite(p.radius)||p.radius<=0)throw Error('半径は0より大きくしてください');try{emit(id,solid.fillet(p.radius,filter));}catch{throw Error('この半径ではフィレットを作成できません。半径を小さくするか、隣接する短い辺・薄い部分を確認してください');}}}
+ else if(p.type==='fillet'){
+  const groups=p.edges?.length?[...new Set(p.edges.map(e=>e.bodyId))]:[p.target],results=[];
+  for(const id of groups){
+   const solid=bodies.get(id);if(!solid)throw Error('対象ボディを選択してください');
+   const references=p.edges?.length?p.edges.filter(e=>e.bodyId===id):p.edgePoint?[{point:p.edgePoint}]:[],basis=p.face?basisFor(p.face):null;
+   const selection={references,plane:basis?{normal:basis.n.toArray(),offset:p.face.offset}:null};let result;
+   try{result=filletSolid(solid,p.radius,selection,onProgress);emit(id,result.shape);results.push({bodyId:id,radius:result.radius,edges:result.edgeCount,normalized:result.normalized});}finally{result?.shape.delete();}
+  }
+  analysis={fillets:results};
+ }
  else if(p.type==='copiedThread'){
  const source=p.copySource,adjusted=p.copyDistance?allThreadPullSpec(source.spec,-p.copyDistance):source.spec,result=regeneratedThread(source,adjusted),copyBodies=kernelBodies([{kind:'cadop',...result}]);let shape;
  try{shape=featureSolid(p.copyFeature,copyBodies);emit(p.target,shape);}finally{shape?.delete();for(const body of copyBodies.values())body.delete();}
@@ -382,7 +392,18 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
    }finally{moved.delete();}
   }
  }
- else if(p.type==='join'){const ids=[...new Set(p.others||[p.other])];if(!ids.length||ids.some(id=>!bodies.has(id)||id===p.target))throw Error('別のボディを選択してください');let joined=base;try{if(p.combineMode==='交差'){let tool=bodies.get(ids[0]);for(const id of ids.slice(1))tool=tool.fuse(bodies.get(id));joined=base.intersect(tool);}else if(p.combineMode==='切り取り')joined=cutWithClearance(base,ids.map(id=>bodies.get(id)),p.cutClearance??0);else for(const id of ids)joined=fuseSolid(joined,bodies.get(id));if(Math.abs(R.measureVolume(joined))<1e-8)throw Error('結果が空です。対象ボディとツールの重なりを確認してください');const check=new (R.getOC().BRepCheck_Analyzer)(joined.wrapped,true,false);try{if(!check.IsValid())throw Error('正常なソリッドとして結合できませんでした。元のボディは変更していません');}finally{check.delete();}emit(p.target,joined);if(p.keepTools!=='保持')remove.push(...ids);}finally{if(joined!==base)joined.delete();}}
+ else if(p.type==='join'){
+  const ids=[...new Set(p.others||[p.other])];if(!ids.length||ids.some(id=>!bodies.has(id)||id===p.target))throw Error('別のボディを選択してください');let joined,tool;
+  try{
+   const tools=ids.map(id=>bodies.get(id));
+   if(p.combineMode==='交差'){tool=fuseSolids(tools,{onProgress});onProgress?.({stage:'重なっている部分を計算しています'});joined=base.intersect(tool);}
+   else if(p.combineMode==='切り取り'){onProgress?.({stage:tools.length+'個のツールで切り取っています'});joined=cutWithClearance(base,tools,p.cutClearance??0);}
+   else joined=fuseSolids([base,...tools],{onProgress});
+   if(Math.abs(R.measureVolume(joined))<1e-8)throw Error('結果が空です。対象ボディとツールの重なりを確認してください');
+   const check=new (R.getOC().BRepCheck_Analyzer)(joined.wrapped,true,false);try{if(!check.IsValid())throw Error('正常なソリッドとして結合できませんでした。元のボディは変更していません');}finally{check.delete();}
+   onProgress?.({stage:'結合結果の表示データを作成しています'});emit(p.target,joined);if(p.keepTools!=='保持')remove.push(...ids);
+  }finally{joined?.delete();tool?.delete();}
+ }
  else if(p.type==='split'){const b=p.splitFrame?basisFor({frame:p.splitFrame}):null;const plane=b?new R.Plane(b.n.clone().multiplyScalar(p.offset).toArray(),b.u.toArray(),b.n.toArray()):p.plane;const keep=p.keep??'both';if(!['both','positive','negative'].includes(keep))throw Error('残す側を選択してください');const parts=base.split(plane,b?0:p.offset);try{if(!parts.positive||!parts.negative)throw Error('指定平面がボディを横切っていません');const emitPart=(id,part)=>{const continuous=part.simplify();try{emit(id,continuous);}finally{continuous.delete();}};if(keep==='positive')emitPart(p.target,parts.positive);else{emitPart(p.target,parts.negative);if(keep==='both')emitPart(p.id,parts.positive);}}finally{parts.positive?.delete();parts.negative?.delete();}}
  else if(p.type==='mirror'){const mirrorId=p.mirrorMode==='反転移動'?p.target:p.id;if(p.mirrorNormal){const n=new THREE.Vector3(...p.mirrorNormal).normalize(),origin=new THREE.Vector3(...p.mirrorOrigin).addScaledVector(n,p.offset||0),u=(Math.abs(n.x)<.9?new THREE.Vector3(1,0,0):new THREE.Vector3(0,1,0));u.addScaledVector(n,-u.dot(n)).normalize();emit(mirrorId,base.mirror(new R.Plane(origin.toArray(),u.toArray(),n.toArray())));}else emit(mirrorId,base.mirror(p.plane,[0,0,0]).translate(p.plane==='XY'?[0,0,2*p.offset]:p.plane==='XZ'?[0,2*p.offset,0]:[2*p.offset,0,0]));}
  else if(['circular','rectangular'].includes(p.type))patternSolids(base,p,axis,emit);

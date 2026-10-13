@@ -1,5 +1,27 @@
 import * as R from 'replicad';
 import {solidMeshComplete} from './solid-mesh.js';
+
+// Build one boolean operation for all inputs. Repeated pairwise fuses re-split
+// an ever larger result and retain native intermediate shapes until deleted.
+export function fuseSolids(shapes,{onProgress}={}){
+ if(!shapes.length)throw Error('結合するボディを選択してください');
+ if(shapes.length===1)return shapes[0].clone();
+ const oc=R.getOC(),volumes=shapes.map(shape=>Math.abs(R.measureVolume(shape))),sum=volumes.reduce((a,b)=>a+b,0),largest=Math.max(...volumes),eps=Math.max(1e-6,sum*1e-8);
+ for(const tolerance of [0,1e-6]){
+  const builder=new oc.BRepAlgoAPI_Fuse(),argumentsList=new oc.NCollection_List_TopoDS_Shape(),toolsList=new oc.NCollection_List_TopoDS_Shape();let result=null;
+  try{
+   argumentsList.Append(shapes[0].wrapped);for(const shape of shapes.slice(1))toolsList.Append(shape.wrapped);
+   builder.SetArguments(argumentsList);builder.SetTools(toolsList);builder.SetNonDestructive(true);builder.SetFuzzyValue(tolerance);
+   onProgress?.({stage:shapes.length+'個のボディをまとめて結合しています'+(tolerance?'（境界を再確認）':'')});
+   builder.Build();if(builder.HasErrors())continue;result=R.cast(builder.Shape()).asShape3D();
+   onProgress?.({stage:'結合したソリッドを検査しています'});
+   const check=new oc.BRepCheck_Analyzer(result.wrapped,true,false);let valid;
+   try{const volume=R.measureVolume(result);valid=check.IsValid()&&Number.isFinite(volume)&&volume>=largest-eps&&volume<=sum+eps;}finally{check.delete();}
+   if(valid){const output=result;result=null;return output;}
+  }catch{}finally{result?.delete();builder.delete();argumentsList.delete();toolsList.delete();}
+ }
+ throw Error('正常なソリッドとして結合できませんでした。元のボディは変更していません');
+}
 // Keep boolean faces separate when simplifying their shared boundary loses a face.
 export function fuseSolid(base,tool,{verifyMesh=false}={}){
  const oc=R.getOC(),a=Math.abs(R.measureVolume(base)),b=Math.abs(R.measureVolume(tool)),eps=Math.max(1e-6,(a+b)*1e-8);

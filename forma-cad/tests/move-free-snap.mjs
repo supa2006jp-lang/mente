@@ -8,6 +8,12 @@ const vector=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z),candidate=(point,name='頂�
 const options={camera,width:1000,height:1000,position:vector(3,4,5),pivot:vector(),sources:[candidate([10,20,0],'頂点','source')],targets:[candidate([10.4,20.3,0],'辺の中点','target')]};
 let snap=findFreeMoveSnap(options);
 assert.ok(snap.position.distanceTo(vector(3.4,4.3,5))<1e-9);assert.equal(snap.target,'辺の中点');
+for(const normal of [vector(0,0,1),vector(0,1,0),vector(1,0,0)]){
+ const allowed=normal.x?vector(0,.3,0):vector(.3,0,0),source=options.sources[0].point;
+ assert.ok(freeSnapPosition({source,target:source.clone().add(allowed),position:options.position,pivot:vector(),planeNormal:normal}));
+ assert.equal(freeSnapPosition({source,target:source.clone().addScaledVector(normal,.1),position:options.position,pivot:vector(),planeNormal:normal}),null,'nearby points cannot pull free movement out of its reference plane');
+}
+assert.equal(findFreeMoveSnap({...options,planeNormal:vector(0,0,1),targets:[candidate([10.4,20.3,.1])]}),null,'the magnetic solver rejects small normal-axis jumps as well as large depth jumps');
 assert.equal(findFreeMoveSnap({...options,direction:'X'}),null,'unreachable points must not break a direction constraint');
 snap=findFreeMoveSnap({...options,direction:'X',targets:[candidate([10.4,20,0])]});assert.ok(snap.position.distanceTo(vector(3.4,4,5))<1e-9);
 assert.equal(findFreeMoveSnap({...options,targets:[candidate([10,20,20])]}),null,'projected coincidence cannot jump to a different depth');

@@ -13,7 +13,7 @@ for(const x of [-20,20]){
 const controls={enabled:true},applied=[];let tool,selectedIds=meshes.map(mesh=>mesh.userData.bodyId),snapGrid={enabled:false,step:10,plane:'XY'};
 // Match the app's earlier global Escape handler: a submode handles it first.
 window.addEventListener('keydown',event=>{if(event.key==='Escape'&&tool?.cancelFreeMove()){event.preventDefault();event.stopImmediatePropagation();}},{capture:true});
-tool=createMoveTool({scene,camera,canvas,host,getMeshes:()=>meshes,getSelection:()=>selectedIds,getGridSnap:()=>snapGrid,getControls:()=>controls,onStart(){},onApply:async spec=>applied.push(spec)});
+tool=createMoveTool({scene,camera,canvas,host,getMeshes:()=>meshes,getSelection:()=>selectedIds,getGridPlane:()=>({normal:{XY:[0,0,1],XZ:[0,1,0],YZ:[1,0,0]}[snapGrid.plane],offset:0}),getGridSnap:()=>snapGrid,getControls:()=>controls,onStart(){},onApply:async spec=>applied.push(spec)});
 function assert(value,message){if(!value)throw Error(message);results.textContent+='✓ '+message+'\n';}
 const position=()=>JSON.parse(host.dataset.movePreview).position;
 const closeTo=(a,b)=>Math.abs(a-b)<1e-6;
@@ -23,10 +23,18 @@ function chooseDirection(value){const input=document.querySelector('#move-direct
 function start(ids=meshes.map(mesh=>mesh.userData.bodyId)){selectedIds=ids;tool.cancel();tool.start();for(const input of document.querySelectorAll('#move-point-filters input'))input.checked=true;}
 document.querySelector('#run-free').onclick=()=>{
  results.textContent='';try{
+ for(const [plane,normalIndex]of [['XY',2],['XZ',1],['YZ',0]]){
+  snapGrid.plane=plane;start();chooseDirection('free');document.querySelector('#move-free-snap').checked=false;set('move-'+['x','y','z'][normalIndex],'7');const before=position();document.querySelector('#move-free').click();pointer('pointermove',300,220);pointer('pointermove',380,260);const after=position();
+  assert(closeTo(after[normalIndex],before[normalIndex])&&after.some((v,i)=>i!==normalIndex&&!closeTo(v,before[i])),plane+' free movement preserves the existing normal offset in an oblique view');
+  assert(document.querySelector('#move-hint').textContent.includes(plane+'基準平面'),'the active reference plane is named in the hint');
+  pointer('pointerdown',380,260);assert(position().every((v,i)=>closeTo(v,after[i])),'click keeps the reference-plane position');
+ }
+ snapGrid.plane='XY';
  start();set('move-x','5');const before=position();document.querySelector('#move-free').click();pointer('pointermove',300,220);assert(position().every((v,i)=>closeTo(v,before[i])),'first cursor event preserves the starting pose');
  pointer('pointermove',380,260);assert(position().some((v,i)=>!closeTo(v,before[i])),'free movement follows the cursor');assert(JSON.parse(host.dataset.movePreview).targets.length===2,'all selected bodies move together');
  window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert(tool.active&&!host.dataset.moveFree,'Escape ends only free movement');assert(position().every((v,i)=>closeTo(v,before[i])),'Escape restores the exact starting pose');assert(document.querySelector('#move-x').value==='5','previous numerical movement is retained');
  for(const [direction,allowed]of [['X',[0]],['Y',[1]],['Z',[2]],['XY',[0,1]]]){
+  snapGrid.plane=direction==='Z'?'XZ':'XY';
   chooseDirection(direction);document.querySelector('#move-free').click();const base=position();pointer('pointermove',300,220);pointer('pointermove',380,260);const after=position();
   assert(after.some((v,i)=>allowed.includes(i)&&!closeTo(v,base[i]))&&after.every((v,i)=>allowed.includes(i)||closeTo(v,base[i])),direction+' constraint preserves the other coordinates');
   pointer('pointerdown',380,260);assert(tool.active&&!host.dataset.moveFree,'click fixes '+direction+' movement without applying');pointer('pointermove',450,300);assert(position().every((v,i)=>closeTo(v,after[i])),'cursor stops following after click');

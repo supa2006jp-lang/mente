@@ -4,10 +4,10 @@ function valid(shape){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapp
 function booleanShape(a,b,common=false){const oc=R.getOC(),builder=common?new oc.BRepAlgoAPI_Common(a.wrapped,b.wrapped):new oc.BRepAlgoAPI_Cut(a.wrapped,b.wrapped);try{builder.SetNonDestructive(true);builder.SetFuzzyValue(1e-6);builder.Build();if(!builder.IsDone())throw Error('差し引きに失敗しました');const raw=builder.Shape();try{return raw.IsNull()?null:R.cast(raw).asShape3D();}finally{raw.delete();}}finally{builder.delete();}}
 const volumeOf=shape=>shape?R.measureVolume(shape):0;
 // Work on a deep copy: native offsets/booleans may update shared TShape flags.
-function offsetSolid(source,distance){
+function offsetSolid(source,distance,roundedCorners=true){
  const oc=R.getOC(),builder=new oc.BRepOffsetAPI_MakeOffsetShape();let shape;
  try{
-  builder.PerformByJoin(source.wrapped,distance,1e-6,oc.BRepOffset_Mode.BRepOffset_Skin,false,false,oc.GeomAbs_JoinType.GeomAbs_Arc,false);
+  builder.PerformByJoin(source.wrapped,distance,1e-6,oc.BRepOffset_Mode.BRepOffset_Skin,false,false,roundedCorners?oc.GeomAbs_JoinType.GeomAbs_Arc:oc.GeomAbs_JoinType.GeomAbs_Intersection,false);
   if(!builder.IsDone())throw Error('offset failed');
   shape=R.cast(builder.Shape()).asShape3D();
   if(shape instanceof R.Shell){const solid=R.makeSolid([shape]);shape.delete();shape=solid;}
@@ -15,13 +15,22 @@ function offsetSolid(source,distance){
   const output=shape;shape=null;return output;
  }finally{shape?.delete();builder.delete();}
 }
+function offsetOpenSolid(source,faces,distance,roundedCorners){
+ const oc=R.getOC(),builder=new oc.BRepOffsetAPI_MakeThickSolid(),closing=new oc.NCollection_List_TopoDS_Shape();
+ try{
+  for(const face of faces)closing.Append(face.wrapped);
+  builder.MakeThickSolidByJoin(source.wrapped,closing,distance,1e-6,oc.BRepOffset_Mode.BRepOffset_Skin,false,false,roundedCorners?oc.GeomAbs_JoinType.GeomAbs_Arc:oc.GeomAbs_JoinType.GeomAbs_Intersection,false);
+  if(!builder.IsDone())throw Error('open offset failed');
+  return R.cast(builder.Shape()).asShape3D();
+ }finally{builder.delete();closing.delete();}
+}
 function boxOpeningSide(selection){
  const normal=selection?.normal;if(!Array.isArray(normal)||normal.length!==3||normal.some(v=>!Number.isFinite(v)))throw Error('BOXの開口面を選び直してください');
  const axis=normal.reduce((best,value,i)=>Math.abs(value)>Math.abs(normal[best])?i:best,0);
  if(Math.abs(normal[axis])<.3)throw Error('BOXの開口面を選び直してください');
  return (normal[axis]>=0?'+':'-')+'XYZ'[axis];
 }
-export function encloseBody(base,thickness,{clearance=0,boxExtra=0,faces=[],boxMode=false,enclosureSplit='分割しない',splitOffset,hingeEdge,chestStyle=false}={}){
+export function encloseBody(base,thickness,{clearance=0,boxExtra=0,faces=[],boxMode=false,enclosureSplit='分割しない',splitOffset,hingeEdge,chestStyle=false,roundedCorners=true}={}){
  if(!Number.isFinite(thickness)||thickness<.1||thickness>1000)throw Error('囲みの厚みは0.1〜1000 mmで指定してください');
  if(!Number.isFinite(clearance)||clearance<0||clearance>1000)throw Error('すき間は0〜1000 mmで指定してください');
  if(!base)throw Error('囲む対象のソリッドを選択してください');
@@ -44,13 +53,13 @@ export function encloseBody(base,thickness,{clearance=0,boxExtra=0,faces=[],boxM
  const fail='この形状・厚み・すき間では囲みを作成できません。値を小さくするか、開口面を変更してください。細い溝や複雑なねじ面では作成できない場合があります';
  try{
   source=R.deserializeShape(base.serialize()).asShape3D();
-  inner=clearance>0?offsetSolid(source,clearance):R.deserializeShape(source.serialize()).asShape3D();
+  inner=clearance>0?offsetSolid(source,clearance,roundedCorners):R.deserializeShape(source.serialize()).asShape3D();
   if(faces.length){
    openingFaces=selectedCadFaces(source,faces);
    // Native thick solid removes only the selected faces, including curved faces.
    // Its rim ends at the original opening; clearance removes the inner material.
-   expanded=source.shell(-(clearance+thickness),f=>f.inList(openingFaces),1e-6);
-  }else expanded=offsetSolid(source,clearance+thickness);
+   expanded=offsetOpenSolid(source,openingFaces,clearance+thickness,roundedCorners);
+  }else expanded=offsetSolid(source,clearance+thickness,roundedCorners);
   if(!valid(expanded))throw Error(fail);
   const expandedVolume=R.measureVolume(expanded),tolerance=Math.max(1e-6,Math.abs(expandedVolume)*1e-8);
   if(!Number.isFinite(expandedVolume)||expandedVolume<=tolerance)throw Error(fail);

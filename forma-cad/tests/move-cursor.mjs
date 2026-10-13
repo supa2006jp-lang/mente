@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {constrainMoveDelta,cursorMovePoint,movePointKind,movePreviewChildMatrix,createMoveGhost,disposeMoveGhost} from '../src/move-cursor.js';
+import {constrainMoveDelta,cursorMovePlane,cursorMovePoint,movePointKind,movePreviewChildMatrix,createMoveGhost,disposeMoveGhost} from '../src/move-cursor.js';
 import {movePointCandidates} from '../src/move-axis-picker.js';
 const delta=new THREE.Vector3(30,-7,12);
 for(const [direction,expected]of [['free',[30,-7,12]],['X',[30,0,0]],['Y',[0,-7,0]],['Z',[0,0,12]],['XY',[30,-7,0]]])assert.deepEqual(constrainMoveDelta(delta,direction).toArray(),expected);
@@ -13,8 +13,16 @@ const anchor=cursorMovePoint(camera,rect,350,300,plane),next=cursorMovePoint(cam
 assert.ok(anchor.distanceTo(new THREE.Vector3(0,0,12))<1e-8);
 assert.ok(next.clone().sub(anchor).distanceTo(new THREE.Vector3(30,12,0))<1e-8,'cursor offsets are in the view plane');
 camera.position.set(80,-100,60);camera.lookAt(0,0,0);camera.updateMatrixWorld(true);
-const tilted=new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()),new THREE.Vector3(4,5,12));
-for(const [x,y]of [[350,300],[420,280]])assert.ok(Math.abs(tilted.distanceToPoint(cursorMovePoint(camera,rect,x,y,tilted)))<1e-8,'oblique views retain a fixed movement plane');
+for(const normal of [[0,0,1],[0,1,0],[1,0,0]]){
+ const position=new THREE.Vector3(4,5,12),reference=cursorMovePlane(position,normal);
+ const first=cursorMovePoint(camera,rect,350,300,reference),second=cursorMovePoint(camera,rect,420,280,reference);
+ assert.ok(first&&second);assert.ok(Math.abs(reference.distanceToPoint(first))<1e-8&&Math.abs(reference.distanceToPoint(second))<1e-8,'oblique views intersect the chosen reference plane through the body');
+ const movement=second.clone().sub(first);assert.ok(movement.length()>1);assert.ok(Math.abs(movement.dot(reference.normal))<1e-8,'XY/XZ/YZ preserve the normal coordinate');
+ for(const direction of ['free','X','Y','Z','XY']){const constrained=constrainMoveDelta(delta,direction,reference.normal);assert.ok(Math.abs(constrained.dot(reference.normal))<1e-8);for(const axis of ['x','y','z'])if(direction!=='free'&&!direction.toLowerCase().includes(axis))assert.equal(constrained[axis],0);}
+}
+const customNormal=new THREE.Vector3(1,2,3).normalize(),custom=constrainMoveDelta(delta,'XY',customNormal);assert.ok(Math.abs(custom.dot(customNormal))<1e-8&&custom.z===0,'direction and plane constraints are intersected');
+camera.position.set(100,0,12);camera.lookAt(0,0,12);camera.updateMatrixWorld(true);
+assert.equal(cursorMovePoint(camera,rect,350,300,cursorMovePlane(new THREE.Vector3(4,5,12),[0,0,1])),null,'edge-on reference planes do not produce huge jumps');
 assert.equal(cursorMovePoint(camera,{...rect,width:0},350,300,plane),null);
 camera.position.set(0,0,100);camera.lookAt(0,0,0);camera.updateMatrixWorld(true);
 const points=[{point:[0,0,0],name:'スケッチ点',kind:'center'},{point:[0,0,0],name:'頂点',kind:'vertex'},{point:[20,0,0],name:'辺の中点',kind:'midpoint'},{point:[-20,0,0],name:'原点'}];
