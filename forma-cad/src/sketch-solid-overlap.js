@@ -5,6 +5,30 @@ import {sectionSegments,sectionCap} from './section-view.js';
 const SCALE=100000;
 function path(ring,outer=true){const p=ring.map(([x,y])=>({X:Math.round(x*SCALE),Y:Math.round(y*SCALE)}));if(Clipper.Clipper.Orientation(p)!==outer)p.reverse();return p;}
 
+// Shared by region partitioning and drawing snaps. Internal tessellation edges
+// disappear in the union; only the outline and hole contours remain.
+export function solidSketchSection(meshes,b,offset){
+ const coverage=[];
+ for(const mesh of meshes){
+  if(!mesh.visible)continue;mesh.updateWorldMatrix(true,false);
+  const g=mesh.geometry.clone().applyMatrix4(mesh.matrixWorld),plane=new THREE.Plane(b.n,-offset);
+  const cap=sectionCap(sectionSegments(g,plane),plane);
+  try{for(const geometry of [g,cap]){
+   const p=geometry.attributes.position,ix=geometry.index;
+   for(let i=0;i<(ix?.count??p.count);i+=3){
+    const points=[0,1,2].map(j=>new THREE.Vector3().fromBufferAttribute(p,ix?ix.getX(i+j):i+j));
+    if(points.some(p=>Math.abs(plane.distanceToPoint(p))>1e-4))continue;
+    const triangle=path(points.map(p=>[p.dot(b.u),p.dot(b.v)]));
+    if(Math.abs(Clipper.Clipper.Area(triangle))>1)coverage.push(triangle);
+   }
+  }}finally{cap.dispose();g.dispose();}
+ }
+ const union=new Clipper.Clipper();union.AddPaths(coverage,Clipper.PolyType.ptSubject,true);let merged=[];
+ union.Execute(Clipper.ClipType.ctUnion,merged,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
+ for(const delta of [20,-20]){const expand=new Clipper.ClipperOffset(2),next=[];expand.AddPaths(merged,Clipper.JoinType.jtMiter,Clipper.EndType.etClosedPolygon);expand.Execute(next,delta);merged=next;}
+ return merged;
+}
+
 // Coplanar hits must prefer the partition over the original filled profile,
 // regardless of insertion order. Alt explicitly selects the original profile.
 export function sketchRegionHit(hits,bodyHit,{whole=false}={}){
@@ -24,26 +48,7 @@ export function sketchSolidOverlapRegions(regions,meshes,{includeOutside=false,i
  for(const r of regions){
   const b=basisFor(r),key=[...b.n.toArray(),r.offset,...b.u.toArray(),...b.v.toArray()].join(',');
   if(!sections.has(key)){
-   const coverage=[];
-   for(const mesh of meshes){
-    if(!mesh.visible)continue;mesh.updateWorldMatrix(true,false);
-    const g=mesh.geometry.clone().applyMatrix4(mesh.matrixWorld),plane=new THREE.Plane(b.n,-r.offset);
-    const cap=sectionCap(sectionSegments(g,plane),plane);
-    try{for(const geometry of [g,cap]){
-     const p=geometry.attributes.position,ix=geometry.index;
-     for(let i=0;i<(ix?.count??p.count);i+=3){
-      const points=[0,1,2].map(j=>new THREE.Vector3().fromBufferAttribute(p,ix?ix.getX(i+j):i+j));
-      if(points.some(p=>Math.abs(plane.distanceToPoint(p))>1e-4))continue;
-      const triangle=path(points.map(p=>[p.dot(b.u),p.dot(b.v)]));
-      if(Math.abs(Clipper.Clipper.Area(triangle))>1)coverage.push(triangle);
-     }
-    }}finally{cap.dispose();g.dispose();}
-   }
-   const union=new Clipper.Clipper();union.AddPaths(coverage,Clipper.PolyType.ptSubject,true);let merged=[];
-   union.Execute(Clipper.ClipType.ctUnion,merged,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
-   // Tessellation vertices can differ by fractions of a micron. Close those
-   // seams before partitioning; exact CAD geometry remains untouched.
-   for(const delta of [20,-20]){const offset=new Clipper.ClipperOffset(2),next=[];offset.AddPaths(merged,Clipper.JoinType.jtMiter,Clipper.EndType.etClosedPolygon);offset.Execute(next,delta);merged=next;}
+   const merged=solidSketchSection(meshes,b,r.offset);
    sections.set(key,merged);
   }
   const coverage=sections.get(key);if(!coverage.length&&!includeUnsplit)continue;

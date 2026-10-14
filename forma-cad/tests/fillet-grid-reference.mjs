@@ -1,0 +1,27 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import * as R from 'replicad';
+import * as THREE from 'three';
+import {runOperation} from '../src/kernel.js';
+import {rebuild} from '../src/geometry.js';
+import {planarFace,basisFor,worldPoint} from '../src/frames.js';
+import {createFilletGridReference,filletGridSource} from '../src/fillet-grid-reference.js';
+import {faceGridBounds,faceGridContains,scopedFaceGrid} from '../src/face-grid.js';
+import {faceGridCellRegions} from '../src/grid-cell.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const near=(a,b)=>assert.ok(Math.abs(a-b)<.002,a+' != '+b),resolver=createFilletGridReference();
+function seed(shape,id='b'){return {kind:'cadop',id:'seed-'+id,outputs:[{id,...shape.mesh({tolerance:.08,angularTolerance:.15}),brep:shape.serialize()}],remove:[]};}
+function operate(features,spec){return [...features,{kind:'cadop',id:spec.id,spec,...runOperation(features,spec)}];}
+function faceAt(features,id,n,offset){const bodies=rebuild(features),geometry=bodies.get(id).geometry,p=geometry.attributes.position,ix=geometry.index,count=ix?.count??p.count,at=i=>new THREE.Vector3().fromBufferAttribute(p,ix?ix.getX(i):i);try{for(let i=0;i<count;i+=3){const a=at(i),b=at(i+1),c=at(i+2),normal=b.clone().sub(a).cross(c.clone().sub(a)).normalize();if(normal.dot(n)>.999999&&[a,b,c].every(point=>Math.abs(point.dot(n)-offset)<1e-4)){const face=planarFace(geometry,i/3);return {...face,bodyId:id,cadFace:{point:a.add(b).add(c).multiplyScalar(1/3).toArray()}};}}throw Error('Plane not found');}finally{bodies.forEach(body=>body.geometry.dispose());}}
+const source=R.makeBox([0,0,0],[60,40,30]),initial=[seed(source)],features=operate(initial,{type:'fillet',id:'round',target:'b',radius:3}),top=faceAt(features,'b',new THREE.Vector3(0,0,1),30),before=JSON.stringify(top),grid=resolver.reference(top,features);
+assert.ok(grid.filletGridReference);near(grid.area,2400);assert.ok(top.area<grid.area);assert.deepEqual(faceGridBounds(grid,'face'),{u:[0,60],v:[0,40]});assert.equal(faceGridContains(top,[1,1],'face'),false);assert.equal(faceGridContains(grid,[1,1],'face'),true);near(faceGridCellRegions(grid,[1,1],10)[0].area,100);assert.equal(JSON.stringify(top),before,'the selected actual face and its machining reference remain unchanged');assert.equal(resolver.reference(top,features),grid,'animation frames reuse the resolved face');
+const lines=scopedFaceGrid(grid,'face',10);assert.equal(lines.bounds.u[0],0);lines.grid.geometry.dispose();lines.grid.material.dispose();
+const saved=JSON.parse(JSON.stringify(features)),loadedFace=faceAt(saved,'b',new THREE.Vector3(0,0,1),30);near(resolver.reference(loadedFace,saved).area,2400);
+const priorMove=operate(initial,{type:'move',id:'first-move',target:'b',x:11,y:7,z:2,angle:0}),afterRound=operate(priorMove,{type:'fillet',id:'moved-round',target:'b',radius:3}),afterMove=operate(afterRound,{type:'move',id:'second-move',target:'b',x:13,y:-4,z:5,angle:0}),movedFace=faceAt(afterMove,'b',new THREE.Vector3(0,0,1),37),movedGrid=resolver.reference(movedFace,afterMove);assert.equal(filletGridSource(afterMove,'b').transforms.length,1,'moves preceding the source fillet are already baked into the source');assert.deepEqual(faceGridBounds(movedGrid,'face'),{u:[24,84],v:[3,43]});
+const copied=operate(features,{type:'move',id:'copy',target:'b',copy:true,reverseCopy:true,pivot:[30,20,15],rotation:[0,0,0],x:100,y:0,z:0}),copyFace=faceAt(copied,'copy',new THREE.Vector3(0,0,1),30),copyGrid=resolver.reference(copyFace,copied);near(copyGrid.area,2400);assert.deepEqual(faceGridBounds(copyGrid,'face'),{u:[100,160],v:[0,40]});
+const angle=35*Math.PI/180,normal=new THREE.Vector3(0,-Math.sin(angle),Math.cos(angle)),rotated=operate(features,{type:'move',id:'tilt',target:'b',rotation:[35,0,0],pivot:[0,0,0],x:0,y:0,z:0}),tilted=faceAt(rotated,'b',normal,30),tiltedGrid=resolver.reference(tilted,rotated);near(tiltedGrid.area,2400);assert.ok(basisFor(tiltedGrid).n.distanceTo(normal)<1e-5);for(const point of tiltedGrid.outer)near(worldPoint(tiltedGrid,point).dot(normal),30);
+const chain=[...features,{...features.at(-1),id:'second-round'}];assert.equal(filletGridSource(chain,'b').index,1,'consecutive fillets retain the earliest outline');assert.equal(resolver.reference(top,[...features,{kind:'cadop',id:'cut',spec:{type:'join'},outputs:features.at(-1).outputs,remove:[]}]),top,'subsequent machining does not reuse a stale outline');assert.equal(resolver.reference(top,initial),top,'unfilleted bodies retain normal grids');
+const outer=R.makeCylinder(20,20),inner=R.makeCylinder(8,20),ring=outer.cut(inner),ringHistory=operate([seed(ring,'ring')],{type:'fillet',id:'ring-round',target:'ring',radius:.5}),ringFace=faceAt(ringHistory,'ring',new THREE.Vector3(0,0,1),20),ringGrid=resolver.reference(ringFace,ringHistory);assert.ok(ringGrid.filletGridReference);assert.equal(ringGrid.holes.length,1);assert.equal(faceGridContains(ringGrid,[0,0],'face'),false,'original holes stay open in the reference grid');assert.ok(ringGrid.area>ringFace.area);
+resolver.clear();for(const shape of [source,ring,outer,inner])shape.delete();
+console.log('PASS original extents and full edge cells, actual face isolation, cache and saved-history recovery, prior/later moves, mirrored copies, arbitrary rotations, repeated fillets, machining invalidation and original holes');

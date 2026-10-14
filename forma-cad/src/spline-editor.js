@@ -1,7 +1,7 @@
 import {splinePointInsertion} from './spline-point-edit.js';
 import {splineSamples,splineEndpoint} from './spline-curve.js';
 // Screen-space handles edit points on the spline's own sketch plane.
-export function installSplineEditor({host,banner,sidebar,getState,project,getControls,onMove,onRestore,onCommit,onUndo,onClose,onInsert,onDelete,onTangent,onTangentMove}){
+export function installSplineEditor({host,banner,sidebar,getState,project,getControls,onMove,onRestore,onCommit,onUndo,onClose,onInsert,onDelete,onTangent,onTangentMove,onToggleDrawing=()=>false}){
  const style=document.createElement('style');style.textContent=`
  #spline-effects,#spline-tangent-handles{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:7}
  .spline-tangent-handle{position:absolute;width:16px;height:16px;min-width:0;padding:0;transform:translate(-50%,-50%);border:2px solid white;border-radius:2px;background:#a36608;box-shadow:0 0 0 1px #714407;pointer-events:auto;cursor:grab;touch-action:none}
@@ -76,7 +76,7 @@ export function installSplineEditor({host,banner,sidebar,getState,project,getCon
   return true;
  }
  document.addEventListener('pointerdown',event=>{if(menu&&!menu.contains(event.target))closeMenu();},{capture:true});
- layer.addEventListener('contextmenu',event=>{event.preventDefault();event.stopPropagation();openPointMenu(event);});
+ layer.addEventListener('contextmenu',event=>{event.preventDefault();event.stopPropagation();if(getState()?.drawing&&onToggleDrawing())return;openPointMenu(event);});
  undo.onclick=()=>onUndo();close.onclick=()=>onClose();
  function clearSnap(){snapResult=null;snapStatus.textContent='';delete host.dataset.splineTangentSnap;snapGuide.hidden=true;}
  function release(d){clearSnap();if(d.button.hasPointerCapture(d.id))d.button.releasePointerCapture(d.id);getControls().enabled=d.enabled;}
@@ -113,12 +113,12 @@ export function installSplineEditor({host,banner,sidebar,getState,project,getCon
  function update(){const state=getState();if(menu&&(state?.busy||version(state)!==menuVersion))closeMenu();panel.hidden=layer.hidden=!state;if(!state){tangentPanel.hidden=true;clearSnap();}updateEffects(state);if(!state){if(drag){const d=drag;drag=null;release(d);}key=null;layer.replaceChildren();buttons=[];return;}
   const parent=state.drawing?banner:sidebar;if(panel.parentElement!==parent)parent.append(panel);
   if(key!==state.key||buttons.length!==state.points.length){key=state.key;layer.replaceChildren();buttons=state.points.map((_,index)=>{const button=document.createElement('button');button.type='button';button.className='spline-fit-point';button.dataset.index=String(index);button.dataset.start=String(index===0);button.setAttribute('aria-label','フィット点 '+(index+1));button.title='フィット点 '+(index+1)+'：ドラッグで移動 / 右クリックで削除'+(index===0?' / 作図中はクリックで閉じる':'');button.onpointerdown=event=>start(event,index);layer.append(button);return button;});}
-  buttons.forEach((button,index)=>{const p=project(state.points[index],state);button.hidden=p.z<-1||p.z>1||p.x<0||p.x>host.clientWidth||p.y<0||p.y>host.clientHeight;button.style.left=p.x+'px';button.style.top=p.y+'px';button.disabled=state.busy;button.dataset.closing=String(index===0&&state.closing);});
+  buttons.forEach((button,index)=>{const p=project(state.points[index],state);button.hidden=p.z<-1||p.z>1||p.x<0||p.x>host.clientWidth||p.y<0||p.y>host.clientHeight;button.style.left=p.x+'px';button.style.top=p.y+'px';button.disabled=state.busy;button.title='フィット点 '+(index+1)+'：ドラッグで移動 / '+(state.drawing?'右クリックで曲線・直線切替':'右クリックで削除')+(index===0?' / クリックで閉じる':'');button.dataset.closing=String(index===0&&state.closing);});
   tangentPanel.hidden=state.closed||state.points.length<2;
   for(const end of ['start','end']){const {enabled,angle,length,reset}=tangentInputs[end],manual=Number.isFinite(state.feature.tangents?.[end]);enabled.checked=manual;enabled.disabled=state.busy||!!drag;angle.disabled=length.disabled=!manual||state.busy||!!drag;reset.disabled=!manual||state.busy||!!drag||!Number.isFinite(state.feature.tangentLengths?.[end]);if(state.points.length>=2){const data=splineEndpoint(state.feature,end);if(document.activeElement!==angle)angle.value=Number(data.angle.toFixed(2));if(document.activeElement!==length)length.value=Number(data.handleLength.toFixed(3));}}
   count.textContent=state.points.length+' 点'+(state.closed?' · 閉じた曲線':'');undo.hidden=!state.drawing;undo.disabled=!state.points.length||state.busy||!!drag;
   close.textContent=state.closed?'曲線を開く':'曲線を閉じる';close.disabled=state.points.length<3||state.busy||!!drag;
-  hint.textContent=state.busy?'後続の工程を更新しています…':state.drawing?'丸印をドラッグで移動 · 右クリックで点を追加・削除 · Backspaceで1点戻す · 始点で閉じる':'丸印をドラッグで移動 · 曲線を右クリックで点を追加 / 丸印を右クリックで削除';
+  hint.textContent=state.busy?'後続の工程を更新しています…':state.drawing?'丸印をドラッグで移動 · 右クリックで曲線・直線切替 · Backspaceで1点戻す · 始点で閉じる':'丸印をドラッグで移動 · 曲線を右クリックで点を追加 / 丸印を右クリックで削除';
  }
  return {update,cancelDrag,nearStart,openPointMenu,closeMenu,get menuOpen(){return !!menu;},get dragging(){return !!drag;}};
 }

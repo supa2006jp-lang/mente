@@ -42,9 +42,16 @@ try{
  await page.locator('#new-spline').click();await page.locator('#snap-enabled').uncheck();const r=await page.locator('canvas').boundingBox(),cx=r.x+r.width/2,cy=r.y+r.height/2,positions=[[-160,30],[-70,-90],[90,20],[160,110]].map(([x,y])=>[cx+x,cy+y]);
  async function draw(){for(const p of positions){await page.mouse.click(...p);await page.waitForTimeout(80);}await count(4);}
  await draw();const pixel={points:positions},mid=curvePoint(pixel,.5);
- await page.mouse.click(...mid,{button:'right'});await menu.waitFor();await page.screenshot({path:'.sites-runtime/spline-point-menu.png'});await page.keyboard.press('Escape');assert.equal(await menu.count(),0);assert.equal(await page.locator('#sketch-banner').isVisible(),true,'Escape only dismisses the point menu');await count(4);
- await insertAt(mid,5);await remove(2,4);await remove(1,3);await remove(0,2);await remove(0,1);await remove(0,0);assert.equal(await host.getAttribute('data-spline-preview-points'),'0');
- await draw();await insertAt(mid,5);const inserted=await center(2);assert.ok(Math.hypot(inserted[0]-mid[0],inserted[1]-mid[1])<1,'inserted fit point lies on the curve');
+ // During drawing, right click changes segment type instead of editing points.
+ const initialCamera=await host.getAttribute('data-camera-state');
+ await page.mouse.click(...mid,{button:'right'});await page.waitForFunction(()=>document.querySelector('#canvas-host').dataset.drawingSegmentMode==='line');assert.equal(await menu.count(),0);await count(0);
+ await page.mouse.click(...mid,{button:'right'});await count(1);assert.equal(await host.getAttribute('data-drawing-segment-mode'),'curve');
+ assert.equal(await host.getAttribute('data-camera-state'),initialCamera,'switching preserves the view');
+ await page.locator('#sketch-segment-toggle').click();await page.waitForFunction(()=>document.querySelector('#canvas-host').dataset.drawingSegmentMode==='line');
+ await page.keyboard.press('Escape');await page.locator('#clear').click();await page.locator('#new-spline').click();await draw();
+ await page.mouse.move(20,20);await page.keyboard.press('Enter');await page.locator('[data-sketch-group] .row-label').click();await count(4);
+ // Point insertion/deletion remains available when editing a confirmed curve.
+ await insertAt(mid,5);const inserted=await center(2);assert.ok(Math.hypot(inserted[0]-mid[0],inserted[1]-mid[1])<1,'inserted fit point lies on the curve');
  await page.mouse.move(20,20);await page.keyboard.press('Enter');let project=await save(),open=project.features[0];assert.equal(open.points.length,5);assert.equal(open.closed,false);assert.ok(open.points[2][0]>open.points[1][0]&&open.points[2][0]<open.points[3][0],'point is inserted in order');
  const original=structuredClone(open);await remove(2,4);project=await save();assert.deepEqual(project.features[0].points,[...original.points.slice(0,2),...original.points.slice(3)]);
  await page.keyboard.press('Control+z');project=await save();assert.deepEqual(project.features[0].points,original.points,'point deletion is one undo step');await page.keyboard.press('Control+y');project=await save();assert.equal(project.features[0].points.length,4);
@@ -58,5 +65,5 @@ try{
  // Stale menus cannot edit a newly started sketch, and right-drag stays a pan.
  await handles.first().click({button:'right'});await menu.waitFor();await page.locator('#new-spline').click();assert.equal(await menu.count(),0);await count(0);
  await draw();const view=await host.getAttribute('data-camera-state');await page.mouse.move(...mid);await page.mouse.down({button:'right'});await page.mouse.move(mid[0]+45,mid[1]+20,{steps:5});await page.mouse.up({button:'right'});await page.waitForTimeout(150);assert.equal(await menu.count(),0);assert.notEqual(await host.getAttribute('data-camera-state'),view);await count(4);
- assert.deepEqual(errors,[]);await page.screenshot({path:'.sites-runtime/spline-point-edit.png'});console.log('PASS drawing/committed point insertion and deletion, ordering, closed seam, minima, undo/redo, dependent extrusion, menu cancellation and right-drag pan');
+ assert.deepEqual(errors,[]);await page.screenshot({path:'.sites-runtime/spline-point-edit.png'});console.log('PASS drawing curve/line switches and committed point insertion and deletion, ordering, closed seam, minima, undo/redo, dependent extrusion, menu cancellation and right-drag pan');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
