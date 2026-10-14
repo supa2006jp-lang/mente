@@ -27,7 +27,7 @@ export function createProjectLibrary({parse,onChoose,getRevision,getModified,sto
  }
  async function choose(entry,button){
   if(busy)return;const current=revision,request=getRevision();button.disabled=true;busy=true;controls();
-  try{const text=memory.get(entry.id)??await store.read(entry.id);if(current!==revision||!dialog.open||request!==getRevision())return;if(text===null)throw Error('作業データが見つかりません。保存ファイルを追加し直してください');const data=parse(text);dialog.close();onChoose({file:{name:entry.name,size:entry.bytes},libraryId:entry.id,...data,modified:getModified(),request});}
+  try{const text=memory.get(entry.id)??await store.read(entry.id);if(current!==revision||!dialog.open||request!==getRevision())return;if(text===null)throw Error('作業データが見つかりません。保存ファイルを追加し直してください');const data=await parse(text);if(current!==revision||!dialog.open||request!==getRevision())return;dialog.close();onChoose({file:{name:entry.name,size:entry.bytes},libraryId:entry.id,...data,modified:getModified(),request});}
   catch(error){if(current===revision&&dialog.open)status('読み込みできません：'+error.message);}
   finally{if(current===revision){busy=false;button.disabled=false;controls();}}
  }
@@ -43,7 +43,7 @@ export function createProjectLibrary({parse,onChoose,getRevision,getModified,sto
    for(const file of selected){
     if(current!==revision||!dialog.open||request!==getRevision())return;
     status('ファイルを確認中… '+(loaded+failed+1)+' / '+selected.length);
-    try{if(file.size>80_000_000)throw Error('80 MBを超えています');const text=await file.text();if(current!==revision||!dialog.open||request!==getRevision())return;const data=parse(text);const item=await register({name:file.name,text,data,savedAt:file.lastModified||Date.now(),relativePath:file.webkitRelativePath||''},true);loaded++;if(!item.persisted)temporary++;}
+    try{if(file.size>80_000_000)throw Error('80 MBを超えています');const text=await file.text();if(current!==revision||!dialog.open||request!==getRevision())return;const data=await parse(text);if(current!==revision||!dialog.open||request!==getRevision())return;const item=await register({name:file.name,text,data,savedAt:file.lastModified||Date.now(),relativePath:file.webkitRelativePath||''},true);loaded++;if(!item.persisted)temporary++;}
     catch{failed++;}
     await new Promise(resolve=>setTimeout(resolve,0));
    }

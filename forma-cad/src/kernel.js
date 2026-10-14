@@ -20,6 +20,7 @@ import {encloseParts} from './enclose.js';
 import {patternSolids} from './pattern-solids.js';
 import {fuseSolid,fuseSolids} from './solid-fuse.js';
 import {filletSolid} from './solid-fillet.js';
+import {chamferSolid} from './solid-chamfer.js';
 import {solidMeshComplete} from './solid-mesh.js';
 import {overlappingProfileSolid,validateExtrusionOverlap} from './extrusion-overlap.js';
 import {selectedProfileFaces} from './sketch-solid-profile.js';
@@ -268,7 +269,7 @@ export function runOperation(features,spec,onProgress,context={}){
  }
  if(spec.type==='deleteBodies'){const bodies=kernelBodies(features);try{const ids=[...new Set(spec.targets||[])];if(!ids.length||ids.some(id=>!bodies.has(id)))throw Error('削除するボディを選択してください');return {outputs:[],remove:ids};}finally{for(const b of bodies.values())b.delete();}}
 if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.features){const f=batchExtrusionFeature(original,added),history=[...features,...added],input=multipleExtrusionTargets(f)||f.untilSolid||f.overlapOnly||f.region?.overlapSource?history:extrusionTargetHistory(history,f.target,f.region?.cadFace?.bodyId||f.region?.bodyId);const cadResult=runOperation(input,{type:'extrusion',target:f.target,feature:f});added.push({...f,cadResult});}return {features:added};}if(spec.type==='replay')return {features:replayHistory(spec.before,features,spec.start,(history,operation)=>runOperation(history,operation,onProgress),remapHistoryReferences,resolveHistoryPartition)};const bodies=kernelBodies(features),outputs=[],remove=[];let analysis,removedPreview;const base=bodies.get(spec.target);const axis={X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[spec.axis]||[0,0,1];const emit=(id,shape)=>{if(!shape)throw Error('形状を作成できません');const rasterSpec=spec.type==='svgWrap'&&spec.raster?spec:[...features].reverse().find(f=>f.spec?.raster&&f.outputs?.some(o=>o.id===id))?.spec,imageRelief=!!rasterSpec;const mesh=shape.mesh({tolerance:imageRelief?({draft:.08,standard:.05,fine:.025}[rasterSpec.rasterSettings?.quality||'standard']):.08,angularTolerance:imageRelief?1.2:.15});if(imageRelief){mesh.vertices=mesh.vertices.map(v=>Math.round(v*1e5)/1e5);mesh.normals=mesh.normals.map(v=>Math.round(v*1e5)/1e5);}if(!mesh.triangles.length)throw Error('立体が空です');if(spec.type==='extrusion'&&spec.feature.region?.id?.startsWith('grid-cell-')&&!solidMeshComplete(shape,mesh))throw Error('押し出し後の面を正常に生成できませんでした。元のボディは変更していません');if(imageRelief)R.getOC().BRepTools.Clean(shape.wrapped,true);const brep=shape.serialize();rememberBody(brep,shape);outputs.push({id,...mesh,planarFaces:shape.faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode),brep});};const p=spec;try{
- if(['coilJoint','enclose','shell','fillet','move','join','split','mirror','circular','rectangular'].includes(p.type)&&!base)throw Error('対象ボディを選択してください');
+ if(['coilJoint','enclose','shell','fillet','chamfer','move','join','split','mirror','circular','rectangular'].includes(p.type)&&!base)throw Error('対象ボディを選択してください');
  if(p.type==='deleteFragment'){
   if(!base)throw Error('削除するソリッドを選択してください');
   const solids=base.solids,vertex=R.makeVertex(p.surfacePoint);let kept;
@@ -341,15 +342,15 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
   }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target));
   try{emit(p.target,shape);}finally{shape.delete();}
  }
- else if(p.type==='fillet'){
+ else if(['fillet','chamfer'].includes(p.type)){
   const groups=p.edges?.length?[...new Set(p.edges.map(e=>e.bodyId))]:[p.target],results=[];
   for(const id of groups){
    const solid=bodies.get(id);if(!solid)throw Error('対象ボディを選択してください');
    const references=p.edges?.length?p.edges.filter(e=>e.bodyId===id):p.edgePoint?[{point:p.edgePoint}]:[],basis=p.face?basisFor(p.face):null;
    const selection={references,plane:basis?{normal:basis.n.toArray(),offset:p.face.offset}:null};let result;
-   try{result=filletSolid(solid,p.radius,selection,onProgress);emit(id,result.shape);results.push({bodyId:id,radius:result.radius,edges:result.edgeCount,normalized:result.normalized});}finally{result?.shape.delete();}
+   try{result=p.type==='chamfer'?chamferSolid(solid,p.distance,selection,onProgress):filletSolid(solid,p.radius,selection,onProgress);emit(id,result.shape);results.push({bodyId:id,...(p.type==='chamfer'?{distance:result.distance}:{radius:result.radius}),edges:result.edgeCount,normalized:result.normalized});}finally{result?.shape.delete();}
   }
-  analysis={fillets:results};
+  analysis=p.type==='chamfer'?{chamfers:results}:{fillets:results};
  }
  else if(p.type==='copiedThread'){
  const source=p.copySource,adjusted=p.copyDistance?allThreadPullSpec(source.spec,-p.copyDistance):source.spec,result=regeneratedThread(source,adjusted),copyBodies=kernelBodies([{kind:'cadop',...result}]);let shape;
