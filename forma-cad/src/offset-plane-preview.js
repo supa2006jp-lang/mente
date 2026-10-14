@@ -3,7 +3,7 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 
 export function createOffsetPlanePreview({scene,camera,canvas,host,controls,measurement,getState,setValues,getSnap,onError}){
  const proxy=new THREE.Object3D(),plane=new THREE.Group();scene.add(proxy,plane);plane.visible=false;
- const face=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:0xb16af4,transparent:true,opacity:.22,side:THREE.DoubleSide,depthTest:false,depthWrite:false}));face.renderOrder=12;plane.add(face);
+ const face=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:0xb16af4,transparent:true,opacity:.26,side:THREE.DoubleSide,depthTest:false,depthWrite:false}));face.renderOrder=12;plane.add(face);
  const line=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([[-.5,-.5,0],[.5,-.5,0],[.5,.5,0],[-.5,.5,0]].map(p=>new THREE.Vector3(...p))),new THREE.LineBasicMaterial({color:0x9354c4,depthTest:false}));line.renderOrder=13;plane.add(line);
  const cross=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([[-.5,0,0],[.5,0,0],[0,-.5,0],[0,.5,0]].map(p=>new THREE.Vector3(...p))),new THREE.LineBasicMaterial({color:0x9354c4,depthTest:false,transparent:true,opacity:.5}));cross.renderOrder=13;plane.add(cross);
  const control=new TransformControls(camera,canvas),helper=control.getHelper();scene.add(helper);control.enabled=false;control.setSize(1.1);control.setSpace('local');

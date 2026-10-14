@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import {basisFor,validateFrame} from './frames.js';
 
+export const OFFSET_PLANE_SIZE=120;
+export const OFFSET_PLANE_OPACITY=.1;
+export function offsetPlaneGridFace(feature){
+ const basis=basisFor(feature),anchor=feature.anchor?new THREE.Vector3(...feature.anchor):basis.n.clone().multiplyScalar(feature.offset),center=[anchor.dot(basis.u),anchor.dot(basis.v)],half=OFFSET_PLANE_SIZE/2;
+ return {...feature,outer:[[-half,-half],[half,-half],[half,half],[-half,half]].map(p=>p.map((value,i)=>value+center[i])),holes:[],area:OFFSET_PLANE_SIZE**2};
+}
+
 // Rotate about the preview's centre, rather than the world origin. A plane's
 // signed offset must be recomputed against its new normal after tilting it.
 export function offsetPlanePlacement(source,distance,angles=[0,0,0],center=null){

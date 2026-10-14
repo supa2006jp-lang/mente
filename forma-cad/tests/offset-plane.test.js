@@ -1,12 +1,23 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {offsetPlanePlacement,offsetPlaneFeature} from '../src/offset-plane.js';
+import {offsetPlanePlacement,offsetPlaneFeature,offsetPlaneGridFace} from '../src/offset-plane.js';
+import {scopedFaceGrid,faceGridBounds} from '../src/face-grid.js';
+import {faceGridCellRegions} from '../src/grid-cell.js';
 import {basisFor,worldPoint,validateFrame} from '../src/frames.js';
 import {validateFeature,validateProject,defaults,makeGeometry} from '../src/geometry.js';
 import {encodeProjectDocument,decodeProjectDocument} from '../src/project-codec.js';
 
 const close=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
+test('construction grids stay inside the displayed plane after translation and tilt',()=>{
+ for(const plane of ['XY','XZ','YZ']){
+  const feature=offsetPlaneFeature('plane',offsetPlanePlacement({plane,offset:20},10,[35,15,20],new THREE.Vector3(125,75,35))),original=JSON.stringify(feature),face=offsetPlaneGridFace(feature),b=basisFor(feature),center=new THREE.Vector3(...feature.anchor),bounds=faceGridBounds(face,'face'),grid=scopedFaceGrid(face,'face',10).grid;
+  close(bounds.u[0],center.dot(b.u)-60);close(bounds.u[1],center.dot(b.u)+60);close(bounds.v[0],center.dot(b.v)-60);close(bounds.v[1],center.dot(b.v)+60);
+  const p=grid.geometry.attributes.position;for(let i=0;i<p.count;i++){const world=worldPoint(face,[p.getX(i),p.getZ(i)]),relative=world.sub(center);assert.ok(Math.abs(relative.dot(b.u))<=60.0001);assert.ok(Math.abs(relative.dot(b.v))<=60.0001);close(relative.dot(b.n),0);}
+  assert.equal(faceGridCellRegions(face,[bounds.u[1]+20,bounds.v[1]+20],10).length,0);assert.equal(JSON.stringify(feature),original);grid.geometry.dispose();grid.material.dispose();
+ }
+ const old=offsetPlaneGridFace({kind:'plane',id:'old',plane:'XY',offset:10});assert.deepEqual(faceGridBounds(old,'face'),{u:[-60,60],v:[-60,60]});
+});
 test('zero angles preserve the old offset for every principal plane and negative distances',()=>{
  for(const plane of ['XY','XZ','YZ'])for(const distance of [-12,0,25]){
   const source={plane,offset:20},state=offsetPlanePlacement(source,distance),basis=basisFor(source);

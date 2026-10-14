@@ -41,7 +41,7 @@ import {gridCellOccluders} from './grid-cell-occlusion.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains,faceGridPatches} from './face-grid.js';
 import {createFilletGridReference} from './fillet-grid-reference.js';
 const filletGridReference=createFilletGridReference();
-const referenceFaceGrid=face=>filletGridReference.reference(face,features);
+const referenceFaceGrid=face=>face?.kind==='plane'?offsetPlaneGridFace(face):filletGridReference.reference(face,features);
 import {planeViewBounds,viewportGridLayout,fitCameraDepth} from './viewport-grid.js';
 import {createBodyDisplay} from './body-display.js';
 import {isSectionSplit,sectionBodyStyles} from './section-split.js';
@@ -108,7 +108,7 @@ import {hideExtrudedSketches,sketchExtrusionProgress} from './extruded-sketch-vi
 let selectedRegions=[];
 import {installPatternPreview} from './pattern-preview.js';
 import {createMoveTool} from './move-tool.js';
-import {offsetPlanePlacement,offsetPlaneFeature} from './offset-plane.js';
+import {offsetPlanePlacement,offsetPlaneFeature,offsetPlaneGridFace,OFFSET_PLANE_SIZE,OFFSET_PLANE_OPACITY} from './offset-plane.js';
 import {createOffsetPlanePreview} from './offset-plane-preview.js';
 let offsetPlanePreview=null;
 import {createBodySelectionActions} from './body-selection-actions.js';
@@ -477,7 +477,7 @@ function renderRegions(){
  const overlapRegions=sketchOverlapCache.regions;
  if(chosenRegion)chosenRegion=selectedRegions.find(r=>r.id===chosenRegion.id)||regionList.find(r=>r.id===chosenRegion.id)||overlapRegions.find(r=>r.id===chosenRegion.id)||null;
  $('region-count').textContent=regionList.length;
- for(const p of features.filter(f=>f.kind==='plane')){const g=new THREE.PlaneGeometry(120,120),b=basisFor(p),m=new THREE.Matrix4().makeBasis(b.u,b.v,b.n);g.applyMatrix4(m);g.translate(...(p.anchor||b.n.clone().multiplyScalar(p.offset).toArray()));const plane=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xe4a046,transparent:true,opacity:.055,side:THREE.DoubleSide,depthWrite:false}));plane.userData.constructionPlane=true;plane.userData.planeId=p.id;plane.visible=$('construction-visible').checked;regionGroup.add(plane);}
+ for(const p of features.filter(f=>f.kind==='plane')){const g=new THREE.PlaneGeometry(OFFSET_PLANE_SIZE,OFFSET_PLANE_SIZE),b=basisFor(p),m=new THREE.Matrix4().makeBasis(b.u,b.v,b.n);g.applyMatrix4(m);g.translate(...(p.anchor||b.n.clone().multiplyScalar(p.offset).toArray()));const plane=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xe4a046,transparent:true,opacity:OFFSET_PLANE_OPACITY,side:THREE.DoubleSide,depthWrite:false}));plane.userData.constructionPlane=true;plane.userData.planeId=p.id;plane.visible=$('construction-visible').checked;regionGroup.add(plane);}
  host.dataset.overlapRegionCount=String(overlapRegions.length);
  for(const r of [...regionList,...overlapRegions,...selectedRegions.filter(s=>s.offsetGenerated&&!regionList.some(r=>r.id===s.id))]){const active=chosenRegion?.id===r.id||selectedRegions.some(s=>s.id===r.id);const mesh=new THREE.Mesh(regionFaceGeometry(r),new THREE.MeshBasicMaterial({color:active?0x3868ad:r.overlapSource?0x159eac:0x2f9ede,transparent:true,opacity:active?.55:r.overlapSource?.24:.16,side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1}));mesh.userData.region=r;mesh.renderOrder=r.overlapSource?2:1;regionGroup.add(mesh);}
 }
@@ -1714,9 +1714,9 @@ function workingGridPatches(face,basis,step){
 function updateSketchGrid(){
  const face=sketch?sketchWorkingFace:stage==='model'?(holeActive?holeHoverFace:selectedFace):null,basis=sketch?sketchBasis:face?basisFor(face):null;
  const originPlane=sketch?(Math.abs(basis.n.z)>.999999?'XY':Math.abs(basis.n.y)>.999999?'XZ':Math.abs(basis.n.x)>.999999?'YZ':null):null;
- const originSketch=!face?.bodyId&&!!originPlane&&originPlane===gridPlane&&Math.abs(sketchOrigin.dot(basis.n))<1e-5;
+ const originSketch=!face?.bodyId&&face?.kind!=='plane'&&!!originPlane&&originPlane===gridPlane&&Math.abs(sketchOrigin.dot(basis.n))<1e-5;
  const visible=!!basis&&!originSketch&&gridVisibility[sketch?$('plane').value:face?.plane||'CUSTOM']!==false;
- const scopedFace=face?.bodyId&&face.outer?referenceFaceGrid(face):null,scope=scopedFace?$('face-grid-scope').value:'unlimited';host.dataset.faceGridReference=scopedFace?.filletGridReference?'before-fillet':'current';$('face-grid-scope-row').hidden=!scopedFace;sketchOnFaceGrid.hidden=sketch||stage!=='model'||!scopedFace||holeActive;
+ const construction=face?.kind==='plane',scopedFace=construction||face?.bodyId&&face.outer?referenceFaceGrid(face):null,scope=scopedFace?(construction?'face':$('face-grid-scope').value):'unlimited';host.dataset.faceGridReference=construction?'construction-plane':scopedFace?.filletGridReference?'before-fillet':'current';$('face-grid-scope-row').hidden=!scopedFace||construction;sketchOnFaceGrid.hidden=sketch||stage!=='model'||!scopedFace||holeActive;
  // Keep the origin plane alongside the working grid.
  updateModelGrid();
  host.dataset.gridVisible=String(grid.visible);
@@ -1731,8 +1731,8 @@ function updateSketchGrid(){
  const offset=sketch?sketchOrigin.dot(basis.n):face.offset+(bodyDisplay?.offset(face.bodyId).dot(basis.n)||0),view=gridViewBounds(basis,offset);
  const scoped=scopedFace&&scope!=='unlimited',layout=scoped?null:viewportGridLayout(view,gridStep),bounds=scoped?faceGridBounds(scopedFace,scope):layout.bounds;
  let displayStep=scoped?gridStep:layout.step;if(scoped)while(Math.max(bounds.u[1]-bounds.u[0],bounds.v[1]-bounds.v[0])/displayStep>180)displayStep*=2;
- const patches=sketch&&scopedFace&&scope==='face'?workingGridPatches(scopedFace,basis,displayStep):[];host.dataset.sketchGridExtensions=JSON.stringify(patches);
- const key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,scope,!!scopedFace,scoped?scopedFace.id:layout.divisions,patches]);
+ const patches=sketch&&scopedFace&&scope==='face'&&!construction?workingGridPatches(scopedFace,basis,displayStep):[];host.dataset.sketchGridExtensions=JSON.stringify(patches);
+ const key=JSON.stringify([basis.u.toArray(),basis.v.toArray(),offset,displayStep,scope,!!scopedFace,scoped?scopedFace.id:layout.divisions,construction?bounds:null,patches]);
  if(key!==sketchGridKey){if(sketchGrid)disposeObject(sketchGrid);sketchGridKey=key;sketchGrid=scoped?scopedFaceGrid(scopedFace,scope,gridStep,patches).grid:cadGrid(displayStep,layout.divisions,false);sketchGrid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));sketchGrid.traverse(o=>{if(o.material){o.material.vertexColors=false;o.material.color.set(scopedFace?0xb678e8:0x9554c9);o.material.transparent=true;o.material.opacity=scopedFace ? .85 : .3;o.material.depthWrite=false;o.material.depthTest=true;}});sketchGrid.renderOrder=3;scene.add(sketchGrid);}
  // Lift face grids slightly above their supporting face; depth testing still hides them behind solids.
  sketchGrid.position.copy(basis.n).multiplyScalar(offset+(scopedFace?.02:0));if(!scoped)sketchGrid.position.addScaledVector(basis.u,layout.u).addScaledVector(basis.v,layout.v);else{const shift=bodyDisplay?.offset(scopedFace.bodyId)||new THREE.Vector3();sketchGrid.position.addScaledVector(basis.u,shift.dot(basis.u)).addScaledVector(basis.v,shift.dot(basis.v));}
@@ -1745,7 +1745,7 @@ function selectFaceGrid(){
  if(!selectedFace||!sketchGrid?.visible||stage!=='model')return false;
  const face=selectedFace,b=basisFor(face),shift=bodyDisplay?.offset(face.bodyId)||new THREE.Vector3(),point=raycaster.ray.intersectPlane(new THREE.Plane(b.n,-face.offset-shift.dot(b.n)),new THREE.Vector3());
  if(!point)return false;point.sub(shift);
- if(face.bodyId&&face.outer&&!faceGridContains(referenceFaceGrid(face),[point.dot(b.u),point.dot(b.v)],$('face-grid-scope').value))return false;
+ if((face.kind==='plane'||face.bodyId&&face.outer)&&!faceGridContains(referenceFaceGrid(face),[point.dot(b.u),point.dot(b.v)],face.kind==='plane'?'face':$('face-grid-scope').value))return false;
  clearFaceSelection(); clearEdgeSelection();selected=null;selectedSurface=null;selectedBody=face.bodyId||selectedBody;chosenRegion=face.outer?face:null;activeFrame=face.frame;syncFields();
  $('measurement').hidden=false;$('measurement-title').textContent='選択した面のグリッド';$('measurement-length').textContent='1目盛り：'+fmt(gridStep)+' mm';$('measurement-angle').textContent='スケッチ / オフセット平面 / 分割'+(face.outer?' / 押し出し':'');$('status').textContent='作業平面を選択しました。上のツールからコマンドを選んでください';host.dataset.selectedFaceGrid='true';return true;
 }
@@ -2011,7 +2011,7 @@ function openQrGridMenu(event){
  if(canResumeSelectedSketch()&&selectedSketchAt(event))return false;
  const face=referenceFaceGrid(sketch?sketchWorkingFace:selectedFace),basis=face?basisFor(face):sketch?sketchBasis:basisFor({plane:gridPlane});if(!(sketchGrid?.visible||grid.visible))return false;
  const offset=face?face.offset:sketch?sketchOrigin.dot(basis.n):0,rect=renderer.domElement.getBoundingClientRect(),shift=face?.bodyId&&!sketch?bodyDisplay?.offset(face.bodyId)||new THREE.Vector3():new THREE.Vector3();pointer.set((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2);raycaster.setFromCamera(pointer,camera);const point=raycaster.ray.intersectPlane(new THREE.Plane(basis.n,-offset-shift.dot(basis.n)),new THREE.Vector3());if(!point)return false;
- const hit=raycaster.intersectObjects([...meshes.values()].filter(m=>m.visible),false)[0];if(hit&&hit.distance<point.distanceTo(raycaster.ray.origin)-.05)return false;point.sub(shift);
+ const hit=raycaster.intersectObjects([...meshes.values()].filter(m=>m.visible),false)[0];if(hit&&hit.distance<point.distanceTo(raycaster.ray.origin)-.05)return false;point.sub(shift);if(face?.kind==='plane'&&!faceGridContains(face,[point.dot(basis.u),point.dot(basis.v)],'face'))return false;
  closeSolidFaceMenu();$('sketch-group-menu')?.remove();selectionPicker?.close();const menu=document.createElement('div');menu.id='solid-face-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','グリッド位置の操作');const button=addQrGridMenuButton(menu,point,basis);document.body.append(menu);const box=menu.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(event.clientX,innerWidth-box.width-8))+'px';menu.style.top=Math.max(8,Math.min(event.clientY,innerHeight-box.height-8))+'px';button.focus();return true;
 }
 function openGridCellMenu(event){
@@ -2019,7 +2019,7 @@ function openGridCellMenu(event){
  const face=referenceFaceGrid(sketch?sketchWorkingFace:selectedFace);if(!face)return false;const basis=basisFor(face),shift=sketch?new THREE.Vector3():bodyDisplay?.offset(face.bodyId)||new THREE.Vector3(),offset=sketch?sketchOrigin.dot(basis.n):face.offset;
  const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2);raycaster.setFromCamera(pointer,camera);const point=raycaster.ray.intersectPlane(new THREE.Plane(basis.n,-offset-shift.dot(basis.n)),new THREE.Vector3());if(!point)return false;
  const hit=raycaster.intersectObjects([...meshes.values()].filter(m=>m.visible),false)[0];if(hit&&hit.distance<point.distanceTo(raycaster.ray.origin)-.05)return false;
- point.sub(shift);const step=Number(host.dataset.sketchGridDisplayStep)||gridStep,scope=face.bodyId&&face.outer?$('face-grid-scope').value:'unlimited',patches=JSON.parse(host.dataset.sketchGridExtensions||'[]'),cellPoint=[point.dot(basis.u),point.dot(basis.v)],occluders=gridCellOccluders({...face,offset},cellPoint,step,[...meshes.values()],{shift,displayOffset:id=>bodyDisplay?.offset(id)||new THREE.Vector3()}),regions=faceGridCellRegions({...face,offset},cellPoint,step,{mode:scope,patches,occluders});if(!regions.length)return false;
+ point.sub(shift);const step=Number(host.dataset.sketchGridDisplayStep)||gridStep,scope=face.kind==='plane'?'face':face.bodyId&&face.outer?$('face-grid-scope').value:'unlimited',patches=JSON.parse(host.dataset.sketchGridExtensions||'[]'),cellPoint=[point.dot(basis.u),point.dot(basis.v)],occluders=gridCellOccluders({...face,offset},cellPoint,step,[...meshes.values()],{shift,displayOffset:id=>bodyDisplay?.offset(id)||new THREE.Vector3()}),regions=faceGridCellRegions({...face,offset},cellPoint,step,{mode:scope,patches,occluders});if(!regions.length)return false;
  closeSolidFaceMenu();$('sketch-group-menu')?.remove();selectionPicker?.close();gridCellHighlight=new THREE.Group();for(const r of regions){const mesh=new THREE.Mesh(regionFaceGeometry(r),new THREE.MeshBasicMaterial({color:0x087eac,transparent:true,opacity:.45,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3}));mesh.renderOrder=6;gridCellHighlight.add(mesh);}scene.add(gridCellHighlight);
  const menu=document.createElement('div');menu.id='solid-face-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','紫グリッドの1マスの操作');const title=document.createElement('div');title.className='solid-face-menu-title';title.textContent='紫グリッド '+fmt(step)+' × '+fmt(step)+' mm（'+fmt(regions.reduce((s,r)=>s+r.area,0))+' mm²）';
  const button=document.createElement('button');button.id='context-grid-cell-extrude';button.type='button';button.setAttribute('role','menuitem');button.textContent='この1マスを押し出す';button.onclick=()=>{closeSolidFaceMenu();const source=face.bodyId;finishSketch(false);clearFaceSelection();clearEdgeSelection();selectedFace=null;selected=null;stage='model';selectedRegions=regions;chosenRegion=regions.at(-1);pendingOperation=source?'join':'new';beginExtrusion('solid',{preserveView:true});$('status').textContent='グリッドの残っている部分を押し出します。距離と操作を指定してください';};menu.append(title,button);
