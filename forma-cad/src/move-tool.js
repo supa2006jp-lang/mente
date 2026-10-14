@@ -126,7 +126,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   const copy=meshes.length===1?original.clone(true):new THREE.Group();
   if(meshes.length>1)for(const mesh of meshes)copy.add(mesh.clone(true));
   copy.position.sub(center).applyQuaternion(alignment.clone().invert());copy.quaternion.premultiply(alignment.clone().invert());
-  copy.traverse(o=>{if(o.material){o.material=o.material.clone();o.userData.moveMaterial=true;if(o.isMesh)o.material.color.set(0x3868ad);}});
+  copy.traverse(o=>{if(o.material){o.material=o.material.clone();o.userData.moveMaterial=true;if(o.isMesh)o.material.color.set(o.userData.qrColors?0xffffff:0x3868ad);}});
   proxy.add(copy);scene.add(proxy);copy.updateMatrix();proxyBaseMatrix=copy.matrix.clone();copy.matrixAutoUpdate=false;
   for(const mesh of originals)mesh.visible=copying();fields.forEach((f,i)=>f.value=i<3?'0':'0.0');edgeInput.value='0.0';
   panel.querySelector('#move-edge-angle-label').hidden=!edgeAxis;axisSelect.disabled=!!edgeAxis;fields.slice(3).forEach(f=>f.parentElement.hidden=!!edgeAxis);
