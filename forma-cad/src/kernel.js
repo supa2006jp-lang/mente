@@ -7,6 +7,8 @@ import {makeBossFitTest} from './boss-fit-test.js';
 import {makeBallJoint,ballJointInfo} from './ball-joint.js';
 import {makeCylinderHinge,cylinderHingeInfo,makeCylinderHolderTest} from './cylinder-hinge.js';
 import {makeBossJoint} from './boss-joint.js';
+import {makeSimpleBoss} from './simple-boss.js';
+import {makeQrCode} from './qr-code-solid.js';
 import {makeSlideLid} from './slide-lid.js';
 import {planPrintLayout,printLayoutBounds} from './print-layout.js';
 import {makeSnapLid,snapLidInfo} from './snap-lid.js';
@@ -301,6 +303,8 @@ if(spec.type==='extrusionBatch'){const added=[];for(const original of spec.featu
  else if(p.type==='ballJointInfo'){analysis=ballJointInfo(base);}
  else if(p.type==='ballJoint'){if(bodies.has(p.id+'-socket')||bodies.has(p.id+'-nut'))throw Error('ジョイントのボディIDが重複しています');const result=makeBallJoint(base,p,onProgress);try{for(const [i,id]of [p.target,p.id+'-socket',p.id+'-nut'].entries())emit(id,result.parts[i]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='bossFitTest'){const result=makeBossFitTest(p,onProgress);try{for(const part of result.parts)emit(p.id+'-'+part.role+'-'+Math.round(part.clearance*100),part.shape);analysis=result.analysis;}finally{result.parts.forEach(part=>part.shape.delete());}}
+ else if(p.type==='simpleBoss'){const result=makeSimpleBoss(base,p);try{emit(p.target,result.shape);analysis=result.analysis;}finally{result.shape.delete();}}
+ else if(p.type==='qrCode'){if(bodies.has(p.id))throw Error('QRコードのボディIDが重複しています');const result=makeQrCode(p,onProgress);try{emit(p.id,result.shape);analysis=result.analysis;}finally{result.shape.delete();}}
  else if(p.type==='bossJoint'){const pinId=p.mode==='split'?p.id+'-pin':p.pinTarget;if(p.mode==='split'&&bodies.has(pinId))throw Error('棒側のボディIDが重複しています');const result=makeBossJoint(base,bodies.get(p.pinTarget),p,onProgress);try{emit(p.target,result.parts[0]);emit(pinId,result.parts[1]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='slideLid'){const lidId=p.id+'-lid';if(bodies.has(lidId))throw Error('蓋のボディIDが既存のボディと重なっています');const result=makeSlideLid(base,p);try{emit(p.target,result.body);emit(lidId,result.lid);analysis=result.analysis;}finally{result.body.delete();result.lid.delete();}}
  else if(p.type==='snapLid'){if(p.target===p.lidTarget)throw Error('本体と蓋は別のボディを選択してください');const result=makeSnapLid(base,bodies.get(p.lidTarget),p);try{emit(p.target,result.body);emit(p.lidTarget,result.lid);analysis=result.analysis;}finally{result.body.delete();result.lid.delete();}}
@@ -473,6 +477,7 @@ function remapHistoryReferences(before,after,spec){
    const lo=bounds(a),hi=bounds(b);return p.map((v,i)=>hi.min[i]+(v-lo.min[i])*(hi.max[i]-hi.min[i])/Math.max(1e-9,lo.max[i]-lo.min[i]));};
   for(const key of ['faces','edges'])if(spec[key])spec[key]=spec[key].map(r=>({...r,point:point(r.bodyId||spec.target,r.point)}));
   if(spec.type==='threadMate'&&spec.destination==='existing'&&spec.placement)spec.placement={...spec.placement,point:point(spec.placement.bodyId,spec.placement.point)};
+  if(spec.type==='simpleBoss')spec.point=point(spec.target,spec.point);
   if(spec.edgePoint)spec.edgePoint=point(spec.target,spec.edgePoint);
   if(spec.surfacePoint)spec.surfacePoint=point(spec.target,spec.surfacePoint);
   for(const r of [spec.face,...(spec.sections||[]),spec.region].filter(Boolean)){if(r.bodyId&&oldBodies.get(r.bodyId)?.serialize()!==newBodies.get(r.bodyId)?.serialize())throw Error('参照するソリッドの面が変わりました。面を選び直してください');if(!r.bodyId&&!r.sourceIds?.length&&[...oldBodies].some(([id,b])=>b.serialize()!==newBodies.get(id)?.serialize()))throw Error('この工程の古い面参照は自動更新できません。面を選び直してください');}

@@ -1,7 +1,7 @@
 import {splinePointInsertion} from './spline-point-edit.js';
 import {splineSamples,splineEndpoint} from './spline-curve.js';
 // Screen-space handles edit points on the spline's own sketch plane.
-export function installSplineEditor({host,banner,sidebar,getState,project,getControls,onMove,onRestore,onCommit,onUndo,onClose,onInsert,onDelete,onTangent,onTangentMove,onToggleDrawing=()=>false}){
+export function installSplineEditor({host,banner,sidebar,getState,project,getControls,onMove,onRestore,onCommit,onUndo,onClose,onInsert,onDelete,onTangent,onTangentMove,onToggleDrawing=()=>false,onAddEndpointPoint}){
  const style=document.createElement('style');style.textContent=`
  #spline-effects,#spline-tangent-handles{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:7}
  .spline-tangent-handle{position:absolute;width:16px;height:16px;min-width:0;padding:0;transform:translate(-50%,-50%);border:2px solid white;border-radius:2px;background:#a36608;box-shadow:0 0 0 1px #714407;pointer-events:auto;cursor:grab;touch-action:none}
@@ -71,6 +71,9 @@ export function installSplineEditor({host,banner,sidebar,getState,project,getCon
    const help=document.createElement('small');help.textContent='橙の破線：変更後 · クリックで確定';menu.append(help);
   }
   menu.prepend(button);
+  if(onAddEndpointPoint&&!state.drawing&&!state.closed&&(index===0||index===state.points.length-1)){
+   const add=document.createElement('button');add.type='button';add.setAttribute('role','menuitem');add.textContent='この端点に点を追加';add.onclick=()=>{if(version(getState())!==token){closeMenu();return;}closeMenu();onAddEndpointPoint(state.feature,state.points[index]);};menu.append(add);
+  }
   if(blocked){const help=document.createElement('small');help.textContent=index>=0?(state.closed?'閉じた曲線は3点以上必要です':'確定した曲線は2点以上必要です'):'フィット点は200点までです';menu.append(help);}
   document.body.append(menu);const box=menu.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(event.clientX,innerWidth-box.width-8))+'px';menu.style.top=Math.max(8,Math.min(event.clientY,innerHeight-box.height-8))+'px';if(!blocked)button.focus({preventScroll:true});
   return true;
