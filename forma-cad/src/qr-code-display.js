@@ -17,7 +17,7 @@ export function qrBodyDisplays(features){
   const p=feature.spec,result=feature.cadResult||(feature.kind==='cadop'?feature:null);if(!result)continue;
   const inherited=displays.get(p?.target);
   if(p?.type==='qrCode'){
-   try{const layout=qrCodeLayout(p),matrix=new THREE.Matrix4().makeBasis(...['u','v','n'].map(k=>new THREE.Vector3(...p.frame[k])));matrix.setPosition(...p.point);displays.set(result.outputs[0]?.id||p.id,[{layout,matrix}]);}catch{}
+   try{const layout=qrCodeLayout(p),matrix=new THREE.Matrix4().makeBasis(...['u','v','n'].map(k=>new THREE.Vector3(...p.frame[k])));matrix.setPosition(...p.point);displays.set(result.outputs[0]?.id||p.id,[{layout,matrix,text:p.text}]);}catch{}
   }else if(p?.type==='move'){
    const targets=p.targets||[p.target],copy=p.copy===true||p.moveMode==='複製して移動',delta=[p.x,p.y,p.z],pivot=p.pivot||[0,0,0],angles=p.rotation||[0,0,0];let matrix=rotation(angles,pivot);
    if(!p.rotation&&p.angle)matrix=new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(...({X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[p.axis]||[0,0,1])),p.angle*Math.PI/180);
