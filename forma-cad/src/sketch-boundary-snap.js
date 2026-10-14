@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {solidSketchSection} from './sketch-solid-overlap.js';
+import {basisFor,worldPoint} from './frames.js';
 
 const SCALE=100000;
 
@@ -32,6 +33,24 @@ export function createSketchBoundarySnap(){
  let cache=new WeakMap();
  return {
   clear(){cache=new WeakMap();},
+  reference(face,basis,offset,hit,project,options){
+   if(!face?.filletGridReference)return null;
+   const normal=basisFor(face).n;
+   if(Math.abs(normal.dot(basis.n))<.999999)return null;
+   let entry=cache.get(face);
+   if(!entry){
+    const edges=[];
+    for(const ring of [face.outer,...(face.holes||[])]){
+     const points=ring.map(p=>worldPoint(face,p));
+     for(let i=0;i<points.length;i++)edges.push([points[i],points[(i+1)%points.length]]);
+    }
+    entry={edges};cache.set(face,entry);
+   }
+   // A reference from another sketch plane must not pull points off-plane.
+   if(entry.edges.some(([a,b])=>Math.abs(a.dot(basis.n)-offset)>1e-4||Math.abs(b.dot(basis.n)-offset)>1e-4))return null;
+   const point=closestBoundaryPoint(entry.edges,hit,project,options);
+   return point?.addScaledVector(basis.n,offset-point.dot(basis.n))||null;
+  },
   snap(meshes,basis,offset,hit,project,options){
    const segments=[];
    for(const mesh of meshes){
