@@ -6,6 +6,7 @@ import {taperGeometry,validateTaperAngle} from './taper.js';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {validateReferenceImage} from './reference-image-data.js';
 import {basisFor,frameMatrix,validateFrame,worldPoint} from './frames.js';
+import {retainCadCoordinates} from './cad-coordinates.js';
 import {sketchPoints,planeCoordinates} from './regions.js';
 import {extrudeRegion,validateRegion} from './regions.js';
 import * as THREE from 'three';
@@ -78,7 +79,7 @@ export function rebuild(features){
  const bodies=new Map(),snapshots=new Map();features.forEach((f,i)=>{for(const o of (f.cadResult?.outputs||(f.kind==='cadop'?f.outputs:[])))snapshots.set(o.id,i);});
  try{
   for(let i=0;i<features.length;i++){let f=features[i];
-   if(f.cadResult)f={kind:'cadop',...f.cadResult};if(f.kind==='sketch'||f.kind==='plane'||f.kind==='referenceImage')continue;if(f.kind==='cadop'){f={...f,outputs:f.outputs.filter(o=>snapshots.get(o.id)===i)};validateFeature(f);for(const id of f.remove){bodies.get(id)?.geometry.dispose();bodies.delete(id);}for(const o of f.outputs){bodies.get(o.id)?.geometry.dispose();const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(o.vertices,3));g.setIndex(o.triangles);if(Array.isArray(o.normals)&&o.normals.length===o.vertices.length&&o.normals.every(Number.isFinite))g.setAttribute('normal',new THREE.Float32BufferAttribute(o.normals,3));else g.computeVertexNormals();g.userData.faceGroups=o.faceGroups;g.userData.planarFaces=o.planarFaces;const b=new Brush(g);b.updateMatrixWorld(true);bodies.set(o.id,b);}continue;}
+   if(f.cadResult)f={kind:'cadop',...f.cadResult};if(f.kind==='sketch'||f.kind==='plane'||f.kind==='referenceImage')continue;if(f.kind==='cadop'){f={...f,outputs:f.outputs.filter(o=>snapshots.get(o.id)===i)};validateFeature(f);for(const id of f.remove){bodies.get(id)?.geometry.dispose();bodies.delete(id);}for(const o of f.outputs){bodies.get(o.id)?.geometry.dispose();const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(o.vertices,3));retainCadCoordinates(g,o.vertices);g.setIndex(o.triangles);if(Array.isArray(o.normals)&&o.normals.length===o.vertices.length&&o.normals.every(Number.isFinite))g.setAttribute('normal',new THREE.Float32BufferAttribute(o.normals,3));else g.computeVertexNormals();g.userData.cadCoordinatePrecision=o.cadCoordinatePrecision===true;g.userData.faceGroups=o.faceGroups;g.userData.planarFaces=o.planarFaces;const b=new Brush(g);b.updateMatrixWorld(true);bodies.set(o.id,b);}continue;}
    if((snapshots.get(f.operation==='new'?f.id:f.target)??-1)>i)continue;
    const brush=new Brush(makeGeometry(f));brush.updateMatrixWorld(true);
    if(f.operation==='new') bodies.set(f.id,brush);

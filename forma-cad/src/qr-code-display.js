@@ -1,3 +1,4 @@
+import {copyCadCoordinates} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {qrCodeLayout} from './qr-code-layout.js';
 
@@ -42,7 +43,7 @@ export function qrBodyDisplays(features){
 
 export function colorQrGeometry(source,displays,defaultColor=0xa3a197){
  if(!displays?.length)return source;
- const geometry=source.index?source.toNonIndexed():source.clone();geometry.userData={...source.userData};const position=geometry.attributes.position,colors=new Float32Array(position.count*3),fallback=new THREE.Color(defaultColor),point=new THREE.Vector3(),a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3(),refs=displays.map(d=>({...d,inverse:d.matrix.clone().invert()}));let black=0,white=0;
+ const geometry=source.index?source.toNonIndexed():source.clone();geometry.userData={...source.userData};copyCadCoordinates(source,geometry);const position=geometry.attributes.position,colors=new Float32Array(position.count*3),fallback=new THREE.Color(defaultColor),point=new THREE.Vector3(),a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3(),refs=displays.map(d=>({...d,inverse:d.matrix.clone().invert()}));let black=0,white=0;
  for(let i=0;i<position.count;i+=3){a.fromBufferAttribute(position,i);b.fromBufferAttribute(position,i+1);c.fromBufferAttribute(position,i+2);const center=a.add(b).add(c).multiplyScalar(1/3);let value=null;
   for(const ref of refs){point.copy(center).applyMatrix4(ref.inverse);const q=ref.layout,tolerance=1e-4;if(Math.abs(point.x)>q.size/2+tolerance||Math.abs(point.y)>q.size/2+tolerance||point.z< -tolerance||point.z>2+tolerance)continue;
    const column=Math.floor((point.x+q.size/2)/q.pitch)-q.quiet,row=Math.floor((q.size/2-point.y)/q.pitch)-q.quiet;value=point.z>1+tolerance&&!!q.matrix[row]?.[column]?0:1;if(value===0)break;

@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import {cadPosition} from './cad-coordinates.js';
 const cached=new WeakMap(),key=p=>p.toArray().map(v=>Math.round(v*1e4)).join(',');
 // Use displayed boundary edges, never the interior vertices of tessellation triangles.
 export function solidVertexPoints(edges){
  if(!edges?.attributes.position)return [];if(cached.has(edges))return cached.get(edges);
- const nodes=new Map(),p=edges.attributes.position,arcs=new Set();
+ const nodes=new Map(),p=cadPosition(edges),arcs=new Set();
  const node=point=>{const id=key(point);if(!nodes.has(id))nodes.set(id,{point,neighbors:new Map(),arcEnd:false});return nodes.get(id);};
  const connect=(a,b)=>{if(a.distanceToSquared(b)<1e-10)return;node(a).neighbors.set(key(b),b);node(b).neighbors.set(key(a),a);};
  for(let i=0;i<p.count;i+=2){

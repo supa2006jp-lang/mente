@@ -1,7 +1,8 @@
 import * as THREE from 'three';
+import {cadPosition} from './cad-coordinates.js';
 // Recognize circular portions of mixed outlines, including rims split by joins.
 export function arcCenters(geometry){
- const attr=geometry?.attributes.position;if(!attr)return [];
+ const attr=cadPosition(geometry);if(!attr)return [];
  const nodes=new Map(),segments=[],result=[],used=new Set();
  const node=p=>{const key=p.toArray().map(v=>Math.round(v*1e4)).join(',');if(!nodes.has(key))nodes.set(key,{p,edges:[]});return nodes.get(key);};
  for(let i=0;i<attr.count;i+=2){const a=node(new THREE.Vector3().fromBufferAttribute(attr,i)),b=node(new THREE.Vector3().fromBufferAttribute(attr,i+1));if(a===b)continue;const edge={a,b};segments.push(edge);a.edges.push(edge);b.edges.push(edge);}

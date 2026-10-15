@@ -39,7 +39,7 @@ import {linkRegionOffset} from './linked-sketch-offset.js';
 let sketchOverlapCache=null;
 import {gridCellOccluders} from './grid-cell-occlusion.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains,faceGridPatches} from './face-grid.js';
-import {createFilletGridReference} from './fillet-grid-reference.js';
+import {createFilletGridReference,filletGridSource} from './fillet-grid-reference.js';
 const filletGridReference=createFilletGridReference();
 const referenceFaceGrid=face=>face?.kind==='plane'?offsetPlaneGridFace(face):filletGridReference.reference(face,features);
 import {planeViewBounds,viewportGridLayout,fitCameraDepth} from './viewport-grid.js';
@@ -136,6 +136,7 @@ import {offsetSketch,offsetSketchAllAround} from './sketch-offset.js';
 import {offsetExtrusionRegions,replaceOffsetSources,offsetDragReferences} from './sketch-offset-workflow.js';
 import {createSketchOffsetDrag} from './sketch-offset-drag.js';
 import {basisFor,planarFace,worldPoint} from './frames.js';
+import {cadPosition,retainCadCoordinates,retainEdgeCoordinates,restoreMeshCoordinates} from './cad-coordinates.js';
 import {findRegions,regionFaceGeometry,regionContains,sketchPoints,planeCoordinates} from './regions.js';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -383,6 +384,21 @@ function startFeature(profile='rect',newMode='solid',operation='new'){bodyDispla
  const previous=workingFace?{...current(),plane:'CUSTOM',frame:workingFace.frame,...Object.fromEntries(['x','y','z'].map((k,i)=>[k,workingFace.frame.n[i]*workingFace.offset]))}:(stage==='sketch'?current():{...defaults,plane:gridPlane});const keepPlane=previous.plane,keepOffset=planeCoordinates(previous).offset;
  chosenRegion=null;regionPayload=null;pendingExtrude=false;$('measurement').hidden=true;finishSketch(false);stage=operation==='cut'?'extrusion':'sketch';selected=null;const f={...defaults,frame:previous.frame,plane:keepPlane,x:keepPlane==='YZ'?keepOffset:0,y:keepPlane==='XZ'?keepOffset:0,z:keepPlane==='XY'?keepOffset:0,profile,mode:profile==='line'?'thin':newMode,operation,name:operation==='cut'?'穴あけ':'スケッチ'};if(previous.frame)for(const [i,k] of ['x','y','z'].entries())f[k]=previous.frame.n[i]*keepOffset;pendingDrawingView=preserveView?{basis:basisFor(f),offset:planeCoordinates(f).offset}:null;pendingDrawingFace=workingFace;selectedFace=null;clearEdgeSelection();fillForm(f);renderTree();$('properties')?.scrollIntoView();if(stage==='sketch')notifySketchEntered(sketchEntryNumber(f));else enteredSketchNumber=null;
 }
+function refreshDrawingCoordinates(revision){
+ const pending=[...meshes].filter(([,mesh])=>mesh.geometry.userData.cadCoordinatePrecision===false),sources=[];
+ for(const [id] of meshes){const source=filletGridSource(revision,id);if(!source)continue;const output=revision.slice(0,source.index).reverse().flatMap(f=>f.cadResult?.outputs||f.outputs||[]).find(o=>o.id===source.bodyId);if(output&&output.cadCoordinatePrecision!==true)sources.push({...source,output});}
+ if(!pending.length&&!sources.length)return;
+ const ready=kernelClient.run(revision,{type:'drawingCoordinates',targets:pending.map(([id])=>id),sources:sources.map(({bodyId,index})=>({bodyId,index}))}).then(result=>{
+  if(features!==revision)return;
+  for(const [id,mesh] of pending){if(meshes.get(id)!==mesh)continue;const output=result.outputs.find(o=>o.id===id);if(!output)continue;
+   const coordinates=restoreMeshCoordinates(Array.from(mesh.geometry.attributes.position.array),output.vertices);
+   retainCadCoordinates(mesh.geometry,coordinates);mesh.geometry.userData.cadCoordinatePrecision=true;const edges=mesh.children[0]?.geometry;if(edges){retainEdgeCoordinates(edges,mesh.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges);}
+  }
+  for(const source of sources){const output=result.sources?.find(o=>o.id===source.bodyId&&o.index===source.index);if(output){source.output.vertices=restoreMeshCoordinates(source.output.vertices,output.vertices);source.output.cadCoordinatePrecision=true;}}
+  filletGridReference.clear();sketchBoundarySnap.clear();
+ }).catch(error=>{if(features===revision)notify('作図用の精密な座標を取得できませんでした。'+error.message);});
+ for(const [,mesh] of meshes)mesh.userData.drawingCoordinatesReady=ready;
+}
 function renderBodies(next,{colorFeatures=features}={}){selectionPicker?.close();printQuality?.invalidate();bodyDisplay?.stopExploded(true);const splitStyles=sectionBodyStyles(colorFeatures),qrDisplays=qrBodyDisplays(colorFeatures);fragmentSelection=null;clearBodySelection();clearFaceSelection();
  for(const child of [...modelGroup.children])disposeObject(child);meshes.clear();let triangles=0;
  for(const [id,brush] of next){
@@ -390,6 +406,7 @@ function renderBodies(next,{colorFeatures=features}={}){selectionPicker?.close()
   const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:qrColors?0xffffff:baseColor,vertexColors:qrColors,metalness:0,roughness:.8}));mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;accelerateMeshPicking(mesh);mesh.visible=!hiddenBodies.has(id);
   const edges=new THREE.LineSegments(bodyEdges(mesh.geometry,28),new THREE.LineBasicMaterial({color:0x33332f,transparent:true,opacity:.85}));edges.geometry.userData.circularEdges=featureCircularEdges(features,id,edges.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges.geometry);edges.visible=showEdges;mesh.add(edges);modelGroup.add(mesh);meshes.set(id,mesh);triangles+=(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3;
  }
+ refreshDrawingCoordinates(colorFeatures);
  host.dataset.qrColoredBodies=JSON.stringify([...meshes].filter(([,mesh])=>mesh.userData.qrColors).map(([id,mesh])=>({id,...mesh.geometry.userData.qrColors})));bodyDisplay?.rebuild();sectionControl?.refresh();imageReferences?.refresh();$('triangles').textContent=`${Math.round(triangles).toLocaleString()} 面`;
 }
 function renderTree(){const splitStyles=sectionBodyStyles(editingSectionSplitId?features.slice(0,features.findIndex(f=>f.id===editingSectionSplitId)):features);
@@ -638,7 +655,7 @@ function snapToGrid(hit){
  const tolerance=6;let best=null,dist=tolerance,kind='grid';
  const consider=(p,k)=>{const a=screenPoint(p),b=screenPoint(hit),d=Math.hypot(a.x-b.x,a.y-b.y);if(d<Math.min(dist,k==='midpoint'?2:tolerance)){dist=d;best=p.clone();kind=k;}};
  for(const f of features.filter(f=>f.kind==='sketch'&&!f.groupHidden)){const basis=basisFor(f),o=planeCoordinates(f);if(basis.n.distanceTo(sketchBasis.n)>1e-5||Math.abs(o.offset-sketchOrigin.dot(sketchBasis.n))>1e-5)continue;const r={...f,offset:o.offset},points=sketchPoints(f);if(f.profile!=='circle')for(const p of (f.profile==='spline'?[points[0],points.at(-1)]:points))consider(worldPoint(r,p),'endpoint');if(f.profile==='line'||f.profile==='rect')for(let i=1;i<points.length;i++)consider(worldPoint(r,[(points[i][0]+points[i-1][0])/2,(points[i][1]+points[i-1][1])/2]),'midpoint');if(f.profile==='circle'||f.profile==='rect')consider(new THREE.Vector3(f.x,f.y,f.z),'center');}
- for(const mesh of meshes.values()){if(!mesh.visible)continue;for(const ref of mesh.userData.references||[]){const p=new THREE.Vector3(...ref.point);if(Math.abs(p.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4)consider(p,ref.kind==='midpoint'?'midpoint':'center');}const edge=mesh.children[0]?.geometry?.attributes.position;if(!edge)continue;for(let i=0;i<edge.count;i+=2){const p=new THREE.Vector3().fromBufferAttribute(edge,i),q=new THREE.Vector3().fromBufferAttribute(edge,i+1);if(Math.abs(p.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4&&Math.abs(q.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4){consider(p,'endpoint');consider(q,'endpoint');consider(p.clone().add(q).multiplyScalar(.5),'midpoint');}}}
+ for(const mesh of meshes.values()){if(!mesh.visible)continue;for(const ref of mesh.userData.references||[]){const p=new THREE.Vector3(...ref.point);if(Math.abs(p.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4)consider(p,ref.kind==='midpoint'?'midpoint':'center');}const edge=cadPosition(mesh.children[0]?.geometry);if(!edge)continue;for(let i=0;i<edge.count;i+=2){const p=new THREE.Vector3().fromBufferAttribute(edge,i),q=new THREE.Vector3().fromBufferAttribute(edge,i+1);if(Math.abs(p.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4&&Math.abs(q.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4){consider(p,'endpoint');consider(q,'endpoint');consider(p.clone().add(q).multiplyScalar(.5),'midpoint');}}}
  for(const p of getIntersectionPoints())if(Math.abs(p.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4)consider(p,'intersection');const spline=$('profile').value==='spline';if(spline)for(const p of splinePoints)consider(sketchBasis.u.clone().multiplyScalar(p[0]).addScaledVector(sketchBasis.v,p[1]).addScaledVector(sketchBasis.n,sketchOrigin.dot(sketchBasis.n)),'endpoint');host.dataset.snapKind=kind;if(best)return best;
  const lockedAngle=$('profile').value==='line'&&firstPoint&&$('lock-angle').checked&&!$('lock-length').checked?Number($('live-angle').value):null;
  const direction=lockedAngle!==null&&Number.isFinite(lockedAngle)?sketchBasis.u.clone().multiplyScalar(Math.cos(lockedAngle*Math.PI/180)).addScaledVector(sketchBasis.v,Math.sin(lockedAngle*Math.PI/180)):null;
@@ -1076,7 +1093,9 @@ async function groundOppositeFace(){closeSolidFaceMenu();if(oppositePlaneBusy)re
 
 window.addEventListener('keydown',async e=>{if(e.key!=='Delete'||e.repeat||!selectedBodies.size||sketch||document.querySelector('dialog[open]')||e.target.closest('input,textarea,select'))return;e.preventDefault();e.stopImmediatePropagation();const spec={type:'deleteBodies',targets:[...selectedBodies]},original=features;try{const result=await kernelClient.run(original,spec);if(features!==original)return;setProject([...original,{kind:'cadop',id:crypto.randomUUID(),name:'ボディを削除',spec,...result}]);syncFields();notify('選択したボディを削除しました。戻すで復元できます');}catch(err){notify(appErrorMessage(err));}});
 function clearFaceSelection(){for(const f of selectedFaces)f.geometry.dispose();selectedFaces=[];host.dataset.selectedFaceCount='0';for(const child of [...regionGroup.children])if(child.userData.multiFace)disposeObject(child);}
-function chooseFace(hit,add=false){edgeSelectionMode=false;
+async function chooseFace(hit,add=false){
+ const original=hit.object,revision=features;await original.userData.drawingCoordinatesReady;if(features!==revision||meshes.get(original.userData.bodyId)!==original)return;
+ edgeSelectionMode=false;
  if(pendingExtrude){clearFaceSelection();chooseSingleFace(hit);return;}
  const previous=add?[...selectedFaces]:[];if(!add)clearFaceSelection();
  selectingFaces=true;try{chooseSingleFace(hit);}finally{selectingFaces=false;}

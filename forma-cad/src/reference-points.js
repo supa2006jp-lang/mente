@@ -1,7 +1,8 @@
 import * as THREE from 'three';
+import {cadPosition} from './cad-coordinates.js';
 import {arcCenters} from './arc-centers.js';
 export function solidReferencePoints(geometry, edges) {
- const p=geometry.attributes.position,ix=geometry.index,normals=geometry.attributes.normal,planes=[];
+ const p=cadPosition(geometry),ix=geometry.index,normals=geometry.attributes.normal,planes=[];
  const point=i=>new THREE.Vector3().fromBufferAttribute(p,ix?ix.getX(i):i),groups=new Map(),refs=[];
  for(let i=0;i<(ix?.count??p.count);i+=3){
   const faceGroup=geometry.userData.faceGroups?.find(g=>i>=g.start&&i<g.start+g.count);if(faceGroup&&geometry.userData.planarFaces&&!geometry.userData.planarFaces.includes(faceGroup.faceId))continue;
@@ -13,7 +14,7 @@ export function solidReferencePoints(geometry, edges) {
  }
  // Mesh facets along a curved surface are not independent selectable face centers.
  for(const g of groups.values()){const smoothNeighbors=[...groups.values()].filter(h=>{const dot=g.normal.dot(h.normal);return h!==g&&dot>.95&&dot<.999999&&[...g.vertices].some(v=>h.vertices.has(v));});if(g.smooth||smoothNeighbors.length>=1)continue;planes.push(g);refs.push({point:g.sum.divideScalar(g.area).toArray(),normal:g.normal.toArray(),name:'ソリッド面',kind:'center'});}
- const ep=edges.attributes.position,segments=[];
+ const ep=cadPosition(edges),segments=[];
  for(let i=0;i<ep.count;i+=2)segments.push([new THREE.Vector3().fromBufferAttribute(ep,i),new THREE.Vector3().fromBufferAttribute(ep,i+1)]);
  const near=(a,b)=>a.distanceToSquared(b)<1e-8;
  for(const [a,b] of segments){

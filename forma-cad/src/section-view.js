@@ -8,13 +8,13 @@ export function sectionSegments(geometry,plane){
   const unique=hits.filter((v,j)=>!hits.slice(0,j).some(w=>w.distanceToSquared(v)<1e-12));if(unique.length===2)out.push(...unique[0].toArray(),...unique[1].toArray());
  }return out;
 }
-export function sectionCap(segments,plane){
+export function sectionCap(segments,plane,{precision=false}={}){
  const n=plane.normal,u=new THREE.Vector3(Math.abs(n.x)<.9?1:0,Math.abs(n.x)<.9?0:1,0);u.addScaledVector(n,-u.dot(n)).normalize();const v=n.clone().cross(u),nodes=new Map(),edges=new Set(),key=p=>p.map(x=>Math.round(x*1e5)).join(',');
  for(let i=0;i<segments.length;i+=6){const a=segments.slice(i,i+3),b=segments.slice(i+3,i+6),ka=key(a),kb=key(b),e=[ka,kb].sort().join('|');if(ka===kb||edges.has(e))continue;edges.add(e);for(const [k,p,q] of [[ka,a,kb],[kb,b,ka]]){if(!nodes.has(k))nodes.set(k,{p:new THREE.Vector2(new THREE.Vector3(...p).dot(u),new THREE.Vector3(...p).dot(v)),links:[]});nodes.get(k).links.push(q);}}
  const used=new Set(),loops=[];for(const [start,node] of nodes){if(used.has(start)||node.links.length!==2)continue;let current=start,previous=null,loop=[],valid=true;do{if(used.has(current)||nodes.get(current).links.length!==2){valid=false;break;}used.add(current);const item=nodes.get(current);loop.push(item.p);const next=item.links.find(k=>k!==previous);previous=current;current=next;}while(current!==start);if(valid&&loop.length>=3)loops.push(loop);}
  const inside=(p,poly)=>{let yes=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)yes=!yes;}return yes;};const depths=loops.map((l,i)=>loops.filter((other,j)=>i!==j&&inside(l[0],other)).length),vertices=[];
  for(let i=0;i<loops.length;i++){if(depths[i]%2)continue;const outer=loops[i],holes=loops.filter((l,j)=>depths[j]===depths[i]+1&&inside(l[0],outer)),points=[outer,...holes].flat();for(const triangle of THREE.ShapeUtils.triangulateShape(outer,holes))for(const index of triangle){const p=points[index],world=u.clone().multiplyScalar(p.x).addScaledVector(v,p.y).addScaledVector(n,-plane.constant);vertices.push(...world.toArray());}}
- const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));g.computeVertexNormals();return g;
+ const g=new THREE.BufferGeometry();g.setAttribute('position',precision?new THREE.BufferAttribute(new Float64Array(vertices),3):new THREE.Float32BufferAttribute(vertices,3));g.computeVertexNormals();return g;
 }
 export function sectionView({renderer,scene,meshes,raycaster,host,camera,getControls,getSelectedBody=()=>null,getBodyName=id=>id,canSplit=()=>true,onSplit,onClose=()=>{}}){
  renderer.localClippingEnabled=true;const plane=new THREE.Plane(),group=new THREE.Group();scene.add(group);let active=false,splitBusy=false,splitError='',editing=false;const suppressedMaterials=new Map();

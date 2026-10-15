@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {rebuild} from './geometry.js';
 import {basisFor,planarFace,worldPoint} from './frames.js';
+import {preciseGeometry} from './cad-coordinates.js';
 
 function moveMatrix(spec){
  const pivot=new THREE.Vector3(...(spec.pivot||[0,0,0])),rotation=spec.rotation?new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(...spec.rotation.map(v=>v*Math.PI/180),'ZYX')):new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(...({X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[spec.axis]||[0,0,1])),(spec.angle||0)*Math.PI/180);
@@ -43,7 +44,7 @@ export function createFilletGridReference(){
   try{
    if(!geometries.has(face.bodyId)){
     const source=filletGridSource(features,face.bodyId);let geometry=null;
-    if(source){const bodies=rebuild(features.slice(0,source.index));try{geometry=bodies.get(source.bodyId)?.geometry.clone()||null;}finally{for(const body of bodies.values())body.geometry.dispose();}
+    if(source){const bodies=rebuild(features.slice(0,source.index));try{const original=bodies.get(source.bodyId)?.geometry;geometry=original?preciseGeometry(original):null;}finally{for(const body of bodies.values())body.geometry.dispose();}
      if(geometry){for(const matrix of source.transforms){geometry.applyMatrix4(matrix);if(matrix.determinant()<0){const index=geometry.index;if(index){for(let i=0;i<index.count;i+=3){const value=index.getX(i+1);index.setX(i+1,index.getX(i+2));index.setX(i+2,value);}}else{const p=geometry.attributes.position;for(let i=0;i<p.count;i+=3){const a=new THREE.Vector3().fromBufferAttribute(p,i+1),b=new THREE.Vector3().fromBufferAttribute(p,i+2);p.setXYZ(i+1,...b.toArray());p.setXYZ(i+2,...a.toArray());}}} }geometry.computeVertexNormals();}
     }
     geometries.set(face.bodyId,geometry);

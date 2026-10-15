@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import {cadPosition} from './cad-coordinates.js';
 
 const cache=new WeakMap();
 // Merge touching and overlapping collinear display segments, keeping gaps separate.
 export function mergedStraightEdges(geometry){
- const p=geometry?.attributes.position;if(!p)return [];
+ const p=cadPosition(geometry);if(!p)return [];
  const old=cache.get(geometry);if(old&&old.position===p&&old.version===p.version&&old.circles===geometry.userData.circularEdges&&old.arcs===geometry.userData.arcEdges&&old.circleCount===(geometry.userData.circularEdges?.size||0)&&old.arcCount===(geometry.userData.arcEdges?.size||0))return old.edges;
  const groups=[],tolerance=1e-4;
  for(let i=0;i<(p?.count||0);i+=2){

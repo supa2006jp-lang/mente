@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import {solidSketchSection} from './sketch-solid-overlap.js';
+import {solidSketchBoundarySegments} from './sketch-solid-overlap.js';
 import {basisFor,worldPoint} from './frames.js';
 
-const SCALE=100000;
 
 // Measure attraction in pixels, so zooming never changes the usable distance.
 // The projected closest point is lifted back onto the actual sketch section.
@@ -58,9 +57,7 @@ export function createSketchBoundarySnap(){
     const geometry=mesh.geometry,key=[offset,...basis.u.toArray(),...basis.v.toArray(),...basis.n.toArray(),...mesh.matrixWorld.elements,geometry.attributes.position.version,geometry.index?.version].join(',');
     let entry=cache.get(mesh);
     if(!entry||entry.geometry!==geometry||entry.key!==key){
-     const rings=solidSketchSection([mesh],basis,offset),edges=[];
-     const world=p=>basis.u.clone().multiplyScalar(p.X/SCALE).addScaledVector(basis.v,p.Y/SCALE).addScaledVector(basis.n,offset);
-     for(const ring of rings)for(let i=0;i<ring.length;i++)edges.push([world(ring[i]),world(ring[(i+1)%ring.length])]);
+     const edges=solidSketchBoundarySegments([mesh],basis,offset);
      entry={geometry,key,edges};cache.set(mesh,entry);
     }
     for(const edge of entry.edges)segments.push(edge);
