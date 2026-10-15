@@ -31,7 +31,16 @@ export function resolveFilletEdges(shape,{references=[],plane=null}={}){
     if(ref.a&&ref.b){
      const line=new THREE.Line3(vector(ref.a),vector(ref.b)),tolerance=Math.max(.002,line.distance()*1e-5),nearest=new THREE.Vector3();
      const straight=records.filter(record=>record.edge.geomType==='LINE'&&record.samples.every(point=>line.closestPointToPoint(vector(point),true,nearest).distanceTo(vector(point))<=tolerance));
-     if(straight.length){for(const record of straight)if(record.sharp)chosen.add(record.edge);if(!straight.some(record=>record.sharp))throw failure('選択した線は面の継ぎ目で、丸める角がありません。外周の角を選んでください','fillet-smooth');continue;}
+     if(straight.length){
+      const sharp=straight.filter(record=>record.sharp);
+      // Rounded display coordinates can leave a sub-micrometre tail beside
+      // the intended CAD edge. Adding that tail as a separate fillet contour
+      // prevents OCCT from blending the main edge, even at a small radius.
+      // Keep an explicitly selected tiny edge when it is the only match.
+      const spanning=sharp.filter(record=>vector(record.samples[0]).distanceTo(vector(record.samples.at(-1)))>1e-6);
+      for(const record of spanning.length?spanning:sharp)chosen.add(record.edge);
+      if(!sharp.length)throw failure('選択した線は面の継ぎ目で、丸める角がありません。外周の角を選んでください','fillet-smooth');continue;
+     }
      if(ref.curved){const curved=candidates.filter(record=>record.edge.geomType!=='LINE');if(curved.length)candidates=curved;}
     }
     const vertex=R.makeVertex(ref.point);let ranked;

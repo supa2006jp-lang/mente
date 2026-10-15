@@ -1,9 +1,23 @@
 import * as R from 'replicad';
 import {solidMeshComplete} from './solid-mesh.js';
 
+// Offset/cut results can wrap one oriented solid in a compound. OCCT's fuse
+// classifies that wrapper differently and can omit the entire input body.
+// Use its actual solid while retaining the source and its shared native data.
+function singleSolidInput(shape){
+ if(shape instanceof R.Solid)return shape;
+ const solids=shape.solids;
+ try{return solids.length===1?solids[0].clone():shape;}
+ finally{solids.forEach(solid=>solid.delete());}
+}
+
 // Build one boolean operation for all inputs. Repeated pairwise fuses re-split
 // an ever larger result and retain native intermediate shapes until deleted.
 export function fuseSolids(shapes,{onProgress}={}){
+ const inputs=[];try{for(const shape of shapes)inputs.push(singleSolidInput(shape));return fuseBatch(inputs,{onProgress});}
+ finally{inputs.forEach((shape,i)=>{if(shape!==shapes[i])shape.delete();});}
+}
+function fuseBatch(shapes,{onProgress}={}){
  if(!shapes.length)throw Error('結合するボディを選択してください');
  if(shapes.length===1)return shapes[0].clone();
  const oc=R.getOC(),volumes=shapes.map(shape=>Math.abs(R.measureVolume(shape))),sum=volumes.reduce((a,b)=>a+b,0),largest=Math.max(...volumes),eps=Math.max(1e-6,sum*1e-8);
@@ -23,7 +37,12 @@ export function fuseSolids(shapes,{onProgress}={}){
  throw Error('正常なソリッドとして結合できませんでした。元のボディは変更していません');
 }
 // Keep boolean faces separate when simplifying their shared boundary loses a face.
-export function fuseSolid(base,tool,{verifyMesh=false}={}){
+export function fuseSolid(base,tool,options={}){
+ const left=singleSolidInput(base);let right;
+ try{right=singleSolidInput(tool);return fusePair(left,right,options);}
+ finally{if(left!==base)left.delete();if(right&&right!==tool)right.delete();}
+}
+function fusePair(base,tool,{verifyMesh=false}={}){
  const oc=R.getOC(),a=Math.abs(R.measureVolume(base)),b=Math.abs(R.measureVolume(tool)),eps=Math.max(1e-6,(a+b)*1e-8);
  const acceptable=shape=>{
   const check=new oc.BRepCheck_Analyzer(shape.wrapped,true,false);
