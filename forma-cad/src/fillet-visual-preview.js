@@ -63,7 +63,7 @@ export function createFilletVisualPreview({scene,meshes,host,getFeatures,getOver
    clearHighlight();if(!id||preview)return;
    try{
     const result=filletHighlightGeometry(getFeatures(),id,bodyId);if(!result)return;
-    const material=result.lines?new THREE.LineBasicMaterial({color:0xffa000,depthTest:false}):new THREE.MeshBasicMaterial({color:0xffa000,side:THREE.DoubleSide,transparent:true,opacity:.8,depthTest:false,depthWrite:false});
+    const material=result.lines?new THREE.LineBasicMaterial({color:0xffa000,depthTest:false,depthWrite:false,transparent:true,opacity:1}):new THREE.MeshBasicMaterial({color:0xffa000,side:THREE.DoubleSide,transparent:true,opacity:.8,depthTest:false,depthWrite:false});
     highlight=result.lines?new THREE.LineSegments(result.geometry,material):new THREE.Mesh(result.geometry,material);highlight.renderOrder=40;scene.add(highlight);host.dataset.filletHighlight=id;host.dataset.filletHighlightTriangles=String(result.lines?0:result.geometry.attributes.position.count/3);host.dataset.filletHighlightHistorical=String(result.historical);
    }catch{clearHighlight();}
   },

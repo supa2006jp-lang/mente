@@ -18,8 +18,8 @@ for(let i=0;i<mesh.triangles.length;i+=3){const ids=mesh.triangles.slice(i,i+3).
 assert.ok([...edges.values()].every(count=>count===2),'QR export mesh must have exactly two triangles at every welded edge');
 assert.ok(Math.abs(R.measureVolume(result.shape)-(40*40+layout.rectangles.reduce((s,r)=>s+r.width*r.height,0)))<1e-4);result.shape.delete();
 console.log('QR solid generated in '+Math.round(performance.now()-start)+' ms ('+layout.rectangles.length+' raised rectangles)');
-const native=runOperation([],{...spec,size:30,text:'1234',frame:{u:[1,0,0],v:[0,0,-1],n:[0,1,0]}});assert.equal(native.outputs.length,1);assert.equal(native.outputs[0].id,'qr');assert.deepEqual(native.remove,[]);
-const doc={format:'forma-cad',version:1,features:[{kind:'cadop',id:'qr',name:'QRコード',spec:{...spec,size:30,text:'1234',frame:{u:[1,0,0],v:[0,0,-1],n:[0,1,0]}},...native}]};validateProject(doc);
+const native=runOperation([],{...spec,size:30,text:'1234',quietModules:2,frame:{u:[1,0,0],v:[0,0,-1],n:[0,1,0]}});assert.equal(native.outputs.length,1);assert.equal(native.outputs[0].id,'qr');assert.deepEqual(native.remove,[]);assert.equal(native.analysis.quietModules,2);
+const doc={format:'forma-cad',version:1,features:[{kind:'cadop',id:'qr',name:'QRコード',spec:{...spec,size:30,text:'1234',quietModules:2,frame:{u:[1,0,0],v:[0,0,-1],n:[0,1,0]}},...native}]};validateProject(doc);
 const restored=(await decodeProjectDocument((await encodeProjectDocument(doc,{compress:true})).text)).document;assert.equal(restored.features[0].spec.text,'1234');
 const moved=runOperation(restored.features,{type:'move',id:'move',target:'qr',targets:['qr'],x:15,y:0,z:0,rotation:[0,0,0]});assert.equal(moved.outputs[0].id,'qr');
 const replay=runOperation(restored.features,{type:'replay',before:restored.features,start:0});validateProject({...doc,features:replay.features});

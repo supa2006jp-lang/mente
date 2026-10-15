@@ -14,8 +14,9 @@ function remapFillet(before,after,spec,previous,remap){
  if(!spec.edges?.length)return restored.has(spec.target)?spec:remap(before,after,spec);
  const edges=spec.edges.filter(edge=>!restored.has(edge.bodyId));
  if(!edges.length)return spec;
- const mapped=remap(before,after,{...spec,edges});let index=0;
- return {...mapped,edges:spec.edges.map(edge=>restored.has(edge.bodyId)?edge:mapped.edges[index++])};
+ const mapped=remap(before,after,{...spec,edges});
+ // One old reference may map to several surviving edge fragments.
+ return {...mapped,edges:[...spec.edges.filter(edge=>restored.has(edge.bodyId)),...mapped.edges]};
 }
 export function refreshRegion(region,before,after){
  if(region?.overlapSource){

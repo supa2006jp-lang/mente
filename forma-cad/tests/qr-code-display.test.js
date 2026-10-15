@@ -21,6 +21,11 @@ test('completed QR has white base and black relief without changing its geometry
  assert.equal(JSON.stringify(initial),original);g.dispose();
  const ordinary=new THREE.BoxGeometry(10,10,10);assert.equal(colorQrGeometry(ordinary,undefined),ordinary);ordinary.dispose();
 });
+
+test('compact quiet zones preserve color placement and persisted settings',async()=>{
+ const compact={...spec,quietModules:2,nozzle:.6},feature={kind:'cadop',id:'qr',name:'QRコード',spec:compact,...runOperation([],compact)};colored([feature],'qr').dispose();
+ const saved=(await encodeProjectDocument({format:'forma-cad',version:1,features:[feature]},{compress:true})).text,loaded=(await decodeProjectDocument(saved)).document;assert.equal(loaded.features[0].spec.quietModules,2);assert.equal(qrBodyDisplays(loaded.features).get('qr')[0].layout.quiet,2);colored(loaded.features,'qr').dispose();
+});
 test('translated, rotated and reflected copies retain QR colors',()=>{
  const move={type:'move',id:'move',target:'qr',x:15,y:-20,z:8,rotation:[30,15,45],pivot:[12,23,5]},moved={kind:'cadop',id:'move',name:'移動',spec:move,...runOperation([initial],move)},history=[initial,moved];colored(history,'qr').dispose();
  const copy={...move,id:'copy',x:40,y:0,z:0,rotation:[0,0,0],pivot:[0,0,0],copy:true,reverseCopy:true},copied={kind:'cadop',id:'copy',name:'複製',spec:copy,...runOperation(history,copy)};

@@ -9,6 +9,7 @@ function contained(a,b){return [.2,.5,.8].every(t=>distance(at(a,t),b)<=toleranc
 function missing(){return Object.assign(Error('後続フィレットの元の辺がなくなりました。辺を選び直すか、その後続フィレットを先に解除してください'),{code:'fillet-reference'});}
 function bounds(edge){const box=edge.boundingBox;try{return box.bounds;}finally{box.delete();}}
 function overlaps(a,b){return a[0].every((v,i)=>v<=b[1][i]+tolerance&&a[1][i]>=b[0][i]-tolerance);}
+const span=box=>Math.hypot(...box[0].map((v,i)=>box[1][i]-v));
 
 // A previous blend changes topology even when a later selected edge is intact.
 // Match overlapping exact CAD curves, rather than comparing global edge counts
@@ -21,7 +22,12 @@ export function remapFilletEdges(before,after,references){
    const source=resolveFilletEdges(before,{references:[reference]});
    try{
     for(const edge of source){
-     const box=bounds(edge),matches=records.filter(candidate=>candidate.edge.geomType===edge.geomType&&overlaps(box,candidate.bounds)).map(record=>record.edge).filter(candidate=>contained(edge,candidate)||contained(candidate,edge));
+     const box=bounds(edge),matching=records.filter(candidate=>candidate.edge.geomType===edge.geomType&&overlaps(box,candidate.bounds)).filter(candidate=>contained(edge,candidate.edge)||contained(candidate.edge,edge));
+     // A rounded display endpoint can leave a sub-micrometre tail. Do not
+     // turn that tail into a new explicit selection while remapping a long
+     // edge: it would bypass resolveFilletEdges' main-edge tail filtering.
+     // Keep a deliberately selected tiny edge, or the only surviving match.
+     const main=matching.filter(candidate=>span(candidate.bounds)>1e-6),tiny=matching.filter(candidate=>span(candidate.bounds)<=1e-6),matches=(span(box)<=1e-6?tiny:main.length?main:matching).map(candidate=>candidate.edge);
      if(!matches.length)throw missing();
      // Coincident edges on distinct shells have no unique geometric identity.
      for(let i=0;i<matches.length;i++)for(let j=i+1;j<matches.length;j++)if(contained(matches[i],matches[j])&&contained(matches[j],matches[i]))throw missing();
