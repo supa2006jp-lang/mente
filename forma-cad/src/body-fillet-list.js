@@ -1,0 +1,34 @@
+import {filletBodyTargets,isFilletBodySuppressed} from './fillet-state.js';
+
+export function bodyFilletEntries(features,bodyId){
+ return features.flatMap((f,index)=>{
+  const targets=filletBodyTargets(f.spec);
+  return f.kind==='cadop'&&targets.includes(bodyId)?[{id:f.id,index,name:f.name,radius:f.spec.radius,suppressed:isFilletBodySuppressed(f.spec,bodyId),shared:targets.length>1}]:[];
+ });
+}
+
+export function createBodyFilletList({getFeatures,bodyName,onEdit}){
+ let dialog=null,revision=null;
+ const el=name=>dialog.querySelector('#body-fillet-'+name);
+ function render(){
+  revision=getFeatures();const bodyId=el('target').value,entries=bodyFilletEntries(revision,bodyId);
+  el('status').textContent=entries.length?entries.length+' 工程 · 編集するフィレットを選択してください':'このボディを対象にしたフィレット工程はありません。';
+  el('items').replaceChildren();
+  for(const entry of entries){
+   const button=document.createElement('button');button.type='button';button.dataset.filletId=entry.id;
+   button.style.cssText='display:flex;flex-direction:column;gap:5px;width:100%;white-space:normal;text-align:left;padding:12px';
+   const title=document.createElement('strong'),detail=document.createElement('span');title.textContent=(entry.index+1)+'. '+entry.name+' · R'+entry.radius+' mm';detail.textContent=(entry.suppressed?'解除中':'適用中')+(entry.shared?' · 複数ボディに共通の工程':'');detail.style.cssText='font-size:12px;color:#a9becb';
+   button.append(title,detail);button.onclick=()=>{if(getFeatures()!==revision){render();el('status').textContent='履歴が変更されたため一覧を更新しました。工程を選び直してください。';return;}dialog.close();onEdit(entry.id,bodyId);};el('items').append(button);
+  }
+ }
+ function build(){
+  dialog=document.createElement('dialog');dialog.id='body-fillet-dialog';dialog.setAttribute('aria-labelledby','body-fillet-title');dialog.style.cssText='width:min(480px,calc(100vw - 32px));background:#142232;color:#e2edf5;border:1px solid #456176;border-radius:12px;padding:22px;max-height:85vh;overflow:auto';
+  dialog.innerHTML='<div class="dialog-heading"><h2 id="body-fillet-title">選択ボディのフィレット</h2><button type="button" id="body-fillet-close" aria-label="フィレット一覧を閉じる">×</button></div><label>対象ボディ<select id="body-fillet-target"></select></label><p id="body-fillet-status" role="status"></p><div id="body-fillet-items" style="display:flex;flex-direction:column;gap:8px;max-height:42vh;overflow:auto"></div><p class="hint" style="margin-top:14px">解除中の工程も編集できます。複数ボディに共通する工程の半径変更は、その工程の適用中のボディに反映されます。</p>';
+  document.body.append(dialog);el('close').onclick=()=>dialog.close();el('target').onchange=render;
+ }
+ return {open(bodyIds,preferredBody){
+  const ids=[...new Set(bodyIds)].filter(id=>typeof id==='string'&&id);if(!ids.length)return;
+  if(!dialog)build();el('target').replaceChildren();for(const id of ids)el('target').add(new Option(bodyName(id),id));
+  if(ids.includes(preferredBody))el('target').value=preferredBody;render();if(!dialog.open)dialog.showModal();
+ }};
+}

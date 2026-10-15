@@ -64,10 +64,11 @@ export function createFilletHistoryDialog({getFeatures,apply,cancel,bodyName=id=
   el('apply').onclick=()=>commit(features=>filletHistoryChange(features,id,filletSuppressionState(features.find(f=>f.id===id)?.spec)!=='suppressed'));
   el('batch').onclick=()=>commit(features=>bodyFilletsChange(features,el('body').value));
  }
- return {open(featureId){
+ return {open(featureId,preferredBody=null){
   if(busy)return;const feature=getFeatures().find(f=>f.id===featureId);if(feature?.spec?.type!=='fillet')return;
   if(!dialog)build();id=featureId;revision++;el('error').textContent='';el('radius').value=feature.spec.radius;
   el('body').replaceChildren();for(const bodyId of filletBodyTargets(feature.spec))el('body').add(new Option(bodyName(bodyId),bodyId));
+  if(filletBodyTargets(feature.spec).includes(preferredBody))el('body').value=preferredBody;
   update();if(!dialog.open)dialog.showModal();el('radius').focus();el('radius').select();
  }};
 }
