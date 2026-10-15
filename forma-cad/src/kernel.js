@@ -22,6 +22,7 @@ import {encloseParts} from './enclose.js';
 import {patternSolids} from './pattern-solids.js';
 import {fuseSolid,fuseSolids} from './solid-fuse.js';
 import {filletSolid} from './solid-fillet.js';
+import {remapFilletEdges,filletPlaneExists} from './fillet-reference-remap.js';
 import {isFilletBodySuppressed} from './fillet-state.js';
 import {chamferSolid} from './solid-chamfer.js';
 import {solidMeshComplete} from './solid-mesh.js';
@@ -476,15 +477,21 @@ function remapHistoryReferences(before,after,spec){
  const oldBodies=kernelBodies(before),newBodies=kernelBodies(after);
  try{
   const bounds=s=>vertexBounds(s.mesh().vertices);
-  const point=(id,p)=>{const a=oldBodies.get(id),b=newBodies.get(id);if(!a||!b)throw Error('参照していたボディがありません');if(a.serialize()===b.serialize())return p;
-   if(a.faces.length!==b.faces.length||a.edges.length!==b.edges.length)throw Error('面・辺の構成が変わりました。加工対象を選び直してください');
+  const comparisons=new Map(),comparison=id=>{if(comparisons.has(id))return comparisons.get(id);const a=oldBodies.get(id),b=newBodies.get(id);if(!a||!b)throw Error('参照していたボディがありません');const same=a.serialize()===b.serialize();let topology=false;if(!same){const af=a.faces,bf=b.faces,ae=a.edges,be=b.edges;try{topology=af.length!==bf.length||ae.length!==be.length;}finally{for(const part of [...af,...bf,...ae,...be])part.delete();}}const result={a,b,same,topology};comparisons.set(id,result);return result;};
+  const point=(id,p)=>{const {a,b,same,topology}=comparison(id);if(same)return p;
+   if(topology)throw Error('面・辺の構成が変わりました。加工対象を選び直してください');
    const lo=bounds(a),hi=bounds(b);return p.map((v,i)=>hi.min[i]+(v-lo.min[i])*(hi.max[i]-hi.min[i])/Math.max(1e-9,lo.max[i]-lo.min[i]));};
-  for(const key of ['faces','edges'])if(spec[key])spec[key]=spec[key].map(r=>isFilletBodySuppressed(spec,r.bodyId||spec.target)?r:({...r,point:point(r.bodyId||spec.target,r.point)}));
+  for(const key of ['faces','edges'])if(spec[key])spec[key]=spec[key].flatMap(r=>{
+   const id=r.bodyId||spec.target;if(isFilletBodySuppressed(spec,id))return [r];
+   const {a,b,topology}=comparison(id);
+   if(spec.type==='fillet'&&key==='edges'&&topology)return remapFilletEdges(a,b,[r]);
+   return [{...r,point:point(id,r.point)}];
+  });
   if(spec.type==='threadMate'&&spec.destination==='existing'&&spec.placement)spec.placement={...spec.placement,point:point(spec.placement.bodyId,spec.placement.point)};
   if(spec.type==='simpleBoss')spec.point=point(spec.target,spec.point);
-  if(spec.edgePoint)spec.edgePoint=point(spec.target,spec.edgePoint);
+  if(spec.edgePoint){const {a,b,topology}=comparison(spec.target);if(spec.type==='fillet'&&topology){spec.edges=remapFilletEdges(a,b,[{bodyId:spec.target,point:spec.edgePoint}]);delete spec.edgePoint;}else spec.edgePoint=point(spec.target,spec.edgePoint);}
   if(spec.surfacePoint)spec.surfacePoint=point(spec.target,spec.surfacePoint);
-  for(const r of [spec.face,...(spec.sections||[]),spec.region].filter(Boolean)){if(r.bodyId&&oldBodies.get(r.bodyId)?.serialize()!==newBodies.get(r.bodyId)?.serialize())throw Error('参照するソリッドの面が変わりました。面を選び直してください');if(!r.bodyId&&!r.sourceIds?.length&&[...oldBodies].some(([id,b])=>b.serialize()!==newBodies.get(id)?.serialize()))throw Error('この工程の古い面参照は自動更新できません。面を選び直してください');}
+  for(const r of [spec.face,...(spec.sections||[]),spec.region].filter(Boolean)){if(spec.type==='fillet'&&r===spec.face){const shape=newBodies.get(r.bodyId||spec.target);if(!shape||!filletPlaneExists(shape,r))throw Error('後続フィレットの基準面がなくなりました。面を選び直してください');continue;}if(r.bodyId&&oldBodies.get(r.bodyId)?.serialize()!==newBodies.get(r.bodyId)?.serialize())throw Error('参照するソリッドの面が変わりました。面を選び直してください');if(!r.bodyId&&!r.sourceIds?.length&&[...oldBodies].some(([id,b])=>b.serialize()!==newBodies.get(id)?.serialize()))throw Error('この工程の古い面参照は自動更新できません。面を選び直してください');}
   if(spec.rim&&oldBodies.get(spec.target)?.serialize()!==newBodies.get(spec.target)?.serialize())throw Error('コイルの基準円周が変わりました。円周を選び直してください');
   return spec;
  }finally{for(const b of oldBodies.values())b.delete();for(const b of newBodies.values())b.delete();}

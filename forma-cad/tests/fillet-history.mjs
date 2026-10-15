@@ -38,11 +38,19 @@ const twoBodies=add(initial,{type:'fillet',id:'both',target:'body',radius:.5,edg
 const noRounds=toggle(twoBodies,'both',true);assert.deepEqual(noRounds.at(-1).outputs.map(o=>o.id),['body','tool']);near(volume(noRounds,'body'),24000);near(volume(noRounds,'tool'),R.measureVolume(cutter));
 
 const shell=add(selected,{type:'fillet',id:'later-round',target:'body',radius:.5,edges:[{bodyId:'body',point:[40,30,10]}]}),beforeFailure=JSON.stringify(shell);
-assert.throws(()=>toggle(shell,'edge-round',true),/工程目.*変更前の形状を保持/);assert.equal(JSON.stringify(shell),beforeFailure,'a downstream face reference failure keeps all saved output geometry');
+const oneOff=toggle(shell,'edge-round',true);assert.equal(oneOff[2].spec.suppressed,true);assert.equal(oneOff[3].spec.suppressed,undefined);near(volume(oneOff,'body'),24000-20*(1-Math.PI/4)*.5**2);near(volume(toggle(oneOff,'edge-round',false),'body'),volume(shell,'body'));assert.equal(JSON.stringify(shell),beforeFailure,'single suppression preserves the later fillet and the input history');
+const adjacentSpec={type:'fillet',id:'adjacent',target:'body',radius:.3,edges:[{bodyId:'body',point:[40,15,20]}]},adjacent=add(selected,adjacentSpec),adjacentOff=toggle(adjacent,'edge-round',true);
+near(volume(adjacentOff,'body'),volume(add(initial,adjacentSpec),'body'));near(volume(toggle(adjacentOff,'edge-round',false),'body'),volume(adjacent,'body'));
+const faceSpec={type:'fillet',id:'face-round',target:'body',radius:.3,face:{bodyId:'body',plane:'XZ',offset:30}},faceChain=add(selected,faceSpec),faceOff=toggle(faceChain,'edge-round',true);
+near(volume(faceOff,'body'),volume(add(initial,faceSpec),'body'));near(volume(toggle(faceOff,'edge-round',false),'body'),volume(faceChain,'body'));
+const holePlain=add(initial,{type:'join',id:'plain-hole',target:'body',other:'tool',combineMode:'切り取り',keepTools:'削除'}),outerRound=add(holePlain,{type:'fillet',id:'outer-round',target:'body',radius:1,edges:[edge]}),rimSpec={type:'fillet',id:'rim-round',target:'body',radius:.5,edges:[{bodyId:'body',point:[23,15,20]}]},rimChain=add(outerRound,rimSpec),rimOff=toggle(rimChain,'outer-round',true);
+near(volume(rimOff,'body'),volume(add(holePlain,rimSpec),'body'));near(volume(toggle(JSON.parse(JSON.stringify(rimOff)),'outer-round',false),'body'),volume(rimChain,'body'));validateProject({format:'forma-cad',version:1,features:rimOff});
+const arc=add(selected,{type:'fillet',id:'arc-round',target:'body',radius:.2,edges:[{bodyId:'body',point:[0,1-Math.SQRT1_2,19+Math.SQRT1_2]}]}),arcSnapshot=JSON.stringify(arc);
+assert.throws(()=>toggle(arc,'edge-round',true),/工程目.*変更前の形状を保持/,'an edge created by the removed fillet cannot be redirected to a different corner');assert.equal(JSON.stringify(arc),arcSnapshot);
 const suppressedFollower=[...rounded,{kind:'cadop',id:'inactive',name:'解除済みフィレット',spec:{type:'fillet',id:'inactive',target:'body',radius:1,suppressed:true,edges:[{bodyId:'body',point:[999,999,999]}]},...runOperation(rounded,{type:'fillet',target:'body',radius:1,suppressed:true})}];
 near(volume(toggle(suppressedFollower,'round',true),'body'),24000);
 assert.throws(()=>filletHistoryChange(history,'missing',true),/見つかりません/);assert.throws(()=>filletHistoryChange(history,'cut',true),/見つかりません/);
 await fs.writeFile('.sites-runtime/fillet-history-fixture.forma.json',JSON.stringify({format:'forma-cad',version:1,features:history}));
 await fs.writeFile('.sites-runtime/fillet-history-failure.forma.json',JSON.stringify({format:'forma-cad',version:1,features:shell}));
 box.delete();cutter.delete();
-console.log('PASS exact fillet undo/reapply, later cut and move preserved, per-edge/multiple-body selections, saved suppression, grid reference, inactive followers and atomic dependency failure');
+console.log('PASS single fillet suppression with active followers, exact undo/reapply, later cut/move preserved, native validity, saved suppression, and atomic missing-edge failure');
