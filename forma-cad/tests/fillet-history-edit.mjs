@@ -9,6 +9,7 @@ import {filletHistoryChange,filletRadiusChange,bodyFilletsChange,bodyFilletFeatu
 import {filletSuppressionState,isFilletBodySuppressed} from '../src/fillet-state.js';
 import {filletGridSource} from '../src/fillet-grid-reference.js';
 import {validateProject} from '../src/geometry.js';
+import {filletHighlightGeometry} from '../src/fillet-visual-preview.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const seed=(shape,id)=>({kind:'cadop',id:'seed-'+id,name:'元のソリッド '+id,outputs:[{id,...cadMesh(shape),brep:serializeCadShape(shape),cadCoordinatePrecision:true}],remove:[]});
 const add=(features,spec)=>[...features,{kind:'cadop',id:spec.id,name:spec.type==='fillet'?'フィレット':spec.type,spec,...runOperation(features,spec)}];
@@ -21,11 +22,13 @@ const edgeA={bodyId:'A',point:[20,0,20],a:[0,0,20],b:[40,0,20]},edgeB={bodyId:'B
 const initial=[seed(box,'A'),seed(other,'B')],selected=add(initial,{type:'fillet',id:'round',target:'A',radius:1,edges:[edgeA]});
 const moved=add(selected,{type:'move',id:'move',target:'A',x:11,y:-7,z:5,angle:0}),snapshot=JSON.stringify(moved);
 const smaller=replay(filletRadiusChange(moved,'round',.5));
+const glow=filletHighlightGeometry(moved,'round','A');assert.ok(glow.geometry.attributes.position.count>0);assert.equal(glow.lines,false);glow.geometry.computeBoundingBox();assert.ok(glow.geometry.boundingBox.min.x>=11-1e-5);assert.ok(glow.geometry.boundingBox.max.y<=-6+1e-5,'only the selected fillet strip glows, not unchanged planar faces');assert.ok(glow.geometry.boundingBox.min.z>=24-1e-5);glow.geometry.dispose();assert.equal(filletHighlightGeometry(moved,'round','B'),null);
 near(measure(smaller,'A').volume,24000-40*(1-Math.PI/4)*.5**2);assert.ok(measure(smaller,'A').volume>measure(moved,'A').volume);
 assert.deepEqual(smaller[2].spec.edges,[edgeA]);assert.deepEqual(smaller[3].spec,moved[3].spec);assert.deepEqual(measure(smaller,'A').bounds,measure(moved,'A').bounds);assert.equal(JSON.stringify(moved),snapshot);
 for(const radius of [0,-1,NaN,Infinity,'1'])assert.throws(()=>filletRadiusChange(moved,'round',radius),/半径/);
 assert.throws(()=>replay(filletRadiusChange(moved,'round',1000)),/工程目/);assert.equal(JSON.stringify(moved),snapshot,'failed oversized radius is atomic');
 const disabled=replay(filletHistoryChange(moved,'round',true)),inactiveRadius=replay(filletRadiusChange(disabled,'round',2));
+const inactiveGlow=filletHighlightGeometry(disabled,'round','A');assert.equal(inactiveGlow.lines,true);assert.equal(inactiveGlow.geometry.attributes.position.count,2);inactiveGlow.geometry.dispose();assert.equal(JSON.stringify(moved),snapshot);
 assert.equal(inactiveRadius[2].spec.suppressed,true);near(measure(inactiveRadius,'A').volume,24000);assert.equal(inactiveRadius[2].spec.radius,2);
 
 const both=add(initial,{type:'fillet',id:'both',target:'A',radius:1,edges:[edgeA,edgeB]});
@@ -41,6 +44,10 @@ assert.throws(()=>bodyFilletsChange(allA,'A'),/ありません/);assert.throws((
 const document=JSON.parse(JSON.stringify({format:'forma-cad',version:1,features:allA}));validateProject(document);
 const updatedPartial=replay(filletRadiusChange(document.features,'both',.75));near(measure(updatedPartial,'A').volume,24000);assert.ok(measure(updatedPartial,'B').volume>originalB.volume);assert.deepEqual(updatedPartial[2].spec.suppressedTargets,['A']);
 const allB=replay(bodyFilletsChange(document.features,'B'));near(measure(allB,'A').volume,24000);near(measure(allB,'B').volume,24000);assert.equal(filletSuppressionState(allB[2].spec),'suppressed');
+const restoreA=bodyFilletsChange(allB,'A',false);assert.equal(restoreA.count,2);assert.equal(restoreA.suppressed,false);
+const roundA=replay(restoreA);assert.deepEqual(measure(roundA,'A'),measure(chain,'A'));near(measure(roundA,'B').volume,24000);assert.deepEqual(roundA[2].spec.suppressedTargets,['B']);assert.equal(roundA[4].spec.suppressed,true);
+const roundBoth=replay(bodyFilletsChange(roundA,'B',false));assert.deepEqual(measure(roundBoth,'A'),measure(chain,'A'));assert.deepEqual(measure(roundBoth,'B'),originalB);assert.equal(roundBoth[2].spec.suppressedTargets,undefined);assert.equal(roundBoth[2].spec.suppressed,undefined);
+assert.throws(()=>bodyFilletsChange(roundBoth,'A',false),/解除中/);assert.equal(JSON.stringify(chain),unchanged);
 const restored=replay(filletHistoryChange(allB,'both',false));assert.equal(filletSuppressionState(restored[2].spec),'active');near(measure(restored,'A').volume,measure(both,'A').volume);near(measure(restored,'B').volume,measure(both,'B').volume);
 
 const cutter=R.makeCylinder(3,30).translate([20,15,-5]),holeSeed=[seed(box,'body'),seed(cutter,'tool')],holeRound=add(holeSeed,{type:'fillet',id:'round',target:'body',radius:2}),holeCut=add(holeRound,{type:'join',id:'hole',target:'body',other:'tool',combineMode:'切り取り',keepTools:'削除'}),old={features:add(holeCut,{type:'move',id:'hole-move',target:'body',x:11,y:-7,z:5,angle:0})},radiusEdit=replay(filletRadiusChange(old.features,'round',1));

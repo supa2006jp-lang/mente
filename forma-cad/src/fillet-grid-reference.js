@@ -4,7 +4,7 @@ import {rebuild} from './geometry.js';
 import {basisFor,planarFace,worldPoint} from './frames.js';
 import {preciseGeometry} from './cad-coordinates.js';
 
-function moveMatrix(spec){
+export function moveMatrix(spec){
  const pivot=new THREE.Vector3(...(spec.pivot||[0,0,0])),rotation=spec.rotation?new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(...spec.rotation.map(v=>v*Math.PI/180),'ZYX')):new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(...({X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[spec.axis]||[0,0,1])),(spec.angle||0)*Math.PI/180);
  const matrix=new THREE.Matrix4().makeTranslation(...pivot.toArray()).multiply(rotation).multiply(new THREE.Matrix4().makeTranslation(...pivot.clone().negate().toArray()));
  const delta=new THREE.Vector3(spec.x||0,spec.y||0,spec.z||0),copy=spec.copy===true||spec.moveMode==='複製して移動';

@@ -1,10 +1,22 @@
 import {findRegions} from './regions.js';
-import {filletSuppressionState} from './fillet-state.js';
+import {filletSuppressionState,isFilletBodySuppressed,filletBodyTargets} from './fillet-state.js';
 import {basisFor,worldPoint} from './frames.js';
 import {depthToGridPlane} from './extrusion-extent.js';
 import {refreshLinkedOffset} from './linked-sketch-offset.js';
 const copy=x=>JSON.parse(JSON.stringify(x));
 const signature=r=>JSON.stringify([...(r.sourceIds||[])].sort())+':'+r.holes.length;
+function remapFillet(before,after,spec,previous,remap){
+ // Disabled edges retain the coordinates of their original input shape. When
+ // restoring dependent fillets together, those coordinates become valid again;
+ // mapping from the temporary unrounded topology would reject them incorrectly.
+ const restored=new Set(filletBodyTargets(spec).filter(id=>isFilletBodySuppressed(previous,id)&&!isFilletBodySuppressed(spec,id)));
+ if(!restored.size)return remap(before,after,spec);
+ if(!spec.edges?.length)return restored.has(spec.target)?spec:remap(before,after,spec);
+ const edges=spec.edges.filter(edge=>!restored.has(edge.bodyId));
+ if(!edges.length)return spec;
+ const mapped=remap(before,after,{...spec,edges});let index=0;
+ return {...mapped,edges:spec.edges.map(edge=>restored.has(edge.bodyId)?edge:mapped.edges[index++])};
+}
 export function refreshRegion(region,before,after){
  if(region?.overlapSource){
   let source=refreshRegion(region.overlapSource,before,after);if(source===region.overlapSource)return region;
@@ -34,7 +46,7 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition){
     const refresh=r=>{const updated=refreshRegion(r,before.slice(0,i),prefix);if(updated?.overlapSource){if(!resolvePartition)throw Error('区切られた領域の再計算にはCADエンジンが必要です');return resolvePartition(updated,prefix);}return updated;};
     if(f.offsetLink)f=refreshLinkedOffset(f,refresh(f.offsetLink.region));
     if(f.region){const region=refresh(f.region);if(region!==f.region){const n=basisFor(region).n;f={...f,region,plane:region.plane,frame:region.frame,x:n.x*region.offset,y:n.y*region.offset,z:n.z*region.offset};}}
-    if(f.kind==='cadop'&&f.spec){let spec=copy(f.spec);if(spec.type==='pipe'){const path=prefix.find(p=>p.id===spec.path&&p.kind==='sketch');if(path)spec.pathFeature=copy(path);}if(spec.region)spec.region=refresh(spec.region);if(spec.sections)spec.sections=spec.sections.map(refresh);spec=remap&&!(spec.type==='fillet'&&filletSuppressionState(spec)==='suppressed')?remap(before.slice(0,i),prefix,spec):spec;const result=run(prefix,{...spec,id:spec.id||f.id});f={...f,spec,...result};}
+    if(f.kind==='cadop'&&f.spec){let spec=copy(f.spec);if(spec.type==='pipe'){const path=prefix.find(p=>p.id===spec.path&&p.kind==='sketch');if(path)spec.pathFeature=copy(path);}if(spec.region)spec.region=refresh(spec.region);if(spec.sections)spec.sections=spec.sections.map(refresh);if(remap&&!(spec.type==='fillet'&&filletSuppressionState(spec)==='suppressed'))spec=spec.type==='fillet'?remapFillet(before.slice(0,i),prefix,spec,before.find(old=>old.id===f.id)?.spec,remap):remap(before.slice(0,i),prefix,spec);const result=run(prefix,{...spec,id:spec.id||f.id});f={...f,spec,...result};}
    }
    if(i>=start&&f.kind==='extrusion'&&f.gridExtentPlane)f={...f,depth:depthToGridPlane(f,f.gridExtentPlane)};
    if(i>=start&&f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.untilSolid||f.overlapOnly||f.region?.overlapSource||f.taperAngle||f.cadResult)&&run){const {cadResult,...input}=f;f={...input,cadResult:run(prefix,{type:'extrusion',target:f.target,feature:input})};}
