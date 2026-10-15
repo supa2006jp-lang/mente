@@ -5,6 +5,15 @@ const vector=point=>new THREE.Vector3(...point);
 function sample(edge,t){const p=edge.pointAt(t);try{return p.toTuple();}finally{p.delete();}}
 function valid(shape){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{return check.IsValid();}finally{check.delete();}}
 function failure(message,code){const error=new Error(message);error.code=code;return error;}
+function failedContours(builder,edges){
+ const segments=[];let exact=false;
+ try{
+  const count=builder.NbFaultyContours();exact=count>0;
+  for(let i=1;i<=count&&segments.length<64;i++){const contour=builder.FaultyContour(i);for(let j=1;j<=builder.NbEdges(contour)&&segments.length<64;j++){const edge=R.cast(builder.Edge(contour,j));try{segments.push({points:Array.from({length:17},(_,k)=>sample(edge,k/16))});}finally{edge.delete();}}}
+ }catch{segments.length=0;exact=false;}
+ if(!segments.length)for(const edge of edges.slice(0,64))try{segments.push({points:Array.from({length:17},(_,k)=>sample(edge,k/16))});}catch{}
+ return {kind:'fillet',certainty:exact?'faulty-contour':'selected-edges',edges:segments};
+}
 
 // Display chords are not exact CAD curves. Use the CAD distance operator, and
 // retain segment endpoints so split collinear edges match the entire selection.
@@ -65,7 +74,8 @@ function build(shape,radius,selection){
   if(!builder.IsDone())throw failure('選択した辺の隣接面・交差・肉厚の条件でフィレットを作成できません。半径を小さくするか、辺を1本ずつ選んで確認してください','fillet-geometry');
   result=R.cast(builder.Shape()).asShape3D();if(!valid(result))throw failure('フィレット後の形状が不正になるため適用できません。隣接する短い辺・面の継ぎ目・薄い部分を確認してください','fillet-geometry');
   const output=result;result=null;return {shape:output,edgeCount:edges.length};
- }finally{result?.delete();builder.delete();edges.forEach(edge=>edge.delete());}
+ }catch(error){error=error instanceof Error?error:failure('フィレットを作成できません。半径と対象の辺を確認してください','fillet-geometry');error.diagnostics=failedContours(builder,edges);throw error;}
+ finally{result?.delete();builder.delete();edges.forEach(edge=>edge.delete());}
 }
 
 export function filletSolid(base,radius,selection={},onProgress){

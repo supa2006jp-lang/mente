@@ -1,6 +1,6 @@
 export function filletBodyTargets(spec){
  if(spec?.type!=='fillet')return [];
- return [...new Set(spec.edges?.length?spec.edges.map(edge=>edge.bodyId):[spec.target])].filter(id=>typeof id==='string'&&id);
+ return [...new Set(spec.edges?.length?spec.edges.map(edge=>edge.bodyId):spec.targets?.length?spec.targets:[spec.target])].filter(id=>typeof id==='string'&&id);
 }
 export function isFilletBodySuppressed(spec,bodyId){
  return spec?.type==='fillet'&&(spec.suppressed===true||Array.isArray(spec.suppressedTargets)&&spec.suppressedTargets.includes(bodyId));

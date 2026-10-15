@@ -8,4 +8,4 @@ export function cadErrorAdvice(error,spec){const raw=typeof error==='string'?err
  else if(/JSON|Unexpected token|Unexpected end of|SyntaxError/i.test(raw)){message='ファイルのデータを読み込めませんでした。保存したFORMAのJSONファイルを選び直してください。';code='file';}
  else if(/[ぁ-んァ-ヶ一-龠]/.test(raw)){message=raw;if(/失敗|できません/.test(raw)&&!/してください|調整|確認|以上|以下|必要です/.test(raw))message+=' '+hint;}
  else message=title+'を完了できませんでした。'+hint;
- const result=new Error(message,{cause:error instanceof Error?error:new Error(raw)});result.rawMessage=error?.rawMessage||raw;result.code=error?.code||code;result.operation=type;return result;}
+ const result=new Error(message,{cause:error instanceof Error?error:new Error(raw)});result.rawMessage=error?.rawMessage||raw;result.code=error?.code||code;result.operation=type;for(const key of ['diagnostics','featureId','featureIndex','failedOperation'])if(error?.[key]!==undefined)result[key]=error[key];return result;}

@@ -32,6 +32,7 @@ const inactiveGlow=filletHighlightGeometry(disabled,'round','A');assert.equal(in
 assert.equal(inactiveRadius[2].spec.suppressed,true);near(measure(inactiveRadius,'A').volume,24000);assert.equal(inactiveRadius[2].spec.radius,2);
 
 const both=add(initial,{type:'fillet',id:'both',target:'A',radius:1,edges:[edgeA,edgeB]});
+const wholeBodies=add(initial,{type:'fillet',id:'whole',target:'A',targets:['A','B'],radius:1});assert.deepEqual(wholeBodies.at(-1).outputs.map(output=>output.id),['A','B']);const onlyB=replay(bodyFilletsChange(wholeBodies,'A'));near(measure(onlyB,'A').volume,24000);assert.deepEqual(measure(onlyB,'B'),measure(wholeBodies,'B'));
 const laterA=add(both,{type:'fillet',id:'later-A',target:'A',radius:.5,edges:[{bodyId:'A',point:[40,30,10]}]});
 const laterB=add(laterA,{type:'fillet',id:'later-B',target:'B',radius:.5,edges:[{bodyId:'B',point:[110,30,10]}]});
 const chain=add(laterB,{type:'move',id:'later-move',target:'A',x:10,y:0,z:0,angle:0}),unchanged=JSON.stringify(chain),originalB=measure(chain,'B');

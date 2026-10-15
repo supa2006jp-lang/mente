@@ -1,0 +1,14 @@
+import {historyImpact} from './history-impact.js';
+export function createHistoryImpactView({getFeatures,onSelect}){
+ const panel=document.createElement('section');panel.id='history-impact-panel';panel.hidden=true;panel.style.cssText='position:fixed;left:240px;top:290px;z-index:103;width:min(340px,calc(100vw - 32px));max-height:42vh;overflow:auto;background:#f7fbff;color:#18374b;border:1px solid #8baaba;border-radius:8px;padding:12px;box-shadow:0 5px 18px #14223222';
+ panel.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px"><strong>編集の影響・後続工程</strong><button id="history-impact-close" type="button" aria-label="履歴の影響を閉じる">×</button></div><p id="history-impact-summary" role="status"></p><details><summary>再計算される工程を見る</summary><div id="history-impact-items"></div></details><p id="history-impact-error" role="status"></p>';
+ document.body.append(panel);let id=null,history=null,failed=null;
+ const q=name=>panel.querySelector('#history-impact-'+name);
+ function render(){
+  const features=getFeatures();history=features;const impact=historyImpact(features,id);q('summary').textContent=impact.index<0?'工程が見つかりません':(impact.index+1)+'工程目を編集：後続 '+impact.steps.length+' 工程を再計算 ／ 参照に影響 '+impact.affected+' 工程';
+  q('items').replaceChildren();for(const step of impact.steps){const button=document.createElement('button');button.type='button';button.dataset.featureId=step.id;button.style.cssText='display:block;width:100%;text-align:left;white-space:normal;margin-top:5px;padding:7px;color:'+(step.affected?'#17475a':'#697984');button.textContent=(step.index+1)+'. '+step.name+(step.affected?' · 参照に影響':' · 再計算');if(step.id===failed)button.style.border='2px solid #d43c2e';button.onclick=()=>onSelect(step.id);q('items').append(button);}
+ }
+ q('close').onclick=()=>{panel.hidden=true;};
+ function mount(){const parent=document.querySelector('dialog[open]')||document.getElementById('editor');if(!parent)return;panel.style.cssText='position:static;box-sizing:border-box;width:auto;max-height:230px;overflow:auto;background:#f7fbff;color:#18374b;border:1px solid #8baaba;border-radius:8px;padding:10px;margin:12px 0;font-size:13px';const actions=parent.querySelector('.editor-actions');actions?actions.before(panel):parent.append(panel);}
+ return {open(featureId){id=featureId;failed=null;q('error').textContent='';render();panel.hidden=!historyImpact(history,id).steps.length;queueMicrotask(mount);},close(){panel.hidden=true;},failure(error){if(!error.featureId)return;failed=error.featureId;if(!id)id=error.featureId;render();panel.hidden=false;mount();const button=document.createElement('button');button.type='button';button.textContent=(Number(error.featureIndex)+1)+'工程目の失敗箇所を開く';button.onclick=()=>onSelect(error.featureId);q('error').replaceChildren(document.createTextNode('再計算を中止し、変更前の形を保持しました。 '),button);},sync(){if(!panel.hidden&&history!==getFeatures()){panel.hidden=true;}}};
+}
