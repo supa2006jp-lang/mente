@@ -2,21 +2,19 @@ import * as THREE from 'three';
 
 // GPU positions stay Float32. Drawing references retain the kernel's doubles;
 // reading the rendered buffer back would turn a shared boundary into a sliver.
-const positions=new WeakMap();
+const nativePositions=new WeakMap();
 export function cadPosition(geometry){
- if(!geometry)return undefined;const values=geometry.userData.cadCoordinates;
- if(!values||values.length!==geometry.attributes.position?.count*3)return geometry.attributes.position;
- let entry=positions.get(geometry);if(!entry||entry.values!==values){entry={values,attribute:new THREE.BufferAttribute(new Float64Array(values),3)};positions.set(geometry,entry);}return entry.attribute;
+ return geometry?(nativePositions.get(geometry)||geometry.attributes.position):undefined;
 }
 export function retainCadCoordinates(geometry,vertices){
- geometry.userData.cadCoordinates=Array.from(vertices);return geometry;
+ nativePositions.set(geometry,new THREE.BufferAttribute(new Float64Array(vertices),3));return geometry;
 }
 export function preciseGeometry(geometry){
  const copy=geometry.clone(),position=cadPosition(geometry);
- copy.setAttribute('position',position.clone());delete copy.userData.cadCoordinates;return copy;
+ copy.setAttribute('position',position.clone());return copy;
 }
 export function copyCadCoordinates(source,target){
- const position=cadPosition(source);if(!source.userData.cadCoordinates)return target;
+ const position=cadPosition(source);if(!nativePositions.has(source))return target;
  const values=[],index=source.index;for(let i=0;i<target.attributes.position.count;i++){const j=index&&target.index===null?index.getX(i):i;values.push(position.getX(j),position.getY(j),position.getZ(j));}
  return retainCadCoordinates(target,values);
 }
@@ -42,7 +40,7 @@ export function restoreContourPoint(point,segments,tolerance=Math.SQRT2*5e-6+1e-
 // EdgesGeometry writes Float32 even when its input retains native positions.
 // Match its endpoints back to the corresponding original tessellation vertex.
 export function retainEdgeCoordinates(edges,source){
- const native=cadPosition(source);if(!source.userData.cadCoordinates)return edges;
+ const native=cadPosition(source);if(!nativePositions.has(source))return edges;
  const key=(x,y,z)=>[Math.fround(x),Math.fround(y),Math.fround(z)].join(','),points=new Map();
  for(let i=0;i<native.count;i++){const point=[native.getX(i),native.getY(i),native.getZ(i)],id=key(...point);if(!points.has(id))points.set(id,point);}
  const p=edges.attributes.position,positions=[];
