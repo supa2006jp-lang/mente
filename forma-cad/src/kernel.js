@@ -22,6 +22,7 @@ import {encloseParts} from './enclose.js';
 import {patternSolids} from './pattern-solids.js';
 import {fuseSolid,fuseSolids} from './solid-fuse.js';
 import {filletSolid} from './solid-fillet.js';
+import {isFilletBodySuppressed} from './fillet-state.js';
 import {chamferSolid} from './solid-chamfer.js';
 import {solidMeshComplete} from './solid-mesh.js';
 import {cadMesh} from './cad-mesh.js';
@@ -352,7 +353,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
   const groups=p.edges?.length?[...new Set(p.edges.map(e=>e.bodyId))]:[p.target],results=[];
   for(const id of groups){
    const solid=bodies.get(id);if(!solid)throw Error('対象ボディを選択してください');
-   if(p.type==='fillet'&&p.suppressed===true){emit(id,solid);results.push({bodyId:id,radius:p.radius,edges:0,suppressed:true});continue;}
+   if(isFilletBodySuppressed(p,id)){emit(id,solid);results.push({bodyId:id,radius:p.radius,edges:0,suppressed:true});continue;}
    const references=p.edges?.length?p.edges.filter(e=>e.bodyId===id):p.edgePoint?[{point:p.edgePoint}]:[],basis=p.face?basisFor(p.face):null;
    const selection={references,plane:basis?{normal:basis.n.toArray(),offset:p.face.offset}:null};let result;
    try{result=p.type==='chamfer'?chamferSolid(solid,p.distance,selection,onProgress):filletSolid(solid,p.radius,selection,onProgress);emit(id,result.shape);results.push({bodyId:id,...(p.type==='chamfer'?{distance:result.distance}:{radius:result.radius}),edges:result.edgeCount,normalized:result.normalized});}finally{result?.shape.delete();}
@@ -478,7 +479,7 @@ function remapHistoryReferences(before,after,spec){
   const point=(id,p)=>{const a=oldBodies.get(id),b=newBodies.get(id);if(!a||!b)throw Error('参照していたボディがありません');if(a.serialize()===b.serialize())return p;
    if(a.faces.length!==b.faces.length||a.edges.length!==b.edges.length)throw Error('面・辺の構成が変わりました。加工対象を選び直してください');
    const lo=bounds(a),hi=bounds(b);return p.map((v,i)=>hi.min[i]+(v-lo.min[i])*(hi.max[i]-hi.min[i])/Math.max(1e-9,lo.max[i]-lo.min[i]));};
-  for(const key of ['faces','edges'])if(spec[key])spec[key]=spec[key].map(r=>({...r,point:point(r.bodyId||spec.target,r.point)}));
+  for(const key of ['faces','edges'])if(spec[key])spec[key]=spec[key].map(r=>isFilletBodySuppressed(spec,r.bodyId||spec.target)?r:({...r,point:point(r.bodyId||spec.target,r.point)}));
   if(spec.type==='threadMate'&&spec.destination==='existing'&&spec.placement)spec.placement={...spec.placement,point:point(spec.placement.bodyId,spec.placement.point)};
   if(spec.type==='simpleBoss')spec.point=point(spec.target,spec.point);
   if(spec.edgePoint)spec.edgePoint=point(spec.target,spec.edgePoint);

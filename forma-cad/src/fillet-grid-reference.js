@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {isFilletBodySuppressed} from './fillet-state.js';
 import {rebuild} from './geometry.js';
 import {basisFor,planarFace,worldPoint} from './frames.js';
 import {preciseGeometry} from './cad-coordinates.js';
@@ -19,7 +20,7 @@ export function filletGridSource(features,bodyId){
   const feature=features[i],result=feature.cadResult||(feature.kind==='cadop'?feature:null),output=result?.outputs?.findIndex(o=>o.id===id)??-1;
   if(output>=0){
    const spec=feature.spec;
-   if(spec?.type==='fillet'&&spec.suppressed===true)continue;
+   if(isFilletBodySuppressed(spec,id))continue;
    if(spec?.type==='fillet'){source={index:i,bodyId:id,transforms:[...transforms]};continue;}
    if(spec?.type==='move'){
     const targets=[...new Set(spec.targets?.length?spec.targets:[spec.target])];
