@@ -1,0 +1,48 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import * as R from 'replicad';
+import {runOperation} from '../src/kernel.js';
+import {cadMesh} from '../src/cad-mesh.js';
+import {serializeCadShape} from '../src/cad-serialization.js';
+import {filletHistoryChange} from '../src/fillet-history.js';
+import {filletGridSource} from '../src/fillet-grid-reference.js';
+import {validateProject} from '../src/geometry.js';
+
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const seed=(shape,id)=>({kind:'cadop',id:'seed-'+id,name:'元のソリッド',outputs:[{id,...cadMesh(shape),brep:serializeCadShape(shape),cadCoordinatePrecision:true}],remove:[]});
+const add=(features,spec)=>[...features,{kind:'cadop',id:spec.id,name:spec.type==='fillet'?'フィレット':spec.type,spec,...runOperation(features,spec)}];
+const toggle=(features,id,suppressed)=>{const change=filletHistoryChange(features,id,suppressed);return runOperation(change.features,{type:'replay',before:change.before,start:change.start}).features;};
+const shapeOf=(features,id)=>R.deserializeShape(features.flatMap(f=>f.outputs||[]).findLast(o=>o.id===id).brep).asShape3D();
+const volume=(features,id)=>{const shape=shapeOf(features,id);try{const c=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{assert.ok(c.IsValid());}finally{c.delete();}return R.measureVolume(shape);}finally{shape.delete();}};
+const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-5,`${a} != ${b}`);
+const box=R.makeBox([0,0,0],[40,30,20]),cutter=R.makeCylinder(3,30).translate([20,15,-5]),initial=[seed(box,'body'),seed(cutter,'tool')];
+const rounded=add(initial,{type:'fillet',id:'round',target:'body',radius:2});
+const cut=add(rounded,{type:'join',id:'cut',target:'body',other:'tool',combineMode:'切り取り',keepTools:'削除'});
+const history=add(cut,{type:'move',id:'move',target:'body',x:11,y:-7,z:5,angle:0}),snapshot=JSON.stringify(history);
+const unrounded=toggle(history,'round',true);
+assert.equal(JSON.stringify(history),snapshot,'failed or successful replay never mutates the original history');
+assert.deepEqual(unrounded.map(f=>f.id),history.map(f=>f.id));
+assert.deepEqual(unrounded[2].spec,{...rounded[2].spec,suppressed:true});
+near(volume(unrounded,'body'),40*30*20-Math.PI*3*3*20);
+const final=shapeOf(unrounded,'body');assert.deepEqual(final.boundingBox.bounds.map(row=>row.map(v=>Math.round(v))),[[11,-7,5],[51,23,25]]);
+const probe=R.makeCylinder(2.5,20).translate([31,8,5]),overlap=final.intersect(probe);near(R.measureVolume(overlap),0);overlap.delete();probe.delete();final.delete();
+assert.equal(filletGridSource(unrounded.slice(0,3),'body'),null,'a disabled fillet does not create a pre-fillet grid');
+const reread=JSON.parse(JSON.stringify({format:'forma-cad',version:1,features:unrounded}));validateProject(reread);
+const reapplied=toggle(reread.features,'round',false);near(volume(reapplied,'body'),volume(history,'body'));assert.deepEqual(reapplied[2].spec,history[2].spec);
+
+const edge={bodyId:'body',point:[20,0,20],a:[0,0,20],b:[40,0,20]};
+const selected=add(initial,{type:'fillet',id:'edge-round',target:'body',radius:1,edges:[edge]});
+const disabledEdge=toggle(selected,'edge-round',true);near(volume(disabledEdge,'body'),24000);assert.deepEqual(disabledEdge.at(-1).spec.edges,[edge]);near(volume(toggle(disabledEdge,'edge-round',false),'body'),volume(selected,'body'));
+const twoBodies=add(initial,{type:'fillet',id:'both',target:'body',radius:.5,edges:[edge,{bodyId:'tool',point:[23,15,25]}]});
+const noRounds=toggle(twoBodies,'both',true);assert.deepEqual(noRounds.at(-1).outputs.map(o=>o.id),['body','tool']);near(volume(noRounds,'body'),24000);near(volume(noRounds,'tool'),R.measureVolume(cutter));
+
+const shell=add(selected,{type:'fillet',id:'later-round',target:'body',radius:.5,edges:[{bodyId:'body',point:[40,30,10]}]}),beforeFailure=JSON.stringify(shell);
+assert.throws(()=>toggle(shell,'edge-round',true),/工程目.*変更前の形状を保持/);assert.equal(JSON.stringify(shell),beforeFailure,'a downstream face reference failure keeps all saved output geometry');
+const suppressedFollower=[...rounded,{kind:'cadop',id:'inactive',name:'解除済みフィレット',spec:{type:'fillet',id:'inactive',target:'body',radius:1,suppressed:true,edges:[{bodyId:'body',point:[999,999,999]}]},...runOperation(rounded,{type:'fillet',target:'body',radius:1,suppressed:true})}];
+near(volume(toggle(suppressedFollower,'round',true),'body'),24000);
+assert.throws(()=>filletHistoryChange(history,'missing',true),/見つかりません/);assert.throws(()=>filletHistoryChange(history,'cut',true),/見つかりません/);
+await fs.writeFile('.sites-runtime/fillet-history-fixture.forma.json',JSON.stringify({format:'forma-cad',version:1,features:history}));
+await fs.writeFile('.sites-runtime/fillet-history-failure.forma.json',JSON.stringify({format:'forma-cad',version:1,features:shell}));
+box.delete();cutter.delete();
+console.log('PASS exact fillet undo/reapply, later cut and move preserved, per-edge/multiple-body selections, saved suppression, grid reference, inactive followers and atomic dependency failure');

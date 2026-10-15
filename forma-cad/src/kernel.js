@@ -352,6 +352,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
   const groups=p.edges?.length?[...new Set(p.edges.map(e=>e.bodyId))]:[p.target],results=[];
   for(const id of groups){
    const solid=bodies.get(id);if(!solid)throw Error('対象ボディを選択してください');
+   if(p.type==='fillet'&&p.suppressed===true){emit(id,solid);results.push({bodyId:id,radius:p.radius,edges:0,suppressed:true});continue;}
    const references=p.edges?.length?p.edges.filter(e=>e.bodyId===id):p.edgePoint?[{point:p.edgePoint}]:[],basis=p.face?basisFor(p.face):null;
    const selection={references,plane:basis?{normal:basis.n.toArray(),offset:p.face.offset}:null};let result;
    try{result=p.type==='chamfer'?chamferSolid(solid,p.distance,selection,onProgress):filletSolid(solid,p.radius,selection,onProgress);emit(id,result.shape);results.push({bodyId:id,...(p.type==='chamfer'?{distance:result.distance}:{radius:result.radius}),edges:result.edgeCount,normalized:result.normalized});}finally{result?.shape.delete();}
