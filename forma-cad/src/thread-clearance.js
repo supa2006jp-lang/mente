@@ -19,7 +19,7 @@ function move(shape,spec){
 // OCCT cannot offset the C0 B-spline surfaces of swept threads. Build the
 // complementary female profile instead, then invert it into a clearance tool.
 // This retains helical grooves rather than replacing them with a cylinder.
-export function threadClearanceShape(solid,distance,source,{bodies,run,onProgress,cacheKey,onAssessment}={}){
+export function threadClearanceShape(solid,distance,source,{bodies,runShape,onProgress,cacheKey,onAssessment}={}){
  const spec=source?.spec;
  if(spec?.type!=='thread'||spec.profile!=='metric60'||spec.threadVersion!==2||spec.threadInternal===true)return null;
  const key='thread-clearance:'+distance+':'+JSON.stringify(spec)+':'+(cacheKey||solid.serialize());
@@ -49,7 +49,7 @@ export function threadClearanceShape(solid,distance,source,{bodies,run,onProgres
    // ordinary manual-pull 40%-of-pitch guard does not apply to this cutter.
    if(Math.abs(clearance)>=.001)thread={...thread,threadFaceOffsets:[-clearance,-clearance,-clearance,0],threadCylinderOffset:-clearance};
    onProgress?.({stage:'ねじ山に沿うすき間形状を作成しています'});
-   const femaleOutput=run([block,hole],thread).outputs[0],female=hold(R.deserializeShape(femaleOutput.brep).asShape3D());
+   const female=hold(runShape([block,hole],thread));
    const central=hold(place(support.cut(female),selected.origin,selected.normal));
    const expanded=hold(enlargeForClearance(base,safe)),shaft=hold(R.makeCylinder(radius+safe+.001,length,selected.origin.toArray(),selected.normal.toArray()));
    const outside=hold(expanded.cut(shaft)),parts=[central];if(R.measureVolume(outside)>1e-9)parts.push(outside);

@@ -44,7 +44,7 @@ export function barrierGapShape(tool,result,blockers){return measurePhase('displ
   const output=gap;gap=null;return output;
  }finally{gap?.delete();after.delete();source.delete();}
 });}
-export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,onProgress}={}){
+export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,bodyKey,onProgress}={}){
  validateExtrusionBarrier(f);
  const gap=f.barrierGap??.6,source=f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId;
  const eligible=[...bodies].filter(([id])=>id!==source&&!(f.operation==='join'&&id===f.target));
@@ -58,7 +58,7 @@ export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,on
    if(!blockers.length)return tool.clone();
    let candidate;
    try{
-    candidate=measurePhase('geometry',()=>cutWithClearance(tool,blockers.map(([,shape])=>shape),gap,{fallback:(...args)=>{const shape=fallback?.(...args,report=>{(assessment.threadProfiles||=[]).push(report);});if(shape)assessment.thread=true;return shape;}}));
+    candidate=measurePhase('geometry',()=>cutWithClearance(tool,blockers.map(([,shape])=>shape),gap,{cacheKeys:blockers.map(([,shape])=>bodyKey?.(shape)),fallback:(...args)=>{const shape=fallback?.(...args,report=>{(assessment.threadProfiles||=[]).push(report);});if(shape)assessment.thread=true;return shape;}}));
     measurePhase('inspection',()=>{const check=new (R.getOC().BRepCheck_Analyzer)(candidate.wrapped,true,false);
     try{if(!check.IsValid()||!Number.isFinite(R.measureVolume(candidate))||R.measureVolume(candidate)<=1e-9)throw Error('障害物とすき間で押し出し形状がなくなるか、不正になります。距離・すき間を調整してください');}finally{check.delete();}});
     for(const [i,[,blocker]] of blockers.entries()){onProgress?.({stage:'障害物とのすき間を検査しています',current:i+1,total:blockers.length});if(clearanceDistance(candidate,blocker)<gap-1e-5)throw Error('指定したバリアのすき間を確保できませんでした。すき間を小さくするか、障害物の形状を確認してください');}

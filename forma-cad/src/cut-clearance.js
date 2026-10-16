@@ -1,4 +1,24 @@
 import * as R from 'replicad';
+// Keep encoded, validated offsets rather than shallow native clones: booleans
+// may update shared face caches. Each hit reconstructs an independent tool.
+const offsetCache=new Map(),offsetLimit=16*1024*1024;let offsetBytes=0;
+export const clearanceCacheStats={hits:0,misses:0,builds:0};
+export function clearClearanceCache(){offsetCache.clear();offsetBytes=0;clearanceCacheStats.hits=clearanceCacheStats.misses=clearanceCacheStats.builds=0;}
+function clearanceOffset(solid,distance,sourceKey,index){
+ const key=JSON.stringify([distance,sourceKey??solid.serialize(),index]);
+ const cached=offsetCache.get(key);
+ if(cached){
+  clearanceCacheStats.hits++;offsetCache.delete(key);offsetCache.set(key,cached);
+  return R.deserializeShape(cached.brep).asShape3D();
+ }
+ clearanceCacheStats.misses++;let shape;
+ try{
+  shape=enlargeForClearance(solid,distance);clearanceCacheStats.builds++;
+  const brep=shape.serialize(),bytes=(key.length+brep.length)*2;
+  if(bytes<=offsetLimit){offsetCache.set(key,{brep,bytes});offsetBytes+=bytes;while(offsetCache.size>16||offsetBytes>offsetLimit){const oldest=offsetCache.keys().next().value;offsetBytes-=offsetCache.get(oldest).bytes;offsetCache.delete(oldest);}}
+  const result=shape;shape=null;return result;
+ }finally{shape?.delete();}
+}
 export function cutClearanceDistance(value=0){if(!Number.isFinite(value)||value<0||value>1000)throw Error('切り取りのすき間は0〜1000 mmで指定してください');return value;}
 export function enlargeForClearance(solid,distance){
  // Offsets may change shared native flags, so work on an independent copy.
@@ -21,7 +41,7 @@ function clearanceCut(base,tool){
  }
  throw Error('すき間で切り抜いた形状を正常に作れませんでした。元のボディは変更していません');
 }
-export function cutWithClearance(base,tools,value=0,{fallback}={}){
+export function cutWithClearance(base,tools,value=0,{fallback,cacheKeys=[]}={}){
  const distance=cutClearanceDistance(value);let result=base.clone();
- try{for(const tool of tools){const solids=distance>0?tool.solids:[tool];try{if(!solids.length)throw Error('切り抜くソリッドがありません');for(const solid of solids){let enlarged;try{if(distance>0){try{enlarged=enlargeForClearance(solid,distance);}catch(error){if(fatal(error))throw error;enlarged=solids.length===1?fallback?.(solid,distance,tool):null;if(!enlarged)throw error;}}const next=clearanceCut(result,enlarged||solid);result.delete();result=next;}finally{enlarged?.delete();}}}finally{if(distance>0)solids.forEach(s=>s.delete());}}const output=result;result=null;return output;}finally{result?.delete();}
+ try{for(const [toolIndex,tool] of tools.entries()){const solids=distance>0?tool.solids:[tool];try{if(!solids.length)throw Error('切り抜くソリッドがありません');for(const [solidIndex,solid] of solids.entries()){let enlarged;try{if(distance>0){try{enlarged=clearanceOffset(solid,distance,cacheKeys[toolIndex],solidIndex);}catch(error){if(fatal(error))throw error;enlarged=solids.length===1?fallback?.(solid,distance,tool):null;if(!enlarged)throw error;}}const next=clearanceCut(result,enlarged||solid);result.delete();result=next;}finally{enlarged?.delete();}}}finally{if(distance>0)solids.forEach(s=>s.delete());}}const output=result;result=null;return output;}finally{result?.delete();}
 }
