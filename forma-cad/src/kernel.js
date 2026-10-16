@@ -206,7 +206,7 @@ if(f.hole&&f.operation==='cut'){const n=basisFor(f).n,margin=.001,sign=Math.sign
 function extrusionTool(f,bodies,contactInfo){
  if(f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
  let tool=featureSolid(f,bodies);
- if(f.barrier){try{return barrierExtrusion(tool,bodies||new Map(),f);}finally{tool.delete();}}
+ if(f.barrier){try{return barrierExtrusion(tool,bodies||new Map(),f,contactInfo);}finally{tool.delete();}}
  if(!f.untilSolid)return cutEntryTool(tool,f,extrusionTargetEntries(f,bodies||new Map()).map(([,body])=>body));
  const sourceId=f.region?.cadFace?.bodyId||f.region?.bodyId;
  const blockers=(f.targetBodies?extrusionTargetEntries(f,bodies):[...bodies]).filter(([id])=>id!==sourceId&&(f.operation!=='cut'||id!==f.target)).map(([,shape])=>shape);
@@ -481,7 +481,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  const start=selected.fromTop?selected.height-offset-length:offset;
  selected.origin.addScaledVector(selected.normal,start);
  const externalCut=nominal&&!selected.internal;
- if(externalCut){emit(p.target,nominalMaleThread(base,selected,p,length));outputs.at(-1).threadSource={features,spec:{...p,threadInternal:false}};return {outputs,remove};}
+ if(externalCut){const threaded=nominalMaleThread(base,selected,p,length,onProgress);try{onProgress?.({stage:'ねじの表示形状を作成しています'});emit(p.target,threaded);}finally{threaded.delete();}outputs.at(-1).threadSource={features,spec:{...p,threadInternal:false}};return {outputs,remove};}
  const radius=selected.radius,path=threadHelix(pitch,length,radius,!!p.leftHand),sign=nominal?-1:selected.internal?-1:1;
  let points=metric?[[ -sign*pitch*.02,-pitch*.45],[sign*pitch*.541266,-pitch*.125],[sign*pitch*.541266,pitch*.125],[-sign*pitch*.02,pitch*.45]]:[[-sign*wire/2,-wire/2],[sign*wire/2,0],[-sign*wire/2,wire/2]];
  if(p.threadFaceOffsets){const offsets=[...p.threadFaceOffsets];if(selected.internal)offsets[3]=Math.max(offsets[3]||0,-(p.threadCylinderOffset||0));points=offsetThreadProfile(points,offsets);} let profile=R.draw(points[0]);for(const pt of points.slice(1))profile=profile.lineTo(pt);

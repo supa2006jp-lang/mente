@@ -4,7 +4,16 @@ import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
 
 // Keep the source/join anchor connected. All other bodies are immutable barriers.
 // A true surface offset creates clearance around sides and corners as well.
-export function barrierExtrusion(tool,bodies,f){
+export function barrierGapShape(tool,result,blockers){
+ // Display booleans must not add p-curves or triangulations to model bodies.
+ const source=R.deserializeShape(tool.serialize()).asShape3D(),after=R.deserializeShape(result.serialize()).asShape3D();let gap;
+ try{
+  gap=source.cut(after);
+  for(const blocker of blockers){const copy=R.deserializeShape(blocker.serialize()).asShape3D();try{const next=gap.cut(copy);gap.delete();gap=next;}finally{copy.delete();}}
+  const output=gap;gap=null;return output;
+ }finally{gap?.delete();after.delete();source.delete();}
+}
+export function barrierExtrusion(tool,bodies,f,previewInfo){
  validateExtrusionBarrier(f);
  const gap=f.barrierGap??.4,source=f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId;
  const blockers=[...bodies].filter(([id,shape])=>id!==source&&!(f.operation==='join'&&id===f.target)&&R.measureDistanceBetween(tool,shape)<=gap+1e-6).map(([,shape])=>shape);
@@ -15,6 +24,20 @@ export function barrierExtrusion(tool,bodies,f){
   const check=new (R.getOC().BRepCheck_Analyzer)(result.wrapped,true,false);
   try{if(!check.IsValid()||!Number.isFinite(R.measureVolume(result))||R.measureVolume(result)<=1e-9)throw Error('障害物とすき間で押し出し形状がなくなるか、不正になります。距離・すき間を調整してください');}finally{check.delete();}
   for(const blocker of blockers)if(R.measureDistanceBetween(result,blocker)<gap-1e-5)throw Error('指定したバリアのすき間を確保できませんでした。すき間を小さくするか、障害物の形状を確認してください');
+  if(previewInfo&&gap>0){
+   let space;
+   try{
+    space=barrierGapShape(tool,result,blockers);
+    if(R.measureVolume(space)>1e-9){
+     const check=new (R.getOC().BRepCheck_Analyzer)(space.wrapped,true,false);
+     try{if(!check.IsValid())throw Error('invalid gap overlay');}finally{check.delete();}
+     previewInfo.barrierClearance=[space.mesh({tolerance:.025,angularTolerance:.1})];
+    }
+   }catch(error){
+    if(error instanceof WebAssembly.RuntimeError||/indirect call to null|null function|memory access out of bounds|unreachable|table index|function signature mismatch|aborted|RuntimeError/i.test(error?.message||''))throw error;
+    previewInfo.barrierClearanceWarning='すき間の色表示を作成できませんでした。押し出し形状は確認できます。';
+   }finally{space?.delete();}
+  }
   const output=result;result=null;return output;
  }finally{result?.delete();}
 }

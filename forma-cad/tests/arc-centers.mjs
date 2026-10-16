@@ -23,4 +23,14 @@ assert.equal(arcCenters(box).length,0,'straight box corners must not create fals
 const oval=bodyEdges(new THREE.CylinderGeometry(10,10,8,128).scale(2,1,1));
 assert.equal(arcCenters(oval).length,0,'an elliptic rim must not create circular center markers');
 
-console.log('PASS joined circle + rectangular tab centers; no box or elliptic false positives');
+function sampledEdges(point,count=256){const values=[];for(let i=0;i<count;i++)values.push(...point(i/count),...point((i+1)/count));return new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(values,3));}
+const helix=sampledEdges(t=>{const a=t*Math.PI*8;return [5*Math.cos(a),5*Math.sin(a),t*6];},1024);
+assert.equal(arcCenters(helix).length,0,'thread helices must not expose hundreds of false local circle centers');
+const spiral=sampledEdges(t=>{const a=t*Math.PI*2,r=4+t*.8;return [r*Math.cos(a),r*Math.sin(a),0];});
+assert.equal(arcCenters(spiral).length,0,'a planar thread end spiral must not be mistaken for circular arcs');
+const actualArc=sampledEdges(t=>{const a=t*Math.PI*1.3;return [7+5*Math.cos(a),3,9+5*Math.sin(a)];});
+const actualCenters=arcCenters(actualArc);
+assert.equal(actualCenters.length,1,'a genuine arc still has one center');
+assert.ok(centerDistance(actualCenters[0],[7,3,9])<.001);
+
+console.log('PASS joined and tilted circle/arc centers; no box, ellipse, helix or spiral false positives');
