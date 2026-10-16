@@ -1,6 +1,8 @@
 import {sectionSplitSpec,sectionCenter,sectionColors,sectionBasis,sectionFaceOrientation} from './section-split.js';
 import {draggablePanel} from './draggable-panel.js';
 import {sectionOverlayClipping} from './section-overlays.js';
+import {sectionInitialView} from './section-initial-view.js';
+import {sectionFaceView} from './section-face-view.js';
 import * as THREE from 'three';
 export function sectionSegments(geometry,plane){
  const p=geometry.attributes.position,ix=geometry.index,out=[];const count=ix?ix.count:p.count;
@@ -17,7 +19,7 @@ export function sectionCap(segments,plane,{precision=false}={}){
  for(let i=0;i<loops.length;i++){if(depths[i]%2)continue;const outer=loops[i],holes=loops.filter((l,j)=>depths[j]===depths[i]+1&&inside(l[0],outer)),points=[outer,...holes].flat();for(const triangle of THREE.ShapeUtils.triangulateShape(outer,holes))for(const index of triangle){const p=points[index],world=u.clone().multiplyScalar(p.x).addScaledVector(v,p.y).addScaledVector(n,-plane.constant);vertices.push(...world.toArray());}}
  const g=new THREE.BufferGeometry();g.setAttribute('position',precision?new THREE.BufferAttribute(new Float64Array(vertices),3):new THREE.Float32BufferAttribute(vertices,3));g.computeVertexNormals();return g;
 }
-export function sectionView({renderer,scene,meshes,raycaster,host,camera,getControls,getSelectedBody=()=>null,getSelectedFace=()=>null,getOverlays=()=>[],getBodyName=id=>id,canSplit=()=>true,onSplit,onClose=()=>{}}){
+export function sectionView({renderer,scene,meshes,raycaster,host,camera,getControls,getSelectedBody=()=>null,getSelectedFace=()=>null,getOverlays=()=>[],getBodyName=id=>id,canSplit=()=>true,onFaceView=()=>{},onSplit,onClose=()=>{}}){
  renderer.localClippingEnabled=true;const plane=new THREE.Plane(),group=new THREE.Group();scene.add(group);let active=false,splitBusy=false,splitError='',editing=false;const suppressedMaterials=new Map();
  const panel=document.createElement('div');panel.id='section-panel';panel.hidden=true;panel.innerHTML='<label>分離するボディ<select id="section-target"></select></label><label>平面<select id="section-plane"><option>XY</option><option>XZ</option><option>YZ</option></select></label><label>位置 (mm)<input id="section-offset" type="number" step="0.1" value="0"></label><button id="section-center" type="button">ボディの中央に合わせる</button><label><input id="section-preview" type="checkbox" checked> 色付き分離プレビュー</label><label><input id="section-reverse" type="checkbox"> 反対側を表示</label><label>残す側<select id="section-keep"><option value="both">両側を残す</option><option value="positive">＋側を残す</option><option value="negative">−側を残す</option></select></label><div id="section-color-legend"><span class="section-negative">● −側</span><span class="section-positive">● ＋側</span></div><button id="section-split" type="button">この位置で分離</button><p id="section-split-error" role="status" aria-live="polite"></p><small>赤は取り除く側です。片側の断面を見るには色付きプレビューをオフ。履歴から再編集できます。</small><button id="section-close" type="button">断面表示を終了</button>';host.parentElement.append(panel);draggablePanel(panel,'断面表示');
  const button=document.createElement('button');button.id='section-toggle';button.textContent='◩ 断面表示';button.setAttribute('aria-pressed','false');document.querySelector('.navigation').append(button);
@@ -101,6 +103,12 @@ export function sectionView({renderer,scene,meshes,raycaster,host,camera,getCont
    const target=meshes.get(input('section-target').value),box=new THREE.Box3();
    if(orientation&&target?.visible)box.expandByObject(target);else for(const m of meshes.values())if(m.visible)box.expandByObject(m);
    if(!box.isEmpty())input('section-offset').value=Number(box.getCenter(new THREE.Vector3()).dot(normal()).toFixed(2));
+   const inspection=sectionInitialView(meshes,input('section-target').value,normal(),Number(input('section-offset').value),camera);
+   if(inspection){input('section-preview').checked=false;input('section-reverse').checked=inspection.reverse;input('section-offset').value=Number(inspection.offset.toFixed(2));}
+   if(orientation&&!box.isEmpty()){
+    const view=sectionFaceView(face,normal(),Number(input('section-offset').value),camera,box.getCenter(new THREE.Vector3()),camera.position.distanceTo(getControls().target));
+    if(view){input('section-reverse').checked=view.reverse;onFaceView(view);}
+   }
   }
   setActive(!active);
  };input('section-close').onclick=()=>setActive(false);
