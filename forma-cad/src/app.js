@@ -154,7 +154,7 @@ import {defaults,makeSketchGeometry,makeGeometry,rebuild,validateProject,validat
 const $=id=>document.getElementById(id),clone=x=>structuredClone(x);
 for(const prefix of ['', 'viewport-']){
  const controls=document.createElement('div');controls.className='extrusion-barrier-controls';
- controls.innerHTML='<label title="押し出し元・結合先以外のソリッドと、指定したすき間をくり抜きます。周囲は指定距離まで伸ばします"><input type="checkbox" id="'+prefix+'barrier"> バリア押し出し</label><label id="'+prefix+'barrier-gap-label" hidden>障害物とのすき間 (mm)<input id="'+prefix+'barrier-gap" type="number" min="0" max="1000" step="0.05" value="0.6"></label><small id="'+prefix+'barrier-hint" hidden>押し出し元・結合先以外のソリッドを避けます。障害物側は変更しません。</small>';
+ controls.innerHTML='<label title="押し出し元・結合先以外のソリッドと、指定したすき間をくり抜きます。周囲は指定距離まで伸ばします"><input type="checkbox" id="'+prefix+'barrier"> バリア押し出し</label><label id="'+prefix+'barrier-gap-label" hidden>障害物とのすき間 (mm)<input id="'+prefix+'barrier-gap" type="number" min="0" max="1000" step="0.001" value="0.6"></label><small id="'+prefix+'barrier-hint" hidden>押し出し元・結合先以外のソリッドを避けます。障害物側は変更しません。</small>';
  $(prefix+'until-solid').closest('label').after(controls);
  const legend=document.createElement('div');legend.id=prefix+'barrier-gap-legend';legend.hidden=true;legend.style.cssText='font-size:12px;margin:6px 0;padding:7px;border:1px solid #d98c2a;border-radius:4px;line-height:1.5';legend.setAttribute('role','status');controls.append(legend);
 }
@@ -331,7 +331,7 @@ function scheduleContactPreview(batch){
     const edges=new THREE.LineSegments(new THREE.EdgesGeometry(geometry,25),new THREE.LineBasicMaterial({color:0xd97706,transparent:true,opacity:.9}));edges.renderOrder=4;mesh.add(edges);group.add(mesh);
    }
    if(gaps.length)host.dataset.barrierGapPreviewCount=String(gaps.length);
-   for(const prefix of ['', 'viewport-']){const legend=$(prefix+'barrier-gap-legend');legend.hidden=!gaps.length&&!gapWarning;legend.textContent=(gapWarning||'🟧 すき間 '+fmt(batch[0].barrierGap??.6)+' mm ／ 水色：押し出す形状')+(results.some(result=>result.barrierThreadRelief)?' ／ ねじの両端に入口の逃げを追加':'');}
+   for(const prefix of ['', 'viewport-']){const legend=$(prefix+'barrier-gap-legend');legend.hidden=!gaps.length&&!gapWarning;legend.textContent=(gapWarning||'🟧 すき間 '+Number((batch[0].barrierGap??.6).toFixed(3))+' mm ／ 水色：押し出す形状')+(results.some(result=>result.barrierThreadRelief)?' ／ ねじの両端に入口の逃げを追加':'');const reports=results.flatMap(result=>result.barrierThreadProfiles||[]);if(reports.length)legend.textContent+=' ／ ねじ山残り高さ '+Math.min(...reports.map(report=>report.height)).toFixed(3)+' mm ／ すき間上限目安 '+Math.min(...reports.map(report=>report.maxGap)).toFixed(3)+' mm（計算上）';}
    const roles=[...new Set(results.flatMap(result=>result.outputs.map(output=>output.role)).filter(Boolean))];
    host.dataset.contactPreviewRoles=roles.join(',');
    for(const prefix of ['', 'viewport-']){
@@ -347,7 +347,7 @@ function scheduleContactPreview(batch){
    }
    contactAutoDepth=false;
    updateExtrusionTip(batch,results.map(r=>r.outputs.flatMap(o=>o.vertices)),results.map(r=>mergeDimensionMeshes(r.outputs)));host.dataset.extrusionPreviewCount=String(results.length);$('error').textContent='';$('viewport-depth-error').textContent='';
-   $('status').textContent=batch[0].barrier?'バリア押し出し：障害物とのすき間 '+fmt(batch[0].barrierGap??.6)+' mm のプレビューを確認してください':!batch[0].untilSolid?(batch[0].overlapOnly||batch[0].region?.overlapSource?'輪郭で区切られた範囲のプレビューを確認してください':'テーパーのプレビューを確認して確定してください'):Math.abs(depthValue())<Math.abs(contactDistanceLimit)-.01?'途中の距離で止めています。バーや数値で調整できます':(batch[0].contactOnly?'接触する部分だけを表面まで押し出します。バーを戻して途中停止できます':'接触部は表面まで、非接触部も最後の接触位置まで押し出します。バーを戻して途中停止できます');
+   $('status').textContent=batch[0].barrier?'バリア押し出し：障害物とのすき間 '+Number((batch[0].barrierGap??.6).toFixed(3))+' mm のプレビューを確認してください':!batch[0].untilSolid?(batch[0].overlapOnly||batch[0].region?.overlapSource?'輪郭で区切られた範囲のプレビューを確認してください':'テーパーのプレビューを確認して確定してください'):Math.abs(depthValue())<Math.abs(contactDistanceLimit)-.01?'途中の距離で止めています。バーや数値で調整できます':(batch[0].contactOnly?'接触する部分だけを表面まで押し出します。バーを戻して途中停止できます':'接触部は表面まで、非接触部も最後の接触位置まで押し出します。バーを戻して途中停止できます');
     scheduleExtrusionRemoval(batch.map(f=>({...f,depth:depthValue()})));
    }catch(error){if(revision===extrusionRemovalRevision&&preview===group){setExtrusionAssessment('invalid',error.message);$('error').textContent=appErrorMessage(error);$('viewport-depth-error').textContent=appErrorMessage(error);$('extrusion-tip-size').textContent='先端寸法：形状を確認してください';}}
  },250);

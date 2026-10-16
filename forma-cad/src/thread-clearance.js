@@ -2,10 +2,11 @@ import * as R from 'replicad';
 import * as THREE from 'three';
 import {defaults} from './geometry.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
-import {allThreadPullSpec} from './thread-pull-spec.js';
+import {threadClearanceProfile} from './thread-clearance-profile.js';
 import {enlargeForClearance} from './cut-clearance.js';
 import {fuseSolids} from './solid-fuse.js';
 import {cachedBody} from './body-cache.js';
+const profileReports=new Map();
 
 function place(shape,origin,normal){const z=new THREE.Vector3(0,0,1),angle=z.angleTo(normal)*180/Math.PI,axis=z.cross(normal);if(angle>1e-6)shape=shape.rotate(angle,[0,0,0],axis.length()<1e-6?[1,0,0]:axis.normalize().toArray());return shape.translate(origin.toArray());}
 function move(shape,spec){
@@ -18,11 +19,12 @@ function move(shape,spec){
 // OCCT cannot offset the C0 B-spline surfaces of swept threads. Build the
 // complementary female profile instead, then invert it into a clearance tool.
 // This retains helical grooves rather than replacing them with a cylinder.
-export function threadClearanceShape(solid,distance,source,{bodies,run,onProgress,cacheKey}={}){
+export function threadClearanceShape(solid,distance,source,{bodies,run,onProgress,cacheKey,onAssessment}={}){
  const spec=source?.spec;
  if(spec?.type!=='thread'||spec.profile!=='metric60'||spec.threadVersion!==2||spec.threadInternal===true)return null;
  const key='thread-clearance:'+distance+':'+JSON.stringify(spec)+':'+(cacheKey||solid.serialize());
- return cachedBody(key,()=>{
+ let report;
+ const entry=cachedBody(key,()=>{
   const originals=bodies(source.features),resources=[],hold=shape=>(resources.push(shape),shape);let result;
   try{
    const base=originals.get(spec.target),selected=base&&threadCylinderInfo(base,spec.surfacePoint);
@@ -35,14 +37,17 @@ export function threadClearanceShape(solid,distance,source,{bodies,run,onProgres
    if(!(root>0&&length>0))throw Error('すき間用のねじ寸法が不正です');
    // Correct the planar flank distance for the helical lead angle. The final
    // extrusion is also checked against the actual, unchanged male body.
-   const safe=distance*Math.sqrt(1+(pitch/(2*Math.PI*root))**2)+Math.max(.0001,distance*.0001);
-   const previous=Math.max(...(spec.threadFaceOffsets||[0,0,0]).slice(0,3),spec.threadCylinderOffset||0),clearance=safe+previous;
+   const previous=Math.max(...(spec.threadFaceOffsets||[0,0,0]).slice(0,3),spec.threadCylinderOffset||0);
+   report=threadClearanceProfile(pitch,root,previous,distance);
+   const {clearance}=report,safe=clearance-previous;
    const side=(radius+Math.abs(clearance)+Math.max(2,pitch))*2,id='thread-clearance-support';
    const support=hold(R.makeBox([-side/2,-side/2,0],[side/2,side/2,length]));
    const block={...defaults,id,profile:'rect',width:side,height:side,depth:length};
    const hole={...defaults,id:'thread-clearance-bore',profile:'circle',diameter:radius*2,operation:'cut',target:id,depth:-length,z:length,hole:true};
    let thread={type:'thread',target:id,profile:'metric60',threadVersion:2,pitch,fullLength:true,leftHand:!!spec.leftHand,surfacePoint:[radius,0,length/2]};
-   if(Math.abs(clearance)>=.001)thread=allThreadPullSpec(thread,-clearance);
+   // This complementary female ridge is checked geometrically above. The
+   // ordinary manual-pull 40%-of-pitch guard does not apply to this cutter.
+   if(Math.abs(clearance)>=.001)thread={...thread,threadFaceOffsets:[-clearance,-clearance,-clearance,0],threadCylinderOffset:-clearance};
    onProgress?.({stage:'ねじ山に沿うすき間形状を作成しています'});
    const femaleOutput=run([block,hole],thread).outputs[0],female=hold(R.deserializeShape(femaleOutput.brep).asShape3D());
    const central=hold(place(support.cut(female),selected.origin,selected.normal));
@@ -58,5 +63,8 @@ export function threadClearanceShape(solid,distance,source,{bodies,run,onProgres
    // costs more than constructing the cutter on long, closely spaced threads.
    const output=result;result=null;return output;
   }finally{result?.delete();resources.reverse().forEach(shape=>shape.delete());originals.forEach(shape=>shape.delete());}
- }).shape;
+ });
+ report||=profileReports.get(entry.token);
+ if(report){profileReports.delete(entry.token);profileReports.set(entry.token,report);while(profileReports.size>48)profileReports.delete(profileReports.keys().next().value);onAssessment?.({...report});}
+ return entry.shape;
 }

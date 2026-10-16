@@ -57,7 +57,7 @@ export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,on
    if(!blockers.length)return tool.clone();
    let candidate;
    try{
-    candidate=cutWithClearance(tool,blockers.map(([,shape])=>shape),gap,{fallback:(...args)=>{const shape=fallback?.(...args);if(shape)assessment.thread=true;return shape;}});
+    candidate=cutWithClearance(tool,blockers.map(([,shape])=>shape),gap,{fallback:(...args)=>{const shape=fallback?.(...args,report=>{(assessment.threadProfiles||=[]).push(report);});if(shape)assessment.thread=true;return shape;}});
     const check=new (R.getOC().BRepCheck_Analyzer)(candidate.wrapped,true,false);
     try{if(!check.IsValid()||!Number.isFinite(R.measureVolume(candidate))||R.measureVolume(candidate)<=1e-9)throw Error('障害物とすき間で押し出し形状がなくなるか、不正になります。距離・すき間を調整してください');}finally{check.delete();}
     for(const [i,[,blocker]] of blockers.entries()){onProgress?.({stage:'障害物とのすき間を検査しています',current:i+1,total:blockers.length});if(clearanceDistance(candidate,blocker)<gap-1e-5)throw Error('指定したバリアのすき間を確保できませんでした。すき間を小さくするか、障害物の形状を確認してください');}
@@ -68,6 +68,7 @@ export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,on
   assessment||=assessments.get(entry.token);
   if(assessment){assessments.delete(entry.token);assessments.set(entry.token,assessment);while(assessments.size>48)assessments.delete(assessments.keys().next().value);}
   if(previewInfo&&assessment?.thread)previewInfo.barrierThreadRelief=gap;
+  if(previewInfo&&assessment?.threadProfiles)previewInfo.barrierThreadProfiles=assessment.threadProfiles.map(report=>({...report}));
   if(previewInfo&&gap>0&&assessment?.ids.length!==0){
    let space;
    try{
