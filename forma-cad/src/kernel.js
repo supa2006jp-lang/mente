@@ -19,6 +19,7 @@ import {validateExtrusionSymmetry} from './extrusion-symmetry.js';
 import {draftExtrusion} from './extrusion-taper.js';
 import {cutWithClearance} from './cut-clearance.js';
 import {barrierExtrusion} from './extrusion-barrier.js';
+import {measurePhase} from './phase-timings.js';
 import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
 import {encloseParts} from './enclose.js';
 import {patternSolids} from './pattern-solids.js';
@@ -207,7 +208,7 @@ if(f.hole&&f.operation==='cut'){const n=basisFor(f).n,margin=.001,sign=Math.sign
 const bodyTokens=new WeakMap();
 function extrusionTool(f,bodies,contactInfo,features=[],onProgress){
  if(f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
- let tool=featureSolid(f,bodies);
+ let tool=measurePhase('geometry',()=>featureSolid(f,bodies));
  if(f.barrier){try{return barrierExtrusion(tool,bodies||new Map(),f,contactInfo,{onProgress,cacheKey:JSON.stringify([tool.serialize(),f.barrierGap??.6,f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId||null,f.operation==='join'?f.target:null,[...(bodies||[])].map(([id,shape])=>[id,bodyTokens.get(shape)||shape.serialize()])]),fallback:(solid,gap,original,onAssessment)=>{
   const id=[...(bodies||[])].find(([,shape])=>shape===original)?.[0],source=id&&threadSource(features,id);
   const cutter=threadClearanceShape(solid,gap,source,{bodies:kernelBodies,run:(history,operation)=>runOperation(history,operation,onProgress),onProgress,cacheKey:bodyTokens.get(original),onAssessment});
@@ -227,11 +228,11 @@ function extrusionTool(f,bodies,contactInfo,features=[],onProgress){
 }
 // Resolve native face outlines against the history before the first member of
 // a multi-face command, including when a saved command is replayed later.
-function faceBatchTool(features,feature,bodies,onProgress){
+function faceBatchTool(features,feature,bodies,onProgress,previewInfo){
  const start=feature.faceBatch?features.findIndex(f=>f.id===feature.faceBatch):-1;
- if(start<0)return extrusionTool(feature,bodies,undefined,features,onProgress);
+ if(start<0)return extrusionTool(feature,bodies,previewInfo,features,onProgress);
  const source=kernelBodies(features.slice(0,start));
- try{return extrusionTool(feature,source,undefined,features.slice(0,start),onProgress);}finally{for(const body of source.values())body.delete();}
+ try{return extrusionTool(feature,source,previewInfo,features.slice(0,start),onProgress);}finally{for(const body of source.values())body.delete();}
 }
 export function kernelBodies(features){const bodies=new Map(),tokens=new Map();const put=(id,entry)=>{bodies.get(id)?.delete();bodies.set(id,entry.shape);tokens.set(id,entry.token);bodyTokens.set(entry.shape,entry.token);};try{for(let [featureIndex,f] of features.entries()){if(f.cadResult)f={kind:'cadop',...f.cadResult};if(f.kind==='sketch'||f.kind==='plane'||f.kind==='referenceImage')continue;if(f.kind==='cadop'){for(const id of f.remove){bodies.get(id)?.delete();bodies.delete(id);tokens.delete(id);}for(const o of f.outputs){if(!o.brep)throw Error('このボディにはCAD形状データがありません');put(o.id,cachedBody('brep:'+o.brep,()=>R.deserializeShape(o.brep).asShape3D()));}continue;}const base=bodies.get(f.target);if(f.operation!=='new'&&!base)throw Error('対象ボディがありません');const key=JSON.stringify([f,f.barrier||f.untilSolid||f.overlapOnly||f.region?.overlapSource?[...tokens]:f.operation==='new'?(f.holesOnly?tokens.get(f.region?.cadFace?.bodyId||f.region?.bodyId):null):tokens.get(f.target)]);put(f.operation==='new'?f.id:f.target,cachedBody(key,()=>{const shape=extrusionTool(f,bodies,undefined,features.slice(0,featureIndex));if(f.operation==='new')return shape;try{return f.operation==='cut'?base.cut(shape):base.fuse(shape);}finally{shape.delete();}}));}return bodies;}catch(e){for(const body of bodies.values())body.delete();throw e;}}
 function regeneratedThread(source,spec){let result=runOperation(source.features,spec);for(const transform of source.transforms||[])result=runOperation([{kind:'cadop',...result}],transform);return result;}
@@ -266,6 +267,16 @@ function jointSourceAxis(features,target){
  let axis=null;for(const f of features){if(f.id===target&&f.profile&&f.kind!=='sketch')axis=basisFor(f).n.clone();if(f.kind!=='cadop'||!f.outputs?.some(o=>o.id===target)||!axis)continue;const p=f.spec;if(p?.type==='move'&&(p.target===target||p.targets?.includes(target))){if(p.rotation){for(let i=0;i<3;i++)axis.applyAxisAngle(new THREE.Vector3(...[[1,0,0],[0,1,0],[0,0,1]][i]),(p.rotation[i]||0)*Math.PI/180);}else axis.applyAxisAngle(new THREE.Vector3(...({X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[p.axis]||[0,0,1])),(p.angle||0)*Math.PI/180);}else axis=null;}return axis?.toArray();
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(spec.type==='barrierPreparedPreview'){
+  if(!spec.features?.length||spec.features.some(f=>!f.barrier))throw Error('バリア押し出しの条件を確認してください');
+  const added=[],previews=[];
+  for(const original of spec.features){
+   const f=batchExtrusionFeature(original,added),history=[...features,...added],previewInfo={showBarrierGap:spec.showBarrierGap!==false};
+   const cadResult=runOperation(history,{type:'extrusion',target:f.target,feature:f},onProgress,{extrusionPreview:previewInfo});
+   added.push({...f,cadResult});const {showBarrierGap,...display}=previewInfo;previews.push(display);
+  }
+  return {features:added,previews};
+ }
  if(['threadMateInfo','threadMate'].includes(spec.type))return makeThreadMate(features,spec,{bodies:kernelBodies,run:(history,operation)=>runOperation(history,operation,onProgress)});
  if(spec.type==='printLayoutInfo'){const bodies=kernelBodies(features);try{return {items:printLayoutBounds(bodies,spec.targets)};}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='coilJointInfo'){const bodies=kernelBodies(features);try{return coilJointInfo(bodies.get(spec.target),spec,jointSourceAxis(features,spec.target));}finally{for(const body of bodies.values())body.delete();}}
@@ -276,7 +287,7 @@ export function runOperation(features,spec,onProgress,context={}){
  if(spec.type==='svgWrapInfo'){const bodies=kernelBodies(features);try{return svgCylinderInfo(bodies.get(spec.target),spec.surfacePoint);}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='extrusionToolPreview'){
   const bodies=kernelBodies(features),contactInfo={};let tool;
-  try{tool=extrusionTool(spec.feature,bodies,contactInfo,features,onProgress);const {previewParts,...extent}=contactInfo;return {...extent,outputs:previewParts?previewParts.map(part=>({id:spec.feature.id,...part})):[{id:spec.feature.id,...tool.mesh({tolerance:.08,angularTolerance:.15})}]};}
+  try{tool=extrusionTool(spec.feature,bodies,contactInfo,features,onProgress);const {previewParts,...extent}=contactInfo;return {...extent,outputs:previewParts?previewParts.map(part=>({id:spec.feature.id,...part})):[{id:spec.feature.id,...measurePhase('display',()=>tool.mesh({tolerance:.08,angularTolerance:.15}))}]};}
   finally{tool?.delete();for(const body of bodies.values())body.delete();}
  }
  if(spec.type==='preview'){
@@ -315,16 +326,25 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='extrusion'){
   if(p.feature.targetBodies&&(!p.feature.targetBodies.length||p.feature.targetBodies.some(id=>!bodies.has(id))))throw Error('加工する対象ボディを1個以上選択してください');
   if(p.feature.operation!=='new'&&!base&&!(multipleExtrusionTargets(p.feature)&&extrusionTargetEntries(p.feature,bodies).length))throw Error('切り取り・結合する対象ボディを選択してください');
-  const tool=faceBatchTool(features,p.feature,bodies,onProgress),fuseOptions={verifyMesh:p.feature.region?.id?.startsWith('grid-cell-')===true};let shape;try{if(p.feature.operation==='new'){emit(p.feature.id,tool);const source=copiedThreadSource(features,p.feature);if(source)outputs.at(-1).threadSource=source;return {outputs,remove};}
-   if(p.feature.operation==='cut'&&multipleExtrusionTargets(p.feature)){for(const [id,body] of extrusionTargetEntries(p.feature,bodies)){let cut;try{cut=body.cut(tool);const originalVolume=R.measureVolume(body),remainingVolume=R.measureVolume(cut);if(originalVolume-remainingVolume<=Math.max(1e-7,originalVolume*1e-9))continue;if(Math.abs(remainingVolume)<1e-9){remove.push(id);continue;}const check=new (R.getOC().BRepCheck_Analyzer)(cut.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(id,cut);}finally{cut?.delete();}}if(!outputs.length&&!remove.length)throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');return {outputs,remove};}
+  const tool=faceBatchTool(features,p.feature,bodies,onProgress,context.extrusionPreview),fuseOptions={verifyMesh:p.feature.region?.id?.startsWith('grid-cell-')===true};let shape;
+  const finishExtrusion=()=>{
+   const info=context.extrusionPreview;
+   if(info){
+    info.outputs=p.feature.operation==='new'?outputs.map(({id,vertices,triangles})=>({id,vertices,triangles})):[{id:p.feature.id,...measurePhase('display',()=>tool.mesh({tolerance:.08,angularTolerance:.15}))}];
+
+   }
+   return {outputs,remove};
+  };
+  try{if(p.feature.operation==='new'){emit(p.feature.id,tool);const source=copiedThreadSource(features,p.feature);if(source)outputs.at(-1).threadSource=source;return finishExtrusion();}
+   if(p.feature.operation==='cut'&&multipleExtrusionTargets(p.feature)){for(const [id,body] of extrusionTargetEntries(p.feature,bodies)){let cut;try{cut=body.cut(tool);const originalVolume=R.measureVolume(body),remainingVolume=R.measureVolume(cut);if(originalVolume-remainingVolume<=Math.max(1e-7,originalVolume*1e-9))continue;if(Math.abs(remainingVolume)<1e-9){remove.push(id);continue;}const check=new (R.getOC().BRepCheck_Analyzer)(cut.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(id,cut);}finally{cut?.delete();}}if(!outputs.length&&!remove.length)throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');return finishExtrusion();}
    if(p.feature.operation==='join'&&multipleExtrusionTargets(p.feature)){
     const box=tool.boundingBox,contact=[];try{const bounds=box.bounds;for(const [id,body]of extrusionTargetEntries(p.feature,bodies)){const other=body.boundingBox;try{if(bounds[0].some((lo,i)=>lo>other.bounds[1][i]+1e-6||bounds[1][i]<other.bounds[0][i]-1e-6))continue;}finally{other.delete();}if(R.measureDistanceBetween(body,tool)<=1e-6)contact.push(id);}}finally{box.delete();}
     if(!contact.length)throw Error('押し出し形状が結合対象のボディと接していません。方向・距離を確認してください');
     const anchor=contact.includes(p.target)?p.target:contact[0];let joined=fuseSolid(bodies.get(anchor),tool,fuseOptions);
-    try{for(const id of contact)if(id!==anchor){const next=fuseSolid(joined,bodies.get(id),fuseOptions);joined.delete();joined=next;}emit(anchor,joined);remove.push(...contact.filter(id=>id!==anchor));return {outputs,remove};}finally{joined.delete();}
+    try{for(const id of contact)if(id!==anchor){const next=fuseSolid(joined,bodies.get(id),fuseOptions);joined.delete();joined=next;}emit(anchor,joined);remove.push(...contact.filter(id=>id!==anchor));return finishExtrusion();}finally{joined.delete();}
    }
    if(p.feature.operation==='join'&&R.measureDistanceBetween(base,tool)>1e-6)throw Error('押し出し形状が結合対象のボディと接していません。方向・距離・対象を確認してください');
-   shape=p.feature.operation==='cut'?base.cut(tool):fuseSolid(base,tool,fuseOptions);if(p.feature.operation==='cut'&&Math.abs(R.measureVolume(shape))<1e-9){remove.push(p.target);return {outputs,remove};}if(p.feature.operation==='cut'&&Math.abs(R.measureVolume(base)-R.measureVolume(shape))<=Math.max(1e-7,R.measureVolume(base)*1e-9))throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(p.target,shape);}finally{shape?.delete();tool.delete();}
+   shape=p.feature.operation==='cut'?base.cut(tool):fuseSolid(base,tool,fuseOptions);if(p.feature.operation==='cut'&&Math.abs(R.measureVolume(shape))<1e-9){remove.push(p.target);return finishExtrusion();}if(p.feature.operation==='cut'&&Math.abs(R.measureVolume(base)-R.measureVolume(shape))<=Math.max(1e-7,R.measureVolume(base)*1e-9))throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(p.target,shape);return finishExtrusion();}finally{shape?.delete();tool.delete();}
  }
  else if(p.type==='cylinderHolderTest'){const result=makeCylinderHolderTest(base,p,onProgress);try{emit(p.id+'-ring',result.parts[0]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='cylinderHingeInfo'){analysis=cylinderHingeInfo(base);}

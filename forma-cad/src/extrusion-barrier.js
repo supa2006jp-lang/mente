@@ -1,4 +1,5 @@
 import * as R from 'replicad';
+import {measurePhase} from './phase-timings.js';
 import {cutWithClearance} from './cut-clearance.js';
 import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
 import {cachedBody} from './body-cache.js';
@@ -12,7 +13,7 @@ function nearby(tool,shape,gap){
  const a=tool.boundingBox,b=shape.boundingBox;
  try{return a.bounds[0].every((lo,i)=>lo<=b.bounds[1][i]+gap+1e-6&&a.bounds[1][i]>=b.bounds[0][i]-gap-1e-6);}finally{a.delete();b.delete();}
 }
-function clearanceDistance(left,right){
+function clearanceDistance(left,right){return measurePhase('inspection',()=>{
  const query=new (R.getOC().BRepExtrema_DistShapeShape)();
  try{
   query.LoadS1(left.wrapped);query.LoadS2(right.wrapped);query.Perform();
@@ -20,7 +21,7 @@ function clearanceDistance(left,right){
   if(!Number.isFinite(value))throw Error('障害物とのすき間を検査できませんでした。形状を確認してください');
   return value;
  }finally{query.delete();}
-}
+});}
 function cutGapTool(base,tool){
  // The convenience constructor performs a boolean immediately. Supplying its
  // inputs afterwards builds it once and keeps the thread's periodic seams.
@@ -34,7 +35,7 @@ function cutGapTool(base,tool){
 
 // Keep the source/join anchor connected. All other bodies are immutable barriers.
 // A true surface offset creates clearance around sides and corners as well.
-export function barrierGapShape(tool,result,blockers){
+export function barrierGapShape(tool,result,blockers){return measurePhase('display',()=>{
  // Display booleans must not add p-curves or triangulations to model bodies.
  const source=R.deserializeShape(tool.serialize()).asShape3D(),after=R.deserializeShape(result.serialize()).asShape3D();let gap;
  try{
@@ -42,7 +43,7 @@ export function barrierGapShape(tool,result,blockers){
   for(const blocker of blockers){const copy=R.deserializeShape(blocker.serialize()).asShape3D();try{const next=cutGapTool(gap,copy);gap.delete();gap=next;}finally{copy.delete();}}
   const output=gap;gap=null;return output;
  }finally{gap?.delete();after.delete();source.delete();}
-}
+});}
 export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,onProgress}={}){
  validateExtrusionBarrier(f);
  const gap=f.barrierGap??.6,source=f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId;
@@ -57,9 +58,9 @@ export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,on
    if(!blockers.length)return tool.clone();
    let candidate;
    try{
-    candidate=cutWithClearance(tool,blockers.map(([,shape])=>shape),gap,{fallback:(...args)=>{const shape=fallback?.(...args,report=>{(assessment.threadProfiles||=[]).push(report);});if(shape)assessment.thread=true;return shape;}});
-    const check=new (R.getOC().BRepCheck_Analyzer)(candidate.wrapped,true,false);
-    try{if(!check.IsValid()||!Number.isFinite(R.measureVolume(candidate))||R.measureVolume(candidate)<=1e-9)throw Error('障害物とすき間で押し出し形状がなくなるか、不正になります。距離・すき間を調整してください');}finally{check.delete();}
+    candidate=measurePhase('geometry',()=>cutWithClearance(tool,blockers.map(([,shape])=>shape),gap,{fallback:(...args)=>{const shape=fallback?.(...args,report=>{(assessment.threadProfiles||=[]).push(report);});if(shape)assessment.thread=true;return shape;}}));
+    measurePhase('inspection',()=>{const check=new (R.getOC().BRepCheck_Analyzer)(candidate.wrapped,true,false);
+    try{if(!check.IsValid()||!Number.isFinite(R.measureVolume(candidate))||R.measureVolume(candidate)<=1e-9)throw Error('障害物とすき間で押し出し形状がなくなるか、不正になります。距離・すき間を調整してください');}finally{check.delete();}});
     for(const [i,[,blocker]] of blockers.entries()){onProgress?.({stage:'障害物とのすき間を検査しています',current:i+1,total:blockers.length});if(clearanceDistance(candidate,blocker)<gap-1e-5)throw Error('指定したバリアのすき間を確保できませんでした。すき間を小さくするか、障害物の形状を確認してください');}
     const output=candidate;candidate=null;return output;
    }finally{candidate?.delete();}
@@ -69,7 +70,7 @@ export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,on
   if(assessment){assessments.delete(entry.token);assessments.set(entry.token,assessment);while(assessments.size>48)assessments.delete(assessments.keys().next().value);}
   if(previewInfo&&assessment?.thread)previewInfo.barrierThreadRelief=gap;
   if(previewInfo&&assessment?.threadProfiles)previewInfo.barrierThreadProfiles=assessment.threadProfiles.map(report=>({...report}));
-  if(previewInfo&&gap>0&&assessment?.ids.length!==0){
+  if(previewInfo&&previewInfo.showBarrierGap!==false&&gap>0&&assessment?.ids.length!==0){
    let space;
    try{
     const cached=gapMeshes.get(entry.token);
@@ -81,7 +82,7 @@ export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,on
      if(R.measureVolume(space)>1e-9){
       const check=new (R.getOC().BRepCheck_Analyzer)(space.wrapped,true,false);
       try{if(!check.IsValid())throw Error('invalid gap overlay');}finally{check.delete();}
-      const mesh=space.mesh({tolerance:.025,angularTolerance:.1});rememberGap(entry.token,mesh);previewInfo.barrierClearance=[mesh];
+      const mesh=measurePhase('display',()=>space.mesh({tolerance:.025,angularTolerance:.1}));rememberGap(entry.token,mesh);previewInfo.barrierClearance=[mesh];
      }
     }
    }catch(error){

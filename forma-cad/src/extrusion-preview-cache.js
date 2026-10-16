@@ -10,25 +10,32 @@ function bytes(value){
  if(value&&typeof value==='object')return Object.values(value).reduce((sum,item)=>sum+bytes(item),0);
  return 8;
 }
-// Keep only the latest complete barrier preview. Model identity, editing scope
-// and all feature settings must match before accepting its exact saved outputs.
+// Bounded LRU of complete previews for the current immutable model snapshot.
+// Editing scope and all feature settings must match before accepting outputs.
 export class ExtrusionPreviewCache{
- constructor(limit=32*1024*1024){this.limit=limit;this.entry=null;}
- clear(){this.entry=null;}
- store(history,batch,prepared,editingId=null){
-  this.clear();
+ constructor(limit=32*1024*1024,maxEntries=4){this.limit=limit;this.maxEntries=maxEntries;this.clear();}
+ clear(){this.entries=new Map();this.history=null;this.size=0;}
+ scope(history){if(this.history!==history){this.clear();this.history=history;}}
+ key(batch,editingId){return JSON.stringify([editingId,signature(batch)]);}
+ store(history,batch,prepared,editingId=null,display=null){
+  this.scope(history);
   if(!batch.length||batch.some(feature=>!feature.barrier)||prepared.length!==batch.length)return;
   const records=prepared.map(({cadResult,...feature})=>{
    if(!cadResult?.outputs?.length||!Array.isArray(cadResult.remove)||cadResult.outputs.some(output=>!output.brep))return null;
    const {removed,previewWarnings,...result}=cadResult;
    return {...feature,cadResult:result};
   });
-  if(records.some(record=>!record)||bytes(records)>this.limit)return;
-  this.entry={history,key:signature(batch),ids:batch.map(feature=>feature.id),records:structuredClone(records),editingId};
+  if(records.some(record=>!record))return;
+  const key=this.key(batch,editingId),size=key.length*2+bytes(records)+bytes(display);
+  if(size>this.limit||this.maxEntries<1)return;
+  if(this.entries.has(key)){this.size-=this.entries.get(key).size;this.entries.delete(key);}
+  this.entries.set(key,{ids:batch.map(feature=>feature.id),records:structuredClone(records),display:structuredClone(display),size});this.size+=size;
+  while(this.entries.size>this.maxEntries||this.size>this.limit){const oldest=this.entries.keys().next().value;this.size-=this.entries.get(oldest).size;this.entries.delete(oldest);}
  }
- get(history,batch,editingId=null){
-  const entry=this.entry;
-  if(!entry||entry.history!==history||entry.editingId!==editingId||entry.key!==signature(batch))return null;
+ read(history,batch,editingId,withDisplay,showGap){
+  this.scope(history);const key=this.key(batch,editingId),entry=this.entries.get(key);
+  if(!entry||withDisplay&&(!entry.display||showGap&&!entry.display.showGap))return null;
+  this.entries.delete(key);this.entries.set(key,entry);
   const ids=new Map(entry.ids.map((id,index)=>[id,batch[index].id]));
   const features=structuredClone(entry.records).map(({cadResult,...feature},index)=>{
    const next=remap(feature,ids);next.name=batch[index].name;
@@ -36,6 +43,15 @@ export class ExtrusionPreviewCache{
    cadResult.remove=cadResult.remove.map(id=>ids.get(id)??id);
    return {...next,cadResult};
   });
-  return {features};
+  if(!withDisplay)return {features};
+  const previews=structuredClone(entry.display.previews).map(preview=>{
+   const next={...preview,outputs:preview.outputs.map(output=>({...output,id:ids.get(output.id)??output.id}))};
+   if(next.removed)next.removed=next.removed.map(output=>({...output,id:ids.get(output.id)??output.id}));
+   if(!showGap){delete next.barrierClearance;delete next.barrierClearanceWarning;}
+   return next;
+  });
+  return {features,previews};
  }
+ get(history,batch,editingId=null){return this.read(history,batch,editingId,false,false);}
+ getPreview(history,batch,editingId=null,showGap=true){return this.read(history,batch,editingId,true,showGap);}
 }

@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {ExtrusionPreviewCache} from '../src/extrusion-preview-cache.js';
+const history=[],cache=new ExtrusionPreviewCache(100000,2),f={id:'a',kind:'extrusion',name:'a',barrier:true,barrierGap:.6};
+const put=(gap,showGap=true)=>{const item={...f,barrierGap:gap},mesh={id:'a',vertices:[1,2,3],triangles:[0,1,2]};cache.store(history,[item],[{...item,cadResult:{outputs:[{...mesh,brep:'brep'+gap}],remove:[]}}],null,{showGap,previews:[{outputs:[mesh],barrierClearance:showGap?[mesh]:undefined}]});};
+const get=(gap,showGap=true)=>cache.getPreview(history,[{...f,id:'copy',barrierGap:gap}],null,showGap);
+put(.6);put(.8);assert.ok(get(.6),'0.6 → 0.8 → 0.6 reuses the full prepared display and result');put(1);
+assert.equal(get(.8),null,'least recently used entry is evicted');assert.ok(get(.6));assert.ok(get(1));
+const read=get(.6);read.previews[0].outputs[0].vertices[0]=99;assert.equal(get(.6).previews[0].outputs[0].vertices[0],1);
+assert.equal(get(.6,false).previews[0].barrierClearance,undefined,'hide existing overlay without recalculation');
+put(.8,false);assert.equal(get(.8),null,'a missing overlay must not be claimed as calculated');assert.ok(get(.8,false));assert.ok(cache.get(history,[{...f,barrierGap:.8}]),'overlay preference does not affect final geometry');
+const item=gap=>({...f,barrierGap:gap}),prepared=gap=>[{...item(gap),cadResult:{outputs:[{id:'a',brep:'123456'}],remove:[]}}];
+const budget=new ExtrusionPreviewCache(100000,4);budget.store(history,[item(.6)],prepared(.6));budget.limit=budget.size+1;budget.store(history,[item(.8)],prepared(.8));
+assert.ok(budget.size<=budget.limit);assert.equal(budget.entries.size,1,'memory cap evicts independently of the entry count');assert.equal(budget.get(history,[item(.6)]),null);
+assert.equal(cache.getPreview([...history],[f]),null);assert.equal(cache.entries.size,0,'model identity change drops every old entry');
+console.log('PASS bounded LRU, restored settings, byte/count budgets, immutable display data, visual preference and model invalidation');

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {KernelClient} from '../src/kernel-client.js';
+const workers=[],client=new KernelClient(()=>{const worker={postMessage(message){this.last=message;},terminate(){this.dead=true;}};workers.push(worker);return worker;});
+let timing;
+const request=client.run([],{type:'extrusionToolPreview',feature:{barrier:true}},{onTiming:report=>timing=report});
+const report={totalMs:123,phases:{geometry:100,display:23}},result={outputs:[]};
+workers[0].onmessage({data:{id:1,result,timings:report}});
+assert.deepEqual(await request,result);assert.deepEqual(timing,report);assert.equal(result.timings,undefined,'runtime timings are not saved with model results');
+const tool=client.run([],{type:'extrusionToolPreview',feature:{barrier:true}});const toolCancelled=assert.rejects(tool,/キャンセル/);
+const preview=client.run([],{type:'preview',operation:{type:'extrusion'}});const previewCancelled=assert.rejects(preview,/キャンセル/);
+const actual=client.run([],{type:'move'});client.cancelExtrusionPreviews();await toolCancelled;await previewCancelled;
+assert.equal(workers.at(-1).last.spec.type,'move','switching to manual must keep actual model operations');
+workers.at(-1).onmessage({data:{id:4,result:{outputs:[]}}});await actual;
+const combined=client.run([],{type:'barrierPreparedPreview',features:[{barrier:true}]});const combinedCancelled=assert.rejects(combined,/キャンセル/);
+client.cancelExtrusionPreviews();await combinedCancelled;
+client.reset();console.log('PASS worker timing delivery without model data changes, cancel active/queued extrusion previews and preserve model operations');

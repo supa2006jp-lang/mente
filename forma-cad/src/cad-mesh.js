@@ -2,7 +2,8 @@
 // returning them. Read just the positions from those cached triangulations;
 // the extractor already supplies the render normals and triangle topology.
 import * as R from 'replicad';
-export function cadMesh(shape,options={tolerance:.08,angularTolerance:.15}){
+import {measurePhase} from './phase-timings.js';
+export function cadMesh(shape,options={tolerance:.08,angularTolerance:.15}){return measurePhase('display',()=>{
  const mesh=shape.mesh(options),faces=shape.faces,vertices=[],oc=R.getOC();
  try{
   for(const face of faces){
@@ -20,4 +21,4 @@ export function cadMesh(shape,options={tolerance:.08,angularTolerance:.15}){
   if(vertices.length!==mesh.vertices.length||vertices.some((value,i)=>Math.fround(value)!==mesh.vertices[i]))throw Error('作図用の精密な座標を取得できませんでした');
   return {...mesh,vertices};
  }finally{faces.forEach(face=>face.delete());}
-}
+});}

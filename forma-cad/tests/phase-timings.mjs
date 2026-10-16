@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {PhaseTimings,withPhaseTimings,measurePhase,summarizeBarrierTimings,barrierTimingRequest} from '../src/phase-timings.js';
+let clock=0;const timing=new PhaseTimings(()=>clock);
+withPhaseTimings(timing,()=>measurePhase('geometry',()=>{clock+=10;measurePhase('inspection',()=>clock+=4);clock+=6;}));clock+=3;
+assert.deepEqual(timing.report(),{totalMs:23,phases:{geometry:16,inspection:4,other:3}});
+assert.equal(measurePhase('display',()=>7),7);
+assert.throws(()=>withPhaseTimings(timing,()=>measurePhase('save',()=>{clock+=2;throw Error('stop');})),/stop/);
+assert.equal(timing.report().phases.save,2);assert.equal(timing.stack.length,0);
+const summary=summarizeBarrierTimings([timing.report()],40);
+assert.equal(summary.totalMs,40);assert.equal(summary.waitingMs,15);
+assert.equal(Object.values(summary.phases).reduce((a,b)=>a+b,0)+summary.waitingMs,40);
+assert.ok(barrierTimingRequest([],{type:'extrusionToolPreview',feature:{barrier:true}}));
+assert.ok(barrierTimingRequest([],{type:'preview',operation:{type:'extrusion',feature:{barrier:true}}}));
+assert.ok(barrierTimingRequest([],{type:'extrusionBatch',features:[{barrier:true}]}));
+assert.equal(barrierTimingRequest([{barrier:true},{}],{type:'replay',start:1}),false);
+assert.equal(barrierTimingRequest([],{type:'move'}),false);
+console.log('PASS exclusive nested phase times, failures, context restoration, total/waiting reconciliation and barrier-only requests');

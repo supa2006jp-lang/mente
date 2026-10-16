@@ -1,4 +1,5 @@
 import * as R from 'replicad';
+import {measurePhase} from './phase-timings.js';
 import {solidMeshComplete} from './solid-mesh.js';
 
 // Offset/cut results can wrap one oriented solid in a compound. OCCT's fuse
@@ -37,11 +38,11 @@ function fuseBatch(shapes,{onProgress}={}){
  throw Error('正常なソリッドとして結合できませんでした。元のボディは変更していません');
 }
 // Keep boolean faces separate when simplifying their shared boundary loses a face.
-export function fuseSolid(base,tool,options={}){
+export function fuseSolid(base,tool,options={}){return measurePhase('geometry',()=>{
  const left=singleSolidInput(base);let right;
  try{right=singleSolidInput(tool);return fusePair(left,right,options);}
  finally{if(left!==base)left.delete();if(right&&right!==tool)right.delete();}
-}
+});}
 function fusePair(base,tool,{verifyMesh=false}={}){
  const oc=R.getOC(),a=Math.abs(R.measureVolume(base)),b=Math.abs(R.measureVolume(tool)),eps=Math.max(1e-6,(a+b)*1e-8);
  const acceptable=shape=>{
