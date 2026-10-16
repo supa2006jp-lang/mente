@@ -45,7 +45,7 @@ export function barrierGapShape(tool,result,blockers){
 }
 export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,onProgress}={}){
  validateExtrusionBarrier(f);
- const gap=f.barrierGap??.4,source=f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId;
+ const gap=f.barrierGap??.6,source=f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId;
  const eligible=[...bodies].filter(([id])=>id!==source&&!(f.operation==='join'&&id===f.target));
  let result;
  try{
