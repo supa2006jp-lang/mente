@@ -6,6 +6,7 @@ import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js
 import {defaults,volume} from '../src/geometry.js';
 import {barrierExtrusion,barrierGapShape} from '../src/extrusion-barrier.js';
 import {runOperation} from '../src/kernel.js';
+import {clearBodyCache} from '../src/body-cache.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const near=(a,b,t=1e-6)=>assert.ok(Math.abs(a-b)<t,`${a} != ${b}`);
 const f={...defaults,id:'barrier',name:'バリア押し出し',kind:'extrusion',width:40,height:30,depth:15,barrier:true,barrierGap:.4};
@@ -29,6 +30,7 @@ const far=obstacle.clone().translate([100,0,0]),emptyInfo={},unmodified=barrierE
 // A display-only failure cannot change the already validated extrusion.
 const originalCut=R.Solid.prototype.cut;
 try{
+ clearBodyCache(); // Exercise an uncached display failure, not a reused mesh.
  R.Solid.prototype.cut=function(other){if(R.measureVolume(other)>10000)throw Error('gap display failed');return originalCut.call(this,other);};
  const info={},result=barrierExtrusion(tool,bodies,f,info);try{assert.ok(info.barrierClearanceWarning);assert.equal(info.barrierClearance,undefined);near(R.measureDistanceBetween(result,obstacle),.4);}finally{result.delete();}
  R.Solid.prototype.cut=function(other){if(R.measureVolume(other)>10000)throw new WebAssembly.RuntimeError('memory access out of bounds');return originalCut.call(this,other);};

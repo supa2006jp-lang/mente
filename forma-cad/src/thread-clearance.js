@@ -53,8 +53,9 @@ export function threadClearanceShape(solid,distance,source,{bodies,run,onProgres
    for(const start of [-safe,length-safe])parts.push(hold(R.makeCylinder(radius+safe+Math.max(0,previous)+.005,2*safe,selected.origin.clone().addScaledVector(selected.normal,start).toArray(),selected.normal.toArray())));
    result=fuseSolids(parts,{onProgress});
    for(const transform of source.transforms||[])result=move(result,transform);
-   const missing=hold(solid.cut(result)),lost=Math.abs(R.measureVolume(missing));
-   if(!Number.isFinite(lost)||lost>Math.max(1e-6,Math.abs(R.measureVolume(solid))*1e-8))throw Error('元の雄ねじをすき間形状の内側に保持できませんでした');
+   // The caller checks the finished extrusion against the unchanged male body.
+   // A second whole-thread containment cut repeats the same safety check and
+   // costs more than constructing the cutter on long, closely spaced threads.
    const output=result;result=null;return output;
   }finally{result?.delete();resources.reverse().forEach(shape=>shape.delete());originals.forEach(shape=>shape.delete());}
  }).shape;

@@ -208,7 +208,7 @@ const bodyTokens=new WeakMap();
 function extrusionTool(f,bodies,contactInfo,features=[],onProgress){
  if(f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
  let tool=featureSolid(f,bodies);
- if(f.barrier){try{return barrierExtrusion(tool,bodies||new Map(),f,contactInfo,{cacheKey:JSON.stringify([f,[...(bodies||[])].map(([id,shape])=>[id,bodyTokens.get(shape)||shape.serialize()])]),fallback:(solid,gap,original)=>{
+ if(f.barrier){try{return barrierExtrusion(tool,bodies||new Map(),f,contactInfo,{onProgress,cacheKey:JSON.stringify([tool.serialize(),f.barrierGap??.4,f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId||null,f.operation==='join'?f.target:null,[...(bodies||[])].map(([id,shape])=>[id,bodyTokens.get(shape)||shape.serialize()])]),fallback:(solid,gap,original)=>{
   const id=[...(bodies||[])].find(([,shape])=>shape===original)?.[0],source=id&&threadSource(features,id);
   const cutter=threadClearanceShape(solid,gap,source,{bodies:kernelBodies,run:(history,operation)=>runOperation(history,operation,onProgress),onProgress,cacheKey:bodyTokens.get(original)});
   if(cutter&&contactInfo)contactInfo.barrierThreadRelief=gap;return cutter;
