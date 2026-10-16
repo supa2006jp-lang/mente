@@ -1,3 +1,5 @@
+import {depthToFacePlane} from './extrusion-face-target.js';
+
 // Resolve the entire selection before changing UI state: curved faces must not
 // silently disappear from a multi-face extrusion.
 export function faceExtrusionRegions(entries,resolve=entry=>entry.plane){
@@ -10,6 +12,7 @@ export function regionExtrusions(template,regions,join=false){
  // Each solid face uses its outline at command entry. Earlier members must
  // not enlarge a neighbouring face before that face's tool is constructed.
  if(regions.length>1&&regions.every(r=>r.bodyId||r.cadFace?.bodyId))for(const feature of batch)feature.faceBatch=batch[0].id;
+ if(template.endPlane)for(const feature of batch)feature.depth=depthToFacePlane(feature,template.endPlane);
  if(join&&template.operation==='new')for(const f of batch.slice(1)){f.operation='join';f.target=batch[0].id;}
  return batch;
 }

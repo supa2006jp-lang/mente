@@ -38,6 +38,7 @@ import {trimInterior} from './trim-interior.js';
 import {makePipe} from './pipe.js';
 import {copiedThreadSource} from './thread-source.js';
 import {throughDepth} from './extrusion-extent.js';
+import {depthToFacePlane} from './extrusion-face-target.js';
 import {clipExtrusionAtSolids,contactSearchDistance} from './extrude-to-solid.js';
 import {bodyRevolution} from './body-revolution.js';
 import {replayHistory} from './history-replay.js';
@@ -201,6 +202,7 @@ if(f.hole&&f.operation==='cut'){const n=basisFor(f).n,margin=.001,sign=Math.sign
  if(f.mode==='thin'){const shapes=thinShapes(f.skipHoleWalls?{...r,holes:[]}:r,f.wall,f.side).map(s=>{const ps=s.extractPoints();return extrudeProfile({...r,outer:ps.shape.map(p=>[p.x,p.y]),holes:ps.holes.map(h=>h.map(p=>[p.x,p.y]))},f.depth);});return R.makeCompound(shapes).asShape3D();}return extrudeProfile(r,f.depth);
 }
 function extrusionTool(f,bodies,contactInfo){
+ if(f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
  let tool=featureSolid(f,bodies);
  if(!f.untilSolid)return cutEntryTool(tool,f,extrusionTargetEntries(f,bodies||new Map()).map(([,body])=>body));
  const sourceId=f.region?.cadFace?.bodyId||f.region?.bodyId;

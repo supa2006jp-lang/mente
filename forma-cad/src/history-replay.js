@@ -2,6 +2,7 @@ import {findRegions} from './regions.js';
 import {filletSuppressionState,isFilletBodySuppressed,filletBodyTargets} from './fillet-state.js';
 import {basisFor,worldPoint} from './frames.js';
 import {depthToGridPlane} from './extrusion-extent.js';
+import {depthToFacePlane} from './extrusion-face-target.js';
 import {refreshLinkedOffset} from './linked-sketch-offset.js';
 const copy=x=>JSON.parse(JSON.stringify(x));
 const signature=r=>JSON.stringify([...(r.sourceIds||[])].sort())+':'+r.holes.length;
@@ -51,6 +52,7 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition,o
     if(f.kind==='cadop'&&f.spec){let spec=copy(f.spec);if(spec.type==='pipe'){const path=prefix.find(p=>p.id===spec.path&&p.kind==='sketch');if(path)spec.pathFeature=copy(path);}if(spec.region)spec.region=refresh(spec.region);if(spec.sections)spec.sections=spec.sections.map(refresh);if(remap&&!(spec.type==='fillet'&&filletSuppressionState(spec)==='suppressed'))spec=spec.type==='fillet'?remapFillet(before.slice(0,i),prefix,spec,before.find(old=>old.id===f.id)?.spec,remap):remap(before.slice(0,i),prefix,spec);const result=run(prefix,{...spec,id:spec.id||f.id});f={...f,spec,...result};}
    }
    if(i>=start&&f.kind==='extrusion'&&f.gridExtentPlane)f={...f,depth:depthToGridPlane(f,f.gridExtentPlane)};
+   if(i>=start&&f.kind==='extrusion'&&f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
    if(i>=start&&f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.untilSolid||f.overlapOnly||f.region?.overlapSource||f.taperAngle||f.cadResult)&&run){const {cadResult,...input}=f;f={...input,cadResult:run(prefix,{type:'extrusion',target:f.target,feature:input})};}
    prefix.push(f);
   }catch(e){throw Object.assign(Error((i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」: '+(e.message||'形状を再計算できません。寸法を小さくしてください')+'。変更前の形状を保持しています'),{code:e.code,diagnostics:e.diagnostics,featureId:f.id,featureIndex:i,failedOperation:f.spec?.type||f.kind});}

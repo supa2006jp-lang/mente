@@ -1,4 +1,5 @@
 import {validateExtrusionOverlap} from './extrusion-overlap.js';
+import {depthToFacePlane} from './extrusion-face-target.js';
 import {extrusionCircularWalls} from './extrusion-circular-walls.js';
 import {allExtrusionTargets} from './extrusion-targets.js';
 import {validateExtrusionSymmetry,symmetricSurface} from './extrusion-symmetry.js';
@@ -20,6 +21,7 @@ export function validateFeature(f){
  validateTaperAngle(f?.taperAngle??0);
  if(!f || typeof f!=='object') throw Error('形状データが不正です。');
  validateExtrusionSymmetry(f);validateExtrusionOverlap(f);
+ if(f.endPlane!==undefined){if(f.kind!=='extrusion'||f.gridExtentPlane||f.throughAll||f.untilSolid)throw Error('到達先の面とグリッド・貫通・ソリッド接触は同時に使えません');depthToFacePlane(f,f.endPlane);}
  if(f.offsetLink!==undefined){
   const link=f.offsetLink;if(f.kind!=='sketch'||!link||typeof link!=='object'||!Number.isFinite(link.distance)||Math.abs(link.distance)<.001||Math.abs(link.distance)>10000||typeof link.allAround!=='boolean'||!Number.isInteger(link.index)||!Number.isInteger(link.count)||link.count<1||link.count>150||link.index<0||link.index>=link.count)throw Error('オフセットの追従情報が不正です');
   validateRegion(link.region);if(!link.region.overlapSource)throw Error('オフセット元の区切られた領域がありません');validateExtrusionOverlap({overlapOnly:true,mode:'solid',region:link.region,overlapTargets:link.region.overlapTargets});
