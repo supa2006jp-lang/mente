@@ -24,6 +24,7 @@ import {qrCodeBodyName,qrCodeSummary} from './qr-code-name.js';
 let qrCodeController=null;
 import {decoratedShellHistory} from './shell-decoration.js';
 import {MachiningPreviewCache} from './machining-preview-cache.js';
+import {ExtrusionPreviewCache} from './extrusion-preview-cache.js';
 import {createPrintQualityView} from './print-quality-view.js';
 import {svgWrapDialog} from './svg-wrap-dialog.js';
 import {ALL_BODIES_TARGET,SELECTED_BODIES_TARGET,allExtrusionTargets,extrusionTargetEntries,batchExtrusionFeature} from './extrusion-targets.js';
@@ -152,6 +153,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 import {defaults,makeSketchGeometry,makeGeometry,rebuild,validateProject,validateFeature,volume} from './geometry.js';
 const $=id=>document.getElementById(id),clone=x=>structuredClone(x);
+const extrusionResultCache=new ExtrusionPreviewCache();
 for(const prefix of ['', 'viewport-']){
  const controls=document.createElement('div');controls.className='extrusion-barrier-controls';
  controls.innerHTML='<label title="押し出し元・結合先以外のソリッドと、指定したすき間をくり抜きます。周囲は指定距離まで伸ばします"><input type="checkbox" id="'+prefix+'barrier"> バリア押し出し</label><label id="'+prefix+'barrier-gap-label" hidden>障害物とのすき間 (mm)<input id="'+prefix+'barrier-gap" type="number" min="0" max="1000" step="0.01" value="0.6"></label><small id="'+prefix+'barrier-hint" hidden>押し出し元・結合先以外のソリッドを避けます。障害物側は変更しません。</small>';
@@ -295,14 +297,16 @@ $('extrusion-notice-edit').onclick=()=>{
 $('extrusion-notice-close').onclick=hideExtrusionNotice;
 $('extrusion-notice-undo').onclick=()=>{const token=extrusionUndoToken;if(!token||features!==token.features||past.at(-1)!==token.previous){hideExtrusionNotice();return;}travel(false);hideExtrusionNotice();notify('押し出しを元に戻しました');};
 function disposeObject(o){o.traverse(n=>{n.geometry?.dispose();if(n.material){for(const m of Array.isArray(n.material)?n.material:[n.material]){m.map?.dispose();m.dispose();}}});o.removeFromParent();}
-function dropPreview(){clearExtrusionEndHighlight();setExtrusionAssessment('idle','');$('extrusion-tip-size').textContent='先端寸法：計算中…';kernelClient.cancelQueuedExtrusions();clearTimeout(extrusionRemovalTimer);extrusionRemovalRevision++;delete host.dataset.extrusionRemovedCount;delete host.dataset.extrusionPreviewCount;delete host.dataset.contactPreviewRoles;delete host.dataset.barrierGapPreviewCount;for(const prefix of ['', 'viewport-']){$(prefix+'contact-legend').hidden=true;$(prefix+'barrier-gap-legend').hidden=true;}host.dataset.previewKind='none';if(preview){disposeObject(preview);preview=null;}}
+function dropPreview(){extrusionResultCache.clear();clearExtrusionEndHighlight();setExtrusionAssessment('idle','');$('extrusion-tip-size').textContent='先端寸法：計算中…';kernelClient.cancelQueuedExtrusions();clearTimeout(extrusionRemovalTimer);extrusionRemovalRevision++;delete host.dataset.extrusionRemovedCount;delete host.dataset.extrusionPreviewCount;delete host.dataset.contactPreviewRoles;delete host.dataset.barrierGapPreviewCount;for(const prefix of ['', 'viewport-']){$(prefix+'contact-legend').hidden=true;$(prefix+'barrier-gap-legend').hidden=true;}host.dataset.previewKind='none';if(preview){disposeObject(preview);preview=null;}}
 function scheduleExtrusionRemoval(batch){
- const revision=extrusionRemovalRevision,group=preview,input=selected?features.slice(0,features.findIndex(f=>f.id===selected)):features;
+ const revision=extrusionRemovalRevision,group=preview,model=features,editingId=selected,input=selected?features.slice(0,features.findIndex(f=>f.id===selected)):features;
  setExtrusionAssessment('pending','加工できるか確認中…');
  extrusionRemovalTimer=setTimeout(async()=>{try{
   const results=[],history=[...input];
   for(const original of batch){if(revision!==extrusionRemovalRevision||preview!==group)return;const f=batchExtrusionFeature(original,history.slice(input.length)),result=await kernelClient.run(history,{type:'preview',operation:{type:'extrusion',target:f.target,feature:f}});results.push(result);history.push({...f,cadResult:result});}
   if(revision!==extrusionRemovalRevision||preview!==group)return;
+  if(features!==model||selected!==editingId)return;
+  extrusionResultCache.store(model,batch,history.slice(input.length),editingId);
   const ids=batch[0].operation==='new'?[]:[...new Set(results.flatMap(r=>[...r.outputs.map(o=>o.id),...r.remove]))];
   if(batch[0].operation==='cut'){
    const removed=results.flatMap(r=>r.removed||[]);if(removed.length){for(const m of group.children)m.visible=false;for(const o of removed){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(o.vertices,3));g.setIndex(o.triangles);const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xf04438,transparent:true,opacity:.5,depthWrite:false,depthTest:false,side:THREE.DoubleSide}));m.renderOrder=30;group.add(m);}host.dataset.extrusionRemovedCount=String(removed.length);}
@@ -476,7 +480,7 @@ async function applyHistoryEdit({isCurrent=()=>true}={}){
  assertExtrusionReady();const original=features,index=features.findIndex(f=>f.id===selected);if(index<0)return applyFeature();
  const f=current();validateFeature(f);const next=clone(features);next[index]=f;
  $('apply').disabled=true;$('error').textContent='後続の工程を再計算しています…';
- try{const result=next.slice(index).some(f=>f.offsetLink||(f.kind==='cadop'&&f.spec)||(f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.barrier||f.untilSolid||f.overlapOnly||f.taperAngle||f.cadResult)))?await kernelClient.run(next,{type:'replay',before:original,start:index}):{features:replayHistory(original,next,index)};if(features!==original||!isCurrent())throw Error('計算中にモデルが変更されました。もう一度適用してください');setProject(result.features,{extruded:f.kind==='extrusion'?[f]:[]});selected=f.id;finishSketch(false);draftTouched=false;dropPreview();renderTree();syncFields();$('error').textContent='';if(f.kind==='extrusion'){finishExtrusionCommand();notifyExtrusion(f,{edited:true});}else notify('スケッチ・立体・後続工程を更新しました');}finally{$('apply').disabled=stage==='model';syncExtrusionConfirm();}
+ try{const ready=extrusionResultCache.get(original,[f],selected);if(ready)next[index]=ready.features[0];host.dataset.extrusionPreparedReused=String(!!ready);const result=ready?(index+1<next.length?await kernelClient.run(next,{type:'replay',before:original,start:index+1,refreshStart:true}):{features:next}):next.slice(index).some(f=>f.offsetLink||(f.kind==='cadop'&&f.spec)||(f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.barrier||f.untilSolid||f.overlapOnly||f.taperAngle||f.cadResult)))?await kernelClient.run(next,{type:'replay',before:original,start:index}):{features:replayHistory(original,next,index)};if(features!==original||!isCurrent())throw Error('計算中にモデルが変更されました。もう一度適用してください');setProject(result.features,{extruded:f.kind==='extrusion'?[f]:[]});selected=f.id;finishSketch(false);draftTouched=false;dropPreview();renderTree();syncFields();$('error').textContent='';if(f.kind==='extrusion'){finishExtrusionCommand();notifyExtrusion(f,{edited:true});}else notify('スケッチ・立体・後続工程を更新しました');}finally{$('apply').disabled=stage==='model';syncExtrusionConfirm();}
 }
 function resolveAutoCut(){
  if(stage!=='extrusion'||selected||pendingExtrude||pendingOperation==='cut'||extrusionManualOperation||$('barrier').checked||$('until-solid').checked||$('overlap-only').checked)return;
@@ -2784,7 +2788,7 @@ async function applyCADExtrusion(){
  const batch=selectedRegions.length>1?regionExtrusions(f,selectedRegions,$('viewport-combine').value==='join'):[f];for(const item of batch)validateFeature(item);if(features.length+batch.length>150)throw Error('工程数は150までです');
  extrusionBusy=true;$('apply').disabled=true;const submit=$('extrude-distance').querySelector('[type=submit]');if(submit)submit.disabled=true;
  $('status').textContent='CAD形状で加工を計算中…';$('viewport-depth-error').textContent='計算中…';
- try{const result=await kernelClient.run(features,{type:'extrusionBatch',features:batch});if(features!==original)throw Error('計算中にモデルが変更されました。もう一度実行してください');setProject([...features,...result.features],{extruded:result.features});finishSketch(false);selected=f.id;draftTouched=false;selectedRegions=[];dropPreview();syncFields();renderTree();$('viewport-depth-error').textContent='';finishExtrusionCommand();$('status').textContent='押し出し加工を確定しました';notifyExtrusion(f,{count:batch.length});}
+ try{const ready=extrusionResultCache.get(original,batch),result=ready||await kernelClient.run(features,{type:'extrusionBatch',features:batch});host.dataset.extrusionPreparedReused=String(!!ready);if(features!==original)throw Error('計算中にモデルが変更されました。もう一度実行してください');setProject([...features,...result.features],{extruded:result.features});finishSketch(false);selected=f.id;draftTouched=false;selectedRegions=[];dropPreview();syncFields();renderTree();$('viewport-depth-error').textContent='';finishExtrusionCommand();$('status').textContent='押し出し加工を確定しました';notifyExtrusion(f,{count:batch.length});}
  catch(error){$('status').textContent='押し出し加工に失敗しました';$('viewport-depth-error').textContent=appErrorMessage(error)||'形状を確認してください';throw error;}
  finally{extrusionBusy=false;$('apply').disabled=stage==='model';if(submit)submit.disabled=false;syncExtrusionConfirm();}
 }

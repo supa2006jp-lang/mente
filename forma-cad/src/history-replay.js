@@ -40,12 +40,14 @@ export function refreshRegion(region,before,after){
  if(previous.filter(r=>signature(r)===signature(old)).length!==1||matches.length!==1)throw Error('輪郭の数や接続が変わりました。閉じた領域を選び直してください');
  return copy(matches[0]);
 }
-export function replayHistory(before,proposed,start,run,remap,resolvePartition,onStep){
+export function replayHistory(before,proposed,start,run,remap,resolvePartition,onStep,refreshStart=false){
  const next=copy(proposed),prefix=[];
  for(let i=0;i<next.length;i++){
   let f=next[i];try{
    if(i>=start)onStep?.({stage:(i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」を再計算しています',current:i-start,total:next.length-start,featureId:f.id});
-   if(i>start||(i===start&&f.kind==='cadop'&&f.spec)){
+   // A prepared edited extrusion is already in the prefix. Its first successor
+   // still needs its sketch/face references refreshed against that new shape.
+   if(i>start||(i===start&&(refreshStart||f.kind==='cadop'&&f.spec))){
     const refresh=r=>{const updated=refreshRegion(r,before.slice(0,i),prefix);if(updated?.overlapSource){if(!resolvePartition)throw Error('区切られた領域の再計算にはCADエンジンが必要です');return resolvePartition(updated,prefix);}return updated;};
     if(f.offsetLink)f=refreshLinkedOffset(f,refresh(f.offsetLink.region));
     if(f.region){const region=refresh(f.region);if(region!==f.region){const n=basisFor(region).n;f={...f,region,plane:region.plane,frame:region.frame,x:n.x*region.offset,y:n.y*region.offset,z:n.z*region.offset};}}
