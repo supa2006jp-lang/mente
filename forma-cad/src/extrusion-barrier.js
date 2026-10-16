@@ -1,6 +1,8 @@
 import * as R from 'replicad';
 import {cutWithClearance} from './cut-clearance.js';
 import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
+import {cachedBody} from './body-cache.js';
+const threadReliefs=new Set();
 
 // Keep the source/join anchor connected. All other bodies are immutable barriers.
 // A true surface offset creates clearance around sides and corners as well.
@@ -13,17 +15,28 @@ export function barrierGapShape(tool,result,blockers){
   const output=gap;gap=null;return output;
  }finally{gap?.delete();after.delete();source.delete();}
 }
-export function barrierExtrusion(tool,bodies,f,previewInfo){
+export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey}={}){
  validateExtrusionBarrier(f);
  const gap=f.barrierGap??.4,source=f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId;
  const blockers=[...bodies].filter(([id,shape])=>id!==source&&!(f.operation==='join'&&id===f.target)&&R.measureDistanceBetween(tool,shape)<=gap+1e-6).map(([,shape])=>shape);
  if(!blockers.length)return tool.clone();
  let result;
  try{
-  result=cutWithClearance(tool,blockers,gap);
-  const check=new (R.getOC().BRepCheck_Analyzer)(result.wrapped,true,false);
-  try{if(!check.IsValid()||!Number.isFinite(R.measureVolume(result))||R.measureVolume(result)<=1e-9)throw Error('障害物とすき間で押し出し形状がなくなるか、不正になります。距離・すき間を調整してください');}finally{check.delete();}
-  for(const blocker of blockers)if(R.measureDistanceBetween(result,blocker)<gap-1e-5)throw Error('指定したバリアのすき間を確保できませんでした。すき間を小さくするか、障害物の形状を確認してください');
+  let usedThread=false;
+  const key='extrusion-barrier:'+(cacheKey||JSON.stringify([gap,tool.serialize(),...blockers.map(shape=>shape.serialize())]));
+  const entry=cachedBody(key,()=>{
+   let candidate;
+   try{
+    candidate=cutWithClearance(tool,blockers,gap,{fallback:(...args)=>{const shape=fallback?.(...args);if(shape)usedThread=true;return shape;}});
+    const check=new (R.getOC().BRepCheck_Analyzer)(candidate.wrapped,true,false);
+    try{if(!check.IsValid()||!Number.isFinite(R.measureVolume(candidate))||R.measureVolume(candidate)<=1e-9)throw Error('障害物とすき間で押し出し形状がなくなるか、不正になります。距離・すき間を調整してください');}finally{check.delete();}
+    for(const blocker of blockers)if(R.measureDistanceBetween(candidate,blocker)<gap-1e-5)throw Error('指定したバリアのすき間を確保できませんでした。すき間を小さくするか、障害物の形状を確認してください');
+    const output=candidate;candidate=null;return output;
+   }finally{candidate?.delete();}
+  });
+  result=entry.shape;
+  if(usedThread){threadReliefs.add(entry.token);while(threadReliefs.size>48)threadReliefs.delete(threadReliefs.values().next().value);}
+  if(previewInfo&&threadReliefs.has(entry.token))previewInfo.barrierThreadRelief=gap;
   if(previewInfo&&gap>0){
    let space;
    try{

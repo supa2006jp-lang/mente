@@ -331,7 +331,7 @@ function scheduleContactPreview(batch){
     const edges=new THREE.LineSegments(new THREE.EdgesGeometry(geometry,25),new THREE.LineBasicMaterial({color:0xd97706,transparent:true,opacity:.9}));edges.renderOrder=4;mesh.add(edges);group.add(mesh);
    }
    if(gaps.length)host.dataset.barrierGapPreviewCount=String(gaps.length);
-   for(const prefix of ['', 'viewport-']){const legend=$(prefix+'barrier-gap-legend');legend.hidden=!gaps.length&&!gapWarning;legend.textContent=gapWarning||'🟧 すき間 '+fmt(batch[0].barrierGap??.4)+' mm ／ 水色：押し出す形状';}
+   for(const prefix of ['', 'viewport-']){const legend=$(prefix+'barrier-gap-legend');legend.hidden=!gaps.length&&!gapWarning;legend.textContent=(gapWarning||'🟧 すき間 '+fmt(batch[0].barrierGap??.4)+' mm ／ 水色：押し出す形状')+(results.some(result=>result.barrierThreadRelief)?' ／ ねじの両端に入口の逃げを追加':'');}
    const roles=[...new Set(results.flatMap(result=>result.outputs.map(output=>output.role)).filter(Boolean))];
    host.dataset.contactPreviewRoles=roles.join(',');
    for(const prefix of ['', 'viewport-']){

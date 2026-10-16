@@ -1,0 +1,61 @@
+import * as R from 'replicad';
+import * as THREE from 'three';
+import {defaults} from './geometry.js';
+import {threadCylinderInfo} from './thread-cylinder.js';
+import {allThreadPullSpec} from './thread-pull-spec.js';
+import {enlargeForClearance} from './cut-clearance.js';
+import {fuseSolids} from './solid-fuse.js';
+import {cachedBody} from './body-cache.js';
+
+function place(shape,origin,normal){const z=new THREE.Vector3(0,0,1),angle=z.angleTo(normal)*180/Math.PI,axis=z.cross(normal);if(angle>1e-6)shape=shape.rotate(angle,[0,0,0],axis.length()<1e-6?[1,0,0]:axis.normalize().toArray());return shape.translate(origin.toArray());}
+function move(shape,spec){
+ if(spec.rotation){for(let i=0;i<3;i++)if(spec.rotation[i])shape=shape.rotate(spec.rotation[i],spec.pivot||[0,0,0],[[1,0,0],[0,1,0],[0,0,1]][i]);}
+ else if(spec.angle)shape=shape.rotate(spec.angle,[0,0,0],{X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[spec.axis]||[0,0,1]);
+ if((spec.copy===true||spec.moveMode==='複製して移動')&&spec.reverseCopy){const normal=new THREE.Vector3(spec.x,spec.y,spec.z).normalize(),u=Math.abs(normal.x)<.9?new THREE.Vector3(1,0,0):new THREE.Vector3(0,1,0);u.addScaledVector(normal,-u.dot(normal)).normalize();shape=shape.mirror(new R.Plane(spec.pivot||[0,0,0],u.toArray(),normal.toArray()));}
+ return shape.translate([spec.x||0,spec.y||0,spec.z||0]);
+}
+
+// OCCT cannot offset the C0 B-spline surfaces of swept threads. Build the
+// complementary female profile instead, then invert it into a clearance tool.
+// This retains helical grooves rather than replacing them with a cylinder.
+export function threadClearanceShape(solid,distance,source,{bodies,run,onProgress,cacheKey}={}){
+ const spec=source?.spec;
+ if(spec?.type!=='thread'||spec.profile!=='metric60'||spec.threadVersion!==2||spec.threadInternal===true)return null;
+ const key='thread-clearance:'+distance+':'+JSON.stringify(spec)+':'+(cacheKey||solid.serialize());
+ return cachedBody(key,()=>{
+  const originals=bodies(source.features),resources=[],hold=shape=>(resources.push(shape),shape);let result;
+  try{
+   const base=originals.get(spec.target),selected=base&&threadCylinderInfo(base,spec.surfacePoint);
+   if(!selected||selected.internal)throw Error('すき間用の元の雄ねじを確認できませんでした');
+   const a=selected.normal.toArray(),dominant=a.reduce((best,v,i)=>Math.abs(v)>Math.abs(a[best])?i:best,0);
+   if(a[dominant]<0){selected.origin.addScaledVector(selected.normal,selected.height);selected.normal.negate();selected.fromTop=!selected.fromTop;}
+   const length=spec.fullLength?selected.height:spec.length,offset=spec.fullLength?0:spec.offset||0;
+   selected.origin.addScaledVector(selected.normal,selected.fromTop?selected.height-offset-length:offset);
+   const radius=selected.radius,pitch=spec.pitch,root=radius-pitch*.561266+Math.min(0,spec.threadCylinderOffset||0,...(spec.threadFaceOffsets||[]));
+   if(!(root>0&&length>0))throw Error('すき間用のねじ寸法が不正です');
+   // Correct the planar flank distance for the helical lead angle. The final
+   // extrusion is also checked against the actual, unchanged male body.
+   const safe=distance*Math.sqrt(1+(pitch/(2*Math.PI*root))**2)+Math.max(.0001,distance*.0001);
+   const previous=Math.max(...(spec.threadFaceOffsets||[0,0,0]).slice(0,3),spec.threadCylinderOffset||0),clearance=safe+previous;
+   const side=(radius+Math.abs(clearance)+Math.max(2,pitch))*2,id='thread-clearance-support';
+   const support=hold(R.makeBox([-side/2,-side/2,0],[side/2,side/2,length]));
+   const block={...defaults,id,profile:'rect',width:side,height:side,depth:length};
+   const hole={...defaults,id:'thread-clearance-bore',profile:'circle',diameter:radius*2,operation:'cut',target:id,depth:-length,z:length,hole:true};
+   let thread={type:'thread',target:id,profile:'metric60',threadVersion:2,pitch,fullLength:true,leftHand:!!spec.leftHand,surfacePoint:[radius,0,length/2]};
+   if(Math.abs(clearance)>=.001)thread=allThreadPullSpec(thread,-clearance);
+   onProgress?.({stage:'ねじ山に沿うすき間形状を作成しています'});
+   const femaleOutput=run([block,hole],thread).outputs[0],female=hold(R.deserializeShape(femaleOutput.brep).asShape3D());
+   const central=hold(place(support.cut(female),selected.origin,selected.normal));
+   const expanded=hold(enlargeForClearance(base,safe)),shaft=hold(R.makeCylinder(radius+safe+.001,length,selected.origin.toArray(),selected.normal.toArray()));
+   const outside=hold(expanded.cut(shaft)),parts=[central];if(R.measureVolume(outside)>1e-9)parts.push(outside);
+   // Relieve both thread entrances so a flat end cap cannot touch the new body.
+   // Overlap the shaft subtraction by 0.004 mm to close the shoulder seam.
+   for(const start of [-safe,length-safe])parts.push(hold(R.makeCylinder(radius+safe+Math.max(0,previous)+.005,2*safe,selected.origin.clone().addScaledVector(selected.normal,start).toArray(),selected.normal.toArray())));
+   result=fuseSolids(parts,{onProgress});
+   for(const transform of source.transforms||[])result=move(result,transform);
+   const missing=hold(solid.cut(result)),lost=Math.abs(R.measureVolume(missing));
+   if(!Number.isFinite(lost)||lost>Math.max(1e-6,Math.abs(R.measureVolume(solid))*1e-8))throw Error('元の雄ねじをすき間形状の内側に保持できませんでした');
+   const output=result;result=null;return output;
+  }finally{result?.delete();resources.reverse().forEach(shape=>shape.delete());originals.forEach(shape=>shape.delete());}
+ }).shape;
+}
