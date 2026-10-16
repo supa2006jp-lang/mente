@@ -2707,7 +2707,7 @@ async function computeMachiningPreview(){
    }
    $('enclose-motion-result').textContent=notes.join(' ');
   }
-  $('cad-error').textContent=(spec.type==='coilJoint'?'半透明：水色の本体／橙色の蓋。':spec.type==='enclose'?'半透明：新規作成する囲み'+(spec.enclosureSplit!=='分割しない'?'（水色／橙色の２ボディ）':'')+'。':result.removed?.length?'水色：加工後 / 赤：削られる部分。':'加工後のプレビューです。')+'「'+$('cad-apply').textContent+'」で確定します';
+  $('cad-error').textContent=(spec.type==='coilJoint'?'半透明：水色の本体／橙色の蓋。':spec.type==='enclose'?'半透明：新規作成する囲み'+(spec.enclosureSplit!=='分割しない'?'（水色／橙色の２ボディ）':'')+'。':result.removed?.length?'水色：加工後 / 赤：削られる部分。':'加工後のプレビューです。')+(result.previewWarnings?.length?' 削られる部分の赤い表示だけ省略しています。':'')+'「'+$('cad-apply').textContent+'」で確定します';
  }catch(e){if(revision===machiningRevision){$('cad-error').textContent=appErrorMessage(e);if($('cad-command').value==='coilJoint'){updateCoilLatchEffective(false);updateCoilFilletEffectiveUI(null,'プレビューを計算できません');}}}
  finally{machiningBusy=false;if(machiningAgain){machiningAgain=false;scheduleMachiningPreview(true);}}
 }
