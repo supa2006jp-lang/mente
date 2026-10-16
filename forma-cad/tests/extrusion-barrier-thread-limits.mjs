@@ -13,8 +13,8 @@ for(const pitch of [.5,1,1.5,2,3])for(const previous of [-pitch*.1,0,pitch*.1]){
  assert.ok(report.height>report.minimumRidge&&report.width>report.minimumRidge);
  assert.ok(report.maxGap>pitch*.4,'geometric limit must replace the manual 40% guard');
  const near=threadClearanceProfile(pitch,root,previous,report.maxGap);
- assert.ok(near.height>=near.minimumRidge&&near.height<.004,'reported limit must retain a small real ridge');
- assert.throws(()=>threadClearanceProfile(pitch,root,previous,report.maxGap+.002),/ねじ山が残りません.*目安/);
+ assert.ok(near.height>=near.minimumRidge&&near.height<.014,'reported limit must retain a small real ridge');
+ assert.throws(()=>threadClearanceProfile(pitch,root,previous,report.maxGap+.01),/ねじ山が残りません.*目安/);
 }
 assert.throws(()=>allThreadPullSpec({pitch:1.5},-.8),/40%/,'ordinary manual pull retains its existing guard');
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
@@ -47,7 +47,7 @@ try{
   validateProject({format:'forma-cad',version:1,features:[...history,{...f,cadResult:result}]});
   console.log('PASS actual helical cavity gap '+gap+' mm, ridge height '+report.height+' mm');
  }
- const over={...feature,barrierGap:maximum+.002},stages=[];
+ const over={...feature,barrierGap:maximum+.01},stages=[];
  assert.throws(()=>runOperation(history,{type:'extrusionToolPreview',feature:over},progress=>stages.push(progress.stage)),/ねじ山が残りません.*目安/);
  assert.ok(!stages.includes('ねじ山に沿うすき間形状を作成しています'),'reject erased ridges before expensive helix generation');
  assert.equal(JSON.stringify(history),snapshot,'failed and successful operations preserve the source screw');

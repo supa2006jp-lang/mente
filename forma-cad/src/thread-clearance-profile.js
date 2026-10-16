@@ -26,7 +26,7 @@ export function threadClearanceProfile(pitch,root,previous,distance){
  let low=0,high=Math.max(pitch,Math.abs(previous)*2);
  while(ridgeAt(high))high*=2;
  if(ridgeAt(0))for(let i=0;i<48;i++){const middle=(low+high)/2;if(ridgeAt(middle))low=middle;else high=middle;}
- const ridge=ridgeAt(distance),maxGap=Math.floor(low*1000)/1000;
+ const ridge=ridgeAt(distance),maxGap=Math.floor(low*100)/100;
  if(!ridge)throw Error('このすき間では受け側のねじ山が残りません。ピッチ '+pitch+' mm・現在のねじ形状では、すき間を約 '+maxGap+' mm 以下にしてください（計算上の目安）。');
  return {...ridge,pitch,maxGap,minimumRidge};
 }
