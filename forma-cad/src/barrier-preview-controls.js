@@ -30,7 +30,7 @@ export function createBarrierPreviewControls({host,onModeChange,onUpdate,onGapCh
    view.options.hidden=!active;if(view.select.value!==mode)view.select.value=mode;
    view.select.disabled=!enabled;view.button.disabled=!enabled||state==='pending';
    view.gapToggle.checked=showGap;view.gapToggle.disabled=!enabled;
-   view.note.textContent=state==='pending'?'プレビューを計算しています。':mode==='manual'?'調整後に「プレビュー更新」を押してください。':'入力した条件で自動更新します。';
+   view.note.textContent=state==='pending'?'プレビューを計算しています。':state==='range'?'範囲を表示中。ドラッグを離すと形状を確認します。':mode==='manual'?'範囲を調整後に「プレビュー更新」を押してください。':'入力した条件で自動更新します。';
    view.details.hidden=!active||!last&&!run;
    const report=run&&!run.done?summarizeBarrierTimings(run.reports,now()-run.started):last;
    if(!report){view.body.replaceChildren();continue;}

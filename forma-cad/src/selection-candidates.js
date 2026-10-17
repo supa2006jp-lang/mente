@@ -36,13 +36,21 @@ function faceDirection(hit,features){
  return '斜面';
 }
 const coordinates=point=>point.map((v,i)=>['X','Y','Z'][i]+' '+(Math.abs(v)<.005?0:v).toFixed(2)).join(' / ')+' mm';
+const dimension=value=>String(Number(value.toFixed(2)));
+export function edgeCandidateDetail(hit){
+ const curve=hit.curve||hit.arc||hit.circle;
+ const length=curve?(Number.isFinite(curve.length)?curve.length:curve.points.slice(1).reduce((sum,p,i)=>sum+Math.hypot(...p.map((v,j)=>v-curve.points[i][j])),0)):hit.a.distanceTo(hit.b);
+ const kind=hit.curve?'曲線':hit.circle?'円周':hit.arc?'円弧':'直線';
+ const radius=Number.isFinite(curve?.radius)?hit.circle?'直径 '+dimension(curve.radius*2)+' mm':hit.arc?'R'+dimension(curve.radius)+' mm':'':'';
+ return [kind,radius,'長さ '+dimension(length)+' mm'].filter(Boolean).join(' · ');
+}
 export function selectionCandidates(hits,edges,{mode='auto',name=id=>id,features=[],midpoints=[],vertices=[],pointMode=false}={}){
  const out=[],seen=new Set(),counts={edge:0,midpoint:0,vertex:0},front=hits[0]?.distance??Infinity;
  const add=(kind,key,hit,bodyId,behind,direction='')=>{
   if(seen.has(key))return;seen.add(key);
   const title=kind==='body'?'ボディ全体':kind==='face'?direction:kind==='faceCenter'?'面の中心 · '+direction:(kind==='vertex'?'頂点':kind==='midpoint'?'中点':hit.curve?'曲線':'辺')+' '+(++counts[kind]);
   const center=kind==='face'?faceCenterCandidate(hit,features):null,point=['vertex','midpoint','faceCenter'].includes(kind)?hit.reference.point:center?.reference.point;
-  out.push({kind,key,hit,bodyId,label:title+' — '+name(bodyId)+(behind?'（奥）':''),detail:point?coordinates(point):''});
+  out.push({kind,key,hit,bodyId,label:title+' — '+name(bodyId)+(behind?'（奥）':''),detail:kind==='edge'?edgeCandidateDetail(hit):point?coordinates(point):''});
  };
  if(pointMode||['auto','edge'].includes(mode))for(const v of vertices)add('vertex',v.mesh.userData.bodyId+':vertex:'+v.point.toArray().map(rounded).join(','),v,v.mesh.userData.bodyId,v.depth>(vertices[0]?.depth??v.depth)+1e-5);
  if(pointMode||['auto','edge'].includes(mode))for(const m of midpoints)add('midpoint',midpointCandidateKey(m),m,m.mesh.userData.bodyId,false);

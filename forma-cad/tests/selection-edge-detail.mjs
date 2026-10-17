@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import {edgeCandidateDetail,selectionCandidates} from '../src/selection-candidates.js';
+const mesh={userData:{bodyId:'part'}},base={mesh,a:new THREE.Vector3(0,0,0),b:new THREE.Vector3(3,4,0),point:new THREE.Vector3()};
+assert.equal(edgeCandidateDetail(base),'直線 · 長さ 5 mm');
+assert.equal(edgeCandidateDetail({...base,arc:{radius:5,length:Math.PI*2.5}}),'円弧 · R5 mm · 長さ 7.85 mm');
+assert.equal(edgeCandidateDetail({...base,circle:{radius:5,length:Math.PI*10}}),'円周 · 直径 10 mm · 長さ 31.42 mm');
+const curve={key:'helix',length:123.456,points:[[0,0,0],[0,0,100],[0,23.456,100]]};
+assert.equal(edgeCandidateDetail({...base,curve}),'曲線 · 長さ 123.46 mm','show the complete curve length, not the nearest display chord');
+assert.equal(edgeCandidateDetail({...base,curve:{...curve,length:undefined}}),'曲線 · 長さ 123.46 mm');
+const options=selectionCandidates([],[base,{...base,curve}],{mode:'edge',name:()=> 'ねじ'});
+assert.equal(options.length,2);assert.equal(options[0].detail,'直線 · 長さ 5 mm');assert.equal(options[1].detail,'曲線 · 長さ 123.46 mm');assert.match(options[1].label,/ねじ/);
+console.log('PASS line/arc/circle/whole-curve candidate dimensions, two decimal places and candidate integration');
