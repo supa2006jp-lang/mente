@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {createSelectionPicker} from '../src/selection-picker.js';
+import {createSelectionPicker,selectionCandidateBodies,filterSelectionCandidates} from '../src/selection-picker.js';
 
 // Small DOM/event fixture for the widget's public interaction contract.
 class Element{
@@ -21,8 +21,8 @@ class Element{
 }
 const previous={document:globalThis.document,window:globalThis.window},doc=new Element('document'),win=new Element('window');doc.createElement=tag=>new Element(tag);doc.head=new Element('head');doc.body=new Element('body');globalThis.document=doc;globalThis.window=win;
 try{
- const viewport=new Element(),host=new Element(),canvas=new Element('canvas'),cube=new Element(),nav=new Element();cube.className='view-cube';nav.className='navigation';viewport.append(host,cube,nav);host.append(canvas);let usable=true,picker,lastPreview=null,chosen=null;
- picker=createSelectionPicker({host,canvas,canUse:()=>usable,choose:c=>{chosen=c;picker.close();},preview:c=>{lastPreview=c;},isSelected:()=>false});
+ const viewport=new Element(),host=new Element(),canvas=new Element('canvas'),cube=new Element(),nav=new Element();cube.className='view-cube';nav.className='navigation';viewport.append(host,cube,nav);host.append(canvas);let usable=true,picker,lastPreview=null,chosen=null,focused=null,choices=0,focuses=0;
+ picker=createSelectionPicker({host,canvas,canUse:()=>usable,choose:c=>{chosen=c;choices++;picker.close();},onFocus:c=>{focused=c;focuses++;return true;},preview:c=>{lastPreview=c;},isSelected:()=>false});
  const items=Array.from({length:12},(_,i)=>({kind:i===0?'body':'edge',bodyId:'part',key:'candidate-'+i,label:'候補'+i,detail:'直線 · 長さ 5 mm'})),revision=[],open=()=>picker.open(items,{clientX:300,clientY:200},revision),panel=viewport.querySelector('#selection-candidates'),pin=panel.querySelector('[data-pin]');
  open();assert.equal(picker.visible,true);assert.equal(picker.pinned,false);assert.equal(panel.querySelectorAll('small')[0].textContent,items[0].detail,'candidate dimensions appear in the rendered list');
  pin.fire('click');assert.equal(picker.pinned,true);assert.equal(pin.getAttribute('aria-pressed'),'true');assert.equal(host.dataset.selectionCandidatePinned,'true');
@@ -35,5 +35,15 @@ try{
  open();pin.fire('click');doc.fire('pointerdown',{target:new Element('button')});assert.equal(picker.visible,false,'starting another command closes the inspector');
  open();pin.fire('click');usable=false;picker.refresh();assert.equal(picker.visible,false,'stale model or command state cannot leave actionable old candidates');usable=true;
  open();pin.fire('click');win.fire('keydown',{target:canvas,key:'Escape'});assert.equal(picker.visible,false);assert.equal(picker.pinned,false);assert.equal(lastPreview,null);
- console.log('PASS rendered edge detail, pinned camera gestures/wheel/view controls/resize, persistent inspection, body selection callback, folded keyboard navigation, unpin, command/stale-state/Escape cleanup');
+
+ const multi=Array.from({length:13},(_,i)=>({kind:i===0?'body':'edge',bodyId:i<9?'A':'B',bodyName:i<9?'本体':'取手<左>',key:'multi-'+i,label:'候補'+i,detail:'直線 · 長さ 5 mm'}));
+ assert.deepEqual(selectionCandidateBodies(multi),[{id:'A',name:'本体',count:9},{id:'B',name:'取手<左>',count:4}]);assert.equal(filterSelectionCandidates(multi,'B').length,4);assert.equal(filterSelectionCandidates(multi,''),multi);
+ picker.open(multi,{clientX:300,clientY:200},revision);const filter=panel.querySelector('[data-body-filter]');assert.equal(panel.querySelector('[data-body-filter-label]').hidden,false);assert.deepEqual(filter.children.map(o=>o.textContent),['全てのボディ','本体（9候補）','取手<左>（4候補）'],'body names are rendered as text, never parsed from labels/HTML');
+ pin.fire('click');panel.querySelector('[data-candidate-index="0"]').fire('click');const original=chosen,beforeChoices=choices;filter.value='B';filter.fire('change');assert.equal(choices,beforeChoices,'filtering never changes selection');assert.equal(host.dataset.selectionCandidateActive,'');assert.equal(host.dataset.selectionCandidateCount,'4');assert.equal(host.dataset.selectionCandidateTotal,'13');assert.equal(panel.querySelectorAll('[data-candidate-index]').length,4);assert.equal(panel.querySelector('#selection-candidate-more'),null);
+ panel.querySelector('[data-candidate-focus-index="2"]').fire('click');assert.equal(focused,multi[11]);assert.equal(chosen,original,'here-to-view never selects another candidate');assert.equal(choices,beforeChoices);assert.equal(picker.pinned,true);assert.equal(panel.dataset.placement,'docked','the list moves out of the camera viewport before framing');assert.equal(lastPreview,multi[11]);assert.equal(host.dataset.selectionCandidateFocus,'multi-11');
+ win.fire('keydown',{target:canvas,key:'Tab'});assert.equal(chosen,multi[9],'Tab starts with the first visible candidate after filtering');win.fire('keydown',{target:canvas,key:'Tab',shiftKey:true});assert.equal(chosen,multi[12],'keyboard navigation cannot leak into another body');const selected=chosen;win.fire('keydown',{target:canvas,key:'Enter',altKey:true});assert.equal(focused,multi[12]);assert.equal(chosen,selected,'keyboard focus action does not select');
+ filter.value='';filter.fire('change');assert.equal(host.dataset.selectionCandidateCount,'13');assert.equal(host.dataset.selectionCandidateActive,'multi-12','clearing the filter preserves the candidate by key, not the previous row number');assert.ok(panel.querySelector('#selection-candidate-more'));assert.equal(picker.pinned,true);
+ const previousFocuses=focuses;usable=false;panel.querySelector('[data-candidate-focus-index="0"]').fire('click');assert.equal(focuses,previousFocuses,'stale candidates cannot trigger camera actions');assert.equal(picker.visible,false);usable=true;
+ open();assert.equal(panel.querySelector('[data-body-filter-label]').hidden,true,'single-body lists do not show a redundant filter');assert.equal(filter.value,'','new clicks reset the filter');picker.close();
+ console.log('PASS rendered edge detail, pinned camera gestures/wheel/view controls/resize, persistent inspection, body selection callback, folded keyboard navigation, unpin, command/stale-state/Escape cleanup, body filters, here-to-view without selection, filtered keyboard cycling and safe resets');
 }finally{for(const key of ['document','window'])if(previous[key]===undefined)delete globalThis[key];else globalThis[key]=previous[key];}

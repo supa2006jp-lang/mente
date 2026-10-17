@@ -49,8 +49,8 @@ export function selectionCandidates(hits,edges,{mode='auto',name=id=>id,features
  const add=(kind,key,hit,bodyId,behind,direction='')=>{
   if(seen.has(key))return;seen.add(key);
   const title=kind==='body'?'ボディ全体':kind==='face'?direction:kind==='faceCenter'?'面の中心 · '+direction:(kind==='vertex'?'頂点':kind==='midpoint'?'中点':hit.curve?'曲線':'辺')+' '+(++counts[kind]);
-  const center=kind==='face'?faceCenterCandidate(hit,features):null,point=['vertex','midpoint','faceCenter'].includes(kind)?hit.reference.point:center?.reference.point;
-  out.push({kind,key,hit,bodyId,label:title+' — '+name(bodyId)+(behind?'（奥）':''),detail:kind==='edge'?edgeCandidateDetail(hit):point?coordinates(point):''});
+  const displayName=name(bodyId),center=kind==='face'?faceCenterCandidate(hit,features):null,point=['vertex','midpoint','faceCenter'].includes(kind)?hit.reference.point:center?.reference.point;
+  out.push({kind,key,hit,bodyId,bodyName:displayName,label:title+' — '+displayName+(behind?'（奥）':''),detail:kind==='edge'?edgeCandidateDetail(hit):point?coordinates(point):''});
  };
  if(pointMode||['auto','edge'].includes(mode))for(const v of vertices)add('vertex',v.mesh.userData.bodyId+':vertex:'+v.point.toArray().map(rounded).join(','),v,v.mesh.userData.bodyId,v.depth>(vertices[0]?.depth??v.depth)+1e-5);
  if(pointMode||['auto','edge'].includes(mode))for(const m of midpoints)add('midpoint',midpointCandidateKey(m),m,m.mesh.userData.bodyId,false);
