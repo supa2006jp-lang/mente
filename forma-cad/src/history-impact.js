@@ -1,7 +1,7 @@
 const strings=value=>Array.isArray(value)?value.filter(v=>typeof v==='string'):typeof value==='string'?[value]:[];
 export function featureReads(feature){
  const ids=new Set(),add=value=>strings(value).forEach(id=>ids.add(id)),spec=feature.spec||{};
- add(feature.target);add(feature.targetBodies);add(feature.sourceSketchIds);add(feature.offsetLink?.region?.sourceIds);
+ add(feature.target);add(feature.targetBodies);add(feature.barrierBodies);add(feature.sourceSketchIds);add(feature.offsetLink?.region?.sourceIds);
  for(const key of ['target','targets','other','others','path','sourceBody'])add(spec[key]);
  for(const ref of [...(spec.edges||[]),...(spec.faces||[]),spec.face,spec.rim,spec.placement].filter(Boolean))add(ref.bodyId);
  for(const region of [feature.region,spec.region,...(spec.sections||[])].filter(Boolean)){add(region.sourceIds);add(region.bodyId);add(region.cadFace?.bodyId);add(region.overlapTargets);add(region.overlapSource?.sourceIds);}

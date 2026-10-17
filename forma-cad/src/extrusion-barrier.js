@@ -3,6 +3,7 @@ import {measurePhase} from './phase-timings.js';
 import {cutWithClearance} from './cut-clearance.js';
 import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
 import {cachedBody} from './body-cache.js';
+import {restrictBarrierSide,selectBarrierParts} from './barrier-parts.js';
 const assessments=new Map(),gapMeshes=new Map();let gapMeshBytes=0;
 function rememberGap(token,mesh){
  const bytes=[mesh.vertices,mesh.triangles,mesh.normals].reduce((sum,data)=>sum+(data?.length||0)*8,0);
@@ -47,11 +48,13 @@ export function barrierGapShape(tool,result,blockers){return measurePhase('displ
 export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,bodyKey,onProgress}={}){
  validateExtrusionBarrier(f);
  const gap=f.barrierGap??.6,source=f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId;
- const eligible=[...bodies].filter(([id])=>id!==source&&!(f.operation==='join'&&id===f.target));
+ const anchors=f.operation==='join'?(f.targetBodies||[f.target]):[];
+ if(f.barrierBodies?.some(id=>!bodies.has(id)))throw Error('避けるボディがなくなりました。ボディを選び直してください');
+ const eligible=[...bodies].filter(([id])=>id!==source&&!anchors.includes(id)&&(!f.barrierBodies||f.barrierBodies.includes(id)));
  let result;
  try{
   let assessment;
-  const key='extrusion-barrier:'+(cacheKey||JSON.stringify([gap,tool.serialize(),...eligible.map(([id,shape])=>[id,shape.serialize()])]));
+  const key='extrusion-barrier:'+JSON.stringify([f.barrierBodies??null,anchors,cacheKey||[gap,tool.serialize(),...eligible.map(([id,shape])=>[id,shape.serialize()])]]);
   const entry=cachedBody(key,()=>{
    const blockers=eligible.filter(([,shape])=>nearby(tool,shape,gap)&&clearanceDistance(tool,shape)<=gap+1e-6);
    assessment={ids:blockers.map(([id])=>id),thread:false};
@@ -73,16 +76,17 @@ export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,bo
   if(previewInfo&&previewInfo.showBarrierGap!==false&&gap>0&&assessment?.ids.length!==0){
    let space;
    try{
-    const cached=gapMeshes.get(entry.token);
-    if(cached){gapMeshes.delete(entry.token);gapMeshes.set(entry.token,cached);previewInfo.barrierClearance=[cached.mesh];}
+    const gapToken=entry.token+':'+(f.barrierSide||'both'),cached=gapMeshes.get(gapToken);
+    if(cached){gapMeshes.delete(gapToken);gapMeshes.set(gapToken,cached);previewInfo.barrierClearance=[cached.mesh];}
     else{
      onProgress?.({stage:'すき間の色表示を作成しています'});
      const blockers=assessment?assessment.ids.map(id=>bodies.get(id)):eligible.filter(([,shape])=>nearby(tool,shape,gap)).map(([,shape])=>shape);
      space=barrierGapShape(tool,result,blockers);
+     if(f.barrierSide&&f.barrierSide!=='both'){const next=restrictBarrierSide(space,eligible.map(([,body])=>body),f.barrierSide);space.delete();space=next;}
      if(R.measureVolume(space)>1e-9){
       const check=new (R.getOC().BRepCheck_Analyzer)(space.wrapped,true,false);
       try{if(!check.IsValid())throw Error('invalid gap overlay');}finally{check.delete();}
-      const mesh=measurePhase('display',()=>space.mesh({tolerance:.025,angularTolerance:.1}));rememberGap(entry.token,mesh);previewInfo.barrierClearance=[mesh];
+      const mesh=measurePhase('display',()=>space.mesh({tolerance:.025,angularTolerance:.1}));rememberGap(gapToken,mesh);previewInfo.barrierClearance=[mesh];
      }
     }
    }catch(error){
@@ -90,6 +94,12 @@ export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,bo
     previewInfo.barrierClearanceWarning='すき間の色表示を作成できませんでした。押し出し形状は確認できます。';
    }finally{space?.delete();}
   }
-  const output=result;result=null;return output;
+  let partsToken=entry.token;
+  if(f.barrierSide&&f.barrierSide!=='both'){
+   const restricted=cachedBody('barrier-side:'+JSON.stringify([entry.token,f.barrierSide,eligible.map(([id,shape])=>[id,bodyKey?.(shape)||shape.serialize()])]),()=>measurePhase('geometry',()=>restrictBarrierSide(result,eligible.map(([,body])=>body),f.barrierSide)));
+   result.delete();result=restricted.shape;partsToken=restricted.token;
+  }
+  const scope=f.region?.id||'profile';if(previewInfo)previewInfo.barrierFragmentScope=scope;
+  const output=measurePhase(previewInfo?'display':'geometry',()=>selectBarrierParts(result,f.barrierFragments?.[scope],previewInfo,partsToken));return output;
  }finally{result?.delete();}
 }

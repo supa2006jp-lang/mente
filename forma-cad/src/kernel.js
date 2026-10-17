@@ -341,7 +341,8 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
   const finishExtrusion=()=>{
    const info=context.extrusionPreview;
    if(info){
-    info.outputs=p.feature.operation==='new'?outputs.map(({id,vertices,triangles})=>({id,vertices,triangles})):[{id:p.feature.id,...measurePhase('display',()=>tool.mesh({tolerance:.08,angularTolerance:.15}))}];
+    info.outputs=info.previewParts?info.previewParts.map(part=>({id:p.feature.id,...part})):p.feature.operation==='new'?outputs.map(({id,vertices,triangles})=>({id,vertices,triangles})):[{id:p.feature.id,...measurePhase('display',()=>tool.mesh({tolerance:.08,angularTolerance:.15}))}];
+    delete info.previewParts;
 
    }
    return {outputs,remove};
