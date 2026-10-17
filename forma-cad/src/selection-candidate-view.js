@@ -5,6 +5,17 @@ import {planarFace} from './frames.js';
 import {regionFaceGeometry} from './regions.js';
 import {fitSelectionBox} from './selection-view.js';
 
+// Keep world-space framing; viewport size and clipping planes remain live.
+export function captureSelectionView(camera,target,label=''){
+ return {position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),up:camera.up.toArray(),zoom:camera.zoom,target:target.toArray(),label};
+}
+export function restoreSelectionView(camera,view){
+ if(!view||!['position','quaternion','up','target'].every(key=>Array.isArray(view[key])&&view[key].length===(key==='quaternion'?4:3)&&view[key].every(Number.isFinite))||!Number.isFinite(view.zoom)||view.zoom<=0)return null;
+ if(new THREE.Vector3(...view.up).lengthSq()<1e-12||new THREE.Quaternion(...view.quaternion).lengthSq()<1e-12||new THREE.Vector3(...view.position).distanceToSquared(new THREE.Vector3(...view.target))<1e-12)return null;
+ camera.position.fromArray(view.position);camera.quaternion.fromArray(view.quaternion).normalize();camera.up.fromArray(view.up);camera.zoom=view.zoom;
+ camera.updateProjectionMatrix();camera.updateMatrixWorld(true);return new THREE.Vector3(...view.target);
+}
+
 export function selectionCandidateFrame(candidate,features=[]){
  const hit=candidate?.hit,mesh=hit?.mesh||hit?.object;
  if(!mesh?.visible)return null;

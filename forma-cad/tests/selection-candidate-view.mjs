@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {selectionCandidateFrame,fitSelectionCandidate} from '../src/selection-candidate-view.js';
+import {selectionCandidateFrame,fitSelectionCandidate,captureSelectionView,restoreSelectionView} from '../src/selection-candidate-view.js';
 import {allMeshHits} from '../src/selection-candidates.js';
 const mesh=new THREE.Mesh(new THREE.BoxGeometry(100,60,20),new THREE.MeshBasicMaterial());mesh.userData.bodyId='body';mesh.geometry.userData.faceGroups=mesh.geometry.groups.map((g,i)=>({...g,faceId:i}));mesh.geometry.userData.planarFaces=mesh.geometry.groups.map((_,i)=>i);mesh.updateMatrixWorld(true);
 const camera=new THREE.OrthographicCamera(-150,150,100,-100,.1,10000);camera.position.set(160,-180,140);camera.up.set(0,0,1);camera.lookAt(0,0,0);camera.updateMatrixWorld(true);
@@ -13,5 +13,16 @@ const curve={points:[[-10,0,-20],[0,15,0],[10,0,80]]},edge={kind:'edge',bodyId:'
 const straight={kind:'edge',hit:{mesh,a:new THREE.Vector3(200,300,400),b:new THREE.Vector3(230,340,450)}};assert.deepEqual(selectionCandidateFrame(straight).box.min.toArray(),[200,300,400],'screen-edge world coordinates are not transformed twice');
 const point={kind:'vertex',hit:{mesh,point:new THREE.Vector3(5,6,7)}};const pointBox=selectionCandidateFrame(point).box;assert.ok(pointBox.getSize(new THREE.Vector3()).x>=4,'points retain local context rather than infinite magnification');
 const direction=camera.getWorldDirection(new THREE.Vector3());fitSelectionCandidate(camera,edge,{width:700,height:600});assert.ok(camera.getWorldDirection(new THREE.Vector3()).distanceTo(direction)<1e-8,'edge inspection preserves the chosen view direction');
-assert.deepEqual(Array.from(mesh.geometry.attributes.position.array),snapshot);mesh.visible=false;const before=camera.matrixWorld.toArray();assert.equal(fitSelectionCandidate(camera,body,{width:800,height:600}),null);assert.deepEqual(camera.matrixWorld.toArray(),before,'hidden or invalid candidates cannot move the camera');assert.equal(fitSelectionCandidate(camera,edge,{width:0,height:0}),null);
-mesh.geometry.dispose();mesh.material.dispose();console.log('PASS full body/face/curve/world-edge/point framing, rear and transformed face direction, stable up/zoom, complete in-view bounds and unchanged source/invalid camera state');
+assert.deepEqual(Array.from(mesh.geometry.attributes.position.array),snapshot);
+const originalTarget=new THREE.Vector3(32,-41,9);camera.position.set(170,-220,160);camera.up.set(0,0,1);camera.zoom=2.75;camera.lookAt(originalTarget);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+const saved=captureSelectionView(camera,originalTarget,'自由回転'),savedCopy=structuredClone(saved);
+originalTarget.set(999,999,999);fitSelectionCandidate(camera,face,{width:900,height:600});fitSelectionCandidate(camera,edge,{width:700,height:600});
+camera.left=-90;camera.right=90;camera.near=2;camera.far=8000;
+const restored=restoreSelectionView(camera,saved);
+assert.deepEqual(restored.toArray(),[32,-41,9]);assert.deepEqual(camera.position.toArray(),saved.position);assert.deepEqual(camera.up.toArray(),saved.up);assert.equal(camera.zoom,2.75);assert.ok(camera.quaternion.angleTo(new THREE.Quaternion(...saved.quaternion))<1e-7,'original viewing direction and roll are restored after several focus actions');
+assert.equal(camera.left,-90);assert.equal(camera.right,90);assert.equal(camera.near,2);assert.equal(camera.far,8000,'live viewport dimensions and depth clipping are not rolled back');assert.deepEqual(saved,savedCopy,'saved views do not share mutable camera or target vectors');
+restored.set(0,0,0);assert.deepEqual(saved.target,[32,-41,9]);
+const cameraState=()=>[...camera.position.toArray(),...camera.quaternion.toArray(),...camera.up.toArray(),camera.zoom,...camera.projectionMatrix.toArray()];
+for(const invalid of [null,{...saved,zoom:NaN},{...saved,zoom:0},{...saved,position:[Infinity,0,0]},{...saved,quaternion:[0,0,0,0]},{...saved,up:[0,0,0]},{...saved,target:saved.position},{...saved,target:[0,0]}]){const state=cameraState();assert.equal(restoreSelectionView(camera,invalid),null);assert.deepEqual(cameraState(),state,'invalid saved views cannot partially modify the camera');}
+mesh.visible=false;const before=camera.matrixWorld.toArray();assert.equal(fitSelectionCandidate(camera,body,{width:800,height:600}),null);assert.deepEqual(camera.matrixWorld.toArray(),before,'hidden or invalid candidates cannot move the camera');assert.equal(fitSelectionCandidate(camera,edge,{width:0,height:0}),null);
+mesh.geometry.dispose();mesh.material.dispose();console.log('PASS complete candidate framing, saved camera position/direction/up/zoom/target, live viewport/depth preservation and invalid-view atomicity');
