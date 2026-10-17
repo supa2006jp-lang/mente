@@ -47,7 +47,7 @@ export function barrierGapShape(tool,result,blockers){return measurePhase('displ
 });}
 export function barrierExtrusion(tool,bodies,f,previewInfo,{fallback,cacheKey,bodyKey,onProgress}={}){
  validateExtrusionBarrier(f);
- const gap=f.barrierGap??.6,source=f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId;
+ const gap=f.barrierGap??.2,source=f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId;
  const anchors=f.operation==='join'?(f.targetBodies||[f.target]):[];
  if(f.barrierBodies?.some(id=>!bodies.has(id)))throw Error('避けるボディがなくなりました。ボディを選び直してください');
  const eligible=[...bodies].filter(([id])=>id!==source&&!anchors.includes(id)&&(!f.barrierBodies||f.barrierBodies.includes(id)));
