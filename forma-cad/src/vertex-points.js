@@ -4,18 +4,22 @@ const cached=new WeakMap(),key=p=>p.toArray().map(v=>Math.round(v*1e4)).join(','
 // Use displayed boundary edges, never the interior vertices of tessellation triangles.
 export function solidVertexPoints(edges){
  if(!edges?.attributes.position)return [];if(cached.has(edges))return cached.get(edges);
- const nodes=new Map(),p=cadPosition(edges),arcs=new Set();
- const node=point=>{const id=key(point);if(!nodes.has(id))nodes.set(id,{point,neighbors:new Map(),arcEnd:false});return nodes.get(id);};
- const connect=(a,b)=>{if(a.distanceToSquared(b)<1e-10)return;node(a).neighbors.set(key(b),b);node(b).neighbors.set(key(a),a);};
+ const nodes=new Map(),p=cadPosition(edges),arcEnds=new Map(),seenArcs=new Set();
+ const node=point=>{const id=key(point);if(!nodes.has(id))nodes.set(id,{point,neighbors:new Map(),curvedNeighbors:new Set()});return nodes.get(id);};
+ const connect=(a,b,curved)=>{if(a.distanceToSquared(b)<1e-10)return;const na=node(a),nb=node(b);na.neighbors.set(key(b),b);nb.neighbors.set(key(a),a);if(curved){na.curvedNeighbors.add(key(b));nb.curvedNeighbors.add(key(a));}};
  for(let i=0;i<p.count;i+=2){
   if(edges.userData.circularEdges?.has(i))continue;
   const arc=edges.userData.arcEdges?.get(i);
-  if(arc){if(!arcs.has(arc)){arcs.add(arc);for(const endpoint of [arc.points[0],arc.points.at(-1)])node(new THREE.Vector3(...endpoint)).arcEnd=true;}continue;}
-  connect(new THREE.Vector3().fromBufferAttribute(p,i),new THREE.Vector3().fromBufferAttribute(p,i+1));
+  if(arc&&!seenArcs.has(arc)){seenArcs.add(arc);for(const endpoint of [arc.points[0],arc.points.at(-1)]){const precise=new THREE.Vector3(...endpoint);arcEnds.set(key(precise),precise);}}
+  // Recover continuity from the whole edge graph. A helix can be approximated
+  // by many short arcs; their artificial ends are not physical corner points.
+  connect(new THREE.Vector3().fromBufferAttribute(p,i),new THREE.Vector3().fromBufferAttribute(p,i+1),edges.userData.arcEdges?.has(i)===true);
  }
- const result=[];for(const n of nodes.values()){
+ const result=[];for(const [id,n] of nodes){
+  if(arcEnds.has(id))n.point=arcEnds.get(id);
   const directions=[...n.neighbors.values()].map(p=>p.clone().sub(n.point).normalize());
-  if(!n.arcEnd&&directions.length>1&&directions.every(d=>Math.abs(d.dot(directions[0]))>.99999))continue;
+  if(!arcEnds.has(id)&&directions.length>1&&directions.every(d=>Math.abs(d.dot(directions[0]))>.99999))continue;
+  if(n.curvedNeighbors.size===2&&directions.length===2&&directions[0].dot(directions[1])< -Math.cos(.2))continue;
   result.push(n.point.toArray());
  }
  cached.set(edges,result);return result;

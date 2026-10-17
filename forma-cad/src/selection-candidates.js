@@ -48,5 +48,8 @@ export function selectionCandidates(hits,edges,{mode='auto',name=id=>id,features
  if(!pointMode&&['auto','edge'].includes(mode))for(const e of edges)add('edge',edgeCandidateKey(e),e,e.mesh.userData.bodyId,false);
  if(pointMode||['auto','face'].includes(mode))for(const h of hits){const key=faceCandidateKey(h,features);if(seen.has(key)||seen.has(key+':center'))continue;const direction=faceDirection(h,features);if(!pointMode)add('face',key,h,h.object.userData.bodyId,h.distance>front+.05,direction);const center=faceCenterCandidate(h,features);if(center){center.reference.faceName=direction;add('faceCenter',key+':center',center,h.object.userData.bodyId,h.distance>front+.05,direction);}}
  if(!pointMode&&['auto','body'].includes(mode))for(const h of hits)add('body',h.object.userData.bodyId+':body',h,h.object.userData.bodyId,h.distance>front+.05);
+ // Ordinary solid clicks primarily select a face for modelling. Dense curved
+ // edges and reference points must not bury that face or the whole-body option.
+ if(mode==='auto'&&!pointMode){const rank={face:0,body:1,faceCenter:2,edge:3,vertex:4,midpoint:5};out.sort((a,b)=>rank[a.kind]-rank[b.kind]);}
  return out;
 }

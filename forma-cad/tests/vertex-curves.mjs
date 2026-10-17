@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import {solidVertexPoints} from '../src/vertex-points.js';
+const points=Array.from({length:513},(_,i)=>[5*Math.cos(i*Math.PI/32),5*Math.sin(i*Math.PI/32),i/64]),segments=points.slice(1).flatMap((p,i)=>[points[i],p]),geometry=new THREE.BufferGeometry().setFromPoints(segments.map(p=>new THREE.Vector3(...p))),arcs=new Map();
+for(let i=0;i<512;i+=8){const arc={points:points.slice(i,i+9)};for(let j=i;j<i+8;j++)arcs.set(j*2,arc);}geometry.userData.arcEdges=arcs;
+const ends=solidVertexPoints(geometry);assert.equal(ends.length,2,'short arc approximations of a continuous helix do not introduce corner points');assert.deepEqual(ends,[points[0],points.at(-1)]);
+const joined=new THREE.BufferGeometry().setFromPoints([...segments,points.at(-1),[7,0,8]].map(p=>new THREE.Vector3(...p)));joined.userData.arcEdges=arcs;assert.equal(solidVertexPoints(joined).length,3,'a sharp end joined to a straight edge stays selectable');
+const straight=new THREE.BufferGeometry().setFromPoints([[0,0,0],[1,0,0],[1,0,0],[2,.05,0]].map(p=>new THREE.Vector3(...p)));assert.equal(solidVertexPoints(straight).length,3,'a shallow actual polyline corner is preserved without curved-edge evidence');
+const arcPoints=Array.from({length:17},(_,i)=>[5*Math.cos(i*Math.PI/32),5*Math.sin(i*Math.PI/32),0]),arcSegments=arcPoints.slice(1).flatMap((p,i)=>[arcPoints[i],p]),tangent=new THREE.BufferGeometry().setFromPoints([[5,-2,0],arcPoints[0],...arcSegments].map(p=>new THREE.Vector3(...p))),arc={points:arcPoints};tangent.userData.arcEdges=new Map(arcPoints.slice(1).map((_,i)=>[(i+1)*2,arc]));assert.ok(solidVertexPoints(tangent).some(p=>p[0]===5&&p[1]===0),'an actual arc-to-line endpoint remains available even at a tangent');
+for(const g of [geometry,joined,straight,tangent])g.dispose();console.log('PASS continuous helix arc joins suppressed, exact endpoints, sharp/tangent curve-line joins and shallow real line corner preserved');
