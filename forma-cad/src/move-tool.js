@@ -119,7 +119,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
    if(hinge){chosenEdge={bodyId:hinge.bodyId,a:[...hinge.a],b:[...hinge.b]};chosenAxisPivot=[...hinge.pivot];}
   }
   edgeAngle=0;center=chosenCenter?new THREE.Vector3(...chosenCenter):selectionBounds().getCenter(new THREE.Vector3());
-  edgeAxis=chosenEdge&&!chosenEdge.circle&&!chosenEdge.arc?new THREE.Vector3(...chosenEdge.b).sub(new THREE.Vector3(...chosenEdge.a)).normalize():null;
+  edgeAxis=chosenEdge&&!chosenEdge.circle&&!chosenEdge.arc&&!chosenEdge.curve?new THREE.Vector3(...chosenEdge.b).sub(new THREE.Vector3(...chosenEdge.a)).normalize():null;
   if(edgeAxis)center=chosenAxisPivot?new THREE.Vector3(...chosenAxisPivot):new THREE.Vector3(...chosenEdge.a).add(new THREE.Vector3(...chosenEdge.b)).multiplyScalar(.5);
   alignment=edgeAxis?new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),edgeAxis):new THREE.Quaternion();
   proxy=new THREE.Group();proxy.quaternion.copy(alignment);proxy.position.copy(center);

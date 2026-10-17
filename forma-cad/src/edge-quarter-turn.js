@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export function edgeTurnFrame(edge){
- if(!edge||edge.circle||edge.arc)throw Error('回転軸にする直線の辺を1本選択してください');
+ if(!edge||edge.circle||edge.arc||edge.curve)throw Error('回転軸にする直線の辺を1本選択してください');
  if(![edge.a,edge.b].every(p=>Array.isArray(p)&&p.length===3&&p.every(Number.isFinite)))throw Error('辺の座標が不正です');
  let a=new THREE.Vector3(...edge.a),b=new THREE.Vector3(...edge.b);
  if(a.distanceTo(b)<1e-5)throw Error('長さのある直線の辺を選択してください');
