@@ -1,3 +1,4 @@
+import {circularPatternSpacing} from './circular-pattern-spacing.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
 import {makeThreadMate} from './thread-mate.js';
 import {circularRing} from './circular-ring.js';
@@ -297,6 +298,7 @@ export function runOperation(features,spec,onProgress,context={}){
  if(spec.type==='enclosePrintValidate')return validateEnclosurePrintPose(features,spec);
  if(spec.type==='orthographic'){const bodies=kernelBodies(features);try{return orthographicProjection(bodies,spec.targets,spec.sections);}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='snapLidInfo'){const bodies=kernelBodies(features);try{return snapLidInfo(bodies.get(spec.target),bodies.get(spec.lidTarget));}finally{for(const body of bodies.values())body.delete();}}
+ if(spec.type==='circularPatternSpacing'){const bodies=kernelBodies(features);try{const base=bodies.get(spec.target);if(!base)throw Error('原型ボディを選択してください');return circularPatternSpacing(base,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}
  if(spec.type==='circularPatternInfo'){const bodies=kernelBodies(features);let entries=[];try{const base=bodies.get(spec.target);if(!base)throw Error('原型ボディを選択してください');entries=patternCavityEntries(base,onProgress);return {cavities:entries.map(({shape,...entry})=>({...entry,...shape.mesh({tolerance:.08,angularTolerance:.15})}))};}finally{entries.forEach(e=>e.shape.delete());bodies.forEach(shape=>shape.delete());}}
  if(spec.type==='svgWrapInfo'){const bodies=kernelBodies(features);try{return svgCylinderInfo(bodies.get(spec.target),spec.surfacePoint);}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='extrusionToolPreview'){
