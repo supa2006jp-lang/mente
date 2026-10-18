@@ -2837,7 +2837,7 @@ async function computeMachiningPreview(){
    }
    $('enclose-motion-result').textContent=notes.join(' ');
   }
-  $('cad-error').textContent=(result.analysis?.partialFillet?'一部のみ適用可能です（'+result.analysis.partialFillet.accepted+'辺）。実行後の確認でOKを押すまでは変更しません。':spec.type==='coilJoint'?'半透明：水色の本体／橙色の蓋。':spec.type==='enclose'?'半透明：新規作成する囲み'+(spec.enclosureSplit!=='分割しない'?'（水色／橙色の２ボディ）':'')+'。':result.removed?.length?(result.analysis?.patternHybrid?'通常色：既存 / 水色：新規 / 赤：削られる部分。':'水色：加工後 / 赤：削られる部分。'):'加工後のプレビューです。')+(result.previewWarnings?.length?' 削られる部分の赤い表示だけ省略しています。':'')+'「'+$('cad-apply').textContent+'」で確定します';
+  $('cad-error').textContent=(result.analysis?.partialFillet?(result.analysis.partialFillet.limitReason==='trial-time'?'時間の掛かる輪郭を保留しました。':'')+'一部のみ適用可能です（'+result.analysis.partialFillet.accepted+'辺）。実行後の確認でOKを押すまでは変更しません。':spec.type==='coilJoint'?'半透明：水色の本体／橙色の蓋。':spec.type==='enclose'?'半透明：新規作成する囲み'+(spec.enclosureSplit!=='分割しない'?'（水色／橙色の２ボディ）':'')+'。':result.removed?.length?(result.analysis?.patternHybrid?'通常色：既存 / 水色：新規 / 赤：削られる部分。':'水色：加工後 / 赤：削られる部分。'):'加工後のプレビューです。')+(result.previewWarnings?.length?' 削られる部分の赤い表示だけ省略しています。':'')+'「'+$('cad-apply').textContent+'」で確定します';
  }catch(e){if(revision===machiningRevision){$('cad-error').textContent=appErrorMessage(e);if($('cad-command').value==='circular'&&$('pattern-preview-status'))$('pattern-preview-status').textContent='プレビューを作成できません。下のメッセージを確認してください。';if($('cad-command').value==='coilJoint'){updateCoilLatchEffective(false);updateCoilFilletEffectiveUI(null,'プレビューを計算できません');}}}
  finally{machiningBusy=false;if(machiningAgain){machiningAgain=false;scheduleMachiningPreview(true);}}
 }

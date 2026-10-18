@@ -17,7 +17,7 @@ try{
  const started=performance.now(),result=planPartialFillet(shell,2),ms=performance.now()-started;
  try{
   assert.equal(result.partial.accepted,12);assert.equal(result.partial.skipped,12);assert.equal(result.partial.untested,0);
-  assert.equal(result.partial.attempts,6,'four tangent contours must not become 24 independent edge trials');
+  assert.equal(result.partial.attempts,4,'test each of four tangent contours once without combining unchecked contours');
   assert.equal(counts.ShapeUpgrade_UnifySameDomain,1,'same-domain normalization is reused for the whole inspection');
   assert.ok(counts.BRepCheck_Analyzer<=6,'input validity is not rechecked for each subset');
   assert.ok(counts.BRepFilletAPI_MakeFillet<=15,'native builders are bounded by contours, not display arc fragments');

@@ -92,9 +92,9 @@ function filletContours(shape,radius,edges){
 }
 
 // Each accepted subset is rebuilt and validated together against the original
-// shape. Dividing failed batches avoids testing every good edge individually.
+// shape. Each trial adds only one unchecked native tangent contour.
 // The caller must obtain confirmation before committing this prepared result.
-export function planPartialFillet(base,radius,selection={},onProgress,{maxAttempts=128,maxDurationMs=8000,now=()=>performance.now()}={}){
+export function planPartialFillet(base,radius,selection={},onProgress,{maxAttempts=128,maxDurationMs=8000,now=()=>performance.now(),onCheckpoint}={}){
  if(!Number.isFinite(radius)||radius<=0)throw failure('半径は0より大きくしてください','fillet-radius');
  if(!valid(base))throw failure('元のソリッドに形状の不整合があるためフィレットを作成できません。結合・切り取り前の形状を確認してください','fillet-input');
  const edges=resolveFilletEdges(base,selection),accepted=[],skipped=[],untested=[];
@@ -114,14 +114,17 @@ export function planPartialFillet(base,radius,selection={},onProgress,{maxAttemp
  function inspect(batch){
   if(!batch.length)return;
   if(attempts>=maxAttempts||now()-started>=maxDurationMs){limitReason=attempts>=maxAttempts?'attempts':'time';untested.push(...batch);return;}
-  attempts++;onProgress?.({stage:'適用できる輪郭を検査しています（確定はしません）',current:attempts,total:Math.min(maxAttempts,candidates.length*2-2)});
+  attempts++;onProgress?.({stage:'適用できる輪郭を検査しています（確定はしません）',current:attempts,total:Math.min(maxAttempts,candidates.length),filletTrial:'start'});
   try{
    const result=test([...accepted,...batch]);
    prepared?.shape.delete();prepared=result;accepted.push(...batch);
   }catch(error){
    if(error.code&&error.code!=='fillet-geometry'&&error.code!=='fillet-smooth')throw error;
-   if(batch.length===1){skipped.push(...batch);return;}
-   const middle=Math.ceil(batch.length/2);inspect(batch.slice(0,middle));inspect(batch.slice(middle));
+   skipped.push(...batch);
+  }finally{onProgress?.({stage:'輪郭の検査結果を確認しています',filletTrial:'end'});}
+  if(prepared&&onCheckpoint){
+   const remaining=candidates.filter(group=>!accepted.includes(group)&&!skipped.includes(group));
+   onCheckpoint({shape:prepared.shape,normalized:prepared.normalized,references:accepted.flatMap(group=>group.items.map(item=>item.reference)),accepted:accepted.reduce((n,group)=>n+group.items.length,0),skipped:skipped.reduce((n,group)=>n+group.items.length,0),untested:remaining.reduce((n,group)=>n+group.items.length,0),rejected:[...skipped,...remaining].flatMap(group=>group.items.map(item=>({points:Array.from({length:17},(_,i)=>sample(item.edge,i/16))})))});
   }
  }
  let candidates;
@@ -142,7 +145,9 @@ export function planPartialFillet(base,radius,selection={},onProgress,{maxAttemp
   // A single native contour was already tried above; subdividing its tangent
   // edges cannot isolate a separately roundable part.
   if(candidates.length===1)skipped.push(...candidates);
-  else{const middle=Math.ceil(candidates.length/2);inspect(candidates.slice(0,middle));inspect(candidates.slice(middle));}
+  // Test one new native contour at a time. Combining two unchecked contours
+  // can enter a much slower intersection solver before either is known good.
+  else for(const candidate of candidates)inspect([candidate]);
   prepared ||= {shape:base.clone(),edgeCount:0,normalized:false,radius,references:[]};
   const items=groups=>groups.flatMap(group=>group.items),acceptedItems=items(accepted);
   const result={...prepared,references:acceptedItems.map(item=>item.reference),partial:{accepted:acceptedItems.length,skipped:items(skipped).length,untested:items(untested).length,attempts,...(limitReason?{limitReason}:{}),rejected:items([...skipped,...untested]).map(item=>({points:Array.from({length:17},(_,i)=>sample(item.edge,i/16))})),originalMessage:originalError.message}};prepared=null;return result;
