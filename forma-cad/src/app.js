@@ -1,3 +1,5 @@
+import {installDimensionExpressions} from './dimension-expression-input.js';
+installDimensionExpressions();
 import {snapSplineTangent} from './spline-tangent-snap.js';
 import {installThreadActions} from './thread-actions.js';
 import {threadMateDialog} from './thread-mate-dialog.js';
