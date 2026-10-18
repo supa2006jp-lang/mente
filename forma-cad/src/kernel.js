@@ -24,7 +24,7 @@ import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
 import {encloseParts} from './enclose.js';
 import {patternSolids} from './pattern-solids.js';
 import {fuseSolid,fuseSolids} from './solid-fuse.js';
-import {filletSolid} from './solid-fillet.js';
+import {filletSolid,planPartialFillet} from './solid-fillet.js';
 import {remapFilletEdges,filletPlaneExists} from './fillet-reference-remap.js';
 import {isFilletBodySuppressed} from './fillet-state.js';
 import {chamferSolid} from './solid-chamfer.js';
@@ -408,15 +408,15 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
   try{emit(p.target,shape);}finally{shape.delete();}
  }
  else if(['fillet','chamfer'].includes(p.type)){
-  const groups=p.edges?.length?[...new Set(p.edges.map(e=>e.bodyId))]:p.targets?.length?[...new Set(p.targets)]:[p.target],results=[];
+  const groups=p.edges?.length?[...new Set(p.edges.map(e=>e.bodyId))]:p.targets?.length?[...new Set(p.targets)]:[p.target],results=[],acceptedEdges=[],rejectedEdges=[];let skipped=0,untested=0,partial=false;
   for(const id of groups){
    const solid=bodies.get(id);if(!solid)throw Error('対象ボディを選択してください');
    if(isFilletBodySuppressed(p,id)){emit(id,solid);results.push({bodyId:id,radius:p.radius,edges:0,suppressed:true});continue;}
    const references=p.edges?.length?p.edges.filter(e=>e.bodyId===id):p.edgePoint?[{point:p.edgePoint}]:[],basis=p.face?basisFor(p.face):null;
    const selection={references,plane:basis?{normal:basis.n.toArray(),offset:p.face.offset}:null};let result;
-   try{result=p.type==='chamfer'?chamferSolid(solid,p.distance,selection,onProgress):filletSolid(solid,p.radius,selection,onProgress);emit(id,result.shape);results.push({bodyId:id,...(p.type==='chamfer'?{distance:result.distance}:{radius:result.radius}),edges:result.edgeCount,normalized:result.normalized});}catch(error){if(error.diagnostics)error.diagnostics={...error.diagnostics,bodyIds:[id],edges:error.diagnostics.edges.map(edge=>({...edge,bodyId:id}))};throw error;}finally{result?.shape.delete();}
+   try{result=p.type==='chamfer'?chamferSolid(solid,p.distance,selection,onProgress):(p.partialMode==='offer'?planPartialFillet:filletSolid)(solid,p.radius,selection,onProgress);if(result.partial){partial=true;skipped+=result.partial.skipped;untested+=result.partial.untested;rejectedEdges.push(...result.partial.rejected.map(edge=>({...edge,bodyId:id})));}if(p.partialMode==='offer')acceptedEdges.push(...(result.references||[]).map(edge=>({...edge,bodyId:id})));if(!result.partial||result.edgeCount)emit(id,result.shape);results.push({bodyId:id,...(p.type==='chamfer'?{distance:result.distance}:{radius:result.radius}),edges:result.edgeCount,normalized:result.normalized});}catch(error){if(error.diagnostics)error.diagnostics={...error.diagnostics,bodyIds:[id],edges:error.diagnostics.edges.map(edge=>({...edge,bodyId:id}))};throw error;}finally{result?.shape.delete();}
   }
-  analysis=p.type==='chamfer'?{chamfers:results}:{fillets:results};
+  analysis=p.type==='chamfer'?{chamfers:results}:{fillets:results};if(partial){if(!acceptedEdges.length)throw Object.assign(Error('指定半径でフィレットを掛けられる辺が見つかりませんでした。元のボディは変更していません'),{code:'fillet-geometry',diagnostics:{kind:'fillet',certainty:'selected-edges',bodyIds:groups,edges:rejectedEdges}});analysis.partialFillet={accepted:acceptedEdges.length,skipped,untested,radius:p.radius,edges:acceptedEdges,rejected:rejectedEdges};}
  }
  else if(p.type==='copiedThread'){
  const source=p.copySource,adjusted=p.copyDistance?allThreadPullSpec(source.spec,-p.copyDistance):source.spec,result=regeneratedThread(source,adjusted),copyBodies=kernelBodies([{kind:'cadop',...result}]);let shape;

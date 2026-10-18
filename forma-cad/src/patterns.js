@@ -1,17 +1,14 @@
 import * as THREE from 'three';
 import {basisFor,worldPoint} from './frames.js';
 import {planeCoordinates} from './regions.js';
+import {betweenPattern,rectangularOffsets} from './rectangular-pattern.js';
 export function patternTransforms(p){
+ if(p.type==='rectangular')return rectangularOffsets(p).filter((_,i)=>betweenPattern(p)||i>0).map(offset=>new THREE.Matrix4().makeTranslation(...offset));
  if(!Number.isInteger(p.count)||p.count<1||p.count>20)throw Error('個数は1〜20の整数にしてください');
  const out=[];
- if(p.type==='rectangular'){
-  if(!Number.isInteger(p.count2)||p.count2<1||p.count2>20||p.count*p.count2>60||!Number.isFinite(p.spacing+p.spacing2))throw Error('個数と間隔を確認してください（最大60個）');
-  for(let i=0;i<p.count;i++)for(let j=0;j<p.count2;j++)if(i||j)out.push(new THREE.Matrix4().makeTranslation(i*p.spacing,j*p.spacing2,0));
- }else{
-  if(!Number.isFinite(p.angle))throw Error('角度を指定してください');
-  const origin=new THREE.Vector3(...(p.origin||[0,0,0])),axis=new THREE.Vector3(...(p.axisVector||{X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[p.axis]||[0,0,1])).normalize();
-  for(let i=1;i<p.count;i++)out.push(new THREE.Matrix4().makeTranslation(...origin.toArray()).multiply(new THREE.Matrix4().makeRotationAxis(axis,p.angle*i/p.count*Math.PI/180)).multiply(new THREE.Matrix4().makeTranslation(...origin.clone().negate().toArray())));
- }
+ if(!Number.isFinite(p.angle))throw Error('角度を指定してください');
+ const origin=new THREE.Vector3(...(p.origin||[0,0,0])),axis=new THREE.Vector3(...(p.axisVector||{X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[p.axis]||[0,0,1])).normalize();
+ for(let i=1;i<p.count;i++)out.push(new THREE.Matrix4().makeTranslation(...origin.toArray()).multiply(new THREE.Matrix4().makeRotationAxis(axis,p.angle*i/p.count*Math.PI/180)).multiply(new THREE.Matrix4().makeTranslation(...origin.clone().negate().toArray())));
  return out;
 }
 export function patternSketch(source,p){return patternTransforms(p).map((matrix,i)=>{

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 
 const vector=point=>new THREE.Vector3(...point);
 function sample(edge,t){const p=edge.pointAt(t);try{return p.toTuple();}finally{p.delete();}}
+function edgeReference(edge){return {point:sample(edge,.5),a:sample(edge,0),b:sample(edge,1),...(edge.geomType==='LINE'?{}:{curved:true})};}
 function valid(shape){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{return check.IsValid();}finally{check.delete();}}
 function failure(message,code){const error=new Error(message);error.code=code;return error;}
 function failedContours(builder,edges){
@@ -73,9 +74,40 @@ function build(shape,radius,selection){
   for(const edge of edges)builder.Add(radius,edge.wrapped);builder.Build();
   if(!builder.IsDone())throw failure('選択した辺の隣接面・交差・肉厚の条件でフィレットを作成できません。半径を小さくするか、辺を1本ずつ選んで確認してください','fillet-geometry');
   result=R.cast(builder.Shape()).asShape3D();if(!valid(result))throw failure('フィレット後の形状が不正になるため適用できません。隣接する短い辺・面の継ぎ目・薄い部分を確認してください','fillet-geometry');
-  const output=result;result=null;return {shape:output,edgeCount:edges.length};
+  const references=edges.map(edgeReference),output=result;result=null;return {shape:output,edgeCount:edges.length,references};
  }catch(error){error=error instanceof Error?error:failure('フィレットを作成できません。半径と対象の辺を確認してください','fillet-geometry');error.diagnostics=failedContours(builder,edges);throw error;}
  finally{result?.delete();builder.delete();edges.forEach(edge=>edge.delete());}
+}
+
+// Each accepted subset is rebuilt and validated together against the original
+// shape. Dividing failed batches avoids testing every good edge individually.
+// The caller must obtain confirmation before committing this prepared result.
+export function planPartialFillet(base,radius,selection={},onProgress,{maxAttempts=128}={}){
+ let originalError;
+ try{return filletSolid(base,radius,selection,onProgress);}
+ catch(error){if(error.code!=='fillet-geometry')throw error;originalError=error;}
+ const edges=resolveFilletEdges(base,selection);let candidates;
+ try{candidates=edges.map(edge=>({reference:edgeReference(edge),points:Array.from({length:17},(_,i)=>sample(edge,i/16))}));}
+ finally{edges.forEach(edge=>edge.delete());}
+ const accepted=[],skipped=[],untested=[];let prepared=null,attempts=0;
+ function inspect(batch){
+  if(!batch.length)return;
+  if(attempts>=maxAttempts){untested.push(...batch);return;}
+  attempts++;onProgress?.({stage:'適用できる辺を検査しています（確定はしません）',current:attempts,total:maxAttempts});
+  try{
+   const result=filletSolid(base,radius,{...selection,plane:null,references:[...accepted,...batch].map(item=>item.reference)});
+   prepared?.shape.delete();prepared=result;accepted.push(...batch);
+  }catch(error){
+   if(error.code&&error.code!=='fillet-geometry'&&error.code!=='fillet-smooth')throw error;
+   if(batch.length===1){skipped.push(...batch);return;}
+   const middle=Math.ceil(batch.length/2);inspect(batch.slice(0,middle));inspect(batch.slice(middle));
+  }
+ }
+ try{
+  const middle=Math.ceil(candidates.length/2);inspect(candidates.slice(0,middle));inspect(candidates.slice(middle));
+  const result=prepared||{shape:base.clone(),edgeCount:0,normalized:false,radius,references:[]};prepared=null;
+  return {...result,references:accepted.map(item=>item.reference),partial:{accepted:accepted.length,skipped:skipped.length,untested:untested.length,attempts,rejected:[...skipped,...untested].map(item=>({points:item.points})),originalMessage:originalError.message}};
+ }finally{prepared?.shape.delete();}
 }
 
 export function filletSolid(base,radius,selection={},onProgress){
