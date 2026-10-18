@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import {betweenPattern,rectangularOffsets,patternDragValue} from './rectangular-pattern.js';
+import {betweenPattern,betweenPatternLayout,rectangularOffsets,patternDragValue} from './rectangular-pattern.js';
+import {meshPatternExtent} from './pattern-bounds.js';
 import {snapMirrorGridPoint} from './mirror-grid-axis.js';
 
 export function createRectangularPatternTool({host,canvas,camera,controls,getSource,getFrame,getReferences,getSnap,fitPreview}){
@@ -14,7 +15,8 @@ export function createRectangularPatternTool({host,canvas,camera,controls,getSou
  function spec(){
   if(activeMode()!=='between')return {distribution:'spacing'};
   const source=getSource();if(!source?.solid)throw Error('2点間の配置はソリッドを対象にしてください');
-  const extra={distribution:'between',count2:1,startPoint:readPoint('a'),endPoint:readPoint('b'),patternAnchor:source.center.toArray()};
+  const extra={distribution:'between',betweenAlignment:$('cad-between-alignment').value,count2:1,startPoint:readPoint('a'),endPoint:readPoint('b'),patternAnchor:source.center.toArray()};
+  if(extra.betweenAlignment==='inside')extra.patternExtent=meshPatternExtent(source.object,extra.startPoint,extra.endPoint,extra.patternAnchor);
   rectangularOffsets({...values(),...extra});return extra;
  }
  function emit(){sync();fields.dispatchEvent(new Event('input',{bubbles:true}));key='';update();}
@@ -24,9 +26,9 @@ export function createRectangularPatternTool({host,canvas,camera,controls,getSou
   const between=activeMode()==='between',source=getSource();$('cad-distribution').querySelector('option[value="between"]').disabled=!source?.solid;
   for(const id of ['count2','spacing','spacing2']){const input=$('cad-'+id);input.closest('label').hidden=between;input.disabled=between;}
   $('cad-count').min=between?2:1;$('cad-count').max=between?60:20;$('cad-count').closest('label').firstChild.textContent=between?'個数（原型を含む）':'個数';
-  panel.querySelector('[data-between]').hidden=!between;for(const input of panel.querySelectorAll('input[id^="rect-pattern-"]'))input.disabled=!between;
+  panel.querySelector('[data-between]').hidden=!between;$('cad-between-alignment').disabled=!between;for(const input of panel.querySelectorAll('input[id^="rect-pattern-"]'))input.disabled=!between;
   const status=$('rect-pattern-status');
-  try{if(between){const p={...values(),...spec()},d=Math.hypot(...p.endPoint.map((v,i)=>v-p.startPoint[i]));status.textContent=(picking?(picking==='a'?'始点A':'終点B')+'をクリックしてください。':'')+'両端を含む '+p.count+' 個 ／ 間隔 '+(d/(p.count-1)).toFixed(2)+' mm。原型の中心をAへ移動します。';}else status.textContent='X・Yの矢印をドラッグして間隔を調整できます。Shiftで微調整。';$('cad-error').textContent='';}
+  try{if(between){const p={...values(),...spec()},layout=betweenPatternLayout(p);status.textContent=(picking?(picking==='a'?'始点A':'終点B')+'をクリックしてください。':'')+(p.betweenAlignment==='inside'?'2点の内側に '+p.count+' 個 ／ すきま '+layout.gap.toFixed(2)+' mm（両端の余白も同じ）。原型も移動します。':'両端を含む '+p.count+' 個 ／ 間隔 '+layout.spacing.toFixed(2)+' mm。原型の中心をAへ移動します。');}else status.textContent='X・Yの矢印をドラッグして間隔を調整できます。Shiftで微調整。';$('cad-error').textContent='';}
   catch(error){status.textContent=error.message;}
   for(const name of ['a','b'])$('rect-pattern-pick-'+name).textContent=(picking===name?'選択中：':'')+(name==='a'?'始点Aを選択':'終点Bを選択');
  }
@@ -55,7 +57,7 @@ export function createRectangularPatternTool({host,canvas,camera,controls,getSou
  }
  function render(){
   picking=null;refs=[];stop();key='';panel=document.createElement('section');panel.id='rect-pattern-options';
-  panel.innerHTML='<label>配置方法<select id="cad-distribution"><option value="spacing">間隔を指定（矩形）</option><option value="between">2点間に等間隔（原型も移動）</option></select></label><div data-between hidden><button type="button" id="rect-pattern-pick-a">始点Aを選択</button><div class="pattern-point-row" data-a></div><button type="button" id="rect-pattern-pick-b">終点Bを選択</button><div class="pattern-point-row" data-b></div><p>ボディの中心・頂点・辺の中点、または基準平面上のグリッドを選べます。A・Bは各ボディの中心位置です。</p></div><p id="rect-pattern-status" role="status"></p><button type="button" id="rect-pattern-fit">プレビュー全体を表示</button>';
+  panel.innerHTML='<label>配置方法<select id="cad-distribution"><option value="spacing">間隔を指定（矩形）</option><option value="between">2点間に等間隔（原型も移動）</option></select></label><div data-between hidden><label>2点間の基準<select id="cad-between-alignment"><option value="center">中心を両端に配置（従来）</option><option value="inside">内側に収める・すきまを均等</option></select></label><button type="button" id="rect-pattern-pick-a">始点Aを選択</button><div class="pattern-point-row" data-a></div><button type="button" id="rect-pattern-pick-b">終点Bを選択</button><div class="pattern-point-row" data-b></div><p>ボディの中心・頂点・辺の中点、または基準平面上のグリッドを選べます。「内側」は配置方向の幅を考慮し、両端の余白とボディ同士のすきまを均等にします。向きは変わりません。</p></div><p id="rect-pattern-status" role="status"></p><button type="button" id="rect-pattern-fit">プレビュー全体を表示</button>';
   fields.prepend(panel);for(const name of ['target','count','count2','spacing','spacing2','operation'])panel.insertBefore($('cad-'+name).closest('label'),panel.querySelector('[data-between]'));
   for(const name of ['a','b'])for(const axis of ['x','y','z']){const label=document.createElement('label');label.textContent=name.toUpperCase()+' '+axis.toUpperCase();const input=document.createElement('input');Object.assign(input,{id:'rect-pattern-'+name+'-'+axis,type:'number',step:'any',min:'-25000',max:'25000',value:'0',required:true});label.append(input);panel.querySelector('[data-'+name+']').append(label);}
   const source=getSource(),center=source?.center.toArray()||[0,0,0];setPoint('a',center);setPoint('b',center.map((v,i)=>v+(i===0?Math.max(1,Number($('cad-count').value)-1)*Number($('cad-spacing').value):0)));
@@ -68,7 +70,7 @@ export function createRectangularPatternTool({host,canvas,camera,controls,getSou
  function update(){
   const enabled=active();overlay.toggleAttribute('hidden',!enabled);for(const handle of Object.values(handles))handle.hidden=true;if(!enabled){stop();return;}
   const source=getSource();if(!source)return;const p={...values(),...((activeMode()==='between')?{distribution:'between',startPoint:readPoint('a'),endPoint:readPoint('b')}: {})};
-  const signature=JSON.stringify([p,source.center.toArray(),camera.matrixWorld.elements,camera.zoom,host.clientWidth,host.clientHeight,picking]);if(key===signature){for(const handle of Object.values(handles))handle.hidden=handle.dataset.shown!=='true';return;}key=signature;overlay.replaceChildren();for(const handle of Object.values(handles))handle.dataset.shown='false';
+  const signature=JSON.stringify([p,$('cad-between-alignment')?.value,source.center.toArray(),camera.matrixWorld.elements,camera.zoom,host.clientWidth,host.clientHeight,picking]);if(key===signature){for(const handle of Object.values(handles))handle.hidden=handle.dataset.shown!=='true';return;}key=signature;overlay.replaceChildren();for(const handle of Object.values(handles))handle.dataset.shown='false';
   const positions=betweenPattern(p)?{a:new THREE.Vector3(...p.startPoint),b:new THREE.Vector3(...p.endPoint)}:{...(p.count>1?{x:source.center.clone().add(new THREE.Vector3((p.count-1)*p.spacing,0,0))}:{}),...(p.count2>1?{y:source.center.clone().add(new THREE.Vector3(0,(p.count2-1)*p.spacing2,0))}:{})};
   for(const [name,point]of Object.entries(positions)){
    if(!point.toArray().every(Number.isFinite))continue;const screen=project(point);if(screen.z< -1||screen.z>1)continue;const handle=handles[name];handle.hidden=false;handle.dataset.shown='true';let x=Math.max(22,Math.min(host.clientWidth-22,screen.x)),y=Math.max(28,Math.min(host.clientHeight-30,screen.y));
