@@ -16,7 +16,8 @@ export function installPatternPreview({scene,host,getMesh,getSpec,fitPreview,get
   try{const spec=getSpec(),matrices=patternTransforms(spec),mesh=getMesh(spec.target);if(!mesh){if(status)status.textContent='対象のボディまたはスケッチを選択してください';return;}
    if(spec.type==='circular'&&['新規かつ切り取り','切り取りのみ'].includes(spec.operation)){if(status)status.textContent=spec.operation==='切り取りのみ'?'穴・くぼみの切り取り結果を計算しています。実体の複製はしません。':'穴を埋めない加工後の形状を計算しています。穴の空間は切り取り専用で、新規ボディにはしません。';return;}
    if(betweenPattern(spec)){hidden={mesh,visible:mesh.visible};mesh.visible=false;}
-   group=new THREE.Group();for(const matrix of matrices){const copy=mesh.clone(true);copy.visible=true;copy.applyMatrix4(matrix);copy.traverse(o=>{if(o.material){o.material=o.material.clone();o.material.transparent=true;o.material.opacity=o.isMesh?.45:.8;o.material.depthWrite=false;o.material.color.set(0x438fcb);}});group.add(copy);}
+   // Separate coincident preview layers in the depth buffer without moving model geometry.
+   group=new THREE.Group();for(const [index,matrix] of matrices.entries()){const copy=mesh.clone(true);copy.visible=true;copy.applyMatrix4(matrix);copy.traverse(o=>{if(o.material){o.material=o.material.clone();o.material.transparent=true;o.material.opacity=o.isMesh?.45:.8;o.material.depthWrite=!!o.isMesh;if(o.isMesh){o.material.polygonOffset=true;o.material.polygonOffsetFactor=-2;o.material.polygonOffsetUnits=-2*(index+1);o.renderOrder=10+index;}o.material.color.set(0x438fcb);}});group.add(copy);}
    scene.add(group);if(status)status.textContent='水色：作成予定のコピー '+matrices.length+'個 ／ 原型を含む '+(matrices.length+1)+'個。確定前のプレビューです。';host.dataset.patternPreview=JSON.stringify(matrices.map(m=>new THREE.Vector3().setFromMatrixPosition(m).toArray()));
   }catch(error){clear();if(status)status.textContent=error.message;}
  }
