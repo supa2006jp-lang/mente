@@ -68,34 +68,55 @@ export function resolveFilletEdges(shape,{references=[],plane=null}={}){
  finally{faces.forEach(face=>face.delete());}
 }
 
-function build(shape,radius,selection){
- const edges=resolveFilletEdges(shape,selection),builder=new (R.getOC().BRepFilletAPI_MakeFillet)(shape.wrapped);let result;
+function buildEdges(shape,radius,edges,{diagnostics=true}={}){
+ const builder=new (R.getOC().BRepFilletAPI_MakeFillet)(shape.wrapped);let result;
  try{
   for(const edge of edges)builder.Add(radius,edge.wrapped);builder.Build();
   if(!builder.IsDone())throw failure('選択した辺の隣接面・交差・肉厚の条件でフィレットを作成できません。半径を小さくするか、辺を1本ずつ選んで確認してください','fillet-geometry');
   result=R.cast(builder.Shape()).asShape3D();if(!valid(result))throw failure('フィレット後の形状が不正になるため適用できません。隣接する短い辺・面の継ぎ目・薄い部分を確認してください','fillet-geometry');
   const references=edges.map(edgeReference),output=result;result=null;return {shape:output,edgeCount:edges.length,references};
- }catch(error){error=error instanceof Error?error:failure('フィレットを作成できません。半径と対象の辺を確認してください','fillet-geometry');error.diagnostics=failedContours(builder,edges);throw error;}
- finally{result?.delete();builder.delete();edges.forEach(edge=>edge.delete());}
+ }catch(error){error=error instanceof Error?error:failure('フィレットを作成できません。半径と対象の辺を確認してください','fillet-geometry');if(diagnostics)error.diagnostics=failedContours(builder,edges);throw error;}
+ finally{result?.delete();builder.delete();}
+}
+function build(shape,radius,selection){const edges=resolveFilletEdges(shape,selection);try{return buildEdges(shape,radius,edges);}finally{edges.forEach(edge=>edge.delete());}}
+
+// OCCT already propagates a blend along tangent edges. Splitting that contour
+// into individual display arcs repeats the same failed native operation.
+function filletContours(shape,radius,edges){
+ const builder=new (R.getOC().BRepFilletAPI_MakeFillet)(shape.wrapped),groups=new Map();
+ try{
+  for(const edge of edges)builder.Add(radius,edge.wrapped);
+  for(const edge of edges){const contour=builder.Contour(edge.wrapped),key=contour||edge;if(!groups.has(key))groups.set(key,[]);groups.get(key).push({edge,reference:edgeReference(edge)});}
+  return [...groups.values()].map(items=>({items}));
+ }finally{builder.delete();}
 }
 
 // Each accepted subset is rebuilt and validated together against the original
 // shape. Dividing failed batches avoids testing every good edge individually.
 // The caller must obtain confirmation before committing this prepared result.
-export function planPartialFillet(base,radius,selection={},onProgress,{maxAttempts=128}={}){
- let originalError;
- try{return filletSolid(base,radius,selection,onProgress);}
- catch(error){if(error.code!=='fillet-geometry')throw error;originalError=error;}
- const edges=resolveFilletEdges(base,selection);let candidates;
- try{candidates=edges.map(edge=>({reference:edgeReference(edge),points:Array.from({length:17},(_,i)=>sample(edge,i/16))}));}
- finally{edges.forEach(edge=>edge.delete());}
- const accepted=[],skipped=[],untested=[];let prepared=null,attempts=0;
+export function planPartialFillet(base,radius,selection={},onProgress,{maxAttempts=128,maxDurationMs=8000,now=()=>performance.now()}={}){
+ if(!Number.isFinite(radius)||radius<=0)throw failure('半径は0より大きくしてください','fillet-radius');
+ if(!valid(base))throw failure('元のソリッドに形状の不整合があるためフィレットを作成できません。結合・切り取り前の形状を確認してください','fillet-input');
+ const edges=resolveFilletEdges(base,selection),accepted=[],skipped=[],untested=[];
+ let normalized=null,prepared=null,originalError,attempts=0,started,limitReason;
+ const mapped=new Map();
+ function normalizedEdges(group){
+  if(!mapped.has(group)){try{mapped.set(group,resolveFilletEdges(normalized,{references:group.items.map(item=>item.reference)}));}catch(error){if(error.code!=='fillet-smooth'&&error.code!=='fillet-selection')throw error;mapped.set(group,null);}}
+  return mapped.get(group);
+ }
+ function test(groups){
+  try{return {...buildEdges(base,radius,groups.flatMap(group=>group.items.map(item=>item.edge)),{diagnostics:false}),normalized:false,radius};}
+  catch(error){if(error.code!=='fillet-geometry')throw error;if(!normalized)throw error;}
+  const lists=groups.map(normalizedEdges);if(lists.some(list=>!list))throw originalError;
+  const chosen=[];for(const edge of lists.flat())if(!chosen.some(other=>other.isSame(edge)))chosen.push(edge);
+  return {...buildEdges(normalized,radius,chosen,{diagnostics:false}),normalized:true,radius};
+ }
  function inspect(batch){
   if(!batch.length)return;
-  if(attempts>=maxAttempts){untested.push(...batch);return;}
-  attempts++;onProgress?.({stage:'適用できる辺を検査しています（確定はしません）',current:attempts,total:maxAttempts});
+  if(attempts>=maxAttempts||now()-started>=maxDurationMs){limitReason=attempts>=maxAttempts?'attempts':'time';untested.push(...batch);return;}
+  attempts++;onProgress?.({stage:'適用できる輪郭を検査しています（確定はしません）',current:attempts,total:Math.min(maxAttempts,candidates.length*2-2)});
   try{
-   const result=filletSolid(base,radius,{...selection,plane:null,references:[...accepted,...batch].map(item=>item.reference)});
+   const result=test([...accepted,...batch]);
    prepared?.shape.delete();prepared=result;accepted.push(...batch);
   }catch(error){
    if(error.code&&error.code!=='fillet-geometry'&&error.code!=='fillet-smooth')throw error;
@@ -103,11 +124,29 @@ export function planPartialFillet(base,radius,selection={},onProgress,{maxAttemp
    const middle=Math.ceil(batch.length/2);inspect(batch.slice(0,middle));inspect(batch.slice(middle));
   }
  }
+ let candidates;
  try{
-  const middle=Math.ceil(candidates.length/2);inspect(candidates.slice(0,middle));inspect(candidates.slice(middle));
-  const result=prepared||{shape:base.clone(),edgeCount:0,normalized:false,radius,references:[]};prepared=null;
-  return {...result,references:accepted.map(item=>item.reference),partial:{accepted:accepted.length,skipped:skipped.length,untested:untested.length,attempts,rejected:[...skipped,...untested].map(item=>({points:item.points})),originalMessage:originalError.message}};
- }finally{prepared?.shape.delete();}
+  try{return {...buildEdges(base,radius,edges),normalized:false,radius};}
+  catch(error){if(error.code!=='fillet-geometry')throw error;originalError=error;}
+  // Prepare the safe same-domain retry once, including its input validation.
+  // Subset trials reuse it instead of offsetting/checking the same base again.
+  onProgress?.({stage:'面の継ぎ目を整理して、同じ半径で再計算しています'});
+  const upgrader=new (R.getOC().ShapeUpgrade_UnifySameDomain)(base.wrapped,true,true,false);
+  try{
+   upgrader.SetSafeInputMode(true);upgrader.Build();normalized=R.cast(upgrader.Shape()).asShape3D();
+   const before=R.measureVolume(base),after=R.measureVolume(normalized);
+   if(!valid(normalized)||Math.abs(after-before)>Math.max(1e-6,Math.abs(before)*1e-8)){normalized.delete();normalized=null;}
+  }catch{normalized?.delete();normalized=null;}finally{upgrader.delete();}
+  if(normalized){try{return {...build(normalized,radius,selection),normalized:true,radius};}catch(error){if(error.code==='fillet-smooth')throw error;}}
+  candidates=filletContours(base,radius,edges);started=now();
+  // A single native contour was already tried above; subdividing its tangent
+  // edges cannot isolate a separately roundable part.
+  if(candidates.length===1)skipped.push(...candidates);
+  else{const middle=Math.ceil(candidates.length/2);inspect(candidates.slice(0,middle));inspect(candidates.slice(middle));}
+  prepared ||= {shape:base.clone(),edgeCount:0,normalized:false,radius,references:[]};
+  const items=groups=>groups.flatMap(group=>group.items),acceptedItems=items(accepted);
+  const result={...prepared,references:acceptedItems.map(item=>item.reference),partial:{accepted:acceptedItems.length,skipped:items(skipped).length,untested:items(untested).length,attempts,...(limitReason?{limitReason}:{}),rejected:items([...skipped,...untested]).map(item=>({points:Array.from({length:17},(_,i)=>sample(item.edge,i/16))})),originalMessage:originalError.message}};prepared=null;return result;
+ }finally{prepared?.shape.delete();for(const list of mapped.values())list?.forEach(edge=>edge.delete());normalized?.delete();edges.forEach(edge=>edge.delete());}
 }
 
 export function filletSolid(base,radius,selection={},onProgress){
