@@ -6,3 +6,7 @@ assert.equal(cache.get([...features],spec),null);assert.equal(cache.get(features
 const enclosure={type:'enclose',id:'preview',target:'c'};cache.store(features,enclosure,{outputs:[{id:'preview'},{id:'preview-part2'}],remove:[]});assert.deepEqual(cache.get(features,{...enclosure,id:'new'}).outputs.map(o=>o.id),['new','new-part2']);
 cache.store(features,{type:'coilJoint',id:'preview'},result);assert.equal(cache.get(features,{type:'coilJoint',id:'real'}),null,'coil apply must still perform its final interference checks');cache.clear();assert.equal(cache.get(features,spec),null);
 console.log('PASS exact preview reuse, geometry and face invalidation, editing scope, immutable result copies, generated IDs, coil validation and clear');
+
+const circular={type:'circular',id:'preview',target:'source',targets:['source','existing'],operation:'新規かつ切り取り',count:4,angle:360};
+cache.store(features,circular,{outputs:[{id:'existing',brep:'cut'},{id:'preview-3',brep:'holed'}],remove:[],analysis:{patternHybrid:{newBodies:[{id:'preview-3',position:3}],cutBodies:['existing']}}});
+const hybrid=cache.get(features,{...circular,id:'commit'});assert.deepEqual(hybrid.outputs.map(o=>o.id),['existing','commit-3']);assert.equal(hybrid.analysis.patternHybrid.newBodies[0].id,'commit-3');assert.equal(cache.get(features,{...circular,targets:['source']}),null);console.log('PASS hybrid preview commit IDs and body dependency invalidation');

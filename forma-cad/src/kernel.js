@@ -23,6 +23,7 @@ import {measurePhase} from './phase-timings.js';
 import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
 import {encloseParts} from './enclose.js';
 import {patternSolids} from './pattern-solids.js';
+import {hybridPattern,hybridCircularPattern} from './pattern-hybrid.js';
 import {fuseSolid,fuseSolids} from './solid-fuse.js';
 import {filletSolid,planPartialFillet} from './solid-fillet.js';
 import {remapFilletEdges,filletPlaneExists} from './fillet-reference-remap.js';
@@ -473,6 +474,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  }
  else if(p.type==='split'){const b=p.splitFrame?basisFor({frame:p.splitFrame}):null;const plane=b?new R.Plane(b.n.clone().multiplyScalar(p.offset).toArray(),b.u.toArray(),b.n.toArray()):p.plane;const keep=p.keep??'both';if(!['both','positive','negative'].includes(keep))throw Error('残す側を選択してください');const parts=base.split(plane,b?0:p.offset);try{if(!parts.positive||!parts.negative)throw Error('指定平面がボディを横切っていません');const emitPart=(id,part)=>{const continuous=part.simplify();try{emit(id,continuous);}finally{continuous.delete();}};if(keep==='positive')emitPart(p.target,parts.positive);else{emitPart(p.target,parts.negative);if(keep==='both')emitPart(p.id,parts.positive);}}finally{parts.positive?.delete();parts.negative?.delete();}}
  else if(p.type==='mirror'){const mirrorId=p.mirrorMode==='反転移動'?p.target:p.id;if(p.mirrorNormal){const n=new THREE.Vector3(...p.mirrorNormal).normalize(),origin=new THREE.Vector3(...p.mirrorOrigin).addScaledVector(n,p.offset||0),u=(Math.abs(n.x)<.9?new THREE.Vector3(1,0,0):new THREE.Vector3(0,1,0));u.addScaledVector(n,-u.dot(n)).normalize();emit(mirrorId,base.mirror(new R.Plane(origin.toArray(),u.toArray(),n.toArray())));}else emit(mirrorId,base.mirror(p.plane,[0,0,0]).translate(p.plane==='XY'?[0,0,2*p.offset]:p.plane==='XZ'?[0,2*p.offset,0]:[2*p.offset,0,0]));}
+ else if(hybridPattern(p))analysis=hybridCircularPattern(base,p,axis,bodies,emit,remove,onProgress);
  else if(['circular','rectangular'].includes(p.type))patternSolids(base,p,axis,emit);
  else if(p.type==='revolve'&&p.sourceBody){
  const body=bodies.get(p.sourceBody);if(!body)throw Error('回転するボディを選択してください');
