@@ -1,3 +1,4 @@
+import {circularPositions} from './circular-pattern-options.js';
 import {fuseSolid} from './solid-fuse.js';
 import {betweenPattern,rectangularOffsets} from './rectangular-pattern.js';
 import {solidPatternExtent} from './pattern-bounds.js';
@@ -5,7 +6,7 @@ import {solidPatternExtent} from './pattern-bounds.js';
 export function patternSolids(base,p,axis,emit){
  const copies=[];let joined,moved;
  try{
-  if(p.type==='circular'){for(let i=1;i<p.count;i++)copies.push([p.id+'-'+i,base.clone().rotate(p.angle*i/p.count,p.origin||[0,0,0],p.axisVector||axis)]);}
+  if(p.type==='circular'){for(const i of circularPositions(p))copies.push([p.id+'-'+i,base.clone().rotate(p.angle*i/p.count,p.origin||[0,0,0],p.axisVector||axis)]);}
   else{
    const box=base.boundingBox;let offsets;try{const current=betweenPattern(p)&&p.betweenAlignment==='inside'?{...p,patternExtent:solidPatternExtent(base,p.startPoint,p.endPoint,box.center)}:p;offsets=rectangularOffsets(current,box.center);}finally{box.delete();}
    if(betweenPattern(p))moved=base.clone().translate(offsets[0]);

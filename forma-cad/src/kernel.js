@@ -23,6 +23,7 @@ import {measurePhase} from './phase-timings.js';
 import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
 import {encloseParts} from './enclose.js';
 import {patternSolids} from './pattern-solids.js';
+import {patternCavityEntries} from './pattern-cavity-selection.js';
 import {hybridPattern,hybridCircularPattern} from './pattern-hybrid.js';
 import {fuseSolid,fuseSolids} from './solid-fuse.js';
 import {filletSolid,planPartialFillet} from './solid-fillet.js';
@@ -296,6 +297,7 @@ export function runOperation(features,spec,onProgress,context={}){
  if(spec.type==='enclosePrintValidate')return validateEnclosurePrintPose(features,spec);
  if(spec.type==='orthographic'){const bodies=kernelBodies(features);try{return orthographicProjection(bodies,spec.targets,spec.sections);}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='snapLidInfo'){const bodies=kernelBodies(features);try{return snapLidInfo(bodies.get(spec.target),bodies.get(spec.lidTarget));}finally{for(const body of bodies.values())body.delete();}}
+ if(spec.type==='circularPatternInfo'){const bodies=kernelBodies(features);let entries=[];try{const base=bodies.get(spec.target);if(!base)throw Error('原型ボディを選択してください');entries=patternCavityEntries(base,onProgress);return {cavities:entries.map(({shape,...entry})=>({...entry,...shape.mesh({tolerance:.08,angularTolerance:.15})}))};}finally{entries.forEach(e=>e.shape.delete());bodies.forEach(shape=>shape.delete());}}
  if(spec.type==='svgWrapInfo'){const bodies=kernelBodies(features);try{return svgCylinderInfo(bodies.get(spec.target),spec.surfacePoint);}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='extrusionToolPreview'){
   const bodies=kernelBodies(features),contactInfo={};let tool;
