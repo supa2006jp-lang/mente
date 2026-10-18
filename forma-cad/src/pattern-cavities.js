@@ -24,7 +24,12 @@ export function patternCavities(source,onProgress){
     for(const opening of mouths)if(opening.links.some(r=>[...r.faces].some(i=>group.has(i))&&[...r.faces].some(i=>!group.has(i))))caps.push(R.makeFace(opening.wire));
     onProgress?.({stage:'穴の空間を判定しています',current:cavities.length+1});cavity=R.makeSolid([...group].map(i=>faces[i]).concat(caps));
     if(!valid(cavity)||R.measureVolume(cavity)<=1e-7)throw Error('穴の空間を閉じた形状として判定できません');
-    const intersection=base.intersect(cavity);try{if(Math.abs(R.measureVolume(intersection))>Math.max(1e-6,R.measureVolume(cavity)*1e-7))throw Error('穴の空間とソリッドの実体を区別できません');}finally{intersection.delete();}
+    // Inner wires also surround positive bosses. A closed candidate fully
+    // occupied by source material is a protrusion, not an empty hole.
+    const volume=R.measureVolume(cavity),tolerance=Math.max(1e-6,volume*1e-7),intersection=base.intersect(cavity);let occupied;
+    try{occupied=Math.abs(R.measureVolume(intersection));}finally{intersection.delete();}
+    if(Math.abs(occupied-volume)<=tolerance)continue;
+    if(occupied>tolerance)throw Error('穴の空間とソリッドの実体を区別できません');
     cavities.push(cavity);cavity=null;
    }finally{cavity?.delete();caps.forEach(cap=>cap.delete());}
   }
