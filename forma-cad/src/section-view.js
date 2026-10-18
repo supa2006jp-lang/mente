@@ -5,6 +5,7 @@ import {sectionInitialView} from './section-initial-view.js';
 import {sectionFaceView} from './section-face-view.js';
 import {sectionBodyColors,sectionSelectionVisibility} from './section-body-colors.js';
 import {sectionBodyLabels,sectionBodyAnchor,sectionRetainedAnchor} from './section-body-labels.js';
+import {sectionSketchPlane} from './section-sketch-plane.js';
 import * as THREE from 'three';
 export function sectionSegments(geometry,plane){
  const p=geometry.attributes.position,ix=geometry.index,out=[];const count=ix?ix.count:p.count;
@@ -21,11 +22,12 @@ export function sectionCap(segments,plane,{precision=false}={}){
  for(let i=0;i<loops.length;i++){if(depths[i]%2)continue;const outer=loops[i],holes=loops.filter((l,j)=>depths[j]===depths[i]+1&&inside(l[0],outer)),points=[outer,...holes].flat();for(const triangle of THREE.ShapeUtils.triangulateShape(outer,holes))for(const index of triangle){const p=points[index],world=u.clone().multiplyScalar(p.x).addScaledVector(v,p.y).addScaledVector(n,-plane.constant);vertices.push(...world.toArray());}}
  const g=new THREE.BufferGeometry();g.setAttribute('position',precision?new THREE.BufferAttribute(new Float64Array(vertices),3):new THREE.Float32BufferAttribute(vertices,3));g.computeVertexNormals();return g;
 }
-export function sectionView({renderer,scene,meshes,raycaster,host,camera,getControls,getSelectedBody=()=>null,getSelectedFace=()=>null,getOverlays=()=>[],getSelectionOverlays=()=>[],getBodyName=id=>id,canSplit=()=>true,onFaceView=()=>{},onSplit,onClose=()=>{}}){
- renderer.localClippingEnabled=true;const plane=new THREE.Plane(),group=new THREE.Group();scene.add(group);let active=false,splitBusy=false,splitError='',editing=false;const suppressedMaterials=new Map();
+export function sectionView({renderer,scene,meshes,raycaster,host,camera,getControls,getSelectedBody=()=>null,getSelectedFace=()=>null,getOverlays=()=>[],getSelectionOverlays=()=>[],getBodyName=id=>id,canSplit=()=>true,canSketch=()=>false,onSketch,onFaceView=()=>{},onSplit,onClose=()=>{}}){
+ renderer.localClippingEnabled=true;const plane=new THREE.Plane(),group=new THREE.Group();scene.add(group);let active=false,splitBusy=false,splitError='',editing=false,usingSketch=false;const suppressedMaterials=new Map();
  const panel=document.createElement('div');panel.id='section-panel';panel.hidden=true;panel.innerHTML='<label>分離するボディ<select id="section-target"></select></label><label>平面<select id="section-plane"><option>XY</option><option>XZ</option><option>YZ</option></select></label><label>位置 (mm)<input id="section-offset" type="number" step="0.1" value="0"></label><button id="section-center" type="button">ボディの中央に合わせる</button><label><input id="section-preview" type="checkbox" checked> 色付き分離プレビュー</label><label><input id="section-reverse" type="checkbox"> 反対側を表示</label><label>残す側<select id="section-keep"><option value="both">両側を残す</option><option value="positive">＋側を残す</option><option value="negative">−側を残す</option></select></label><div id="section-color-legend"><span class="section-negative">● −側</span><span class="section-positive">● ＋側</span></div><button id="section-split" type="button">この位置で分離</button><p id="section-split-error" role="status" aria-live="polite"></p><small>赤は取り除く側です。片側の断面を見るには色付きプレビューをオフ。履歴から再編集できます。</small><button id="section-close" type="button">断面表示を終了</button>';host.parentElement.append(panel);draggablePanel(panel,'断面表示');
  const button=document.createElement('button');button.id='section-toggle';button.textContent='◩ 断面表示';button.setAttribute('aria-pressed','false');document.querySelector('.navigation').append(button);
  const input=id=>panel.querySelector('#'+id);
+ const sketchButton=document.createElement('button');sketchButton.id='section-sketch';sketchButton.type='button';sketchButton.textContent='この断面でスケッチ';sketchButton.title='断面の位置・向きを基準に、ボディを分割せずに作図します';input('section-split').before(sketchButton);
  const clipOverlays=sectionOverlayClipping();
  const identifyLabel=document.createElement('label');identifyLabel.innerHTML='<input id="section-body-identify" type="checkbox" checked> ボディ名・色分け';
  const bodyLegend=document.createElement('div');bodyLegend.id='section-body-legend';bodyLegend.hidden=true;input('section-target').parentElement.after(identifyLabel,bodyLegend);
@@ -38,30 +40,43 @@ export function sectionView({renderer,scene,meshes,raycaster,host,camera,getCont
  }
  function splitSpec(){const target=input('section-target').value;return sectionSplitSpec({target,plane:input('section-plane').value,frame:customFrame,offset:input('section-offset').value,keep:input('section-keep').value},meshes.get(target));}
  function updateSplitState(){
-  input('section-target').disabled=splitBusy||editing;
-  input('section-center').disabled=splitBusy||!meshes.get(input('section-target').value)?.visible;
-  input('section-reverse').disabled=splitBusy||input('section-preview').checked;
+  input('section-target').disabled=splitBusy||editing||usingSketch;
+  input('section-center').disabled=splitBusy||usingSketch||!meshes.get(input('section-target').value)?.visible;
+  for(const id of ['section-plane','section-offset','section-preview','section-keep'])input(id).disabled=splitBusy||usingSketch;
+  input('section-reverse').disabled=splitBusy||usingSketch||input('section-preview').checked;
+  sketchButton.disabled=splitBusy||usingSketch||editing||!onSketch||!canSketch()||!meshes.get(input('section-target').value)?.visible;
+  sketchButton.textContent=usingSketch?'この断面で作図中':'この断面でスケッチ';
   let hint='';try{splitSpec();if(!canSplit())hint='先に現在の編集や操作を終了してください。';}catch(error){hint=error.message;}
-  const action=input('section-split'),label=splitBusy?'分離を計算中…':editing?'変更を適用':'この位置で分離';action.disabled=splitBusy||!!hint;if(action.textContent!==label)action.textContent=label;
-  const message=splitBusy?'分離を計算中…':splitError||hint,status=input('section-split-error');if(status.textContent!==message)status.textContent=message;
+  const action=input('section-split'),label=splitBusy?'分離を計算中…':editing?'変更を適用':'この位置で分離';action.disabled=splitBusy||usingSketch||!!hint;if(action.textContent!==label)action.textContent=label;
+  const message=splitBusy?'分離を計算中…':splitError||(usingSketch?'断面の位置を固定して作図中です。通常表示に戻すには「断面表示を終了」を押してください。':hint),status=input('section-split-error');if(status.textContent!==message)status.textContent=message;
  }
  function setBusy(value){splitBusy=value;for(const control of panel.querySelectorAll('input,select,button'))control.disabled=value;button.disabled=value;handle.disabled=value;updateSplitState();}
  input('section-center').onclick=()=>{
-  if(splitBusy||!active)return;
+  if(splitBusy||usingSketch||!active)return;
   try{input('section-offset').value=sectionCenter(meshes.get(input('section-target').value),input('section-plane').value,customFrame);splitError='';refresh();}catch(error){splitError=error.message;updateSplitState();}
  };
  input('section-split').onclick=async()=>{
-  if(splitBusy||!active)return;
+  if(splitBusy||usingSketch||!active)return;
   try{const spec=splitSpec();if(!canSplit())throw Error('先に現在の編集や操作を終了してください。');splitError='';setBusy(true);await onSplit(spec);setActive(false,{applied:true});}
   catch(error){splitError=error.message;}
   finally{setBusy(false);}
+ };
+ sketchButton.onclick=()=>{
+  if(!active||splitBusy||usingSketch||editing||!onSketch||!canSketch())return;
+  const previous={preview:input('section-preview').checked,reverse:input('section-reverse').checked};
+  try{
+   const offset=Number(input('section-offset').value),reverse=previous.preview?camera.position.dot(normal())>=offset:previous.reverse;
+   const face=sectionSketchPlane({plane:input('section-plane').value,frame:customFrame,offset:input('section-offset').value,reverse,anchor:getControls().target.toArray()});
+   input('section-preview').checked=false;input('section-reverse').checked=reverse;usingSketch=true;splitError='';refresh();
+   if(onSketch(face)===false)throw Error('断面でのスケッチを開始できませんでした');
+  }catch(error){usingSketch=false;input('section-preview').checked=previous.preview;input('section-reverse').checked=previous.reverse;splitError=error.message;refresh();}
  };
 
  const handle=document.createElement('button');handle.id='section-drag';handle.type='button';handle.textContent='↕';handle.title='ドラッグして断面を移動';handle.setAttribute('aria-label',handle.title);handle.hidden=true;host.parentElement.append(handle);
  const guide=new THREE.LineLoop(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0x078db5,transparent:true,opacity:.65,depthTest:false}));guide.renderOrder=6;scene.add(guide);let anchor=new THREE.Vector3(),drag=null;
  function normal(){return sectionBasis(input('section-plane').value,customFrame).n;}
- function update(){clipOverlays(getOverlays(),active?plane:null);selectionVisibility(getSelectionOverlays(),active&&input('section-body-identify').checked);bodyLabels.update();if(active)updateSplitState();handle.hidden=!active;guide.visible=active;if(!active)return;const r=renderer.domElement.getBoundingClientRect(),parent=host.parentElement.getBoundingClientRect(),p=anchor.clone().project(camera);handle.hidden=p.z< -1||p.z>1;handle.style.left=(r.left-parent.left+Math.max(25,Math.min(r.width-25,(p.x+1)*r.width/2)))+'px';handle.style.top=(r.top-parent.top+Math.max(25,Math.min(r.height-25,(1-p.y)*r.height/2)))+'px';}
- handle.onpointerdown=e=>{if(e.button!==0||splitBusy)return;e.preventDefault();e.stopPropagation();const r=renderer.domElement.getBoundingClientRect(),a=anchor.clone().project(camera),b=anchor.clone().add(normal()).project(camera);let dx=(b.x-a.x)*r.width/2,dy=-(b.y-a.y)*r.height/2;if(Math.hypot(dx,dy)<.2){dx=0;dy=-r.height*camera.zoom/(camera.top-camera.bottom);}drag={id:e.pointerId,x:e.clientX,y:e.clientY,offset:Number(input('section-offset').value),dx,dy,enabled:getControls().enabled};getControls().enabled=false;handle.setPointerCapture(e.pointerId);};
+ function update(){clipOverlays(getOverlays(),active?plane:null);selectionVisibility(getSelectionOverlays(),active&&input('section-body-identify').checked);bodyLabels.update();if(active)updateSplitState();host.dataset.sectionSketch=String(active&&usingSketch);handle.hidden=!active||usingSketch;guide.visible=active;if(!active)return;const r=renderer.domElement.getBoundingClientRect(),parent=host.parentElement.getBoundingClientRect(),p=anchor.clone().project(camera);handle.hidden=usingSketch||p.z< -1||p.z>1;handle.style.left=(r.left-parent.left+Math.max(25,Math.min(r.width-25,(p.x+1)*r.width/2)))+'px';handle.style.top=(r.top-parent.top+Math.max(25,Math.min(r.height-25,(1-p.y)*r.height/2)))+'px';}
+ handle.onpointerdown=e=>{if(e.button!==0||splitBusy||usingSketch)return;e.preventDefault();e.stopPropagation();const r=renderer.domElement.getBoundingClientRect(),a=anchor.clone().project(camera),b=anchor.clone().add(normal()).project(camera);let dx=(b.x-a.x)*r.width/2,dy=-(b.y-a.y)*r.height/2;if(Math.hypot(dx,dy)<.2){dx=0;dy=-r.height*camera.zoom/(camera.top-camera.bottom);}drag={id:e.pointerId,x:e.clientX,y:e.clientY,offset:Number(input('section-offset').value),dx,dy,enabled:getControls().enabled};getControls().enabled=false;handle.setPointerCapture(e.pointerId);};
  handle.onpointermove=e=>{if(!drag||e.pointerId!==drag.id)return;e.preventDefault();const d=((e.clientX-drag.x)*drag.dx+(e.clientY-drag.y)*drag.dy)/(drag.dx*drag.dx+drag.dy*drag.dy);input('section-offset').value=Number((drag.offset+d).toFixed(2));refresh();};
  function endDrag(e){if(!drag||e.pointerId!==drag.id)return;const enabled=drag.enabled;drag=null;getControls().enabled=enabled;if(handle.hasPointerCapture(e.pointerId))handle.releasePointerCapture(e.pointerId);}
  handle.onpointerup=endDrag;handle.onpointercancel=endDrag;handle.onlostpointercapture=endDrag;
@@ -104,7 +119,7 @@ export function sectionView({renderer,scene,meshes,raycaster,host,camera,getCont
   host.dataset.sectionNormal=JSON.stringify(n.toArray());
   host.dataset.sectionPreview=String(colorPreview&&!!target?.visible);host.dataset.sectionPreviewKeep=keep;host.dataset.sectionActive=String(active);host.dataset.sectionSegments=String(group.children.reduce((n,c)=>n+(c.userData.sectionContour?c.geometry.attributes.position.count/2:0),0));
  }
- function setActive(value,{applied=false}={}){const wasEditing=editing;active=value;if(!active)editing=false;panel.hidden=!active;button.setAttribute('aria-pressed',String(active));refresh();if(!active&&wasEditing)onClose({applied});}
+ function setActive(value,{applied=false}={}){const wasEditing=editing;active=value;if(!active){editing=false;usingSketch=false;}panel.hidden=!active;button.setAttribute('aria-pressed',String(active));refresh();if(!active&&wasEditing)onClose({applied});}
  button.onclick=()=>{
   if(splitBusy)return;
   if(!active){
@@ -124,5 +139,5 @@ export function sectionView({renderer,scene,meshes,raycaster,host,camera,getCont
   setActive(!active);
  };input('section-close').onclick=()=>setActive(false);
  panel.addEventListener('input',event=>{splitError='';if(event.target.id==='section-keep'&&event.target.value!=='both')input('section-reverse').checked=event.target.value==='negative';refresh();});const intersect=raycaster.intersectObjects.bind(raycaster);raycaster.intersectObjects=(...args)=>intersect(...args).filter(hit=>!active||!hit.object.userData.bodyId||(input('section-preview').checked&&hit.object.userData.bodyId===input('section-target').value)||plane.distanceToPoint(hit.point)>=-1e-6);
- return {refresh,update,beforeModelChange(){for(const [material,visible] of suppressedMaterials)material.visible=visible;suppressedMaterials.clear();colorBodies(meshes,false);selectionVisibility([],false);bodyLabels.set([]);},edit(spec){editing=true;splitError='';customFrame=spec.plane==='CUSTOM'?structuredClone(spec.splitFrame):null;faceOption.hidden=!customFrame;input('section-plane').value=spec.plane;input('section-offset').value=spec.offset;input('section-keep').value=spec.keep||'both';input('section-reverse').checked=spec.keep==='negative';updateTargets(spec.target);setActive(true);input('section-offset').focus();input('section-offset').select();},cancel(){if(drag)endDrag({pointerId:drag.id});if(active)setActive(false);}};
+ return {refresh,update,get sketching(){return active&&usingSketch;},beforeModelChange(){for(const [material,visible] of suppressedMaterials)material.visible=visible;suppressedMaterials.clear();colorBodies(meshes,false);selectionVisibility([],false);bodyLabels.set([]);},edit(spec){editing=true;usingSketch=false;splitError='';customFrame=spec.plane==='CUSTOM'?structuredClone(spec.splitFrame):null;faceOption.hidden=!customFrame;input('section-plane').value=spec.plane;input('section-offset').value=spec.offset;input('section-keep').value=spec.keep||'both';input('section-reverse').checked=spec.keep==='negative';updateTargets(spec.target);setActive(true);input('section-offset').focus();input('section-offset').select();},cancel(){if(drag)endDrag({pointerId:drag.id});if(active)setActive(false);}};
 }
