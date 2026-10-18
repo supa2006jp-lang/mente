@@ -50,6 +50,11 @@ export function pipeSketchPaths(features){
 export const pipePathIncludes=(path,id)=>path.id===id||path.sourceIds?.includes(id);
 export const pipePathLabel=path=>(path.name||'スケッチ')+' / '+(path.pathSegments?(path.pathError?'分岐した経路':`連続パス（${path.sourceIds.length}要素）`):path.profile);
 
+export function pipePathSelection(features,path){
+ const ids=new Set(path.pathSegments?path.sourceIds:[path.id]);
+ return new Map(features.filter(f=>f.kind==='sketch'&&ids.has(f.id)&&!f.groupHidden).map(f=>[f.id,new Set(sketchPoints(f).slice(1).map((_,index)=>index))]));
+}
+
 export function refreshPipePath(features,spec){
  const saved=spec.pathFeature;
  if(!saved?.pathSegments){const source=features.find(f=>f.kind==='sketch'&&f.id===spec.path)||saved;return source?copy(source):undefined;}
