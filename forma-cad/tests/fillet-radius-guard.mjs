@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {KernelClient} from '../src/kernel-client.js';
+const workers=[],client=new KernelClient(()=>{const w={postMessage(){},terminate(){this.dead=true;}};workers.push(w);return w;},{filletTrialTimeout:15});
+const spec={type:'filletRadiusSearch',operation:{type:'fillet',target:'a',targets:['a','b'],radius:2}},features=[{id:'unchanged'}];
+const checkpoint={outputs:[{id:'a',brep:'a-rounded'},{id:'b',brep:'b-rounded'}],remove:[],removed:[],analysis:{fillets:[{bodyId:'a',edges:12},{bodyId:'b',edges:12}],filletRadiusSearch:{radius:.5,upperRadius:2,resolution:.01,bodies:2,edges:24,attempts:3}}};
+const events=[],job=client.run(features,spec,{onProgress:p=>events.push(p)}),w=workers[0];
+w.onmessage({data:{id:1,progress:{filletRadiusCheckpoint:checkpoint}}});w.onmessage({data:{id:1,progress:{filletTrial:'start'}}});
+const recovered=await job;assert.ok(w.dead);assert.equal(recovered.analysis.filletRadiusSearch.radius,.5);assert.equal(recovered.analysis.filletRadiusSearch.limitReason,'trial-time');assert.equal(recovered.outputs.length,2);assert.equal(recovered.analysis.partialFillet,undefined);assert.equal(checkpoint.analysis.filletRadiusSearch.limitReason,undefined);assert.ok(events.every(p=>!('filletRadiusCheckpoint'in p)));
+const unfinished=client.run(features,spec),w2=workers[1];w2.onmessage({data:{id:2,progress:{filletTrial:'start'}}});await assert.rejects(unfinished,e=>e.code==='fillet-budget'&&/まだ確認できていません/.test(e.message));assert.ok(w2.dead);
+const cancelled=client.run(features,spec),w3=workers[2];w3.onmessage({data:{id:3,progress:{filletRadiusCheckpoint:checkpoint,filletTrial:'start'}}});client.reset();await assert.rejects(cancelled,/キャンセル/);assert.ok(w3.dead);assert.deepEqual(features,[{id:'unchanged'}]);
+console.log('PASS radius-search native stall recovery only from complete all-body checkpoints, unfinished error, cancellation and private progress filtering');

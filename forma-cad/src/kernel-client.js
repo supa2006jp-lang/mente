@@ -22,7 +22,7 @@ export class KernelClient {
   const p=this.pending.get(id);if(!p||this.active!==id||this.worker!==worker)return;
   const result=p.filletGuard.result();clearTimeout(p.timer);p.filletGuard.clear();worker.terminate();this.worker=null;this.active=null;this.pending.delete(id);
   if(result){activity(this,id,p,'completed');p.resolve(result);}
-  else{const error=cadErrorAdvice(Object.assign(Error('輪郭の検査を時間上限で中断しました。まだ適用できる辺を確認できていません。辺を絞って再実行してください。元のボディは変更していません'),{code:'fillet-budget'}),p.payload.spec);activity(this,id,p,'error',{error});p.reject(error);}
+  else{const error=cadErrorAdvice(Object.assign(Error(p.payload.spec?.type==='filletRadiusSearch'?'半径の検査を時間上限で中断しました。全ての辺へ掛けられる半径はまだ確認できていません。対象を絞って再度調べてください':'輪郭の検査を時間上限で中断しました。まだ適用できる辺を確認できていません。辺を絞って再実行してください。元のボディは変更していません'),{code:'fillet-budget'}),p.payload.spec);activity(this,id,p,'error',{error});p.reject(error);}
   this.dispatch();
  }
  cancelPreviews(){for(const [id,p] of [...this.pending])if(p.payload.spec?.type==='preview')this.cancel(id);}

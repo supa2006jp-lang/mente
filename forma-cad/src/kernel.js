@@ -27,7 +27,8 @@ import {patternSolids} from './pattern-solids.js';
 import {patternCavityEntries} from './pattern-cavity-selection.js';
 import {hybridPattern,hybridCircularPattern} from './pattern-hybrid.js';
 import {fuseSolid,fuseSolids} from './solid-fuse.js';
-import {filletSolid,planPartialFillet} from './solid-fillet.js';
+import {filletSolid,planPartialFillet,prepareFilletRadiusTrial} from './solid-fillet.js';
+import {searchFilletRadius} from './fillet-radius-search.js';
 import {remapFilletEdges,filletPlaneExists} from './fillet-reference-remap.js';
 import {isFilletBodySuppressed} from './fillet-state.js';
 import {chamferSolid} from './solid-chamfer.js';
@@ -415,6 +416,29 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    finally{for(const body of sourceBodies.values())body.delete();}
   }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target));
   try{emit(p.target,shape);}finally{shape.delete();}
+ }
+ else if(p.type==='filletRadiusSearch'){
+  const operation=p.operation;if(operation?.type!=='fillet')throw Error('フィレットの対象を選択してください');
+  const ids=operation.edges?.length?[...new Set(operation.edges.map(e=>e.bodyId))]:operation.targets?.length?[...new Set(operation.targets)]:[operation.target],entries=[];
+  const outputFor=(result,info)=>{
+   const start=outputs.length;
+   try{for(const item of result.items)emit(item.id,item.shape);return {outputs:outputs.slice(start),remove:[],removed:[],analysis:{fillets:result.items.map(({id,edgeCount,normalized,arcRecovery})=>({bodyId:id,radius:info.radius,edges:edgeCount,normalized,...(arcRecovery?{arcRecovery}:{})})),filletRadiusSearch:{...info,bodies:ids.length,edges:result.items.reduce((n,item)=>n+item.edgeCount,0)}}};}
+   finally{outputs.length=start;}
+  };
+  let found,checkpoint;
+  try{
+   for(const id of ids){
+    let solid=bodies.get(id);if(!solid)throw Error('対象ボディを選択してください');
+    const repaired=legacyArcBody(features,id,solid,{makeSolid:featureSolid,run:runOperation,onProgress});if(repaired){solid.delete();solid=repaired.shape;bodies.set(id,solid);}
+    const references=operation.edges?.length?operation.edges.filter(e=>e.bodyId===id):operation.edgePoint?[{point:operation.edgePoint}]:[],basis=operation.face?basisFor(operation.face):null;
+    entries.push({id,arcRecovery:repaired?.info,trial:prepareFilletRadiusTrial(solid,{references,plane:basis?{normal:basis.n.toArray(),offset:operation.face.offset}:null})});
+   }
+   found=searchFilletRadius({upperRadius:operation.radius,onProgress,trial:radius=>{
+    const items=[];try{for(const entry of entries)items.push({id:entry.id,arcRecovery:entry.arcRecovery,...entry.trial.test(radius)});return {items,dispose:()=>items.forEach(item=>item.shape.delete())};}
+    catch(error){items.forEach(item=>item.shape.delete());throw error;}
+   },onVerified:(result,info)=>{checkpoint=outputFor(result,info);onProgress?.({stage:'全対象へ適用できる R'+info.radius.toFixed(2)+' mmを確認しました',filletRadiusCheckpoint:checkpoint});}});
+   return {...checkpoint,analysis:{...checkpoint.analysis,filletRadiusSearch:{...checkpoint.analysis.filletRadiusSearch,attempts:found.attempts,...(found.limitReason?{limitReason:found.limitReason}:{})}}};
+  }finally{found?.result.dispose();entries.forEach(entry=>entry.trial.dispose());}
  }
  else if(['fillet','chamfer'].includes(p.type)){
   const groups=p.edges?.length?[...new Set(p.edges.map(e=>e.bodyId))]:p.targets?.length?[...new Set(p.targets)]:[p.target],results=[],acceptedEdges=[],rejectedEdges=[];let skipped=0,untested=0,partial=false,limitReason;

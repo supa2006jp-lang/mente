@@ -138,6 +138,8 @@ import {createOffsetPlanePreview} from './offset-plane-preview.js';
 let offsetPlanePreview=null;
 import {createBodySelectionActions} from './body-selection-actions.js';
 import {createBodyFilletList} from './body-fillet-list.js';
+import {createFilletRadiusTool} from './fillet-radius-tool.js';
+let filletRadiusTool=null;
 let bodySelectionActions=null;
 let moveTool=null,boxSelection=null,toolCancelRevision=0,moveSelectionFeatures=null;
 import {draggableDialog,cancelDialogDrags} from './draggable-dialog.js';
@@ -1506,6 +1508,7 @@ function openEncloseEdit(id){
 $('tools-dialog').addEventListener('close',()=>{editingPipeId=null;editingEncloseId=null;editingCoilJointId=null;$('cad-command').disabled=false;queueMicrotask(()=>{for(const [mesh,visible] of editingEncloseVisibility)if(mesh.parent)mesh.visible=visible;editingEncloseVisibility=[];renderTree();});});
 function currentEdgeTreatmentSpec(spec){return edgeTreatmentSpec(spec,{bodyIds:[...selectedBodies],faces:selectedFaces,edges:selectedEdge?edgeFilletReferences(selectedEdges):[],face:selectedFace,allBodies:!!$('cad-selection-all')?.checked});}
 function renderEdgeTreatmentScope(){
+ filletRadiusTool?.render();
  $('cad-body-scope')?.remove();const target=$('cad-target');if(!target)return;target.onchange=null;const targetRow=target.closest('label');target.disabled=false;targetRow.hidden=false;
  const ids=edgeTreatmentBodyIds({bodyIds:[...selectedBodies],faces:selectedFaces}).filter(id=>meshes.has(id));if(selectedEdge||ids.length<2)return;
  const panel=document.createElement('section');panel.id='cad-body-scope';panel.style.cssText='border:1px solid #6098af;border-radius:6px;padding:10px';panel.dataset.bodyIds=JSON.stringify(ids);
@@ -2783,7 +2786,7 @@ function clearMachiningPreview(keepFilletOverlay=false){
  if(machiningPreview){disposeObject(machiningPreview);machiningPreview=null;}
  for(const [object,visible] of machiningSaved)object.visible=visible;machiningSaved=[];delete host.dataset.machiningPreview;delete host.dataset.removedPreviewCount;delete host.dataset.sketchMirrorPreview;delete host.dataset.sketchOffsetPreview;delete host.dataset.patternHybridPreview;
 }
-function cancelMachiningPreview(stopKernel=false){sketchOffsetDrag?.clear();mirrorAxisDrag?.clear();machiningResultCache.clear();coilSection.close();if(stopKernel)kernelClient.cancelPreviews();++machiningRevision;clearTimeout(machiningTimer);machiningAgain=false;clearMachiningPreview();}
+function cancelMachiningPreview(stopKernel=false){filletRadiusTool?.cancel();sketchOffsetDrag?.clear();mirrorAxisDrag?.clear();machiningResultCache.clear();coilSection.close();if(stopKernel)kernelClient.cancelPreviews();++machiningRevision;clearTimeout(machiningTimer);machiningAgain=false;clearMachiningPreview();}
 function machiningSpec(){
  const type=$('cad-command').value,spec={type,id:'machining-preview'};
  for(const [key,value] of Object.entries(schemas[type]))spec[key]=value==='body'||value==='sketch'||Array.isArray(value)?$('cad-'+key).value:Number($('cad-'+key).value);
@@ -2801,6 +2804,7 @@ function machiningSpec(){
  return spec;
 }
 function scheduleMachiningPreview(event){
+ if(event?.target)filletRadiusTool?.cancel();
  if($('cad-command').value==='mirror'){previewSketchMirror();return;}
  if($('cad-command').value==='sketchOffset'){previewSketchOffset();return;}
  coilPrintTools?.clear();
@@ -2819,6 +2823,11 @@ async function computeMachiningPreview(){
  try{
   const spec=machiningSpec();$('cad-error').textContent=spec.type==='coilJoint'?'コイル接合の形状を計算中… 開閉の干渉検査は実行時に行います':'加工後のプレビューを計算中…';const editingId=editingCircularId||editingShellId||editingPipeId||editingEncloseId||editingCoilJointId,input=editingId?features.slice(0,features.findIndex(f=>f.id===editingId)):features;const result=await kernelClient.run(input,{type:'preview',operation:spec},{onProgress:progress=>{if(spec.type==='coilJoint'&&revision===machiningRevision&&features===original&&!$('cad-apply').disabled)coilJointProgress(progress);}});
   if(revision!==machiningRevision||features!==original||!$('tools-dialog').open||$('cad-apply').disabled)return;
+  displayMachiningPreview(result,spec,original,editingId);
+ }catch(e){if(revision===machiningRevision){$('cad-error').textContent=appErrorMessage(e);if($('cad-command').value==='circular'&&$('pattern-preview-status'))$('pattern-preview-status').textContent='プレビューを作成できません。下のメッセージを確認してください。';if($('cad-command').value==='coilJoint'){updateCoilLatchEffective(false);updateCoilFilletEffectiveUI(null,'プレビューを計算できません');}}}
+ finally{machiningBusy=false;if(machiningAgain){machiningAgain=false;scheduleMachiningPreview(true);}}
+}
+function displayMachiningPreview(result,spec,original,editingId=null){
   clearMachiningPreview(spec.type==='coilJoint');machiningResultCache.store(original,spec,result,editingId);machiningPreview=new THREE.Group();for(const o of result.outputs){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(o.vertices,3));g.setIndex(o.triangles);g.computeVertexNormals();const mesh=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:patternOutputColor(o,result)??((spec.type==='enclose'&&o.id.endsWith('-part2'))||(spec.type==='coilJoint'&&o.id.endsWith('-lid'))?0xe4a34d:0x64aec5),roughness:.8,side:THREE.DoubleSide,transparent:['enclose','coilJoint'].includes(spec.type),opacity:['enclose','coilJoint'].includes(spec.type)?.42:1,depthWrite:!['enclose','coilJoint'].includes(spec.type)}));mesh.userData.coilJointLid=spec.type==='coilJoint'&&o.id.endsWith('-lid');machiningPreview.add(mesh);const m=meshes.get(o.id);if(m){machiningSaved.push([m.material,m.material.visible]);m.material.visible=false;for(const c of m.children){machiningSaved.push([c,c.visible]);c.visible=false;}}}
   if(result.analysis?.patternHybrid)for(const id of result.remove||[]){const m=meshes.get(id);if(m){machiningSaved.push([m,m.visible]);m.visible=false;}}
   for(const o of result.removed||[]){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(o.vertices,3));g.setIndex(o.triangles);const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xf04438,transparent:true,opacity:.5,depthWrite:false,depthTest:false,side:THREE.DoubleSide}));m.renderOrder=30;machiningPreview.add(m);}host.dataset.removedPreviewCount=String(result.removed?.length||0);
@@ -2838,9 +2847,8 @@ async function computeMachiningPreview(){
    $('enclose-motion-result').textContent=notes.join(' ');
   }
   $('cad-error').textContent=(result.analysis?.fillets?.some(f=>f.arcRecovery)?'元のスケッチの円弧を復元しました。':'')+(result.analysis?.partialFillet?(result.analysis.partialFillet.limitReason==='trial-time'?'時間の掛かる輪郭を保留しました。':'')+'一部のみ適用可能です（'+result.analysis.partialFillet.accepted+'辺）。実行後の確認でOKを押すまでは変更しません。':spec.type==='coilJoint'?'半透明：水色の本体／橙色の蓋。':spec.type==='enclose'?'半透明：新規作成する囲み'+(spec.enclosureSplit!=='分割しない'?'（水色／橙色の２ボディ）':'')+'。':result.removed?.length?(result.analysis?.patternHybrid?'通常色：既存 / 水色：新規 / 赤：削られる部分。':'水色：加工後 / 赤：削られる部分。'):'加工後のプレビューです。')+(result.previewWarnings?.length?' 削られる部分の赤い表示だけ省略しています。':'')+'「'+$('cad-apply').textContent+'」で確定します';
- }catch(e){if(revision===machiningRevision){$('cad-error').textContent=appErrorMessage(e);if($('cad-command').value==='circular'&&$('pattern-preview-status'))$('pattern-preview-status').textContent='プレビューを作成できません。下のメッセージを確認してください。';if($('cad-command').value==='coilJoint'){updateCoilLatchEffective(false);updateCoilFilletEffectiveUI(null,'プレビューを計算できません');}}}
- finally{machiningBusy=false;if(machiningAgain){machiningAgain=false;scheduleMachiningPreview(true);}}
 }
+filletRadiusTool=createFilletRadiusTool({getFeatures:()=>features,getSpec:machiningSpec,cancelPreview:cancelMachiningPreview,showResult:displayMachiningPreview,formatError:appErrorMessage});
 $('cad-fields').addEventListener('input',scheduleMachiningPreview);
 $('tools-dialog').addEventListener('close',clearSplitPreview);
 $('cad-command').addEventListener('change',scheduleMachiningPreview);

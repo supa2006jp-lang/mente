@@ -80,6 +80,32 @@ function buildEdges(shape,radius,edges,{diagnostics=true}={}){
 }
 function build(shape,radius,selection){const edges=resolveFilletEdges(shape,selection);try{return buildEdges(shape,radius,edges);}finally{edges.forEach(edge=>edge.delete());}}
 
+// Radius trials share native edge lookup and safe seam normalization. Every
+// trial still builds and validates the entire selection together.
+export function prepareFilletRadiusTrial(base,selection={}){
+ if(!valid(base))throw failure('元のソリッドに形状の不整合があるため検査できません','fillet-input');
+ const edges=resolveFilletEdges(base,selection);let normalized=null,normalizedEdges=null,normalizationChecked=false;
+ return {
+  test(radius){
+   let original;
+   try{return {...buildEdges(base,radius,edges,{diagnostics:false}),radius,normalized:false};}catch(error){if(error.code!=='fillet-geometry')throw error;original=error;}
+   if(!normalizationChecked){
+    normalizationChecked=true;const upgrader=new (R.getOC().ShapeUpgrade_UnifySameDomain)(base.wrapped,true,true,false);
+    try{
+     upgrader.SetSafeInputMode(true);upgrader.Build();normalized=R.cast(upgrader.Shape()).asShape3D();
+     const volume=R.measureVolume(base);
+     if(!valid(normalized)||Math.abs(R.measureVolume(normalized)-volume)>Math.max(1e-6,Math.abs(volume)*1e-8))throw original;
+     normalizedEdges=resolveFilletEdges(normalized,selection);
+    }catch(error){normalized?.delete();normalized=null;if(error instanceof WebAssembly.RuntimeError)throw error;}
+    finally{upgrader.delete();}
+   }
+   if(!normalizedEdges)throw original;
+   return {...buildEdges(normalized,radius,normalizedEdges,{diagnostics:false}),radius,normalized:true};
+  },
+  dispose(){edges.forEach(edge=>edge.delete());normalizedEdges?.forEach(edge=>edge.delete());normalized?.delete();}
+ };
+}
+
 // OCCT already propagates a blend along tangent edges. Splitting that contour
 // into individual display arcs repeats the same failed native operation.
 function filletContours(shape,radius,edges){
