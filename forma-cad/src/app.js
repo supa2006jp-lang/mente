@@ -139,6 +139,8 @@ let offsetPlanePreview=null;
 import {createBodySelectionActions} from './body-selection-actions.js';
 import {createBodyFilletList} from './body-fillet-list.js';
 import {createFilletRadiusTool} from './fillet-radius-tool.js';
+import {createFilletRadiusHighlight} from './fillet-radius-highlight.js';
+let filletRadiusHighlight=null;
 let filletRadiusTool=null;
 let bodySelectionActions=null;
 let moveTool=null,boxSelection=null,toolCancelRevision=0,moveSelectionFeatures=null;
@@ -2779,6 +2781,7 @@ async function exportCoilTestPiece(source,onProgress){
  return '試し刷りSTLを保存しました。本体 '+fmt(q.bodyHeight)+' mm / 蓋 '+fmt(q.lidHeight)+' mm。'+(q.savedPercent>1?'体積を約 '+Math.round(q.savedPercent)+'%削減。':'収納部分はすでに短い寸法です。');
 }
 function clearMachiningPreview(keepFilletOverlay=false){
+ filletRadiusHighlight?.clear();
  coilPrintTools?.clear();delete host.dataset.coilTestPiece;
  if(!keepFilletOverlay){clearCoilFilletOverlay();clearCoilSplitOverlay();clearCoilStopFaceOverlay();}
  coilSectionSource=null;++coilSectionRequest;if(coilSection.active)coilSection.pending();
@@ -2848,7 +2851,8 @@ function displayMachiningPreview(result,spec,original,editingId=null){
   }
   $('cad-error').textContent=(result.analysis?.fillets?.some(f=>f.arcRecovery)?'元のスケッチの円弧を復元しました。':'')+(result.analysis?.partialFillet?(result.analysis.partialFillet.limitReason==='trial-time'?'時間の掛かる輪郭を保留しました。':'')+'一部のみ適用可能です（'+result.analysis.partialFillet.accepted+'辺）。実行後の確認でOKを押すまでは変更しません。':spec.type==='coilJoint'?'半透明：水色の本体／橙色の蓋。':spec.type==='enclose'?'半透明：新規作成する囲み'+(spec.enclosureSplit!=='分割しない'?'（水色／橙色の２ボディ）':'')+'。':result.removed?.length?(result.analysis?.patternHybrid?'通常色：既存 / 水色：新規 / 赤：削られる部分。':'水色：加工後 / 赤：削られる部分。'):'加工後のプレビューです。')+(result.previewWarnings?.length?' 削られる部分の赤い表示だけ省略しています。':'')+'「'+$('cad-apply').textContent+'」で確定します';
 }
-filletRadiusTool=createFilletRadiusTool({getFeatures:()=>features,getSpec:machiningSpec,cancelPreview:cancelMachiningPreview,showResult:displayMachiningPreview,formatError:appErrorMessage});
+filletRadiusHighlight=createFilletRadiusHighlight({scene,host,meshes});
+filletRadiusTool=createFilletRadiusTool({getFeatures:()=>features,getSpec:machiningSpec,cancelPreview:cancelMachiningPreview,showResult:displayMachiningPreview,showLimit:limit=>filletRadiusHighlight.show(limit),bodyName:bodyDisplayName,formatError:appErrorMessage});
 $('cad-fields').addEventListener('input',scheduleMachiningPreview);
 $('tools-dialog').addEventListener('close',clearSplitPreview);
 $('cad-command').addEventListener('change',scheduleMachiningPreview);

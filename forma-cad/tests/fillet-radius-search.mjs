@@ -16,6 +16,9 @@ assert.throws(()=>searchFilletRadius({upperRadius:2,trial:()=>{throw geometry();
 assert.throws(()=>searchFilletRadius({upperRadius:.009,trial:()=>assert.fail()}),/0.01/);
 assert.throws(()=>searchFilletRadius({upperRadius:1,trial:()=>{throw Object.assign(Error('selection'),{code:'fillet-selection'});}}),/selection/);
 const limited=searchFilletRadius({upperRadius:2,maxAttempts:3,trial:r=>{if(r>1.1)throw geometry();return {radius:r};}});assert.equal(limited.radius,1);assert.equal(limited.limitReason,'attempts');
+const expandedTrials=[],expanded=searchFilletRadius({upperRadius:.1,expand:true,trial:r=>{expandedTrials.push(r);if(r>.73)throw geometry();return {radius:r};}});assert.equal(expanded.radius,.73);assert.equal(expanded.expanded,true);assert.ok(expandedTrials.includes(.8));assert.equal(expanded.limiting.radius,.74);
+const cap=searchFilletRadius({upperRadius:1,expand:true,maxRadius:2,trial:r=>({radius:r})});assert.equal(cap.radius,2);assert.equal(cap.limitReason,'radius-limit');
+const failures=[],diagnosed=searchFilletRadius({upperRadius:2,trial:r=>{if(r>.5)throw Object.assign(geometry(),{diagnostics:{bodyIds:['small']}});return {radius:r};},onFailure:f=>failures.push(f)});assert.equal(diagnosed.limiting.radius,.51);assert.deepEqual(diagnosed.limiting.diagnostics.bodyIds,['small']);assert.ok(failures.length);
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const slab=R.makeBox([0,0,0],[20,12,2]),cube=R.makeBox([30,0,0],[40,10,10]),other=R.makeBox([60,0,0],[65,5,5]);
@@ -23,6 +26,8 @@ const features=[{id:'seed',kind:'cadop',name:'原型',outputs:[['slab',slab],['c
 const original=JSON.stringify(features),operation={id:'machining-preview',type:'fillet',target:'slab',targets:['slab','cube'],radius:2,partialMode:'offer'},progress=[];
 const result=runOperation(features,{type:'filletRadiusSearch',operation},p=>progress.push(p)),info=result.analysis.filletRadiusSearch;
 assert.ok(info.radius>=.9&&info.radius<1);assert.equal(info.bodies,2);assert.equal(info.edges,24);assert.equal(result.analysis.partialFillet,undefined);assert.deepEqual(result.outputs.map(o=>o.id),['slab','cube']);assert.equal(result.remove.length,0);
+assert.equal(info.limiting.radius,1);assert.deepEqual(info.limiting.diagnostics.bodyIds,['slab']);assert.ok(info.limiting.diagnostics.edges.length);assert.ok(info.limiting.diagnostics.edges.every(e=>e.bodyId==='slab'));
+const expandedNative=runOperation(features,{type:'filletRadiusSearch',expand:true,operation:{...operation,radius:.25}});assert.equal(expandedNative.analysis.filletRadiusSearch.radius,.99);assert.equal(expandedNative.analysis.filletRadiusSearch.expanded,true);assert.deepEqual(expandedNative.analysis.filletRadiusSearch.limiting.diagnostics.bodyIds,['slab']);
 assert.ok(progress.some(p=>p.filletRadiusCheckpoint));for(const p of progress.filter(p=>p.filletRadiusCheckpoint)){const checked=p.filletRadiusCheckpoint;assert.equal(checked.outputs.length,2);assert.equal(checked.analysis.fillets.reduce((n,f)=>n+f.edges,0),24);}
 for(const output of result.outputs){const shape=R.deserializeShape(output.brep).asShape3D(),check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{assert.ok(check.IsValid());}finally{check.delete();shape.delete();}}
 const confirmed={...operation,radius:info.radius},direct=runOperation(features,{...confirmed,partialMode:undefined});

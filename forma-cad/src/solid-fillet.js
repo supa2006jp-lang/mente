@@ -88,7 +88,7 @@ export function prepareFilletRadiusTrial(base,selection={}){
  return {
   test(radius){
    let original;
-   try{return {...buildEdges(base,radius,edges,{diagnostics:false}),radius,normalized:false};}catch(error){if(error.code!=='fillet-geometry')throw error;original=error;}
+   try{return {...buildEdges(base,radius,edges),radius,normalized:false};}catch(error){if(error.code!=='fillet-geometry')throw error;original=error;}
    if(!normalizationChecked){
     normalizationChecked=true;const upgrader=new (R.getOC().ShapeUpgrade_UnifySameDomain)(base.wrapped,true,true,false);
     try{
@@ -100,7 +100,7 @@ export function prepareFilletRadiusTrial(base,selection={}){
     finally{upgrader.delete();}
    }
    if(!normalizedEdges)throw original;
-   return {...buildEdges(normalized,radius,normalizedEdges,{diagnostics:false}),radius,normalized:true};
+   return {...buildEdges(normalized,radius,normalizedEdges),radius,normalized:true};
   },
   dispose(){edges.forEach(edge=>edge.delete());normalizedEdges?.forEach(edge=>edge.delete());normalized?.delete();}
  };
