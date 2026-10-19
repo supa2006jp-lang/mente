@@ -25,7 +25,7 @@ R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencasc
 const browser=await chromium.launch({channel:'msedge',headless:true});
 try{
  const context=await browser.newContext({viewport:{width:1600,height:1000},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
- await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();
+ await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('#canvas-host canvas').waitFor();
 
 
 
@@ -49,7 +49,7 @@ try{
  await load(data.features);assert.deepEqual(await colors(),{},'reset survives save/reload including moved body');assert.equal(await reset.isVisible(),true);assert.equal(await reset.getAttribute('aria-pressed'),'false');assert.ok((await page.locator('#bodies [data-body-id="box"] .row-label').textContent()).includes('−Z側'),'side label is retained');
  await edit();await offset.fill('12');data=await apply();assert.equal(data.features[1].spec.colorize,false,'re-edit keeps normal color');assert.deepEqual(await colors(),{});assert.ok(Math.abs(range(data.features[2].outputs[0],2)[0]-12)<1e-4,'downstream geometry is recalculated');
  await page.screenshot({path:'.sites-runtime/section-colors-reset.png'});
- await page.locator('#section-toggle').click();await plane.selectOption('XY');await page.locator('#section-target').selectOption('box');await offset.fill('0');data=await apply();const newId=data.features.at(-1).id;assert.equal((await colors()).box,'#6cafd2');assert.equal((await colors())[newId],'#e4aa55');assert.equal((await colors()).s,undefined,'new split colors do not recolor previous reset body');
+ await page.locator('#section-toggle').click();await plane.selectOption('XY');await page.locator('#section-target').selectOption('box');await offset.fill('0');await keep.selectOption('both');data=await apply();const newId=data.features.at(-1).id;assert.equal((await colors()).box,'#6cafd2');assert.equal((await colors())[newId],'#e4aa55');assert.equal((await colors()).s,undefined,'new split colors do not recolor previous reset body');
  await page.screenshot({path:'.sites-runtime/section-colors-reset-button.png'});await reset.click();data=await save();assert.deepEqual(await colors(),{});assert.equal(data.features.filter(f=>f.kind==='cadop'&&f.spec.type==='split'&&f.spec.colorize===false).length,2,'all split colors can be reset together');
  await load(data.features);assert.deepEqual(await colors(),{});assert.deepEqual(errors,[]);await context.close();console.log('PASS color reset button, hidden bodies, unchanged geometry, undo/redo, persistence, re-edit/downstream replay, and new split colors'+(process.env.FORMA_TEST_URL?' on live site':''));
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

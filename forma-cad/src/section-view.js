@@ -1,3 +1,5 @@
+import {sectionCap} from './section-cap.js';
+export {sectionCap} from './section-cap.js';
 import {sectionSplitSpec,sectionCenter,sectionColors,sectionBasis,sectionFaceOrientation} from './section-split.js';
 import {draggablePanel} from './draggable-panel.js';
 import {sectionOverlayClipping} from './section-overlays.js';
@@ -9,22 +11,15 @@ import {sectionSketchPlane} from './section-sketch-plane.js';
 import * as THREE from 'three';
 export function sectionSegments(geometry,plane){
  const p=geometry.attributes.position,ix=geometry.index,out=[];const count=ix?ix.count:p.count;
- for(let i=0;i<count;i+=3){const vs=[0,1,2].map(j=>new THREE.Vector3().fromBufferAttribute(p,ix?ix.getX(i+j):i+j)),ds=vs.map(v=>plane.distanceToPoint(v)),hits=[];
-  for(let j=0;j<3;j++){const k=(j+1)%3;if(Math.abs(ds[j])<1e-7)hits.push(vs[j]);if(ds[j]*ds[k]<0)hits.push(vs[j].clone().lerp(vs[k],ds[j]/(ds[j]-ds[k])));}
+ for(let i=0;i<count;i+=3){const vs=[0,1,2].map(j=>new THREE.Vector3().fromBufferAttribute(p,ix?ix.getX(i+j):i+j)),ds=vs.map(v=>{const d=plane.distanceToPoint(v);return Math.abs(d)<1e-7?0:d;}),hits=[];
+  if(ds.every(d=>d===0))continue;
+  for(let j=0;j<3;j++){const k=(j+1)%3;if(ds[j]===0)hits.push(vs[j]);else if(ds[j]*ds[k]<0)hits.push(vs[j].clone().lerp(vs[k],ds[j]/(ds[j]-ds[k])));}
   const unique=hits.filter((v,j)=>!hits.slice(0,j).some(w=>w.distanceToSquared(v)<1e-12));if(unique.length===2)out.push(...unique[0].toArray(),...unique[1].toArray());
  }return out;
 }
-export function sectionCap(segments,plane,{precision=false}={}){
- const n=plane.normal,u=new THREE.Vector3(Math.abs(n.x)<.9?1:0,Math.abs(n.x)<.9?0:1,0);u.addScaledVector(n,-u.dot(n)).normalize();const v=n.clone().cross(u),nodes=new Map(),edges=new Set(),key=p=>p.map(x=>Math.round(x*1e5)).join(',');
- for(let i=0;i<segments.length;i+=6){const a=segments.slice(i,i+3),b=segments.slice(i+3,i+6),ka=key(a),kb=key(b),e=[ka,kb].sort().join('|');if(ka===kb||edges.has(e))continue;edges.add(e);for(const [k,p,q] of [[ka,a,kb],[kb,b,ka]]){if(!nodes.has(k))nodes.set(k,{p:new THREE.Vector2(new THREE.Vector3(...p).dot(u),new THREE.Vector3(...p).dot(v)),links:[]});nodes.get(k).links.push(q);}}
- const used=new Set(),loops=[];for(const [start,node] of nodes){if(used.has(start)||node.links.length!==2)continue;let current=start,previous=null,loop=[],valid=true;do{if(used.has(current)||nodes.get(current).links.length!==2){valid=false;break;}used.add(current);const item=nodes.get(current);loop.push(item.p);const next=item.links.find(k=>k!==previous);previous=current;current=next;}while(current!==start);if(valid&&loop.length>=3)loops.push(loop);}
- const inside=(p,poly)=>{let yes=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)yes=!yes;}return yes;};const depths=loops.map((l,i)=>loops.filter((other,j)=>i!==j&&inside(l[0],other)).length),vertices=[];
- for(let i=0;i<loops.length;i++){if(depths[i]%2)continue;const outer=loops[i],holes=loops.filter((l,j)=>depths[j]===depths[i]+1&&inside(l[0],outer)),points=[outer,...holes].flat();for(const triangle of THREE.ShapeUtils.triangulateShape(outer,holes))for(const index of triangle){const p=points[index],world=u.clone().multiplyScalar(p.x).addScaledVector(v,p.y).addScaledVector(n,-plane.constant);vertices.push(...world.toArray());}}
- const g=new THREE.BufferGeometry();g.setAttribute('position',precision?new THREE.BufferAttribute(new Float64Array(vertices),3):new THREE.Float32BufferAttribute(vertices,3));g.computeVertexNormals();return g;
-}
 export function sectionView({renderer,scene,meshes,raycaster,host,camera,getControls,getSelectedBody=()=>null,getSelectedFace=()=>null,getOverlays=()=>[],getSelectionOverlays=()=>[],getBodyName=id=>id,canSplit=()=>true,canSketch=()=>false,onSketch,onFaceView=()=>{},onSplit,onClose=()=>{}}){
  renderer.localClippingEnabled=true;const plane=new THREE.Plane(),group=new THREE.Group();scene.add(group);let active=false,splitBusy=false,splitError='',editing=false,usingSketch=false;const suppressedMaterials=new Map();
- const panel=document.createElement('div');panel.id='section-panel';panel.hidden=true;panel.innerHTML='<label>分離するボディ<select id="section-target"></select></label><label>平面<select id="section-plane"><option>XY</option><option>XZ</option><option>YZ</option></select></label><label>位置 (mm)<input id="section-offset" type="number" step="0.1" value="0"></label><button id="section-center" type="button">ボディの中央に合わせる</button><label><input id="section-preview" type="checkbox" checked> 色付き分離プレビュー</label><label><input id="section-reverse" type="checkbox"> 反対側を表示</label><label>残す側<select id="section-keep"><option value="both">両側を残す</option><option value="positive">＋側を残す</option><option value="negative">−側を残す</option></select></label><div id="section-color-legend"><span class="section-negative">● −側</span><span class="section-positive">● ＋側</span></div><button id="section-split" type="button">この位置で分離</button><p id="section-split-error" role="status" aria-live="polite"></p><small>赤は取り除く側です。片側の断面を見るには色付きプレビューをオフ。履歴から再編集できます。</small><button id="section-close" type="button">断面表示を終了</button>';host.parentElement.append(panel);draggablePanel(panel,'断面表示');
+ const panel=document.createElement('div');panel.id='section-panel';panel.hidden=true;panel.innerHTML='<label>分離するボディ<select id="section-target"></select></label><label>平面<select id="section-plane"><option>XY</option><option>XZ</option><option>YZ</option></select></label><label>位置 (mm)<input id="section-offset" type="number" step="0.1" value="0"></label><button id="section-center" type="button">ボディの中央に合わせる</button><label><input id="section-preview" type="checkbox"> 色付き分離プレビュー</label><label><input id="section-reverse" type="checkbox" checked> 反対側を表示</label><label>残す側<select id="section-keep"><option value="both">両側を残す</option><option value="positive">＋側を残す</option><option value="negative" selected>−側を残す</option></select></label><div id="section-color-legend"><span class="section-negative">● −側</span><span class="section-positive">● ＋側</span></div><button id="section-split" type="button">この位置で分離</button><p id="section-split-error" role="status" aria-live="polite"></p><small>赤は取り除く側です。片側の断面を見るには色付きプレビューをオフ。履歴から再編集できます。</small><button id="section-close" type="button">断面表示を終了</button>';host.parentElement.append(panel);draggablePanel(panel,'断面表示');
  const button=document.createElement('button');button.id='section-toggle';button.textContent='◩ 断面表示';button.setAttribute('aria-pressed','false');document.querySelector('.navigation').append(button);
  const input=id=>panel.querySelector('#'+id);
  const sketchButton=document.createElement('button');sketchButton.id='section-sketch';sketchButton.type='button';sketchButton.textContent='この断面でスケッチ';sketchButton.title='断面の位置・向きを基準に、ボディを分割せずに作図します';input('section-split').before(sketchButton);
@@ -123,8 +118,9 @@ export function sectionView({renderer,scene,meshes,raycaster,host,camera,getCont
  button.onclick=()=>{
   if(splitBusy)return;
   if(!active){
-   splitError='';input('section-keep').value='both';const face=getSelectedFace(),orientation=sectionFaceOrientation(face);
+   splitError='';input('section-preview').checked=false;input('section-body-identify').checked=true;const face=getSelectedFace(),orientation=sectionFaceOrientation(face);
    if(orientation){customFrame=orientation.frame||null;faceOption.hidden=!customFrame;input('section-plane').value=orientation.plane;}
+   input('section-reverse').checked=normal().dot(camera.getWorldDirection(new THREE.Vector3()))<0;
    updateTargets(face?.bodyId||face?.cadFace?.bodyId||getSelectedBody());
    const target=meshes.get(input('section-target').value),box=new THREE.Box3();
    if(orientation&&target?.visible)box.expandByObject(target);else for(const m of meshes.values())if(m.visible)box.expandByObject(m);
@@ -135,9 +131,10 @@ export function sectionView({renderer,scene,meshes,raycaster,host,camera,getCont
     const view=sectionFaceView(face,normal(),Number(input('section-offset').value),camera,box.getCenter(new THREE.Vector3()),camera.position.distanceTo(getControls().target));
     if(view){input('section-reverse').checked=view.reverse;onFaceView(view);}
    }
+   input('section-keep').value=input('section-reverse').checked?'negative':'positive';
   }
   setActive(!active);
  };input('section-close').onclick=()=>setActive(false);
- panel.addEventListener('input',event=>{splitError='';if(event.target.id==='section-keep'&&event.target.value!=='both')input('section-reverse').checked=event.target.value==='negative';refresh();});const intersect=raycaster.intersectObjects.bind(raycaster);raycaster.intersectObjects=(...args)=>intersect(...args).filter(hit=>!active||!hit.object.userData.bodyId||(input('section-preview').checked&&hit.object.userData.bodyId===input('section-target').value)||plane.distanceToPoint(hit.point)>=-1e-6);
+ panel.addEventListener('input',event=>{splitError='';if(event.target.id==='section-keep'&&event.target.value!=='both')input('section-reverse').checked=event.target.value==='negative';if(event.target.id==='section-reverse'&&input('section-keep').value!=='both')input('section-keep').value=event.target.checked?'negative':'positive';refresh();});const intersect=raycaster.intersectObjects.bind(raycaster);raycaster.intersectObjects=(...args)=>intersect(...args).filter(hit=>!active||!hit.object.userData.bodyId||(input('section-preview').checked&&hit.object.userData.bodyId===input('section-target').value)||plane.distanceToPoint(hit.point)>=-1e-6);
  return {refresh,update,get sketching(){return active&&usingSketch;},beforeModelChange(){for(const [material,visible] of suppressedMaterials)material.visible=visible;suppressedMaterials.clear();colorBodies(meshes,false);selectionVisibility([],false);bodyLabels.set([]);},edit(spec){editing=true;usingSketch=false;splitError='';customFrame=spec.plane==='CUSTOM'?structuredClone(spec.splitFrame):null;faceOption.hidden=!customFrame;input('section-plane').value=spec.plane;input('section-offset').value=spec.offset;input('section-keep').value=spec.keep||'both';input('section-reverse').checked=spec.keep==='negative';updateTargets(spec.target);setActive(true);input('section-offset').focus();input('section-offset').select();},cancel(){if(drag)endDrag({pointerId:drag.id});if(active)setActive(false);}};
 }

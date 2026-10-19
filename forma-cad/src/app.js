@@ -13,6 +13,8 @@ import {ballJointDialog} from './ball-joint-dialog.js';
 import {cylinderHingeDialog} from './cylinder-hinge-dialog.js';
 import {cadErrorAdvice} from './cad-error-advice.js';
 import {createSelectedPointMarker,pointReferenceLabel} from './selected-point.js';
+import {createFaceExtrudeShortcut} from './face-extrude-shortcut.js';
+let faceExtrudeShortcut=null,regionExtrudeAnchor=null;
 import {screenVertexCandidates} from './vertex-points.js';
 import {createPointDistance} from './point-distance.js';
 import {allMeshHits,screenEdgeCandidates,screenMidpointCandidates,selectionCandidates,edgeCandidateKey} from './selection-candidates.js';
@@ -284,7 +286,7 @@ for(const [end,color] of [[[5000,0,0],0xe94b55],[[0,5000,0],0x42ba54],[[0,0,5000
 const modelGroup=new THREE.Group();scene.add(modelGroup);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
 let viewCube=null;
-renderer.setAnimationLoop(()=>{printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();updateSelectionUI();workspaceImprovements?.sync();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateCenterMarkers();updateSelectedPoint();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open||$('template-dialog')?.open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
+renderer.setAnimationLoop(()=>{printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();updateSelectionUI();workspaceImprovements?.sync();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open||$('template-dialog')?.open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
 let sketchNoticeTimer,enteredSketchNumber=null;
 function sketchSession(){if(enteredSketchNumber!==null)return features.find(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)||{groupNumber:enteredSketchNumber};const id=editingSketchGroup||activeSketchGroup;return features.find(f=>f.kind==='sketch'&&f.groupId===id)||features.find(f=>f.kind==='sketch'&&f.id===selected)||null;}
 function notifySketch(message){hideExtrusionNotice();clearTimeout(toastTimer);$('toast').style.display='none';const notice=$('sketch-notice');clearTimeout(sketchNoticeTimer);notice.textContent=message;notice.hidden=false;sketchNoticeTimer=setTimeout(()=>{notice.hidden=true;},5000);}
@@ -639,7 +641,7 @@ function beginExtrusion(nextMode='solid',{preserveView=false}={}){bodyDisplay?.s
  if(r.overlapSource&&nextMode==='solid'){f.overlapOnly=true;f.overlapTargets=[...r.overlapTargets];}
  if(pendingOperation==='cut'){const target=meshes.get(f.target)||meshes.values().next().value;if(target){f.target=target.userData.bodyId;const center=new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3()),n=basisFor(r).n;f.depth=center.dot(n)<r.offset?-20:20;}}fillForm(f);renderTree();scheduleAutoCut();
 }
-function chooseRegion(r,add=false){patternCenter=null;clearSketchSelection();
+function chooseRegion(r,add=false,point=null){patternCenter=null;clearSketchSelection();regionExtrudeAnchor=point?{id:r.id,point:point.toArray()}:null;
  const previous=stage==='extrusion'&&!selected?current():null,previousManual=extrusionManualOperation,previousDefault=extrusionDefaultOperation;
  const shouldExtrude=pendingExtrude||!!previous,nextMode=mode;
  clearFaceSelection();$('center-pattern').hidden=true;selectedFace=null;finishSketch(false);selected=null;
@@ -904,12 +906,12 @@ renderer.domElement.addEventListener('pointerup',e=>{
  const faceGroup=bodyHit?.object.geometry.userData.faceGroups?.find(f=>bodyHit.faceIndex*3>=f.start&&bodyHit.faceIndex*3<f.start+f.count);
  if(!e.shiftKey&&!edgeSelectionMode&&selectionMode==='auto'){
   const hit=pickProfileRegion(e);
-  if(hit?.region.overlapSource||e.altKey&&hit){chooseRegion(hit.region,e.ctrlKey||e.metaKey);return;}
+  if(hit?.region.overlapSource||e.altKey&&hit){chooseRegion(hit.region,e.ctrlKey||e.metaKey,hit.point);return;}
  }
  if(!pendingExtrude&&(e.ctrlKey||e.metaKey)&&pickBodyEdge(e))return;
  if(!pendingExtrude&&!edgeSelectionMode&&faceGroup&&!bodyHit.object.geometry.userData.planarFaces?.includes(faceGroup.faceId)){chooseFace(bodyHit,e.shiftKey||e.ctrlKey||e.metaKey);return;}
  if(!pendingExtrude&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&pickBodyEdge(e,bodyHit))return;
- const sketchHit=raycaster.intersectObjects(sketchGroup.children,false)[0];if(sketchHit&&(!pendingExtrude||mode==='thin')&&(!bodyHit||sketchHit.distance<=bodyHit.distance+.05)){const thinPending=pendingExtrude&&mode==='thin';if(!thinPending&&pickSketchEdge(e))return;selectFeature(sketchHit.object.userData.featureId,sketchHit.index||0);if(thinPending)beginExtrusion('thin');return;}const regionHit=pickProfileRegion(e);if(regionHit){chooseRegion(regionHit.region,e.ctrlKey||e.metaKey);return;}
+ const sketchHit=raycaster.intersectObjects(sketchGroup.children,false)[0];if(sketchHit&&(!pendingExtrude||mode==='thin')&&(!bodyHit||sketchHit.distance<=bodyHit.distance+.05)){const thinPending=pendingExtrude&&mode==='thin';if(!thinPending&&pickSketchEdge(e))return;selectFeature(sketchHit.object.userData.featureId,sketchHit.index||0);if(thinPending)beginExtrusion('thin');return;}const regionHit=pickProfileRegion(e);if(regionHit){chooseRegion(regionHit.region,e.ctrlKey||e.metaKey,regionHit.point);return;}
  const planeHit=raycaster.intersectObjects(regionGroup.children.filter(m=>m.userData.planeId&&m.visible),false)[0];if(planeHit&&(!bodyHit||planeHit.distance<bodyHit.distance-.05)){chooseConstructionPlane(features.find(f=>f.id===planeHit.object.userData.planeId));return;}const hit=bodyHit;if(hit){chooseFace(hit,e.shiftKey||e.ctrlKey||e.metaKey);}else if(!selectFaceGrid())$('measurement').hidden=true;
 });
 function showMeasurement(f,edgeIndex=0){if(f.profile==='point'){$('measurement').hidden=false;$('measurement-title').textContent='スケッチ点';$('measurement-length').textContent=[f.x,f.y,f.z].map(fmt).join(', ')+' mm';$('measurement-angle').textContent='目標点';return;}
@@ -3357,3 +3359,36 @@ workspaceImprovements=installWorkspaceImprovements({
 });
 
 threadDisplayTool=createThreadDisplayTool({getFeatures:()=>features,kernel:kernelClient,canUse:()=>stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'),notify,apply:(next,original)=>{if(features!==original)return;const chosen=[...selectedBodies],showStats=$('body-complexity-panel')?.hidden===false;setProject(next);if(chosen.length)commitBodySelection(new Set(chosen.filter(id=>meshes.has(id))));if(showStats)workspaceImprovements.complexity.open();}});
+
+// Eligibility is resolved once per selection, never in the render loop's geometry path.
+let extrudeShortcutCache=null;
+function selectedExtrudeShortcut(){
+ if(stage!=='model'||sketch||pendingExtrude||extrusionBusy||moveTool?.active||selectedBodies.size||selectedEdges.length||patternCenter||bodyDisplay?.exploded||document.querySelector('dialog[open]'))return null;
+ const cached=extrudeShortcutCache;
+ if(!cached||cached.faces!==selectedFaces||cached.region!==chosenRegion||cached.features!==features||cached.anchor!==regionExtrudeAnchor){
+  let selection=null;
+  if(selectedFaces.length){
+   const planes=selectedFaces.map(selectionFacePlane);
+   if(planes.every(plane=>plane?.outer?.length>=3))selection={point:selectedFaces.at(-1).point,count:selectedFaces.length,bodyIds:selectedFaces.map(face=>face.bodyId)};
+  }else if(chosenRegion?.outer?.length>=3){
+   let point=regionExtrudeAnchor?.id===chosenRegion.id?regionExtrudeAnchor.point:null;
+   if(!point){
+    const geometry=regionFaceGeometry(chosenRegion),positions=geometry.getAttribute('position'),indices=geometry.index;
+    const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();let area=-1;
+    for(let i=0;i<(indices?.count||positions.count);i+=3){
+     a.fromBufferAttribute(positions,indices?indices.getX(i):i);b.fromBufferAttribute(positions,indices?indices.getX(i+1):i+1);c.fromBufferAttribute(positions,indices?indices.getX(i+2):i+2);
+     const value=b.clone().sub(a).cross(c.clone().sub(a)).lengthSq();
+     if(value>area){area=value;point=a.clone().add(b).add(c).multiplyScalar(1/3).toArray();}
+    }
+    geometry.dispose();
+   }
+   if(point)selection={point,count:selectedRegions.length||1,bodyIds:chosenRegion.bodyId?[chosenRegion.bodyId]:[]};
+  }
+  extrudeShortcutCache={faces:selectedFaces,region:chosenRegion,features,anchor:regionExtrudeAnchor,selection};
+ }
+ const selection=extrudeShortcutCache.selection;
+ return selection&&selection.bodyIds.every(id=>meshes.get(id)?.visible)?selection:null;
+}
+faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelection:selectedExtrudeShortcut,onExtrude:()=>{
+ selectionPicker?.close({force:true});closeSolidFaceMenu();pendingOperation='new';beginExtrusion('solid',{preserveView:true});
+}});
