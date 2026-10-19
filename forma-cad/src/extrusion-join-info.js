@@ -7,7 +7,7 @@ export function extrusionJoinContacts(feature,tool,bodies){
  const boxOf=shape=>{if(!bounds.has(shape)){const box=shape.boundingBox;try{bounds.set(shape,box.bounds.map(p=>[...p]));}finally{box.delete();}}return bounds.get(shape);};
  const touches=(a,b)=>{const x=boxOf(a),y=boxOf(b);return !x[0].some((lo,i)=>lo>y[1][i]+1e-6||x[1][i]<y[0][i]-1e-6)&&R.measureDistanceBetween(a,b)<=1e-6;};
  for(const [id,body]of targets)if(touches(body,tool))bodyIds.push(id);
- const sourceId=feature.region?.cadFace?.bodyId||feature.region?.bodyId||feature.region?.gridSourceBodyId,sourceContactIds=[];
+ const source=feature.region?.cadFace?.bodyId||feature.region?.bodyId||feature.region?.gridSourceBodyId,sourceId=bodies.has(source)?source:source&&bodies.has(feature.target)?feature.target:null,sourceContactIds=[];
  // Persist this opt-in on new commands. Older saved joins must replay with
  // their original scope rather than silently absorbing adjacent bodies.
  if(feature.joinSourceContacts===true&&!feature.barrier&&bodyIds.includes(sourceId)){

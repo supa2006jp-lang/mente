@@ -30,8 +30,8 @@ export class KernelClient {
   this.finishFilletInspection(this.active,this.worker,'user');return true;
  }
  cancelPreviews(){for(const [id,p] of [...this.pending])if(p.payload.spec?.type==='preview')this.cancel(id);}
- cancelExtrusionPreviews(){for(const [id,p] of [...this.pending])if(p.payload.spec?.type==='extrusionToolPreview'||p.payload.spec?.type==='barrierPreparedPreview'||p.payload.spec?.type==='preview'&&p.payload.spec.operation?.type==='extrusion')this.cancel(id);}
- cancelQueuedExtrusions(){for(const [id,p] of [...this.pending])if(id!==this.active&&(p.payload.spec?.type==='extrusionToolPreview'||p.payload.spec?.type==='barrierPreparedPreview'||p.payload.spec?.type==='preview'&&p.payload.spec.operation?.type==='extrusion'))this.cancel(id);}
+ cancelExtrusionPreviews(){for(const [id,p] of [...this.pending])if(p.payload.spec?.type==='extrusionToolPreview'||p.payload.spec?.type==='extrusionJoinInspect'||p.payload.spec?.type==='barrierPreparedPreview'||p.payload.spec?.type==='preview'&&p.payload.spec.operation?.type==='extrusion')this.cancel(id);}
+ cancelQueuedExtrusions(){for(const [id,p] of [...this.pending])if(id!==this.active&&(p.payload.spec?.type==='extrusionToolPreview'||p.payload.spec?.type==='extrusionJoinInspect'||p.payload.spec?.type==='barrierPreparedPreview'||p.payload.spec?.type==='preview'&&p.payload.spec.operation?.type==='extrusion'))this.cancel(id);}
  dispatch(){
   if(this.active!==null)return;const entry=this.pending.entries().next().value;if(!entry)return;const [id,p]=entry;
   if(freshSvgEngine(p.payload.features||[],p.payload.spec)&&this.worker){this.worker.terminate();this.worker=null;}

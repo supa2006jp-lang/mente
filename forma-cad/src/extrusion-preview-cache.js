@@ -17,23 +17,23 @@ export class ExtrusionPreviewCache{
  clear(){this.entries=new Map();this.history=null;this.size=0;}
  scope(history){if(this.history!==history){this.clear();this.history=history;}}
  key(batch,editingId){return JSON.stringify([editingId,signature(batch)]);}
- store(history,batch,prepared,editingId=null,display=null){
+ store(history,batch,prepared,editingId=null,display=null,contacts=false){
   this.scope(history);
-  if(!batch.length||batch.some(feature=>!feature.barrier&&feature.operation!=='join')||prepared.length!==batch.length)return;
+  if(!batch.length||!contacts&&batch.some(feature=>!feature.barrier&&feature.operation!=='join')||prepared.length!==batch.length)return;
   const records=prepared.map(({cadResult,...feature})=>{
-   if(!cadResult?.outputs?.length||!Array.isArray(cadResult.remove)||cadResult.outputs.some(output=>!output.brep))return null;
+   if(!cadResult?.outputs?.length||!Array.isArray(cadResult.remove)||!contacts&&cadResult.outputs.some(output=>!output.brep))return null;
    const {removed,previewWarnings,...result}=cadResult;
    return {...feature,cadResult:result};
   });
   if(records.some(record=>!record))return;
-  const key=this.key(batch,editingId),size=key.length*2+bytes(records)+bytes(display);
+  const key=(contacts?'contacts:':'')+this.key(batch,editingId),size=key.length*2+bytes(records)+bytes(display);
   if(size>this.limit||this.maxEntries<1)return;
   if(this.entries.has(key)){this.size-=this.entries.get(key).size;this.entries.delete(key);}
   this.entries.set(key,{ids:batch.map(feature=>feature.id),records:structuredClone(records),display:structuredClone(display),size});this.size+=size;
   while(this.entries.size>this.maxEntries||this.size>this.limit){const oldest=this.entries.keys().next().value;this.size-=this.entries.get(oldest).size;this.entries.delete(oldest);}
  }
- read(history,batch,editingId,withDisplay,showGap){
-  this.scope(history);const key=this.key(batch,editingId),entry=this.entries.get(key);
+ read(history,batch,editingId,withDisplay,showGap,contacts=false){
+  this.scope(history);const key=(contacts?'contacts:':'')+this.key(batch,editingId),entry=this.entries.get(key);
   if(!entry||withDisplay&&(!entry.display||showGap&&!entry.display.showGap))return null;
   this.entries.delete(key);this.entries.set(key,entry);
   const ids=new Map(entry.ids.map((id,index)=>[id,batch[index].id]));
@@ -44,7 +44,7 @@ export class ExtrusionPreviewCache{
    if(cadResult.analysis)cadResult.analysis=remap(cadResult.analysis,ids);
    return {...next,cadResult};
   });
-  if(!withDisplay)return {features};
+  if(!withDisplay)return {...(contacts?{contactOnly:true}:{}),features};
   const previews=structuredClone(entry.display.previews).map(preview=>{
    const next={...preview,outputs:preview.outputs.map(output=>({...output,id:ids.get(output.id)??output.id}))};
    if(next.removed)next.removed=next.removed.map(output=>({...output,id:ids.get(output.id)??output.id}));
@@ -54,5 +54,7 @@ export class ExtrusionPreviewCache{
   return {features,previews};
  }
  get(history,batch,editingId=null){return this.read(history,batch,editingId,false,false);}
+ storeContacts(history,batch,result,editingId=null){if(result.contactOnly)this.store(history,batch,result.features,editingId,null,true);}
+ getContacts(history,batch,editingId=null){return this.read(history,batch,editingId,false,false,true);}
  getPreview(history,batch,editingId=null,showGap=true){return this.read(history,batch,editingId,true,showGap);}
 }

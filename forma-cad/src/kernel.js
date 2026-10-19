@@ -1,4 +1,5 @@
 import {extrusionJoinInfo,extrusionJoinContacts} from './extrusion-join-info.js';
+import {canInspectExtrusionJoins,assertExtrusionJoinContacts} from './extrusion-join-selection.js';
 import {circularPatternSpacing} from './circular-pattern-spacing.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
 import {makeThreadMate} from './thread-mate.js';
@@ -289,6 +290,29 @@ export function runInternalThreadShape(features,spec,onProgress){
  }finally{captured?.delete();}
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(spec.type==='extrusionJoinInspect'){
+  if(!canInspectExtrusionJoins(spec.features||[]))throw Error('結合する押し出しの設定を確認してください');
+  const bodies=kernelBodies(features),snapshot=new Map(),added=[];
+  try{
+   if(spec.features.some(f=>f.faceBatch))for(const [id,body]of bodies)snapshot.set(id,body.clone());
+   for(const [index,original]of spec.features.entries()){
+    onProgress?.({stage:'結合するボディの接触を調べています',current:index+1,total:spec.features.length});
+    const f=batchExtrusionFeature(original,added);let tool=extrusionTool(f,f.faceBatch?snapshot:bodies,undefined,features,onProgress);
+    try{
+     if(f.operation==='new'){bodies.set(f.id,tool);tool=null;added.push({...f,cadResult:{outputs:[{id:f.id}],remove:[]}});continue;}
+     const {bodyIds,sourceContactIds}=extrusionJoinContacts(f,tool,bodies);assertExtrusionJoinContacts(f,bodyIds);
+     if(!bodyIds.length)throw Error('押し出し形状が結合対象のボディと接していません。方向・距離を確認してください');
+     const info=extrusionJoinInfo(f,tool,bodies,bodyIds,sourceContactIds),anchor=bodyIds.includes(f.target)?f.target:bodyIds[0];
+     // A compound represents the union for contact queries, without fusing,
+     // validating, serializing or meshing a candidate that may be declined.
+     const combined=R.makeCompound([...bodyIds.map(id=>bodies.get(id)),tool]).asShape3D();
+     for(const id of bodyIds){bodies.get(id).delete();bodies.delete(id);}bodies.set(anchor,combined);
+     added.push({...f,cadResult:{outputs:[{id:anchor}],remove:bodyIds.filter(id=>id!==anchor),analysis:{extrusionJoin:info}}});
+    }finally{tool?.delete();}
+   }
+   return {contactOnly:true,features:added};
+  }finally{for(const body of [...bodies.values(),...snapshot.values()])body.delete();}
+ }
  if(spec.type==='barrierPreparedPreview'){
   if(!spec.features?.length||spec.features.some(f=>!f.barrier))throw Error('バリア押し出しの条件を確認してください');
   const added=[],previews=[];
@@ -365,6 +389,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    if(p.feature.operation==='cut'&&multipleExtrusionTargets(p.feature)){for(const [id,body] of extrusionTargetEntries(p.feature,bodies)){let cut;try{cut=body.cut(tool);const originalVolume=R.measureVolume(body),remainingVolume=R.measureVolume(cut);if(originalVolume-remainingVolume<=Math.max(1e-7,originalVolume*1e-9))continue;if(Math.abs(remainingVolume)<1e-9){remove.push(id);continue;}const check=new (R.getOC().BRepCheck_Analyzer)(cut.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(id,cut);}finally{cut?.delete();}}if(!outputs.length&&!remove.length)throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');return finishExtrusion();}
    if(p.feature.operation==='join'&&multipleExtrusionTargets(p.feature)){
     const {bodyIds:contact,sourceContactIds}=extrusionJoinContacts(p.feature,tool,bodies);
+    assertExtrusionJoinContacts(p.feature,contact);
     if(!contact.length)throw Error('押し出し形状が結合対象のボディと接していません。方向・距離を確認してください');
     analysis={extrusionJoin:extrusionJoinInfo(p.feature,tool,bodies,contact,sourceContactIds)};
     const anchor=contact.includes(p.target)?p.target:contact[0];let joined=fuseSolid(bodies.get(anchor),tool,fuseOptions);
