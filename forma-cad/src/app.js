@@ -1,3 +1,6 @@
+import {extrusionJoinPlan,restrictExtrusionJoins} from './extrusion-join-plan.js';
+import {confirmExtrusionJoin,cancelExtrusionJoinConfirmation} from './extrusion-join-confirm.js';
+import {currentBodyMeshRecords} from './mesh-quality.js';
 import {createHistoryOrganizer} from './history-organizer-view.js';
 import {assignHistoryGroup,inheritSketchHistoryGroups} from './history-organizer.js';
 import {circularPatternEditView} from './circular-pattern-edit.js';
@@ -530,7 +533,7 @@ async function applyHistoryEdit({isCurrent=()=>true}={}){
  assertExtrusionReady();const original=features,index=features.findIndex(f=>f.id===selected);if(index<0)return applyFeature();
  const f=current();validateFeature(f);const next=clone(features);next[index]=f;
  $('apply').disabled=true;$('error').textContent='後続の工程を再計算しています…';
- try{const ready=extrusionResultCache.get(original,[f],selected);if(ready)next[index]=ready.features[0];host.dataset.extrusionPreparedReused=String(!!ready);const result=ready?(index+1<next.length?await kernelClient.run(next,{type:'replay',before:original,start:index+1,refreshStart:true}):{features:next}):next.slice(index).some(f=>f.offsetLink||(f.kind==='cadop'&&f.spec)||(f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.barrier||f.untilSolid||f.overlapOnly||f.taperAngle||f.cadResult)))?await kernelClient.run(next,{type:'replay',before:original,start:index}):{features:replayHistory(original,next,index)};if(features!==original||!isCurrent())throw Error('計算中にモデルが変更されました。もう一度適用してください');setProject(result.features,{extruded:f.kind==='extrusion'?[f]:[]});selected=f.id;finishSketch(false);draftTouched=false;dropPreview();renderTree();syncFields();$('error').textContent='';if(f.kind==='extrusion'){finishExtrusionCommand();notifyExtrusion(f,{edited:true});}else notify('スケッチ・立体・後続工程を更新しました');}finally{$('apply').disabled=stage==='model';syncExtrusionConfirm();}
+ try{const ready=f.kind==='extrusion'&&f.operation==='join'?await prepareExtrusionCommit(original,[f],{editingId:selected,input:original.slice(0,index),isCurrent}):extrusionResultCache.get(original,[f],selected);if(f.kind==='extrusion'&&f.operation==='join'&&!ready)return;if(ready)next[index]=ready.features[0];if(!(f.kind==='extrusion'&&f.operation==='join'))host.dataset.extrusionPreparedReused=String(!!ready);const result=ready?(index+1<next.length?await kernelClient.run(next,{type:'replay',before:original,start:index+1,refreshStart:true}):{features:next}):next.slice(index).some(f=>f.offsetLink||(f.kind==='cadop'&&f.spec)||(f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.barrier||f.untilSolid||f.overlapOnly||f.taperAngle||f.cadResult)))?await kernelClient.run(next,{type:'replay',before:original,start:index}):{features:replayHistory(original,next,index)};if(features!==original||!isCurrent())throw Error('計算中にモデルが変更されました。もう一度適用してください');setProject(result.features,{extruded:f.kind==='extrusion'?[f]:[]});selected=f.id;finishSketch(false);draftTouched=false;dropPreview();renderTree();syncFields();$('error').textContent='';if(f.kind==='extrusion'){finishExtrusionCommand();notifyExtrusion(f,{edited:true});}else notify('スケッチ・立体・後続工程を更新しました');}finally{$('apply').disabled=stage==='model';syncExtrusionConfirm();}
 }
 function resolveAutoCut(){
  if(stage!=='extrusion'||selected||pendingExtrude||pendingOperation==='cut'||extrusionManualOperation||$('barrier').checked||$('until-solid').checked||$('overlap-only').checked)return;
@@ -614,7 +617,7 @@ async function snapExtrusionToFace(hit){
  try{
   const group=cadFaceGroup(mesh.geometry,hit.faceIndex);
   if(group?.cylinder||group&&mesh.geometry.userData.planarFaces&&!mesh.geometry.userData.planarFaces.includes(group.faceId))throw Error('到達先は平面を選択してください。曲面には「ソリッドの表面まで」を使用できます');
-  const face=planarFace(mesh.geometry,hit.faceIndex),plane={normal:face.frame.n,offset:face.offset},f=current(),regions=selectedRegions.length?selectedRegions:[f.region].filter(Boolean);
+  const face=planarFace(mesh.geometry,hit.faceIndex),plane={normal:face.frame.n,offset:face.offset,bodyId:mesh.userData.bodyId},f=current(),regions=selectedRegions.length?selectedRegions:[f.region].filter(Boolean);
   const depth=depthToFacePlane(f,plane);for(const region of regions)depthToFacePlane({...f,region},plane);
   // Picking an end face changes the extent, never the chosen join/cut/new operation.
   extrusionEndPlane=plane;extrusionManualOperation=true;contactAutoDepth=false;contactDistanceLimit=null;for(const id of ['until-solid','contact-only','grid-extent','through-all'])$(id).checked=false;
@@ -683,6 +686,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(cancelExtrusionJoinConfirmation())return;
  if(moveTool?.cancelFreeMove())return;
  if(splineEditor?.closeMenu())return;
  if(splineEditor?.cancelDrag())return;
@@ -2896,13 +2900,35 @@ $('step-file').onchange=async()=>{
  finally{button.disabled=false;button.textContent='STEP読込';$('step-file').value='';}
 };
 
+async function prepareExtrusionCommit(original,batch,{editingId=null,input=original,isCurrent=()=>true}={}){
+ const revision=toolCancelRevision,key=extrusionResultCache.key(batch,editingId);
+ const valid=()=>features===original&&toolCancelRevision===revision&&stage==='extrusion'&&!pendingExtrude&&selected===editingId&&isCurrent()&&extrusionResultCache.key(!selected&&selectedRegions.length>1?regionExtrusions(current(),selectedRegions,$('viewport-combine').value==='join'):[current()],editingId)===key;
+ const cached=extrusionResultCache.get(original,batch,editingId);
+ let result=cached||await kernelClient.run(input,{type:'extrusionBatch',features:batch});
+ host.dataset.extrusionPreparedReused=String(!!cached);
+ if(!valid())throw Error('設定が変更されました。プレビューを確認してもう一度実行してください');
+ const plan=extrusionJoinPlan(batch,result.features,[...currentBodyMeshRecords(input).keys()]);
+ if(!plan)return result;
+ const names=new Map(batch.map(feature=>[feature.id,feature.name]));
+ const answer=await confirmExtrusionJoin(plan,{bodyName:id=>names.get(id)||bodyDisplayName(id),isCurrent:valid});
+ if(!valid())return null;
+ if(!answer){host.dataset.extrusionJoinChoice='cancel';$('status').textContent='結合をキャンセルしました。プレビューを確認して再実行できます';$('viewport-depth-error').textContent='';return null;}
+ host.dataset.extrusionJoinChoice=answer.all?'all':'endpoints';
+ if(answer.all)return result;
+ const limited=restrictExtrusionJoins(batch,plan,answer.destinations);
+ const ready=extrusionResultCache.get(original,limited,editingId);
+ result=ready||await kernelClient.run(input,{type:'extrusionBatch',features:limited});
+ if(!valid())throw Error('設定が変更されました。プレビューを確認してもう一度実行してください');
+ return result;
+}
+
 let extrusionBusy=false;
 async function applyCADExtrusion(){
  if(extrusionBusy)return;const original=features,f=current();
  const batch=selectedRegions.length>1?regionExtrusions(f,selectedRegions,$('viewport-combine').value==='join'):[f];for(const item of batch)validateFeature(item);if(features.length+batch.length>150)throw Error('工程数は150までです');
  extrusionBusy=true;$('apply').disabled=true;const submit=$('extrude-distance').querySelector('[type=submit]');if(submit)submit.disabled=true;
  $('status').textContent='CAD形状で加工を計算中…';$('viewport-depth-error').textContent='計算中…';
- try{const ready=extrusionResultCache.get(original,batch),result=ready||await kernelClient.run(features,{type:'extrusionBatch',features:batch});host.dataset.extrusionPreparedReused=String(!!ready);if(features!==original)throw Error('計算中にモデルが変更されました。もう一度実行してください');setProject([...features,...result.features],{extruded:result.features});finishSketch(false);selected=f.id;draftTouched=false;selectedRegions=[];dropPreview();syncFields();renderTree();$('viewport-depth-error').textContent='';finishExtrusionCommand();$('status').textContent='押し出し加工を確定しました';notifyExtrusion(f,{count:batch.length});}
+ try{const result=await prepareExtrusionCommit(original,batch);if(!result)return;if(features!==original)throw Error('計算中にモデルが変更されました。もう一度実行してください');setProject([...features,...result.features],{extruded:result.features});finishSketch(false);selected=f.id;draftTouched=false;selectedRegions=[];dropPreview();syncFields();renderTree();$('viewport-depth-error').textContent='';finishExtrusionCommand();$('status').textContent='押し出し加工を確定しました';notifyExtrusion(f,{count:batch.length});}
  catch(error){$('status').textContent='押し出し加工に失敗しました';$('viewport-depth-error').textContent=appErrorMessage(error)||'形状を確認してください';throw error;}
  finally{extrusionBusy=false;$('apply').disabled=stage==='model';if(submit)submit.disabled=false;syncExtrusionConfirm();}
 }
@@ -3062,7 +3088,7 @@ $('section-toggle').addEventListener('click',()=>bodyDisplay?.stopExploded(),{ca
 $('move-tool').addEventListener('click',()=>{bodyDisplay?.stopExploded();if(editingSectionSplitId)sectionControl.cancel();},{capture:true});
 
 // Cancel transient tools in one place so capture listeners cannot leave another selection active.
-function cancelAllTools(){faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
+function cancelAllTools(){cancelExtrusionJoinConfirmation();faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
  ++toolCancelRevision;middleConfirm.cancel();projectLoadPreview.cancel();projectLibrary.cancel();kernelClient.reset();
  boxSelection?.cancel();cancelPanelDrags();cancelDialogDrags();moveTool?.cancel(true);imageReferences?.cancel();sectionControl?.cancel();drawingController?.cancel();
  if(extrusionDrag)endExtrusionDrag({pointerId:extrusionDrag.id});if(taperDrag)endTaperDrag({pointerId:taperDrag.id});

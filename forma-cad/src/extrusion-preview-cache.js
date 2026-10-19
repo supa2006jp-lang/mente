@@ -19,7 +19,7 @@ export class ExtrusionPreviewCache{
  key(batch,editingId){return JSON.stringify([editingId,signature(batch)]);}
  store(history,batch,prepared,editingId=null,display=null){
   this.scope(history);
-  if(!batch.length||batch.some(feature=>!feature.barrier)||prepared.length!==batch.length)return;
+  if(!batch.length||batch.some(feature=>!feature.barrier&&feature.operation!=='join')||prepared.length!==batch.length)return;
   const records=prepared.map(({cadResult,...feature})=>{
    if(!cadResult?.outputs?.length||!Array.isArray(cadResult.remove)||cadResult.outputs.some(output=>!output.brep))return null;
    const {removed,previewWarnings,...result}=cadResult;
@@ -41,6 +41,7 @@ export class ExtrusionPreviewCache{
    const next=remap(feature,ids);next.name=batch[index].name;
    for(const output of cadResult.outputs)output.id=ids.get(output.id)??output.id;
    cadResult.remove=cadResult.remove.map(id=>ids.get(id)??id);
+   if(cadResult.analysis)cadResult.analysis=remap(cadResult.analysis,ids);
    return {...next,cadResult};
   });
   if(!withDisplay)return {features};

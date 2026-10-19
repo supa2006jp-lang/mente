@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {extrusionJoinPlan,restrictExtrusionJoins} from '../src/extrusion-join-plan.js';
+const feature=(id,source)=>({id,operation:'join',target:source,targetAllBodies:true,region:{bodyId:source}});
+const prepared=(feature,contacts,target=contacts[0],end=contacts.at(-1))=>({...feature,cadResult:{outputs:[{id:target}],remove:contacts.filter(id=>id!==target),analysis:{extrusionJoin:{bodyIds:contacts,sourceId:feature.region.bodyId,endBodyIds:[end],destinationCandidates:contacts.filter(id=>id!==feature.region.bodyId).reverse()}}}});
+const a=feature('f','a'),done=prepared(a,['a','b','c']);
+assert.equal(extrusionJoinPlan([a],[prepared(a,['a','b'])],['a','b','c']),null,'only contacting bodies count');
+let plan=extrusionJoinPlan([a],[done],['a','b','c','d']);assert.deepEqual(plan.bodyIds,['a','b','c']);assert.equal(plan.entries[0].destinationId,'c');
+let limited=restrictExtrusionJoins([a],plan)[0];assert.deepEqual(limited.targetBodies,['a','c']);assert.equal(limited.targetAllBodies,false);assert.equal(limited.target,'a');assert.equal(a.targetAllBodies,true);
+assert.deepEqual(restrictExtrusionJoins([a],plan,{0:'b'})[0].targetBodies,['a','b']);assert.throws(()=>restrictExtrusionJoins([a],plan,{0:'d'}),/押し出し先/);
+assert.equal(extrusionJoinPlan([{...a,operation:'cut'}],[done],['a','b','c']),null);
+assert.equal(extrusionJoinPlan([a],[prepared(a,['a','b'])],['a','b']),null);
+const chosen={...a,endPlane:{bodyId:'b'}};plan=extrusionJoinPlan([chosen],[done],['a','b','c']);assert.equal(plan.entries[0].destinationId,'b','an explicitly picked destination wins');
+const sketch={...a,region:{},target:'a'};plan=extrusionJoinPlan([sketch],[prepared(sketch,['a','b','c'])],['a','b','c']);assert.equal(plan.entries[0].sourceId,null);assert.deepEqual(restrictExtrusionJoins([sketch],plan)[0].targetBodies,['c']);
+const next=feature('g','c');plan=extrusionJoinPlan([a,next],[prepared(a,['a','b']),prepared(next,['a','c'],'a','a')],['a','b','c']);assert.deepEqual(new Set(plan.bodyIds),new Set(['a','b','c']),'a later join can combine three original bodies');
+const other=feature('g','c');assert.equal(extrusionJoinPlan([a,other],[prepared(a,['a','b']),prepared(other,['c','d'])],['a','b','c','d']),null,'two independent pairs do not require a three-body confirmation');
+const faceOnly=feature('another-face','a');plan=extrusionJoinPlan([a,faceOnly],[done,prepared(faceOnly,['a'])],['a','b','c']);assert.deepEqual(restrictExtrusionJoins([a,faceOnly],plan)[1].targetBodies,['a'],'a second face with only its source touching needs no destination');
+const first={id:'new-profile',operation:'new'},second={id:'next-profile',operation:'join',target:'new-profile'},outputs=[{...first,cadResult:{outputs:[{id:first.id}],remove:[]}},prepared({...second,region:{}},['new-profile','a','b','c'],'new-profile','c')];plan=extrusionJoinPlan([first,second],outputs,['a','b','c']);assert.deepEqual(restrictExtrusionJoins([first,second],plan)[1].targetBodies,['new-profile','c'],'new profiles in a combined batch remain the source of the limited join');
+console.log('PASS actual contact counts, source/tip/picked destinations, source-less sketches, restricted persisted targets, combined batches and independent pairs');

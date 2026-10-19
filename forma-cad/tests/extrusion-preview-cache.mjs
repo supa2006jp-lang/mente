@@ -36,6 +36,12 @@ cache.store(history,[feature],[{...feature,cadResult:{outputs:[{id:'preview'}],r
 const small=new ExtrusionPreviewCache(20);small.store(history,[feature],[{...feature,cadResult:result}]);assert.equal(small.get(history,[feature]),null,'large results fall back to the kernel');
 cache.store(history,[{...feature,barrier:false}],[{...feature,cadResult:result}]);assert.equal(cache.get(history,[feature]),null);
 
+// Ordinary join previews retain the exact result and contact metadata too.
+const join={...feature,barrier:false,operation:'join',targetAllBodies:true};
+cache.store(history,[join],[{...join,cadResult:{...result,analysis:{extrusionJoin:{bodyIds:['source','preview'],endBodyIds:['preview']}}}}]);
+const joined=cache.get(history,[{...join,id:'actual-join'}]);assert.ok(joined);assert.deepEqual(joined.features[0].cadResult.analysis.extrusionJoin.bodyIds,['source','actual-join']);
+assert.equal(cache.get(history,[{...join,targetBodies:['source'],targetAllBodies:false}]),null,'a restricted join cannot reuse an all-body result');
+
 // Starting after an adopted result must still refresh the very first successor.
 const sketch={...defaults,id:'sketch',kind:'sketch',width:10,height:10},region=findRegions([sketch])[0];
 const extrusion={...defaults,id:'later',kind:'extrusion',profile:'region',region,barrier:true};

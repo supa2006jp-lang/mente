@@ -1,3 +1,4 @@
+import {extrusionJoinInfo} from './extrusion-join-info.js';
 import {circularPatternSpacing} from './circular-pattern-spacing.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
 import {makeThreadMate} from './thread-mate.js';
@@ -358,13 +359,14 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
     delete info.previewParts;
 
    }
-   return {outputs,remove};
+   return {outputs,remove,...(analysis?{analysis}:{})};
   };
   try{if(p.feature.operation==='new'){emit(p.feature.id,tool);const source=copiedThreadSource(features,p.feature);if(source)outputs.at(-1).threadSource=source;return finishExtrusion();}
    if(p.feature.operation==='cut'&&multipleExtrusionTargets(p.feature)){for(const [id,body] of extrusionTargetEntries(p.feature,bodies)){let cut;try{cut=body.cut(tool);const originalVolume=R.measureVolume(body),remainingVolume=R.measureVolume(cut);if(originalVolume-remainingVolume<=Math.max(1e-7,originalVolume*1e-9))continue;if(Math.abs(remainingVolume)<1e-9){remove.push(id);continue;}const check=new (R.getOC().BRepCheck_Analyzer)(cut.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(id,cut);}finally{cut?.delete();}}if(!outputs.length&&!remove.length)throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');return finishExtrusion();}
    if(p.feature.operation==='join'&&multipleExtrusionTargets(p.feature)){
     const box=tool.boundingBox,contact=[];try{const bounds=box.bounds;for(const [id,body]of extrusionTargetEntries(p.feature,bodies)){const other=body.boundingBox;try{if(bounds[0].some((lo,i)=>lo>other.bounds[1][i]+1e-6||bounds[1][i]<other.bounds[0][i]-1e-6))continue;}finally{other.delete();}if(R.measureDistanceBetween(body,tool)<=1e-6)contact.push(id);}}finally{box.delete();}
     if(!contact.length)throw Error('押し出し形状が結合対象のボディと接していません。方向・距離を確認してください');
+    analysis={extrusionJoin:extrusionJoinInfo(p.feature,tool,bodies,contact)};
     const anchor=contact.includes(p.target)?p.target:contact[0];let joined=fuseSolid(bodies.get(anchor),tool,fuseOptions);
     try{for(const id of contact)if(id!==anchor){const next=fuseSolid(joined,bodies.get(id),fuseOptions);joined.delete();joined=next;}emit(anchor,joined);remove.push(...contact.filter(id=>id!==anchor));return finishExtrusion();}finally{joined.delete();}
    }
