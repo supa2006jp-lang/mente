@@ -5,7 +5,8 @@ import {findPanelSpace,projectedBounds} from './panel-placement.js';
 export function extrusionJoinBodies(plan,bodyName,destinations={}){
  const sources=new Set(plan.entries.map(e=>e.sourceId).filter(Boolean));
  const targets=new Set(plan.entries.map(e=>destinations[e.index]||e.destinationId).filter(Boolean));
- return plan.bodyIds.map((id,index)=>({id,name:bodyName(id),number:index+1,color:'#'+sectionBodyColor(index).toString(16).padStart(6,'0'),role:[sources.has(id)?'押し出し元':'',targets.has(id)?'押し出し先':''].filter(Boolean).join('・')||'途中・側面の接触'}));
+ const connected=new Set(plan.entries.flatMap(e=>e.sourceContactIds||[]));
+ return plan.bodyIds.map((id,index)=>({id,name:bodyName(id),number:index+1,color:'#'+sectionBodyColor(index).toString(16).padStart(6,'0'),role:[sources.has(id)?'押し出し元':'',targets.has(id)?'押し出し先':''].filter(Boolean).join('・')||(connected.has(id)?'押し出し元につながるボディ':'途中・側面の接触')}));
 }
 
 // Temporary display materials only. Keep the exact originals, including shared

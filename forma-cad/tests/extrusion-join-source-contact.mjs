@@ -1,0 +1,23 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import * as R from 'replicad';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import {runOperation,kernelBodies} from '../src/kernel.js';
+import {defaults} from '../src/geometry.js';
+import {extrusionJoinPlan,restrictExtrusionJoins} from '../src/extrusion-join-plan.js';
+import {extrusionJoinBodies} from '../src/extrusion-join-view.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const source={...defaults,id:'source',kind:'extrusion',name:'押し出し元',width:30,height:20,x:15,y:-10,depth:5},rear={...source,id:'rear',name:'奥のボディ',height:30,y:15},chain={...rear,id:'chain',name:'奥につながるボディ',y:45},away={...source,id:'away',name:'離れたボディ',x:70};
+const region={id:'front',bodyId:'source',cadFace:{bodyId:'source',point:[15,-20,2.5],normal:[0,-1,0]},plane:'CUSTOM',frame:{u:[1,0,0],v:[0,0,1],n:[0,-1,0]},offset:20,outer:[[0,0],[30,0],[30,5],[0,5]],holes:[]};
+const feature={...defaults,id:'forward',kind:'extrusion',name:'手前へ押し出し',profile:'region',region,frame:region.frame,plane:'CUSTOM',operation:'join',target:'source',targetAllBodies:true,joinSourceContacts:true,depth:10};
+const inputs=[rear,chain,source,away],run=f=>runOperation(inputs,{type:'extrusionBatch',features:[f]});
+const all=run(feature),info=all.features[0].cadResult.analysis.extrusionJoin;assert.deepEqual(info.bodyIds,['source','rear','chain']);assert.deepEqual(info.sourceContactIds,['rear','chain']);assert.deepEqual(info.endBodyIds,[]);assert.deepEqual(all.features[0].cadResult.remove,['rear','chain']);
+const plan=extrusionJoinPlan([feature],all.features,inputs.map(f=>f.id));assert.ok(plan);assert.equal(plan.entries[0].destinationId,null);assert.equal(extrusionJoinBodies(plan,id=>id).find(e=>e.id==='rear').role,'押し出し元につながるボディ');
+const limited=restrictExtrusionJoins([feature],plan)[0],no=run(limited);assert.equal(limited.joinSourceContacts,false);assert.deepEqual(limited.targetBodies,['source']);assert.deepEqual(no.features[0].cadResult.remove,[]);
+function check(history,expected){const bodies=kernelBodies(history);try{assert.deepEqual([...bodies.keys()].sort(),Object.keys(expected).sort());for(const [id,body]of bodies){assert.ok(Math.abs(R.measureVolume(body)-expected[id])<.001);const valid=new (R.getOC().BRepCheck_Analyzer)(body.wrapped,true,false);try{assert.equal(valid.IsValid(),true);}finally{valid.delete();}}}finally{for(const body of bodies.values())body.delete();}}
+check([...inputs,...all.features],{source:13500,away:3000});check([...inputs,...no.features],{rear:4500,chain:4500,source:4500,away:3000});
+const saved=JSON.parse(JSON.stringify([...inputs,...no.features]));check(runOperation(saved,{type:'replay',before:saved,start:inputs.length}).features,{rear:4500,chain:4500,source:4500,away:3000});
+const legacy={...feature};delete legacy.joinSourceContacts;assert.deepEqual(run(legacy).features[0].cadResult.remove,[],'old saved joins retain their original scope');
+const scoped={...feature,targetAllBodies:false,targetBodies:['source']};assert.deepEqual(run(scoped).features[0].cadResult.remove,[],'explicit targets cannot absorb unselected neighbours');
+const fixture={format:'forma-cad',version:1,features:[rear,source,away]};await fs.writeFile('.sites-runtime/extrusion-join-source-fixture.forma.json',JSON.stringify(fixture));
+console.log('PASS source-only sweep, connected rear and chain, actual contacts, unchanged distant/scoped/legacy bodies, Yes/No volumes, role labels, saved scope and replay');

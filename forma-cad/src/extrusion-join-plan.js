@@ -12,7 +12,7 @@ export function extrusionJoinPlan(batch,prepared,originalIds){
   const picked=f.endPlane?.bodyId,options=sourceId&&info?[...new Set([...tipIds,...(candidates.includes(picked)?[picked]:[])])]:candidates;
   const destinationId=options.includes(picked)?picked:options[0]||null;
   const incidental=!!sourceId&&bodyIds.some(id=>id!==sourceId&&!options.includes(id));
-  entries.push({index,bodyIds,sourceId,destinationId,options,incidental});
+  entries.push({index,bodyIds,sourceId,destinationId,options,incidental,...(info?.sourceContactIds?.length?{sourceContactIds:expand(info.sourceContactIds)}:{})});
   for(const id of result.remove||[])owners.delete(id);
   for(const output of result.outputs)owners.set(output.id,new Set(bodyIds));
  }
@@ -28,6 +28,6 @@ export function restrictExtrusionJoins(batch,plan,destinations={}){
   const destinationId=destinations[index]||entry.destinationId;
   if(destinationId?!entry.options.includes(destinationId):!entry.sourceId)throw Error('押し出し先のボディを選択してください');
   const targetBodies=[...new Set([entry.sourceId,destinationId].filter(Boolean))];
-  return {...feature,target:entry.sourceId||destinationId,targetAllBodies:false,cutAllBodies:false,targetBodies};
+  return {...feature,target:entry.sourceId||destinationId,targetAllBodies:false,cutAllBodies:false,targetBodies,joinSourceContacts:false};
  });
 }
