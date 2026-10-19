@@ -5,10 +5,10 @@ import {basisFor} from './frames.js';
 // distinguish a destination from an incidental side contact along the sweep.
 export function extrusionJoinInfo(feature,tool,bodies,bodyIds){
  const sourceId=feature.region?.cadFace?.bodyId||feature.region?.bodyId||feature.region?.gridSourceBodyId||null;
- const direction=basisFor(feature.region||feature).n.multiplyScalar(Math.sign(feature.depth)),faces=bodyIds.length>=3?tool.faces:[],tips=[];
+ const direction=basisFor(feature.region||feature).n.multiplyScalar(Math.sign(feature.depth)),faces=bodyIds.length>=2?tool.faces:[],tips=[];
  try{
   let furthest=-Infinity;
-  if(bodyIds.length>=3)for(const face of faces){
+  for(const face of faces){
    if(face.geomType!=='PLANE')continue;
    const normal=face.normalAt().toTuple();if(Math.abs(normal.reduce((sum,x,i)=>sum+x*direction.getComponent(i),0))<1-1e-6)continue;
    const box=face.boundingBox;let position;try{position=box.center.reduce((sum,x,i)=>sum+x*direction.getComponent(i),0);}finally{box.delete();}

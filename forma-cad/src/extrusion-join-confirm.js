@@ -4,7 +4,9 @@ export async function confirmExtrusionJoin(plan,{bodyName=id=>id,isCurrent=()=>t
  const dialog=document.createElement('dialog');dialog.id='extrusion-join-confirm';dialog.setAttribute('aria-labelledby','extrusion-join-confirm-title');
  dialog.style.cssText='padding:22px;width:min(460px,calc(100vw - 32px));max-height:85vh;overflow:auto;border:1px solid #6b99b5;border-radius:12px;background:#142232;color:#e2edf5';
  dialog.innerHTML='<h2 id="extrusion-join-confirm-title">複数ボディの結合を確認</h2><p data-summary></p><ul data-bodies></ul><p>接触しているボディをすべて結合しますか？</p><p>「いいえ」は押し出し元と押し出し先だけを結合します。他のボディは残します。</p><div data-endpoints></div><div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:18px"><button type="button" data-cancel>キャンセル</button><button type="button" data-no>いいえ：元と先だけ</button><button type="button" data-yes>はい：すべて結合</button></div>';
- dialog.querySelector('[data-summary]').textContent=plan.bodyIds.length+'個のボディが結合され、3個以上が1つになる箇所があります。';
+ dialog.querySelector('[data-summary]').textContent='既存の'+plan.bodyIds.length+'個のボディと、今回押し出す部分を結合します。押し出す部分も含めて3個以上になる箇所があります。'+(plan.entries.some(entry=>entry.incidental)?'途中や側面で接触するボディも含まれます。':'');
+ if(plan.entries.some(entry=>entry.sourceId&&!entry.destinationId))dialog.querySelector('[data-endpoints]').before(Object.assign(document.createElement('p'),{textContent:'先端に接触する押し出し先がない場合、「いいえ」は押し出し元だけを伸ばします。'}));
+ if(plan.entries.every(entry=>entry.sourceId&&!entry.destinationId))dialog.querySelector('[data-no]').textContent='いいえ：元だけ';
  for(const id of plan.bodyIds){const li=document.createElement('li');li.textContent=bodyName(id);dialog.querySelector('[data-bodies]').append(li);}
  const selectors=new Map();for(const entry of plan.entries){
   if(!entry.options.length)continue;
