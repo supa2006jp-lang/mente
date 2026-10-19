@@ -1751,8 +1751,21 @@ $('viewport-taper-reset').onclick=()=>{$('viewport-taper-angle').value='0';$('vi
 $('viewport-depth').addEventListener('input',()=>setExtrusionDistance($('viewport-depth').value));
 $('extrude-distance').onsubmit=async e=>{e.preventDefault();try{if(selected)await applyHistoryEdit();else await applyFeature();$('viewport-depth-error').textContent='';}catch(err){$('viewport-depth-error').textContent=appErrorMessage(err);}};
 $('viewport-extrude-cancel').onclick=()=>$('cancel').click();
-$('extrude-handle').addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();e.stopPropagation();contactAutoDepth=false;document.activeElement?.blur();const a=extrusionAnchor(),end=a.base.clone().addScaledVector(a.normal,a.depth),p=screenPoint(end),q=screenPoint(end.clone().add(a.normal));const {dx,dy}=extrusionDragAxis(p,q,host.clientHeight/viewHeight());extrusionDrag={id:e.pointerId,x:e.clientX,y:e.clientY,depth:a.depth,dx,dy,dragged:false,enabled:controls.enabled};delete $('extrude-handle').dataset.snapped;controls.enabled=false;$('extrude-handle').setPointerCapture(e.pointerId);});
-$('extrude-handle').addEventListener('pointermove',e=>{const d=extrusionDrag;if(!d||e.pointerId!==d.id)return;if(!d.dragged){if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<=4)return;d.dragged=true;}const delta=((e.clientX-d.x)*d.dx+(e.clientY-d.y)*d.dy)/(d.dx*d.dx+d.dy*d.dy);const result=extrusionDragDistance(d.depth+delta,{snapEnabled:$('snap-enabled').checked,step:gridStep,pixelsPerMm:Math.hypot(d.dx,d.dy)});if(depthValue()!==result.value)setExtrusionDistance(result.value);$('extrude-handle').dataset.snapped=String(result.snapped&&Math.abs(depthValue()-result.value)<1e-8);});
+function startExtrusionDrag(e,{owner=$('extrude-handle'),depth,start,dragged=false}={}){
+ if(stage!=='extrusion'||pendingExtrude||extrusionBusy||$('grid-extent').checked||($('operation').value==='cut'&&$('through-all').checked))return false;
+ e.preventDefault();e.stopPropagation();contactAutoDepth=false;document.activeElement?.blur();
+ const a=extrusionAnchor(),end=a.base.clone().addScaledVector(a.normal,a.depth),p=screenPoint(end),q=screenPoint(end.clone().add(a.normal)),{dx,dy}=extrusionDragAxis(p,q,host.clientHeight/viewHeight());
+ extrusionDrag={id:e.pointerId,x:start?.x??e.clientX,y:start?.y??e.clientY,depth:depth??a.depth,dx,dy,dragged,enabled:controls.enabled,owner};
+ delete $('extrude-handle').dataset.snapped;controls.enabled=false;owner.setPointerCapture(e.pointerId);return true;
+}
+function moveExtrusionDrag(e){
+ const d=extrusionDrag;if(!d||e.pointerId!==d.id)return;
+ if(!d.dragged){if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<=4)return;d.dragged=true;}
+ const delta=((e.clientX-d.x)*d.dx+(e.clientY-d.y)*d.dy)/(d.dx*d.dx+d.dy*d.dy),result=extrusionDragDistance(d.depth+delta,{snapEnabled:$('snap-enabled').checked,step:gridStep,pixelsPerMm:Math.hypot(d.dx,d.dy)});
+ if(depthValue()!==result.value)setExtrusionDistance(result.value);$('extrude-handle').dataset.snapped=String(result.snapped&&Math.abs(depthValue()-result.value)<1e-8);
+}
+$('extrude-handle').addEventListener('pointerdown',e=>{if(e.button===0)startExtrusionDrag(e);});
+$('extrude-handle').addEventListener('pointermove',moveExtrusionDrag);
 function confirmExtrusionArrow(){
  if(stage!=='extrusion'||pendingExtrude||extrusionBusy||$('apply').disabled)return;
  confirmVisibleForm();
@@ -1761,7 +1774,7 @@ function endExtrusionDrag(e){
  const drag=extrusionDrag;if(!drag||drag.id!==e.pointerId)return;
  const clicked=e.type==='pointerup'&&e.button===0&&!drag.dragged&&Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<=4;
  controls.enabled=drag.enabled;extrusionDrag=null;delete $('extrude-handle').dataset.snapped;
- if($('extrude-handle').hasPointerCapture(e.pointerId))$('extrude-handle').releasePointerCapture(e.pointerId);
+ const owner=drag.owner||$('extrude-handle');if(owner.hasPointerCapture(e.pointerId))owner.releasePointerCapture(e.pointerId);
  if(clicked)confirmExtrusionArrow();else if(drag.dragged&&stage==='extrusion'&&$('barrier').checked&&!barrierPreviewUI.manual)updatePreview();
 }
 $('extrude-handle').addEventListener('pointerup',endExtrusionDrag);$('extrude-handle').addEventListener('pointercancel',endExtrusionDrag);$('extrude-handle').addEventListener('lostpointercapture',endExtrusionDrag);
@@ -3049,7 +3062,7 @@ $('section-toggle').addEventListener('click',()=>bodyDisplay?.stopExploded(),{ca
 $('move-tool').addEventListener('click',()=>{bodyDisplay?.stopExploded();if(editingSectionSplitId)sectionControl.cancel();},{capture:true});
 
 // Cancel transient tools in one place so capture listeners cannot leave another selection active.
-function cancelAllTools(){historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
+function cancelAllTools(){faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
  ++toolCancelRevision;middleConfirm.cancel();projectLoadPreview.cancel();projectLibrary.cancel();kernelClient.reset();
  boxSelection?.cancel();cancelPanelDrags();cancelDialogDrags();moveTool?.cancel(true);imageReferences?.cancel();sectionControl?.cancel();drawingController?.cancel();
  if(extrusionDrag)endExtrusionDrag({pointerId:extrusionDrag.id});if(taperDrag)endTaperDrag({pointerId:taperDrag.id});
@@ -3389,6 +3402,12 @@ function selectedExtrudeShortcut(){
  const selection=extrudeShortcutCache.selection;
  return selection&&selection.bodyIds.every(id=>meshes.get(id)?.visible)?selection:null;
 }
-faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelection:selectedExtrudeShortcut,onExtrude:()=>{
+function openFaceExtrusionShortcut(){
+ if(!selectedExtrudeShortcut())return false;
  selectionPicker?.close({force:true});closeSolidFaceMenu();pendingOperation='new';beginExtrusion('solid',{preserveView:true});
-}});
+ return stage==='extrusion'&&!pendingExtrude;
+}
+faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelection:selectedExtrudeShortcut,onExtrude:openFaceExtrusionShortcut,
+ onDragStart:(event,owner,start)=>openFaceExtrusionShortcut()&&startExtrusionDrag(event,{owner,start,depth:0,dragged:true}),
+ onDragMove:moveExtrusionDrag,onDragEnd:endExtrusionDrag
+});
