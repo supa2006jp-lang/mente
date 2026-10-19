@@ -1,0 +1,30 @@
+import {chromium} from 'playwright';
+import {execFileSync} from 'node:child_process';
+import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {binaryStlReport} from './stl-topology.mjs';
+execFileSync(process.execPath,['tests/thread-display-mesh.mjs'],{stdio:'pipe'});
+const project=JSON.parse(await fs.readFile('.sites-runtime/thread-display-fixture.forma.json','utf8'));
+const root=path.resolve('dist'),types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'},server=http.createServer(async(req,res)=>{try{const pathname=new URL(req.url,'http://localhost').pathname,file=path.resolve(root,'.'+(pathname==='/'?'/index.html':pathname));if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end();}const body=await fs.readFile(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(body);}catch{res.writeHead(404);res.end();}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+try{
+ const context=await browser.newContext({viewport:{width:1650,height:1050},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));let cancel=false;page.on('dialog',d=>cancel?d.dismiss():d.accept(d.defaultValue()));
+ await page.addInitScript(()=>{window.showSaveFilePicker=undefined;window.meshJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec)window.meshJobs.push(payload.spec.type);return post.call(this,payload,...args);};});
+ await page.goto('http://127.0.0.1:'+server.address().port+'/');await page.locator('#canvas-host canvas').waitFor();
+ const load=async data=>{await page.locator('#file').setInputFiles({name:'thread.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(data))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);};
+ const save=async()=>{const event=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await event).path(),'utf8'));};
+ const exportStl=async()=>{const event=page.waitForEvent('download');await page.locator('#export').click();const data=await fs.readFile(await(await event).path());return binaryStlReport(data);};
+ await load(project);const before=await save();assert.ok(await page.locator('#thread-display-tool').isVisible());
+ await page.locator('#body-complexity-tool').click();await page.locator('#body-complexity-rows tr').getByRole('button',{name:'選択して拡大'}).click();
+ await page.locator('#thread-display-tool').click();await page.waitForFunction(()=>document.getElementById('thread-display-tool').hidden);assert.equal(await page.locator('#canvas-host').getAttribute('data-selected-body-count'),'1');assert.ok(await page.locator('#body-complexity-panel').isVisible());
+ const after=await save(),a=after.features.at(-1).outputs[0],b=before.features.at(-1).outputs[0];assert.equal(a.brep,b.brep);assert.deepEqual(a.threadSource,b.threadSource);assert.ok(a.triangles.length<b.triangles.length*.8);assert.equal(a.displayMesh.purpose,'thread-display');
+ await page.locator('#body-complexity-close').click();await page.screenshot({path:'.sites-runtime/thread-display-preview.png'});
+ const first=await exportStl(),second=await exportStl();assert.ok(first.triangles>a.triangles.length/3);assert.deepEqual(second,first);assert.deepEqual((await save()).features,after.features,'export leaves document unchanged');
+ const jobs=await page.evaluate(()=>window.meshJobs.filter(t=>t==='stlMeshes').length);cancel=true;await page.locator('#export').click();await page.waitForFunction(()=>!document.getElementById('export').disabled);cancel=false;assert.equal(await page.evaluate(()=>window.meshJobs.filter(t=>t==='stlMeshes').length),jobs,'cancel before meshing');
+ await page.locator('#undo').click();await page.waitForFunction(()=>!document.getElementById('thread-display-tool').hidden);assert.equal((await save()).features.at(-1).outputs[0].triangles.length,b.triangles.length);
+ await page.locator('#redo').click();await page.waitForFunction(()=>document.getElementById('thread-display-tool').hidden);await load(after);assert.ok(await page.locator('#thread-display-tool').isHidden());
+ await page.locator('#bodies [data-body-id="bolt"] .eye').click();const count=await page.evaluate(()=>window.meshJobs.filter(t=>t==='stlMeshes').length);await page.locator('#export').click();await page.waitForFunction(()=>!document.getElementById('export').disabled);assert.equal(await page.evaluate(()=>window.meshJobs.filter(t=>t==='stlMeshes').length),count,'empty visible model does not export hidden body');
+ assert.deepEqual(errors,[]);const proof={oldTriangles:b.triangles.length/3,displayTriangles:a.triangles.length/3,stl:first,exactBrepPreserved:true,threadRecipePreserved:true,selectionPreserved:true,undoRedo:true,reload:true,exportIdempotent:true,cancelBeforeMeshing:true,hiddenBodyExcluded:true,errors};console.log(JSON.stringify(proof));await fs.writeFile('.sites-runtime/thread-display-export-browser-proof.json',JSON.stringify(proof,null,2));await context.close();
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
