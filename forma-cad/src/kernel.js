@@ -1,5 +1,5 @@
 import {extrusionJoinInfo,extrusionJoinContacts} from './extrusion-join-info.js';
-import {canInspectExtrusionJoins,assertExtrusionJoinContacts} from './extrusion-join-selection.js';
+import {canInspectExtrusionJoins,assertExtrusionJoinContacts,extrusionJoinConnectionPath} from './extrusion-join-selection.js';
 import {circularPatternSpacing} from './circular-pattern-spacing.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
 import {makeThreadMate} from './thread-mate.js';
@@ -292,7 +292,7 @@ export function runInternalThreadShape(features,spec,onProgress){
 export function runOperation(features,spec,onProgress,context={}){
  if(spec.type==='extrusionJoinInspect'){
   if(!canInspectExtrusionJoins(spec.features||[]))throw Error('結合する押し出しの設定を確認してください');
-  const bodies=kernelBodies(features),snapshot=new Map(),added=[];
+  const bodies=kernelBodies(features),snapshot=new Map(),added=[],owners=new Map([...bodies.keys()].map(id=>[id,[id]]));
   try{
    if(spec.features.some(f=>f.faceBatch))for(const [id,body]of bodies)snapshot.set(id,body.clone());
    for(const [index,original]of spec.features.entries()){
@@ -300,13 +300,23 @@ export function runOperation(features,spec,onProgress,context={}){
     const f=batchExtrusionFeature(original,added);let tool=extrusionTool(f,f.faceBatch?snapshot:bodies,undefined,features,onProgress);
     try{
      if(f.operation==='new'){bodies.set(f.id,tool);tool=null;added.push({...f,cadResult:{outputs:[{id:f.id}],remove:[]}});continue;}
-     const {bodyIds,sourceContactIds}=extrusionJoinContacts(f,tool,bodies);assertExtrusionJoinContacts(f,bodyIds);
+     const {bodyIds,sourceContactIds}=extrusionJoinContacts(f,tool,bodies);
+     try{assertExtrusionJoinContacts(f,bodyIds);}catch(error){
+      if(error.code==='EXTRUSION_JOIN_DISCONNECTED'&&Array.isArray(spec.connectionCandidates)){
+       const candidates=batchExtrusionFeature({...f,targetBodies:spec.connectionCandidates},added).targetBodies;
+       const graph=extrusionJoinContacts({...f,targetAllBodies:false,cutAllBodies:false,targetBodies:candidates},tool,bodies,{connections:true});
+       const required=extrusionJoinConnectionPath(graph,f.targetBodies);
+       if(required?.length)error.diagnostics={extrusionJoinConnections:[...new Set(required.flatMap(id=>owners.get(id)||[id]))]};
+      }
+      throw error;
+     }
      if(!bodyIds.length)throw Error('押し出し形状が結合対象のボディと接していません。方向・距離を確認してください');
      const info=extrusionJoinInfo(f,tool,bodies,bodyIds,sourceContactIds),anchor=bodyIds.includes(f.target)?f.target:bodyIds[0];
      // A compound represents the union for contact queries, without fusing,
      // validating, serializing or meshing a candidate that may be declined.
      const combined=R.makeCompound([...bodyIds.map(id=>bodies.get(id)),tool]).asShape3D();
-     for(const id of bodyIds){bodies.get(id).delete();bodies.delete(id);}bodies.set(anchor,combined);
+     const originals=[...new Set(bodyIds.flatMap(id=>owners.get(id)||[id]))];
+     for(const id of bodyIds){bodies.get(id).delete();bodies.delete(id);owners.delete(id);}bodies.set(anchor,combined);owners.set(anchor,originals);
      added.push({...f,cadResult:{outputs:[{id:anchor}],remove:bodyIds.filter(id=>id!==anchor),analysis:{extrusionJoin:info}}});
     }finally{tool?.delete();}
    }
