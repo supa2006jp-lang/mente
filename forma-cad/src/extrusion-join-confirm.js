@@ -10,7 +10,7 @@ export async function confirmExtrusionJoin(plan,{bodyName=id=>id,isCurrent=()=>t
  .viewport[data-extrusion-join-docked=true] #reference-plane-control{right:calc(var(--join-width) + 16px)}
  .viewport[data-extrusion-join-docked=true] .navigation{left:calc((100% - var(--join-width))/2);max-width:calc(100% - var(--join-width) - 20px)}
  .viewport[data-extrusion-join-docked=true] #snap-controls{max-width:calc(100% - var(--join-width) - 30px)}
- .viewport[data-extrusion-join-docked=true] :is(#extrude-distance,#extrude-handle,#extrude-guide,#extrude-operation-wheel,#extrude-tip-operation-wheel,#taper-control,#measurement){display:none!important}
+ .viewport[data-extrusion-join-docked=true] :is(#extrude-distance,#extrude-handle,#extrude-handle-confirm-label,#extrude-guide,#extrude-operation-wheel,#extrude-tip-operation-wheel,#taper-control,#measurement){display:none!important}
  .viewport[data-extrusion-join-docked=true] :is(#snap-controls,#reference-plane-control,.navigation,#toast,.view-help){display:none!important}
  #extrusion-join-confirm{position:absolute;inset:8px 8px 8px auto;margin:0;padding:16px;width:calc(var(--join-width,350px) - 16px);height:auto;max-height:none;box-sizing:border-box;overflow:auto;border:1px solid #6b99b5;border-radius:10px;background:#142232;color:#e2edf5;z-index:150;box-shadow:0 4px 14px #0003;font-size:13px;line-height:1.55}
  #extrusion-join-confirm h2{font-size:18px;margin:0 0 10px}#extrusion-join-confirm p{margin:10px 0}#extrusion-join-confirm ul{list-style:none;padding:0;display:grid;gap:6px}
