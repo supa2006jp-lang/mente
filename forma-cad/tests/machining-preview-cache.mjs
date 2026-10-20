@@ -10,3 +10,6 @@ console.log('PASS exact preview reuse, geometry and face invalidation, editing s
 const circular={type:'circular',id:'preview',target:'source',targets:['source','existing'],operation:'新規かつ切り取り',count:4,angle:360};
 cache.store(features,circular,{outputs:[{id:'existing',brep:'cut'},{id:'preview-3',brep:'holed'}],remove:[],analysis:{patternHybrid:{newBodies:[{id:'preview-3',position:3}],cutBodies:['existing']}}});
 const hybrid=cache.get(features,{...circular,id:'commit'});assert.deepEqual(hybrid.outputs.map(o=>o.id),['existing','commit-3']);assert.equal(hybrid.analysis.patternHybrid.newBodies[0].id,'commit-3');assert.equal(cache.get(features,{...circular,targets:['source']}),null);console.log('PASS hybrid preview commit IDs and body dependency invalidation');
+
+const pull={type:'pull',id:'preview',distance:.2,faces:[{bodyId:'c',point:[0,0,40],normal:[0,0,1]}]};
+cache.store(features,pull,{outputs:[{id:'c',brep:'pulled'}],remove:[],removed:[{id:'c'}]});assert.equal(cache.get(features,{...pull,id:'commit'}).outputs[0].id,'c');assert.equal(cache.get(features,{...pull,id:'commit'}).removed,undefined);for(const patch of [{distance:-.2},{faces:[{bodyId:'other',point:[0,0,40],normal:[0,0,1]}]},{allThreadFaces:true,target:'c'}])assert.equal(cache.get(features,{...pull,...patch}),null);console.log('PASS pull preview reuse and distance/face/thread-scope invalidation');

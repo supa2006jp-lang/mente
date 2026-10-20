@@ -35,7 +35,6 @@ function faceDirection(hit,features){
  if(Math.abs(n.y)>.999)return '側面（Y'+(n.y>0?'＋':'−')+'）';
  return '斜面';
 }
-const coordinates=point=>point.map((v,i)=>['X','Y','Z'][i]+' '+(Math.abs(v)<.005?0:v).toFixed(2)).join(' / ')+' mm';
 const dimension=value=>String(Number(value.toFixed(2)));
 export function edgeCandidateDetail(hit){
  const curve=hit.curve||hit.arc||hit.circle;
@@ -49,8 +48,8 @@ export function selectionCandidates(hits,edges,{mode='auto',name=id=>id,features
  const add=(kind,key,hit,bodyId,behind,direction='')=>{
   if(seen.has(key))return;seen.add(key);
   const title=kind==='body'?'ボディ全体':kind==='face'?direction:kind==='faceCenter'?'面の中心 · '+direction:(kind==='vertex'?'頂点':kind==='midpoint'?'中点':hit.curve?'曲線':'辺')+' '+(++counts[kind]);
-  const displayName=name(bodyId),center=kind==='face'?faceCenterCandidate(hit,features):null,point=['vertex','midpoint','faceCenter'].includes(kind)?hit.reference.point:center?.reference.point;
-  out.push({kind,key,hit,bodyId,bodyName:displayName,label:title+' — '+displayName+(behind?'（奥）':''),detail:kind==='edge'?edgeCandidateDetail(hit):point?coordinates(point):''});
+  const displayName=name(bodyId);
+  out.push({kind,key,hit,bodyId,bodyName:displayName,label:title+' — '+displayName+(behind?'（奥）':''),detail:kind==='edge'?edgeCandidateDetail(hit):''});
  };
  if(pointMode||['auto','edge'].includes(mode))for(const v of vertices)add('vertex',v.mesh.userData.bodyId+':vertex:'+v.point.toArray().map(rounded).join(','),v,v.mesh.userData.bodyId,v.depth>(vertices[0]?.depth??v.depth)+1e-5);
  if(pointMode||['auto','edge'].includes(mode))for(const m of midpoints)add('midpoint',midpointCandidateKey(m),m,m.mesh.userData.bodyId,false);
