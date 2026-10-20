@@ -8,14 +8,11 @@ import {readDrawingState} from '../src/drawing-state.js';
 const rect=(x,y,w,h)=>`M ${x} ${y} L ${x+w} ${y} L ${x+w} ${y+h} L ${x} ${y+h} Z`,circle=(x,y,r)=>`M ${x+r} ${y} A ${r} ${r} 0 0 1 ${x-r} ${y} A ${r} ${r} 0 0 1 ${x+r} ${y} Z`;
 const data={bounds:[[0,0,0],[120,70,30]],bodyCount:1,views:{front:{visible:['M 0 -30 L 20 -30 L 20 -18 L 40 -18 L 40 -30 L 120 -30 L 120 0 L 0 0 Z'],hidden:[]},top:{visible:[rect(0,-70,120,70),rect(85,-55,20,12),...Array.from({length:4},(_,i)=>circle(20+i*18,-30,2.5))],hidden:[]},right:{visible:[rect(0,-30,70,30)],hidden:[]},iso:{visible:[],hidden:[],viewBox:[0,0,70,45]}}};
 const sheet=drawingSheet(data,1,true,[],'',{frame:true}),auto=autoDrawingDimensions(data,1,[],sheet),dims=auto.dimensions;
-assert(dims.some(d=>d.view==='front'&&d.feature==='straight'&&d.kind==='horizontal'&&Math.abs(dimensionValue(d)-20)<1e-6));
-assert(dims.some(d=>d.view==='front'&&d.feature==='straight'&&d.kind==='vertical'&&Math.abs(dimensionValue(d)-12)<1e-6));
-assert(dims.some(d=>d.view==='top'&&d.feature==='straight'&&d.kind==='horizontal'&&dimensionValue(d)===20));
-assert(dims.some(d=>d.view==='top'&&d.feature==='straight'&&d.kind==='vertical'&&dimensionValue(d)===12));
-assert(dims.some(d=>d.view==='top'&&d.feature==='location'&&dimensionValue(d)===85));
+assert(!dims.some(d=>d.feature==='straight'||d.feature==='location'),'step and groove features must not be added automatically');
+const noHoles=structuredClone(data);noHoles.views.top.visible=noHoles.views.top.visible.slice(0,2);assert.equal(autoDrawingDimensions(noHoles,1,[],drawingSheet(noHoles,1)).dimensions.length,6,'notches and slots alone receive only the three-view overall dimensions');
 const count=dims.find(d=>d.count===4);assert(count);assert.equal(dimensionLabel(count),'4×Ø5');assert.deepEqual(count.centers,[[20,-30],[38,-30],[56,-30],[74,-30]]);
 const pitch=dims.find(d=>d.repeat);assert.equal(dimensionValue(pitch),54);assert.equal(dimensionLabel(pitch),'3×18 = 54');assert.equal(pitch.repeat.pitch,18);
-assert.equal(autoDrawingDimensions(data,1,dims,sheet).dimensions.length,0,'repeat click must not add stepped features or group members again');
+assert.equal(autoDrawingDimensions(data,1,dims,sheet).dimensions.length,0,'repeat click must not add group members again');
 assert.equal(autoDrawingDimensions(data,1,[],sheet).layoutWarnings,0,'the fixture should fit without collisions');
 const geometry=dims.map(d=>dimensionPlacement(d,sheet)),overlap=(a,b)=>a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y;
 for(let i=0;i<geometry.length;i++){for(let j=0;j<i;j++)assert(!overlap(geometry[i].box,geometry[j].box),'annotation labels overlap');for(const v of Object.values(sheet.layout))assert(!overlap(geometry[i].box,{x:v.x,y:v.y-7,width:v.width,height:v.height+7}),'label covers a view');}
@@ -28,4 +25,4 @@ const state={version:1,signature:'test',dimensions:dims,scale:1,hidden:true,comm
 for(const corrupt of [s=>s.dimensions.find(d=>d.count).count=5,s=>s.dimensions.find(d=>d.count).centers[1]=[20,-30],s=>s.dimensions.find(d=>d.repeat).repeat.pitch=17,s=>s.dimensions.find(d=>d.repeat).repeat.count='<img>']){const bad=structuredClone(state);corrupt(bad);assert.throws(()=>readDrawingState(bad));}
 assert.match(dimensionSVG(count,v,1,0),/4×Ø5/);assert.match(dimensionSVG(pitch,v,1,0),/3×18 = 54/);
 console.log(JSON.stringify({dimensions:dims.length,group:dimensionLabel(count),pitch:dimensionLabel(pitch),layoutWarnings:auto.layoutWarnings}));
-console.log('PASS stepped/notched/rectangular slot dimensions and datum locations, grouped circles, verified row/grid pitch, collision avoidance, manual preservation, deduplication, saved-state validation and SVG labels');
+console.log('PASS step and groove auto dimensions disabled, grouped circles, verified row/grid pitch, collision avoidance, manual preservation, deduplication, saved-state validation and SVG labels');

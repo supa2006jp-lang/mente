@@ -1,6 +1,6 @@
 import {drawingCurves} from './drawing-curves.js';
 import {dimensionValue} from './drawing-dimensions.js';
-import {straightFeatureDimensions,circlePatternDimensions,dimensionAxisGraph} from './drawing-feature-dimensions.js';
+import {circlePatternDimensions,dimensionAxisGraph} from './drawing-feature-dimensions.js';
 import {arrangeDrawingDimensions} from './drawing-dimension-layout.js';
 
 const round=n=>Number(n.toFixed(5)),close=(a,b)=>Math.abs(a-b)<1e-5;
@@ -23,7 +23,6 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet){
  const keys=new Set(),added=[],s=scale,limit=500-existing.length,covered=d=>d.kind==='diameter'&&d.centers?d.centers.map(center=>key({...d,center})):[key(d)];for(const d of existing)for(const k of covered(d))keys.add(k);
  const push=d=>{const ids=covered(d);if(added.length>=limit||ids.every(id=>keys.has(id))||dimensionValue(d)<1e-6)return false;ids.forEach(id=>keys.add(id));added.push({...d,automatic:true});return true;};
  for(const d of overallDrawingDimensions(data,s))push(d);
- for(const d of straightFeatureDimensions(data,sheet,[...existing,...added]))push(d);
  let remaining=8,skipped=0;
  for(const view of ['top','front','right']){const v=sheet.layout[view];if(!v||!data.views[view])continue;const all=completeDrawingCircles(data.views[view]).sort((a,b)=>b.radius-a.radius||a.center[0]-b.center[0]||a.center[1]-b.center[1]),groups=[];
   for(const c of all){if(c.radius*s<.75){skipped++;continue;}const group=groups.find(g=>close(g.radius,c.radius));if(group)group.centers.push(c.center);else groups.push({radius:c.radius,centers:[c.center]});}
