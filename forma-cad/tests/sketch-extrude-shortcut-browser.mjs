@@ -1,0 +1,39 @@
+import {chromium} from 'playwright';
+import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import {defaults,rebuild,volume} from '../src/geometry.js';
+
+const root=path.resolve('dist'),types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
+const server=http.createServer(async(req,res)=>{try{const pathname=new URL(req.url,'http://localhost').pathname,file=path.resolve(root,'.'+(pathname==='/'?'/index.html':pathname));if(!file.startsWith(root+path.sep))throw Error();const body=await fs.readFile(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(body);}catch{res.writeHead(404);res.end();}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+try{
+ const context=await browser.newContext({viewport:{width:1800,height:1100},acceptDownloads:true}),page=await context.newPage(),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
+ await page.addInitScript(()=>{window.shortcutJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(p,...args){if(p.spec)window.shortcutJobs.push(p.spec.type);return post.call(this,p,...args);};});
+ await page.goto('http://127.0.0.1:'+server.address().port+'/');
+ const host=page.locator('#canvas-host'),canvas=page.locator('#canvas-host canvas'),shortcut=page.locator('#face-extrude-shortcut'),panel=page.locator('#extrude-distance'),picker=page.locator('#selection-candidates');
+ const boxes=[{...defaults,id:'a',kind:'extrusion',name:'左の箱',x:-24,width:20,height:20,depth:10},{...defaults,id:'b',kind:'extrusion',name:'右の箱',x:24,width:20,height:20,depth:10}];
+ async function load(features,view='top'){
+  await page.keyboard.press('Escape');await page.locator('#file').setInputFiles({name:'shortcut.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});
+  await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.locator('[data-view='+view+']').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.waitForTimeout(250);
+ }
+ async function screen(point){const r=await canvas.boundingBox(),s=JSON.parse(await host.getAttribute('data-camera-state')),clip=JSON.parse(await host.getAttribute('data-camera-clip')),c=new THREE.OrthographicCamera(-100*r.width/r.height,100*r.width/r.height,100,-100,...clip);c.position.fromArray(s);c.quaternion.fromArray(s,3);c.zoom=s[7];c.updateProjectionMatrix();c.updateMatrixWorld(true);const p=new THREE.Vector3(...point).project(c);return [r.x+(p.x+1)*r.width/2,r.y+(1-p.y)*r.height/2];}
+ async function save(){const event=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await event).path(),'utf8'));}
+ async function ready(count=1){await page.waitForFunction(count=>document.getElementById('canvas-host').dataset.extrusionPreviewCount===String(count)&&!document.getElementById('viewport-depth-error').textContent&&document.getElementById('extrusion-target-status').dataset.state==='valid',count,{timeout:60000});}
+ async function confirm(){await panel.locator('button[type=submit]').click();await panel.waitFor({state:'hidden',timeout:60000});}
+ function checkSolid(features,id,expectedVolume,maxZ){const bodies=rebuild(features);try{const g=bodies.get(id).geometry;g.computeBoundingBox();assert.ok(Math.abs(volume(g)-expectedVolume)<.05);assert.ok(Math.abs(g.boundingBox.max.z-maxZ)<.001);}finally{for(const body of bodies.values())body.geometry.dispose();}}
+ async function selectFace(point,add=false){if(add)await page.keyboard.down('Control');await page.mouse.click(...await screen(point));if(add)await page.keyboard.up('Control');await page.waitForTimeout(150);}
+
+ await load([]);await page.locator('#new-rect').click();await selectFace([-20,-10,0]);assert.equal(await shortcut.isVisible(),false,'an unfinished rectangle is not extrudable');await selectFace([20,10,0]);await shortcut.waitFor();assert.equal(await page.locator('#sketch-banner').isVisible(),true,'rectangle tool remains active');assert.match(await shortcut.getAttribute('aria-label'),/閉じたスケッチ/);const before=await save();assert.equal(before.features.length,1);const jobs=await page.evaluate(()=>window.shortcutJobs.length);await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>window.shortcutJobs.length),jobs,'showing a closed sketch shortcut does not run CAD');await page.screenshot({path:'.sites-runtime/sketch-extrude-shortcut-preview.png'});
+ // Starting the next rectangle must not destroy the already completed one.
+ await selectFace([40,30,0]);await shortcut.waitFor();const view=JSON.parse(await host.getAttribute('data-camera-state'));await shortcut.click();await panel.waitFor();assert.equal(await page.locator('#sketch-banner').isVisible(),false);const afterView=JSON.parse(await host.getAttribute('data-camera-state'));assert.ok(afterView.slice(3).every((v,i)=>Math.abs(v-view[i+3])<1e-6));assert.equal(await page.locator('#body-count').textContent(),'0');await page.locator('#viewport-depth').fill('5');await ready();await confirm();let data=await save();assert.equal(data.features.filter(f=>f.kind==='sketch').length,1);assert.equal(data.features.find(f=>f.kind==='sketch').id,before.features[0].id);checkSolid(data.features,data.features.at(-1).id,4000,5);await page.keyboard.press('Control+z');assert.equal(await page.locator('#body-count').textContent(),'0');await page.keyboard.press('Control+y');assert.equal(await page.locator('#body-count').textContent(),'1');
+ // Open line chains do not offer extrusion; closing them offers it without Finish Sketch.
+ await load([]);await page.locator('#new-line').click();for(const point of [[-20,-10,0],[20,-10,0],[20,10,0],[-20,10,0]]){await selectFace(point);assert.equal(await shortcut.isVisible(),false);}await selectFace([-20,-10,0]);await shortcut.waitFor();data=await save();assert.equal(data.features.filter(f=>f.kind==='sketch').length,4);await shortcut.click();await panel.waitFor();await page.locator('#viewport-extrude-cancel').click();assert.equal((await save()).features.filter(f=>f.kind==='sketch').length,4);
+ // A closed region from another sketch must not masquerade as a newly closed frame.
+ await load([{...defaults,id:'old',kind:'sketch',name:'別のスケッチ',width:20,height:20,groupId:'old',groupNumber:1}]);await page.locator('#new-line').click();await selectFace([40,30,0]);await selectFace([60,30,0]);await page.waitForTimeout(100);assert.equal(await shortcut.isVisible(),false);
+ assert.deepEqual(errors,[]);const proof={rectangleDuringDrawing:true,unfinishedRectangleHidden:true,partialNextRectangleIgnored:true,preserveCompletedSketches:true,lineChainClosed:true,openChainHidden:true,otherSessionExcluded:true,noSelectionCadJobs:true,preserveView:true,actualExtrusion:true,cancelPreservesSketches:true,undoRedo:true,errors};console.log(JSON.stringify(proof));await fs.writeFile('.sites-runtime/sketch-extrude-shortcut-browser-proof.json',JSON.stringify(proof,null,2));await context.close();
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

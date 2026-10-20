@@ -52,7 +52,7 @@ export function createFaceExtrudeShortcut({host,canvas,camera,getSelection,onExt
   const spot=spots.find(({left,top})=>!obstacles.some(r=>rect.left+left<r.right+4&&rect.left+left+size>r.left-4&&rect.top+top<r.bottom+4&&rect.top+top+size>r.top-4));
   if(!spot||rect.width<size+10||rect.height<size+10){button.hidden=true;return;}
   button.style.left=rect.left-parent.left+spot.left+'px';button.style.top=rect.top-parent.top+spot.top+'px';
-  const label=selection.count>1?'選択した'+selection.count+'面をまとめて押し出す':'選択した面を押し出す';
+  const label=selection.label||(selection.count>1?'選択した'+selection.count+'面をまとめて押し出す':'選択した面を押し出す');
   button.title=label+' — クリックで開始／ドラッグで距離を調整';button.setAttribute('aria-label',label);button.dataset.count=String(selection.count);button.hidden=false;
  }};
 }

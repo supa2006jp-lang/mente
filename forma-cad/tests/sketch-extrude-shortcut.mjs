@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {sketchExtrudeRegion} from '../src/sketch-extrude-shortcut.js';
+const f=(id,groupId,groupNumber=1)=>({id,groupId,groupNumber,kind:'sketch'}),r=(id,sourceIds,area=100)=>({id,sourceIds,area,outer:[[0,0],[10,0],[0,10]]});
+const features=[f('old','old'),f('a','current',2),f('b','current',2)],regions=[r('old-region',['old']),r('first',['a']),r('latest',['b']),r('invalid',['b'],0)];
+assert.equal(sketchExtrudeRegion(features,regions,{groupId:'current'}).id,'latest');
+assert.equal(sketchExtrudeRegion(features,regions,{groupNumber:2}).id,'latest');
+assert.equal(sketchExtrudeRegion(features,regions,{groupId:'new'}),null);
+assert.equal(sketchExtrudeRegion(features,regions,null),null);
+assert.equal(sketchExtrudeRegion(features,[r('only-old',['old'])],{groupId:'current'}),null);
+assert.equal(sketchExtrudeRegion(features.map(x=>({...x,groupHidden:true})),regions,{groupId:'current'}),null);
+assert.equal(sketchExtrudeRegion(features,[r('larger',['b'],200),r('smaller',['b'],50)],{groupId:'current'}).id,'smaller');
+assert.equal(sketchExtrudeRegion(features,[{area:100,sourceIds:['b']}],{groupId:'current'}),null);
+console.log('PASS committed current-session scope, latest region, hidden/invalid profiles and nested region ranking');

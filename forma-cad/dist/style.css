@@ -366,4 +366,5 @@ header .filename #dirty{flex-shrink:0}
 
 #extrude-tip-operation-wheel{width:104px;height:104px;z-index:11;gap:2px;padding:2px}#extrude-tip-operation-wheel button{font-size:10px}#extrude-tip-operation-wheel .extrude-wheel-center{width:28px;height:28px;border-width:2px;font-size:9px}
 
-#extrude-handle-confirm-label{position:absolute;z-index:8;transform:translateX(-50%);width:52px;height:19px;padding:1px 4px;border:1px solid white;border-radius:4px;background:#087eac;color:white;font:bold 11px/15px sans-serif;white-space:nowrap;cursor:pointer;box-shadow:0 1px 4px #1235}#extrude-handle-confirm-label:hover{background:#056584}#extrude-handle-confirm-label:focus-visible{outline:2px solid #f0ad36;outline-offset:2px}#extrude-handle-confirm-label[hidden]{display:none!important}
+
+#extrude-handle{width:56px;height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}#extrude-handle .extrude-handle-arrow-slot{display:grid;place-items:center;flex:none;width:44px;height:42px}#extrude-handle-arrow{display:block;flex:none;width:30px;height:30px;font:28px/30px sans-serif;text-align:center;transform-origin:center}#extrude-handle-confirm-label{display:block;flex:none;font:bold 11px/15px sans-serif;white-space:nowrap}
