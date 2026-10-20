@@ -28,6 +28,6 @@ assert.equal(autoDrawingDimensions(flat,1,[],drawingSheet(flat,1)).dimensions.le
 const half=autoDrawingDimensions(data,.5,[],drawingSheet(data,.5,true,[],'',{frame:true}));
 assert.deepEqual(half.dimensions.map(dimensionValue),dimensions.map(dimensionValue),'printed scale changes placement, not measurements');
 const lots=structuredClone(data);lots.views.top.visible=Array.from({length:80},(_,i)=>circle.replaceAll('14',String(14+i*20)).replaceAll('6 -8',String(6+i*20)+' -8'));
-const capped=autoDrawingDimensions(lots,1,[],drawingSheet(lots,1));assert(capped.dimensions.filter(d=>d.kind==='diameter').length<=8);assert(capped.skipped>0);
+const capped=autoDrawingDimensions(lots,1,[],drawingSheet(lots,1));assert.equal(capped.dimensions.filter(d=>d.kind==='diameter').length,1);assert.equal(capped.dimensions.find(d=>d.kind==='diameter').count,80,'group all occurrences before applying the annotation limit');
 assert.equal(autoDrawingDimensions(data,1,Array.from({length:500},()=>dimensions[0]),sheet).dimensions.length,0);
 console.log('PASS overall and circular feature measurements, full-circle recognition, manual/auto deduplication, scale independence, repeated-feature and document limits');

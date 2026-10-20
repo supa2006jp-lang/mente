@@ -1,0 +1,18 @@
+import {drawingCurves} from './drawing-curves.js';
+const tol=1e-5,near=(a,b)=>Math.abs(a-b)<tol,number=n=>Number(n.toFixed(5));
+export function dimensionAxisGraph(dimensions,view,axis){const parent=new Map(),root=x=>{x=number(x);if(!parent.has(x))parent.set(x,x);if(parent.get(x)!==x)parent.set(x,root(parent.get(x)));return parent.get(x);},join=(a,b)=>parent.set(root(a),root(b));for(const d of dimensions)if(d.view===view&&d.kind===(axis?'vertical':'horizontal'))join(d.a[axis],d.b[axis]);return {connected:(a,b)=>root(a)===root(b),join};}
+
+// Use real straight projected edges. Arc tessellation and hidden edges never
+// become groove dimensions. Merge split, collinear edges before measuring.
+export function straightFeatureDimensions(data,sheet,existing=[]){const result=[];for(const view of ['front','top','right']){const v=sheet.layout[view];if(!v||!data.views[view])continue;const curves=drawingCurves(data.views[view].visible);
+ for(const axis of [0,1]){const other=1-axis,minimum=axis?v.by:v.bx,maximum=minimum+(axis?v.height:v.width)/v.scale,graph=dimensionAxisGraph([...existing,...result],view,axis),lines=curves.lines.filter(l=>near(l.a[other],l.b[other])&&Math.abs(l.a[axis]-l.b[axis])*v.scale>=.8).map(l=>({low:Math.min(l.a[axis],l.b[axis]),high:Math.max(l.a[axis],l.b[axis]),at:l.a[other]})).sort((a,b)=>a.at-b.at||a.low-b.low),merged=[];
+  for(const line of lines){const previous=merged.at(-1);if(previous&&near(previous.at,line.at)&&line.low<=previous.high+tol)previous.high=Math.max(previous.high,line.high);else merged.push({...line});}
+  const candidates=merged.filter(l=>l.low>=minimum-tol&&l.high<=maximum+tol&&!(near(l.low,minimum)&&near(l.high,maximum))).sort((a,b)=>Number(near(a.low,minimum)||near(a.high,maximum))-Number(near(b.low,minimum)||near(b.high,maximum))||(a.high-a.low)-(b.high-b.low)||a.low-b.low||a.at-b.at);
+  let count=0;const anchors=[];for(const line of candidates){if(count>=10)break;if(graph.connected(line.low,line.high))continue;const a=axis?[line.at,line.low]:[line.low,line.at],b=axis?[line.at,line.high]:[line.high,line.at];result.push({view,kind:axis?'vertical':'horizontal',a,b,at:axis?[v.bx-8/v.scale,line.low]:[line.low,v.by+(v.height+8)/v.scale],feature:'straight'});graph.join(line.low,line.high);anchors.push({coordinate:line.low,point:a});count++;}
+  for(const {coordinate,point}of anchors.sort((a,b)=>a.coordinate-b.coordinate)){if(count>=12)break;if(graph.connected(minimum,coordinate)||Math.abs(coordinate-minimum)*v.scale<.8)continue;const a=[...point];a[axis]=minimum;result.push({view,kind:axis?'vertical':'horizontal',a,b:point,at:axis?[v.bx-14/v.scale,coordinate]:[coordinate,v.by+(v.height+14)/v.scale],feature:'location'});graph.join(minimum,coordinate);count++;}
+ }
+ }return result;}
+
+// A complete Cartesian grid with genuinely equal coordinate differences can
+// use a pitch callout. Incomplete grids and irregular rows keep plain locations.
+export function circlePatternDimensions(centers,view,v){if(centers.length<2)return null;const coordinates=axis=>[...new Set(centers.map(p=>number(p[axis])))].sort((a,b)=>a-b),xs=coordinates(0),ys=coordinates(1),regular=a=>a.length<3||a.slice(2).every((x,i)=>near(x-a[i+1],a[1]-a[0]));if(xs.length*ys.length!==centers.length||!regular(xs)||!regular(ys))return null;const dimensions=[];for(const [axis,values]of [[0,xs],[1,ys]]){if(values.length<2)continue;const a=[xs[0],ys[0]],b=[...a];b[axis]=values.at(-1);const d={view,kind:axis?'vertical':'horizontal',a,b,at:axis?[v.bx+(v.width+7)/v.scale,ys[0]]:[xs[0],v.by+(v.height+15)/v.scale],feature:'pitch'};if(values.length>2)d.repeat={count:values.length-1,pitch:(values.at(-1)-values[0])/(values.length-1)};dimensions.push(d);}return {dimensions,anchor:[xs[0],ys[0]]};}

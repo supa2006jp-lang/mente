@@ -1,3 +1,4 @@
+import {dimensionValue} from './drawing-dimensions.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const point=p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
 export function drawingSignature(features){let a=2166136261,b=5381;for(const c of JSON.stringify(features)){a=Math.imul(a^c.charCodeAt(0),16777619);b=Math.imul(b,33)^c.charCodeAt(0);}return (a>>>0).toString(16)+(b>>>0).toString(16);}
@@ -11,5 +12,9 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  for(const m of markers){if(typeof m.id!=='string'||!/^marker-[a-zA-Z0-9-]{1,60}$/.test(m.id)||!viewNames.has(m.view)||!['line','center'].includes(m.kind))fail();if(m.kind==='line'){if(!point(m.a)||!point(m.b))fail();}else if(!point(m.center)||!Number.isFinite(m.radius)||m.radius<=0||m.radius>1e6)fail();}
  if(!o.positions||typeof o.positions!=='object'||Array.isArray(o.positions))fail();for(const [key,p] of Object.entries(o.positions))if(!['top','front','right','iso','comment',...ids].includes(key)||!point(p))fail();
  for(const d of s.dimensions){if(d.precision!=null&&(!Number.isInteger(d.precision)||d.precision<0||d.precision>6))fail();if(d.fontSize!=null&&(!Number.isFinite(d.fontSize)||d.fontSize<1.5||d.fontSize>10))fail();if(!viewNames.has(d.view)||!['horizontal','vertical','aligned','diameter','radius','angle'].includes(d.kind)||!point(d.at))fail();if(['diameter','radius'].includes(d.kind)){if(!point(d.center)||!Number.isFinite(d.radius)||d.radius<=0||d.radius>1e6)fail();}else if(!point(d.a)||!point(d.b))fail();if(d.kind==='angle'&&!point(d.vertex))fail();}
+ for(const d of s.dimensions){
+  if(d.count!=null||d.centers!=null){if(d.kind!=='diameter'||!Number.isInteger(d.count)||d.count<2||d.count>200||!Array.isArray(d.centers)||d.centers.length!==d.count||d.centers.some(p=>!point(p)))fail();const ids=new Set(d.centers.map(p=>p.map(n=>Number(n.toFixed(5))).join(',')));if(ids.size!==d.count||!d.centers.some(p=>Math.hypot(p[0]-d.center[0],p[1]-d.center[1])<1e-5))fail();}
+  if(d.repeat!=null){const r=d.repeat;if(!['horizontal','vertical','aligned'].includes(d.kind)||!r||!Number.isInteger(r.count)||r.count<2||r.count>199||!Number.isFinite(r.pitch)||r.pitch<=0||Math.abs(dimensionValue(d)-r.count*r.pitch)>1e-5*Math.max(1,dimensionValue(d)))fail();}
+ }
  return s;
 }
