@@ -19,7 +19,7 @@ import {cylinderHingeDialog} from './cylinder-hinge-dialog.js';
 import {cadErrorAdvice} from './cad-error-advice.js';
 import {createSelectedPointMarker,pointReferenceLabel} from './selected-point.js';
 import {createFaceExtrudeShortcut} from './face-extrude-shortcut.js';
-import {sketchExtrudeRegion} from './sketch-extrude-shortcut.js';
+import {sketchExtrudeRegions} from './sketch-extrude-shortcut.js';
 let faceExtrudeShortcut=null,regionExtrudeAnchor=null;
 import {screenVertexCandidates} from './vertex-points.js';
 import {createPointDistance} from './point-distance.js';
@@ -3436,12 +3436,15 @@ function regionShortcutPoint(region){
  const geometry=regionFaceGeometry(region),positions=geometry.getAttribute('position'),indices=geometry.index,a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();let area=-1,point=null;
  try{for(let i=0;i<(indices?.count||positions.count);i+=3){a.fromBufferAttribute(positions,indices?indices.getX(i):i);b.fromBufferAttribute(positions,indices?indices.getX(i+1):i+1);c.fromBufferAttribute(positions,indices?indices.getX(i+2):i+2);const value=b.clone().sub(a).cross(c.clone().sub(a)).lengthSq();if(value>area){area=value;point=a.clone().add(b).add(c).multiplyScalar(1/3).toArray();}}return point;}finally{geometry.dispose();}
 }
-function selectedExtrudeShortcut(){
+function selectedExtrudeShortcuts(){
  if(stage==='sketch'&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!deletingSketch&&!document.querySelector('dialog[open]')){
   const session=sketchSession(),key=session?.groupId??session?.groupNumber??session?.id??null;
-  if(!sketchExtrudeShortcutCache||sketchExtrudeShortcutCache.features!==features||sketchExtrudeShortcutCache.regions!==regionList||sketchExtrudeShortcutCache.key!==key){const region=sketchExtrudeRegion(features,regionList,session),point=region?regionShortcutPoint(region):null;sketchExtrudeShortcutCache={features,regions:regionList,key,selection:point?{point,count:1,bodyIds:[],sketchRegion:region,label:'閉じたスケッチ領域を押し出す'}:null};}
-  return sketchExtrudeShortcutCache.selection;
+  if(!sketchExtrudeShortcutCache||sketchExtrudeShortcutCache.features!==features||sketchExtrudeShortcutCache.regions!==regionList||sketchExtrudeShortcutCache.key!==key){const selections=sketchExtrudeRegions(features,regionList,session).map(region=>{const point=regionShortcutPoint(region);return point?{point,count:1,bodyIds:[],sketchRegion:region,label:'閉じたスケッチ領域を押し出す'}:null;}).filter(Boolean);sketchExtrudeShortcutCache={features,regions:regionList,key,selections};}
+  return sketchExtrudeShortcutCache.selections;
  }
+ const selection=selectedExtrudeShortcut();return selection?[selection]:[];
+}
+function selectedExtrudeShortcut(){
  if(stage!=='model'||sketch||pendingExtrude||extrusionBusy||moveTool?.active||selectedBodies.size||selectedEdges.length||patternCenter||bodyDisplay?.exploded||document.querySelector('dialog[open]'))return null;
  const cached=extrudeShortcutCache;
  if(!cached||cached.faces!==selectedFaces||cached.region!==chosenRegion||cached.features!==features||cached.anchor!==regionExtrudeAnchor){
@@ -3461,13 +3464,13 @@ function selectedExtrudeShortcut(){
  const selection=extrudeShortcutCache.selection;
  return selection&&selection.bodyIds.every(id=>meshes.get(id)?.visible)?selection:null;
 }
-function openFaceExtrusionShortcut(){
- const shortcut=selectedExtrudeShortcut();if(!shortcut)return false;
+function openFaceExtrusionShortcut(shortcut=selectedExtrudeShortcut()){
+ if(!shortcut)return false;
  if(shortcut.sketchRegion)chooseRegion(shortcut.sketchRegion,false,new THREE.Vector3(...shortcut.point));
  selectionPicker?.close({force:true});closeSolidFaceMenu();pendingOperation='new';beginExtrusion('solid',{preserveView:true});
  return stage==='extrusion'&&!pendingExtrude;
 }
-faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelection:selectedExtrudeShortcut,onExtrude:openFaceExtrusionShortcut,
- onDragStart:(event,owner,start)=>openFaceExtrusionShortcut()&&startExtrusionDrag(event,{owner,start,depth:0,dragged:true}),
+faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelections:selectedExtrudeShortcuts,onExtrude:openFaceExtrusionShortcut,
+ onDragStart:(event,owner,start,selection)=>openFaceExtrusionShortcut(selection)&&startExtrusionDrag(event,{owner,start,depth:0,dragged:true}),
  onDragMove:moveExtrusionDrag,onDragEnd:endExtrusionDrag
 });

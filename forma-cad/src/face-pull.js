@@ -24,8 +24,11 @@ export function pullFaces(base,selections,distance){
   const builder=new oc.BRepOffsetAPI_MakeThickSolid();
   try{
    builder.MakeThickSolidBySimple(face.wrapped,distance);
-   const tool=R.cast(builder.Shape()).asShape3D();
-   if(!(Math.abs(R.measureVolume(tool))>1e-10))throw Error('empty');
+   let tool=R.cast(builder.Shape()).asShape3D();
+   const volume=R.measureVolume(tool);if(!(Math.abs(volume)>1e-10))throw Error('empty');
+   // The simple offset can build an outward slab with reversed shell orientation.
+   // Boolean operations need a positive-volume tool for addition as well as cuts.
+   if(volume<0){const oriented=R.cast(tool.wrapped.Reversed()).asShape3D();tool.delete();tool=oriented;}
    tools.push(tool);
   }catch{throw Error('この距離では曲面をオフセットできません。距離を小さくするか、面を分けて実行してください');}
   finally{builder.delete();}
