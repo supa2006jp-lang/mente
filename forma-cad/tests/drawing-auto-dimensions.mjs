@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {autoDrawingDimensions,completeDrawingCircles} from '../src/drawing-auto-dimensions.js';
+import {drawingSheet} from '../src/drawing-sheet.js';
+import {dimensionValue} from '../src/drawing-dimensions.js';
+const circle='M 14 -8 A 4 4 0 0 1 6 -8 A 4 4 0 0 1 14 -8 Z';
+const data={bounds:[[0,0,0],[40,25,20]],bodyCount:1,views:{front:{visible:['M 0 -20 L 40 -20 L 40 0 L 0 0 Z'],hidden:[]},top:{visible:['M 0 -25 L 40 -25 L 40 0 L 0 0 Z',circle],hidden:[]},right:{visible:['M 0 -20 L 25 -20 L 25 0 L 0 0 Z'],hidden:[]},iso:{visible:[],hidden:[],viewBox:[0,0,40,30]}}};
+assert.equal(completeDrawingCircles({visible:[circle,circle]}).length,1);
+assert.equal(completeDrawingCircles({visible:['M 14 -8 A 4 4 0 0 1 6 -8','M 14 -8 A 4 4 0 0 1 6 -8']}).length,0,'duplicate semicircles do not form a circle');
+const sheet=drawingSheet(data,1,true,[],'',{frame:true});
+const {dimensions}=autoDrawingDimensions(data,1,[],sheet);
+assert.deepEqual(dimensions.filter(d=>d.overall).map(dimensionValue),[40,20,25]);
+assert.deepEqual(dimensions.filter(d=>d.kind==='diameter').map(dimensionValue),[8]);
+assert.deepEqual(dimensions.filter(d=>d.view==='top'&&d.kind==='horizontal').map(dimensionValue),[10]);
+assert.deepEqual(dimensions.filter(d=>d.view==='top'&&d.kind==='vertical'&&!d.overall).map(dimensionValue),[17]);
+assert.equal(autoDrawingDimensions(data,1,dimensions,sheet).dimensions.length,0,'repeated auto dimension is idempotent');
+const manual=structuredClone(dimensions);for(const d of manual){delete d.automatic;delete d.overall;}
+assert.equal(autoDrawingDimensions(data,1,manual,sheet).dimensions.length,0,'manual equivalents are preserved without duplicates');
+const half=autoDrawingDimensions(data,.5,[],drawingSheet(data,.5,true,[],'',{frame:true}));
+assert.deepEqual(half.dimensions.map(dimensionValue),dimensions.map(dimensionValue),'printed scale changes placement, not measurements');
+const lots=structuredClone(data);lots.views.top.visible=Array.from({length:80},(_,i)=>circle.replaceAll('14',String(14+i*20)).replaceAll('6 -8',String(6+i*20)+' -8'));
+const capped=autoDrawingDimensions(lots,1,[],drawingSheet(lots,1));assert(capped.dimensions.filter(d=>d.kind==='diameter').length<=8);assert(capped.skipped>0);
+assert.equal(autoDrawingDimensions(data,1,Array.from({length:500},()=>dimensions[0]),sheet).dimensions.length,0);
+console.log('PASS overall and circular feature measurements, full-circle recognition, manual/auto deduplication, scale independence, repeated-feature and document limits');
