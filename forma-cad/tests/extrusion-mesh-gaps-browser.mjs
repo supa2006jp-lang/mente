@@ -1,0 +1,22 @@
+import {chromium} from 'playwright';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import * as R from 'replicad';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+const dir='outputs/extrusion-mesh-gaps/';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const fixture=JSON.parse(await fs.readFile(dir+'fixture.forma.json','utf8')),last=fixture.features.pop(),browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+try{
+ const p=await browser.newPage({viewport:{width:1600,height:1100},acceptDownloads:true}),errors=[];p.setDefaultTimeout(30000);p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>d.accept(d.defaultValue()));await p.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:5188');
+ const host=p.locator('#canvas-host'),canvas=p.locator('#canvas-host canvas'),frame=()=>p.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ async function load(data){await p.locator('#file').setInputFiles({name:'mirror-side.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(data))});await p.locator('#project-preview-open').click();await p.waitForFunction(()=>!document.getElementById('project-load-preview').open);}
+ async function screen(point){const r=await canvas.boundingBox(),s=JSON.parse(await host.getAttribute('data-camera-state')),clip=JSON.parse(await host.getAttribute('data-camera-clip')),camera=new THREE.OrthographicCamera(-100*r.width/r.height,100*r.width/r.height,100,-100,...clip);camera.position.fromArray(s);camera.quaternion.fromArray(s,3);camera.zoom=s[7];camera.updateProjectionMatrix();camera.updateMatrixWorld(true);const v=new THREE.Vector3(...point).project(camera);return [r.x+(v.x+1)*r.width/2,r.y+(1-v.y)*r.height/2];}
+ async function save(){const event=p.waitForEvent('download');await p.locator('#save').click();return JSON.parse(await fs.readFile(await(await event).path(),'utf8'));}
+ function verify(data){const output=data.features.at(-1).cadResult.outputs[0],s=R.deserializeShape(output.brep).asShape3D();let area=0,volume=0;try{for(let i=0;i<output.triangles.length;i+=3){const [a,b,c]=[0,1,2].map(j=>new THREE.Vector3(...output.vertices.slice(output.triangles[i+j]*3,output.triangles[i+j]*3+3)));area+=b.clone().sub(a).cross(c.clone().sub(a)).length()/2;volume+=a.dot(b.clone().cross(c))/6;}assert(Math.abs(area-R.measureArea(s))<.001);assert(Math.abs(volume-R.measureVolume(s))<.001);return {area,volume};}finally{s.delete();}}
+ await load(fixture);await p.locator('[data-view=iso]').click();await p.locator('#fit').click();await frame();await p.locator('#selection-mode').selectOption('face');await p.mouse.click(...await screen(last.region.cadFace.point));await p.waitForFunction(()=>document.getElementById('canvas-host').dataset.selectedFaceCount==='1');await p.locator('#face-extrude-shortcut').click();
+ for(const depth of [20,30,35,40,last.depth]){await p.locator('#viewport-depth').fill(String(depth));await p.waitForFunction(()=>document.getElementById('extrusion-target-status').dataset.state==='valid'&&!document.getElementById('viewport-depth-error').textContent,null,{timeout:60000});await frame();}
+ await p.locator('#extrude-handle').click();await p.locator('#extrude-distance').waitFor({state:'hidden',timeout:60000});const data=await save(),metrics=verify(data);await p.locator('#undo').click();assert.equal((await save()).features.length,fixture.features.length);await p.locator('#redo').click();verify(await save());await load(data);verify(await save());await p.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await p.locator('#fit').click();await frame();await p.screenshot({path:dir+'complete-top.png'});await p.locator('[data-view=iso]').click();await frame();await p.screenshot({path:dir+'complete-iso.png'});
+ assert.deepEqual(errors,[]);const proof={severalPreviewDistances:true,arrowCommit:true,displayAreaAndVolumeMatchCAD:true,saveReload:true,undoRedo:true,...metrics,errors};await fs.writeFile(dir+'browser-proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
+}catch(error){for(const p of browser.contexts().flatMap(c=>c.pages())){await p.screenshot({path:dir+'failure.png'}).catch(()=>{});console.error(await p.locator('#viewport-depth-error').textContent().catch(()=>''));}throw error;}
+finally{await browser.close();}
