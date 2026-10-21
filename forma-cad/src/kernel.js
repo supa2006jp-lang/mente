@@ -1,3 +1,4 @@
+import {inspectBodyComponents,resizeBodies,compareBodyShapes} from './model-tool-geometry.js';
 import {extrusionJoinInfo,extrusionJoinContacts} from './extrusion-join-info.js';
 import {canInspectExtrusionJoins,assertExtrusionJoinContacts,extrusionJoinConnectionPath} from './extrusion-join-selection.js';
 import {circularPatternSpacing} from './circular-pattern-spacing.js';
@@ -290,6 +291,16 @@ export function runInternalThreadShape(features,spec,onProgress){
  }finally{captured?.delete();}
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(['resize','bodyComponents','compareShapes'].includes(spec.type)){
+  const bodies=kernelBodies(features);let previous,changed;
+  try{
+   if(spec.type==='bodyComponents')return inspectBodyComponents(bodies,spec,onProgress);
+   if(spec.type==='compareShapes'){if(!Array.isArray(spec.before))throw Error('比較する加工前の工程を選んでください');previous=kernelBodies(spec.before);return compareBodyShapes(previous,bodies,onProgress);}
+   const result=resizeBodies(bodies,spec,onProgress);
+   if(spec.preview){changed=new Map([...bodies].map(([id,shape])=>[id,shape.clone()]));for(const o of result.outputs){changed.get(o.id)?.delete();changed.set(o.id,R.deserializeShape(o.brep).asShape3D());}result.comparison=compareBodyShapes(bodies,changed,onProgress);}
+   return result;
+  }finally{for(const map of [bodies,previous,changed])if(map)for(const shape of map.values())shape.delete();}
+ }
  if(spec.type==='extrusionJoinInspect'){
   if(!canInspectExtrusionJoins(spec.features||[]))throw Error('結合する押し出しの設定を確認してください');
   const bodies=kernelBodies(features),snapshot=new Map(),added=[],owners=new Map([...bodies.keys()].map(id=>[id,[id]]));

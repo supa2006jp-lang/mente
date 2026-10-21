@@ -3,10 +3,11 @@ import {analyzePrintPreflight} from './print-preflight.js';
 import {analyzePrintQuality} from './print-quality.js';
 import {cadPosition} from './cad-coordinates.js';
 import {draggablePanel} from './draggable-panel.js';
-export function createPrintPreflightView({scene,host,meshes,getFeatures,getBodyName,canOpen,onOpen,onChoose,openDimensions,openThin,notify}){
+export function createPrintPreflightView({scene,host,meshes,getFeatures,getBodyName,canOpen,onOpen,onChoose,openDimensions,openThin,inspectComponents,openComponents,notify}){
  const panel=document.createElement('section');panel.id='print-preflight-panel';panel.className='workspace-panel';panel.hidden=true;
  panel.innerHTML='<label>ノズル径 (mm)<input id="preflight-nozzle" type="number" min="0.1" max="2" step="0.05" value="0.6"></label><div style="display:flex;gap:6px">'+['X','Y','Z'].map(axis=>'<label>造形範囲 '+axis+'<input id="preflight-limit-'+axis+'" type="number" min="0.1" max="10000" value="180" step="any"></label>').join('')+'</div><label><input id="preflight-thin" type="checkbox" checked>薄さも確認する</label><p id="preflight-status" role="status"></p><strong id="preflight-size"></strong><div id="preflight-issues"></div><p class="hint">表示中の形状を確認します。薄さ・接地判定は表示メッシュからの目安です。空洞の内壁を分離した面群として数える場合があります。</p><div class="workspace-actions"><button id="preflight-check" type="button">チェックする</button><button id="preflight-cancel" type="button" hidden>確認を中止</button><button id="preflight-dimensions" type="button">最大寸法を詳しく</button><button id="preflight-thickness" type="button">薄さを詳しく</button><button id="preflight-close" type="button">閉じる</button></div>';
  host.parentElement.append(panel);draggablePanel(panel,'印刷前チェック');
+ if(openComponents){const connected=document.createElement('button');connected.type='button';connected.id='preflight-components';connected.textContent='離れた部品を色分け';connected.onclick=()=>{close();openComponents();};panel.querySelector('.workspace-actions').append(connected);}
  const button=document.createElement('button');button.type='button';button.id='print-preflight-tool';button.textContent='✓ 印刷前チェック';button.setAttribute('aria-pressed','false');document.querySelector('.navigation').append(button);
  const q=name=>panel.querySelector('#preflight-'+name);let revision=0,original=null,overlay=null,busy=false,visibility='';
  function clear(){if(overlay){overlay.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});overlay.removeFromParent();overlay=null;}delete host.dataset.printPreflight;}
@@ -26,12 +27,16 @@ export function createPrintPreflightView({scene,host,meshes,getFeatures,getBodyN
    const outputs=[];for(const [id,mesh] of meshes){if(!mesh.visible)continue;mesh.updateMatrixWorld(true);const p=cadPosition(mesh.geometry),vertices=[],point=new THREE.Vector3();for(let i=0;i<p.count;i++)vertices.push(...point.fromBufferAttribute(p,i).applyMatrix4(mesh.matrixWorld).toArray());outputs.push({id,vertices,triangles:mesh.geometry.index?Array.from(mesh.geometry.index.array):Array.from({length:p.count},(_,i)=>i)});}
    if(!outputs.length)throw Error('表示中のボディがありません');
    const capacity=['X','Y','Z'].map(axis=>q('limit-'+axis).value.trim()?Number(q('limit-'+axis).value):NaN),result=await analyzePrintPreflight(outputs,{capacity,shouldCancel:()=>!current(),onProgress:p=>{if(current())q('status').textContent=p.stage;}});
+   if(inspectComponents){
+    try{const native=await inspectComponents(original,outputs.map(o=>o.id));if(!current())return;const checked=new Set(native.rows.map(r=>r.id));result.issues=result.issues.filter(issue=>issue.type!=='components'||!checked.has(issue.bodyId));for(const row of native.rows)if(row.count>1)result.issues.push({bodyId:row.id,type:'components',native:true,severity:'warning',message:'CAD形状内に '+row.count+' 個の離れたソリッドがあります'});}
+    catch(error){if(!current())return;/* Mesh-only imports retain their existing surface checks. */}
+   }
    if(q('thin').checked){q('status').textContent='薄い壁と模様を確認しています…';const quality=await analyzePrintQuality(outputs,{nozzle:Number(q('nozzle').value),shouldCancel:()=>!current()});for(const body of quality.outputs){if(body.red.length||body.yellow.length)result.issues.push({bodyId:body.id,type:'thin',severity:body.red.length?'error':'warning',message:'ノズル径未満 '+body.red.length/9+' 面 / ノズル径の2倍未満 '+body.yellow.length/9+' 面',surface:body.red.length?body.red:body.yellow});}}
    if(!current())return;
    q('size').textContent='全体 '+result.dimensions.size.map(v=>Number(v.toFixed(2))).join(' × ')+' mm ／ '+(result.dimensions.fits?'造形範囲内':'全体配置が造形範囲を超えます');
    q('status').textContent=result.bodies+' ボディを確認：'+result.issues.length+' 件の確認箇所';
    if(!result.issues.length)q('issues').textContent='今回のチェック項目で問題は見つかりませんでした。';
-   for(const issue of result.issues){const row=document.createElement('button');row.type='button';row.dataset.bodyId=issue.bodyId;row.dataset.issueType=issue.type;row.style.cssText='display:block;width:100%;white-space:normal;text-align:left;margin:7px 0;padding:9px;border-color:'+(issue.severity==='error'?'#d84336':'#b88520');row.textContent=getBodyName(issue.bodyId)+'：'+issue.message+'（選択して拡大）';row.onclick=()=>mark(issue);q('issues').append(row);}
+   for(const issue of result.issues){const row=document.createElement('button');row.type='button';row.dataset.bodyId=issue.bodyId;row.dataset.issueType=issue.type;row.style.cssText='display:block;width:100%;white-space:normal;text-align:left;margin:7px 0;padding:9px;border-color:'+(issue.severity==='error'?'#d84336':'#b88520');row.textContent=getBodyName(issue.bodyId)+'：'+issue.message+(issue.native?'（選択して色分け）':'（選択して拡大）');row.onclick=()=>{if(issue.native&&openComponents){close();openComponents();}else mark(issue);};q('issues').append(row);}
   }catch(error){if(current()&&error.name!=='AbortError')q('status').textContent=error.message;}
   finally{if(request===revision){busy=false;q('check').disabled=false;q('cancel').hidden=true;}}
  }

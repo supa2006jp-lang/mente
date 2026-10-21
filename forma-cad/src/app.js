@@ -3430,6 +3430,8 @@ async function editSplineTangent(end,angle,length){
 
 workspaceImprovements=installWorkspaceImprovements({
  scene,host,meshes,canvas:renderer.domElement,getFeatures:()=>features,getBodyName:bodyDisplayName,
+ applyModelOperation:(original,spec,result)=>{if(features!==original)throw Error('モデルが変更されました。プレビューを作り直してください');setProject([...features,{kind:'cadop',id:spec.id,name:'サイズ変更 '+fmt(spec.factor*100)+'%'+(spec.keepWall?'・壁厚 '+fmt(spec.wall)+' mm':''),spec,...result}]);stage='model';selected=null;syncFields();$('fit').click();},
+ fitModelToolBox:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)resetViewControls(center,controls.enabled);},
  getSelectionState:()=>({bodies:meshes.size,bodyIds:selectionBodyIds(),edges:selectedEdges.length,faces:selectedFaces.length||(selectedFace?1:0),cylinder:!!selectedSurface&&!selectedFace,names:Object.fromEntries(selectionBodyIds().map(id=>[id,bodyDisplayName(id)]))}),
  notify,
  canOpen:()=>stage==='model'&&!pendingExtrude&&!extrusionBusy&&!sketch&&!document.querySelector('dialog[open]')&&!moveTool?.active&&$('section-panel')?.hidden!==false,
