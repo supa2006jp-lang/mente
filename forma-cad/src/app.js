@@ -71,6 +71,7 @@ import {isSectionSplit,sectionBodyStyles} from './section-split.js';
 import {taperArcPoint,taperDragAngle,extrusionEndDimensions} from './extrusion-feedback.js';
 import {installMiddleClickEnter} from './middle-click-enter.js';
 import {oppositeFacePlacement} from './opposite-face-placement.js';
+import {faceMoveContact} from './face-move-contact.js';
 import {createViewCube} from './view-cube.js';
 import {coilSplitPlacement} from './coil-split-view.js';
 import {coilStopFacePlacement} from './coil-stop-face-view.js';
@@ -1254,6 +1255,35 @@ async function applyFaceMirror(mode='コピー'){
 faceMirrorButton.onclick=()=>applyFaceMirror();
 const faceMirrorJoinButton=document.createElement('button');faceMirrorJoinButton.id='mirror-join-selected-face';faceMirrorJoinButton.type='button';faceMirrorJoinButton.hidden=true;faceMirrorJoinButton.textContent='ミラー＋結合';faceMirrorJoinButton.title='この面でミラーし、元とコピーが一体化できる場合は結合します';$('measurement').append(faceMirrorJoinButton);faceMirrorJoinButton.onclick=()=>applyFaceMirror('ミラー＋結合');
 for(const button of [faceMirrorButton,faceMirrorJoinButton]){button.addEventListener('pointerenter',previewFaceMirror);button.addEventListener('focus',previewFaceMirror);button.addEventListener('pointerleave',()=>{if(!faceMirrorBusy&&faceMirrorPreviewFace)clearFaceMirrorPreview();});button.addEventListener('blur',()=>{if(!faceMirrorBusy&&faceMirrorPreviewFace)clearFaceMirrorPreview();});}
+
+const faceContactButton=document.createElement('button');faceContactButton.id='move-contact-selected-face';faceContactButton.type='button';faceContactButton.hidden=true;faceContactButton.textContent='ぶつかるまで移動';$('measurement').append(faceContactButton);
+let faceContactBusy=false,faceContactCache=null;
+function selectedFaceContact(){
+ const face=selectedFace,mesh=face?.bodyId&&meshes.get(face.bodyId);if(!mesh?.visible)return null;
+ const targets=[...meshes.values()].filter(m=>m!==mesh&&m.visible),normal=basisFor(face).n.toArray();
+ const key=JSON.stringify([normal,...[mesh,...targets].map(m=>{m.updateMatrixWorld(true);return [m.uuid,m.geometry.uuid,m.geometry.attributes.position.version,m.geometry.index?.version,...m.matrixWorld.elements];})]);
+ if(faceContactCache?.face===face&&faceContactCache.key===key)return faceContactCache.hit;
+ const hit=faceMoveContact(mesh,targets,normal);faceContactCache={face,key,hit};return hit;
+}
+function updateFaceContact(){
+ const available=stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]')&&!faceMirrorBusy&&!oppositePlaneBusy&&selectedFaces.length<=1&&selectedFace?.bodyId;
+ let hit=null;if(available&&!faceContactBusy)try{hit=selectedFaceContact();}catch{faceContactCache=null;}
+ faceContactButton.hidden=!faceContactBusy&&!hit;faceContactButton.disabled=faceContactBusy;
+ if(hit){faceContactButton.title=bodyDisplayName(hit.mesh.userData.bodyId)+'まで '+fmt(hit.distance)+' mm 移動します。ボディ全体を移動し、結合はしません';faceContactButton.dataset.contact=JSON.stringify({target:hit.mesh.userData.bodyId,distance:hit.distance,translation:hit.translation});}else delete faceContactButton.dataset.contact;
+}
+faceContactButton.onclick=async()=>{
+ updateFaceContact();if(faceContactBusy||faceContactButton.hidden||pendingKernelCancel)return;
+ const face=selectedFace,original=features,revision=toolCancelRevision;let cancel=null;
+ try{
+  const hit=selectedFaceContact();if(!hit)return;
+  const [x,y,z]=hit.translation,spec={type:'move',id:crypto.randomUUID(),target:face.bodyId,x,y,z,rotation:[0,0,0],faceContactMove:true,contactTarget:hit.mesh.userData.bodyId};
+  clearFaceMirrorPreview();closeSolidFaceMenu();faceContactBusy=true;faceContactButton.disabled=true;faceContactButton.textContent='接触位置へ移動しています…';cancel=()=>kernelClient.reset();pendingKernelCancel=cancel;
+  const result=await kernelClient.run(original,spec);
+  if(features!==original||toolCancelRevision!==revision||selectedFace!==face||stage!=='model')throw Error('操作が変更されました。移動する面を選び直してください');
+  setProject([...original,{kind:'cadop',id:spec.id,name:'選択面の方向にぶつかるまで移動',spec,...result}]);clearFaceSelection();selected=null;chosenRegion=null;stage='model';syncFields();$('measurement').hidden=true;notify('選択したボディを '+bodyDisplayName(spec.contactTarget)+' に接触する位置まで移動しました。戻すで取り消せます');
+ }catch(error){notify(appErrorMessage(error));}
+ finally{if(pendingKernelCancel===cancel)pendingKernelCancel=null;faceContactBusy=false;faceContactCache=null;faceContactButton.disabled=false;faceContactButton.textContent='ぶつかるまで移動';}
+};
 
 const oppositePlaneButton=document.createElement('button');oppositePlaneButton.id='opposite-face-ground';oppositePlaneButton.type='button';oppositePlaneButton.hidden=true;oppositePlaneButton.textContent='反対面をXYに接地';oppositePlaneButton.title='選択した平面の反対側をXY平面（Z=0）に合わせます。ソリッド全体を回転・移動します。';$('measurement').append(oppositePlaneButton);
 oppositePlaneButton.onclick=groundOppositeFace;
@@ -3298,7 +3328,7 @@ $('align-hinge-sketch').onclick=()=>{
 };
 imageReferences=referenceImages({onSvg:()=>{stage='model';selected=null;syncFields();fit();},scene,camera,canvas:renderer.domElement,host,getFeatures:()=>features,setFeatures:next=>{setProject(next);updateTargets();},getPlane:()=>{const f=selectedFace||{plane:$('plane').value,frame:activeFrame,offset:planeCoordinates(current()).offset},b=basisFor(f);return {plane:f.plane,frame:{u:b.u.toArray(),v:b.v.toArray(),n:b.n.toArray()},offset:f.offset||0};},prepare:()=>{moveTool?.cancel();finishSketch(false);stage='model';dropPreview();syncFields();},viewPlane:f=>{const b=basisFor(f),origin=b.u.clone().multiplyScalar(f.center[0]).addScaledVector(b.v,f.center[1]).addScaledVector(b.n,f.offset);camera.up.copy(b.v);camera.position.copy(origin).addScaledVector(b.n,180);resetViewControls(origin);camera.zoom=200/(Math.max(f.width/(host.clientWidth/host.clientHeight),f.height)*1.3);camera.lookAt(origin);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);},startSketch:f=>{chooseConstructionPlane({...f,kind:'plane'});$('new-line').click();},notify});imageReferences.refresh();
 
-function updateSelectionUI(){const mirrorSketchSource=activeSketchMirrorEdge();sketchMirrorButton.hidden=!mirrorSketchSource;if(!mirrorSketchSource||sketchMirrorChoices.dataset.reference!==JSON.stringify(sketchMirrorEdge))closeSketchMirrorChoices();if(mirrorSketchSource)sketchMirrorButton.title=mirrorSketchSource.name+' のクリックした辺'+(sketchMirrorEdge.index+1)+'を基準に、端点がつながる線・曲線をまとめてミラーします';const selectedBodyIds=selectionBodyIds(),bodyActionsAvailable=stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]');bodySelectionActions?.update(bodyActionsAvailable&&selectedBodies.size>0,{mirrorVisible:bodyActionsAvailable&&(selectedBodies.size>0||selectedBodyIds.length>1)});threadActions?.update();$('wrap-selected-cylinder').hidden=!(selectedSurface&&!selectedFace&&selectedSurface.internal!==true&&stage==='model'&&!document.querySelector('dialog[open]'));$('pattern-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
+function updateSelectionUI(){updateFaceContact();const mirrorSketchSource=activeSketchMirrorEdge();sketchMirrorButton.hidden=!mirrorSketchSource;if(!mirrorSketchSource||sketchMirrorChoices.dataset.reference!==JSON.stringify(sketchMirrorEdge))closeSketchMirrorChoices();if(mirrorSketchSource)sketchMirrorButton.title=mirrorSketchSource.name+' のクリックした辺'+(sketchMirrorEdge.index+1)+'を基準に、端点がつながる線・曲線をまとめてミラーします';const selectedBodyIds=selectionBodyIds(),bodyActionsAvailable=stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]');bodySelectionActions?.update(bodyActionsAvailable&&selectedBodies.size>0,{mirrorVisible:bodyActionsAvailable&&(selectedBodies.size>0||selectedBodyIds.length>1)});threadActions?.update();$('wrap-selected-cylinder').hidden=!(selectedSurface&&!selectedFace&&selectedSurface.internal!==true&&stage==='model'&&!document.querySelector('dialog[open]'));$('pattern-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
  const wholeBodyIds=selectionBodyIds();wholeBodyButton.hidden=!!selectedBodies.size||!wholeBodyIds.length||stage!=='model'||sketch||pendingExtrude||extrusionBusy||!!moveTool?.active||!!document.querySelector('dialog[open]');wholeBodyButton.textContent=wholeBodyIds.length>1?'選択元のソリッド全体を選択':'このソリッド全体を選択';
  edgeReverseTurnButton.hidden=edgeTurnButton.hidden=!edgeTurnBusy&&!(selectedEdges.length===1&&selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve&&meshes.has(selectedEdge.bodyId)&&stage==='model'&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));edgeReverseTurnButton.disabled=edgeTurnButton.disabled=edgeTurnBusy||extrusionBusy;edgeTurnActions.hidden=edgeTurnButton.hidden;
  faceMirrorButton.hidden=!faceMirrorBusy&&!(selectedFace?.bodyId&&meshes.has(selectedFace.bodyId)&&selectedFaces.length<=1&&stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));faceMirrorButton.disabled=faceMirrorBusy;faceMirrorJoinButton.hidden=faceMirrorButton.hidden;faceMirrorJoinButton.disabled=faceMirrorBusy;if(faceMirrorPreviewFace&&(faceMirrorPreviewFace!==selectedFace||faceMirrorButton.hidden||document.querySelector('dialog[open]')))clearFaceMirrorPreview();
