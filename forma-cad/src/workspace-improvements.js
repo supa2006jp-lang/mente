@@ -13,6 +13,6 @@ export function installWorkspaceImprovements(context){
  const preflight=createPrintPreflightView({...context,onOpen:()=>{modelTools.close();context.onOpen?.();},inspectComponents:(features,targets)=>modelTools.inspect(features,targets),openComponents:()=>modelTools.open('components')}),detail=installInteractionDetail(context);
  const complexity=createBodyComplexityView({...context,onOpen:()=>{modelTools.close();preflight.close();context.onOpen?.();}});
  const modelTools=createModelTools({...context,onToolOpen:()=>{preflight.close();complexity.close();history.close();failure.clear();}});
- let lastSync=0;
- return {history,preflight,failure,activity,complexity,modelTools,sync(){if(Date.now()-lastSync<150)return;lastSync=Date.now();selection.sync();history.sync();failure.sync();preflight.sync();complexity.sync();modelTools.sync();},beforeModelChange(){modelTools.beforeModelChange();failure.clear();history.close();preflight.close();complexity.close();detail.restore();}};
+ let lastSync=0,connectionSeen=null;
+ return {history,preflight,failure,activity,complexity,modelTools,sync(){if(Date.now()-lastSync<150)return;lastSync=Date.now();selection.sync();history.sync();failure.sync();preflight.sync();complexity.sync();modelTools.sync();const current=context.getFeatures(),last=current.at(-1),check=(last?.cadResult?.analysis||last?.analysis)?.connectionCheck;if(connectionSeen!==current&&context.canOpen()){connectionSeen=current;if(check?.bodies.some(body=>body.count>1))modelTools.open('components',{joinWarning:true});}},beforeModelChange(){modelTools.beforeModelChange();failure.clear();history.close();preflight.close();complexity.close();detail.restore();}};
 }
