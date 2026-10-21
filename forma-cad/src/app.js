@@ -1227,6 +1227,22 @@ async function rotateUpperEdgeBody(reverse=false){
  }catch(error){notify(appErrorMessage(error));}finally{if(pendingKernelCancel===cancel)pendingKernelCancel=null;edgeTurnBusy=false;edgeTurnButton.disabled=edgeReverseTurnButton.disabled=false;edgeTurnButton.textContent='上側のソリッドを90°回転';edgeReverseTurnButton.textContent='逆方向へ90°回転';}
 }
 let oppositePlaneBusy=false;
+let faceMirrorBusy=false;
+const faceMirrorButton=document.createElement('button');faceMirrorButton.id='mirror-selected-face';faceMirrorButton.type='button';faceMirrorButton.hidden=true;faceMirrorButton.textContent='この面でミラー';faceMirrorButton.title='選択した平面を基準に、このソリッドのミラーコピーを作成します';$('measurement').append(faceMirrorButton);
+faceMirrorButton.onclick=async()=>{
+ if(faceMirrorBusy||stage!=='model'||sketch||pendingExtrude||extrusionBusy||moveTool?.active||document.querySelector('dialog[open]')||selectedFaces.length>1||!selectedFace?.bodyId)return;
+ const face=selectedFace,original=features,revision=toolCancelRevision;let cancel=null;
+ try{
+  if(!meshes.has(face.bodyId))return;
+  const spec={type:'mirror',id:crypto.randomUUID(),target:face.bodyId,mirrorMode:'コピー',plane:'FACE',offset:0,...selectedMirrorPlane('FACE'),quickFaceMirror:true};
+  closeSolidFaceMenu();faceMirrorBusy=true;faceMirrorButton.disabled=true;faceMirrorButton.textContent='ミラーを作成しています…';cancel=()=>kernelClient.reset();pendingKernelCancel=cancel;
+  const result=await kernelClient.run(original,spec);
+  if(features!==original||toolCancelRevision!==revision||selectedFace!==face||stage!=='model')throw Error('操作が変更されました。ミラーの基準面を選び直してください');
+  Object.assign(spec,result.analysis?.mirrorPlane||{});delete spec.mirrorFace;
+  setProject([...original,{kind:'cadop',id:spec.id,name:'選択面でミラー',spec,...result}]);selected=null;stage='model';syncFields();$('measurement').hidden=true;fit();notify('選択した面を基準にミラーコピーを作成しました。戻すで取り消せます');
+ }catch(error){notify(appErrorMessage(error));}
+ finally{if(pendingKernelCancel===cancel)pendingKernelCancel=null;faceMirrorBusy=false;faceMirrorButton.disabled=false;faceMirrorButton.textContent='この面でミラー';}
+};
 const oppositePlaneButton=document.createElement('button');oppositePlaneButton.id='opposite-face-ground';oppositePlaneButton.type='button';oppositePlaneButton.hidden=true;oppositePlaneButton.textContent='反対面をXYに接地';oppositePlaneButton.title='選択した平面の反対側をXY平面（Z=0）に合わせます。ソリッド全体を回転・移動します。';$('measurement').append(oppositePlaneButton);
 oppositePlaneButton.onclick=groundOppositeFace;
 async function groundOppositeFace(){closeSolidFaceMenu();if(oppositePlaneBusy)return;const face=selectedFace,mesh=face?.bodyId&&meshes.get(face.bodyId);if(!mesh){notify('ソリッドの平面を1つ選択してください');return;}const original=features;let world;
@@ -3209,6 +3225,7 @@ imageReferences=referenceImages({onSvg:()=>{stage='model';selected=null;syncFiel
 function updateSelectionUI(){bodySelectionActions?.update(selectedBodies.size>0&&stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));threadActions?.update();$('wrap-selected-cylinder').hidden=!(selectedSurface&&!selectedFace&&selectedSurface.internal!==true&&stage==='model'&&!document.querySelector('dialog[open]'));$('pattern-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
  const wholeBodyIds=selectionBodyIds();wholeBodyButton.hidden=!!selectedBodies.size||!wholeBodyIds.length||stage!=='model'||sketch||pendingExtrude||extrusionBusy||!!moveTool?.active||!!document.querySelector('dialog[open]');wholeBodyButton.textContent=wholeBodyIds.length>1?'選択元のソリッド全体を選択':'このソリッド全体を選択';
  edgeReverseTurnButton.hidden=edgeTurnButton.hidden=!edgeTurnBusy&&!(selectedEdges.length===1&&selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve&&meshes.has(selectedEdge.bodyId)&&stage==='model'&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));edgeReverseTurnButton.disabled=edgeTurnButton.disabled=edgeTurnBusy||extrusionBusy;edgeTurnActions.hidden=edgeTurnButton.hidden;
+ faceMirrorButton.hidden=!faceMirrorBusy&&!(selectedFace?.bodyId&&meshes.has(selectedFace.bodyId)&&selectedFaces.length<=1&&stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));faceMirrorButton.disabled=faceMirrorBusy;
  oppositePlaneButton.hidden=!oppositePlaneBusy&&!(selectedFace?.bodyId&&meshes.has(selectedFace.bodyId)&&selectedFaces.length<=1&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));
  const parts=[],moving=moveTool?.active?moveTool.selectedBodyIds:[];if(moving.length)parts.push('ボディ '+moving.length+' 個（移動中）');else if(selectedBodies.size)parts.push('ボディ '+selectedBodies.size+' 個');if(selectedFaces.length)parts.push('面 '+selectedFaces.length+' 枚');if(selectedEdges.length)parts.push('辺 '+selectedEdges.length+' 本');
  let lines=0,points=0;for(const [id,indices] of selectedSketchSegments){const f=features.find(f=>f.id===id);if(!f)continue;if(f.profile==='point')points++;else lines+=['circle','spline'].includes(f.profile)||f.arc?Number(indices.size>0):indices.size;}
