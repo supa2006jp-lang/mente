@@ -6,7 +6,7 @@ import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js
 import {runOperation,kernelBodies,featureSolid} from '../src/kernel.js';
 import {defaults,rebuild,validateProject} from '../src/geometry.js';
 import {cadFaceGroup,cadFaceGeometry} from '../src/face-selection.js';
-import {selectedConnectedPlanarFace} from '../src/cad-planar-face.js';
+import {selectedConnectedPlanarFace,selectedProfilePlanarFaces} from '../src/cad-planar-face.js';
 import {planarFace} from '../src/frames.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
@@ -30,6 +30,7 @@ const holeRegion={id:'holed',plane:'XY',offset:10,outer:[[-20,-15],[20,-15],[20,
 for(const capHoles of [false,true]){const f={...defaults,kind:'extrusion',profile:'region',id:'hole-extrude',name:'穴付き全面',target:'right',operation:'new',depth:3,region:holeRegion,capHoles},r=runOperation(holed,{type:'extrusion',target:'right',feature:f}),shape=R.deserializeShape(r.outputs[0].brep).asShape3D();assert(Math.abs(R.measureVolume(shape)-(1200-(capHoles?0:Math.PI*16))*3)<1e-5);shape.delete();}
 // Neither an island at the same elevation nor a parallel ledge is included.
 const island=R.makeBox([50,0,0],[60,10,10]),shelf=R.makeBox([0,50,0],[10,60,12]),islands=R.makeCompound([body.clone(),island.clone(),shelf.clone()]),only=selectedConnectedPlanarFace(islands,{point:[10,5,10],normal:[0,0,1]});assert(Math.abs(R.measureArea(only)-area)<1e-6);only.delete();
+const scoped=selectedProfilePlanarFaces(islands,region.cadFace,region);assert(Math.abs(scoped.reduce((s,f)=>s+R.measureArea(f),0)-area)<1e-6,'profile commit excludes coplanar islands and parallel shelves');scoped.forEach(f=>f.delete());
 // Display meshes can split one seam into multiple collinear segments.
 const positions=[],indices=[],faceGroups=[];
 for(const [i,[x0,y0,x1,y1,z]]of [[0,0,1,2,0],[1,0,2,1,0],[1,1,2,2,0],[2,2,3,3,0],[1,0,2,1,.01]].entries()){const base=positions.length/3,start=indices.length;positions.push(x0,y0,z,x1,y0,z,x1,y1,z,x0,y1,z);indices.push(base,base+1,base+2,base,base+2,base+3);faceGroups.push({start,count:6,faceId:i+1});}
