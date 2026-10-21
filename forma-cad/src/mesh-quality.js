@@ -12,7 +12,9 @@ export function currentBodyMeshRecords(features){
    const joinedThread=spec.type==='join'&&(inherited||[spec.other,...(spec.others||[])].some(id=>records.get(id)?.thread));
    for(const id of result.remove||[])records.delete(id);
    for(const output of result.outputs||[]){
-    const thread=!!output.threadSource||output.displayMesh?.purpose==='thread-display'||['thread','copiedThread'].includes(spec.type)||!!threads.get(output.id)||copies.has(spec.type)&&inherited||joinedThread;
+    const mirrorSource=spec.type==='mirror'?result.analysis?.mirrors?.find(item=>item.outputId===output.id)?.bodyId:null;
+    const copiedThread=mirrorSource?!!records.get(mirrorSource)?.thread:inherited;
+    const thread=!!output.threadSource||output.displayMesh?.purpose==='thread-display'||['thread','copiedThread'].includes(spec.type)||!!threads.get(output.id)||copies.has(spec.type)&&copiedThread||joinedThread;
     records.set(output.id,{output,feature,index,thread:!!thread});
    }
   }else{

@@ -36,3 +36,11 @@ test('existing plain and compressed QR saves restore colors from their history',
  for(const compress of [false,true]){const text=(await encodeProjectDocument({format:'forma-cad',version:1,features:[initial]},{compress})).text,loaded=(await decodeProjectDocument(text)).document;colored(loaded.features,'qr').dispose();assert.equal(loaded.features[0].spec.text,'ID-42');}
  const removed={kind:'cadop',id:'delete',spec:{type:'deleteBodies'},outputs:[],remove:['qr']};assert.equal(qrBodyDisplays([initial,removed]).size,0);
 });
+
+test('batch mirror retains each QR placement and both sides of joined QR bodies',()=>{
+ const other={...initial,id:'other',spec:{...spec,id:'other',point:[65,23,5]},outputs:[{id:'other'}]};
+ const batch={kind:'cadop',spec:{type:'mirror',id:'batch',target:'plain',targets:['plain','qr','other'],plane:'YZ',offset:0},outputs:[{id:'batch'},{id:'qr'},{id:'batch-mirror-2'}],remove:[],analysis:{mirrors:[{bodyId:'plain',outputId:'batch',action:'copied'},{bodyId:'qr',outputId:'qr',action:'joined'},{bodyId:'other',outputId:'batch-mirror-2',action:'copied'}]}};
+ const displays=qrBodyDisplays([initial,other,batch]);assert.equal(displays.has('batch'),false);assert.equal(displays.get('qr').length,2);
+ const centers=displays.get('qr').map(item=>new THREE.Vector3().setFromMatrixPosition(item.matrix).toArray());assert.deepEqual(centers,[[12,23,5],[-12,23,5]]);
+ assert.deepEqual(new THREE.Vector3().setFromMatrixPosition(displays.get('batch-mirror-2')[0].matrix).toArray(),[-65,23,5]);
+});

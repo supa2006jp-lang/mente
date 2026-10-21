@@ -26,9 +26,10 @@ export function qrBodyDisplays(features){
    targets.forEach((id,i)=>{const items=displays.get(id),out=copy?(i?p.id+'-copy-'+i:p.id):id;if(items&&result.outputs.some(o=>o.id===out))displays.set(out,transform(items,matrix));});
   }else if(p?.type==='printLayout'){
    for(const placement of feature.analysis?.placements||[]){const items=displays.get(placement.id);if(items)displays.set(placement.id,transform(items,translation(placement.translation).multiply(rotation([0,0,placement.rotation||0],placement.pivot))));}
-  }else if(p?.type==='mirror'&&inherited){
-   const normal=p.mirrorNormal||({XY:[0,0,1],XZ:[0,1,0],YZ:[1,0,0]}[p.plane]),n=new THREE.Vector3(...normal).normalize(),origin=p.mirrorNormal?new THREE.Vector3(...p.mirrorOrigin).addScaledVector(n,p.offset||0).toArray():n.multiplyScalar(p.offset||0).toArray(),out=p.mirrorMode==='反転移動'?p.target:p.id;
-   displays.set(out,transform(inherited,reflection(normal,origin)));
+  }else if(p?.type==='mirror'){
+   const normal=p.mirrorNormal||({XY:[0,0,1],XZ:[0,1,0],YZ:[1,0,0]}[p.plane]),n=new THREE.Vector3(...normal).normalize(),origin=p.mirrorNormal?new THREE.Vector3(...p.mirrorOrigin).addScaledVector(n,p.offset||0).toArray():n.multiplyScalar(p.offset||0).toArray(),matrix=reflection(normal,origin);
+   const entries=result.analysis?.mirrors||(p.targets||[p.target]).map((id,i)=>({bodyId:id,outputId:p.mirrorMode==='反転移動'?id:i?p.id+'-mirror-'+i:p.id}));
+   for(const item of entries){const source=displays.get(item.bodyId);if(!source||!result.outputs.some(o=>o.id===item.outputId))continue;const mirrored=transform(source,matrix);displays.set(item.outputId,item.action==='joined'?[...source,...mirrored]:mirrored);}
   }else if(['circular','rectangular'].includes(p?.type)&&inherited){
    const generated=[];if(p.type==='circular'){for(let i=1;i<p.count;i++){const axis=p.axisVector||({X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[p.axis]||[0,0,1]),pivot=p.origin||[0,0,0],matrix=translation(pivot).multiply(new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(...axis).normalize(),p.angle*i/p.count*Math.PI/180)).multiply(translation(pivot.map(v=>-v)));generated.push([p.id+'-'+i,transform(inherited,matrix)]);}}
    else for(let i=0;i<p.count;i++)for(let j=0;j<p.count2;j++)if(i||j)generated.push([p.id+'-'+i+'-'+j,transform(inherited,translation([i*p.spacing,j*p.spacing2,0]))]);

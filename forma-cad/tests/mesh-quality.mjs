@@ -13,6 +13,8 @@ for(const type of ['move','mirror','rectangular','circular','printLayout']){
 const joined=[...history,{kind:'cadop',spec:{type:'join',target:'b',others:['a']},outputs:[{id:'b',brep:'joined'}],remove:['a']}];assert.ok(currentBodyMeshRecords(joined).get('b').thread);assert.ok(!currentBodyMeshRecords(joined).has('a'));
 const cut=[...history,{kind:'extrusion',id:'cut',operation:'cut',target:'a'}];assert.equal(currentBodyMeshRecords(cut).get('a').output,null,'raw cuts must invalidate earlier BREP');
 const mixed={type:'move',target:'a',targets:['a','plain'],copy:true,id:'copy'};assert.equal(threadDisplayForOperation(history,mixed,'copy','a'),THREAD_DISPLAY_MESH);assert.equal(threadDisplayForOperation(history,mixed,'copy-copy-1','plain'),null);
+const mirrorBatch=[...history,{kind:'cadop',spec:{type:'mirror',target:'a',targets:['a','plain']},outputs:[{id:'mirror',brep:'thread-copy'},{id:'mirror-mirror-1',brep:'plain-copy'}],remove:[],analysis:{mirrors:[{bodyId:'a',outputId:'mirror'},{bodyId:'plain',outputId:'mirror-mirror-1'}]}}];
+assert.equal(currentBodyMeshRecords(mirrorBatch).get('mirror').thread,true);assert.equal(currentBodyMeshRecords(mirrorBatch).get('mirror-mirror-1').thread,false,'each mirrored body retains its own display quality');
 const g=new THREE.BoxGeometry(2,3,4),visible=new THREE.Mesh(g),hidden=new THREE.Mesh(g);hidden.visible=false;visible.position.x=12;
 const meshes=new Map([['a',visible],['hidden',hidden]]);assert.deepEqual(stlMeshSnapshot(history,meshes),[{id:'a',brep:'exact'}]);
 const fallback=stlMeshSnapshot(cut,meshes);assert.ok(!fallback[0].brep);assert.equal(Math.min(...fallback[0].vertices.filter((_,i)=>i%3===0)),11);assert.equal(fallback[0].triangles.length,g.index.count);
