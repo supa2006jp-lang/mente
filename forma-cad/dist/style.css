@@ -379,3 +379,7 @@ header .filename #dirty{flex-shrink:0}
 
 #mirror-connected-sketch{pointer-events:auto;color:#155971;border:1px solid #8ab5c6;padding:8px 12px;margin-top:5px;background:#e8f7ff;font-size:12px;border-radius:4px}
 #mirror-connected-sketch:hover{background:#d3edf8}
+
+#connected-sketch-mirror-choices{display:flex;flex-direction:column;gap:6px;pointer-events:auto;border-top:1px solid #b9cbd1;padding-top:7px}
+#connected-sketch-mirror-choices[hidden]{display:none}
+#connected-sketch-mirror-choices button{background:#e8f7ff;color:#155971;border-color:#8ab5c6;font-size:12px}

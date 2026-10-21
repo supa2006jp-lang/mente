@@ -16,5 +16,5 @@ export function createBodySelectionActions({container,onMove,onCopy,onCut,onDime
   button.onclick=action;group.append(button);
  }
  container.append(group);
- return {update(visible){group.hidden=!visible;group.style.display=visible?'grid':'none';}};
+ return {update(visible,{mirrorVisible=visible}={}){const shown=visible||mirrorVisible;group.hidden=!shown;group.style.display=shown?'grid':'none';for(const button of group.children){const mirror=button.id==='body-quick-mirror';button.hidden=mirror?!mirrorVisible:!visible;if(mirror)button.style.gridColumn=visible?'auto':'1 / -1';}}};
 }

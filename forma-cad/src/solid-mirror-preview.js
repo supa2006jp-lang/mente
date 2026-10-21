@@ -5,7 +5,7 @@ export function createSolidMirrorPreview({scene,meshes,host}){
  let group=null;
  function clear(){
   if(group){scene.remove(group);group.traverse(object=>object.material?.dispose());group=null;}
-  delete host.dataset.solidMirrorPreview;
+  delete host.dataset.solidMirrorPreview;delete host.dataset.solidMirrorPlane;
  }
  function show(ids,spec){
   clear();const n=new THREE.Vector3(...spec.mirrorNormal).normalize(),origin=new THREE.Vector3(...spec.mirrorOrigin).addScaledVector(n,spec.offset||0),d=origin.dot(n);
@@ -13,10 +13,12 @@ export function createSolidMirrorPreview({scene,meshes,host}){
   if(!reflection.elements.every(Number.isFinite))throw Error('ミラーの基準面を選択してください');
   group=new THREE.Group();
   for(const id of ids){const source=meshes.get(id);if(!source)continue;source.updateWorldMatrix(true,false);
-   const preview=new THREE.Mesh(source.geometry,new THREE.MeshBasicMaterial({color:0x18a9ca,transparent:true,opacity:.3,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}));
-   preview.matrixAutoUpdate=false;preview.matrix.multiplyMatrices(reflection,source.matrixWorld);preview.renderOrder=4;group.add(preview);
+   const preview=new THREE.Mesh(source.geometry,new THREE.MeshBasicMaterial({color:0x18a9ca,transparent:true,opacity:.3,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
+   preview.matrixAutoUpdate=false;preview.matrix.multiplyMatrices(reflection,source.matrixWorld);preview.renderOrder=30;
+   const edges=source.children.find(child=>child.isLineSegments);if(edges){const outline=new THREE.LineSegments(edges.geometry,new THREE.LineBasicMaterial({color:0x087f9c,transparent:true,opacity:.9,depthTest:false,depthWrite:false}));outline.renderOrder=31;outline.matrixAutoUpdate=false;outline.matrix.copy(edges.matrix);preview.add(outline);}
+   group.add(preview);
   }
-  scene.add(group);host.dataset.solidMirrorPreview=String(group.children.length);
+  scene.add(group);host.dataset.solidMirrorPreview=String(group.children.length);host.dataset.solidMirrorPlane=JSON.stringify({normal:n.toArray(),origin:origin.toArray(),bodyIds:[...ids]});
  }
  return {show,clear};
 }
