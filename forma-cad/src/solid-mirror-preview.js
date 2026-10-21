@@ -20,5 +20,6 @@ export function createSolidMirrorPreview({scene,meshes,host}){
   }
   scene.add(group);host.dataset.solidMirrorPreview=String(group.children.length);host.dataset.solidMirrorPlane=JSON.stringify({normal:n.toArray(),origin:origin.toArray(),bodyIds:[...ids]});
  }
- return {show,clear};
+ function setSnapped(snapped){group?.traverse(object=>{if(object.material?.color)object.material.color.setHex(snapped?(object.isMesh?0x28bd83:0x08754c):(object.isMesh?0x18a9ca:0x087f9c));});}
+ return {show,clear,setSnapped};
 }

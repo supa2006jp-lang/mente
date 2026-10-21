@@ -23,7 +23,20 @@ export function mirrorAxisReference({basis,offset},spec,center,{followCopy=false
  if(length2<1e-6)return null;
  const axis=grid.clone().cross(n).normalize(),origin=new THREE.Vector3(...spec.mirrorOrigin),distance=Number(spec.offset||0);
  const base=grid.clone().multiplyScalar(offset).addScaledVector(projected,(origin.dot(n)-offset*n.dot(grid))/length2).addScaledVector(axis,center.dot(axis));
- return {base,direction:projected.divideScalar(length2),axis,distance,...(followCopy?{handleBase:center.clone().addScaledVector(n,-2*distance),handleDirection:n.clone().multiplyScalar(2),handleScale:2}:{})};
+ return {base,direction:projected.divideScalar(length2),axis,distance,snapBasis:[basis.u.clone(),basis.v.clone()],...(followCopy?{handleBase:center.clone().addScaledVector(n,-2*distance),handleDirection:n.clone().multiplyScalar(2),handleScale:2}:{})};
+}
+
+// Snap the control's actual world position to workplane grid lines. A copy
+// travels twice as far as its mirror plane, including on offset/tilted frames.
+export function mirrorAxisDragSnap(raw,{snap=false,step=10,pixelsPerMm=1,reference=null,handle=false}={}){
+ const value=Math.max(-10000,Math.min(10000,raw)),base=handle?(reference?.handleBase||reference?.base):reference?.base,direction=handle?(reference?.handleDirection||reference?.direction):reference?.direction;
+ let nearest=null;
+ if(snap&&step>0&&base&&direction)for(const axis of reference.snapBasis||[]){
+  const speed=direction.dot(axis);if(Math.abs(speed)<1e-7)continue;
+  const origin=base.dot(axis),candidate=(Math.round((origin+value*speed)/step)*step-origin)/speed,distance=Math.abs(value-candidate);
+  if(candidate>=-10000&&candidate<=10000&&distance<=Math.min(step*.2/Math.abs(speed),6/Math.max(.001,pixelsPerMm))+1e-9&&(!nearest||distance<nearest.distance))nearest={value:candidate,distance};
+ }
+ return {value:Number((nearest?.value??value).toFixed(4)),snapped:!!nearest};
 }
 
 export function mirrorAxisDragValue(raw,{snap=false,step=10,pixelsPerMm=1}={}){

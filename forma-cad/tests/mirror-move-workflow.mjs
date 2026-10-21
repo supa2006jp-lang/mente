@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import {defaults} from '../src/geometry.js';
 import {basisFor} from '../src/frames.js';
 import {mirrorGridLine,mirrorGridPlane} from '../src/mirror-grid-axis.js';
-import {mirrorSketchWorkflow,mirrorAxisReference,mirrorAxisDragValue} from '../src/mirror-workflow.js';
+import {mirrorSketchWorkflow,mirrorAxisReference,mirrorAxisDragValue,mirrorAxisDragSnap} from '../src/mirror-workflow.js';
 import {sketchSegments} from '../src/sketch-selection.js';
 
 const frame={basis:basisFor({plane:'XY'}),offset:4},project=p=>({x:p.x*10,y:p.y*10});
@@ -19,4 +19,16 @@ const move=mirrorSketchWorkflow([source],[source],{plane:'V'},{move:true});asser
 const partial=mirrorSketchWorkflow([source],[],{plane:'V'},{move:true,selection:new Map([['r',new Set([0])]])});assert.equal(partial.copies.length,1);assert.equal(sketchSegments(partial.copies[0]).length,1);assert.equal(partial.retained.reduce((n,f)=>n+sketchSegments(f).length,0),3);assert.equal(new Set(partial.features.map(f=>f.id)).size,partial.features.length);
 const ref=mirrorAxisReference(frame,{mirrorNormal:[1,0,0],mirrorOrigin:[20,0,4],offset:2},new THREE.Vector3(24,8,4));assert.deepEqual(ref.base.toArray(),[20,8,4]);assert.deepEqual(ref.base.clone().addScaledVector(ref.direction,2).toArray(),[22,8,4]);
 assert.equal(mirrorAxisReference(frame,{mirrorNormal:[0,0,1],mirrorOrigin:[0,0,0]},new THREE.Vector3()),null);assert.equal(mirrorAxisDragValue(0),0);assert.equal(mirrorAxisDragValue(9.8,{snap:true,step:10,pixelsPerMm:10}),10);assert.equal(mirrorAxisDragValue(-20000),-10000);
+// Offset starts off-grid; snap the reflected copy every grid step, not every
+// twice-grid step. Local coordinates also apply to non-origin tilted planes.
+for(const basis of [frame.basis,tilted.basis])for(const step of [1,5,10,20]){
+ const origin=basis.u.clone().multiplyScalar(18).addScaledVector(basis.n,4),center=basis.u.clone().multiplyScalar(12).addScaledVector(basis.v,8).addScaledVector(basis.n,4),ref=mirrorAxisReference({basis,offset:4},{mirrorNormal:basis.u.toArray(),mirrorOrigin:origin.toArray(),offset:0},center,{followCopy:true});
+ for(const target of [-step,0,step,2*step]){
+  const raw=(target-12)/2+.01,result=mirrorAxisDragSnap(raw,{snap:true,step,pixelsPerMm:12,reference:ref,handle:true});assert.equal(result.snapped,true);assert(Math.abs(ref.handleBase.clone().addScaledVector(ref.handleDirection,result.value).dot(basis.u)-target)<1e-7);
+ }
+ const axis=mirrorAxisDragSnap(2.02,{snap:true,step:10,pixelsPerMm:6,reference:ref});assert.equal(axis.snapped,true);assert.equal(axis.value,2);
+ assert.equal(mirrorAxisDragSnap(.25,{snap:false,step,reference:ref,handle:true}).snapped,false);
+}
+const diagonalRef={base:new THREE.Vector3(3,4,0),direction:new THREE.Vector3(1,1,0).normalize(),snapBasis:[new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0)]},diagonal=mirrorAxisDragSnap(6*Math.SQRT2+.01,{snap:true,step:10,pixelsPerMm:10,reference:diagonalRef});assert(diagonal.snapped);assert(Math.abs(diagonalRef.base.clone().addScaledVector(diagonalRef.direction,diagonal.value).y-10)<1e-4);
+assert.equal(mirrorAxisDragSnap(3,{snap:true,step:10,pixelsPerMm:10,reference:{base:new THREE.Vector3(),direction:new THREE.Vector3(1,0,0),snapBasis:frame.basis?[frame.basis.u,frame.basis.v]:[]}}).snapped,false);
 console.log('PASS mirror grid lines, copy/replace/partial sketch workflow and draggable axis coordinates');
