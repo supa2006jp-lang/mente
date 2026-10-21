@@ -386,3 +386,8 @@ header .filename #dirty{flex-shrink:0}
 #connected-sketch-mirror-choices button{background:#e8f7ff;color:#155971;border-color:#8ab5c6;font-size:12px}
 
 #mirror-axis-handle{width:56px;height:64px;line-height:28px}#mirror-axis-handle strong{display:block;font-size:13px;line-height:20px;pointer-events:none}#mirror-axis-handle span{top:66px}
+
+#mirror-placement-options{min-width:0;margin:12px 0;padding:8px 10px 10px;border:1px solid #5d8296;border-radius:8px}#mirror-placement-options[hidden],#mirror-gap-fields[hidden]{display:none}#mirror-placement-options label{margin:10px 0 0}.mirror-reset-actions{display:flex;gap:7px;flex-wrap:wrap}.mirror-reset-actions button{flex:1;padding:9px 7px;font-size:13px}#mirror-placement-options .hint{font-size:12px;margin:8px 0 0}#cad-offset[readonly]{opacity:.75}
+#mirror-distance-dimension{pointer-events:none}.mirror-dimension-extension{stroke:#466879;stroke-width:1;stroke-dasharray:3 3}.mirror-dimension-line{stroke:#285d76;stroke-width:1.5}#mirror-dimension-arrow path{fill:#285d76}#mirror-distance-dimension circle{stroke:white;stroke-width:2}.mirror-dimension-source{fill:#245d99}.mirror-dimension-copy{fill:#b97915}#mirror-distance-dimension text{font:600 12px system-ui;fill:#19465c;stroke:#fff;stroke-width:4;paint-order:stroke;stroke-linejoin:round}.mirror-dimension-value{font-size:13px!important}#mirror-axis-drag[data-snapped=true] .mirror-dimension-copy{fill:#087f55}
+
+#mirror-gap-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}#mirror-gap-fields>label{min-width:0}#mirror-gap-fields>.hint{grid-column:1/-1}

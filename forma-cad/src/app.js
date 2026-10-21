@@ -117,6 +117,7 @@ import {sketchMirrorPlane} from './sketch-mirror.js';
 import {createMirrorGridAxis} from './mirror-grid-axis.js';
 import {mirrorSketchWorkflow,mirrorAxisReference,mirrorCopyTravel,mirrorCopyOffset} from './mirror-workflow.js';
 import {createMirrorAxisDrag} from './mirror-axis-drag.js';
+import {mirrorSketchRange,mirrorGapOffset} from './mirror-placement.js';
 import {trimSketch} from './trim-sketch.js';
 import {sketchLine,updateSketchLine} from './sketch-line.js';
 import {installSplineEditor} from './spline-editor.js';
@@ -2382,8 +2383,14 @@ function renderSketchMirrorFields(){
  const axis=document.createElement('select');axis.id='sketch-mirror-axis';axis.add(new Option('画面で直線・辺を選択',''));
  for(const f of features.filter(f=>f.kind==='sketch'&&!f.groupHidden&&!f.arc&&['line','rect','polyline'].includes(f.profile)))for(const edge of sketchSegments(f).slice(0,500)){if(edge.a.distanceTo(edge.b)>1e-7)axis.add(new Option(f.name+' · 辺'+(edge.index+1),JSON.stringify([f.id,edge.index])));}
  label.append(axis);$('cad-fields').append(label);
+ const placement=document.createElement('fieldset');placement.id='mirror-placement-options';placement.innerHTML='<legend>コピーの位置</legend><div class="mirror-reset-actions"><button type="button" id="mirror-reset-origin" title="元とコピーの中心を重ねます">元と重ねる（0 mm）</button><button type="button" id="mirror-reset-reference">選んだ辺の隣に戻す</button></div><label>配置方法<select id="mirror-placement-mode"><option value="distance">中心の移動距離で指定</option><option value="gap">端と端のすき間で指定</option></select></label><div id="mirror-gap-fields" hidden><label>すき間 (mm)<input id="mirror-gap" type="number" min="0" max="10000" step="any" value="0"></label><label>配置する側<select id="mirror-gap-side"><option value="1">今の側</option><option value="-1">反対側</option></select></label><p class="hint">選んだ図形全体とコピーの、ミラー方向の端から端までのすき間です。</p></div>';$('cad-offset').closest('label').after(placement);
+ placement.dataset.direction='1';const placementMode=$('mirror-placement-mode');placementMode.addEventListener('input',event=>event.stopPropagation());
+ placementMode.addEventListener('change',()=>{if(placementMode.value==='gap'&&mirrorDistanceState){const d=mirrorCopyTravel(mirrorDistanceState.center,mirrorDistanceState.spec,mirrorDistanceState.offset);if($('cad-offset').value.trim()===''||!Number.isFinite(Number($('cad-offset').value)))$('cad-offset').value=mirrorDistanceState.value;placement.dataset.direction=String(Math.sign(d)||Math.sign(mirrorCopyTravel(mirrorDistanceState.center,mirrorDistanceState.spec,0))||1);$('mirror-gap-side').value='1';}updateMirrorPlacementUI();previewSketchMirror();});
+ for(const id of ['mirror-gap','mirror-gap-side'])$(id).addEventListener('input',event=>{event.stopPropagation();previewSketchMirror();});
+ const reset=original=>{try{const sources=mirrorSketchSources();if(!sources.length)return;placementMode.value='distance';updateMirrorPlacementUI();$('cad-offset').value=mirrorDistanceState?.value??0;sketchMirrorSpec(sources[0]);setMirrorDialogOffset(original?mirrorCopyOffset(mirrorDistanceState.center,mirrorDistanceState.spec,0):0);}catch(error){$('cad-error').textContent=appErrorMessage(error);}};
+ $('mirror-reset-origin').onclick=()=>reset(true);$('mirror-reset-reference').onclick=()=>reset(false);
  const gridAxis=document.createElement('div');gridAxis.id='mirror-grid-axis-controls';gridAxis.innerHTML='<p id="mirror-grid-axis-status" class="hint" role="status"></p><button id="mirror-grid-axis-reset" type="button">2点を選び直す</button>';$('cad-fields').append(gridAxis);$('mirror-grid-axis-reset').onclick=()=>{mirrorGridAxis.clear();updateMirrorGridStatus();previewSketchMirror();};
- const update=()=>{const sketch=mirrorSketchSources().length>0,offset=$('cad-offset');offset.closest('label').firstChild.textContent=sketch?'コピーの移動距離 (mm)':'オフセット距離 (mm)';offset.min=sketch?-20000:-10000;offset.max=sketch?20000:10000;bodies.hidden=sketch;const joinOption=[...$('cad-mirrorMode').options].find(o=>o.value==='ミラー＋結合');joinOption.disabled=sketch;if(sketch&&$('cad-mirrorMode').value==='ミラー＋結合')$('cad-mirrorMode').value='コピー';for(const option of plane.options)if(['U','V'].includes(option.value))option.disabled=!sketch;if(!sketch&&['U','V'].includes(plane.value))plane.value='YZ';label.hidden=!sketch||plane.value!=='LINE';gridAxis.hidden=!['GRID','POINTS'].includes(plane.value);updateMirrorGridStatus();$('cad-help').textContent=sketch?'コピーは元を残し、反転移動は元を置き換えます。グリッド線は1クリックで指定できます。入力値と矢印の表示は、元の図形の中心からコピーの中心までの移動距離です。元と同じ位置が0 mmです。グリッド吸着中は緑色、Shiftで微調整できます。':'コピー先を水色でプレビューします。ミラー＋結合は元とコピーをペアごとに結合し、一体化できない場合は別ボディで残します。対象はチェックで複数選べます。基準面は共通です。';};
+ const update=()=>{const sketch=mirrorSketchSources().length>0,offset=$('cad-offset');updateMirrorPlacementUI();offset.closest('label').firstChild.textContent=sketch?'コピーの移動距離 (mm)':'オフセット距離 (mm)';offset.min=sketch?-20000:-10000;offset.max=sketch?20000:10000;bodies.hidden=sketch;const joinOption=[...$('cad-mirrorMode').options].find(o=>o.value==='ミラー＋結合');joinOption.disabled=sketch;if(sketch&&$('cad-mirrorMode').value==='ミラー＋結合')$('cad-mirrorMode').value='コピー';for(const option of plane.options)if(['U','V'].includes(option.value))option.disabled=!sketch;if(!sketch&&['U','V'].includes(plane.value))plane.value='YZ';label.hidden=!sketch||plane.value!=='LINE';gridAxis.hidden=!['GRID','POINTS'].includes(plane.value);updateMirrorGridStatus();$('cad-help').textContent=sketch?'コピーは元を残し、反転移動は元を置き換えます。グリッド線は1クリックで指定できます。入力値と矢印の表示は、元の図形の中心からコピーの中心までの移動距離です。元と同じ位置が0 mmです。グリッド吸着中は緑色、Shiftで微調整できます。':'コピー先を水色でプレビューします。ミラー＋結合は元とコピーをペアごとに結合し、一体化できない場合は別ボディで残します。対象はチェックで複数選べます。基準面は共通です。';};
  if(mirrorSketchSources().length)plane.value='V';
  target.addEventListener('change',()=>{mirrorGridAxis.clear();update();});plane.addEventListener('input',update);plane.addEventListener('change',()=>{mirrorGridAxis.clear();update();previewSketchMirror();});update();
 }
@@ -2401,20 +2408,26 @@ function mirrorGridFrame(){
 mirrorGridAxis=createMirrorGridAxis({scene,canvas:renderer.domElement,camera,project:screenPoint,active:()=>$('tools-dialog').open&&$('cad-command').value==='mirror'&&['GRID','POINTS'].includes($('cad-plane')?.value),getMode:()=>$('cad-plane').value,getSpan:()=>viewHeight()*2,getFrame:mirrorGridFrame,getSnap:()=>({step:gridStep,enabled:$('snap-enabled').checked}),onChange:message=>{updateMirrorGridStatus(message);if(!message){$('cad-error').textContent='';previewSketchMirror();}}});
 $('tools-dialog').addEventListener('close',()=>{mirrorGridAxis.clear();$('cad-apply').disabled=false;delete host.dataset.mirrorGridPoints;});
 
+function updateMirrorPlacementUI(){
+ const panel=$('mirror-placement-options');if(!panel)return;const sketch=mirrorSketchSources().length>0,gap=$('mirror-placement-mode').value==='gap';panel.hidden=!sketch;$('mirror-gap-fields').hidden=!gap;for(const id of ['mirror-gap','mirror-gap-side'])$(id).disabled=!sketch||!gap;$('mirror-gap').required=sketch&&gap;$('cad-offset').readOnly=sketch&&gap;$('mirror-reset-reference').textContent=$('cad-plane').value==='LINE'?'選んだ辺の隣に戻す':'基準位置に戻す';
+}
 function mirrorDialogOffset(){
  const text=$('cad-offset').value,value=Number(text);if(text.trim()===''||!Number.isFinite(value))throw Error('移動距離を入力してください');if(!mirrorSketchSources().length)return value;
  if(!mirrorDistanceState)return value/2;
  return value===mirrorDistanceState.value?mirrorDistanceState.offset:mirrorCopyOffset(mirrorDistanceState.center,mirrorDistanceState.spec,value);
 }
 function setMirrorDialogOffset(offset,preview=true){
+ if(preview&&$('mirror-placement-mode')?.value==='gap'){$('mirror-placement-mode').value='distance';updateMirrorPlacementUI();}
  const input=$('cad-offset');if(mirrorSketchSources().length&&mirrorDistanceState){mirrorDistanceState.offset=offset;mirrorDistanceState.value=Number(mirrorCopyTravel(mirrorDistanceState.center,mirrorDistanceState.spec,offset).toFixed(4));input.value=mirrorDistanceState.value;}else input.value=offset;
  if(preview)input.dispatchEvent(new Event('input',{bubbles:true}));
 }
 function syncMirrorCopyDistance(spec){
- const offset=mirrorDialogOffset(),sources=mirrorSketchSources(),sourceChanged=!mirrorDistanceState||sources.length!==mirrorDistanceState.sources.length||sources.some((f,i)=>f!==mirrorDistanceState.sources[i]);let center=mirrorDistanceState?.center;
+ let offset=mirrorDialogOffset();const sources=mirrorSketchSources(),sourceChanged=!mirrorDistanceState||sources.length!==mirrorDistanceState.sources.length||sources.some((f,i)=>f!==mirrorDistanceState.sources[i]);let center=mirrorDistanceState?.center;
  if(sourceChanged){const box=new THREE.Box3();for(const f of sources){const g=makeSketchGeometry(f);box.union(new THREE.Box3().setFromBufferAttribute(g.attributes.position));g.dispose();}center=box.getCenter(new THREE.Vector3());}
- const referenceChanged=sourceChanged||['mirrorNormal','mirrorOrigin'].some(key=>spec[key].some((v,i)=>Math.abs(v-mirrorDistanceState.spec[key][i])>1e-9)),value=referenceChanged?Number(mirrorCopyTravel(center,spec,offset).toFixed(4)):Number($('cad-offset').value);
- mirrorDistanceState={sources,center,spec,offset,value};if(referenceChanged)$('cad-offset').value=value;return offset;
+ const referenceChanged=sourceChanged||['mirrorNormal','mirrorOrigin'].some(key=>spec[key].some((v,i)=>Math.abs(v-mirrorDistanceState.spec[key][i])>1e-9)),gapMode=$('mirror-placement-mode')?.value==='gap';let range=referenceChanged?null:mirrorDistanceState.range;
+ if(gapMode){const text=$('mirror-gap').value;if(text.trim()==='')throw Error('すき間を入力してください');if(!range)range=mirrorSketchRange(sources,new THREE.Vector3(...spec.mirrorNormal));if(referenceChanged)$('mirror-placement-options').dataset.direction=String(Math.sign(mirrorCopyTravel(center,spec,0))||1);const side=Number($('mirror-placement-options').dataset.direction)*Number($('mirror-gap-side').value);offset=mirrorGapOffset(range,spec,Number(text),side);}
+ const value=referenceChanged||gapMode?Number(mirrorCopyTravel(center,spec,offset).toFixed(4)):Number($('cad-offset').value);
+ mirrorDistanceState={sources,center,spec,offset,value,range};if(referenceChanged||gapMode)$('cad-offset').value=value;return offset;
 }
 function sketchMirrorSpec(source){
  const spec={plane:$('cad-plane').value,offset:0};
@@ -2451,7 +2464,7 @@ function previewSketchMirror(){
    const ids=solidMirrorTargets();if(!ids.length)throw Error('ミラーするボディを1個以上選択してください');solidMirrorPreview.show(ids,spec);const box=new THREE.Box3();for(const id of ids){const mesh=meshes.get(id);if(mesh)box.union(new THREE.Box3().setFromObject(mesh));}center=box.getCenter(new THREE.Vector3());
   }
   const distance=mirrorDialogOffset(),baseSpec=sources.length?{...spec,mirrorOrigin:new THREE.Vector3(...spec.mirrorOrigin).addScaledVector(new THREE.Vector3(...spec.mirrorNormal),-distance).toArray(),offset:distance}:spec;
-  mirrorAxisDrag?.setReference(mirrorAxisReference(mirrorGridFrame(),baseSpec,center,{followCopy:!!sources.length}));$('cad-error').textContent='';
+  mirrorAxisDrag?.setReference(mirrorAxisReference(mirrorGridFrame(),baseSpec,center,{followCopy:!!sources.length,sourceCenter:sources.length?mirrorDistanceState.center:null}));$('cad-error').textContent='';
  }catch(error){$('cad-error').textContent=appErrorMessage(error);mirrorAxisDrag?.clear();}
 }
 async function applySketchMirror(){

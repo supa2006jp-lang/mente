@@ -18,12 +18,12 @@ export function mirrorSketchWorkflow(features,sources,spec,{move=false,selection
  return {features:features.map(f=>replacements.get(f.id)||f),copies:[...replacements.values()],retained:features.filter(f=>!replacements.has(f.id)),changedIds:[...replacements.keys()]};
 }
 
-export function mirrorAxisReference({basis,offset},spec,center,{followCopy=false}={}){
+export function mirrorAxisReference({basis,offset},spec,center,{followCopy=false,sourceCenter=null}={}){
  const n=new THREE.Vector3(...spec.mirrorNormal).normalize(),grid=basis.n,projected=n.clone().addScaledVector(grid,-n.dot(grid)),length2=projected.lengthSq();
  if(length2<1e-6)return null;
  const axis=grid.clone().cross(n).normalize(),origin=new THREE.Vector3(...spec.mirrorOrigin),distance=Number(spec.offset||0);
  const base=grid.clone().multiplyScalar(offset).addScaledVector(projected,(origin.dot(n)-offset*n.dot(grid))/length2).addScaledVector(axis,center.dot(axis));
- return {base,direction:projected.divideScalar(length2),axis,distance,snapBasis:[basis.u.clone(),basis.v.clone()],...(followCopy?{handleBase:center.clone().addScaledVector(n,-2*distance),handleDirection:n.clone().multiplyScalar(2),handleScale:2}:{})};
+ return {base,direction:projected.divideScalar(length2),axis,distance,snapBasis:[basis.u.clone(),basis.v.clone()],sourceCenter:sourceCenter?.clone(),...(followCopy?{handleBase:center.clone().addScaledVector(n,-2*distance),handleDirection:n.clone().multiplyScalar(2),handleScale:2}:{})};
 }
 
 // Signed displacement of a stable source anchor after reflection. Zero is
