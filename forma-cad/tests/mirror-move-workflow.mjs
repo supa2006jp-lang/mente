@@ -3,10 +3,18 @@ import * as THREE from 'three';
 import {defaults} from '../src/geometry.js';
 import {basisFor} from '../src/frames.js';
 import {mirrorGridLine,mirrorGridPlane} from '../src/mirror-grid-axis.js';
-import {mirrorSketchWorkflow,mirrorAxisReference,mirrorAxisDragValue,mirrorAxisDragSnap} from '../src/mirror-workflow.js';
+import {mirrorSketchWorkflow,mirrorAxisReference,mirrorAxisDragValue,mirrorAxisDragSnap,mirrorCopyTravel,mirrorCopyOffset} from '../src/mirror-workflow.js';
 import {sketchSegments} from '../src/sketch-selection.js';
 
 const frame={basis:basisFor({plane:'XY'}),offset:4},project=p=>({x:p.x*10,y:p.y*10});
+for(const basis of [frame.basis,basisFor({plane:'XZ'}),basisFor({plane:'CUSTOM',frame:{u:[Math.SQRT1_2,0,-Math.SQRT1_2],v:[0,1,0],n:[Math.SQRT1_2,0,Math.SQRT1_2]}})]){
+ const center=basis.u.clone().multiplyScalar(13).addScaledVector(basis.v,8).addScaledVector(basis.n,4),normal=basis.u,origin=center.clone().addScaledVector(normal,30*Math.sqrt(3)/2),spec={mirrorNormal:normal.toArray(),mirrorOrigin:origin.toArray()};
+ for(const travel of [-20,-10,0,10,20]){const offset=mirrorCopyOffset(center,spec,travel),actual=mirrorCopyTravel(center,spec,offset);assert(Math.abs(actual-travel)<1e-10);const reflected=center.clone().addScaledVector(normal,2*(origin.clone().sub(center).dot(normal)+offset));assert(reflected.distanceTo(center.clone().addScaledVector(normal,travel))<1e-10);}
+ // A snapped plane offset is irrational for this hexagon; keep exact snap
+ // coordinates internally rather than round the plane offset to four digits.
+ const offset=mirrorCopyOffset(center,spec,0),reference=mirrorAxisReference({basis,offset:4},{...spec,offset},center,{followCopy:true}),result=mirrorAxisDragSnap(offset+.0001,{snap:true,step:1,pixelsPerMm:10,reference,handle:true});
+ assert(result.snapped);assert(Math.abs(mirrorCopyTravel(center,spec,result.value))<1e-10);
+}
 for(const [point,normal] of [[[20.3,13,4],[1,0,0]],[[13,20.3,4],[0,1,0]]]){
  const line=mirrorGridLine(new THREE.Vector3(...point),frame,10,project),spec=mirrorGridPlane(line,frame.basis.n);assert.ok(Math.abs(new THREE.Vector3(...spec.mirrorNormal).dot(new THREE.Vector3(...normal)))>.999999);assert.equal(spec.mirrorOrigin[2],4);
 }
@@ -26,7 +34,7 @@ for(const basis of [frame.basis,tilted.basis])for(const step of [1,5,10,20]){
  for(const target of [-step,0,step,2*step]){
   const raw=(target-12)/2+.01,result=mirrorAxisDragSnap(raw,{snap:true,step,pixelsPerMm:12,reference:ref,handle:true});assert.equal(result.snapped,true);assert(Math.abs(ref.handleBase.clone().addScaledVector(ref.handleDirection,result.value).dot(basis.u)-target)<1e-7);
  }
- const axis=mirrorAxisDragSnap(2.02,{snap:true,step:10,pixelsPerMm:6,reference:ref});assert.equal(axis.snapped,true);assert.equal(axis.value,2);
+ const axis=mirrorAxisDragSnap(2.02,{snap:true,step:10,pixelsPerMm:6,reference:ref});assert.equal(axis.snapped,true);assert(Math.abs(axis.value-2)<1e-10);
  assert.equal(mirrorAxisDragSnap(.25,{snap:false,step,reference:ref,handle:true}).snapped,false);
 }
 const diagonalRef={base:new THREE.Vector3(3,4,0),direction:new THREE.Vector3(1,1,0).normalize(),snapBasis:[new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0)]},diagonal=mirrorAxisDragSnap(6*Math.SQRT2+.01,{snap:true,step:10,pixelsPerMm:10,reference:diagonalRef});assert(diagonal.snapped);assert(Math.abs(diagonalRef.base.clone().addScaledVector(diagonalRef.direction,diagonal.value).y-10)<1e-4);

@@ -26,6 +26,15 @@ export function mirrorAxisReference({basis,offset},spec,center,{followCopy=false
  return {base,direction:projected.divideScalar(length2),axis,distance,snapBasis:[basis.u.clone(),basis.v.clone()],...(followCopy?{handleBase:center.clone().addScaledVector(n,-2*distance),handleDirection:n.clone().multiplyScalar(2),handleScale:2}:{})};
 }
 
+// Signed displacement of a stable source anchor after reflection. Zero is
+// the source position, regardless of how far the chosen edge lies from it.
+export function mirrorCopyTravel(center,spec,offset=spec.offset||0){
+ const normal=new THREE.Vector3(...spec.mirrorNormal).normalize(),origin=new THREE.Vector3(...spec.mirrorOrigin);
+ return 2*(origin.sub(center).dot(normal)+offset);
+}
+
+export function mirrorCopyOffset(center,spec,travel){return (travel-mirrorCopyTravel(center,spec,0))/2;}
+
 // Snap the control's actual world position to workplane grid lines. A copy
 // travels twice as far as its mirror plane, including on offset/tilted frames.
 export function mirrorAxisDragSnap(raw,{snap=false,step=10,pixelsPerMm=1,reference=null,handle=false}={}){
@@ -36,7 +45,7 @@ export function mirrorAxisDragSnap(raw,{snap=false,step=10,pixelsPerMm=1,referen
   const origin=base.dot(axis),candidate=(Math.round((origin+value*speed)/step)*step-origin)/speed,distance=Math.abs(value-candidate);
   if(candidate>=-10000&&candidate<=10000&&distance<=Math.min(step*.2/Math.abs(speed),6/Math.max(.001,pixelsPerMm))+1e-9&&(!nearest||distance<nearest.distance))nearest={value:candidate,distance};
  }
- return {value:Number((nearest?.value??value).toFixed(4)),snapped:!!nearest};
+ return {value:nearest?.value??value,snapped:!!nearest};
 }
 
 export function mirrorAxisDragValue(raw,{snap=false,step=10,pixelsPerMm=1}={}){
