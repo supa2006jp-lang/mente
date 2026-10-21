@@ -27,7 +27,7 @@ function surfaceTriangles(object,axis,direction,leading){
   for(let i=0;i+2<count;i+=3){
    const a=positions[index?index.getX(i):i],b=positions[index?index.getX(i+1):i+1],c=positions[index?index.getX(i+2):i+2];
    const normal=(b[u]-a[u])*(c[v]-a[v])-(b[v]-a[v])*(c[u]-a[u]);
-   if(normal*direction*(leading?1:-1)<=1e-12)continue;
+   if(normal*(child.matrixWorld.determinant()<0?-1:1)*direction*(leading?1:-1)<=1e-12)continue;
    const p=[a,b,c].map(q=>({u:q[u],v:q[v],h:q[axis]})),height=heightEquation(p);
    if(!height)continue;
    result.push({p,height,minU:Math.min(...p.map(q=>q.u)),maxU:Math.max(...p.map(q=>q.u)),minV:Math.min(...p.map(q=>q.v)),maxV:Math.max(...p.map(q=>q.v))});
@@ -77,7 +77,7 @@ function indexTriangles(faces){
  return {bounds,cells,interval,buckets,wide};
 }
 
-function measuredDistance(from,to,direction){
+function measuredDistance(from,to,direction,forwardOnly=false){
  const grid=indexTriangles(to);
  if(!grid)return null;
  let best=Infinity;
@@ -88,10 +88,13 @@ function measuredDistance(from,to,direction){
   for(const i of candidates){
    const t=to[i];
    if(f.maxU<t.minU-EPS||f.minU>t.maxU+EPS||f.maxV<t.minV-EPS||f.minV>t.maxV+EPS)continue;
+   let low=Infinity,high=-Infinity;
    for(const {u,v} of intersection(f,t)){
     const source=f.height.u*u+f.height.v*v+f.height.c,dest=t.height.u*u+t.height.v*v+t.height.c;
-    best=Math.min(best,direction*(dest-source));
+    const distance=direction*(dest-source);low=Math.min(low,distance);high=Math.max(high,distance);
    }
+   if(!forwardOnly)best=Math.min(best,low);
+   else if(high>=-EPS)best=Math.min(best,Math.max(0,low));
   }
  }
  return Number.isFinite(best)?direction*best:null;
@@ -115,7 +118,13 @@ const identical=(a,b)=>a.length===b.length&&a.every((value,i)=>value===b[i]);
  * can be THREE.Mesh or THREE.Group. axisIndex is 0=X, 1=Y, 2=Z; direction is
  * +1 or -1. Caches the geometry result during an axis-only drag.
  */
-export function contactTranslation(moving,target,axisIndex,direction){
+export function contactTranslation(moving,target,axisIndex,direction){return measureContact(moving,target,axisIndex,direction,false);}
+
+// Unlike near-surface snapping, an unbounded move must ignore surfaces behind
+// the moving part, including the back wall of a hollow or concave target.
+export function forwardContactTranslation(moving,target,axisIndex,direction){return measureContact(moving,target,axisIndex,direction,true);}
+
+function measureContact(moving,target,axisIndex,direction,forwardOnly){
  if(!moving||!target||![0,1,2].includes(axisIndex)||![1,-1].includes(direction))return null;
  moving.updateMatrixWorld(true);target.updateMatrixWorld(true);
  const sourceBox=new THREE.Box3().setFromObject(moving),targetBox=new THREE.Box3().setFromObject(target);
@@ -127,12 +136,12 @@ export function contactTranslation(moving,target,axisIndex,direction){
  if(!targets){targets=new WeakMap();cache.set(moving,targets);}
  let entries=targets.get(target);
  if(!entries){entries=new Map();targets.set(target,entries);}
- const key=axisIndex+':'+direction,fromSignature=signature(moving,axisIndex,true),toSignature=signature(target,axisIndex,false);
+ const key=axisIndex+':'+direction+':'+forwardOnly,fromSignature=signature(moving,axisIndex,!forwardOnly),toSignature=signature(target,axisIndex,false);
  const axisPosition=moving.matrixWorld.elements[12+axisIndex],cached=entries.get(key);
  if(cached&&identical(cached.fromSignature,fromSignature)&&identical(cached.toSignature,toSignature))
   return cached.distance===null?null:cached.distance-(axisPosition-cached.axisPosition);
  const from=surfaceTriangles(moving,axisIndex,direction,true),to=surfaceTriangles(target,axisIndex,direction,false);
- const distance=from.length&&to.length?measuredDistance(from,to,direction):null;
+ const distance=from.length&&to.length?measuredDistance(from,to,direction,forwardOnly):null;
  entries.set(key,{fromSignature,toSignature,axisPosition,distance});
  return distance;
 }
