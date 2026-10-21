@@ -1,7 +1,8 @@
 import * as THREE from 'three';
+import {connectedPlanarGroup} from './connected-planar-faces.js';
 import {continuousCylinderGroup} from './continuous-cylinder-faces.js';
 import {facetedCylinderGroup,meshCylinderGroup} from './faceted-cylinder-faces.js';
-export function cadFaceGroup(geometry,faceIndex){if(!geometry.userData.faceGroups?.length)return meshCylinderGroup(geometry,faceIndex);const group=geometry.userData.faceGroups.find(f=>faceIndex*3>=f.start&&faceIndex*3<f.start+f.count);if(!group)return undefined;const curved=continuousCylinderGroup(geometry,group);return curved.cylinder?curved:facetedCylinderGroup(geometry,group);}
+export function cadFaceGroup(geometry,faceIndex){if(!geometry.userData.faceGroups?.length)return meshCylinderGroup(geometry,faceIndex);const group=geometry.userData.faceGroups.find(f=>faceIndex*3>=f.start&&faceIndex*3<f.start+f.count);if(!group)return undefined;const curved=continuousCylinderGroup(geometry,group),surface=curved.cylinder?curved:facetedCylinderGroup(geometry,group);return surface.cylinder?surface:connectedPlanarGroup(geometry,surface);}
 export function cadFaceKey(bodyId,group){return bodyId+':face:'+group.faceId;}
 export function cadFaceGeometry(geometry,group){
  const p=geometry.attributes.position,ix=geometry.index,positions=[];

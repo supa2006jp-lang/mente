@@ -1,4 +1,5 @@
 import {inspectBodyComponents,resizeBodies,compareBodyShapes} from './model-tool-geometry.js';
+import {selectedConnectedPlanarFace} from './cad-planar-face.js';
 import {extrusionJoinInfo,extrusionJoinContacts} from './extrusion-join-info.js';
 import {canInspectExtrusionJoins,assertExtrusionJoinContacts,extrusionJoinConnectionPath} from './extrusion-join-selection.js';
 import {circularPatternSpacing} from './circular-pattern-spacing.js';
@@ -203,10 +204,12 @@ function untaperedFeatureSolid(f,bodies){
  if(f.profile==='region'&&bodies&&(f.region.cadFace||f.region.bodyId)){
   const r=f.region,ref=r.cadFace||{bodyId:r.bodyId,normal:basisFor(r).n.toArray()},source=bodies.get(ref.bodyId);
   if(source){let point=ref.point;if(!point){const g=regionFaceGeometry(r),pos=g.attributes.position,ix=g.index,v=new THREE.Vector3();for(let i=0;i<3;i++)v.add(new THREE.Vector3().fromBufferAttribute(pos,ix?ix.getX(i):i));point=v.multiplyScalar(1/3).toArray();g.dispose();}
-   const face=selectedCadFaces(source,[{...ref,point}])[0];if(face.geomType!=='PLANE')throw Error('押し出す平面を選択し直してください');
-   if(f.mode==='thin')return extrudeCadFaceThin(face,r,f.depth,f.wall,f.side,f.skipHoleWalls);
-   if(cap){const wire=face.outerWire(),filled=R.makeFace(wire);try{return R.basicFaceExtrusion(filled,new R.Vector(basisFor(r).n.multiplyScalar(f.depth).toArray()));}finally{filled.delete();wire.delete();}}
-   return R.basicFaceExtrusion(face,new R.Vector(basisFor(r).n.multiplyScalar(f.depth).toArray()));
+   const face=selectedConnectedPlanarFace(source,{...ref,point}),direction=new R.Vector(basisFor(r).n.multiplyScalar(f.depth).toArray());
+   try{
+    if(f.mode==='thin')return extrudeCadFaceThin(face.clone(),r,f.depth,f.wall,f.side,f.skipHoleWalls);
+    if(cap){const wire=face.clone().outerWire(),filled=R.makeFace(wire);try{return R.basicFaceExtrusion(filled,direction);}finally{filled.delete();wire.delete();}}
+    return R.basicFaceExtrusion(face,direction);
+   }finally{direction.delete();face.delete();}
   }
   if(r.cadFace)throw Error('押し出し元の面が見つかりません。面を選択し直してください');
  }
