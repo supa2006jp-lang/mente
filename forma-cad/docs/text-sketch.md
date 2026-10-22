@@ -41,3 +41,4 @@
 - `node tests/text-layout-edit.mjs`：縦書きの並び・列・句読点・穴、4隅の拡大縮小、固定角と比率、移動吸着。
 - `node tests/text-layout-edit-native.mjs`：全4書体の縦書き・サイズ変更後の実CAD押し出しと斜めの平面、穴・体積・有効性。
 - `node tests/text-layout-edit-browser.mjs`：縦横切替、文字とハンドルのドラッグ、吸着解除、4隅・回転・XZ面のサイズ変更、プレビューの不変性、キャンセル、数値反映、押し出しと保存。
+- `node tests/text-overlay-lifecycle-browser.mjs`：文字編集中だけ枠を表示し、取消・入力エラー・配置・押し出しへの移行時に枠とハンドルを消す。古い枠の座標を残さない。
