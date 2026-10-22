@@ -1,0 +1,19 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import * as R from 'replicad';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import {defaults} from '../src/geometry.js';
+import {parseTextFont,textSketchLayout,textSketchFeatures} from '../src/text-sketch.js';
+import {findRegions} from '../src/regions.js';
+import {planTextEdit} from '../src/text-edit-history.js';
+import {runOperation,kernelBodies} from '../src/kernel.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));const b=await fs.readFile('assets/fonts/NotoSansCJKjp-Regular.otf'),font=parseTextFont(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength));
+const frame={u:[1,0,0],v:[0,1,0],n:[0,0,1]},placement={plane:'XY',frame,offset:10},make=(text,extra={})=>textSketchFeatures(textSketchLayout(font,{text,height:8,u:-20,v:-4,fontId:'gothic',...extra}),placement),base={...defaults,id:'base',kind:'extrusion',width:100,height:60,depth:10};
+function check(features,expected){const bodies=kernelBodies(features);try{let total=0;for(const shape of bodies.values()){const test=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{assert(test.IsValid());}finally{test.delete();}total+=R.measureVolume(shape);}assert(Math.abs(total-expected)<.01);}finally{bodies.forEach(shape=>shape.delete());}}
+for(const operation of ['new','cut','join']){
+ console.log('Native text edit: '+operation+' / prepare');
+ const sketches=make('O8'),regions=findRegions(sketches),input=operation==='new'?sketches:[base,...sketches],features=regions.map((region,i)=>({...defaults,id:'letter-'+i,kind:'extrusion',profile:'region',region,plane:'XY',x:0,y:0,z:10,sourceSketchIds:region.sourceIds,operation,target:operation==='new'?'':'base',depth:operation==='cut'?-1:1})),original=[...input,...runOperation(input,{type:'extrusionBatch',features}).features];
+ for(const text of ['A','AB8']){console.log('Native text edit: '+operation+' / '+text);const replacements=make(text,{height:9,angle:operation==='new'?15:0,writingMode:text.length===1?'vertical':'horizontal'}),plan=planTextEdit(original,sketches[0].id,replacements),result=runOperation(plan.features,{type:'replay',before:plan.before,start:plan.start}).features,area=findRegions(plan.sketches).reduce((n,r)=>n+r.area,0);check(result,(operation==='new'?0:60000)+(operation==='cut'?-area:area));assert.equal(result.filter(f=>f.kind==='extrusion'&&f.id!=='base').length,text.length);}
+ if(operation==='cut'){const later={...defaults,id:'later-cut',name:'後続の角穴',kind:'extrusion',width:5,height:4,x:30,y:15,z:10,depth:-1,operation:'cut',target:'base'},history=[...original,{...later,cadResult:runOperation(original,{type:'extrusion',target:'base',feature:later})}],plan=planTextEdit(history,sketches[0].id,make('AB')),result=runOperation(plan.features,{type:'replay',before:plan.before,start:plan.start}).features;check(result,60000-20-findRegions(plan.sketches).reduce((n,r)=>n+r.area,0));assert.equal(result.at(-1).id,'later-cut');}
+}
+const proof={textChangesAfterNewExtrusion:true,textChangesAfterEngraving:true,textChangesAfterJoin:true,moreAndFewerGlyphs:true,verticalTextAndRotation:true,downstreamCutReplayed:true,originalCutsRemoved:true,counterHolesPreserved:true,exactInkVolume:true,validSolids:true};await fs.mkdir('outputs/text-edit-tools',{recursive:true});await fs.writeFile('outputs/text-edit-tools/native-proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));

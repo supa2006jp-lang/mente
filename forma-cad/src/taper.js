@@ -1,11 +1,22 @@
 export const taperLimit=80;
+export function validateTaperOptions(f){
+ validateTaperAngle(f?.taperAngle??0);
+ if(f?.taperMode!==undefined&&!['all','oneSide'].includes(f.taperMode))throw Error('テーパーの方式が不正です');
+ if(f?.taperSide!==undefined&&!['u+','u-','v+','v-'].includes(f.taperSide))throw Error('テーパーの方向が不正です');
+}
 export function validateTaperAngle(angle=0){
  if(typeof angle!=='number'||!Number.isFinite(angle)||Math.abs(angle)>taperLimit)throw Error('テーパー角度は−80°〜80°で入力してください');
  return angle;
 }
 // Offset each profile corner along its two edge normals. The start cap stays fixed.
-export function taperGeometry(geometry,shapes,depth,angle=0){
+export function taperGeometry(geometry,shapes,depth,angle=0,options={}){
  validateTaperAngle(angle);if(!angle)return geometry;
+ if(options.taperMode==='oneSide'){
+  const side=options.taperSide??'u+',axis=side[0]==='u'?0:1,sign=side[1]==='+'?1:-1,p=geometry.attributes.position,values=Array.from({length:p.count},(_,i)=>axis?p.getY(i):p.getX(i)),min=values.reduce((a,b)=>Math.min(a,b),Infinity),max=values.reduce((a,b)=>Math.max(a,b),-Infinity),width=max-min,anchor=sign>0?min:max,shift=Math.abs(depth)*Math.tan(angle*Math.PI/180);
+  if(width<1e-8||width+shift<.001)throw Error('この角度では片側テーパーが潰れます。角度や距離を小さくしてください');
+  for(let i=0;i<p.count;i++){const z=depth<0?Math.abs(depth)-p.getZ(i):p.getZ(i),delta=z*Math.tan(angle*Math.PI/180),value=values[i]+(values[i]-anchor)*delta/width;if(axis)p.setY(i,value);else p.setX(i,value);}
+  p.needsUpdate=true;geometry.computeVertexNormals();return geometry;
+ }
  const corners=[];
  for(const shape of shapes){const paths=shape.extractPoints(64);for(const [index,path] of [paths.shape,...paths.holes].entries()){
   const ring=path.filter((p,i)=>!i||p.distanceTo(path[i-1])>1e-8);if(ring.length>1&&ring[0].distanceTo(ring.at(-1))<1e-8)ring.pop();

@@ -6,7 +6,7 @@ import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
 import {extrusionCircularWalls} from './extrusion-circular-walls.js';
 import {allExtrusionTargets} from './extrusion-targets.js';
 import {validateExtrusionSymmetry,symmetricSurface} from './extrusion-symmetry.js';
-import {taperGeometry,validateTaperAngle} from './taper.js';
+import {taperGeometry,validateTaperAngle,validateTaperOptions} from './taper.js';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {validateReferenceImage} from './reference-image-data.js';
 import {basisFor,frameMatrix,validateFrame,worldPoint} from './frames.js';
@@ -21,7 +21,7 @@ export const evaluator = new Evaluator(); evaluator.useGroups=false;
 evaluator.attributes=['position','normal'];
 const enums={profile:['point','rect','circle','line','region','spline','polyline'],mode:['solid','thin'],side:['inside','outside','center'],plane:['XY','XZ','YZ','CUSTOM'],operation:['new','join','cut']};
 export function validateFeature(f){
- validateTaperAngle(f?.taperAngle??0);
+ validateTaperOptions(f);
  if(!f || typeof f!=='object') throw Error('形状データが不正です。');
  validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateExtrusionBarrier(f);
  if(f.endPlane!==undefined){if(f.kind!=='extrusion'||f.gridExtentPlane||f.throughAll||f.untilSolid)throw Error('到達先の面とグリッド・貫通・ソリッド接触は同時に使えません');depthToFacePlane(f,f.endPlane);}
@@ -58,7 +58,7 @@ function preciseFeatureGeometry(input){
 }
 function preciseRegionGeometry(...args){const g=extrudeRegion(...args);try{return preciseGeometry(g);}finally{g.dispose();}}
 function directionalGeometry(input){
- let f=input;if(f.holesOnly){const parts=f.region.holes.map(outer=>preciseRegionGeometry({...f.region,outer,holes:[]},f.depth,'solid',2,'inside',false,f.taperAngle??0));const result=mergeGeometries(parts);for(const part of parts)part.dispose();return result;}if(f.capHoles&&f.mode==='solid'&&f.region)f={...f,region:{...f.region,holes:[]}};if(f.profile==='region')return preciseRegionGeometry(f.region,f.depth,f.mode,f.wall,f.side,f.skipHoleWalls===true,f.taperAngle??0); let shape=new THREE.Shape();
+ let f=input;if(f.holesOnly){const parts=f.region.holes.map(outer=>preciseRegionGeometry({...f.region,outer,holes:[]},f.depth,'solid',2,'inside',false,f.taperAngle??0,f));const result=mergeGeometries(parts);for(const part of parts)part.dispose();return result;}if(f.capHoles&&f.mode==='solid'&&f.region)f={...f,region:{...f.region,holes:[]}};if(f.profile==='region')return preciseRegionGeometry(f.region,f.depth,f.mode,f.wall,f.side,f.skipHoleWalls===true,f.taperAngle??0,f); let shape=new THREE.Shape();
  const outer=f.mode==='thin'?(f.side==='outside'?f.wall:f.side==='center'?f.wall/2:0):0;
  const inner=f.side==='inside'?f.wall:f.side==='center'?f.wall/2:0;
  if(f.profile==='rect'){
@@ -74,7 +74,7 @@ function directionalGeometry(input){
   shape.getPoints(); shape.userData={shift};
  }
  const g=preciseExtrusionGeometry(shape,{depth:Math.abs(f.depth),bevelEnabled:false,curveSegments:64,steps:1});
- taperGeometry(g,[shape],f.depth,f.taperAngle??0);
+ taperGeometry(g,[shape],f.depth,f.taperAngle??0,f);
  if(f.profile==='line') g.translate(0,shape.userData.shift,0);
  if(f.depth<0) g.translate(0,0,f.depth);
  g.rotateZ(f.angle*Math.PI/180);
@@ -104,7 +104,7 @@ export function rebuild(features){
  }catch(e){for(const b of bodies.values()) b.geometry.dispose();throw e;}
 }
 export function volume(g){const p=cadPosition(g),idx=g.index;let v=0;const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();for(let i=0;i<(idx?idx.count:p.count);i+=3){a.fromBufferAttribute(p,idx?idx.getX(i):i);b.fromBufferAttribute(p,idx?idx.getX(i+1):i+1);c.fromBufferAttribute(p,idx?idx.getX(i+2):i+2);v+=a.dot(b.cross(c))/6;}return Math.abs(v);}
-export const defaults={profile:'rect',mode:'solid',side:'inside',plane:'XY',operation:'new',target:'',width:60,height:40,diameter:30,depth:2,wall:2,x:0,y:0,z:0,angle:0,taperAngle:0};
+export const defaults={profile:'rect',mode:'solid',side:'inside',plane:'XY',operation:'new',target:'',width:60,height:40,diameter:30,depth:2,wall:2,x:0,y:0,z:0,angle:0,taperAngle:0,taperMode:'all',taperSide:'u+'};
 export function validateProject(data){
  if(data?.format!=='forma-cad'||data.version!==1||!Array.isArray(data.features)||data.features.length>150)throw Error('対応するFORMA CADファイルではありません（最大150工程）。');
  const ids=new Set(),bodyIds=new Set();

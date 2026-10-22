@@ -72,8 +72,8 @@ export function thinShapes(r,wall,side,skipHoleWalls=false){
  const c=new Clipper.Clipper();c.AddPaths(outer,Clipper.PolyType.ptSubject,true);c.AddPaths(inner,Clipper.PolyType.ptClip,true);const tree=new Clipper.PolyTree();c.Execute(Clipper.ClipType.ctDifference,tree,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
  const shapes=[];for(let n=tree.GetFirst();n;n=n.GetNext()){if(n.IsHole())continue;shapes.push(pathToShape({outer:n.Contour().map(p=>[p.X/SCALE,p.Y/SCALE]),holes:n.Childs().filter(x=>x.IsHole()).map(h=>h.Contour().map(p=>[p.X/SCALE,p.Y/SCALE]))}));}if(!shapes.length)throw Error('薄い押し出しの領域を作成できません。');return shapes;
 }
-export function extrudeRegion(r,depth,mode='solid',wall=2,side='inside',skipHoleWalls=false,taperAngle=0){
- validateRegion(r);const shapes=mode==='thin'?thinShapes(r,wall,side,skipHoleWalls):[pathToShape(r)];const g=preciseExtrusionGeometry(shapes,{depth:Math.abs(depth),bevelEnabled:false,steps:1});taperGeometry(g,shapes,depth,taperAngle);if(depth<0)g.translate(0,0,depth);return renderPreciseGeometry(transform(g,r));
+export function extrudeRegion(r,depth,mode='solid',wall=2,side='inside',skipHoleWalls=false,taperAngle=0,taperOptions={}){
+ validateRegion(r);const shapes=mode==='thin'?thinShapes(r,wall,side,skipHoleWalls):[pathToShape(r)];const g=preciseExtrusionGeometry(shapes,{depth:Math.abs(depth),bevelEnabled:false,steps:1});taperGeometry(g,shapes,depth,taperAngle,taperOptions);if(depth<0)g.translate(0,0,depth);return renderPreciseGeometry(transform(g,r));
 }
 
 function boundarySources(region,segments){

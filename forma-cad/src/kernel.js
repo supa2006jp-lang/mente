@@ -26,7 +26,7 @@ import {planPrintLayout,printLayoutBounds} from './print-layout.js';
 import {makeSnapLid,snapLidInfo} from './snap-lid.js';
 import {svgCylinderInfo,wrapSvgSolid} from './svg-wrap.js';
 import {allExtrusionTargets,multipleExtrusionTargets,extrusionTargetEntries,batchExtrusionFeature} from './extrusion-targets.js';
-import {validateTaperAngle} from './taper.js';
+import {validateTaperAngle,validateTaperOptions} from './taper.js';
 import {validateExtrusionSymmetry} from './extrusion-symmetry.js';
 import {draftExtrusion} from './extrusion-taper.js';
 import {cutWithClearance} from './cut-clearance.js';
@@ -177,7 +177,7 @@ function extrudeCadFaceThin(face,region,depth,wall,side,skipHoleWalls=false){
  }finally{for(const part of parts)part.delete();for(const shape of resources)shape.delete();face.delete();}
 }
 export function featureSolid(f,bodies){
- validateTaperAngle(f.taperAngle??0);validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateExtrusionBarrier(f);
+ validateTaperOptions(f);validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateExtrusionBarrier(f);
  if(!f.symmetric)return draftExtrusion(untaperedFeatureSolid({...f,taperAngle:0},bodies),f);
  let depth=Math.abs(f.depth);
  if(f.operation==='cut'&&f.throughAll&&bodies){

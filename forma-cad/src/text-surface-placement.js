@@ -16,7 +16,7 @@ export function textSurfacePlacement(hit,referenceFrame){
  if(u.lengthSq()<1e-10)u=new THREE.Vector3(...referenceFrame.v).cross(n);
  if(u.lengthSq()<1e-10){u=Math.abs(n.x)<.9?new THREE.Vector3(1,0,0):new THREE.Vector3(0,1,0);u.addScaledVector(n,-u.dot(n));}
  u.normalize();const v=n.clone().cross(u).normalize(),point=hit.point.clone().addScaledVector(n,worldOffset-n.dot(hit.point));
- return {placement:{plane:'CUSTOM',frame:{u:u.toArray(),v:v.toArray(),n:n.toArray()},offset:worldOffset,bodyId:mesh.userData.bodyId,label:'ソリッドの表面'},point};
+ return {placement:{plane:'CUSTOM',frame:{u:u.toArray(),v:v.toArray(),n:n.toArray()},offset:worldOffset,bodyId:mesh.userData.bodyId,faceIndex:hit.faceIndex,label:'ソリッドの表面'},point};
 }
 
 export function createTextSurfacePicker({camera,canvas,getMeshes=()=>[],getName=id=>id}){
@@ -38,5 +38,5 @@ export function textMoveToSurface(layout,surface,{enabled=false,step=0,shift=fal
 }
 export function textPlacementMatrix(initial,source,values,target=source){
  const basis=placement=>new THREE.Matrix4().makeBasis(...['u','v','n'].map(key=>new THREE.Vector3(...placement.frame[key])));
- return basis(target).multiply(new THREE.Matrix4().makeTranslation(values.u,values.v,target.offset)).multiply(new THREE.Matrix4().makeScale(values.scale,values.scale,values.scale)).multiply(new THREE.Matrix4().makeTranslation(-initial.u,-initial.v,-source.offset)).multiply(basis(source).invert());
+ return basis(target).multiply(new THREE.Matrix4().makeTranslation(values.u,values.v,target.offset)).multiply(new THREE.Matrix4().makeRotationZ(((values.angle??initial.angle)-initial.angle)*Math.PI/180)).multiply(new THREE.Matrix4().makeScale(values.scale,values.scale,values.scale)).multiply(new THREE.Matrix4().makeTranslation(-initial.u,-initial.v,-source.offset)).multiply(basis(source).invert());
 }

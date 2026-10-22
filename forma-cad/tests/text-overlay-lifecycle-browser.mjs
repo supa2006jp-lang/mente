@@ -7,9 +7,9 @@ const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use
 const page=await browser.newPage({viewport:{width:1600,height:1100},acceptDownloads:true}),errors=[];
 page.on('pageerror',error=>errors.push(error.message));
 const bounds=page.locator('#text-sketch-bounds'),dialog=page.locator('#text-sketch-dialog');
-const overlays=page.locator('#text-sketch-bounds,#text-sketch-drag,.text-sketch-corner');
+const overlays=page.locator('#text-sketch-bounds,#text-sketch-drag,#text-sketch-rotate,.text-sketch-corner');
 async function frame(){await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));}
-async function hidden(){await frame();assert.deepEqual(await overlays.evaluateAll(items=>items.map(item=>getComputedStyle(item).display)),Array(6).fill('none'),'All text editing overlays must disappear together');assert.equal(await bounds.locator('polygon').getAttribute('points'),'','A hidden frame must not retain old text bounds');}
+async function hidden(){await frame();assert.deepEqual(await overlays.evaluateAll(items=>items.map(item=>getComputedStyle(item).display)),Array(7).fill('none'),'All text editing overlays must disappear together');assert.equal(await bounds.locator('polygon').getAttribute('points'),'','A hidden frame must not retain old text bounds');}
 async function ready(text){await page.locator('#text-sketch-text').fill(text);await page.waitForFunction(text=>{const state=JSON.parse(document.getElementById('canvas-host').dataset.textSketchPreview||'null');return state?.text===text&&!document.getElementById('text-sketch-apply').disabled;},text);await frame();assert.equal(await bounds.isVisible(),true);assert.notEqual(await bounds.locator('polygon').getAttribute('points'),'');}
 try{
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:5188/');await page.locator('#new-text').waitFor();

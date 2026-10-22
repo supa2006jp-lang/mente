@@ -1,6 +1,7 @@
 import * as R from 'replicad';
 import {basisFor,worldPoint} from './frames.js';
 import {validateTaperAngle} from './taper.js';
+import {oneSidedTaper} from './one-sided-taper.js';
 function faceArea(wire){const face=R.makeFace(wire);try{return R.measureArea(face);}finally{face.delete();}}
 function loftTaper(shape,origin,normal,angle){
  const faces=shape.faces,parts=[];let result;
@@ -28,6 +29,7 @@ function loftTaper(shape,origin,normal,angle){
 }
 export function draftExtrusion(shape,feature){
  const angle=validateTaperAngle(feature.taperAngle??0);if(!angle)return shape;
+ if(feature.taperMode==='oneSide')return oneSidedTaper(shape,feature);
  const profile=feature.region||feature,b=basisFor(profile),normal=b.n.multiplyScalar(Math.sign(feature.depth)),origin=feature.region?worldPoint(profile,profile.outer[0]).toArray():[feature.x,feature.y,feature.z];
  const plane=new R.Plane(origin,b.u.toArray(),normal.toArray());let drafted,check;
  try{
