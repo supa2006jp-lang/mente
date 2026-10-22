@@ -3645,7 +3645,7 @@ faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,c
 });
 
 // Text becomes ordinary closed sketch contours, so every existing extrusion mode applies.
-textSketchController=createTextSketchDialog({scene,camera,canvas:renderer.domElement,host,getFeatures:()=>features,getControls:()=>controls,getSnap:()=>({enabled:$('snap-enabled').checked,step:Number(host.dataset.sketchGridDisplayStep)||gridStep}),notify,
+textSketchController=createTextSketchDialog({scene,camera,canvas:renderer.domElement,host,getFeatures:()=>features,getMeshes:()=>[...meshes.values()],getBodyName:bodyDisplayName,getControls:()=>controls,getSnap:()=>({enabled:$('snap-enabled').checked,step:Number(host.dataset.sketchGridDisplayStep)||gridStep}),notify,
  onApply:(batch,{original,extrude,isCurrent})=>{
   if(features!==original||!isCurrent())throw Error('モデルが変更されました');const groupNumber=Math.max(0,...features.map(f=>f.groupNumber||0))+1;batch=batch.map(f=>({...f,groupNumber,groupHidden:false}));for(const f of batch)validateFeature(f);
   const regions=findRegions(batch);setProject([...features,...batch]);textSketchController.close();finishSketch(false);dropPreview();selected=null;stage='model';pendingExtrude=false;draftTouched=false;activeSketchGroup=batch[0].groupId;editingSketchGroup=null;
