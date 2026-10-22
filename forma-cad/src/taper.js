@@ -1,8 +1,10 @@
+import {contourTaperPlan,contourTaperCorners} from './contour-taper.js';
 export const taperLimit=80;
 export function validateTaperOptions(f){
  validateTaperAngle(f?.taperAngle??0);
- if(f?.taperMode!==undefined&&!['all','oneSide'].includes(f.taperMode))throw Error('テーパーの方式が不正です');
+ if(f?.taperMode!==undefined&&!['all','oneSide','inner','outer'].includes(f.taperMode))throw Error('テーパーの方式が不正です');
  if(f?.taperSide!==undefined&&!['u+','u-','v+','v-'].includes(f.taperSide))throw Error('テーパーの方向が不正です');
+ if(f?.taperReference!==undefined&&!['normal','base'].includes(f.taperReference))throw Error('テーパー角度の基準が不正です');
 }
 export function validateTaperAngle(angle=0){
  if(typeof angle!=='number'||!Number.isFinite(angle)||Math.abs(angle)>taperLimit)throw Error('テーパー角度は−80°〜80°で入力してください');
@@ -17,7 +19,7 @@ export function taperGeometry(geometry,shapes,depth,angle=0,options={}){
   for(let i=0;i<p.count;i++){const z=depth<0?Math.abs(depth)-p.getZ(i):p.getZ(i),delta=z*Math.tan(angle*Math.PI/180),value=values[i]+(values[i]-anchor)*delta/width;if(axis)p.setY(i,value);else p.setX(i,value);}
   p.needsUpdate=true;geometry.computeVertexNormals();return geometry;
  }
- const corners=[];
+ let corners=[];
  for(const shape of shapes){const paths=shape.extractPoints(64);for(const [index,path] of [paths.shape,...paths.holes].entries()){
   const ring=path.filter((p,i)=>!i||p.distanceTo(path[i-1])>1e-8);if(ring.length>1&&ring[0].distanceTo(ring.at(-1))<1e-8)ring.pop();
   const area=ring.reduce((sum,p,i)=>sum+p.x*ring[(i+1)%ring.length].y-p.y*ring[(i+1)%ring.length].x,0),sign=(area>0?1:-1)*(index? -1:1);
@@ -27,6 +29,9 @@ export function taperGeometry(geometry,shapes,depth,angle=0,options={}){
    corners.push({x:p.x,y:p.y,dx:(ax+bx)/den,dy:(ay+by)/den});
   }
  }}
+ if(['inner','outer'].includes(options.taperMode)){
+  corners=[];for(const shape of shapes){const paths=shape.extractPoints(64),rings=[paths.shape,...paths.holes].map(path=>{const ring=path.filter((p,i)=>!i||p.distanceTo(path[i-1])>1e-8);if(ring.length>1&&ring[0].distanceTo(ring.at(-1))<1e-8)ring.pop();return ring.map(p=>[p.x,p.y]);});corners.push(...contourTaperCorners(contourTaperPlan(rings,options.taperMode)));}
+ }
  const positions=geometry.attributes.position,slope=Math.tan(angle*Math.PI/180);
  for(let i=0;i<positions.count;i++){const z=depth<0?Math.abs(depth)-positions.getZ(i):positions.getZ(i);if(z<1e-8)continue;const x=positions.getX(i),y=positions.getY(i);let match,best=Infinity;for(const p of corners){const distance=(p.x-x)**2+(p.y-y)**2;if(distance<best){best=distance;match=p;}}
   if(!match||best>1e-5)throw Error('テーパーの輪郭を取得できません');const shift=z*slope;positions.setXY(i,x+match.dx*shift,y+match.dy*shift);

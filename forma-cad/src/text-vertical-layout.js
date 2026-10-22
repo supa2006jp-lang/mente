@@ -10,7 +10,7 @@ function verticalSubstitutions(font){
 const rotateCharacters=new Set([...'ー－—–‐-〜～…‥「」『』【】〈〉《》（）〔〕［］｛｝()[]{}<>']);
 
 // Keep one upright character per cell. Newlines start columns to the left.
-export function verticalTextRings(font,lines,{height,spacing,align,tolerance,flatten}){
+export function verticalTextRings(font,lines,{height,cellHeight=height,spacing,align,tolerance,flatten}){
  const em=font.unitsPerEm,unit=1000/em,os=font.tables?.os2,centerY=((os?.sTypoAscender??font.ascender)+(os?.sTypoDescender??font.descender))/2*unit,map=verticalSubstitutions(font);
  let commandCount=0;
  const columns=lines.map(line=>[...line.replace(/\t/g,'    ')].map(character=>{
@@ -22,7 +22,7 @@ export function verticalTextRings(font,lines,{height,spacing,align,tolerance,fla
   return {character,path,transform,min:[Math.min(...xs),Math.min(...ys)],max:[Math.max(...xs),Math.max(...ys)],glyphIndex:glyph.index,substituted:index!==undefined,rotated:rotate};
  }));
  const glyphs=columns.flat().filter(g=>!g.empty&&g.path.commands.length),inkHeight=Math.max(0,...glyphs.map(g=>g.max[1]-g.min[1]));if(!(inkHeight>0))throw Error('輪郭のある文字を入力してください');
- const scale=height/inkHeight,cell=Math.max(1000,...glyphs.map(g=>g.max[1]-g.min[1]))*scale,pitch=cell+spacing,columnPitch=Math.max(1000,...glyphs.map(g=>g.max[0]-g.min[0]))*scale*1.5,rings=[],placements=[];
+ const scale=height/inkHeight,cellScale=cellHeight/inkHeight,cell=Math.max(1000,...glyphs.map(g=>g.max[1]-g.min[1]))*cellScale,pitch=cell+spacing,columnPitch=Math.max(1000,...glyphs.map(g=>g.max[0]-g.min[0]))*cellScale*1.5,rings=[],placements=[];
  const longest=Math.max(...columns.map(c=>c.length));
  for(let col=0;col<columns.length;col++){
   const extra=(longest-columns[col].length)*pitch,shift=align==='center'?extra/2:align==='right'?extra:0;

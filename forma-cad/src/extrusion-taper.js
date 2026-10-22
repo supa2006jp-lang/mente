@@ -2,8 +2,9 @@ import * as R from 'replicad';
 import {basisFor,worldPoint} from './frames.js';
 import {validateTaperAngle} from './taper.js';
 import {oneSidedTaper} from './one-sided-taper.js';
+import {contourSideTaper} from './contour-side-taper.js';
 function faceArea(wire){const face=R.makeFace(wire);try{return R.measureArea(face);}finally{face.delete();}}
-function loftTaper(shape,origin,normal,angle){
+function loftTaper(shape,origin,normal,angle,mode='all'){
  const faces=shape.faces,parts=[];let result;
  const coordinate=p=>(p[0]-origin[0])*normal.x+(p[1]-origin[1])*normal.y+(p[2]-origin[2])*normal.z;
  const parallel=face=>{const n=face.normalAt();try{return Math.abs(n.x*normal.x+n.y*normal.y+n.z*normal.z)/n.Length>.999999;}finally{n.delete();}};
@@ -12,10 +13,10 @@ function loftTaper(shape,origin,normal,angle){
  const shift=height*Math.tan(angle*Math.PI/180);
  const band=(wire,hole)=>{
   let end,a,b;try{
-   const initial=faceArea(wire),delta=hole?-shift:shift;
-   end=wire.clone().offset2D(delta,'intersection');
-   if((faceArea(end)-initial)*delta<=0){end.delete();end=wire.clone().offset2D(-delta,'intersection');}
-   if((faceArea(end)-initial)*delta<=0)throw Error('collapsed');
+   const initial=faceArea(wire),fixed=mode==='inner'&&!hole||mode==='outer'&&hole,delta=fixed?0:hole?-shift:shift;
+   end=delta?wire.clone().offset2D(delta,'intersection'):wire.clone();
+   if(delta&&(faceArea(end)-initial)*delta<=0){end.delete();end=wire.clone().offset2D(-delta,'intersection');}
+   if(delta&&(faceArea(end)-initial)*delta<=0)throw Error('collapsed');
    const point=end.startPoint;let offset;try{offset=coordinate(point.toTuple());}finally{point.delete();}
    end=end.translate(normal.clone().multiplyScalar(height-offset).toArray());
    a=new R.Sketch(wire.clone());b=new R.Sketch(end);end=null;return a.loftWith(b,{ruled:true});
@@ -31,6 +32,7 @@ export function draftExtrusion(shape,feature){
  const angle=validateTaperAngle(feature.taperAngle??0);if(!angle)return shape;
  if(feature.taperMode==='oneSide')return oneSidedTaper(shape,feature);
  const profile=feature.region||feature,b=basisFor(profile),normal=b.n.multiplyScalar(Math.sign(feature.depth)),origin=feature.region?worldPoint(profile,profile.outer[0]).toArray():[feature.x,feature.y,feature.z];
+ if(['inner','outer'].includes(feature.taperMode))return contourSideTaper(shape,feature,()=>loftTaper(shape,origin,normal,angle,feature.taperMode));
  const plane=new R.Plane(origin,b.u.toArray(),normal.toArray());let drafted,check;
  try{
   // OCCT's positive draft goes inward; Fusion's positive taper goes outward.

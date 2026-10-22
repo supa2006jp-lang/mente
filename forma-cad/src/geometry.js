@@ -104,7 +104,7 @@ export function rebuild(features){
  }catch(e){for(const b of bodies.values()) b.geometry.dispose();throw e;}
 }
 export function volume(g){const p=cadPosition(g),idx=g.index;let v=0;const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();for(let i=0;i<(idx?idx.count:p.count);i+=3){a.fromBufferAttribute(p,idx?idx.getX(i):i);b.fromBufferAttribute(p,idx?idx.getX(i+1):i+1);c.fromBufferAttribute(p,idx?idx.getX(i+2):i+2);v+=a.dot(b.cross(c))/6;}return Math.abs(v);}
-export const defaults={profile:'rect',mode:'solid',side:'inside',plane:'XY',operation:'new',target:'',width:60,height:40,diameter:30,depth:2,wall:2,x:0,y:0,z:0,angle:0,taperAngle:0,taperMode:'all',taperSide:'u+'};
+export const defaults={profile:'rect',mode:'solid',side:'inside',plane:'XY',operation:'new',target:'',width:60,height:40,diameter:30,depth:2,wall:2,x:0,y:0,z:0,angle:0,taperAngle:0,taperMode:'all',taperSide:'u+',taperReference:'normal'};
 export function validateProject(data){
  if(data?.format!=='forma-cad'||data.version!==1||!Array.isArray(data.features)||data.features.length>150)throw Error('対応するFORMA CADファイルではありません（最大150工程）。');
  const ids=new Set(),bodyIds=new Set();
