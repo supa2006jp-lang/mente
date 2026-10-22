@@ -1,4 +1,4 @@
-const safe=new Set(['shell','fillet','trimSurface','pipe','enclose','circular','pull']);
+const safe=new Set(['shell','fillet','trimSurface','pipe','enclose','circular','pull','join']);
 const sorted=value=>Array.isArray(value)?value.map(sorted):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,sorted(value[key])])):value;
 const key=spec=>{const {id,...input}=spec;return JSON.stringify(sorted(input));};
 export class MachiningPreviewCache{

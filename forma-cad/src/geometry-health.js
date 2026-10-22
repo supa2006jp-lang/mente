@@ -1,4 +1,5 @@
 import * as R from 'replicad';
+import {classifyHealthFindings} from './geometry-health-delta.js';
 import {MODEL_PRECISION as P,microLength,volumeAllowance,isContactDistance} from './model-precision.js';
 
 const bounds=shape=>{const box=shape.boundingBox;try{return box.bounds.map(p=>[...p]);}finally{box.delete();}};
@@ -79,6 +80,16 @@ export function inspectGeometryHealth(bodies,{targets=[...bodies.keys()],thresho
 
 export function diagnoseOutputHealth(bodies,result,spec){
  const budget=healthBudget(),rows=[];
- for(const output of result.outputs||[]){if(!output.brep)continue;const shape=R.deserializeShape(output.brep).asShape3D();try{const row=inspectShapeHealth(shape,{id:output.id,before:bodies.get(output.id),bodies,spec,budget});if(!row.valid)throw Error('加工結果のソリッドに異常があります。元の形状は変更していません');rows.push(row);}finally{shape.delete();}}
+ for(const output of result.outputs||[]){if(!output.brep)continue;const shape=R.deserializeShape(output.brep).asShape3D();try{const row=inspectOperationHealth(shape,{id:output.id,before:bodies.get(output.id),bodies,spec,budget});if(!row.valid)throw Error('加工結果のソリッドに異常があります。元の形状は変更していません');rows.push(row);}finally{shape.delete();}}
  if(rows.length)result.analysis={...result.analysis,geometryHealth:{version:P.version,rows}};return result;
+}
+
+export function inspectOperationHealth(shape,options){
+ const row=inspectShapeHealth(shape,options);
+ const ids=[...new Set([options.id,options.spec?.target,...(options.spec?.type==='join'?(options.spec.others||[options.spec.other]):[])])].filter(id=>options.bodies.has(id));
+ if(!row.findings.length)return {...row,comparison:{complete:true,new:0,existing:0,unknown:0}};
+ const baselines=[],budget=healthBudget();
+ for(const id of ids.slice(0,20))baselines.push(inspectShapeHealth(options.bodies.get(id),{id,bodies:options.bodies,threshold:row.threshold,budget}));
+ if(ids.length>20)baselines.push({findings:[],partial:true});
+ return classifyHealthFindings(row,baselines);
 }
