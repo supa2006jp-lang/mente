@@ -8,12 +8,18 @@
 
 輪郭は通常の閉じたポリラインとして保存します。フォントを埋め込まず、保存・再読み込み、移動、後続のCAD処理、STL出力に利用できます。配置後の文字列やフォントの再編集には対応していません。必要なら配置を元に戻し、文字を変更して配置し直してください。既存工程と文字の輪郭・押し出しを合わせて工程数150、文字輪郭15,000頂点までです。複雑な長文は分割してください。
 
-標準フォントは日本語を含む Noto Sans CJK JP Regular です。文字機能の利用時に同じサイトの `fonts/` から読み込みます。TTF・OTF・WOFF形式の手持ちのフォントも端末内で読み込めます。未収録文字は警告し、代替の四角い字形で確定しません。
+「フォント」で、ゴシック（Noto Sans CJK JP）、太字ゴシック（Noto Sans CJK JP Bold）、明朝（Noto Serif CJK JP）、丸ゴシック（Zen Maru Gothic）の4種類から選べます。いずれも日本語・英数字に対応し、選んだ書体の実際の輪郭をプレビュー・押し出しに使います。切り替えても文字・高さ・字間・角度・位置・揃え方は維持します。
+
+選択した書体だけを同じサイトの `fonts/` から読み込み、読み込み済みの書体は再利用します。読み込み中は確定できず、読み込みが前後しても最後に選んだ書体を使います。TTF・OTF・WOFF形式の手持ちのフォントも端末内で読み込め、メニューの「読み込み：ファイル名」から再選択できます。「標準フォントに戻す」はゴシックへ戻します。未収録文字は警告し、代替の四角い字形で確定しません。
 
 ## 同梱フォント
 
 - 原本：[Noto CJK / Japanese Regular](https://github.com/notofonts/noto-cjk/blob/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf)
 - ライセンス：[SIL Open Font License 1.1](https://github.com/notofonts/noto-cjk/blob/main/Sans/LICENSE)。`assets/fonts/OFL.txt` と配布先 `dist/fonts/OFL.txt` に同梱。フォント本体は未変更。
+- 太字：[Noto Sans CJK JP Bold](https://github.com/notofonts/noto-cjk/blob/main/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf)。ゴシックと同じライセンス。
+- 明朝：[Noto Serif CJK JP Regular](https://github.com/notofonts/noto-cjk/blob/main/Serif/OTF/Japanese/NotoSerifCJKjp-Regular.otf)。ライセンスは `NotoSerif-OFL.txt` に同梱。
+- 丸ゴシック：[Zen Maru Gothic Regular](https://github.com/google/fonts/blob/main/ofl/zenmarugothic/ZenMaruGothic-Regular.ttf)。ライセンスは `ZenMaruGothic-OFL.txt` に同梱。
+- すべてのフォントは原本のまま配布。各ライセンス・著作権・出典とハッシュは `assets/fonts/` と `dist/fonts/` の `NOTICE.txt` に記載。
 - 輪郭抽出：[OpenType.js](https://opentype.js.org/) 1.3.4（MIT）。既存ロック内の依存を直接依存として明示。
 
 曲線の輪郭は物理寸法に応じた誤差上限0.002〜0.02 mmで分割し、非ゼロ巻き数で重なる筆画を統合します。文字の穴の情報は輪郭に保存され、一般スケッチの入れ子領域の扱いには影響しません。
@@ -23,3 +29,6 @@
 - `node tests/text-sketch.mjs`：日本語／英数字、文字内の穴、字間・高さ・揃え・回転、改行、保存、移動、入力エラー、一般スケッチ。
 - `node tests/text-sketch-native.mjs`：実CADの日本語／英数字押し出し、斜めの平面、穴を除いた体積、切り取り、有効なソリッド。
 - `node tests/text-sketch-browser.mjs`：実画面のプレビュー、配置、吸着、キャンセル、元に戻す／やり直す、一括押し出し、保存・再読み込み、フォント切替。
+- `node tests/text-fonts.mjs`：4種類の実輪郭・文字内の穴・保存、遅延読み込み・キャッシュ・失敗後の再試行。
+- `node tests/text-fonts-native.mjs`：4種類すべての日本語・英数字の実CAD押し出し、有効なソリッドと穴を除いた体積。
+- `node tests/text-fonts-browser.mjs`：メニュー切替、設定維持、遅い読み込みによる逆戻り防止、失敗と再試行、読み込み中の確定防止、ファイル読み込み、保存・再読み込みと一括押し出し。

@@ -1,9 +1,25 @@
-Noto Sans CJK JP Regular, Version 2.004
+Noto Sans CJK JP (NotoSansCJKjp-Regular.otf)
 © 2014-2021 Adobe (http://www.adobe.com/).
-
-Source (unmodified font):
-https://github.com/notofonts/noto-cjk/blob/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf
+Source (unmodified font): https://github.com/notofonts/noto-cjk/blob/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf
 SHA-256: 68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5
 
-Licensed under the SIL Open Font License, Version 1.1.
-See OFL.txt in this directory and the font's embedded copyright/license records.
+Noto Sans CJK JP Bold (NotoSansCJKjp-Bold.otf)
+© 2014-2021 Adobe (http://www.adobe.com/).
+Source (unmodified font): https://github.com/notofonts/noto-cjk/blob/main/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf
+SHA-256: e53dcb0dcb2922e45d01aae1ebd2f382bb81d4229b18b6b883bd170678af1f76
+
+Noto Serif CJK JP (NotoSerifCJKjp-Regular.otf)
+© 2017-2024 Adobe (http://www.adobe.com/).
+Source (unmodified font): https://github.com/notofonts/noto-cjk/blob/main/Serif/OTF/Japanese/NotoSerifCJKjp-Regular.otf
+SHA-256: d9854c7a8ef170b5a7932558856fd64eb8de0b007cd823fed6f9f514ad2803d3
+
+Zen Maru Gothic (ZenMaruGothic-Regular.ttf)
+Copyright 2021 The Zen Maru Gothic Authors (https://github.com/googlefonts/zen-marugothic)
+Source (unmodified font): https://github.com/google/fonts/blob/main/ofl/zenmarugothic/ZenMaruGothic-Regular.ttf
+SHA-256: a0c0b53543e0993ae2225e629c833f3d51495ad31720694ff112ce4ce11111ef
+
+All fonts are licensed under the SIL Open Font License, Version 1.1.
+Noto Sans: OFL.txt
+Noto Serif: NotoSerif-OFL.txt
+Zen Maru Gothic: ZenMaruGothic-OFL.txt
+See these files and the embedded copyright/license records in each font.
