@@ -1,9 +1,10 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {basisFor,worldPoint} from './frames.js';
 
 // Recover a closed circular rim from the tessellated display edges.
 export function circularEdges(geometry){
- const attr=geometry.attributes.position,nodes=new Map(),segments=[],result=new Map();
+ const attr=cadPosition(geometry),nodes=new Map(),segments=[],result=new Map();
  const key=p=>p.toArray().map(v=>Math.round(v*1e4)).join(',');
  const node=p=>{const k=key(p);if(!nodes.has(k))nodes.set(k,{point:p,edges:[]});return nodes.get(k);};
  for(let i=0;i<attr.count;i+=2){const a=node(new THREE.Vector3().fromBufferAttribute(attr,i)),b=node(new THREE.Vector3().fromBufferAttribute(attr,i+1));if(a===b)continue;const s={a,b,index:i};segments.push(s);a.edges.push(s);b.edges.push(s);}
@@ -34,7 +35,7 @@ export function circularEdges(geometry){
 // CSG can split circular rims at T junctions. Verify a complete rim against
 // the original circular feature before restoring its analytic measurement.
 export function featureCircularEdges(features,bodyId,geometry){
- const result=geometry.userData.circularEdges||circularEdges(geometry),attr=geometry.attributes.position;
+ const result=geometry.userData.circularEdges||circularEdges(geometry),attr=cadPosition(geometry);
  for(const f of features){
   if(['sketch','plane','cadop'].includes(f.kind)||(f.operation==='new'?f.id!==bodyId:f.target!==bodyId))continue;
   let origin,radius;

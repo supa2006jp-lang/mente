@@ -1,3 +1,4 @@
+import {MODEL_PRECISION} from './model-precision.js';
 import * as R from 'replicad';
 import {basisFor} from './frames.js';
 import {validateRegion} from './regions.js';
@@ -17,7 +18,7 @@ export function commonSection(face,body,operation='common'){
  let raw;
  try{
   argumentsList.Append(face.wrapped);tools.Append(body.wrapped);builder.SetArguments(argumentsList);builder.SetTools(tools);
-  builder.SetNonDestructive(true);builder.SetToFillHistory(false);builder.SetFuzzyValue(1e-7);builder.Build();
+  builder.SetNonDestructive(true);builder.SetToFillHistory(false);builder.SetFuzzyValue(MODEL_PRECISION.topology);builder.Build();
   if(!builder.IsDone()||builder.HasErrors())throw Error('スケッチとソリッドの重なりを計算できませんでした');
   raw=builder.Shape();return raw.IsNull()?null:R.cast(raw);
  }finally{raw?.delete();builder.delete();tools.delete();argumentsList.delete();}

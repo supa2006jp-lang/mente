@@ -1,3 +1,4 @@
+import {createGeometryHealthView} from './geometry-health-view.js';
 import {installCommandSelection} from './command-selection.js';
 import {createHistoryImpactView} from './history-impact-view.js';
 import {createCadFailureView} from './cad-failure-view.js';
@@ -12,7 +13,8 @@ export function installWorkspaceImprovements(context){
  const activity=installKernelActivityView({...context,onFailure:(error,spec,features)=>{failure.show(error,spec,features);history.failure(error);},onSuccess:()=>failure.clear()});
  const preflight=createPrintPreflightView({...context,onOpen:()=>{modelTools.close();context.onOpen?.();},inspectComponents:(features,targets)=>modelTools.inspect(features,targets),openComponents:()=>modelTools.open('components')}),detail=installInteractionDetail(context);
  const complexity=createBodyComplexityView({...context,onOpen:()=>{modelTools.close();preflight.close();context.onOpen?.();}});
- const modelTools=createModelTools({...context,onToolOpen:()=>{preflight.close();complexity.close();history.close();failure.clear();}});
+ const modelTools=createModelTools({...context,onToolOpen:()=>{health.close();preflight.close();complexity.close();history.close();failure.clear();}});
+ const health=createGeometryHealthView({...context,onOpen:()=>{modelTools.close();preflight.close();complexity.close();context.onOpen?.();}});
  let lastSync=0,connectionSeen=null;
- return {history,preflight,failure,activity,complexity,modelTools,sync(){if(Date.now()-lastSync<150)return;lastSync=Date.now();selection.sync();history.sync();failure.sync();preflight.sync();complexity.sync();modelTools.sync();const current=context.getFeatures(),last=current.at(-1),check=(last?.cadResult?.analysis||last?.analysis)?.connectionCheck;if(connectionSeen!==current&&context.canOpen()){connectionSeen=current;if(check?.bodies.some(body=>body.count>1))modelTools.open('components',{joinWarning:true});}},beforeModelChange(){modelTools.beforeModelChange();failure.clear();history.close();preflight.close();complexity.close();detail.restore();}};
+ return {health,history,preflight,failure,activity,complexity,modelTools,sync(){if(Date.now()-lastSync<150)return;lastSync=Date.now();selection.sync();health.sync();history.sync();failure.sync();preflight.sync();complexity.sync();modelTools.sync();const current=context.getFeatures(),last=current.at(-1),check=(last?.cadResult?.analysis||last?.analysis)?.connectionCheck;if(connectionSeen!==current&&context.canOpen()){connectionSeen=current;if(check?.bodies.some(body=>body.count>1))modelTools.open('components',{joinWarning:true});}},beforeModelChange(){health.close();modelTools.beforeModelChange();failure.clear();history.close();preflight.close();complexity.close();detail.restore();}};
 }

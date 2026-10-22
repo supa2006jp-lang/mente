@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 
 export function edgeTurnFrame(edge){
@@ -9,7 +10,7 @@ export function edgeTurnFrame(edge){
  return {a,b,pivot:a.clone().add(b).multiplyScalar(.5),axis:b.clone().sub(a).normalize(),key:JSON.stringify([a.toArray(),b.toArray()].map(p=>p.map(v=>Number(v.toFixed(5)))))};
 }
 function worldVertices(mesh){
- mesh.updateWorldMatrix(true,false);const position=mesh.geometry.attributes.position,points=[];
+ mesh.updateWorldMatrix(true,false);const position=cadPosition(mesh.geometry),points=[];
  for(let i=0;i<position.count;i++)points.push(new THREE.Vector3().fromBufferAttribute(position,i).applyMatrix4(mesh.matrixWorld));
  return points;
 }

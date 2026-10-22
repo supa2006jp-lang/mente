@@ -1,3 +1,4 @@
+import {isContactDistance} from './model-precision.js';
 import * as R from 'replicad';
 
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
@@ -28,7 +29,7 @@ function positiveSolid(shape){
  return Math.abs(volume)>1e-10;
 }
 function forwardEndContact(tool,blocker,direction){
- if(R.measureDistanceBetween(tool,blocker)>1e-6)return false;
+ if(!isContactDistance(R.measureDistanceBetween(tool,blocker)))return false;
  // A shallow forward probe crosses an end-on contact but remains disjoint at
  // side-wall tangencies. It lets an exactly reached face count as a hit.
  const probe=tool.clone().translate(direction.map(value=>value*.01));
@@ -76,7 +77,7 @@ function trimUncontactedEndCaps(tool,result,blockers,direction){
     if(!positiveSolid(probe))continue;
     remaining=probe.clone();
     for(const blocker of blockers){
-     if(!blocker||R.measureDistanceBetween(face,blocker)>1e-5)continue;
+     if(!blocker||!isContactDistance(R.measureDistanceBetween(face,blocker)))continue;
      const next=remaining.cut(blocker);
      remaining.delete();remaining=next;
      if(Math.abs(R.measureVolume(remaining))<1e-10)break;

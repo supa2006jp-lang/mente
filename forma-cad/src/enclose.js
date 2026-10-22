@@ -1,7 +1,8 @@
+import {MODEL_PRECISION} from './model-precision.js';
 import * as R from 'replicad';
 import {selectedCadFaces} from './face-pull.js';
 function valid(shape){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{return check.IsValid();}finally{check.delete();}}
-function booleanShape(a,b,common=false){const oc=R.getOC(),builder=common?new oc.BRepAlgoAPI_Common(a.wrapped,b.wrapped):new oc.BRepAlgoAPI_Cut(a.wrapped,b.wrapped);try{builder.SetNonDestructive(true);builder.SetFuzzyValue(1e-6);builder.Build();if(!builder.IsDone())throw Error('差し引きに失敗しました');const raw=builder.Shape();try{return raw.IsNull()?null:R.cast(raw).asShape3D();}finally{raw.delete();}}finally{builder.delete();}}
+function booleanShape(a,b,common=false){const oc=R.getOC(),builder=common?new oc.BRepAlgoAPI_Common(a.wrapped,b.wrapped):new oc.BRepAlgoAPI_Cut(a.wrapped,b.wrapped);try{builder.SetNonDestructive(true);builder.SetFuzzyValue(MODEL_PRECISION.contact);builder.Build();if(!builder.IsDone())throw Error('差し引きに失敗しました');const raw=builder.Shape();try{return raw.IsNull()?null:R.cast(raw).asShape3D();}finally{raw.delete();}}finally{builder.delete();}}
 const volumeOf=shape=>shape?R.measureVolume(shape):0;
 // Work on a deep copy: native offsets/booleans may update shared TShape flags.
 function offsetSolid(source,distance,roundedCorners=true){

@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {cylindricalRimWalls} from './cylindrical-rim-walls.js';
 
@@ -19,7 +20,7 @@ export function facetedCylinderGroup(geometry,group,groups=geometry.userData.fac
  if(!groups||geometry.userData.planarFaces&&!geometry.userData.planarFaces.includes(group.faceId))return group;
  let entry=cache.get(geometry);if(!entry){entry={groups:new Map(),samples:new Map()};cache.set(geometry,entry);}
  if(entry.groups.has(group))return entry.groups.get(group);
- const p=geometry.attributes.position,ix=geometry.index;
+ const p=cadPosition(geometry),ix=geometry.index;
  const samples=part=>{
   if(entry.samples.has(part))return entry.samples.get(part);
   const points=[],normals=[],seen=new Set();

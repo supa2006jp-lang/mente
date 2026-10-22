@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {accelerateMeshPicking} from './mesh-picking.js';
 import {moveBodyPointReferences} from './move-reference-points.js';
@@ -27,7 +28,7 @@ export function moveAxisCandidates({meshes,occluders,lines=[],points=[],pointKin
   out[index]=candidate;screenLines.set(screenKey,{index,depth});
  }
  for(const mesh of meshes){
-  const edges=mesh.children[0],g=edges?.geometry,p=g?.attributes.position;if(!p)continue;
+  const edges=mesh.children[0],g=edges?.geometry,p=cadPosition(g);if(!p)continue;
   for(let i=0;i<p.count;i+=2){if(g.userData.circularEdges?.has(i)||g.userData.arcEdges?.has(i))continue;addLine(new THREE.Vector3().fromBufferAttribute(p,i).applyMatrix4(edges.matrixWorld),new THREE.Vector3().fromBufferAttribute(p,i+1).applyMatrix4(edges.matrixWorld),'edge');}
  }
  for(const line of lines)addLine(new THREE.Vector3(...line.a),new THREE.Vector3(...line.b),'reference',line.name||'スケッチの直線');

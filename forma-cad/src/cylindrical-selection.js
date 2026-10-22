@@ -1,10 +1,11 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {cadFaceGroup,cadFaceGeometry} from './face-selection.js';
 import {matchingExtrusionWall} from './extrusion-circular-walls.js';
 
 // Recover cylindrical faces before treating tessellated walls as planar patches.
 export function cylindricalSelection(features,bodyId,geometry,faceIndex,point){
- const pos=geometry.attributes.position,index=geometry.index;
+ const pos=cadPosition(geometry),index=geometry.index;
  const vertex=i=>new THREE.Vector3().fromBufferAttribute(pos,index?index.getX(i):i);
  const normalAt=i=>{const a=vertex(i),b=vertex(i+1),c=vertex(i+2);return b.sub(a).cross(c.sub(a)).normalize();};
  const hitNormal=normalAt(faceIndex*3);

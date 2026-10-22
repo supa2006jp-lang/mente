@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {solidVertexPoints} from './vertex-points.js';
 import {mergedEdgeMidpoints} from './move-edge-midpoints.js';
@@ -10,7 +11,7 @@ export function moveBodyPointReferences(mesh){
  for(const ref of mergedEdgeMidpoints(geometry,(mesh.userData.references||[]).filter(r=>r.kind==='midpoint')))add(ref,edges.matrixWorld);
  const arcs=[...new Set(geometry?.userData.arcEdges?.values()||[])],rimCurves=new Set([...(geometry?.userData.circularEdges?.values()||[]),...arcs]);
  for(const curve of rimCurves)if(curve.center)add({point:curve.center,name:'円・円弧の中心',kind:'center'},edges.matrixWorld);
- const positions=geometry?.attributes.position,nodes=new Map(),key=p=>p.toArray().map(v=>Math.round(v*1e4)).join(',');
+ const positions=cadPosition(geometry),nodes=new Map(),key=p=>p.toArray().map(v=>Math.round(v*1e4)).join(',');
  for(let i=0;i<(positions?.count||0);i+=2){
   if(geometry.userData.circularEdges?.has(i)||geometry.userData.arcEdges?.has(i))continue;
   const a=new THREE.Vector3().fromBufferAttribute(positions,i),b=new THREE.Vector3().fromBufferAttribute(positions,i+1);if(a.distanceToSquared(b)<1e-12)continue;

@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {basisFor} from './frames.js';
 
@@ -12,7 +13,7 @@ export function gridCellOccluders(face,point,step,meshes,{shift=new THREE.Vector
  const project=p=>{const q=p.clone().addScaledVector(basis.n,offset-p.dot(basis.n)).sub(shift);return new THREE.Vector3(q.dot(basis.u),q.dot(basis.v),0);};
  for(const mesh of meshes){
   if(!mesh.visible)continue;const materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];if(materials.every(m=>m.visible===false||m.depthWrite===false))continue;
-  mesh.updateWorldMatrix(true,false);const displacement=displayOffset(mesh.userData.bodyId),position=mesh.geometry.attributes.position,index=mesh.geometry.index,count=index?index.count:position.count,at=i=>new THREE.Vector3().fromBufferAttribute(position,index?index.getX(i):i).applyMatrix4(mesh.matrixWorld).add(displacement);
+  mesh.updateWorldMatrix(true,false);const displacement=displayOffset(mesh.userData.bodyId),position=cadPosition(mesh.geometry),index=mesh.geometry.index,count=index?index.count:position.count,at=i=>new THREE.Vector3().fromBufferAttribute(position,index?index.getX(i):i).applyMatrix4(mesh.matrixWorld).add(displacement);
   if(!mesh.geometry.boundingBox)mesh.geometry.computeBoundingBox();const bounds=mesh.geometry.boundingBox,corners=[];for(const x of [bounds.min.x,bounds.max.x])for(const y of [bounds.min.y,bounds.max.y])for(const z of [bounds.min.z,bounds.max.z])corners.push(new THREE.Vector3(x,y,z).applyMatrix4(mesh.matrixWorld).add(displacement));if(Math.max(...corners.map(distance))<=.02)continue;
   {const projected=corners.map(project);if([0,1].some(axis=>Math.max(...projected.map(p=>p.getComponent(axis)))<=cellMin[axis]||Math.min(...projected.map(p=>p.getComponent(axis)))>=cellMax[axis]))continue;}
   for(let i=0;i<count;i+=3){

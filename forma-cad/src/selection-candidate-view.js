@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {cadFaceGroup,cadFaceGeometry} from './face-selection.js';
 import {cylindricalSelection} from './cylindrical-selection.js';
@@ -24,7 +25,7 @@ function candidateNormal(candidate,mesh,anchor){
  // instead carry a default Z axis, so recover their actual adjacent faces.
  if(candidate.kind==='faceCenter'&&hit.reference?.normal)return new THREE.Vector3(...hit.reference.normal).normalize();
  if(!anchor)return null;
- const geometry=mesh.geometry,p=geometry.attributes.position,ix=geometry.index,point=anchor.clone().applyMatrix4(mesh.matrixWorld.clone().invert()),triangle=new THREE.Triangle(),corners=[triangle.a,triangle.b,triangle.c],nearest=new THREE.Vector3(),normal=new THREE.Vector3();
+ const geometry=mesh.geometry,p=cadPosition(geometry),ix=geometry.index,point=anchor.clone().applyMatrix4(mesh.matrixWorld.clone().invert()),triangle=new THREE.Triangle(),corners=[triangle.a,triangle.b,triangle.c],nearest=new THREE.Vector3(),normal=new THREE.Vector3();
  const tolerance=Math.max(1e-5,geometry.boundingBox.getSize(new THREE.Vector3()).length()*1e-6),samples=[],normals=[];let distance=Infinity;
  for(let i=0;i<(ix?.count??p.count);i+=3){
   for(let j=0;j<3;j++)corners[j].fromBufferAttribute(p,ix?ix.getX(i+j):i+j);

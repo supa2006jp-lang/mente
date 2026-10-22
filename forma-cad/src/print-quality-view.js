@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {analyzePrintQuality} from './print-quality.js';
 import {draggablePanel} from './draggable-panel.js';
@@ -15,7 +16,7 @@ export function createPrintQualityView({scene,host,meshes,canOpen,notify,getBody
   $('print-quality-status').textContent='薄い壁と模様を確認しています…';
   try{
    const outputs=[],transforms=new Map();
-   for(const [id,mesh]of meshes){if(!mesh.visible||selection!=='all'&&selection!==id)continue;mesh.updateMatrixWorld(true);transforms.set(id,mesh.matrixWorld.clone().invert());const positions=mesh.geometry.attributes.position,index=mesh.geometry.index,vertices=[],point=new THREE.Vector3();for(let i=0;i<positions.count;i++)vertices.push(...point.fromBufferAttribute(positions,i).applyMatrix4(mesh.matrixWorld).toArray());outputs.push({id,vertices,triangles:index?Array.from(index.array):Array.from({length:positions.count},(_,i)=>i)});}
+   for(const [id,mesh]of meshes){if(!mesh.visible||selection!=='all'&&selection!==id)continue;mesh.updateMatrixWorld(true);transforms.set(id,mesh.matrixWorld.clone().invert());const positions=cadPosition(mesh.geometry),index=mesh.geometry.index,vertices=[],point=new THREE.Vector3();for(let i=0;i<positions.count;i++)vertices.push(...point.fromBufferAttribute(positions,i).applyMatrix4(mesh.matrixWorld).toArray());outputs.push({id,vertices,triangles:index?Array.from(index.array):Array.from({length:positions.count},(_,i)=>i)});}
    if(!outputs.length)throw Error('表示中のボディがありません');
    const result=await analyzePrintQuality(outputs,{nozzle,shouldCancel:()=>request!==revision||panel.hidden});if(request!==revision||panel.hidden)return;
    overlay=new THREE.Group();overlay.name='print-quality-warnings';

@@ -1,3 +1,4 @@
+import {BOOLEAN_TOLERANCES} from './model-precision.js';
 import * as R from 'replicad';
 import * as THREE from 'three';
 import {fuseThread} from './thread-fuse.js';
@@ -99,7 +100,7 @@ export function resolveCoilJoint(info,p){
 function cutChecked(base,tool,requireLoss=false,clean=result=>result){
  const before=R.measureVolume(base),eps=Math.max(1e-7,before*1e-9),accept=result=>valid(result)&&R.measureVolume(result)<=before+eps&&(!requireLoss||R.measureVolume(result)<before-eps);
  let result;try{result=clean(base.cut(tool));if(accept(result))return result;}catch{}result?.delete();
- const oc=R.getOC();for(const tolerance of [0,1e-6,1e-5,1e-4]){const builder=new oc.BRepAlgoAPI_Cut(base.wrapped,tool.wrapped);result=null;try{builder.SetNonDestructive(true);builder.SetFuzzyValue(tolerance);builder.Build();result=clean(R.cast(builder.Shape()).asShape3D());if(accept(result))return result;}catch{}finally{builder.delete();}result?.delete();}
+ const oc=R.getOC();for(const tolerance of BOOLEAN_TOLERANCES){const builder=new oc.BRepAlgoAPI_Cut(base.wrapped,tool.wrapped);result=null;try{builder.SetNonDestructive(true);builder.SetFuzzyValue(tolerance);builder.Build();result=clean(R.cast(builder.Shape()).asShape3D());if(accept(result))return result;}catch{}finally{builder.delete();}result?.delete();}
  throw Error('コイルの受け溝を正常に作れませんでした。太さ・ピッチ・すき間を調整してください');
 }
 function helixTube(q,sectionRadius,start,span){

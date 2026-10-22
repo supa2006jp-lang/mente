@@ -1,10 +1,11 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {findPanelSpace} from './panel-placement.js';
 
 // A triangle centroid lies in the material, unlike a face's bounding-box centre
 // which can be inside a screw hole or between disconnected pieces.
 export function sectionBodyAnchor(geometry,matrix){
- const p=geometry.attributes.position,ix=geometry.index,a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();let best=0,point=null;
+ const p=cadPosition(geometry),ix=geometry.index,a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();let best=0,point=null;
  for(let i=0;i<(ix?.count??p.count);i+=3){a.fromBufferAttribute(p,ix?ix.getX(i):i);b.fromBufferAttribute(p,ix?ix.getX(i+1):i+1);c.fromBufferAttribute(p,ix?ix.getX(i+2):i+2);const area=b.clone().sub(a).cross(c.clone().sub(a)).lengthSq();if(area>best){best=area;point=a.clone().add(b).add(c).multiplyScalar(1/3);}}
  return point?.applyMatrix4(matrix)||null;
 }

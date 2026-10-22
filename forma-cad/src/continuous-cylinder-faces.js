@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 const cache=new WeakMap();
 // OCCT section cuts may leave two adjacent faces on the same cylinder.
@@ -7,7 +8,7 @@ export function continuousCylinderGroup(geometry,group){
  if(!groups||!planar||planar.includes(group.faceId))return group;
  let entry=cache.get(geometry);if(!entry){entry={fits:new Map(),groups:new Map()};cache.set(geometry,entry);}
  if(entry.groups.has(group))return entry.groups.get(group);
- const p=geometry.attributes.position,n=geometry.attributes.normal,ix=geometry.index;
+ const p=cadPosition(geometry),n=geometry.attributes.normal,ix=geometry.index;
  if(!n)return group;
  const fit=part=>{
   if(entry.fits.has(part))return entry.fits.get(part);

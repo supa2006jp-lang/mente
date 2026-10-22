@@ -1,3 +1,4 @@
+import {BOOLEAN_TOLERANCES} from './model-precision.js';
 import * as R from 'replicad';
 // Keep encoded, validated offsets rather than shallow native clones: booleans
 // may update shared face caches. Each hit reconstructs an independent tool.
@@ -33,7 +34,7 @@ function clearanceCut(base,tool){
  try{result=base.cut(tool);if(valid(result)){const output=result;result=null;return output;}}catch(error){if(fatal(error))throw error;}finally{result?.delete();}
  // Simplifying a cut can merge periodic thread faces incorrectly. Retain
  // their native boundaries if the ordinary cut is not a valid solid.
- for(const tolerance of [0,1e-6,1e-5]){
+ for(const tolerance of BOOLEAN_TOLERANCES){
   const builder=new oc.BRepAlgoAPI_Cut(),argumentsList=new oc.NCollection_List_TopoDS_Shape(),toolsList=new oc.NCollection_List_TopoDS_Shape();result=null;
   try{argumentsList.Append(base.wrapped);toolsList.Append(tool.wrapped);builder.SetArguments(argumentsList);builder.SetTools(toolsList);builder.SetNonDestructive(true);builder.SetFuzzyValue(tolerance);builder.Build();if(builder.HasErrors())continue;result=R.cast(builder.Shape()).asShape3D();if(valid(result)){const output=result;result=null;return output;}}
   catch(error){if(fatal(error))throw error;}

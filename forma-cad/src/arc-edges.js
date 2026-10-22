@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 
 function fitCircle(a,b,c){
@@ -10,7 +11,7 @@ function fitCircle(a,b,c){
 // Display triangles split a cut circular rim into chords. Recover each connected
 // open arc, keeping its closing straight edge and other rims separate.
 export function arcEdges(geometry){
- const attr=geometry.attributes.position,nodes=new Map(),result=new Map(),used=new Set();
+ const attr=cadPosition(geometry),nodes=new Map(),result=new Map(),used=new Set();
  const node=p=>{const key=p.toArray().map(v=>Math.round(v*1e4)).join(',');if(!nodes.has(key))nodes.set(key,{p,edges:[]});return nodes.get(key);};
  for(let i=0;i<attr.count;i+=2){if(geometry.userData.circularEdges?.has(i))continue;const a=node(new THREE.Vector3().fromBufferAttribute(attr,i)),b=node(new THREE.Vector3().fromBufferAttribute(attr,i+1));if(a===b)continue;const edge={a,b,index:i};a.edges.push(edge);b.edges.push(edge);}
  for(const middle of nodes.values())for(let i=0;i<middle.edges.length;i++)for(let j=i+1;j<middle.edges.length;j++){

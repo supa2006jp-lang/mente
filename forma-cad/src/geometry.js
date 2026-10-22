@@ -1,3 +1,4 @@
+import {preciseExtrusionGeometry,renderPreciseGeometry} from './precise-extrusion-geometry.js';
 import {historyGroupName} from './history-organizer.js';
 import {validateExtrusionOverlap} from './extrusion-overlap.js';
 import {depthToFacePlane} from './extrusion-face-target.js';
@@ -9,7 +10,7 @@ import {taperGeometry,validateTaperAngle} from './taper.js';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {validateReferenceImage} from './reference-image-data.js';
 import {basisFor,frameMatrix,validateFrame,worldPoint} from './frames.js';
-import {retainCadCoordinates} from './cad-coordinates.js';
+import {retainCadCoordinates,preciseGeometry,cadPosition} from './cad-coordinates.js';
 import {sketchPoints,planeCoordinates} from './regions.js';
 import {extrudeRegion,validateRegion} from './regions.js';
 import * as THREE from 'three';
@@ -48,14 +49,16 @@ export function validateFeature(f){
  return f;
 }
 function rectPath(path,w,h){path.moveTo(-w/2,-h/2);path.lineTo(w/2,-h/2);path.lineTo(w/2,h/2);path.lineTo(-w/2,h/2);path.closePath();return path;}
-export function makeGeometry(input){
+export function makeGeometry(input){return renderPreciseGeometry(preciseFeatureGeometry(input));}
+function preciseFeatureGeometry(input){
  const f=validateFeature(input);if(!f.symmetric)return directionalGeometry(f);
  const depth=Math.abs(f.depth),normal=basisFor(f.region||f).n;
  if(!f.taperAngle)return directionalGeometry({...f,symmetric:false,depth:depth*2}).translate(...normal.multiplyScalar(-depth).toArray());
  const parts=[];try{for(const sign of [1,-1])parts.push(directionalGeometry({...f,symmetric:false,depth:sign*depth}));return symmetricSurface(parts,f);}finally{for(const part of parts)part.dispose();}
 }
+function preciseRegionGeometry(...args){const g=extrudeRegion(...args);try{return preciseGeometry(g);}finally{g.dispose();}}
 function directionalGeometry(input){
- let f=input;if(f.holesOnly){const parts=f.region.holes.map(outer=>extrudeRegion({...f.region,outer,holes:[]},f.depth,'solid',2,'inside',false,f.taperAngle??0));const result=mergeGeometries(parts);for(const part of parts)part.dispose();return result;}if(f.capHoles&&f.mode==='solid'&&f.region)f={...f,region:{...f.region,holes:[]}};if(f.profile==='region')return extrudeRegion(f.region,f.depth,f.mode,f.wall,f.side,f.skipHoleWalls===true,f.taperAngle??0); let shape=new THREE.Shape();
+ let f=input;if(f.holesOnly){const parts=f.region.holes.map(outer=>preciseRegionGeometry({...f.region,outer,holes:[]},f.depth,'solid',2,'inside',false,f.taperAngle??0));const result=mergeGeometries(parts);for(const part of parts)part.dispose();return result;}if(f.capHoles&&f.mode==='solid'&&f.region)f={...f,region:{...f.region,holes:[]}};if(f.profile==='region')return preciseRegionGeometry(f.region,f.depth,f.mode,f.wall,f.side,f.skipHoleWalls===true,f.taperAngle??0); let shape=new THREE.Shape();
  const outer=f.mode==='thin'?(f.side==='outside'?f.wall:f.side==='center'?f.wall/2:0):0;
  const inner=f.side==='inside'?f.wall:f.side==='center'?f.wall/2:0;
  if(f.profile==='rect'){
@@ -70,7 +73,7 @@ function directionalGeometry(input){
   // The line runs along local X; inside/outside means left/right of its direction.
   shape.getPoints(); shape.userData={shift};
  }
- const g=new THREE.ExtrudeGeometry(shape,{depth:Math.abs(f.depth),bevelEnabled:false,curveSegments:64,steps:1});
+ const g=preciseExtrusionGeometry(shape,{depth:Math.abs(f.depth),bevelEnabled:false,curveSegments:64,steps:1});
  taperGeometry(g,[shape],f.depth,f.taperAngle??0);
  if(f.profile==='line') g.translate(0,shape.userData.shift,0);
  if(f.depth<0) g.translate(0,0,f.depth);
@@ -100,7 +103,7 @@ export function rebuild(features){
   return bodies;
  }catch(e){for(const b of bodies.values()) b.geometry.dispose();throw e;}
 }
-export function volume(g){const p=g.attributes.position,idx=g.index;let v=0;const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();for(let i=0;i<(idx?idx.count:p.count);i+=3){a.fromBufferAttribute(p,idx?idx.getX(i):i);b.fromBufferAttribute(p,idx?idx.getX(i+1):i+1);c.fromBufferAttribute(p,idx?idx.getX(i+2):i+2);v+=a.dot(b.cross(c))/6;}return Math.abs(v);}
+export function volume(g){const p=cadPosition(g),idx=g.index;let v=0;const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();for(let i=0;i<(idx?idx.count:p.count);i+=3){a.fromBufferAttribute(p,idx?idx.getX(i):i);b.fromBufferAttribute(p,idx?idx.getX(i+1):i+1);c.fromBufferAttribute(p,idx?idx.getX(i+2):i+2);v+=a.dot(b.cross(c))/6;}return Math.abs(v);}
 export const defaults={profile:'rect',mode:'solid',side:'inside',plane:'XY',operation:'new',target:'',width:60,height:40,diameter:30,depth:2,wall:2,x:0,y:0,z:0,angle:0,taperAngle:0};
 export function validateProject(data){
  if(data?.format!=='forma-cad'||data.version!==1||!Array.isArray(data.features)||data.features.length>150)throw Error('対応するFORMA CADファイルではありません（最大150工程）。');

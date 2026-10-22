@@ -1,9 +1,10 @@
+import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {basisFor,validateFrame} from './frames.js';
 const solidBounds=new WeakMap();
 const projectedRanges=new WeakMap();
 function meshBounds(mesh){
- const position=mesh.geometry.attributes.position;let cached=solidBounds.get(mesh.geometry);
+ const position=cadPosition(mesh.geometry);let cached=solidBounds.get(mesh.geometry);
  if(!cached||cached.position!==position||cached.version!==position.version){cached={position,version:position.version,box:new THREE.Box3().setFromBufferAttribute(position)};solidBounds.set(mesh.geometry,cached);}
  mesh.updateWorldMatrix(true,false);return cached.box.clone().applyMatrix4(mesh.matrixWorld);
 }
@@ -23,7 +24,7 @@ function normalRange(mesh,plane,frame){
  const basis=sectionBasis(plane,frame),box=meshBounds(mesh),axis={XY:'z',XZ:'y',YZ:'x'}[plane];
  if(axis)return [box.min[axis],box.max[axis]];
  // Cache exact vertex projections: a rotated AABB can extend beyond the solid.
- const position=mesh.geometry.attributes.position,key=[...basis.n.toArray(),...mesh.matrixWorld.elements].join(','),old=projectedRanges.get(mesh.geometry);
+ const position=cadPosition(mesh.geometry),key=[...basis.n.toArray(),...mesh.matrixWorld.elements].join(','),old=projectedRanges.get(mesh.geometry);
  if(old?.key===key&&old.position===position&&old.version===position.version)return old.range;
  let min=Infinity,max=-Infinity;const point=new THREE.Vector3();
  for(let i=0;i<position.count;i++){const d=point.fromBufferAttribute(position,i).applyMatrix4(mesh.matrixWorld).dot(basis.n);min=Math.min(min,d);max=Math.max(max,d);}

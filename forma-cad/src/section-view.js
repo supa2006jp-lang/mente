@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import {sectionCap} from './section-cap.js';
 export {sectionCap} from './section-cap.js';
 import {sectionSplitSpec,sectionCenter,sectionColors,sectionBasis,sectionFaceOrientation} from './section-split.js';
@@ -10,7 +11,7 @@ import {sectionBodyLabels,sectionBodyAnchor,sectionRetainedAnchor} from './secti
 import {sectionSketchPlane} from './section-sketch-plane.js';
 import * as THREE from 'three';
 export function sectionSegments(geometry,plane){
- const p=geometry.attributes.position,ix=geometry.index,out=[];const count=ix?ix.count:p.count;
+ const p=cadPosition(geometry),ix=geometry.index,out=[];const count=ix?ix.count:p.count;
  for(let i=0;i<count;i+=3){const vs=[0,1,2].map(j=>new THREE.Vector3().fromBufferAttribute(p,ix?ix.getX(i+j):i+j)),ds=vs.map(v=>{const d=plane.distanceToPoint(v);return Math.abs(d)<1e-7?0:d;}),hits=[];
   if(ds.every(d=>d===0))continue;
   for(let j=0;j<3;j++){const k=(j+1)%3;if(ds[j]===0)hits.push(vs[j]);else if(ds[j]*ds[k]<0)hits.push(vs[j].clone().lerp(vs[k],ds[j]/(ds[j]-ds[k])));}

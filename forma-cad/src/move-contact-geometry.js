@@ -1,9 +1,11 @@
+import {MODEL_PRECISION} from './model-precision.js';
 import * as THREE from 'three';
+import {cadPosition} from './cad-coordinates.js';
 
 // Intersect projected surface triangles so holes and sloping faces cannot cause
 // the false contacts produced by comparing only object bounding boxes.
 const cache = new WeakMap();
-const EPS = 1e-9;
+const EPS = MODEL_PRECISION.zero;
 
 function heightEquation(p) {
  const [a,b,c]=p,du1=b.u-a.u,dv1=b.v-a.v,du2=c.u-a.u,dv2=c.v-a.v;
@@ -18,7 +20,7 @@ function surfaceTriangles(object,axis,direction,leading){
  const u=(axis+1)%3,v=(axis+2)%3,result=[];
  object.traverse(child=>{
   if(!child.isMesh||child.visible===false||!child.geometry?.attributes?.position)return;
-  const g=child.geometry,attr=g.attributes.position,index=g.index,count=index?index.count:attr.count;
+  const g=child.geometry,attr=cadPosition(g),index=g.index,count=index?index.count:attr.count;
   const point=new THREE.Vector3(),positions=new Array(attr.count);
   for(let i=0;i<attr.count;i++){
    point.fromBufferAttribute(attr,i).applyMatrix4(child.matrixWorld);
@@ -104,7 +106,8 @@ function signature(object,axis,omitAxis){
  const values=object.matrixWorld.elements.map((value,i)=>omitAxis&&i===12+axis?null:value);
  object.traverse(child=>{
   if(!child.isMesh)return;
-  values.push(child.geometry?.uuid||'',child.geometry?.index?.count||0,child.geometry?.attributes?.position?.count||0);
+  const position=cadPosition(child.geometry);
+  values.push(child.geometry?.uuid||'',child.geometry?.index?.count||0,position,position?.version);
   if(child!==object)values.push(...child.matrix.elements);
  });
  return values;

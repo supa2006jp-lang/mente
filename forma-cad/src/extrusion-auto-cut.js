@@ -1,3 +1,4 @@
+import {cadPosition} from './cad-coordinates.js';
 import {Brush,INTERSECTION} from 'three-bvh-csg';
 import * as THREE from 'three';
 import {evaluator,makeGeometry,volume} from './geometry.js';
@@ -6,7 +7,7 @@ import {basisFor} from './frames.js';
 // Reject contact-only candidates before the expensive CSG intersection.
 function rangeAlong(mesh,normal){
  mesh.updateMatrixWorld(true);
- const positions=mesh.geometry.attributes.position,point=new THREE.Vector3();
+ const positions=cadPosition(mesh.geometry),point=new THREE.Vector3();
  let min=Infinity,max=-Infinity;
  for(let i=0;i<positions.count;i++){
   const value=point.fromBufferAttribute(positions,i).applyMatrix4(mesh.matrixWorld).dot(normal);
