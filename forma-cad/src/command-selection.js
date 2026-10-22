@@ -1,5 +1,6 @@
 export function commandAvailability(type,state){
  const bodies=state.bodies||0,selected=state.bodyIds?.length||0;
+ if(type==='move'&&state.sketchMoveSelection)return {enabled:true,reason:'選択した線につながるスケッチをまとめて移動します。'};
  if(type==='mirror'&&(state.sketchSelection||!bodies&&state.sketches))return {enabled:true,reason:state.sketchSelection?'スケッチの選択を引き継ぎます。ミラーの基準を指定してください。':'スケッチ図形を選択してミラーできます。'};
  if(['fillet','chamfer','shell','join','split','enclose','coilJoint','move','pull','trimSurface','mirror','circular','rectangular','thread','ballJoint','bossJoint','cylinderHinge','snapLid','slideLid'].includes(type)&&!bodies)return {enabled:false,reason:'先にソリッドを作成または読み込んでください。'};
  if(type==='join'&&bodies<2)return {enabled:false,reason:'結合・切り取りには2つ以上のボディが必要です。'};
