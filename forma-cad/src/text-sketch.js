@@ -2,6 +2,7 @@ import {parse} from 'opentype.js';
 import Clipper from 'clipper-lib';
 import {defaults} from './geometry.js';
 import {validateFrame} from './frames.js';
+import {verticalTextRings} from './text-vertical-layout.js';
 
 export const TEXT_FONT_URL='fonts/NotoSansCJKjp-Regular.otf';
 export function parseTextFont(bytes){
@@ -22,29 +23,34 @@ export function textSketchLayout(font,spec){
  const text=String(spec.text??'').normalize('NFC').replace(/\r\n?/g,'\n');
  if(!text.trim())throw Error('文字を入力してください');if([...text].length>80||text.split('\n').length>5)throw Error('文字は80文字・5行以内にしてください');
  const height=Number(spec.height),spacing=Number(spec.spacing??0),angle=Number(spec.angle??0),u=Number(spec.u??0),v=Number(spec.v??0);
+ const writingMode=spec.writingMode??'horizontal';if(!['horizontal','vertical'].includes(writingMode))throw Error('横書き・縦書きを選んでください');
  if(!Number.isFinite(height)||height<1||height>500)throw Error('文字の高さは1〜500 mmで指定してください');
  if(!Number.isFinite(spacing)||spacing<0||spacing>100)throw Error('字間は0〜100 mmで指定してください');
  if(!Number.isFinite(angle)||Math.abs(angle)>360||![u,v].every(x=>Number.isFinite(x)&&Math.abs(x)<=10000))throw Error('位置・角度を確認してください');
  const missing=[...new Set([...text].filter(c=>!/[\s]/u.test(c)&&!font.charToGlyphIndex(c)))];if(missing.length)throw Error('このフォントにない文字：'+missing.slice(0,12).join(' ')+'。別のフォントを読み込んでください');
- const options={kerning:true,features:{liga:false,rlig:false}},lines=text.split('\n'),raw=lines.map(line=>font.getPath(line.replace(/\t/g,'    '),0,0,1000,options)),boxes=raw.map(p=>p.getBoundingBox()),inkHeight=Math.max(...boxes.map(b=>b.y2-b.y1));
+ const options={kerning:true,features:{liga:false,rlig:false}},lines=text.split('\n'),tolerance=Math.max(.002,Math.min(.02,height/1000));let rings=[];
+ if(writingMode==='vertical')rings=verticalTextRings(font,lines,{height,spacing,align:spec.align,tolerance,flatten:flattenTextPath}).rings;
+ else{
+ const raw=lines.map(line=>font.getPath(line.replace(/\t/g,'    '),0,0,1000,options)),boxes=raw.map(p=>p.getBoundingBox()),inkHeight=Math.max(...boxes.map(b=>b.y2-b.y1));
  if(raw.reduce((n,p)=>n+p.commands.length,0)>60000)throw Error('文字の輪郭が複雑すぎます。文字数を減らしてください');
- if(!(inkHeight>0))throw Error('輪郭のある文字を入力してください');const size=1000*height/inkHeight,tolerance=Math.max(.002,Math.min(.02,height/1000));let rings=[];
+ if(!(inkHeight>0))throw Error('輪郭のある文字を入力してください');const size=1000*height/inkHeight;
  for(let line=0;line<lines.length;line++){
   const path=font.getPath(lines[line].replace(/\t/g,'    '),0,line*height*1.5,size,{...options,letterSpacing:spacing/size}),rs=flattenTextPath(path.commands,tolerance);if(!rs.length)continue;
   const xs=rs.flat().map(p=>p[0]),min=Math.min(...xs),max=Math.max(...xs),shift=spec.align==='center'?(min+max)/2:spec.align==='right'?max:min;
   rings.push(...rs.map(r=>r.map(p=>[p[0]-shift,p[1]])));
  }
+ }
  if(!rings.length)throw Error('押し出せる文字輪郭がありません');
  if(rings.reduce((n,r)=>n+r.length,0)>20000)throw Error('文字の輪郭が複雑すぎます。文字数を減らしてください');
- const minY=Math.min(...rings.flat().map(p=>p[1]));rings=rings.map(r=>r.map(p=>[p[0],p[1]-minY]));
+ const minY=Math.min(...rings.flat().map(p=>p[1]));rings=rings.map(r=>r.map(p=>[p[0],p[1]-minY]));const localPoints=rings.flat(),localBounds={min:[Math.min(...localPoints.map(p=>p[0])),0],max:[Math.max(...localPoints.map(p=>p[0])),Math.max(...localPoints.map(p=>p[1]))]};
  // Union overlapping strokes and glyphs while keeping their original nonzero winding holes.
  const scale=100000,clip=new Clipper.Clipper();clip.AddPaths(rings.map(r=>r.map(p=>({X:Math.round(p[0]*scale),Y:Math.round(p[1]*scale)}))),Clipper.PolyType.ptSubject,true);const tree=new Clipper.PolyTree();clip.Execute(Clipper.ClipType.ctUnion,tree,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
  const a=angle*Math.PI/180,c=Math.cos(a),s=Math.sin(a),contours=[];
  for(let n=tree.GetFirst();n;n=n.GetNext()){const points=n.Contour().map(p=>[p.X/scale,p.Y/scale]).map(([x,y])=>[u+x*c-y*s,v+x*s+y*c]);if(points.length>=3)contours.push({points,hole:n.IsHole()});}
  const count=contours.reduce((n,r)=>n+r.points.length,0);if(count>15000||contours.length>140)throw Error('文字が複雑すぎます。文字数を減らして分けて配置してください');if(contours.some(r=>r.points.some(p=>p.some(x=>Math.abs(x)>25000))))throw Error('文字が作図範囲を超えています');
- const points=contours.flatMap(r=>r.points),xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);return {contours,text,height,spacing,angle,u,v,align:spec.align||'left',bounds:{min:[Math.min(...xs),Math.min(...ys)],max:[Math.max(...xs),Math.max(...ys)]},vertices:count};
+ const points=contours.flatMap(r=>r.points),xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);return {contours,text,height,spacing,angle,u,v,writingMode,align:spec.align||'left',localBounds,bounds:{min:[Math.min(...xs),Math.min(...ys)],max:[Math.max(...xs),Math.max(...ys)]},vertices:count};
 }
 export function textSketchFeatures(layout,placement,{fontName='Noto Sans CJK JP',groupId=crypto.randomUUID(),textId=crypto.randomUUID()}={}){
  validateFrame(placement.frame);const offset=Number(placement.offset);if(!Number.isFinite(offset)||Math.abs(offset)>10000)throw Error('作図平面の位置が不正です');
- return layout.contours.map((r,i)=>({...defaults,id:crypto.randomUUID(),kind:'sketch',profile:'polyline',closed:true,groupId,name:('文字「'+layout.text.replace(/\n/g,' ')+ '」 '+(i+1)).slice(0,95),plane:placement.plane||'CUSTOM',frame:structuredClone(placement.frame),x:placement.frame.n[0]*offset,y:placement.frame.n[1]*offset,z:placement.frame.n[2]*offset,points:r.points.map(p=>[...p]),textOutline:{id:textId,text:layout.text,fontName,hole:r.hole,height:layout.height,spacing:layout.spacing,angle:layout.angle}}));
+ return layout.contours.map((r,i)=>({...defaults,id:crypto.randomUUID(),kind:'sketch',profile:'polyline',closed:true,groupId,name:('文字「'+layout.text.replace(/\n/g,' ')+ '」 '+(i+1)).slice(0,95),plane:placement.plane||'CUSTOM',frame:structuredClone(placement.frame),x:placement.frame.n[0]*offset,y:placement.frame.n[1]*offset,z:placement.frame.n[2]*offset,points:r.points.map(p=>[...p]),textOutline:{id:textId,text:layout.text,fontName,hole:r.hole,height:layout.height,spacing:layout.spacing,angle:layout.angle,writingMode:layout.writingMode||'horizontal'}}));
 }
