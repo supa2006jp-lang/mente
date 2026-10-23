@@ -23,13 +23,13 @@ try{
  const context=await browser.newContext({viewport:{width:1900,height:1150},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
  await page.addInitScript(()=>{window.cadJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec){window.cadJobs.push(payload.spec.type);window.latestSpec=payload.spec;}return post.call(this,payload,...args);};});
  await page.addInitScript(()=>{const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(m,...args){const op=m.spec?.type==='preview'?m.spec.operation:m.spec;if(window.forceCadError&&['fillet','shell'].includes(op?.type)){const error=window.forceCadError;setTimeout(()=>this.onmessage?.({data:{id:m.id,error}}),5);return;}return post.call(this,m,...args);};});
- await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();
+ await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('#canvas-host canvas').waitFor();
 
 
 
 
 
- const host=page.locator('#canvas-host'),canvas=page.locator('canvas'),picker=page.locator('#selection-candidates');
+ const host=page.locator('#canvas-host'),canvas=page.locator('#canvas-host canvas'),picker=page.locator('#selection-candidates');
  const back={...defaults,id:'back',name:'奥の本体',kind:'extrusion',width:40,height:30,depth:10,z:0},front={...back,id:'front',name:'手前の本体',z:20};
  async function load(features){await page.keyboard.press('Escape');await page.locator('#file').setInputFiles({name:'overlap.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.waitForTimeout(100);}
  async function screen(point){const r=await canvas.boundingBox(),s=JSON.parse(await host.getAttribute('data-camera-state')),clip=JSON.parse(await host.getAttribute('data-camera-clip')),c=new THREE.OrthographicCamera(-100*r.width/r.height,100*r.width/r.height,100,-100,...clip);c.position.fromArray(s);c.quaternion.fromArray(s,3);c.zoom=s[7];c.updateProjectionMatrix();c.updateMatrixWorld(true);const p=new THREE.Vector3(...point).project(c);return [r.x+(p.x+1)*r.width/2,r.y+(1-p.y)*r.height/2];}
@@ -37,7 +37,7 @@ try{
 
  const persistent=page.locator('#selected-point-marker');
  async function selectPoint(kind,body='back',point=kind==='faceCenter'?[8,6,30]:[19.8,5,30]){
-  await page.locator('#selection-mode').selectOption(kind==='faceCenter'?'face':'auto');await page.mouse.click(...await screen(point));await picker.waitFor();
+  await page.locator('#selection-mode').selectOption(kind==='faceCenter'?'face':'auto');await page.mouse.click(...await screen(point));await picker.waitFor();if(await picker.locator('[data-toggle]').getAttribute('aria-expanded')==='false')await picker.locator('[data-toggle]').click();
   const choice=picker.locator('[data-kind='+kind+'][data-body-id='+body+']').first();await choice.click();await persistent.waitFor();await picker.locator('[data-close]').click();await page.mouse.move(30,30);
   await page.waitForTimeout(100);assert.equal(await persistent.isVisible(),true,'selected point persists after cursor and candidates leave');
   return JSON.parse(await host.getAttribute('data-selected-point'));
@@ -46,7 +46,7 @@ try{
  function bounds(output){const values=[[],[],[]];for(let i=0;i<output.vertices.length;i++)values[i%3].push(output.vertices[i]);return values.map(v=>[Math.min(...v),Math.max(...v)]);}
  function near(actual,expected){assert.equal(actual.length,expected.length);actual.forEach((v,i)=>Array.isArray(v)?near(v,expected[i]):assert.ok(Math.abs(v-expected[i])<.01,actual+' != '+expected));}
  await load([back,front]);const original=(await save()).features;
- await page.locator('#selection-mode').selectOption('face');await page.mouse.click(...await screen([8,6,30]));await picker.waitFor();const rear=picker.locator('[data-kind=faceCenter][data-body-id=back]').first();assert.match(await rear.textContent(),/上面.*奥の本体.*奥.*X 0.00.*Z 10.00/);assert.match(await picker.locator('[data-kind=face][data-body-id=back]').last().textContent(),/底面/);await page.keyboard.press('Escape');
+ await page.locator('#selection-mode').selectOption('face');await page.mouse.click(...await screen([8,6,30]));await picker.waitFor();if(await picker.locator('[data-toggle]').getAttribute('aria-expanded')==='false')await picker.locator('[data-toggle]').click();const rear=picker.locator('[data-kind=faceCenter][data-body-id=back]').first();assert.match(await rear.textContent(),/上面.*奥の本体.*奥.*X 0.00.*Z 10.00/);assert.match(await picker.locator('[data-kind=face][data-body-id=back]').last().textContent(),/底面/);await page.keyboard.press('Escape');
  const center=await selectPoint('faceCenter');assert.deepEqual(center.point,[0,0,10]);assert.equal(center.bodyId,'back');await positioned();await page.locator('[data-view=iso]').click();await page.waitForTimeout(100);await positioned();await page.setViewportSize({width:1650,height:1000});await page.waitForTimeout(150);await positioned();await page.screenshot({path:'.sites-runtime/selected-point-persistent.png'});
  // Selecting a different entity and Esc both clear the persistent point.
  await page.locator('#selection-mode').selectOption('body');await persistent.waitFor({state:'hidden'});await page.setViewportSize({width:1900,height:1150});await load([back,front]);await selectPoint('faceCenter');await page.keyboard.press('Escape');await persistent.waitFor({state:'hidden'});assert.equal(await host.getAttribute('data-selected-point'),null);
