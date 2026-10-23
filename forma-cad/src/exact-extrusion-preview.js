@@ -5,6 +5,13 @@ export function prepareExactExtrusion(features,spec,{run,bodies,mesh}){
  const index=spec.editingId?features.findIndex(f=>f.id===spec.editingId):-1;
  if(spec.editingId&&index<0)throw Error('再編集する工程が見つかりません');
  const input=index<0?features:features.slice(0,index),prepared=spec.prepared||run(input,{type:'extrusionBatch',features:spec.features});
+ // Newly committed operations already contain complete, verified output meshes.
+ // Reuse the last write for each body instead of rebuilding and meshing it again.
+ if(index<0){
+  const latest=new Map(),removed=new Set();
+  for(const feature of prepared.features){const result=feature.cadResult;for(const id of result.remove){latest.delete(id);removed.add(id);}for(const output of result.outputs){latest.set(output.id,output);removed.delete(output.id);}}
+  if([...latest.values()].every(output=>output.vertices?.length&&output.triangles?.length))return {...prepared,exact:true,outputs:[...latest.values()].map(({id,vertices,triangles})=>({id,vertices,triangles})),remove:[...removed]};
+ }
  let project=index<0?[...features,...prepared.features]:[...features.slice(0,index),...prepared.features,...features.slice(index+1)];
  if(index>=0&&index+1<features.length)project=run(project,{type:'replay',before:features,start:index+1,refreshStart:true}).features;
  const affected=new Set();

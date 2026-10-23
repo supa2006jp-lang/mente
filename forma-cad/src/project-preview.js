@@ -2,8 +2,8 @@ import * as THREE from 'three';
 
 // Use committed geometry and a separate render target: tool previews, hidden bodies,
 // selection colors and display clipping must not change the saved model's image.
-export function captureProjectPreview({renderer,camera,meshes,sketches}){
- const width=640,height=480,scene=new THREE.Scene(),group=new THREE.Group(),materials=[];
+export function captureProjectPreview({renderer,camera,meshes,sketches,width=640,height=480}){
+ const scene=new THREE.Scene(),group=new THREE.Group(),materials=[];
  scene.background=new THREE.Color('#ffffff');scene.add(group);
  const solid=new THREE.MeshStandardMaterial({color:0xa3a197,roughness:.8}),edge=new THREE.LineBasicMaterial({color:0x33332f});materials.push(solid,edge);
  for(const mesh of meshes){const copy=new THREE.Mesh(mesh.geometry,solid);copy.matrixAutoUpdate=false;mesh.updateMatrixWorld(true);copy.matrix.copy(mesh.matrixWorld);group.add(copy);for(const child of mesh.children.filter(c=>c.isLineSegments)){const line=new THREE.LineSegments(child.geometry,edge);line.matrixAutoUpdate=false;child.updateMatrixWorld(true);line.matrix.copy(child.matrixWorld);group.add(line);}}

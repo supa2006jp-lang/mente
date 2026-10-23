@@ -15,6 +15,9 @@ export function compactKernelData(value,seen=new WeakMap()){
 }
 export function compactExtrusionRequest(features,spec){
  const operation=spec?.type==='preview'?spec.operation:spec;
+ // History edits return their complete project document, so retain its render
+ // data. A new preview only needs exact source bodies, plus any prepared meshes.
+ if(operation?.type==='exactExtrusionPreview')return {features:spec.editingId?features:compactKernelData(features),spec};
  if(!['barrierPreparedPreview','extrusionToolPreview','extrusionJoinInspect','extrusionBatch','extrusion'].includes(operation?.type))return {features,spec};
  return compactKernelData({features,spec});
 }

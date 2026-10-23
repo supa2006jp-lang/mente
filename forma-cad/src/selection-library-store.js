@@ -5,6 +5,7 @@ export function createSelectionLibraryStore({indexedDB=globalThis.indexedDB,maxB
  return {
   list:()=>transaction('readonly',(store,done)=>{const request=store.getAll();request.onsuccess=()=>done(request.result.sort((a,b)=>b.createdAt-a.createdAt));}),
   write:async data=>{const text=JSON.stringify(data),record={id:crypto.randomUUID(),createdAt:Date.now(),bytes:new Blob([text]).size,text};if(record.bytes>maxBytes)throw Error('部品データが100 MBを超えています。ファイル保存を使用してください');return transaction('readwrite',(store,done)=>{const request=store.getAll();request.onsuccess=()=>{if(request.result.length>=maxEntries||request.result.reduce((n,r)=>n+r.bytes,record.bytes)>maxBytes){store.transaction.abort();return;}store.add(record);done(record);};}).catch(()=>{throw Error('保存領域が不足しているか使用できません。不要な部品を削除するか、ファイル保存を使用してください');});},
-  remove:id=>transaction('readwrite',(store,done)=>{store.delete(id);done(true);})
+  remove:id=>transaction('readwrite',(store,done)=>{store.delete(id);done(true);}),
+  updatePreview:async(id,preview)=>transaction('readwrite',(store,done)=>{const request=store.getAll();request.onsuccess=()=>{const record=request.result.find(row=>row.id===id);if(!record){done(null);return;}const data=JSON.parse(record.text),text=JSON.stringify({...data,preview}),bytes=new Blob([text]).size;if(request.result.reduce((sum,row)=>sum+(row.id===id?bytes:row.bytes),0)>maxBytes){store.transaction.abort();return;}const next={...record,text,bytes};store.put(next);done(next);};})
  };
 }
