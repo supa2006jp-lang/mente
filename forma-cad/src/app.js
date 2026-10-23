@@ -640,7 +640,7 @@ const channelTool=document.createElement('button');channelTool.id='new-channel';
 const channelDirection=document.createElement('label');channelDirection.id='channel-direction';channelDirection.hidden=true;channelDirection.textContent='コの字の開く向き ';const channelOpening=document.createElement('select');channelOpening.id='channel-opening';channelOpening.style.cssText='display:inline-block;width:auto;margin-left:6px';channelOpening.setAttribute('aria-label','コの字の開く向き');for(const [value,text] of [['left','左'],['right','右'],['up','上'],['down','下']])channelOpening.add(new Option(text,value));channelDirection.append(channelOpening);$('sketch-banner').append(channelDirection);
 channelOpening.addEventListener('input',()=>{if(channelMode)syncFields();});
 $('profile').addEventListener('input',()=>{channelMode=false;channelDirection.hidden=true;$('profile').querySelector('[value=rect]').textContent='長方形';},{capture:true});
-channelTool.onclick=()=>{startFeature('rect','solid');$('draw').click();channelMode=true;channelDirection.hidden=false;$('name').value='コの字';$('sketch-draw-instruction').textContent='対角の2点でコの字を作図 · 幅・高さを入力 / 開く向きを選択 / Enterで確定・Escで中止';syncFields();notify('対角の2点でコの字を作図 · 3本の線分として作成します');};
+channelTool.onclick=()=>{startFeature('rect','solid');$('draw').click();channelMode=true;channelDirection.hidden=false;$('name').value='コの字';$('sketch-draw-instruction').textContent='対角の2点でコの字を作図 · 幅・高さを入力 / 右クリックで開口切替 / Enterで確定・Escで中止';syncFields();notify('対角の2点でコの字を作図 · 3本の線分として作成します');};
 function clearExtrusionEndHighlight(){if(extrusionEndHighlight){disposeObject(extrusionEndHighlight);extrusionEndHighlight=null;}delete host.dataset.extrusionEndPlane;}
 const extrusionFaceHint=document.createElement('p');extrusionFaceHint.id='extrusion-face-target-hint';extrusionFaceHint.className='hint';extrusionFaceHint.style.cssText='font-size:12px;margin:8px 0;color:#376779';extrusionFaceHint.textContent='到達先の平行なソリッド面をクリックすると、その面の位置まで距離を合わせます。';$('extrusion-tip-size').after(extrusionFaceHint);
 async function snapExtrusionToFace(hit){
@@ -2398,6 +2398,9 @@ document.addEventListener('pointerup',e=>{
  if(e.button!==2||e.pointerId!==sketchRightDown?.id)return;
  const menuOpen=sketchRightDown.menuOpen,moved=sketchRightDown.moved||Math.hypot(e.clientX-sketchRightDown.x,e.clientY-sketchRightDown.y)>5;sketchRightDown=null;if(moved)return;
  e.preventDefault();
+ if(sketch&&channelMode&&!document.querySelector('dialog[open]')){
+  const directions=['left','up','right','down'];channelOpening.value=directions[(directions.indexOf(channelOpening.value)+1)%directions.length];channelOpening.dispatchEvent(new Event('input',{bubbles:true}));notify('コの字の開口：'+channelOpening.selectedOptions[0].textContent+' ／ 右クリックで切替');return;
+ }
  if(menuOpen)return;
  if(switchConnectedSketch())return;
  if(openSketchEndpointMenu(e))return;
