@@ -1,0 +1,10 @@
+export function createSelectionLibraryStore({indexedDB=globalThis.indexedDB,maxBytes=100*1024*1024,maxEntries=100}={}){
+ let pending;
+ const database=()=>pending||(pending=new Promise((resolve,reject)=>{if(!indexedDB)return reject(Error('このブラウザーで部品の保存領域を使用できません'));const request=indexedDB.open('forma-cad-selection-library-v1',1);request.onupgradeneeded=()=>request.result.createObjectStore('parts',{keyPath:'id'});request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('部品の保存領域を開けません'));request.onsuccess=()=>{const db=request.result;db.onversionchange=()=>{db.close();pending=null;};resolve(db);};}).catch(e=>{pending=null;throw e;}));
+ async function transaction(mode,operation){const db=await database();return new Promise((resolve,reject)=>{const tx=db.transaction('parts',mode);let result;tx.oncomplete=()=>resolve(result);tx.onabort=()=>reject(tx.error||Error('部品を保存できませんでした'));tx.onerror=()=>{};try{operation(tx.objectStore('parts'),value=>result=value);}catch(error){tx.abort();reject(error);}});}
+ return {
+  list:()=>transaction('readonly',(store,done)=>{const request=store.getAll();request.onsuccess=()=>done(request.result.sort((a,b)=>b.createdAt-a.createdAt));}),
+  write:async data=>{const text=JSON.stringify(data),record={id:crypto.randomUUID(),createdAt:Date.now(),bytes:new Blob([text]).size,text};if(record.bytes>maxBytes)throw Error('部品データが100 MBを超えています。ファイル保存を使用してください');return transaction('readwrite',(store,done)=>{const request=store.getAll();request.onsuccess=()=>{if(request.result.length>=maxEntries||request.result.reduce((n,r)=>n+r.bytes,record.bytes)>maxBytes){store.transaction.abort();return;}store.add(record);done(record);};}).catch(()=>{throw Error('保存領域が不足しているか使用できません。不要な部品を削除するか、ファイル保存を使用してください');});},
+  remove:id=>transaction('readwrite',(store,done)=>{store.delete(id);done(true);})
+ };
+}

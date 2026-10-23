@@ -5,6 +5,7 @@ import {resolveContactMove} from './native-contact-move.js';
 import {repairProjectDisplay} from './project-display-repair.js';
 import {mirrorSolids} from './solid-mirror.js';
 import {verifiedCadMesh} from './verified-cad-mesh.js';
+import {exportSelectionTemplate,importSelectionTemplate} from './selection-template-kernel.js';
 import {prepareExactExtrusion} from './exact-extrusion-preview.js';
 import {inspectBodyComponents,resizeBodies,compareBodyShapes} from './model-tool-geometry.js';
 import {selectedProfilePlanarFaces} from './cad-planar-face.js';
@@ -304,6 +305,8 @@ export function runInternalThreadShape(features,spec,onProgress){
  }finally{captured?.delete();}
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(spec.type==='selectionTemplateExport')return exportSelectionTemplate(features,spec,kernelBodies,onProgress);
+ if(spec.type==='selectionTemplateImport')return importSelectionTemplate(spec,onProgress);
  if(spec.type==='repairProjectDisplay')return repairProjectDisplay(features,onProgress);
  if(spec.type==='geometryGapRepair'){const bodies=kernelBodies(features);let prepared;try{prepared=gapRepairSpec(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}return {...prepared,result:runOperation(features,prepared.spec,onProgress)};}
  if(spec.type==='geometryHealth'){const bodies=kernelBodies(features);try{return inspectGeometryHealth(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}
