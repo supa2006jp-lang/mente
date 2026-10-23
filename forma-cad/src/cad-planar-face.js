@@ -22,12 +22,15 @@ function representedByProfile(face,region){
  return false;
 }
 function resolvePlanarFaces(base,selection,region){
- const faces=base.faces,point=R.makeVertex(selection.point),normal=selection.normal?new THREE.Vector3(...selection.normal).normalize():null;
+ const faces=base.faces,point=R.makeVertex(selection.point),normal=selection.normal?new THREE.Vector3(...selection.normal).normalize():region?basisFor(region).n:null;
  let compound,unifier,unified;
  try{
-  const matches=faces.map((face,i)=>{let alignment=1;if(normal)try{alignment=vector(face.normalAt(selection.point)).normalize().dot(normal);}catch{}return {i,d:R.measureDistanceBetween(point,face),alignment};}).filter(r=>r.alignment>.3).sort((a,b)=>a.d-b.d);
+  // A plane and its tangent fillet both have zero distance at their boundary.
+  // Resolve within the requested surface type and orientation before ranking;
+  // native face order and display-coordinate rounding must not select the blend.
+  const matches=faces.map((face,i)=>({face,i})).filter(({face})=>face.geomType==='PLANE').map(({face,i})=>({i,d:R.measureDistanceBetween(point,face),alignment:normal?vector(face.normalAt()).normalize().dot(normal):1})).filter(r=>r.alignment>.999999).sort((a,b)=>a.d-b.d);
   if(!matches.length||matches[0].d>.2)throw Error('押し出し元の面が見つかりません。面の中央寄りを選び直してください');
-  const seed=faces[matches[0].i];if(seed.geomType!=='PLANE')throw Error('押し出す平面を選択し直してください');
+  const seed=faces[matches[0].i];
   const n=vector(seed.normalAt()).normalize(),offset=n.dot(vector(seed.center)),candidates=[];
   for(const face of faces){if(face.geomType!=='PLANE'||vector(face.normalAt()).normalize().dot(n)<.999999||Math.abs(n.dot(vector(face.center))-offset)>1e-6)continue;const edges=face.edges;try{candidates.push({face,edges:new Set(edges.map(e=>e.hashCode))});}finally{edges.forEach(e=>e.delete());}}
   const start=candidates.find(r=>r.face===seed),parts=region?candidates.filter(r=>r===start||representedByProfile(r.face,region)):[start],seen=new Set(parts);
