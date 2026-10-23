@@ -63,7 +63,7 @@ import {depthToFacePlane} from './extrusion-face-target.js';
 import {clipExtrusionAtSolids,contactSearchDistance} from './extrude-to-solid.js';
 import {bodyRevolution} from './body-revolution.js';
 import {replayHistory} from './history-replay.js';
-import {templatePlacement,vertexBounds} from './template-placement.js';
+import {vertexBounds} from './template-placement.js';
 import {cachedBody,rememberBody} from './body-cache.js';
 import {makeCoilJoint,makeCoilTestPiece,coilJointInfo} from './coil-joint.js';
 import {coilOnRim} from './coil-on-rim.js';
@@ -462,13 +462,6 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  if(!Number.isFinite(p.radius)||p.radius<=0||![p.x,p.y,p.z].every(Number.isFinite))throw Error('半径は0より大きい数値、中心位置は数値で指定してください');
  const shape=R.makeSphere(p.radius).translate([p.x,p.y,p.z]);try{emit(p.id,shape);}finally{shape.delete();}
  }
- else if(p.type==='templateExport'){
-
-  if(!base)throw Error('保存するボディを選択してください');
-  const vertices=base.mesh().vertices,lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(let i=0;i<vertices.length;i++) {const axis=i%3;lo[axis]=Math.min(lo[axis],vertices[i]);hi[axis]=Math.max(hi[axis],vertices[i]);}
-  emit(p.id,base.clone().translate([-(lo[0]+hi[0])/2,-(lo[1]+hi[1])/2,-lo[2]]));
- }
- else if(p.type==='templateImport'){if(typeof p.brep!=='string'||!p.brep.length||p.brep.length>30000000)throw Error('部品テンプレートの形状データが不正です');const shape=R.deserializeShape(p.brep).asShape3D();try{if(!(R.measureVolume(shape)>1e-8))throw Error('立体の形状データではありません');const offset=templatePlacement(vertexBounds(shape.mesh().vertices),p.occupiedBounds||[]);const placed=shape.clone().translate(offset);try{emit(p.id,placed);}finally{placed.delete();}}finally{shape.delete();}}
  else if(p.type==='shell'){
   const sourceHistory=p.direction!=='外側'?decoratedShellHistory(features,p.target):null;
   let shape;

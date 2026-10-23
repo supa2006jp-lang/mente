@@ -24,6 +24,8 @@ export function translateTemplateSketch(source,delta){
 }
 export function sketchTemplateVertices(sketch){const r={...sketch,offset:planeCoordinates(sketch).offset};return sketchPoints(sketch).flatMap(p=>worldPoint(r,p).toArray());}
 export function validateSelectionTemplate(value){
+ // Keep previously saved single-solid files usable through the unified library.
+ if(value?.format==='forma-solid-template'&&value.version===1)value={...value,format:'forma-selection-template',origin:[0,0,0],sketches:[],solids:[{name:value.name,brep:value.brep}]};
  if(value?.format!=='forma-selection-template'||value.version!==1||value.units!=='mm'||typeof value.name!=='string'||!value.name.trim()||value.name.length>100||!Array.isArray(value.sketches)||!Array.isArray(value.solids)||!value.sketches.length&&!value.solids.length||value.sketches.length+value.solids.length>100)throw Error('対応する選択部品ファイルではありません（最大100要素）');
  if(!Array.isArray(value.origin)||value.origin.length!==3||value.origin.some(x=>!Number.isFinite(x)||Math.abs(x)>100000))throw Error('部品の配置基準が不正です');
  const sketches=value.sketches.map(portableSketch),solids=value.solids.map(s=>{if(typeof s?.name!=='string'||s.name.length>100||typeof s.brep!=='string'||!s.brep.length||s.brep.length>30000000)throw Error('部品のソリッドデータが不正です');return {name:s.name,brep:s.brep};});

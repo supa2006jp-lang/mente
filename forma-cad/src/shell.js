@@ -2,30 +2,48 @@ import * as R from 'replicad';
 import {selectedCadFaces} from './face-pull.js';
 import {shellCoaxialCircularLoft} from './circular-loft.js';
 
+// The default rounded offset can return the unmodified solid where short
+// planar faces meet circular walls. Join the offset surfaces by intersection
+// on that failure, without rebuilding the original outline or changing depth.
+function intersectingOffsetShell(base,faces,thickness){
+ const oc=R.getOC(),list=new oc.NCollection_List_TopoDS_Shape(),builder=new oc.BRepOffsetAPI_MakeThickSolid();
+ try{
+  for(const face of faces)list.Append(face.wrapped);
+  builder.MakeThickSolidByJoin(base.wrapped,list,-thickness,.001,oc.BRepOffset_Mode.BRepOffset_Skin,true,false,oc.GeomAbs_JoinType.GeomAbs_Intersection,false);
+  return R.cast(builder.Shape()).asShape3D();
+ }finally{builder.delete();list.delete();}
+}
+
 export function shellBody(base,p,circularLoftInfo=null){
  if(!Number.isFinite(p.thickness)||p.thickness<.1||p.thickness>1000)throw Error('壁厚は0.1〜1000 mmで指定してください');
  if(!p.faces?.length)throw Error('開口にする面を選択してください');
  const faces=selectedCadFaces(base,p.faces),original=R.measureVolume(base);
- let shape,reason='この壁厚ではシェルを作成できません。壁厚を小さくするか、開口面を変更してください';
- try{shape=base.shell(p.direction==='外側'?-p.thickness:p.thickness,face=>face.inList(faces));}catch{}
- if(shape){
-  let valid=false,volume=NaN;
-  try{
-   const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);
-   try{valid=check.IsValid();}finally{check.delete();}
-   volume=R.measureVolume(shape);
-  }catch{}
-  if(valid&&Number.isFinite(volume)&&volume>1e-8&&(p.direction==='外側'||original-volume>Math.max(1e-7,original*1e-8)))return shape;
-  reason=valid&&Number.isFinite(volume)&&volume>1e-8?'壁厚が大きすぎるため内側の空間を作れません。壁厚を小さくしてください':'有効なシェルを作成できません。壁厚と選択面を確認してください';
-  shape.delete();
- }
- if(faces.length===1&&circularLoftInfo){
-  try{
-   const recovered=shellCoaxialCircularLoft(base,faces[0],circularLoftInfo,p.thickness,p.direction);
-   if(recovered)return recovered;
-  }catch{}
- }
- throw Error(reason);
+ const thickness=p.direction==='外側'?-p.thickness:p.thickness;
+ const attempts=[()=>base.shell(thickness,face=>face.inList(faces))];
+ // Preserve the inexpensive specialized recovery for old faceted lofts before
+ // attempting general surface intersections on their many small side faces.
+ if(faces.length===1&&circularLoftInfo)attempts.push(()=>shellCoaxialCircularLoft(base,faces[0],circularLoftInfo,p.thickness,p.direction));
+ attempts.push(()=>intersectingOffsetShell(base,faces,thickness));
+ let reason='この壁厚ではシェルを作成できません。壁厚を小さくするか、開口面を変更してください';
+ try{
+  for(const build of attempts){
+   let shape;
+   try{shape=build();}catch(error){if(error instanceof WebAssembly.RuntimeError)throw error;continue;}
+   if(!shape)continue;
+   let accepted=false;
+   try{
+    let valid=false,volume=NaN;
+    try{
+     const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);
+     try{valid=check.IsValid();}finally{check.delete();}
+     volume=R.measureVolume(shape);
+    }catch{}
+    if(valid&&Number.isFinite(volume)&&volume>1e-8&&(p.direction==='外側'||original-volume>Math.max(1e-7,original*1e-8))){accepted=true;return shape;}
+    reason=valid&&Number.isFinite(volume)&&volume>1e-8?'シェル計算で内側の空間を作れませんでした。壁厚や開口面を確認してください':'有効なシェルを作成できません。壁厚と選択面を確認してください';
+   }finally{if(!accepted)shape.delete();}
+  }
+  throw Error(reason);
+ }finally{faces.forEach(face=>face.delete());}
 }
 
 // Offset the original body, then remove that same cavity from the decorated

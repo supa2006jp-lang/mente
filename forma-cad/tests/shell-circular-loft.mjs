@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {findRegions} from '../src/regions.js';
 import {defaults} from '../src/geometry.js';
-import {profileSketch,runOperation} from '../src/kernel.js';
+import {runOperation} from '../src/kernel.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const sketches=[{...defaults,kind:'sketch',id:'small',profile:'circle',diameter:70,z:2},{...defaults,kind:'sketch',id:'large',profile:'circle',diameter:100,z:122}];
@@ -30,7 +30,13 @@ try{
  checkShell(smooth,runOperation([...sketches,{kind:'cadop',id:'smooth',spec,...smoothResult}],shellSpec));
 }finally{smooth.delete();}
 
-const legacy=profileSketch(sections[0]).loftWith([profileSketch(sections[1])]);
+// Build the old polygonal wires explicitly: profileSketch now recognizes
+// sampled circles and creates smooth native curves, so it is no legacy fixture.
+function legacySketch(section){
+ const edges=section.outer.map((p,i)=>R.makeLine([...p,section.offset],[...section.outer[(i+1)%section.outer.length],section.offset]));
+ try{return new R.Sketch(R.assembleWire(edges),{defaultDirection:[0,0,1]});}finally{edges.forEach(edge=>edge.delete());}
+}
+const legacy=legacySketch(sections[0]).loftWith([legacySketch(sections[1])]);
 try{
  assert.ok(legacy.faces.length>100,'legacy circular loft has many side faces');
  const oldFeature={kind:'cadop',id:'old',spec,outputs:[{id:'body',brep:legacy.serialize()}],remove:[]};
