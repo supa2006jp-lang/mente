@@ -1,5 +1,6 @@
 import {channelSketch,channelParameters} from './channel-sketch.js';
 import {createChannelOpeningArrow} from './channel-opening-arrow.js';
+import {createChannelResize} from './channel-resize.js';
 import {taperDisplayAngle,taperStoredAngle} from './taper-angle-reference.js';
 import {createTaperOptionsControls} from './extrusion-taper-controls.js';
 import {createSketchMoveTool} from './sketch-move-tool.js';
@@ -232,7 +233,7 @@ const circularBodies=()=>circularEditState?.view.bodies||meshes;
 function clearCircularEdit(){circularEditState?.view.close();circularEditState=null;editingCircularId=null;}
 let historyOrganizer=null;
 let features=[],selected=null,mode='solid',meshes=new Map(),hiddenBodies=new Set(),past=[],future=[],modified=false,sketch=false,firstPoint=null,showEdges=true;
-let centerRectangle=false,channelMode=false,channelReverse=false,channelArrow=null,channelHiddenSource=null;
+let centerRectangle=false,channelMode=false,channelReverse=false,channelArrow=null,channelResize=null,channelHiddenSource=null;
 let selectedFaces=[],selectingFaces=false,edgeSelectionMode=false;
 let selectionPicker=null,selectionCandidateHighlight=null;
 let selectionMode='auto',selectedBodies=new Set(),bodySelectionHighlight=null,editingPipeId=null,editingEncloseId=null,editingCoilJointId=null,editingShellId=null,editingEncloseVisibility=[];
@@ -645,13 +646,17 @@ channelTool.onclick=()=>{startFeature('rect','solid');$('draw').click();channelM
 
 const channelEditDirection=document.createElement('label');channelEditDirection.id='channel-edit-direction';channelEditDirection.hidden=true;channelEditDirection.textContent='コの字の開く向き';const channelEditOpening=document.createElement('select');channelEditOpening.id='channel-edit-opening';channelEditOpening.setAttribute('aria-label','再編集するコの字の開く向き');for(const option of channelOpening.options)channelEditOpening.add(new Option(option.textContent,option.value));channelEditDirection.append(channelEditOpening);$('height-label').parentElement.after(channelEditDirection);
 channelEditOpening.addEventListener('input',()=>{channelOpening.value=channelEditOpening.value;channelOpening.dispatchEvent(new Event('input',{bubbles:true}));});
-channelArrow=createChannelOpeningArrow({host,project:screenPoint});
+function cycleChannelOpening(){if(channelResize?.dragging||!channelMode||stage!=='sketch'||!(sketch||selected)||document.querySelector('dialog[open]'))return;const directions=['left','up','right','down'];channelOpening.value=directions[(directions.indexOf(channelOpening.value)+1)%directions.length];channelOpening.dispatchEvent(new Event('input',{bubbles:true}));notify('コの字の開口：'+channelOpening.selectedOptions[0].textContent+' ／ 紫の矢印・右クリックで切替');}
+channelArrow=createChannelOpeningArrow({host,project:screenPoint,onCycle:cycleChannelOpening});
+function channelResizeFeature(){if(!channelMode||stage!=='sketch'||!selected||sketch||document.querySelector('dialog[open]'))return null;try{const f=current();validateFeature(f);return f;}catch{return null;}}
+channelResize=createChannelResize({host,controls,project:screenPoint,getFeature:channelResizeFeature,getSnap:()=>({enabled:$('snap-enabled').checked,step:Number(host.dataset.sketchGridDisplayStep)||gridStep}),getReferences:f=>[...features.filter(other=>other.id!==f.id&&other.kind==='sketch'&&!other.groupHidden).flatMap(other=>other.profile==='point'?[new THREE.Vector3(other.x,other.y,other.z)]:sketchPoints(other).map(p=>worldPoint({...other,offset:planeCoordinates(other).offset},p))),...[...meshes.values()].filter(m=>m.visible).flatMap(m=>moveBodyPointReferences(m).filter(ref=>ref.kind==='vertex').map(ref=>new THREE.Vector3(...ref.point)))],onResize:(key,value)=>{$(key).value=value;$(key).dispatchEvent(new Event('input',{bubbles:true}));}});
+const channelResizeHint=document.createElement('small');channelResizeHint.textContent='画面の青い↔・↕をドラッグで寸法調整（中心固定）。緑色は吸着中。Shiftで微調整・吸着解除。紫の矢印で開口切替。';channelResizeHint.style.cssText='display:block;font-size:12px;line-height:1.6;margin-top:6px';channelEditDirection.append(channelResizeHint);
 function syncChannelControls(){channelDirection.hidden=!(channelMode&&sketch);channelEditDirection.hidden=!(channelMode&&stage==='sketch'&&selected&&!sketch);channelEditOpening.value=channelOpening.value;}
 function restoreChannelSource(){if(channelHiddenSource){channelHiddenSource.object.visible=channelHiddenSource.visible;channelHiddenSource=null;}}
 function updateChannelVisual(){
  const editing=channelMode&&stage==='sketch'&&selected&&!sketch,show=channelMode&&stage==='sketch'&&(editing||sketch&&firstPoint&&draftTouched)&&!document.querySelector('dialog[open]');
- if(!show){restoreChannelSource();channelArrow?.hide();return;}
- let f;try{f=current();validateFeature(f);}catch{restoreChannelSource();channelArrow?.hide();return;}channelArrow?.update(f);
+ if(!show){restoreChannelSource();channelArrow?.hide();channelResize?.hide();return;}
+ let f;try{f=current();validateFeature(f);}catch{restoreChannelSource();channelArrow?.hide();channelResize?.hide();return;}channelArrow?.update(f,{clearance:editing?32:0});channelResize?.update(editing?f:null);
  const source=editing&&draftTouched&&preview&&host.dataset.previewKind==='sketch-line'?sketchGroup.children.find(o=>o.userData.featureId===selected):null;
  if(channelHiddenSource?.object!==source)restoreChannelSource();if(source&&!channelHiddenSource){channelHiddenSource={object:source,visible:source.visible};source.visible=false;}
 }
@@ -733,6 +738,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(channelResize?.cancelDrag())return;
  if(textSketchController?.active){textSketchController.close();return;}
  if(sketchMoveTool?.active){sketchMoveTool.cancel();return;}
  if(mirrorAxisDrag?.cancelInput())return;
@@ -847,7 +853,7 @@ function snapToGrid(hit){
 function showSnap(hit,basis=sketchBasis){
  const kind=host.dataset.snapKind||'grid',labels={endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm';
 }
-function finishSketch(message=true){connectedSketch=null;updateConnectedSketchUI();splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;channelMode=false;channelReverse=false;channelDirection.hidden=true;channelEditDirection.hidden=true;channelArrow?.hide();restoreChannelSource();$('profile').querySelector('[value=rect]').textContent='長方形';$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
+function finishSketch(message=true){connectedSketch=null;updateConnectedSketchUI();splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;channelMode=false;channelReverse=false;channelDirection.hidden=true;channelEditDirection.hidden=true;channelResize?.hide();channelArrow?.hide();restoreChannelSource();$('profile').querySelector('[value=rect]').textContent='長方形';$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
 function stopLineDrawing(){if(stage!=='sketch'||$('profile').value!=='line')return false;$('cancel').click();$('status').textContent='線分の作図を終了しました。確定済みの線は残ります';return true;}
 $('end-sketch').onclick=()=>{if(!stopLineDrawing())finishSketch();};
 $('draw').onclick=()=>{const wasSketchStage=stage==='sketch',workingFace=pendingDrawingFace||sketchWorkingFace,previousZoom=camera.zoom;
@@ -2413,7 +2419,7 @@ document.addEventListener('pointerup',e=>{
  const menuOpen=sketchRightDown.menuOpen,moved=sketchRightDown.moved||Math.hypot(e.clientX-sketchRightDown.x,e.clientY-sketchRightDown.y)>5;sketchRightDown=null;if(moved)return;
  e.preventDefault();
  if((sketch||selected)&&stage==='sketch'&&channelMode&&!document.querySelector('dialog[open]')){
-  const directions=['left','up','right','down'];channelOpening.value=directions[(directions.indexOf(channelOpening.value)+1)%directions.length];channelOpening.dispatchEvent(new Event('input',{bubbles:true}));notify('コの字の開口：'+channelOpening.selectedOptions[0].textContent+' ／ 右クリックで切替');return;
+  cycleChannelOpening();return;
  }
  if(menuOpen)return;
  if(switchConnectedSketch())return;
