@@ -19,9 +19,9 @@ export class ExtrusionPreviewCache{
  key(batch,editingId){return JSON.stringify([editingId,signature(batch)]);}
  store(history,batch,prepared,editingId=null,display=null,contacts=false){
   this.scope(history);
-  if(!batch.length||!contacts&&batch.some(feature=>!feature.barrier&&feature.operation!=='join')||prepared.length!==batch.length)return;
+  if(!batch.length||!contacts&&!display?.exact&&batch.some(feature=>!feature.barrier&&feature.operation!=='join')||prepared.length!==batch.length)return;
   const records=prepared.map(({cadResult,...feature})=>{
-   if(!cadResult?.outputs?.length||!Array.isArray(cadResult.remove)||!contacts&&cadResult.outputs.some(output=>!output.brep))return null;
+   if(!Array.isArray(cadResult?.outputs)||!Array.isArray(cadResult.remove)||!cadResult.outputs.length&&!cadResult.remove.length||!contacts&&cadResult.outputs.some(output=>!output.brep))return null;
    const {removed,previewWarnings,...result}=cadResult;
    return {...feature,cadResult:result};
   });
@@ -34,7 +34,7 @@ export class ExtrusionPreviewCache{
  }
  read(history,batch,editingId,withDisplay,showGap,contacts=false){
   this.scope(history);const key=(contacts?'contacts:':'')+this.key(batch,editingId),entry=this.entries.get(key);
-  if(!entry||withDisplay&&(!entry.display||showGap&&!entry.display.showGap))return null;
+  if(!entry||withDisplay&&(!entry.display?.previews||showGap&&!entry.display.showGap))return null;
   this.entries.delete(key);this.entries.set(key,entry);
   const ids=new Map(entry.ids.map((id,index)=>[id,batch[index].id]));
   const features=structuredClone(entry.records).map(({cadResult,...feature},index)=>{
@@ -44,7 +44,9 @@ export class ExtrusionPreviewCache{
    if(cadResult.analysis)cadResult.analysis=remap(cadResult.analysis,ids);
    return {...next,cadResult};
   });
-  if(!withDisplay)return {...(contacts?{contactOnly:true}:{}),features};
+  const projectFeatures=entry.display?.projectFeatures?remap(structuredClone(entry.display.projectFeatures),ids):null;
+  if(projectFeatures)for(const feature of projectFeatures){const input=features.find(f=>f.id===feature.id);if(input)feature.name=input.name;}
+  if(!withDisplay)return {...(contacts?{contactOnly:true}:{}),features,...(entry.display?.exact?{exact:true,...(projectFeatures?{projectFeatures}:{})}:{})};
   const previews=structuredClone(entry.display.previews).map(preview=>{
    const next={...preview,outputs:preview.outputs.map(output=>({...output,id:ids.get(output.id)??output.id}))};
    if(next.removed)next.removed=next.removed.map(output=>({...output,id:ids.get(output.id)??output.id}));
@@ -54,6 +56,8 @@ export class ExtrusionPreviewCache{
   return {features,previews};
  }
  get(history,batch,editingId=null){return this.read(history,batch,editingId,false,false);}
+ storeExact(history,batch,result,editingId=null){this.store(history,batch,result.features,editingId,{exact:true,outputs:result.outputs,remove:result.remove,projectFeatures:result.projectFeatures});}
+ getExact(history,batch,editingId=null){const result=this.get(history,batch,editingId),entry=this.entries.get(this.key(batch,editingId));if(!result?.exact||!entry?.display?.exact)return null;const ids=new Map(entry.ids.map((id,i)=>[id,batch[i].id]));return {...result,outputs:remap(structuredClone(entry.display.outputs),ids),remove:remap(structuredClone(entry.display.remove),ids)};}
  storeContacts(history,batch,result,editingId=null){if(result.contactOnly)this.store(history,batch,result.features,editingId,null,true);}
  getContacts(history,batch,editingId=null){return this.read(history,batch,editingId,false,false,true);}
  getPreview(history,batch,editingId=null,showGap=true){return this.read(history,batch,editingId,true,showGap);}

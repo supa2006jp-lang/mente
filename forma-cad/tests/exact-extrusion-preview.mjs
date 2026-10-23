@@ -1,0 +1,30 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import * as R from 'replicad';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import {runOperation,kernelBodies} from '../src/kernel.js';
+import {defaults} from '../src/geometry.js';
+import {planarFace} from '../src/frames.js';
+import {ExtrusionPreviewCache} from '../src/extrusion-preview-cache.js';
+import {faceBoundary,faceSurfaceType} from '../src/face-selection-feedback.js';
+import {cadFaceGeometry} from '../src/face-selection.js';
+import {failureRecord} from '../src/failure-recovery-store.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const dir='outputs/extrusion-reliability/';await fs.mkdir(dir,{recursive:true});
+const block={...defaults,id:'body',kind:'extrusion',name:'直方体',width:40,height:30,depth:10,x:20,y:15},fillet={type:'fillet',target:'body',radius:2,id:'round'},rounded=runOperation([block],fillet),base=[{kind:'cadop',id:'seed',name:'全辺フィレット',...rounded}],mesh=base[0].outputs[0],geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(new Float64Array(mesh.vertices),3));geometry.setIndex(mesh.triangles);geometry.userData={faceGroups:mesh.faceGroups,planarFaces:mesh.planarFaces};
+const top=mesh.faceGroups.find(group=>mesh.planarFaces.includes(group.faceId)&&mesh.vertices[mesh.triangles[group.start]*3+2]>9.9),region={...planarFace(geometry,top.start/3),bodyId:'body',cadFace:{bodyId:'body',point:[2,2,10],normal:[0,0,1]}},snapshot=JSON.stringify(base),cache=new ExtrusionPreviewCache();
+function measure(output){const shape=R.deserializeShape(output.brep).asShape3D();try{return R.measureVolume(shape);}finally{shape.delete();}}
+for(const [operation,depth]of [['join',2],['cut',-.5],['new',3]]){
+ const f={...defaults,id:'draft',kind:'extrusion',profile:'region',plane:region.plane,frame:region.frame,region,operation,target:'body',depth},result=runOperation(base,{type:'exactExtrusionPreview',features:[f]}),committed=runOperation(base,{type:'extrusionBatch',features:[f]});
+ assert.equal(result.exact,true);assert.equal(result.features[0].operation,committed.features[0].operation);assert.ok(Math.abs(measure(result.features[0].cadResult.outputs[0])-measure(committed.features[0].cadResult.outputs[0]))<1e-6);assert.equal(result.outputs.length,1);assert.equal(result.outputs[0].triangles.length,committed.features[0].cadResult.outputs[0].triangles.length);assert.ok(result.outputs[0].vertices.every((v,i)=>Math.abs(v-committed.features[0].cadResult.outputs[0].vertices[i])<1e-6));assert.equal(JSON.stringify(base),snapshot);
+ cache.storeExact(base,[f],result);assert.equal(cache.getPreview(base,[f]),null,'exact result does not masquerade as a tool fragment preview');const ready=cache.get(base,[{...f,id:'committed',name:'確定'}]),shown=cache.getExact(base,[{...f,id:'committed'}]);assert.ok(ready.exact);assert.equal(ready.features[0].name,'確定');assert.equal(shown.outputs[0].id,operation==='new'?'committed':'body');assert.equal(measure(ready.features[0].cadResult.outputs[0]),measure(committed.features[0].cadResult.outputs[0]));assert.equal(cache.get(base,[{...f,depth:depth+1}]),null);assert.equal(cache.get([...base],[f]),null);
+}
+const plain={...defaults,id:'plain',kind:'extrusion',depth:10,width:20,height:20},history=[plain],edited={...plain,depth:12},later={...defaults,id:'later',kind:'extrusion',operation:'join',target:'plain',depth:2,width:10,height:10,z:10};
+const laterResult=runOperation(history,{type:'extrusionBatch',features:[later]}).features,original=[plain,...laterResult],exact=runOperation(original,{type:'exactExtrusionPreview',features:[edited],editingId:'plain'});assert.equal(exact.projectFeatures.length,2);const direct=runOperation([exact.features[0],original[1]],{type:'replay',before:original,start:1,refreshStart:true}).features;const a=kernelBodies(exact.projectFeatures),b=kernelBodies(direct);try{assert.ok(Math.abs(R.measureVolume(a.get('plain'))-R.measureVolume(b.get('plain')))<1e-6);}finally{[...a.values(),...b.values()].forEach(s=>s.delete());}cache.storeExact(original,[edited],exact,'plain');assert.equal(cache.get(original,[edited],'plain').projectFeatures[0].depth,12);
+// Removal of a whole body is a valid exact result and must remain cacheable.
+const empty={...defaults,id:'cut',kind:'extrusion',operation:'cut',target:'plain',width:30,height:30,z:10,depth:-15},removed=runOperation(history,{type:'exactExtrusionPreview',features:[empty]});assert.deepEqual(removed.outputs,[]);assert.deepEqual(removed.remove,['plain']);cache.storeExact(history,[empty],removed);assert.ok(cache.get(history,[empty]));
+assert.equal(faceSurfaceType(geometry,top.start/3),'plane');assert.equal(faceSurfaceType(geometry,mesh.faceGroups.find(g=>!mesh.planarFaces.includes(g.faceId)).start/3),'curve');const selected=cadFaceGeometry(geometry,top);try{assert.equal(faceBoundary(selected).length,4,'planar outline excludes internal triangle diagonals');}finally{selected.dispose();}
+const document=failureRecord({features:base,spec:{type:'extrusionBatch',features:[empty]},editing:{feature:empty},error:Error('test'),id:'failed',now:1});assert.equal(document.document.features[0].id,base[0].id);document.document.features[0].name='changed';assert.equal(JSON.stringify(base),snapshot);assert.equal(document.editing.feature.depth,-15);assert.equal(document.error.message,'test');
+await fs.writeFile(dir+'fixture.forma.json',JSON.stringify({format:'forma-cad',version:1,features:[block,{kind:'cadop',id:'round',name:'全辺フィレット',spec:fillet,...rounded}]}));
+geometry.dispose();const proof={exactCommitResults:true,previewMatchesNativeMesh:true,joinCutNew:true,cacheReuse:true,cacheInvalidation:true,successorReplay:true,fullBodyRemoval:true,surfaceClassification:true,failureSnapshotImmutable:true};await fs.writeFile(dir+'native-proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));

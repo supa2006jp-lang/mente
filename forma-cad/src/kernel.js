@@ -5,6 +5,7 @@ import {resolveContactMove} from './native-contact-move.js';
 import {repairProjectDisplay} from './project-display-repair.js';
 import {mirrorSolids} from './solid-mirror.js';
 import {verifiedCadMesh} from './verified-cad-mesh.js';
+import {prepareExactExtrusion} from './exact-extrusion-preview.js';
 import {inspectBodyComponents,resizeBodies,compareBodyShapes} from './model-tool-geometry.js';
 import {selectedProfilePlanarFaces} from './cad-planar-face.js';
 import {extrusionJoinInfo,extrusionJoinContacts} from './extrusion-join-info.js';
@@ -370,6 +371,7 @@ export function runOperation(features,spec,onProgress,context={}){
  if(spec.type==='circularPatternSpacing'){const bodies=kernelBodies(features);try{const base=bodies.get(spec.target);if(!base)throw Error('原型ボディを選択してください');return circularPatternSpacing(base,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}
  if(spec.type==='circularPatternInfo'){const bodies=kernelBodies(features);let entries=[];try{const base=bodies.get(spec.target);if(!base)throw Error('原型ボディを選択してください');entries=patternCavityEntries(base,onProgress);return {cavities:entries.map(({shape,...entry})=>({...entry,...shape.mesh({tolerance:.08,angularTolerance:.15})}))};}finally{entries.forEach(e=>e.shape.delete());bodies.forEach(shape=>shape.delete());}}
  if(spec.type==='svgWrapInfo'){const bodies=kernelBodies(features);try{return svgCylinderInfo(bodies.get(spec.target),spec.surfacePoint);}finally{for(const body of bodies.values())body.delete();}}
+ if(spec.type==='exactExtrusionPreview')return prepareExactExtrusion(features,spec,{run:(history,operation)=>runOperation(history,operation,onProgress),bodies:kernelBodies,mesh:shape=>verifiedCadMesh(shape,{tolerance:.08,angularTolerance:.15})});
  if(spec.type==='extrusionToolPreview'){
   const bodies=kernelBodies(features),contactInfo={};let tool;
   try{tool=extrusionTool(spec.feature,bodies,contactInfo,features,onProgress);const {previewParts,...extent}=contactInfo;return {...extent,outputs:previewParts?previewParts.map(part=>({id:spec.feature.id,...part})):[{id:spec.feature.id,...measurePhase('display',()=>tool.mesh({tolerance:.08,angularTolerance:.15}))}]};}

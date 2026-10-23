@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {basisFor,planarFace,worldPoint} from './frames.js';
 import {cadFaceGroup,cadFaceKey} from './face-selection.js';
 import {smoothEdgeChains} from './smooth-edge-chains.js';
+import {faceSurfaceType} from './face-selection-feedback.js';
 const rounded=v=>Math.round(v*1e4)/1e4;
 export function edgeCandidateKey(hit){const curve=hit.arc||hit.circle,body=hit.mesh.userData.bodyId;if(hit.curve)return body+':curve:'+hit.curve.key;if(hit.arc)return body+':arc:'+hit.arc.key;if(hit.circle)return body+':circle:'+curve.center.map(rounded).join(',')+':'+rounded(curve.radius);return body+':edge:'+ [hit.a.toArray().map(rounded).join(','),hit.b.toArray().map(rounded).join(',')].sort().join('|');}
 export function faceCandidateKey(hit,features=[]){const g=hit.object.geometry,body=hit.object.userData.bodyId,group=cadFaceGroup(g,hit.faceIndex);if(group)return cadFaceKey(body,group);const n=hit.face.normal;for(const f of [...features].reverse()){if(f.kind==='extrusion'&&f.id===body&&f.profile==='circle'){const axis=basisFor(f).n;if(Math.abs(n.dot(axis))<.05){const delta=hit.point.clone().sub(new THREE.Vector3(f.x,f.y,f.z)),radius=delta.addScaledVector(axis,-delta.dot(axis)).length(),r=f.diameter/2;for(const expected of f.mode==='thin'?[r+(f.side==='outside'?f.wall:f.side==='center'?f.wall/2:0),r-(f.side==='inside'?f.wall:f.side==='center'?f.wall/2:0)]:[r])if(Math.abs(radius-expected)<Math.max(.002,expected*.003))return body+':cylinder:'+rounded(expected);}}}return body+':plane:'+n.toArray().map(rounded).join(',')+':'+rounded(n.dot(hit.point));}
@@ -28,6 +29,7 @@ export function faceCenterCandidate(hit,features=[]){
 }
 function faceDirection(hit,features){
  const mesh=hit.object,group=cadFaceGroup(mesh.geometry,hit.faceIndex);
+ const type=faceSurfaceType(mesh.geometry,hit.faceIndex,features,mesh.userData.bodyId);if(type==='fillet')return '曲面（フィレットを含む）';if(type==='curve')return '曲面';
  if(group?.cylinder||faceCandidateKey(hit,features).includes(':cylinder:'))return '曲面';
  mesh.updateMatrixWorld(true);
  const n=hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld));
