@@ -2,12 +2,17 @@ import * as R from 'replicad';
 import {selectedConnectedPlanarFace} from './cad-planar-face.js';
 import {fuseSolids} from './solid-fuse.js';
 import {supportBaseSurfaces} from './print-support-base.js';
-export const printSupportDefaults={mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
+import {makeWallSupports} from './print-support-walls.js';
+export const printSupportDefaults={style:'posts',wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
 const box=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
 export function validatePrintSupport(input){
  // Existing saved supports keep their original bed-only placement on replay.
  const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed'};
+ if(!['posts','walls'].includes(p.style))throw Error('サポートの形を選択してください');
+ if(!Number.isFinite(p.wallPitch)||p.wallPitch<2||p.wallPitch>8||!Number.isFinite(p.wallThickness)||p.wallThickness<.4||p.wallThickness>2||p.wallThickness>=p.wallPitch)throw Error('薄壁の間隔は2〜8 mm、厚みは0.4〜2 mmで、厚みを間隔より小さくしてください');
+ if(!Number.isFinite(p.layerHeight)||p.layerHeight<.06||p.layerHeight>.4)throw Error('積層ピッチは0.06〜0.4 mmで指定してください');
+ if(p.style==='walls'&&(p.topGap<p.layerHeight-1e-6||Math.abs(p.topGap/p.layerHeight-Math.round(p.topGap/p.layerHeight))>1e-5))throw Error('薄壁の上側のすき間は、積層ピッチの1倍以上の整数倍にしてください');
  if(!['bed','bedOrModel'].includes(p.baseMode))throw Error('サポートを支え始める場所を選択してください');
  if(!Number.isFinite(p.bottomGap)||p.bottomGap<.05||p.bottomGap>1.5)throw Error('モデル上の接点の縦すき間は0.05〜1.5 mmで指定してください');
  for(const [key,min,max]of [['spacing',8,100],['footDiameter',6,50],['footThickness',.4,3],['postDiameter',2,12],['tipDiameter',.6,6],['topGap',.05,1.5],['bedZ',-10000,10000],['maxSupports',1,36],['braceDiameter',1,5]])if(!Number.isFinite(p[key])||p[key]<min||p[key]>max)throw Error(({spacing:'支柱の間隔',footDiameter:'足の直径',footThickness:'足の厚み',postDiameter:'支柱の直径',tipDiameter:'先端の直径',topGap:'上面との縦すき間',bedZ:'ベッド高さ',maxSupports:'本数の上限',braceDiameter:'斜め補強の直径'})[key]+'は'+min+'〜'+max+(key==='maxSupports'?'本':' mm')+'で指定してください');
@@ -51,6 +56,7 @@ function rail(a,b,width,height,z){const dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hy
 function diagonal(a,b,z,radius){const d=[b[0]-a[0],b[1]-a[1],Math.hypot(b[0]-a[0],b[1]-a[1])],length=Math.hypot(...d);return R.makeCylinder(radius,length,[a[0],a[1],z],d.map(v=>v/length));}
 export function makePrintSupport(bodies,input,onProgress){
  const p=validatePrintSupport(input),model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
+ if(p.style==='walls')return makeWallSupports(bodies,p,onProgress);
  const faces=p.mode==='face'?[selectedConnectedPlanarFace(model,p.faces[0])]:model.faces,bounds=new Map([...bodies].map(([id,shape])=>[id,box(shape)])),candidates=[],seen=new Set(),posts=[],extras=[];
  let bases;
  let skipped=0,omittedReinforcement=0,shape=null;

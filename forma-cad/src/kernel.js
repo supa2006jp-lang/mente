@@ -409,7 +409,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  if(['coilJoint','enclose','shell','fillet','chamfer','move','join','split','mirror','circular','rectangular'].includes(p.type)&&!base)throw Error('対象ボディを選択してください');
  if(p.type==='printSupport'){
   if(typeof p.id!=='string'||!p.id||bodies.has(p.id))throw Error('サポートの作成先が不正です');
-  const made=makePrintSupport(bodies,p,onProgress);try{emit(p.id,made.shape);analysis={...analysis,printSupport:made.analysis,supportLinks:p.lockToModel===false?[]:[{id:p.id+'-model-link',bodies:[...new Set([p.target,...made.analysis.baseBodyIds,p.id])],mode:'support'}]};return {outputs,remove,analysis,...(p.preview?{supportPreview:{body:{id:p.target,...cadMesh(bodies.get(p.target))}}}:{})};}finally{made.shape.delete();}
+  const made=makePrintSupport(bodies,p,onProgress);try{emit(p.id,made.shape);analysis={...analysis,printSupport:made.analysis,supportLinks:p.lockToModel===false?[]:[{id:p.id+'-model-link',bodies:[...new Set([p.target,...made.analysis.baseBodyIds,p.id])],mode:'support'}]};return {outputs,remove,analysis,...(p.preview?{supportPreview:{body:{id:p.target,...cadMesh(bodies.get(p.target))}},...(made.blockers?.length?{supportPackage:{complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...cadMesh(bodies.get(id))})).concat(outputs.map(o=>({id:o.id,vertices:o.vertices,triangles:o.triangles}))),blockers:made.blockers.map(s=>cadMesh(s))}}:{})}:{})};}finally{made.shape.delete();made.blockers?.forEach(s=>s.delete());}
  }
  else if(p.type==='assemblyInfo'){analysis=assemblyReference(bodies,p.reference,p.mode);}
  else if(p.type==='assemblyMate'){
