@@ -1,10 +1,12 @@
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import * as R from 'replicad';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 import {runOperation} from '../src/kernel.js';import {solidMeshComplete} from '../src/solid-mesh.js';import {bossFitPresets,bossFitPreset,bossFitTestSettings} from '../src/boss-fit.js';
+import {savedBodyMeshes} from '../src/cad-output-mesh.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 assert.deepEqual(bossFitPresets.map(p=>p.clearance),[.25,.2,.1]);for(const p of bossFitPresets)assert.equal(bossFitPreset(p.clearance),p.id);assert.equal(bossFitPreset(.15),'custom');
 for(const settings of [{diameter:3,length:4,bossWall:1.6,bossHeight:8},{diameter:6,length:7,bossWall:1.2,bossHeight:9}]){
  const result=runOperation([],{type:'bossFitTest',id:'test',...settings}),a=result.analysis;assert.equal(result.outputs.length,8);assert.deepEqual(a.samples.map(s=>s.clearance),[.1,.15,.2,.25]);assert.ok(a.width<=180&&a.depth<=180);const shapes=new Map();
+ const inspected=savedBodyMeshes({type:'stlMeshes',bodies:result.outputs});assert(inspected.inspection.ok,'all labelled pieces export with closed manifold edges');assert.equal(inspected.inspection.checkedBodies,8);
  try{
   for(const output of result.outputs){const shape=R.deserializeShape(output.brep).asShape3D();shapes.set(output.id,shape);const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false),solids=shape.solids;try{assert.ok(check.IsValid());assert.equal(solids.length,1);assert.ok(solidMeshComplete(shape));}finally{check.delete();solids.forEach(s=>s.delete());}const box=shape.boundingBox;try{assert.ok(Math.abs(box.bounds[0][2])<1e-5);assert.ok(box.bounds[0][0]>=-1e-5&&box.bounds[1][0]<=180);assert.ok(box.bounds[0][1]>=-1e-5&&box.bounds[1][1]<=180);}finally{box.delete();}}
   function amount(shape,point,r=.02){const probe=R.makeCylinder(r,.05,point),hit=shape.intersect(probe);try{return R.measureVolume(hit)/R.measureVolume(probe);}finally{probe.delete();hit.delete();}}

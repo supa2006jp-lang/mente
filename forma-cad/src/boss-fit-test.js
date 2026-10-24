@@ -1,15 +1,17 @@
 import * as R from 'replicad';
-import {fuseSolid} from './solid-fuse.js';
+import {fuseSolid,fuseSolids} from './solid-fuse.js';
 import {bossFitTestSettings} from './boss-fit.js';
 const digits={'0':'abcdef','1':'bc','2':'abged','5':'afgcd'};
 // Font-independent seven-segment numerals: every stroke is at least 0.8 mm.
 function label(shape,text,x,y,z,hold){
- const width=2.8,height=5.6,t=.8,segments={a:[t,height-t,width-t,height],b:[width-t,height/2+t/2,width,height-t],c:[width-t,t,width,height/2-t/2],d:[t,0,width-t,t],e:[0,t,t,height/2-t/2],f:[0,height/2+t/2,t,height-t],g:[t,height/2-t/2,width-t,height/2+t/2]},bars=[];
+ // Overlap the stroke ends in area. Corner-only contacts leave four STL
+ // surfaces on one vertical edge despite the pad keeping the CAD body solid.
+ const width=2.8,height=5.6,t=.8,join=.1,segments={a:[t-join,height-t,width-t+join,height],b:[width-t,height/2+t/2-join,width,height-t+join],c:[width-t,t-join,width,height/2-t/2+join],d:[t-join,0,width-t+join,t],e:[0,t-join,t,height/2-t/2+join],f:[0,height/2+t/2-join,t,height-t+join],g:[t-join,height/2-t/2,width-t+join,height/2+t/2]},bars=[];
  let at=x;
  for(const char of text){if(char==='.'){bars.push(hold(R.makeBox([at,y,z-.05],[at+.9,y+.9,z+.6])));at+=1.5;continue;}
   for(const key of digits[char]){const [a,b,c,d]=segments[key];bars.push(hold(R.makeBox([at+a,y+b,z-.05],[at+c,y+d,z+.6])));}at+=3.4;
  }
- const compound=hold(R.makeCompound(bars.map(bar=>bar.clone())).asShape3D());return hold(fuseSolid(shape,compound));
+ return hold(fuseSolids([shape,...bars]));
 }
 export function makeBossFitTest(p,onProgress){
  const s=bossFitTestSettings(p),owned=[],hold=shape=>(owned.push(shape),shape),parts=[],samples=[];

@@ -119,7 +119,7 @@ import {replayHistory} from './history-replay.js';
 import {createFilletHistoryDialog} from './fillet-history.js';
 import {createFilletVisualPreview} from './fillet-visual-preview.js';
 import {installWorkspaceImprovements} from './workspace-improvements.js';
-let workspaceImprovements=null,joinPreviewView=null;
+let workspaceImprovements=null,joinPreviewView=null,stlInspection=null;
 import {filletSuppressionState} from './fillet-state.js';
 import {warmKernelOnInteraction} from './kernel-warmup.js';
 import {hideShellProfiles} from './shell-profile-visibility.js';
@@ -185,6 +185,7 @@ import {drawingCrosshair} from './drawing-crosshair.js';
 import {renderThreadPullOptions,threadPullOptions} from './thread-pull-dialog.js';
 import {saveStl} from './save-stl.js';
 import {stlMeshSnapshot,createPreciseStl} from './stl-export-mesh.js';
+import {createStlInspectionView} from './stl-inspection-view.js';
 import {createThreadDisplayTool} from './thread-display-tool.js';
 let threadDisplayTool=null;
 import {createProjectFileTarget} from './project-file-target.js';
@@ -208,7 +209,7 @@ import {cadPosition,retainCadCoordinates,retainEdgeCoordinates,restoreMeshCoordi
 import {findRegions,regionFaceGeometry,regionContains,sketchPoints,planeCoordinates} from './regions.js';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {STLExporter} from 'three/addons/exporters/STLExporter.js';
+
 import {defaults,makeSketchGeometry,makeGeometry,rebuild,validateProject,validateFeature,volume} from './geometry.js';
 const $=id=>document.getElementById(id),clone=x=>structuredClone(x);
 const extrusionResultCache=new ExtrusionPreviewCache();
@@ -321,7 +322,7 @@ for(const [end,color] of [[[5000,0,0],0xe94b55],[[0,5000,0],0x42ba54],[[0,0,5000
 const modelGroup=new THREE.Group();scene.add(modelGroup);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
 let viewCube=null,extrusionJoinInspection=null;
-renderer.setAnimationLoop(()=>{printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();sketchMoveTool?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
+renderer.setAnimationLoop(()=>{printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();stlInspection?.sync();sketchMoveTool?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
 let sketchNoticeTimer,enteredSketchNumber=null;
 function sketchSession(){if(enteredSketchNumber!==null)return features.find(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)||{groupNumber:enteredSketchNumber};const id=editingSketchGroup||activeSketchGroup;return features.find(f=>f.kind==='sketch'&&f.groupId===id)||features.find(f=>f.kind==='sketch'&&f.id===selected)||null;}
 function notifySketch(message){hideExtrusionNotice();clearTimeout(toastTimer);$('toast').style.display='none';const notice=$('sketch-notice');clearTimeout(sketchNoticeTimer);notice.textContent=message;notice.hidden=false;sketchNoticeTimer=setTimeout(()=>{notice.hidden=true;},5000);}
@@ -1069,7 +1070,12 @@ async function chooseProjectFile(){
 }
 $('load').onclick=chooseProjectFile;
 $('file').onchange=async()=>{const file=$('file').files[0];if(!file||projectFileTarget.busy)return;const request=toolCancelRevision,read=++projectReadRevision;projectLoadPreview.cancel();try{await previewProjectFile(file,null,request,read);}finally{if(read===projectReadRevision)$('file').value='';}};
-$('export').onclick=async()=>{if(!meshes.size||$('export').disabled)return;$('export').disabled=true;const original=features;try{const bodies=stlMeshSnapshot(original,meshes),message=await saveStl(()=>createPreciseStl(bodies,kernelClient.run.bind(kernelClient),{isCurrent:()=>features===original}),download);if(message)notify(message);}catch(error){notify('STL保存に失敗しました：'+error.message);}finally{$('export').disabled=false;}};
+stlInspection=createStlInspectionView({scene,host,meshes,getFeatures:()=>features,getBodyName:bodyDisplayName});
+$('export').onclick=async()=>{if(!meshes.size||$('export').disabled)return;$('export').disabled=true;const original=features;let token=null;try{const bodies=stlMeshSnapshot(original,meshes),message=await saveStl(()=>{if(features!==original)throw Error('モデルが変更されたためSTL出力を中止しました');token=stlInspection.begin(original);return createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>stlInspection.current(token),onProgress:p=>stlInspection.progress(token,p),onInspection:report=>stlInspection.result(token,report)});},download,{isCurrent:()=>features===original&&(token===null||stlInspection.current(token))});if(message)notify(message+'（出力メッシュ検査済み）');}catch(error){if(token!==null)stlInspection.error(token,error);if(error.code!=='cancelled')notify('STL保存に失敗しました：'+error.message);}finally{$('export').disabled=false;}};
+async function checkedGeneratedStl(outputs,{isCurrent=()=>true,onProgress}={}){
+ if(!isCurrent())throw Error('設定が変更されたためSTL出力を中止しました');const original=features,token=stlInspection.begin(original),bodies=outputs.map(({id,brep,vertices,triangles})=>({id,brep,vertices,triangles}));
+ try{return await createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>isCurrent()&&stlInspection.current(token),onProgress:p=>{if(!isCurrent())stlInspection.close();else{stlInspection.progress(token,p);onProgress?.(p);}},onInspection:report=>stlInspection.result(token,report)});}catch(error){stlInspection.error(token,error);throw error;}
+}
 function hingeReference(feature){
  const p=feature.spec,hardwareScale=Number.isFinite(p.hardwareScale)?p.hardwareScale:1,source=meshes.get(p?.target);
  if(!p?.hinge)return null;
@@ -1189,19 +1195,19 @@ function printEnclosureStl(feature){
  for(const geometry of geometries)geometry.applyMatrix4(printMatrix);
  let bottom=Infinity;for(const geometry of geometries){geometry.computeBoundingBox();bottom=Math.min(bottom,geometry.boundingBox.min.z);}
  const group=new THREE.Group();for(const geometry of geometries){geometry.translate(0,0,-bottom);geometry.computeVertexNormals();group.add(new THREE.Mesh(geometry));}
- try{group.updateMatrixWorld(true);return new STLExporter().parse(group,{binary:true});}finally{for(const geometry of geometries)geometry.dispose();}
+ try{return checkedGeneratedStl(group.children.map((mesh,i)=>({id:i?p.id+'-part2':p.id,vertices:Array.from(mesh.geometry.attributes.position.array),triangles:Array.from(mesh.geometry.index.array)})));}finally{for(const geometry of geometries)geometry.dispose();}
 }
 $('export-enclosure').onclick=async()=>{
  const candidates=features.filter(f=>f.kind==='cadop'&&f.spec?.type==='enclose'&&f.spec.hinge&&f.outputs?.slice(0,2).every(o=>meshes.has(o.id)));
- const feature=candidates.at(-1);if(!feature)return;
+ const feature=candidates.at(-1),original=features;if(!feature)return;
  const button=$('export-enclosure');button.disabled=true;
  try{
   let check;
   const message=await saveStl(async()=>{
    const pose=printEnclosurePose(feature),p=feature.spec;
-   check=await kernelClient.run(features,{type:'enclosePrintValidate',bodyId:p.id,lidId:p.id+'-part2',hinge:pose.hinge,axis:pose.axis.toArray(),turnAngle:pose.turnAngle});
-   return printEnclosureStl(feature);
-  },download);
+   check=await kernelClient.run(original,{type:'enclosePrintValidate',bodyId:p.id,lidId:p.id+'-part2',hinge:pose.hinge,axis:pose.axis.toArray(),turnAngle:pose.turnAngle});
+   if(features!==original)throw Error('モデルが変更されたためSTL保存を中止しました');return printEnclosureStl(feature);
+  },download,{isCurrent:()=>features===original});
   if(message)notify('蓋を90°開いた姿勢をCAD形状で検証しました。BOX本体との最小すき間 '+check.clearance.toFixed(2)+' mm。スライサーで張り出しとサポートを確認してください。'+message);
  }catch(error){notify('BOX印刷STLに失敗しました：'+error.message);}
  finally{button.disabled=false;}
@@ -2995,8 +3001,8 @@ async function exportCoilTestPiece(source,onProgress){
  const message=await saveStl(async()=>{
   ensureCurrent();piece=await kernelClient.run(source.input,{type:'preview',operation:{...source.spec,type:'coilTestPiece'}},{onProgress});
   ensureCurrent();
-  const group=new THREE.Group();try{for(const part of piece.outputs){const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(part.vertices,3));geometry.setIndex(part.triangles);group.add(new THREE.Mesh(geometry));}return new STLExporter().parse(group,{binary:true});}finally{group.traverse(mesh=>{mesh.geometry?.dispose();mesh.material?.dispose();});}
- },download,{suggestedName:'coil-test.stl'});
+  return checkedGeneratedStl(piece.outputs,{isCurrent:()=>revision===machiningRevision&&source===coilSectionSource&&$('tools-dialog').open,onProgress});
+ },download,{suggestedName:'coil-test.stl',isCurrent:()=>revision===machiningRevision&&source===coilSectionSource&&$('tools-dialog').open});
  if(!message)return null;
  const q=piece.analysis.testPiece;host.dataset.coilTestPiece=JSON.stringify(q);
  return '試し刷りSTLを保存しました。本体 '+fmt(q.bodyHeight)+' mm / 蓋 '+fmt(q.lidHeight)+' mm。'+(q.savedPercent>1?'体積を約 '+Math.round(q.savedPercent)+'%削減。':'収納部分はすでに短い寸法です。');
@@ -3320,7 +3326,7 @@ $('section-toggle').addEventListener('click',()=>bodyDisplay?.stopExploded(),{ca
 $('move-tool').addEventListener('click',()=>{bodyDisplay?.stopExploded();if(editingSectionSplitId)sectionControl.cancel();},{capture:true});
 
 // Cancel transient tools in one place so capture listeners cannot leave another selection active.
-function cancelAllTools(){selectionLibrary?.cancel();textSketchController?.close();sketchMoveTool?.cancel();cancelExtrusionJoinConfirmation();faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
+function cancelAllTools(){stlInspection?.close();selectionLibrary?.cancel();textSketchController?.close();sketchMoveTool?.cancel();cancelExtrusionJoinConfirmation();faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
  ++toolCancelRevision;middleConfirm.cancel();projectLoadPreview.cancel();projectLibrary.cancel();kernelClient.reset();
  boxSelection?.cancel();cancelPanelDrags();cancelDialogDrags();moveTool?.cancel(true);imageReferences?.cancel();sectionControl?.cancel();drawingController?.cancel();
  if(extrusionDrag)endExtrusionDrag({pointerId:extrusionDrag.id});if(taperDrag)endTaperDrag({pointerId:taperDrag.id});
@@ -3463,9 +3469,8 @@ slideLidButton.onclick=()=>{if(stage!=='model'||document.querySelector('dialog[o
 async function exportBossFitTest(input,isCurrent,onProgress){
  let result;const ensure=()=>{if(!isCurrent())throw Error('操作をキャンセルしました');};
  const message=await saveStl(async()=>{
-  ensure();result=await kernelClient.run([],{type:'bossFitTest',id:crypto.randomUUID(),...input},{onProgress});ensure();const group=new THREE.Group();
-  try{for(const part of result.outputs){const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(part.vertices,3));geometry.setIndex(part.triangles);group.add(new THREE.Mesh(geometry));}return new STLExporter().parse(group,{binary:true});}finally{group.traverse(mesh=>{mesh.geometry?.dispose();mesh.material?.dispose();});}
- },download,{suggestedName:'boss-fit-D'+input.diameter+'-L'+input.length+'.stl'});
+  ensure();result=await kernelClient.run([],{type:'bossFitTest',id:crypto.randomUUID(),...input},{onProgress});ensure();return checkedGeneratedStl(result.outputs,{isCurrent,onProgress});
+ },download,{suggestedName:'boss-fit-D'+input.diameter+'-L'+input.length+'.stl',isCurrent});
  if(!message)return null;ensure();host.dataset.bossFitTest=JSON.stringify(result.analysis);return '4組・8部品のテストSTLを保存しました。浮き文字は片側すき間（mm）です。合うすき間を「片側のすき間」に設定してください。';
 }
 qrCodeController=qrCodeDialog({scene,meshes,host,kernel:kernelClient,getFeatures:()=>features,notify,apply:async(spec,result,editing,original,isCurrent)=>{
@@ -3507,10 +3512,8 @@ ballJointButton.onclick=openBallJoint;
 async function exportCylinderHolderTest(history,input,isCurrent,onProgress){
  let result;const ensure=()=>{if(!isCurrent())throw Error('操作をキャンセルしました');};
  const message=await saveStl(async()=>{
-  ensure();result=await kernelClient.run(history,{...input,type:'cylinderHolderTest',id:crypto.randomUUID()},{onProgress});ensure();const group=new THREE.Group();
-  try{for(const part of result.outputs){const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(part.vertices,3));geometry.setIndex(part.triangles);group.add(new THREE.Mesh(geometry));}group.updateMatrixWorld(true);return new STLExporter().parse(group,{binary:true});}
-  finally{group.traverse(mesh=>{mesh.geometry?.dispose();mesh.material?.dispose();});}
- },download,{suggestedName:'holder-fit-ring.stl'});
+  ensure();result=await kernelClient.run(history,{...input,type:'cylinderHolderTest',id:crypto.randomUUID()},{onProgress});ensure();return checkedGeneratedStl(result.outputs,{isCurrent,onProgress});
+ },download,{suggestedName:'holder-fit-ring.stl',isCurrent});
  if(!message)return null;ensure();const a=result.analysis;host.dataset.cylinderHolderTest=JSON.stringify(a);
  return '試着リングをSTL出力しました。外径 Ø'+a.outerDiameter.toFixed(2)+' ／ 内径 Ø'+a.innerDiameter.toFixed(2)+' ／ 上端開口 Ø'+a.mouthDiameter.toFixed(2)+' ／ 高さ '+a.height.toFixed(2)+' mm。'+(a.plateFits?'':'外径が180 mmを超えています。');
 }

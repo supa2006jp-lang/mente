@@ -22,4 +22,8 @@ window.prompt=()=>{order.push('prompt');return 'async';};
 await saveStl(async()=>{order.push('validate');return data;},()=>{order.push('download');});
 assert.deepEqual(order,['prompt','validate','download'],'filename prompt keeps user activation before async validation');
 window.prompt=()=>null;assert.equal(await saveStl(create,unexpected),null);
+let current=true,startedWrite=false,staleAbort=false;
+window={showSaveFilePicker:async()=>({createWritable:async()=>{current=false;return {write:async()=>{startedWrite=true;},close:async()=>{},abort:async()=>{staleAbort=true;}};}})};
+await assert.rejects(()=>saveStl(create,unexpected,{isCurrent:()=>current}),/変更/);assert(!startedWrite);assert(staleAbort,'stale file stream is aborted without writing');
+current=true;window={prompt:()=> 'stale'};await assert.rejects(()=>saveStl(()=>{current=false;return data;},unexpected,{isCurrent:()=>current}),/変更/);
 console.log('PASS picker options, binary write/close, cancel, write failure and fallback filename');

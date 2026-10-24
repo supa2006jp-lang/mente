@@ -9,6 +9,8 @@ import {THREAD_DISPLAY_MESH,STL_MESH,applyThreadDisplayMeshes} from '../src/mesh
 import {createPreciseStl} from '../src/stl-export-mesh.js';
 import {cleanBinaryStl} from '../src/clean-stl.js';
 import {binaryStlReport} from './stl-topology.mjs';
+import * as THREE from 'three';
+import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const base={...defaults,id:'bolt',kind:'extrusion',name:'M10',profile:'circle',diameter:10,depth:8},spec={type:'thread',target:'bolt',surfacePoint:[5,0,4],profile:'metric60',threadVersion:2,pitch:1.5,fullLength:true,leftHand:false,designation:'M10 × 1.5'};
 const result=runOperation([base],spec),output=result.outputs[0];assert.deepEqual(output.displayMesh,THREAD_DISPLAY_MESH);
@@ -21,7 +23,9 @@ const history=[base,{kind:'cadop',id:'thread',name:'ねじ',spec,...result}],leg
 await fs.writeFile('.sites-runtime/thread-display-fixture.forma.json',JSON.stringify({format:'forma-cad',version:1,features:legacy}));
 const changed=applyThreadDisplayMeshes(legacy,{outputs:[draft]});assert.equal(changed[1].outputs[0].brep,output.brep);assert.deepEqual(changed[1].outputs[0].threadSource,output.threadSource);
 const stl=cleanBinaryStl(await createPreciseStl([{id:'bolt',brep:output.brep}],async(f,s)=>runOperation(f,s))),report=binaryStlReport(stl);
-const oldReport=binaryStlReport(cleanBinaryStl(await createPreciseStl([] ,async()=>({outputs:[{id:'bolt',...oldMesh}]}))));
+// Compare the old display tessellation independently; the production exporter
+// now refuses a worker result without a completed inspection report.
+const oldGeometry=new THREE.BufferGeometry();oldGeometry.setAttribute('position',new THREE.Float32BufferAttribute(oldMesh.vertices,3));oldGeometry.setIndex(oldMesh.triangles);const oldObject=new THREE.Mesh(oldGeometry);oldObject.updateMatrixWorld(true);const oldReport=binaryStlReport(cleanBinaryStl(new STLExporter().parse(oldObject,{binary:true})));oldGeometry.dispose();oldObject.material.dispose();
 assert.equal(report.boundary,0);assert.ok(report.nonmanifold<=oldReport.nonmanifold,'do not introduce additional coincident thread seams');assert.equal(report.orientation,0);assert.equal(report.degenerate,0);assert.ok(Math.abs(report.volume-volume)/volume<.01);
 for(let axis=0;axis<3;axis++){const points=fine.vertices.filter((_,i)=>i%3===axis);assert.ok(Math.abs(Math.min(...points)-exactBounds[0][axis])<.03);assert.ok(Math.abs(Math.max(...points)-exactBounds[1][axis])<.03);}
 const moved=runOperation(history,{type:'move',target:'bolt',x:20,y:0,z:0,rotation:[0,0,0]});assert.deepEqual(moved.outputs[0].displayMesh,THREAD_DISPLAY_MESH);

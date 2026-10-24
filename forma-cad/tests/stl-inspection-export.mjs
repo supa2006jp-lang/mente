@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';import * as THREE from 'three';import {createPreciseStl} from '../src/stl-export-mesh.js';import {inspectStlMesh,stlInspectionSummary} from '../src/stl-mesh-health.js';import {binaryStlReport} from './stl-topology.mjs';
+const g=new THREE.BoxGeometry(10,10,10),output={id:'box',vertices:Array.from(g.attributes.position.array),triangles:Array.from(g.index.array)},bodies=[{id:'box'}],audit=inspectStlMesh(output),inspection=stlInspectionSummary([{id:'box',...audit}]);
+const result={outputs:[output],inspection};const data=await createPreciseStl(bodies,async()=>result);assert.equal(binaryStlReport(data).boundary,0);
+await assert.rejects(()=>createPreciseStl(bodies,async()=>({outputs:[output]})),e=>e.code==='stl-inspection');
+const bad=inspectStlMesh({...output,triangles:output.triangles.slice(3)});await assert.rejects(()=>createPreciseStl(bodies,async()=>({...result,inspection:stlInspectionSummary([{id:'box',...bad}])})),e=>e.code==='stl-inspection');
+await assert.rejects(()=>createPreciseStl(bodies,async()=>({...result,inspection:{...inspection,complete:false}})),/検査/);
+await assert.rejects(()=>createPreciseStl(bodies,async()=>({...result,outputs:[]})),/検査/);
+let current=true;await assert.rejects(()=>createPreciseStl(bodies,async()=>{current=false;return result;},{isCurrent:()=>current}),/変更/);
+current=true;await assert.rejects(()=>createPreciseStl(bodies,async()=>result,{isCurrent:()=>current,onInspection:()=>{current=false;}}),/変更/);
+console.log('PASS only completed successful inspections export, missing/partial/mismatched reports and stale models block output');
