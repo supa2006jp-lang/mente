@@ -3,12 +3,13 @@ import {selectedConnectedPlanarFace} from './cad-planar-face.js';
 import {fuseSolids} from './solid-fuse.js';
 import {supportBaseSurfaces} from './print-support-base.js';
 import {makeWallSupports} from './print-support-walls.js';
-export const printSupportDefaults={style:'posts',wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
+export const printSupportDefaults={style:'posts',wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
 const box=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
 export function validatePrintSupport(input){
  // Existing saved supports keep their original bed-only placement on replay.
- const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed',wallTies:input.wallTies??false};
+ const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed',wallTies:input.wallTies??false,wallWindows:input.wallWindows??false};
+ if(typeof p.wallWindows!=='boolean')throw Error('窓抜きの設定が不正です');
  if(typeof p.wallTies!=='boolean'||!Number.isFinite(p.tieInterval)||p.tieInterval<8||p.tieInterval>60)throw Error('横つなぎの高さ間隔は8〜60 mmで指定してください');
  if(!['posts','walls'].includes(p.style))throw Error('サポートの形を選択してください');
  if(!Number.isFinite(p.wallPitch)||p.wallPitch<2||p.wallPitch>8||!Number.isFinite(p.wallThickness)||p.wallThickness<.4||p.wallThickness>2||p.wallThickness>=p.wallPitch)throw Error('薄壁の間隔は2〜8 mm、厚みは0.4〜2 mmで、厚みを間隔より小さくしてください');
@@ -79,7 +80,7 @@ export function makePrintSupport(bodies,input,onProgress){
   while(candidates.length&&posts.length<p.maxSupports){
    if(posts.length)candidates.sort((a,b)=>Math.min(...posts.map(s=>Math.hypot(b.point[0]-s.point[0],b.point[1]-s.point[1])))-Math.min(...posts.map(s=>Math.hypot(a.point[0]-s.point[0],a.point[1]-s.point[1]))));
    const candidate=candidates.shift(),base=bases?.find(candidate.point,p.bedZ)||{kind:'bed',point:[candidate.point[0],candidate.point[1],p.bedZ],normal:[0,0,1]};if(posts.some(s=>Math.hypot(s.point[0]-candidate.point[0],s.point[1]-candidate.point[1])<Math.max(p.postDiameter*2,p.spacing*.6)&&base.point[2]<s.tip[2]&&s.base.point[2]<candidate.point[2]-p.topGap)){skipped++;continue;}
-   onProgress?.({stage:'疑似サポートを配置しています（'+(posts.length+1)+'本目）'});let post=postAt(candidate.point,candidate.normal,p,base);
+   onProgress?.({stage:'連結リブサポートを配置しています（'+(posts.length+1)+'本目）'});let post=postAt(candidate.point,candidate.normal,p,base);
    if(!post){skipped++;continue;}if(!clearOfModels(post.shape,bodies,bounds)){post.shape.delete();skipped++;continue;}posts.push(post);
   }
   if(!posts.length)throw Error(p.baseMode==='bed'?'ベッドから支えられる平面の下面が見つかりません。「ベッドとモデルの上面」を選ぶと板の間も支えられます。':'支えられる平面の下面が見つかりません。下面と土台の向き・支柱が入る高さ・側面との干渉を確認してください。');
@@ -89,7 +90,7 @@ export function makePrintSupport(bodies,input,onProgress){
    if(p.braces&&distance>p.postDiameter&&distance<=p.spacing*3){const start=Math.max(a.rootTop,b.rootTop)+1,limit=Math.min(a.stemTop,b.stemTop)-2;for(let z=start;z+distance<limit&&extras.length<120;z+=Math.max(20,distance+3))for(const [one,two]of [[a,b],[b,a]]){const brace=diagonal(one.point,two.point,z,p.braceDiameter/2);if(clearOfModels(brace,bodies,bounds))extras.push(brace);else{brace.delete();omittedReinforcement++;}}}
   }
   onProgress?.({stage:'足・支柱・補強をまとめています'});shape=fuseSolids([...posts.map(s=>s.shape),...extras],{onProgress});
-  const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('正常な疑似サポートを作成できませんでした');}finally{check.delete();}
+  const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('正常な連結リブサポートを作成できませんでした');}finally{check.delete();}
   if(!clearOfModels(shape,bodies,bounds))throw Error('サポートが本体または別のボディに接触します。寸法・間隔を変更してください。');
   const solids=shape.solids;let components;try{components=solids.length;}finally{solids.forEach(s=>s.delete());}
   const modelBasedCount=posts.filter(s=>s.base.kind==='model').length,baseBodyIds=[...new Set(posts.flatMap(s=>s.base.bodyId?[s.base.bodyId]:[]))];
