@@ -5,7 +5,11 @@ import {basisFor,worldPoint} from './frames.js';
 import {depthToGridPlane} from './extrusion-extent.js';
 import {depthToFacePlane} from './extrusion-face-target.js';
 import {refreshLinkedOffset} from './linked-sketch-offset.js';
+import {featureReads,featureWrites,localHistoryFeature,reusableHistoryResult} from './history-impact.js';
 const copy=x=>JSON.parse(JSON.stringify(x));
+// Thread provenance embeds a historical document. An edit to an unrelated
+// body can alter that embedded copy without changing this operation's inputs.
+const cacheSignature=feature=>JSON.stringify(feature,(key,value)=>key==='threadSource'?undefined:value);
 const signature=r=>JSON.stringify([...(r.sourceIds||[])].sort())+':'+r.holes.length;
 function remapFillet(before,after,spec,previous,remap){
  // Disabled edges retain the coordinates of their original input shape. When
@@ -41,11 +45,15 @@ export function refreshRegion(region,before,after){
  if(previous.filter(r=>signature(r)===signature(old)).length!==1||matches.length!==1)throw Error('輪郭の数や接続が変わりました。閉じた領域を選び直してください');
  return copy(matches[0]);
 }
-export function replayHistory(before,proposed,start,run,remap,resolvePartition,onStep,refreshStart=false){
- const next=copy(proposed),prefix=[];
+export function replayHistory(before,proposed,start,run,remap,resolvePartition,onStep,refreshStart=false,forceFull=false){
+ const next=copy(proposed),prefix=[],changed=new Set(),ordered=before.length===next.length&&before.every((f,i)=>f.id===next[i].id);
+ let reused=0,recalculated=0;
  for(let i=0;i<next.length;i++){
   let f=next[i];try{
-   if(i>=start)onStep?.({stage:(i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」を再計算しています',current:i-start,total:next.length-start,featureId:f.id});
+   const old=before[i],same=ordered&&cacheSignature(old)===cacheSignature(f);
+   const reuse=(i>start||i===start&&refreshStart)&&!forceFull&&same&&localHistoryFeature(f)&&reusableHistoryResult(f)&&![...featureReads(f)].some(id=>changed.has(id));
+   if(i>=start){if(reuse)reused++;else recalculated++;onStep?.({stage:(i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」'+(reuse?'の保存済み結果を再利用しています':'を再計算しています'),current:i-start,total:next.length-start,featureId:f.id,reused,recalculated});}
+   if(reuse){prefix.push(copy(old));continue;}
    // A prepared edited extrusion is already in the prefix. Its first successor
    // still needs its sketch/face references refreshed against that new shape.
    if(i>start||(i===start&&(refreshStart||f.kind==='cadop'&&f.spec))){
@@ -58,7 +66,9 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition,o
    if(i>=start&&f.kind==='extrusion'&&f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
    if(i>=start&&f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.barrier||f.untilSolid||f.overlapOnly||f.region?.overlapSource||f.taperAngle||f.cadResult)&&run){const {cadResult,...input}=f;f={...input,cadResult:run(prefix,{type:'extrusion',target:f.target,feature:input})};}
    prefix.push(f);
+   if(!same||i>=start){changed.add(f.id);for(const id of featureWrites(f))changed.add(id);if(old)for(const id of featureWrites(old))changed.add(id);}
   }catch(e){throw Object.assign(Error((i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」: '+(e.message||'形状を再計算できません。寸法を小さくしてください')+'。変更前の形状を保持しています'),{code:e.code,diagnostics:e.diagnostics,featureId:f.id,featureIndex:i,failedOperation:f.spec?.type||f.kind});}
  }
+ onStep?.({stage:'履歴更新：再計算 '+recalculated+' 工程 ／ 再利用 '+reused+' 工程',current:Math.max(0,next.length-start),total:Math.max(0,next.length-start),reused,recalculated,complete:true});
  return prefix;
 }

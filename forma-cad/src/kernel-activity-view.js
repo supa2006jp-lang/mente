@@ -1,5 +1,5 @@
 import {subscribeKernelActivity} from './kernel-client.js';
-const names={join:'結合・切り取り',fillet:'フィレット',chamfer:'面取り',replay:'履歴の再計算',compactProject:'保存データの整理',extrusionBatch:'押し出し',barrierPreparedPreview:'バリア押し出しのプレビュー・確定準備',extrusion:'押し出し',move:'移動／回転',shell:'シェル',enclose:'囲み形成',coilJoint:'コイル接合',stepImport:'STEP読込',coil:'コイル',revolve:'回転体',pipe:'パイプ',loft:'ロフト',thread:'ねじ',offset:'オフセット平面',circular:'円形状パターン',rectangular:'矩形状パターン',printLayout:'印刷配置',qrCode:'QRコード'};
+const names={assemblyMate:'部品の位置合わせ・固定',assemblyInfo:'位置合わせの基準面',assemblyRelease:'固定の解除',join:'結合・切り取り',fillet:'フィレット',chamfer:'面取り',replay:'履歴の再計算',compactProject:'保存データの整理',extrusionBatch:'押し出し',barrierPreparedPreview:'バリア押し出しのプレビュー・確定準備',extrusion:'押し出し',move:'移動／回転',shell:'シェル',enclose:'囲み形成',coilJoint:'コイル接合',stepImport:'STEP読込',coil:'コイル',revolve:'回転体',pipe:'パイプ',loft:'ロフト',thread:'ねじ',offset:'オフセット平面',circular:'円形状パターン',rectangular:'矩形状パターン',printLayout:'印刷配置',qrCode:'QRコード'};
 Object.assign(names,{stlMeshes:'STL出力',threadDisplayMeshes:'ねじの軽量表示'});
 Object.assign(names,{exactExtrusionPreview:'加工後のCADプレビュー'});
 Object.assign(names,{selectionTemplateExport:'選択部品の保存',selectionTemplateImport:'選択部品の読み込み'});

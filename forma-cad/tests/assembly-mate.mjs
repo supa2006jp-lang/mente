@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import * as R from 'replicad';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import {runOperation,kernelBodies} from '../src/kernel.js';
+import {assemblyTargets,assemblyLinks} from '../src/assembly-state.js';
+import {assemblyReference} from '../src/assembly-mate.js';
+import {validateProject} from '../src/geometry.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const record=(id,shape)=>{try{return {kind:'cadop',id,name:id,outputs:[{id,brep:shape.serialize(),...shape.mesh()}],remove:[]};}finally{shape.delete();}};
+const feature=(spec,result)=>({kind:'cadop',id:spec.id,name:spec.type,spec,...result});
+const box=(id,min,max)=>record(id,R.makeBox(min,max));
+const bounds=(features,id)=>{const bodies=kernelBodies(features);try{const box=bodies.get(id).boundingBox;try{return box.bounds.map(p=>[...p]);}finally{box.delete();}}finally{bodies.forEach(b=>b.delete());}};
+const close=(a,b)=>assert.ok(Math.abs(a-b)<1e-4,`${a} != ${b}`);
+const before=[box('a',[0,0,0],[20,20,10]),box('b',[50,0,30],[70,20,40])],snapshot=JSON.stringify(before);
+const spec={type:'assemblyMate',id:'mate',mode:'plane',source:{bodyId:'a',point:[10,10,10],normal:[0,0,1]},destination:{bodyId:'b',point:[60,10,30],normal:[0,0,-1]},offset:0};
+let result=runOperation(before,spec),history=[...before,feature(spec,result)];
+assert.deepEqual(result.outputs.map(o=>o.id),['a']);assert.deepEqual(result.remove,[]);close(bounds(history,'a')[1][2],30);close(bounds(history,'a')[0][0],50);assert.equal(JSON.stringify(before),snapshot);
+assert.deepEqual(assemblyTargets(history,['b']),['b','a']);
+const move={type:'move',id:'move',target:'a',x:5,y:7,z:9,rotation:[0,0,90],pivot:[50,0,0]};result=runOperation(history,move);assert.deepEqual(new Set(result.outputs.map(o=>o.id)),new Set(['a','b']));
+const moved=[...history,feature(move,result)];close(bounds(moved,'a')[1][2],39);close(bounds(moved,'b')[0][2],39);
+const copy={...move,id:'copy',copy:true,rotation:[0,0,0],x:100,y:0,z:0};result=runOperation(history,copy);const duplicated=[...history,feature(copy,result)];assert.equal(result.outputs.length,2);assert.deepEqual(assemblyTargets(duplicated,['copy']),['copy','copy-copy-1']);assert.equal(assemblyLinks(duplicated).length,2);
+const release={type:'assemblyRelease',id:'release',linkId:'mate'},released=[...history,feature(release,runOperation(history,release))];assert.deepEqual(assemblyTargets(released,['a']),['a']);assert.equal(runOperation(released,{...move,rotation:[0,0,0]}).outputs.length,1);assert.deepEqual(bounds(released,'a'),bounds(history,'a'));
+assert.throws(()=>runOperation(history,{...spec,id:'loop'}),/すでに/);assert.throws(()=>runOperation(before,{...spec,source:{bodyId:'a',point:[100,100,100]}}),/平面/);
+assert.throws(()=>runOperation(history,{type:'printLayout',targets:['a','b']}),/固定/);
+const obstacle=box('obstacle',[100,0,20],[110,20,40]),contact=runOperation([...history,obstacle],{type:'move',id:'contact',target:'a',rotation:[0,0,0],x:0,y:0,z:0,contactMove:{normal:[1,0,0],start:[0,0,0],obstacles:['b','obstacle']}});assert.equal(contact.outputs.length,2);close(contact.analysis.contactMove.transform.x,30);
+validateProject(JSON.parse(JSON.stringify({format:'forma-cad',version:1,features:duplicated})));
+const roundtrip=JSON.parse(JSON.stringify(duplicated));assert.deepEqual(assemblyTargets(roundtrip,['copy']),['copy','copy-copy-1']);
+const cylinders=[record('c',R.makeCylinder(5,20,[0,0,0],[0,0,1])),record('d',R.makeCylinder(8,30,[60,0,10],[1,0,0]))];
+const axis={type:'assemblyMate',id:'coaxial',mode:'axis',source:{bodyId:'c',point:[5,0,10]},destination:{bodyId:'d',point:[75,8,10]},offset:3};
+result=runOperation(cylinders,axis);const aligned=[...cylinders,feature(axis,result)],bodies=kernelBodies(aligned);try{const a=assemblyReference(bodies,{bodyId:'c',point:[78,5,10]},'axis'),b=assemblyReference(bodies,axis.destination,'axis');close(Math.abs(a.normal.reduce((sum,n,i)=>sum+n*b.normal[i],0)),1);close(a.anchor[0]-b.anchor[0],3);}finally{bodies.forEach(b=>b.delete());}
+// Re-editing a source dimension must regenerate the mate and following group move.
+const changed=structuredClone(moved);changed[0]=box('a',[0,0,0],[20,20,12]);const incremental=runOperation(changed,{type:'replay',before:moved,start:0}).features,full=runOperation(changed,{type:'replay',before:moved,start:0,forceFull:true}).features;
+for(const id of ['a','b'])assert.deepEqual(bounds(incremental,id),bounds(full,id));
+await fs.mkdir('.sites-runtime',{recursive:true});await fs.writeFile('.sites-runtime/assembly-fixture.forma.json',JSON.stringify({format:'forma-cad',version:1,features:before}));
+await fs.writeFile('.sites-runtime/assembly-axis-fixture.forma.json',JSON.stringify({format:'forma-cad',version:1,features:cylinders}));
+console.log('PASS plane/axis alignment, group move/rotate/copy, release, saved relations, input preservation, replay and cycle rejection');

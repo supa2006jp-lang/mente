@@ -8,7 +8,7 @@ import {createMoveAxisPicker,moveCenterCandidates,movePointCandidates} from './m
 import {movePointDistanceText} from './move-point-guide.js';
 import {constrainMoveDelta,cursorMovePlane,cursorMovePoint,movePreviewChildMatrix,createMoveGhost,disposeMoveGhost} from './move-cursor.js';
 import {snapshotMoveReferences,transformedMoveReferences,findFreeMoveSnap,createFreeMoveSnapMarker} from './move-free-snap.js';
-export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=()=>[],getBodyName=id=>id,getReferencePoints=()=>[],getReferenceLines=()=>[],getGridPlane=()=>({normal:[0,0,1],offset:0}),getGridSnap=()=>({enabled:false,step:10,plane:'XY'}),getControls,getSelectedEdge,onStart,onApply,onClose=()=>{}}){
+export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=()=>[],expandSelection=ids=>ids,getBodyName=id=>id,getReferencePoints=()=>[],getReferenceLines=()=>[],getGridPlane=()=>({normal:[0,0,1],offset:0}),getGridSnap=()=>({enabled:false,step:10,plane:'XY'}),getControls,getSelectedEdge,onStart,onApply,onClose=()=>{}}){
  const control=new TransformControls(camera,canvas),helper=control.getHelper();scene.add(helper);control.setSize(.8);control.setSpace('world');control.enabled=false;
  installMoveAxisLabels(control,helper,camera,canvas,host);
  const panel=document.createElement('form');panel.id='move-panel';panel.hidden=true;panel.innerHTML='<strong>移動／回転</strong><p id="move-hint">移動するボディをクリック</p><div class="move-modes"><button type="button" data-mode="translate">↔ 移動</button><button type="button" data-mode="rotate">↻ 回転</button></div><div class="move-fields">'+[['x','X移動 (mm)'],['rx','X回転 (°)'],['y','Y移動 (mm)'],['ry','Y回転 (°)'],['z','Z移動 (mm)'],['rz','Z回転 (°)']].map(([id,label])=>'<label>'+label+'<input id="move-'+id+'" type="number" step="any" value="0" required min="-10000" max="10000"></label>').join('')+'</div><small>矢印・平面ハンドルで移動、リングで回転。回転中心はボディの中心です。ホイールで拡大・縮小。</small><p id="move-error" role="alert"></p><div><button type="button" id="move-cancel">キャンセル</button><button id="move-apply" type="submit">確定</button></div>';host.parentElement.append(panel);
@@ -40,9 +40,9 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   if(!proxy||!proxyBaseMatrix)return;const child=proxy.children[0];child.matrix.copy(movePreviewChildMatrix(proxyBaseMatrix,proxy.position,center,proxy.quaternion,copying()&&reverse.checked));
   child.matrixWorldNeedsUpdate=true;proxy.updateMatrixWorld(true);
  }
- method.onchange=()=>{error.textContent='';reverseLabel.hidden=!copying();for(const mesh of originals)mesh.visible=copying();if(proxy)mark();refreshFreeSnap();};reverse.onchange=()=>{error.textContent='';if(proxy)mark();refreshFreeSnap();};
+ method.onchange=()=>{error.textContent='';reverseLabel.hidden=!copying();for(const mesh of originals)mesh.visible=copying()&&originalVisibility.get(mesh);if(proxy)mark();refreshFreeSnap();};reverse.onchange=()=>{error.textContent='';if(proxy)mark();refreshFreeSnap();};
  let contactMove=null;
- let revision=0,active=false,busy=false,original=null,originals=[],proxy=null,center=null,enabledBefore=true;
+ let revision=0,active=false,busy=false,original=null,originals=[],originalVisibility=new Map(),proxy=null,center=null,enabledBefore=true;
  const previewMeshes=()=>{const meshes=[];proxy?.traverse(o=>{if(o.isMesh)meshes.push(o);});return meshes;};
  const otherMeshes=()=>getMeshes().filter(m=>!originals.includes(m)&&m.visible);
  const selectionBounds=()=>originals.reduce((box,mesh)=>box.union(new THREE.Box3().setFromObject(mesh)),new THREE.Box3());
@@ -122,14 +122,15 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   world.addScaledVector(axis,-world.dot(axis));
   return world.lengthSq()>1e-8?world.normalize():null;
  }
- function clearPreview(){contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=true;if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
+ function clearPreview(){contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=originalVisibility.get(mesh)??true;originalVisibility.clear();if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
  function close(force=false,applied=false){if(busy&&!force)return;finishFreeMove(false);const targets=originals.map(m=>m.userData.bodyId);++revision;busy=false;control.dragging=false;control.axis=null;if(dragPointer&&canvas.hasPointerCapture(dragPointer.id))canvas.releasePointerCapture(dragPointer.id);dragPointer=null;pointMove=null;pickingCenter=false;closeCenterPicker();closePointPicker();pickingAxis=false;closeAxisPicker();clearPreview();active=false;control.enabled=false;panel.hidden=true;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;pickButton.setAttribute('aria-pressed','false');getControls().enabled=enabledBefore;host.dataset.moveActive='false';delete host.dataset.movePreview;onClose({targets,applied,force});}
  function mode(value){control.setMode(value);control.setSpace(edgeAxis&&value==='rotate'?'local':'world');control.showX=control.showY=!(edgeAxis&&value==='rotate');control.showZ=true;for(const button of panel.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===value));}
  for(const button of panel.querySelectorAll('[data-mode]'))button.onclick=()=>{finishFreeMove(false);stopPointModes();mode(button.dataset.mode);};
  function mark(){contactMove=null;delete host.dataset.moveUntilContact;updateContactButtons();if(pointResult)closePointPicker();hideGhost();reflectPreview();host.dataset.movePreview=JSON.stringify({copy:copying(),reverseCopy:copying()&&reverse.checked,targets:originals.map(m=>m.userData.bodyId),position:proxy.position.toArray(),rotation:degrees().map(x=>x*Math.PI/180),edgeAxis:edgeAxis?.toArray(),pivot:center.toArray(),hingeAngle:edgeAxis?edgeAngle:null});updateGroundButton();}
  function select(selection){
-  const meshes=[...new Set([].concat(selection))];if(!meshes.length)return;
-  baseRotation.identity();clearPreview();originals=meshes;original=meshes[0];
+  const selectedMeshes=[...new Set([].concat(selection))],ids=new Set(expandSelection(selectedMeshes.map(mesh=>mesh.userData.bodyId)));
+  const meshes=[...selectedMeshes,...getMeshes().filter(mesh=>ids.has(mesh.userData.bodyId)&&!selectedMeshes.includes(mesh))];if(!meshes.length)return;
+  baseRotation.identity();clearPreview();originals=meshes;original=meshes[0];originalVisibility=new Map(meshes.map(mesh=>[mesh,mesh.visible]));
   if(!chosenEdge||!meshes.some(mesh=>chosenEdge.bodyId===mesh.userData.bodyId)){
    chosenEdge=null;chosenAxisPivot=null;const hinge=pointAction||meshes.length>1?null:lidHinge(original,chosenCenter);
    if(hinge){chosenEdge={bodyId:hinge.bodyId,a:[...hinge.a],b:[...hinge.b]};chosenAxisPivot=[...hinge.pivot];}
@@ -144,7 +145,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   copy.position.sub(center).applyQuaternion(alignment.clone().invert());copy.quaternion.premultiply(alignment.clone().invert());
   copy.traverse(o=>{if(o.material){o.material=o.material.clone();o.userData.moveMaterial=true;if(o.isMesh)o.material.color.set(o.userData.qrColors?0xffffff:0x3868ad);}});
   proxy.add(copy);scene.add(proxy);copy.updateMatrix();proxyBaseMatrix=copy.matrix.clone();copy.matrixAutoUpdate=false;
-  for(const mesh of originals)mesh.visible=copying();fields.forEach((f,i)=>f.value=i<3?'0':'0.0');edgeInput.value='0.0';
+  for(const mesh of originals)mesh.visible=copying()&&originalVisibility.get(mesh);fields.forEach((f,i)=>f.value=i<3?'0':'0.0');edgeInput.value='0.0';
   panel.querySelector('#move-edge-angle-label').hidden=!edgeAxis;axisSelect.disabled=!!edgeAxis;fields.slice(3).forEach(f=>f.parentElement.hidden=!!edgeAxis);
   resetCenter.textContent=meshes.length>1?'選択全体の中心に戻す':'ボディ中心に戻す';
   panel.querySelector('small').textContent=edgeAxis?'選択した直線を共通の軸として回転します。ホイールで拡大・縮小。':meshes.length>1?'選択したボディを一緒に動かします。回転中心は選択全体の中心です。「回転中心を選択」で変更できます。':'先端がグリッドの目盛りや他のボディに近づくと吸着します。「回転中心を選択」「回転軸を選択」で基準を変更できます。';
