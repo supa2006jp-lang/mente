@@ -1,11 +1,15 @@
 import * as R from 'replicad';
 import {selectedConnectedPlanarFace} from './cad-planar-face.js';
 import {fuseSolids} from './solid-fuse.js';
-export const printSupportDefaults={mode:'auto',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
+import {supportBaseSurfaces} from './print-support-base.js';
+export const printSupportDefaults={mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
 const box=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
 export function validatePrintSupport(input){
- const p={...printSupportDefaults,...input};
+ // Existing saved supports keep their original bed-only placement on replay.
+ const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed'};
+ if(!['bed','bedOrModel'].includes(p.baseMode))throw Error('サポートを支え始める場所を選択してください');
+ if(!Number.isFinite(p.bottomGap)||p.bottomGap<.05||p.bottomGap>1.5)throw Error('モデル上の接点の縦すき間は0.05〜1.5 mmで指定してください');
  for(const [key,min,max]of [['spacing',8,100],['footDiameter',6,50],['footThickness',.4,3],['postDiameter',2,12],['tipDiameter',.6,6],['topGap',.05,1.5],['bedZ',-10000,10000],['maxSupports',1,36],['braceDiameter',1,5]])if(!Number.isFinite(p[key])||p[key]<min||p[key]>max)throw Error(({spacing:'支柱の間隔',footDiameter:'足の直径',footThickness:'足の厚み',postDiameter:'支柱の直径',tipDiameter:'先端の直径',topGap:'上面との縦すき間',bedZ:'ベッド高さ',maxSupports:'本数の上限',braceDiameter:'斜め補強の直径'})[key]+'は'+min+'〜'+max+(key==='maxSupports'?'本':' mm')+'で指定してください');
  if(!Number.isInteger(p.maxSupports)||p.tipDiameter>p.postDiameter||p.footDiameter<p.postDiameter+2||(p.braces&&p.braceDiameter>p.postDiameter))throw Error('足・支柱・先端・補強の太さの関係を確認してください');
  if(!['auto','face'].includes(p.mode))throw Error('サポートの配置方法を選択してください');
@@ -14,21 +18,24 @@ export function validatePrintSupport(input){
  return p;
 }
 function cone(r1,r2,z,height){return R.drawCircle(r1).sketchOnPlane('XY',z).loftWith([R.drawCircle(r2).sketchOnPlane('XY',z+height)]);}
-function postAt(point,normal,p){
- const [x,y,surfaceZ]=point,h=surfaceZ-p.topGap,tipR=p.tipDiameter/2,postR=p.postDiameter/2,slope=Math.hypot(normal[0],normal[1])/-normal[2],tipBase=h-tipR*slope-.3,available=tipBase-p.bedZ-p.footThickness;
+function postAt(point,normal,p,base){
+ const [x,y,surfaceZ]=point,h=surfaceZ-p.topGap,tipR=p.tipDiameter/2,postR=p.postDiameter/2,slope=Math.hypot(normal[0],normal[1])/-normal[2],tipBase=h-tipR*slope-.3,modelBase=base.kind==='model',baseZ=base.point[2]+(modelBase?p.bottomGap:0),baseSlope=modelBase?Math.hypot(base.normal[0],base.normal[1])/base.normal[2]:0,rootZ=modelBase?baseZ+tipR*baseSlope+.3:p.bedZ+p.footThickness,available=tipBase-rootZ;
  if(available<3)return null;
- const rootHeight=Math.min(4,available*.25),tipHeight=Math.min(4,available*.35),rootZ=p.bedZ+p.footThickness,stemTop=tipBase-tipHeight,parts=[];
- let local,shifted,split,plane;
+ const rootHeight=Math.min(4,available*.25),tipHeight=Math.min(4,available*.35),stemTop=tipBase-tipHeight,parts=[];
+ let local,shifted,split,plane,lowerPlane,lowerSplit;
  try{
-  parts.push(R.makeCylinder(p.footDiameter/2,p.footThickness,[0,0,p.bedZ]));
-  parts.push(cone(Math.min(p.footDiameter/2-.5,postR*2),postR,rootZ-.05,rootHeight+.1));
+  if(modelBase)parts.push(R.makeCylinder(tipR,tipR*baseSlope*2+.4,[0,0,baseZ-tipR*baseSlope-.05]));
+  else parts.push(R.makeCylinder(p.footDiameter/2,p.footThickness,[0,0,p.bedZ]));
+  parts.push(cone(modelBase?tipR:Math.min(p.footDiameter/2-.5,postR*2),postR,rootZ-.05,rootHeight+.1));
   parts.push(R.makeCylinder(postR,stemTop-(rootZ+rootHeight)+.15,[0,0,rootZ+rootHeight-.05]));
   parts.push(cone(postR,tipR,stemTop-.05,tipHeight+.1));
   parts.push(R.makeCylinder(tipR,tipR*slope*2+.45,[0,0,tipBase-.05]));
   local=fuseSolids(parts);shifted=local.translate([x,y,0]);plane=new R.Plane([x,y,h],[1,0,-normal[0]/normal[2]],normal);split=shifted.split(plane);
   if(!split.positive)throw Error('先端の切断に失敗しました');
-  const shape=split.positive;split.positive=null;return {shape,point,tip:[x,y,h],stemTop,rootTop:rootZ+rootHeight};
- }finally{parts.forEach(s=>s.delete());local?.delete();if(shifted&&shifted!==local)shifted.delete();split?.positive?.delete();split?.negative?.delete();plane?.delete();}
+  let shape=split.positive;
+  if(modelBase){lowerPlane=new R.Plane([x,y,baseZ],[1,0,-base.normal[0]/base.normal[2]],base.normal);lowerSplit=shape.split(lowerPlane);if(!lowerSplit.positive)throw Error('下側の接点を作成できませんでした');shape=lowerSplit.positive;lowerSplit.positive=null;}else split.positive=null;
+  return {shape,point,tip:[x,y,h],base:{...base,tip:[x,y,baseZ]},stemTop,rootTop:rootZ+rootHeight};
+ }finally{parts.forEach(s=>s.delete());local?.delete();if(shifted&&shifted!==local)shifted.delete();split?.positive?.delete();split?.negative?.delete();plane?.delete();lowerSplit?.positive?.delete();lowerSplit?.negative?.delete();lowerPlane?.delete();}
 }
 function clearOfModels(shape,bodies,bounds){
  const a=box(shape);
@@ -45,8 +52,10 @@ function diagonal(a,b,z,radius){const d=[b[0]-a[0],b[1]-a[1],Math.hypot(b[0]-a[0
 export function makePrintSupport(bodies,input,onProgress){
  const p=validatePrintSupport(input),model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
  const faces=p.mode==='face'?[selectedConnectedPlanarFace(model,p.faces[0])]:model.faces,bounds=new Map([...bodies].map(([id,shape])=>[id,box(shape)])),candidates=[],seen=new Set(),posts=[],extras=[];
+ let bases;
  let skipped=0,omittedReinforcement=0,shape=null;
  try{
+  if(p.baseMode==='bedOrModel')bases=supportBaseSurfaces(bodies);
   for(const face of faces){
    if(face.geomType!=='PLANE')continue;const normal=vector(face.normalAt()),center=vector(face.center);if(normal[2]>-.5){if(p.mode==='face')throw Error('下向きの平面を選択してください（水平から60°以内）。');continue;}
    const bounds=box(face),xs=[],ys=[];if((bounds[1][0]-bounds[0][0])*(bounds[1][1]-bounds[0][1])/(p.spacing*p.spacing)>512)throw Error('配置候補が多すぎます。間隔を広げるか、対象の面を絞ってください。');for(let x=bounds[0][0]+1;x<=bounds[1][0]-1+.00001;x+=p.spacing)xs.push(x);for(let y=bounds[0][1]+1;y<=bounds[1][1]-1+.00001;y+=p.spacing)ys.push(y);
@@ -62,21 +71,22 @@ export function makePrintSupport(bodies,input,onProgress){
   const totalCandidates=candidates.length;
   while(candidates.length&&posts.length<p.maxSupports){
    if(posts.length)candidates.sort((a,b)=>Math.min(...posts.map(s=>Math.hypot(b.point[0]-s.point[0],b.point[1]-s.point[1])))-Math.min(...posts.map(s=>Math.hypot(a.point[0]-s.point[0],a.point[1]-s.point[1]))));
-   const candidate=candidates.shift();if(posts.some(s=>Math.hypot(s.point[0]-candidate.point[0],s.point[1]-candidate.point[1])<Math.max(p.postDiameter*2,p.spacing*.6))){skipped++;continue;}
-   onProgress?.({stage:'疑似サポートを配置しています（'+(posts.length+1)+'本目）'});let post=postAt(candidate.point,candidate.normal,p);
+   const candidate=candidates.shift(),base=bases?.find(candidate.point,p.bedZ)||{kind:'bed',point:[candidate.point[0],candidate.point[1],p.bedZ],normal:[0,0,1]};if(posts.some(s=>Math.hypot(s.point[0]-candidate.point[0],s.point[1]-candidate.point[1])<Math.max(p.postDiameter*2,p.spacing*.6)&&base.point[2]<s.tip[2]&&s.base.point[2]<candidate.point[2]-p.topGap)){skipped++;continue;}
+   onProgress?.({stage:'疑似サポートを配置しています（'+(posts.length+1)+'本目）'});let post=postAt(candidate.point,candidate.normal,p,base);
    if(!post){skipped++;continue;}if(!clearOfModels(post.shape,bodies,bounds)){post.shape.delete();skipped++;continue;}posts.push(post);
   }
-  if(!posts.length)throw Error('ベッドから支えられる平面の下面が見つかりません。高さ・下面の向き・他の形状による遮りを確認してください。');
+  if(!posts.length)throw Error(p.baseMode==='bed'?'ベッドから支えられる平面の下面が見つかりません。「ベッドとモデルの上面」を選ぶと板の間も支えられます。':'支えられる平面の下面が見つかりません。下面と土台の向き・支柱が入る高さ・側面との干渉を確認してください。');
   const edges=links(posts);
   for(const {i,j,distance}of edges){const a=posts[i],b=posts[j];
-   if(p.connectFeet){const strip=rail(a.point,b.point,Math.min(p.postDiameter*1.5,p.footDiameter*.5),p.footThickness,p.bedZ);if(clearOfModels(strip,bodies,bounds))extras.push(strip);else{strip.delete();omittedReinforcement++;}}
+   if(p.connectFeet&&a.base.kind==='bed'&&b.base.kind==='bed'){const strip=rail(a.point,b.point,Math.min(p.postDiameter*1.5,p.footDiameter*.5),p.footThickness,p.bedZ);if(clearOfModels(strip,bodies,bounds))extras.push(strip);else{strip.delete();omittedReinforcement++;}}
    if(p.braces&&distance>p.postDiameter&&distance<=p.spacing*3){const start=Math.max(a.rootTop,b.rootTop)+1,limit=Math.min(a.stemTop,b.stemTop)-2;for(let z=start;z+distance<limit&&extras.length<120;z+=Math.max(20,distance+3))for(const [one,two]of [[a,b],[b,a]]){const brace=diagonal(one.point,two.point,z,p.braceDiameter/2);if(clearOfModels(brace,bodies,bounds))extras.push(brace);else{brace.delete();omittedReinforcement++;}}}
   }
   onProgress?.({stage:'足・支柱・補強をまとめています'});shape=fuseSolids([...posts.map(s=>s.shape),...extras],{onProgress});
   const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('正常な疑似サポートを作成できませんでした');}finally{check.delete();}
   if(!clearOfModels(shape,bodies,bounds))throw Error('サポートが本体または別のボディに接触します。寸法・間隔を変更してください。');
   const solids=shape.solids;let components;try{components=solids.length;}finally{solids.forEach(s=>s.delete());}
-  const analysis={count:posts.length,contacts:posts.map(({point,tip})=>({point,tip})),topGap:p.topGap,footDiameter:p.footDiameter,postDiameter:p.postDiameter,reinforcements:extras.length,omittedReinforcement,skipped,candidates:totalCandidates,limited:candidates.length>0,components,bedZ:p.bedZ};
+  const modelBasedCount=posts.filter(s=>s.base.kind==='model').length,baseBodyIds=[...new Set(posts.flatMap(s=>s.base.bodyId?[s.base.bodyId]:[]))];
+  const analysis={count:posts.length,contacts:posts.map(({point,tip,base})=>({point,tip,base})),topGap:p.topGap,bottomGap:p.bottomGap,baseMode:p.baseMode,modelBasedCount,bedBasedCount:posts.length-modelBasedCount,baseBodyIds,footDiameter:p.footDiameter,postDiameter:p.postDiameter,reinforcements:extras.length,omittedReinforcement,skipped,candidates:totalCandidates,limited:candidates.length>0,components,bedZ:p.bedZ};
   const output=shape;shape=null;return {shape:output,analysis};
- }finally{faces.forEach(f=>f.delete());posts.forEach(s=>s.shape.delete());extras.forEach(s=>s.delete());shape?.delete();}
+ }finally{bases?.delete();faces.forEach(f=>f.delete());posts.forEach(s=>s.shape.delete());extras.forEach(s=>s.delete());shape?.delete();}
 }

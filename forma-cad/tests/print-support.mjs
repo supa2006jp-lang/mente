@@ -38,7 +38,7 @@ const tiltResult=runOperation(tiltBefore,tiltSpec);assert(tiltResult.analysis.pr
 const tiltBodies=kernelBodies([...tiltBefore,feature(tiltSpec,tiltResult)]);try{near(R.measureDistanceBetween(tiltBodies.get('tilt'),tiltBodies.get('support')),.2*Math.sqrt(.75));}finally{tiltBodies.forEach(s=>s.delete());}
 assert.throws(()=>runOperation(before,{...spec,mode:'face',faces:[{bodyId:'plate',point:[0,0,64],normal:[0,0,1]}]}),/下向き/);
 // A second solid blocks every path; no support may go through it.
-const blocked=[...before,record('blocker',R.makeBox([-40,-40,10],[40,40,15]))];assert.throws(()=>runOperation(blocked,spec),/遮り/);assert.equal(JSON.stringify(before),saved);
+const blocked=[...before,record('blocker',R.makeBox([-40,-40,10],[40,40,15]))];assert.throws(()=>runOperation(blocked,{...spec,baseMode:'bed'}),/ベッド/);assert.equal(JSON.stringify(before),saved);
 assert.throws(()=>runOperation([record('bed',R.makeBox([0,0,0],[20,20,10]))],{...spec,target:'bed'}),/下面/);
 // An annulus has its area centroid in the hole. Native-validated interior seeds still place posts.
 const outer=R.makeCylinder(18,4,[0,0,50]),inner=R.makeCylinder(10,6,[0,0,49]);let ring;try{ring=outer.cut(inner);}finally{outer.delete();inner.delete();}
