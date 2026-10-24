@@ -1,0 +1,25 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import * as R from 'replicad';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import {runOperation} from '../src/kernel.js';
+import {printSupportDefaults,validatePrintSupport} from '../src/print-support.js';
+import {inspectCadStl} from '../src/stl-cad-inspection.js';
+import {printSupport3mf} from '../src/print-support-3mf.js';
+R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+const doc=JSON.parse(await fs.readFile('.sites-runtime/print-support-walls-fixture.forma.json','utf8')),snapshot=JSON.stringify(doc),base={...printSupportDefaults,type:'printSupport',id:'placement',target:'channel',style:'walls',wallPitch:12,topGap:.3,wallRoof:true,roofTabs:true,roofSeams:true,preview:true};
+const out=runOperation(doc.features,base),roof=out.supportPreview.roof,sections=roof.parts.filter(p=>p.role==='roof').sort((a,b)=>a.bounds[0][1]-b.bounds[0][1]),ids=sections.map(s=>s.id);
+assert.equal(sections.length,2);assert.equal(new Set(ids).size,2);assert.equal(roof.parts.filter(p=>p.role==='tab').length,2);assert(roof.parts.every(p=>p.vertices.length&&p.triangles.length));
+for(const changes of [{roofLayers:3},{topGap:.6},{layerHeight:.2,topGap:.2,roofLayers:3}])assert.deepEqual(runOperation(doc.features,{...base,...changes}).supportPreview.roof.parts.filter(p=>p.role==='roof').map(p=>p.id).sort(),[...ids].sort());
+const manual={sectionId:ids[0],side:-1,position:1},spec={...base,roofTabPlacements:[manual]},moved=runOperation(doc.features,spec),made=moved.supportPreview.roof.placements.find(p=>p.sectionId===ids[0]);
+assert.deepEqual(made,{...manual,manual:true,ok:true});assert.equal(moved.analysis.printSupport.roof.tabs.manualInvalid,0);assert(moved.supportPackage.complete);assert(inspectCadStl(moved.outputs[0]).report.ok);
+const oldTab=roof.parts.find(p=>p.role==='tab'&&p.sectionId===ids[0]),newTab=moved.supportPreview.roof.parts.find(p=>p.role==='tab'&&p.sectionId===ids[0]);assert.notDeepEqual(oldTab.vertices,newTab.vertices);assert.equal(Math.max(...newTab.vertices.filter((_,i)=>i%3===2)),49.7);
+const commit=runOperation(doc.features,{...spec,preview:false});assert(!commit.supportPreview);assert(!commit.analysis.printSupport.roofPreview);assert(inspectCadStl(commit.outputs[0]).report.ok);
+const feature={kind:'cadop',id:spec.id,name:'連結リブサポート',spec:{...spec,preview:false},...commit},saved=[...doc.features,feature],replay=runOperation(saved,{type:'replay',before:saved,start:doc.features.length,forceFull:true}).features.at(-1);assert.deepEqual(replay.spec.roofTabPlacements,[manual]);assert.deepEqual(replay.analysis.printSupport.roof,commit.analysis.printSupport.roof);
+for(const bad of [{...manual,side:1},{...manual,sectionId:'stale-section'}]){const params={...spec,roofTabPlacements:[bad]},invalid=runOperation(doc.features,params);assert.equal(invalid.analysis.printSupport.roof.tabs.manualInvalid,1);assert.equal(invalid.supportPackage.complete,false);assert.throws(()=>printSupport3mf(invalid.supportPackage));assert.throws(()=>runOperation(doc.features,{...params,preview:false}),/指定した位置/);assert(invalid.supportPreview.roof.parts.some(p=>p.role==='roof'));}
+for(const roofTabPlacements of [null,{},[manual,manual],[{...manual,position:-.1}],[{...manual,position:1.1}],[{...manual,position:NaN}],[{...manual,side:0}],[{...manual,sectionId:2}]])assert.throws(()=>validatePrintSupport({...base,roofTabPlacements}),/指定位置/);
+const inactive=runOperation(doc.features,{...spec,wallRoof:false,roofTabPlacements:[{...manual,sectionId:'stale'}]});assert.equal(inactive.analysis.printSupport.roof.enabled,false);assert(!inactive.analysis.printSupport.roof.tabs);
+assert(runOperation(doc.features,{...spec,roofTabPlacements:[]}).supportPackage.complete);assert.equal(JSON.stringify(doc),snapshot);
+await fs.mkdir('.sites-runtime/support-slicing',{recursive:true});await fs.writeFile('.sites-runtime/support-slicing/manual-roof-placement.3mf',printSupport3mf(moved.supportPackage));
+const {supportPreview,supportPackage,...stored}=moved;await fs.writeFile('.sites-runtime/roof-placement-fixture.forma.json',JSON.stringify({format:'forma-cad',version:1,features:[...doc.features,{...feature,...stored}]}));
+const proof={pass:true,numberedSections:sections.length,previewOnlyMeshes:true,stableReferences:true,manualPosition:true,noSilentFallback:true,staleReferenceBlocked:true,replay:true,closedStl:true,complete3mf:true,sourceUnchanged:true};await fs.writeFile('.sites-runtime/roof-placement-native-proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
