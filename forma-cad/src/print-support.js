@@ -3,13 +3,15 @@ import {selectedConnectedPlanarFace} from './cad-planar-face.js';
 import {fuseSolids} from './solid-fuse.js';
 import {supportBaseSurfaces} from './print-support-base.js';
 import {makeWallSupports} from './print-support-walls.js';
-export const printSupportDefaults={style:'posts',wallRoof:false,roofLayers:2,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
+export const printSupportDefaults={style:'posts',wallRoof:false,roofLayers:2,roofTabs:false,roofTabLength:6,roofSeams:false,roofSectionLength:25,roofSeamWidth:.6,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
 const box=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
 export function validatePrintSupport(input){
  // Existing saved supports keep their original bed-only placement on replay.
- const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed',wallTies:input.wallTies??false,wallWindows:input.wallWindows??false,wallRoof:input.wallRoof??false};
+ const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed',wallTies:input.wallTies??false,wallWindows:input.wallWindows??false,wallRoof:input.wallRoof??false,roofTabs:input.roofTabs??false,roofSeams:input.roofSeams??false};
  if(typeof p.wallRoof!=='boolean'||!Number.isInteger(p.roofLayers)||p.roofLayers<1||p.roofLayers>6)throw Error('薄皮の層数は1〜6層で指定してください');
+ if(typeof p.roofTabs!=='boolean'||typeof p.roofSeams!=='boolean')throw Error('薄皮のタブ・分割線の設定が不正です');
+ for(const [key,min,max,label]of [['roofTabLength',3,8,'タブの張り出し'],['roofSectionLength',10,60,'薄皮の分割間隔'],['roofSeamWidth',.4,1.2,'分割線の幅']])if(!Number.isFinite(p[key])||p[key]<min||p[key]>max)throw Error(label+'は'+min+'〜'+max+' mmで指定してください');
  if(typeof p.wallWindows!=='boolean')throw Error('窓抜きの設定が不正です');
  if(typeof p.wallTies!=='boolean'||!Number.isFinite(p.tieInterval)||p.tieInterval<8||p.tieInterval>60)throw Error('横つなぎの高さ間隔は8〜60 mmで指定してください');
  if(!['posts','walls'].includes(p.style))throw Error('サポートの形を選択してください');
