@@ -1,5 +1,6 @@
 import {assemblyLinks,assemblyTargets,copiedAssemblyLinks} from './assembly-state.js';
 import {assemblyReference,assemblyPlan} from './assembly-mate.js';
+import {inspectAssemblyContact} from './assembly-contact.js';
 import {gapRepairSpec} from './geometry-gap-repair.js';
 import {healthBudget,inspectShapeHealth,inspectOperationHealth,inspectGeometryHealth,diagnoseOutputHealth} from './geometry-health.js';
 import {MODEL_PRECISION,isContactDistance} from './model-precision.js';
@@ -408,7 +409,8 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  if(p.type==='assemblyInfo'){analysis=assemblyReference(bodies,p.reference,p.mode);}
  else if(p.type==='assemblyMate'){
   const plan=assemblyPlan(features,bodies,p),result=runOperation(features,{type:'move',id:p.id,targets:plan.targets,target:plan.targets[0],...plan.transform},onProgress);
-  return {...result,analysis:{...result.analysis,assembly:{targets:plan.targets,source:plan.source,destination:plan.destination,transform:plan.transform}}};
+  const moved=kernelBodies([{kind:'cadop',...result}]),stationary=new Map([...bodies].filter(([id])=>!plan.targets.includes(id)));
+  try{const inspected=inspectAssemblyContact(moved,stationary,{preview:p.preview===true,onProgress});return {...result,analysis:{...result.analysis,assembly:plan,assemblyContact:inspected.report},...(p.preview?{assemblyPreview:{highlights:inspected.highlights,stationary:[{id:p.destination.bodyId,...cadMesh(bodies.get(p.destination.bodyId))}]}}:{})};}finally{for(const shape of moved.values())shape.delete();}
  }
  else if(p.type==='assemblyRelease'){
   if(!assemblyLinks(features,new Set(bodies.keys())).some(link=>link.id===p.linkId))throw Error('解除する固定がありません');
