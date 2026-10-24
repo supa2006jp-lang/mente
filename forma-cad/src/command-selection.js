@@ -2,7 +2,7 @@ export function commandAvailability(type,state){
  const bodies=state.bodies||0,selected=state.bodyIds?.length||0;
  if(type==='move'&&state.sketchMoveSelection)return {enabled:true,reason:'選択した線につながるスケッチをまとめて移動します。'};
  if(type==='mirror'&&(state.sketchSelection||!bodies&&state.sketches))return {enabled:true,reason:state.sketchSelection?'スケッチの選択を引き継ぎます。ミラーの基準を指定してください。':'スケッチ図形を選択してミラーできます。'};
- if(['fillet','chamfer','shell','join','split','enclose','coilJoint','move','pull','trimSurface','mirror','circular','rectangular','thread','ballJoint','bossJoint','cylinderHinge','snapLid','slideLid'].includes(type)&&!bodies)return {enabled:false,reason:'先にソリッドを作成または読み込んでください。'};
+ if(['printSupport','fillet','chamfer','shell','join','split','enclose','coilJoint','move','pull','trimSurface','mirror','circular','rectangular','thread','ballJoint','bossJoint','cylinderHinge','snapLid','slideLid'].includes(type)&&!bodies)return {enabled:false,reason:'先にソリッドを作成または読み込んでください。'};
  if(type==='join'&&bodies<2)return {enabled:false,reason:'結合・切り取りには2つ以上のボディが必要です。'};
  if(type==='thread'&&!state.cylinder)return {enabled:false,reason:'円柱の側面または穴の内壁を選択してください。'};
  if(type==='pull'&&!state.faces&&!state.cylinder)return {enabled:false,reason:'動かす平面または円筒面を選択してください。'};
@@ -10,7 +10,7 @@ export function commandAvailability(type,state){
 }
 export function installCommandSelection({getState,notify}){
  const summaryWidth=document.getElementById('selection-summary');if(summaryWidth)summaryWidth.style.cssText+=';display:inline-block;width:130px;flex:0 0 130px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis';
- const mappings={'direct-fillet':'fillet','direct-chamfer':'chamfer','shell-tool':'shell','join-tool':'join','split-tool':'split','move-tool':'move','direct-thread':'thread','direct-pull':'pull','ball-joint-tool':'ballJoint','boss-joint-tool':'bossJoint','cylinder-hinge-tool':'cylinderHinge','snap-lid-tool':'snapLid','slide-lid-tool':'slideLid'};
+ const mappings={'print-support-tool':'printSupport','direct-fillet':'fillet','direct-chamfer':'chamfer','shell-tool':'shell','join-tool':'join','split-tool':'split','move-tool':'move','direct-thread':'thread','direct-pull':'pull','ball-joint-tool':'ballJoint','boss-joint-tool':'bossJoint','cylinder-hinge-tool':'cylinderHinge','snap-lid-tool':'snapLid','slide-lid-tool':'slideLid'};
  const context=document.createElement('p');context.id='command-selection-context';context.setAttribute('role','status');context.style.cssText='font-size:13px;line-height:1.5;color:#a9d6df';document.getElementById('cad-help').after(context);
  let signature='';
  function sync(){

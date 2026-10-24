@@ -1,6 +1,6 @@
 import {featureReads,featureWrites} from './history-impact.js';
 
-const names={assemblyMate:'位置合わせ・固定',assemblyRelease:'固定を解除',sketch:'スケッチ',extrusion:'押し出し',plane:'構築平面',referenceImage:'下絵',cadop:'その他のCAD操作',fillet:'フィレット',chamfer:'面取り',shell:'シェル',pipe:'パイプ',enclose:'囲み形成',circular:'円形状パターン',rectangular:'矩形状パターン',move:'移動／回転',join:'結合・切り取り',split:'分離',mirror:'ミラー',thread:'ねじ',threadMate:'相手ねじ',bossJoint:'ボス接合',simpleBoss:'簡易ボス',ballJoint:'ボール接合',coilJoint:'コイル接合',coil:'コイル',qrCode:'QRコード',offset:'オフセット平面',revolve:'回転',loft:'ロフト',svgWrap:'SVG巻き付け',slideLid:'スライド蓋',snapLid:'被せ蓋',cylinderHinge:'円柱ヒンジ蓋',printLayout:'印刷配置'};
+const names={printSupport:'疑似サポート',assemblyMate:'位置合わせ・固定',assemblyRelease:'固定を解除',sketch:'スケッチ',extrusion:'押し出し',plane:'構築平面',referenceImage:'下絵',cadop:'その他のCAD操作',fillet:'フィレット',chamfer:'面取り',shell:'シェル',pipe:'パイプ',enclose:'囲み形成',circular:'円形状パターン',rectangular:'矩形状パターン',move:'移動／回転',join:'結合・切り取り',split:'分離',mirror:'ミラー',thread:'ねじ',threadMate:'相手ねじ',bossJoint:'ボス接合',simpleBoss:'簡易ボス',ballJoint:'ボール接合',coilJoint:'コイル接合',coil:'コイル',qrCode:'QRコード',offset:'オフセット平面',revolve:'回転',loft:'ロフト',svgWrap:'SVG巻き付け',slideLid:'スライド蓋',snapLid:'被せ蓋',cylinderHinge:'円柱ヒンジ蓋',printLayout:'印刷配置'};
 const normalize=value=>String(value||'').normalize('NFKC').toLocaleLowerCase('ja').trim();
 export function historyGroupName(value){
  if(typeof value!=='string'||value.trim().length>60)throw Error('グループ名は60文字以内にしてください');

@@ -7,6 +7,7 @@ export function assemblyLinks(features,available=null){
   if(spec?.type==='assemblyMate'&&typeof spec.source?.bodyId==='string'&&typeof spec.destination?.bodyId==='string')links.set(f.id,{id:f.id,bodies:[spec.source.bodyId,spec.destination.bodyId],mode:spec.mode});
   if(spec?.type==='assemblyRelease')links.delete(spec.linkId);
   for(const link of result?.analysis?.assemblyCopies||[])links.set(link.id,link);
+  for(const link of result?.analysis?.supportLinks||[])links.set(link.id,link);
  }
  return [...links.values()].filter(link=>!available||link.bodies.every(id=>available.has(id)));
 }
