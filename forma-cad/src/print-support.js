@@ -3,12 +3,13 @@ import {selectedConnectedPlanarFace} from './cad-planar-face.js';
 import {fuseSolids} from './solid-fuse.js';
 import {supportBaseSurfaces} from './print-support-base.js';
 import {makeWallSupports} from './print-support-walls.js';
-export const printSupportDefaults={style:'posts',wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
+export const printSupportDefaults={style:'posts',wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
 const box=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
 export function validatePrintSupport(input){
  // Existing saved supports keep their original bed-only placement on replay.
- const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed'};
+ const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed',wallTies:input.wallTies??false};
+ if(typeof p.wallTies!=='boolean'||!Number.isFinite(p.tieInterval)||p.tieInterval<8||p.tieInterval>60)throw Error('横つなぎの高さ間隔は8〜60 mmで指定してください');
  if(!['posts','walls'].includes(p.style))throw Error('サポートの形を選択してください');
  if(!Number.isFinite(p.wallPitch)||p.wallPitch<2||p.wallPitch>8||!Number.isFinite(p.wallThickness)||p.wallThickness<.4||p.wallThickness>2||p.wallThickness>=p.wallPitch)throw Error('薄壁の間隔は2〜8 mm、厚みは0.4〜2 mmで、厚みを間隔より小さくしてください');
  if(!Number.isFinite(p.layerHeight)||p.layerHeight<.06||p.layerHeight>.4)throw Error('積層ピッチは0.06〜0.4 mmで指定してください');
