@@ -1,6 +1,9 @@
 import {MODEL_PRECISION} from './model-precision.js';
 import * as R from 'replicad';
 import {selectedCadFaces} from './face-pull.js';
+import {cadMesh} from './cad-mesh.js';
+import {solidMeshComplete} from './solid-mesh.js';
+import {prismaticEnclosure} from './enclose-prismatic.js';
 function valid(shape){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{return check.IsValid();}finally{check.delete();}}
 function booleanShape(a,b,common=false){const oc=R.getOC(),builder=common?new oc.BRepAlgoAPI_Common(a.wrapped,b.wrapped):new oc.BRepAlgoAPI_Cut(a.wrapped,b.wrapped);try{builder.SetNonDestructive(true);builder.SetFuzzyValue(MODEL_PRECISION.contact);builder.Build();if(!builder.IsDone())throw Error('差し引きに失敗しました');const raw=builder.Shape();try{return raw.IsNull()?null:R.cast(raw).asShape3D();}finally{raw.delete();}}finally{builder.delete();}}
 const volumeOf=shape=>shape?R.measureVolume(shape):0;
@@ -70,8 +73,9 @@ export function encloseBody(base,thickness,{clearance=0,boxExtra=0,faces=[],boxM
   if(!Number.isFinite(volume)||volume<=tolerance)throw Error(fail);
   if(!faces.length&&Math.abs(volume-(expandedVolume-R.measureVolume(inner)))>tolerance)throw Error(fail);
   overlap=booleanShape(result,inner,true);if(Math.abs(volumeOf(overlap))>tolerance)throw Error(fail);
+  if(!solidMeshComplete(result,cadMesh(result)))throw Error(fail);
   const output=result;result=null;return output;
- }catch(e){throw Error(fail);}finally{openingFaces.forEach(f=>f.delete());result?.delete();overlap?.delete();missing?.delete();expanded?.delete();inner?.delete();source?.delete();}
+ }catch(e){try{const recovered=prismaticEnclosure(base,thickness,{clearance,faces,roundedCorners});if(recovered)return recovered;}catch{}throw Error(fail);}finally{openingFaces.forEach(f=>f.delete());result?.delete();overlap?.delete();missing?.delete();expanded?.delete();inner?.delete();source?.delete();}
 }
 const AXES={XY:2,XZ:1,YZ:0};
 function addChestRoof(shell,low,high,{thickness,enclosureSplit,splitOffset,hingeEdge,faces}){
