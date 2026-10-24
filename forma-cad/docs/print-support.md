@@ -21,6 +21,8 @@
 
 通常のSTL出力にはサポートブロッカーの設定が含まれません。Bambu Studio以外や「形状のみ」として読み込んだ場合も除外設定が失われる可能性があります。二重生成を防ぐ場合は上記3MFの設定を保持して読み込んでください。未対応の面や遮られた配置がある場合は3MF出力を無効にします。薄壁の接触面・上側のすき間・天井のブリッジをスライス後に確認してください。
 
+薄壁型の疑似サポートが表示されているモデルで、右上の「STL出力」を押すと出力形式を案内します。「3MF出力画面へ」を選ぶと該当する疑似サポートの編集画面を開き、プレビュー計算後に3MFボタンへ移動します。そこで出力し、Bambu Studioでプロジェクトとして開いてください。「STLを出力（形状のみ）」を選ぶと従来のSTLを出力します。キャンセルではモデルを変更しません。薄壁サポートが複数ある場合は対象工程を選べます。後続工程がある場合は、その加工を含まない工程時点の3MFになることを案内します。非表示・削除済みの薄壁サポートや、従来の柱型だけのモデルでは通常のSTL出力を続けます。
+
 実装は[Bambu Studioの3MF入出力](https://github.com/bambulab/BambuStudio/blob/master/src/libslic3r/Format/bbs_3mf.cpp)と[サポートブロッカーの部品種別](https://github.com/bambulab/BambuStudio/blob/master/src/libslic3r/Model.cpp)に対応しています。
 
 ## 使い方
@@ -73,6 +75,7 @@
 - `node tests/print-support-walls.mjs`: 薄壁の密度、土台への接触と本体への非侵入、上側のすき間、ベッド上の接続した足、輪郭の穴、STLの閉鎖性、範囲限定の3MFと再計算。
 - `node tests/print-support-walls-browser.mjs`: 初期の薄壁型、積層ピッチとすき間の連動、3MFダウンロード、プレビューを確定しない出力、保存・再編集と取り消し。
 - `node tests/print-support-wall-ties.mjs`: 一定高さごとの横つなぎ、壁同士の一体化、細い切り離し部分、間隔変更・オフ・旧保存データ、干渉回避、回転したモデル、STL検査と再計算。
+- `node tests/print-support-export-choice.mjs` と `node tests/print-support-export-browser.mjs`: 右上のSTL出力の案内、キャンセル・Esc、明示的なSTL保存、対象工程からの設定付き3MF出力、履歴の保持、複数対象とモデル変更時の中止。
 - `node tests/print-support-slicer.mjs`: インストール済みBambu Studio 02.04.00.70で、テスト用A1 mini / PLA設定・積層ピッチ0.3 mm・自動ツリーサポート有効で実スライスします。コの字形について従来STLにはサポート経路が生成され、薄壁3MFには追加のサポート経路が生成されないことをG-codeで検証します。プリンター固有の物理条件を保証するものではありません。
 
 実際のプリンターでの印刷・取り外しは未検証です。

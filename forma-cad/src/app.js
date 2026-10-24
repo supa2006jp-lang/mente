@@ -1,3 +1,5 @@
+import {createPrintSupportExportChoice} from './print-support-export-choice.js';
+let supportExportChoice=null;
 import {createPrintSupportDialog} from './print-support-dialog.js';
 let printSupportController=null;
 import {createAssemblyDialog} from './assembly-dialog.js';
@@ -742,6 +744,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(supportExportChoice?.active){supportExportChoice.cancel();return;}
  if(printSupportController?.active){printSupportController.close();return;}
  if(assemblyController?.cancelDrag())return;
  if(channelResize?.cancelDrag())return;
@@ -1080,7 +1083,8 @@ async function chooseProjectFile(){
 $('load').onclick=chooseProjectFile;
 $('file').onchange=async()=>{const file=$('file').files[0];if(!file||projectFileTarget.busy)return;const request=toolCancelRevision,read=++projectReadRevision;projectLoadPreview.cancel();try{await previewProjectFile(file,null,request,read);}finally{if(read===projectReadRevision)$('file').value='';}};
 stlInspection=createStlInspectionView({scene,host,meshes,getFeatures:()=>features,getBodyName:bodyDisplayName});
-$('export').onclick=async()=>{if(!meshes.size||$('export').disabled)return;$('export').disabled=true;const original=features;let token=null;try{const bodies=stlMeshSnapshot(original,meshes),message=await saveStl(()=>{if(features!==original)throw Error('モデルが変更されたためSTL出力を中止しました');token=stlInspection.begin(original);return createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>stlInspection.current(token),onProgress:p=>stlInspection.progress(token,p),onInspection:report=>stlInspection.result(token,report)});},download,{isCurrent:()=>features===original&&(token===null||stlInspection.current(token))});if(message)notify(message+'（出力メッシュ検査済み）');}catch(error){if(token!==null)stlInspection.error(token,error);if(error.code!=='cancelled')notify('STL保存に失敗しました：'+error.message);}finally{$('export').disabled=false;}};
+supportExportChoice=createPrintSupportExportChoice({getFeatures:()=>features,getBodyIds:()=>[...meshes].filter(([,mesh])=>mesh.visible).map(([id])=>id),bodyName:bodyDisplayName});
+$('export').onclick=async()=>{if(!meshes.size||$('export').disabled)return;$('export').disabled=true;const original=features;let token=null;try{const choice=await supportExportChoice.choose();if(choice.kind==='cancel'||features!==original)return;if(choice.kind==='support'){printSupportController.openForExport(choice.feature);return;}const bodies=stlMeshSnapshot(original,meshes),message=await saveStl(()=>{if(features!==original)throw Error('モデルが変更されたためSTL出力を中止しました');token=stlInspection.begin(original);return createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>stlInspection.current(token),onProgress:p=>stlInspection.progress(token,p),onInspection:report=>stlInspection.result(token,report)});},download,{isCurrent:()=>features===original&&(token===null||stlInspection.current(token))});if(message)notify(message+'（出力メッシュ検査済み）');}catch(error){if(token!==null)stlInspection.error(token,error);if(error.code!=='cancelled')notify('STL保存に失敗しました：'+error.message);}finally{$('export').disabled=false;}};
 async function checkedGeneratedStl(outputs,{isCurrent=()=>true,onProgress}={}){
  if(!isCurrent())throw Error('設定が変更されたためSTL出力を中止しました');const original=features,token=stlInspection.begin(original),bodies=outputs.map(({id,brep,vertices,triangles})=>({id,brep,vertices,triangles}));
  try{return await createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>isCurrent()&&stlInspection.current(token),onProgress:p=>{if(!isCurrent())stlInspection.close();else{stlInspection.progress(token,p);onProgress?.(p);}},onInspection:report=>stlInspection.result(token,report)});}catch(error){stlInspection.error(token,error);throw error;}
@@ -3347,7 +3351,7 @@ $('section-toggle').addEventListener('click',()=>bodyDisplay?.stopExploded(),{ca
 $('move-tool').addEventListener('click',()=>{bodyDisplay?.stopExploded();if(editingSectionSplitId)sectionControl.cancel();},{capture:true});
 
 // Cancel transient tools in one place so capture listeners cannot leave another selection active.
-function cancelAllTools(){printSupportController?.close();assemblyController?.close();stlInspection?.close();selectionLibrary?.cancel();textSketchController?.close();sketchMoveTool?.cancel();cancelExtrusionJoinConfirmation();faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
+function cancelAllTools(){supportExportChoice?.cancel();printSupportController?.close();assemblyController?.close();stlInspection?.close();selectionLibrary?.cancel();textSketchController?.close();sketchMoveTool?.cancel();cancelExtrusionJoinConfirmation();faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
  ++toolCancelRevision;middleConfirm.cancel();projectLoadPreview.cancel();projectLibrary.cancel();kernelClient.reset();
  boxSelection?.cancel();cancelPanelDrags();cancelDialogDrags();moveTool?.cancel(true);imageReferences?.cancel();sectionControl?.cancel();drawingController?.cancel();
  if(extrusionDrag)endExtrusionDrag({pointerId:extrusionDrag.id});if(taperDrag)endTaperDrag({pointerId:taperDrag.id});
