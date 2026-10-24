@@ -15,8 +15,8 @@ function prism(points,axis,center,thickness){
 // Keep the entire root/top bands and continuous rails under tie connections.
 // A full rectangular guard must fit inside the original wall, so windows cannot
 // open onto an existing edge/hole or remove a landing on a non-flat base.
-export function makeWallWindows(shape,records,ties,p,onProgress){
- const originalVolume=R.measureVolume(shape),tools=[],tieBoxes=ties.map(bounds),wallBoxes=records.map(record=>({record,box:bounds(record.shape)}));let skipped=0,attempts=0,limited=false,result=null;
+export function makeWallWindows(shape,records,ties,p,onProgress,protectedShapes=[]){
+ const originalVolume=R.measureVolume(shape),tools=[],tieBoxes=ties.map(bounds),protectedBoxes=protectedShapes.map(bounds),wallBoxes=records.map(record=>({record,box:bounds(record.shape)}));let skipped=0,attempts=0,limited=false,result=null;
  try{
   scan: for(const record of records){
    const {axis,center}=record,other=1-axis,b=bounds(record.shape),margin=Math.max(2,2*p.wallThickness),band=Math.max(3,4*p.layerHeight),localTies=tieBoxes.filter(t=>t[0][axis]<=center+p.wallThickness/2+.001&&t[1][axis]>=center-p.wallThickness/2-.001);
@@ -35,7 +35,7 @@ export function makeWallWindows(shape,records,ties,p,onProgress){
       guard=prism([[x-width/2-margin,z0-band],[x+width/2+margin,z0-band],[x+width/2+margin,z1+band],[x-width/2-margin,z1+band]],axis,center,p.wallThickness);common=guard.intersect(record.shape);
       const volume=R.measureVolume(guard);if(Math.abs(R.measureVolume(common)-volume)>Math.max(.0001,volume*1e-6)){skipped++;continue;}
       tool=prism([[x,z0],[x+width/2,z],[x,z1],[x-width/2,z]],axis,center,p.wallThickness+.2);
-      const box=bounds(tool);if(tieBoxes.some(b=>overlaps(box,b))||wallBoxes.some(item=>item.record!==record&&overlaps(box,item.box))){skipped++;continue;}
+      const box=bounds(tool);if(tieBoxes.some(b=>overlaps(box,b))||protectedBoxes.some(b=>overlaps(box,b))||wallBoxes.some(item=>item.record!==record&&overlaps(box,item.box))){skipped++;continue;}
       tools.push(tool);tool=null;
      }finally{tool?.delete();common?.delete();guard?.delete();}
     }

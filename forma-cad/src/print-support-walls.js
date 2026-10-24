@@ -3,6 +3,7 @@ import {selectedConnectedPlanarFace} from './cad-planar-face.js';
 import {fuseSolids} from './solid-fuse.js';
 import {makeWallTies} from './print-support-wall-ties.js';
 import {makeWallWindows} from './print-support-wall-windows.js';
+import {makeWallRoof} from './print-support-wall-roof.js';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
 const bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}};
 function inset(face,distance){
@@ -14,7 +15,7 @@ function inset(face,distance){
 }
 export function makeWallSupports(bodies,p,onProgress){
  const model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
- const faces=p.mode==='face'?[selectedConnectedPlanarFace(model,p.faces[0])]:model.faces,owned=[],hold=s=>(owned.push(s),s),walls=[],wallRecords=[],ties=[],tieLevels=new Set(),blockers=[],baseBodyIds=new Set();let omitted=0,faceCount=0,shape=null,skippedTies=0,windows={enabled:false,count:0,skipped:0,limited:false,removedVolume:0,savedPercent:0};
+ const faces=p.mode==='face'?[selectedConnectedPlanarFace(model,p.faces[0])]:model.faces,owned=[],hold=s=>(owned.push(s),s),walls=[],wallRecords=[],ties=[],roofs=[],tieLevels=new Set(),blockers=[],baseBodyIds=new Set();let omitted=0,faceCount=0,shape=null,skippedTies=0,windows={enabled:false,count:0,skipped:0,limited:false,removedVolume:0,savedPercent:0};
  try{
   for(const face of faces){const n=tuple(face.normalAt()),b=bounds(face);if(n[2]>-.5||b[0][2]<=p.bedZ+p.topGap+1)continue;if(face.geomType!=='PLANE'||n[2]>-.999999){if(p.mode==='face')throw Error('薄壁型は水平な平面の下面を選択してください');omitted++;continue;}
    const z=tuple(face.center)[2],profile=hold(inset(face,.5)),shifted=hold(profile.translate([0,0,-p.topGap])),v=new R.Vector([0,0,p.bedZ-z+p.topGap]);let prism;try{prism=hold(R.basicFaceExtrusion(shifted,v));}finally{v.delete();}
@@ -29,13 +30,14 @@ export function makeWallSupports(bodies,p,onProgress){
     walls.push(wall);const record={shape:wall,axis,center};records.push(record);wallRecords.push(record);made++;
    }
    if(p.wallTies&&records.length>1){const made=makeWallTies(records,prism,bodies,p,onProgress);if(ties.length+made.shapes.length>512){made.shapes.forEach(s=>s.delete());throw Error('横つなぎが多すぎます。高さの間隔を広げるか対象面を絞ってください');}made.shapes.forEach(s=>ties.push(hold(s)));made.levels.forEach(z=>tieLevels.add(z));skippedTies+=made.skipped;}
+   if(p.wallRoof){const roof=makeWallRoof(records,prism,bodies,p,z-p.topGap,onProgress);if(roof)roofs.push(hold(roof));}
    if(made){faceCount++;const fullShift=hold(face.translate([0,0,p.layerHeight])),vec=new R.Vector([0,0,p.bedZ-z-p.layerHeight]);try{blockers.push(R.basicFaceExtrusion(fullShift,vec));}finally{vec.delete();}}
   }
   if(!walls.length)throw Error('薄壁を置ける水平な下面がありません。土台と高さを確認してください');
-  shape=fuseSolids([...walls,...ties],{onProgress});if(p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress);shape.delete();shape=cut.shape;windows=cut.analysis;}const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('正常な薄壁サポートを作成できませんでした');}finally{check.delete();}
+  shape=fuseSolids([...walls,...ties,...roofs],{onProgress});if(p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress,roofs);shape.delete();shape=cut.shape;windows=cut.analysis;}const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('正常な薄壁サポートを作成できませんでした');}finally{check.delete();}
   for(const model of bodies.values()){const common=hold(shape.intersect(model));if(R.measureVolume(common)>.0001)throw Error('薄壁が本体に入り込むため作成を中止しました');}
   const solids=shape.solids;let components;try{components=solids.length;}finally{solids.forEach(s=>s.delete());}
   const analysis={style:'walls',count:walls.length,contacts:[],components,topGap:p.topGap,bottomGap:0,baseMode:p.baseMode,baseBodyIds:[...baseBodyIds],modelBasedCount:baseBodyIds.size?walls.length:0,bedBasedCount:baseBodyIds.size?0:walls.length,footDiameter:p.footDiameter,postDiameter:p.wallThickness,reinforcements:ties.length,skipped:omitted,omittedReinforcement:skippedTies,limited:false,bedZ:p.bedZ,wallPitch:p.wallPitch,wallThickness:p.wallThickness,layerHeight:p.layerHeight,faceCount,blockerCount:blockers.length,complete:omitted===0,wallTies:{enabled:p.wallTies,interval:p.tieInterval,count:ties.length,levels:[...tieLevels].sort((a,b)=>a-b),thickness:2*p.layerHeight,neckWidth:Math.min(Math.max(1.6,Math.min(3,2*p.wallThickness)),Math.max(.6,p.wallThickness))}};
-  analysis.windows=windows;const result={shape,analysis,blockers};shape=null;return result;
+  analysis.roof={enabled:!!p.wallRoof,count:roofs.length,layers:p.roofLayers??2,thickness:(p.roofLayers??2)*p.layerHeight};analysis.windows=windows;const result={shape,analysis,blockers};shape=null;return result;
  }catch(e){blockers.forEach(s=>s.delete());throw e;}finally{shape?.delete();owned.forEach(s=>s.delete());faces.forEach(f=>f.delete());}
 }
