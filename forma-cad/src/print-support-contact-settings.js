@@ -2,6 +2,7 @@ export function contactRoleSettings(p,role){const upper=role==='upper';return {e
 export function normalizeContactSettings(input,p){
  p.contactLines=input.contactLines??false;p.topContactLines=input.topContactLines??true;p.bottomContactLines=input.bottomContactLines??true;
  p.interfaceLineWidth=input.interfaceLineWidth??.6;p.interfaceSpacing=input.interfaceSpacing??.5;p.bottomInterfaceLineWidth=input.bottomInterfaceLineWidth??p.interfaceLineWidth;p.bottomInterfaceSpacing=input.bottomInterfaceSpacing??p.interfaceSpacing;
+ p.bottomContactInset=input.bottomContactInset??0;if(!Number.isFinite(p.bottomContactInset)||p.bottomContactInset<0||p.bottomContactInset>2)throw Error('底面の端の逃げは0〜2 mmで指定してください');
  if([p.contactLines,p.topContactLines,p.bottomContactLines].some(v=>typeof v!=='boolean'))throw Error('上下の接触層の設定が不正です');
  for(const role of ['upper','lower']){const s=contactRoleSettings(p,role);if(!Number.isFinite(s.width)||s.width<.4||s.width>1.5||s.enabled&&s.width<p.lineWidth)throw Error((role==='upper'?'上面':'底面')+'の接触線幅は0.4〜1.5 mmで、印刷線幅以上にしてください');if(!Number.isFinite(s.spacing)||s.spacing<.1||s.spacing>1.5)throw Error((role==='upper'?'上面':'底面')+'の接触層の線の隙間は0.1〜1.5 mmで指定してください');}
  return p;
