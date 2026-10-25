@@ -1,3 +1,4 @@
+import {makeSupportContactTrials} from './print-support-contact-trials.js';
 import {enclosureHistoryBody} from './enclosure-history-body.js';
 import {assemblyLinks,assemblyTargets,copiedAssemblyLinks} from './assembly-state.js';
 import {assemblyReference,assemblyPlan} from './assembly-mate.js';
@@ -314,6 +315,7 @@ export function runInternalThreadShape(features,spec,onProgress){
  }finally{captured?.delete();}
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(spec.type==='printSupportTrial')return makeSupportContactTrials(spec.settings,onProgress);
  if(spec.type==='printSupportFaces'){
   if(!['posts','walls'].includes(spec.style)||!Number.isFinite(spec.bedZ)||!Number.isFinite(spec.topGap))throw Error('サポートの形と高さの条件を確認してください');
   const bodies=kernelBodies(features);let selected;try{const model=bodies.get(spec.target);if(!model)throw Error('対象ボディが見つかりません');selected=resolveSupportFaces(model,spec,{allowEmpty:true,toggle:spec.toggle});return {faces:selected.selections,selectedFaces:supportSelectedFaceMeshes(selected)};}finally{selected?.faces.forEach(f=>f.delete());bodies.forEach(s=>s.delete());}
@@ -425,7 +427,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    if(!p.preview)return {outputs,remove,analysis};
    const supportPackage=made.blockers?.length?{complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...printSupportExportMesh(bodies.get(id))})).concat(made.shape?[{id:p.id,...printSupportExportMesh(made.shape)}]:[]),blockers:made.blockers.map(s=>printSupportExportMesh(s))}:null;
    const exportStatus=inspectPrintSupportPackage(supportPackage,{targetId:p.target,supportId:p.id});
-   return {outputs,remove,analysis,supportPreview:{body:{id:p.target,...cadMesh(bodies.get(p.target))},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};
+   return {outputs,remove,analysis,supportPreview:{...(made.contactPreview?{contact:made.contactPreview}:{}),body:{id:p.target,...cadMesh(bodies.get(p.target))},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};
   }finally{made.shape?.delete();made.blockers?.forEach(s=>s.delete());}
  }
  else if(p.type==='assemblyInfo'){analysis=assemblyReference(bodies,p.reference,p.mode);}
