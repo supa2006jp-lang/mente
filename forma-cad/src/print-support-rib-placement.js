@@ -1,4 +1,4 @@
-// The profile already leaves 0.5 mm to the model's perimeter. Align the outer
+// The profile already leaves the configured margin to the model perimeter. Align the outer
 // sides of the first/last fin to that profile instead of leaving half a pitch.
 export function supportRibPlacement(low,high,p){
  const span=high-low,usable=Math.max(0,span-p.wallThickness);

@@ -1,10 +1,10 @@
 import {printSupportDefaults,validatePrintSupport} from './print-support.js';
 export const printSupportPresetKey='forma-cad-print-support-presets-v1';
-export const printSupportPresetFields=['style','wallBottomSkin','bottomSkinLayers','edgeRibs','autoReinforce','filamentDiameter','materialDensity','baseMode','lineWidth','fitLineWidth','wallLines','wallDirection','wallRoof','roofLayers','roofTabs','roofTabLength','roofSeams','roofSectionLength','roofSeamWidth','wallWindows','wallTies','tieInterval','wallPitch','wallThickness','layerHeight','spacing','footDiameter','footThickness','postDiameter','tipDiameter','topGap','bottomGap','maxSupports','connectFeet','braces','braceDiameter','lockToModel'];
+export const printSupportPresetFields=['style','edgeMargin','bottomSeams','bottomSectionLength','bottomSeamWidth','wallBottomSkin','bottomSkinLayers','edgeRibs','autoReinforce','filamentDiameter','materialDensity','baseMode','lineWidth','fitLineWidth','wallLines','wallDirection','wallRoof','roofLayers','roofTabs','roofTabLength','roofSeams','roofSectionLength','roofSeamWidth','wallWindows','wallTies','tieInterval','wallPitch','wallThickness','layerHeight','spacing','footDiameter','footThickness','postDiameter','tipDiameter','topGap','bottomGap','maxSupports','connectFeet','braces','braceDiameter','lockToModel'];
 export function validatePrintSupportPreset(values){
  if(!values||typeof values!=='object'||Array.isArray(values))throw Error('プリセットの設定が不正です');
  const settings=Object.fromEntries(printSupportPresetFields.map(key=>[key,values[key]===undefined?printSupportDefaults[key]:values[key]]));
- settings.autoReinforce=values.autoReinforce??false;
+ settings.autoReinforce=values.autoReinforce??false;settings.roofTabs=false;
  const valid=validatePrintSupport({...settings,type:'printSupport',target:'preset',mode:'auto',faces:[],excludedRibs:[],roofTabPlacements:[],bedZ:0});
  return Object.fromEntries(printSupportPresetFields.map(key=>[key,valid[key]]));
 }
@@ -27,7 +27,7 @@ export function mergePrintSupportPresets(current,incoming){
  return {rows:validateRows(rows),renamed,added:add.length,first:rows[current.length]?.name||''};
 }
 export function installPrintSupportPresets(anchor,{read,apply,download,store=createPrintSupportPresetStore()}){
- const element=document.createElement('details');element.dataset.id='support-presets';element.innerHTML='<summary>サポート設定プリセット</summary><label>保存済み設定<select data-preset="select"></select></label><button type="button" data-preset="apply">呼び出す</button><button type="button" data-preset="delete">削除</button><label>名前（プリンター・材料など）<input type="text" maxlength="60" data-preset="name" placeholder="例：A1 mini・PLA"></label><button type="button" data-preset="save">現在の設定を保存／同名を更新</button><small>線幅・積層ピッチ・間隔・薄皮・タブなどの設定を、このブラウザーに保存します。対象ボディと面は現在の選択を使い、リブ除外と手動タブ位置は呼び出し後に指定します。</small><small data-preset="status" role="status"></small>';anchor.before(element);
+ const element=document.createElement('details');element.dataset.id='support-presets';element.innerHTML='<summary>サポート設定プリセット</summary><label>保存済み設定<select data-preset="select"></select></label><button type="button" data-preset="apply">呼び出す</button><button type="button" data-preset="delete">削除</button><label>名前（プリンター・材料など）<input type="text" maxlength="60" data-preset="name" placeholder="例：A1 mini・PLA"></label><button type="button" data-preset="save">現在の設定を保存／同名を更新</button><small>線幅・積層ピッチ・間隔・薄皮・分割線などの設定を、このブラウザーに保存します。対象ボディと面は現在の選択を使い、リブ除外は呼び出し後に指定します。</small><small data-preset="status" role="status"></small>';anchor.before(element);
  const transfer=document.createElement('div');transfer.innerHTML='<button type="button" data-preset="export">プリセットを書き出す</button><button type="button" data-preset="import">プリセットを読み込む</button><input type="file" data-preset="file" accept=".json,application/json" hidden><small>同名の設定は「(2)」などの別名で追加します。読み込み後に「呼び出す」で現在のモデルへ適用できます。</small>';element.querySelector('[data-preset="status"]').before(transfer);
  const q=id=>element.querySelector('[data-preset="'+id+'"]');let rows=[],busy=false,importing=false;
  function status(text,error=false){q('status').textContent=text;q('status').style.color=error?'#ba4420':'';}
