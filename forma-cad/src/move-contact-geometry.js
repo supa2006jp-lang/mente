@@ -79,7 +79,7 @@ function indexTriangles(faces){
  return {bounds,cells,interval,buckets,wide};
 }
 
-function measuredDistance(from,to,direction,forwardOnly=false){
+function measuredDistance(from,to,direction,forwardOnly=false,removalBudget=null){
  const grid=indexTriangles(to);
  if(!grid)return null;
  let best=Infinity;
@@ -88,10 +88,15 @@ function measuredDistance(from,to,direction,forwardOnly=false){
   const [u0,u1,v0,v1]=grid.interval(f),candidates=new Set(grid.wide);
   for(let u=u0;u<=u1;u++)for(let v=v0;v<=v1;v++)for(const i of grid.buckets.get(u*grid.cells+v)||[])candidates.add(i);
   for(const i of candidates){
+   if(removalBudget&&++removalBudget.pairs>2000000)throw Error('取り外し確認の形状が複雑すぎます。対象を簡単な形にして確認してください');
    const t=to[i];
    if(f.maxU<t.minU-EPS||f.minU>t.maxU+EPS||f.maxV<t.minV-EPS||f.minV>t.maxV+EPS)continue;
    let low=Infinity,high=-Infinity;
-   for(const {u,v} of intersection(f,t)){
+   const polygon=intersection(f,t);
+   // Sliding along a bed/top face is allowed. A line/point in the transverse
+   // plane is tangency, not a barrier crossed by a translating solid.
+   if(removalBudget){let area=0;const origin=polygon[0];for(let j=1;j+1<polygon.length;j++){const a=polygon[j],b=polygon[j+1];area+=(a.u-origin.u)*(b.v-origin.v)-(b.u-origin.u)*(a.v-origin.v);}if(Math.abs(area)<1e-12)continue;}
+   for(const {u,v} of polygon){
     const source=f.height.u*u+f.height.v*v+f.height.c,dest=t.height.u*u+t.height.v*v+t.height.c;
     const distance=direction*(dest-source);low=Math.min(low,distance);high=Math.max(high,distance);
    }
@@ -126,8 +131,9 @@ export function contactTranslation(moving,target,axisIndex,direction){return mea
 // Unlike near-surface snapping, an unbounded move must ignore surfaces behind
 // the moving part, including the back wall of a hollow or concave target.
 export function forwardContactTranslation(moving,target,axisIndex,direction){return measureContact(moving,target,axisIndex,direction,true);}
+export function removalContactTranslation(moving,target,axisIndex,direction,budget={pairs:0}){return measureContact(moving,target,axisIndex,direction,true,budget);}
 
-function measureContact(moving,target,axisIndex,direction,forwardOnly){
+function measureContact(moving,target,axisIndex,direction,forwardOnly,removalBudget=null){
  if(!moving||!target||![0,1,2].includes(axisIndex)||![1,-1].includes(direction))return null;
  moving.updateMatrixWorld(true);target.updateMatrixWorld(true);
  const sourceBox=new THREE.Box3().setFromObject(moving),targetBox=new THREE.Box3().setFromObject(target);
@@ -139,12 +145,12 @@ function measureContact(moving,target,axisIndex,direction,forwardOnly){
  if(!targets){targets=new WeakMap();cache.set(moving,targets);}
  let entries=targets.get(target);
  if(!entries){entries=new Map();targets.set(target,entries);}
- const key=axisIndex+':'+direction+':'+forwardOnly,fromSignature=signature(moving,axisIndex,!forwardOnly),toSignature=signature(target,axisIndex,false);
+ const key=axisIndex+':'+direction+':'+forwardOnly+':'+!!removalBudget,fromSignature=signature(moving,axisIndex,!forwardOnly),toSignature=signature(target,axisIndex,false);
  const axisPosition=moving.matrixWorld.elements[12+axisIndex],cached=entries.get(key);
  if(cached&&identical(cached.fromSignature,fromSignature)&&identical(cached.toSignature,toSignature))
   return cached.distance===null?null:cached.distance-(axisPosition-cached.axisPosition);
  const from=surfaceTriangles(moving,axisIndex,direction,true),to=surfaceTriangles(target,axisIndex,direction,false);
- const distance=from.length&&to.length?measuredDistance(from,to,direction,forwardOnly):null;
+ const distance=from.length&&to.length?measuredDistance(from,to,direction,forwardOnly,removalBudget):null;
  entries.set(key,{fromSignature,toSignature,axisPosition,distance});
  return distance;
 }

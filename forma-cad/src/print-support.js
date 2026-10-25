@@ -1,14 +1,18 @@
 import * as R from 'replicad';
-import {selectedConnectedPlanarFace} from './cad-planar-face.js';
+import {validateSupportFaces,resolveSupportFaces,supportSelectedFaceMeshes} from './print-support-faces.js';
 import {fuseSolids} from './solid-fuse.js';
 import {supportBaseSurfaces} from './print-support-base.js';
 import {makeWallSupports} from './print-support-walls.js';
-export const printSupportDefaults={style:'posts',lineWidth:.4,fitLineWidth:false,wallLines:2,wallDirection:'auto',excludedRibs:[],wallRoof:false,roofLayers:2,roofTabs:false,roofTabPlacements:[],roofTabLength:6,roofSeams:false,roofSectionLength:25,roofSeamWidth:.6,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
+import {supportMaterialEstimate} from './print-support-material.js';
+export const printSupportDefaults={style:'posts',wallBottomSkin:false,bottomSkinLayers:2,edgeRibs:false,autoReinforce:false,filamentDiameter:1.75,materialDensity:1.24,lineWidth:.4,fitLineWidth:false,wallLines:2,wallDirection:'auto',excludedRibs:[],wallRoof:false,roofLayers:2,roofTabs:false,roofTabPlacements:[],roofTabLength:6,roofSeams:false,roofSectionLength:25,roofSeamWidth:.6,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
 const box=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
 export function validatePrintSupport(input){
  // Existing saved supports keep their original bed-only placement on replay.
  const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed',wallTies:input.wallTies??false,wallWindows:input.wallWindows??false,wallRoof:input.wallRoof??false,roofTabs:input.roofTabs??false,roofSeams:input.roofSeams??false};
+ p.wallBottomSkin=input.wallBottomSkin??false;p.bottomSkinLayers=input.bottomSkinLayers??2;if(typeof p.wallBottomSkin!=='boolean'||!Number.isInteger(p.bottomSkinLayers)||p.bottomSkinLayers<1||p.bottomSkinLayers>6)throw Error('底面の薄皮の層数は1〜6層で指定してください');p.edgeRibs=input.edgeRibs??false;if(typeof p.edgeRibs!=='boolean')throw Error('端のリブ配置の設定が不正です');p.autoReinforce=input.autoReinforce??false;p.filamentDiameter=input.filamentDiameter??1.75;p.materialDensity=input.materialDensity??1.24;
+ if(typeof p.autoReinforce!=='boolean')throw Error('自動補強の設定が不正です');
+ supportMaterialEstimate(0,p);
  if(!Number.isFinite(p.lineWidth)||p.lineWidth<.2||p.lineWidth>1||typeof p.fitLineWidth!=='boolean'||!Number.isInteger(p.wallLines)||p.wallLines<1||p.wallLines>8)throw Error('線幅は0.2〜1 mm、薄壁の線数は1〜8本で指定してください');
  if(!['auto','x','y'].includes(p.wallDirection))throw Error('薄壁の向きを選択してください');
  if(!Array.isArray(p.excludedRibs)||p.excludedRibs.length>96||new Set(p.excludedRibs).size!==p.excludedRibs.length||p.excludedRibs.some(v=>typeof v!=='string'||!v||v.length>500))throw Error('除外するリブの指定が不正です');
@@ -20,7 +24,7 @@ export function validatePrintSupport(input){
  if(typeof p.wallWindows!=='boolean')throw Error('窓抜きの設定が不正です');
  if(typeof p.wallTies!=='boolean'||!Number.isFinite(p.tieInterval)||p.tieInterval<8||p.tieInterval>60)throw Error('横つなぎの高さ間隔は8〜60 mmで指定してください');
  if(!['posts','walls'].includes(p.style))throw Error('サポートの形を選択してください');
- if(!Number.isFinite(p.wallPitch)||p.wallPitch<2||p.wallPitch>12||!Number.isFinite(p.wallThickness)||p.wallThickness<.4||p.wallThickness>2||p.wallThickness>=p.wallPitch)throw Error('薄壁の間隔は2〜12 mm、厚みは0.4〜2 mmで、厚みを間隔より小さくしてください');
+ if(!Number.isFinite(p.wallPitch)||p.wallPitch<2||p.wallPitch>15||!Number.isFinite(p.wallThickness)||p.wallThickness<.4||p.wallThickness>2||p.wallThickness>=p.wallPitch)throw Error('薄壁の間隔は2〜15 mm、厚みは0.4〜2 mmで、厚みを間隔より小さくしてください');
  if(!Number.isFinite(p.layerHeight)||p.layerHeight<.06||p.layerHeight>.4)throw Error('積層ピッチは0.06〜0.4 mmで指定してください');
  if(p.style==='walls'&&(p.topGap<p.layerHeight-1e-6||Math.abs(p.topGap/p.layerHeight-Math.round(p.topGap/p.layerHeight))>1e-5))throw Error('薄壁の上側のすき間は、積層ピッチの1倍以上の整数倍にしてください');
  if(!['bed','bedOrModel'].includes(p.baseMode))throw Error('サポートを支え始める場所を選択してください');
@@ -28,7 +32,7 @@ export function validatePrintSupport(input){
  for(const [key,min,max]of [['spacing',8,100],['footDiameter',6,50],['footThickness',.4,3],['postDiameter',2,12],['tipDiameter',.6,6],['topGap',.05,1.5],['bedZ',-10000,10000],['maxSupports',1,36],['braceDiameter',1,5]])if(!Number.isFinite(p[key])||p[key]<min||p[key]>max)throw Error(({spacing:'支柱の間隔',footDiameter:'足の直径',footThickness:'足の厚み',postDiameter:'支柱の直径',tipDiameter:'先端の直径',topGap:'上面との縦すき間',bedZ:'ベッド高さ',maxSupports:'本数の上限',braceDiameter:'斜め補強の直径'})[key]+'は'+min+'〜'+max+(key==='maxSupports'?'本':' mm')+'で指定してください');
  if(!Number.isInteger(p.maxSupports)||p.tipDiameter>p.postDiameter||p.footDiameter<p.postDiameter+2||(p.braces&&p.braceDiameter>p.postDiameter))throw Error('足・支柱・先端・補強の太さの関係を確認してください');
  if(!['auto','face'].includes(p.mode))throw Error('サポートの配置方法を選択してください');
- if(p.mode==='face'&&(!p.faces?.length||p.faces.length!==1||p.faces[0].bodyId!==p.target))throw Error('対象ボディの下面の平面を1つ選択してください');
+ if(p.mode==='face')p.faces=validateSupportFaces(p.faces,p.target);
  for(const key of ['connectFeet','braces','lockToModel'])if(typeof p[key]!=='boolean')throw Error('サポートの設定が不正です');
  return p;
 }
@@ -67,11 +71,11 @@ function diagonal(a,b,z,radius){const d=[b[0]-a[0],b[1]-a[1],Math.hypot(b[0]-a[0
 export function makePrintSupport(bodies,input,onProgress){
  const p=validatePrintSupport(input),model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
  if(p.style==='walls')return makeWallSupports(bodies,p,onProgress);
- const faces=p.mode==='face'?[selectedConnectedPlanarFace(model,p.faces[0])]:model.faces,bounds=new Map([...bodies].map(([id,shape])=>[id,box(shape)])),candidates=[],seen=new Set(),posts=[],extras=[];
- let bases;
+ const selection=p.mode==='face'?resolveSupportFaces(model,p):null,faces=selection?.faces||model.faces,bounds=new Map([...bodies].map(([id,shape])=>[id,box(shape)])),candidates=[],seen=new Set(),posts=[],extras=[];
+ let bases,selectedFacePreview=null;
  let skipped=0,omittedReinforcement=0,shape=null;
  try{
-  if(p.baseMode==='bedOrModel')bases=supportBaseSurfaces(bodies);
+  selectedFacePreview=p.preview&&selection?supportSelectedFaceMeshes(selection):null;if(p.baseMode==='bedOrModel')bases=supportBaseSurfaces(bodies);
   for(const face of faces){
    if(face.geomType!=='PLANE')continue;const normal=vector(face.normalAt()),center=vector(face.center);if(normal[2]>-.5){if(p.mode==='face')throw Error('下向きの平面を選択してください（水平から60°以内）。');continue;}
    const bounds=box(face),xs=[],ys=[];if((bounds[1][0]-bounds[0][0])*(bounds[1][1]-bounds[0][1])/(p.spacing*p.spacing)>512)throw Error('配置候補が多すぎます。間隔を広げるか、対象の面を絞ってください。');for(let x=bounds[0][0]+1;x<=bounds[1][0]-1+.00001;x+=p.spacing)xs.push(x);for(let y=bounds[0][1]+1;y<=bounds[1][1]-1+.00001;y+=p.spacing)ys.push(y);
@@ -103,6 +107,6 @@ export function makePrintSupport(bodies,input,onProgress){
   const solids=shape.solids;let components;try{components=solids.length;}finally{solids.forEach(s=>s.delete());}
   const modelBasedCount=posts.filter(s=>s.base.kind==='model').length,baseBodyIds=[...new Set(posts.flatMap(s=>s.base.bodyId?[s.base.bodyId]:[]))];
   const analysis={count:posts.length,contacts:posts.map(({point,tip,base})=>({point,tip,base})),topGap:p.topGap,bottomGap:p.bottomGap,baseMode:p.baseMode,modelBasedCount,bedBasedCount:posts.length-modelBasedCount,baseBodyIds,footDiameter:p.footDiameter,postDiameter:p.postDiameter,reinforcements:extras.length,omittedReinforcement,skipped,candidates:totalCandidates,limited:candidates.length>0,components,bedZ:p.bedZ};
-  const output=shape;shape=null;return {shape:output,analysis};
+  analysis.material=supportMaterialEstimate(R.measureVolume(shape),p);const selectedFaces=selectedFacePreview;const output=shape;shape=null;return {shape:output,analysis:{...analysis,selection:{mode:p.mode,count:selection?.faces.length||0}},...(selectedFaces?{selectedFaces}:{})};
  }finally{bases?.delete();faces.forEach(f=>f.delete());posts.forEach(s=>s.shape.delete());extras.forEach(s=>s.delete());shape?.delete();}
 }
