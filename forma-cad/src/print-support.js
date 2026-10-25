@@ -3,12 +3,16 @@ import {selectedConnectedPlanarFace} from './cad-planar-face.js';
 import {fuseSolids} from './solid-fuse.js';
 import {supportBaseSurfaces} from './print-support-base.js';
 import {makeWallSupports} from './print-support-walls.js';
-export const printSupportDefaults={style:'posts',wallRoof:false,roofLayers:2,roofTabs:false,roofTabPlacements:[],roofTabLength:6,roofSeams:false,roofSectionLength:25,roofSeamWidth:.6,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
+export const printSupportDefaults={style:'posts',lineWidth:.4,fitLineWidth:false,wallLines:2,wallDirection:'auto',excludedRibs:[],wallRoof:false,roofLayers:2,roofTabs:false,roofTabPlacements:[],roofTabLength:6,roofSeams:false,roofSectionLength:25,roofSeamWidth:.6,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
 const box=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
 export function validatePrintSupport(input){
  // Existing saved supports keep their original bed-only placement on replay.
  const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed',wallTies:input.wallTies??false,wallWindows:input.wallWindows??false,wallRoof:input.wallRoof??false,roofTabs:input.roofTabs??false,roofSeams:input.roofSeams??false};
+ if(!Number.isFinite(p.lineWidth)||p.lineWidth<.2||p.lineWidth>1||typeof p.fitLineWidth!=='boolean'||!Number.isInteger(p.wallLines)||p.wallLines<1||p.wallLines>8)throw Error('線幅は0.2〜1 mm、薄壁の線数は1〜8本で指定してください');
+ if(!['auto','x','y'].includes(p.wallDirection))throw Error('薄壁の向きを選択してください');
+ if(!Array.isArray(p.excludedRibs)||p.excludedRibs.length>96||new Set(p.excludedRibs).size!==p.excludedRibs.length||p.excludedRibs.some(v=>typeof v!=='string'||!v||v.length>500))throw Error('除外するリブの指定が不正です');
+ if(p.fitLineWidth&&p.style==='walls')p.wallThickness=Number((p.lineWidth*p.wallLines).toFixed(6));
  if(typeof p.wallRoof!=='boolean'||!Number.isInteger(p.roofLayers)||p.roofLayers<1||p.roofLayers>6)throw Error('薄皮の層数は1〜6層で指定してください');
  if(typeof p.roofTabs!=='boolean'||typeof p.roofSeams!=='boolean')throw Error('薄皮のタブ・分割線の設定が不正です');
  for(const [key,min,max,label]of [['roofTabLength',3,8,'タブの張り出し'],['roofSectionLength',10,60,'薄皮の分割間隔'],['roofSeamWidth',.4,1.2,'分割線の幅']])if(!Number.isFinite(p[key])||p[key]<min||p[key]>max)throw Error(label+'は'+min+'〜'+max+' mmで指定してください');
