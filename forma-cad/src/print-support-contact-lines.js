@@ -1,5 +1,5 @@
 import {contactRoleSettings} from './print-support-contact-settings.js';
-import {bottomContactInsetMask} from './print-support-contact-inset.js';
+import {bottomContactInsetMask,upperContactRimMask} from './print-support-contact-inset.js';
 import {cadMesh} from './cad-mesh.js';
 import * as R from 'replicad';
 const volume=s=>Math.abs(R.measureVolume(s)),bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}},parts=s=>{const p=s.solids;try{return p.length;}finally{p.forEach(s=>s.delete());}};
@@ -14,7 +14,7 @@ export function supportContactLines(original,regions,p,onProgress){
    try{
     for(let at=low+settings.width;at<high-settings.width-1e-6;at+=pitch){if(++analysis.slots>1024)throw Error('接触層の線が多すぎます。線の隙間を広げるか対象面を絞ってください');const a=[...b[0]],c=[...b[1]];a[axis]-=.01;c[axis]+=.01;a[other]=at;c[other]=Math.min(at+settings.spacing,high-settings.width);a[2]=z;c[2]=top;if(c[other]-a[other]>1e-6)stripes.push(R.makeBox(a,c));}
     if(role==='lower'&&p.bottomContactInset>0){if(b[1][axis]-b[0][axis]<2*p.bottomContactInset+p.lineWidth||high-low<2*p.bottomContactInset+pitch+settings.width)throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');const rim=bottomContactInsetMask(shape,z,top,p.bottomContactInset);masks.push(rim);landings.push({shape,b,z,top,width:settings.width});analysis.bottomEndRelief={distance:p.bottomContactInset,count:(analysis.bottomEndRelief?.count||0)+1};}
-    if(!stripes.length)continue;onProgress?.({stage:(role==='upper'?'上面':'底面')+'に線状の接触層を作成しています'});compound=R.makeCompound(stripes);cut=shape.intersect(compound);if(volume(cut)>.0001){masks.push(cut);cut=null;analysis[role]++;}
+    if(!stripes.length)continue;onProgress?.({stage:(role==='upper'?'上面':'底面')+'に線状の接触層を作成しています'});compound=R.makeCompound(stripes);cut=shape.intersect(compound);if(role==='upper'&&p.topContactRim){const rim=upperContactRimMask(shape,z,top,p.topContactRimWidth);try{const next=cut.cut(rim);cut.delete();cut=next;analysis.topRim={enabled:true,width:p.topContactRimWidth,count:(analysis.topRim?.count||0)+1};}finally{rim.delete();}}if(volume(cut)>.0001){masks.push(cut);cut=null;analysis[role]++;}
    }finally{cut?.delete();compound?.delete();stripes.forEach(s=>s.delete());}
   }
   result=original.clone();for(const mask of masks){const next=result.cut(mask);result.delete();result=next;}if(parts(result)!==parts(original))throw Error('接触層でサポートが分断されます。薄皮を2層以上にするか、線の隙間を狭くしてください');
