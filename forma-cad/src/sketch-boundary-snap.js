@@ -50,7 +50,7 @@ export function createSketchBoundarySnap(){
    const point=closestBoundaryPoint(entry.edges,hit,project,options);
    return point?.addScaledVector(basis.n,offset-point.dot(basis.n))||null;
   },
-  snap(meshes,basis,offset,hit,project,options){
+  segments(meshes,basis,offset){
    const segments=[];
    for(const mesh of meshes){
     if(!mesh.visible)continue;mesh.updateWorldMatrix(true,false);
@@ -62,7 +62,10 @@ export function createSketchBoundarySnap(){
     }
     for(const edge of entry.edges)segments.push(edge);
    }
-   return closestBoundaryPoint(segments,hit,project,options);
+   return segments;
+  },
+  snap(meshes,basis,offset,hit,project,options){
+   return closestBoundaryPoint(this.segments(meshes,basis,offset),hit,project,options);
   }
  };
 }
