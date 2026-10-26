@@ -1,0 +1,72 @@
+{
+  "format": "forma-cad",
+  "version": 1,
+  "features": [
+    {
+      "profile": "region",
+      "mode": "solid",
+      "side": "inside",
+      "plane": "XZ",
+      "operation": "new",
+      "target": "",
+      "width": 60,
+      "height": 40,
+      "diameter": 30,
+      "depth": 14,
+      "wall": 2,
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "angle": 0,
+      "taperAngle": 0,
+      "taperMode": "all",
+      "taperSide": "u+",
+      "taperReference": "normal",
+      "id": "frame",
+      "name": "検証用門形",
+      "kind": "extrusion",
+      "region": {
+        "id": "frame-profile",
+        "plane": "XZ",
+        "offset": 0,
+        "outer": [
+          [
+            -15,
+            0
+          ],
+          [
+            -13,
+            0
+          ],
+          [
+            -13,
+            -20
+          ],
+          [
+            13,
+            -20
+          ],
+          [
+            13,
+            0
+          ],
+          [
+            15,
+            0
+          ],
+          [
+            15,
+            -22
+          ],
+          [
+            -15,
+            -22
+          ]
+        ],
+        "holes": [],
+        "area": 140,
+        "sourceIds": []
+      }
+    }
+  ]
+}

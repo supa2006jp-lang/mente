@@ -1,3 +1,4 @@
+import {cadSubshapes} from './cad-topology.js';
 import * as R from 'replicad';
 import {classifyHealthFindings} from './geometry-health-delta.js';
 import {MODEL_PRECISION as P,microLength,volumeAllowance,isContactDistance} from './model-precision.js';
@@ -11,12 +12,12 @@ function available(budget,key){if(Date.now()>budget.deadline||budget[key]<=0){bu
 
 // Findings are observations, never a reason to delete a small intentional part.
 export function inspectShapeHealth(shape,{id,before=null,bodies=new Map(),spec={},threshold,budget=healthBudget(),detailed=false}={}){
- const box=bounds(shape),diagonal=Math.hypot(...box[0].map((v,i)=>box[1][i]-v)),limit=threshold??microLength(diagonal),volume=Math.abs(R.measureVolume(shape)),parts=shape.solids,findings=[],planes=[];
+ const box=bounds(shape),diagonal=Math.hypot(...box[0].map((v,i)=>box[1][i]-v)),limit=threshold??microLength(diagonal),volume=Math.abs(R.measureVolume(shape)),parts=cadSubshapes(shape,'solid'),findings=[],planes=[];
  let faces=[],edges=[],beforeParts=[],beforeVolume=null;
  const add=(code,detail={})=>{if(findings.length<40)findings.push({code,bodyId:id,...detail});else budget.partial=true;};
  const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,detailed,false);let valid;try{valid=check.IsValid();}finally{check.delete();}
  try{
-  if(before){beforeVolume=Math.abs(R.measureVolume(before));beforeParts=before.solids;}
+  if(before){beforeVolume=Math.abs(R.measureVolume(before));beforeParts=cadSubshapes(before,'solid');}
   if(!valid)add('invalid-solid',{severity:'error',bounds:box});
   if(parts.length>1&&(detailed||spec.type==='join'||parts.length>(before?beforeParts.length:1)))add('disconnected',{count:parts.length,bounds:box});
   if(before&&spec.type==='move'&&Math.abs(volume-beforeVolume)>volumeAllowance(beforeVolume))add('unexpected-volume',{before:beforeVolume,after:volume,severity:'error',bounds:box});
@@ -27,7 +28,7 @@ export function inspectShapeHealth(shape,{id,before=null,bodies=new Map(),spec={
    if((!preserved||detailed)&&smallest>P.topology&&(smallest<limit||v<limit**3))add('small-component',{component:i,size:smallest,volume:v,bounds:b});
   }
   // Repeated warnings on an unchanged translated/mirrored part are suppressed.
-  faces=shape.faces;edges=shape.edges;
+  faces=cadSubshapes(shape,'face');edges=cadSubshapes(shape,'edge');
   if(!preserved||detailed){
    for(const [i,edge]of edges.entries()){
     if(!available(budget,'edges'))break;const length=R.measureLength(edge);if(length>P.topology&&length<limit)add('short-edge',{edge:i,size:length,bounds:bounds(edge)});
@@ -35,7 +36,7 @@ export function inspectShapeHealth(shape,{id,before=null,bodies=new Map(),spec={
   }
   for(const [i,face]of faces.entries()){
    if(!available(budget,'faces'))break;
-   const area=Math.abs(R.measureArea(face)),boundary=face.edges;let perimeter;
+   const area=Math.abs(R.measureArea(face)),boundary=cadSubshapes(face,'edge');let perimeter;
    try{perimeter=boundary.reduce((n,e)=>n+R.measureLength(e),0);}finally{boundary.forEach(e=>e.delete());}
    const width=perimeter>0?2*area/perimeter:0;
    if((!preserved||detailed)&&width>P.topology&&width<limit)add('narrow-face',{face:i,size:width,area,bounds:bounds(face)});

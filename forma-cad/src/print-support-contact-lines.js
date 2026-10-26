@@ -1,3 +1,4 @@
+import {supportLocalPreview} from './print-support-local-preview.js';
 import {contactRoleSettings} from './print-support-contact-settings.js';
 import {bottomContactInsetMask,upperContactRimMask} from './print-support-contact-inset.js';
 import {cadMesh} from './cad-mesh.js';
@@ -5,8 +6,8 @@ import * as R from 'replicad';
 const volume=s=>Math.abs(R.measureVolume(s)),bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}},parts=s=>{const p=s.solids;try{return p.length;}finally{p.forEach(s=>s.delete());}};
 // One layer of grooves replaces a solid contact face with parallel landing
 // lines. Bottom grooves start on the model, not in air. Bed feet stay solid.
-export function supportContactLines(original,regions,p,onProgress){
- const masks=[],landings=[],preview=[];let result=null;const analysis={enabled:true,width:p.interfaceLineWidth,spacing:p.interfaceSpacing,depth:p.layerHeight,upper:0,lower:0,bedPreserved:0,slots:0,removedVolume:0};
+export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]}={}){
+ const masks=[],landings=[],preview=[],ribPreview=[];let result=null,local=null;const analysis={enabled:true,width:p.interfaceLineWidth,spacing:p.interfaceSpacing,depth:p.layerHeight,upper:0,lower:0,bedPreserved:0,slots:0,removedVolume:0};
  try{
   for(const {shape,role,axis}of regions){
    const settings=contactRoleSettings(p,role);if(!settings.enabled)continue;const b=bounds(shape),other=1-axis;if(role==='lower'&&b[0][2]<=p.bedZ+1e-6){analysis.bedPreserved++;continue;}const low=b[0][other],high=b[1][other],pitch=settings.width+settings.spacing;
@@ -19,7 +20,7 @@ export function supportContactLines(original,regions,p,onProgress){
   }
   result=original.clone();for(const mask of masks){const next=result.cut(mask);result.delete();result=next;}if(parts(result)!==parts(original))throw Error('接触層でサポートが分断されます。薄皮を2層以上にするか、線の隙間を狭くしてください');
   for(const {shape,b,z,top,width}of landings){const box=R.makeBox([b[0][0],b[0][1],z],[b[1][0],b[1][1],top]);let layer,remaining;try{layer=shape.intersect(box);remaining=result.intersect(layer);if(volume(remaining)<p.lineWidth*width*(top-z))throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');}finally{remaining?.delete();layer?.delete();box.delete();}}
-  analysis.settings={upper:contactRoleSettings(p,'upper'),lower:contactRoleSettings(p,'lower')};if(p.preview)for(const {shape,role,axis}of regions){if(!contactRoleSettings(p,role).enabled)continue;const b=bounds(shape);if(role==='lower'&&b[0][2]<=p.bedZ+1e-6)continue;const a=[...b[0]],c=[...b[1]];if(role==='upper')a[2]=Math.max(a[2],c[2]-p.layerHeight);else c[2]=Math.min(c[2],a[2]+p.layerHeight);const box=R.makeBox(a,c);let mask,display;try{mask=shape.intersect(box);display=result.intersect(mask);if(volume(display)>.0001)preview.push({id:role+'-'+preview.length,role,axis,bounds:bounds(display),...cadMesh(display)});}finally{display?.delete();mask?.delete();box.delete();}}
-  analysis.removedVolume=Math.max(0,volume(original)-volume(result));const shape=result;result=null;return {shape,analysis,preview};
- }finally{result?.delete();masks.forEach(s=>s.delete());}
+  if(p.preview)local=supportLocalPreview(original,masks);analysis.settings={upper:contactRoleSettings(p,'upper'),lower:contactRoleSettings(p,'lower')};if(p.preview)for(const {shape,role,axis}of regions){if(!contactRoleSettings(p,role).enabled)continue;const b=bounds(shape);if(role==='lower'&&b[0][2]<=p.bedZ+1e-6)continue;const a=[...b[0]],c=[...b[1]];if(role==='upper')a[2]=Math.max(a[2],c[2]-p.layerHeight);else c[2]=Math.min(c[2],a[2]+p.layerHeight);const box=R.makeBox(a,c);let mask,display;try{mask=shape.intersect(box);display=local.clip(mask);if(volume(display)>.0001)preview.push({id:role+'-'+preview.length,role,axis,bounds:bounds(display),...cadMesh(display)});}finally{display?.delete();mask?.delete();box.delete();}}
+  if(p.preview)for(const [index,record]of ribRecords.entries()){onProgress?.({stage:'リブの表示を準備しています（'+(index+1)+'／'+ribRecords.length+'枚）'});const display=local.clip(record.shape);try{ribPreview.push({id:record.id,...cadMesh(display)});}finally{display.delete();}}analysis.removedVolume=Math.max(0,volume(original)-volume(result));const shape=result;result=null;return {shape,analysis,preview,ribPreview};
+ }finally{local?.delete();result?.delete();masks.forEach(s=>s.delete());}
 }
