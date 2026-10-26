@@ -836,8 +836,8 @@ function refreshGrid(){
  const matrix=new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v);grid.applyMatrix4(matrix);
  const origin=new THREE.Vector3(f.x,f.y,f.z);grid.position.copy(basis.n).multiplyScalar(origin.dot(basis.n)-.03);grid.userData.plane=f.plane;host.dataset.gridOffset=String(origin.dot(basis.n));grid.visible=visible;scene.add(grid);applyGridVisibility();
 }
-$('snap-step').onchange=()=>{refreshGrid();if(sketch&&lastDrawPoint)previewEndpoint(lastDrawPoint);};
-$('snap-enabled').onchange=()=>{if(snapMarker)snapMarker.visible=$('snap-enabled').checked;};
+$('snap-step').onchange=()=>{refreshGrid();if(sketch&&firstPoint&&$('profile').value==='line')refreshLineAngleSnap();else if(sketch&&lastDrawPoint)previewEndpoint(lastDrawPoint);};
+$('snap-enabled').onchange=()=>{if(snapMarker)snapMarker.visible=$('snap-enabled').checked;refreshLineAngleSnap();};
 $('plane').addEventListener('change',()=>{if($('plane').value!=='CUSTOM'){activeFrame=null;gridPlane=$('plane').value;}refreshGrid();});
 function snapToGrid(hit,event={}){
  delete host.dataset.sketchSnapAngle;
@@ -868,8 +868,9 @@ function snapToGrid(hit,event={}){
  const distance=p=>{const q=screenPoint(p);return Math.hypot(q.x-pointer.x,q.y-pointer.y);};
  if(reference&&(!boundary||distance(reference)<distance(boundary))){host.dataset.snapKind='referenceBoundary';return reference;}
  if(boundary){host.dataset.snapKind='boundary';return boundary;}
+ if($('snap-enabled').checked){const gridPoint=sketchBasis.u.clone().multiplyScalar(Math.round(hit.dot(sketchBasis.u)/gridStep)*gridStep).addScaledVector(sketchBasis.v,Math.round(hit.dot(sketchBasis.v)/gridStep)*gridStep).addScaledVector(sketchBasis.n,sketchOrigin.dot(sketchBasis.n));if(distance(gridPoint)<=6){host.dataset.snapKind='grid';return gridPoint;}}
  if(sketch&&firstPoint&&$('profile').value==='line'&&!arcDrag&&!$('lock-angle').checked&&$('line-angle-snap').checked&&!event.altKey){const delta=hit.clone().sub(firstPoint),world=p=>firstPoint.clone().addScaledVector(sketchBasis.u,p[0]).addScaledVector(sketchBasis.v,p[1]),result=snapSketchLineAngle([delta.dot(sketchBasis.u),delta.dot(sketchBasis.v)],{project:p=>screenPoint(world(p))});if(result.snapped){host.dataset.snapKind='angle';host.dataset.sketchSnapAngle=String(result.angle);return world(result.point);}}
- if(!$('snap-enabled').checked){host.dataset.snapKind='free';return hit.clone();}const gridPoint=sketchBasis.u.clone().multiplyScalar(Math.round(hit.dot(sketchBasis.u)/gridStep)*gridStep).addScaledVector(sketchBasis.v,Math.round(hit.dot(sketchBasis.v)/gridStep)*gridStep).addScaledVector(sketchBasis.n,sketchOrigin.dot(sketchBasis.n));const a=screenPoint(gridPoint),b=screenPoint(hit);if(Math.hypot(a.x-b.x,a.y-b.y)>6){host.dataset.snapKind='free';return hit.clone();}return gridPoint;
+ host.dataset.snapKind='free';return hit.clone();
 }
 function showSnap(hit,basis=sketchBasis){
  const kind=host.dataset.snapKind||'grid',labels={angle:'∠ '+(host.dataset.sketchSnapAngle||'0')+'°（15°吸着）',endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={angle:'∠',endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.color=kind==='angle'?'#087f5b':'';$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm';
