@@ -1,5 +1,10 @@
 import * as THREE from 'three';import {basisFor,worldPoint} from './frames.js';import {findRegions,planeCoordinates} from './regions.js';import {sketchEndpoints} from './sketch-endpoint.js';
 const EPS=1e-5;
+export function sketchRotationCenter(selection){
+ const points=selection?.region?.outer;if(!points?.length)throw Error('回転する枠がありません');
+ const min=[Infinity,Infinity],max=[-Infinity,-Infinity];for(const p of points)for(let i=0;i<2;i++){min[i]=Math.min(min[i],p[i]);max[i]=Math.max(max[i],p[i]);}
+ return worldPoint(selection.region,min.map((v,i)=>(v+max[i])/2));
+}
 export function sketchVertexRotationCandidates(features){
  const visible=features.filter(f=>f.kind==='sketch'&&!f.groupHidden),regions=findRegions(visible),candidates=[];
  for(const f of visible){if(f.textOutline||f.profile==='circle')continue;for(const point of sketchEndpoints(f)){
