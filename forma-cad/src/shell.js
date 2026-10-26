@@ -5,11 +5,11 @@ import {shellCoaxialCircularLoft} from './circular-loft.js';
 // The default rounded offset can return the unmodified solid where short
 // planar faces meet circular walls. Join the offset surfaces by intersection
 // on that failure, without rebuilding the original outline or changing depth.
-function intersectingOffsetShell(base,faces,thickness){
+function intersectingOffsetShell(base,faces,thickness,rounded=false){
  const oc=R.getOC(),list=new oc.NCollection_List_TopoDS_Shape(),builder=new oc.BRepOffsetAPI_MakeThickSolid();
  try{
   for(const face of faces)list.Append(face.wrapped);
-  builder.MakeThickSolidByJoin(base.wrapped,list,-thickness,.001,oc.BRepOffset_Mode.BRepOffset_Skin,true,false,oc.GeomAbs_JoinType.GeomAbs_Intersection,false);
+  builder.MakeThickSolidByJoin(base.wrapped,list,-thickness,.001,oc.BRepOffset_Mode.BRepOffset_Skin,true,false,rounded?oc.GeomAbs_JoinType.GeomAbs_Arc:oc.GeomAbs_JoinType.GeomAbs_Intersection,false);
   return R.cast(builder.Shape()).asShape3D();
  }finally{builder.delete();list.delete();}
 }
@@ -23,6 +23,10 @@ export function shellBody(base,p,circularLoftInfo=null){
  // Preserve the inexpensive specialized recovery for old faceted lofts before
  // attempting general surface intersections on their many small side faces.
  if(faces.length===1&&circularLoftInfo)attempts.push(()=>shellCoaxialCircularLoft(base,faces[0],circularLoftInfo,p.thickness,p.direction));
+ // Revolved swept bodies can have trimmed, overlapping offset surfaces. The
+ // default rounded join does not intersect them globally; retain rounded joins
+ // and enable that intersection before falling back to sharp surface joins.
+ attempts.push(()=>intersectingOffsetShell(base,faces,thickness,true));
  attempts.push(()=>intersectingOffsetShell(base,faces,thickness));
  let reason='この壁厚ではシェルを作成できません。壁厚を小さくするか、開口面を変更してください';
  try{
