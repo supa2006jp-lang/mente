@@ -4,6 +4,7 @@ import {snapSketchLineAngle,sketchAngleStep} from './sketch-angle-snap.js';
 import {snapSketchLineAxis} from './sketch-axis-snap.js';
 import {snapSketchLinePerpendicular} from './sketch-perpendicular-snap.js';
 import {createSketchNumberTabs} from './sketch-number-tabs.js';
+import {edgeBodyRevolveOptions} from './edge-body-revolve.js';
 import {createPrintSupportExportChoice} from './print-support-export-choice.js';
 let supportExportChoice=null;
 import {createPrintSupportDialog} from './print-support-dialog.js';
@@ -1298,6 +1299,8 @@ const edgeReverseTurnButton=document.createElement('button');edgeReverseTurnButt
 const edgeTurnActions=document.createElement('div');edgeTurnActions.id='edge-turn-actions';edgeTurnActions.hidden=true;edgeTurnActions.append(edgeTurnButton,edgeReverseTurnButton);$('measurement').append(edgeTurnActions);
 edgeTurnButton.onclick=()=>rotateUpperEdgeBody(false);
 edgeReverseTurnButton.onclick=()=>rotateUpperEdgeBody(true);
+const edgeBodyRevolveButton=document.createElement('button');edgeBodyRevolveButton.id='edge-body-revolve';edgeBodyRevolveButton.type='button';edgeBodyRevolveButton.hidden=true;edgeBodyRevolveButton.textContent='この辺を軸に回転形成';edgeBodyRevolveButton.title='この辺が属するボディを回転させた通り道を埋めます。角度と方向を確認して元のボディへ結合します';edgeBodyRevolveButton.style.cssText='pointer-events:auto;background:#e7f5fb;color:#24566f;border-color:#8ebbd0';edgeTurnActions.after(edgeBodyRevolveButton);
+edgeBodyRevolveButton.onclick=()=>{if(edgeBodyRevolveButton.hidden||edgeBodyRevolveButton.disabled||selectedEdges.length!==1||document.querySelector('dialog[open]'))return;try{edgeBodyRevolveOptions(selectedEdge);openDirectCommand('revolve');}catch(error){notify(appErrorMessage(error));}};
 async function rotateUpperEdgeBody(reverse=false){
  if(edgeTurnBusy||sketch||stage!=='model'||selectedEdges.length!==1||selectedEdge?.circle||selectedEdge?.arc||selectedEdge?.curve||moveTool?.active||document.querySelector('dialog[open]'))return;
  const original=features,request=toolCancelRevision,edge=clone(selectedEdge);let cancel=null;
@@ -2744,7 +2747,9 @@ function syncSketchNumberTabs(){
  sketchNumberTabs.sync({groups:[...groups.values()].sort((a,b)=>a.number-b.number),active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});
 }
 function switchSketchNumber(id){
- if(!canSwitchSketchNumber()||!features.some(f=>f.kind==='sketch'&&f.groupId===id)||sketch&&activeSketchGroup===id)return;
+ if(!canSwitchSketchNumber())return;
+ if(stage==='sketch'&&(activeSketchGroup===id||id==='pending')){$('finish-sketch-tool').click();return;}
+ if(!features.some(f=>f.kind==='sketch'&&f.groupId===id))return;
  selectionPicker?.close();clearBodySelection();clearFaceSelection();editSketchGroup(id);startFeature('line','thin');pendingDrawingView=null;$('draw').click();
 }
 document.addEventListener('pointerdown',e=>{const faceMenu=$('solid-face-menu');if(faceMenu&&!faceMenu.contains(e.target))closeSolidFaceMenu();const menu=$('sketch-group-menu');if(menu&&!menu.contains(e.target))menu.remove();});
@@ -2810,6 +2815,7 @@ window.addEventListener('keydown',e=>{if(!$('tools-dialog').open)return;if(!e.ta
 
 function visibilityIcon(hidden){return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>'+(hidden?'<path d="m3 3 18 18"/>':'')+'</svg>';}
 function renderRevolve(){
+ const edgeBody=selectedEdges.length===1&&selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve&&meshes.has(selectedEdge.bodyId)?edgeBodyRevolveOptions(selectedEdge):null;
  revolveRegion=chosenRegion?clone(chosenRegion):null;revolveEdge=selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve?{a:selectedEdge.a,b:selectedEdge.b}:null;revolvePicking=revolveRegion?'axis':'profile';
  $('cad-fields').innerHTML='<label>回転の対象<select id="revolve-kind"><option value="profile">領域・面</option><option value="body">ボディ</option></select></label><label id="revolve-body-label" hidden>回転するボディ<select id="revolve-body"></select></label><button type="button" id="revolve-pick-profile">領域を画面で選択</button><label>プロファイル<select id="revolve-profile"><option value="">領域を選択</option></select></label><button type="button" id="revolve-pick-axis">軸を画面で選択</button><label>回転軸<select id="revolve-axis"><option value="SELECTED">選択した直線・辺</option><option>X</option><option>Y</option><option>Z</option></select></label><small id="revolve-axis-status">軸は未選択</small><label>角度 (°)<input id="revolve-angle" type="number" min="0.01" max="360" step="any" value="360" required></label><label>方向<select id="revolve-direction"><option>片側</option><option>逆方向</option><option>対称</option></select></label><label>操作<select id="revolve-operation"><option value="new">新規ボディ</option><option value="join">結合</option><option value="cut">切り取り</option></select></label><label id="revolve-target-label" hidden>対象ボディ<select id="revolve-target"></select></label>';
  const regions=[...regionList,...(sketchOverlapCache?.regions||[])];if(revolveRegion&&!regions.some(r=>r.id===revolveRegion.id))regions.push(revolveRegion);
@@ -2821,6 +2827,7 @@ function renderRevolve(){
  $('revolve-pick-profile').onclick=()=>{revolvePicking='profile';$('cad-help').textContent=$('revolve-kind').value==='body'?'回転させるボディをクリックしてください':'回転させる閉じたスケッチ領域、またはソリッドの平面をクリックしてください';};
  $('revolve-pick-axis').onclick=()=>{revolvePicking='axis';$('cad-help').textContent='回転軸にするスケッチの直線、またはソリッドの直線の辺をクリックしてください';};
  if(revolveEdge)$('revolve-axis-status').textContent='直線の軸を選択済み';
+ if(edgeBody){const frame=edgeTurnFrame(selectedEdge);revolveEdge={a:frame.a.toArray(),b:frame.b.toArray()};revolveRegion=null;$('revolve-kind').value='body';$('revolve-body').value=edgeBody.sourceBody;$('revolve-kind').onchange();$('revolve-angle').value=String(edgeBody.angle);$('revolve-axis').value='SELECTED';$('revolve-operation').value=edgeBody.operation;$('revolve-target').value=edgeBody.target;revolvePicking='axis';$('revolve-axis-status').textContent=bodyDisplayName(edgeBody.sourceBody)+' の選択辺を回転軸に設定済み';$('cad-help').textContent='選択辺が属する '+bodyDisplayName(edgeBody.sourceBody)+' の回転した通り道を埋め、元のボディへ結合します。角度と方向をプレビューで確認してください。';scheduleRevolve();}
 }
 function revolveSpec(){
  const body=$('revolve-kind').value==='body';if(body&&!$('revolve-body').value)throw Error('回転させるボディを選択してください');if(!body&&!revolveRegion)throw Error('回転させる領域を選択してください');
@@ -3484,7 +3491,7 @@ imageReferences=referenceImages({onSvg:()=>{stage='model';selected=null;syncFiel
 
 function updateSelectionUI(){sketchMoveButton.hidden=!activeSketchMoveReference();updateFaceContact();const mirrorSketchSource=activeSketchMirrorEdge();sketchMirrorButton.hidden=!mirrorSketchSource;if(!mirrorSketchSource||sketchMirrorChoices.dataset.reference!==JSON.stringify(sketchMirrorEdge))closeSketchMirrorChoices();if(mirrorSketchSource)sketchMirrorButton.title=mirrorSketchSource.name+' のクリックした辺'+(sketchMirrorEdge.index+1)+'を基準に、端点がつながる線・曲線をまとめてミラーします';const selectedBodyIds=selectionBodyIds(),bodyActionsAvailable=stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]');bodySelectionActions?.update(bodyActionsAvailable&&selectedBodies.size>0,{mirrorVisible:bodyActionsAvailable&&(selectedBodies.size>0||selectedBodyIds.length>1)});threadActions?.update();$('wrap-selected-cylinder').hidden=!(selectedSurface&&!selectedFace&&selectedSurface.internal!==true&&stage==='model'&&!document.querySelector('dialog[open]'));$('pattern-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
  const wholeBodyIds=selectionBodyIds();wholeBodyButton.hidden=!!selectedBodies.size||!wholeBodyIds.length||stage!=='model'||sketch||pendingExtrude||extrusionBusy||!!moveTool?.active||!!document.querySelector('dialog[open]');wholeBodyButton.textContent=wholeBodyIds.length>1?'選択元のソリッド全体を選択':'このソリッド全体を選択';
- edgeReverseTurnButton.hidden=edgeTurnButton.hidden=!edgeTurnBusy&&!(selectedEdges.length===1&&selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve&&meshes.has(selectedEdge.bodyId)&&stage==='model'&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));edgeReverseTurnButton.disabled=edgeTurnButton.disabled=edgeTurnBusy||extrusionBusy;edgeTurnActions.hidden=edgeTurnButton.hidden;
+ edgeReverseTurnButton.hidden=edgeTurnButton.hidden=!edgeTurnBusy&&!(selectedEdges.length===1&&selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve&&meshes.has(selectedEdge.bodyId)&&stage==='model'&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));edgeReverseTurnButton.disabled=edgeTurnButton.disabled=edgeTurnBusy||extrusionBusy;edgeTurnActions.hidden=edgeTurnButton.hidden;edgeBodyRevolveButton.hidden=edgeTurnButton.hidden||edgeTurnBusy;edgeBodyRevolveButton.disabled=edgeTurnBusy||extrusionBusy||machiningBusy||!!pendingKernelCancel;
  faceMirrorButton.hidden=!faceMirrorBusy&&!(selectedFace?.bodyId&&meshes.has(selectedFace.bodyId)&&selectedFaces.length<=1&&stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));faceMirrorButton.disabled=faceMirrorBusy;faceMirrorJoinButton.hidden=faceMirrorButton.hidden;faceMirrorJoinButton.disabled=faceMirrorBusy;if(faceMirrorPreviewFace&&(faceMirrorPreviewFace!==selectedFace||faceMirrorButton.hidden||document.querySelector('dialog[open]')))clearFaceMirrorPreview();
  oppositePlaneButton.hidden=!oppositePlaneBusy&&!(selectedFace?.bodyId&&meshes.has(selectedFace.bodyId)&&selectedFaces.length<=1&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));
  const parts=[],moving=moveTool?.active?moveTool.selectedBodyIds:[];if(moving.length)parts.push('ボディ '+moving.length+' 個（移動中）');else if(selectedBodies.size)parts.push('ボディ '+selectedBodies.size+' 個');if(selectedFaces.length)parts.push('面 '+selectedFaces.length+' 枚');if(selectedEdges.length)parts.push('辺 '+selectedEdges.length+' 本');

@@ -7,7 +7,10 @@ export function createSketchNumberTabs({anchor,onSelect}){
  #sketch-number-tabs[hidden]{display:none}
  #sketch-number-tabs button{flex:0 0 auto;min-width:32px;height:32px;padding:0 5px;border-radius:6px;border:1px solid #adc4d0;background:#f5f9fb;color:#35586a;font-size:23px;line-height:1}
  #sketch-number-tabs button:hover{background:#e0f3f8;border-color:#2586a3}
- #sketch-number-tabs button[aria-pressed=true]{background:#087f9f;border-color:#087f9f;color:white;box-shadow:0 0 0 1px #ffffff}
+ @property --sketch-rainbow-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
+ #sketch-number-tabs button[aria-pressed=true]{border:2px solid transparent;color:white;background:linear-gradient(#164459,#164459) padding-box,conic-gradient(from var(--sketch-rainbow-angle),#ff5687,#ffbd4b,#e9f658,#50e0a0,#40dfff,#7987ff,#df68f5,#ff5687) border-box;box-shadow:0 0 5px #40dfffa8,0 0 9px #df68f56b;text-shadow:0 0 4px #ffffff73;animation:sketch-number-rainbow 5s linear infinite}
+ @keyframes sketch-number-rainbow{0%{--sketch-rainbow-angle:0deg;box-shadow:0 0 5px #40dfffa8,0 0 9px #df68f56b}50%{box-shadow:0 0 6px #ffbd4bab,0 0 10px #50e0a073}100%{--sketch-rainbow-angle:360deg;box-shadow:0 0 5px #40dfffa8,0 0 9px #df68f56b}}
+ @media(prefers-reduced-motion:reduce){#sketch-number-tabs button[aria-pressed=true]{animation:none}}
  #sketch-number-tabs button[data-hidden=true]:not([aria-pressed=true]){border-style:dashed}
  #sketch-number-tabs button:focus-visible{outline:2px solid #096a8d;outline-offset:-3px}
  @media(max-width:1500px){#sketch-number-tabs{left:calc(100% + 10px);max-width:160px}}
@@ -18,7 +21,7 @@ export function createSketchNumberTabs({anchor,onSelect}){
   nav.style.maxWidth=Math.max(36,Math.min(innerWidth<=1500?160:240,right-box.left))+'px';
  }
  const resize=new ResizeObserver(fit);resize.observe(anchor);resize.observe(anchor.parentElement);const banner=document.getElementById('sketch-banner');if(banner)new MutationObserver(fit).observe(banner,{attributes:true,attributeFilter:['hidden']});
- function update(state,force=false){if(!force&&active===state.active&&enabled===state.enabled)return;active=state.active;enabled=state.enabled;for(const button of nav.children){button.disabled=!enabled||button.dataset.pending==='true';button.setAttribute('aria-pressed',String(Number(button.dataset.number)===active));}}
+ function update(state,force=false){if(!force&&active===state.active&&enabled===state.enabled)return;active=state.active;enabled=state.enabled;for(const button of nav.children){const current=Number(button.dataset.number)===active;button.disabled=!enabled;button.setAttribute('aria-pressed',String(current));button.setAttribute('aria-label','スケッチ'+button.dataset.number+(current?'を終了':'を編集'));button.title='スケッチ'+button.dataset.number+(current?'を終了':'を作図する');}}
  function sync(state){
   const next=JSON.stringify(state.groups);
   if(next!==signature){signature=next;groups=state.groups;nav.replaceChildren(...groups.map(group=>{const button=document.createElement('button');button.type='button';button.textContent=circled(group.number);button.dataset.groupId=group.id;button.dataset.number=String(group.number);button.dataset.pending=String(!!group.pending);button.dataset.hidden=String(!!group.hidden);button.setAttribute('aria-label','スケッチ'+group.number+'を編集');button.title='スケッチ'+group.number+' · '+group.plane+(group.pending?'（作図中）':'を作図する'+(group.hidden?'（非表示から切替）':''));return button;}));nav.hidden=!groups.length;}
