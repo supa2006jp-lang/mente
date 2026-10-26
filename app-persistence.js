@@ -303,6 +303,13 @@
                             <span><b>完全バックアップ <em id="backup-complete-size">計算中…</em></b><small>ゴミ箱や元画像を含め、同一画像だけ重複排除して保存します。</small></span>
                         </button>
                     </div>
+                    ${scope === 'all' ? `
+                        <div class="backup-cleanup-panel">
+                            <b>latest.json の保存先</b>
+                            <p>初回に既存の latest.json を選択してください。次回から同じファイルを上書きします。ファイルがまだない場合は、日時付きバックアップを latest.json に名前変更してから選択できます。</p>
+                            <button type="button" class="secondary-btn" onclick="app.changeLatestJsonSaveTarget()">保存先を変更</button>
+                        </div>
+                    ` : ''}
                     <div class="backup-cleanup-panel">
                         <b>保存データ自体を整理</b>
                         <p>ここで削除した内容は次回以降のJSONにも含まれません。必ず確認後に実行します。</p>
@@ -347,34 +354,141 @@
         }
     }
 
-    exportOptimizedBackup(mode = 'light', scope = 'all') {
-        const options = { optimizeImages: true, mode: mode === 'complete' ? 'complete' : 'light' };
-        const data = scope === 'dept' ? store.exportCurrentDeptAsJSON(options) : store.exportAsJSON(options);
-        const date = new Date().toISOString().split('T')[0];
-        const modeLabel = options.mode === 'light' ? 'light' : 'complete';
-        const deptName = store.data.departments.find(d => d.id === store.data.currentDepartmentId)?.name || 'dept';
-        const filename = scope === 'dept'
-            ? `maintenance_${deptName}_${modeLabel}_${date}.json`
-            : `maintenance_ALL_${modeLabel}_${date}.json`;
-        const blob = new Blob([data], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const download = (name) => {
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = name;
-            a.click();
-        };
-        download(filename);
-        if (scope === 'all') {
-            setTimeout(() => {
-                download('latest.json');
-                URL.revokeObjectURL(url);
-            }, 120);
-        } else {
-            setTimeout(() => URL.revokeObjectURL(url), 120);
+    changeLatestJsonSaveTarget() {
+        this._latestJsonFileHandle = null;
+        this._latestJsonForcePicker = true;
+        this.showToast?.('次の全データ出力で latest.json の保存先を選択できます', 'info');
+    }
+
+    async getLatestJsonFileHandle() {
+        const handle = this._latestJsonForcePicker ? null : this._latestJsonFileHandle;
+        if (handle) {
+            if (String(handle.name).toLowerCase() !== 'latest.json') {
+                throw new Error('保存先が latest.json ではありません。「保存先を変更」から選び直してください。');
+            }
+            const permission = { mode: 'readwrite' };
+            if (typeof handle.queryPermission === 'function'
+                && await handle.queryPermission(permission) !== 'granted') {
+                if (typeof handle.requestPermission !== 'function'
+                    || await handle.requestPermission(permission) !== 'granted') {
+                    throw new Error('前回の latest.json への書き込み許可がありません。保存先を変更してください。');
+                }
+            }
+            return handle;
         }
-        this.showToast?.(`${options.mode === 'light' ? '軽量' : '完全'}バックアップを出力しました（${this.formatExportBytes(blob.size)}）`, 'success');
-        this.closeModal();
+        if (typeof window.showOpenFilePicker !== 'function') return null;
+        const [selected] = await window.showOpenFilePicker({
+            id: 'maintenance-latest-json',
+            multiple: false,
+            startIn: 'downloads',
+            types: [{ description: 'JSON ファイル', accept: { 'application/json': ['.json'] } }]
+        });
+        if (!selected || String(selected.name).toLowerCase() !== 'latest.json') {
+            throw new Error('既存の latest.json を選択してください。');
+        }
+        const permission = { mode: 'readwrite' };
+        if (typeof selected.queryPermission === 'function'
+            && await selected.queryPermission(permission) !== 'granted') {
+            if (typeof selected.requestPermission !== 'function'
+                || await selected.requestPermission(permission) !== 'granted') {
+                throw new Error('latest.json への書き込みが許可されませんでした。');
+            }
+        }
+        return selected;
+    }
+
+    async exportOptimizedBackup(mode = 'light', scope = 'all') {
+        if (this._backupExportInProgress) return;
+        this._backupExportInProgress = true;
+        const choiceButtons = Array.from(document.querySelectorAll('.backup-export-choice'));
+        choiceButtons.forEach(button => { button.disabled = true; });
+        try {
+            let latestHandle = null;
+            let latestError = null;
+            if (scope === 'all') {
+                try {
+                    // Ask for a file in the button's user gesture before processing a large export.
+                    latestHandle = await this.getLatestJsonFileHandle();
+                } catch (error) {
+                    latestError = error;
+                    if (error?.name !== 'AbortError') {
+                        this._latestJsonFileHandle = null;
+                        this._latestJsonForcePicker = true;
+                        store.deleteMediaBlob?.('maintenance_latest_json_file')
+                            ?.catch(error => console.warn('以前の保存先を解除できませんでした。', error));
+                    }
+                }
+            }
+            const options = { optimizeImages: true, mode: mode === 'complete' ? 'complete' : 'light' };
+            const data = scope === 'dept' ? store.exportCurrentDeptAsJSON(options) : store.exportAsJSON(options);
+            const date = new Date().toISOString().split('T')[0];
+            const modeLabel = options.mode === 'light' ? 'light' : 'complete';
+            const deptName = store.data.departments.find(d => d.id === store.data.currentDepartmentId)?.name || 'dept';
+            const filename = scope === 'dept'
+                ? `maintenance_${deptName}_${modeLabel}_${date}.json`
+                : `maintenance_ALL_${modeLabel}_${date}.json`;
+            const blob = new Blob([data], { type: 'application/json' });
+            let latestSaved = false;
+            if (scope === 'all' && latestHandle) {
+                let writable;
+                try {
+                    writable = await latestHandle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    latestSaved = true;
+                    this._latestJsonFileHandle = latestHandle;
+                    this._latestJsonForcePicker = false;
+                    try {
+                        store.saveMediaFileHandle('maintenance_latest_json_file', latestHandle)
+                            .catch(error => console.warn('latest.json の保存先を次回用に記録できませんでした。', error));
+                    } catch (error) {
+                        console.warn('latest.json の保存先を次回用に記録できませんでした。', error);
+                    }
+                } catch (error) {
+                    latestError = error;
+                    try { Promise.resolve(writable?.abort?.()).catch(() => {}); } catch (_) {}
+                    this._latestJsonFileHandle = null;
+                    this._latestJsonForcePicker = true;
+                    try {
+                        store.deleteMediaBlob('maintenance_latest_json_file')
+                            .catch(error => console.warn('以前の保存先を解除できませんでした。', error));
+                    } catch (error) {
+                        console.warn('以前の保存先を解除できませんでした。', error);
+                    }
+                }
+            }
+            let backupSaved = false;
+            let backupError = null;
+            try {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                backupSaved = true;
+            } catch (error) {
+                backupError = error;
+                console.error('日時付きバックアップを出力できませんでした。', error);
+            }
+            if (scope === 'all' && !latestSaved) {
+                const reason = latestError?.name === 'AbortError'
+                    ? '保存先の選択がキャンセルされました。'
+                    : latestError?.message || 'このブラウザーでは既存ファイルを直接選べません。';
+                alert(`${backupSaved ? '日時付きバックアップは出力しましたが、' : 'バックアップも出力できず、'}latest.json は更新していません。\n${reason}${backupSaved ? '\n必要なら日時付きバックアップを latest.json に名前変更してください。' : ''}`);
+            } else if (backupError) {
+                alert(`${scope === 'all' ? 'latest.json は更新しましたが、' : ''}日時付きバックアップを出力できませんでした。\n${backupError.message || backupError}`);
+            } else {
+                this.showToast?.(`${options.mode === 'light' ? '軽量' : '完全'}バックアップを出力しました（${this.formatExportBytes(blob.size)}）`, 'success');
+            }
+            if (latestSaved || backupSaved) this.closeModal();
+        } catch (error) {
+            console.error('バックアップの出力に失敗しました。', error);
+            alert('バックアップを出力できませんでした。データを確認して再試行してください。');
+        } finally {
+            choiceButtons.forEach(button => { button.disabled = false; });
+            this._backupExportInProgress = false;
+        }
     }
 
     openUnusedImagesFromBackup() {
@@ -404,6 +518,15 @@
 
     // --- Persistence Effects ---
     setupSideEffects() {
+        this._latestJsonFileHandle = null;
+        this._latestJsonForcePicker = false;
+        store.loadMediaFileHandle('maintenance_latest_json_file')
+            .then(handle => {
+                if (!this._latestJsonFileHandle && !this._latestJsonForcePicker) {
+                    this._latestJsonFileHandle = handle;
+                }
+            })
+            .catch(error => console.warn('latest.json の保存先を読み込めませんでした。', error));
         const importBtn = document.getElementById('btn-import-trigger');
         const fileInput = document.getElementById('btn-import');
         
