@@ -3,6 +3,7 @@ import {createSketchVertexRotation} from './sketch-vertex-rotation-view.js';
 import {snapSketchLineAngle,sketchAngleStep} from './sketch-angle-snap.js';
 import {snapSketchLineAxis} from './sketch-axis-snap.js';
 import {snapSketchLinePerpendicular} from './sketch-perpendicular-snap.js';
+import {createSketchNumberTabs} from './sketch-number-tabs.js';
 import {createPrintSupportExportChoice} from './print-support-export-choice.js';
 let supportExportChoice=null;
 import {createPrintSupportDialog} from './print-support-dialog.js';
@@ -139,7 +140,7 @@ import {hideShellProfiles} from './shell-profile-visibility.js';
 import {dimensionPositions} from './dimension-layout.js';
 let loftSections=[],loftHighlight=null,loftMarkers=[];
 let revolveRegion=null,revolveEdge=null,revolvePicking="profile",revolvePreview=null,revolveTimer=null,revolveRevision=0;
-let activeSketchGroup=null,editingSketchGroup=null,pendingDrawingView=null,pendingDrawingFace=null,sketchWorkingFace=null;
+let activeSketchGroup=null,editingSketchGroup=null,pendingDrawingView=null,pendingDrawingFace=null,sketchWorkingFace=null,sketchNumberTabs=null;
 let polygonMode=false;
 import {tangentArc} from './tangent-arc.js';
 import {extrusionView} from './extrusion-view.js';
@@ -336,7 +337,7 @@ for(const [end,color] of [[[5000,0,0],0xe94b55],[[0,5000,0],0x42ba54],[[0,0,5000
 const modelGroup=new THREE.Group();scene.add(modelGroup);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
 let viewCube=null,extrusionJoinInspection=null;
-renderer.setAnimationLoop(()=>{printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();stlInspection?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
+renderer.setAnimationLoop(()=>{sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();stlInspection?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
 let sketchNoticeTimer,enteredSketchNumber=null;
 function sketchSession(){if(enteredSketchNumber!==null)return features.find(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)||{groupNumber:enteredSketchNumber};const id=editingSketchGroup||activeSketchGroup;return features.find(f=>f.kind==='sketch'&&f.groupId===id)||features.find(f=>f.kind==='sketch'&&f.id===selected)||null;}
 function notifySketch(message){hideExtrusionNotice();clearTimeout(toastTimer);$('toast').style.display='none';const notice=$('sketch-notice');clearTimeout(sketchNoticeTimer);notice.textContent=message;notice.hidden=false;sketchNoticeTimer=setTimeout(()=>{notice.hidden=true;},5000);}
@@ -2731,8 +2732,21 @@ function renderSketchGroups(){
   if(editingSketchGroup===id&&stage==='sketch')for(const [i,member] of members.entries()){const child=document.createElement('button');child.className='row-label sketch-member';child.textContent='　'+(i+1)+'. '+member.name;child.onclick=()=>selectFeature(member.id);$('sketches').append(child);}
  }
  updateSketchEditingRows();
+ syncSketchNumberTabs();
 }
 function editSketchGroup(id){const first=features.find(f=>f.groupId===id);if(!first)return;finishSketch(false);activeSketchGroup=id;editingSketchGroup=id;selectFeature(first.id);renderTree();$('status').textContent='スケッチ'+first.groupNumber+' を編集中 · 一覧から線を選んで寸法変更、作図ツールで追加';}
+
+function canSwitchSketchNumber(){return !extrusionBusy&&!machiningBusy&&!pendingKernelCancel&&!projectSaving&&!projectFileTarget.busy&&!pendingExtrude&&!holeActive&&!moveTool?.active&&!sketchMoveTool?.active&&!sketchVertexRotation?.active&&!document.querySelector('dialog[open]')&&stage!=='extrusion'&&!editingSectionSplitId;}
+function syncSketchNumberTabs(){
+ if(!sketchNumberTabs)return;const groups=new Map();
+ for(const f of features)if(f.kind==='sketch'&&!groups.has(f.groupId))groups.set(f.groupId,{id:f.groupId,number:f.groupNumber,plane:f.plane==='CUSTOM'?'任意平面':f.plane,hidden:!!f.groupHidden});
+ if(stage==='sketch'&&enteredSketchNumber!==null&&![...groups.values()].some(g=>g.number===enteredSketchNumber))groups.set('pending',{id:'pending',number:enteredSketchNumber,plane:$('plane').value,pending:true});
+ sketchNumberTabs.sync({groups:[...groups.values()].sort((a,b)=>a.number-b.number),active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});
+}
+function switchSketchNumber(id){
+ if(!canSwitchSketchNumber()||!features.some(f=>f.kind==='sketch'&&f.groupId===id)||sketch&&activeSketchGroup===id)return;
+ selectionPicker?.close();clearBodySelection();clearFaceSelection();editSketchGroup(id);startFeature('line','thin');pendingDrawingView=null;$('draw').click();
+}
 document.addEventListener('pointerdown',e=>{const faceMenu=$('solid-face-menu');if(faceMenu&&!faceMenu.contains(e.target))closeSolidFaceMenu();const menu=$('sketch-group-menu');if(menu&&!menu.contains(e.target))menu.remove();});
 
 function renderSketchOffsetOptions(){
@@ -3806,3 +3820,6 @@ textSketchButton.onclick=()=>{
  const point=face?.point?new THREE.Vector3(...face.point):null,placement={plane:ref.plane||'CUSTOM',frame:{u:b.u.toArray(),v:b.v.toArray(),n:b.n.toArray()},offset,u:point?point.dot(b.u):0,v:point?point.dot(b.v):0,label:face?'選択した面':ref.plane==='CUSTOM'?'任意平面':ref.plane};if(face?.bodyId){placement.bodyId=face.bodyId;placement.face=faceInFrame(face,placement.frame);}
  sketchMoveTool?.cancel();selectionPicker?.close();closeSolidFaceMenu();finishSketch(false);dropPreview();textSketchController.open(placement);
 };
+
+// Number shortcuts share the existing sketch group editing and drawing workflow.
+sketchNumberTabs=createSketchNumberTabs({anchor:document.querySelector('.viewport-title'),onSelect:switchSketchNumber});syncSketchNumberTabs();
