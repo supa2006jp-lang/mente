@@ -2,6 +2,7 @@ import * as R from 'replicad';
 import * as THREE from 'three';
 import {fuseSolids} from './solid-fuse.js';
 import {canonicalRevolvedPlanes} from './revolved-planar-faces.js';
+import {solidMeshComplete} from './solid-mesh.js';
 const V=p=>new THREE.Vector3(...p),xyz=p=>[p.X(),p.Y(),p.Z()];
 // gp_Cone/gp_Torus are not bound by the bundled OC runtime. Evaluate three
 // equally spaced points on an exact circular iso-curve instead. Its centroid
@@ -16,14 +17,21 @@ function circularSurfaceAxis(face){
 }
 function valid(shape){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{return check.IsValid();}finally{check.delete();}}
 function unifySweep(shape){
- const upgrader=new (R.getOC().ShapeUpgrade_UnifySameDomain)(shape.wrapped,true,true,false);let result,accepted=false;
- try{upgrader.SetSafeInputMode(true);upgrader.SetLinearTolerance(1e-7);upgrader.SetAngularTolerance(1e-7);upgrader.Build();result=R.cast(upgrader.Shape()).asShape3D();const volume=R.measureVolume(shape);if(!valid(result)||Math.abs(R.measureVolume(result)-volume)>Math.max(1e-6,Math.abs(volume)*1e-8))throw Error('回転範囲の面を整理できません');accepted=true;return result;}
- finally{if(!accepted)result?.delete();upgrader.delete();}
+ const volume=R.measureVolume(shape),allowance=Math.max(1e-6,Math.abs(volume)*1e-8);
+ // Joining edge chains can invalidate a seam that face unification alone
+ // handles correctly. Both attempts keep the input and the same tolerances.
+ for(const edges of [true,false]){
+  const upgrader=new (R.getOC().ShapeUpgrade_UnifySameDomain)(shape.wrapped,edges,true,false);let result;
+  try{upgrader.SetSafeInputMode(true);upgrader.SetLinearTolerance(1e-7);upgrader.SetAngularTolerance(1e-7);upgrader.Build();result=R.cast(upgrader.Shape()).asShape3D();if(valid(result)&&Math.abs(R.measureVolume(result)-volume)<=allowance&&solidMeshComplete(result)){const output=result;result=null;return output;}}
+  catch{}finally{result?.delete();upgrader.delete();}
+ }
+ if(valid(shape)&&solidMeshComplete(shape))return shape.clone();
+ throw Error('回転範囲の面を整理できません');
 }
 function sweptFace(face,origin,axis,angle){
  const oc=R.getOC(),point=new oc.gp_Pnt(...origin),direction=new oc.gp_Dir(...axis),ax=new oc.gp_Ax1(point,direction),builder=new oc.BRepPrimAPI_MakeRevol(face.wrapped,ax,angle*Math.PI/180,true);
  let shape;
- try{shape=R.cast(builder.Shape()).asShape3D();return canonicalRevolvedPlanes(shape);}finally{shape?.delete();builder.delete();ax.delete();direction.delete();point.delete();}
+ try{if(!builder.IsDone())throw Error('この曲面の回転範囲を生成できません。回転軸や角度を変更してください');shape=R.cast(builder.Shape()).asShape3D();return canonicalRevolvedPlanes(shape);}finally{shape?.delete();builder.delete();ax.delete();direction.delete();point.delete();}
 }
 function advancingFace(face,origin,axis){
  // A new point in the union first enters through an advancing boundary.

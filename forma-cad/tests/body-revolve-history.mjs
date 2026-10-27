@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {coaxialSweepPlan} from '../src/body-revolution-history.js';
+const p={type:'revolve',bodySweep:true,id:'a',sourceBody:'source',target:'source',operation:'new',origin:[10,-5,10],axisVector:[0,0,1],angle:90,direction:'片側'},output=(spec,id=spec.operation==='new'?spec.id:spec.target)=>({kind:'cadop',spec,outputs:[{id,brep:'exact'}],remove:[]});
+const history=[output(p)],next={...p,id:'b',sourceBody:'a',target:'a'};
+assert.equal(coaxialSweepPlan([],p),null);
+for(const [direction,angle,start] of [['片側',180,0],['逆方向',180,-90],['対称',180,-45]]){const plan=coaxialSweepPlan(history,{...next,direction});assert.equal(plan.angle,angle);assert.equal(plan.start,start);assert.equal(plan.sourceBody,'source');assert.equal(plan.end,0);}
+assert.equal(coaxialSweepPlan(history,{...next,origin:[10,-5,50]}).angle,180,'same line, different axial origin');
+assert.equal(coaxialSweepPlan(history,{...next,axisVector:[0,0,-2]}).start,-90,'opposite axis endpoint order');
+assert.equal(coaxialSweepPlan(history,{...next,origin:[10.01,-5,10]}),null,'parallel displaced axes are different');
+assert.equal(coaxialSweepPlan(history,{...next,axisVector:[1,0,0]}),null,'different axis must not collapse');
+for(const type of ['move','pull','fillet','extrusion','shell','split'])assert.equal(coaxialSweepPlan([...history,output({type,target:'a'},'a')],next),null,'do not skip '+type);
+assert.equal(coaxialSweepPlan([...history,{kind:'cadop',outputs:[],remove:['a']}],next),null);
+assert.equal(coaxialSweepPlan([output({...p,operation:'cut',target:'a'},'a')],next),null);
+assert.equal(coaxialSweepPlan([output({...p,operation:'join',target:'a'},'a')],next),null,'join to other body includes extra material');
+const join={...p,operation:'join'};assert.equal(coaxialSweepPlan([output(join)],{...p,id:'again',operation:'join'}).sourceBody,'source','same ID source is read before previous join');
+const nested=coaxialSweepPlan([...history,output(next)],{...next,id:'c',sourceBody:'b',target:'b',angle:360});assert.equal(nested.count,2);assert.equal(nested.angle,360);assert.equal(nested.alreadyFull,false);
+assert.equal(coaxialSweepPlan([output({...p,angle:360})],next).alreadyFull,true);
+assert.equal(coaxialSweepPlan([output(p),{kind:'sketch',id:'sketch'}],next).count,1);
+assert.equal(coaxialSweepPlan([{kind:'extrusion',cadResult:output(p)}],next).angle,180);
+console.log('PASS exact coaxial intervals, direction, axis origin/order, pure joins, chain and history boundaries');
