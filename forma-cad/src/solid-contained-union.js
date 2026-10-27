@@ -1,31 +1,37 @@
 import * as R from 'replicad';
-import {MODEL_PRECISION} from './model-precision.js';
+import {MODEL_PRECISION,BOOLEAN_TOLERANCES} from './model-precision.js';
 import {solidMeshComplete} from './solid-mesh.js';
 
 function valid(shape){const checker=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{return checker.IsValid();}finally{checker.delete();}}
-function exactBoolean(a,b,type){
+function checkedBoolean(a,b,type,tolerance=0){
  const oc=R.getOC(),builder=new oc[type](),args=new oc.NCollection_List_TopoDS_Shape(),tools=new oc.NCollection_List_TopoDS_Shape();
- try{args.Append(a.wrapped);tools.Append(b.wrapped);builder.SetArguments(args);builder.SetTools(tools);builder.SetNonDestructive(true);builder.SetFuzzyValue(0);builder.Build();if(builder.HasErrors())return null;return R.cast(builder.Shape()).asShape3D();}
+ try{args.Append(a.wrapped);tools.Append(b.wrapped);builder.SetArguments(args);builder.SetTools(tools);builder.SetNonDestructive(true);builder.SetFuzzyValue(tolerance);builder.Build();if(builder.HasErrors())return null;return R.cast(builder.Shape()).asShape3D();}
  finally{builder.delete();args.delete();tools.delete();}
 }
 function containsExactly(container,body,volume){
  let difference,common;
  try{
   if(!valid(container)||!valid(body))return false;
-  difference=exactBoolean(body,container,'BRepAlgoAPI_Cut');
+  difference=checkedBoolean(body,container,'BRepAlgoAPI_Cut');
   // Require an actually empty topology, not a small-volume leftover. Thin
   // protrusions or disconnected slivers must never be silently discarded.
   if(!difference||!(difference instanceof R.Compound)||difference.wrapped.NbChildren()!==0||!valid(difference))return false;
-  common=exactBoolean(body,container,'BRepAlgoAPI_Common');
-  if(!common||!valid(common))return false;
-  return Math.abs(R.measureVolume(common)-volume)<=Math.max(MODEL_PRECISION.minVolume,volume*MODEL_PRECISION.relativeVolume);
+  // The zero-fuzzy cut is mandatory. Common can nevertheless lose coincident
+  // cone/plane faces at zero fuzzy tolerance (e.g. a cos(90°) axis residual).
+  // Retry only this corroborating check with the existing contact policy.
+  // Neither the empty-cut test nor the returned container is relaxed/changed.
+  for(const tolerance of BOOLEAN_TOLERANCES){
+   try{common=checkedBoolean(body,container,'BRepAlgoAPI_Common',tolerance);if(common&&valid(common)&&Math.abs(R.measureVolume(common)-volume)<=Math.max(MODEL_PRECISION.minVolume,volume*MODEL_PRECISION.relativeVolume))return true;}
+   catch{}finally{common?.delete();common=null;}
+  }
+  return false;
  }catch{return false;}
  finally{difference?.delete();common?.delete();}
 }
 
 // A fallback for a failed native fuse. If one existing solid contains every
-// input exactly, their union is that existing solid. Do not rebuild coincident
-// surfaces or change any tolerance. Keep this bounded for large selections.
+// input, their union is that existing solid. Do not rebuild coincident surfaces
+// or change the returned geometry. Keep this bounded for large selections.
 export function containedUnion(shapes,volumes,onProgress){
  if(shapes.length<2||shapes.length>16||shapes.some(shape=>!(shape instanceof R.Solid))||volumes.some(v=>!Number.isFinite(v)||v<=MODEL_PRECISION.minVolume))return null;
  const largest=volumes.indexOf(Math.max(...volumes)),container=shapes[largest],boxes=shapes.map(shape=>{const box=shape.boundingBox;try{return box.bounds.map(p=>[...p]);}finally{box.delete();}}),bounds=boxes[largest];
