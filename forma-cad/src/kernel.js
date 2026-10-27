@@ -46,6 +46,7 @@ import {patternSolids} from './pattern-solids.js';
 import {patternCavityEntries} from './pattern-cavity-selection.js';
 import {hybridPattern,hybridCircularPattern} from './pattern-hybrid.js';
 import {fuseSolid,fuseSolids} from './solid-fuse.js';
+import {splitSolidSections} from './solid-section-split.js';
 import {filletSolid,planPartialFillet,prepareFilletRadiusTrial} from './solid-fillet.js';
 import {searchFilletRadius} from './fillet-radius-search.js';
 import {remapFilletEdges,filletPlaneExists} from './fillet-reference-remap.js';
@@ -635,7 +636,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    onProgress?.({stage:'結合結果の表示データを作成しています'});emit(p.target,joined);if(p.keepTools!=='保持')remove.push(...ids);
   }finally{joined?.delete();tool?.delete();}
  }
- else if(p.type==='split'){const b=p.splitFrame?basisFor({frame:p.splitFrame}):null;const plane=b?new R.Plane(b.n.clone().multiplyScalar(p.offset).toArray(),b.u.toArray(),b.n.toArray()):p.plane;const keep=p.keep??'both';if(!['both','positive','negative'].includes(keep))throw Error('残す側を選択してください');const parts=base.split(plane,b?0:p.offset);try{if(!parts.positive||!parts.negative)throw Error('指定平面がボディを横切っていません');const emitPart=(id,part)=>{const continuous=part.simplify();try{emit(id,continuous);}finally{continuous.delete();}};if(keep==='positive')emitPart(p.target,parts.positive);else{emitPart(p.target,parts.negative);if(keep==='both')emitPart(p.id,parts.positive);}}finally{parts.positive?.delete();parts.negative?.delete();}}
+ else if(p.type==='split'){const b=p.splitFrame?basisFor({frame:p.splitFrame}):null;const plane=b?new R.Plane(b.n.clone().multiplyScalar(p.offset).toArray(),b.u.toArray(),b.n.toArray()):p.plane;const keep=p.keep??'both';if(!['both','positive','negative'].includes(keep))throw Error('残す側を選択してください');let parts;try{parts=splitSolidSections(base,plane,b?0:p.offset);if(keep==='positive')emit(p.target,parts.positive);else{emit(p.target,parts.negative);if(keep==='both')emit(p.id,parts.positive);}}finally{parts?.positive.delete();parts?.negative.delete();if(b)plane.delete();}}
  else if(p.type==='mirror')analysis={...analysis,...mirrorSolids(bodies,p,emit,onProgress)};
  else if(hybridPattern(p))analysis=hybridCircularPattern(base,p,axis,bodies,emit,remove,onProgress);
  else if(['circular','rectangular'].includes(p.type))patternSolids(base,p,axis,emit);
