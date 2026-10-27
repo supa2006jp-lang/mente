@@ -2,6 +2,7 @@ import {MODEL_PRECISION,BOOLEAN_TOLERANCES} from './model-precision.js';
 import * as R from 'replicad';
 import {measurePhase} from './phase-timings.js';
 import {solidMeshComplete} from './solid-mesh.js';
+import {containedUnion} from './solid-contained-union.js';
 
 // Offset/cut results can wrap one oriented solid in a compound. OCCT's fuse
 // classifies that wrapper differently and can omit the entire input body.
@@ -52,6 +53,7 @@ function fuseBatch(shapes,{onProgress,verifyMesh=false}={}){
   }catch{}finally{result?.delete();builder.delete();argumentsList.delete();toolsList.delete();if(snapshots)inputs.forEach(s=>s.delete());}
  }
  if(best){const output=best;best=null;return output;}
+ const contained=containedUnion(shapes,volumes,onProgress);if(contained)return contained;
  throw Error('正常なソリッドとして結合できませんでした。元のボディは変更していません');
  }finally{best?.delete();}
 }
