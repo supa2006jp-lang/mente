@@ -54,5 +54,5 @@ export function referenceImages({scene,camera,canvas,host,getFeatures,setFeature
  $('scale').onclick=()=>{try{if(points.length!==2||!current())return;const f=calibrateReference(current(),points[0],points[1],Number($('distance').value));clearPoints();commit(f);$('error').textContent='';notify('下絵を実寸に合わせました');}catch(e){$('error').textContent=e.message;}};
  window.addEventListener('keydown',e=>{if(e.key==='Escape'&&(picking||points.length)){e.preventDefault();e.stopImmediatePropagation();clearPoints();}},{capture:true});
  $('distance').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();$('scale').click();}});
- return {refresh,open,cancel,group,get picking(){return picking;}};
+ return {refresh,open,cancel,escapeTrace:()=>trace.escape(),group,get picking(){return picking;}};
 }

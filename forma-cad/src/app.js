@@ -754,6 +754,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(imageReferences?.escapeTrace())return;
  if(sketchVertexRotation?.active){sketchVertexRotation.escape();return;}
  if(supportExportChoice?.active){supportExportChoice.cancel();return;}
  if(printSupportController?.active){printSupportController.close();return;}

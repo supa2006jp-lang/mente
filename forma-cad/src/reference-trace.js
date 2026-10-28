@@ -31,6 +31,7 @@ export function traceReferencePixels({width:w,height:h,data},settings={}){
  if(!Number.isInteger(w)||!Number.isInteger(h)||w<2||h<2||w>1024||h>1024||data?.length!==w*h*4)throw Error('輪郭解析用の画像が不正です');
  const p={mode:'background',threshold:35,invert:false,smoothing:1,crop:{x:0,y:0,width:1,height:1},...settings};traceCrop(p.crop);
  if(!['background','dark','alpha'].includes(p.mode)||!Number.isFinite(p.threshold)||p.threshold<1||p.threshold>254||typeof p.invert!=='boolean'||!Number.isInteger(p.smoothing)||p.smoothing<0||p.smoothing>2)throw Error('輪郭の検出条件を確認してください');
+ if(p.marks!==undefined&&(!(p.marks instanceof Uint8Array)||p.marks.length!==w*h||p.marks.some(value=>value>2)))throw Error('ブラシの補正データが不正です');
  const rect={x:Math.floor(p.crop.x*w),y:Math.floor(p.crop.y*h),width:Math.max(1,Math.round(p.crop.width*w)),height:Math.max(1,Math.round(p.crop.height*h))};rect.width=Math.min(rect.width,w-rect.x);rect.height=Math.min(rect.height,h-rect.y);if(rect.width<4||rect.height<4)throw Error('解析範囲をもう少し広くしてください');
  const bg=background(data,w,h,rect);let mask=new Uint8Array(w*h);
  for(let y=rect.y;y<rect.y+rect.height;y++)for(let x=rect.x;x<rect.x+rect.width;x++){
@@ -38,6 +39,9 @@ export function traceReferencePixels({width:w,height:h,data},settings={}){
   if(p.invert)inside=!inside;mask[i]=inside&&a>0?1:0;
  }
  for(let pass=0;pass<p.smoothing;pass++){const next=new Uint8Array(mask.length);for(let y=rect.y;y<rect.y+rect.height;y++)for(let x=rect.x;x<rect.x+rect.width;x++){let sum=0,n=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const a=x+dx,b=y+dy;if(a<rect.x||a>=rect.x+rect.width||b<rect.y||b>=rect.y+rect.height)continue;sum+=mask[b*w+a];n++;}next[y*w+x]=sum>n/2?1:0;}mask=next;}
+ // User paint is a hard local override, after smoothing, restricted to the
+ // analysis crop. Erasing a stroke restores automatic detection at that pixel.
+ if(p.marks)for(let y=rect.y;y<rect.y+rect.height;y++)for(let x=rect.x;x<rect.x+rect.width;x++){const i=y*w+x;if(p.marks[i])mask[i]=p.marks[i]===1?1:0;}
  const labels=new Uint32Array(w*h),queue=new Int32Array(w*h),components=[];let id=0;
  for(let i=0;i<mask.length;i++)if(mask[i]&&!labels[i]){let head=0,tail=1;queue[0]=i;labels[i]=++id;const c={id,area:0,bounds:[w,h,0,0],touchesBoundary:false};
   while(head<tail){const j=queue[head++],x=j%w,y=Math.floor(j/w);c.area++;c.bounds[0]=Math.min(c.bounds[0],x);c.bounds[1]=Math.min(c.bounds[1],y);c.bounds[2]=Math.max(c.bounds[2],x);c.bounds[3]=Math.max(c.bounds[3],y);if(x===rect.x||y===rect.y||x===rect.x+rect.width-1||y===rect.y+rect.height-1)c.touchesBoundary=true;for(const next of [x>0?j-1:-1,x<w-1?j+1:-1,y>0?j-w:-1,y<h-1?j+w:-1])if(next>=0&&mask[next]&&!labels[next]){labels[next]=id;queue[tail++]=next;}}
