@@ -1,4 +1,5 @@
 import {preciseExtrusionGeometry,renderPreciseGeometry} from './precise-extrusion-geometry.js';
+import {validateConstraintData,assertSketchConstraints} from './sketch-constraints.js';
 import {historyGroupName} from './history-organizer.js';
 import {validateExtrusionOverlap} from './extrusion-overlap.js';
 import {depthToFacePlane} from './extrusion-face-target.js';
@@ -21,6 +22,7 @@ export const evaluator = new Evaluator(); evaluator.useGroups=false;
 evaluator.attributes=['position','normal'];
 const enums={profile:['point','rect','circle','line','region','spline','polyline'],mode:['solid','thin'],side:['inside','outside','center'],plane:['XY','XZ','YZ','CUSTOM'],operation:['new','join','cut']};
 export function validateFeature(f){
+ validateConstraintData(f);
  validateTaperOptions(f);
  if(!f || typeof f!=='object') throw Error('形状データが不正です。');
  validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateExtrusionBarrier(f);
@@ -109,7 +111,7 @@ export function validateProject(data){
  if(data?.format!=='forma-cad'||data.version!==1||!Array.isArray(data.features)||data.features.length>150)throw Error('対応するFORMA CADファイルではありません（最大150工程）。');
  const ids=new Set(),bodyIds=new Set();
  for(const f of data.features){if(f.historyGroup!==undefined)historyGroupName(f.historyGroup);if(f.kind!==undefined&&!['sketch','extrusion','cadop','plane','referenceImage'].includes(f.kind))throw Error('工程種別が不正です');validateFeature(f);if(f.barrierBodies?.some(id=>!bodyIds.has(id)))throw Error('避けるボディの参照が不正です。');if(f.overlapOnly&&f.overlapTargets.some(id=>!bodyIds.has(id)))throw Error('重なりを判定するボディの参照が不正です。');if(typeof f.id!=='string'||!f.id||f.id.length>100||ids.has(f.id))throw Error('工程IDが不正です。');ids.add(f.id);if(f.kind==='plane'||f.kind==='referenceImage'){}else if(f.kind==='cadop'){for(const id of f.remove)bodyIds.delete(id);for(const o of f.outputs)bodyIds.add(o.id);}else if(f.kind==='sketch'){if(f.operation!=='new')throw Error('スケッチの操作が不正です');}else if(f.operation==='new')bodyIds.add(f.id);else if(f.targetBodies?f.targetBodies.some(id=>!bodyIds.has(id)):allExtrusionTargets(f)?!bodyIds.size:!bodyIds.has(f.target))throw Error('ボディの参照が不正です。');if(f.cadResult){for(const id of f.cadResult.remove)bodyIds.delete(id);for(const o of f.cadResult.outputs)bodyIds.add(o.id);}if(typeof f.name!=='string'||f.name.length>100)throw Error('工程名が不正です。');}
- return data.features;
+ assertSketchConstraints(data.features);return data.features;
 }
 
 export function makeSketchGeometry(f){if(f.profile==='point')return new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(f.x,f.y,f.z)]);if(f.frame||f.profile==='spline'||f.profile==='polyline'){return new THREE.BufferGeometry().setFromPoints(sketchPoints(f).map(p=>worldPoint({...f,offset:planeCoordinates(f).offset},p)));}

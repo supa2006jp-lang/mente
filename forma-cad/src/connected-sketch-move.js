@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {solveSketchConstraints} from './sketch-constraints.js';
 import {basisFor} from './frames.js';
 import {pipeWorldPoints} from './pipe-path.js';
 import {sketchEndpoints} from './sketch-endpoint.js';
@@ -27,7 +28,7 @@ export function sketchMoveReferences(sources){
 // are absolute coordinates in their own plane. Translate both representations.
 export function translateConnectedSketch(features,sources,delta){
  const ids=new Set(sources.map(f=>f.id));if(!delta?.isVector3||!delta.toArray().every(Number.isFinite)||delta.length()>20000)throw Error('移動距離を確認してください');
- return features.map(f=>{if(!ids.has(f.id))return f;const next=structuredClone(f),b=basisFor(f);if(Math.abs(delta.dot(b.n))>EPS)throw Error('スケッチの面内で移動してください');next.x+=delta.x;next.y+=delta.y;next.z+=delta.z;if(next.points){const u=delta.dot(b.u),v=delta.dot(b.v);next.points=next.points.map(p=>[p[0]+u,p[1]+v]);}return next;});
+ return solveSketchConstraints(features.map(f=>{if(!ids.has(f.id))return f;const next=structuredClone(f),b=basisFor(f);if(Math.abs(delta.dot(b.n))>EPS)throw Error('スケッチの面内で移動してください');next.x+=delta.x;next.y+=delta.y;next.z+=delta.z;if(next.points){const u=delta.dot(b.u),v=delta.dot(b.v);next.points=next.points.map(p=>[p[0]+u,p[1]+v]);}return next;}),{before:features});
 }
 
 export function snapSketchMove({point,basis,offset,step,enabled,targets=[],project,tolerance=9}){

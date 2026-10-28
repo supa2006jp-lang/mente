@@ -1,0 +1,71 @@
+import * as THREE from 'three';
+import {sketchPoints,planeCoordinates} from './regions.js';
+import {basisFor,worldPoint} from './frames.js';
+export const constraintNames={coincident:'端点一致',horizontal:'水平',vertical:'垂直',equal:'同じ長さ'};
+const EPS=1e-7,key=r=>JSON.stringify([r.featureId,r.index]),copy=x=>structuredClone(x);
+export function constraintVertices(f){
+ if(f?.kind!=='sketch'||f.arc||f.textOutline||!['line','rect','polyline'].includes(f.profile))return null;
+ const points=sketchPoints(f).map(p=>[...p]);if(points.length>2&&Math.hypot(points[0][0]-points.at(-1)[0],points[0][1]-points.at(-1)[1])<1e-8)points.pop();
+ return points;
+}
+export function constraintEdges(f){const ps=constraintVertices(f);if(!ps)return [];const closed=f.profile==='rect'||f.closed||f.profile==='polyline'&&f.points.length>ps.length;return Array.from({length:ps.length-(closed?0:1)},(_,index)=>({featureId:f.id,index,vertices:[index,(index+1)%ps.length]}));}
+function checkShape(f){
+ if(['line','rect'].includes(f.profile)&&(f.width<.1||f.width>10000||f.profile==='rect'&&(f.height<.1||f.height>10000)))throw Error('拘束後の長さ・寸法は0.1〜10000 mmにしてください');
+ const ps=constraintVertices(f),edges=constraintEdges(f);for(const e of edges)if(Math.hypot(...ps[e.vertices[1]].map((v,i)=>v-ps[e.vertices[0]][i]))<.0001)throw Error('拘束によって線がつぶれます。関係する拘束を解除してください');
+ if(edges.length!==ps.length)return;const area=ps.reduce((n,p,i)=>n+p[0]*ps[(i+1)%ps.length][1]-p[1]*ps[(i+1)%ps.length][0],0);if(Math.abs(area)<1e-7)throw Error('拘束によって閉じた枠がつぶれます');
+ const cross=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]),on=(p,a,b)=>Math.abs(cross(a,b,p))<1e-9&&p[0]>=Math.min(a[0],b[0])-1e-9&&p[0]<=Math.max(a[0],b[0])+1e-9&&p[1]>=Math.min(a[1],b[1])-1e-9&&p[1]<=Math.max(a[1],b[1])+1e-9;
+ for(let i=0;i<ps.length;i++)for(let j=i+2;j<ps.length;j++){if(i===0&&j===ps.length-1)continue;const a=ps[i],b=ps[(i+1)%ps.length],c=ps[j],d=ps[(j+1)%ps.length];if(cross(a,b,c)*cross(a,b,d)<0&&cross(c,d,a)*cross(c,d,b)<0||on(c,a,b)||on(d,a,b)||on(a,c,d)||on(b,c,d))throw Error('拘束によって閉じた枠が交差・接触します');}
+}
+export function validateConstraintData(f){
+ if(!f||f.sketchConstraints===undefined)return;if(f.kind!=='sketch'||!Array.isArray(f.sketchConstraints)||f.sketchConstraints.length>200)throw Error('スケッチ拘束のデータが不正です');
+ for(const c of f.sketchConstraints){if(!c||typeof c.id!=='string'||!c.id||c.id.length>100||!Object.hasOwn(constraintNames,c.type))throw Error('スケッチ拘束の種類が不正です');const refs=[c.first,...(['equal','coincident'].includes(c.type)?[c.second]:[])];if(refs.some(r=>!r||typeof r.featureId!=='string'||!r.featureId||r.featureId.length>100||!Number.isInteger(r.index)||r.index<0||r.index>255)||c.first.featureId!==f.id)throw Error('スケッチ拘束の参照が不正です');if(refs.length===1&&c.second!==undefined)throw Error('スケッチ拘束の参照が不正です');}
+}
+export function sketchConstraints(features){return features.flatMap(f=>(f.sketchConstraints||[]).map(c=>({...c,owner:f.id})));}
+function references(features){
+ const byId=new Map(features.map(f=>[f.id,f])),records=sketchConstraints(features),ids=new Set();if(records.length>200)throw Error('スケッチ拘束は合計200個以内にしてください');
+ for(const f of features)validateConstraintData(f);for(const c of records){if(ids.has(c.id))throw Error('スケッチ拘束のIDが重複しています');ids.add(c.id);const refs=[c.first,...(c.second?[c.second]:[])],fs=refs.map(r=>byId.get(r.featureId));for(const [i,r]of refs.entries()){const points=constraintVertices(fs[i]),count=c.type==='coincident'?points?.length:constraintEdges(fs[i]).length;if(!points||r.index>=count)throw Error('拘束対象の直線・端点がありません。該当する拘束を解除してください');}
+  if(fs.length===2){const a=basisFor(fs[0]),b=basisFor(fs[1]);if(fs[0].groupId!==fs[1].groupId||Math.abs(a.n.dot(b.n))<1-1e-8||Math.abs(new THREE.Vector3(fs[1].x-fs[0].x,fs[1].y-fs[0].y,fs[1].z-fs[0].z).dot(a.n))>EPS)throw Error('拘束には同じスケッチ番号・同じ平面の線を選択してください');if(key(c.first)===key(c.second))throw Error('異なる2つの線・端点を選択してください');}
+ }
+ const involved=new Set(records.flatMap(c=>[c.first.featureId,...(c.second?[c.second.featureId]:[])]));if([...involved].reduce((n,id)=>n+constraintVertices(byId.get(id)).length,0)>256)throw Error('拘束対象の頂点は合計256個以内にしてください');return {byId,records};
+}
+function equations(c,byId,nodes){
+ const cache=byId.constraintEdges||(byId.constraintEdges=new Map()),vertex=r=>nodes.get(key(r)),edge=r=>{if(!cache.has(r.featureId))cache.set(r.featureId,constraintEdges(byId.get(r.featureId)));return cache.get(r.featureId)[r.index].vertices.map(index=>({ref:{featureId:r.featureId,index},p:vertex({featureId:r.featureId,index})}));};
+ if(c.type==='coincident'){const a=vertex(c.first),b=vertex(c.second);return [0,1,2].map(axis=>({value:b.p.getComponent(axis)-a.p.getComponent(axis),terms:[[a,new THREE.Vector3().setComponent(axis,-1)],[b,new THREE.Vector3().setComponent(axis,1)]]}));}
+ const [a,b]=edge(c.first);if(c.type==='horizontal'||c.type==='vertical'){const axis=basisFor(byId.get(c.first.featureId))[c.type==='horizontal'?'v':'u'];return [{value:b.p.p.clone().sub(a.p.p).dot(axis),terms:[[a.p,axis.clone().negate()],[b.p,axis]]}];}
+ const [d,e]=edge(c.second),u=b.p.p.clone().sub(a.p.p),v=e.p.p.clone().sub(d.p.p),value=u.length()-v.length();u.normalize();v.normalize();return [{value,terms:[[a.p,u.clone().negate()],[b.p,u],[d.p,v],[e.p,v.clone().negate()]]}];
+}
+function writeVertices(f,world){
+ const b=basisFor(f),points=world.map(p=>[p.dot(b.u),p.dot(b.v)]),old=constraintVertices(f);if(points.every((p,i)=>Math.hypot(p[0]-old[i][0],p[1]-old[i][1])<1e-9))return f;
+ const next=copy(f);if(f.profile==='line'){const d=world[1].clone().sub(world[0]),center=world[0].clone().add(world[1]).multiplyScalar(.5);return {...next,x:center.x,y:center.y,z:center.z,width:d.length(),angle:Math.atan2(d.dot(b.v),d.dot(b.u))*180/Math.PI};}
+ if(f.profile==='rect'){const u=world[1].clone().sub(world[0]),v=world[2].clone().sub(world[1]);if(Math.abs(u.dot(v))<1e-7*u.length()*v.length()&&world[0].clone().add(u).add(v).distanceTo(world[2])<EPS&&world[0].clone().add(v).distanceTo(world[3])<EPS){const center=world.reduce((sum,p)=>sum.add(p),new THREE.Vector3()).multiplyScalar(.25);return {...next,x:center.x,y:center.y,z:center.z,width:u.length(),height:v.length(),angle:Math.atan2(u.dot(b.v),u.dot(b.u))*180/Math.PI};}next.profile='polyline';next.closed=true;}
+ next.points=points;if(f.profile==='polyline'&&f.points.length>old.length)next.points.push([...points[0]]);return next;
+}
+export function solveSketchConstraints(features,{before=features,pins=[]}={}){
+ const {byId,records}=references(features);if(!records.length)return features;const involved=new Set(records.flatMap(c=>[c.first.featureId,...(c.second?[c.second.featureId]:[])])),old=new Map(before.map(f=>[f.id,f])),nodes=new Map(),pinSet=new Set(pins.map(key));
+ for(const id of involved){const f=byId.get(id),ps=constraintVertices(f),prior=old.get(id),oldPoints=constraintVertices(prior);for(const [index,p]of ps.entries()){const world=worldPoint({...f,offset:planeCoordinates(f).offset},p),previous=oldPoints?.[index]&&worldPoint({...prior,offset:planeCoordinates(prior).offset},oldPoints[index]),ref={featureId:id,index};nodes.set(key(ref),{ref,p:world,fixed:pinSet.has(key(ref))||!!previous&&world.distanceTo(previous)>1e-8});}}
+ if(nodes.size>256)throw Error('拘束対象の頂点は合計256個以内にしてください');
+ let residual=Infinity;for(let iteration=0;iteration<1200;iteration++){residual=0;for(const c of records)for(const equation of equations(c,byId,nodes)){residual=Math.max(residual,Math.abs(equation.value));const gradients=new Map();for(const [node,g]of equation.terms){if(!gradients.has(node))gradients.set(node,new THREE.Vector3());gradients.get(node).add(g);}let den=0;for(const [node,g]of gradients)if(!node.fixed)den+=g.lengthSq();if(den>1e-20)for(const [node,g]of gradients)if(!node.fixed)node.p.addScaledVector(g,-equation.value/den);}if(residual<1e-9)break;}
+ const failed=records.filter(c=>equations(c,byId,nodes).some(e=>Math.abs(e.value)>EPS));if(failed.length)throw Error('拘束が矛盾するため変更できません：'+[...new Set(failed.map(c=>constraintNames[c.type]))].join('・')+'。関係する拘束を解除するか、動かす端点を変更してください');
+ // Use one shared position, rather than leaving a sub-micron gap at a solved joint.
+ const parents=new Map(),root=k=>{let r=k;while(parents.has(r))r=parents.get(r);return r;};for(const c of records.filter(c=>c.type==='coincident')){const a=root(key(c.first)),b=root(key(c.second));if(a!==b)parents.set(b,a);}const joints=new Map();for(const [k,node]of nodes){const r=root(k);if(!joints.has(r))joints.set(r,[]);joints.get(r).push(node);}for(const joint of joints.values()){if(joint.length<2)continue;const target=(joint.find(n=>n.fixed)||joint[0]).p.clone();for(const node of joint)node.p.copy(target);}
+ const output=features.map(f=>{if(!involved.has(f.id))return f;const ps=constraintVertices(f),world=ps.map((_,index)=>nodes.get(key({featureId:f.id,index})).p);for(const edge of constraintEdges(f))if(world[edge.vertices[0]].distanceTo(world[edge.vertices[1]])<.0001)throw Error('拘束によって線がつぶれます。関係する拘束を解除してください');return writeVertices(f,world);});
+ for(const f of output)if(involved.has(f.id))checkShape(f);assertSketchConstraints(output);return output;
+}
+export function assertSketchConstraints(features){
+ const {byId,records}=references(features);if(!records.length)return;const nodes=new Map();for(const c of records)for(const ref of [c.first,...(c.second?[c.second]:[])]){const f=byId.get(ref.featureId);for(const [index,p]of constraintVertices(f).entries())nodes.set(key({featureId:f.id,index}),{p:worldPoint({...f,offset:planeCoordinates(f).offset},p)});}
+ for(const c of records)if(equations(c,byId,nodes).some(e=>Math.abs(e.value)>EPS))throw Error('保存されたスケッチが「'+constraintNames[c.type]+'」拘束を満たしていません');
+ for(const id of new Set(records.flatMap(c=>[c.first.featureId,...(c.second?[c.second.featureId]:[])])))checkShape(byId.get(id));
+}
+export function addSketchConstraint(features,type,first,second){
+ const {byId,records}=references(features),c={id:crypto.randomUUID(),type,first:copy(first),...(['equal','coincident'].includes(type)?{second:copy(second)}:{})};if(!constraintNames[type])throw Error('拘束を選択してください');if(records.some(r=>r.type===type&&(key(r.first)===key(first)&&(!second||key(r.second)===key(second))||['equal','coincident'].includes(type)&&key(r.second)===key(first)&&key(r.first)===key(second))))throw Error('同じ拘束は既に設定されています');
+ const f=byId.get(first.featureId);if(!f)throw Error('拘束する線を選択してください');const next=features.map(f=>f.id===first.featureId?{...f,sketchConstraints:[...(f.sketchConstraints||[]),c]}:f),pins=type==='coincident'?[first]:constraintEdges(f)[first.index]?.vertices.slice(0,type==='equal'?2:1).map(index=>({featureId:f.id,index}));if(!pins)throw Error('拘束する線を選択してください');return solveSketchConstraints(next,{pins});
+}
+export function removeSketchConstraint(features,id){return features.map(f=>f.sketchConstraints?.some(c=>c.id===id)?{...f,sketchConstraints:f.sketchConstraints.filter(c=>c.id!==id)}:f);}
+export function moveConstraintVertex(features,ref,uv){
+ const f=features.find(f=>f.id===ref.featureId),ps=constraintVertices(f);if(!ps?.[ref.index]||!uv.every(n=>Number.isFinite(n)&&Math.abs(n)<=10000))throw Error('端点の座標は−10000〜10000 mmで入力してください');const point=worldPoint({...f,offset:planeCoordinates(f).offset},uv),world=ps.map(p=>worldPoint({...f,offset:planeCoordinates(f).offset},p));world[ref.index]=point;const next=features.map(item=>item===f?writeVertices(f,world):item);try{return solveSketchConstraints(next,{before:features,pins:ps.map((_,index)=>({featureId:f.id,index}))});}catch{return solveSketchConstraints(next,{before:features,pins:[ref]});}
+}
+export function earliestSketchChange(before,next){let first=next.length;for(const [i,f]of next.entries()){if(f.kind!=='sketch')continue;const old=before.find(p=>p.id===f.id);if(!old||JSON.stringify(sketchPoints(f))!==JSON.stringify(sketchPoints(old))||JSON.stringify([f.plane,f.frame,planeCoordinates(f).offset])!==JSON.stringify([old.plane,old.frame,planeCoordinates(old).offset]))first=Math.min(first,i);}return first;}
+export function reconcileSketchConstraints(next,before,{topology=false}={}){
+ const previous=new Map(before.map(f=>[f.id,f])),ids=new Set(next.map(f=>f.id)),changed=new Set(before.filter(f=>constraintVertices(f)&&(!ids.has(f.id)||topology&&constraintVertices(next.find(n=>n.id===f.id))?.length!==constraintVertices(f).length)).map(f=>f.id));
+ return next.map(f=>{if(!f.sketchConstraints)return f;const constraints=f.sketchConstraints.filter(c=>{if(c.first?.featureId!==f.id&&!previous.has(f.id))return false;return !changed.has(c.first?.featureId)&&(!c.second||!changed.has(c.second.featureId));});return constraints.length===f.sketchConstraints.length?f:{...f,sketchConstraints:constraints};});
+}

@@ -1,4 +1,5 @@
 import {refreshPipePath} from './pipe-path.js';
+import {solveSketchConstraints,earliestSketchChange} from './sketch-constraints.js';
 import {findRegions} from './regions.js';
 import {filletSuppressionState,isFilletBodySuppressed,filletBodyTargets} from './fillet-state.js';
 import {basisFor,worldPoint} from './frames.js';
@@ -46,6 +47,7 @@ export function refreshRegion(region,before,after){
  return copy(matches[0]);
 }
 export function replayHistory(before,proposed,start,run,remap,resolvePartition,onStep,refreshStart=false,forceFull=false){
+ proposed=solveSketchConstraints(proposed,{before});start=Math.min(start,earliestSketchChange(before,proposed));
  const next=copy(proposed),prefix=[],changed=new Set(),ordered=before.length===next.length&&before.every((f,i)=>f.id===next[i].id);
  let reused=0,recalculated=0;
  for(let i=0;i<next.length;i++){

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {reconcileSketchConstraints} from './sketch-constraints.js';
 import Clipper from 'clipper-lib';
 import {sketchPoints,planeCoordinates,findRegions} from './regions.js';
 import {worldPoint} from './frames.js';
@@ -20,7 +21,7 @@ export function selectedSketchParts(f,indices,keepSelected=true){
  if(closed&&parts.length>1&&keep(0)&&keep(n-1)){const last=parts.pop();parts[0]=last.slice(0,-1).concat(parts[0]);}
  return parts.map((p,i)=>({...structuredClone(f),id:i?crypto.randomUUID():f.id,profile:'polyline',points:p,closed:false}));
 }
-export function deleteSketchSelection(features,selection){return features.flatMap(f=>selection.has(f.id)?selectedSketchParts(f,selection.get(f.id),false):[f]);}
+export function deleteSketchSelection(features,selection){return reconcileSketchConstraints(features.flatMap(f=>selection.has(f.id)?selectedSketchParts(f,selection.get(f.id),false):[f]),features,{topology:true});}
 export function offsetSketchSelection(features,selection,distance,options={}){
  const chosen=features.filter(f=>f.profile!=='point'&&selection.has(f.id)).flatMap(f=>selectedSketchParts(f,selection.get(f.id)));if(options.allAround)return offsetSketchAllAround(chosen,distance);const regions=findRegions(chosen),groups=new Map();
  if(!regions.length)return offsetConnectedSketches(chosen,distance,options);
