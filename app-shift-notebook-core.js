@@ -26640,6 +26640,7 @@
         if (!this._shiftPhotoCompareSelectedMarks.includes(this._shiftPhotoCompareSelectedMark)) {
             this._shiftPhotoCompareSelectedMark = this._shiftPhotoCompareSelectedMarks.at(-1) || null;
         }
+        this.updateShiftPhotoCompareExtendedColorControls();
     }
 
     clearShiftPhotoCompareSelection() {
