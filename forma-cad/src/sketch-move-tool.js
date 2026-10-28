@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {constraintVertices,lockedConstraintVertices} from './sketch-constraints.js';
 import {basisFor} from './frames.js';
 import {planeCoordinates} from './regions.js';
 import {makeSketchGeometry} from './geometry.js';
@@ -18,7 +19,7 @@ export function createSketchMoveTool({scene,camera,canvas,host,getFeatures,getCo
  function endDrag(){if(!drag)return;const previous=drag;drag=null;getControls().enabled=previous.controls;if(previous.owner.hasPointerCapture(previous.id))previous.owner.releasePointerCapture(previous.id);}
  function close(applied=false){if(!session)return;revision++;onCancelWork();endDrag();const s=session;session=null;busy=false;for(const [object,visible]of s.hidden)object.visible=visible;s.preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});s.preview.removeFromParent();panel.hidden=handle.hidden=marker.hidden=true;delete host.dataset.sketchMove;delete host.dataset.sketchMoveSnap;onClose?.({applied,original:s.original,sources:s.sources});}
  function mark(delta,snap=null,writeInputs=true){
-  if(!session)return;session.delta.copy(delta);session.moving.position.copy(delta);session.snap=snap;
+  if(!session)return;if(session.positionLocked&&delta.length()>1e-8){if(writeInputs){q('u').value=Number(delta.dot(session.basis.u).toFixed(8));q('v').value=Number(delta.dot(session.basis.v).toFixed(8));}q('apply').disabled=true;q('error').textContent='位置固定を含むため移動できません。スケッチ拘束で位置固定を解除してください';q('status').textContent='固定した位置に保持しています';return;}q('apply').disabled=false;q('error').textContent='';session.delta.copy(delta);session.moving.position.copy(delta);session.snap=snap;
   if(writeInputs){q('u').value=Number(delta.dot(session.basis.u).toFixed(8));q('v').value=Number(delta.dot(session.basis.v).toFixed(8));}
   handle.dataset.snapped=String(!!snap);q('status').textContent=snap?'吸着：'+snap.name:'移動中：まだ確定していません';host.dataset.sketchMoveSnap=snap?.kind||'';
   session.moving.traverse(o=>{if(o.material?.color&&o.material.color.getHex()!==0xffffff)o.material.color.setHex(snap?0x079568:0x078eac);});update();
@@ -31,7 +32,7 @@ export function createSketchMoveTool({scene,camera,canvas,host,getFeatures,getCo
   for(const object of [...getSketchObjects().filter(o=>ids.has(o.userData.featureId)),...getOverlays().filter(Boolean)]){hidden.push([object,object.visible]);object.visible=false;}
   const targets=sketchMoveReferences(original.filter(f=>f.kind==='sketch'&&!f.groupHidden&&!ids.has(f.id)&&f.profile!=='point')).concat(original.filter(f=>f.kind==='sketch'&&!f.groupHidden&&f.profile==='point').map(f=>({point:new THREE.Vector3(f.x,f.y,f.z),name:'スケッチ点'})));
   let anchorIndex=0;if(reference.point){const hit=new THREE.Vector3(...reference.point);anchorIndex=refs.reduce((best,r,i)=>r.point.distanceToSquared(hit)<refs[best].point.distanceToSquared(hit)?i:best,0);}
-  session={original,sources,basis,offset,preview,moving,hidden,refs,targets,anchor:refs[anchorIndex].point.clone(),delta:new THREE.Vector3(),snap:null,reference:{...source,offset}};
+  const locked=lockedConstraintVertices(original),positionLocked=sources.some(f=>constraintVertices(f)?.some((_,index)=>locked.has(JSON.stringify([f.id,index]))));session={original,sources,basis,offset,preview,moving,hidden,refs,targets,anchor:refs[anchorIndex].point.clone(),delta:new THREE.Vector3(),snap:null,reference:{...source,offset},positionLocked};
   q('anchor').replaceChildren(...refs.map((r,i)=>new Option(r.name,i)));q('anchor').value=anchorIndex;q('info').textContent='つながる線・曲線 '+sources.length+' 要素をまとめて移動します';q('error').textContent='';q('apply').disabled=false;for(const field of panel.querySelectorAll('input,select'))field.disabled=false;panel.hidden=false;mark(new THREE.Vector3());
  }
  q('anchor').onchange=()=>{if(!session||busy)return;session.anchor.copy(session.refs[Number(q('anchor').value)].point);mark(session.delta);};

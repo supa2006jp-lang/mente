@@ -1,4 +1,4 @@
-import {solveSketchConstraints,reconcileSketchConstraints,earliestSketchChange} from './sketch-constraints.js';
+import {solveSketchConstraints,reconcileSketchConstraints,earliestSketchChange,constraintEdges} from './sketch-constraints.js';
 import {createSketchConstraints} from './sketch-constraints-view.js';
 import {sketchVertexRotationCandidates} from './sketch-vertex-rotation.js';
 import {createSketchVertexRotation} from './sketch-vertex-rotation-view.js';
@@ -2312,9 +2312,9 @@ function activeSketchMoveReference(){
 function startConnectedSketchMove(reference){try{sketchMoveTool.start(reference);}catch(error){notify(appErrorMessage(error));}}
 sketchMoveButton.onclick=()=>{const reference=activeSketchMoveReference();if(reference)startConnectedSketchMove(reference);};
 const constraintKernel=new KernelClient();
-sketchConstraintsController=createSketchConstraints({container:$('measurement'),scene,getFeatures:()=>features,getSelection:()=>selectedSketchSegments,getObjects:()=>[...sketchGroup.children],getOverlays:()=>[regionGroup,sketchSelectionHighlight],canUse:()=>!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!sketchMoveTool?.active&&!sketchVertexRotation?.active&&!holeActive&&!document.querySelector('dialog[open]:not(#sketch-constraints-dialog)'),onStart:()=>{selectionPicker?.close();closeSketchMirrorChoices();dropPreview();},onCancelWork:()=>constraintKernel.reset(),notify,onApply:async(original,next,isCurrent)=>{
+sketchConstraintsController=createSketchConstraints({container:$('measurement'),scene,getFeatures:()=>features,getSelection:()=>selectedSketchSegments.size?selectedSketchSegments:new Map(features.filter(f=>f.id===selected&&f.kind==='sketch'&&!f.groupHidden).map(f=>[f.id,new Set(constraintEdges(f).map(e=>e.index))])),getObjects:()=>[...sketchGroup.children],getOverlays:()=>[regionGroup,sketchSelectionHighlight],camera,canvas:renderer.domElement,controls,getSnap:()=>({enabled:$('snap-enabled').checked,step:Number(host.dataset.sketchGridDisplayStep)||gridStep}),canUse:()=>['model','sketch'].includes(stage)&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!sketchMoveTool?.active&&!sketchVertexRotation?.active&&!holeActive&&!document.querySelector('dialog[open]:not(#sketch-constraints-dialog)'),onStart:()=>{selectionPicker?.close();closeSketchMirrorChoices();dropPreview();},onCancelWork:()=>constraintKernel.reset(),notify,onApply:async(original,next,isCurrent,selectionState)=>{
  const start=earliestSketchChange(original,next);if(start<next.length&&next.slice(start+1).some(f=>['cadop','extrusion'].includes(f.kind))){const result=await constraintKernel.run(next,{type:'replay',before:original,start});if(!isCurrent()||features!==original)throw Error('モデルが変更されました。拘束を開き直してください');next=result.features;}
- if(!isCurrent()||features!==original)throw Error('拘束の編集を中止しました');const selection=new Map([...selectedSketchSegments].map(([id,indices])=>[id,new Set(indices)]));setProject(next);selected=null;stage='model';draftTouched=false;syncFields();selectedSketchSegments=selection;showSketchSelection();notify('スケッチの拘束と関連する形状を更新しました');
+ if(!isCurrent()||features!==original)throw Error('拘束の編集を中止しました');const selection=new Map();for(const ref of [selectionState?.first,selectionState?.second].filter(Boolean)){if(!selection.has(ref.featureId))selection.set(ref.featureId,new Set());selection.get(ref.featureId).add(ref.index);}if(!selection.size)for(const [id,indices]of selectedSketchSegments)selection.set(id,new Set(indices));setProject(next);selected=null;stage='model';draftTouched=false;syncFields();selectedSketchSegments=selection;showSketchSelection();notify('スケッチの拘束と関連する形状を更新しました');
 }});
 const sketchMoveKernel=new KernelClient();
 sketchMoveTool=createSketchMoveTool({scene,camera,canvas:renderer.domElement,host,getFeatures:()=>features,getControls:()=>controls,getSketchObjects:()=>[...sketchGroup.children],getOverlays:()=>[regionGroup,sketchSelectionHighlight],getSnap:()=>({enabled:$('snap-enabled').checked,step:Number(host.dataset.sketchGridDisplayStep)||gridStep}),onCancelWork:()=>sketchMoveKernel.reset(),
@@ -3525,7 +3525,7 @@ drawingController=installDrawing({onChange:()=>{modified=true;renderTree();},get
 
 // OS screen capture can interrupt pointer-up events without ending a CAD command.
 function cancelCaptureInteraction(){
- sketchMoveTool?.cancel();middleConfirm.cancel();boxSelection?.cancel();cancelPanelDrags();cancelDialogDrags();
+ sketchConstraintsController?.cancelDrag();sketchMoveTool?.cancel();middleConfirm.cancel();boxSelection?.cancel();cancelPanelDrags();cancelDialogDrags();
  const cancelEvent=id=>({pointerId:id,type:'pointercancel',preventDefault(){},stopImmediatePropagation(){}});
  if(shiftOrbit)endShiftOrbit(cancelEvent(shiftOrbit.id));
  if(sketchPan)endSketchPan(cancelEvent(sketchPan.id));
