@@ -50554,6 +50554,46 @@ button.shift-photo-compare-animation-photo-sync-destination:hover {
     display: none;
 }
 .shift-photo-compare-mark.mosaic > .shift-photo-compare-animation-order-badge {
-    top: -38px;
-    right: 24px;
+    /* Keep the order number round and outside the mosaic at any aspect ratio. */
+    top: calc(-25px / var(--mark-scale-y, 1) - 13px);
+    right: calc(37px / var(--mark-scale-x, 1) - 13px);
+    transform: scale(calc(1 / var(--mark-scale-x, 1)), calc(1 / var(--mark-scale-y, 1))) rotate(calc(-1 * var(--mark-rotate)));
+}
+.shift-photo-compare-mark.mosaic > .shift-photo-compare-animation-order-badge:hover {
+    transform: scale(calc(1 / var(--mark-scale-x, 1)), calc(1 / var(--mark-scale-y, 1))) rotate(calc(-1 * var(--mark-rotate))) scale(1.08);
+}
+
+/* Show where the selected photo mark's color can be changed. */
+.shift-photo-compare-color-edit-hint {
+    display: none;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #c2410c;
+    color: #ffffff;
+    font-size: 0.65rem;
+    font-style: normal;
+    font-weight: 900;
+}
+.shift-photo-compare-color.color-edit-target-active,
+.shift-photo-compare-color-target.color-edit-target-active {
+    padding: 2px 5px;
+    border-radius: 8px;
+    background: #fff7ed;
+    color: #9a3412;
+    outline: 2px solid #fb923c;
+    outline-offset: 1px;
+    box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.18);
+}
+.shift-photo-compare-color.color-edit-target-active .shift-photo-compare-color-edit-hint {
+    display: inline-block;
+}
+.shift-photo-compare-color.color-edit-target-active input[type="color"] {
+    border: 2px solid #c2410c;
+    background: #ffffff;
+}
+.shift-photo-compare-color.color-edit-subtarget-active {
+    padding: 2px 5px;
+    border-radius: 8px;
+    outline: 2px solid #fb923c;
+    outline-offset: 1px;
 }

@@ -18868,6 +18868,7 @@
                             </label>
                             <label class="shift-photo-compare-color" title="記号の色">
                                 <span>色</span>
+                                <em class="shift-photo-compare-color-edit-hint">ここで変更</em>
                                 <input type="color" value="#dc2626" oninput="app.setShiftPhotoCompareMarkColor(this.value)">
                                 <button type="button" class="shift-photo-compare-eyedropper" onclick="app.pickShiftPhotoCompareScreenColor('choose')" title="画面上から色を取得して反映先を選ぶ"><i class="fa-solid fa-eye-dropper"></i></button>
                             </label>
@@ -23965,6 +23966,8 @@
 
     setShiftPhotoCompareColorTarget(value = 'border') {
         this._shiftPhotoCompareColorTarget = ['border', 'fill', 'text'].includes(value) ? value : 'border';
+        const targetSelect = document.querySelector('.shift-photo-compare-color-target select');
+        if (targetSelect) targetSelect.value = this._shiftPhotoCompareColorTarget;
         const mark = this._shiftPhotoCompareSelectedMark;
         const tableCells = mark?.dataset?.mode === 'table'
             ? this.normalizeShiftPhotoCompareTableCells(mark.dataset.tableCells || '[]', mark.dataset.tableRows, mark.dataset.tableCols)
@@ -23978,7 +23981,31 @@
         };
         const input = document.querySelector('.shift-photo-compare-color input[type="color"]');
         if (input) input.value = colors[this._shiftPhotoCompareColorTarget];
+        this.updateShiftPhotoCompareColorEditHighlight();
         this.updateShiftPhotoCompareEyedropperTargetHighlight();
+    }
+
+    updateShiftPhotoCompareColorEditHighlight() {
+        const selected = this.getShiftPhotoCompareSelectedMarks().filter(mark => document.contains(mark));
+        const colorable = selected.some(mark => {
+            const mode = mark.dataset.mode || '';
+            if (mark.dataset.animationGhost === '1') return false;
+            return ['circle', 'triangle', 'arrow', 'dimension', 'rect', 'table', 'text', 'boxedText', 'callout', 'number', 'xmark', 'freehand', 'polyline'].includes(mode)
+                || (mode === 'image' && mark.dataset.imageShape === 'circle');
+        });
+        const target = this._shiftPhotoCompareColorTarget || 'border';
+        const targetLabel = document.querySelector('.shift-photo-compare-color-target');
+        const colorLabel = document.querySelector('.shift-photo-compare-color:not(.shift-photo-compare-fill-color):not(.shift-photo-compare-callout-text-color):not(.shift-photo-compare-blank-bg-color)');
+        const fillLabel = document.querySelector('.shift-photo-compare-fill-color');
+        const textLabel = document.querySelector('.shift-photo-compare-callout-text-color');
+        targetLabel?.classList.toggle('color-edit-target-active', colorable);
+        colorLabel?.classList.toggle('color-edit-target-active', colorable);
+        fillLabel?.classList.toggle('color-edit-subtarget-active', colorable && target === 'fill');
+        textLabel?.classList.toggle('color-edit-subtarget-active', colorable && target === 'text');
+        const label = ({ border: '枠線', fill: '枠内', text: '文字' })[target] || '枠線';
+        if (colorLabel) colorLabel.title = colorable ? `選択中の${label}の色はここで変更できます` : '記号の色';
+        const input = colorLabel?.querySelector('input[type="color"]');
+        if (input) input.setAttribute('aria-label', colorable ? `選択中の${label}の色を変更` : '記号の色');
     }
 
     updateShiftPhotoCompareExtendedColorControls() {
@@ -24010,11 +24037,12 @@
                 if (option.value === 'fill') option.disabled = !fillEnabled;
                 if (option.value === 'text') option.disabled = !textEnabled;
             });
-            if ((!fillEnabled && targetSelect.value === 'fill') || (!textEnabled && targetSelect.value === 'text')) {
+            if ((!fillEnabled && this._shiftPhotoCompareColorTarget === 'fill') || (!textEnabled && this._shiftPhotoCompareColorTarget === 'text')) {
                 targetSelect.value = 'border';
                 this._shiftPhotoCompareColorTarget = 'border';
             }
         }
+        this.setShiftPhotoCompareColorTarget(this._shiftPhotoCompareColorTarget || 'border');
     }
 
     applyShiftPhotoCompareTableColor(mark, target, color) {
