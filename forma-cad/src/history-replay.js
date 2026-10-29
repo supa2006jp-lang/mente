@@ -1,3 +1,4 @@
+import {resolveSketchMirrorLinks} from './sketch-mirror-links.js';
 import {refreshPipePath} from './pipe-path.js';
 import {solveSketchConstraints,earliestSketchChange} from './sketch-constraints.js';
 import {findRegions} from './regions.js';
@@ -61,6 +62,7 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition,o
    if(i>start||(i===start&&(refreshStart||f.kind==='cadop'&&f.spec))){
     const refresh=r=>{const updated=refreshRegion(r,before.slice(0,i),prefix);if(updated?.overlapSource){if(!resolvePartition)throw Error('区切られた領域の再計算にはCADエンジンが必要です');return resolvePartition(updated,prefix);}return updated;};
     if(f.offsetLink)f=refreshLinkedOffset(f,refresh(f.offsetLink.region));
+    if(f.sketchMirrorLink?.enabled)f=resolveSketchMirrorLinks([...prefix,f,...next.slice(i+1)])[i];
     if(f.region){const region=refresh(f.region);if(region!==f.region){const n=basisFor(region).n;f={...f,region,plane:region.plane,frame:region.frame,x:n.x*region.offset,y:n.y*region.offset,z:n.z*region.offset};}}
     if(f.kind==='cadop'&&f.spec){let spec=copy(f.spec);if(spec.type==='pipe'){const path=refreshPipePath(prefix,spec);if(path)spec.pathFeature=path;}if(spec.region)spec.region=refresh(spec.region);if(spec.sections)spec.sections=spec.sections.map(refresh);if(remap&&!(spec.type==='fillet'&&filletSuppressionState(spec)==='suppressed'))spec=spec.type==='fillet'?remapFillet(before.slice(0,i),prefix,spec,before.find(old=>old.id===f.id)?.spec,remap):remap(before.slice(0,i),prefix,spec);const result=run(prefix,{...spec,id:spec.id||f.id});f={...f,spec,...result};}
    }
