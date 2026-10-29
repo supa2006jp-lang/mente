@@ -1,3 +1,4 @@
+import {drawingViewVisible,drawingViewFactor,drawingScaleLabel} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
 import {commentLines} from './drawing-comments.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
@@ -7,19 +8,20 @@ export function drawingViewFrames(input,options={}){
  const data=withDetails(input,options.details),[[x0,y0,z0],[x1,y1,z1]]=data.bounds,w=x1-x0,d=y1-y0,h=z1-z0;
  const frames={front:{bx:x0,by:-z1,width:w,height:h,factor:1,label:'FRONT'},top:{bx:x0,by:-y1,width:w,height:d,factor:1,label:'TOP'},right:{bx:y0,by:-z1,width:d,height:h,factor:1,label:'RIGHT'}};
  if(data.views.iso)frames.iso={bx:data.views.iso.viewBox[0],by:data.views.iso.viewBox[1],width:data.views.iso.viewBox[2],height:data.views.iso.viewBox[3],factor:1,label:'ISOMETRIC'};
- for(const [key,view]of Object.entries(data.views))if(!frames[key])frames[key]={bx:view.viewBox[0],by:view.viewBox[1],width:view.viewBox[2],height:view.viewBox[3],factor:view.factor||1,label:key.startsWith('section-')?'断面 A–A':'詳細 D1 / 1000:1'};
+ for(const [key,view]of Object.entries(data.views))if(!frames[key]&&drawingViewVisible(key,options))frames[key]={bx:view.viewBox[0],by:view.viewBox[1],width:view.viewBox[2],height:view.viewBox[3],factor:view.factor||1,label:key.startsWith('section-')?'断面 A–A':'詳細 D1 / 1000:1'};
+ for(const key of Object.keys(frames)){if(!drawingViewVisible(key,options))delete frames[key];else frames[key].factor*=drawingViewFactor(key,options);}
  for(const frame of Object.values(frames))if(![frame.bx,frame.by,frame.width,frame.height,frame.factor].every(Number.isFinite)||frame.width<0||frame.height<0||frame.factor<=0)throw Error('図の大きさを取得できません');return frames;
 }
 // Keep annotation offsets in paper mm when the common model scale changes.
 // The measured points, radii, pitches and numeric dimension values stay intact.
-export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale){return dimensions.map(d=>{const f=frames[d.view];if(!f)return structuredClone(d);const at=[...d.at],old=fromScale*f.factor,next=toScale*f.factor;
+export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale,previousFrames=frames){return dimensions.map(d=>{const f=frames[d.view];if(!f)return structuredClone(d);const at=[...d.at],old=fromScale*(previousFrames[d.view]?.factor??f.factor),next=toScale*f.factor;
  if(d.kind==='horizontal'){const boundary=at[1]<f.by?f.by:f.by+f.height,gap=(at[1]-boundary)*old;at[1]=boundary+gap/next;}
  else if(d.kind==='vertical'){const boundary=at[0]<f.bx?f.bx:f.bx+f.width,gap=(at[0]-boundary)*old;at[0]=boundary+gap/next;}
  else if(['radius','diameter'].includes(d.kind)){const delta=at.map((v,i)=>v-d.center[i]),length=Math.hypot(...delta)||1,gap=Math.max(5,length*old-d.radius*old),distance=d.radius+gap/next;for(let i=0;i<2;i++)at[i]=d.center[i]+delta[i]/length*distance;}
  else if(d.kind==='angle'){for(let i=0;i<2;i++)at[i]=d.vertex[i]+(at[i]-d.vertex[i])*old/next;}
  else{const u=d.b.map((v,i)=>v-d.a[i]),length=Math.hypot(...u)||1,n=[-u[1]/length,u[0]/length],offset=(at[0]-d.a[0])*n[0]+(at[1]-d.a[1])*n[1];for(let i=0;i<2;i++)at[i]+=n[i]*offset*(old/next-1);}
  return {...structuredClone(d),at};});}
-function decoratedViews(frames,scale,dimensions,options){const boxes={},layout={};for(const [key,f]of Object.entries(frames)){const s=scale*f.factor;layout[key]={x:0,y:0,bx:f.bx,by:f.by,width:f.width*s,height:f.height*s,scale:s};boxes[key]={x:-.5,y:-8,width:Math.max(f.width*s+1,f.label.length*2.2+1),height:f.height*s+8.5};}
+function decoratedViews(frames,scale,dimensions,options){const boxes={},layout={};for(const [key,f]of Object.entries(frames)){const s=scale*f.factor,label=f.label+(Math.abs(s-scale)>1e-10?' / SCALE '+drawingScaleLabel(s):'');layout[key]={x:0,y:0,bx:f.bx,by:f.by,width:f.width*s,height:f.height*s,scale:s};boxes[key]={x:-.5,y:-8,width:Math.max(f.width*s+1,label.length*2.2+1),height:f.height*s+8.5};}
  const include=(key,b,pad=1)=>{const a=boxes[key];if(!a)return;const x=Math.min(a.x,b.x-pad),y=Math.min(a.y,b.y-pad);a.width=Math.max(a.x+a.width,b.x+b.width+pad)-x;a.height=Math.max(a.y+a.height,b.y+b.height+pad)-y;a.x=x;a.y=y;},point=(v,p)=>[(p[0]-v.bx)*v.scale,(p[1]-v.by)*v.scale],points=(key,ps,pad=1)=>{include(key,{x:Math.min(...ps.map(p=>p[0])),y:Math.min(...ps.map(p=>p[1])),width:Math.max(...ps.map(p=>p[0]))-Math.min(...ps.map(p=>p[0])),height:Math.max(...ps.map(p=>p[1]))-Math.min(...ps.map(p=>p[1]))},pad);};
  for(const d of dimensions){const v=layout[d.view],p=dimensionPlacement(d,{layout});if(!v||!p)continue;include(d.view,p.box,.7);for(const b of [...p.main,...p.extensions])include(d.view,b,2);if(d.kind==='angle'){const c=point(v,d.vertex),at=point(v,d.at),r=Math.max(4,Math.hypot(at[0]-c[0],at[1]-c[1]));include(d.view,{x:c[0]-r,y:c[1]-r,width:r*2,height:r*2},1);}else if(['radius','diameter'].includes(d.kind)){const c=point(v,d.center),at=point(v,d.at),length=Math.hypot(at[0]-c[0],at[1]-c[1])||1,r=d.radius*v.scale,u=[(at[0]-c[0])/length,(at[1]-c[1])/length];points(d.view,[c,at,[c[0]+u[0]*r,c[1]+u[1]*r],[c[0]-u[0]*r,c[1]-u[1]*r]],2);}}
  for(const m of options.markers||[]){const v=layout[m.view];if(!v)continue;if(m.kind==='center'){const c=point(v,m.center),r=m.radius*v.scale+3;include(m.view,{x:c[0]-r,y:c[1]-r,width:r*2,height:r*2});}else points(m.view,[point(v,m.a),point(v,m.b)],4);}
