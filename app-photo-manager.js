@@ -4324,6 +4324,7 @@
             const saveResults = [];
             const imported = [];
             const transparencyReviewItems = [];
+            let alreadyRegisteredCount = 0;
             for (const file of files) {
                 try {
                     const originalSrc = await this.readPhotoManagerFileAsDataUrl(file);
@@ -4336,6 +4337,10 @@
                             { forceAsk: true }
                         );
                     const src = prepared.src || originalSrc;
+                    if (library.some(photo => photo?.src === src)) {
+                        alreadyRegisteredCount += 1;
+                        continue;
+                    }
                     saveResults.push(prepared);
                     const added = {
                         id: this.createPhotoManagerLibraryId(),
@@ -4356,12 +4361,18 @@
                     console.error(error);
                 }
             }
+            if (!imported.length) {
+                this.showPhotoManagerNotice(alreadyRegisteredCount
+                    ? '選択した画像はすでに登録されています。'
+                    : '画像を登録できませんでした。');
+                return;
+            }
             store.save();
             const sourceSelect = document.getElementById('photo-manager-source');
             if (sourceSelect && sourceSelect.value !== 'library') sourceSelect.value = 'library';
             this.renderPhotoManager();
             const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
-            if (summary) this.showPhotoManagerNotice(`${files.length}枚の画像を登録しました。${summary}`);
+            if (summary) this.showPhotoManagerNotice(`${imported.length}枚の画像を登録しました。${summary}${alreadyRegisteredCount ? ` 登録済み${alreadyRegisteredCount}枚は追加しませんでした。` : ''}`);
             if (transparencyReviewItems.length) {
                 this._imageSourceInitialImportIds = new Set(transparencyReviewItems.map(item => item.id));
                 requestAnimationFrame(() => this.openImageSourceChoiceTransparencyPreview(transparencyReviewItems[0].id));
@@ -6378,6 +6389,7 @@
                 const imported = [];
                 const transparencyReviewItems = [];
                 const saveResults = [];
+                let alreadyRegisteredCount = 0;
                 for (const file of selectedFiles) {
                     const originalSrc = await this.readPhotoManagerFileAsDataUrl(file);
                     const isSvg = this.isPhotoManagerSvgFile(file) || this.isPhotoManagerSvgSource(originalSrc);
@@ -6385,20 +6397,24 @@
                         ? this.getPhotoManagerOriginalVectorSaveResult(originalSrc)
                         : await this.preparePhotoManagerNormalSaveSource(originalSrc, file.name || '直接ファイル画像', { forceAsk: true });
                     const src = prepared.src || originalSrc;
-                    const added = this.addPhotoManagerLibraryImage(src, file.name || '直接ファイル画像');
+                    const existing = this.getPhotoManagerLibrary().find(photo => photo?.src === src);
+                    const added = existing
+                        ? (existing.id ? existing : this.collectPhotoManagerItems().find(item => item.source === 'library' && item.src === src))
+                        : this.addPhotoManagerLibraryImage(src, file.name || '直接ファイル画像');
                     if (added) {
-                        saveResults.push(prepared);
+                        if (existing) alreadyRegisteredCount += 1;
+                        else saveResults.push(prepared);
                         if (prepared.compressed) this.rememberPhotoManagerCompressedSource(src, true);
                         if (prepared.transparent) this.rememberPhotoManagerTransparentSource(src, true);
                         else if (!isSvg) await this.detectAndRememberPhotoManagerTransparency(src, false);
                         imported.push(added);
-                        if (!isSvg) transparencyReviewItems.push(added);
+                        if (!existing && !isSvg) transparencyReviewItems.push(added);
                     }
                 }
                 if (!imported.length) return;
                 this._imageSourceInitialImportIds = new Set(transparencyReviewItems.map(item => item.id));
                 const summary = this.summarizePhotoManagerNormalSaveResults(saveResults);
-                if (summary) this.showPhotoManagerNotice(`${imported.length}枚の画像を登録しました。${summary}`);
+                if (summary) this.showPhotoManagerNotice(`${imported.length - alreadyRegisteredCount}枚の画像を登録しました。${summary}`);
                 store.save();
                 if (document.getElementById('photo-manager-list')) this.renderPhotoManager?.();
                 this.openImageSourceChoice(input);
@@ -6413,7 +6429,9 @@
                         this.openImageSourceChoiceTransparencyPreview(transparencyReviewItems[0].id);
                     }
                 });
-                this.showPhotoManagerNotice(`${imported.length}枚を選択候補に追加しました。`);
+                this.showPhotoManagerNotice(alreadyRegisteredCount
+                    ? `登録済みの${alreadyRegisteredCount}枚は再登録せず、選択候補に表示しました。`
+                    : `${imported.length}枚を選択候補に追加しました。`);
             } catch (error) {
                 console.error(error);
                 this.showPhotoManagerNotice('直接ファイル画像の取り込みに失敗しました。');
@@ -6888,10 +6906,16 @@
             }
             if (id === 'photo-manager-import-input') {
                 let count = 0;
+                const existingSources = new Set(this.getPhotoManagerLibrary().map(photo => photo?.src).filter(Boolean));
                 selected.forEach(item => {
-                    if (this.addPhotoManagerLibraryImage(item.src, this.getPhotoManagerName(item) || item.defaultName || item.title || '写真管理画像')) count += 1;
+                    if (existingSources.has(item.src)) return;
+                    if (this.addPhotoManagerLibraryImage(item.src, this.getPhotoManagerName(item) || item.defaultName || item.title || '写真管理画像')) {
+                        existingSources.add(item.src);
+                        count += 1;
+                    }
                 });
-                this.finishPhotoManagerImport(count, `${count}件の画像を登録しました。`);
+                if (count) this.finishPhotoManagerImport(count, `${count}件の画像を登録しました。`);
+                else this.showPhotoManagerNotice('選択した画像はすでに登録されています。');
                 return;
             }
             if (id === 'tips-photo-manager-input') {
