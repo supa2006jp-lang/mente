@@ -1,0 +1,26 @@
+import * as THREE from 'three';
+import {constraintControlPoints,constraintEdges,addSketchMotionConstraint} from './sketch-constraints.js';
+import {constraintTargetLabel} from './sketch-constraints-overlay.js';
+import {basisFor,worldPoint} from './frames.js';
+import {planeCoordinates} from './regions.js';
+
+export function motionRailChoices(features,points){
+ const first=features.find(f=>f.id===points[0]?.featureId);if(!first)return [];
+ const b=basisFor(first);return features.filter(f=>!f.groupHidden&&f.groupId===first.groupId&&Math.abs(b.n.dot(basisFor(f).n))>1-1e-8&&Math.abs(new THREE.Vector3(f.x-first.x,f.y-first.y,f.z-first.z).dot(b.n))<1e-7).flatMap(constraintEdges).filter(e=>!e.vertices.some(index=>points.some(p=>p.featureId===e.featureId&&p.index===index)));
+}
+
+export function createMotionRailOverlay({camera,canvas,id='sketch-motion-rail'}){
+ const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),line=document.createElementNS(ns,'line'),label=document.createElementNS(ns,'text');svg.id=id;svg.style.cssText='display:none;position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:104';line.setAttribute('stroke','#a22cbe');line.setAttribute('stroke-width','5');line.setAttribute('stroke-dasharray','9 5');label.setAttribute('fill','#86229f');label.setAttribute('font-size','13');label.setAttribute('paint-order','stroke');label.setAttribute('stroke','white');label.setAttribute('stroke-width','4');label.textContent='対称軸・レール';svg.append(line,label);document.body.append(svg);
+ return {draw(features,ref){const f=features.find(f=>f.id===ref?.featureId),edge=constraintEdges(f)[ref?.index];svg.hidden=!edge;svg.style.display=edge?'':'none';if(!edge)return;const r=canvas.getBoundingClientRect(),points=edge.vertices.map(i=>{const p=worldPoint({...f,offset:planeCoordinates(f).offset},constraintControlPoints(f)[i]).project(camera);return {x:r.left+(p.x+1)*r.width/2,y:r.top+(1-p.y)*r.height/2,z:p.z};});if(points.some(p=>Math.abs(p.z)>1)){svg.style.display='none';return;}for(const [i,p]of points.entries()){line.setAttribute('x'+(i+1),p.x);line.setAttribute('y'+(i+1),p.y);}label.setAttribute('x',(points[0].x+points[1].x)/2+10);label.setAttribute('y',(points[0].y+points[1].y)/2-10);},hide(){svg.style.display='none';}};
+}
+
+export function installSketchMotionControls({dialog,getSession,change}){
+ const section=document.createElement('fieldset');section.id='sketch-motion-controls';section.innerHTML='<legend>左右対称・スライダー</legend><p>左右対称は点①を基準に点②を反転配置し、以後どちらを動かしても連動します。スライダーは点①・円の中心をレール上で動かせます。</p><label>点①（頂点・円の中心）<select data-motion-point="first"></select></label><label>点②（左右対称のみ）<select data-motion-point="second"></select></label><label>基準線（対称軸・レール）<select data-motion-axis></select></label><div class="constraint-actions"><button type="button" data-motion-action="symmetric">左右対称にする</button><button type="button" data-motion-action="slider">スライダーにする</button></div>';
+ dialog.querySelector('fieldset').before(section);const first=section.querySelector('[data-motion-point=first]'),second=section.querySelector('[data-motion-point=second]'),axis=section.querySelector('[data-motion-axis]'),parse=el=>{try{return JSON.parse(el.value);}catch{return null;}},ref=r=>JSON.stringify({featureId:r.featureId,index:r.index});let pointsKey='',railsKey='';
+ function update(){const s=getSession();if(!s)return;const points=s.next.filter(f=>!f.groupHidden&&constraintControlPoints(f)).flatMap(f=>constraintControlPoints(f).map((_,index)=>({featureId:f.id,index}))),nextKey=JSON.stringify(points);if(nextKey!==pointsKey){pointsKey=nextKey;for(const el of [first,second]){const previous=el.value;el.replaceChildren(...points.map(p=>new Option(constraintTargetLabel(s.next,p,true),ref(p))));if([...el.options].some(o=>o.value===previous))el.value=previous;}if(first.value===second.value&&second.options.length>1)second.selectedIndex=1;}
+  const a=parse(first),b=parse(second),rails=motionRailChoices(s.next,[a].filter(Boolean)),nextRails=JSON.stringify(rails.map(ref));if(nextRails!==railsKey){railsKey=nextRails;const previous=axis.value;axis.replaceChildren(new Option('基準にする直線を選択',''),...rails.map(r=>new Option(constraintTargetLabel(s.next,r),ref(r))));if([...axis.options].some(o=>o.value===previous))axis.value=previous;}
+  for(const el of [first,second,axis])el.disabled=s.busy;for(const button of section.querySelectorAll('button'))button.disabled=s.busy||!a||!axis.value||button.dataset.motionAction==='symmetric'&&(!b||first.value===second.value);
+ }
+ for(const el of [first,second,axis])el.onchange=update;for(const button of section.querySelectorAll('button'))button.onclick=()=>change(()=>addSketchMotionConstraint(getSession().next,button.dataset.motionAction,parse(first),button.dataset.motionAction==='symmetric'?parse(second):parse(axis),parse(axis)));
+ return {update,get axis(){return parse(axis);}};
+}
