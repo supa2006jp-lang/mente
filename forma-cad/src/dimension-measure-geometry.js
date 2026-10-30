@@ -7,6 +7,17 @@ export function measurementGridPoint(point,basis,offset,step){
 }
 export function measurementDirection(input){const v=vector(input);if(!v.toArray().every(Number.isFinite)||v.length()<1e-9)throw Error('方向には0以外の値を指定してください');return v.normalize();}
 export function measurePoints(a,b){a=vector(a);b=vector(b);if(![...a.toArray(),...b.toArray()].every(Number.isFinite))throw Error('測定点が不正です');return {a:a.toArray(),b:b.toArray(),distance:a.distanceTo(b)};}
+export function measurePointComponent(a,b,component='direct'){
+ if(!['direct','x','y','z'].includes(component))throw Error('寸法の方向が不正です');const value=measurePoints(a,b);
+ return {...value,type:component==='direct'?'point':'component',component,distance:component==='direct'?value.distance:Math.abs(value.b['xyz'.indexOf(component)]-value.a['xyz'.indexOf(component)])};
+}
+export function measurementEndpoints(value){const a=vector(value.a),b=vector(value.b);if(value.type==='component'){const p=a.clone(),index='xyz'.indexOf(value.component);if(index>=0)p.setComponent(index,b.getComponent(index));return [a,p];}return [a,b];}
+export function measureCircle(edge,kind='circumference',point){
+ const circle=edge.circle;if(!circle||!Number.isFinite(circle.radius)||circle.radius<=0||!['circumference','diameter','radius'].includes(kind))throw Error('円の寸法を取得できません');
+ const center=vector(circle.center),normal=measurementDirection(circle.normal),radial=vector(point||edge.segments[0].a).sub(center);radial.addScaledVector(normal,-radial.dot(normal));if(radial.length()<1e-9)throw Error('円周上の点を選択してください');radial.normalize();
+ const rim=center.clone().addScaledVector(radial,circle.radius),a=kind==='diameter'?center.clone().addScaledVector(radial,-circle.radius):center,b=rim;
+ return {a:a.toArray(),b:b.toArray(),distance:circle.radius*(kind==='circumference'?2*Math.PI:kind==='diameter'?2:1),type:'circle',circle:structuredClone(circle),circleKind:kind,curved:kind==='circumference',labelPoint:rim.toArray(),label:{circumference:'円周の長さ',diameter:'円の直径',radius:'円の半径'}[kind],edges:edge.segments?[edge.segments.map(s=>({a:vector(s.a).toArray(),b:vector(s.b).toArray()}))]:undefined};
+}
 // Closest points on finite 3D segments, including parallel and zero-length cases.
 export function closestMeasurementSegments(first,second){
  const a=vector(first.a),b=vector(first.b),c=vector(second.a),d=vector(second.b),u=b.clone().sub(a),v=d.clone().sub(c),r=a.clone().sub(c),aa=u.dot(u),ee=v.dot(v),f=v.dot(r),clamp=t=>Math.max(0,Math.min(1,t));let s=0,t=0;
