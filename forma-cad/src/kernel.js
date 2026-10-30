@@ -1,3 +1,5 @@
+import {validateCounterbore} from './counterbore.js';
+import {makeStorageTray,makeDovetail,checkMotion,motionSettings} from './part-workshop.js';
 import {makeHoneycomb,honeycombBodyInfo} from './honeycomb-solid.js';
 import {makeSupportContactTrials} from './print-support-contact-trials.js';
 import {enclosureHistoryBody} from './enclosure-history-body.js';
@@ -193,6 +195,8 @@ function extrudeCadFaceThin(face,region,depth,wall,side,skipHoleWalls=false){
  }finally{for(const part of parts)part.delete();for(const shape of resources)shape.delete();face.delete();}
 }
 export function featureSolid(f,bodies){
+ if(f.counterbore){validateCounterbore(f);let main,recess;try{main=featureSolid({...f,counterbore:false},bodies);recess=featureSolid({...f,counterbore:false,diameter:f.counterboreDiameter,depth:Math.sign(f.depth)*f.counterboreDepth},bodies);return fuseSolids([main,recess]);}finally{main?.delete();recess?.delete();}}
+
  validateTaperOptions(f);validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateExtrusionBarrier(f);
  if(!f.symmetric)return draftExtrusion(untaperedFeatureSolid({...f,taperAngle:0},bodies),f);
  let depth=Math.abs(f.depth);
@@ -332,6 +336,8 @@ function repeatedBodyRevolution(features,body,p,onProgress){
  }finally{shape?.delete();earlier.forEach(shape=>shape.delete());}
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(['motionCheck','motionRangeCheck','motionSetup'].includes(spec.type)){const bodies=kernelBodies(features);try{if(spec.type==='motionSetup'){return {outputs:[],remove:[],analysis:{motionSetup:motionSettings(spec,bodies)}};}return checkMotion(bodies,spec,onProgress);}finally{bodies.forEach(s=>s.delete());}}
+
  if(spec.type==='honeycombInspect'){
   const bodies=kernelBodies(features);try{return {info:honeycombBodyInfo(bodies.get(spec.target),spec.heightAxis||'Z')};}finally{bodies.forEach(shape=>shape.delete());}
  }
@@ -507,6 +513,8 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='bossJoint'){const pinId=p.mode==='split'?p.id+'-pin':p.pinTarget;if(p.mode==='split'&&bodies.has(pinId))throw Error('棒側のボディIDが重複しています');const result=makeBossJoint(base,bodies.get(p.pinTarget),p,onProgress);try{emit(p.target,result.parts[0]);emit(pinId,result.parts[1]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='slideLid'){const lidId=p.id+'-lid';if(bodies.has(lidId))throw Error('蓋のボディIDが既存のボディと重なっています');const result=makeSlideLid(base,p);try{emit(p.target,result.body);emit(lidId,result.lid);analysis=result.analysis;}finally{result.body.delete();result.lid.delete();}}
  else if(p.type==='snapLid'){if(p.target===p.lidTarget)throw Error('本体と蓋は別のボディを選択してください');const result=makeSnapLid(base,bodies.get(p.lidTarget),p);try{emit(p.target,result.body);emit(p.lidTarget,result.lid);analysis=result.analysis;}finally{result.body.delete();result.lid.delete();}}
+ else if(p.type==='storageTray'){if(!p.id||bodies.has(p.id))throw Error('作成先が不正です');const made=makeStorageTray(bodies,p,onProgress);try{emit(p.id,made.shape);analysis={...analysis,storageTray:made.info};}finally{made.shape.delete();}}
+ else if(p.type==='dovetail'){const made=makeDovetail(bodies,p,onProgress);try{for(const item of made.items)emit(item.id,item.shape);analysis={...analysis,dovetail:made.info};}finally{made.items.forEach(item=>item.shape.delete());}}
  else if(p.type==='honeycomb'){const made=makeHoneycomb(base,p,onProgress);try{emit(p.target,made.shape);analysis={...analysis,honeycomb:made.info};}finally{made.shape.delete();}}
  else if(p.type==='svgWrap'){if(!base)throw Error('対象ボディが見つかりません');const wrapped=wrapSvgSolid(base,p,onProgress);try{emit(p.target,wrapped.shape);analysis=wrapped.info;}finally{wrapped.shape.delete();}}
  else if(p.type==='trimSurface'){const selection=p.faces?.[0];const result=trimSurface(base,bodies.get(selection?.bodyId),selection,p.trimSide);try{emit(p.target,result);}finally{result.delete();}}

@@ -1,3 +1,4 @@
+import {validateCounterbore} from './counterbore.js';
 import {validateSketchMirrorLinkData,assertSketchMirrorLinks} from './sketch-mirror-links.js';
 import {preciseExtrusionGeometry,renderPreciseGeometry} from './precise-extrusion-geometry.js';
 import {validateConstraintData,assertSketchConstraints} from './sketch-constraints.js';
@@ -23,7 +24,7 @@ export const evaluator = new Evaluator(); evaluator.useGroups=false;
 evaluator.attributes=['position','normal'];
 const enums={profile:['point','rect','circle','line','region','spline','polyline'],mode:['solid','thin'],side:['inside','outside','center'],plane:['XY','XZ','YZ','CUSTOM'],operation:['new','join','cut']};
 export function validateFeature(f){
- validateConstraintData(f);validateSketchMirrorLinkData(f);
+ validateConstraintData(f);validateSketchMirrorLinkData(f);validateCounterbore(f);
  validateTaperOptions(f);
  if(!f || typeof f!=='object') throw Error('形状データが不正です。');
  if(f.construction!==undefined&&(typeof f.construction!=='boolean'||f.kind!=='sketch'))throw Error('補助線の設定が不正です');
