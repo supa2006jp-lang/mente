@@ -31,3 +31,9 @@ export function reconcileSketchMirrorLinks(next,before){
 export function setSketchMirrorFollowing(features,ids,enabled){
  if(typeof enabled!=='boolean'||!Array.isArray(ids)||!ids.length)throw Error('追従を切り替えるコピーを選択してください');validateSketchMirrorLinks(features);if(ids.some(id=>!features.some(f=>f.id===id&&f.sketchMirrorLink)))throw Error('この図形にはミラー追従元の記録がありません');return resolveSketchMirrorLinks(features.map(f=>ids.includes(f.id)?{...f,sketchMirrorLink:{...f.sketchMirrorLink,enabled}}:f));
 }
+
+// Rebuild even independent copies once, then restore each copy's follow switch.
+export function changeSketchMirrorAxis(features,ids,axis){
+ validateSketchMirrorLinks(features);if(!Array.isArray(ids)||!ids.length||new Set(ids).size!==ids.length)throw Error('基準線を変更するミラーコピーを選択してください');const selected=new Set(ids),byId=new Map(features.map(f=>[f.id,f]));for(const id of ids){const f=byId.get(id);if(!f?.sketchMirrorLink)throw Error('コピー元の記録があるミラーコピーを選択してください');if(axis?.featureId===id)throw Error('ミラーコピー自身を基準線にできません');const source=byId.get(f.sketchMirrorLink.source.featureId),reference=byId.get(axis?.featureId);sketchMirrorAxis(reference,axis?.index);const a=basisFor(source),b=basisFor(reference);if(source.groupId!==reference.groupId||Math.abs(a.n.dot(b.n))<1-1e-8||Math.abs(new THREE.Vector3(source.x-reference.x,source.y-reference.y,source.z-reference.z).dot(b.n))>1e-7)throw Error('コピー元と同じスケッチ・作図面の直線を選択してください');}
+ const next=resolveSketchMirrorLinks(features.map(f=>selected.has(f.id)?{...f,sketchMirrorLink:{...f.sketchMirrorLink,enabled:true,axis:{featureId:axis.featureId,index:axis.index}}}:f));return next.map(f=>selected.has(f.id)?{...f,sketchMirrorLink:{...f.sketchMirrorLink,enabled:byId.get(f.id).sketchMirrorLink.enabled}}:f);
+}

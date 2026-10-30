@@ -19,7 +19,7 @@ async function panelMove(dx,dy){const handle=$('dialog').locator('.panel-drag-ha
 const near=(a,b,tol=1e-4)=>assert(Math.abs(a-b)<tol,a+' != '+b),feature=(id,points,extra={})=>({...defaults,id,name:'同じ名前',kind:'sketch',profile:'polyline',points,closed:false,groupId:'s',groupNumber:1,...extra});
 
 try{
- await page.addInitScript(()=>window.showSaveFilePicker=undefined);await page.goto('http://127.0.0.1:'+server.address().port+'/');await page.locator('#canvas-host canvas').waitFor();const quick=page.locator('#sketch-constraint-quick'),mirror=quick.locator('[data-constraint-action=sketchMirror]'),preview=page.locator('#sketch-placement-preview'),compact=page.locator('#sketch-constraint-compact');
+ await page.addInitScript(()=>window.showSaveFilePicker=undefined);await page.goto('http://127.0.0.1:'+server.address().port+'/');await page.locator('#canvas-host canvas').waitFor();const quick=page.locator('#sketch-constraint-quick'),mirror=quick.locator('#sketch-mirror-last-axis'),preview=page.locator('#sketch-placement-preview'),compact=page.locator('#sketch-constraint-compact');
  async function controlClick(uv){await page.keyboard.down('Control');await clickUV(uv);await page.keyboard.up('Control');await frames();}
  async function selectSources(){await clickUV([-24,-15]);await controlClick([-25,15]);await controlClick([0,30]);await mirror.waitFor();}
  async function apply(){await mirror.click();await quick.waitFor({state:'hidden'});return save();}
