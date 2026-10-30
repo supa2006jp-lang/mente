@@ -1,4 +1,4 @@
-import {makeHoneycomb} from './honeycomb-solid.js';
+import {makeHoneycomb,honeycombBodyInfo} from './honeycomb-solid.js';
 import {makeSupportContactTrials} from './print-support-contact-trials.js';
 import {enclosureHistoryBody} from './enclosure-history-body.js';
 import {assemblyLinks,assemblyTargets,copiedAssemblyLinks} from './assembly-state.js';
@@ -332,6 +332,9 @@ function repeatedBodyRevolution(features,body,p,onProgress){
  }finally{shape?.delete();earlier.forEach(shape=>shape.delete());}
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(spec.type==='honeycombInspect'){
+  const bodies=kernelBodies(features);try{return {info:honeycombBodyInfo(bodies.get(spec.target),spec.heightAxis||'Z')};}finally{bodies.forEach(shape=>shape.delete());}
+ }
  if(spec.type==='printSupportTrial')return makeSupportContactTrials(spec.settings,onProgress);
  if(spec.type==='printSupportFaces'){
   if(!['posts','walls'].includes(spec.style)||!Number.isFinite(spec.bedZ)||!Number.isFinite(spec.topGap))throw Error('サポートの形と高さの条件を確認してください');

@@ -1,7 +1,8 @@
 import * as R from 'replicad';
 import * as THREE from 'three';
 import {svgCylinderInfo} from './svg-wrap.js';
-import {honeycombSettings,honeycombLayout} from './honeycomb-layout.js';
+import {planHoneycomb} from './honeycomb-layout.js';
+import {measurePhase} from './phase-timings.js';
 const vec=p=>new THREE.Vector3(...p),tuple=p=>p.toArray();
 const positive=n=>{const k=n.toArray().reduce((a,v,i)=>Math.abs(v)>Math.abs(n.getComponent(a))?i:a,0);return n.getComponent(k)<0?n.negate():n;};
 export function honeycombBodyInfo(base,heightAxis='Z'){
@@ -39,52 +40,39 @@ function prism(points,origin,u,n,depth){
 }
 function cutBatch(base,tools){
  const oc=R.getOC(),builder=new oc.BRepAlgoAPI_Cut(),args=new oc.NCollection_List_TopoDS_Shape(),cuts=new oc.NCollection_List_TopoDS_Shape();
- try{args.Append(base.wrapped);tools.forEach(tool=>cuts.Append(tool.wrapped));builder.SetArguments(args);builder.SetTools(cuts);builder.SetNonDestructive(true);builder.SetFuzzyValue(0);builder.Build();if(builder.HasErrors())throw Error('穴の切り取りに失敗しました。穴の数や幅を調整してください');return R.cast(builder.Shape()).asShape3D();}
+ try{args.Append(base.wrapped);tools.forEach(tool=>cuts.Append(tool.wrapped));builder.SetArguments(args);builder.SetTools(cuts);builder.SetNonDestructive(true);builder.SetUseOBB(true);builder.SetFuzzyValue(0);builder.Build();if(builder.HasErrors())throw Error('穴の切り取りに失敗しました。穴の数や幅を調整してください');return R.cast(builder.Shape()).asShape3D();}
  finally{builder.delete();args.delete();cuts.delete();}
 }
 export function makeHoneycomb(base,input,onProgress){
- const p=honeycombSettings(input),info=honeycombBodyInfo(base,p.heightAxis),tools=[],n=vec(info.n),u=vec(info.u),v=vec(info.v),origin=vec(info.origin),t=p.thickness;
+ const info=honeycombBodyInfo(base,input.heightAxis||'Z'),plan=planHoneycomb(info,input),p=plan.settings,tools=[],n=vec(info.n),u=vec(info.u),v=vec(info.v),origin=vec(info.origin),t=p.thickness;
  const world=(x,y,z)=>origin.clone().addScaledVector(u,x).addScaledVector(v,y).addScaledVector(n,z).toArray();
- let shape,cavity,hollow;let holeCount=0;
+ let shape,cavity,hollow;const holeCount=plan.holeCount;
  try{
   const inputParts=base.solids;try{if(inputParts.length!==1)throw Error('1つにつながったソリッドを選択してください');}finally{inputParts.forEach(s=>s.delete());}
-  if(info.height<=2*t+.1||(info.kind==='cylinder'?info.radius<=t+.1:Math.min(info.width,info.depth)<=2*t+.1))throw Error('側壁の厚みが大きすぎます。内側に空間が残る値にしてください');
   if(p.hollow){
-   if(info.kind==='cylinder')cavity=R.makeCylinder(info.radius-t,info.height-2*t,world(0,0,t),info.n);
-   else cavity=prism([[t,t],[info.width-t,t],[info.width-t,info.depth-t],[t,info.depth-t]],world(0,0,t),info.u,info.n,info.height-2*t);
-   hollow=base.cut(cavity);
+   const low=p.bottomOpen?-.02:t,high=p.topOpen?info.height+.02:info.height-t;
+   if(info.kind==='cylinder')cavity=R.makeCylinder(info.radius-t,high-low,world(0,0,low),info.n);
+   else cavity=prism([[t,t],[info.width-t,t],[info.width-t,info.depth-t],[t,info.depth-t]],world(0,0,low),info.u,info.n,high-low);
+   hollow=measurePhase('geometry',()=>base.cut(cavity));
   }
   if(info.kind==='cylinder'){
-   if(p.scope==='selected')throw Error('円柱は側面を一周加工します。加工範囲を「全側面」にしてください');
    const inner=info.radius-t;
-   if(p.cell+p.rib>=inner*1.4)throw Error('円柱に対して六角穴が大きすぎます。穴や格子の幅を小さくしてください');
-   // Lay out at the inner radius, where the webs are narrowest. The chord
-   // correction prevents neighbouring holes touching on the inside of the wall.
-   const minAngle=2*Math.asin((p.cell+p.rib)/(2*inner)),columns=Math.floor(2*Math.PI/minAngle);
-   const layout=honeycombLayout(columns*(p.cell+p.rib),info.height,p,true);
+   const layout=plan.grids[0],columns=layout.columns;
    for(const [x,z]of layout.centers){
     const angle=x/layout.pitch*2*Math.PI/columns,radial=u.clone().multiplyScalar(Math.cos(angle)).addScaledVector(v,Math.sin(angle)),tangent=n.clone().cross(radial);
     const at=origin.clone().addScaledVector(n,z).addScaledVector(radial,info.radius+.02);
-    tools.push(prism(layout.hex,tuple(at),tuple(tangent),tuple(radial.clone().negate()),t+.04+(p.cell/2)**2/inner));holeCount++;
+    tools.push(prism(layout.hex,tuple(at),tuple(tangent),tuple(radial.clone().negate()),t+.04+(p.cell/2)**2/inner));
    }
   }else{
-   const sides=[{at:[0,0,0],u:info.u,n:tuple(v.clone().negate()),width:info.width},{at:[info.width,info.depth,0],u:tuple(u.clone().negate()),n:info.v,width:info.width},{at:[0,info.depth,0],u:tuple(v.clone().negate()),n:tuple(u.clone().negate()),width:info.depth},{at:[info.width,0,0],u:info.v,n:info.u,width:info.depth}];
-   const selected=p.scope==='selected';
-   if(selected&&(!Array.isArray(p.faceNormal)||p.faceNormal.length!==3||!p.faceNormal.every(Number.isFinite)||vec(p.faceNormal).length()<.9))throw Error('加工したい箱の側面を先にクリックしてください');
-   const matches=sides.filter(side=>!selected||vec(side.n).dot(vec(p.faceNormal).normalize())>.999);
-   if(!matches.length)throw Error('上面・底面ではなく箱の側面を選択してください');
-   for(const side of matches){
-    const layout=honeycombLayout(side.width,info.height,p),su=vec(side.u),outward=vec(side.n),start=vec(world(...side.at));
-    if(holeCount+layout.centers.length>240)throw Error('六角穴は合計240個までです。穴の幅や格子の幅を大きくしてください');
-    for(const [x,z]of layout.centers){const at=start.clone().addScaledVector(su,x).addScaledVector(n,z).addScaledVector(outward,.02);tools.push(prism(layout.hex,tuple(at),side.u,tuple(outward.clone().negate()),t+.04));holeCount++;}
+   for(const layout of plan.grids){
+    const su=vec(layout.u),outward=vec(layout.n),start=vec(world(...layout.at));
+    for(const [x,z]of layout.centers){const at=start.clone().addScaledVector(su,x).addScaledVector(n,z).addScaledVector(outward,.02);tools.push(prism(layout.hex,tuple(at),layout.u,tuple(outward.clone().negate()),t+.04));}
    }
   }
-  if(!holeCount)throw Error('この大きさでは六角穴を配置できません。穴の幅か端の枠幅を小さくしてください');
-  if(holeCount>240)throw Error('六角穴は合計240個までです。穴の幅や格子の幅を大きくしてください');
   onProgress?.({stage:holeCount+'個の六角穴をまとめて加工しています'});
-  shape=cutBatch(hollow||base,tools);
+  shape=measurePhase('geometry',()=>cutBatch(hollow||base,tools));
   const oc=R.getOC(),check=new oc.BRepCheck_Analyzer(shape.wrapped,true,false),parts=shape.solids;
   try{if(!check.IsValid()||parts.length!==1||R.measureVolume(shape)<=0||R.measureVolume(hollow||base)-R.measureVolume(shape)<1e-6)throw Error('格子を一体のソリッドにできません。格子・端の枠の幅を増やしてください');}finally{check.delete();parts.forEach(s=>s.delete());}
-  const result=shape;shape=null;return {shape:result,info:{kind:info.kind,holeCount,thickness:t,cell:p.cell,rib:p.rib,border:Math.max(p.border,t)}};
+  const result=shape;shape=null;return {shape:result,info:{kind:info.kind,holeCount,thickness:t,cell:p.cell,rib:p.rib,border:Math.max(p.border,t),topBorder:Math.max(p.topBorder,t),bottomBorder:Math.max(p.bottomBorder,t),rows:plan.rows,columns:plan.columns,topOpen:p.topOpen,bottomOpen:p.bottomOpen,layout:p.layout,source:info}};
  }finally{shape?.delete();hollow?.delete();cavity?.delete();tools.forEach(tool=>tool.delete());}
 }
