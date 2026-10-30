@@ -3,7 +3,7 @@ import {basisFor,worldPoint} from './frames.js';
 import {sketchPoints,planeCoordinates} from './regions.js';
 import {mirrorSketch} from './sketch-mirror.js';
 
-const shapeKeys=['profile','mode','side','plane','frame','x','y','z','angle','width','height','diameter','depth','wall','closed','points','arc','tangents','tangentLengths'];
+const shapeKeys=['construction','profile','mode','side','plane','frame','x','y','z','angle','width','height','diameter','depth','wall','closed','points','arc','tangents','tangentLengths'];
 const equal=(a,b)=>typeof a==='number'&&typeof b==='number'?Math.abs(a-b)<=1e-8:Array.isArray(a)&&Array.isArray(b)?a.length===b.length&&a.every((v,i)=>equal(v,b[i])):a&&b&&typeof a==='object'&&typeof b==='object'?Object.keys(a).length===Object.keys(b).length&&Object.keys(a).every(k=>equal(a[k],b[k])):a===b;
 export const sameSketchMirrorShape=(a,b)=>!!a&&!!b&&shapeKeys.every(k=>equal(a[k],b[k]));
 export function sketchMirrorAxis(feature,index){

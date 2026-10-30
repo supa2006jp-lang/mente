@@ -5,7 +5,7 @@ import {planeCoordinates,sketchPoints} from './regions.js';
 import {selectedSketchParts} from './sketch-selection.js';
 import {previewImageSource} from './project-preview.js';
 
-const fields=['profile','mode','side','plane','width','height','diameter','depth','wall','x','y','z','angle','frame','points','closed','tangents','tangentLengths','arc'];
+const fields=['construction','profile','mode','side','plane','width','height','diameter','depth','wall','x','y','z','angle','frame','points','closed','tangents','tangentLengths','arc'];
 export function portableSketch(source){
  if(!source||source.kind!=='sketch')throw Error('保存するスケッチのデータが不正です');
  const sketch={...defaults,id:source.id,kind:'sketch',name:(source.name||'スケッチ').slice(0,100),operation:'new',target:'',groupId:source.groupId||source.id};

@@ -7,12 +7,12 @@ import {LineMaterial} from 'three/addons/lines/LineMaterial.js';
 
 // Keep the original line for picking. Screen-width strokes provide a white
 // border over colored axes and stay legible at every zoom and pixel ratio.
-export function sketchLine(geometry,{color=0x245d99,depthTest=true,order=4,segments=false,planeNormal=null}={}){
+export function sketchLine(geometry,{color=0x245d99,depthTest=true,order=4,segments=false,planeNormal=null,construction=false}={}){
  const line=segments?new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color,transparent:true,opacity:0,depthTest,depthWrite:false})):new THREE.Line(geometry,new THREE.LineBasicMaterial({color,transparent:true,opacity:0,depthTest,depthWrite:false}));
  line.renderOrder=order;
  for(const [stroke,width,layer] of [[0xffffff,6,.1],[color,3,.2]]){
   const g=segments?new LineSegmentsGeometry():new LineGeometry();g.setPositions(Array.from(geometry.attributes.position.array));
-  const material=new LineMaterial({color:stroke,linewidth:width,worldUnits:false,transparent:true,depthTest,depthWrite:false,polygonOffset:depthTest,polygonOffsetFactor:-1,polygonOffsetUnits:-2});
+  const material=new LineMaterial({color:stroke,linewidth:construction?Math.max(1,width-1):width,dashed:construction,dashSize:1.5,gapSize:1,worldUnits:false,transparent:true,depthTest,depthWrite:false,polygonOffset:depthTest,polygonOffsetFactor:-1,polygonOffsetUnits:-2});
   if(depthTest&&planeNormal){
    // Line2 widens in screen space. Restore the sketch plane's depth at each
    // widened vertex, then bias it slightly to avoid fighting the solid face.
@@ -43,7 +43,7 @@ export function sketchLine(geometry,{color=0x245d99,depthTest=true,order=4,segme
    };
    material.customProgramCacheKey=()=> 'sketch-plane-stroke-v1';
   }
-  const display=segments?new LineSegments2(g,material):new Line2(g,material);display.renderOrder=order+layer;display.raycast=()=>{};display.userData.sketchStroke=true;line.add(display);
+  const display=segments?new LineSegments2(g,material):new Line2(g,material);if(construction)display.computeLineDistances();display.renderOrder=order+layer;display.raycast=()=>{};display.userData.sketchStroke=true;line.add(display);
  }
  return line;
 }
