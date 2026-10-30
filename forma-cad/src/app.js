@@ -1272,7 +1272,6 @@ $('export-enclosure').onclick=async()=>{
 const sample=()=>[{...defaults,id:'sample-base',name:'ベースプレート',width:80,height:60,depth:4},{...defaults,id:'sample-wall',name:'薄い押し出し',mode:'thin',width:80,height:60,wall:3,depth:26,z:4,operation:'join',target:'sample-base'}];
 $('sample').onclick=()=>{if(projectFileTarget.busy)return;if(modified&&!confirm('未保存の変更があります。サンプルを開きますか？'))return;setProject(sample(),{inheritConstraints:false});attachProjectFile();drawingController?.loadState(null);dimensionMeasure?.loadState(null);hiddenBodies.clear();for(const m of meshes.values())m.visible=true;selectFeature('sample-wall');dropPreview();setView('iso');fit();notify('底面＋壁厚3mmのサンプルです');};
 $('clear').onclick=()=>{if(projectFileTarget.busy)return;if(features.length&&!confirm('新しいデザインを作成しますか？現在の作業は「戻す」で復元できます。'))return;setProject([]);attachProjectFile();drawingController?.loadState(null);dimensionMeasure?.loadState(null);hiddenBodies.clear();stage='model';selected=null;chosenRegion=null;pendingExtrude=false;draftTouched=false;fillForm({...defaults,name:'スケッチ'});dropPreview();syncFields();fit();};
-window.addEventListener('beforeunload',e=>{if(modified){e.preventDefault();e.returnValue='';}});
 fillForm({...defaults,name:'スケッチ'});setProject([],{record:false});stage='model';selected=null;syncFields();dropPreview();modified=false;renderTree();fit();$('status').textContent='スケッチを作成し、閉じた領域から立体を作ります';
 // A single real action is shared by the visible editor and WebMCP.
 const context=document.modelContext;
