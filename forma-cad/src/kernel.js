@@ -1,3 +1,4 @@
+import {makeHoneycomb} from './honeycomb-solid.js';
 import {makeSupportContactTrials} from './print-support-contact-trials.js';
 import {enclosureHistoryBody} from './enclosure-history-body.js';
 import {assemblyLinks,assemblyTargets,copiedAssemblyLinks} from './assembly-state.js';
@@ -503,6 +504,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='bossJoint'){const pinId=p.mode==='split'?p.id+'-pin':p.pinTarget;if(p.mode==='split'&&bodies.has(pinId))throw Error('棒側のボディIDが重複しています');const result=makeBossJoint(base,bodies.get(p.pinTarget),p,onProgress);try{emit(p.target,result.parts[0]);emit(pinId,result.parts[1]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='slideLid'){const lidId=p.id+'-lid';if(bodies.has(lidId))throw Error('蓋のボディIDが既存のボディと重なっています');const result=makeSlideLid(base,p);try{emit(p.target,result.body);emit(lidId,result.lid);analysis=result.analysis;}finally{result.body.delete();result.lid.delete();}}
  else if(p.type==='snapLid'){if(p.target===p.lidTarget)throw Error('本体と蓋は別のボディを選択してください');const result=makeSnapLid(base,bodies.get(p.lidTarget),p);try{emit(p.target,result.body);emit(p.lidTarget,result.lid);analysis=result.analysis;}finally{result.body.delete();result.lid.delete();}}
+ else if(p.type==='honeycomb'){const made=makeHoneycomb(base,p,onProgress);try{emit(p.target,made.shape);analysis={...analysis,honeycomb:made.info};}finally{made.shape.delete();}}
  else if(p.type==='svgWrap'){if(!base)throw Error('対象ボディが見つかりません');const wrapped=wrapSvgSolid(base,p,onProgress);try{emit(p.target,wrapped.shape);analysis=wrapped.info;}finally{wrapped.shape.delete();}}
  else if(p.type==='trimSurface'){const selection=p.faces?.[0];const result=trimSurface(base,bodies.get(selection?.bodyId),selection,p.trimSide);try{emit(p.target,result);}finally{result.delete();}}
  else if(p.type==='trimInterior'){const selection=p.faces?.[0];const result=trimInterior(base,bodies.get(selection?.bodyId),selection);try{emit(p.target,result);}finally{result.delete();}}
