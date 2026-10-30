@@ -758,6 +758,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(dimensionMeasure?.escape())return;
  if(sketchConstraintsController?.escape())return;
  if(imageReferences?.escapeTrace())return;
  if(sketchVertexRotation?.active){sketchVertexRotation.escape();return;}

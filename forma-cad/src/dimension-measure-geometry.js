@@ -7,6 +7,25 @@ export function measurementGridPoint(point,basis,offset,step){
 }
 export function measurementDirection(input){const v=vector(input);if(!v.toArray().every(Number.isFinite)||v.length()<1e-9)throw Error('方向には0以外の値を指定してください');return v.normalize();}
 export function measurePoints(a,b){a=vector(a);b=vector(b);if(![...a.toArray(),...b.toArray()].every(Number.isFinite))throw Error('測定点が不正です');return {a:a.toArray(),b:b.toArray(),distance:a.distanceTo(b)};}
+// Closest points on finite 3D segments, including parallel and zero-length cases.
+export function closestMeasurementSegments(first,second){
+ const a=vector(first.a),b=vector(first.b),c=vector(second.a),d=vector(second.b),u=b.clone().sub(a),v=d.clone().sub(c),r=a.clone().sub(c),aa=u.dot(u),ee=v.dot(v),f=v.dot(r),clamp=t=>Math.max(0,Math.min(1,t));let s=0,t=0;
+ if(aa<=1e-18)t=ee<=1e-18?0:clamp(f/ee);
+ else{const cc=u.dot(r);if(ee<=1e-18)s=clamp(-cc/aa);else{const bb=u.dot(v),denom=aa*ee-bb*bb;if(denom>aa*ee*1e-12)s=clamp((bb*f-cc*ee)/denom);t=(bb*s+f)/ee;if(t<0){t=0;s=clamp(-cc/aa);}else if(t>1){t=1;s=clamp((bb-cc)/aa);}}}
+ return measurePoints(a.addScaledVector(u,s),c.addScaledVector(v,t));
+}
+export function measureEdgeLength(edge){
+ if(!edge.segments?.length)throw Error('測定する線・辺がありません');
+ const segments=edge.segments.map(s=>({a:vector(s.a),b:vector(s.b)})),length=Number.isFinite(edge.length)?edge.length:segments.reduce((sum,s)=>sum+s.a.distanceTo(s.b),0);
+ if(length<=1e-9)throw Error('長さが0の辺は測定できません');
+ return {...measurePoints(segments[0].a,segments.at(-1).b),distance:length,type:'edge-length',curved:!edge.straight,label:edge.label||'線・辺の長さ',approximate:!!edge.approximate,edges:[segments.map(s=>({a:s.a.toArray(),b:s.b.toArray()}))]};
+}
+export function measureEdgePair(first,second){
+ if(!first.segments?.length||!second.segments?.length)throw Error('2本の線・辺を選択してください');
+ let best=null;for(const a of first.segments)for(const b of second.segments){const hit=closestMeasurementSegments(a,b);if(!best||hit.distance<best.distance)best=hit;}
+ let angle=null;if(first.straight&&second.straight){const a=first.segments[0],b=second.segments[0],u=vector(a.b).sub(vector(a.a)).normalize(),v=vector(b.b).sub(vector(b.a)).normalize();angle=Math.acos(Math.min(1,Math.abs(u.dot(v))))*180/Math.PI;}
+ return {...best,type:'edge-pair',angle,label:'2本の線・辺の最短距離',approximate:!!first.approximate||!!second.approximate||!first.straight||!second.straight,edges:[first,second].map(edge=>edge.segments.map(s=>({a:vector(s.a).toArray(),b:vector(s.b).toArray()})))};
+}
 export function firstMeasurementSegmentHit(origin,direction,segments){
  const o=vector(origin),d=measurementDirection(direction),ray=new THREE.Ray(o,d),onRay=new THREE.Vector3(),onSegment=new THREE.Vector3();let best=null;
  for(const s of segments){const a=vector(s.a),b=vector(s.b),length=a.distanceTo(b);if(length<1e-9)continue;const offset=a.clone().sub(o),cross=new THREE.Vector3().crossVectors(b.clone().sub(a),d);let point,t;
