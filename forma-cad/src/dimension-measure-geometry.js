@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 const vector=p=>p?.isVector3?p.clone():new THREE.Vector3(...p);
+export function measurementGridPoint(point,basis,offset,step){
+ if(!Number.isFinite(step)||step<=0||!Number.isFinite(offset))return null;
+ const p=vector(point),u=Math.round(p.dot(basis.u)/step)*step,v=Math.round(p.dot(basis.v)/step)*step;
+ return basis.u.clone().multiplyScalar(u).addScaledVector(basis.v,v).addScaledVector(basis.n,offset);
+}
 export function measurementDirection(input){const v=vector(input);if(!v.toArray().every(Number.isFinite)||v.length()<1e-9)throw Error('方向には0以外の値を指定してください');return v.normalize();}
 export function measurePoints(a,b){a=vector(a);b=vector(b);if(![...a.toArray(),...b.toArray()].every(Number.isFinite))throw Error('測定点が不正です');return {a:a.toArray(),b:b.toArray(),distance:a.distanceTo(b)};}
 export function firstMeasurementSegmentHit(origin,direction,segments){

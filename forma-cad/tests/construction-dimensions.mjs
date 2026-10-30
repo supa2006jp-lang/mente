@@ -4,7 +4,8 @@ import {defaults,validateFeature,validateProject,makeSketchGeometry} from '../sr
 import {findRegions} from '../src/regions.js';
 import {sketchLine} from '../src/sketch-line.js';
 import {portableSketch} from '../src/selection-template.js';
-import {measurePoints,firstMeasurementSegmentHit,measurementDirection} from '../src/dimension-measure-geometry.js';
+import {measurePoints,firstMeasurementSegmentHit,measurementDirection,measurementGridPoint} from '../src/dimension-measure-geometry.js';
+import {basisFor} from '../src/frames.js';
 import {sketchMirrorDuplicateKey} from '../src/sketch-mirror-duplicates.js';
 import {encodeProjectDocument,decodeProjectDocument} from '../src/project-codec.js';
 const f=(id,points,extra={})=>({...defaults,id,name:id,kind:'sketch',profile:'polyline',points,closed:false,...extra}),box=f('box',[[0,0],[40,0],[40,30],[0,30]],{closed:true}),divider=f('helper',[[20,-10],[20,40]],{construction:true});
@@ -12,6 +13,8 @@ assert.equal(findRegions([box,divider]).length,1);assert.equal(findRegions([box,
 const line=sketchLine(makeSketchGeometry(divider),{construction:true,color:0x8a65b5});assert(line.children.every(c=>c.material.dashed));assert(line.children.every(c=>c.geometry.getAttribute('instanceDistanceStart')));line.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});
 const data={format:'forma-cad',version:1,features:[box,divider]};assert.deepEqual(validateProject((await decodeProjectDocument((await encodeProjectDocument(data,{compress:true})).text)).document),data.features);
 assert.equal(measurePoints([0,0,0],[3,4,12]).distance,13);assert.throws(()=>measurementDirection([0,0,0]));assert.throws(()=>measurementDirection([NaN,0,0]));
+for(const plane of ['XY','XZ','YZ']){const b=basisFor({plane}),point=b.u.clone().multiplyScalar(-13).addScaledVector(b.v,22).addScaledVector(b.n,7),grid=measurementGridPoint(point,b,7,10);assert.equal(grid.dot(b.u),-10);assert.equal(grid.dot(b.v),20);assert.equal(grid.dot(b.n),7);assert.equal(measurementGridPoint(point,b,7,0),null);}
+{const angle=Math.PI/6,b={u:new THREE.Vector3(Math.cos(angle),0,Math.sin(angle)),v:new THREE.Vector3(0,1,0),n:new THREE.Vector3(-Math.sin(angle),0,Math.cos(angle))},point=b.u.clone().multiplyScalar(7).addScaledVector(b.v,-13).addScaledVector(b.n,4),grid=measurementGridPoint(point,b,4,5);assert(grid.distanceTo(b.u.clone().multiplyScalar(5).addScaledVector(b.v,-15).addScaledVector(b.n,4))<1e-9);}
 const segments=[{a:[10,-5,0],b:[10,5,0],label:'near'},{a:[30,-5,0],b:[30,5,0],label:'far'},{a:[-10,-5,0],b:[-10,5,0],label:'back'}];let hit=firstMeasurementSegmentHit([0,0,0],[1,0,0],segments);assert.equal(hit.distance,10);assert.equal(hit.label,'near');assert.equal(firstMeasurementSegmentHit([0,0,0],[-1,0,0],segments).label,'back');assert.equal(firstMeasurementSegmentHit([0,10,0],[1,0,0],segments),null);assert.equal(firstMeasurementSegmentHit([0,0,2],[1,0,0],segments),null);
 hit=firstMeasurementSegmentHit([10,0,0],[1,0,0],segments);assert.equal(hit.label,'far');assert.equal(hit.distance,20);assert.equal(firstMeasurementSegmentHit([0,0,0],[1,0,0],[{a:[2,0,0],b:[5,0,0]}]).distance,2);assert(Math.abs(firstMeasurementSegmentHit([0,0,0],[1,1,0],[{a:[10,0,0],b:[10,20,0]}]).distance-Math.sqrt(200))<1e-8);
 for(const axis of [0,1,2]){const a=[0,0,0],b=[0,0,0],direction=[0,0,0];direction[axis]=1;a[axis]=b[axis]=7;a[(axis+1)%3]=-2;b[(axis+1)%3]=2;assert.equal(firstMeasurementSegmentHit([0,0,0],direction,[{a,b}]).distance,7);}
