@@ -563,7 +563,10 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
     const references=operation.edges?.length?operation.edges.filter(e=>e.bodyId===id):operation.edgePoint?[{point:operation.edgePoint}]:[],basis=operation.face?basisFor(operation.face):null;
     entries.push({id,arcRecovery:repaired?.info,trial:prepareFilletRadiusTrial(solid,{references,plane:basis?{normal:basis.n.toArray(),offset:operation.face.offset}:null})});
    }
-   found=searchFilletRadius({upperRadius:operation.radius,expand:p.expand===true,onProgress,trial:radius=>{
+   // Establish a full-selection checkpoint before probing large blends. On
+   // joined thin walls, the first oversized OCCT Build can trap instead of
+   // reporting IsDone=false, even though smaller common radii are valid.
+   found=searchFilletRadius({upperRadius:operation.radius,initialRadius:Math.min(operation.radius,.1),expand:p.expand===true,onProgress,trial:radius=>{
     const items=[];try{for(const entry of entries){let rounded;try{rounded=entry.trial.test(radius);}catch(error){error.diagnostics={...(error.diagnostics||{kind:'fillet',certainty:'body',edges:[]}),bodyIds:[entry.id],edges:(error.diagnostics?.edges||[]).map(edge=>({...edge,bodyId:entry.id}))};throw error;}items.push({id:entry.id,arcRecovery:entry.arcRecovery,...rounded});}return {items,dispose:()=>items.forEach(item=>item.shape.delete())};}
     catch(error){items.forEach(item=>item.shape.delete());throw error;}
    },onFailure:limiting=>onProgress?.({filletRadiusFailure:limiting}),onVerified:(result,info)=>{checkpoint=outputFor(result,info);onProgress?.({stage:'全対象へ適用できる R'+info.radius.toFixed(2)+' mmを確認しました',filletRadiusCheckpoint:checkpoint,filletRadiusVerified:checkpoint.analysis.filletRadiusSearch});}});

@@ -13,4 +13,16 @@ const limiting={radius:1,diagnostics:{bodyIds:['b'],certainty:'faulty-contour',e
 w4.onmessage({data:{id:4,progress:{filletRadiusCheckpoint:checkpoint}}});w4.onmessage({data:{id:4,progress:{filletRadiusFailure:limiting}}});w4.onmessage({data:{id:4,progress:{filletTrial:'start'}}});
 assert.equal(client.acceptFilletRadius(),true);const chosen=await accepted;assert.ok(w4.dead);assert.equal(chosen.analysis.filletRadiusSearch.limitReason,'user');assert.equal(chosen.analysis.filletRadiusSearch.radius,.5);assert.deepEqual(chosen.analysis.filletRadiusSearch.limiting,limiting);assert.equal(chosen.outputs.length,2);assert.equal(checkpoint.analysis.filletRadiusSearch.limiting,undefined);
 w4.onmessage({data:{id:4,result:{outputs:[]}}});assert.equal(client.pending.size,0);assert.equal(client.acceptFilletRadius(),false);
-console.log('PASS radius-search native stall recovery only from complete all-body checkpoints, unfinished error, cancellation and private progress filtering');
+// A fatal WASM error after a verified full-selection checkpoint must not rerun
+// the same crashing search or discard the last valid result.
+const fatal=client.run(features,spec),w5=workers.at(-1),fatalId=client.next;
+w5.onmessage({data:{id:fatalId,progress:{filletRadiusCheckpoint:checkpoint}}});
+const queued=client.run(features,{type:'move'});
+w5.onmessage({data:{id:fatalId,error:'RuntimeError: null function or function signature mismatch'}});
+const safe=await fatal;assert(w5.dead);assert.equal(safe.analysis.filletRadiusSearch.limitReason,'kernel-error');assert.equal(safe.outputs.length,2);assert.equal(safe.analysis.filletRadiusSearch.radius,.5);
+const clean=workers.at(-1);assert.notEqual(clean,w5);clean.onmessage({data:{id:client.next,result:{moved:true}}});assert.deepEqual(await queued,{moved:true});
+const workerError=client.run(features,spec),workerId=client.next;
+clean.onmessage({data:{id:workerId,progress:{filletRadiusCheckpoint:checkpoint}}});clean.onerror({message:'native engine crashed'});
+assert.equal((await workerError).analysis.filletRadiusSearch.limitReason,'kernel-error');assert(clean.dead);
+assert.equal(checkpoint.analysis.filletRadiusSearch.limitReason,undefined);client.reset();
+console.log('PASS radius-search native stall/crash recovery only from complete all-body checkpoints, unfinished error, cancellation, clean queue recovery and private progress filtering');

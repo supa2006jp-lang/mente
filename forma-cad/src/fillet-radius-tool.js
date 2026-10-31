@@ -32,7 +32,7 @@ export function createFilletRadiusTool({getFeatures,getSpec,cancelPreview,showRe
    if(!isCurrent())return;
    const info=result.analysis?.filletRadiusSearch;if(!info||!result.outputs?.length)throw Error('全ての辺へ適用できる半径を確認できませんでした');
    input.value=info.radius.toFixed(2);await showResult(result,{...spec,radius:info.radius},original);limiting=info.limiting||null;updateVerified(info);
-   status.textContent=(info.limitReason==='user'?'確認済みの値で検査を終了しました。':info.limitReason==='radius-limit'?'検索上限のR10000.00 mmまで確認しました。':info.limitReason?'検査上限までに確認できた値です。':info.expanded?'入力値を超えて上限も広げ、0.01 mm単位で検査しました。':'入力した上限 R'+info.upperRadius.toFixed(2)+' mm以下を0.01 mm単位で検査しました。')+'「実行」で適用します';
+   status.textContent=(info.limitReason==='user'?'確認済みの値で検査を終了しました。':info.limitReason==='kernel-error'?'形状計算が不安定になったため、全対象で確認済みの値を表示しています。上限は未確認です。':info.limitReason==='radius-limit'?'検索上限のR10000.00 mmまで確認しました。':info.limitReason?'検査上限までに確認できた値です。':info.expanded?'小さい半径から上限を広げ、0.01 mm単位で検査しました。':'入力した上限 R'+info.upperRadius.toFixed(2)+' mm以下を0.01 mm単位で検査しました。')+'「実行」で適用します';
   }catch(error){if(isActive())status.textContent=formatError(error);}
   finally{if(current===revision){busy=false;$('cad-apply').disabled=false;useButton.hidden=useButton.disabled=true;button.textContent='全ての辺に掛けられる半径を調べる';}}
  }
@@ -50,7 +50,7 @@ export function createFilletRadiusTool({getFeatures,getSpec,cancelPreview,showRe
    function text(id){const node=document.createElement('p');node.id=id;node.setAttribute('role','status');node.style.cssText='font-size:13px;line-height:1.6;margin:0';return node;}
    verifiedStatus=text('fillet-radius-verified');status=text('fillet-radius-status');limitStatus=text('fillet-radius-limit');
    useButton=document.createElement('button');useButton.id='fillet-radius-use';useButton.type='button';useButton.hidden=useButton.disabled=true;useButton.textContent='確認済みのこの値を使う';useButton.onclick=()=>{if(busy&&verified)worker.acceptFilletRadius();};
-   const help=document.createElement('small');help.textContent='全対象の辺を省かず、同じ半径で検査します。確認済みの値で途中終了できます。';help.style.cssText='font-size:13px;line-height:1.6';
+   const help=document.createElement('small');help.textContent='小さい半径から全対象の辺を省かず、同じ半径で検査します。確認済みの値で途中終了できます。';help.style.cssText='font-size:13px;line-height:1.6';
    section.append(expand.label,button,help,verifiedStatus,useButton,status,toggle.label,limitStatus);$('cad-radius').closest('label').after(section);
   }
  };
