@@ -1,12 +1,12 @@
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import * as R from 'replicad';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 import {runOperation} from '../src/kernel.js';import {defaults,validateProject} from '../src/geometry.js';
-import {ballJointDefaults,ballJointSettings} from '../src/ball-joint-settings.js';import {solidMeshComplete} from '../src/solid-mesh.js';
+import {ballJointDefaults,ballJointSavedDefaults,ballJointSettings} from '../src/ball-joint-settings.js';import {solidMeshComplete} from '../src/solid-mesh.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const vol=s=>Math.abs(R.measureVolume(s)),shape=o=>R.deserializeShape(o.brep).asShape3D();
 function check(s){const analyzer=new (R.getOC().BRepCheck_Analyzer)(s.wrapped,true,false),solids=s.solids;try{assert.ok(analyzer.IsValid());assert.equal(solids.length,1);assert.ok(solidMeshComplete(s));}finally{analyzer.delete();solids.forEach(s=>s.delete());}}
 function same(a,b){const ab=a.cut(b),ba=b.cut(a);try{assert.ok(vol(ab)+vol(ba)<1e-5,'compatible with the old ball/socket/thread geometry');}finally{ab.delete();ba.delete();}}
-const info={radius:12,height:40},source={...defaults,id:'c',name:'円柱',profile:'circle',diameter:24,depth:40},preset=ballJointDefaults(info),oldSpec={...preset,type:'ballJoint',id:'joint',target:'c',pose:'assembled',coneClearance:.25},old=runOperation([source],oldSpec),oldShapes=old.outputs.map(shape),oldSettings=ballJointSettings(info,oldSpec);
+const info={radius:12,height:40},source={...defaults,id:'c',name:'円柱',profile:'circle',diameter:24,depth:40},preset=ballJointDefaults(info),oldSpec={...ballJointSavedDefaults(info),type:'ballJoint',id:'joint',target:'c',pose:'assembled',coneClearance:.25},old=runOperation([source],oldSpec),oldShapes=old.outputs.map(shape),oldSettings=ballJointSettings(info,oldSpec);
 const legacy={...oldSpec};delete legacy.coneClearance;const fromLegacy=runOperation([source],legacy);assert.equal(fromLegacy.analysis.coneClearance,.25);for(let i=0;i<3;i++){const sh=shape(fromLegacy.outputs[i]);same(sh,oldShapes[i]);sh.delete();}
 assert.ok(Math.abs(old.analysis.clampReserve-.077254165)<1e-8);console.log('PASS old files retain the original nut, ball, socket and clamping travel');
 const spec={...oldSpec,coneClearance:.05},result=runOperation([source],spec),parts=result.outputs.map(shape),s=ballJointSettings(info,spec);

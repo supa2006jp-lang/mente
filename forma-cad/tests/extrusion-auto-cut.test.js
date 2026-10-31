@@ -45,10 +45,12 @@ test('grid boundary slivers cannot switch outward source contact to cut or rever
  const region={plane:'XY',offset:20,outer:[[-35,-35*slope+c],[35,35*slope+c],[35,35*slope+c+3],[-35,-35*slope+c+3]],holes:[],area:210,sourceIds:[]},ridge={...defaults,id:'ridge',profile:'region',region,depth:5,operation:'join',target:'base'};
  const bodies=rebuild([base,ridge]),face={plane:'XY',offset:20,outer:[[-40,-30],[40,-30],[40,30],[-40,30]],holes:[],bodyId:'base'};
  try{
-  const cells=faceGridCellRegions(face,[8,2],10,{occluders:gridCellOccluders(face,[8,2],10,[...bodies.values()])});let reproduced=false;
-  for(const cell of cells){const feature={...defaults,profile:'region',plane:cell.plane,region:cell};assert.equal(cell.gridSourceBodyId,'base');assert.equal(cell.bodyId,undefined);assert.equal(cell.cadFace,undefined);const actual=extrusionIntersections(feature,bodies);reproduced ||= actual.some(hit=>hit.volume>1e-5&&hit.volume<.001);assert.deepEqual(extrusionCutMatches(feature,bodies),[]);assert.equal(outwardExtrusion(feature,bodies),feature);assert.ok(extrusionCutMatches({...feature,depth:-2},bodies).some(hit=>hit.id==='base'));
+  const cells=faceGridCellRegions(face,[8,2],10,{occluders:gridCellOccluders(face,[8,2],10,[...bodies.values()])});assert.ok(cells.length);
+  for(const cell of cells){const feature={...defaults,profile:'region',plane:cell.plane,region:cell};assert.equal(cell.gridSourceBodyId,'base');assert.equal(cell.bodyId,undefined);assert.equal(cell.cadFace,undefined);assert.deepEqual(extrusionCutMatches(feature,bodies),[]);assert.equal(outwardExtrusion(feature,bodies),feature);assert.ok(extrusionCutMatches({...feature,depth:-2},bodies).some(hit=>hit.id==='base'));
    const other=new THREE.Mesh(new THREE.BoxGeometry(10,10,10));other.position.set(5,5,21);other.updateMatrixWorld(true);try{assert.deepEqual(extrusionCutMatches(feature,new Map([...bodies,['other',other]])).map(hit=>hit.id),['other'],'real collisions with other bodies remain cut candidates');}finally{other.geometry.dispose();other.material.dispose();}
   }
-  assert.equal(reproduced,true,'fixture reproduces the original microscopic overlap');
+  // Keep a deterministic sliver even when the grid CSG itself becomes exact.
+  const tiny=new THREE.Mesh(new THREE.BoxGeometry(.01,.01,2));tiny.position.set(5,5,21);tiny.updateMatrixWorld(true);
+  try{const feature={...defaults,profile:'region',plane:'XY',region:{plane:'XY',offset:20,outer:[[0,0],[10,0],[10,10],[0,10]],holes:[],gridSourceBodyId:'base'}},sources=new Map([['base',tiny]]),hits=extrusionIntersections(feature,sources);assert.equal(hits.length,1);assert.ok(hits[0].volume>1e-5&&hits[0].volume<.001);assert.deepEqual(extrusionCutMatches(feature,sources),[]);assert.equal(outwardExtrusion(feature,sources),feature);}finally{tiny.geometry.dispose();tiny.material.dispose();}
  }finally{for(const body of bodies.values())body.geometry.dispose();}
 });

@@ -2,9 +2,9 @@ import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js
 import * as R from 'replicad';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 import {runOperation} from '../src/kernel.js';import {defaults,validateProject} from '../src/geometry.js';
 import {ballJointThreadDimensions} from '../src/ball-joint-thread.js';
-import {ballJointDefaults,ballJointSettings} from '../src/ball-joint-settings.js';import {solidMeshComplete} from '../src/solid-mesh.js';import {createBallClampSectionModel} from '../src/ball-joint-section.js';
+import {ballJointDefaults,ballJointSavedDefaults,ballJointSettings} from '../src/ball-joint-settings.js';import {solidMeshComplete} from '../src/solid-mesh.js';import {createBallClampSectionModel} from '../src/ball-joint-section.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const volume=s=>Math.abs(R.measureVolume(s)),shape=o=>R.deserializeShape(o.brep).asShape3D(),info={radius:12,height:40},source={...defaults,id:'c',name:'円柱',profile:'circle',diameter:24,depth:40},preset=ballJointDefaults(info),spec={...preset,type:'ballJoint',id:'joint',target:'c',pose:'assembled',coneClearance:.05};delete spec.extraClampTravel;
+const volume=s=>Math.abs(R.measureVolume(s)),shape=o=>R.deserializeShape(o.brep).asShape3D(),info={radius:12,height:40},source={...defaults,id:'c',name:'円柱',profile:'circle',diameter:24,depth:40},preset=ballJointDefaults(info),spec={...ballJointSavedDefaults(info),type:'ballJoint',id:'joint',target:'c',pose:'assembled',coneClearance:.05};delete spec.extraClampTravel;
 function same(a,b){const ab=a.cut(b),ba=b.cut(a);try{assert.ok(volume(ab)+volume(ba)<1e-5,'CAD shapes remain compatible');}finally{ab.delete();ba.delete();}}
 const old=runOperation([source],spec),oldParts=old.outputs.map(shape),oldS=ballJointSettings(info,spec),explicit=runOperation([source],{...spec,extraClampTravel:0});assert.equal(old.analysis.extraClampTravel,0);explicit.outputs.forEach((o,i)=>{const s=shape(o);same(s,oldParts[i]);s.delete();});
 const nextSpec={...spec,extraClampTravel:.6},next=runOperation([source],nextSpec),parts=next.outputs.map(shape),s=ballJointSettings(info,nextSpec);

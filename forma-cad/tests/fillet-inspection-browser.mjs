@@ -57,7 +57,7 @@ try{
    assert.equal(await page.evaluate(()=>window.testFilletJobs.length),jobs,'confirmation must reuse the exact completed or recovered shape');assert.equal(await page.locator('#canvas-host').getAttribute('data-machining-cache-applied'),'true');
   }
   if(mode!=='normal'){
-   const times=await page.evaluate(()=>({starts:window.testTrialStarts,ends:window.testTerminated}));assert.ok(times.ends.length>0);guardMs=times.ends[0]-times.starts.at(-1);assert.ok(guardMs>=3900&&guardMs<8000,'stuck native trial is stopped by the four-second watchdog');
+   const times=await page.evaluate(()=>({starts:window.testTrialStarts,ends:window.testTerminated}));assert.ok(times.ends.length>0);const trialStart=times.starts.at(-1),trialEnd=times.ends.find(t=>t>=trialStart);guardMs=trialEnd-trialStart;assert.ok(guardMs>=3900&&guardMs<8000,'stuck native trial is stopped by the four-second watchdog '+JSON.stringify({times,guardMs}));
   }
   const download=page.waitForEvent('download');await page.locator('#save').click();const saved=JSON.parse(await fs.readFile(await(await download).path(),'utf8'));
   assert.equal(saved.features.length,accepted?2:1);assert.equal(saved.features[0].outputs[0].brep,project.features[0].outputs[0].brep);

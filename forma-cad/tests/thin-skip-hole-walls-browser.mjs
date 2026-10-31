@@ -12,7 +12,7 @@ const features=[
  {...defaults,id:'plate',name:'Plate',kind:'extrusion',profile:'region',depth:2,region:{id:'plate-region',plane:'XY',offset:0,outer:[[0,0],[30,0],[30,30],[0,30]],holes:[],area:900,sourceIds:['plate-sketch']}},
  {...defaults,id:'hole',name:'Hole Ø10',kind:'extrusion',profile:'circle',plane:'CUSTOM',frame:{u:[1,0,0],v:[0,1,0],n:[0,0,1]},operation:'cut',target:'plate',diameter:10,x:15,y:15,z:2,depth:-20,hole:true}
 ];
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const page=await browser.newPage({viewport:{width:1600,height:1100},acceptDownloads:true});
 page.setDefaultTimeout(10000);
 page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
@@ -40,16 +40,16 @@ async function extrude(mode){
 try{
  await page.goto('http://127.0.0.1:5188');
  await page.locator('#file').setInputFiles({name:'hole-face.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});
- await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');
+ await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');
  await page.locator('[data-view=top]').click();
  await page.locator('#fit').click();
  await page.locator('#selection-mode').selectOption('face');
- const rect=await page.locator('canvas').boundingBox();
+ const rect=await page.locator('#canvas-host canvas').boundingBox();
  const facePoint={x:rect.x+rect.width/2+110,y:rect.y+rect.height/2};
  await page.mouse.click(facePoint.x,facePoint.y);
  assert.match(await page.locator('#selection-summary').textContent(),/面 1 枚/);
  await extrude('solid');
- if(!/面 1 枚/.test(await page.locator('#selection-summary').textContent()))await page.mouse.click(facePoint.x,facePoint.y);
+ if(!/面 1 枚/.test(await page.locator('#selection-summary').textContent())){await page.locator('[data-view=top]').click();await page.locator('#fit').click();const r=await page.locator('#canvas-host canvas').boundingBox();await page.mouse.click(r.x+r.width/2+110,r.y+r.height/2);}
  assert.match(await page.locator('#selection-summary').textContent(),/面 1 枚/);
  await extrude('thin');
  const download=page.waitForEvent('download');

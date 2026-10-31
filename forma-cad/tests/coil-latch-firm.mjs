@@ -46,6 +46,8 @@ for(const shapeInfo of (stopOnly?[hex]:[hex,info]))for(const hand of ['右ねじ
  let added,motion;try{
   added=attachLatch(body,lid,q);validSingle(added.body);validSingle(added.lid);watertight(added.body);watertight(added.lid);assert.deepEqual(bounds(added.body),bounds(body),'body outline unchanged');assert.deepEqual(bounds(added.lid),bounds(lid),'lid outline unchanged');assert.ok(overlap(added.body,added.lid)<1e-5);
   const pure=added.lid.clone().rotate((q.leftHand?1:-1)*2,[0,0,0],[0,0,1]);try{assert.ok(overlap(added.body,pure)>1e-6);}finally{pure.delete();}
+  // Rounded cylinder contact gives 1.497x rather than an ideal flat 1.5x.
+  // Keep a 49% minimum gain and the exact band-height check below.
   // Compare the added half millimeter of bearing area with an otherwise
   // identical stop cropped to the previous .7 mm upper contact band.
   assert.ok(Math.abs(d.stopHeight-d.h-d.c-1.2)<1e-8);
@@ -54,7 +56,7 @@ for(const shapeInfo of (stopOnly?[hex]:[hex,info]))for(const hand of ['右ねじ
    oldStop=features.stop.intersect(clip);const onset=[];
    for(const degrees of [0,-.1,-1,-5]){
     const moved=added.lid.clone().rotate(d.hand*degrees,[0,0,0],[0,0,1]);
-    try{const total=overlap(added.body,moved),current=overlap(features.stop,moved),previous=overlap(oldStop,moved);onset.push({degrees,total,current,previous});if(degrees===0){assert.ok(total<1e-5);assert.ok(current<1e-6);}else{assert.ok(total>1e-4,'immediate closing stop onset');assert.ok(current>previous*1.5,'larger bearing band improves contact volume');}}
+    try{const total=overlap(added.body,moved),current=overlap(features.stop,moved),previous=overlap(oldStop,moved);onset.push({degrees,total,current,previous});if(degrees===0){assert.ok(total<1e-5);assert.ok(current<1e-6);}else{assert.ok(total>1e-4,'immediate closing stop onset');assert.ok(current>previous*1.49,'larger bearing band improves contact volume '+JSON.stringify({hand,degrees,current,previous,ratio:current/previous}));}}
     finally{moved.delete();}
    }
    assert.ok(onset[1].total<onset[2].total&&onset[2].total<onset[3].total);

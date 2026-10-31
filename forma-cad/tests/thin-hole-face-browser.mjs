@@ -9,7 +9,7 @@ const features=[
  {...defaults,id:'hole',name:'Hole Ø10',kind:'extrusion',profile:'circle',plane:'CUSTOM',frame:{u:[1,0,0],v:[0,1,0],n:[0,0,1]},operation:'cut',target:'plate',diameter:10,x:15,y:15,z:2,depth:-20,hole:true}
 ];
 const model=process.env.FORMA_MODEL?readFileSync(process.env.FORMA_MODEL):Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}));
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const errors=[];
 try{
  for(const mode of (process.argv[2]?[process.argv[2]]:['solid','thin']))for(const depth of (process.argv[3]?[Number(process.argv[3])]:[2,-2])){
@@ -19,11 +19,11 @@ try{
   try{
    await page.goto('http://127.0.0.1:5188');
    await page.locator('#file').setInputFiles({name:'hole-face.json',mimeType:'application/json',buffer:model});
-   await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');
+   await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.waitForFunction(()=>document.getElementById('body-count').textContent==='1');
    await page.locator('[data-view=top]').click();
    await page.locator('#fit').click();
    await page.locator('#selection-mode').selectOption('face');
-   const rect=await page.locator('canvas').boundingBox();
+   const rect=await page.locator('#canvas-host canvas').boundingBox();
    await page.mouse.click(rect.x+rect.width/2+110,rect.y+rect.height/2);
    const selection=await page.locator('#selection-summary').textContent();
    assert.match(selection,/面 1 枚/);

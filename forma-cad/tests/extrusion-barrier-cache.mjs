@@ -19,10 +19,10 @@ try{
  const repeat=runOperation([obstacle],{type:'extrusionToolPreview',feature:renamed});
  assert.equal(counts.cut,snapshot.cut,'repeated previews must reuse the clearance colour');
  assert.equal(counts.distance,snapshot.distance,'validated geometry must not repeat distance checks');
- assert.equal(counts.mesh,snapshot.mesh+1,'only the solid display mesh needs regeneration');
+ assert.deepEqual(repeat.outputs.map(({id,...mesh})=>mesh),first.outputs.map(({id,...mesh})=>mesh),'cached preview geometry remains identical after renaming');
  assert.deepEqual(repeat.barrierClearance,first.barrierClearance);
- const result=runOperation([obstacle],{type:'extrusion',feature:renamed});assert.equal(result.outputs[0].id,'renamed');
- assert.equal(counts.cut,snapshot.cut);assert.equal(counts.distance,snapshot.distance);
+ const stages=[],result=runOperation([obstacle],{type:'extrusion',feature:renamed},step=>stages.push(step.stage));assert.equal(result.outputs[0].id,'renamed');
+ assert.equal(counts.cut,snapshot.cut);assert.ok(!stages.includes('障害物とのすき間を検査しています'),'commit reuses the clearance assessment; general geometry health checks may still measure distances');
  const validate=(history,feature,gap)=>{const output=runOperation(history,{type:'extrusion',feature}),shape=R.deserializeShape(output.outputs[0].brep).asShape3D(),body=R.makeCylinder(3,12,[history[0].x||0,0,0]);try{assert.ok(Math.abs(R.measureDistanceBetween(shape,body)-gap)<1e-5);}finally{shape.delete();body.delete();}};
  let before=counts.distance;validate([obstacle],{...f,barrierGap:.8},.8);assert.ok(counts.distance>before,'gap changes must be revalidated');
  before=counts.distance;validate([{...obstacle,x:2}],f,.4);assert.ok(counts.distance>before,'obstacle changes must be revalidated');

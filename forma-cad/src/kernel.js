@@ -1,4 +1,5 @@
 import {validateCounterbore} from './counterbore.js';
+import {requireMaterialRemoval} from './cut-result.js';
 import {inspectInteriorEdges} from './interior-edge-selection.js';
 import {makeStorageTray,makeDovetail,checkMotion,motionSettings} from './part-workshop.js';
 import {makeHoneycomb,honeycombBodyInfo} from './honeycomb-solid.js';
@@ -156,13 +157,22 @@ function extrudeCadFaceThin(face,region,depth,wall,side,skipHoleWalls=false){
  };
  const offset=(wire,distance)=>{
   if(!distance)return wire;
-  const sourcePlane=planePosition(wire);
-  let shifted=wire.clone().offset2D(distance,'intersection');
-  // OCCT can drop a wire's Location during offset (notably after a face fuse).
-  // Keep the offset on the selected CAD face's plane before making a wall band.
-  const correction=sourcePlane-planePosition(shifted);
-  if(Math.abs(correction)>1e-7)shifted=shifted.translate(normal.map(value=>value*correction));
-  return hold(shifted);
+  const sourcePlane=planePosition(wire),sourceArea=faceArea(wire),epsilon=Math.max(1e-7,sourceArea*1e-9);
+  // Offset signs depend on the native wire orientation, including hole wires.
+  // Interpret positive as increasing enclosed area, regardless of that winding.
+  for(const signed of [distance,-distance]){
+   const input=wire.clone();let shifted;
+   try{
+    shifted=input.offset2D(signed,'intersection');
+    if((faceArea(shifted)-sourceArea)*Math.sign(distance)<=epsilon)continue;
+    // OCCT can drop a wire's Location during offset after a face fuse.
+    const correction=sourcePlane-planePosition(shifted);
+    if(Math.abs(correction)>1e-7)shifted=shifted.translate(normal.map(value=>value*correction));
+    const result=hold(shifted);shifted=null;return result;
+   }catch(error){if(error instanceof WebAssembly.RuntimeError||/indirect call to null|null function|memory access out of bounds|unreachable|table index|function signature mismatch|aborted|RuntimeError/i.test(error?.message||''))throw error;}
+   finally{input.delete();shifted?.delete();}
+  }
+  throw Error('この壁厚では有効な薄い押し出しを作れません。壁厚を小さくしてください');
  };
  const faceArea=wire=>{const planar=R.makeFace(wire);try{return R.measureArea(planar);}finally{planar.delete();}};
  const addBand=(outer,inner)=>{
@@ -187,7 +197,7 @@ function extrudeCadFaceThin(face,region,depth,wall,side,skipHoleWalls=false){
   const outer=hold(face.clone().outerWire());
   const holes=skipHoleWalls?[]:face.clone().innerWires().map(hold);
   addBand(offset(outer,outward),offset(outer,-inward));
-  for(const hole of holes)addBand(offset(hole,-inward),offset(hole,outward));
+  for(const hole of holes)addBand(offset(hole,inward),offset(hole,-outward));
   const tool=parts.length===1?parts[0].clone():R.makeCompound(parts).asShape3D();
   const check=new (R.getOC().BRepCheck_Analyzer)(tool.wrapped,true,false);
   try{if(!check.IsValid())throw Error('この壁厚では有効な薄い押し出しを作れません。壁厚を小さくしてください');}
@@ -524,7 +534,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='trimInterior'){const selection=p.faces?.[0];const result=trimInterior(base,bodies.get(selection?.bodyId),selection);try{emit(p.target,result);}finally{result.delete();}}
  else if(p.type==='pipe'){
  const tool=makePipe(p.pathFeature||features.find(f=>f.id===p.path),p.diameter,p.hollow==='中空'?p.wall:0);let result;
- try{if(p.operation==='新規ボディ'){result=tool.clone();}else{if(!base)throw Error('対象ボディを選択してください');result=p.operation==='切り取り'?base.cut(tool):base.fuse(tool);}const check=new (R.getOC().BRepCheck_Analyzer)(result.wrapped,true,false);try{if(!check.IsValid())throw Error('この経路と太さではパイプを作成できません。外径を小さくしてください');}finally{check.delete();}emit(p.operation==='新規ボディ'?p.id:p.target,result);}finally{result?.delete();tool.delete();}
+ try{if(p.operation==='新規ボディ'){result=tool.clone();}else{if(!base)throw Error('対象ボディを選択してください');result=p.operation==='切り取り'?base.cut(tool):base.fuse(tool);if(p.operation==='切り取り')requireMaterialRemoval(base,result);}const check=new (R.getOC().BRepCheck_Analyzer)(result.wrapped,true,false);try{if(!check.IsValid())throw Error('この経路と太さではパイプを作成できません。外径を小さくしてください');}finally{check.delete();}emit(p.operation==='新規ボディ'?p.id:p.target,result);}finally{result?.delete();tool.delete();}
  }
  else if(p.type==='sphere'){
  if(!Number.isFinite(p.radius)||p.radius<=0||![p.x,p.y,p.z].every(Number.isFinite))throw Error('半径は0より大きい数値、中心位置は数値で指定してください');
@@ -651,6 +661,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    else if(p.combineMode==='切り取り'){onProgress?.({stage:tools.length+'個のツールで切り取っています'});joined=cutWithClearance(base,tools,p.cutClearance??0);}
    else joined=fuseSolids([base,...tools],{onProgress});
    if(Math.abs(R.measureVolume(joined))<1e-8)throw Error('結果が空です。対象ボディとツールの重なりを確認してください');
+   if(p.combineMode==='切り取り')requireMaterialRemoval(base,joined);
    const check=new (R.getOC().BRepCheck_Analyzer)(joined.wrapped,true,false);try{if(!check.IsValid())throw Error('正常なソリッドとして結合できませんでした。元のボディは変更していません');}finally{check.delete();}
    onProgress?.({stage:'結合結果の表示データを作成しています'});emit(p.target,joined);if(p.keepTools!=='保持')remove.push(...ids);
   }finally{joined?.delete();tool?.delete();}

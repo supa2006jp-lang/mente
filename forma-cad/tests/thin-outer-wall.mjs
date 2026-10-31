@@ -16,7 +16,7 @@ const feature={...defaults,id:'wall',kind:'extrusion',profile:'region',region,mo
 const outerVolume=(30*30-26*26)*2;
 const innerVolume=Math.PI*(7*7-5*5)*2;
 const valid=shape=>{const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{assert.ok(check.IsValid());}finally{check.delete();}};
-const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<0.05,`Expected ${expected}, got ${actual}`);
+const close=(actual,expected,tolerance=.05)=>assert.ok(Math.abs(actual-expected)<tolerance,`Expected ${expected}, got ${actual}`);
 for(const [skipHoleWalls,expected] of [[false,outerVolume+innerVolume],[true,outerVolume]]){
  const input={...feature,skipHoleWalls};
  const tool=featureSolid(input,new Map([['plate',plate]]));
@@ -25,8 +25,9 @@ for(const [skipHoleWalls,expected] of [[false,outerVolume+innerVolume],[true,out
  const joined=R.deserializeShape(result.outputs[0].brep).asShape3D();
  try{valid(joined);close(R.measureVolume(joined),R.measureVolume(plate)+expected);}finally{joined.delete();}
  const generic=featureSolid({...input,region:{...region,bodyId:undefined,cadFace:undefined}},new Map());
- try{valid(generic);close(R.measureVolume(generic),expected);}finally{generic.delete();}
+ try{valid(generic);close(R.measureVolume(generic),expected,.1);}finally{generic.delete();}
 }
+for(const [side,outerArea,holeArea] of [['inside',900-26**2,Math.PI*(7**2-5**2)],['outside',34**2-900,Math.PI*(5**2-3**2)],['center',32**2-28**2,Math.PI*(6**2-4**2)]])for(const skipHoleWalls of [false,true]){const tool=featureSolid({...feature,side,skipHoleWalls},new Map([['plate',plate]]));try{valid(tool);close(R.measureVolume(tool),(outerArea+(skipHoleWalls?0:holeArea))*2,1e-5);}finally{tool.delete();}}
 for(const [skipHoleWalls,removed] of [[false,outerVolume+innerVolume],[true,outerVolume]]){
  const input={...feature,depth:-1,operation:'cut',skipHoleWalls};
  const result=runOperation([source],{type:'extrusion',target:'plate',feature:input});

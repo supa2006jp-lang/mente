@@ -32,7 +32,9 @@ export function planTextEdit(before,key,replacement){
  let run=[];const flush=()=>{if(!run.length)return;const covered=new Set(run.map(f=>f.region?.id));if(covered.size!==oldRegions.length||oldRegions.some(r=>!covered.has(r.id)))throw Error('この文字は一部の輪郭だけを加工しています。文字全体の押し出しにそろえてから再編集してください');
   const settings=f=>JSON.stringify([f.operation,f.depth,f.mode,f.wall,f.side,f.taperAngle,f.taperMode??'all',f.taperSide??'u+',f.taperReference??'normal',f.target,f.targetBodies,f.targetAllBodies,f.untilSolid,f.barrier]);if(run.some(f=>settings(f)!==settings(run[0])))throw Error('文字ごとに加工条件が異なるため、一括で文字を置き換えられません');
   const generated=newRegions.map((region,i)=>{const template=copy(run[i]||run[0]),oldNormal=basisFor(run[0].region).n;if(oldNormal.dot(basisFor(region).n)<0)region=reverseExtrusionFrame({profile:'region',region,plane:region.plane,frame:region.frame}).region;
-   const n=basisFor(region).n,id=run[i]?.id||crypto.randomUUID();return {...template,id,region:copy(region),sourceSketchIds:[...region.sourceIds],plane:region.plane,frame:region.frame,x:n.x*region.offset,y:n.y*region.offset,z:n.z*region.offset,cadResult:template.cadResult||{outputs:[]}};});
+   // New glyphs have no previous result. Reusing the template's cached BRep
+   // would overwrite its body and let replay skip the added letter entirely.
+   const n=basisFor(region).n,id=run[i]?.id||crypto.randomUUID();return {...template,id,region:copy(region),sourceSketchIds:[...region.sourceIds],plane:region.plane,frame:region.frame,x:n.x*region.offset,y:n.y*region.offset,z:n.z*region.offset,cadResult:(run[i]&&template.cadResult)||{outputs:[]}};});
   replacements.set(run[0].id,generated);for(const old of run.slice(1))replacements.set(old.id,[]);for(const old of run.slice(generated.length))removed.add(old.id);run=[];};
  for(const f of before){if(directIds.has(f.id))run.push(f);else flush();}flush();
  for(const f of before)if(!oldIds.has(f.id)&&!directIds.has(f.id)&&[...featureReads(f)].some(id=>removed.has(id)))throw Error('削除される文字の輪郭やボディを後続工程が参照しています。その工程の参照を変更してから再編集してください');

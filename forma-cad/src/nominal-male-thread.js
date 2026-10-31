@@ -32,7 +32,10 @@ export function nominalMaleThread(base,selected,spec,length,onProgress){
   try{
    for(let start=0;start<length-1e-8;start+=pitch*turns){
     onProgress?.({stage:turns>=length/pitch?'連続したねじ山を作成しています':'ねじ山を分割して作成しています',current:Math.round(start/pitch),total:Math.ceil(length/pitch)});
-    const span=Math.min(pitch*turns,length-start),height=span+(start+span>=length-1e-8?pitch*.5:0),path=turns>=length/pitch?continuousHelix(pitch,height,root,!!spec.leftHand):R.makeHelix(pitch,height,root,undefined,undefined,!!spec.leftHand);
+    // Male and female profiles must share the nominal-radius spine. A spine
+    // at the male root tilts its Frenet frame differently and creates overlap
+    // between otherwise complementary thread flanks.
+    const span=Math.min(pitch*turns,length-start),height=span+(start+span>=length-1e-8?pitch*.5:0),path=turns>=length/pitch?continuousHelix(pitch,height,radius,!!spec.leftHand):R.makeHelix(pitch,height,radius,undefined,undefined,!!spec.leftHand);
     let ridge;
     try{
      ridge=R.genericSweep(section,path,{frenet:true}).rotate(180+(spec.leftHand?-1:1)*start/pitch*360,[0,0,0],[0,0,1]).translate([0,0,start]);
