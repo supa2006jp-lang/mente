@@ -18,7 +18,7 @@ export function nativeSketchRegion(region,features){
   const fb=basisFor(f),offset=planeCoordinates(f).offset;
   if(Math.abs(Math.abs(fb.n.dot(b.n))-1)>1e-8||Math.abs(offset*fb.n.dot(b.n)-region.offset)>1e-5)continue;
   const points=sketchPoints(f).map(([x,y])=>{const p=fb.u.clone().multiplyScalar(x).addScaledVector(fb.v,y).addScaledVector(fb.n,offset);return [p.dot(b.u),p.dot(b.v)];});
-  if(points.length<8)continue;
+  if(points.length<(f.arc?.source==='solid-boundary'?3:8))continue;
   const circle=circleThrough(points[0],points[Math.floor(points.length/3)],points[Math.floor(points.length*2/3)]);
   if(!circle||points.some(p=>Math.abs(distance(p,circle.center)-circle.radius)>1e-5))continue;
   sources.push({...circle,points});

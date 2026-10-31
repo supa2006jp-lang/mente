@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {defaults,validateFeature} from './geometry.js';
 import {findRegions,sketchPoints,planeCoordinates,regionContains} from './regions.js';
 import {basisFor,worldPoint} from './frames.js';
+import {boundaryArcRuns} from './sketch-boundary-arcs.js';
 
 const EPS=1e-6,group=f=>f.groupId??('legacy:'+(f.groupNumber??''));
 const local=(p,b)=>[p.dot(b.u),p.dot(b.v)];
@@ -16,25 +17,27 @@ function runsFor(ring,sketchEdges,boundaryEdges){
 
 // Copy only the solid boundary needed for a new bounded face. Never use a
 // screen silhouette: boundaries are actual sections on this sketch plane.
-export function completeSketchWithSolidBoundary(features,source,boundaries,{groupId=source.groupId,idFactory=()=>crypto.randomUUID(),maxSegments=4000}={}){
- if(source.kind!=='sketch'||source.construction||source.textOutline||source.closed||!['line','polyline','spline'].includes(source.profile))return null;
+export function sketchSolidBoundaryCandidates(features,source,boundaries,{groupId=source.groupId,idFactory=()=>crypto.randomUUID(),maxSegments=4000}={}){
+ if(source.kind!=='sketch'||source.construction||source.textOutline||source.closed||!['line','polyline','spline'].includes(source.profile))return [];
  const basis=basisFor(source),offset=planeCoordinates(source).offset,onPlane=f=>{const b=basisFor(f),dot=b.n.dot(basis.n);return Math.abs(dot)>1-1e-8&&Math.abs(planeCoordinates(f).offset*dot-offset)<EPS;},members=features.filter(f=>f.kind==='sketch'&&!f.groupHidden&&!f.construction&&f.id!==source.id&&(groupId?f.groupId===groupId:!f.groupId&&group(f)===group(source))&&onPlane(f));
- const toLocal=points=>points.map(p=>local(p,basis)),sections=boundaries.filter(b=>b.segments?.length).map(b=>({...b,edges:b.segments.filter(([a,c])=>Math.abs(a.dot(basis.n)-offset)<=EPS&&Math.abs(c.dot(basis.n)-offset)<=EPS).map(edge=>toLocal(edge))})),solidEdges=sections.flatMap(b=>b.edges);if(!solidEdges.length)return null;
- const drawn=sketchPoints(source),ownEdges=drawn.slice(1).map((p,i)=>[drawn[i],p]);if(!ownEdges.length||ownEdges.every(([a,b])=>covers(a,b,solidEdges)))return null;
+ const toLocal=points=>points.map(p=>local(p,basis)),sections=boundaries.filter(b=>b.segments?.length).map(b=>({...b,edges:b.segments.filter(([a,c])=>Math.abs(a.dot(basis.n)-offset)<=EPS&&Math.abs(c.dot(basis.n)-offset)<=EPS).map(edge=>toLocal(edge))})),solidEdges=sections.flatMap(b=>b.edges);if(!solidEdges.length)return [];
+ const drawn=sketchPoints(source),ownEdges=drawn.slice(1).map((p,i)=>[drawn[i],p]);if(!ownEdges.length||ownEdges.every(([a,b])=>covers(a,b,solidEdges)))return [];
  const sketchEdges=[...members,source].flatMap(f=>{const p=sketchPoints(f).map(v=>local(worldPoint({...f,offset:planeCoordinates(f).offset},v),basis));return p.slice(1).map((q,i)=>[p[i],q]);});
- if(solidEdges.length+sketchEdges.length>maxSegments)return null;
+ if(solidEdges.length+sketchEdges.length>maxSegments)return [];
  // A normal closed sketch needs no borrowed contour. Otherwise the solid's
  // outer boundary could be copied merely because that sketch forms a hole.
- if(findRegions([...members,source]).some(r=>r.sourceIds.includes(source.id)))return null;
+ if(findRegions([...members,source]).some(r=>r.sourceIds.includes(source.id)))return [];
  const prefix='boundary-'+source.id+'-',virtual=solidEdges.map(([a,b],i)=>({...source,id:prefix+i,profile:'polyline',points:[a,b],closed:false})),candidateSource={...source},regions=findRegions([...members,candidateSource,...virtual]).filter(r=>r.sourceIds.includes(source.id)&&r.sourceIds.some(id=>id.startsWith(prefix)));
  const candidates=[];for(const region of regions){const convert=p=>local(worldPoint(region,p),basis),normalized={...region,outer:region.outer.map(convert),holes:region.holes.map(h=>h.map(convert))},runs=[normalized.outer,...normalized.holes].flatMap(ring=>runsFor(ring,sketchEdges,solidEdges));if(!runs.length)continue;
   // Reject regions which were already closed by sketches before the solid
   // edges were added, including overlapping copies of an existing outline.
   const length=runs.reduce((sum,r)=>sum+r.points.reduce((n,p,i)=>i?n+Math.hypot(p[0]-r.points[i-1][0],p[1]-r.points[i-1][1]):n,0),0),sample=interior(normalized);if(!sample)continue;const outside=!sections.some(s=>inside(sample,s.edges));candidates.push({region,runs,length,outside});
  }
- candidates.sort((a,b)=>Number(b.outside)-Number(a.outside)||a.region.area-b.region.area||a.length-b.length);const chosen=candidates[0];if(!chosen)return null;
+ candidates.sort((a,b)=>Number(b.outside)-Number(a.outside)||a.region.area-b.region.area||a.length-b.length);const plans=[];for(const chosen of candidates){
  const bodyIds=sections.filter(s=>chosen.runs.some(r=>r.points.slice(1).some((p,i)=>covers(r.points[i],p,s.edges)))).map(s=>s.bodyId).filter(Boolean);
- const added=chosen.runs.map((run,i)=>{const f={...defaults,id:idFactory(),kind:'sketch',name:'ソリッド境界（自動）'+(chosen.runs.length>1?' '+(i+1):''),profile:'polyline',mode:'thin',plane:source.plane,x:source.x,y:source.y,z:source.z,points:run.points.map(p=>[...p]),closed:run.closed,groupId:source.groupId,groupNumber:source.groupNumber,solidBoundarySource:{bodyIds:[...new Set(bodyIds)]}};if(source.frame)f.frame=structuredClone(source.frame);validateFeature(f);return f;});
- const check=findRegions([...members,source,...added]),seed=interior(chosen.region);if(!check.some(r=>r.sourceIds.includes(source.id)&&r.sourceIds.some(id=>added.some(f=>f.id===id))&&Math.abs(r.area-chosen.region.area)<=Math.max(1e-5,r.area*1e-7)&&seed&&regionContains(r,seed)))return null;
- return {added,region:chosen.region,bodyIds:[...new Set(bodyIds)],outside:chosen.outside};
+ const runs=chosen.runs.flatMap(run=>boundaryArcRuns(run,sections.flatMap(s=>s.curves||[]))),added=runs.map((run,i)=>{const f={...defaults,id:idFactory(),kind:'sketch',name:(run.arc?'ソリッド境界の円弧':'ソリッド境界（自動）')+(runs.length>1?' '+(i+1):''),profile:'polyline',mode:'thin',plane:source.plane,x:source.x,y:source.y,z:source.z,points:run.points.map(p=>[...p]),closed:run.closed,groupId:source.groupId,groupNumber:source.groupNumber,solidBoundarySource:{bodyIds:[...new Set(bodyIds)]}};if(run.arc)f.arc=run.arc;if(source.frame)f.frame=structuredClone(source.frame);validateFeature(f);return f;});
+ const check=findRegions([...members,source,...added]),seed=interior(chosen.region),matched=check.find(r=>r.sourceIds.includes(source.id)&&r.sourceIds.some(id=>added.some(f=>f.id===id))&&Math.abs(r.area-chosen.region.area)<=Math.max(1e-5,r.area*1e-7)&&seed&&regionContains(r,seed));if(!matched)continue;
+ plans.push({key:chosen.region.id,added,region:matched,bodyIds:[...new Set(bodyIds)],outside:chosen.outside,arcCount:added.filter(f=>f.arc).length});
+ }return plans;
 }
+export function completeSketchWithSolidBoundary(features,source,boundaries,options={}){const plans=sketchSolidBoundaryCandidates(features,source,boundaries,options);return plans.find(p=>p.key===options.candidateKey)||plans[options.candidateIndex||0]||plans[0]||null;}
