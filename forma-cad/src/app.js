@@ -169,6 +169,7 @@ import {sketchLine,updateSketchLine} from './sketch-line.js';
 import {installSplineEditor} from './spline-editor.js';
 import {sketchMidpoints} from './sketch-midpoints.js';
 import {sketchEndpoints,endpointSketchPoint,existingEndpointPoint} from './sketch-endpoint.js';
+import {createSketchConnectionsView} from './sketch-connections-view.js';
 let deletingSketch=false;
 import {rangeSketchHits,sketchSegments,selectedSketchParts,deleteSketchSelection,offsetSketchSelection} from './sketch-selection.js';
 let selectedSketchSegments=new Map(),sketchSelectionHighlight=null,sketchMirrorEdge=null;
@@ -272,7 +273,7 @@ let centerRectangle=false,channelMode=false,channelReverse=false,channelArrow=nu
 let selectedFaces=[],selectingFaces=false,edgeSelectionMode=false;
 let selectionPicker=null,selectionCandidateHighlight=null;
 let selectionMode='auto',selectedBodies=new Set(),bodySelectionHighlight=null,editingPipeId=null,editingEncloseId=null,editingCoilJointId=null,editingShellId=null,editingEncloseVisibility=[];
-let lineConstruction=false,dimensionMeasure=null;
+let lineConstruction=false,dimensionMeasure=null,sketchConnectionsView=null;
 let selectedEdges=[],gridPlane='XY',selectedEdge=null,selectedSurface=null,edgeHighlight=null,shiftOrbit=null,sketchPan=null,gridSignature='',modelGridKey='',hoverEdge=null,hoverTime=0,circleDiameterLocked=false;
 let patternCenter=null,centerCandidates=[],centerRevision=null,referencePointer=null;
 document.addEventListener("pointermove",e=>{referencePointer={x:e.clientX,y:e.clientY};});
@@ -349,7 +350,7 @@ for(const [end,color] of [[[5000,0,0],0xe94b55],[[0,5000,0],0x42ba54],[[0,0,5000
 const modelGroup=new THREE.Group();scene.add(modelGroup);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
 let viewCube=null,extrusionJoinInspection=null;
-renderer.setAnimationLoop(()=>{sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();stlInspection?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
+renderer.setAnimationLoop(()=>{sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();stlInspection?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();sketchConnectionsView?.update();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
 let sketchNoticeTimer,enteredSketchNumber=null;
 function sketchSession(){if(enteredSketchNumber!==null)return features.find(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)||{groupNumber:enteredSketchNumber};const id=editingSketchGroup||activeSketchGroup;return features.find(f=>f.kind==='sketch'&&f.groupId===id)||features.find(f=>f.kind==='sketch'&&f.id===selected)||null;}
 function notifySketch(message){hideExtrusionNotice();clearTimeout(toastTimer);$('toast').style.display='none';const notice=$('sketch-notice');clearTimeout(sketchNoticeTimer);notice.textContent=message;notice.hidden=false;sketchNoticeTimer=setTimeout(()=>{notice.hidden=true;},5000);}
@@ -365,7 +366,8 @@ function notifySketchEntered(number){
  notifySketch('スケッチ'+number+'の編集に入りました。');
 }
 function notifySketchFinished(session){notifySketch((session?'スケッチ'+session.groupNumber:'スケッチ')+'を終了しました。');}
-function appErrorMessage(error){return cadErrorAdvice(error,{type:$('tools-dialog').open?$('cad-command').value:stage==='extrusion'?'extrusion':''}).message;}
+const reportedVerificationFailures=new WeakSet();
+function appErrorMessage(error){if(error?.localVerification&&!reportedVerificationFailures.has(error)){reportedVerificationFailures.add(error);const spec=error.verificationSpec;cancelMachiningPreview();extrusionResultCache.clear();if(stage==='extrusion')dropPreview();workspaceImprovements.failure.show(error,spec,features);failureRecovery?.capture({features,requestFeatures:features,spec,editing:{stage,selected}},error);}return cadErrorAdvice(error,{type:$('tools-dialog').open?$('cad-command').value:stage==='extrusion'?'extrusion':''}).message;}
 function notify(s){$('toast').textContent=s;$('toast').style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').style.display='none',3200);}
 let extrusionNoticeTimer,extrusionUndoToken=null;
 const hiddenSketchNotice=document.createElement('span');hiddenSketchNotice.id='extrusion-notice-hidden-sketches';hiddenSketchNotice.hidden=true;$('extrusion-notice-detail').after(hiddenSketchNotice);
@@ -3859,6 +3861,7 @@ function openFaceExtrusionShortcut(shortcut=selectedExtrudeShortcut()){
  selectionPicker?.close({force:true});closeSolidFaceMenu();pendingOperation='new';beginExtrusion('solid',{preserveView:true});
  return stage==='extrusion'&&!pendingExtrude;
 }
+sketchConnectionsView=createSketchConnectionsView({scene,host,getFeatures:()=>features,getObjects:()=>sketchGroup.children,isVisible:()=>sketchGroup.visible&&['model','sketch'].includes(stage)&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!sketchMoveTool?.active&&!sketchVertexRotation?.active&&!sketchConstraintsController?.active&&!document.querySelector('dialog[open]')&&!(stage==='sketch'&&selected&&draftTouched)});
 faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelections:selectedExtrudeShortcuts,onExtrude:openFaceExtrusionShortcut,
  onDragStart:(event,owner,start,selection)=>openFaceExtrusionShortcut(selection)&&startExtrusionDrag(event,{owner,start,depth:0,dragged:true}),
  onDragMove:moveExtrusionDrag,onDragEnd:endExtrusionDrag

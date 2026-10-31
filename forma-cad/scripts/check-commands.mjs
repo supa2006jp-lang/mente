@@ -5,7 +5,7 @@ import {spawn} from 'node:child_process';
 
 const root=fileURLToPath(new URL('../',import.meta.url)),all=process.argv.includes('--all');
 const representative=[
- 'extrusion-multibody.mjs','extrusion-taper.mjs','extrusion-barrier-cache.mjs','cut-options.mjs','cut-no-overlap.mjs','holes-only.mjs',
+ 'command-sequences.mjs','cad-failure-evidence.mjs','extrusion-multibody.mjs','extrusion-taper.mjs','extrusion-barrier-cache.mjs','cut-options.mjs','cut-no-overlap.mjs','holes-only.mjs',
  'solid-fillet.mjs','solid-chamfer.mjs','internal-curved-pull.mjs','shell.mjs','shell-revolved-sweep.mjs',
  'move-copy-kernel.mjs','move-until-contact.test.mjs','solid-mirror-tools.mjs','revolve.mjs','revolved-cut.mjs','revolved-body-join.mjs','joined-revolution-section.mjs',
  'trim-surface.mjs','trim-interior.mjs','pipe-mixed-path.mjs','shell-circular-loft.mjs','pattern-join.mjs','rectangular-pattern.mjs',

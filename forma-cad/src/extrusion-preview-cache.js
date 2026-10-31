@@ -1,3 +1,4 @@
+import {resultSnapshot,assertPreviewResult} from './preview-result-guard.js';
 const sorted=value=>Array.isArray(value)?value.map(sorted):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,sorted(value[key])])):value;
 const remap=(value,ids)=>typeof value==='string'?(ids.get(value)??value):Array.isArray(value)?value.map(item=>remap(item,ids)):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,remap(item,ids)])):value;
 function signature(batch){
@@ -29,7 +30,7 @@ export class ExtrusionPreviewCache{
   const key=(contacts?'contacts:':'')+this.key(batch,editingId),size=key.length*2+bytes(records)+bytes(display);
   if(size>this.limit||this.maxEntries<1)return;
   if(this.entries.has(key)){this.size-=this.entries.get(key).size;this.entries.delete(key);}
-  this.entries.set(key,{ids:batch.map(feature=>feature.id),records:structuredClone(records),display:structuredClone(display),size});this.size+=size;
+  this.entries.set(key,{ids:batch.map(feature=>feature.id),records:structuredClone(records),display:structuredClone(display),size,snapshot:contacts?null:resultSnapshot({features:records},{type:'extrusionBatch',features:batch})});this.size+=size;
   while(this.entries.size>this.maxEntries||this.size>this.limit){const oldest=this.entries.keys().next().value;this.size-=this.entries.get(oldest).size;this.entries.delete(oldest);}
  }
  read(history,batch,editingId,withDisplay,showGap,contacts=false){
@@ -44,6 +45,7 @@ export class ExtrusionPreviewCache{
    if(cadResult.analysis)cadResult.analysis=remap(cadResult.analysis,ids);
    return {...next,cadResult};
   });
+  const verificationSpec={type:'extrusionBatch',features:batch};try{assertPreviewResult(entry.snapshot,resultSnapshot({features},verificationSpec));}catch(error){error.localVerification=true;error.verificationSpec=verificationSpec;throw error;}
   const projectFeatures=entry.display?.projectFeatures?remap(structuredClone(entry.display.projectFeatures),ids):null;
   if(projectFeatures)for(const feature of projectFeatures){const input=features.find(f=>f.id===feature.id);if(input)feature.name=input.name;}
   if(!withDisplay)return {...(contacts?{contactOnly:true}:{}),features,...(entry.display?.exact?{exact:true,...(projectFeatures?{projectFeatures}:{})}:{})};

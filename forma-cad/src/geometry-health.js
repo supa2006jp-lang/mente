@@ -1,5 +1,6 @@
 import {cadSubshapes} from './cad-topology.js';
 import * as R from 'replicad';
+import {invalidResultError} from './cad-failure-diagnostics.js';
 import {classifyHealthFindings} from './geometry-health-delta.js';
 import {MODEL_PRECISION as P,microLength,volumeAllowance,isContactDistance} from './model-precision.js';
 
@@ -81,7 +82,7 @@ export function inspectGeometryHealth(bodies,{targets=[...bodies.keys()],thresho
 
 export function diagnoseOutputHealth(bodies,result,spec){
  const budget=healthBudget(),rows=[];
- for(const output of result.outputs||[]){if(!output.brep)continue;const shape=R.deserializeShape(output.brep).asShape3D();try{const row=inspectOperationHealth(shape,{id:output.id,before:bodies.get(output.id),bodies,spec,budget});if(!row.valid)throw Error('加工結果のソリッドに異常があります。元の形状は変更していません');rows.push(row);}finally{shape.delete();}}
+ for(const output of result.outputs||[]){if(!output.brep)continue;const shape=R.deserializeShape(output.brep).asShape3D();try{const row=inspectOperationHealth(shape,{id:output.id,before:bodies.get(output.id),bodies,spec,budget});if(!row.valid)throw invalidResultError(row);output.shapeMetrics={version:1,volume:row.after.volume,solids:row.after.solids,bounds:row.bounds};rows.push(row);}finally{shape.delete();}}
  if(rows.length)result.analysis={...result.analysis,geometryHealth:{version:P.version,rows}};return result;
 }
 

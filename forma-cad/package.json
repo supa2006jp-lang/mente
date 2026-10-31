@@ -8,6 +8,7 @@
     "start": "node server.mjs",
     "test": "node --test tests/*.test.js",
     "test:commands": "node scripts/check-commands.mjs",
+    "test:sequences": "node tests/command-sequences.mjs",
     "test:commands:all": "node scripts/check-commands.mjs --all",
     "package:github": "npm run build && node scripts/package-github.mjs",
     "package:github:site": "npm run build && node scripts/package-github.mjs --site-only"
