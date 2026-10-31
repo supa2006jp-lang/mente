@@ -21,7 +21,7 @@ function labelTool(region,entry,z,depth){
  const wire=(points,hole=false)=>{const signed=points.reduce((s,p,i)=>s+p[0]*points[(i+1)%points.length][1]-points[(i+1)%points.length][0]*p[1],0),ring=(signed>0)!==!hole?[...points].reverse():points,vertices=ring.map(([x,y])=>[entry.center[0]+(x-.5)*entry.width,entry.center[1]+(y-.5)*entry.height,z]),edges=vertices.map((p,i)=>R.makeLine(p,vertices[(i+1)%vertices.length]));try{const w=R.assembleWire(edges);wires.push(w);return w;}finally{edges.forEach(e=>e.delete());}};
  try{face=R.makeFace(wire(region.outer),region.holes.map(r=>wire(r,true)));vector=new R.Vector([0,0,depth]);return R.basicFaceExtrusion(face,vector);}finally{vector?.delete();face?.delete();wires.forEach(w=>w.delete());}
 }
-export function applySlideLabels(body,p,layout){
+export function applySlideLabels(body,p,layout,{fuse=fuseSolid,overlap=.05}={}){
  if(!layout.length)return body.clone();const tools=[];let compound;
- try{const z=p.labelOperation==='engrave'?p.floor-p.labelDepth:p.floor-.05,depth=p.labelDepth+.05;for(const entry of layout)for(const region of entry.pattern.regions)tools.push(labelTool(region,entry,z,depth));compound=R.makeCompound(tools);tools.length=0;return p.labelOperation==='engrave'?body.cut(compound):fuseSolid(body,compound);}finally{compound?.delete();tools.forEach(t=>t.delete());}
+ try{const z=p.labelOperation==='engrave'?p.floor-p.labelDepth:p.floor-overlap,depth=p.labelDepth+overlap;for(const entry of layout)for(const region of entry.pattern.regions)tools.push(labelTool(region,entry,z,depth));compound=R.makeCompound(tools);tools.length=0;return p.labelOperation==='engrave'?body.cut(compound):fuse(body,compound);}finally{compound?.delete();tools.forEach(t=>t.delete());}
 }

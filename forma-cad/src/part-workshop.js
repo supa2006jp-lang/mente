@@ -6,6 +6,7 @@ import {inspectAssemblyContact} from './assembly-contact.js';
 import {fuseSolid,fuseSolids} from './solid-fuse.js';
 import {templatePlacement} from './template-placement.js';
 import {applySlideLabels} from './slide-lid-labels.js';
+import {cutStorageTray,fuseStorageTrayLabels} from './storage-tray-boolean.js';
 
 const SCALE=100000;
 const xyz=v=>{try{return v.toTuple();}finally{v.delete();}};
@@ -50,11 +51,18 @@ export function checkMotion(bodies,input,onProgress){
  return {rows,highlights};
 }
 
-export function makeStorageTray(bodies,p,onProgress){
+const trayOutlines=new Map();let trayOutlinePoints=0;
+export const storageTrayOutlineStats={hits:0,misses:0};
+function trayOutline(shape,key){
+ let entry=trayOutlines.get(key);if(entry){storageTrayOutlineStats.hits++;trayOutlines.delete(key);trayOutlines.set(key,entry);return entry;}
+ storageTrayOutlineStats.misses++;const outline=paths(shape.mesh({tolerance:.04,angularTolerance:.15}),new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0)).filter(path=>ClipperLib.Clipper.Orientation(path));entry={outline,bounds:bounds(shape),points:outline.reduce((n,p)=>n+p.length,0)};trayOutlines.set(key,entry);trayOutlinePoints+=entry.points;
+ while(trayOutlines.size>32||trayOutlinePoints>100000){const [old,value]=trayOutlines.entries().next().value;trayOutlines.delete(old);trayOutlinePoints-=value.points;}return entry;
+}
+export function makeStorageTray(bodies,p,onProgress,{bodyKey=shape=>shape}={}){
  const targets=[...new Set(p.targets||[])];if(!targets.length||targets.length>24||targets.some(id=>!bodies.has(id)))throw Error('収納するボディを1〜24個選択してください');
  const clearance=finite(p.clearance,.1,5,'すき間'),wall=finite(p.wall,1,20,'壁厚'),floor=finite(p.floor,1,20,'底厚'),depth=finite(p.depth,1,150,'ポケット深さ'),gap=finite(p.gap,wall,50,'ポケット間隔'),columns=Math.round(finite(p.columns,1,targets.length,'列数'));
- const u=new THREE.Vector3(1,0,0),v=new THREE.Vector3(0,1,0),items=[];
- for(const [i,id]of targets.entries()){onProgress?.({stage:'収納する輪郭を取得しています '+(i+1)+' / '+targets.length});let outline=paths(bodies.get(id).mesh({tolerance:.04,angularTolerance:.15}),u,v).filter(path=>ClipperLib.Clipper.Orientation(path));outline=expand(outline,clearance+.04).filter(path=>ClipperLib.Clipper.Orientation(path));if(!outline.length)throw Error('収納用の輪郭が空です');const all=outline.flat(),box=limits(all);items.push({id,outline,box,bounds:bounds(bodies.get(id))});}
+ const items=[];
+ for(const [i,id]of targets.entries()){onProgress?.({stage:'収納する輪郭を取得しています '+(i+1)+' / '+targets.length});const shape=bodies.get(id),cached=trayOutline(shape,bodyKey(shape)??shape),outline=expand(cached.outline,clearance+.04).filter(path=>ClipperLib.Clipper.Orientation(path));if(!outline.length)throw Error('収納用の輪郭が空です');const all=outline.flat(),box=limits(all);items.push({id,outline,box,bounds:cached.bounds});}
  const notch=p.fingerAccess===true?finite(p.fingerRadius,2,20,'指掛け半径'):0,labelHeight=p.labels===true?8:0;
  const widths=Array.from({length:columns},(_,col)=>Math.max(...items.filter((_,i)=>i%columns===col).map(a=>a.box.max[0]-a.box.min[0]))+2*notch),rowCount=Math.ceil(items.length/columns),heights=Array.from({length:rowCount},(_,row)=>Math.max(...items.slice(row*columns,(row+1)*columns).map(a=>a.box.max[1]-a.box.min[1]))+2*notch+labelHeight);
  const width=widths.reduce((a,b)=>a+b,0)+gap*(columns-1)+wall*2,height=heights.reduce((a,b)=>a+b,0)+gap*(rowCount-1)+wall*2;
@@ -70,8 +78,9 @@ export function makeStorageTray(bodies,p,onProgress){
    if(p.labels&&text){if(typeof text!=='string'||[...text].length>12||!pattern||pattern.text!==text||!Number.isFinite(pattern.aspect)||pattern.aspect<=0||!Array.isArray(pattern.regions)||!pattern.regions.length||pattern.regions.length>80||JSON.stringify(pattern).length>300000||pattern.regions.some(r=>!Array.isArray(r.outer)||!Array.isArray(r.holes)||[r.outer,...r.holes].some(ring=>!Array.isArray(ring)||ring.length<3||ring.length>6000||ring.some(point=>!Array.isArray(point)||point.length!==2||point.some(v=>!Number.isFinite(v)||v<0||v>1)))))throw Error('文字の輪郭を確認してください');const h=Math.min(4,(widths[col]-2)/pattern.aspect);if(h<1.5)throw Error('表示名が細かすぎます。名前を短くしてください');labels.push({room:i+1,text,height:h,width:h*pattern.aspect,center:[cx,y+4],pattern});}
    pockets.push({id:item.id,translation:[dx,dy,floor-item.bounds[0][2]],center:[cx,cy],width:item.box.max[0]-item.box.min[0],height:item.box.max[1]-item.box.min[1]});
   }
-  onProgress?.({stage:'収納ポケットを切り抜いています'});const compound=fuseSolids(tools);try{const next=shape.cut(compound);shape.delete();shape=next;}finally{compound.delete();tools.forEach(s=>s.delete());tools.length=0;}
-  if(labels.length){const next=applySlideLabels(shape,{floor:top,labelDepth:.5,labelOperation:'emboss'},labels.map(printableLabel));shape.delete();shape=next;}
+  onProgress?.({stage:'収納ポケットをまとめて切り抜いています'});const cut=cutStorageTray(shape,tools);shape.delete();shape=cut;tools.forEach(s=>s.delete());tools.length=0;
+  if(labels.length){onProgress?.({stage:'部品名の浮き文字をまとめて結合しています'});const next=applySlideLabels(shape,{floor:top,labelDepth:.5,labelOperation:'emboss'},labels.map(printableLabel),{fuse:fuseStorageTrayLabels,overlap:0});shape.delete();shape=next;}
+  onProgress?.({stage:'収納トレーの形状を検査しています'});
   solid(shape,'収納トレー');const offset=templatePlacement({min:[0,0,0],max:[width,height,top+.5]},[...bodies.values()].map(s=>{const b=bounds(s);return {min:b[0],max:b[1]};}),10),placed=shape.translate(offset);shape.delete();shape=null;
   return {shape:placed,info:{width,height,top,offset,pockets:pockets.map(a=>({...a,translation:a.translation.map((v,i)=>v+offset[i])})),labels:labels.map(({pattern,...a})=>a)}};
  }finally{shape?.delete();tools.forEach(s=>s.delete());}

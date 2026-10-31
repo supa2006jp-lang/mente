@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {KernelClient} from './kernel-client.js';
 import {draggableDialog} from './draggable-dialog.js';
 import {floorLabelPattern} from './floor-label-pattern.js';
+import {storageTrayHistory} from './storage-tray-history.js';
 
 const names={storageTray:'専用収納トレー',dovetail:'蟻継ぎ',motionSetup:'動作確認'};
 const field=(key,label,value,min,max,step='any')=>`<label>${label}<input data-key="${key}" type="number" value="${value}" min="${min}" max="${max}" step="${step}" required></label>`;
@@ -13,12 +14,20 @@ export function createPartWorkshop({scene,meshes,host,camera,bodyName,getFeature
  const handle=document.createElement('button');handle.id='part-workshop-handle';handle.type='button';handle.hidden=true;handle.title='ドラッグして動かす';host.append(handle);
  dialog.innerHTML=`<form><div class="dialog-heading"><h2 data-role="title">部品作成・動作確認</h2><button type="button" data-action="close" aria-label="閉じる">×</button></div><div data-role="fields"></div><p data-role="status" role="status"></p><p data-role="error" role="alert"></p><div data-role="range"></div><div><button type="button" data-action="preview">精密プレビュー</button><button type="button" data-action="fit" disabled>プレビューを全体表示</button></div><div><button type="button" data-action="cancel">キャンセル</button><button type="submit" data-action="apply" disabled>作成</button></div></form>`;
  draggableDialog(dialog);
- let type,original,history,editing,id,version=0,timer,group,hidden=[],cached=null,busy=false,playing=false,playFrame,lastFrame=0,pickedAxis=null,face=null,drag=null,rangeRows=[],config=null;
+ let type,original,history,requestHistory,editing,id,version=0,timer,group,hidden=[],cached=null,busy=false,playing=false,playFrame,lastFrame=0,pickedAxis=null,face=null,drag=null,rangeRows=[],config=null;
+ const resultCache=new Map(),patternCache=new Map();let cacheBytes=0,computations=0,cacheHits=0,lastMs=0;
+ const stats=()=>host.dataset.workshopPerformance=JSON.stringify({computations,cacheHits,lastMs,inflight:busy,cacheEntries:resultCache.size});
+ function pattern(text){if(patternCache.has(text))return patternCache.get(text);const value=floorLabelPattern(text);patternCache.set(text,value);while(patternCache.size>32)patternCache.delete(patternCache.keys().next().value);return value;}
+ function remember(signature,spec,result){
+  const bytes=JSON.stringify(spec).length*2+result.outputs.reduce((n,o)=>n+(o.brep?.length||0)*2+((o.vertices?.length||0)+(o.triangles?.length||0)+(o.normals?.length||0))*8,0);if(bytes>24*1024*1024)return;
+  if(resultCache.has(signature)){cacheBytes-=resultCache.get(signature).bytes;resultCache.delete(signature);}resultCache.set(signature,{spec,result,bytes});cacheBytes+=bytes;
+  while(resultCache.size>3||cacheBytes>24*1024*1024){const [key,value]=resultCache.entries().next().value;resultCache.delete(key);cacheBytes-=value.bytes;}
+ }
  const $=key=>dialog.querySelector(`[data-key="${key}"]`),action=key=>dialog.querySelector(`[data-action="${key}"]`),role=key=>dialog.querySelector(`[data-role="${key}"]`);
  function stop(){playing=false;cancelAnimationFrame(playFrame);if(action('play'))action('play').textContent='▶ 再生';}
  function clear(){if(group){group.traverse(o=>{o.geometry?.dispose();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose());else o.material?.dispose();});scene.remove(group);group=null;}for(const [mesh,visible]of hidden)mesh.visible=visible;hidden=[];delete host.dataset.workshopPreview;}
- function close(){version++;clearTimeout(timer);stop();worker.reset();clear();handle.hidden=true;drag=null;cached=null;busy=false;dialog.close();delete host.dataset.motionPose;}
- function invalidate(){version++;clearTimeout(timer);worker.reset();busy=false;cached=null;rangeRows=[];role('range').replaceChildren();clear();role('error').textContent='';action('apply').disabled=type!=='motionSetup';role('status').textContent='設定を変更しました。プレビューで形状を確認してください';}
+ function close(){version++;clearTimeout(timer);stop();worker.reset();clear();handle.hidden=true;drag=null;cached=null;busy=false;resultCache.clear();patternCache.clear();cacheBytes=0;requestHistory=history=original=null;dialog.close();delete host.dataset.motionPose;}
+ function invalidate(){version++;clearTimeout(timer);if(busy)worker.reset();busy=false;cached=null;action('preview').disabled=false;rangeRows=[];role('range').replaceChildren();clear();role('error').textContent='';action('apply').disabled=type!=='motionSetup';role('status').textContent='設定を変更しました。プレビューで形状を確認してください';stats();}
  function addMesh(output,color,opacity=1){const mesh=new THREE.Mesh(geometry(output),new THREE.MeshStandardMaterial({color,transparent:opacity<1,opacity,roughness:.65,side:THREE.DoubleSide,depthWrite:opacity===1}));group.add(mesh);return mesh;}
  function render(result){clear();group=new THREE.Group();scene.add(group);
   for(const [i,o]of result.outputs.entries()){const shown=addMesh(o,type==='dovetail'?(i?0x4599c6:0xe6ad45):0xe0b96c);if(type==='dovetail'&&$('showExploded').checked&&i===0)shown.position.fromArray(result.analysis.dovetail.insertionAxis).multiplyScalar(result.analysis.dovetail.length+10);const mesh=meshes.get(o.id);if(mesh){hidden.push([mesh,mesh.visible]);mesh.visible=false;}}
@@ -30,15 +39,20 @@ export function createPartWorkshop({scene,meshes,host,camera,bodyName,getFeature
   const spec={type,id};for(const input of dialog.querySelectorAll('[data-key]')){if(['showParts','showExploded','axis','pivotX','pivotY','pivotZ','axisX','axisY','axisZ'].includes(input.dataset.key))continue;spec[input.dataset.key]=input.type==='checkbox'?input.checked:input.type==='number'||input.type==='range'?Number(input.value):input.value;}
   if(type==='dovetail'){if(face?.bodyId===spec.target){spec.faceNormal=face.normal;if(face.point)spec.facePoint=face.point;}return spec;}
   spec.targets=selected();if(!spec.targets.length)throw Error('対象ボディを選択してください');
-  if(type==='storageTray'){spec.columns=Math.min(spec.columns,spec.targets.length);spec.labelTexts=spec.targets.map(id=>dialog.querySelector('[data-label-body="'+CSS.escape(id)+'"]').value.trim());spec.labelPatterns=spec.labels?spec.labelTexts.map(t=>floorLabelPattern(t)):[];return spec;}
+  if(type==='storageTray'){spec.columns=Math.min(spec.columns,spec.targets.length);spec.labelTexts=spec.targets.map(id=>dialog.querySelector('[data-label-body="'+CSS.escape(id)+'"]').value.trim());spec.labelPatterns=spec.labels?spec.labelTexts.map(pattern):[];return spec;}
   spec.pivot=['X','Y','Z'].map(a=>Number($('pivot'+a).value));spec.axisVector=$('axis').value==='picked'?pickedAxis:$( 'axis').value==='custom'?['X','Y','Z'].map(a=>Number($('axis'+a).value)):['X','Y','Z'].map(a=>a===$('axis').value?1:0);
   if(!spec.axisVector||!spec.axisVector.every(Number.isFinite)||Math.hypot(...spec.axisVector)<1e-8)throw Error('移動軸を指定してください');if(spec.motion==='rotate'&&(spec.min < -360||spec.max > 360))throw Error('回転範囲は−360〜360°です');const len=Math.hypot(...spec.axisVector);spec.axisVector=spec.axisVector.map(a=>a/len);if(!spec.pivot.every(Number.isFinite)||!Number.isFinite(spec.value)||!Number.isFinite(spec.min)||!Number.isFinite(spec.max)||spec.min>=spec.max||spec.value<spec.min||spec.value>spec.max)throw Error('開始値・終了値・現在位置を確認してください');return spec;
  }
  async function preview(){
-  stop();invalidate();const token=version;let spec;
-  try{spec=read();role('status').textContent='精密な形状を計算しています…';busy=true;action('preview').disabled=true;const result=await worker.run(history,spec,{onProgress:p=>{if(version===token)role('status').textContent=p.stage;}});if(version!==token||!dialog.open)return;if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');render(result);cached={spec,result};role('status').textContent=type==='dovetail'?'金色：凸側 ／ 青：凹側。差し込み方向の両端に溝を開きます。':`外形 ${result.analysis.storageTray.width.toFixed(1)} × ${result.analysis.storageTray.height.toFixed(1)} mm。元の部品と離して配置します。`;action('apply').disabled=false;}
+  stop();invalidate();const token=version,started=performance.now();let spec;
+  try{
+   if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');spec=read();const signature=JSON.stringify(spec),previous=type==='storageTray'?resultCache.get(signature):null;let result;
+   if(previous){cacheHits++;resultCache.delete(signature);resultCache.set(signature,previous);result=previous.result;}
+   else{role('status').textContent='精密な形状を計算しています…';busy=true;computations++;stats();action('preview').disabled=true;result=await worker.run(requestHistory,spec,{onProgress:p=>{if(version===token)role('status').textContent=p.stage;}});}
+   if(version!==token||!dialog.open)return;if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');if(type==='storageTray'&&!previous)remember(signature,spec,result);render(result);cached={spec,result};lastMs=performance.now()-started;role('status').textContent=type==='dovetail'?'金色：凸側 ／ 青：凹側。差し込み方向の両端に溝を開きます。':`外形 ${result.analysis.storageTray.width.toFixed(1)} × ${result.analysis.storageTray.height.toFixed(1)} mm。元の部品と離して配置します。`+(previous?' 計算済みの形状を再利用しました。':'');action('apply').disabled=false;
+  }
   catch(error){if(token===version&&dialog.open)role('error').textContent=error.message;}
-  finally{if(token===version){busy=false;action('preview').disabled=false;}}
+  finally{if(token===version){busy=false;action('preview').disabled=false;stats();}}
  }
  function pose(){
   if(type!=='motionSetup'||!dialog.open)return;version++;if(busy){worker.reset();busy=false;}delete host.dataset.motionCheck;rangeRows=[];role('range').replaceChildren();role('error').textContent='';let p;try{p=read();config=p;}catch(error){role('error').textContent=error.message;return;}
@@ -68,7 +82,7 @@ export function createPartWorkshop({scene,meshes,host,camera,bodyName,getFeature
   catch(error){if(dialog.open){role('error').textContent=error.message;busy=false;action('apply').disabled=false;}}
  }
  function open(kind,selection=[],feature=null,picked={}){
-  close();type=kind;original=getFeatures();editing=feature;history=feature?original.slice(0,original.findIndex(f=>f.id===feature.id)):original;id=feature?.spec.id||feature?.id||crypto.randomUUID();face=picked.face||(feature?.spec.faceNormal?{bodyId:feature.spec.target,normal:feature.spec.faceNormal,point:feature.spec.facePoint}:null);pickedAxis=picked.edge?.direction||null;
+  close();type=kind;original=getFeatures();editing=feature;history=feature?original.slice(0,original.findIndex(f=>f.id===feature.id)):original;requestHistory=kind==='storageTray'?storageTrayHistory(history):history;computations=cacheHits=lastMs=0;stats();id=feature?.spec.id||feature?.id||crypto.randomUUID();face=picked.face||(feature?.spec.faceNormal?{bodyId:feature.spec.target,normal:feature.spec.faceNormal,point:feature.spec.facePoint}:null);pickedAxis=picked.edge?.direction||null;
   const ids=feature?[...new Set([...feature.spec.targets||[],feature.spec.target,feature.spec.other].filter(Boolean))]:[...meshes.keys()];if(!ids.length){notify('先にソリッドを作成してください');return;}if(kind==='dovetail'&&ids.length<2){notify('蟻継ぎには別々のソリッドが2個必要です');return;}
   const initial=feature?.spec.targets||selection,defaultTargets=initial.length?initial:kind==='motionSetup'?[ids[0]]:ids;
   const options=()=>ids.map(id=>{const o=document.createElement('option');o.value=id;o.textContent=bodyName(id);return o;});
@@ -90,6 +104,7 @@ export function createPartWorkshop({scene,meshes,host,camera,bodyName,getFeature
    }
   }
   if(feature){for(const [key,value]of Object.entries(feature.spec)){const input=$(key);if(!input)continue;if(input.type==='checkbox')input.checked=value;else input.value=value;}if(kind==='storageTray')feature.spec.targets.forEach((id,i)=>{const input=dialog.querySelector('[data-label-body="'+CSS.escape(id)+'"]');if(input)input.value=feature.spec.labelTexts?.[i]||'';});if(kind==='motionSetup'){pickedAxis=feature.spec.axisVector;$('axis').add(new Option('保存した軸','picked'));$('axis').value='picked';['X','Y','Z'].forEach((a,i)=>$('pivot'+a).value=feature.spec.pivot[i]);}}
+  if(kind==='storageTray'&&feature?.spec.labels)feature.spec.labelTexts?.forEach((text,i)=>{const value=feature.spec.labelPatterns?.[i];if(value?.text===text)patternCache.set(text,value);});
   action('close').onclick=action('cancel').onclick=close;action('fit').onclick=()=>{if(group)fitPreview(new THREE.Box3().setFromObject(group));};if(kind!=='motionSetup')action('preview').onclick=preview;
   dialog.querySelector('form').onsubmit=e=>{e.preventDefault();commit();};dialog.oninput=e=>{if(e.target===role('slider'))return;if((e.target===$('showParts')||e.target===$('showExploded'))&&cached){render(cached.result);return;}stop();invalidate();if(kind==='motionSetup'){syncRange();pose();queueCheck();}else if(e.target===$('showParts')&&cached)render(cached.result);};dialog.oncancel=e=>{e.preventDefault();close();};dialog.show();if(kind==='motionSetup'){syncRange();pose();}else role('status').textContent='寸法を確認して精密プレビューを押してください';
  }
