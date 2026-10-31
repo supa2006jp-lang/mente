@@ -8,7 +8,7 @@ function path(ring,outer=true){const p=ring.map(([x,y])=>({X:Math.round(x*SCALE)
 
 // Shared by region partitioning and drawing snaps. Internal tessellation edges
 // disappear in the union; only the outline and hole contours remain.
-export function solidSketchSection(meshes,b,offset,{nativeSegments=null}={}){
+export function solidSketchSection(meshes,b,offset,{nativeSegments=null,heal=true}={}){
  const coverage=[];
  for(const mesh of meshes){
   if(!mesh.visible)continue;mesh.updateWorldMatrix(true,false);
@@ -27,13 +27,15 @@ export function solidSketchSection(meshes,b,offset,{nativeSegments=null}={}){
  }
  const union=new Clipper.Clipper();union.AddPaths(coverage,Clipper.PolyType.ptSubject,true);let merged=[];
  union.Execute(Clipper.ClipType.ctUnion,merged,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
- for(const delta of [20,-20]){const expand=new Clipper.ClipperOffset(2),next=[];expand.AddPaths(merged,Clipper.JoinType.jtMiter,Clipper.EndType.etClosedPolygon);expand.Execute(next,delta);merged=next;}
+ if(heal)for(const delta of [20,-20]){const expand=new Clipper.ClipperOffset(2),next=[];expand.AddPaths(merged,Clipper.JoinType.jtMiter,Clipper.EndType.etClosedPolygon);expand.Execute(next,delta);merged=next;}
  return merged;
 }
 
 // Native section segments restore the precision lost by the polygon union.
 export function solidSketchBoundarySegments(meshes,b,offset){
- const nativeSegments=[],rings=solidSketchSection(meshes,b,offset,{nativeSegments}),edges=[];
+ // Drawing needs original corners. Closing sub-micron seams is useful for
+ // filled display partitions but would move concave sketch endpoints.
+ const nativeSegments=[],rings=solidSketchSection(meshes,b,offset,{nativeSegments,heal:false}),edges=[];
  const world=point=>b.u.clone().multiplyScalar(point[0]).addScaledVector(b.v,point[1]).addScaledVector(b.n,offset);
  for(const ring of rings){const points=ring.map(p=>world(restoreContourPoint([p.X/SCALE,p.Y/SCALE],nativeSegments)));for(let i=0;i<points.length;i++)edges.push([points[i],points[(i+1)%points.length]]);}
  return edges;

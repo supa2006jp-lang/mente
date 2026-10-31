@@ -25,7 +25,7 @@ try{
  const start=async(continuous)=>{
   await page.locator('#new-line').click();
   continuous?await page.locator('#continuous-line').check():await page.locator('#continuous-line').uncheck();
-  const rect=await page.locator('canvas').boundingBox();
+  const rect=await page.locator('#canvas-host canvas').boundingBox();
   return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};
  };
 
