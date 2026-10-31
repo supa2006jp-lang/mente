@@ -1,4 +1,5 @@
 import {validateCounterbore} from './counterbore.js';
+import {inspectInteriorEdges} from './interior-edge-selection.js';
 import {makeStorageTray,makeDovetail,checkMotion,motionSettings} from './part-workshop.js';
 import {makeHoneycomb,honeycombBodyInfo} from './honeycomb-solid.js';
 import {makeSupportContactTrials} from './print-support-contact-trials.js';
@@ -76,6 +77,7 @@ import {throughDepth} from './extrusion-extent.js';
 import {depthToFacePlane} from './extrusion-face-target.js';
 import {clipExtrusionAtSolids,contactSearchDistance} from './extrude-to-solid.js';
 import {bodyRevolution} from './body-revolution.js';
+import {cutRevolvedSolid} from './revolved-cut.js';
 import {coaxialSweepPlan} from './body-revolution-history.js';
 import {orthogonalProfileSweepPlan,orthogonalProfileSweep} from './orthogonal-profile-revolution.js';
 import {replayHistory} from './history-replay.js';
@@ -336,6 +338,7 @@ function repeatedBodyRevolution(features,body,p,onProgress){
  }finally{shape?.delete();earlier.forEach(shape=>shape.delete());}
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(spec.type==='interiorEdges'){const bodies=kernelBodies(features);try{return inspectInteriorEdges(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}
  if(['motionCheck','motionRangeCheck','motionSetup'].includes(spec.type)){const bodies=kernelBodies(features);try{if(spec.type==='motionSetup'){return {outputs:[],remove:[],analysis:{motionSetup:motionSettings(spec,bodies)}};}return checkMotion(bodies,spec,onProgress);}finally{bodies.forEach(s=>s.delete());}}
 
  if(spec.type==='honeycombInspect'){
@@ -609,7 +612,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    if(p.allThreadFaces&&!source)throw Error('編集可能なねじがあるボディを選択してください');
    const updated=source?(p.allThreadFaces?allThreadPullSpec(source.spec,p.distance):source.spec.type==='copiedThread'?null:threadPullSpec(kernelBodies(source.features).get(id),body,faces,source.spec,p.distance)):null;
    if(updated){const result=regeneratedThread(source,updated);for(const output of result.outputs)outputs.push({...output,threadSource:{...source,spec:updated}});}
-   else emit(id,pullFaces(body,faces,p.distance));
+   else {const pulled=pullFaces(body,faces,p.distance);try{emit(id,pulled);}finally{pulled.delete();}}
   }
  }
  else if(p.type==='coilJoint'){const result=makeCoilJoint(base,p,onProgress,{preview:context.coilPreview===true,preferredAxis:jointSourceAxis(features,p.target)});analysis=result.analysis;try{onProgress?.({stage:'表示データを作成しています'});emit(p.target,result.parts[0]);emit(p.id+'-lid',result.parts[1]);}finally{result.parts.forEach(shape=>shape.delete());}}
@@ -661,7 +664,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  if(!Number.isFinite(p.angle)||p.angle<=0||p.angle>360)throw Error('角度は0より大きく360度以下で指定してください');
  if(!p.origin?.every(Number.isFinite)||!p.axisVector?.every(Number.isFinite)||Math.hypot(...p.axisVector)<1e-8)throw Error('回転軸を選択してください');
  if(p.bodySweep){
-  let sweep;try{sweep=repeatedBodyRevolution(features,body,p,onProgress);}catch(e){if(/[\u3040-\u9fff]/.test(e.message||''))throw e;throw Error('この形状の回転範囲を結合できません。回転軸や角度を変更してください');}try{if(p.operation==='new')emit(p.id,sweep);else if(p.operation==='join'&&p.target===p.sourceBody)emit(p.target,sweep);else{if(!base)throw Error('対象ボディを選択してください');const shape=p.operation==='cut'?base.cut(sweep):fuseSolid(base,sweep,{onProgress});try{if(p.operation==='cut'&&Math.abs(R.measureVolume(shape)-R.measureVolume(base))<1e-7)throw Error('回転範囲が対象ボディと重なっていません');emit(p.target,shape);}finally{shape.delete();}}}finally{sweep.delete();}return {outputs,remove,...(analysis?{analysis}:{})};
+  let sweep;try{sweep=repeatedBodyRevolution(features,body,p,onProgress);}catch(e){if(/[\u3040-\u9fff]/.test(e.message||''))throw e;throw Error('この形状の回転範囲を結合できません。回転軸や角度を変更してください');}try{if(p.operation==='new')emit(p.id,sweep);else if(p.operation==='join'&&p.target===p.sourceBody)emit(p.target,sweep);else{if(!base)throw Error('対象ボディを選択してください');const shape=p.operation==='cut'?cutRevolvedSolid(base,sweep,{onProgress}):fuseSolid(base,sweep,{onProgress});try{if(p.operation==='cut'&&Math.abs(R.measureVolume(shape)-R.measureVolume(base))<1e-7)throw Error('回転範囲が対象ボディと重なっていません');emit(p.target,shape);}finally{shape.delete();}}}finally{sweep.delete();}return {outputs,remove,...(analysis?{analysis}:{})};
  }
  if(!['new','move'].includes(p.operation))throw Error('ボディの回転方法を選択してください');
  const shape=body.clone().rotate(p.direction==='逆方向'?-p.angle:p.angle,p.origin,p.axisVector);try{emit(p.operation==='move'?p.sourceBody:p.id,shape);}finally{shape.delete();}
@@ -683,7 +686,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
   }else shape=profileSketch(p.region).revolve(direction.toArray(),{origin:p.origin,angle:p.angle});
   if(p.direction==='対称')shape=shape.rotate(-p.angle/2,p.origin,direction.toArray());
   if(p.operation==='new')emit(p.id,shape);
-  else {if(!base)throw Error('対象ボディを選択してください');const result=p.operation==='cut'?base.cut(shape):base.fuse(shape);if(p.operation==='cut'&&Math.abs(R.measureVolume(base)-R.measureVolume(result))<1e-7)throw Error('回転形状が対象ボディと重なっていません');emit(p.target,result);}
+  else {if(!base)throw Error('対象ボディを選択してください');const result=p.operation==='cut'?cutRevolvedSolid(base,shape,{onProgress}):base.fuse(shape);if(p.operation==='cut'&&Math.abs(R.measureVolume(base)-R.measureVolume(result))<1e-7)throw Error('回転形状が対象ボディと重なっていません');emit(p.target,result);}
  }
  else if(p.type==='loft'){if(!p.sections||p.sections.length<2)throw Error('断面を2つ以上選択してください');const circle=coaxialCircularLoftInfo(p.sections);emit(p.id,p.sections.some(r=>r.overlapSource)?selectedProfileLoft(p.sections,bodies):circle?makeCoaxialCircularLoft(circle):profileSketch(p.sections[0]).loftWith(p.sections.slice(1).map(profileSketch)));}
  else if(p.type==='thread'&&p.target){if(!base||!p.surfacePoint)throw Error('ねじにする円柱の側面を選択してください');const point=new THREE.Vector3(...p.surfacePoint);let selected=threadCylinderInfo(base,p.surfacePoint);if(!selected&&!context.circularWallRecovered){
