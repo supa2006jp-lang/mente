@@ -69,7 +69,7 @@ import {createSelectedPointMarker,pointReferenceLabel} from './selected-point.js
 import {createFaceExtrudeShortcut} from './face-extrude-shortcut.js';
 import {sketchExtrudeRegions} from './sketch-extrude-shortcut.js';
 let faceExtrudeShortcut=null,regionExtrudeAnchor=null;
-import {screenVertexCandidates} from './vertex-points.js';
+import {screenVertexCandidates,solidVertexPoints} from './vertex-points.js';
 import {createPointDistance} from './point-distance.js';
 import {allMeshHits,screenEdgeCandidates,screenMidpointCandidates,selectionCandidates,edgeCandidateKey} from './selection-candidates.js';
 import {createSelectionPicker} from './selection-picker.js';
@@ -101,6 +101,7 @@ import {fitSelectionCandidate,captureSelectionView,restoreSelectionView} from '.
 import {faceGridCellRegions} from './grid-cell.js';
 import {sketchSolidOverlapRegions,sketchRegionHit} from './sketch-solid-overlap.js';
 import {createSketchBoundarySnap} from './sketch-boundary-snap.js';
+import {createGridBoundarySnap,gridBoundaryPointVisible} from './grid-boundary-snap.js';
 import {createSolidBoundaryFill} from './sketch-solid-boundary-fill-view.js';
 import {solidBoundaryCircleHints} from './sketch-boundary-arcs.js';
 import {createPerpendicularSketchTool} from './perpendicular-sketch-view.js';
@@ -108,7 +109,7 @@ import {setSolidBoundaryFollowing} from './solid-boundary-links.js';
 import {validateSolidBoundaryLinks,guardSolidBoundaryEdits} from './solid-boundary-link-data.js';
 let solidBoundaryFill=null;
 let perpendicularSketchTool=null;
-const sketchBoundarySnap=createSketchBoundarySnap();
+const sketchBoundarySnap=createSketchBoundarySnap(),gridBoundarySnap=createGridBoundarySnap();
 import {partitionLabel} from './partition-history.js';
 import {linkRegionOffset} from './linked-sketch-offset.js';
 let sketchOverlapCache=null;
@@ -542,7 +543,7 @@ function refreshDrawingCoordinates(revision){
    retainCadCoordinates(mesh.geometry,coordinates);mesh.geometry.userData.cadCoordinatePrecision=true;const edges=mesh.children[0]?.geometry;if(edges){retainEdgeCoordinates(edges,mesh.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges);}
   }
   for(const source of sources){const output=result.sources?.find(o=>o.id===source.bodyId&&o.index===source.index);if(output){source.output.vertices=restoreMeshCoordinates(source.output.vertices,output.vertices);source.output.cadCoordinatePrecision=true;}}
-  filletGridReference.clear();sketchBoundarySnap.clear();
+  filletGridReference.clear();sketchBoundarySnap.clear();gridBoundarySnap.clear();
  }).catch(error=>{if(features===revision)notify('作図用の精密な座標を取得できませんでした。'+error.message);});
  for(const [,mesh] of meshes)mesh.userData.drawingCoordinatesReady=ready;
 }
@@ -897,11 +898,21 @@ function snapToGrid(hit,event={}){
  const tolerance=6;let best=null,dist=tolerance,kind='grid';
  const consider=(p,k)=>{const a=screenPoint(p),b=screenPoint(hit),d=Math.hypot(a.x-b.x,a.y-b.y);if(d<Math.min(dist,k==='midpoint'?2:tolerance)){dist=d;best=p.clone();kind=k;}};
  for(const f of features.filter(f=>f.kind==='sketch'&&!f.groupHidden)){const basis=basisFor(f),o=planeCoordinates(f);if(basis.n.distanceTo(sketchBasis.n)>1e-5||Math.abs(o.offset-sketchOrigin.dot(sketchBasis.n))>1e-5)continue;const r={...f,offset:o.offset},points=sketchPoints(f);if(f.profile!=='circle')for(const p of (f.profile==='spline'?[points[0],points.at(-1)]:points))consider(worldPoint(r,p),'endpoint');if(f.profile==='line'||f.profile==='rect')for(let i=1;i<points.length;i++)consider(worldPoint(r,[(points[i][0]+points[i-1][0])/2,(points[i][1]+points[i-1][1])/2]),'midpoint');if(f.profile==='circle'||f.profile==='rect')consider(new THREE.Vector3(f.x,f.y,f.z),'center');}
- for(const mesh of meshes.values()){if(!mesh.visible)continue;for(const ref of mesh.userData.references||[]){const p=new THREE.Vector3(...ref.point);if(Math.abs(p.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4)consider(p,ref.kind==='midpoint'?'midpoint':'center');}const edge=cadPosition(mesh.children[0]?.geometry);if(!edge)continue;for(let i=0;i<edge.count;i+=2){const p=new THREE.Vector3().fromBufferAttribute(edge,i),q=new THREE.Vector3().fromBufferAttribute(edge,i+1);if(Math.abs(p.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4&&Math.abs(q.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4){consider(p,'endpoint');consider(q,'endpoint');consider(p.clone().add(q).multiplyScalar(.5),'midpoint');}}}
+ for(const mesh of meshes.values()){
+  if(!mesh.visible)continue;mesh.updateWorldMatrix(true,false);const onPlane=p=>Math.abs(p.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4;
+  for(const ref of mesh.userData.references||[]){const p=new THREE.Vector3(...ref.point).applyMatrix4(mesh.matrixWorld);if(onPlane(p))consider(p,ref.kind==='midpoint'?'midpoint':'center');}
+  const geometry=mesh.children[0]?.geometry,edge=cadPosition(geometry);if(!edge)continue;
+  for(const point of solidVertexPoints(geometry)){const p=new THREE.Vector3(...point).applyMatrix4(mesh.matrixWorld);if(onPlane(p))consider(p,'endpoint');}
+  for(let i=0;i<edge.count;i+=2){if(geometry.userData.circularEdges?.has(i)||geometry.userData.arcEdges?.has(i))continue;const p=new THREE.Vector3().fromBufferAttribute(edge,i).applyMatrix4(mesh.matrixWorld),q=new THREE.Vector3().fromBufferAttribute(edge,i+1).applyMatrix4(mesh.matrixWorld);if(onPlane(p)&&onPlane(q))consider(p.clone().add(q).multiplyScalar(.5),'midpoint');}
+ }
  for(const p of getIntersectionPoints())if(Math.abs(p.dot(sketchBasis.n)-sketchOrigin.dot(sketchBasis.n))<1e-4)consider(p,'intersection');const spline=$('profile').value==='spline';if(spline)for(const p of splinePoints)consider(sketchBasis.u.clone().multiplyScalar(p[0]).addScaledVector(sketchBasis.v,p[1]).addScaledVector(sketchBasis.n,sketchOrigin.dot(sketchBasis.n)),'endpoint');host.dataset.snapKind=kind;if(best)return best;
  const lockedAngle=$('profile').value==='line'&&firstPoint&&$('lock-angle').checked&&!$('lock-length').checked?Number($('live-angle').value):null;
  const direction=lockedAngle!==null&&Number.isFinite(lockedAngle)?sketchBasis.u.clone().multiplyScalar(Math.cos(lockedAngle*Math.PI/180)).addScaledVector(sketchBasis.v,Math.sin(lockedAngle*Math.PI/180)):null;
  const offset=sketchOrigin.dot(sketchBasis.n),options={origin:direction?firstPoint:null,direction};
+ if($('snap-enabled').checked&&!(firstPoint&&$('profile').value==='line'&&$('lock-length').checked)){
+  const displayGrid=sketchGrid?.visible?sketchGrid:grid,crossing=gridBoundarySnap.snap(displayGrid,sketchBoundarySnap.segments(meshes.values(),sketchBasis,offset),sketchBasis,offset,hit,screenPoint,{...options,accept:p=>gridBoundaryPointVisible(p,camera,[...meshes.values()])});
+  if(crossing){host.dataset.snapKind='gridBoundary';return crossing;}
+ }
  if(sketch&&firstPoint&&$('profile').value==='line'&&!arcDrag&&!$('lock-length').checked&&!event.altKey){
   const uv=p=>[p.dot(sketchBasis.u),p.dot(sketchBasis.v)],world=p=>sketchBasis.u.clone().multiplyScalar(p[0]).addScaledVector(sketchBasis.v,p[1]).addScaledVector(sketchBasis.n,offset),segments=[];
   for(const f of features)if(f.kind==='sketch'&&!f.groupHidden&&!f.arc&&['line','rect','polyline'].includes(f.profile))for(const {a,b}of sketchSegments(f))if(Math.abs(a.dot(sketchBasis.n)-offset)<1e-5&&Math.abs(b.dot(sketchBasis.n)-offset)<1e-5)segments.push({a:uv(a),b:uv(b),kind:'sketch'});
@@ -920,7 +931,7 @@ function snapToGrid(hit,event={}){
  host.dataset.snapKind='free';return hit.clone();
 }
 function showSnap(hit,basis=sketchBasis){
- const kind=host.dataset.snapKind||'grid',labels={perpendicularBoundary:'⊥ ソリッド境界へ垂直',perpendicularSketch:'⊥ スケッチ線へ垂直',axis:'⊥ '+(host.dataset.sketchSnapAxis||'作図')+'軸へ垂直',angle:'∠ '+(host.dataset.sketchSnapAngle||'0')+'°（'+sketchAngleStep($('line-angle-step').value)+'°吸着）',endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={perpendicularBoundary:'⊥',perpendicularSketch:'⊥',axis:'⊥',angle:'∠',endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.color=['angle','axis','perpendicularBoundary','perpendicularSketch'].includes(kind)?'#087f5b':'';$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm';
+ const kind=host.dataset.snapKind||'grid',labels={gridBoundary:'× グリッドとソリッドの交点',perpendicularBoundary:'⊥ ソリッド境界へ垂直',perpendicularSketch:'⊥ スケッチ線へ垂直',axis:'⊥ '+(host.dataset.sketchSnapAxis||'作図')+'軸へ垂直',angle:'∠ '+(host.dataset.sketchSnapAngle||'0')+'°（'+sketchAngleStep($('line-angle-step').value)+'°吸着）',endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={gridBoundary:'×',perpendicularBoundary:'⊥',perpendicularSketch:'⊥',axis:'⊥',angle:'∠',endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.color=['gridBoundary','angle','axis','perpendicularBoundary','perpendicularSketch'].includes(kind)?'#087f5b':'';$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm';
 }
 function finishSketch(message=true){lineConstruction=false;constructionToggle.hidden=true;solidBoundaryFillLabel.hidden=true;solidBoundaryFill?.clear({forget:true});delete host.dataset.drawingConstruction;lastSketchPointer=null;delete host.dataset.sketchSnapAngle;delete host.dataset.sketchSnapAxis;connectedSketch=null;updateConnectedSketchUI();splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;channelMode=false;channelReverse=false;channelDirection.hidden=true;channelEditDirection.hidden=true;channelResize?.hide();channelArrow?.hide();restoreChannelSource();$('profile').querySelector('[value=rect]').textContent='長方形';$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
 function stopLineDrawing(){if(stage!=='sketch'||$('profile').value!=='line')return false;$('cancel').click();$('status').textContent='線分の作図を終了しました。確定済みの線は残ります';return true;}

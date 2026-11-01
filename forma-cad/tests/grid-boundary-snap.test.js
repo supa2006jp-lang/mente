@@ -1,0 +1,39 @@
+import test from 'node:test';import assert from 'node:assert/strict';import * as THREE from 'three';
+import {closestGridBoundaryIntersection,createGridBoundarySnap,gridBoundaryPointVisible} from '../src/grid-boundary-snap.js';
+import {basisFor} from '../src/frames.js';import {scopedFaceGrid} from '../src/face-grid.js';
+import {solidVertexPoints} from '../src/vertex-points.js';import {retainCadCoordinates} from '../src/cad-coordinates.js';
+const v=p=>new THREE.Vector3(...p),seg=(a,b)=>[v(a),v(b)],project=p=>({x:p.x*10,y:p.y*10}),near=(a,b)=>assert.ok(a.distanceTo(v(b))<1e-7,JSON.stringify(a.toArray()));
+test('grid crossing snaps to a finite oblique boundary even when the other coordinate is between grid vertices',()=>{
+ const boundary=[seg([0,3,0],[20,13,0])],grid=[seg([10,-10,0],[10,20,0])],hit=v([10.3,8.2,0]);near(closestGridBoundaryIntersection(boundary,grid,hit,project),[10,8,0]);
+ assert.equal(closestGridBoundaryIntersection(boundary,grid,v([11,8,0]),project),null);
+ assert.equal(closestGridBoundaryIntersection([seg([0,3,0],[9,7.5,0])],grid,hit,project),null);
+ assert.equal(closestGridBoundaryIntersection(boundary,[seg([10,-10,0],[10,7,0])],hit,project),null);
+ assert.equal(closestGridBoundaryIntersection(boundary,grid,hit,project,{accept:()=>false}),null);
+});
+test('parallel lines, off-plane silhouettes and incompatible numeric directions do not create crossings',()=>{
+ const boundary=[seg([0,3,0],[20,13,0])],grid=[seg([10,-10,0],[10,20,0])],hit=v([10.3,8.2,0]);
+ assert.equal(closestGridBoundaryIntersection(boundary,[seg([0,3,0],[20,13,0])],hit,project),null);
+ assert.equal(closestGridBoundaryIntersection(boundary,[seg([10,-10,1],[10,20,1])],hit,project),null);
+ assert.equal(closestGridBoundaryIntersection(boundary,grid,hit,project,{origin:v([0,0,0]),direction:v([1,0,0])}),null);
+ near(closestGridBoundaryIntersection(boundary,grid,hit,project,{origin:v([0,8,0]),direction:v([1,0,0])}),[10,8,0]);
+ assert.equal(closestGridBoundaryIntersection(boundary,grid,hit,project,{origin:v([0,8,0]),direction:v([-1,0,0])}),null);
+});
+test('actual purple grid extents, holes, transformed planes and visual lift are respected',()=>{
+ const resolver=createGridBoundarySnap(),face={outer:[[0,0],[30,0],[30,30],[0,30]],holes:[[[8,6],[8,14],[12,14],[12,6]]]},grid=scopedFaceGrid(face,'face',10).grid,basis=basisFor({plane:'XY'});
+ grid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));grid.position.z=.02;
+ const edges=[seg([2,8,0],[28,8,0])];assert.equal(resolver.snap(grid,edges,basis,0,v([10,8,0]),project),null,'no grid line inside the hole');near(resolver.snap(grid,edges,basis,0,v([20.2,8.1,0]),project),[20,8,0]);
+ grid.visible=false;assert.equal(resolver.snap(grid,edges,basis,0,v([20,8,0]),project),null);grid.visible=true;grid.position.z=2;assert.equal(resolver.snap(grid,edges,basis,0,v([20,8,0]),project),null);grid.geometry.dispose();grid.material.dispose();
+ const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(.3,.6,.2)),b=Object.fromEntries(['u','v','n'].map((k,i)=>[k,new THREE.Vector3().setComponent(i,1).applyQuaternion(q)])),world=p=>b.u.clone().multiplyScalar(p[0]).addScaledVector(b.v,p[1]).addScaledVector(b.n,17),g=scopedFaceGrid({...face,holes:[]},'face',10).grid;g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(b.u,b.n.clone().negate(),b.v));g.position.copy(b.n).multiplyScalar(17.02);
+ const result=resolver.snap(g,[[world([0,3]),world([20,13])]],b,17,world([10.3,8.2]),p=>({x:p.dot(b.u)*10,y:p.dot(b.v)*10}));assert.ok(result.distanceTo(world([10,8]))<1e-7);g.geometry.dispose();g.material.dispose();
+});
+test('occluded crossings are rejected while clipped-away front surfaces do not block them',()=>{
+ const camera=new THREE.OrthographicCamera(-30,30,30,-30,.1,1000);camera.position.set(0,0,100);camera.lookAt(0,0,0);camera.updateMatrixWorld(true);const mesh=new THREE.Mesh(new THREE.BoxGeometry(20,20,20),new THREE.MeshBasicMaterial());mesh.updateMatrixWorld(true);const point=v([0,0,0]);assert.equal(gridBoundaryPointVisible(point,camera,[mesh]),false);mesh.material.clippingPlanes=[new THREE.Plane(v([0,0,-1]),0)];assert.equal(gridBoundaryPointVisible(point,camera,[mesh]),true);mesh.visible=false;assert.equal(gridBoundaryPointVisible(point,camera,[mesh]),true);mesh.geometry.dispose();mesh.material.dispose();
+});
+test('a scoped grid ending on a slanted edge tolerates GPU rounding and returns the precise boundary',()=>{
+ const angle=Math.PI/6,rotate=([x,y])=>[40+x*Math.cos(angle)-y*Math.sin(angle),30+x*Math.sin(angle)+y*Math.cos(angle)],outer=[[-30,-15],[30,-15],[30,15],[-30,15]].map(rotate),basis=basisFor({plane:'XY'}),grid=scopedFaceGrid({outer,holes:[]},'face',10).grid;
+ grid.applyMatrix4(new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v));grid.position.z=10.02;const edges=outer.map((a,i)=>seg([...a,10],[...outer[(i+1)%outer.length],10])),expected=[50,30+10*Math.tan(angle)-15/Math.cos(angle),10];
+ near(createGridBoundarySnap().snap(grid,edges,basis,10,v([50.2,18.55,10]),project),expected);grid.geometry.dispose();grid.material.dispose();
+});
+test('true vertex snapping refreshes when precise CAD coordinates replace display coordinates',()=>{
+ const geometry=new THREE.BufferGeometry().setFromPoints([v([0,0,0]),v([10,0,0])]);assert.equal(solidVertexPoints(geometry)[1][0],10);retainCadCoordinates(geometry,[0,0,0,10.000000123,0,0]);assert.equal(solidVertexPoints(geometry)[1][0],10.000000123);geometry.dispose();
+});

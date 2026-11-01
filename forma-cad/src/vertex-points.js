@@ -3,8 +3,8 @@ import {cadPosition} from './cad-coordinates.js';
 const cached=new WeakMap(),key=p=>p.toArray().map(v=>Math.round(v*1e4)).join(',');
 // Use displayed boundary edges, never the interior vertices of tessellation triangles.
 export function solidVertexPoints(edges){
- if(!edges?.attributes.position)return [];if(cached.has(edges))return cached.get(edges);
- const nodes=new Map(),p=cadPosition(edges),arcEnds=new Map(),seenArcs=new Set();
+ if(!edges?.attributes.position)return [];const p=cadPosition(edges),saved=cached.get(edges);if(saved?.position===p&&saved.version===p.version)return saved.points;
+ const nodes=new Map(),arcEnds=new Map(),seenArcs=new Set();
  const node=point=>{const id=key(point);if(!nodes.has(id))nodes.set(id,{point,neighbors:new Map(),curvedNeighbors:new Set()});return nodes.get(id);};
  const connect=(a,b,curved)=>{if(a.distanceToSquared(b)<1e-10)return;const na=node(a),nb=node(b);na.neighbors.set(key(b),b);nb.neighbors.set(key(a),a);if(curved){na.curvedNeighbors.add(key(b));nb.curvedNeighbors.add(key(a));}};
  for(let i=0;i<p.count;i+=2){
@@ -22,7 +22,7 @@ export function solidVertexPoints(edges){
   if(n.curvedNeighbors.size===2&&directions.length===2&&directions[0].dot(directions[1])< -Math.cos(.2))continue;
   result.push(n.point.toArray());
  }
- cached.set(edges,result);return result;
+ cached.set(edges,{position:p,version:p.version,points:result});return result;
 }
 export function screenVertexCandidates(meshes,camera,width,height,x,y,tolerance=14){
  const out=[];camera.updateMatrixWorld(true);
