@@ -3,14 +3,15 @@ import {cadPosition} from './cad-coordinates.js';
 
 // A circular-looking polygon is not evidence of an analytic curve. Require a
 // circle recipe on this body as well as a matching current geometric rim.
-export function solidBoundaryCircleHints(features,bodyId,edgeGeometry,basis,offset){
+export function solidBoundaryCircleHints(features,bodyId,edgeGeometry,basis,offset,nativeCircles=[]){
  const radii=[];for(const f of features){if(f.kind==='sketch'||f.kind==='plane'||(f.operation==='new'?f.id:f.target)!==bodyId)continue;const sources=f.profile==='circle'?[f]:features.filter(s=>f.region?.sourceIds?.includes(s.id)&&s.profile==='circle');for(const source of sources){const r=source.diameter/2;if(f.mode==='thin'){radii.push(r+(f.side==='outside'?f.wall:f.side==='center'?f.wall/2:0),r-(f.side==='inside'?f.wall:f.side==='center'?f.wall/2:0));}else radii.push(r);}}
- if(!radii.length)return [];const result=[];
+ if(!radii.length&&!nativeCircles.length)return [];const result=[];
  for(const curve of new Set([...(edgeGeometry?.userData.circularEdges?.values()||[]),...(edgeGeometry?.userData.arcEdges?.values()||[])])){
-  if(!radii.some(r=>Math.abs(r-curve.radius)<=1e-5)||curve.points.length<3)continue;
+  const verified=nativeCircles.some(c=>Math.abs(c.radius-curve.radius)<=1e-5&&new THREE.Vector3(...c.center).distanceTo(new THREE.Vector3(...curve.center))<=1e-5);
+  if((!verified&&!radii.some(r=>Math.abs(r-curve.radius)<=1e-5))||curve.points.length<3)continue;
   let points=curve.points.map(p=>new THREE.Vector3(...p));const a=points[0],normal=points[Math.floor(points.length/3)].clone().sub(a).cross(points[Math.floor(points.length*2/3)].clone().sub(a)).normalize();if(Math.abs(normal.dot(basis.n))<1-1e-8)continue;const center=new THREE.Vector3(...curve.center),radius=curve.radius;if(points.some(p=>Math.abs(p.distanceTo(center)-radius)>1e-5))continue;const height=offset-center.dot(basis.n);center.addScaledVector(basis.n,height);points=points.map(p=>p.addScaledVector(basis.n,height));if(points.some(p=>Math.abs(p.dot(basis.n)-offset)>1e-6))continue;
   const attr=cadPosition(edgeGeometry),segments=[];for(const map of [edgeGeometry.userData.circularEdges,edgeGeometry.userData.arcEdges])for(const [i,c]of map||[]){if(c!==curve)continue;segments.push([0,1].map(j=>{const p=new THREE.Vector3().fromBufferAttribute(attr,i+j).addScaledVector(basis.n,height);return [p.dot(basis.u),p.dot(basis.v)];}));}
-  result.push({center:[center.dot(basis.u),center.dot(basis.v)],radius,points:points.map(p=>[p.dot(basis.u),p.dot(basis.v)]),segments});
+  const candidate={center:[center.dot(basis.u),center.dot(basis.v)],radius,points:points.map(p=>[p.dot(basis.u),p.dot(basis.v)]),segments},same=result.find(c=>Math.abs(c.radius-radius)<1e-6&&Math.hypot(c.center[0]-candidate.center[0],c.center[1]-candidate.center[1])<1e-6);if(same)same.segments.push(...segments);else result.push(candidate);
  }
  return result;
 }

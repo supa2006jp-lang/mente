@@ -1,4 +1,5 @@
 import {resolveSketchMirrorLinks} from './sketch-mirror-links.js';
+import {validateSolidBoundaryLinks,guardSolidBoundaryEdits} from './solid-boundary-link-data.js';
 import {refreshPipePath} from './pipe-path.js';
 import {solveSketchConstraints,earliestSketchChange} from './sketch-constraints.js';
 import {findRegions} from './regions.js';
@@ -48,11 +49,19 @@ export function refreshRegion(region,before,after){
  return copy(matches[0]);
 }
 export function replayHistory(before,proposed,start,run,remap,resolvePartition,onStep,refreshStart=false,forceFull=false){
+ validateSolidBoundaryLinks(proposed);
+ guardSolidBoundaryEdits(proposed,before);
  proposed=solveSketchConstraints(proposed,{before});start=Math.min(start,earliestSketchChange(before,proposed));
  const next=copy(proposed),prefix=[],changed=new Set(),ordered=before.length===next.length&&before.every((f,i)=>f.id===next[i].id);
- let reused=0,recalculated=0;
+ let reused=0,recalculated=0;const refreshedBoundaries=new Set();
  for(let i=0;i<next.length;i++){
   let f=next[i];try{
+   if(i>=start&&f.solidBoundaryLink?.enabled&&!refreshedBoundaries.has(f.solidBoundaryLink.bundleId)){
+    const previous=before.find(p=>p.id===f.id),needed=forceFull||JSON.stringify(previous?.solidBoundaryLink)!==JSON.stringify(f.solidBoundaryLink)||[...featureReads(f)].some(id=>changed.has(id));
+    if(needed){if(!run)throw Error('ソリッド境界の追従更新にはCADエンジンが必要です');const result=run(prefix,{type:'refreshBoundaryLinks',features:[...prefix,...next.slice(i)],bundleId:f.solidBoundaryLink.bundleId});
+     for(let j=0;j<result.features.length;j++)if(JSON.stringify(result.features[j])!==JSON.stringify(next[j])){next[j]=result.features[j];changed.add(next[j].id);if(j<i)prefix[j]=next[j];}}
+    refreshedBoundaries.add(f.solidBoundaryLink.bundleId);f=next[i];
+   }
    const old=before[i],same=ordered&&cacheSignature(old)===cacheSignature(f);
    const reuse=(i>start||i===start&&refreshStart)&&!forceFull&&same&&localHistoryFeature(f)&&reusableHistoryResult(f)&&![...featureReads(f)].some(id=>changed.has(id));
    if(i>=start){if(reuse)reused++;else recalculated++;onStep?.({stage:(i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」'+(reuse?'の保存済み結果を再利用しています':'を再計算しています'),current:i-start,total:next.length-start,featureId:f.id,reused,recalculated});}

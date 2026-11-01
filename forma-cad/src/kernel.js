@@ -1,4 +1,7 @@
 import {validateCounterbore} from './counterbore.js';
+import {solidBoundaryInfo} from './solid-boundary-info.js';
+import {refreshSolidBoundaryBundle} from './solid-boundary-links.js';
+import {modelSketchBoundaries} from './sketch-boundary-model.js';
 import {requireMaterialRemoval} from './cut-result.js';
 import {withFailureDiagnostics,invalidResultError} from './cad-failure-diagnostics.js';
 import {inspectInteriorEdges} from './interior-edge-selection.js';
@@ -349,6 +352,8 @@ function repeatedBodyRevolution(features,body,p,onProgress){
  }finally{shape?.delete();earlier.forEach(shape=>shape.delete());}
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(spec.type==='solidBoundaryInfo'){const bodies=kernelBodies(features);try{return {bodies:[...bodies].filter(([id])=>!spec.targets||spec.targets.includes(id)).map(([id,shape])=>solidBoundaryInfo(shape,id))};}finally{for(const shape of bodies.values())shape.delete();}}
+ if(spec.type==='refreshBoundaryLinks')return {features:refreshSolidBoundaryBundle(spec.features,spec.bundleId,(history,source,id)=>{const bodies=kernelBodies(history);try{const shape=bodies.get(id);return shape?modelSketchBoundaries(history,source,id,solidBoundaryInfo(shape,id)):[];}finally{for(const shape of bodies.values())shape.delete();}})};
  try{return computeOperation(features,spec,onProgress,context);}catch(error){throw withFailureDiagnostics(error,spec);}
 }
 function computeOperation(features,spec,onProgress,context={}){

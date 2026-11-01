@@ -4,6 +4,7 @@ export function featureReads(feature){
  const ids=new Set(),add=value=>strings(value).forEach(id=>ids.add(id)),spec=feature.spec||{};
  add(spec.pathFeature?.sourceIds);if(!(feature.kind==='extrusion'&&feature.operation==='new'))add(feature.target);add(feature.targetBodies);add(feature.barrierBodies);add(feature.sourceSketchIds);add(feature.offsetLink?.region?.sourceIds);
  if(feature.sketchMirrorLink?.enabled){add(feature.sketchMirrorLink.source.featureId);add(feature.sketchMirrorLink.axis.featureId);}
+ if(feature.solidBoundaryLink?.enabled){add(feature.solidBoundaryLink.bodyId);add(feature.solidBoundaryLink.sourceIds);}
  add(feature.endPlane?.bodyId);add(feature.gridExtentPlane?.bodyId);add(spec.pinTarget);add(spec.lidTarget);
  for(const key of ['target','targets','cutTargets','other','others','path','sourceBody'])add(spec[key]);
  for(const ref of [...(spec.edges||[]),...(spec.faces||[]),spec.face,spec.rim,spec.placement,spec.source,spec.destination].filter(Boolean))add(ref.bodyId);

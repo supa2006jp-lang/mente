@@ -21,6 +21,7 @@ export function mirrorSketch(source,spec){
  const reflect=p=>p.clone().addScaledVector(normal,2*origin.clone().sub(p).dot(normal));
  const next={u:direction(b.u),v:direction(b.v).negate(),n:direction(b.n)};
  const f=structuredClone(source),position=reflect(new THREE.Vector3(f.x,f.y,f.z));
+ delete f.solidBoundaryLink;delete f.solidBoundarySource;
  Object.assign(f,{id:crypto.randomUUID(),name:(f.name||'スケッチ')+' ミラー',plane:'CUSTOM',frame:Object.fromEntries(Object.entries(next).map(([k,v])=>[k,v.toArray()])),x:position.x,y:position.y,z:position.z,angle:-(f.angle||0),groupHidden:false});
  if(['polyline','spline'].includes(f.profile)){
   const offset=planeCoordinates(source).offset;
