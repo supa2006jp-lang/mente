@@ -28,6 +28,7 @@ export function validateFeature(f){
  validateConstraintData(f);validateSketchMirrorLinkData(f);validateCounterbore(f);validateSolidBoundaryLink(f);
  validateTaperOptions(f);
  if(!f || typeof f!=='object') throw Error('形状データが不正です。');
+ if(f.sketchSection!==undefined&&(typeof f.sketchSection!=='boolean'||f.kind!=='sketch'))throw Error('スケッチの断面表示設定が不正です');
  if(f.construction!==undefined&&(typeof f.construction!=='boolean'||f.kind!=='sketch'))throw Error('補助線の設定が不正です');
  validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateExtrusionBarrier(f);
  if(f.endPlane!==undefined){if(f.kind!=='extrusion'||f.gridExtentPlane||f.throughAll||f.untilSolid)throw Error('到達先の面とグリッド・貫通・ソリッド接触は同時に使えません');depthToFacePlane(f,f.endPlane);}
