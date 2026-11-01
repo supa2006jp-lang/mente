@@ -9,9 +9,9 @@ function nearSegment([a,b],cursor,project,tolerance){
 
 // Intersect finite rendered lines, not an infinite grid or the closest point
 // on a solid edge. Filtering in screen space bounds the work at any zoom.
-export function closestGridBoundaryIntersection(boundaries,gridLines,hit,project,{tolerance=8,origin=null,direction=null,accept=()=>true}={}){
- const cursor=project(hit),lines=gridLines.filter(line=>nearSegment(line,cursor,project,tolerance));let best=null,distance=tolerance;
- if(!lines.length)return null;
+export function gridBoundaryIntersections(boundaries,gridLines,hit,project,{tolerance=8,origin=null,direction=null,accept=()=>true}={}){
+ const cursor=project(hit),lines=gridLines.filter(line=>nearSegment(line,cursor,project,tolerance));const result=[],seen=new Set();
+ if(!lines.length)return result;
  for(const boundary of boundaries){
   if(!nearSegment(boundary,cursor,project,tolerance))continue;const [a,b]=boundary,r=b.clone().sub(a);
   for(const [c,d]of lines){
@@ -24,11 +24,14 @@ export function closestGridBoundaryIntersection(boundaries,gridLines,hit,project
    const point=a.clone().addScaledVector(r,Math.max(0,Math.min(1,t))),onGrid=c.clone().addScaledVector(s,Math.max(0,Math.min(1,u)));
    if(point.distanceTo(onGrid)>slack)continue;
    if(origin&&direction){const v=point.clone().sub(origin);if(v.dot(direction)< -1e-6||v.clone().cross(direction).length()>1e-6*direction.length())continue;}
-   const p=project(point),gap=Math.hypot(p.x-cursor.x,p.y-cursor.y);if(gap<distance&&(p.z===undefined||Math.abs(p.z)<=1)&&accept(point)){distance=gap;best=point;}
+   const p=project(point),gap=Math.hypot(p.x-cursor.x,p.y-cursor.y),key=point.toArray().map(v=>Math.round(v*1e6)).join(',');if(gap<tolerance&&(p.z===undefined||Math.abs(p.z)<=1)&&!seen.has(key)&&accept(point)){seen.add(key);result.push({point,distance:gap,boundary,gridLine:[c,d]});}
   }
  }
- return best;
+ return result.sort((a,b)=>a.distance-b.distance);
 }
+
+export function closestGridBoundaryIntersection(...args){return gridBoundaryIntersections(...args)[0]?.point||null;}
+
 
 export function createGridBoundarySnap(){
  let cache=new WeakMap();
@@ -41,7 +44,7 @@ export function createGridBoundarySnap(){
   const result=[];for(let i=0;i<attr.count;i+=2)result.push([i,i+1].map(j=>{const p=new THREE.Vector3().fromBufferAttribute(attr,j).applyMatrix4(grid.matrixWorld);return p.addScaledVector(basis.n,offset-p.dot(basis.n));}));
   cache.set(grid,{key,geometry,lines:result});return result;
  }
- return {clear(){cache=new WeakMap();},snap(grid,boundaries,basis,offset,hit,project,options){return closestGridBoundaryIntersection(boundaries,lines(grid,basis,offset),hit,project,options);}};
+ return {clear(){cache=new WeakMap();},candidates(grid,boundaries,basis,offset,hit,project,options){return gridBoundaryIntersections(boundaries,lines(grid,basis,offset),hit,project,options);},snap(grid,boundaries,basis,offset,hit,project,options){return this.candidates(grid,boundaries,basis,offset,hit,project,options)[0]?.point||null;}};
 }
 
 // Respect section clipping when deciding whether a crossing is actually visible.
