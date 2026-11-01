@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {basisFor,validateFrame,worldPoint} from './frames.js';
 
 const tidy=v=>v.map(x=>Math.abs(x)<1e-12?0:Math.abs(Math.abs(x)-1)<1e-12?Math.sign(x):x);
-export function perpendicularSketchPlane(face,{axis='u',angle=90,distance=0,reverse=false,anchor=null}={}){
+export function perpendicularSketchPlane(face,{axis='v',angle=90,distance=0,reverse=false,anchor=null}={}){
  if(!face?.outer?.length||!['u','v'].includes(axis))throw Error('基準にするソリッドの平面を1つ選択してください');
  if(typeof distance!=='number'||!Number.isFinite(distance)||Math.abs(distance)>10000)throw Error('位置は−10000〜10000 mmで指定してください');
  if(typeof angle!=='number'||!Number.isFinite(angle)||Math.abs(angle)>180)throw Error('角度は−180〜180°で指定してください');
