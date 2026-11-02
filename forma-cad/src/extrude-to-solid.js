@@ -105,7 +105,30 @@ function trimUncontactedEndCaps(tool,result,blockers,direction){
   const output=trimmed;trimmed=null;return output;
  }finally{trimmed?.delete();backward.delete();vector.delete();}
 }
+function cylinderEntryFace(face,direction){
+ if(face.geomType!=='CYLINDRE')return undefined;
+ const surface=face.surface,cylinder=surface.wrapped.Cylinder(),location=cylinder.Location(),axis=cylinder.Axis(),normal=axis.Direction();let point,n,slab,base,vector,builder,raw;
+ try{
+  const origin=[location.X(),location.Y(),location.Z()],a=[normal.X(),normal.Y(),normal.Z()],radial=direction.map((v,i)=>v-dot(direction,a)*a[i]);
+  if(Math.hypot(...radial)<1e-9)return null;
+  const d=normalize(radial),v=cross(d,a),bounds=projectedBounds(face,[d,a,v]),level=dot(origin,d);
+  point=face.pointOnSurface(.37,.43);n=face.normalAt(point);const p=point.toTuple(),delta=p.map((value,i)=>value-origin[i]),r=delta.map((value,i)=>value-dot(delta,a)*a[i]),outside=dot(n.toTuple(),r)>0;
+  const from=outside?bounds[0][0]-.1:level,to=outside?level:bounds[0][1]+.1;
+  if(to-from<1e-8)return null;
+  const world=(u,w)=>d.map((value,i)=>value*from+a[i]*u+v[i]*w),u0=bounds[1][0]-.1,u1=bounds[1][1]+.1,v0=bounds[2][0]-.1,v1=bounds[2][1]+.1;
+  base=R.makePolygon([world(u0,v0),world(u1,v0),world(u1,v1),world(u0,v1)]);vector=new R.Vector(d.map(value=>value*(to-from)));slab=R.basicFaceExtrusion(base,vector);
+  builder=new (R.getOC().BRepAlgoAPI_Common)(face.wrapped,slab.wrapped);builder.SetNonDestructive(true);builder.Build();if(!builder.IsDone())throw Error('円筒面の接触範囲を計算できませんでした');raw=builder.Shape();if(raw.IsNull())return null;return R.cast(raw);
+ }finally{raw?.delete();builder?.delete();vector?.delete();slab?.delete();base?.delete();n?.delete();point?.delete();normal.delete();axis.delete();location.delete();cylinder.delete();surface.delete();}
+}
 function appendCurvedFaceSweeps(face,vector,direction,parts,tolerance,angularTolerance){
+ // A periodic cylinder includes both entry and exit faces. Split at its
+ // analytic silhouette before sweeping, rather than cutting a compound of
+ // hundreds of overlapping triangular prisms.
+ const entry=cylinderEntryFace(face,direction);
+ if(entry!==undefined){try{if(entry)for(const patch of entry.faces){try{appendEntryFaceSweep(patch,vector,direction,parts,tolerance,angularTolerance);}finally{patch.delete();}}}finally{entry?.delete();}return;}
+ appendEntryFaceSweep(face,vector,direction,parts,tolerance,angularTolerance);
+}
+function appendEntryFaceSweep(face,vector,direction,parts,tolerance,angularTolerance){
  // Sweep an entirely entry-facing analytic face exactly when OCC can
  // make a valid prism. Faces with mixed directions use front-facing patches.
  const mesh=face.mesh({tolerance,angularTolerance});
@@ -184,14 +207,14 @@ function cropAtPlane(shape,axes,bounds,start,stop){
  * Stop each portion of an extrusion at its first contact with any blocker.
  * The tool is the already-created finite extrusion at maxDistance; direction
  * points from its profile toward its end. The caller owns the inputs and output.
- * Do not include the extrusion's source body when the profile starts on it.
+ * Pass sourceBody when including the source, so its starting cap is ignored.
  *
  * Each entry-facing blocker surface is swept toward the tool's far end.
  * Subtracting these shadows removes everything after the first hit on each
  * ray. Unmatched rays stop at the farthest genuine first contact. A shorter
  * manual depth crops at that limit. contactOnly omits unmatched rays.
  */
-export function clipExtrusionAtSolids(tool,blockers,direction,maxDistance,{curveTolerance=.08,curveAngularTolerance=.25,maxDepth=maxDistance,contactInfo,contactOnly=false,sourceBody=null}={}){
+export function clipExtrusionAtSolids(tool,blockers,direction,maxDistance,{curveTolerance=.08,curveAngularTolerance=.25,maxDepth=maxDistance,contactInfo,contactOnly=false,sourceBody=null,onProgress}={}){
  if(!tool||!blockers||!Number.isFinite(maxDistance)||maxDistance<.1||maxDistance>10000)throw Error('接触までの押し出し距離を 0.1〜10000 mm で指定してください');
  const d=normalize(Array.isArray(direction)?direction:direction.toArray());
  const guide=Math.abs(d[2])<.9?[0,0,1]:[0,1,0],u=normalize(cross(guide,d)),v=cross(d,u),axes=[d,u,v];
@@ -199,7 +222,7 @@ export function clipExtrusionAtSolids(tool,blockers,direction,maxDistance,{curve
  const startPlane=-endCapPlane(tool,d.map(value=>-value)),endPlane=endCapPlane(tool,d);
  let result=tool.clone(),matched=false,previewContacted;
  try{
-  for(const blocker of blockers){
+  for(const [blockerIndex,blocker] of blockers.entries()){
    if(!blocker)continue;
    const blockerBounds=projectedBounds(blocker,axes);
    if(blockerBounds[0][0]>toolBounds[0][1]+1e-7||blockerBounds[0][1]<=toolBounds[0][0]+1e-7||!overlaps(toolBounds[1],blockerBounds[1])||!overlaps(toolBounds[2],blockerBounds[2]))continue;
@@ -207,6 +230,7 @@ export function clipExtrusionAtSolids(tool,blockers,direction,maxDistance,{curve
    // not cast a shadow across the starting plane.
    const sweepLength=toolBounds[0][1]-blockerBounds[0][0]+.1;
    if(sweepLength<=0)continue;
+   onProgress?.({stage:'押し出し先の表面を計算しています',current:blockerIndex+1,total:blockers.length});
    const vector=new R.Vector(d.map(x=>x*sweepLength)),parts=[],groups=[];
    let contactBody,forwardHalf,base,halfVector;
    try{

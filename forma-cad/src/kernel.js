@@ -290,7 +290,7 @@ function extrusionToolNative(f,bodies,contactInfo,features=[],onProgress){
   const searchDepth=contactSearchDistance(tool,blockers,direction);
   const searchTool=featureSolid({...f,depth:Math.sign(f.depth)*searchDepth},bodies);
   try{const independent=R.deserializeShape(searchTool.serialize()).asShape3D();tool.delete();tool=independent;}finally{searchTool.delete();}
-  const clipped=clipExtrusionAtSolids(tool,blockers,direction,searchDepth,{maxDepth:Math.abs(f.depth),contactInfo,contactOnly:f.contactOnly===true,sourceBody});
+  const clipped=clipExtrusionAtSolids(tool,blockers,direction,searchDepth,{maxDepth:Math.abs(f.depth),contactInfo,contactOnly:f.contactOnly===true,sourceBody,onProgress});
   return cutEntryTool(clipped,f,extrusionTargetEntries(f,bodies).map(([,body])=>body));
  }finally{tool.delete();}
 }
