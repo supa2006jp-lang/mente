@@ -221,6 +221,8 @@ import {createThinExtrusionControls} from './thin-extrusion-controls.js';
 import {thinEndDimensions,thinDimensionsText,mergeDimensionMeshes} from './thin-extrusion-dimensions.js';
 import {projectedBounds,findPanelSpace} from './panel-placement.js';
 import {extrusionDragAxis,extrusionArrowAngle,extrusionDragDistance} from './extrusion-drag.js';
+import {extrusionBoundaryCandidates,extrusionBoundaryDistance} from './extrusion-boundary-snap.js';
+import {createExtrusionBoundaryFeedback} from './extrusion-boundary-feedback.js';
 import {holesOnlyProblem} from './holes-only-options.js';
 import {regionExtrusions,faceExtrusionRegions} from './region-extrusions.js';
 import {depthToFacePlane} from './extrusion-face-target.js';
@@ -390,6 +392,7 @@ let grid=cadGrid(10,100);grid.rotation.x=Math.PI/2;grid.position.z=-.05;scene.ad
 const axisGroup=new THREE.Group();
 for(const [end,color] of [[[5000,0,0],0xe94b55],[[0,5000,0],0x42ba54],[[0,0,5000],0x367cdd]]){const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...end).negate(),new THREE.Vector3(...end)]);axisGroup.add(new THREE.Line(g,new THREE.LineBasicMaterial({color,transparent:true,opacity:.65})));}scene.add(axisGroup);
 const modelGroup=new THREE.Group();scene.add(modelGroup);
+const extrusionBoundaryFeedback=createExtrusionBoundaryFeedback(scene,host);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
 let viewCube=null,extrusionJoinInspection=null;
 renderer.setAnimationLoop(()=>{sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();stlInspection?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();sketchConnectionsView?.update();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
@@ -582,7 +585,7 @@ function refreshDrawingCoordinates(revision){
  }).catch(error=>{if(features===revision)notify('作図用の精密な座標を取得できませんでした。'+error.message);});
  for(const [,mesh] of meshes)mesh.userData.drawingCoordinatesReady=ready;
 }
-function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();extrusionResultCache.clear();fastExtrusionPreview.clear();sectionControl?.beforeModelChange();workspaceImprovements?.beforeModelChange();selectionPicker?.close();printQuality?.invalidate();bodyDisplay?.stopExploded(true);const splitStyles=sectionBodyStyles(colorFeatures),qrDisplays=qrBodyDisplays(colorFeatures);fragmentSelection=null;clearBodySelection();clearFaceSelection();
+function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();extrusionBoundaryFeedback.clear();extrusionResultCache.clear();fastExtrusionPreview.clear();sectionControl?.beforeModelChange();workspaceImprovements?.beforeModelChange();selectionPicker?.close();printQuality?.invalidate();bodyDisplay?.stopExploded(true);const splitStyles=sectionBodyStyles(colorFeatures),qrDisplays=qrBodyDisplays(colorFeatures);fragmentSelection=null;clearBodySelection();clearFaceSelection();
  for(const child of [...modelGroup.children])disposeObject(child);meshes.clear();let triangles=0;
  for(const [id,brush] of next){
   const baseColor=splitStyles.get(id)?.color??0xa3a197,geometry=colorQrGeometry(brush.geometry,qrDisplays.get(id),baseColor),qrColors=!!geometry.userData.qrColors;if(geometry!==brush.geometry)brush.geometry.dispose();
@@ -2001,7 +2004,7 @@ function extrusionOverlayObstacles(){
 function updateExtrusionOverlay(){
  const visible=stage==='extrusion'&&!pendingExtrude;
  for(const id of ['extrude-handle','extrude-distance','extrude-guide','extrude-operation-wheel','taper-control'])$(id).toggleAttribute('hidden',!visible);
- if(!visible){extrusionTipWheel.element.hidden=true;if(extrusionOverlayPosition||extrusionOverlayDocked)clearExtrusionOverlayPosition();return;}
+ if(!visible){extrusionBoundaryFeedback.clear();extrusionTipWheel.element.hidden=true;if(extrusionOverlayPosition||extrusionOverlayDocked)clearExtrusionOverlayPosition();return;}
  $('extrude-handle').hidden=$('grid-extent').checked||($('operation').value==='cut'&&$('through-all').checked);syncViewportOperation();
  $('viewport-combine-label').hidden=selectedRegions.length<2||!!selected||$('operation').value!=='new';
  const a=extrusionAnchor();if(!Number.isFinite(a.depth))return;
@@ -2010,7 +2013,7 @@ function updateExtrusionOverlay(){
  const x=Math.max(32,Math.min(host.clientWidth-32,end.x)),y=Math.max(36,Math.min(host.clientHeight-36,end.y));
  $('extrude-handle').style.left=x+'px';$('extrude-handle').style.top=y+'px';
  $('extrude-handle').style.transform='translate(-50%,-50%)';$('extrude-handle-arrow').style.transform='rotate('+angle+'deg)';
- const hint=$('extrusion-direction').value==='symmetric'?'対称：ドラッグで両方向の距離を変更（片側 '+fmt(Math.abs(a.depth))+' mm）':$('extrude-handle').dataset.snapped==='true'?'グリッド '+gridStep+' mm に吸着：'+fmt(a.depth)+' mm':'クリックで確定・ドラッグで距離を変更（'+(a.depth<0?'負':'正')+'方向）';if($('extrude-handle').title!==hint)$('extrude-handle').title=hint;
+ const boundary=host.dataset.extrusionBoundarySnap?JSON.parse(host.dataset.extrusionBoundarySnap):null;const hint=boundary?'ソリッド境界に吸着：'+boundary.name+' ／ '+fmt(a.depth)+' mm':$('extrusion-direction').value==='symmetric'?'対称：ドラッグで両方向の距離を変更（片側 '+fmt(Math.abs(a.depth))+' mm）':$('extrude-handle').dataset.snapped==='true'?'グリッド '+gridStep+' mm に吸着：'+fmt(a.depth)+' mm':'クリックで確定・ドラッグで距離を変更（'+(a.depth<0?'負':'正')+'方向）';if($('extrude-handle').title!==hint)$('extrude-handle').title=hint;
  const viewport=host.parentElement,panel=$('extrude-distance'),wheel=extrusionWheel.element,wheelHeight=wheel.offsetHeight;
  panel.style.maxHeight=Math.max(120,viewport.clientHeight-wheelHeight-24)+'px';
  const groupWidth=Math.max(panel.offsetWidth,wheel.offsetWidth),groupHeight=panel.offsetHeight+wheelHeight+8;
@@ -2047,14 +2050,18 @@ function startExtrusionDrag(e,{owner=$('extrude-handle'),depth,start,dragged=fal
  const a=extrusionAnchor(),oblique=extrusionObliqueView(camera,controls.target,a.normal,a.base);
  if(oblique){const enabled=controls.enabled;camera.position.copy(oblique.position);camera.up.copy(oblique.up);camera.lookAt(oblique.target);resetViewControls(oblique.target,enabled);camera.updateMatrixWorld(true);$('view-label').textContent='押し出しが見える斜め視点';host.dataset.extrusionAutoView=oblique.style;host.dataset.extrusionAutoViewAngle=String(oblique.angle);updateExtrusionOverlay();}
  const end=a.base.clone().addScaledVector(a.normal,a.depth),p=screenPoint(end),q=screenPoint(end.clone().add(a.normal)),{dx,dy}=extrusionDragAxis(p,q,host.clientHeight/viewHeight());
- extrusionDrag={id:e.pointerId,x:start?.x??e.clientX,y:start?.y??e.clientY,depth:depth??a.depth,dx,dy,dragged,enabled:controls.enabled,owner};
- delete $('extrude-handle').dataset.snapped;controls.enabled=false;owner.setPointerCapture(e.pointerId);return true;
+ extrusionDrag={id:e.pointerId,x:start?.x??e.clientX,y:start?.y??e.clientY,depth:depth??a.depth,dx,dy,dragged,enabled:controls.enabled,owner,normal:a.normal,boundaries:null,snapFeatures:!selected&&selectedRegions.length>1?regionExtrusions(current(),selectedRegions,$('viewport-combine').value==='join'):[current()]};
+ const drag=extrusionDrag,ready=[...new Set([...meshes.values()].filter(mesh=>mesh.geometry.userData.cadCoordinatePrecision===false).map(mesh=>mesh.userData.drawingCoordinatesReady).filter(Boolean))];
+ if(ready.length)Promise.allSettled(ready).then(()=>{if(extrusionDrag!==drag)return;drag.boundaries=null;if(drag.lastPointer)moveExtrusionDrag(drag.lastPointer);});
+ delete $('extrude-handle').dataset.snapped;delete $('extrude-handle').dataset.snapKind;extrusionBoundaryFeedback.clear();controls.enabled=false;owner.setPointerCapture(e.pointerId);return true;
 }
 function moveExtrusionDrag(e){
- const d=extrusionDrag;if(!d||e.pointerId!==d.id)return;
+ const d=extrusionDrag;if(!d||e.pointerId!==d.id)return;d.lastPointer={pointerId:e.pointerId,clientX:e.clientX,clientY:e.clientY};
  if(!d.dragged){if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<=4)return;d.dragged=true;}
- const delta=((e.clientX-d.x)*d.dx+(e.clientY-d.y)*d.dy)/(d.dx*d.dx+d.dy*d.dy),result=extrusionDragDistance(d.depth+delta,{snapEnabled:$('snap-enabled').checked,step:gridStep,pixelsPerMm:Math.hypot(d.dx,d.dy)});
- if(depthValue()!==result.value)setExtrusionDistance(result.value);$('extrude-handle').dataset.snapped=String(result.snapped&&Math.abs(depthValue()-result.value)<1e-8);
+ if(!d.boundaries){d.boundaries=extrusionBoundaryCandidates(d.snapFeatures,meshes);host.dataset.extrusionBoundaryCandidateCount=String(d.boundaries.length);}
+ const delta=((e.clientX-d.x)*d.dx+(e.clientY-d.y)*d.dy)/(d.dx*d.dx+d.dy*d.dy),raw=d.depth+delta,options={snapEnabled:$('snap-enabled').checked,pixelsPerMm:Math.hypot(d.dx,d.dy)},result=extrusionBoundaryDistance(raw,d.boundaries,{...options,step:gridStep}),boundary=result.boundary;
+ if(depthValue()!==result.value)setExtrusionDistance(result.value);const snapped=result.snapped&&Math.abs(depthValue()-result.value)<1e-8;$('extrude-handle').dataset.snapped=String(snapped);$('extrude-handle').dataset.snapKind=snapped?(boundary?'boundary':'grid'):'';
+ if(boundary&&snapped)extrusionBoundaryFeedback.show(boundary,d.normal,bodyDisplayName(boundary.bodyId));else extrusionBoundaryFeedback.clear();
 }
 $('extrude-handle').addEventListener('pointerdown',e=>{if(e.button===0)startExtrusionDrag(e);});
 $('extrude-handle').addEventListener('pointermove',moveExtrusionDrag);
@@ -2065,7 +2072,7 @@ function confirmExtrusionArrow(){
 function endExtrusionDrag(e){
  const drag=extrusionDrag;if(!drag||drag.id!==e.pointerId)return;
  const clicked=e.type==='pointerup'&&e.button===0&&!drag.dragged&&Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<=4;
- controls.enabled=drag.enabled;extrusionDrag=null;delete $('extrude-handle').dataset.snapped;
+ controls.enabled=drag.enabled;extrusionDrag=null;delete $('extrude-handle').dataset.snapped;delete $('extrude-handle').dataset.snapKind;extrusionBoundaryFeedback.clear();delete host.dataset.extrusionBoundaryCandidateCount;
  const owner=drag.owner||$('extrude-handle');if(owner.hasPointerCapture(e.pointerId))owner.releasePointerCapture(e.pointerId);
  if(clicked)confirmExtrusionArrow();else if(drag.dragged&&stage==='extrusion'&&$('barrier').checked&&!barrierPreviewUI.manual)updatePreview();
 }
@@ -3525,7 +3532,7 @@ bodyDisplay=createBodyDisplay({meshes,scene,host,hiddenBodies,getFeatures:()=>fe
 for(const type of ['pointerdown','wheel','keydown'])host.parentElement.addEventListener(type,cancelSketchEditView,{capture:true});
 sketchSectionSwitch=createSketchSectionSwitch({anchor:$('editor-title'),onChange:enabled=>setSketchSectionPreference(enabled)});
 sketchSectionSwitch.sync({visible:stage==='sketch',enabled:sketchSectionSetting===true});
-sectionControl=sectionView({renderer,scene,meshes,raycaster,host,camera,getControls:()=>controls,getOverlays:()=>[...(!sectionControl?.sketching?[sketchGrid,regionGroup,sketchSnapFeedback.group]:[]),bodySelectionHighlight],getSelectionOverlays:()=>[...(!sectionControl?.sketching?[regionGroup]:[]),bodySelectionHighlight],getSelectedBody:()=>selectedBody||selectedFace?.bodyId||selectedEdge?.bodyId,getSketchPlane:activeSketchSectionPlane,getSelectedFace:()=>selectedFaces.length?selectionFacePlane(selectedFaces.at(-1)):selectedFace?.bodyId?selectedFace:null,getBodyName:bodyDisplayName,canSplit:()=>stage==='model'&&!pendingExtrude&&!extrusionBusy&&!$('tools-dialog').open&&!moveTool?.active&&(!editingSectionSplitId||features===sectionEditOriginal),canSketch:()=>stage==='model'&&!pendingExtrude&&!extrusionBusy&&!sketch&&!holeActive&&!editingSectionSplitId&&!document.querySelector('dialog[open]')&&!moveTool?.active,onSketch:face=>{
+sectionControl=sectionView({renderer,scene,meshes,raycaster,host,camera,getControls:()=>controls,getOverlays:()=>[...(!sectionControl?.sketching?[sketchGrid,regionGroup,sketchSnapFeedback.group]:[]),bodySelectionHighlight,extrusionBoundaryFeedback.group],getSelectionOverlays:()=>[...(!sectionControl?.sketching?[regionGroup]:[]),bodySelectionHighlight],getSelectedBody:()=>selectedBody||selectedFace?.bodyId||selectedEdge?.bodyId,getSketchPlane:activeSketchSectionPlane,getSelectedFace:()=>selectedFaces.length?selectionFacePlane(selectedFaces.at(-1)):selectedFace?.bodyId?selectedFace:null,getBodyName:bodyDisplayName,canSplit:()=>stage==='model'&&!pendingExtrude&&!extrusionBusy&&!$('tools-dialog').open&&!moveTool?.active&&(!editingSectionSplitId||features===sectionEditOriginal),canSketch:()=>stage==='model'&&!pendingExtrude&&!extrusionBusy&&!sketch&&!holeActive&&!editingSectionSplitId&&!document.querySelector('dialog[open]')&&!moveTool?.active,onSketch:face=>{
  selectionPicker?.close();pointDistance.reset();patternCenter=null;clearBodySelection();clearFaceSelection();selectedSurface=null;chooseConstructionPlane({...face,id:crypto.randomUUID()});startFeature('line','thin');$('draw').click();if(!sketch)return false;
  $('status').textContent='断面の位置・向きを基準に作図中です。';notify('断面の位置・向きを引き継いでスケッチを開始しました');return true;
 },onFaceView:view=>{
