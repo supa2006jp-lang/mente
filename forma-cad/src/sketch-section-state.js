@@ -1,6 +1,18 @@
 import {basisFor} from './frames.js';
 import {sectionSketchPlane} from './section-sketch-plane.js';
 
+export function sketchSectionPreference(feature,features=[]){
+ if(typeof feature?.sketchSection==='boolean')return feature.sketchSection;
+ if(!feature?.groupId)return undefined;
+ return features.find(f=>f.kind==='sketch'&&f.groupId===feature.groupId&&typeof f.sketchSection==='boolean')?.sketchSection;
+}
+
+// Only metadata changes: do not rebuild solids or discard a live drawing.
+export function withSketchSectionPreference(features,group,enabled){
+ if(typeof enabled!=='boolean')throw Error('断面連動の設定が不正です');
+ return features.map(f=>f.kind==='sketch'&&(group.groupId?f.groupId===group.groupId:group.groupNumber!==undefined?f.groupNumber===group.groupNumber:f.id===group.id)?{...f,sketchSection:enabled}:f);
+}
+
 // Derive the section from the sketch's current plane rather than saving a
 // second copy of its position. Keep identity stable for the toolbar opt-out.
 export function createSketchSectionState(){
