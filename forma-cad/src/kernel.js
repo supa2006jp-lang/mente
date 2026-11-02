@@ -32,6 +32,7 @@ import {makeThreadMate} from './thread-mate.js';
 import {circularRing} from './circular-ring.js';
 import {matchingExtrusionWall} from './extrusion-circular-walls.js';
 import {cutEntryTool} from './cut-entry.js';
+import {fillThinSource,thinSourceFillEnabled} from './thin-source-fill.js';
 import {makeBossFitTest} from './boss-fit-test.js';
 import {makeBallJoint,ballJointInfo} from './ball-joint.js';
 import {makeCylinderHinge,cylinderHingeInfo,makeCylinderHolderTest} from './cylinder-hinge.js';
@@ -268,7 +269,7 @@ if(f.hole&&f.operation==='cut'){const n=basisFor(f).n,margin=.001,sign=Math.sign
 const bodyTokens=new WeakMap();
 function extrusionTool(f,bodies,contactInfo,features=[],onProgress){
  f=nativeSketchFeature(f,features);
- if(!f.untilSolid)return extrusionToolNative(f,bodies,contactInfo,features,onProgress);
+ if(!f.untilSolid&&!thinSourceFillEnabled(f))return extrusionToolNative(f,bodies,contactInfo,features,onProgress);
  // Native face prisms can append p-curves to their source edges. Isolate the
  // entire contact calculation, including its first profile extrusion, rather
  // than copying only after the source face has already been used.
@@ -282,7 +283,7 @@ function extrusionToolNative(f,bodies,contactInfo,features=[],onProgress){
   const cutter=threadClearanceShape(solid,gap,source,{bodies:kernelBodies,runShape:(history,operation)=>runInternalThreadShape(history,operation,onProgress),onProgress,cacheKey:bodyTokens.get(original),onAssessment});
   if(cutter&&contactInfo)contactInfo.barrierThreadRelief=gap;return cutter;
  }});}finally{tool.delete();}}
- if(!f.untilSolid)return cutEntryTool(tool,f,extrusionTargetEntries(f,bodies||new Map()).map(([,body])=>body));
+ if(!f.untilSolid)return fillThinSource(cutEntryTool(tool,f,extrusionTargetEntries(f,bodies||new Map()).map(([,body])=>body)),f,bodies,input=>untaperedFeatureSolid(input,bodies));
  const sourceId=f.region?.cadFace?.bodyId||f.region?.bodyId;
  const blockers=(f.targetBodies?extrusionTargetEntries(f,bodies):[...bodies]).filter(([id])=>f.operation!=='cut'||id!==sourceId&&id!==f.target).map(([,shape])=>shape),sourceBody=f.operation!=='cut'?bodies.get(sourceId):null;
  const direction=basisFor(f.region||f).n.multiplyScalar(Math.sign(f.depth)).toArray();
@@ -291,7 +292,7 @@ function extrusionToolNative(f,bodies,contactInfo,features=[],onProgress){
   const searchTool=featureSolid({...f,depth:Math.sign(f.depth)*searchDepth},bodies);
   try{const independent=R.deserializeShape(searchTool.serialize()).asShape3D();tool.delete();tool=independent;}finally{searchTool.delete();}
   const clipped=clipExtrusionAtSolids(tool,blockers,direction,searchDepth,{maxDepth:Math.abs(f.depth),contactInfo,contactOnly:f.contactOnly===true,sourceBody,onProgress});
-  return cutEntryTool(clipped,f,extrusionTargetEntries(f,bodies).map(([,body])=>body));
+  return fillThinSource(cutEntryTool(clipped,f,extrusionTargetEntries(f,bodies).map(([,body])=>body)),f,bodies,input=>untaperedFeatureSolid(input,bodies));
  }finally{tool.delete();}
 }
 // Resolve native face outlines against the history before the first member of
@@ -302,7 +303,7 @@ function faceBatchTool(features,feature,bodies,onProgress,previewInfo){
  const source=kernelBodies(features.slice(0,start));
  try{return extrusionTool(feature,source,previewInfo,features.slice(0,start),onProgress);}finally{for(const body of source.values())body.delete();}
 }
-export function kernelBodies(features){const bodies=new Map(),tokens=new Map();const put=(id,entry)=>{bodies.get(id)?.delete();bodies.set(id,entry.shape);tokens.set(id,entry.token);bodyTokens.set(entry.shape,entry.token);};try{for(let [featureIndex,f] of features.entries()){if(f.cadResult)f={kind:'cadop',...f.cadResult};if(f.kind==='sketch'||f.kind==='plane'||f.kind==='referenceImage')continue;if(f.kind==='cadop'){for(const id of f.remove){bodies.get(id)?.delete();bodies.delete(id);tokens.delete(id);}for(const o of f.outputs){if(!o.brep)throw Error('このボディにはCAD形状データがありません');const enclosure=f.spec?.type==='enclose'&&!f.spec.boxMode&&!f.spec.hinge&&bodies.has(f.spec.target),key=enclosure?'enclosure-boundary-v1:'+JSON.stringify([o.brep,f.spec,tokens.get(f.spec.target)]):'brep:'+o.brep;put(o.id,cachedBody(key,()=>enclosure?enclosureHistoryBody(f,o,bodies.get(f.spec.target)):R.deserializeShape(o.brep).asShape3D()));}continue;}const base=bodies.get(f.target);if(f.operation!=='new'&&!base)throw Error('対象ボディがありません');f=nativeSketchFeature(f,features.slice(0,featureIndex));const key=JSON.stringify([f,f.barrier||f.untilSolid||f.overlapOnly||f.region?.overlapSource?[...tokens]:f.operation==='new'?(f.holesOnly?tokens.get(f.region?.cadFace?.bodyId||f.region?.bodyId):null):tokens.get(f.target)]);put(f.operation==='new'?f.id:f.target,cachedBody(key,()=>{const shape=extrusionTool(f,bodies,undefined,features.slice(0,featureIndex));if(f.operation==='new')return shape;try{return f.operation==='cut'?base.cut(shape):fuseSolid(base,shape);}finally{shape.delete();}}));}return bodies;}catch(e){for(const body of bodies.values())body.delete();throw e;}}
+export function kernelBodies(features){const bodies=new Map(),tokens=new Map();const put=(id,entry)=>{bodies.get(id)?.delete();bodies.set(id,entry.shape);tokens.set(id,entry.token);bodyTokens.set(entry.shape,entry.token);};try{for(let [featureIndex,f] of features.entries()){if(f.cadResult)f={kind:'cadop',...f.cadResult};if(f.kind==='sketch'||f.kind==='plane'||f.kind==='referenceImage')continue;if(f.kind==='cadop'){for(const id of f.remove){bodies.get(id)?.delete();bodies.delete(id);tokens.delete(id);}for(const o of f.outputs){if(!o.brep)throw Error('このボディにはCAD形状データがありません');const enclosure=f.spec?.type==='enclose'&&!f.spec.boxMode&&!f.spec.hinge&&bodies.has(f.spec.target),key=enclosure?'enclosure-boundary-v1:'+JSON.stringify([o.brep,f.spec,tokens.get(f.spec.target)]):'brep:'+o.brep;put(o.id,cachedBody(key,()=>enclosure?enclosureHistoryBody(f,o,bodies.get(f.spec.target)):R.deserializeShape(o.brep).asShape3D()));}continue;}const base=bodies.get(f.target);if(f.operation!=='new'&&!base)throw Error('対象ボディがありません');f=nativeSketchFeature(f,features.slice(0,featureIndex));const key=JSON.stringify([f,f.barrier||f.untilSolid||thinSourceFillEnabled(f)||f.overlapOnly||f.region?.overlapSource?[...tokens]:f.operation==='new'?(f.holesOnly?tokens.get(f.region?.cadFace?.bodyId||f.region?.bodyId):null):tokens.get(f.target)]);put(f.operation==='new'?f.id:f.target,cachedBody(key,()=>{const shape=extrusionTool(f,bodies,undefined,features.slice(0,featureIndex));if(f.operation==='new')return shape;try{return f.operation==='cut'?base.cut(shape):fuseSolid(base,shape);}finally{shape.delete();}}));}return bodies;}catch(e){for(const body of bodies.values())body.delete();throw e;}}
 function regeneratedThread(source,spec){let result=runOperation(source.features,spec);for(const transform of source.transforms||[])result=runOperation([{kind:'cadop',...result}],transform);return result;}
 function validateEnclosurePrintPose(features,spec){
  const {bodyId,lidId,hinge,axis,turnAngle}=spec;

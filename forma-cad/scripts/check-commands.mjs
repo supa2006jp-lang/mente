@@ -13,7 +13,7 @@ const representative=[
  'snap-lid.mjs','slide-lid.mjs','qr-code-solid.mjs','surface-pattern-solid.mjs','internal-thread.mjs','print-support-walls.mjs','print-support-multiple-faces.mjs',
  'assembly-mate.mjs','print-layout-solid.mjs','drawing-auto-layout.mjs','drawing-auto-dimensions.mjs','dimension-measure-direct.mjs',
  'sketch-contact-shapes.mjs','sketch-motion-constraints.mjs','sketch-mirror.mjs','sketch-offset-closure.mjs','sketch-vertex-rotation-native.mjs',
- 'text-edit-tools-native.mjs','text-bold-native.mjs','reference-trace-workflow.mjs','selection-library.mjs','step-import.mjs','kernel-integration.mjs',
+ 'text-edit-tools-native.mjs','text-bold-native.mjs','reference-trace-workflow.mjs','selection-library.mjs','step-import.mjs','kernel-integration.mjs','thin-source-fill.mjs',
  'part-workshop.mjs','fillet-radius-search.mjs','delete-fragment.mjs','svg-wrap.mjs','interior-edge-selection.mjs','thin-outer-wall.mjs','thread-fit.mjs'
 ];
 const files=[],excluded=[];
