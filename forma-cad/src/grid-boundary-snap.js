@@ -44,7 +44,7 @@ export function createGridBoundarySnap(){
   const result=[];for(let i=0;i<attr.count;i+=2)result.push([i,i+1].map(j=>{const p=new THREE.Vector3().fromBufferAttribute(attr,j).applyMatrix4(grid.matrixWorld);return p.addScaledVector(basis.n,offset-p.dot(basis.n));}));
   cache.set(grid,{key,geometry,lines:result});return result;
  }
- return {clear(){cache=new WeakMap();},candidates(grid,boundaries,basis,offset,hit,project,options){return gridBoundaryIntersections(boundaries,lines(grid,basis,offset),hit,project,options);},snap(grid,boundaries,basis,offset,hit,project,options){return this.candidates(grid,boundaries,basis,offset,hit,project,options)[0]?.point||null;}};
+ return {clear(){cache=new WeakMap();},segments(grid,basis,offset){return lines(grid,basis,offset);},candidates(grid,boundaries,basis,offset,hit,project,options){return gridBoundaryIntersections(boundaries,lines(grid,basis,offset),hit,project,options);},snap(grid,boundaries,basis,offset,hit,project,options){return this.candidates(grid,boundaries,basis,offset,hit,project,options)[0]?.point||null;}};
 }
 
 // Respect section clipping when deciding whether a crossing is actually visible.
