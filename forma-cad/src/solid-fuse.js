@@ -3,6 +3,7 @@ import * as R from 'replicad';
 import {measurePhase} from './phase-timings.js';
 import {solidMeshComplete} from './solid-mesh.js';
 import {containedUnion} from './solid-contained-union.js';
+import {finalizeUnion} from './solid-union-result.js';
 
 // Offset/cut results can wrap one oriented solid in a compound. OCCT's fuse
 // classifies that wrapper differently and can omit the entire input body.
@@ -16,9 +17,17 @@ function singleSolidInput(shape){
 
 // Build one boolean operation for all inputs. Repeated pairwise fuses re-split
 // an ever larger result and retain native intermediate shapes until deleted.
-export function fuseSolids(shapes,{onProgress,verifyMesh=false}={}){
- const inputs=[];try{for(const shape of shapes)inputs.push(singleSolidInput(shape));return fuseBatch(inputs,{onProgress,verifyMesh});}
- finally{inputs.forEach((shape,i)=>{if(shape!==shapes[i])shape.delete();});}
+export function fuseSolids(shapes,{onProgress,verifyMesh=false,prepareResult=null}={}){
+ const inputs=[];let raw;
+ try{
+  for(const shape of shapes)inputs.push(singleSolidInput(shape));raw=fuseBatch(inputs,{onProgress,verifyMesh});
+  // Swept surfaces need their dedicated canonicalization before they are a
+  // finished union. Isolate that stage too, then apply the common checks.
+  if(prepareResult){let independent=R.deserializeShape(raw.serialize()).asShape3D();try{const prepared=prepareResult(independent);if(prepared===independent)independent=null;raw.delete();raw=prepared;}finally{independent?.delete();}}
+  if(shapes.length===1&&!prepareResult){const output=raw;raw=null;return output;}
+  return finalizeUnion(raw,{onProgress});
+ }
+ finally{raw?.delete();inputs.forEach((shape,i)=>{if(shape!==shapes[i])shape.delete();});}
 }
 // Fuzzy retries may not merge solids that the common contact test considers
 // separated. Partition only when the exact boolean still has multiple solids.

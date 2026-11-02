@@ -5,9 +5,9 @@ import {spawn} from 'node:child_process';
 
 const root=fileURLToPath(new URL('../',import.meta.url)),all=process.argv.includes('--all');
 const representative=[
- 'command-sequences.mjs','cad-failure-evidence.mjs','extrusion-multibody.mjs','extrusion-taper.mjs','extrusion-barrier-cache.mjs','cut-options.mjs','cut-no-overlap.mjs','holes-only.mjs',
+ 'command-sequences.mjs','union-followup-commands.mjs','shell-joined-openings.mjs','cad-failure-evidence.mjs','extrusion-multibody.mjs','extrusion-taper.mjs','extrusion-barrier-cache.mjs','cut-options.mjs','cut-no-overlap.mjs','holes-only.mjs',
  'solid-fillet.mjs','solid-chamfer.mjs','internal-curved-pull.mjs','shell.mjs','shell-revolved-sweep.mjs',
- 'move-copy-kernel.mjs','move-until-contact.test.mjs','solid-mirror-tools.mjs','revolve.mjs','revolved-cut.mjs','revolved-body-join.mjs','joined-revolution-section.mjs',
+ 'move-copy-kernel.mjs','move-until-contact.test.mjs','solid-mirror-tools.mjs','revolve.mjs','revolved-cut.mjs','revolved-body-join.mjs','revolved-join-common.mjs','body-revolve-repeated.mjs','joined-revolution-section.mjs',
  'trim-surface.mjs','trim-interior.mjs','pipe-mixed-path.mjs','shell-circular-loft.mjs','pattern-join.mjs','rectangular-pattern.mjs',
  'enclose.mjs','honeycomb.mjs','storage-tray-performance.mjs','boss-joint.mjs','simple-boss.mjs','ball-joint.mjs','cylinder-hinge.mjs','coil-joint.mjs',
  'snap-lid.mjs','slide-lid.mjs','qr-code-solid.mjs','surface-pattern-solid.mjs','internal-thread.mjs','print-support-walls.mjs','print-support-multiple-faces.mjs',

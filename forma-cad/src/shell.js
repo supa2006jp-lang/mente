@@ -1,6 +1,7 @@
 import * as R from 'replicad';
 import {selectedCadFaces} from './face-pull.js';
 import {shellCoaxialCircularLoft} from './circular-loft.js';
+import {normalizeShellOpenings} from './shell-normalize.js';
 
 // The default rounded offset can return the unmodified solid where short
 // planar faces meet circular walls. Join the offset surfaces by intersection
@@ -28,11 +29,15 @@ export function shellBody(base,p,circularLoftInfo=null){
  // and enable that intersection before falling back to sharp surface joins.
  attempts.push(()=>intersectingOffsetShell(base,faces,thickness,true));
  attempts.push(()=>intersectingOffsetShell(base,faces,thickness));
+ let normalized=null,normalizationError=null,normalizationTried=false;
+ const normalizedSource=()=>{if(!normalizationTried){normalizationTried=true;try{normalized=normalizeShellOpenings(base,p.faces,faces);}catch(error){normalizationError=error;}}if(!normalized)throw normalizationError;return normalized;};
+ attempts.push(()=>{const source=normalizedSource();return source.shape.shell(thickness,face=>face.inList(source.faces));});
+ for(const rounded of [true,false])attempts.push(()=>{const source=normalizedSource();return intersectingOffsetShell(source.shape,source.faces,thickness,rounded);});
  let reason='この壁厚ではシェルを作成できません。壁厚を小さくするか、開口面を変更してください';
  try{
   for(const build of attempts){
    let shape;
-   try{shape=build();}catch(error){if(error instanceof WebAssembly.RuntimeError)throw error;continue;}
+   try{shape=build();}catch(error){if(error instanceof WebAssembly.RuntimeError)throw error;if(error?.code==='shell-partial-opening')reason=error.message;continue;}
    if(!shape)continue;
    let accepted=false;
    try{
@@ -47,7 +52,7 @@ export function shellBody(base,p,circularLoftInfo=null){
    }finally{if(!accepted)shape.delete();}
   }
   throw Error(reason);
- }finally{faces.forEach(face=>face.delete());}
+ }finally{normalized?.faces.forEach(face=>face.delete());normalized?.shape.delete();faces.forEach(face=>face.delete());}
 }
 
 // Offset the original body, then remove that same cavity from the decorated

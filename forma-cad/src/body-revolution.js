@@ -64,7 +64,7 @@ export function bodyRevolution(body,p,onProgress){
  if(components[dominant]<0)return bodyRevolution(body,{...p,axisVector:axis.negate().toArray(),direction:p.direction==='逆方向'?'片側':p.direction==='対称'?'対称':'逆方向'},onProgress);
  if(p.direction==='逆方向'||p.direction==='対称'){const shape=bodyRevolution(body,{...p,direction:'片側'},onProgress);return shape.rotate(p.direction==='逆方向'?-p.angle:-p.angle/2,p.origin,axis.toArray());}
 
- if(p.angle>90){const count=Math.ceil(p.angle/90),step=p.angle/count,piece=bodyRevolution(body,{...p,angle:step},onProgress),pieces=[piece];let combined;try{for(let i=1;i<count;i++)pieces.push(piece.clone().rotate(step*i,p.origin,axis.toArray()));combined=fuseSolids(pieces,{onProgress});return unifySweep(combined);}finally{combined?.delete();pieces.forEach(piece=>piece.delete());}}
+ if(p.angle>90){const count=Math.ceil(p.angle/90),step=p.angle/count,piece=bodyRevolution(body,{...p,angle:step},onProgress),pieces=[piece];try{for(let i=1;i<count;i++)pieces.push(piece.clone().rotate(step*i,p.origin,axis.toArray()));return fuseSolids(pieces,{onProgress,prepareResult:unifySweep});}finally{pieces.forEach(piece=>piece.delete());}}
 
  const addPlane=(normal,at=origin)=>{if(normal.length()<1e-7)return;normal.normalize();const a=normal.toArray(),dominant=a.reduce((j,v,i)=>Math.abs(v)>Math.abs(a[j])?i:j,0);if(a[dominant]<0)normal.negate();if(planes.some(plane=>Math.abs(plane.normal.dot(normal))>1-1e-7&&Math.abs(plane.origin.clone().sub(at).dot(normal))<1e-7))return;planes.push({normal,origin:at.clone()});};
  const sourceFaces=body.faces;
@@ -96,7 +96,7 @@ export function bodyRevolution(body,p,onProgress){
    if(!valid(sweep))throw Error('回転範囲が自己交差しています。軸や角度を変更してください');
    tools.push(sweep);sweep=null;
   }finally{sweep?.delete();}}
-  const joined=fuseSolids([body,...tools],{onProgress});try{result=unifySweep(joined);}finally{joined.delete();}
+  result=fuseSolids([body,...tools],{onProgress,prepareResult:unifySweep});
   if(p.direction==='対称'){const centered=result.rotate(-p.angle/2,p.origin,axis.toArray());if(centered!==result)result.delete();result=centered;}
   if(!valid(result)||R.measureVolume(result)<R.measureVolume(body)-1e-5)throw Error('回転範囲を有効なソリッドにできません。軸や角度を変更してください');
   const output=result;result=null;return output;

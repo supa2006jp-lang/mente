@@ -33,4 +33,6 @@ CAD計算済みのプレビューについて、加工後の体積・立体の�
 
 代表コマンドの `npm run test:commands` とGitHub Pages用ワークフローにも連続検証を組み込む。
 
+結合後の面の整理と、その後の加工を `tests/union-followup-commands.mjs` でも検証する。結合→シェル／フィレット／貫通切り取り→断面分離の3経路で、期待体積、閉じたSTL、プレビューと確定、保存読込と再計算を確認する。共通処理の採用条件と適用範囲は `union-result-validation.md` を参照。
+
 `tests/command-verification-browser.mjs` は隔離したEdgeで、実際の加工プレビューを表示した後に検査値を意図的に変え、確定が拒否されることを確認する。元モデルと履歴、失敗記録、プレビュー再計算後の正常な確定、Undo/Redoまで検証する。ユーザーが開いているタブやモデルは使用しない。
