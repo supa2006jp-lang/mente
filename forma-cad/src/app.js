@@ -875,9 +875,9 @@ const solidBoundaryFillLabel=document.createElement('label');solidBoundaryFillLa
 const lineAngleSnapLabel=document.createElement('label');lineAngleSnapLabel.className='line-angle-snap-option';lineAngleSnapLabel.hidden=true;lineAngleSnapLabel.innerHTML='<input id="line-angle-snap" type="checkbox" checked>角度吸着 <select id="line-angle-step" aria-label="線分の吸着刻み"><option value="5">5°</option><option value="15" selected>15°</option><option value="30">30°</option><option value="45">45°</option></select>（Altで一時解除）';$('sketch-banner').append(lineAngleSnapLabel);const lineAngleStyle=document.createElement('style');lineAngleStyle.textContent='#sketch-banner .line-angle-snap-option{display:flex;align-items:center;gap:6px;font-size:12px;margin:5px 0}#sketch-banner .line-angle-snap-option input{width:auto;margin:0}#sketch-banner .line-angle-snap-option select{width:auto;margin:0;padding:2px 5px;font-size:12px;background:#fff;color:#193a50}#sketch-banner .line-angle-snap-option[hidden]{display:none!important}';document.head.append(lineAngleStyle);
 function refreshLineAngleSnap(altKey=lastSketchPointer?.altKey||false){if(!sketch||!firstPoint||$('profile').value!=='line'||arcDrag||!lastSketchPointer)return;const hit=planePoint({...lastSketchPointer,altKey});if(hit)previewEndpoint(hit);}
 $('line-angle-snap').onchange=()=>refreshLineAngleSnap();$('line-angle-step').onchange=()=>refreshLineAngleSnap();for(const type of ['keydown','keyup'])window.addEventListener(type,e=>{if(e.key==='Alt')refreshLineAngleSnap(e.altKey);});
-const sketchSegmentToggle=document.createElement('button');sketchSegmentToggle.id='sketch-segment-toggle';sketchSegmentToggle.type='button';sketchSegmentToggle.hidden=true;sketchSegmentToggle.title='直線と曲線を切り替えます。線分中の右クリックは通常線／補助線の切替です';sketchSegmentToggle.onclick=()=>switchConnectedSketch();$('end-sketch').before(sketchSegmentToggle);
+const sketchSegmentToggle=document.createElement('button');sketchSegmentToggle.id='sketch-segment-toggle';sketchSegmentToggle.type='button';sketchSegmentToggle.hidden=true;sketchSegmentToggle.title='スプラインからの作図は右クリックで直線と曲線を切り替えます。通常の線分では右クリックで通常線／補助線を切り替えます';sketchSegmentToggle.onclick=()=>switchConnectedSketch();$('end-sketch').before(sketchSegmentToggle);
 const constructionToggle=document.createElement('button');constructionToggle.id='sketch-construction-toggle';constructionToggle.type='button';constructionToggle.hidden=true;constructionToggle.onclick=()=>toggleLineConstruction();$('end-sketch').before(constructionToggle);
-function updateLineConstructionUI(){const active=sketch&&$('profile').value==='line';constructionToggle.hidden=!active;constructionToggle.textContent=lineConstruction?'補助線 ON（右クリックで切替）':'通常線（右クリックで補助線）';constructionToggle.setAttribute('aria-pressed',String(lineConstruction));constructionToggle.style.cssText='border:1px dashed #8865af;background:'+(lineConstruction?'#eee4ff':'#f8f5ff')+';color:#674392;padding:5px 9px;border-radius:5px';if(active){host.dataset.drawingConstruction=String(lineConstruction);$('sketch-draw-instruction').textContent=(lineConstruction?'補助線：押し出し輪郭には含みません':'通常線：終点をクリック')+' · 右クリックで通常線／補助線 / Enterで確定 / Escで中止';}else delete host.dataset.drawingConstruction;}
+function updateLineConstructionUI(){const active=sketch&&$('profile').value==='line';constructionToggle.hidden=!active;constructionToggle.textContent=(lineConstruction?'補助線 ON':'通常線')+(connectedSketch?'（ボタンで切替）':lineConstruction?'（右クリックで切替）':'（右クリックで補助線）');constructionToggle.setAttribute('aria-pressed',String(lineConstruction));constructionToggle.style.cssText='border:1px dashed #8865af;background:'+(lineConstruction?'#eee4ff':'#f8f5ff')+';color:#674392;padding:5px 9px;border-radius:5px';if(active){host.dataset.drawingConstruction=String(lineConstruction);$('sketch-draw-instruction').textContent=(lineConstruction?'補助線：押し出し輪郭には含みません':'通常線：終点をクリック')+(connectedSketch?' · 右クリックで曲線へ切替':' · 右クリックで通常線／補助線')+' / Enterで確定 / Escで中止';}else delete host.dataset.drawingConstruction;}
 function toggleLineConstruction(){if(!sketch||$('profile').value!=='line'||arcDrag||document.querySelector('dialog[open]'))return false;lineConstruction=!lineConstruction;updateLineConstructionUI();if(firstPoint)previewEndpoint(lastDrawPoint||firstPoint.clone().addScaledVector(sketchBasis.u,10));notify(lineConstruction?'補助線に切替：紫の破線で作図します。輪郭には含みません':'通常線に切り替えました');return true;}
 function updateConnectedSketchUI(){updateLineConstructionUI();
  lineAngleSnapLabel.hidden=!sketch||$('profile').value!=='line';solidBoundaryFillLabel.hidden=lineAngleSnapLabel.hidden;
@@ -885,7 +885,7 @@ function updateConnectedSketchUI(){updateLineConstructionUI();
  if(!active){delete host.dataset.drawingSegmentMode;return;}
  const curve=$('profile').value==='spline';host.dataset.drawingSegmentMode=curve?'curve':'line';
  sketchSegmentToggle.textContent=curve?'直線に切替':'曲線に切替';
- $('sketch-draw-instruction').textContent=(curve?'曲線：フィット点をクリック':'直線：次の終点をクリック')+(curve?' · 右クリックで直線へ切替':' · 右クリックで通常線／補助線')+' / Enterで確定 / Escで中止';
+ $('sketch-draw-instruction').textContent=(curve?'曲線：フィット点をクリック':'直線：次の終点をクリック')+(curve?' · 右クリックで直線へ切替':' · 右クリックで曲線へ切替')+' / Enterで確定 / Escで中止';
 }
 function switchConnectedSketch(){
  if(!sketch||!connectedSketch||splineEditBusy||splineEditor?.dragging||arcDrag||document.querySelector('dialog[open]'))return false;
@@ -2645,8 +2645,8 @@ document.addEventListener('pointerup',e=>{
   cycleChannelOpening();return;
  }
  if(menuOpen)return;
- if(toggleLineConstruction())return;
  if(switchConnectedSketch())return;
+ if(toggleLineConstruction())return;
  if(openSketchEndpointMenu(e))return;
  if(splineEditor?.openPointMenu(e))return;
  if(openGridCellMenu(e))return;
