@@ -1,5 +1,8 @@
 import {validateFrame} from './frames.js';
+import {validateReferenceCrop} from './reference-image-placement.js';
 export function validateReferenceImage(f){
+ if(f.crop!==undefined)validateReferenceCrop(f.crop);
+ if(f.surface!==undefined){const s=f.surface,ring=r=>Array.isArray(r)&&r.length>=3&&r.length<=20000&&r.every(p=>Array.isArray(p)&&p.length===2&&p.every(v=>Number.isFinite(v)&&Math.abs(v)<=100000));if(!s||typeof s.bodyId!=='string'||!s.bodyId||s.bodyId.length>100||!ring(s.outer)||!Array.isArray(s.holes)||s.holes.length>100||s.holes.some(h=>!ring(h)))throw Error('写真を貼る面の情報が不正です');}
  validateFrame(f.frame);if(typeof f.data!=='string'||f.data.length>12000000||!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(f.data))throw Error('下絵の画像データが不正です');
  if(![f.width,f.height,f.offset,f.angle,f.opacity,...(f.center||[])].every(Number.isFinite)||f.center?.length!==2||f.width<.01||f.height<.01||f.width>10000||f.height>10000||Math.abs(f.offset)>10000||f.center.some(n=>Math.abs(n)>10000)||Math.abs(f.angle)>36000||f.opacity<0||f.opacity>1)throw Error('下絵の位置・大きさが不正です');return f;
 }

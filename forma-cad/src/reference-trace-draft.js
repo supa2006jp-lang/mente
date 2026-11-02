@@ -2,7 +2,7 @@ const LIMIT=4*1024*1024;
 const fail=()=>{throw Error('途中データが不正です。同じ下絵で保存したデータを選んでください');};
 const number=(n,min,max)=>typeof n==='number'&&Number.isFinite(n)&&n>=min&&n<=max;
 export async function traceDraftKey(reference){
- const pose={plane:reference.plane,frame:reference.frame||null,offset:reference.offset,width:reference.width,height:reference.height,center:reference.center,angle:reference.angle};
+ const pose={plane:reference.plane,frame:reference.frame||null,offset:reference.offset,width:reference.width,height:reference.height,center:reference.center,angle:reference.angle,...(reference.crop?{sourceCrop:reference.crop}:{})};
  const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(reference.data+'\0'+JSON.stringify(pose)));
  return Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,'0')).join('');
 }
