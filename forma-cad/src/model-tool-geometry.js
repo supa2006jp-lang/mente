@@ -1,6 +1,7 @@
 import * as R from 'replicad';
 import * as THREE from 'three';
 import {cadMesh} from './cad-mesh.js';
+import {fitPhotoSolid} from './reference-photo-solid.js';
 
 const v=p=>new THREE.Vector3(...p), tuple=p=>{try{return p.toTuple();}finally{p.delete();}};
 const bounds=shape=>{const b=shape.boundingBox;try{return b.bounds.map(p=>[...p]);}finally{b.delete();}};
@@ -45,6 +46,8 @@ export function inspectBodyComponents(bodies,spec,onProgress){
 }
 
 export function resizeBodies(bodies,spec,onProgress){
+ if(spec.photoFit!==undefined){const selected=selection(bodies,spec.targets);if(selected.length!==1)throw Error('写真に合わせるソリッドを1つ選んでください');const [id,base]=selected[0],{shape,info}=fitPhotoSolid(base,spec.photoFit,onProgress);try{if(!valid(shape))throw Error('写真サイズへの変更後に正常なソリッドを作れませんでした');return {outputs:[output(shape,id)],remove:[],analysis:{resize:{factor:1,wallFaces:0,holeFaces:0,gaps:0,bodies:[{id,bounds:bounds(shape),volume:volume(shape)}],photoFit:info}}};}finally{shape.delete();}}
+
  const factor=Number(spec.factor),wall=Number(spec.wall),sourceWall=Number(spec.sourceWall),gap=Number(spec.gap);
  if(!Number.isFinite(factor)||factor<.01||factor>100)throw Error('倍率は1〜10000%で指定してください');
  if(spec.keepWall&&(!Number.isFinite(wall)||wall<.1||wall>100||!Number.isFinite(sourceWall)||sourceWall<.1||sourceWall>100))throw Error('変更前と変更後の壁厚を0.1〜100 mmで指定してください');

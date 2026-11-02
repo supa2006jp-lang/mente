@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import Clipper from 'clipper-lib';
 import {basisFor} from './frames.js';
 
 export const referenceCrop=f=>f.crop||{x:0,y:0,width:1,height:1};
@@ -17,12 +16,8 @@ export function faceReferencePlane(face){
 export function referencePlacement(plane,ratio){
  const fit=plane.fitBounds,width=fit?Math.min(fit.width,fit.height/ratio)*.95:100;return {plane:plane.plane,frame:structuredClone(plane.frame),offset:plane.offset,width,height:width*ratio,center:fit?[...fit.center]:[0,0],...(plane.surface?{surface:structuredClone(plane.surface)}:{})};
 }
-// Intersect the photo rectangle with the actual face, preserving its holes.
-// Vertices are in normalized photo coordinates; source cropping stays in UVs.
-export function referenceSurfaceGeometry(f){
- if(!f.surface)return new THREE.PlaneGeometry(1,1);
- const a=-f.angle*Math.PI/180,c=Math.cos(a),s=Math.sin(a),scale=1e6,path=ring=>ring.map(p=>{const x=p[0]-f.center[0],y=p[1]-f.center[1];return {X:Math.round((x*c-y*s)/f.width*scale),Y:Math.round((x*s+y*c)/f.height*scale)};}),outer=path(f.surface.outer),holes=f.surface.holes.map(path);
- if(!Clipper.Clipper.Orientation(outer))outer.reverse();for(const h of holes)if(Clipper.Clipper.Orientation(h))h.reverse();const clip=new Clipper.Clipper(),tree=new Clipper.PolyTree(),q=scale/2;clip.AddPaths([outer,...holes],Clipper.PolyType.ptSubject,true);clip.AddPath([{X:-q,Y:-q},{X:q,Y:-q},{X:q,Y:q},{X:-q,Y:q}],Clipper.PolyType.ptClip,true);clip.Execute(Clipper.ClipType.ctIntersection,tree,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
- const shapes=[];for(let node=tree.GetFirst();node;node=node.GetNext()){if(node.IsHole())continue;const points=node.Contour().map(p=>new THREE.Vector2(p.X/scale,p.Y/scale)),shape=new THREE.Shape(points);shape.holes=node.Childs().filter(h=>h.IsHole()).map(h=>new THREE.Path(h.Contour().map(p=>new THREE.Vector2(p.X/scale,p.Y/scale))));shapes.push(shape);}
- const geometry=new THREE.ShapeGeometry(shapes),p=geometry.attributes.position,uv=new Float32Array(p.count*2);for(let i=0;i<p.count;i++){uv[i*2]=p.getX(i)+.5;uv[i*2+1]=p.getY(i)+.5;}geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));return geometry;
+// A face anchors the photo's plane; it does not trim the visible image.
+// Deliberate photo cropping is applied separately through texture UVs.
+export function referenceSurfaceGeometry(){
+ return new THREE.PlaneGeometry(1,1);
 }
