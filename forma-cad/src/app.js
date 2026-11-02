@@ -3424,12 +3424,12 @@ function suggestContactLimit(){
  const source=f.region?.cadFace?.bodyId||f.region?.bodyId;
  const pp=corners(profile),pu=span(pp,basis.u),pv=span(pp,basis.v);
  let far=-Infinity;
- for(const [id,mesh] of meshes){if(id===source||f.operation==='cut'&&id===f.target)continue;const q=corners(new THREE.Box3().setFromObject(mesh)),u=span(q,basis.u),v=span(q,basis.v);
+ for(const [id,mesh] of meshes){if(f.operation==='cut'&&(id===source||id===f.target))continue;const q=corners(new THREE.Box3().setFromObject(mesh)),u=span(q,basis.u),v=span(q,basis.v);
   if(u[1]<pu[0]+1e-5||u[0]>pu[1]-1e-5||v[1]<pv[0]+1e-5||v[0]>pv[1]-1e-5)continue;
   const distance=Math.max(...q.map(point=>sign*(point.dot(normal)-base)));
   if(distance>.1)far=Math.max(far,distance);
  }
- if(!Number.isFinite(far))throw Error('押し出し方向に重なる別のソリッドがありません。先にソリッドを配置してください。');
+ if(!Number.isFinite(far))throw Error('押し出し方向に接触する面がありません。向きや開始面を確認してください。');
  displayDepth(sign*Math.min(10000,Math.max(Math.abs(f.depth),far+.1)));
 }
 function syncBarrierSelection(){
@@ -3519,7 +3519,7 @@ for(const prefix of ['', 'viewport-'])for(const field of ['through-all','cut-all
   $('until-solid').checked=$(prefix+field).checked;contactDistanceLimit=null;contactAutoDepth=false;
   if($('until-solid').checked)$('barrier').checked=false;
   if($('until-solid').checked){$('grid-extent').checked=false;$('through-all').checked=false;$('cut-all-bodies').checked=false;if(!extrusionManualOperation&&pendingOperation!=='cut'){$('operation').value=extrusionDefaultOperation;const source=regionPayload?.cadFace?.bodyId||regionPayload?.bodyId;if(source&&extrusionDefaultOperation==='join')updateTargets();}
-   try{suggestContactLimit();contactAutoDepth=true;$('error').textContent='';}catch(error){$('until-solid').checked=false;$('error').textContent=appErrorMessage(error);notify(appErrorMessage(error));}
+   try{suggestContactLimit();contactAutoDepth=true;$('error').textContent='';}catch(error){$('error').textContent=appErrorMessage(error);notify(appErrorMessage(error));}
   }
  }
  else{if(field==='cut-all-bodies'){extrusionManualOperation=true;$('target').value=$(prefix+field).checked?ALL_BODIES_TARGET:availableTargets()[0]?.id||ALL_BODIES_TARGET;}$(field).checked=$(prefix+field).checked;if(field==='through-all'&&$('through-all').checked){$('grid-extent').checked=false;$('until-solid').checked=false;}if(field==='cut-all-bodies'&&$('cut-all-bodies').checked)$('until-solid').checked=false;}

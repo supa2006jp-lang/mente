@@ -191,7 +191,7 @@ function cropAtPlane(shape,axes,bounds,start,stop){
  * ray. Unmatched rays stop at the farthest genuine first contact. A shorter
  * manual depth crops at that limit. contactOnly omits unmatched rays.
  */
-export function clipExtrusionAtSolids(tool,blockers,direction,maxDistance,{curveTolerance=.08,curveAngularTolerance=.25,maxDepth=maxDistance,contactInfo,contactOnly=false}={}){
+export function clipExtrusionAtSolids(tool,blockers,direction,maxDistance,{curveTolerance=.08,curveAngularTolerance=.25,maxDepth=maxDistance,contactInfo,contactOnly=false,sourceBody=null}={}){
  if(!tool||!blockers||!Number.isFinite(maxDistance)||maxDistance<.1||maxDistance>10000)throw Error('接触までの押し出し距離を 0.1〜10000 mm で指定してください');
  const d=normalize(Array.isArray(direction)?direction:direction.toArray());
  const guide=Math.abs(d[2])<.9?[0,0,1]:[0,1,0],u=normalize(cross(guide,d)),v=cross(d,u),axes=[d,u,v];
@@ -221,19 +221,24 @@ export function clipExtrusionAtSolids(tool,blockers,direction,maxDistance,{curve
     halfVector=new R.Vector(d.map(value=>value*(endPlane-startPlane+.1)));
     forwardHalf=R.basicFaceExtrusion(base,halfVector);
     contactBody=blocker.intersect(forwardHalf);
-    for(const face of contactBody.faces){
+    // Intersections with the source can include the starting face and side
+    // tangencies as zero-volume faces. Only its real forward solid portions
+    // can be destinations; never cast the starting cap across the whole tool.
+    const contactParts=blocker===sourceBody?contactBody.solids:[contactBody.clone()];
+    try{for(const part of contactParts)for(const face of part.faces){
      try{
       if(face.geomType==='PLANE'){
        const normal=face.normalAt();
        let entering;
        try{entering=dot(normal.toTuple(),d)<-1e-7;}finally{normal.delete();}
        if(!entering)continue;
+       if(blocker===sourceBody){const center=face.center;try{if(Math.abs(dot(center.toTuple(),d)-startPlane)<=1e-6)continue;}finally{center.delete();}}
        const swept=R.basicFaceExtrusion(face,vector);
        try{if(positiveSolid(swept)){parts.push(swept);groups.push([swept]);}else swept.delete();}
        catch(error){swept.delete();throw error;}
       }else{const start=parts.length;appendCurvedFaceSweeps(face,vector,d,parts,curveTolerance,curveAngularTolerance);if(parts.length>start)groups.push(parts.slice(start));}
      }finally{face.delete();}
-    }
+    }}finally{contactParts.forEach(part=>part.delete());}
     for(const group of groups){
      let shadow;
      try{

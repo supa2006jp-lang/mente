@@ -268,6 +268,13 @@ if(f.hole&&f.operation==='cut'){const n=basisFor(f).n,margin=.001,sign=Math.sign
 const bodyTokens=new WeakMap();
 function extrusionTool(f,bodies,contactInfo,features=[],onProgress){
  f=nativeSketchFeature(f,features);
+ if(!f.untilSolid)return extrusionToolNative(f,bodies,contactInfo,features,onProgress);
+ // Native face prisms can append p-curves to their source edges. Isolate the
+ // entire contact calculation, including its first profile extrusion, rather
+ // than copying only after the source face has already been used.
+ const copies=new Map();try{for(const [id,shape]of bodies)copies.set(id,R.deserializeShape(shape.serialize()).asShape3D());return extrusionToolNative(f,copies,contactInfo,features,onProgress);}finally{copies.forEach(shape=>shape.delete());}
+}
+function extrusionToolNative(f,bodies,contactInfo,features=[],onProgress){
  if(f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
  let tool=measurePhase('geometry',()=>featureSolid(f,bodies));
  if(f.barrier){try{return barrierExtrusion(tool,bodies||new Map(),f,contactInfo,{onProgress,bodyKey:shape=>bodyTokens.get(shape),cacheKey:JSON.stringify([tool.serialize(),f.barrierGap??.2,f.region?.cadFace?.bodyId||f.region?.bodyId||f.region?.gridSourceBodyId||null,f.operation==='join'?f.target:null,[...(bodies||[])].map(([id,shape])=>[id,bodyTokens.get(shape)||shape.serialize()])]),fallback:(solid,gap,original,onAssessment)=>{
@@ -277,13 +284,13 @@ function extrusionTool(f,bodies,contactInfo,features=[],onProgress){
  }});}finally{tool.delete();}}
  if(!f.untilSolid)return cutEntryTool(tool,f,extrusionTargetEntries(f,bodies||new Map()).map(([,body])=>body));
  const sourceId=f.region?.cadFace?.bodyId||f.region?.bodyId;
- const blockers=(f.targetBodies?extrusionTargetEntries(f,bodies):[...bodies]).filter(([id])=>id!==sourceId&&(f.operation!=='cut'||id!==f.target)).map(([,shape])=>shape);
+ const blockers=(f.targetBodies?extrusionTargetEntries(f,bodies):[...bodies]).filter(([id])=>f.operation!=='cut'||id!==sourceId&&id!==f.target).map(([,shape])=>shape),sourceBody=f.operation!=='cut'?bodies.get(sourceId):null;
  const direction=basisFor(f.region||f).n.multiplyScalar(Math.sign(f.depth)).toArray();
  try{
   const searchDepth=contactSearchDistance(tool,blockers,direction);
   const searchTool=featureSolid({...f,depth:Math.sign(f.depth)*searchDepth},bodies);
-  tool.delete();tool=searchTool;
-  const clipped=clipExtrusionAtSolids(tool,blockers,direction,searchDepth,{maxDepth:Math.abs(f.depth),contactInfo,contactOnly:f.contactOnly===true});
+  try{const independent=R.deserializeShape(searchTool.serialize()).asShape3D();tool.delete();tool=independent;}finally{searchTool.delete();}
+  const clipped=clipExtrusionAtSolids(tool,blockers,direction,searchDepth,{maxDepth:Math.abs(f.depth),contactInfo,contactOnly:f.contactOnly===true,sourceBody});
   return cutEntryTool(clipped,f,extrusionTargetEntries(f,bodies).map(([,body])=>body));
  }finally{tool.delete();}
 }
