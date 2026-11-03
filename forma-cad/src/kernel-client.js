@@ -43,6 +43,14 @@ export class KernelClient {
   const id=++this.next;return new Promise((resolve,reject)=>{const accept=result=>{try{if(verification)previewResultGuard.accept(verification.features,verification.spec,result);activity(this,id,p,'completed');resolve(result);}catch(cause){const error=cadErrorAdvice(cause,verification?.spec||payload.spec);activity(this,id,p,'error',{error});reject(error);}};const p={resolve:accept,reject,payload,timeout,onProgress,onTiming,activityFeatures,timer:null,created:Date.now()};this.pending.set(id,p);activity(this,id,p,'queued');if(this.active!==null)onProgress?.({stage:'現在の計算が終わるのを待っています'});this.dispatch();});
  }
  warmup(){return this.request({type:'warmup'});}
+ runLatestExactExtrusion(features,spec,{replaceWaitMs=1500,...options}={}){
+  if(spec?.type!=='exactExtrusionPreview')throw Error('距離変更用の押し出しプレビューだけを置き換えられます');
+  const result=this.run(features,spec,options),id=this.next;
+  // Let short jobs finish and retain their warm engine. A stalled old preview
+  // must not block the newest distance until the full CAD timeout expires.
+  const timer=setTimeout(()=>{const current=this.pending.get(this.active);if(this.pending.has(id)&&this.active!==id&&current?.payload.spec?.type==='exactExtrusionPreview')this.cancel(this.active);},replaceWaitMs);
+  return result.finally(()=>clearTimeout(timer));
+ }
  run(features,spec,{onProgress,onTiming}={}){return this.request(compactExtrusionRequest(features,spec),kernelTimeout(features,spec),onProgress,onTiming,features,{features,spec});}
 }
 export const kernelClient=new KernelClient();

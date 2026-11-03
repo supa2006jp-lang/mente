@@ -1,10 +1,10 @@
-export const traceDefaultSettings=()=>({contourEdits:{},seed:null,edgeAssist:true,regularize:true,shape:'auto',offset:true,offsetDistance:'1',offsetKeep:false,compare:true,organize:false,tolerance:'.51',mode:'edge',threshold:12,invert:false,smoothing:2,detail:'.31',holes:false});
-const KEY='forma-cad-reference-trace-presets-v1',fields=['edgeAssist','regularize','shape','offset','offsetDistance','offsetKeep','compare','organize','tolerance','mode','threshold','invert','smoothing','detail','holes'];
+export const traceDefaultSettings=()=>({contourEdits:{},autoMaxTolerance:'3',seed:null,edgeAssist:true,regularize:true,shape:'auto',offset:true,offsetDistance:'1',offsetKeep:false,compare:true,organize:false,tolerance:'.51',mode:'edge',threshold:12,invert:false,smoothing:2,detail:'.31',holes:false});
+const KEY='forma-cad-reference-trace-presets-v1',fields=['autoMaxTolerance','edgeAssist','regularize','shape','offset','offsetDistance','offsetKeep','compare','organize','tolerance','mode','threshold','invert','smoothing','detail','holes'];
 export function tracePresetSettings(input){
  if(!input||typeof input!=='object'||Array.isArray(input))throw Error('抽出設定が不正です');
  const s={...traceDefaultSettings(),...input},valid=(n,lo,hi)=>Number.isFinite(n)&&n>=lo&&n<=hi;
  if(!['background','dark','alpha','seed','edge'].includes(s.mode)||!Number.isInteger(s.threshold)||!valid(s.threshold,1,254)||![0,1,2].includes(s.smoothing)||!['auto','circle','ellipse','rectangle','roundedRectangle','slot','dShape'].includes(s.shape)||['edgeAssist','regularize','offset','offsetKeep','compare','organize','invert','holes'].some(k=>typeof s[k]!=='boolean')||s.organize&&s.regularize)throw Error('抽出設定が不正です');
- for(const [key,lo,hi]of [['detail',.01,10],['tolerance',.01,10],['offsetDistance',-100,100]])if(typeof s[key]!=='string'||s[key].length>30||!s[key].trim()||!valid(Number(s[key]),lo,hi)||key==='offsetDistance'&&Math.abs(Number(s[key]))<.001)throw Error('数値設定を確認してから保存してください');
+ for(const [key,lo,hi]of [['autoMaxTolerance',.01,10],['detail',.01,10],['tolerance',.01,10],['offsetDistance',-100,100]])if(typeof s[key]!=='string'||s[key].length>30||!s[key].trim()||!valid(Number(s[key]),lo,hi)||key==='offsetDistance'&&Math.abs(Number(s[key]))<.001)throw Error('数値設定を確認してから保存してください');
  return Object.fromEntries(fields.map(k=>[k,s[k]]));
 }
 export function decodeTracePresets(value){
