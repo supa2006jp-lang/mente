@@ -30,13 +30,19 @@ function boundaries(labels,w,h,component){
 export function traceReferencePixels({width:w,height:h,data},settings={}){
  if(!Number.isInteger(w)||!Number.isInteger(h)||w<2||h<2||w>1024||h>1024||data?.length!==w*h*4)throw Error('輪郭解析用の画像が不正です');
  const p={mode:'background',threshold:35,invert:false,smoothing:1,crop:{x:0,y:0,width:1,height:1},...settings};traceCrop(p.crop);
- if(!['background','dark','alpha'].includes(p.mode)||!Number.isFinite(p.threshold)||p.threshold<1||p.threshold>254||typeof p.invert!=='boolean'||!Number.isInteger(p.smoothing)||p.smoothing<0||p.smoothing>2)throw Error('輪郭の検出条件を確認してください');
+ if(!['background','dark','alpha','seed'].includes(p.mode)||!Number.isFinite(p.threshold)||p.threshold<1||p.threshold>254||typeof p.invert!=='boolean'||!Number.isInteger(p.smoothing)||p.smoothing<0||p.smoothing>2)throw Error('輪郭の検出条件を確認してください');
  if(p.marks!==undefined&&(!(p.marks instanceof Uint8Array)||p.marks.length!==w*h||p.marks.some(value=>value>2)))throw Error('ブラシの補正データが不正です');
  const rect={x:Math.floor(p.crop.x*w),y:Math.floor(p.crop.y*h),width:Math.max(1,Math.round(p.crop.width*w)),height:Math.max(1,Math.round(p.crop.height*h))};rect.width=Math.min(rect.width,w-rect.x);rect.height=Math.min(rect.height,h-rect.y);if(rect.width<4||rect.height<4)throw Error('解析範囲をもう少し広くしてください');
- const bg=background(data,w,h,rect);let mask=new Uint8Array(w*h);
+ const bg=background(data,w,h,rect);let mask=new Uint8Array(w*h),seed=null,seedColor=null;
+ if(p.mode==='seed'){
+  if(!Array.isArray(p.seed)||p.seed.length!==2||p.seed.some(v=>!Number.isFinite(v)||v<0||v>1))throw Error('取得する部分の内側をクリックしてください');
+  seed=p.seed.map((v,i)=>Math.min((i?h:w)-1,Math.floor(v*(i?h:w))));if(seed[0]<rect.x||seed[0]>=rect.x+rect.width||seed[1]<rect.y||seed[1]>=rect.y+rect.height)throw Error('解析範囲の内側をクリックしてください');
+  const colors=[[],[],[]];for(let y=Math.max(rect.y,seed[1]-2);y<=Math.min(rect.y+rect.height-1,seed[1]+2);y++)for(let x=Math.max(rect.x,seed[0]-2);x<=Math.min(rect.x+rect.width-1,seed[0]+2);x++){const k=(y*w+x)*4;if(data[k+3]<128)continue;for(let c=0;c<3;c++)colors[c].push(data[k+c]);}
+  if(!colors[0].length)throw Error('透明でない部分をクリックしてください');seedColor=colors.map(median);
+ }
  for(let y=rect.y;y<rect.y+rect.height;y++)for(let x=rect.x;x<rect.x+rect.width;x++){
-  const i=y*w+x,k=i*4,a=data[k+3],rgb=[0,1,2].map(c=>data[k+c]*a/255+255*(1-a/255));let inside=p.mode==='alpha'?a>=p.threshold:p.mode==='dark'?.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]<p.threshold:Math.hypot(...rgb.map((v,c)=>v-bg[c]))>p.threshold;
-  if(p.invert)inside=!inside;mask[i]=inside&&a>0?1:0;
+  const i=y*w+x,k=i*4,a=data[k+3],rgb=[0,1,2].map(c=>data[k+c]*a/255+255*(1-a/255));let inside=p.mode==='seed'?a>=128&&Math.hypot(...seedColor.map((v,c)=>data[k+c]-v))<=p.threshold:p.mode==='alpha'?a>=p.threshold:p.mode==='dark'?.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]<p.threshold:Math.hypot(...rgb.map((v,c)=>v-bg[c]))>p.threshold;
+  if(p.invert&&p.mode!=='seed')inside=!inside;mask[i]=inside&&a>0?1:0;
  }
  for(let pass=0;pass<p.smoothing;pass++){const next=new Uint8Array(mask.length);for(let y=rect.y;y<rect.y+rect.height;y++)for(let x=rect.x;x<rect.x+rect.width;x++){let sum=0,n=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const a=x+dx,b=y+dy;if(a<rect.x||a>=rect.x+rect.width||b<rect.y||b>=rect.y+rect.height)continue;sum+=mask[b*w+a];n++;}next[y*w+x]=sum>n/2?1:0;}mask=next;}
  // User paint is a hard local override, after smoothing, restricted to the
@@ -47,8 +53,9 @@ export function traceReferencePixels({width:w,height:h,data},settings={}){
   while(head<tail){const j=queue[head++],x=j%w,y=Math.floor(j/w);c.area++;c.bounds[0]=Math.min(c.bounds[0],x);c.bounds[1]=Math.min(c.bounds[1],y);c.bounds[2]=Math.max(c.bounds[2],x);c.bounds[3]=Math.max(c.bounds[3],y);if(x===rect.x||y===rect.y||x===rect.x+rect.width-1||y===rect.y+rect.height-1)c.touchesBoundary=true;for(const next of [x>0?j-1:-1,x<w-1?j+1:-1,y>0?j-w:-1,y<h-1?j+w:-1])if(next>=0&&mask[next]&&!labels[next]){labels[next]=id;queue[tail++]=next;}}
   if(c.area>=Math.max(9,rect.width*rect.height*.0001))components.push(c);
  }
- components.sort((a,b)=>b.area-a.area);const selected=components.slice(0,16);for(const component of selected)component.rings=boundaries(labels,w,h,component);
- return {width:w,height:h,labels,components:selected,background:bg,omitted:Math.max(0,components.length-selected.length)};
+ let seedId=0;if(seed){let nearest=Infinity;for(let y=Math.max(rect.y,seed[1]-3);y<=Math.min(rect.y+rect.height-1,seed[1]+3);y++)for(let x=Math.max(rect.x,seed[0]-3);x<=Math.min(rect.x+rect.width-1,seed[0]+3);x++){const id=labels[y*w+x],d=(x-seed[0])**2+(y-seed[1])**2;if(id&&d<nearest){nearest=d;seedId=id;}}}
+ components.sort((a,b)=>b.area-a.area);const selected=seed?components.filter(c=>c.id===seedId):components.slice(0,16);for(const component of selected)component.rings=boundaries(labels,w,h,component);
+ return {width:w,height:h,labels,components:selected,background:bg,omitted:seed?0:Math.max(0,components.length-selected.length),...(seed?{seed,seedColor}:{})};
 }
 
 function simplifyOpen(points,epsilon,budget){
