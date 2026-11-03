@@ -1,3 +1,4 @@
+import {nativeExtrusionProbe} from './native-extrusion-probe.js';
 import {ellipticalRing} from './elliptical-ring.js';
 import {validateCounterbore} from './counterbore.js';
 import {solidBoundaryInfo} from './solid-boundary-info.js';
@@ -366,6 +367,7 @@ export function runOperation(features,spec,onProgress,context={}){
  try{return computeOperation(features,spec,onProgress,context);}catch(error){throw withFailureDiagnostics(error,spec);}
 }
 function computeOperation(features,spec,onProgress,context={}){
+ if(spec.type==='nativeExtrusionProbe')return nativeExtrusionProbe(features,spec,{bodies:kernelBodies,solid:featureSolid});
  if(spec.type==='interiorEdges'){const bodies=kernelBodies(features);try{return inspectInteriorEdges(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}
  if(['motionCheck','motionRangeCheck','motionSetup'].includes(spec.type)){const bodies=kernelBodies(features);try{if(spec.type==='motionSetup'){return {outputs:[],remove:[],analysis:{motionSetup:motionSettings(spec,bodies)}};}return checkMotion(bodies,spec,onProgress);}finally{bodies.forEach(s=>s.delete());}}
 

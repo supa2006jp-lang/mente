@@ -1,4 +1,4 @@
-import {extrusionProbeBodies} from './extrusion-mesh-probe.js';
+import {extrusionProbePlan} from './extrusion-probe-plan.js';
 import {createExtrusionProfileLoadView} from './extrusion-profile-load-view.js';
 import {createInteriorEdgeTool,matchesInteriorEdge,pickedInteriorEdge} from './interior-edge-tool.js';
 let interiorEdgeTool=null;
@@ -774,7 +774,7 @@ async function beginExtrusion(nextMode='solid',{preserveView=false}={}){bodyDisp
  let r=chosenRegion;if(pendingOperation!=='cut'){
  const regions=selectedRegions.length?selectedRegions:[r],templates=regions.map(region=>({...defaults,profile:'region',region,plane:region.plane,frame:region.frame,mode:nextMode}));let oriented;
  const complex=meshes.size&&templates.some(f=>f.region.outer.length+f.region.holes.reduce((n,h)=>n+h.length,0)>=128);
- if(complex){const model=features,chosen=chosenRegion;stage='extrusion';pendingExtrude=true;dropPreview();syncFields();$('status').textContent='押し出す向きをバックグラウンドで確認中…';extrusionDirectionClient.reset();try{const result=await extrusionDirectionClient.run([],{type:'meshExtrusionProbe',direction:true,features:templates,bodies:extrusionProbeBodies(meshes)},{timeout:15000});if(features!==model||chosenRegion!==chosen||stage!=='extrusion'||!pendingExtrude)return;oriented=result.features.map(f=>f.region);}catch(error){if(features!==model||chosenRegion!==chosen||stage!=='extrusion'||!pendingExtrude)return;stage='model';pendingExtrude=false;syncFields();notify('押し出す向きを確認できませんでした。対象を絞って再実行してください');return;}}
+ if(complex){const model=features,chosen=chosenRegion;stage='extrusion';pendingExtrude=true;dropPreview();syncFields();$('status').textContent='押し出す向きをバックグラウンドで確認中…';extrusionDirectionClient.reset();try{const plan=extrusionProbePlan(model,meshes,{direction:true,features:templates}),result=await extrusionDirectionClient.run(plan.history,plan.spec,{timeout:15000});if(features!==model||chosenRegion!==chosen||stage!=='extrusion'||!pendingExtrude)return;oriented=result.features.map(f=>f.region);}catch(error){if(features!==model||chosenRegion!==chosen||stage!=='extrusion'||!pendingExtrude)return;stage='model';pendingExtrude=false;syncFields();notify('押し出す向きを確認できませんでした。対象を絞って再実行してください');return;}}
  else oriented=templates.map(f=>outwardExtrusion(f,meshes).region);
  selectedRegions=selectedRegions.map(region=>oriented.find(v=>v.id===region.id)||region);r=chosenRegion=oriented.find(region=>region.id===r.id)||r;
 }if(!preserveView)revealExtrusion(r);selected=null;stage='extrusion';pendingExtrude=false;mode=nextMode;extrusionManualOperation=false;

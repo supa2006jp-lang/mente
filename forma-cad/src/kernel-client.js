@@ -51,6 +51,6 @@ export class KernelClient {
   const timer=setTimeout(()=>{const current=this.pending.get(this.active);if(this.pending.has(id)&&this.active!==id&&current?.payload.spec?.type==='exactExtrusionPreview')this.cancel(this.active);},replaceWaitMs);
   return result.finally(()=>clearTimeout(timer));
  }
- run(features,spec,{onProgress,onTiming}={}){return this.request(compactExtrusionRequest(features,spec),kernelTimeout(features,spec),onProgress,onTiming,features,{features,spec});}
+ run(features,spec,{onProgress,onTiming,timeout}={}){const probe=['meshExtrusionProbe','nativeExtrusionProbe'].includes(spec?.type),limit=probe&&Number.isFinite(timeout)&&timeout>0?Math.min(timeout,kernelTimeout(features,spec)):kernelTimeout(features,spec);return this.request(compactExtrusionRequest(features,spec),limit,onProgress,onTiming,features,{features,spec});}
 }
 export const kernelClient=new KernelClient();
