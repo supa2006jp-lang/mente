@@ -41,11 +41,19 @@ function facesForSegments(segments){
 function interiorPoint(r){const a=r[0],b=r[1],d=sub(b,a),len=Math.hypot(...d),eps=Math.min(len*1e-5,1e-4);return [(a[0]+b[0])/2-d[1]/len*eps,(a[1]+b[1])/2+d[0]/len*eps];}
 function hash(s){let h=2166136261;for(let i=0;i<s.length;i++)h=Math.imul(h^s.charCodeAt(i),16777619);return (h>>>0).toString(36);}
 function canonical(r){const a=r.map(key),start=a.reduce((j,k,i)=>k<a[j]?i:j,0);return [...a.slice(start),...a.slice(0,start)].join(';');}
+// The planar arrangement splits intersecting closed sketches into cells.
+// Neighbouring empty cells share edges; a CAD face must receive their union,
+// rather than several hole wires with coincident boundaries.
+export function mergeAdjacentRegionHoles(holes){
+ const seen=new Set();let shared=false;for(const ring of holes)for(const p of ring){const k=key(p);if(seen.has(k))shared=true;seen.add(k);}if(!shared)return holes;
+ const original=new Map(),paths=holes.map(r=>{const p=r.map(point=>{const X=Math.round(point[0]*SCALE),Y=Math.round(point[1]*SCALE);original.set(X+','+Y,point);return {X,Y};});if(!Clipper.Clipper.Orientation(p))p.reverse();return p;}),clip=new Clipper.Clipper();clip.StrictlySimple=true;clip.PreserveCollinear=true;clip.AddPaths(paths,Clipper.PolyType.ptSubject,true);const tree=new Clipper.PolyTree();clip.Execute(Clipper.ClipType.ctUnion,tree,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
+ const result=[];for(let node=tree.GetFirst();node;node=node.GetNext())if(!node.IsHole())result.push(node.Contour().map(({X,Y})=>original.get(X+','+Y)||[X/SCALE,Y/SCALE]));return result;
+}
 export function findRegions(features){
  const textHoles=new Set(features.filter(f=>f.textOutline?.hole===true&&typeof f.textOutline.id==='string').map(f=>f.id));
  const groups=new Map();for(const f of features.filter(f=>f.kind==='sketch'&&!f.construction)){const fb=basisFor(f),o=planeCoordinates(f),n=fb.n.clone(),components=n.toArray(),dominant=components.reduce((j,x,i)=>Math.abs(x)>Math.abs(components[j])?i:j,0);if(components[dominant]<0)n.negate();const offset=o.offset*fb.n.dot(n),k=n.toArray().map(x=>Math.round(x/EPS)).join(',')+':'+Math.round(offset/EPS);if(!groups.has(k)){let plane='CUSTOM',frame;for(const name of ['XY','XZ','YZ'])if(basisFor({plane:name}).n.distanceTo(n)<EPS)plane=name;if(plane==='CUSTOM'){const ref=Math.abs(n.z)<.9?new THREE.Vector3(0,0,1):new THREE.Vector3(0,1,0),u=ref.cross(n).normalize(),v=n.clone().cross(u);frame={u:u.toArray(),v:v.toArray(),n:n.toArray()};}groups.set(k,{plane,frame,offset,segments:[],sourceIds:[]});}const g=groups.get(k),gb=basisFor(g),p=sketchPoints(f).map(([u,v])=>{const world=fb.u.clone().multiplyScalar(u).addScaledVector(fb.v,v).addScaledVector(fb.n,o.offset);return [world.dot(gb.u),world.dot(gb.v)];});g.sourceIds.push(f.id);for(let i=1;i<p.length;i++)if(Math.hypot(...sub(p[i],p[i-1]))>EPS)g.segments.push({a:p[i-1],b:p[i],sourceId:f.id});}
  const regions=[];for(const [groupKey,g] of groups){if(g.segments.length>20000)throw Error('スケッチが複雑すぎます。線の数を減らしてください。');const rings=facesForSegments(g.segments);const entries=rings.map(outer=>({outer,holes:[],area:ringArea(outer),parent:null}));for(const child of entries){const p=interiorPoint(child.outer);const parents=entries.filter(r=>r.area>child.area+EPS&&pointInRing(p,r.outer));if(parents.length){child.parent=parents.sort((a,b)=>a.area-b.area)[0];child.parent.holes.push(child.outer);}}
-  for(const e of entries){const area=e.area-e.holes.reduce((sum,h)=>sum+ringArea(h),0);if(area<1e-6)continue;
+  for(const e of entries){e.holes=mergeAdjacentRegionHoles(e.holes);const area=e.area-e.holes.reduce((sum,h)=>sum+Math.abs(ringArea(h)),0);if(area<1e-6)continue;
    // A font counter is empty space, not another selectable/extrudable island.
    if(textHoles.size){const outerSources=boundarySources({outer:e.outer,holes:[]},g.segments);if(outerSources.length&&outerSources.every(id=>textHoles.has(id)))continue;}
    regions.push({id:groupKey+':'+hash(canonical(e.outer)+e.holes.map(canonical).sort().join('/')),plane:g.plane,frame:g.frame,offset:g.offset,outer:e.outer,holes:e.holes,area,sourceIds:boundarySources(e,g.segments)});}

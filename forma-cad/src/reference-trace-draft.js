@@ -1,3 +1,4 @@
+import {validateTraceBatch} from './reference-trace-batch.js';
 const LIMIT=4*1024*1024;
 const fail=()=>{throw Error('途中データが不正です。同じ下絵で保存したデータを選んでください');};
 const number=(n,min,max)=>typeof n==='number'&&Number.isFinite(n)&&n>=min&&n<=max;
@@ -25,9 +26,10 @@ export function decodeTraceDraft(input,key,width,height){
  if(!c||!['x','y','width','height'].every(k=>number(c[k],0,1))||!c.width||!c.height||c.x+c.width>1.000001||c.y+c.height>1.000001||!Number.isInteger(s.component)||!number(s.component,0,15))fail();
  if(!Array.isArray(s.marks)||s.marks.length>width*height*2||s.marks.length%2)fail();let total=0;for(let i=0;i<s.marks.length;i+=2){if(![0,1,2].includes(s.marks[i])||!Number.isInteger(s.marks[i+1])||s.marks[i+1]<1)fail();total+=s.marks[i+1];if(total>width*height)fail();}if(total!==width*height)fail();
  if(!Array.isArray(s.manual)||s.manual.length>16)fail();const ids=new Set();for(const entry of s.manual){if(!Array.isArray(entry)||entry.length!==2)fail();const [id,rings]=entry;if(!Number.isInteger(id)||id<1||id>width*height||ids.has(id)||!Array.isArray(rings)||rings.length>64)fail();ids.add(id);let count=0;for(const r of rings){if(typeof r.hole!=='boolean'||!Array.isArray(r.points)||r.points.length<3||(count+=r.points.length)>2000||r.points.some(p=>!Array.isArray(p)||p.length!==2||!number(p[0],0,width)||!number(p[1],0,height)))fail();}}
- if(!e.view||!number(e.view.zoom,1,12)||!number(e.view.x,width*(1-e.view.zoom),0)||!number(e.view.y,height*(1-e.view.zoom),0)||!['select','crop','keep','remove','erase','move','add','delete','pan','area-keep','area-remove','straighten','contour'].includes(e.tool)||!number(e.brush,4,120)||typeof e.snap!=='boolean'||!Array.isArray(e.lasso)||e.lasso.length>256||e.lasso.some(p=>!Array.isArray(p)||p.length!==2||!number(p[0],0,width)||!number(p[1],0,height)))fail();
+ if(!e.view||!number(e.view.zoom,1,12)||!number(e.view.x,width*(1-e.view.zoom),0)||!number(e.view.y,height*(1-e.view.zoom),0)||!['select','crop','keep','remove','erase','move','add','delete','pan','area-keep','area-remove','straighten','contour','batch'].includes(e.tool)||!number(e.brush,4,120)||typeof e.snap!=='boolean'||!Array.isArray(e.lasso)||e.lasso.length>256||e.lasso.some(p=>!Array.isArray(p)||p.length!==2||!number(p[0],0,width)||!number(p[1],0,height)))fail();
+ if(s.batch!==undefined)try{validateTraceBatch(s.batch,[width,height]);}catch{fail();}
  const marks=new Uint8Array(total);let at=0;for(let i=0;i<s.marks.length;i+=2){marks.fill(s.marks[i],at,at+s.marks[i+1]);at+=s.marks[i+1];}
- return {state:{settings:structuredClone(t),crop:{...c},marks,manual:new Map(structuredClone(s.manual)),component:s.component},extras:structuredClone(e),savedAt:input.savedAt};
+ return {state:{settings:structuredClone(t),crop:{...c},marks,manual:new Map(structuredClone(s.manual)),component:s.component,...(s.batch!==undefined?{batch:structuredClone(s.batch)}:{})},extras:structuredClone(e),savedAt:input.savedAt};
 }
 export function createTraceDraftStore({indexedDB=globalThis.indexedDB}={}){
  let pending;

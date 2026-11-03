@@ -1,4 +1,5 @@
 import {importStepBodies} from './step-import.js';
+import {meshExtrusionProbe} from './extrusion-mesh-probe.js';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {setOC} from 'replicad';
 import {runOperation} from './kernel.js';
@@ -8,6 +9,7 @@ function initialize(){return ready||(ready=fetch(new URL('replicad_single.wasm',
 self.onmessage=({data})=>{queue=queue.then(async()=>{
  let timing;
  try{
+  if(data.spec?.type==='meshExtrusionProbe'){self.postMessage({id:data.id,result:meshExtrusionProbe(data.spec)});return;}
   await initialize();
   const compute=()=>data.type==='warmup'?{ready:true}:data.spec?.type==='stepImport'?null:runOperation(data.features,data.spec,progress=>self.postMessage({id:data.id,progress}));
   if(barrierTimingRequest(data.features||[],data.spec))timing=new PhaseTimings();
