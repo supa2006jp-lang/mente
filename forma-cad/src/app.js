@@ -60,6 +60,7 @@ import {installDimensionExpressions} from './dimension-expression-input.js';
 installDimensionExpressions();
 import {pipeSketchPaths,pipePathIncludes,pipePathLabel,pipePathSelection} from './pipe-path.js';
 import {snapSplineTangent} from './spline-tangent-snap.js';
+import {splineEndpoint} from './spline-curve.js';
 import {installThreadActions} from './thread-actions.js';
 import {threadMateDialog} from './thread-mate-dialog.js';
 let threadActions=null,threadMateController=null;
@@ -330,7 +331,7 @@ let intersectionRevision=null,intersectionPoints=[];
 function getIntersectionPoints(){if(intersectionRevision!==features){intersectionRevision=features;intersectionPoints=sketchIntersections(visibleSketchFeatures());}return intersectionPoints;}
 let holeActive=false,holePlacement=null,holeHoverFace=null,holeJob=null;
 let fragmentSelection=null;
-let pendingOperation='new',activeFrame=null,selectedFace=null,selectedBody=null,splinePoints=[],splinePreview=null,splineClosed=false,splineTangents={},splineTangentLengths={},splineCloseHover=false,splineEditor=null,splineEditBusy=false,gridStep=10,lastGridStep=0,pendingKernelCancel=null;
+let pendingOperation='new',activeFrame=null,selectedFace=null,selectedBody=null,splinePoints=[],splinePreview=null,splineDisplayFeature=null,splineClosed=false,splineTangents={},splineTangentLengths={},splineCloseHover=false,splineEditor=null,splineEditBusy=false,gridStep=10,lastGridStep=0,pendingKernelCancel=null;
 let extrusionManualOperation=false,extrusionDefaultOperation='new',extrusionGridPlane='XY',autoCutRevision=0,autoCutTimer=null;
 let extrusionSourceSketchIds=[];
 let extrusionEndPlane=null,extrusionEndHighlight=null;
@@ -879,9 +880,11 @@ const sketchSegmentToggle=document.createElement('button');sketchSegmentToggle.i
 const constructionToggle=document.createElement('button');constructionToggle.id='sketch-construction-toggle';constructionToggle.type='button';constructionToggle.hidden=true;constructionToggle.onclick=()=>toggleLineConstruction();$('end-sketch').before(constructionToggle);
 function updateLineConstructionUI(){const active=sketch&&$('profile').value==='line';constructionToggle.hidden=!active;constructionToggle.textContent=(lineConstruction?'補助線 ON':'通常線')+(connectedSketch?'（ボタンで切替）':lineConstruction?'（右クリックで切替）':'（右クリックで補助線）');constructionToggle.setAttribute('aria-pressed',String(lineConstruction));constructionToggle.style.cssText='border:1px dashed #8865af;background:'+(lineConstruction?'#eee4ff':'#f8f5ff')+';color:#674392;padding:5px 9px;border-radius:5px';if(active){host.dataset.drawingConstruction=String(lineConstruction);$('sketch-draw-instruction').textContent=(lineConstruction?'補助線：押し出し輪郭には含みません':'通常線：終点をクリック')+(connectedSketch?' · 右クリックで曲線へ切替':' · 右クリックで通常線／補助線')+' / Enterで確定 / Escで中止';}else delete host.dataset.drawingConstruction;}
 function toggleLineConstruction(){if(!sketch||$('profile').value!=='line'||arcDrag||document.querySelector('dialog[open]'))return false;lineConstruction=!lineConstruction;updateLineConstructionUI();if(firstPoint)previewEndpoint(lastDrawPoint||firstPoint.clone().addScaledVector(sketchBasis.u,10));notify(lineConstruction?'補助線に切替：紫の破線で作図します。輪郭には含みません':'通常線に切り替えました');return true;}
-function updateConnectedSketchUI(){updateLineConstructionUI();
+const autoTangentLabel=document.createElement('label');autoTangentLabel.hidden=true;autoTangentLabel.className='line-angle-snap-option';autoTangentLabel.innerHTML='<input id="spline-auto-tangent" type="checkbox" checked> 接線を自動で引き継ぐ';$('sketch-banner').append(autoTangentLabel);
+ $('spline-auto-tangent').onchange=()=>{if(!sketch||!connectedSketch)return;const enabled=$('spline-auto-tangent').checked,angle=connectedSketch.lastDirection;if($('profile').value==='line'){if(connectedSketch.autoLineAngle!==undefined&&!enabled){$('lock-angle').checked=false;delete connectedSketch.autoLineAngle;}else if(enabled&&firstPoint&&Number.isFinite(angle)){connectedSketch.autoLineAngle=angle;$('lock-angle').checked=true;$('live-angle').value=angle;}if(firstPoint&&lastDrawPoint)previewEndpoint(lastDrawPoint);}else if($('profile').value==='spline'){if(!enabled&&connectedSketch.autoStartAngle!==undefined){if(splineTangents.start===connectedSketch.autoStartAngle)delete splineTangents.start;delete connectedSketch.autoStartAngle;}else if(enabled&&Number.isFinite(angle)){splineTangents.start=angle;connectedSketch.autoStartAngle=angle;}updateSplinePreview(lastDrawPoint);}updateConnectedSketchUI();};
+ function updateConnectedSketchUI(){updateLineConstructionUI();
  lineAngleSnapLabel.hidden=!sketch||$('profile').value!=='line';solidBoundaryFillLabel.hidden=lineAngleSnapLabel.hidden;
- const active=sketch&&!!connectedSketch;sketchSegmentToggle.hidden=!active;
+ const active=sketch&&!!connectedSketch;sketchSegmentToggle.hidden=autoTangentLabel.hidden=!active;if(active)host.dataset.splineAutoTangent=String($('spline-auto-tangent').checked);else delete host.dataset.splineAutoTangent;
  if(!active){delete host.dataset.drawingSegmentMode;return;}
  const curve=$('profile').value==='spline';host.dataset.drawingSegmentMode=curve?'curve':'line';
  sketchSegmentToggle.textContent=curve?'直線に切替':'曲線に切替';
@@ -891,7 +894,7 @@ function switchConnectedSketch(){
  if(!sketch||!connectedSketch||splineEditBusy||splineEditor?.dragging||arcDrag||document.querySelector('dialog[open]'))return false;
  const curve=$('profile').value==='spline',f=current(),basis=sketchBasis,origin=sketchOrigin.clone(),face=sketchWorkingFace;
  const points=splinePoints.map(p=>[...p]),head=curve?(points.length?worldPoint({...f,offset:origin.dot(basis.n)},points.at(-1)):null):firstPoint?.clone();
- const session={...connectedSketch};
+ const session={...connectedSketch};if(curve&&points.length>=2)session.lastDirection=splineEndpoint(f,'end').angle;delete session.autoStartAngle;delete session.autoLineAngle;
  if(curve&&points.length>=2){
   try{applyFeature();}catch(error){notify(appErrorMessage(error));return true;}
   session.count+=points.length-1;
@@ -899,10 +902,10 @@ function switchConnectedSketch(){
  finishSketch(false);selected=null;stage='sketch';draftTouched=false;
  const next={...f,profile:curve?'line':'spline',mode:curve?'thin':'solid',name:'スケッチ',x:origin.x,y:origin.y,z:origin.z,width:defaults.width,angle:0,closed:false};
  splinePoints=!curve&&head?[[head.dot(basis.u),head.dot(basis.v)]]:[];splineClosed=false;splineTangents={};splineTangentLengths={};splineCloseHover=false;
- if(!curve)next.points=clone(splinePoints);
+ if(!curve){next.points=clone(splinePoints);next.tangents={};next.tangentLengths={};if($('spline-auto-tangent').checked&&Number.isFinite(session.lastDirection)){next.tangents.start=session.lastDirection;session.autoStartAngle=session.lastDirection;}}
  fillForm(next);sketch=true;sketchBasis=basis;sketchOrigin=origin;sketchWorkingFace=face;connectedSketch=session;
  firstPoint=curve?head:null;chainStart=session.root?.clone()||head?.clone()||null;chainCount=session.count;lastDrawPoint=null;controls.enabled=false;
- $('continuous-line').checked=true;$('lock-length').checked=false;$('lock-angle').checked=false;
+ $('continuous-line').checked=true;$('lock-length').checked=false;$('lock-angle').checked=false;if(curve&&head&&$('spline-auto-tangent').checked&&Number.isFinite(session.lastDirection)){session.autoLineAngle=session.lastDirection;$('lock-angle').checked=true;$('live-angle').value=session.lastDirection;}
  $('line-dimensions').hidden=!curve;$('place-line').disabled=!firstPoint;$('sketch-banner').hidden=false;host.style.cursor='crosshair';
  if(head){sketchMarker=new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]),roundPointMaterial({color:0x087ba0,size:8,sizeAttenuation:false,depthTest:false}));sketchMarker.position.copy(head);sketchMarker.renderOrder=10;scene.add(sketchMarker);}
  updateConnectedSketchUI();if(!curve)updateSplinePreview();renderTree();syncFields();splineEditor?.update();
@@ -1015,7 +1018,7 @@ function automaticSketchSnap(hit,event={},context=null){
 function showSnap(hit,basis=sketchBasis){
  const kind=host.dataset.snapKind||'grid',labels={gridLine:'＋ グリッド線',gridSketch:'× グリッドとスケッチ線の交点',gridBoundary:'× グリッドとソリッドの交点',perpendicularBoundary:'⊥ ソリッド境界へ垂直',perpendicularSketch:'⊥ スケッチ線へ垂直',axis:'⊥ '+(host.dataset.sketchSnapAxis||'作図')+'軸へ垂直',angle:'∠ '+(host.dataset.sketchSnapAngle||'0')+'°（'+sketchAngleStep($('line-angle-step').value)+'°吸着）',endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={gridLine:'+',gridSketch:'×',gridBoundary:'×',perpendicularBoundary:'⊥',perpendicularSketch:'⊥',axis:'⊥',angle:'∠',endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.color=['gridLine','gridSketch','gridBoundary','angle','axis','perpendicularBoundary','perpendicularSketch'].includes(kind)?'#087f5b':'';$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm'+(sketchSnapCycle.items.length>1?' ／ 候補 '+(sketchSnapCycle.index+1)+'/'+sketchSnapCycle.items.length+' · Tabで切替（Shiftで逆順）':'');
 }
-function finishSketch(message=true){clearSketchSnapChoice();lineConstruction=false;constructionToggle.hidden=true;solidBoundaryFillLabel.hidden=true;solidBoundaryFill?.clear({forget:true});delete host.dataset.drawingConstruction;lastSketchPointer=null;delete host.dataset.sketchSnapAngle;delete host.dataset.sketchSnapAxis;connectedSketch=null;updateConnectedSketchUI();splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;channelMode=false;channelReverse=false;channelDirection.hidden=true;channelEditDirection.hidden=true;channelResize?.hide();channelArrow?.hide();restoreChannelSource();$('profile').querySelector('[value=rect]').textContent='長方形';$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
+function finishSketch(message=true){splineDisplayFeature=null;splineEditor?.closeSimplify();clearSketchSnapChoice();lineConstruction=false;constructionToggle.hidden=true;solidBoundaryFillLabel.hidden=true;solidBoundaryFill?.clear({forget:true});delete host.dataset.drawingConstruction;lastSketchPointer=null;delete host.dataset.sketchSnapAngle;delete host.dataset.sketchSnapAxis;connectedSketch=null;updateConnectedSketchUI();splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;channelMode=false;channelReverse=false;channelDirection.hidden=true;channelEditDirection.hidden=true;channelResize?.hide();channelArrow?.hide();restoreChannelSource();$('profile').querySelector('[value=rect]').textContent='長方形';$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
 function stopLineDrawing(){if(stage!=='sketch'||$('profile').value!=='line')return false;$('cancel').click();$('status').textContent='線分の作図を終了しました。確定済みの線は残ります';return true;}
 $('end-sketch').onclick=()=>{if(!stopLineDrawing())finishSketch();};
 $('draw').onclick=()=>{dimensionMeasure?.close();const wasSketchStage=stage==='sketch',workingFace=pendingDrawingFace||sketchWorkingFace,previousZoom=camera.zoom;
@@ -1053,7 +1056,7 @@ function previewEndpoint(hit){try{lastDrawPoint=hit.clone();const p=constrainedP
 function placeEndpoint(hit){
  const p=previewEndpoint(hit);if(!p)return;const delta=p.clone().sub(firstPoint);if(delta.length()<($('profile').value==='circle'?.049999:$('profile').value==='rect'&&centerRectangle?.049999:.1)||($('profile').value==='rect'&&(Math.abs(delta.dot(sketchBasis.u))<(centerRectangle?.05:.1)||Math.abs(delta.dot(sketchBasis.v))<(centerRectangle?.05:.1)))){notify('始点から離れた終点を指定してください');return;}
  const repeatRectangle=$('profile').value==='rect',repeatChannel=channelMode,continuous=$('profile').value==='line'&&$('continuous-line').checked;
- const nextConstruction=lineConstruction;const nextConnected=connectedSketch?{...connectedSketch,count:connectedSketch.count+1}:null;
+ const nextConstruction=lineConstruction;const nextConnected=connectedSketch?{...connectedSketch,count:connectedSketch.count+1,lastDirection:Math.atan2(delta.dot(sketchBasis.v),delta.dot(sketchBasis.u))*180/Math.PI,autoLineAngle:undefined}:null;
  const nextOrigin=sketchOrigin.clone(),nextBasis=sketchBasis,nextFace=sketchWorkingFace,root=chainStart?.clone()||firstPoint.clone(),count=chainCount+1,closed=count>=3&&root.distanceTo(p)<1e-5;
  try{selected=null;const placed=applyFeature();if(continuous&&!closed){
   selected=null;stage='sketch';sketch=true;firstPoint=p.clone();lastDrawPoint=null;sketchOrigin=nextOrigin;sketchBasis=nextBasis;sketchWorkingFace=nextFace;connectedSketch=nextConnected;lineConstruction=nextConstruction;updateConnectedSketchUI();chainStart=root;chainCount=count;controls.enabled=false;draftTouched=false;dropPreview();
@@ -1068,8 +1071,8 @@ function placeEndpoint(hit){
  catch(e){$('dimension-error').textContent=appErrorMessage(e);notify(appErrorMessage(e));}
 }
 for(const part of ['length','angle']){
- $('live-'+part).addEventListener('input',()=>{$('lock-'+part).checked=true;if(firstPoint)previewEndpoint(lastDrawPoint||firstPoint.clone().addScaledVector(sketchBasis.u,50));});
- $('lock-'+part).addEventListener('change',()=>{if(firstPoint)previewEndpoint(lastDrawPoint||firstPoint.clone().addScaledVector(sketchBasis.u,50));});
+ $('live-'+part).addEventListener('input',()=>{if(part==='angle'&&connectedSketch)delete connectedSketch.autoLineAngle;$('lock-'+part).checked=true;if(firstPoint)previewEndpoint(lastDrawPoint||firstPoint.clone().addScaledVector(sketchBasis.u,50));});
+ $('lock-'+part).addEventListener('change',()=>{if(part==='angle'&&connectedSketch)delete connectedSketch.autoLineAngle;if(firstPoint)previewEndpoint(lastDrawPoint||firstPoint.clone().addScaledVector(sketchBasis.u,50));});
 }
 $('line-dimensions').onsubmit=e=>{e.preventDefault();if(!firstPoint)return;$('lock-length').checked=true;$('lock-angle').checked=true;placeEndpoint(lastDrawPoint||firstPoint.clone().addScaledVector(sketchBasis.u,50));};
 renderer.domElement.addEventListener('wheel',e=>{
@@ -1096,9 +1099,9 @@ function updateSplinePreview(hit=null){
  splineCloseHover=false;
  if(hit&&points.length>=3){const f=current(),start=screenPoint(worldPoint({...f,offset:planeCoordinates(f).offset},points[0])),end=screenPoint(hit);splineCloseHover=Math.hypot(start.x-end.x,start.y-end.y)<=11;}
  if(hit&&points.length&&!splineCloseHover&&!splineClosed){const next=[hit.dot(sketchBasis.u),hit.dot(sketchBasis.v)],last=points.at(-1);if(Math.hypot(next[0]-last[0],next[1]-last[1])>1e-7)points.push(next);}
- host.dataset.splinePreviewPoints=String(points.length);
+ splineDisplayFeature={...current(),points,closed:splineClosed||splineCloseHover};host.dataset.splinePreviewPoints=String(points.length);
  if(points.length<2){if(splinePreview){disposeObject(splinePreview);splinePreview=null;}return;}
- const geometry=makeSketchGeometry({...current(),points,closed:splineClosed||splineCloseHover});
+ const geometry=makeSketchGeometry(splineDisplayFeature);
  if(splinePreview){updateSketchLine(splinePreview,geometry);}
  else{splinePreview=sketchLine(geometry,{color:0x087ca5,depthTest:false,order:5});splinePreview.renderOrder=5;scene.add(splinePreview);}
 }
@@ -3814,10 +3817,10 @@ selectionPicker=createSelectionPicker({host,canvas:renderer.domElement,bodyName:
 
 
 function splineEditorState(){
- if(stage!=='sketch'||$('profile').value!=='spline'||document.querySelector('dialog[open]')||deletingSketch||moveTool?.active)return null;
+ if(stage!=='sketch'||$('profile').value!=='spline'||document.querySelector('dialog[open]:not(#spline-simplify-dialog)')||deletingSketch||moveTool?.active)return null;
  const source=features.find(f=>f.id===selected);
  if(!sketch&&(!source||source.groupHidden))return null;
- return {key:selected||'drawing-spline',feature:current(),points:splinePoints,closed:splineClosed,closing:splineCloseHover,drawing:sketch,touched:draftTouched,busy:splineEditBusy};
+ return {key:selected||'drawing-spline',feature:current(),displayFeature:sketch?splineDisplayFeature:null,points:splinePoints,closed:splineClosed,closing:splineCloseHover,drawing:sketch,touched:draftTouched,busy:splineEditBusy};
 }
 function previewSplineEdit(){
  if(sketch){updateSplinePreview();return;}
@@ -3860,7 +3863,7 @@ async function closeSpline(){
 splineEditor=installSplineEditor({host,banner:$('sketch-banner'),sidebar:document.querySelector('.sketch-geometry-fields'),getState:splineEditorState,getControls:()=>controls,
  onAddEndpointPoint:(f,p)=>addEndpointPoint(f,worldPoint({...f,offset:planeCoordinates(f).offset},p)),
  project:(point,state)=>{const f=state.feature;return screenPoint(worldPoint({...f,offset:planeCoordinates(f).offset},point));},
- onToggleDrawing:switchConnectedSketch,onUndo:undoSplinePoint,onClose:closeSpline,onCommit:commitSplineEdit,onInsert:insertion=>editSplinePoint({insertion}),onDelete:index=>editSplinePoint({index}),onTangent:editSplineTangent,onTangentMove:(end,event,snap)=>{const p=splineEventPoint(event);if(!p)return;const f=current(),origin=end==='start'?splinePoints[0]:splinePoints.at(-1),sign=end==='start'?1:-1,dx=(p[0]-origin[0])*sign,dy=(p[1]-origin[1])*sign,length=Math.hypot(dx,dy);if(length<.01)return;const result=snapSplineTangent({angle:Math.atan2(dy,dx)*180/Math.PI,feature:f,features,endpoint:origin,handle:p,project:point=>screenPoint(worldPoint({...f,offset:planeCoordinates(f).offset},point)),disabled:!snap||event.altKey});splineTangents[end]=result.angle;splineTangentLengths[end]=Math.min(10000,length);lastDrawPoint=null;previewSplineEdit();return result;},
+ onSimplify:async result=>{const state=splineEditorState();if(!state||state.busy)return false;const before={points:clone(splinePoints),closed:splineClosed,tangents:clone(splineTangents),tangentLengths:clone(splineTangentLengths),touched:draftTouched};validateFeature(result.feature);splinePoints=clone(result.feature.points);splineTangents=clone(result.feature.tangents||{});splineTangentLengths=clone(result.feature.tangentLengths||{});lastDrawPoint=null;previewSplineEdit();const applied=state.drawing||await commitSplineEdit(before);splineEditor?.update();if(applied)notify('フィット点を '+result.before+'点から '+result.after+'点に整理しました');return applied;},onToggleDrawing:switchConnectedSketch,onUndo:undoSplinePoint,onClose:closeSpline,onCommit:commitSplineEdit,onInsert:insertion=>editSplinePoint({insertion}),onDelete:index=>editSplinePoint({index}),onTangent:editSplineTangent,onTangentMove:(end,event,snap)=>{const p=splineEventPoint(event);if(!p)return;const f=current(),origin=end==='start'?splinePoints[0]:splinePoints.at(-1),sign=end==='start'?1:-1,dx=(p[0]-origin[0])*sign,dy=(p[1]-origin[1])*sign,length=Math.hypot(dx,dy);if(length<.01)return;const result=snapSplineTangent({angle:Math.atan2(dy,dx)*180/Math.PI,feature:f,features,endpoint:origin,handle:p,project:point=>screenPoint(worldPoint({...f,offset:planeCoordinates(f).offset},point)),disabled:!snap||event.altKey});if(end==='start'&&connectedSketch)delete connectedSketch.autoStartAngle;splineTangents[end]=result.angle;splineTangentLengths[end]=Math.min(10000,length);lastDrawPoint=null;previewSplineEdit();return result;},
  onRestore:before=>{splinePoints=clone(before.points);splineClosed=before.closed;splineTangents=clone(before.tangents||{});splineTangentLengths=clone(before.tangentLengths||{});draftTouched=before.touched;if(sketch)updateSplinePreview();else{dropPreview();renderTree();if(draftTouched)previewSplineEdit();}},
  onMove:(index,event)=>{
   const point=splineEventPoint(event);if(!point)return;const f=current(),offset=planeCoordinates(f).offset,hit=worldPoint({...f,offset},point);
@@ -3895,7 +3898,7 @@ function splineEventPoint(event){
 async function editSplineTangent(end,angle,length){
  const state=splineEditorState();if(!state||state.busy||state.closed||state.points.length<2||splineEditor?.dragging||!['start','end'].includes(end)||angle!==null&&(!Number.isFinite(angle)||Math.abs(angle)>360)||length!==undefined&&length!==null&&(!Number.isFinite(length)||length<.01||length>10000))return;
  const before={points:clone(splinePoints),closed:splineClosed,tangents:clone(splineTangents),tangentLengths:clone(splineTangentLengths),touched:draftTouched};
- if(angle===null){delete splineTangents[end];delete splineTangentLengths[end];}else{ splineTangents[end]=angle;if(length===null)delete splineTangentLengths[end];else if(length!==undefined)splineTangentLengths[end]=length;}
+ if(end==='start'&&connectedSketch)delete connectedSketch.autoStartAngle;if(angle===null){delete splineTangents[end];delete splineTangentLengths[end];}else{ splineTangents[end]=angle;if(length===null)delete splineTangentLengths[end];else if(length!==undefined)splineTangentLengths[end]=length;}
  lastDrawPoint=null;previewSplineEdit();if(!sketch)await commitSplineEdit(before);splineEditor.update();
 }
 
