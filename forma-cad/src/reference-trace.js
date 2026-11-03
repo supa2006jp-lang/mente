@@ -1,4 +1,5 @@
 import Clipper from 'clipper-lib';
+import {referenceEdgeMask} from './reference-trace-edges.js';
 
 const area=ps=>ps.reduce((v,p,i)=>{const q=ps[(i+1)%ps.length];return v+p[0]*q[1]-q[0]*p[1];},0)/2;
 const median=values=>values.sort((a,b)=>a-b)[Math.floor(values.length/2)];
@@ -30,11 +31,11 @@ function boundaries(labels,w,h,component){
 export function traceReferencePixels({width:w,height:h,data},settings={}){
  if(!Number.isInteger(w)||!Number.isInteger(h)||w<2||h<2||w>1024||h>1024||data?.length!==w*h*4)throw Error('輪郭解析用の画像が不正です');
  const p={mode:'background',threshold:35,invert:false,smoothing:1,crop:{x:0,y:0,width:1,height:1},...settings};traceCrop(p.crop);
- if(!['background','dark','alpha','seed'].includes(p.mode)||!Number.isFinite(p.threshold)||p.threshold<1||p.threshold>254||typeof p.invert!=='boolean'||!Number.isInteger(p.smoothing)||p.smoothing<0||p.smoothing>2)throw Error('輪郭の検出条件を確認してください');
+ if(!['background','dark','alpha','seed','edge'].includes(p.mode)||!Number.isFinite(p.threshold)||p.threshold<1||p.threshold>254||typeof p.invert!=='boolean'||!Number.isInteger(p.smoothing)||p.smoothing<0||p.smoothing>2)throw Error('輪郭の検出条件を確認してください');
  if(p.marks!==undefined&&(!(p.marks instanceof Uint8Array)||p.marks.length!==w*h||p.marks.some(value=>value>2)))throw Error('ブラシの補正データが不正です');
  const rect={x:Math.floor(p.crop.x*w),y:Math.floor(p.crop.y*h),width:Math.max(1,Math.round(p.crop.width*w)),height:Math.max(1,Math.round(p.crop.height*h))};rect.width=Math.min(rect.width,w-rect.x);rect.height=Math.min(rect.height,h-rect.y);if(rect.width<4||rect.height<4)throw Error('解析範囲をもう少し広くしてください');
  const bg=background(data,w,h,rect);let mask=new Uint8Array(w*h),seed=null,seedColor=null;
- if(p.mode==='seed'){
+ if(['seed','edge'].includes(p.mode)){
   if(!Array.isArray(p.seed)||p.seed.length!==2||p.seed.some(v=>!Number.isFinite(v)||v<0||v>1))throw Error('取得する部分の内側をクリックしてください');
   seed=p.seed.map((v,i)=>Math.min((i?h:w)-1,Math.floor(v*(i?h:w))));if(seed[0]<rect.x||seed[0]>=rect.x+rect.width||seed[1]<rect.y||seed[1]>=rect.y+rect.height)throw Error('解析範囲の内側をクリックしてください');
   const colors=[[],[],[]];for(let y=Math.max(rect.y,seed[1]-2);y<=Math.min(rect.y+rect.height-1,seed[1]+2);y++)for(let x=Math.max(rect.x,seed[0]-2);x<=Math.min(rect.x+rect.width-1,seed[0]+2);x++){const k=(y*w+x)*4;if(data[k+3]<128)continue;for(let c=0;c<3;c++)colors[c].push(data[k+c]);}
@@ -44,7 +45,8 @@ export function traceReferencePixels({width:w,height:h,data},settings={}){
   const i=y*w+x,k=i*4,a=data[k+3],rgb=[0,1,2].map(c=>data[k+c]*a/255+255*(1-a/255));let inside=p.mode==='seed'?a>=128&&Math.hypot(...seedColor.map((v,c)=>data[k+c]-v))<=p.threshold:p.mode==='alpha'?a>=p.threshold:p.mode==='dark'?.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]<p.threshold:Math.hypot(...rgb.map((v,c)=>v-bg[c]))>p.threshold;
   if(p.invert&&p.mode!=='seed')inside=!inside;mask[i]=inside&&a>0?1:0;
  }
- for(let pass=0;pass<p.smoothing;pass++){const next=new Uint8Array(mask.length);for(let y=rect.y;y<rect.y+rect.height;y++)for(let x=rect.x;x<rect.x+rect.width;x++){let sum=0,n=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const a=x+dx,b=y+dy;if(a<rect.x||a>=rect.x+rect.width||b<rect.y||b>=rect.y+rect.height)continue;sum+=mask[b*w+a];n++;}next[y*w+x]=sum>n/2?1:0;}mask=next;}
+ if(p.mode==='edge')mask=referenceEdgeMask({width:w,height:h,data},rect,p.threshold,p.smoothing);
+ for(let pass=0;pass<(p.mode==='edge'?0:p.smoothing);pass++){const next=new Uint8Array(mask.length);for(let y=rect.y;y<rect.y+rect.height;y++)for(let x=rect.x;x<rect.x+rect.width;x++){let sum=0,n=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const a=x+dx,b=y+dy;if(a<rect.x||a>=rect.x+rect.width||b<rect.y||b>=rect.y+rect.height)continue;sum+=mask[b*w+a];n++;}next[y*w+x]=sum>n/2?1:0;}mask=next;}
  // User paint is a hard local override, after smoothing, restricted to the
  // analysis crop. Erasing a stroke restores automatic detection at that pixel.
  if(p.marks)for(let y=rect.y;y<rect.y+rect.height;y++)for(let x=rect.x;x<rect.x+rect.width;x++){const i=y*w+x;if(p.marks[i])mask[i]=p.marks[i]===1?1:0;}
@@ -54,8 +56,9 @@ export function traceReferencePixels({width:w,height:h,data},settings={}){
   if(c.area>=Math.max(9,rect.width*rect.height*.0001))components.push(c);
  }
  let seedId=0;if(seed){let nearest=Infinity;for(let y=Math.max(rect.y,seed[1]-3);y<=Math.min(rect.y+rect.height-1,seed[1]+3);y++)for(let x=Math.max(rect.x,seed[0]-3);x<=Math.min(rect.x+rect.width-1,seed[0]+3);x++){const id=labels[y*w+x],d=(x-seed[0])**2+(y-seed[1])**2;if(id&&d<nearest){nearest=d;seedId=id;}}}
- components.sort((a,b)=>b.area-a.area);const selected=seed?components.filter(c=>c.id===seedId):components.slice(0,16);for(const component of selected)component.rings=boundaries(labels,w,h,component);
- return {width:w,height:h,labels,components:selected,background:bg,omitted:seed?0:Math.max(0,components.length-selected.length),...(seed?{seed,seedColor}:{})};
+ components.sort((a,b)=>b.area-a.area);const selected=seed?components.filter(c=>c.id===seedId):components.slice(0,16);for(const component of selected)component.rings||=boundaries(labels,w,h,component);
+ const result={width:w,height:h,labels,components:selected,background:bg,omitted:seed?0:Math.max(0,components.length-selected.length),method:p.mode,...(seed?{seed,seedColor}:{})};
+ if(p.mode==='seed'&&p.edgeAssist!==false)try{const edge=traceReferencePixels({width:w,height:h,data},{...p,mode:'edge',threshold:12,edgeAssist:false}),candidate=edge.components[0],color=selected[0];if(candidate&&!candidate.touchesBoundary&&(!color||color.touchesBoundary||color.area>w*h*.02&&candidate.area<color.area*.6))return {...edge,colorFallback:true};}catch{}return result;
 }
 
 function simplifyOpen(points,epsilon,budget){

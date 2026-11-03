@@ -6,7 +6,7 @@ import {traceDraftKey,encodeTraceDraft,decodeTraceDraft} from '../src/reference-
 import {findRegions} from '../src/regions.js';
 
 const raster=(w,h,pixel)=>{const data=new Uint8ClampedArray(w*h*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++)data.set(pixel(x,y),(y*w+x)*4);return {width:w,height:h,data};};
-const pick=(image,seed,settings={})=>traceReferencePixels(image,{mode:'seed',seed,threshold:30,smoothing:0,...settings});
+const pick=(image,seed,settings={})=>traceReferencePixels(image,{mode:'seed',seed,threshold:30,smoothing:0,edgeAssist:false,...settings});
 const image=raster(200,120,(x,y)=>{const button=Math.hypot(x-50,y-60)<25||x>=120&&x<170&&y>=35&&y<85,icon=x>=48&&x<52&&y>=53&&y<67;return [...(icon?[250,250,250]:button?[35,50,70]:[160,165,170]),255];});
 test('a clicked part is isolated from other parts of the same color and ignores the global image background',()=>{const a=pick(image,[.22,.5]),b=pick(image,[.7,.5]);assert.equal(a.components.length,1);assert.equal(b.components.length,1);assert.deepEqual(a.components[0].bounds,[26,36,74,84]);assert.deepEqual(b.components[0].bounds,[120,35,169,84]);assert.equal(a.components[0].touchesBoundary,false);const rings=simplifyTraceRings(a.components[0],.5);assert.equal(rings.length,1);assert.equal(simplifyTraceRings(a.components[0],.5,{holes:true}).length,2);});
 test('seed selection is not lost to the largest sixteen components and uses only connected pixels',()=>{const many=raster(220,120,(x,y)=>{const button=x%20>=4&&x%20<12&&y%20>=4&&y%20<12;return [...(button?[20,30,50]:[220,220,220]),255];}),result=pick(many,[.95,.9]);assert.equal(result.components.length,1);assert.deepEqual(result.components[0].bounds,[204,104,211,111]);assert.equal(result.omitted,0);});
