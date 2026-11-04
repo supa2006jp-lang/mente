@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {solidSketchBoundarySegments} from './sketch-solid-overlap.js';
 import {basisFor,worldPoint} from './frames.js';
+import {cadPosition} from './cad-coordinates.js';
 
 
 // Measure attraction in pixels, so zooming never changes the usable distance.
@@ -29,9 +30,50 @@ export function closestBoundaryPoint(segments,hit,project,{tolerance=8,origin=nu
 }
 
 export function createSketchBoundarySnap(){
- let cache=new WeakMap();
+ let cache=new WeakMap(),extensionCache=new WeakMap();
  return {
-  clear(){cache=new WeakMap();},
+  clear(){cache=new WeakMap();extensionCache=new WeakMap();},
+  extension(meshes,basis,offset,hit,project,{origin=null,direction=null,sourceVisible=()=>true}={}){
+   const cursor=project(hit),nearby=[];
+   for(const mesh of meshes){
+    if(!mesh.visible)continue;
+    mesh.updateWorldMatrix(true,false);
+    const geometry=mesh.children[0]?.geometry,positions=cadPosition(geometry);
+    if(!positions)continue;
+    const key=[offset,...basis.n.toArray(),...mesh.matrixWorld.elements,positions.version].join(',');
+    let entry=extensionCache.get(mesh);
+    if(!entry||entry.positions!==positions||entry.key!==key){
+     const candidates=[];
+     for(let i=0;i<positions.count;i+=2){
+      if(geometry.userData.circularEdges?.has(i)||geometry.userData.arcEdges?.has(i))continue;
+      const a=new THREE.Vector3().fromBufferAttribute(positions,i).applyMatrix4(mesh.matrixWorld);
+      const b=new THREE.Vector3().fromBufferAttribute(positions,i+1).applyMatrix4(mesh.matrixWorld);
+      const da=a.dot(basis.n)-offset,db=b.dot(basis.n)-offset;
+      // An existing crossing is handled by the solid boundary on the sketch plane.
+      if(Math.min(da,db)<=1e-6&&Math.max(da,db)>=-1e-6)continue;
+      if(Math.abs(db-da)<=Math.max(1e-7,a.distanceTo(b)*1e-6))continue;
+      const point=a.clone().lerp(b,da/(da-db));
+      point.addScaledVector(basis.n,offset-point.dot(basis.n));
+      const [near,far]=Math.abs(da)<Math.abs(db)?[a,b]:[b,a];
+      candidates.push({point,near,far});
+     }
+     entry={positions,key,candidates};extensionCache.set(mesh,entry);
+    }
+    for(const candidate of entry.candidates){
+     const projected=project(candidate.point),distance=Math.hypot(projected.x-cursor.x,projected.y-cursor.y);
+     if(distance>8||Math.abs(projected.z)>1)continue;
+     if(origin&&direction){
+      const delta=candidate.point.clone().sub(origin);
+      if(delta.dot(direction)<-1e-6||delta.cross(direction).length()>1e-6)continue;
+     }
+     nearby.push({...candidate,distance});
+    }
+   }
+   nearby.sort((a,b)=>a.distance-b.distance);
+   // The virtual crossing may be behind its own solid. Test the source edge.
+   const match=nearby.find(({near,far})=>[near,near.clone().lerp(far,.5),far].some(sourceVisible));
+   return match?{kind:'edgeExtension',point:match.point,distance:match.distance,segments:[[match.near,match.point]]}:null;
+  },
   reference(face,basis,offset,hit,project,options){
    if(!face?.filletGridReference)return null;
    const normal=basisFor(face).n;

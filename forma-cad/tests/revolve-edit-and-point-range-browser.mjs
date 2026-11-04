@@ -10,7 +10,7 @@ import {defaults} from '../src/geometry.js';
 import {runOperation} from '../src/kernel.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const output='.sites-runtime/point-range-solid-grid-snap';
+const output='.sites-runtime/sketch-edge-extension-snap';
 await fs.mkdir(output,{recursive:true});
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -169,15 +169,18 @@ try{
  await field('new-point').click();
  await field('snap-enabled').check();
  await field('snap-step').selectOption('10');
- const rect=await page.locator('#canvas-host canvas').boundingBox();
- const state=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
- const ortho=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
- ortho.position.fromArray(state);ortho.quaternion.fromArray(state,3);ortho.zoom=state[7];
- ortho.updateProjectionMatrix();ortho.updateMatrixWorld(true);
- function screen(x,y){
-  const projected=new THREE.Vector3(x,y,0).project(ortho);
-  return [rect.x+(projected.x+1)*rect.width/2,rect.y+(1-projected.y)*rect.height/2];
+ async function sketchScreen(){
+  const rect=await page.locator('#canvas-host canvas').boundingBox();
+  const state=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
+  const ortho=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
+  ortho.position.fromArray(state);ortho.quaternion.fromArray(state,3);ortho.zoom=state[7];
+  ortho.updateProjectionMatrix();ortho.updateMatrixWorld(true);
+  return (x,y)=>{
+   const projected=new THREE.Vector3(x,y,0).project(ortho);
+   return [rect.x+(projected.x+1)*rect.width/2,rect.y+(1-projected.y)*rect.height/2];
+  };
  }
+ const screen=await sketchScreen();
  const startCrossing=screen(0,16.5),endCrossing=screen(10,-16.5);
  await drag([startCrossing[0]+2,startCrossing[1]-1],[endCrossing[0]+2,endCrossing[1]+1],[0,0]);
  const crossingBounds=await pointBox.boundingBox();
@@ -204,8 +207,39 @@ try{
  assert(Math.hypot(boundaryPoints[0].x-5,boundaryPoints[0].y,boundaryPoints[0].z)<1e-5);
  assert(Math.hypot(boundaryPoints[1].x-10,boundaryPoints[1].y-16.5,boundaryPoints[1].z)<1e-5);
  assert(Math.hypot(boundaryPoints[2].x-10,boundaryPoints[2].y-16.5)>.01);
+
+ await load([{...boundaryBox,z:12}]);
+ await field('new-point').click();
+ await field('snap-enabled').check();
+ const elevatedScreen=await sketchScreen();
+ const first=elevatedScreen(23.5,16.5),opposite=elevatedScreen(-23.5,-16.5);
+ await page.mouse.move(first[0]-2,first[1]+2);
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.snapKind==='edgeExtension');
+ assert.match(await field('snap-readout').textContent(),/ソリッドの辺を延長した交点/);
+ const highlight=JSON.parse(await field('canvas-host').getAttribute('data-snap-highlight'));
+ assert.equal(highlight.kind,'edgeExtension');
+ assert(highlight.segments[0][0][2]>0);
+ assert.equal(highlight.segments[0][1][2],0);
+ await page.mouse.click(first[0]-2,first[1]+2);
+ await drag([first[0]-2,first[1]+2],[opposite[0]+2,opposite[1]-2],[0,0]);
+ assert(await pointBox.locator('span').isVisible());
+ assert.equal(await pointBox.getAttribute('data-snapped'),'true');
+ const extensionBounds=await pointBox.boundingBox();
+ assert(Math.hypot(extensionBounds.x-opposite[0],extensionBounds.y-first[1])<1);
+ assert(Math.hypot(extensionBounds.x+extensionBounds.width-first[0],extensionBounds.y+extensionBounds.height-opposite[1])<1);
+ await page.mouse.up();
+ await field('snap-enabled').uncheck();
+ await page.mouse.move(opposite[0]+2,opposite[1]-2);
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.snapKind!=='edgeExtension');
+ await page.mouse.click(opposite[0]+2,opposite[1]-2);
+ await page.keyboard.press('Escape');
+ const extended=(await save()).features.filter(f=>f.profile==='point');
+ assert.equal(extended.length,3);
+ assert(Math.hypot(extended[0].x-23.5,extended[0].y-16.5,extended[0].z)<1e-5);
+ assert(Math.hypot(extended[1].x,extended[1].y,extended[1].z)<1e-5);
+ assert(Math.hypot(extended[2].x+23.5,extended[2].y+16.5)>.01);
  assert.deepEqual(errors,[]);
- const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,clickStillWorks:true,escapeCancelsRange:true,errors};
+ const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,clickStillWorks:true,escapeCancelsRange:true,errors};
  await fs.writeFile(output+'/proof.json',JSON.stringify(proof,null,2)+'\n');
  console.log(JSON.stringify(proof));
 }finally{await browser?.close();server.close();}

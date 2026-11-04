@@ -1027,6 +1027,10 @@ function solidGridCrossings(displayGrid,offset,hit,options){
  const boundaries=sketchBoundarySnap.segments(meshes.values(),sketchBasis,offset);
  return gridBoundarySnap.candidates(displayGrid,boundaries,sketchBasis,offset,hit,screenPoint,options);
 }
+function sketchEdgeExtension(hit,offset,origin=null,direction=null){
+ const bodies=[...meshes.values()];
+ return sketchBoundarySnap.extension(bodies,sketchBasis,offset,hit,screenPoint,{origin,direction,sourceVisible:p=>gridBoundaryPointVisible(p,camera,bodies)});
+}
 function snapToGrid(hit,event={}){
  const pointer=screenPoint(hit),offset=sketchOrigin.dot(sketchBasis.n),context={points:[],crossings:[]},lockedAngle=$('profile').value==='line'&&firstPoint&&$('lock-angle').checked&&!$('lock-length').checked?Number($('live-angle').value):null,direction=lockedAngle!==null&&Number.isFinite(lockedAngle)?sketchBasis.u.clone().multiplyScalar(Math.cos(lockedAngle*Math.PI/180)).addScaledVector(sketchBasis.v,Math.sin(lockedAngle*Math.PI/180)):null,options={origin:direction?firstPoint:null,direction,accept:p=>gridBoundaryPointVisible(p,camera,[...meshes.values()])};
  if($('snap-enabled').checked&&!(firstPoint&&$('profile').value==='line'&&$('lock-length').checked)){
@@ -1035,10 +1039,17 @@ function snapToGrid(hit,event={}){
   const drawn=gridBoundarySnap.candidates(displayGrid,currentGridSketchSegments(offset),sketchBasis,offset,hit,screenPoint,options);
   for(const [kind,crossings] of [['gridBoundary',solid],['gridSketch',drawn]])for(const c of crossings)context.crossings.push({...c,kind,segments:[c.boundary,c.gridLine]});
   context.crossings.sort((a,b)=>a.distance-b.distance);
+  if(!arcDrag)context.extension=sketchEdgeExtension(hit,offset,options.origin,direction);
  }
  const automatic=automaticSketchSnap(hit,event,context),kind=host.dataset.snapKind;
- if(numericSketchSnapLocked()||arcDrag||hingeSketchUsesVisibleRim()){clearSketchSnapChoice();if(context.gridLine)sketchSnapFeedback.show(context.gridLine,sketchBasis.n);return automatic;}
+ if(numericSketchSnapLocked()||arcDrag||hingeSketchUsesVisibleRim()){
+  clearSketchSnapChoice();
+  const feedback=kind==='edgeExtension'?context.extension:context.gridLine;
+  if(feedback)sketchSnapFeedback.show(feedback,sketchBasis.n);
+  return automatic;
+ }
  const distance=p=>{const q=screenPoint(p);return Math.hypot(q.x-pointer.x,q.y-pointer.y);},extras=[...context.points.filter(c=>options.accept(c.point)),...context.crossings];
+ if(context.extension)extras.push(context.extension);
  const boundary=sketchBoundarySnap.snap(meshes.values(),sketchBasis,offset,hit,screenPoint,options);if(boundary&&options.accept(boundary))extras.push({point:boundary,kind:'boundary',distance:distance(boundary)});
  if($('snap-enabled').checked){const p=sketchBasis.u.clone().multiplyScalar(Math.round(hit.dot(sketchBasis.u)/gridStep)*gridStep).addScaledVector(sketchBasis.v,Math.round(hit.dot(sketchBasis.v)/gridStep)*gridStep).addScaledVector(sketchBasis.n,offset);if(distance(p)<6&&options.accept(p))extras.push({point:p,kind:'grid',distance:distance(p)});}
  const preferred=extras.find(c=>c.kind===kind&&c.point.distanceToSquared(automatic)<1e-12)||{point:automatic,kind,distance:distance(automatic)},key=JSON.stringify([sketchBasis.u.toArray(),sketchBasis.v.toArray(),offset,firstPoint?.toArray(),$('profile').value,$('snap-enabled').checked,gridStep,camera.quaternion.toArray(),camera.zoom]);
@@ -1109,7 +1120,8 @@ function automaticSketchSnap(hit,event={},context=null){
  const reference=sketchWorkingFace&&meshes.get(sketchWorkingFace.bodyId)?.visible?sketchBoundarySnap.reference(referenceFaceGrid(sketchWorkingFace),sketchBasis,offset,hit,screenPoint,options):null;
  const distance=p=>{const q=screenPoint(p);return Math.hypot(q.x-pointer.x,q.y-pointer.y);};
  if(reference&&(!boundary||distance(reference)<distance(boundary))){host.dataset.snapKind='referenceBoundary';return reference;}
- if(boundary){host.dataset.snapKind='boundary';return boundary;}
+ if(boundary&&(!context?.extension||distance(boundary)<=context.extension.distance)){host.dataset.snapKind='boundary';return boundary;}
+ if(context?.extension){host.dataset.snapKind='edgeExtension';return context.extension.point;}
  if(sketch&&firstPoint&&$('profile').value==='line'&&!arcDrag&&!$('lock-length').checked&&!event.altKey){const world=p=>sketchBasis.u.clone().multiplyScalar(p[0]).addScaledVector(sketchBasis.v,p[1]).addScaledVector(sketchBasis.n,offset),result=snapSketchLineAxis([hit.dot(sketchBasis.u),hit.dot(sketchBasis.v)],[firstPoint.dot(sketchBasis.u),firstPoint.dot(sketchBasis.v)],{project:p=>screenPoint(world(p)),angle:lockedAngle});if(result.snapped){host.dataset.snapKind='axis';const labels={XY:['X','Y'],XZ:['X','Z'],YZ:['Z','Y'],CUSTOM:['作図X','作図Y']};host.dataset.sketchSnapAxis=(labels[$('plane').value]||labels.CUSTOM)[result.axis==='x'?0:1];return world(result.point);}}
  if(sketch&&firstPoint&&$('profile').value==='line'&&!arcDrag&&!$('lock-length').checked&&!event.altKey&&$('snap-enabled').checked){
   const uv=p=>[p.dot(sketchBasis.u),p.dot(sketchBasis.v)],world=p=>sketchBasis.u.clone().multiplyScalar(p[0]).addScaledVector(sketchBasis.v,p[1]).addScaledVector(sketchBasis.n,offset),origin=uv(firstPoint),point=uv(hit),delta=[point[0]-origin[0],point[1]-origin[1]],angled=lockedAngle===null&&$('line-angle-snap').checked?snapSketchLineAngle(delta,{project:p=>screenPoint(world([origin[0]+p[0],origin[1]+p[1]])),step:sketchAngleStep($('line-angle-step').value)}):null,angle=lockedAngle??(angled?.snapped&&Math.abs(angled.angle/90-Math.round(angled.angle/90))<1e-9?angled.angle:null);
@@ -1121,7 +1133,7 @@ function automaticSketchSnap(hit,event={},context=null){
  host.dataset.snapKind='free';return hit.clone();
 }
 function showSnap(hit,basis=sketchBasis){
- const kind=host.dataset.snapKind||'grid',labels={gridLine:'＋ グリッド線',gridSketch:'× グリッドとスケッチ線の交点',gridBoundary:'× グリッドとソリッドの交点',perpendicularBoundary:'⊥ ソリッド境界へ垂直',perpendicularSketch:'⊥ スケッチ線へ垂直',axis:'⊥ '+(host.dataset.sketchSnapAxis||'作図')+'軸へ垂直',angle:'∠ '+(host.dataset.sketchSnapAngle||'0')+'°（'+sketchAngleStep($('line-angle-step').value)+'°吸着）',endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={gridLine:'+',gridSketch:'×',gridBoundary:'×',perpendicularBoundary:'⊥',perpendicularSketch:'⊥',axis:'⊥',angle:'∠',endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.color=['gridLine','gridSketch','gridBoundary','angle','axis','perpendicularBoundary','perpendicularSketch'].includes(kind)?'#087f5b':'';$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm'+(sketchSnapCycle.items.length>1?' ／ 候補 '+(sketchSnapCycle.index+1)+'/'+sketchSnapCycle.items.length+' · Tabで切替（Shiftで逆順）':'');
+ const kind=host.dataset.snapKind||'grid',labels={gridLine:'＋ グリッド線',gridSketch:'× グリッドとスケッチ線の交点',gridBoundary:'× グリッドとソリッドの交点',edgeExtension:'× ソリッドの辺を延長した交点',perpendicularBoundary:'⊥ ソリッド境界へ垂直',perpendicularSketch:'⊥ スケッチ線へ垂直',axis:'⊥ '+(host.dataset.sketchSnapAxis||'作図')+'軸へ垂直',angle:'∠ '+(host.dataset.sketchSnapAngle||'0')+'°（'+sketchAngleStep($('line-angle-step').value)+'°吸着）',endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={gridLine:'+',gridSketch:'×',gridBoundary:'×',edgeExtension:'×',perpendicularBoundary:'⊥',perpendicularSketch:'⊥',axis:'⊥',angle:'∠',endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.color=['gridLine','gridSketch','gridBoundary','edgeExtension','angle','axis','perpendicularBoundary','perpendicularSketch'].includes(kind)?'#087f5b':'';$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm'+(sketchSnapCycle.items.length>1?' ／ 候補 '+(sketchSnapCycle.index+1)+'/'+sketchSnapCycle.items.length+' · Tabで切替（Shiftで逆順）':'');
 }
 function finishSketch(message=true){if(sketch&&$('profile').value==='point')boxSelection?.cancel();splineDisplayFeature=null;splineEditor?.closeSimplify();clearSketchSnapChoice();lineConstruction=false;constructionToggle.hidden=true;solidBoundaryFillLabel.hidden=true;solidBoundaryFill?.clear({forget:true});delete host.dataset.drawingConstruction;lastSketchPointer=null;delete host.dataset.sketchSnapAngle;delete host.dataset.sketchSnapAxis;connectedSketch=null;updateConnectedSketchUI();splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;channelMode=false;channelReverse=false;channelDirection.hidden=true;channelEditDirection.hidden=true;channelResize?.hide();channelArrow?.hide();restoreChannelSource();$('profile').querySelector('[value=rect]').textContent='長方形';$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
 function stopLineDrawing(){if(stage!=='sketch'||$('profile').value!=='line')return false;$('cancel').click();$('status').textContent='線分の作図を終了しました。確定済みの線は残ります';return true;}
@@ -2512,8 +2524,10 @@ boxSelection=installBoxSelection(renderer.domElement,host,{
   if(meshes.size){
    const displayGrid=sketchGrid?.visible?sketchGrid:grid,offset=sketchOrigin.dot(sketchBasis.n);
    const [crossing]=solidGridCrossings(displayGrid,offset,hit,{accept:p=>gridBoundaryPointVisible(p,camera,[...meshes.values()])});
-   if(crossing&&(!to||crossing.distance<Math.hypot(to.x-from.x,to.y-from.y))){
-    point=crossing.point;to=screenPoint(point);
+   const extension=sketchEdgeExtension(hit,offset);
+   const candidate=extension&&(!crossing||extension.distance<crossing.distance)?extension:crossing;
+   if(candidate&&(!to||candidate.distance<Math.hypot(to.x-from.x,to.y-from.y))){
+    point=candidate.point;to=screenPoint(point);
    }
   }
   if(!point)return {clientX,clientY,point:hit,snapped:false};

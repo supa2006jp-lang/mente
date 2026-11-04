@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import * as THREE from 'three';
 import {closestGridBoundaryIntersection,createGridBoundarySnap,gridBoundaryPointVisible} from '../src/grid-boundary-snap.js';
+import {createSketchBoundarySnap} from '../src/sketch-boundary-snap.js';
 import {basisFor} from '../src/frames.js';import {scopedFaceGrid} from '../src/face-grid.js';
 import {solidVertexPoints} from '../src/vertex-points.js';import {retainCadCoordinates} from '../src/cad-coordinates.js';
 const v=p=>new THREE.Vector3(...p),seg=(a,b)=>[v(a),v(b)],project=p=>({x:p.x*10,y:p.y*10}),near=(a,b)=>assert.ok(a.distanceTo(v(b))<1e-7,JSON.stringify(a.toArray()));
@@ -36,4 +37,22 @@ test('a scoped grid ending on a slanted edge tolerates GPU rounding and returns 
 });
 test('true vertex snapping refreshes when precise CAD coordinates replace display coordinates',()=>{
  const geometry=new THREE.BufferGeometry().setFromPoints([v([0,0,0]),v([10,0,0])]);assert.equal(solidVertexPoints(geometry)[1][0],10);retainCadCoordinates(geometry,[0,0,0,10.000000123,0,0]);assert.equal(solidVertexPoints(geometry)[1][0],10.000000123);geometry.dispose();
+});
+test('a straight solid edge is extended in 3D to the sketch plane and tracks changes of plane and body',()=>{
+ const snap=createSketchBoundarySnap(),basis=basisFor({plane:'XY'});
+ const mesh=new THREE.Object3D(),geometry=new THREE.BufferGeometry().setFromPoints([v([2,3,6]),v([4,6,12])]);
+ mesh.add(new THREE.Object3D());mesh.children[0].geometry=geometry;
+ const at=(x,y,z,options)=>snap.extension([mesh],basis,z,v([x,y,z]),project,options);
+ try{
+  const result=at(.2,.1,0,{sourceVisible:p=>p.z>=6});
+  assert.equal(result.kind,'edgeExtension');near(result.point,[0,0,0]);near(result.segments[0][0],[2,3,6]);
+  near(at(1,1.5,3).point,[1,1.5,3]);
+  assert.equal(at(3,4.5,9),null,'a finite crossing is not a virtual extension');
+  assert.equal(at(0,0,0,{sourceVisible:()=>false}),null);
+  assert.equal(at(0,0,0,{origin:v([-5,1,0]),direction:v([1,0,0])}),null);
+  mesh.position.set(3,4,0);near(at(3,4,0).point,[3,4,0]);
+  mesh.visible=false;assert.equal(at(3,4,0),null);mesh.visible=true;
+  geometry.userData.arcEdges=new Map([[0,{}]]);snap.clear();
+  assert.equal(at(3,4,0),null,'an arc chord must not act as a straight edge');
+ }finally{geometry.dispose();}
 });
