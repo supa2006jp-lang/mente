@@ -1029,7 +1029,8 @@ function solidGridCrossings(displayGrid,offset,hit,options){
 }
 function sketchEdgeExtension(hit,offset,origin=null,direction=null){
  const bodies=[...meshes.values()];
- return sketchBoundarySnap.extension(bodies,sketchBasis,offset,hit,screenPoint,{origin,direction,sourceVisible:p=>gridBoundaryPointVisible(p,camera,bodies)});
+ const boundaries=sketchBoundarySnap.segments(bodies,sketchBasis,offset);
+ return sketchBoundarySnap.extension(bodies,sketchBasis,offset,hit,screenPoint,{boundaries,origin,direction,sourceVisible:p=>gridBoundaryPointVisible(p,camera,bodies)});
 }
 function snapToGrid(hit,event={}){
  const pointer=screenPoint(hit),offset=sketchOrigin.dot(sketchBasis.n),context={points:[],crossings:[]},lockedAngle=$('profile').value==='line'&&firstPoint&&$('lock-angle').checked&&!$('lock-length').checked?Number($('live-angle').value):null,direction=lockedAngle!==null&&Number.isFinite(lockedAngle)?sketchBasis.u.clone().multiplyScalar(Math.cos(lockedAngle*Math.PI/180)).addScaledVector(sketchBasis.v,Math.sin(lockedAngle*Math.PI/180)):null,options={origin:direction?firstPoint:null,direction,accept:p=>gridBoundaryPointVisible(p,camera,[...meshes.values()])};
@@ -1105,9 +1106,10 @@ function automaticSketchSnap(hit,event={},context=null){
  const lockedAngle=$('profile').value==='line'&&firstPoint&&$('lock-angle').checked&&!$('lock-length').checked?Number($('live-angle').value):null;
  const direction=lockedAngle!==null&&Number.isFinite(lockedAngle)?sketchBasis.u.clone().multiplyScalar(Math.cos(lockedAngle*Math.PI/180)).addScaledVector(sketchBasis.v,Math.sin(lockedAngle*Math.PI/180)):null;
  const offset=sketchOrigin.dot(sketchBasis.n),options={origin:direction?firstPoint:null,direction};
+ const projectedExtension=context?.extension?.projected?context.extension:null;
  if($('snap-enabled').checked&&!(firstPoint&&$('profile').value==='line'&&$('lock-length').checked)){
   const crossing=context?.crossings[0];
-  if(crossing){host.dataset.snapKind=crossing.kind;return crossing.point;}
+  if(crossing&&(!projectedExtension||crossing.distance<=projectedExtension.distance)){host.dataset.snapKind=crossing.kind;return crossing.point;}
  }
  if(sketch&&firstPoint&&$('profile').value==='line'&&!arcDrag&&!$('lock-length').checked&&!event.altKey){
   const uv=p=>[p.dot(sketchBasis.u),p.dot(sketchBasis.v)],world=p=>sketchBasis.u.clone().multiplyScalar(p[0]).addScaledVector(sketchBasis.v,p[1]).addScaledVector(sketchBasis.n,offset),segments=[];
@@ -1116,6 +1118,7 @@ function automaticSketchSnap(hit,event={},context=null){
   const result=snapSketchLinePerpendicular(uv(hit),uv(firstPoint),segments,{project:p=>screenPoint(world(p)),angle:lockedAngle});
   if(result.snapped){host.dataset.snapKind=result.kind==='solid'?'perpendicularBoundary':'perpendicularSketch';return world(result.point);}
  }
+ if(projectedExtension){host.dataset.snapKind=projectedExtension.kind;return projectedExtension.point;}
  const boundary=sketchBoundarySnap.snap(meshes.values(),sketchBasis,offset,hit,screenPoint,options);
  const reference=sketchWorkingFace&&meshes.get(sketchWorkingFace.bodyId)?.visible?sketchBoundarySnap.reference(referenceFaceGrid(sketchWorkingFace),sketchBasis,offset,hit,screenPoint,options):null;
  const distance=p=>{const q=screenPoint(p);return Math.hypot(q.x-pointer.x,q.y-pointer.y);};

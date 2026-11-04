@@ -56,3 +56,18 @@ test('a straight solid edge is extended in 3D to the sketch plane and tracks cha
   assert.equal(at(3,4,0),null,'an arc chord must not act as a straight edge');
  }finally{geometry.dispose();}
 });
+test('a parallel solid edge projects and extends to the finite sketch-plane boundary',()=>{
+ const snap=createSketchBoundarySnap(),basis=basisFor({plane:'XY'}),mesh=new THREE.Object3D();
+ const geometry=new THREE.BufferGeometry().setFromPoints([v([2.5,17,8]),v([2.5,27,8])]);
+ mesh.add(new THREE.Object3D());mesh.children[0].geometry=geometry;
+ const at=(x,y,boundary,options)=>snap.extension([mesh],basis,0,v([x,y,0]),project,{boundaries:[boundary],...options});
+ const boundary=seg([-35,0,0],[35,0,0]);
+ try{
+  const result=at(2.8,.1,boundary,{sourceVisible:p=>p.z===8});
+  assert.equal(result.projected,true);near(result.point,[2.5,0,0]);near(result.segments[0][0],[2.5,17,0]);
+  assert.equal(at(2.8,.1,seg([2.6,0,0],[35,0,0])),null);
+  assert.equal(at(2.8,22.1,seg([-35,22,0],[35,22,0])),null);
+  assert.equal(at(2.8,.1,boundary,{sourceVisible:()=>false}),null);
+  mesh.position.z=-8;near(at(2.8,.1,boundary).point,[2.5,0,0]);
+ }finally{geometry.dispose();}
+});
