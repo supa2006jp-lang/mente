@@ -405,6 +405,8 @@ header .filename #dirty{flex-shrink:0}
 .revolve-join-legend>span::before{content:"";display:inline-block;width:.75em;height:.75em;margin-right:.35em;border:1px solid currentColor;border-radius:3px;background:#d79830}
 .revolve-join-legend>span+span::before{background:#438fcb}
 
-#selection-box[data-point="true"]::before,#selection-box[data-point="true"]::after{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:12px;height:2px;background:#1558a4}
+#selection-box[data-point="true"]::before,#selection-box[data-point="true"]::after{content:"";position:absolute;top:var(--point-y);left:var(--point-x);transform:translate(-50%,-50%);width:12px;height:2px;background:currentColor}
+#selection-box[data-point="true"]{color:#1558a4}
 #selection-box[data-point="true"]::after{width:2px;height:12px}
-.viewport:has(#selection-box[data-point="true"]:not([hidden])) #snap-icon{visibility:hidden}
+#selection-box[data-point="true"][data-snapped="true"]{color:#087f5b;border-color:currentColor;background:#18a77d26}
+.viewport:has(#selection-box[data-point="true"]:not([hidden])) :is(#snap-icon,#snap-readout,#drawing-crosshair){visibility:hidden}

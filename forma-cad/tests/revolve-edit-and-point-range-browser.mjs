@@ -9,7 +9,7 @@ import {defaults} from '../src/geometry.js';
 import {runOperation} from '../src/kernel.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const output='.sites-runtime/revolve-edit-and-point-range';
+const output='.sites-runtime/point-range-grid-snap';
 await fs.mkdir(output,{recursive:true});
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -105,30 +105,46 @@ try{
  await field('snap-enabled').uncheck();
  await page.mouse.click(center[0]-100,center[1]);
  await page.mouse.click(center[0]+100,center[1]);
- await field('snap-enabled').check();
- async function drag(a,b){
-  await page.mouse.move(center[0]+a[0],center[1]+a[1]);await page.mouse.down();
-  await page.mouse.move(center[0]+b[0],center[1]+b[1],{steps:6});
-  await page.locator('#selection-box[data-point="true"]').waitFor();
+ const pointBox=page.locator('#selection-box[data-point="true"]');
+ async function drag(a,b,around=center){
+  await page.mouse.move(around[0]+a[0],around[1]+a[1]);await page.mouse.down();
+  await page.mouse.move(around[0]+b[0],around[1]+b[1],{steps:6});
+  await pointBox.waitFor();
  }
+ const marker=()=>pointBox.evaluate(el=>[el.style.getPropertyValue('--point-x'),el.style.getPropertyValue('--point-y')]);
  await drag([-92,-66],[92,66]);
  assert.equal(await field('feature-count').textContent(),'2');
+ assert.equal(await pointBox.getAttribute('data-snapped'),'false');
+ assert.deepEqual(await marker(),['100%','100%']);
+ await page.mouse.up();
+ assert.equal(await field('feature-count').textContent(),'3');
+ await field('snap-enabled').check();
+ const gridOrigin=[canvas.x+canvas.width/2,canvas.y+canvas.height/2];
+ await drag([-80,60],[86,-56],gridOrigin);
+ assert.equal(await pointBox.getAttribute('data-snapped'),'true');
+ assert.deepEqual(await marker(),['100%','0%']);
+ assert.equal(await field('drawing-crosshair').evaluate(el=>getComputedStyle(el).visibility),'hidden');
+ const box=await pointBox.boundingBox();
+ assert(Math.hypot(box.x+box.width/2-gridOrigin[0],box.y+box.height/2-gridOrigin[1])<1);
  await field('canvas-host').screenshot({path:output+'/point-range.png'});
  await page.mouse.up();
- assert.equal(await field('feature-count').textContent(),'3');
+ assert.equal(await field('feature-count').textContent(),'4');
+ assert.equal(await field('drawing-crosshair').evaluate(el=>getComputedStyle(el).visibility),'visible');
  await drag([70,80],[-70,-80]);
+ assert.deepEqual(await marker(),['0%','0%']);
  await page.keyboard.press('Escape');
  await page.mouse.up();
- assert.equal(await field('feature-count').textContent(),'3');
+ assert.equal(await field('feature-count').textContent(),'4');
  assert.equal(await field('selection-box').isVisible(),false);
  assert(await field('sketch-banner').isVisible());
  await page.keyboard.press('Escape');
  const points=(await save()).features;
- assert.equal(points.length,3);
+ assert.equal(points.length,4);
  assert(points.every(f=>f.profile==='point'&&f.groupId===points[0].groupId));
  for(const coord of ['x','y','z'])assert(Math.abs(points[2][coord]-(points[0][coord]+points[1][coord])/2)<1e-5,coord);
+ for(const coord of ['x','y','z'])assert(Math.abs(points[3][coord])<1e-5,'snapped '+coord);
  assert.deepEqual(errors,[]);
- const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,clickStillWorks:true,escapeCancelsRange:true,errors};
+ const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,clickStillWorks:true,escapeCancelsRange:true,errors};
  await fs.writeFile(output+'/proof.json',JSON.stringify(proof,null,2)+'\n');
  console.log(JSON.stringify(proof));
 }finally{await browser?.close();server.close();}

@@ -1049,6 +1049,14 @@ window.addEventListener('keydown',e=>{
 },{capture:true});
 renderer.domElement.addEventListener('pointerleave',e=>{if(!e.buttons)clearSketchSnapChoice();});
 
+function sketchGridIntersection(hit){
+ if(!$('snap-enabled').checked)return null;
+ const point=sketchBasis.u.clone().multiplyScalar(Math.round(hit.dot(sketchBasis.u)/gridStep)*gridStep)
+  .addScaledVector(sketchBasis.v,Math.round(hit.dot(sketchBasis.v)/gridStep)*gridStep)
+  .addScaledVector(sketchBasis.n,sketchOrigin.dot(sketchBasis.n));
+ const from=screenPoint(hit),to=screenPoint(point);
+ return Math.hypot(to.x-from.x,to.y-from.y)<=6?point:null;
+}
 function automaticSketchSnap(hit,event={},context=null){
  delete host.dataset.sketchSnapAngle;
  delete host.dataset.sketchSnapAxis;
@@ -1101,7 +1109,8 @@ function automaticSketchSnap(hit,event={},context=null){
   const uv=p=>[p.dot(sketchBasis.u),p.dot(sketchBasis.v)],world=p=>sketchBasis.u.clone().multiplyScalar(p[0]).addScaledVector(sketchBasis.v,p[1]).addScaledVector(sketchBasis.n,offset),origin=uv(firstPoint),point=uv(hit),delta=[point[0]-origin[0],point[1]-origin[1]],angled=lockedAngle===null&&$('line-angle-snap').checked?snapSketchLineAngle(delta,{project:p=>screenPoint(world([origin[0]+p[0],origin[1]+p[1]])),step:sketchAngleStep($('line-angle-step').value)}):null,angle=lockedAngle??(angled?.snapped&&Math.abs(angled.angle/90-Math.round(angled.angle/90))<1e-9?angled.angle:null);
   if(angle!==null){const displayGrid=sketchGrid?.visible?sketchGrid:grid,segments=gridBoundarySnap.segments(displayGrid,sketchBasis,offset).map(segment=>({a:uv(segment[0]),b:uv(segment[1]),world:segment})),result=snapSketchLineToGrid(point,origin,segments,{angle,project:p=>screenPoint(world(p))});if(result.snapped){const target=world(result.point);if(gridBoundaryPointVisible(target,camera,[...meshes.values()])){host.dataset.snapKind='gridLine';host.dataset.sketchSnapAngle=String(angle);const candidate={point:target,kind:'gridLine',distance:result.distance,segments:[result.segment.world]};if(context){context.gridLine=candidate;context.points.push(candidate);}return target;}}}
  }
- if($('snap-enabled').checked){const gridPoint=sketchBasis.u.clone().multiplyScalar(Math.round(hit.dot(sketchBasis.u)/gridStep)*gridStep).addScaledVector(sketchBasis.v,Math.round(hit.dot(sketchBasis.v)/gridStep)*gridStep).addScaledVector(sketchBasis.n,sketchOrigin.dot(sketchBasis.n));if(distance(gridPoint)<=6){host.dataset.snapKind='grid';return gridPoint;}}
+ const gridPoint=sketchGridIntersection(hit);
+ if(gridPoint){host.dataset.snapKind='grid';return gridPoint;}
  if(sketch&&firstPoint&&$('profile').value==='line'&&!arcDrag&&!$('lock-angle').checked&&$('line-angle-snap').checked&&!event.altKey){const delta=hit.clone().sub(firstPoint),world=p=>firstPoint.clone().addScaledVector(sketchBasis.u,p[0]).addScaledVector(sketchBasis.v,p[1]),result=snapSketchLineAngle([delta.dot(sketchBasis.u),delta.dot(sketchBasis.v)],{project:p=>screenPoint(world(p)),step:sketchAngleStep($('line-angle-step').value)});if(result.snapped){host.dataset.snapKind='angle';host.dataset.sketchSnapAngle=String(result.angle);return world(result.point);}}
  host.dataset.snapKind='free';return hit.clone();
 }
@@ -2488,11 +2497,18 @@ boxSelection=installBoxSelection(renderer.domElement,host,{
  enabled:()=>!partWorkshop?.active&&!printSupportController?.active&&!assemblyController?.active&&!selectionLibrary?.active&&!imageReferences?.picking&&!deletingSketch&&!moveTool?.active&&(!sketch||$('profile').value==='point')&&!holeActive&&!pendingExtrude&&!extrusionDrag&&!$('tools-dialog').open,
  getControls:()=>controls,
  pointMode:()=>sketch&&$('profile').value==='point',
- onPoint:event=>{
+ resolvePoint:center=>{
+  const hit=planePoint(center,{snap:false});
+  if(!hit)return null;
+  const point=sketchGridIntersection(hit);
+  if(!point)return {...center,point:hit,snapped:false};
+  const from=screenPoint(hit),to=screenPoint(point);
+  return {clientX:center.clientX+to.x-from.x,clientY:center.clientY+to.y-from.y,point,snapped:true};
+ },
+ onPoint:point=>{
   down=null;
   $('snap-icon').hidden=true;$('snap-readout').hidden=true;
-  const center=planePoint(event,{snap:false});
-  if(center)placeSketchPoint(center);
+  placeSketchPoint(point);
  },
  onSelect:async rect=>{
   const original=features,retained=rect.add?new Map([...selectedSketchSegments].map(([id,indices])=>[id,new Set(indices)])):new Map();

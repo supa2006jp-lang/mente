@@ -2,11 +2,29 @@ import * as THREE from 'three';
 import {accelerateMeshPicking} from './mesh-picking.js';
 import {cylindricalSelection} from './cylindrical-selection.js';
 
-export function installBoxSelection(canvas,host,{enabled,getControls,onSelect,pointMode=()=>false,onPoint}){
+export function installBoxSelection(canvas,host,{enabled,getControls,onSelect,pointMode=()=>false,resolvePoint,onPoint}){
  const box=document.createElement('div');box.id='selection-box';box.hidden=true;host.append(box);let drag=null;
  canvas.addEventListener('pointerdown',e=>{if(e.button!==0||e.altKey||e.shiftKey||!enabled())return;const controls=getControls();drag={id:e.pointerId,x:e.clientX,y:e.clientY,active:false,point:pointMode(),add:e.ctrlKey||e.metaKey,controls,wasEnabled:controls.enabled};controls.enabled=false;canvas.setPointerCapture(e.pointerId);},{capture:true});
- canvas.addEventListener('pointermove',e=>{if(!drag||e.pointerId!==drag.id)return;drag.active ||=Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>5;if(!drag.active)return;e.preventDefault();e.stopImmediatePropagation();const r=host.getBoundingClientRect();box.hidden=false;box.dataset.point=String(drag.point);box.dataset.crossing=String(!drag.point&&e.clientX<drag.x);Object.assign(box.style,{left:Math.min(drag.x,e.clientX)-r.left+'px',top:Math.min(drag.y,e.clientY)-r.top+'px',width:Math.abs(e.clientX-drag.x)+'px',height:Math.abs(e.clientY-drag.y)+'px'});},{capture:true});
- function finish(e,cancel=false){if(!drag||e.pointerId!==drag.id)return;const d=drag;drag=null;box.hidden=true;d.controls.enabled=d.wasEnabled;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(d.active||cancel){e.preventDefault();e.stopImmediatePropagation();}if(d.active&&!cancel&&enabled()){if(d.point){if(pointMode())onPoint({clientX:(d.x+e.clientX)/2,clientY:(d.y+e.clientY)/2});return;}if(pointMode())return;const r=canvas.getBoundingClientRect();onSelect({left:Math.min(d.x,e.clientX)-r.left,right:Math.max(d.x,e.clientX)-r.left,top:Math.min(d.y,e.clientY)-r.top,bottom:Math.max(d.y,e.clientY)-r.top,crossing:e.clientX<d.x,add:d.add});}}
+ const resolveCenter=(start,end)=>resolvePoint({clientX:(start.x+end.clientX)/2,clientY:(start.y+end.clientY)/2});
+ canvas.addEventListener('pointermove',event=>{
+  if(!drag||event.pointerId!==drag.id)return;
+  drag.active ||= Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>5;
+  if(!drag.active)return;
+  event.preventDefault();event.stopImmediatePropagation();
+  const rect=host.getBoundingClientRect(),center=drag.point?resolveCenter(drag,event):null;
+  const x=center?2*center.clientX-drag.x:event.clientX;
+  const y=center?2*center.clientY-drag.y:event.clientY;
+  box.hidden=false;
+  box.dataset.point=String(drag.point);
+  box.dataset.snapped=String(!!center?.snapped);
+  box.dataset.crossing=String(!drag.point&&x<drag.x);
+  if(drag.point){
+   box.style.setProperty('--point-x',x<drag.x?'0%':'100%');
+   box.style.setProperty('--point-y',y<drag.y?'0%':'100%');
+  }
+  Object.assign(box.style,{left:Math.min(drag.x,x)-rect.left+'px',top:Math.min(drag.y,y)-rect.top+'px',width:Math.abs(x-drag.x)+'px',height:Math.abs(y-drag.y)+'px'});
+ },{capture:true});
+ function finish(e,cancel=false){if(!drag||e.pointerId!==drag.id)return;const d=drag;drag=null;box.hidden=true;d.controls.enabled=d.wasEnabled;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(d.active||cancel){e.preventDefault();e.stopImmediatePropagation();}if(d.active&&!cancel&&enabled()){if(d.point){if(pointMode()){const center=resolveCenter(d,e);if(center)onPoint(center.point);}return;}if(pointMode())return;const r=canvas.getBoundingClientRect();onSelect({left:Math.min(d.x,e.clientX)-r.left,right:Math.max(d.x,e.clientX)-r.left,top:Math.min(d.y,e.clientY)-r.top,bottom:Math.max(d.y,e.clientY)-r.top,crossing:e.clientX<d.x,add:d.add});}}
  canvas.addEventListener('pointerup',e=>finish(e),{capture:true});canvas.addEventListener('pointercancel',e=>finish(e,true),{capture:true});
  canvas.addEventListener('lostpointercapture',e=>finish(e,true),{capture:true});
  function cancel(){if(!drag)return;const d=drag;drag=null;box.hidden=true;d.controls.enabled=d.wasEnabled;if(canvas.hasPointerCapture(d.id))canvas.releasePointerCapture(d.id);return true;}
