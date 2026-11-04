@@ -72,6 +72,10 @@ function visibleExtension(candidate,visible,project){
   if(candidate.end)candidate.start=candidate.start.clone().lerp(candidate.end,t);
   return true;
  }
+ if(candidate.boundaryCrossing){
+  const a=project(near),b=project(far);
+  if(Math.hypot(b.x-a.x,b.y-a.y)<1)return visible(candidate.point);
+ }
  return false;
 }
 
@@ -79,12 +83,12 @@ export function createSketchBoundarySnap(){
  let cache=new WeakMap(),extensionCache=new WeakMap();
  return {
   clear(){cache=new WeakMap();extensionCache=new WeakMap();},
-  extension(meshes,basis,offset,hit,project,{boundaries=[],origin=null,direction=null,sourceVisible=()=>true}={}){
-   const cursor=project(hit),nearby=[],sources=[],targets=[],scratch=new THREE.Vector3();
-   const addTarget=(a,b,source=null)=>{
-    if(nearProjectedLine(a,b,cursor,project,true))targets.push({points:[a,b],edge:b.clone().sub(a),source});
-   };
-   for(const [a,b] of boundaries)addTarget(a,b);
+  extension(meshes,basis,offset,hit,project,{boundaries=[],origin=null,direction=null,viewDirection=null,sourceVisible=()=>true}={}){
+   const cursor=project(hit),nearby=[],sources=[],viewSources=[],scratch=new THREE.Vector3(),line=new THREE.Line3();
+   const alignment=viewDirection?.dot(basis.n);
+   const oblique=Math.abs(alignment)>1e-4&&Math.abs(alignment)<1-1e-8;
+   const viewKey=oblique?viewDirection.toArray().join(','):null;
+   const ontoPlane=oblique?viewDirection.clone().divideScalar(alignment):null;
    const consider=candidate=>{
     const projected=project(candidate.point),distance=Math.hypot(projected.x-cursor.x,projected.y-cursor.y);
     if(distance>extensionTolerance||Math.abs(projected.z)>1)return;
@@ -92,7 +96,9 @@ export function createSketchBoundarySnap(){
      const delta=candidate.point.clone().sub(origin);
      if(delta.dot(direction)<-1e-6||delta.cross(direction).length()>1e-6)return;
     }
-    nearby.push({...candidate,distance});
+    const boundaryCrossing=!candidate.projected&&boundaries.some(([a,b])=>
+     line.set(a,b).closestPointToPoint(candidate.point,true,scratch).distanceToSquared(candidate.point)<1e-10);
+    nearby.push({...candidate,distance,boundaryCrossing});
    };
    for(const mesh of meshes){
     if(!mesh.visible)continue;
@@ -123,22 +129,45 @@ export function createSketchBoundarySnap(){
      entry={positions,key,candidates,projectedEdges};extensionCache.set(mesh,entry);
     }
     for(const candidate of entry.candidates)consider(candidate);
-    for(const source of entry.projectedEdges){
-     sources.push(source);
-     if(source.offPlane)addTarget(source.start,source.end,source);
+    for(const source of entry.projectedEdges)sources.push(source);
+    if(ontoPlane){
+     if(entry.viewKey!==viewKey){
+      // Follow the orthographic sight lines so the virtual crossing sits
+      // under the displayed edges, even when their depths are different.
+      entry.viewEdges=entry.projectedEdges.map(source=>{
+       if(!source.offPlane)return source;
+       const {a,b}=source;
+       const start=a.clone().addScaledVector(ontoPlane,offset-a.dot(basis.n));
+       const end=b.clone().addScaledVector(ontoPlane,offset-b.dot(basis.n));
+       return {...source,start,end,edge:end.clone().sub(start)};
+      });
+      entry.viewKey=viewKey;
+     }
+     for(const source of entry.viewEdges)viewSources.push(source);
     }
    }
-   if(targets.length)for(const source of sources){
-    if(!nearProjectedLine(source.start,source.end,cursor,project,false))continue;
-    for(const target of targets){
-     const crossing=projectedExtension(source,target,basis.n,scratch);
-     if(crossing)consider(crossing);
+   const collectProjected=edges=>{
+    const targets=[];
+    const addTarget=(a,b,source=null)=>{
+     if(nearProjectedLine(a,b,cursor,project,true))targets.push({points:[a,b],edge:b.clone().sub(a),source});
+    };
+    for(const [a,b] of boundaries)addTarget(a,b);
+    for(const source of edges)if(source.offPlane)addTarget(source.start,source.end,source);
+    if(!targets.length)return;
+    for(const source of edges){
+     if(!nearProjectedLine(source.start,source.end,cursor,project,false))continue;
+     for(const target of targets){
+      const crossing=projectedExtension(source,target,basis.n,scratch);
+      if(crossing)consider(crossing);
+     }
     }
-   }
+   };
+   if(ontoPlane)collectProjected(viewSources);
+   collectProjected(sources);
    nearby.sort((a,b)=>a.distance-b.distance);
    // The virtual crossing may be behind its own solid. Test the source edge.
    const match=nearby.find(candidate=>visibleExtension(candidate,sourceVisible,project));
-   return match?{kind:'edgeExtension',point:match.point,distance:match.distance,projected:match.projected,segments:[[match.start||match.near,match.point]]}:null;
+   return match?{kind:'edgeExtension',point:match.point,distance:match.distance,projected:match.projected,boundaryCrossing:match.boundaryCrossing,segments:[[match.start||match.near,match.point]]}:null;
   },
   reference(face,basis,offset,hit,project,options){
    if(!face?.filletGridReference)return null;

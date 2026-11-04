@@ -11,7 +11,7 @@ import {runOperation} from '../src/kernel.js';
 import {sketchSegments} from '../src/sketch-selection.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const output='.sites-runtime/sketch-point-snap-marks';
+const output='.sites-runtime/sketch-view-edge-snap';
 await fs.mkdir(output,{recursive:true});
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -188,8 +188,8 @@ try{
   const ortho=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
   ortho.position.fromArray(state);ortho.quaternion.fromArray(state,3);ortho.zoom=state[7];
   ortho.updateProjectionMatrix();ortho.updateMatrixWorld(true);
-  return (x,y)=>{
-   const projected=new THREE.Vector3(x,y,0).project(ortho);
+  return (x,y,z=0)=>{
+   const projected=new THREE.Vector3(x,y,z).project(ortho);
    return [rect.x+(projected.x+1)*rect.width/2,rect.y+(1-projected.y)*rect.height/2];
   };
  }
@@ -321,8 +321,67 @@ try{
  await page.keyboard.press('Escape');
  const [lipLine]=sketchSegments((await save()).features.at(-1));
  assert([lipLine.a,lipLine.b].some(p=>p.distanceTo(new THREE.Vector3(2.5,0,0))<1e-5));
+
+ // From an oblique view, the visible rear edge has a different screen
+ // alignment from its perpendicular projection onto the sketch plane.
+ await load([front,{...rear,z:30}]);
+ await field('new-point').click();
+ await field('snap-enabled').check();
+ const pivot=(await sketchScreen())(0,5);
+ await page.mouse.move(...pivot);
+ await page.keyboard.down('Shift');
+ await page.mouse.down({button:'middle'});
+ await page.mouse.move(pivot[0]+65,pivot[1]-16,{steps:6});
+ await page.mouse.up({button:'middle'});
+ await page.keyboard.up('Shift');
+ const view=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
+ const direction=new THREE.Vector3(0,0,-1).applyQuaternion(new THREE.Quaternion().fromArray(view,3));
+ const expectedX=2.5-33*direction.x/direction.z;
+ const obliqueScreen=await sketchScreen(),target=obliqueScreen(expectedX,0),normalProjection=obliqueScreen(2.5,0);
+ assert(Math.abs(target[0]-normalProjection[0])>12);
+ await page.mouse.move(target[0]+1,target[1]+1);
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.snapKind==='edgeExtension',{},{timeout:5000});
+ assert.equal(await field('snap-icon').textContent(),'×');
+ await page.screenshot({path:output+'/oblique-snap.png'});
+ await page.mouse.click(target[0]+1,target[1]+1);
+ await page.keyboard.press('Escape');
+ const obliquePoint=(await save()).features.at(-1);
+ assert.equal(obliquePoint.profile,'point');
+ assert(Math.hypot(obliquePoint.x-expectedX,obliquePoint.y,obliquePoint.z)<1e-5);
+
+ // On a channel's front face, the inner depth edge is end-on and its
+ // extension meets the middle of a real CAD edge, away from grid points.
+ const outer=[[-3,4],[-3,-6],[67,-6],[67,54],[-3,54],[-3,44],[57,44],[57,4]];
+ const channel={...boundaryBox,id:'channel',name:'Channel',profile:'region',depth:34,z:0,
+  region:{id:'channel-region',plane:'XY',offset:0,outer,holes:[],area:1800,sourceIds:[]}};
+ const channelFeatures=process.env.FORMA_CHANNEL_SNAP_FIXTURE?
+  JSON.parse(await fs.readFile(process.env.FORMA_CHANNEL_SNAP_FIXTURE,'utf8')).features:[channel];
+ const channelBody=channelFeatures.at(-1),channelOuter=channelBody.region.outer;
+ const [innerX]=channelOuter[6],frontY=Math.min(...channelOuter.map(point=>point[1])),topZ=channelBody.depth;
+ await load(channelFeatures);
+ await page.locator('[data-view=front]').dispatchEvent('keydown',{key:'Enter'});
+ await field('fit').click();
+ await field('selection-mode').selectOption('face');
+ await page.mouse.click(...(await sketchScreen())(innerX-20,frontY,topZ/2));
+ await picker.waitFor();
+ if(await toggle.getAttribute('aria-expanded')==='false')await toggle.click();
+ await picker.locator('[data-kind=face]').first().click();
+ await picker.locator('[data-close]').click();
+ await field('new-point').click();
+ await field('snap-enabled').check();
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.sketchGridVisible==='true');
+ const frontTarget=(await sketchScreen())(innerX,frontY,topZ);
+ await page.mouse.move(frontTarget[0]+2,frontTarget[1]-2);
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.snapKind==='edgeExtension',{},{timeout:5000});
+ assert.equal(await field('snap-icon').textContent(),'×');
+ await page.screenshot({path:output+'/channel-front-snap.png'});
+ await page.mouse.click(frontTarget[0]+2,frontTarget[1]-2);
+ await page.keyboard.press('Escape');
+ const channelPoint=(await save()).features.at(-1);
+ assert.equal(channelPoint.profile,'point');
+ assert(Math.hypot(channelPoint.x-innerX,channelPoint.y-frontY,channelPoint.z-topZ)<1e-5);
  assert.deepEqual(errors,[]);
- const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,pointSnapMarks:true,clickStillWorks:true,escapeCancelsRange:true,errors};
+ const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,pointSnapMarks:true,obliqueEdgeSnap:true,channelFrontSnap:true,clickStillWorks:true,escapeCancelsRange:true,errors};
  await fs.writeFile(output+'/proof.json',JSON.stringify(proof,null,2)+'\n');
  console.log(JSON.stringify(proof));
 }finally{await browser?.close();server.close();}
