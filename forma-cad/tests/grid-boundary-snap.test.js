@@ -71,3 +71,22 @@ test('a parallel solid edge projects and extends to the finite sketch-plane boun
   mesh.position.z=-8;near(at(2.8,.1,boundary).point,[2.5,0,0]);
  }finally{geometry.dispose();}
 });
+test('a projected front lip catches a partially covered oblique edge at its visible break',()=>{
+ const snap=createSketchBoundarySnap(),basis=basisFor({plane:'XY'});
+ const bodies=[[[2.5,-6,4],[2.5,26,7]],[[-35,0,10],[35,0,10]]].map(points=>{
+  const body=new THREE.Object3D(),edge=new THREE.Object3D();
+  edge.geometry=new THREE.BufferGeometry().setFromPoints(points.map(v));body.add(edge);
+  return body;
+ });
+ const at=sourceVisible=>snap.extension(bodies,basis,0,v([2.8,-.1,0]),project,{sourceVisible});
+ try{
+  const visible=p=>p.z===10||p.y>=0;
+  for(let i=0;i<2;i++){
+   const result=at(visible);
+   near(result.point,[2.5,0,0]);near(result.segments[0][0],[2.5,26,0]);
+  }
+  assert.equal(at(()=>true),null,'two visible edges crossing in projection do not count as an extension');
+  assert.equal(at(p=>p.z===10),null,'a fully hidden source does not snap');
+  assert.equal(at(p=>p.z<10&&p.y>=0),null,'a hidden lip does not snap');
+ }finally{for(const body of bodies)body.children[0].geometry.dispose();}
+});

@@ -11,7 +11,7 @@ import {runOperation} from '../src/kernel.js';
 import {sketchSegments} from '../src/sketch-selection.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const output='.sites-runtime/sketch-projected-edge-snap';
+const output='.sites-runtime/sketch-overlapping-edge-snap';
 await fs.mkdir(output,{recursive:true});
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -289,8 +289,24 @@ try{
  await page.keyboard.press('Escape');
  const [line]=sketchSegments((await save()).features.at(-1));
  assert([line.a,line.b].some(p=>p.distanceTo(new THREE.Vector3(2.5,0,0))<1e-5));
+
+ // The front lip is above the sketch plane, and hides the end of the rear edge.
+ await load([{...front,z:6}, {...rear,height:32,y:10,z:2,depth:2}]);
+ await field('new-line').click();
+ await field('continuous-line').uncheck();
+ await field('line-angle-snap').uncheck();
+ await field('snap-enabled').check();
+ const lipScreen=await sketchScreen(),lip=lipScreen(2.5,0);
+ await page.mouse.click(...lipScreen(15,-7));
+ await page.mouse.move(lip[0]+3,lip[1]+1);
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.snapKind==='edgeExtension',{},{timeout:5000});
+ await page.screenshot({path:output+'/overlapping-edges.png'});
+ await page.mouse.click(lip[0]+3,lip[1]+1);
+ await page.keyboard.press('Escape');
+ const [lipLine]=sketchSegments((await save()).features.at(-1));
+ assert([lipLine.a,lipLine.b].some(p=>p.distanceTo(new THREE.Vector3(2.5,0,0))<1e-5));
  assert.deepEqual(errors,[]);
- const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,clickStillWorks:true,escapeCancelsRange:true,errors};
+ const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,clickStillWorks:true,escapeCancelsRange:true,errors};
  await fs.writeFile(output+'/proof.json',JSON.stringify(proof,null,2)+'\n');
  console.log(JSON.stringify(proof));
 }finally{await browser?.close();server.close();}
