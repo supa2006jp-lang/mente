@@ -3,8 +3,18 @@ import {accelerateMeshPicking} from './mesh-picking.js';
 import {cylindricalSelection} from './cylindrical-selection.js';
 
 export function installBoxSelection(canvas,host,{enabled,getControls,onSelect,pointMode=()=>false,resolvePoint,onPoint}){
- const box=document.createElement('div'),anchor=document.createElement('span');
- box.id='selection-box';box.hidden=true;anchor.hidden=true;anchor.setAttribute('aria-hidden','true');box.append(anchor);host.append(box);
+ const box=document.createElement('div');
+ box.id='selection-box';box.hidden=true;
+ const [anchor,oppositeMark,centerMark]=['start','end','center'].map(position=>{
+  const mark=document.createElement('span');
+  mark.dataset.pointSnap=position;
+  mark.textContent='✕';
+  mark.hidden=true;
+  mark.setAttribute('aria-hidden','true');
+  box.append(mark);
+  return mark;
+ });
+ host.append(box);
  let drag=null;
  canvas.addEventListener('pointerdown',event=>{
   if(event.button!==0||event.altKey||event.shiftKey||!enabled())return;
@@ -29,15 +39,18 @@ export function installBoxSelection(canvas,host,{enabled,getControls,onSelect,po
   const rect=host.getBoundingClientRect(),range=drag.point?pointRange(drag,event):null;
   const startX=range?.start.clientX??drag.x,startY=range?.start.clientY??drag.y;
   const x=range?.end.clientX??event.clientX,y=range?.end.clientY??event.clientY;
+  const endSnapped=!!range?.end.snapped,centerSnapped=!!range?.center?.snapped;
   box.hidden=false;
   box.dataset.point=String(drag.point);
-  box.dataset.snapped=String(!!(range?.center?.snapped||range?.end.snapped));
+  box.dataset.snapped=String(endSnapped||centerSnapped);
   box.dataset.crossing=String(!drag.point&&x<drag.x);
   if(drag.point){
    box.style.setProperty('--point-x',x<startX?'0%':'100%');
    box.style.setProperty('--point-y',y<startY?'0%':'100%');
   }
   anchor.hidden=!range?.start.snapped;
+  oppositeMark.hidden=!endSnapped;
+  centerMark.hidden=!centerSnapped;
   Object.assign(box.style,{left:Math.min(startX,x)-rect.left+'px',top:Math.min(startY,y)-rect.top+'px',width:Math.abs(x-startX)+'px',height:Math.abs(y-startY)+'px'});
  },{capture:true});
  function finish(event,cancelled=false){

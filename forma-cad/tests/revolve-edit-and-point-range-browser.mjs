@@ -11,7 +11,7 @@ import {runOperation} from '../src/kernel.js';
 import {sketchSegments} from '../src/sketch-selection.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const output='.sites-runtime/sketch-overlapping-edge-snap';
+const output='.sites-runtime/sketch-point-snap-marks';
 await fs.mkdir(output,{recursive:true});
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -108,6 +108,12 @@ try{
  await page.mouse.click(center[0]-100,center[1]);
  await page.mouse.click(center[0]+100,center[1]);
  const pointBox=page.locator('#selection-box[data-point="true"]');
+ const snapMark=position=>pointBox.locator('[data-point-snap="'+position+'"]');
+ async function assertSnapMark(position,[x,y]){
+  const mark=snapMark(position),bounds=await mark.boundingBox();
+  assert.equal(await mark.textContent(),'✕');
+  assert(bounds&&Math.hypot(bounds.x+bounds.width/2-x,bounds.y+bounds.height/2-y)<1.5,position+' snap mark is centered on the snapped point');
+ }
  async function drag(a,b,around=center){
   await page.mouse.move(around[0]+a[0],around[1]+a[1]);await page.mouse.down();
   await page.mouse.move(around[0]+b[0],around[1]+b[1],{steps:6});
@@ -117,6 +123,7 @@ try{
  await drag([-92,-66],[92,66]);
  assert.equal(await field('feature-count').textContent(),'2');
  assert.equal(await pointBox.getAttribute('data-snapped'),'false');
+ assert.equal(await pointBox.locator('[data-point-snap]:visible').count(),0);
  assert.deepEqual(await marker(),['100%','100%']);
  await page.mouse.up();
  assert.equal(await field('feature-count').textContent(),'3');
@@ -128,6 +135,8 @@ try{
  assert.equal(await field('drawing-crosshair').evaluate(el=>getComputedStyle(el).visibility),'hidden');
  const box=await pointBox.boundingBox();
  assert(Math.hypot(box.x+box.width/2-gridOrigin[0],box.y+box.height/2-gridOrigin[1])<1);
+ await assertSnapMark('center',gridOrigin);
+ assert.equal(await snapMark('end').isVisible(),false);
  await field('canvas-host').screenshot({path:output+'/point-range.png'});
  await page.mouse.up();
  assert.equal(await field('feature-count').textContent(),'4');
@@ -137,7 +146,9 @@ try{
  const pixels=gridStep*canvas.height*camera.at(-1)/200;
  await drag([3,2],[3*pixels-3,-pixels+2],gridOrigin);
  const snapped=await pointBox.boundingBox();
- assert(await pointBox.locator('span').isVisible());
+ await assertSnapMark('start',gridOrigin);
+ await assertSnapMark('end',[gridOrigin[0]+3*pixels,gridOrigin[1]-pixels]);
+ assert.equal(await snapMark('center').isVisible(),false);
  assert.equal(await pointBox.getAttribute('data-snapped'),'true');
  assert.deepEqual(await marker(),['100%','0%']);
  assert(Math.hypot(snapped.x-gridOrigin[0],snapped.y+snapped.height-gridOrigin[1])<1);
@@ -148,7 +159,8 @@ try{
 
  await drag([-2,-3],[-1.35*pixels,-2.35*pixels],gridOrigin);
  const anchorOnly=await pointBox.boundingBox();
- assert(await pointBox.locator('span').isVisible());
+ await assertSnapMark('start',gridOrigin);
+ assert.equal(await pointBox.locator('[data-point-snap]:visible').count(),1);
  assert.equal(await pointBox.getAttribute('data-snapped'),'false');
  assert(Math.hypot(anchorOnly.x+anchorOnly.width-gridOrigin[0],anchorOnly.y+anchorOnly.height-gridOrigin[1])<1);
  assert.deepEqual(await marker(),['0%','0%']);
@@ -185,7 +197,8 @@ try{
  const startCrossing=screen(0,16.5),endCrossing=screen(10,-16.5);
  await drag([startCrossing[0]+2,startCrossing[1]-1],[endCrossing[0]+2,endCrossing[1]+1],[0,0]);
  const crossingBounds=await pointBox.boundingBox();
- assert(await pointBox.locator('span').isVisible());
+ await assertSnapMark('start',startCrossing);
+ await assertSnapMark('end',endCrossing);
  assert.equal(await pointBox.getAttribute('data-snapped'),'true');
  assert(Math.hypot(crossingBounds.x-startCrossing[0],crossingBounds.y-startCrossing[1])<1,'start at solid/grid crossing');
  assert(Math.hypot(crossingBounds.x+crossingBounds.width-endCrossing[0],crossingBounds.y+crossingBounds.height-endCrossing[1])<1,'opposite at solid/grid crossing');
@@ -197,6 +210,7 @@ try{
  assert.equal(await pointBox.getAttribute('data-snapped'),'true');
  const centered=await pointBox.boundingBox();
  assert(Math.hypot(centered.x+centered.width/2-centerCrossing[0],centered.y+centered.height/2-centerCrossing[1])<1,'center at solid/grid crossing');
+ await assertSnapMark('center',centerCrossing);
  await page.mouse.up();
  await field('snap-enabled').uncheck();
  await drag([b[0]+2,b[1]+1],[a[0]+2,a[1]+1],[0,0]);
@@ -223,7 +237,8 @@ try{
  assert.equal(highlight.segments[0][1][2],0);
  await page.mouse.click(first[0]-2,first[1]+2);
  await drag([first[0]-2,first[1]+2],[opposite[0]+2,opposite[1]-2],[0,0]);
- assert(await pointBox.locator('span').isVisible());
+ await assertSnapMark('start',first);
+ await assertSnapMark('end',opposite);
  assert.equal(await pointBox.getAttribute('data-snapped'),'true');
  const extensionBounds=await pointBox.boundingBox();
  assert(Math.hypot(extensionBounds.x-opposite[0],extensionBounds.y-first[1])<1);
@@ -257,6 +272,7 @@ try{
  const projectedBounds=await pointBox.boundingBox();
  assert.equal(await pointBox.getAttribute('data-snapped'),'true');
  assert(Math.hypot(projectedBounds.x+projectedBounds.width/2-projectedCrossing[0],projectedBounds.y+projectedBounds.height/2-projectedCrossing[1])<1);
+ await assertSnapMark('center',projectedCrossing);
  await page.mouse.up();
  await page.keyboard.press('Escape');
  const projectedPoints=(await save()).features.filter(f=>f.profile==='point');
@@ -306,7 +322,7 @@ try{
  const [lipLine]=sketchSegments((await save()).features.at(-1));
  assert([lipLine.a,lipLine.b].some(p=>p.distanceTo(new THREE.Vector3(2.5,0,0))<1e-5));
  assert.deepEqual(errors,[]);
- const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,clickStillWorks:true,escapeCancelsRange:true,errors};
+ const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,pointSnapMarks:true,clickStillWorks:true,escapeCancelsRange:true,errors};
  await fs.writeFile(output+'/proof.json',JSON.stringify(proof,null,2)+'\n');
  console.log(JSON.stringify(proof));
 }finally{await browser?.close();server.close();}
