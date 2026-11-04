@@ -409,4 +409,5 @@ header .filename #dirty{flex-shrink:0}
 #selection-box[data-point="true"]{color:#1558a4}
 #selection-box[data-point="true"]::after{width:2px;height:12px}
 #selection-box[data-point="true"][data-snapped="true"]{color:#087f5b;border-color:currentColor;background:#18a77d26}
+#selection-box>span{position:absolute;left:calc(100% - var(--point-x));top:calc(100% - var(--point-y));transform:translate(-50%,-50%);width:6px;height:6px;border-radius:50%;background:#087f5b}
 .viewport:has(#selection-box[data-point="true"]:not([hidden])) :is(#snap-icon,#snap-readout,#drawing-crosshair){visibility:hidden}

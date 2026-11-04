@@ -3,28 +3,58 @@ import {accelerateMeshPicking} from './mesh-picking.js';
 import {cylindricalSelection} from './cylindrical-selection.js';
 
 export function installBoxSelection(canvas,host,{enabled,getControls,onSelect,pointMode=()=>false,resolvePoint,onPoint}){
- const box=document.createElement('div');box.id='selection-box';box.hidden=true;host.append(box);let drag=null;
- canvas.addEventListener('pointerdown',e=>{if(e.button!==0||e.altKey||e.shiftKey||!enabled())return;const controls=getControls();drag={id:e.pointerId,x:e.clientX,y:e.clientY,active:false,point:pointMode(),add:e.ctrlKey||e.metaKey,controls,wasEnabled:controls.enabled};controls.enabled=false;canvas.setPointerCapture(e.pointerId);},{capture:true});
- const resolveCenter=(start,end)=>resolvePoint({clientX:(start.x+end.clientX)/2,clientY:(start.y+end.clientY)/2});
+ const box=document.createElement('div'),anchor=document.createElement('span');
+ box.id='selection-box';box.hidden=true;anchor.hidden=true;anchor.setAttribute('aria-hidden','true');box.append(anchor);host.append(box);
+ let drag=null;
+ canvas.addEventListener('pointerdown',event=>{
+  if(event.button!==0||event.altKey||event.shiftKey||!enabled())return;
+  const controls=getControls(),point=pointMode(),{clientX,clientY}=event;
+  const start=point?resolvePoint({clientX,clientY}):null;
+  drag={id:event.pointerId,x:clientX,y:clientY,active:false,point,start,add:event.ctrlKey||event.metaKey,controls,wasEnabled:controls.enabled};
+  controls.enabled=false;canvas.setPointerCapture(event.pointerId);
+ },{capture:true});
+ function pointRange(drag,event){
+  const start=drag.start||{clientX:drag.x,clientY:drag.y};
+  const opposite=resolvePoint(event)||event;
+  // A snapped corner takes priority over snapping the midpoint.
+  const center=resolvePoint({clientX:(start.clientX+opposite.clientX)/2,clientY:(start.clientY+opposite.clientY)/2},{snap:!opposite.snapped});
+  const end=center?.snapped?{clientX:2*center.clientX-start.clientX,clientY:2*center.clientY-start.clientY}:opposite;
+  return {start,end,center};
+ }
  canvas.addEventListener('pointermove',event=>{
   if(!drag||event.pointerId!==drag.id)return;
   drag.active ||= Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>5;
   if(!drag.active)return;
   event.preventDefault();event.stopImmediatePropagation();
-  const rect=host.getBoundingClientRect(),center=drag.point?resolveCenter(drag,event):null;
-  const x=center?2*center.clientX-drag.x:event.clientX;
-  const y=center?2*center.clientY-drag.y:event.clientY;
+  const rect=host.getBoundingClientRect(),range=drag.point?pointRange(drag,event):null;
+  const startX=range?.start.clientX??drag.x,startY=range?.start.clientY??drag.y;
+  const x=range?.end.clientX??event.clientX,y=range?.end.clientY??event.clientY;
   box.hidden=false;
   box.dataset.point=String(drag.point);
-  box.dataset.snapped=String(!!center?.snapped);
+  box.dataset.snapped=String(!!(range?.center?.snapped||range?.end.snapped));
   box.dataset.crossing=String(!drag.point&&x<drag.x);
   if(drag.point){
-   box.style.setProperty('--point-x',x<drag.x?'0%':'100%');
-   box.style.setProperty('--point-y',y<drag.y?'0%':'100%');
+   box.style.setProperty('--point-x',x<startX?'0%':'100%');
+   box.style.setProperty('--point-y',y<startY?'0%':'100%');
   }
-  Object.assign(box.style,{left:Math.min(drag.x,x)-rect.left+'px',top:Math.min(drag.y,y)-rect.top+'px',width:Math.abs(x-drag.x)+'px',height:Math.abs(y-drag.y)+'px'});
+  anchor.hidden=!range?.start.snapped;
+  Object.assign(box.style,{left:Math.min(startX,x)-rect.left+'px',top:Math.min(startY,y)-rect.top+'px',width:Math.abs(x-startX)+'px',height:Math.abs(y-startY)+'px'});
  },{capture:true});
- function finish(e,cancel=false){if(!drag||e.pointerId!==drag.id)return;const d=drag;drag=null;box.hidden=true;d.controls.enabled=d.wasEnabled;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(d.active||cancel){e.preventDefault();e.stopImmediatePropagation();}if(d.active&&!cancel&&enabled()){if(d.point){if(pointMode()){const center=resolveCenter(d,e);if(center)onPoint(center.point);}return;}if(pointMode())return;const r=canvas.getBoundingClientRect();onSelect({left:Math.min(d.x,e.clientX)-r.left,right:Math.max(d.x,e.clientX)-r.left,top:Math.min(d.y,e.clientY)-r.top,bottom:Math.max(d.y,e.clientY)-r.top,crossing:e.clientX<d.x,add:d.add});}}
+ function finish(event,cancelled=false){
+  if(!drag||event.pointerId!==drag.id)return;
+  const finished=drag;drag=null;box.hidden=true;
+  finished.controls.enabled=finished.wasEnabled;
+  if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);
+  if(finished.active||cancelled){event.preventDefault();event.stopImmediatePropagation();}
+  if(!finished.active||cancelled||!enabled()||finished.point!==pointMode())return;
+  if(finished.point){
+   const {center}=pointRange(finished,event);
+   if(center)onPoint(center.point);
+   return;
+  }
+  const rect=canvas.getBoundingClientRect(),{x,y,add}=finished,{clientX,clientY}=event;
+  onSelect({left:Math.min(x,clientX)-rect.left,right:Math.max(x,clientX)-rect.left,top:Math.min(y,clientY)-rect.top,bottom:Math.max(y,clientY)-rect.top,crossing:clientX<x,add});
+ }
  canvas.addEventListener('pointerup',e=>finish(e),{capture:true});canvas.addEventListener('pointercancel',e=>finish(e,true),{capture:true});
  canvas.addEventListener('lostpointercapture',e=>finish(e,true),{capture:true});
  function cancel(){if(!drag)return;const d=drag;drag=null;box.hidden=true;d.controls.enabled=d.wasEnabled;if(canvas.hasPointerCapture(d.id))canvas.releasePointerCapture(d.id);return true;}

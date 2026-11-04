@@ -2497,13 +2497,13 @@ boxSelection=installBoxSelection(renderer.domElement,host,{
  enabled:()=>!partWorkshop?.active&&!printSupportController?.active&&!assemblyController?.active&&!selectionLibrary?.active&&!imageReferences?.picking&&!deletingSketch&&!moveTool?.active&&(!sketch||$('profile').value==='point')&&!holeActive&&!pendingExtrude&&!extrusionDrag&&!$('tools-dialog').open,
  getControls:()=>controls,
  pointMode:()=>sketch&&$('profile').value==='point',
- resolvePoint:center=>{
-  const hit=planePoint(center,{snap:false});
+ resolvePoint:({clientX,clientY},{snap=true}={})=>{
+  const hit=planePoint({clientX,clientY},{snap:false});
   if(!hit)return null;
-  const point=sketchGridIntersection(hit);
-  if(!point)return {...center,point:hit,snapped:false};
+  const point=snap?sketchGridIntersection(hit):null;
+  if(!point)return {clientX,clientY,point:hit,snapped:false};
   const from=screenPoint(hit),to=screenPoint(point);
-  return {clientX:center.clientX+to.x-from.x,clientY:center.clientY+to.y-from.y,point,snapped:true};
+  return {clientX:clientX+to.x-from.x,clientY:clientY+to.y-from.y,point,snapped:true};
  },
  onPoint:point=>{
   down=null;
