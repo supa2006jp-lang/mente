@@ -4,12 +4,13 @@ import http from 'node:http';
 import path from 'node:path';
 import {chromium} from 'playwright';
 import * as R from 'replicad';
+import * as THREE from 'three';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {defaults} from '../src/geometry.js';
 import {runOperation} from '../src/kernel.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const output='.sites-runtime/point-range-corner-snap';
+const output='.sites-runtime/point-range-solid-grid-snap';
 await fs.mkdir(output,{recursive:true});
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -162,8 +163,49 @@ try{
  for(const coord of ['x','y','z'])assert(Math.abs(points[2][coord]-(points[0][coord]+points[1][coord])/2)<1e-5,coord);
  for(const coord of ['x','y','z'])assert(Math.abs(points[3][coord])<1e-5,'snapped '+coord);
  assert(Math.hypot(points[4].x-1.5*gridStep,points[4].y-.5*gridStep,points[4].z)<1e-5,'midpoint of snapped corners');
+
+ const boundaryBox={...defaults,id:'boundary-box',name:'箱',kind:'extrusion',width:47,height:33,depth:10,z:-10};
+ await load([boundaryBox]);
+ await field('new-point').click();
+ await field('snap-enabled').check();
+ await field('snap-step').selectOption('10');
+ const rect=await page.locator('#canvas-host canvas').boundingBox();
+ const state=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
+ const ortho=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
+ ortho.position.fromArray(state);ortho.quaternion.fromArray(state,3);ortho.zoom=state[7];
+ ortho.updateProjectionMatrix();ortho.updateMatrixWorld(true);
+ function screen(x,y){
+  const projected=new THREE.Vector3(x,y,0).project(ortho);
+  return [rect.x+(projected.x+1)*rect.width/2,rect.y+(1-projected.y)*rect.height/2];
+ }
+ const startCrossing=screen(0,16.5),endCrossing=screen(10,-16.5);
+ await drag([startCrossing[0]+2,startCrossing[1]-1],[endCrossing[0]+2,endCrossing[1]+1],[0,0]);
+ const crossingBounds=await pointBox.boundingBox();
+ assert(await pointBox.locator('span').isVisible());
+ assert.equal(await pointBox.getAttribute('data-snapped'),'true');
+ assert(Math.hypot(crossingBounds.x-startCrossing[0],crossingBounds.y-startCrossing[1])<1,'start at solid/grid crossing');
+ assert(Math.hypot(crossingBounds.x+crossingBounds.width-endCrossing[0],crossingBounds.y+crossingBounds.height-endCrossing[1])<1,'opposite at solid/grid crossing');
+ await page.mouse.up();
+
+ const centerCrossing=screen(10,16.5);
+ const a=screen(-8,25.5),b=screen(28,7.5);
+ await drag([b[0]+2,b[1]+1],[a[0]+2,a[1]+1],[0,0]);
+ assert.equal(await pointBox.getAttribute('data-snapped'),'true');
+ const centered=await pointBox.boundingBox();
+ assert(Math.hypot(centered.x+centered.width/2-centerCrossing[0],centered.y+centered.height/2-centerCrossing[1])<1,'center at solid/grid crossing');
+ await page.mouse.up();
+ await field('snap-enabled').uncheck();
+ await drag([b[0]+2,b[1]+1],[a[0]+2,a[1]+1],[0,0]);
+ assert.equal(await pointBox.getAttribute('data-snapped'),'false');
+ await page.mouse.up();
+ await page.keyboard.press('Escape');
+ const boundaryPoints=(await save()).features.filter(f=>f.profile==='point');
+ assert.equal(boundaryPoints.length,3);
+ assert(Math.hypot(boundaryPoints[0].x-5,boundaryPoints[0].y,boundaryPoints[0].z)<1e-5);
+ assert(Math.hypot(boundaryPoints[1].x-10,boundaryPoints[1].y-16.5,boundaryPoints[1].z)<1e-5);
+ assert(Math.hypot(boundaryPoints[2].x-10,boundaryPoints[2].y-16.5)>.01);
  assert.deepEqual(errors,[]);
- const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,clickStillWorks:true,escapeCancelsRange:true,errors};
+ const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,clickStillWorks:true,escapeCancelsRange:true,errors};
  await fs.writeFile(output+'/proof.json',JSON.stringify(proof,null,2)+'\n');
  console.log(JSON.stringify(proof));
 }finally{await browser?.close();server.close();}

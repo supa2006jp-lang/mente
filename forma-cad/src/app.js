@@ -1023,11 +1023,17 @@ function currentGridSketchSegments(offset){
  sketchGridSegmentsCache={revision:features,key,segments};return segments;
 }
 function numericSketchSnapLocked(){return !!firstPoint&&($('profile').value==='line'&&($('lock-length').checked||$('lock-angle').checked)||$('profile').value==='rect'&&rectDimensionLocks.some(Boolean)||$('profile').value==='circle'&&circleDiameterLocked);}
+function solidGridCrossings(displayGrid,offset,hit,options){
+ const boundaries=sketchBoundarySnap.segments(meshes.values(),sketchBasis,offset);
+ return gridBoundarySnap.candidates(displayGrid,boundaries,sketchBasis,offset,hit,screenPoint,options);
+}
 function snapToGrid(hit,event={}){
  const pointer=screenPoint(hit),offset=sketchOrigin.dot(sketchBasis.n),context={points:[],crossings:[]},lockedAngle=$('profile').value==='line'&&firstPoint&&$('lock-angle').checked&&!$('lock-length').checked?Number($('live-angle').value):null,direction=lockedAngle!==null&&Number.isFinite(lockedAngle)?sketchBasis.u.clone().multiplyScalar(Math.cos(lockedAngle*Math.PI/180)).addScaledVector(sketchBasis.v,Math.sin(lockedAngle*Math.PI/180)):null,options={origin:direction?firstPoint:null,direction,accept:p=>gridBoundaryPointVisible(p,camera,[...meshes.values()])};
  if($('snap-enabled').checked&&!(firstPoint&&$('profile').value==='line'&&$('lock-length').checked)){
   const displayGrid=sketchGrid?.visible?sketchGrid:grid;
-  for(const [kind,segments]of [['gridBoundary',sketchBoundarySnap.segments(meshes.values(),sketchBasis,offset)],['gridSketch',currentGridSketchSegments(offset)]])for(const c of gridBoundarySnap.candidates(displayGrid,segments,sketchBasis,offset,hit,screenPoint,options))context.crossings.push({...c,kind,segments:[c.boundary,c.gridLine]});
+  const solid=solidGridCrossings(displayGrid,offset,hit,options);
+  const drawn=gridBoundarySnap.candidates(displayGrid,currentGridSketchSegments(offset),sketchBasis,offset,hit,screenPoint,options);
+  for(const [kind,crossings] of [['gridBoundary',solid],['gridSketch',drawn]])for(const c of crossings)context.crossings.push({...c,kind,segments:[c.boundary,c.gridLine]});
   context.crossings.sort((a,b)=>a.distance-b.distance);
  }
  const automatic=automaticSketchSnap(hit,event,context),kind=host.dataset.snapKind;
@@ -2500,9 +2506,17 @@ boxSelection=installBoxSelection(renderer.domElement,host,{
  resolvePoint:({clientX,clientY},{snap=true}={})=>{
   const hit=planePoint({clientX,clientY},{snap:false});
   if(!hit)return null;
-  const point=snap?sketchGridIntersection(hit):null;
+  if(!snap||!$('snap-enabled').checked)return {clientX,clientY,point:hit,snapped:false};
+  const from=screenPoint(hit),gridPoint=sketchGridIntersection(hit);
+  let point=gridPoint,to=point?screenPoint(point):null;
+  if(meshes.size){
+   const displayGrid=sketchGrid?.visible?sketchGrid:grid,offset=sketchOrigin.dot(sketchBasis.n);
+   const [crossing]=solidGridCrossings(displayGrid,offset,hit,{accept:p=>gridBoundaryPointVisible(p,camera,[...meshes.values()])});
+   if(crossing&&(!to||crossing.distance<Math.hypot(to.x-from.x,to.y-from.y))){
+    point=crossing.point;to=screenPoint(point);
+   }
+  }
   if(!point)return {clientX,clientY,point:hit,snapped:false};
-  const from=screenPoint(hit),to=screenPoint(point);
   return {clientX:clientX+to.x-from.x,clientY:clientY+to.y-from.y,point,snapped:true};
  },
  onPoint:point=>{
