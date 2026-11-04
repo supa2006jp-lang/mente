@@ -1,9 +1,10 @@
 export const phaseLabels={geometry:'隙間・形状作成',inspection:'形状・隙間検査',display:'表示データ作成',save:'保存用データ作成',other:'モデル準備・その他'};
 let active=null;
 export class PhaseTimings{
- constructor(now=()=>performance.now()){this.now=now;this.started=now();this.phases={};this.stack=[];}
+ constructor(now=()=>performance.now(),onStage){this.now=now;this.onStage=onStage;this.started=now();this.phases={};this.stack=[];}
  measure(key,work){
   const frame={started:this.now(),children:0};this.stack.push(frame);
+  if(key!=='other')this.onStage?.(phaseLabels[key]);
   try{return work();}finally{
    const elapsed=Math.max(0,this.now()-frame.started);this.stack.pop();
    this.phases[key]=(this.phases[key]||0)+Math.max(0,elapsed-frame.children);

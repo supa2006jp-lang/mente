@@ -80,6 +80,7 @@ export function createHoneycombDialog({scene,meshes,host,getFeatures,bodyName,ap
   cached={input,result,signature:JSON.stringify(input)};const info=result.analysis.honeycomb;source={...info.source,heightAxis:input.heightAxis};sourceTarget=input.target;dimensionCell=info.cell;host.dataset.honeycombPreview=JSON.stringify(info);
   $('status').textContent='精密プレビュー ／ '+(info.kind==='cylinder'?'円柱・一周':'直方体')+' ／ 六角穴 '+info.holeCount+'個 ／ 横 '+info.columns+'・'+info.rows+'段 ／ 穴幅 '+Number(info.cell.toFixed(3))+' mm';$('apply').disabled=applying;showMode();stats();
  }
+ dialog.addEventListener('forma-preview-retry',()=>refresh({forceExact:true}));
  async function refresh({forceExact=false}={}){
   clearTimeout(timer);const token=++version;cached=null;$('apply').disabled=true;$('error').textContent='';$('use-suggestion').hidden=true;
   if(!dialog.open)return;
@@ -100,7 +101,7 @@ export function createHoneycombDialog({scene,meshes,host,getFeatures,bodyName,ap
   }
   $('status').textContent='プレビューを計算しています…';
   try{
-   inflight=true;computations++;stats();showMode();const result=await worker.run(honeycombTargetHistory(history,input.target),input,{onProgress:p=>{if(token===version)$('status').textContent=p.stage;}});
+   inflight=true;computations++;stats();showMode();const result=await worker.run(honeycombTargetHistory(history,input.target),input,{automaticPreview:true,document:original,onProgress:p=>{if(token===version)$('status').textContent=p.stage;}});
    if(token!==version||!dialog.open||getFeatures()!==original)return;
    resultCache.set(signature,result);while(resultCache.size>3)resultCache.delete(resultCache.keys().next().value);renderResult(input,result);
   }catch(error){if(token===version&&dialog.open){clearPreview();showError(error);}}finally{if(token===version){inflight=false;showMode();stats();}}

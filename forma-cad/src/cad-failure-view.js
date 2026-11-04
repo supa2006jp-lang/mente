@@ -1,10 +1,11 @@
+import {findMachiningValues,trialDimension} from './machining-value-trials.js';
 import * as THREE from 'three';
 import {moveMatrix} from './fillet-grid-reference.js';
-export function createCadFailureView({scene,host,meshes,getFeatures,onChoose,onFeature}){
+export function createCadFailureView({scene,host,meshes,getFeatures,onChoose,onFeature,getTrialContext}){
  const panel=document.createElement('section');panel.id='cad-failure-panel';panel.className='workspace-panel';panel.hidden=true;panel.innerHTML='<strong>加工できなかった箇所</strong><p id="cad-failure-message" role="status"></p><div id="cad-failure-evidence"></div><p id="cad-failure-suggestion"></p><p id="cad-failure-location" class="hint"></p><div id="cad-failure-actions" class="workspace-actions"></div><button type="button" id="cad-failure-clear">表示を消す</button>';
- host.parentElement.append(panel);let overlay=null,original=null;
+ host.parentElement.append(panel);let overlay=null,original=null,trial=null;
  const q=name=>panel.querySelector('#cad-failure-'+name);
- function clear(){if(overlay){overlay.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});overlay.removeFromParent();overlay=null;}panel.hidden=true;delete host.dataset.failedBodies;}
+ function clear(){trial?.abort();trial=null;if(overlay){overlay.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});overlay.removeFromParent();overlay=null;}panel.hidden=true;delete host.dataset.failedBodies;}
  function action(text,handler){const button=document.createElement('button');button.type='button';button.textContent=text;button.onclick=handler;q('actions').append(button);}
  function show(error,spec,features){
   if(error.code==='cancelled')return;clear();original=getFeatures();let operation=spec?.type==='preview'?spec.operation:spec;
@@ -29,7 +30,43 @@ export function createCadFailureView({scene,host,meshes,getFeatures,onChoose,onF
   const type=error.failedOperation||operation?.type,input=document.querySelector(type==='fillet'?'#fillet-history-dialog[open] #fillet-history-radius, #tools-dialog[open] #cad-radius':type==='shell'?'#tools-dialog[open] #cad-thickness':type==='chamfer'?'#tools-dialog[open] #cad-distance':'#extrude-distance:not([hidden]) #viewport-depth');
   const sameFeature=!error.featureId||spec?.type!=='replay'||error.featureId===document.querySelector('#fillet-history-dialog[open]')?.dataset.featureId;
   if(!issues.length&&sameFeature&&input&&Number.isFinite(Number(input.value))&&Number(input.value)!==0)action(['fillet','shell','chamfer'].includes(type)?'寸法を半分にしてプレビュー':'押し出しを1 mm延長してプレビュー',()=>{const value=Number(input.value);input.value=String(['fillet','shell','chamfer'].includes(type)?value/2:value+Math.sign(value));input.dispatchEvent(new Event('input',{bubbles:true}));});
-  for(const id of ids)action('対象ボディを選択して拡大',()=>onChoose(id));
+
+  if(trialDimension(type)&&spec?.type!=='replay'&&input&&operation?.type===type&&getTrialContext){
+   const retry=document.createElement('button'),result=document.createElement('div');
+   retry.type='button';retry.textContent='加工できる寸法を探す';
+   retry.onclick=async()=>{
+    trial?.abort();
+    const context=getTrialContext(type,input,operation);
+    result.replaceChildren();
+    if(!context){result.textContent='加工対象または寸法が変わりました。現在の設定でプレビューしてください。';return;}
+    const controller=new AbortController();trial=controller;retry.disabled=true;
+    const cancel=()=>controller.abort();
+    const fields=input.closest('dialog');
+    fields?.addEventListener('input',cancel,{once:true});
+    try{
+     const candidates=await findMachiningValues(context.features,context.spec,{
+      signal:controller.signal,isCurrent:context.isCurrent,
+      onProgress:value=>{result.textContent=value+' mm で加工と形状を確認中…';}
+     });
+     if(controller.signal.aborted||!context.isCurrent()){
+      result.textContent='寸法候補の検査を中止しました';return;
+     }
+     result.textContent=candidates.length?'検査を通った候補':'時間内に使える候補を確認できませんでした';
+     for(const candidate of candidates){
+      const choose=document.createElement('button');
+      choose.type='button';choose.textContent=candidate.value+' mm をプレビュー';
+      choose.onclick=()=>{
+       if(!context.isCurrent()){result.textContent='設定が変わりました。候補を探し直してください';return;}
+       context.choose(candidate);clear();
+      };
+      result.append(' ',choose);
+     }
+    }catch(error){if(!controller.signal.aborted)result.textContent=error.message;}
+    finally{fields?.removeEventListener('input',cancel);if(trial===controller)trial=null;retry.disabled=false;}
+   };
+   q('actions').append(retry,result);
+  }
+   for(const id of ids)action('対象ボディを選択して拡大',()=>onChoose(id));
   if(error.featureId)action('失敗した工程を開く',()=>onFeature(error.featureId));
   const dialog=document.querySelector('#fillet-history-dialog[open],#tools-dialog[open]');if(dialog){panel.style.cssText='position:static;width:auto;max-height:200px;margin:10px 0;box-shadow:none';const actions=dialog.querySelector('.editor-actions');actions?actions.before(panel):dialog.append(panel);dialog.addEventListener('close',clear,{once:true});}else{host.parentElement.append(panel);panel.style.cssText='';}
   panel.hidden=false;

@@ -14,13 +14,14 @@ export function simpleBossDialog({scene,meshes,host,kernel,getFeatures,bodyName,
  function close(){invalidate();busy=false;dialog.close();}
  $('close').onclick=$('cancel').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('close',()=>{if(cached||preview||inflight)invalidate();});
  function controls(){for(const input of dialog.querySelectorAll('input,select'))input.disabled=busy;$('apply').disabled=busy||!cached;}
+ dialog.addEventListener('forma-preview-retry',()=>schedule());
  function schedule(){
   if(busy)return;$('extend-label').hidden=$('role').value!=='female';const request=invalidate();$('error').textContent='';$('info').textContent='';let input;
   try{input=validateSimpleBoss(spec());}catch(error){$('error').textContent=error.message;return;}
   $('info').textContent='簡易ボスの形状を確認しています…';
   timer=setTimeout(async()=>{
    if(request!==version||!dialog.open)return;inflight=true;
-   try{const result=await kernel.run(history,input);if(request!==version||!dialog.open)return;inflight=false;if(getFeatures()!==original)throw Error('モデルが変更されました。配置する面を選択し直してください');
+   try{const result=await kernel.run(history,input,{automaticPreview:true,document:original});if(request!==version||!dialog.open)return;inflight=false;if(getFeatures()!==original)throw Error('モデルが変更されました。配置する面を選択し直してください');
     preview=new THREE.Group();for(const output of result.outputs){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(output.vertices,3));g.setIndex(output.triangles);if(output.normals?.length===output.vertices.length)g.setAttribute('normal',new THREE.Float32BufferAttribute(output.normals,3));else g.computeVertexNormals();preview.add(new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:input.role==='male'?0xc99b50:0x62b5ce,roughness:.65,metalness:.05})));}scene.add(preview);
     const mesh=meshes.get(input.target);if(mesh){hidden={mesh,visible:mesh.visible};mesh.visible=false;}
     cached={key:JSON.stringify(input),result};host.dataset.simpleBoss=JSON.stringify(result.analysis);const a=result.analysis;

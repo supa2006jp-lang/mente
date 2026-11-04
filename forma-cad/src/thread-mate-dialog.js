@@ -35,11 +35,12 @@ export function threadMateDialog({scene,meshes,host,kernel,getFeatures,bodyName,
   $('body').replaceChildren(...[...ids].filter(body=>body!==$('target').value&&meshes.has(body)).map(body=>new Option(bodyName(body),body)));
   if([...$('body').options].some(o=>o.value===previous))$('body').value=previous;
  }
+ dialog.addEventListener('forma-preview-retry',()=>schedule());
  function schedule(){if(!info)return;const request=invalidate();$('info').textContent='';
   if(existing()&&!placement){$('error').textContent=$('body').value?'「平面上の配置点を選択」を押し、加工先の面上をクリックしてください':'元のねじとは別の加工先ボディが必要です';controls();return;}
   if(![...fields,...(existing()?['u','v']:[])].every(k=>$(k).disabled||$(k).value.trim()&&$(k).checkValidity())){$('error').textContent='寸法を正しい数値で指定してください';return;}
   positionText();$('error').textContent='相手ねじを計算しています…';timer=setTimeout(async()=>{inflight=true;const spec=input();try{
-   const result=await kernel.run(history,spec);if(request!==revision||!dialog.open)return;if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');
+   const result=await kernel.run(history,spec,{automaticPreview:true,document:original});if(request!==revision||!dialog.open)return;if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');
    preview=new THREE.Group();for(const out of result.outputs){const g=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(out.vertices,3)).setIndex(out.triangles);if(out.normals?.length===out.vertices.length)g.setAttribute('normal',new THREE.Float32BufferAttribute(out.normals,3));else g.computeVertexNormals();preview.add(new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x64c8b0,roughness:.65,side:THREE.DoubleSide})));}
    const hide=new Set([...(editing?.outputs||[]).map(o=>o.id),...(existing()?result.outputs.map(o=>o.id):[])]);
    for(const body of hide){const mesh=meshes.get(body);if(mesh){hidden.push([mesh,mesh.visible]);mesh.visible=false;}}

@@ -69,12 +69,13 @@ export function createAssemblyDialog({host,scene,camera,canvas,meshes,kernel,get
   host.dataset.assemblyPreview=JSON.stringify({source:source.bodyId,destination:destination.bodyId,targets:result.outputs.map(o=>o.id),planeAlignment:$('alignment').value,sourceAnchor:previewBase.source.anchor,destinationAnchor:previewBase.destination.anchor,contactAnchor:previewBase.contactAnchor,basis:previewBase.basis,adjustment:previewBase.adjustment});
   host.dataset.assemblyContact=JSON.stringify(result.analysis.assemblyContact);contact.show(result.analysis.assemblyContact,result.assemblyPreview?.highlights);handles.update();
  }
+ dialog.addEventListener('forma-preview-retry',()=>schedule());
  function schedule(keep=false){
   const request=invalidate(keep);controls();$('error').textContent='';
   if(!source||!destination){$('status').textContent=picking==='destination'?'相手の面をクリックしてください':'動かす部品の面をクリックしてください';handles.update();return;}
   if(!valid()){$('error').textContent='有効な距離・角度を入力してください';handles.update();return;}
   if(keep)fast();$('status').textContent='位置合わせ・隙間・めり込みを確認中…';
-  timer=setTimeout(async()=>{inflight=true;try{const input=spec(),result=await kernel.run(history,{...input,preview:true});if(request!==revision||!dialog.open||getFeatures()!==original)return;showPreview(result);cached={input,result};$('status').textContent='水色：移動する '+result.outputs.length+' ボディ ／ 橙色：相手。'+(editing?'固定位置を更新します。':'確定すると相対位置を固定します。');controls();}catch(e){if(request===revision&&dialog.open){$('error').textContent=e.message;$('status').textContent='位置合わせできませんでした。基準や数値を確認してください';}}finally{if(request===revision)inflight=false;}},180);
+  timer=setTimeout(async()=>{inflight=true;try{const input=spec(),result=await kernel.run(history,{...input,preview:true},{document:original});if(request!==revision||!dialog.open||getFeatures()!==original)return;showPreview(result);cached={input,result};$('status').textContent='水色：移動する '+result.outputs.length+' ボディ ／ 橙色：相手。'+(editing?'固定位置を更新します。':'確定すると相対位置を固定します。');controls();}catch(e){if(request===revision&&dialog.open){$('error').textContent=e.message;$('status').textContent='位置合わせできませんでした。基準や数値を確認してください';}}finally{if(request===revision)inflight=false;}},180);
  }
  function links(){
   const current=assemblyLinks(original,new Set(meshes.keys()));$('links').replaceChildren();if(!current.length)$('links').textContent='固定された部品はありません';

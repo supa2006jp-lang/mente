@@ -6,7 +6,7 @@ export function createAutomaticExtrusionProbe(client){
  function cancel(){revision++;if(pending)client.reset();pending=null;}
  function read(model,feature,source,meshes){const key=keyFor(feature,source);return ready?.model===model&&ready.key===key&&(!meshes||ready.bodyKey===meshKey(meshes))?ready.matches:null;}
  async function run(model,feature,meshes,source){const key=keyFor(feature,source),nextBodyKey=meshKey(meshes),cached=read(model,feature,source,meshes);if(cached)return cached;if(pending?.model===model&&pending.key===key&&pending.bodyKey===nextBodyKey)return pending.promise;cancel();const job=revision,plan=extrusionProbePlan(model,meshes,{feature,source});
-  const promise=client.run(plan.history,plan.spec,{timeout:15000}).then(result=>{if(job!==revision)throw Object.assign(Error('計算をキャンセルしました'),{code:'cancelled'});ready={model,key,bodyKey:nextBodyKey,matches:result.matches};return result.matches;}).finally(()=>{if(job===revision)pending=null;});pending={model,key,bodyKey:nextBodyKey,promise};return promise;
+  const promise=client.run(plan.history,plan.spec,{timeout:15000,document:model}).then(result=>{if(job!==revision)throw Object.assign(Error('計算をキャンセルしました'),{code:'cancelled'});ready={model,key,bodyKey:nextBodyKey,matches:result.matches};return result.matches;}).finally(()=>{if(job===revision)pending=null;});pending={model,key,bodyKey:nextBodyKey,promise};return promise;
  }
  return {read,run,cancel,get pending(){return !!pending;}};
 }

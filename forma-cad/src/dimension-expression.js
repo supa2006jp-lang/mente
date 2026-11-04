@@ -2,8 +2,8 @@ export function normalizeDimensionExpression(text){
  return String(text).replace(/[０-９．＋－＊／（）]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0)).replace(/[×✕]/g,'*').replace(/÷/g,'/').replace(/[−–]/g,'-');
 }
 
-// Arithmetic only: no JavaScript evaluation, identifiers, units or function calls.
-export function evaluateDimensionExpression(text){
+// Arithmetic and explicitly supplied dimension names only.
+export function evaluateDimensionExpression(text,variables=null,onReference){
  const source=normalizeDimensionExpression(text).trim();let index=0,operations=0;
  if(!source)throw Error('計算式を入力してください');
  if(source.length>256)throw Error('計算式は256文字以内で入力してください');
@@ -15,6 +15,15 @@ export function evaluateDimensionExpression(text){
   if(char==='+'||char==='-'){index++;return finite((char==='-'?-1:1)*primary(depth+1));}
   if(char==='('){index++;const value=sum(depth+1);space();if(source[index]!==')')throw Error('括弧を閉じてください');index++;return value;}
   const number=source.slice(index).match(/^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/);
+  if(!number&&variables){
+   const name=source.slice(index).match(/^[\p{L}_][\p{L}\p{N}_]*/u)?.[0];
+   if(name){
+    if(!Object.hasOwn(variables,name))throw Error('寸法「'+name+'」が見つかりません');
+    index+=name.length;
+    onReference?.(name);
+    return finite(variables[name]);
+   }
+  }
   if(!number)throw Error('数値または括弧を入力してください');
   index+=number[0].length;return finite(Number(number[0]));
  }
@@ -38,11 +47,11 @@ export function evaluateDimensionExpression(text){
  const value=sum(0);space();if(index!==source.length)throw Error('使える記号は + − × ÷ と括弧です');
  return Object.is(value,-0)?0:value;
 }
-export function dimensionExpressionValue(text){return String(Number(evaluateDimensionExpression(text).toPrecision(15)));}
+export function dimensionExpressionValue(text,variables){return String(Number(evaluateDimensionExpression(text,variables).toPrecision(15)));}
 
 // Validate using the original native constraints, including the step base.
-export function validateDimensionExpression(input,text,document=input.ownerDocument){
- const value=dimensionExpressionValue(text),probe=document.createElement('input');probe.type='number';probe.required=true;
+export function validateDimensionExpression(input,text,document=input.ownerDocument,variables){
+ const value=dimensionExpressionValue(text,variables),probe=document.createElement('input');probe.type='number';probe.required=true;
  for(const name of ['min','max','step','value']){const attr=input.getAttribute(name);if(attr!==null)probe.setAttribute(name,attr);}
  probe.value=value;
  if(!probe.checkValidity()){

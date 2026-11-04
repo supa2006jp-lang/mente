@@ -43,12 +43,13 @@ export function createPartWorkshop({scene,meshes,host,camera,bodyName,getFeature
   spec.pivot=['X','Y','Z'].map(a=>Number($('pivot'+a).value));spec.axisVector=$('axis').value==='picked'?pickedAxis:$( 'axis').value==='custom'?['X','Y','Z'].map(a=>Number($('axis'+a).value)):['X','Y','Z'].map(a=>a===$('axis').value?1:0);
   if(!spec.axisVector||!spec.axisVector.every(Number.isFinite)||Math.hypot(...spec.axisVector)<1e-8)throw Error('移動軸を指定してください');if(spec.motion==='rotate'&&(spec.min < -360||spec.max > 360))throw Error('回転範囲は−360〜360°です');const len=Math.hypot(...spec.axisVector);spec.axisVector=spec.axisVector.map(a=>a/len);if(!spec.pivot.every(Number.isFinite)||!Number.isFinite(spec.value)||!Number.isFinite(spec.min)||!Number.isFinite(spec.max)||spec.min>=spec.max||spec.value<spec.min||spec.value>spec.max)throw Error('開始値・終了値・現在位置を確認してください');return spec;
  }
+ dialog.addEventListener('forma-preview-retry',()=>preview());
  async function preview(){
   stop();invalidate();const token=version,started=performance.now();let spec;
   try{
    if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');spec=read();const signature=JSON.stringify(spec),previous=type==='storageTray'?resultCache.get(signature):null;let result;
    if(previous){cacheHits++;resultCache.delete(signature);resultCache.set(signature,previous);result=previous.result;}
-   else{role('status').textContent='精密な形状を計算しています…';busy=true;computations++;stats();action('preview').disabled=true;result=await worker.run(requestHistory,spec,{onProgress:p=>{if(version===token)role('status').textContent=p.stage;}});}
+   else{role('status').textContent='精密な形状を計算しています…';busy=true;computations++;stats();action('preview').disabled=true;result=await worker.run(requestHistory,spec,{automaticPreview:true,document:original,onProgress:p=>{if(version===token)role('status').textContent=p.stage;}});}
    if(version!==token||!dialog.open)return;if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');if(type==='storageTray'&&!previous)remember(signature,spec,result);render(result);cached={spec,result};lastMs=performance.now()-started;role('status').textContent=type==='dovetail'?'金色：凸側 ／ 青：凹側。差し込み方向の両端に溝を開きます。':`外形 ${result.analysis.storageTray.width.toFixed(1)} × ${result.analysis.storageTray.height.toFixed(1)} mm。元の部品と離して配置します。`+(previous?' 計算済みの形状を再利用しました。':'');action('apply').disabled=false;
   }
   catch(error){if(token===version&&dialog.open)role('error').textContent=error.message;}

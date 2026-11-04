@@ -1,6 +1,6 @@
 import {normalizeDimensionExpression,validateDimensionExpression} from './dimension-expression.js';
 
-export function installDimensionExpressions({document=globalThis.document,window=document.defaultView}={}){
+export function installDimensionExpressions({document=globalThis.document,window=document.defaultView,getVariables=()=>null,getExpression=()=>null,onExpression=()=>{}}={}){
  const panel=document.createElement('section');panel.id='dimension-expression-editor';panel.hidden=true;panel.setAttribute('popover','manual');panel.setAttribute('role','dialog');panel.setAttribute('aria-label','寸法の計算式');
  panel.innerHTML='<label for="dimension-expression-text">寸法の計算式</label><input id="dimension-expression-text" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="256" aria-describedby="dimension-expression-result dimension-expression-hint"><output id="dimension-expression-result" role="status" aria-live="polite"></output><small id="dimension-expression-hint">例：30/2、10+0.2、(20-4)*2<br>Enterで反映 ／ Escで取り消し</small><div><button type="button" data-apply>反映</button><button type="button" data-cancel>取り消し</button></div>';
  const style=document.createElement('style');style.textContent='#dimension-expression-editor{position:fixed;inset:auto;margin:0;z-index:1000;box-sizing:border-box;width:min(300px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:12px;border:1px solid #6097af;border-radius:8px;background:#f4fbff;color:#173f53;box-shadow:0 5px 22px #0004;font-size:13px}#dimension-expression-editor[hidden]{display:none}#dimension-expression-editor label{display:block;margin:0 0 6px;color:inherit;font-size:13px}#dimension-expression-editor input{box-sizing:border-box;width:100%;padding:8px;border:1px solid #6398b1;border-radius:4px;color:#173f53;background:white;font-size:16px}#dimension-expression-editor output{display:block;margin:7px 0;overflow-wrap:anywhere}#dimension-expression-editor output[data-error=true]{color:#b23221}#dimension-expression-editor small{display:block;color:#506a7b;font-size:12px;line-height:1.5}#dimension-expression-editor>div{display:flex;gap:8px;margin-top:9px}#dimension-expression-editor button{padding:6px 12px;color:#173f53;background:#e1f2fa;border:1px solid #83aec4;border-radius:4px}';
@@ -15,11 +15,12 @@ export function installDimensionExpressions({document=globalThis.document,window
  }
  function assess(){
   if(!current()){close();return null;}
-  try{const value=validateDimensionExpression(session.input,text.value,document);result.textContent='= '+value;result.dataset.error='false';text.removeAttribute('aria-invalid');apply.disabled=false;return value;}
+  try{const value=validateDimensionExpression(session.input,text.value,document,getVariables(session.input));result.textContent='= '+value;result.dataset.error='false';text.removeAttribute('aria-invalid');apply.disabled=false;return value;}
   catch(error){result.textContent=error.message;result.dataset.error='true';text.setAttribute('aria-invalid','true');apply.disabled=true;return null;}
  }
  function commit(focus=true){
-  const value=assess();if(value===null)return false;const input=session.input;close(focus);
+  const value=assess();if(value===null)return false;const input=session.input,expression=text.value;close(focus);
+  onExpression(input,expression);
   input.value=value;input.dispatchEvent(new window.Event('input',{bubbles:true}));input.dispatchEvent(new window.Event('change',{bubbles:true}));return true;
  }
  function place(){
@@ -59,7 +60,7 @@ export function installDimensionExpressions({document=globalThis.document,window
   if(key==='+'&&input.validity.badInput&&input.value==='')return;
   event.preventDefault();event.stopImmediatePropagation();
   consumedKeys.add(event.code||event.key);
-  open(input,key==='F2'?input.value:key==='='?'':key==='('?'(':(input.value||'')+key,{select:key==='F2'});
+  open(input,key==='F2'?(getExpression(input)||input.value):key==='='?(getExpression(input)||''):key==='('?'(':(input.value||'')+key,{select:key==='F2'||key==='='});
  },{capture:true});
  // The parent tools also handle Escape on keyup; consume the entire key pair.
  window.addEventListener('keyup',event=>{if(consumedKeys.delete(event.code||event.key)||session&&panel.contains(event.target)){event.preventDefault();event.stopImmediatePropagation();}},{capture:true});
@@ -68,7 +69,7 @@ export function installDimensionExpressions({document=globalThis.document,window
   if(!eligible(event.target)||event.defaultPrevented)return;
   const pasted=event.clipboardData?.getData('text');if(!pasted)return;
   const normalized=normalizeDimensionExpression(pasted).trim();
-  if(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)||!/[+*/()-]/.test(normalized))return;
+  if(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)||(!/[+*/()-]/.test(normalized)&&!Object.hasOwn(getVariables(event.target)||{},normalized)))return;
   event.preventDefault();event.stopImmediatePropagation();open(event.target,pasted);
  },true);
  document.addEventListener('pointerdown',event=>{

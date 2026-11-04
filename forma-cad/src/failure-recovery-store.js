@@ -9,10 +9,17 @@ export function createFailureRecoveryStore({indexedDB=globalThis.indexedDB,maxEn
  };
 }
 
-export function failureRecord({features,spec,requestFeatures=features,editing=null,drawing=null,error,now=Date.now(),id=crypto.randomUUID()}){
- return {format:'forma-cad-failure',version:1,id,createdAt:now,document:{format:'forma-cad',version:1,units:'mm',features:structuredClone(features),...(drawing?{drawing:structuredClone(drawing)}:{})},request:{features:structuredClone(requestFeatures),spec:structuredClone(spec)},editing:structuredClone(editing),error:{message:error?.message||String(error),...(error?.name?{name:error.name}:{}),...(error?.rawMessage?{rawMessage:error.rawMessage}:{}),...(error?.code?{code:error.code}:{}),...(error?.featureId?{featureId:error.featureId}:{}),...(error?.diagnostics?{diagnostics:structuredClone(error.diagnostics)}:{})}};
+export function failureRecord({features,spec,requestFeatures=features,editing=null,drawing=null,namedDimensions=null,error,calculation=null,now=Date.now(),id=crypto.randomUUID()}){
+ return {format:'forma-cad-failure',version:1,id,createdAt:now,document:{format:'forma-cad',version:1,units:'mm',features:structuredClone(features),...(drawing?{drawing:structuredClone(drawing)}:{}),...(namedDimensions?{namedDimensions:structuredClone(namedDimensions)}:{})},request:{features:structuredClone(requestFeatures),spec:structuredClone(spec)},editing:structuredClone(editing),...(calculation?.stage?{calculation:structuredClone(calculation)}:{}),error:{message:error?.message||String(error),...(error?.name?{name:error.name}:{}),...(error?.rawMessage?{rawMessage:error.rawMessage}:{}),...(error?.code?{code:error.code}:{}),...(error?.featureId?{featureId:error.featureId}:{}),...(error?.diagnostics?{diagnostics:structuredClone(error.diagnostics)}:{})}};
 }
 
 export function failureDocument(record){
- return {...structuredClone(record.document),failure:{createdAt:record.createdAt,error:structuredClone(record.error),request:structuredClone(record.request),editing:structuredClone(record.editing)}};
+ return {...structuredClone(record.document),failure:{createdAt:record.createdAt,error:structuredClone(record.error),request:structuredClone(record.request),editing:structuredClone(record.editing),...(record.calculation?{calculation:structuredClone(record.calculation)}:{})}};
+}
+
+export function recoverableMachiningSpec(record){
+ const request=record.request?.spec;
+ const spec=request?.type==='preview'?request.operation:request;
+ if(!['shell','fillet','chamfer','revolve'].includes(spec?.type))return null;
+ return spec;
 }

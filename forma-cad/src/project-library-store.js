@@ -1,10 +1,10 @@
 export const projectLibraryDatabase='forma-cad-project-library-v1';
-export function createProjectLibraryStore({indexedDB=globalThis.indexedDB}={}){
+export function createProjectLibraryStore({indexedDB=globalThis.indexedDB,databaseName=projectLibraryDatabase}={}){
  let pending=null;
  function database(){
   if(!pending)pending=new Promise((resolve,reject)=>{
    if(!indexedDB){reject(Error('ブラウザーの保存領域を使用できません'));return;}
-   const request=indexedDB.open(projectLibraryDatabase,1);
+   const request=indexedDB.open(databaseName,1);
    request.onupgradeneeded=()=>{const db=request.result;db.createObjectStore('entries',{keyPath:'id'});db.createObjectStore('projects',{keyPath:'id'});};
    request.onerror=()=>reject(request.error||Error('保存領域を開けません'));
    request.onblocked=()=>reject(Error('別のタブを閉じてから再度開いてください'));

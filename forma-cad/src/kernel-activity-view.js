@@ -1,7 +1,7 @@
 import {subscribeKernelActivity} from './kernel-client.js';
 const names={printSupport:'連結リブサポートの作成',assemblyMate:'部品の位置合わせ・固定',assemblyInfo:'位置合わせの基準面',assemblyRelease:'固定の解除',join:'結合・切り取り',fillet:'フィレット',chamfer:'面取り',replay:'履歴の再計算',compactProject:'保存データの整理',extrusionBatch:'押し出し',barrierPreparedPreview:'バリア押し出しのプレビュー・確定準備',extrusion:'押し出し',move:'移動／回転',shell:'シェル',enclose:'囲み形成',coilJoint:'コイル接合',stepImport:'STEP読込',coil:'コイル',revolve:'回転体',pipe:'パイプ',loft:'ロフト',thread:'ねじ',offset:'オフセット平面',circular:'円形状パターン',rectangular:'矩形状パターン',printLayout:'印刷配置',qrCode:'QRコード'};
 Object.assign(names,{stlMeshes:'STL出力',threadDisplayMeshes:'ねじの軽量表示'});
-Object.assign(names,{exactExtrusionPreview:'加工後のCADプレビュー'});
+Object.assign(names,{machiningValueTrial:'加工できる寸法を検査',exactExtrusionPreview:'加工後のCADプレビュー'});
 Object.assign(names,{interiorEdges:'内側の辺の選択'});
 Object.assign(names,{selectionTemplateExport:'選択部品の保存',selectionTemplateImport:'選択部品の読み込み'});
 Object.assign(names,{geometryGapRepair:'隙間の修正プレビュー',geometryHealth:'形状の精度・微小箇所の検査',resize:'サイズ変更・寸法維持',bodyComponents:'離れた部品の検査',compareShapes:'加工前後の比較'});
@@ -19,9 +19,9 @@ export function installKernelActivityView({host,onFailure,onSuccess}){
   if(!timer)timer=setInterval(render,1000);
  }
  subscribeKernelActivity(event=>{
-  if(['drawingCoordinates','printLayoutInfo'].includes(event.spec?.type)||!event.spec)return;
+  if(event.state==='deferred'||['drawingCoordinates','printLayoutInfo'].includes(event.spec?.type)||!event.spec)return;
   const id=key(event);
-  if(['completed','error','cancelled'].includes(event.state)){jobs.delete(id);if(event.state==='error')onFailure?.(event.error,event.spec,event.features);if(event.state==='completed')onSuccess?.();}
+  if(['completed','error','cancelled'].includes(event.state)){jobs.delete(id);if(event.spec.type==='machiningValueTrial'){render();return;}if(event.state==='error'&&(event.error?.code!=='timeout'||event.started))onFailure?.(event.error,event.spec,event.features);if(event.state==='completed')onSuccess?.();}
   else jobs.set(id,{...(jobs.get(id)||{}),...event});render();
  });
  q('cancel').onclick=()=>{if(active)active.client.cancel(active.id);};

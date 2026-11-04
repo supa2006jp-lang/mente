@@ -89,7 +89,7 @@ function directionalGeometry(input){
  if(!f.frame&&f.plane==='YZ') g.rotateY(Math.PI/2);
  g.translate(f.x,f.y,f.z); return g;
 }
-export function rebuild(features){
+export function rebuild(features,{onLegacyStep}={}){
  const bodies=new Map(),snapshots=new Map();features.forEach((f,i)=>{for(const o of (f.cadResult?.outputs||(f.kind==='cadop'?f.outputs:[])))snapshots.set(o.id,i);});
  try{
   for(let i=0;i<features.length;i++){let f=features[i];
@@ -103,7 +103,7 @@ export function rebuild(features){
     let result;
     try{result=evaluator.evaluate(target,brush,f.operation==='cut'?SUBTRACTION:ADDITION);result.updateMatrixWorld(true);}
     finally{brush.geometry.dispose();}
-    target.geometry.dispose();bodies.set(f.target,result);
+    target.geometry.dispose();bodies.set(f.target,result);onLegacyStep?.(i,f.target,result);
    }
   }
   for(const [id,body] of bodies)body.geometry.userData.circularWalls=features.filter(f=>f.operation==='new'?f.id===id:f.target===id).flatMap(extrusionCircularWalls);

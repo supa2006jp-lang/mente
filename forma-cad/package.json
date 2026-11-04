@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/app.js src/kernel-worker.js --bundle --minify --format=esm --outdir=dist --external:node:module && node scripts/copy-kernel.mjs",
+    "build": "esbuild src/app.js src/kernel-worker.js src/sketch-analysis-worker.js src/model-rebuild-worker.js --bundle --minify --format=esm --outdir=dist --external:node:module && node scripts/copy-kernel.mjs",
     "start": "node server.mjs",
     "test": "node --test tests/*.test.js",
     "test:commands": "node scripts/check-commands.mjs",
