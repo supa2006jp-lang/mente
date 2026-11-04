@@ -701,7 +701,22 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  if(!Number.isFinite(p.angle)||p.angle<=0||p.angle>360)throw Error('角度は0より大きく360度以下で指定してください');
  if(!p.origin?.every(Number.isFinite)||!p.axisVector?.every(Number.isFinite)||Math.hypot(...p.axisVector)<1e-8)throw Error('回転軸を選択してください');
  if(p.bodySweep){
-  let sweep;try{sweep=repeatedBodyRevolution(features,body,p,onProgress);}catch(e){if(/[\u3040-\u9fff]/.test(e.message||''))throw e;throw Error('この形状の回転範囲を結合できません。回転軸や角度を変更してください');}try{if(p.operation==='new')emit(p.id,sweep);else if(p.operation==='join'&&p.target===p.sourceBody)emit(p.target,sweep);else{if(!base)throw Error('対象ボディを選択してください');const shape=p.operation==='cut'?cutRevolvedSolid(base,sweep,{onProgress}):fuseSolid(base,sweep,{onProgress});try{if(p.operation==='cut'&&Math.abs(R.measureVolume(shape)-R.measureVolume(base))<1e-7)throw Error('回転範囲が対象ボディと重なっていません');emit(p.target,shape);}finally{shape.delete();}}}finally{sweep.delete();}return {outputs,remove,...(analysis?{analysis}:{})};
+  let sweep;
+  try{sweep=repeatedBodyRevolution(features,body,p,onProgress);}
+  catch(e){if(/[\u3040-\u9fff]/.test(e.message||''))throw e;throw Error('この形状の回転範囲を結合できません。回転軸や角度を変更してください');}
+  try{
+   if(p.operation==='new')emit(p.id,sweep);
+   else if(p.operation==='join'&&p.target===p.sourceBody)emit(p.target,sweep);
+   else{
+    if(!base)throw Error('対象ボディを選択してください');
+    const shape=p.operation==='cut'?cutRevolvedSolid(base,sweep,{onProgress}):fuseSolid(base,sweep,{onProgress});
+    try{if(p.operation==='cut'&&Math.abs(R.measureVolume(shape)-R.measureVolume(base))<1e-7)throw Error('回転範囲が対象ボディと重なっていません');emit(p.target,shape);}
+    finally{shape.delete();}
+   }
+   // Missing on old history steps, which kept the source as a separate body.
+   if(p.keepSourceBody===false&&(p.operation==='new'||p.operation==='join'&&p.target!==p.sourceBody))remove.push(p.sourceBody);
+   return {outputs,remove,...(analysis?{analysis}:{})};
+  }finally{sweep.delete();}
  }
  if(!['new','move'].includes(p.operation))throw Error('ボディの回転方法を選択してください');
  const shape=body.clone().rotate(p.direction==='逆方向'?-p.angle:p.angle,p.origin,p.axisVector);try{emit(p.operation==='move'?p.sourceBody:p.id,shape);}finally{shape.delete();}
