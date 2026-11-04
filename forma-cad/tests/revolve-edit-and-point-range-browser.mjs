@@ -11,7 +11,7 @@ import {runOperation} from '../src/kernel.js';
 import {sketchSegments} from '../src/sketch-selection.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const output='.sites-runtime/sketch-view-edge-snap';
+const output='.sites-runtime/sketch-point-over-lines';
 await fs.mkdir(output,{recursive:true});
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -380,8 +380,52 @@ try{
  const channelPoint=(await save()).features.at(-1);
  assert.equal(channelPoint.profile,'point');
  assert(Math.hypot(channelPoint.x-innerX,channelPoint.y-frontY,channelPoint.z-topZ)<1e-5);
+
+ const pointFixture={...defaults,id:'point-over-line',name:'point',kind:'sketch',profile:'point',groupId:'point-test',groupNumber:1};
+ await load([pointFixture,{...pointFixture,id:'frame-left',x:-60,y:-40},{...pointFixture,id:'frame-right',x:60,y:40}]);
+ await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});
+ await field('fit').click();
+ await page.locator('#sketch-number-tabs [data-group-id=point-test]').click();
+ await field('new-line').click();
+ await field('continuous-line').uncheck();
+ await field('snap-enabled').check();
+ await field('snap-step').selectOption('10');
+ const drawScreen=await sketchScreen(),lineStart=drawScreen(-20,0),lineEnd=drawScreen(20,0);
+ let pointPixel=drawScreen(0,0);
+ for(const pixel of [lineStart,lineEnd]){
+  assert(await page.evaluate(([x,y])=>document.elementFromPoint(x,y)?.matches('#canvas-host canvas'),pixel),
+   'line endpoint should be within the canvas: '+pixel);
+ }
+ async function assertVisiblePoint(label){
+  const image=(await page.screenshot()).toString('base64');
+  const [r,g,b]=await page.evaluate(async({image,pointPixel:[x,y]})=>{
+   const screenshot=new Image();screenshot.src='data:image/png;base64,'+image;await screenshot.decode();
+   const canvas=document.createElement('canvas');canvas.width=screenshot.width;canvas.height=screenshot.height;
+   const ctx=canvas.getContext('2d');ctx.drawImage(screenshot,0,0);
+   return Array.from(ctx.getImageData(Math.round(x),Math.round(y),1,1).data);
+  },{image,pointPixel});
+  assert(r>g+55&&b>r+20,label+': point center should be purple, got '+[r,g,b]);
+ }
+ await page.mouse.click(...lineStart);
+ await page.mouse.move(lineEnd[0],lineEnd[1],{steps:12});
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.previewKind==='sketch-line',{},{timeout:5000});
+ await assertVisiblePoint('live line');
+ await page.mouse.click(...lineEnd);
+ await page.mouse.move(20,20);
+ await assertVisiblePoint('committed line');
+ await page.keyboard.press('Escape');
+ const withLine=(await save()).features;
+ const pointOnLine=withLine.find(feature=>feature.id===pointFixture.id),drawnLine=withLine.at(-1);
+ assert.equal(pointOnLine.profile,'point');
+ const [stroke]=sketchSegments(drawnLine);
+ assert(stroke.a.x*stroke.b.x<0&&Math.max(Math.abs(stroke.a.y),Math.abs(stroke.b.y))<1e-6);
+ await load(withLine);
+ await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});
+ await field('fit').click();
+ pointPixel=(await sketchScreen())(0,0);
+ await assertVisiblePoint('reloaded line');
  assert.deepEqual(errors,[]);
- const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,pointSnapMarks:true,obliqueEdgeSnap:true,channelFrontSnap:true,clickStillWorks:true,escapeCancelsRange:true,errors};
+ const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,pointSnapMarks:true,obliqueEdgeSnap:true,channelFrontSnap:true,pointVisibleOverLine:true,clickStillWorks:true,escapeCancelsRange:true,errors};
  await fs.writeFile(output+'/proof.json',JSON.stringify(proof,null,2)+'\n');
  console.log(JSON.stringify(proof));
 }finally{await browser?.close();server.close();}
