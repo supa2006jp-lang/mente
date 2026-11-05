@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {copyCadCoordinates} from './cad-coordinates.js';
 import {qrTriangleColors} from './qr-code-display.js';
 import {planarFace} from './frames.js';
+import {CLEAR_COLOR,CLEAR_OPACITY,colorChoiceRgb,isColorChoice} from './color-choice.js';
 
 const paintByGeometry=new WeakMap();
 
@@ -126,7 +127,7 @@ export function samePaintedFace(a,b){
 // using them so a CAD operation cannot silently paint an unrelated face.
 export function prepareBodyPaint(source,faces=[]){
  const layers=faces.filter(face=>!face?.unresolved&&Array.isArray(face?.ranges)&&face.ranges.length&&
-  /^#[0-9a-f]{6}$/i.test(face.color)&&signature(source,face.ranges)===face.fingerprint);
+  isColorChoice(face.color)&&signature(source,face.ranges)===face.fingerprint);
  const qr=qrTriangleColors(source);
  if(!layers.length&&!qr)return source;
  const geometry=source.index?source.toNonIndexed():source;
@@ -156,12 +157,22 @@ export function bodyPaint(geometry){return paintByGeometry.get(geometry);}
 export function updateBodyPaint(geometry,base){
  const paint=bodyPaint(geometry);
  if(!paint)return;
- const rgb=[base,...paint.palette].map(color=>new THREE.Color(color).toArray());
+ const hasAlpha=paint.colors.includes(CLEAR_COLOR),size=hasAlpha?4:3;
+ const colors=[base,...paint.palette].map(color=>{
+  const rgb=new THREE.Color(colorChoiceRgb(color)).toArray();
+  return [...rgb,color===CLEAR_COLOR?CLEAR_OPACITY:1];
+ });
  let attr=geometry.getAttribute('color');
- if(!attr){attr=new THREE.Float32BufferAttribute(new Float32Array(paint.slots.length*9),3);geometry.setAttribute('color',attr);}
+ if(attr?.itemSize!==size){
+  attr=new THREE.Float32BufferAttribute(new Float32Array(paint.slots.length*3*size),size);
+  geometry.setAttribute('color',attr);
+ }
  for(let i=0;i<paint.slots.length;i++){
-  const color=rgb[paint.slots[i]];
-  for(let j=0;j<3;j++)attr.setXYZ(i*3+j,...color);
+  const color=colors[paint.slots[i]];
+  for(let j=0;j<3;j++){
+   if(hasAlpha)attr.setXYZW(i*3+j,...color);
+   else attr.setXYZ(i*3+j,...color);
+  }
  }
  attr.needsUpdate=true;
 }

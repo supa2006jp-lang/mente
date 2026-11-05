@@ -1,8 +1,10 @@
 import {referencePointIndex} from './reference-point-index.js';
-import {bodyAppearances,bodyColorHex,bodyMaterialOptions,faceColorsByBody,importBodyAppearance,inheritBodyColors,remapBodyFaceColors,setBodyColor,setBodyFaceColor} from './body-appearance.js';
+import {bodyAppearances,bodyColorHex,bodyColorValue,bodyMaterialOptions,faceColorsByBody,importBodyAppearance,inheritBodyColors,remapBodyFaceColors,setBodyColor,setBodyFaceColor} from './body-appearance.js';
 import {bodyPaint,facePaintReference,prepareBodyPaint,samePaintedFace,updateBodyPaint} from './body-face-paint.js';
 import {createAutoColorDialog,createBodyColorDialog} from './body-color-dialog.js';
 import {automaticColorPlan} from './automatic-body-colors.js';
+import {CLEAR_COLOR} from './color-choice.js';
+import {setSlideLidTransparency} from './slide-lid-transparency.js';
 import {colorMeshSnapshot,createColor3mf} from './color-3mf.js';
 import {installProjectDrafts} from './project-drafts.js';
 import {readNamedDimensions,namedDimensionBinding,linkedDimensionFields,planNamedDimensionChange} from './named-dimensions.js';
@@ -699,7 +701,7 @@ function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();
   if(geometry!==brush.geometry)brush.geometry.dispose();
   if(qrGeometry!==geometry&&qrGeometry!==brush.geometry)qrGeometry.dispose();
   updateBodyPaint(geometry,baseColor);
-  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial(bodyMaterialOptions(style,{splitColor,vertexColors:!!bodyPaint(geometry),opaque:qrColors})));mesh.userData.bodyAppearance=style;mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;accelerateMeshPicking(mesh);mesh.visible=!hiddenBodies.has(id);
+  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial(bodyMaterialOptions(style,{splitColor,vertexColors:!!bodyPaint(geometry),opaque:qrColors,transparentFaces:geometry.attributes.color?.itemSize===4})));mesh.userData.bodyAppearance=style;mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;accelerateMeshPicking(mesh);mesh.visible=!hiddenBodies.has(id);
   const edges=new THREE.LineSegments(bodyEdges(mesh.geometry,28),new THREE.LineBasicMaterial({color:0x33332f,transparent:true,opacity:.85}));edges.geometry.userData.circularEdges=featureCircularEdges(features,id,edges.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges.geometry);edges.visible=showEdges;mesh.add(edges);modelGroup.add(mesh);meshes.set(id,mesh);triangles+=(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3;
  }
  refreshDrawingCoordinates(colorFeatures);
@@ -708,9 +710,16 @@ function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();
 const showBodyColorDialog=createBodyColorDialog();
 const showAutoColorDialog=createAutoColorDialog();
 let color3mfBusy=false;
-function displayBodyColor(mesh,color){
- if(bodyPaint(mesh.geometry))updateBodyPaint(mesh.geometry,color);
- else mesh.material.color.set(color);
+function displayBodyColor(mesh,appearance,splitColor){
+ const {geometry,material}=mesh,paint=bodyPaint(geometry);
+ const options=bodyMaterialOptions(appearance,{splitColor,vertexColors:!!paint,opaque:mesh.userData.qrColors,
+  transparentFaces:geometry.attributes.color?.itemSize===4});
+ const lid=mesh.userData.slideLidTransparent;
+ if(lid)setSlideLidTransparency(mesh,false);
+ material.setValues(options);
+ if(paint)updateBodyPaint(geometry,bodyMaterialOptions(appearance,{splitColor}).color);
+ material.needsUpdate=true;
+ if(lid)setSlideLidTransparency(mesh,true);
 }
 function applyBodyColorChanges(changes,{automatic=false}={}){
  let next=features;
@@ -732,7 +741,7 @@ function applyBodyColorChanges(changes,{automatic=false}={}){
  for(const id of changedIds){
   const mesh=meshes.get(id),appearance=appearances.get(id);
   mesh.userData.bodyAppearance=appearance;
-  displayBodyColor(mesh,bodyMaterialOptions(appearance,{splitColor:splitStyles.get(id)?.color}).color);
+  displayBodyColor(mesh,appearance,splitStyles.get(id)?.color);
  }
  clearBodySelection();
  clearFaceSelection();
@@ -751,13 +760,13 @@ function autoColorModel(){
   if(!mesh.geometry.boundingBox)mesh.geometry.computeBoundingBox();
   const dimensions=mesh.geometry.boundingBox.getSize(new THREE.Vector3()).toArray();
   const paint=bodyPaint(mesh.geometry),appearance=mesh.userData.bodyAppearance;
-  const baseColor=bodyColorHex(bodyMaterialOptions(appearance,{splitColor:splitStyles.get(id)?.color}).color);
+  const baseColor=bodyColorHex(bodyColorValue(appearance,splitStyles.get(id)?.color));
   parts.push({id,name:bodyDisplayName(id),dimensions,appearance,baseColor,hasBase:paint?.hasBase,surfaceColors:paint?.colors});
  }
  const highlights=[bodySelectionHighlight,...regionGroup.children.filter(child=>child.userData.multiFace)].filter(item=>item?.visible);
  const previewed=new Set();
  const clear=()=>{
-  for(const part of parts)if(previewed.has(part.id)&&features===original)displayBodyColor(meshes.get(part.id),part.baseColor);
+  for(const part of parts)if(previewed.has(part.id)&&features===original)displayBodyColor(meshes.get(part.id),part.appearance,splitStyles.get(part.id)?.color);
   previewed.clear();
   for(const item of highlights)item.visible=true;
  };
@@ -766,7 +775,7 @@ function autoColorModel(){
    clear();
    const plan=automaticColorPlan(parts,options);
    if(plan.changes.size)for(const item of highlights)item.visible=false;
-   for(const [id,color] of plan.changes){displayBodyColor(meshes.get(id),color);previewed.add(id);}
+   for(const [id,color] of plan.changes){displayBodyColor(meshes.get(id),{color,customColor:true});previewed.add(id);}
    return plan;
   },
   clear,
@@ -783,7 +792,7 @@ function openBodyColors(ids,focusId){
  const original=features,styles=sectionBodyStyles(features),first=meshes.get(ids[0]);
  if(!first)return;
  const name=ids.length===1?bodyDisplayName(ids[0]):ids.length+'個のボディを選択';
- const color=bodyColorHex(bodyMaterialOptions(first.userData.bodyAppearance,{splitColor:styles.get(ids[0])?.color}).color);
+ const color=bodyColorHex(bodyColorValue(first.userData.bodyAppearance,styles.get(ids[0])?.color));
  showBodyColorDialog({name,color,canReset:ids.some(id=>meshes.get(id)?.userData.bodyAppearance?.customColor),onApply:value=>{
   if(features!==original||stage!=='model'||!canSwitchSketchNumber()||ids.some(id=>!meshes.has(id)))return;
   try{
@@ -809,7 +818,7 @@ function openFaceColors(){
  }
  if(!targets.length||targets.length!==selectedFaces.length){notify('選択した面の色を変更できませんでした。');return;}
  const first=targets[0],style=meshes.get(first.id).userData.bodyAppearance;
- showBodyColorDialog({title:'面の色',name:targets.length+'面を選択',color:first.color??bodyColorHex(bodyMaterialOptions(style,{splitColor:sectionBodyStyles(features).get(first.id)?.color}).color),canReset:targets.some(target=>target.color),onApply:color=>{
+ showBodyColorDialog({title:'面の色',name:targets.length+'面を選択',color:first.color??bodyColorHex(bodyColorValue(style,sectionBodyStyles(features).get(first.id)?.color)),canReset:targets.some(target=>target.color),onApply:color=>{
   if(features!==original||stage!=='model'||!canSwitchSketchNumber())return;
   try{
    let next=features;
@@ -829,7 +838,9 @@ function bodyColorButton(id,mesh,splitColor){
  button.title='ボディの色を変更';
  const name=bodyDisplayName(id);
  button.setAttribute('aria-label',name+'の色を変更');
- button.style.setProperty('--body-color',bodyColorHex(bodyMaterialOptions(mesh.userData.bodyAppearance,{splitColor}).color));
+ const color=bodyColorHex(bodyColorValue(mesh.userData.bodyAppearance,splitColor));
+ if(color===CLEAR_COLOR){button.classList.add('is-clear-color');button.title='ボディの色を変更（透明）';}
+ else button.style.setProperty('--body-color',color);
  button.onclick=()=>openBodyColors([id],id);
  return button;
 }
@@ -875,7 +886,7 @@ $('reset-section-colors').onclick=()=>{
  const styles=sectionBodyStyles(features);if(![...meshes.keys()].some(id=>styles.has(id)))return;const colorize=![...meshes.keys()].some(id=>styles.get(id)?.color!==undefined);
  past.push(historySnapshot());if(past.length>40)past.shift();future=[];hideExtrusionNotice();
  features=features.map(f=>isSectionSplit(f)?{...f,spec:{...f.spec,colorize}}:f);
- const nextStyles=sectionBodyStyles(features);sectionControl?.beforeModelChange();for(const [id,mesh] of meshes){const splitColor=nextStyles.get(id)?.color,appearance=mesh.userData.bodyAppearance;mesh.material.setValues(bodyMaterialOptions(appearance,{splitColor,vertexColors:!!bodyPaint(mesh.geometry),opaque:mesh.userData.qrColors}));displayBodyColor(mesh,bodyMaterialOptions(appearance,{splitColor}).color);mesh.material.needsUpdate=true;}
+ const nextStyles=sectionBodyStyles(features);sectionControl?.beforeModelChange();for(const [id,mesh] of meshes){const splitColor=nextStyles.get(id)?.color,appearance=mesh.userData.bodyAppearance;displayBodyColor(mesh,appearance,splitColor);}
  modified=true;sectionControl?.refresh();renderTree();notify(colorize?'断面で分離したボディの色分けを表示しました。':'断面で分離したボディの色を通常の色に戻しました。');
 };
 const filletVisual=createFilletVisualPreview({scene,meshes,host,getFeatures:()=>features,getOverlays:()=>[regionGroup,sketchGroup,bodySelectionHighlight]});

@@ -45,4 +45,6 @@ test('print palette counts manual, imported and surface colors before assigning 
  assert.equal(registered.blocked,false);
  assert.ok([...registered.changes.values()].every(color=>spools.includes(color)));
  assert.deepEqual(automaticColorPlan(bodies,{limit:4,filaments:spools.slice(1)}).outside,['#00aaff']);
+ const clearPalette=automaticColorPlan(bodies,{limit:5,filaments:[...spools,'transparent']});
+ assert.equal(clearPalette.changes.get('c'),'transparent');
 });

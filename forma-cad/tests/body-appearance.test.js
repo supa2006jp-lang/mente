@@ -2,8 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
+import {strFromU8,unzipSync} from 'three/addons/libs/fflate.module.js';
 import {bodyAppearances,bodyMaterialOptions,faceColorsByBody,importBodyAppearance,inheritBodyColors,setBodyColor,setBodyFaceColor} from '../src/body-appearance.js';
 import {bodyPaint,facePaintReference,prepareBodyPaint,remapFacePaint,samePaintedFace,updateBodyPaint} from '../src/body-face-paint.js';
+import {colorMeshSnapshot,createColor3mf} from '../src/color-3mf.js';
+import {CLEAR_COLOR,CLEAR_OPACITY,CLEAR_RGB} from '../src/color-choice.js';
 
 test('existing file colours and glazing survive a save and a shape edit',()=>{
  const original=[
@@ -45,6 +48,25 @@ test('transparent bodies use their assigned colour without weakening section or 
  assert.equal(bodyMaterialOptions(glass,{splitColor:0x65a9d8}).opacity,1);
  assert.equal(bodyMaterialOptions(glass,{vertexColors:true}).color,0xffffff);
  assert.equal(bodyMaterialOptions().color,0xa3a197);
+});
+
+test('transparent paint affects only its selected faces and exports a distinct filament swatch',async()=>{
+ const source=new THREE.BoxGeometry(10,10,10);
+ const face={...facePaintReference(source,[{start:0,count:6}]),color:CLEAR_COLOR};
+ const geometry=prepareBodyPaint(source,[face]);
+ updateBodyPaint(geometry,CLEAR_RGB);
+ const attribute=geometry.attributes.color;
+ assert.equal(attribute.itemSize,4);
+ assert.equal(attribute.getW(0),Math.fround(CLEAR_OPACITY));
+ assert.equal(attribute.getW(6),1);
+ const mesh=new THREE.Mesh(geometry);
+ mesh.userData.bodyAppearance={color:CLEAR_RGB,customColor:true};
+ const {data,colorCount}=await createColor3mf([colorMeshSnapshot(mesh,'Test')]);
+ const xml=strFromU8(unzipSync(data)['3D/3dmodel.model']);
+ assert.equal(colorCount,2);
+ assert.match(xml,/<m:color color="#F0F4F7FF"/);
+ assert.match(xml,/<m:color color="#F0F4F8FF"/);
+ assert.equal(bodyMaterialOptions({color:CLEAR_COLOR,customColor:true}).opacity,CLEAR_OPACITY);
 });
 
 test('planar paint survives a new hole or depth change and leaves a split face for review',()=>{

@@ -1,3 +1,6 @@
+import {CLEAR_COLOR,CLEAR_OPACITY,colorChoiceRgb,isColorChoice} from './color-choice.js';
+import {remapFacePaint,samePaintedFace} from './body-face-paint.js';
+
 function bodyOutputs(feature){
  const result=feature.cadResult||(feature.kind==='cadop'?feature:null);
  return result?result.outputs.map(output=>output.id):
@@ -46,10 +49,10 @@ export function bodyAppearances(features){
   }
   for(const [id,style] of outputs){
    if(style)styles.set(id,style);
-   const color=readAppearance({color:own(feature.bodyColors,id)})?.color;
-   if(color)colors.set(id,color);
-   const generated=readAppearance({color:own(feature.automaticBodyColors,id)})?.color;
-   if(generated)automatic.set(id,generated);
+   const color=own(feature.bodyColors,id);
+   if(isColorChoice(color))colors.set(id,color.toLowerCase());
+   const generated=own(feature.automaticBodyColors,id);
+   if(isColorChoice(generated))automatic.set(id,generated.toLowerCase());
   }
  }
  // Apply an explicit color to its own body after resolving inherited appearance.
@@ -133,10 +136,14 @@ export function inheritBodyColors(features,before){
  });
 }
 
-export function bodyMaterialOptions(style,{splitColor,vertexColors=false,opaque=vertexColors}={}){
- const opacity=splitColor===undefined&&!opaque?style?.opacity??1:1;
- const color=style?.customColor?style.color:splitColor??style?.color??0xa3a197;
- return {color:vertexColors?0xffffff:color,vertexColors,
-  roughness:opacity<1?.28:.8,opacity,transparent:opacity<1,depthWrite:opacity===1};
+export function bodyColorValue(style,splitColor){
+ return style?.customColor?style.color:splitColor??style?.color??0xa3a197;
 }
-import {remapFacePaint,samePaintedFace} from './body-face-paint.js';
+
+export function bodyMaterialOptions(style,{splitColor,vertexColors=false,opaque=vertexColors,transparentFaces=false}={}){
+ const value=bodyColorValue(style,splitColor);
+ const opacity=value===CLEAR_COLOR?CLEAR_OPACITY:splitColor===undefined&&!opaque?style?.opacity??1:1;
+ const transparent=opacity<1||transparentFaces;
+ return {color:vertexColors?0xffffff:colorChoiceRgb(value),vertexColors,
+  roughness:opacity<1?.28:.8,opacity,transparent,depthWrite:!transparent};
+}

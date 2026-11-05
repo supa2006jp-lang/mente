@@ -1,3 +1,5 @@
+import {CLEAR_COLOR,colorChoiceRgb} from './color-choice.js';
+
 const natural={
  main:'#e3e6df',dark:'#303b43',metal:'#a4b3bc',glass:'#4b7f98',
  red:'#c5463c',amber:'#dd9535',yellow:'#e9c54a',light:'#d9e9ed',
@@ -47,7 +49,7 @@ function candidateColors(bodies,theme){
  return parts.map(part=>{
   const named=namedRoles.find(([,pattern])=>pattern.test(part.name))?.[0];
   const role=named??(theme==='contrast'?contrastRoles[unnamed++%contrastRoles.length]:shapeRole(part.dimensions,part.area,largestArea));
-  return {...part,preferred:palette[role]};
+  return {...part,role,preferred:palette[role]};
  });
 }
 
@@ -57,7 +59,7 @@ export function automaticBodyColors(bodies){
 
 function colorDistance(a,b){
  const channels=color=>[1,3,5].map(i=>parseInt(color.slice(i,i+2),16));
- const first=channels(a),second=channels(b);
+ const first=channels(colorChoiceRgb(a)),second=channels(colorChoiceRgb(b));
  return first.reduce((sum,value,i)=>sum+[.3,.59,.11][i]*(value-second[i])**2,0);
 }
 
@@ -76,7 +78,11 @@ export function automaticColorPlan(bodies,{theme='natural',limit=4,replace=true,
  if(available&&(!available.length||outside.length))return {changes,used,fixed,outside,blocked:true};
  const closest=(color,palette)=>palette.reduce((best,candidate)=>
   colorDistance(candidate,color)<colorDistance(best,color)?candidate:best);
- if(available)for(const part of eligible)part.preferred=closest(part.preferred,available);
+ if(available){
+  const solid=available.filter(color=>color!==CLEAR_COLOR);
+  for(const part of eligible)part.preferred=part.role==='glass'&&available.includes(CLEAR_COLOR)?
+   CLEAR_COLOR:closest(part.preferred,solid.length?solid:available);
+ }
  const weights=new Map();
  for(const {preferred,area} of eligible)weights.set(preferred,(weights.get(preferred)??0)+Math.max(1,area));
  const ranked=[...weights.keys()].sort((a,b)=>weights.get(b)-weights.get(a));

@@ -1,11 +1,12 @@
 import {bodyColorThemes} from './automatic-body-colors.js';
+import {CLEAR_COLOR,CLEAR_RGB,colorChoiceLabel,isColorChoice} from './color-choice.js';
 
 const filamentStorage='forma-cad.filament-palette';
 const defaultFilaments=['#ffffff','#222222','#c54343','#a6a6a6'];
 function readFilaments(){
  try{
   const saved=JSON.parse(localStorage.getItem(filamentStorage));
-  if(Array.isArray(saved)&&saved.length>0&&saved.length<=32&&saved.every(color=>typeof color==='string'&&/^#[0-9a-f]{6}$/i.test(color)))return saved;
+  if(Array.isArray(saved)&&saved.length>0&&saved.length<=32&&saved.every(isColorChoice))return saved;
  }catch{}
  return [...defaultFilaments];
 }
@@ -17,19 +18,27 @@ export function createBodyColorDialog(){
  dialog.innerHTML='<form><div class="dialog-heading"><h2 id="body-color-title">ボディの色</h2></div><p id="body-color-name"></p><label>色を選択 <input type="color" required></label><div class="editor-actions"><button type="button" data-reset>元の色に戻す</button><button type="button" data-cancel>キャンセル</button><button class="accent" type="submit">適用</button></div></form>';
  document.body.append(dialog);
  const input=dialog.querySelector('input'),reset=dialog.querySelector('[data-reset]');
+ const clearLabel=document.createElement('label');
+ clearLabel.className='clear-color-option';
+ clearLabel.innerHTML='<input type="checkbox"> 透明';
+ input.parentElement.after(clearLabel);
+ const clear=clearLabel.firstElementChild;
+ clear.onchange=()=>{input.disabled=clear.checked;};
  let apply;
  function finish(color){
   const callback=apply;
   dialog.close();
   callback?.(color);
  }
- dialog.querySelector('form').onsubmit=event=>{event.preventDefault();finish(input.value);};
+ dialog.querySelector('form').onsubmit=event=>{event.preventDefault();finish(clear.checked?CLEAR_COLOR:input.value);};
  reset.onclick=()=>finish(null);
  dialog.querySelector('[data-cancel]').onclick=()=>dialog.close();
  return function open({name,color,canReset,onApply,title='ボディの色'}){
   dialog.querySelector('#body-color-title').textContent=title;
   dialog.querySelector('#body-color-name').textContent=name;
-  input.value=color;
+  clear.checked=color===CLEAR_COLOR;
+  input.value=clear.checked?CLEAR_RGB:color;
+  clear.onchange();
   reset.disabled=!canReset;
   apply=onApply;
   dialog.showModal();
@@ -48,35 +57,51 @@ export function createAutoColorDialog(){
  const useFilaments=filamentToggle.firstElementChild;
  const filamentEditor=document.createElement('fieldset');
  filamentEditor.className='filament-palette-editor';
- filamentEditor.innerHTML='<legend>フィラメント色</legend><div data-filaments></div><button type="button" data-add-filament>色を追加</button>';
+ filamentEditor.innerHTML='<legend>フィラメント色</legend><div data-filaments></div><button type="button" data-add-filament>色を追加</button> <button type="button" data-add-clear>透明を追加</button>';
  form.querySelector('[data-status]').before(filamentToggle,filamentEditor);
  const filamentRows=filamentEditor.querySelector('[data-filaments]');
  const addFilament=filamentEditor.querySelector('[data-add-filament]');
+ const addClear=filamentEditor.querySelector('[data-add-clear]');
  const filaments=readFilaments();
  function saveFilaments(){
   try{localStorage.setItem(filamentStorage,JSON.stringify(filaments));}catch{}
  }
  function renderFilaments(){
   filamentRows.replaceChildren(...filaments.map((color,index)=>{
-   const label=document.createElement('div'),input=document.createElement('input'),remove=document.createElement('button');
-   input.type='color';
-   input.value=color;
-   input.setAttribute('aria-label','フィラメント色 '+(index+1));
-   input.oninput=()=>{filaments[index]=input.value;saveFilaments();};
+   const label=document.createElement('div'),remove=document.createElement('button');
+   if(color===CLEAR_COLOR){
+    const tag=document.createElement('span');
+    tag.className='clear-color-swatch';
+    tag.textContent='透明';
+    label.append(tag);
+   }else{
+    const input=document.createElement('input');
+    input.type='color';
+    input.value=color;
+    input.setAttribute('aria-label','フィラメント色 '+(index+1));
+    input.oninput=()=>{filaments[index]=input.value;saveFilaments();};
+    label.append(input);
+   }
    remove.type='button';
    remove.textContent='×';
    remove.disabled=filaments.length===1;
    remove.setAttribute('aria-label','色 '+(index+1)+'を削除');
    remove.onclick=()=>{filaments.splice(index,1);saveFilaments();renderFilaments();refresh();};
-   label.append(input,remove);
+   label.append(remove);
    return label;
   }));
   addFilament.disabled=filaments.length>=32;
+  addClear.disabled=addFilament.disabled||filaments.includes(CLEAR_COLOR);
  }
  addFilament.onclick=()=>{
   filaments.push(defaultFilaments.find(color=>!filaments.includes(color))??'#808080');
   saveFilaments();renderFilaments();refresh();
   filamentRows.lastElementChild?.firstElementChild?.focus();
+ };
+ addClear.onclick=()=>{
+  filaments.push(CLEAR_COLOR);
+  saveFilaments();renderFilaments();refresh();
+  filamentRows.lastElementChild?.querySelector('button')?.focus();
  };
  renderFilaments();
  for(const [id,label] of Object.entries(bodyColorThemes))theme.add(new Option(label,id));
@@ -88,12 +113,14 @@ export function createAutoColorDialog(){
   if(!current)options.clear();
   apply.disabled=!current||current.blocked||!current.changes.size;
   status.textContent=!current?'色数は1〜32の整数で指定してください。':current.outside?.length?
-   '保持する色のうち '+current.outside.map(color=>color.toUpperCase()).join('、')+' が未登録です。同じ色を登録するか、ボディや面の色を調整してください。':current.blocked?
+   '保持する色のうち '+current.outside.map(colorChoiceLabel).join('、')+' が未登録です。同じ色を登録するか、ボディや面の色を調整してください。':current.blocked?
    '保持する色が'+current.fixed.size+'色あります。色数の上限を上げてください。':
    current.used.size+'色を使用（上限 '+limit.valueAsNumber+'色）／ '+current.changes.size+'ボディを変更';
   palette.replaceChildren(...[...(current?.used??[])].map(color=>{
    const item=document.createElement('li'),swatch=document.createElement('span');
-   swatch.style.backgroundColor=color;item.append(swatch,color.toUpperCase());return item;
+   if(color===CLEAR_COLOR)swatch.className='clear-color-swatch';
+   else swatch.style.backgroundColor=color;
+   item.append(swatch,colorChoiceLabel(color));return item;
   }));
  }
  function finish(accept){

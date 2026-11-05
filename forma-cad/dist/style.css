@@ -451,6 +451,11 @@ header .filename #dirty{flex-shrink:0}
 #body-color-dialog form { display:grid; gap:12px; }
 #body-color-dialog p { margin:0; overflow-wrap:anywhere; }
 #body-color-dialog input[type=color] { width:64px; height:34px; padding:2px; cursor:pointer; }
+.clear-color-option { display:flex; align-items:center; gap:8px; }
+.clear-color-swatch,.body-color-button.is-clear-color::before {
+ background:repeating-conic-gradient(#f3f6f8 0% 25%,#9faebb 0% 50%) 0 0 / 8px 8px;
+}
+.filament-palette-editor .clear-color-swatch { padding:3px 6px; color:#182530; border-radius:3px; }
 #auto-color-dialog { position:fixed; width:min(375px,calc(100vw - 32px)); box-sizing:border-box; max-height:calc(100dvh - 32px); inset:16px 16px auto auto; margin:0; padding:16px; overflow:auto; background:#192733; color:#e2edf5; border:1px solid #63849b; border-radius:10px; box-shadow:0 8px 24px #0005; }
 #auto-color-dialog::backdrop { background:transparent; }
 #auto-color-dialog form { display:grid; gap:12px; }
