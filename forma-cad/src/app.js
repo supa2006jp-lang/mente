@@ -1,6 +1,7 @@
 import {referencePointIndex} from './reference-point-index.js';
 import {applyBodyMeshPaint,bodyAppearances,bodyColorHex,bodyColorValue,bodyMaterialOptions,faceColorsByBody,importBodyAppearance,inheritBodyColors,remapBodyFaceColors,setBodyColor,setBodyFaceColor} from './body-appearance.js';
 import {bodyPaint,facePaintReference,prepareBodyPaint,samePaintedFace} from './body-face-paint.js';
+import {syncBodyPaintRender} from './body-paint-render.js';
 import {createAutoColorDialog,createBodyColorDialog} from './body-color-dialog.js';
 import {automaticColorPlan} from './automatic-body-colors.js';
 import {colorChoiceLabel,colorChoiceRgb,isClearColor} from './color-choice.js';
@@ -545,7 +546,7 @@ $('extrusion-notice-edit').onclick=()=>{
 };
 $('extrusion-notice-close').onclick=hideExtrusionNotice;
 $('extrusion-notice-undo').onclick=()=>{const token=extrusionUndoToken;if(!token||features!==token.features||past.at(-1)!==token.previous){hideExtrusionNotice();return;}travel(false);hideExtrusionNotice();notify('押し出しを元に戻しました');};
-function disposeObject(o){o.traverse(n=>{n.geometry?.dispose();if(n.material){for(const m of Array.isArray(n.material)?n.material:[n.material]){m.map?.dispose();m.dispose();}}});o.removeFromParent();}
+function disposeObject(o){o.traverse(n=>{if(!n.userData.sharedGeometry)n.geometry?.dispose();if(n.material){for(const m of Array.isArray(n.material)?n.material:[n.material]){m.map?.dispose();m.dispose();}}});o.removeFromParent();}
 function dropPreview({keepExactEngine=false}={}){solidBoundaryFill?.clear();if(keepExactEngine)extrusionExactClient.cancelQueuedExtrusions();else if([...extrusionExactClient.pending.values()].some(p=>p.payload.spec?.type==='exactExtrusionPreview'))extrusionExactClient.reset();delete host.dataset.extrusionFastPreview;delete host.dataset.extrusionExactDepths;extrusionExactView.clear();barrierPreviewUI.invalidate();clearExtrusionEndHighlight();setExtrusionAssessment('idle','');$('extrusion-tip-size').textContent='先端寸法：計算中…';kernelClient.cancelQueuedExtrusions();clearTimeout(extrusionRemovalTimer);extrusionRemovalRevision++;delete host.dataset.extrusionRemovedCount;delete host.dataset.extrusionPreviewCount;delete host.dataset.contactPreviewRoles;delete host.dataset.barrierGapPreviewCount;delete host.dataset.barrierRangePreviewCount;for(const prefix of ['', 'viewport-']){$(prefix+'contact-legend').hidden=true;$(prefix+'barrier-gap-legend').hidden=true;}host.dataset.previewKind='none';if(preview){disposeObject(preview);preview=null;}}
 function scheduleExtrusionRemoval(batch,timingRun=null){
  const revision=extrusionRemovalRevision,group=preview,model=features,editingId=selected,ready=extrusionResultCache.getExact(model,batch,editingId),complex=batch.reduce((sum,f)=>sum+(f.region?.outer.length||f.points?.length||0)+(f.region?.holes.reduce((n,h)=>n+h.length,0)||0),0)>256;
@@ -701,7 +702,7 @@ function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();
   if(geometry!==brush.geometry)brush.geometry.dispose();
   if(qrGeometry!==geometry&&qrGeometry!==brush.geometry)qrGeometry.dispose();
   const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial(applyBodyMeshPaint(geometry,style,splitColor)));mesh.userData.bodyAppearance=style;mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;accelerateMeshPicking(mesh);mesh.visible=!hiddenBodies.has(id);
-  const edges=new THREE.LineSegments(bodyEdges(mesh.geometry,28),new THREE.LineBasicMaterial({color:0x33332f,transparent:true,opacity:.85}));edges.geometry.userData.circularEdges=featureCircularEdges(features,id,edges.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges.geometry);edges.visible=showEdges;mesh.add(edges);modelGroup.add(mesh);meshes.set(id,mesh);triangles+=(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3;
+  const edges=new THREE.LineSegments(bodyEdges(mesh.geometry,28),new THREE.LineBasicMaterial({color:0x33332f,transparent:true,opacity:.85}));edges.geometry.userData.circularEdges=featureCircularEdges(features,id,edges.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges.geometry);edges.visible=showEdges;mesh.add(edges);syncBodyPaintRender(mesh);modelGroup.add(mesh);meshes.set(id,mesh);triangles+=(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3;
  }
  refreshDrawingCoordinates(colorFeatures);
  host.dataset.qrColoredBodies=JSON.stringify([...meshes].filter(([,mesh])=>mesh.userData.qrColors).map(([id,mesh])=>({id,...mesh.geometry.userData.qrColors})));bodyDisplay?.rebuild();sectionControl?.refresh();imageReferences?.refresh();$('triangles').textContent=`${Math.round(triangles).toLocaleString()} 面`;
@@ -715,6 +716,7 @@ function displayBodyColor(mesh,appearance,splitColor){
  if(lid)setSlideLidTransparency(mesh,false);
  material.setValues(applyBodyMeshPaint(geometry,appearance,splitColor));
  material.needsUpdate=true;
+ syncBodyPaintRender(mesh);
  if(lid)setSlideLidTransparency(mesh,true);
 }
 function applyBodyColorChanges(changes,{automatic=false}={}){
