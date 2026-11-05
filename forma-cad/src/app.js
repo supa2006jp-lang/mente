@@ -1,6 +1,7 @@
 import {installProjectDrafts} from './project-drafts.js';
 import {readNamedDimensions,namedDimensionBinding,linkedDimensionFields,planNamedDimensionChange} from './named-dimensions.js';
 import {installFavoriteCommands} from './favorite-commands.js';
+let favoriteCommandsController=null;
 import {installNamedDimensionsView} from './named-dimensions-view.js';
 import {precisionPreviewMode} from './precision-preview-mode.js';
 import {recoverableMachiningSpec} from './failure-recovery-store.js';
@@ -931,6 +932,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(favoriteCommandsController?.escape())return;
  if(sketch&&$('profile').value==='point'&&boxSelection?.cancel()){down=null;return;}
  if(perpendicularSketchTool?.active){perpendicularSketchTool.cancel();return;}
  if(solidBoundaryFill?.active){solidBoundaryFill.close();return;}
@@ -4545,4 +4547,4 @@ projectDrafts=installProjectDrafts({
  }
 });
 
-installFavoriteCommands({bar:document.querySelector('.command-toolbar'),notify});
+favoriteCommandsController=installFavoriteCommands({bar:document.querySelector('.command-toolbar'),notify});
