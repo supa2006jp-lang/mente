@@ -415,3 +415,6 @@ header .filename #dirty{flex-shrink:0}
 #selection-box>[data-point-snap="end"]{left:var(--point-x);top:var(--point-y)}
 #selection-box>[data-point-snap="center"]{left:50%;top:50%}
 .viewport:has(#selection-box[data-point="true"]:not([hidden])) :is(#snap-icon,#snap-readout,#drawing-crosshair){visibility:hidden}
+
+/* Compact the sketch command row while retaining comfortable click targets. */
+.toolbar:has(.sketch-tools){height:50px;min-height:50px;max-height:50px}.toolbar:has(.sketch-tools) .toolset{gap:3px;padding-right:8px}.toolbar:has(.sketch-tools) .toolset button{padding:4px 9px;gap:6px;min-height:32px}.toolbar:has(.sketch-tools) .toolset button>span{font-size:22px;line-height:1}.toolbar:has(.sketch-tools) .cad-tool-icon{width:22px;height:22px;flex-basis:22px}
