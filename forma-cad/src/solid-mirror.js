@@ -23,11 +23,11 @@ export function mirrorSolids(bodies,spec,emit,onProgress){
    mirrored=base.clone().mirror(plane);
    if(mode==='ミラー＋結合'&&R.measureDistanceBetween(base,mirrored)<=1e-7){
     joined=fuseSolids([base,mirrored],{onProgress});const parts=joined.solids;
-    try{if(parts.length===1){emit(id,joined,id);results.push({bodyId:id,outputId:id,action:'joined'});continue;}}
+    try{if(parts.length===1){emit(id,joined,id,{ids:[id],additionalTransform:shape=>shape.clone().mirror(plane),existingOnly:true});results.push({bodyId:id,outputId:id,action:'joined'});continue;}}
     finally{parts.forEach(part=>part.delete());}
    }
    const outputId=mode==='反転移動'?id:index?spec.id+'-mirror-'+index:spec.id;
-   emit(outputId,mirrored,id);results.push({bodyId:id,outputId,action:mode==='反転移動'?'moved':'copied'});
+   emit(outputId,mirrored,id,{ids:[id],transform:shape=>shape.clone().mirror(plane),copyColor:outputId!==id});results.push({bodyId:id,outputId,action:mode==='反転移動'?'moved':'copied'});
   }finally{joined?.delete();mirrored?.delete();}
  }}finally{plane.delete();}
  return {...(exact?{mirrorPlane:exact}:{}),mirrors:results};

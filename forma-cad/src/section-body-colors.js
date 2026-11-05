@@ -10,7 +10,7 @@ export function sectionBodyColors(){
  return (meshes,enabled)=>{
   const colors=new Map([...meshes.keys()].map((id,index)=>[id,sectionBodyColor(index)])),current=new Set();
   function apply(object,id){
-   if(!object.isMesh||!object.material||!colors.has(id))return;
+   if(!object.isMesh||!object.material||!colors.has(id)||object.userData.volumeColor||object.parent?.userData.volumeColor)return;
    current.add(object);let entry=saved.get(object);
    if(!entry){const original=object.material,materials=(Array.isArray(original)?original:[original]).map(material=>material.clone());entry={original,materials};saved.set(object,entry);object.material=Array.isArray(original)?materials:materials[0];}
    for(const material of entry.materials){material.color?.setHex(colors.get(id));if(material.vertexColors){material.vertexColors=false;material.needsUpdate=true;}}

@@ -11,6 +11,8 @@ import {sectionBodyLabels,sectionBodyAnchor,sectionRetainedAnchor} from './secti
 import {sectionSketchPlane} from './section-sketch-plane.js';
 import {sketchSectionReverse} from './sketch-section-side.js';
 import * as THREE from 'three';
+import {volumeDisplayMeshes} from './volume-color-view.js';
+import {colorChoiceRgb} from './color-choice.js';
 export function sectionSegments(geometry,plane){
  const p=cadPosition(geometry),ix=geometry.index,out=[];const count=ix?ix.count:p.count;
  for(let i=0;i<count;i+=3){const vs=[0,1,2].map(j=>new THREE.Vector3().fromBufferAttribute(p,ix?ix.getX(i+j):i+j)),ds=vs.map(v=>{const d=plane.distanceToPoint(v);return Math.abs(d)<1e-7?0:d;}),hits=[];
@@ -117,7 +119,12 @@ export function sectionView({renderer,scene,meshes,raycaster,host,camera,getCont
    if(active&&mesh.visible){const localPlane=plane.clone().applyMatrix4(mesh.matrixWorld.clone().invert()),segments=sectionSegments(mesh.geometry,localPlane);
     if(segments.length){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(segments,3));const lines=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:identify?new THREE.Color(bodyColor).multiplyScalar(.65):0xe98322,depthTest:true}));lines.userData.sectionContour=true;lines.renderOrder=4;lines.matrixAutoUpdate=false;lines.matrix.copy(mesh.matrixWorld);group.add(lines);
      labelPoint=new THREE.Vector3(...segments.slice(0,3)).lerp(new THREE.Vector3(...segments.slice(3,6)),.5).applyMatrix4(mesh.matrixWorld);
-     const cap=sectionCap(segments,localPlane);if(cap.attributes.position.count){labelPoint=sectionBodyAnchor(cap,mesh.matrixWorld)||labelPoint;const color=bodyColor??(previewTarget?(keep==='positive'?sectionColors.positive:sectionColors.negative):0xeab777),fill=new THREE.Mesh(cap,new THREE.MeshBasicMaterial({color,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1}));fill.matrixAutoUpdate=false;fill.matrix.copy(mesh.matrixWorld);group.add(fill);}else cap.dispose();
+     const cap=sectionCap(segments,localPlane);if(cap.attributes.position.count){labelPoint=sectionBodyAnchor(cap,mesh.matrixWorld)||labelPoint;const color=bodyColor??(previewTarget?(keep==='positive'?sectionColors.positive:sectionColors.negative):0xeab777);
+      const addFill=(geometry,color)=>{const fill=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1}));fill.matrixAutoUpdate=false;fill.matrix.copy(mesh.matrixWorld);group.add(fill);};
+      const volumes=!previewTarget?volumeDisplayMeshes(mesh):[];
+      if(volumes.length){cap.dispose();for(const volume of volumes){const part=sectionCap(sectionSegments(volume.geometry,localPlane),localPlane);if(part.attributes.position.count)addFill(part,colorChoiceRgb(volume.userData.volumeColor));else part.dispose();}}
+      else addFill(cap,color);
+     }else cap.dispose();
     }
     if(identify)bodyEntries.push({id,name:getBodyName(id),color:bodyColor,point:labelPoint||sectionRetainedAnchor(mesh,plane)});
    }

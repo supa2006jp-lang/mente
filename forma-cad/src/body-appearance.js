@@ -1,3 +1,4 @@
+import {currentBodyMeshRecords} from './mesh-quality.js';
 import {CLEAR_OPACITY,colorChoiceRgb,isClearColor,isColorChoice} from './color-choice.js';
 import {bodyPaint,remapFacePaint,samePaintedFace,updateBodyPaint} from './body-face-paint.js';
 
@@ -49,6 +50,10 @@ export function bodyAppearances(features){
   }
   for(const [id,style] of outputs){
    if(style)styles.set(id,style);
+   const savedMaterial=result?.outputs?.find(output=>output.id===id)?.materialColor;
+   const material=isColorChoice(savedMaterial?.color)?{color:savedMaterial.color,
+    ...(Number.isFinite(savedMaterial.opacity)&&savedMaterial.opacity>=.1&&savedMaterial.opacity<1?{opacity:savedMaterial.opacity}:{})}:null;
+   if(material){styles.set(id,{...material,customColor:true});colors.delete(id);automatic.delete(id);}
    const color=own(feature.bodyColors,id);
    if(isColorChoice(color))colors.set(id,color.toLowerCase());
    const generated=own(feature.automaticBodyColors,id);
@@ -63,8 +68,7 @@ export function bodyAppearances(features){
 
 const paintFields=['bodyColors','automaticBodyColors','bodyFaceColors'];
 
-function setBodyPaint(features,id,field,update){
- const index=features.findIndex(feature=>bodyOutputs(feature).includes(id));
+function setBodyPaint(features,id,field,update,index=features.findIndex(feature=>bodyOutputs(feature).includes(id))){
  if(index<0)return features;
  const feature=features[index],previous=own(feature[field],id),value=update(previous);
  if(previous===value)return features;
@@ -75,8 +79,10 @@ function setBodyPaint(features,id,field,update){
 }
 
 export function setBodyColor(features,id,color,{automatic=false}={}){
- if(!automatic)features=setBodyPaint(features,id,'automaticBodyColors',()=>undefined);
- return setBodyPaint(features,id,automatic?'automaticBodyColors':'bodyColors',()=>color??undefined);
+ const record=currentBodyMeshRecords(features).get(id),painted=features.findLastIndex(feature=>bodyOutputs(feature).includes(id)&&(own(feature.bodyColors,id)!==undefined||own(feature.automaticBodyColors,id)!==undefined));
+ const index=record?.output?.materialParts||record?.output?.materialColor?record.index:painted>=0?painted:undefined;
+ if(!automatic)features=setBodyPaint(features,id,'automaticBodyColors',()=>undefined,index);
+ return setBodyPaint(features,id,automatic?'automaticBodyColors':'bodyColors',()=>color??undefined,index);
 }
 
 export function faceColorsByBody(features){

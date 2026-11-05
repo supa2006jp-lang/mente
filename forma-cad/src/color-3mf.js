@@ -19,7 +19,7 @@ export function colorMeshSnapshot(mesh,name){
 
 export async function createColor3mf(parts,{remesh,isCurrent=()=>true}={}){
  if(!parts.length)throw Error('表示中のソリッドがありません');
- const objects=[],palette=new Map();
+ const objects=[],palette=new Map(),build=[],groups=new Map();
  for(const [index,part] of parts.entries()){
   let mesh;
   try{mesh=indexedPrintSupportMesh(part);}catch(error){
@@ -43,6 +43,12 @@ export async function createColor3mf(parts,{remesh,isCurrent=()=>true}={}){
    triangles.push('<triangle v1="'+a+'" v2="'+b+'" v3="'+c+'" pid="1" p1="'+paint+'" p2="'+paint+'" p3="'+paint+'"/>');
   }
   objects.push('<object id="'+(index+2)+'" type="model" name="'+xmlAttribute(part.name)+'" pid="1" pindex="'+defaultIndex+'"><mesh><vertices>'+vertices.join('')+'</vertices><triangles>'+triangles.join('')+'</triangles></mesh></object>');
+  const entry={id:index+2,name:part.name,filament:defaultIndex+1};
+  if(part.group){
+   let group=groups.get(part.group.id);
+   if(!group){group={id:parts.length+2+groups.size,name:part.group.name,parts:[]};groups.set(part.group.id,group);build.push(group);}
+   group.parts.push(entry);
+  }else build.push(entry);
  }
  // Keep the chosen hue and give each filament a distinct swatch if RGB values coincide.
  const paletteColors=[...palette.keys()];
@@ -59,7 +65,13 @@ export async function createColor3mf(parts,{remesh,isCurrent=()=>true}={}){
   used.add(rgb);
   return '<m:color color="'+rgb.toUpperCase()+'FF"/>';
  }).join('');
- const items=objects.map((_,index)=>'<item objectid="'+(index+2)+'"/>').join('');
- const model='<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="ja" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02" requiredextensions="m"><metadata name="Application">FormaCAD</metadata><resources><m:colorgroup id="1">'+colors+'</m:colorgroup>'+objects.join('')+'</resources><build>'+items+'</build></model>';
- return {data:pack3mf(model),colorCount:palette.size};
+ for(const group of groups.values())objects.push('<object id="'+group.id+'" type="model" name="'+xmlAttribute(group.name)+'"><components>'+group.parts.map(part=>'<component objectid="'+part.id+'"/>').join('')+'</components></object>');
+ const items=build.map(({id})=>'<item objectid="'+id+'"/>').join('');
+ const bambu=groups.size?'<metadata name="BambuStudio:3mfVersion">1</metadata>':'';
+ const model='<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="ja" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02" requiredextensions="m"><metadata name="Application">FormaCAD</metadata>'+bambu+'<resources><m:colorgroup id="1">'+colors+'</m:colorgroup>'+objects.join('')+'</resources><build>'+items+'</build></model>';
+ const meta=(key,value)=>'<metadata key="'+key+'" value="'+xmlAttribute(String(value))+'"/>';
+ const objectsConfig=build.map(item=>'<object id="'+item.id+'">'+meta('name',item.name)+meta('extruder',item.filament??1)+(item.parts||[]).map(part=>'<part id="'+part.id+'" subtype="normal_part">'+meta('name',part.name)+meta('extruder',part.filament)+meta('matrix','1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1')+'</part>').join('')+'</object>').join('');
+ const plate='<plate>'+meta('plater_id',1)+build.map((item,index)=>'<model_instance>'+meta('object_id',item.id)+meta('instance_id',0)+meta('identify_id',index+1)+'</model_instance>').join('')+'</plate>';
+ const config=groups.size?{'Metadata/model_settings.config':'<?xml version="1.0" encoding="UTF-8"?><config>'+objectsConfig+plate+'</config>'}:undefined;
+ return {data:pack3mf(model,config),colorCount:palette.size};
 }

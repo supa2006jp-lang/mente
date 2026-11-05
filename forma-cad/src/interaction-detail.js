@@ -10,7 +10,7 @@ export function installInteractionDetail({scene,meshes,canvas,canUse,host}){
   if(!down||event.pointerId!==down.id||saved.length||!label.querySelector('input').checked||!canUse()||Math.hypot(event.clientX-down.x,event.clientY-down.y)<4)return;
   for(const mesh of meshes.values()){
    if(!mesh.visible||(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3<200000)continue;
-   const materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];if(materials.every(material=>!material.visible))continue;
+   const materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];if(materials.every(material=>!material.visible)&&!mesh.children.some(child=>child.visible&&child.userData.volumeColor&&child.material.visible))continue;
    const helper=new THREE.Box3Helper(new THREE.Box3().setFromObject(mesh),0x3f9bb0);helper.name='interactive-outline';scene.add(helper);helpers.push(helper);
    for(const object of [...materials,...mesh.children]){saved.push([object,object.visible]);object.visible=false;}
   }
