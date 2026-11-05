@@ -42,6 +42,7 @@ try{
   await page.locator('[data-view=front]').dispatchEvent('keydown',{key:'Enter'});
   await field('fit').click();
  }
+ let checkedCompactDefaults=false;
  async function startMove(additional=[]){
   await loadProject(additional);
   const rect=await page.locator('#canvas-host canvas').boundingBox();
@@ -53,6 +54,13 @@ try{
   await field('move-tool').click();
   await page.mouse.click(rect.x+(bodyCenter.x+1)*rect.width/2,rect.y+(1-bodyCenter.y)*rect.height/2);
   await field('move-x').fill('4');
+  if(!checkedCompactDefaults){
+   for(const id of ['move-point-settings','move-contact-options','move-rotation-options'])assert.equal(await field(id).getAttribute('open'),null);
+   const panel=await field('move-panel').boundingBox();assert(panel.height<700,'default panel should be compact');
+   if(process.env.FORMA_MOVE_SCREENSHOTS)await page.screenshot({path:'.sites-runtime/move-panel-compact.png'});
+   checkedCompactDefaults=true;
+  }
+  if(await field('move-rotation-options').getAttribute('open')===null)await field('move-rotation-options').locator(':scope > summary').click();
  }
  await startMove();
  const preview=async()=>JSON.parse(await field('canvas-host').getAttribute('data-move-preview'));
@@ -86,6 +94,7 @@ try{
  await checkMiddlePan();
 
  async function checkRotationDrag(customAxis=false){
+  if(await field('move-snap-settings').getAttribute('open')===null)await field('move-snap-settings').locator(':scope > summary').click();
   const host=field('canvas-host'),rect=await page.locator('#canvas-host canvas').boundingBox();
   const view=JSON.parse(await host.getAttribute('data-camera-state'));
   const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
@@ -445,6 +454,60 @@ try{
  assert(Math.abs(finalSpec.rotation[2]-30)<1e-7);
  assert.equal(await undoAlignment.isVisible(),false);
 
+ // Fit the actual translated and rotated preview, not the hidden original body.
+ await startMove();
+ await field('move-x').fill('1200');await field('move-y').fill('800');await field('move-z').fill('-100');await field('move-rz').fill('31');
+ const pending=await preview(),cameraBeforeFit=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
+ await field('move-fit-preview').click();
+ await page.waitForFunction(before=>document.getElementById('canvas-host').dataset.cameraState!==before,JSON.stringify(cameraBeforeFit));
+ const cameraAfterFit=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
+ assert(new THREE.Quaternion().fromArray(cameraBeforeFit,3).angleTo(new THREE.Quaternion().fromArray(cameraAfterFit,3))<1e-7);
+ assert.deepEqual(await preview(),pending,'fit must not alter the pending transform or pivot');
+ const viewport=await page.locator('#canvas-host canvas').boundingBox(),panelAfterFit=await field('move-panel').boundingBox();
+ const turn=new THREE.Quaternion().setFromEuler(new THREE.Euler(...pending.rotation,'ZYX'));
+ for(const x of [-19,19])for(const y of [-10,10])for(const z of [0,16]){
+  const corner=new THREE.Vector3(x,y,z).sub(new THREE.Vector3(...pending.pivot)).applyQuaternion(turn).add(new THREE.Vector3(...pending.position));
+  const [sx,sy]=await screen(corner);
+  assert(sx>viewport.x&&sx<panelAfterFit.x-8&&sy>viewport.y&&sy<viewport.y+viewport.height,'pending geometry must fit beside the panel');
+ }
+ await checkMiddlePan();
+ for(const axis of ['x','y','z','rz'])await field('move-'+axis).fill('0');
+ await field('move-fit-preview').click();
+ const distanceReadout=field('move-distance-readout');
+ async function checkTranslationReadout(sign){
+  const label=page.locator('#move-axis-labels [data-axis=X][data-sign="'+sign+'"]');
+  await label.waitFor({state:'visible'});
+  const bounds=await label.boundingBox(),at=await screen(new THREE.Vector3(...(await preview()).position));
+  const x=bounds.x+bounds.width/2-sign*38,y=at[1];
+  await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+sign*65,y,{steps:6});
+  assert(await distanceReadout.isVisible(),'translation drag should show its distance');
+  const value=Number(Number(await field('move-x').inputValue()).toFixed(2));
+  assert.equal((await distanceReadout.textContent()).split(' ✓')[0],'X'+(value<0?'−':'＋')+Math.abs(value)+' mm');
+  assert.equal(Number((await preview()).position[0].toFixed(5)),Number(await field('move-x').inputValue()));
+  if(sign===1&&process.env.FORMA_MOVE_SCREENSHOTS)await page.screenshot({path:'.sites-runtime/move-distance-drag.png'});
+  if(sign===-1){await page.evaluate(()=>window.dispatchEvent(new Event('blur')));assert.equal(await distanceReadout.isVisible(),false);}
+  await page.mouse.up();assert.equal(await distanceReadout.isVisible(),false);
+ }
+ await checkTranslationReadout(1);
+ await field('move-x').fill('0');await checkTranslationReadout(-1);
+
+ // Expanded settings may scroll, but fit, cancel and apply stay reachable.
+ await page.setViewportSize({width:1100,height:720});
+ await field('move-panel').locator('details').evaluateAll(items=>items.forEach(item=>item.open=true));
+ await page.locator('#move-panel .move-panel-scroll').evaluate(el=>el.scrollTop=el.scrollHeight);
+ const shortPanel=await field('move-panel').boundingBox();
+ for(const id of ['move-fit-preview','move-cancel','move-apply']){
+  const bounds=await field(id).boundingBox();
+  assert(bounds.y>=shortPanel.y&&bounds.y+bounds.height<=shortPanel.y+shortPanel.height+1&&bounds.y+bounds.height<=720);
+ }
+ assert(await page.locator('#move-panel .move-panel-scroll').evaluate(el=>el.scrollHeight>el.clientHeight));
+ if(process.env.FORMA_MOVE_SCREENSHOTS)await page.screenshot({path:'.sites-runtime/move-panel-short.png'});
+ const beforeCollapse=await preview();
+ await field('move-panel').locator('details').evaluateAll(items=>items.forEach(item=>item.open=false));
+ assert.deepEqual(await preview(),beforeCollapse,'folding settings must preserve the preview');
+ await field('move-cancel').click();
+ assert.equal(await distanceReadout.isVisible(),false);
+
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,inlineAngle:true,fixedAxisAlignment:true,impossibleAlignmentPreserved:true,alignmentFromPickedCenter:true,alignmentFromSketchPointAction:true,faceAlignmentHoverPreview:true,faceAlignmentColoredRoles:true,hoverCancellationPreservesPose:true,alignmentSignedAngle:true,alignmentReselectSource:true,alignmentReselectTarget:true,alignmentUndo:true,middlePanDuringMove:true,middlePanAfterViewReset:true,middlePanOverAxisCandidate:true,middlePanDuringFaceSelection:true,errors}));
+ console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,inlineAngle:true,fixedAxisAlignment:true,impossibleAlignmentPreserved:true,alignmentFromPickedCenter:true,alignmentFromSketchPointAction:true,faceAlignmentHoverPreview:true,faceAlignmentColoredRoles:true,hoverCancellationPreservesPose:true,alignmentSignedAngle:true,alignmentReselectSource:true,alignmentReselectTarget:true,alignmentUndo:true,middlePanDuringMove:true,middlePanAfterViewReset:true,middlePanOverAxisCandidate:true,middlePanDuringFaceSelection:true,compactMovePanel:true,persistentApplyControls:true,translationReadout:true,fitPendingPreview:true,fitPreservesTransform:true,errors}));
 }finally{await browser?.close();server.close();}

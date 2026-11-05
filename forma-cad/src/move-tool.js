@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {installMoveAxisLabels} from './move-axis-labels.js';
 import {createMoveRotationFeedback} from './move-rotation-feedback.js';
+import {createMoveDistanceFeedback} from './move-preview-view.js';
+import {compactMovePanel} from './move-panel-layout.js';
 import {movePlanarFace,rotationToParallelFaces} from './move-face-alignment.js';
 import {createMoveFaceAlignmentView} from './move-face-alignment-view.js';
 import {accelerateMeshPicking} from './mesh-picking.js';
@@ -13,10 +15,11 @@ import {movePointDistanceText} from './move-point-guide.js';
 import {roundPointMaterial} from './round-point-material.js';
 import {constrainMoveDelta,cursorMovePlane,cursorMovePoint,movePreviewChildMatrix,createMoveGhost,disposeMoveGhost} from './move-cursor.js';
 import {snapshotMoveReferences,transformedMoveReferences,findFreeMoveSnap,createFreeMoveSnapMarker} from './move-free-snap.js';
-export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=()=>[],expandSelection=ids=>ids,getBodyName=id=>id,getReferencePoints=()=>[],getReferenceLines=()=>[],getGridPlane=()=>({normal:[0,0,1],offset:0}),getGridSnap=()=>({enabled:false,step:10,plane:'XY'}),getControls,getSelectedEdge,onStart,onApply,onClose=()=>{}}){
+export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=()=>[],expandSelection=ids=>ids,getBodyName=id=>id,getReferencePoints=()=>[],getReferenceLines=()=>[],getGridPlane=()=>({normal:[0,0,1],offset:0}),getGridSnap=()=>({enabled:false,step:10,plane:'XY'}),getControls,getSelectedEdge,onStart,onApply,fitPreview=()=>{},onClose=()=>{}}){
  const control=new TransformControls(camera,canvas),helper=control.getHelper();scene.add(helper);control.setSize(.8);control.setSpace('world');control.enabled=false;
  installMoveAxisLabels(control,helper,camera,canvas,host);
  const rotationFeedback=createMoveRotationFeedback({scene,camera,canvas,host,onAngle:editRotationAngle});
+ const distanceFeedback=createMoveDistanceFeedback({camera,canvas,host});let panelLayout=null;
  const panel=document.createElement('form');panel.id='move-panel';panel.hidden=true;panel.innerHTML='<strong>移動／回転</strong><p id="move-hint">移動するボディをクリック</p><div class="move-modes"><button type="button" data-mode="translate">↔ 移動</button><button type="button" data-mode="rotate">↻ 回転</button></div><div class="move-fields">'+[['x','X移動 (mm)'],['rx','X回転 (°)'],['y','Y移動 (mm)'],['ry','Y回転 (°)'],['z','Z移動 (mm)'],['rz','Z回転 (°)']].map(([id,label])=>'<label>'+label+'<input id="move-'+id+'" type="number" step="any" value="0" required min="-10000" max="10000"></label>').join('')+'</div><small id="move-rotation-help">矢印・平面ハンドルで移動、リングで回転。回転中心はボディの中心です。ホイールで拡大・縮小。</small><p id="move-error" role="alert"></p><div><button type="button" id="move-cancel">キャンセル</button><button id="move-apply" type="submit">確定</button></div>';host.parentElement.append(panel);
  const methodLabel=document.createElement('label');methodLabel.className='move-method';methodLabel.innerHTML='操作<select id="move-method"><option value="move">移動</option><option value="copy">複製して移動</option></select>';panel.querySelector('.move-modes').before(methodLabel);
  const method=panel.querySelector('#move-method'),reverseLabel=document.createElement('label');reverseLabel.className='move-reverse';reverseLabel.hidden=true;reverseLabel.innerHTML='<input id="move-reverse-copy" type="checkbox">移動方向に対して鏡写しに複製';methodLabel.after(reverseLabel);const reverse=panel.querySelector('#move-reverse-copy');
@@ -311,9 +314,9 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   world.addScaledVector(axis,-world.dot(axis));
   return world.lengthSq()>1e-8?world.normalize():null;
  }
- function clearPreview(){alignmentUndo=null;alignmentResult=null;undoAlignmentButton.hidden=true;clearFaceAlignment();finishRotationDrag();rotationEdit=null;rotationFeedback.clear();drawAxisGuide(null);contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=originalVisibility.get(mesh)??true;originalVisibility.clear();if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
+ function clearPreview(){distanceFeedback.hide();alignmentUndo=null;alignmentResult=null;undoAlignmentButton.hidden=true;clearFaceAlignment();finishRotationDrag();rotationEdit=null;rotationFeedback.clear();drawAxisGuide(null);contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=originalVisibility.get(mesh)??true;originalVisibility.clear();if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
  function close(force=false,applied=false){if(busy&&!force)return;finishFreeMove(false);const targets=originals.map(m=>m.userData.bodyId);++revision;busy=false;control.dragging=false;control.axis=null;if(dragPointer&&canvas.hasPointerCapture(dragPointer.id))canvas.releasePointerCapture(dragPointer.id);dragPointer=null;pointMove=null;pickingCenter=false;closeCenterPicker();closePointPicker();pickingAxis=false;closeAxisPicker();clearPreview();active=false;control.enabled=false;panel.hidden=true;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;getControls().enabled=enabledBefore;host.dataset.moveActive='false';delete host.dataset.movePreview;onClose({targets,applied,force});}
- function mode(value){if(value!=='rotate'){finishRotationDrag();rotationEdit=null;rotationFeedback.clear();}rotationStepLabel.hidden=value!=='rotate';control.setMode(value);control.setSpace(edgeAxis&&value==='rotate'?'local':'world');control.showX=control.showY=!(edgeAxis&&value==='rotate');control.showZ=true;for(const button of panel.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===value));refreshRotationAngle();}
+ function mode(value){distanceFeedback.hide();panelLayout?.setMode(value);if(value!=='rotate'){finishRotationDrag();rotationEdit=null;rotationFeedback.clear();}rotationStepLabel.hidden=value!=='rotate';control.setMode(value);control.setSpace(edgeAxis&&value==='rotate'?'local':'world');control.showX=control.showY=!(edgeAxis&&value==='rotate');control.showZ=true;for(const button of panel.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===value));refreshRotationAngle();}
  for(const button of panel.querySelectorAll('[data-mode]'))button.onclick=()=>{finishFreeMove(false);stopPointModes();mode(button.dataset.mode);};
  function mark(){contactMove=null;delete host.dataset.moveUntilContact;updateContactButtons();if(pointResult)closePointPicker();hideGhost();reflectPreview();host.dataset.movePreview=JSON.stringify({copy:copying(),reverseCopy:copying()&&reverse.checked,targets:originals.map(m=>m.userData.bodyId),position:proxy.position.toArray(),rotation:degrees().map(x=>x*Math.PI/180),edgeAxis:edgeAxis?.toArray(),pivot:center.toArray(),hingeAngle:edgeAxis?edgeAngle:null});updateGroundButton();updateAxisGuide();updateFaceAlignButton();rotationFeedback.updateOutline(rotation());refreshRotationAngle();}
  function select(selection){
@@ -405,6 +408,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   });
   if(edgeAxis)edgeInput.value=control.dragging?rotationAngleText(edgeAngle):String(Number(edgeAngle.toFixed(10)));
   mark();
+  if(control.dragging&&control.mode==='translate')distanceFeedback.show(d,control.axis,new THREE.Box3().setFromObject(proxy).getCenter(new THREE.Vector3()),!!(host.dataset.moveGridSnap||host.dataset.moveContactSnap));
  }
  function applyRotationSample(){
   if(!rotationSample)return;
@@ -431,7 +435,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   rotationAlt=held;
   if(rotationSample){applyRotationSample();syncDragPreview();}
  });
- window.addEventListener('blur',()=>{if(control.dragging&&control.mode==='rotate')control.pointerUp(null);});
+ window.addEventListener('blur',()=>{if(control.dragging)control.pointerUp(null);});
  control.addEventListener('mouseDown',()=>{
   dragStartPosition=proxy?.position.clone()||null;dragStartBounds=proxy?new THREE.Box3().setFromObject(proxy):null;
   dragStartRotation=proxy&&control.mode==='rotate'?rotation():null;
@@ -445,8 +449,8 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
     cameraPosition:camera.position.clone(),cameraQuaternion:camera.quaternion.clone(),cameraZoom:camera.zoom};
   }else dragHinge=null;
  });
- control.addEventListener('mouseUp',()=>{finishRotationDrag(true);if(edgeAxis&&control.mode==='rotate')edgeInput.value=String(Number(edgeAngle.toFixed(10)));dragStartPosition=null;dragStartBounds=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;});
- canvas.addEventListener('pointercancel',event=>{if(control.dragging&&control.mode==='rotate'&&event.pointerId===dragPointer?.id)control.pointerUp(null);});
+ control.addEventListener('mouseUp',()=>{distanceFeedback.hide();finishRotationDrag(true);if(edgeAxis&&control.mode==='rotate')edgeInput.value=String(Number(edgeAngle.toFixed(10)));dragStartPosition=null;dragStartBounds=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;});
+ canvas.addEventListener('pointercancel',event=>{if(control.dragging&&event.pointerId===dragPointer?.id)control.pointerUp(null);});
  control.addEventListener('objectChange',()=>{if(!proxy)return;
  if(control.dragging&&dragHinge){
   const changedCamera=dragHinge.cameraPosition.distanceToSquared(camera.position)>1e-10||Math.abs(dragHinge.cameraQuaternion.dot(camera.quaternion))<1-1e-10||Math.abs(dragHinge.cameraZoom-camera.zoom)>1e-10;
@@ -773,6 +777,10 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  window.addEventListener('keydown',e=>{if(active&&e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(!escape())close();}},{capture:true});
  window.addEventListener('keydown',e=>{if(!active||e.key==='Escape'||rotationFeedback.editing)return;if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){if(busy){e.preventDefault();e.stopImmediatePropagation();}else close();}else if(!e.target.matches?.('input,select,textarea')&&['e','l'].includes(e.key.toLowerCase())){e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
  document.addEventListener('click',e=>{if(active&&e.target.closest('.toolbar, .command-toolbar')&&!e.target.closest('#move-tool'))close();},{capture:true});
+ panelLayout=compactMovePanel({panel,contactPanel,moveOptions,rotationOptions,rotationStepLabel,rotationHelp,onFit:()=>{
+  if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}
+  proxy.updateMatrixWorld(true);fitPreview(new THREE.Box3().setFromObject(proxy),panel);
+ }});
  return {start,fromPoint(reference,action='rotate'){
   if(busy)return;if(!['rotate','origin'].includes(action)||!Array.isArray(reference?.point)||reference.point.length!==3||!reference.point.every(Number.isFinite))throw Error('有効な中心・中点を選択してください');
   const point=[...reference.point],bodyId=reference.bodyId;if(active)close();start();chosenEdge=null;chosenAxisPivot=null;chosenCenter=point;pointAction=action;
