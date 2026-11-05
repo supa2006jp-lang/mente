@@ -1,6 +1,7 @@
 import {cadPosition} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {findPanelSpace} from './panel-placement.js';
+import {SECTION_LABEL_LIMIT,sectionLabelIndices} from './section-label-layout.js';
 
 // A triangle centroid lies in the material, unlike a face's bounding-box centre
 // which can be inside a screw hole or between disconnected pieces.
@@ -27,6 +28,9 @@ export function sectionBodyLabels({host,camera,legend}){
    const color='#'+entry.color.toString(16).padStart(6,'0'),row=document.createElement('div'),swatch=document.createElement('i'),name=document.createElement('span');swatch.style.background=color;swatch.setAttribute('aria-hidden','true');name.textContent=entry.name;row.append(swatch,name);legend.append(row);
    const label=document.createElement('span'),line=document.createElementNS(ns,'line');label.className='section-body-label';label.dataset.bodyId=entry.id;label.textContent=entry.name;label.title=entry.name;label.style.setProperty('--body-color',color);line.setAttribute('stroke',color);line.setAttribute('stroke-width','1.5');svg.append(line);layer.append(label);nodes.push({...entry,label,line});
   }
+  if(entries.length>SECTION_LABEL_LIMIT){const hint=document.createElement('small');hint.textContent='画面の名前は中央に近い最大'+SECTION_LABEL_LIMIT+'個を表示します。全ボディはこの一覧で確認できます。';legend.prepend(hint);}
+  host.dataset.sectionLabelLimit=String(SECTION_LABEL_LIMIT);
+  host.dataset.sectionLabelCount='0';
   update();
  }
  function update(){
@@ -34,14 +38,17 @@ export function sectionBodyLabels({host,camera,legend}){
   const width=host.clientWidth,height=host.clientHeight,r=host.getBoundingClientRect(),obstacles=[];
   for(const element of host.parentElement.querySelectorAll('#section-panel,#measurement,#snap-controls,.navigation,#reference-plane-control,.view-cube,.viewport-title')){if(element.hidden)continue;const b=element.getBoundingClientRect();if(b.width&&b.height)obstacles.push({left:b.left-r.left,top:b.top-r.top,right:b.right-r.left,bottom:b.bottom-r.top});}
   const points=nodes.map(node=>node.point?.clone().project(camera)),key=JSON.stringify([width,height,camera.matrixWorld.elements,camera.projectionMatrix.elements,obstacles]);if(key===signature)return;signature=key;
+  const shown=sectionLabelIndices(points);let count=0;
   for(const [i,node] of nodes.entries()){
-   const p=points[i],visible=p&&p.z>=-1&&p.z<=1&&Math.abs(p.x)<=1&&Math.abs(p.y)<=1;
+   const p=points[i],visible=shown.has(i);
    node.label.hidden=!visible;node.line.style.display=visible?'':'none';if(!visible)continue;
    const anchor={x:(p.x+1)*width/2,y:(1-p.y)*height/2},w=node.label.offsetWidth,h=node.label.offsetHeight,position=findPanelSpace({width,height,panelWidth:w,panelHeight:h,obstacles,anchor,margin:6,gap:5});
    node.label.hidden=!position;node.line.style.display=position?'':'none';if(!position)continue;
    node.label.style.left=position.x+'px';node.label.style.top=position.y+'px';obstacles.push({left:position.x,top:position.y,right:position.x+w,bottom:position.y+h});
+   count++;
    for(const [key,value] of Object.entries({x1:anchor.x,y1:anchor.y,x2:Math.max(position.x,Math.min(position.x+w,anchor.x)),y2:Math.max(position.y,Math.min(position.y+h,anchor.y))}))node.line.setAttribute(key,String(value));
   }
+  host.dataset.sectionLabelCount=String(count);
  }
  return {set,update};
 }
