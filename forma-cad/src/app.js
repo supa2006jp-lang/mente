@@ -334,7 +334,7 @@ import {sketchIntersections} from './sketch-intersections.js';
 import {bodyEdges} from './body-edges.js';
 import {featureCircularEdges} from './circular-edges.js';
 import {solidReferencePoints} from './reference-points.js';
-import {roundPointMaterial} from './round-point-material.js';
+import {roundPointMaterial,sketchPointMaterial} from './round-point-material.js';
 import {offsetSketch,offsetSketchAllAround} from './sketch-offset.js';
 import {offsetExtrusionRegions,replaceOffsetSources,offsetDragReferences} from './sketch-offset-workflow.js';
 import {createSketchOffsetDrag} from './sketch-offset-drag.js';
@@ -679,7 +679,7 @@ function renderTree(){const splitStyles=sectionBodyStyles(editingSectionSplitId?
  for(const feature of features.filter(f=>f.kind==='sketch'&&!f.groupHidden)){
   const geometry=makeSketchGeometry(feature),isPoint=feature.profile==='point';
   const object=isPoint
-   ?new THREE.Points(geometry,roundPointMaterial({color:0xa04dcc,size:8,sizeAttenuation:false,depthTest:false}))
+   ?new THREE.Points(geometry,sketchPointMaterial())
    :sketchLine(geometry,{color:feature.construction?0x8a65b5:feature.id===selected?0x00799f:0x245d99,construction:!!feature.construction,planeNormal:basisFor(feature).n});
   // Render points above the wide sketch strokes, including the selection highlight.
   if(isPoint)object.renderOrder=9.5;

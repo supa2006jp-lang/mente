@@ -11,7 +11,7 @@ import {runOperation} from '../src/kernel.js';
 import {sketchSegments} from '../src/sketch-selection.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const output='.sites-runtime/sketch-point-over-lines';
+const output='.sites-runtime/sketch-point-outline';
 await fs.mkdir(output,{recursive:true});
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -398,13 +398,18 @@ try{
  }
  async function assertVisiblePoint(label){
   const image=(await page.screenshot()).toString('base64');
-  const [r,g,b]=await page.evaluate(async({image,pointPixel:[x,y]})=>{
+  const [center,...border]=await page.evaluate(async({image,pointPixel:[x,y]})=>{
    const screenshot=new Image();screenshot.src='data:image/png;base64,'+image;await screenshot.decode();
    const canvas=document.createElement('canvas');canvas.width=screenshot.width;canvas.height=screenshot.height;
    const ctx=canvas.getContext('2d');ctx.drawImage(screenshot,0,0);
-   return Array.from(ctx.getImageData(Math.round(x),Math.round(y),1,1).data);
+   const pixels=ctx.getImageData(Math.round(x)-5,Math.round(y),11,1).data;
+   return [5,0,1,9,10].map(i=>Array.from(pixels.slice(4*i,4*i+3)));
   },{image,pointPixel});
-  assert(r>g+55&&b>r+20,label+': point center should be purple, got '+[r,g,b]);
+  const [r,g,b]=center;
+  assert(r>g+55&&b>r+20,label+': point center should be purple, got '+center);
+  const isWhite=pixel=>pixel.every(channel=>channel>240);
+  assert(border.slice(0,2).some(isWhite)&&border.slice(2).some(isWhite),
+   label+': white outline should show on both sides over the line, got '+JSON.stringify(border));
  }
  await page.mouse.click(...lineStart);
  await page.mouse.move(lineEnd[0],lineEnd[1],{steps:12});
@@ -425,7 +430,7 @@ try{
  pointPixel=(await sketchScreen())(0,0);
  await assertVisiblePoint('reloaded line');
  assert.deepEqual(errors,[]);
- const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,pointSnapMarks:true,obliqueEdgeSnap:true,channelFrontSnap:true,pointVisibleOverLine:true,clickStillWorks:true,escapeCancelsRange:true,errors};
+ const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,pointSnapMarks:true,obliqueEdgeSnap:true,channelFrontSnap:true,pointVisibleOverLine:true,pointOutline:true,clickStillWorks:true,escapeCancelsRange:true,errors};
  await fs.writeFile(output+'/proof.json',JSON.stringify(proof,null,2)+'\n');
  console.log(JSON.stringify(proof));
 }finally{await browser?.close();server.close();}

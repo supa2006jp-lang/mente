@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {sketchPointSize} from './round-point-material.js';
 import {contactCurves,contactNative} from './sketch-contact-curves.js';
 import {basisFor,worldPoint} from './frames.js';
 import {planeCoordinates} from './regions.js';
@@ -39,7 +40,7 @@ export function createSketchConstraintOverlay({camera,canvas,onEdge,onVertex,onB
     const area={x:r.left,y:r.top,width:r.width,height:r.height},maskId='sketch-constraint-point-mask';
     const mask=element('mask',{id:maskId,maskUnits:'userSpaceOnUse',...area});
     mask.append(element('rect',{...area,fill:'white'}));
-    for(const p of points)mask.append(element('circle',{cx:p.x,cy:p.y,r:4.5,fill:'black'}));
+    for(const p of points)mask.append(element('circle',{cx:p.x,cy:p.y,r:sketchPointSize/2,fill:'black'}));
     defs.append(mask);strokes.setAttribute('mask','url(#'+maskId+')');
    }
   }
