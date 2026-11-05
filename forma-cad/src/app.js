@@ -1,6 +1,6 @@
 import {referencePointIndex} from './reference-point-index.js';
-import {bodyAppearances,bodyColorHex,bodyColorValue,bodyMaterialOptions,faceColorsByBody,importBodyAppearance,inheritBodyColors,remapBodyFaceColors,setBodyColor,setBodyFaceColor} from './body-appearance.js';
-import {bodyPaint,facePaintReference,prepareBodyPaint,samePaintedFace,updateBodyPaint} from './body-face-paint.js';
+import {applyBodyMeshPaint,bodyAppearances,bodyColorHex,bodyColorValue,bodyMaterialOptions,faceColorsByBody,importBodyAppearance,inheritBodyColors,remapBodyFaceColors,setBodyColor,setBodyFaceColor} from './body-appearance.js';
+import {bodyPaint,facePaintReference,prepareBodyPaint,samePaintedFace} from './body-face-paint.js';
 import {createAutoColorDialog,createBodyColorDialog} from './body-color-dialog.js';
 import {automaticColorPlan} from './automatic-body-colors.js';
 import {colorChoiceLabel,colorChoiceRgb,isClearColor} from './color-choice.js';
@@ -700,8 +700,7 @@ function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();
   const geometry=prepareBodyPaint(qrGeometry,faceColors.get(id)),qrColors=!!geometry.userData.qrColors;
   if(geometry!==brush.geometry)brush.geometry.dispose();
   if(qrGeometry!==geometry&&qrGeometry!==brush.geometry)qrGeometry.dispose();
-  updateBodyPaint(geometry,baseColor);
-  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial(bodyMaterialOptions(style,{splitColor,vertexColors:!!bodyPaint(geometry),opaque:qrColors,transparentFaces:geometry.attributes.color?.itemSize===4})));mesh.userData.bodyAppearance=style;mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;accelerateMeshPicking(mesh);mesh.visible=!hiddenBodies.has(id);
+  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial(applyBodyMeshPaint(geometry,style,splitColor)));mesh.userData.bodyAppearance=style;mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;accelerateMeshPicking(mesh);mesh.visible=!hiddenBodies.has(id);
   const edges=new THREE.LineSegments(bodyEdges(mesh.geometry,28),new THREE.LineBasicMaterial({color:0x33332f,transparent:true,opacity:.85}));edges.geometry.userData.circularEdges=featureCircularEdges(features,id,edges.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges.geometry);edges.visible=showEdges;mesh.add(edges);modelGroup.add(mesh);meshes.set(id,mesh);triangles+=(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3;
  }
  refreshDrawingCoordinates(colorFeatures);
@@ -711,13 +710,10 @@ const showBodyColorDialog=createBodyColorDialog();
 const showAutoColorDialog=createAutoColorDialog();
 let color3mfBusy=false;
 function displayBodyColor(mesh,appearance,splitColor){
- const {geometry,material}=mesh,paint=bodyPaint(geometry);
- const options=bodyMaterialOptions(appearance,{splitColor,vertexColors:!!paint,opaque:mesh.userData.qrColors,
-  transparentFaces:geometry.attributes.color?.itemSize===4});
+ const {geometry,material}=mesh;
  const lid=mesh.userData.slideLidTransparent;
  if(lid)setSlideLidTransparency(mesh,false);
- material.setValues(options);
- if(paint)updateBodyPaint(geometry,bodyMaterialOptions(appearance,{splitColor}).color);
+ material.setValues(applyBodyMeshPaint(geometry,appearance,splitColor));
  material.needsUpdate=true;
  if(lid)setSlideLidTransparency(mesh,true);
 }

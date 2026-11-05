@@ -154,13 +154,15 @@ export function prepareBodyPaint(source,faces=[]){
 
 export function bodyPaint(geometry){return paintByGeometry.get(geometry);}
 
-export function updateBodyPaint(geometry,base){
+export function updateBodyPaint(geometry,base,baseOpacity=1){
  const paint=bodyPaint(geometry);
  if(!paint)return;
- const hasAlpha=paint.colors.some(isClearColor),size=hasAlpha?4:3;
- const colors=[base,...paint.palette].map(color=>{
+ // Store the alpha of each face explicitly so painted faces can override the body.
+ const hasAlpha=paint.layers.length>0,size=hasAlpha?4:3;
+ paint.transparent=(paint.hasBase&&baseOpacity<1)||paint.colors.some(isClearColor);
+ const colors=[base,...paint.palette].map((color,index)=>{
   const rgb=new THREE.Color(colorChoiceRgb(color)).toArray();
-  return [...rgb,isClearColor(color)?CLEAR_OPACITY:1];
+  return [...rgb,index===0?baseOpacity:isClearColor(color)?CLEAR_OPACITY:1];
  });
  let attr=geometry.getAttribute('color');
  if(attr?.itemSize!==size){

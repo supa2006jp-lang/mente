@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {strFromU8,unzipSync} from 'three/addons/libs/fflate.module.js';
-import {bodyAppearances,bodyMaterialOptions,faceColorsByBody,importBodyAppearance,inheritBodyColors,setBodyColor,setBodyFaceColor} from '../src/body-appearance.js';
+import {applyBodyMeshPaint,bodyAppearances,bodyMaterialOptions,bodyMeshMaterialOptions,faceColorsByBody,importBodyAppearance,inheritBodyColors,setBodyColor,setBodyFaceColor} from '../src/body-appearance.js';
 import {bodyPaint,facePaintReference,prepareBodyPaint,remapFacePaint,samePaintedFace,updateBodyPaint} from '../src/body-face-paint.js';
 import {colorMeshSnapshot,createColor3mf} from '../src/color-3mf.js';
 import {CLEAR_COLOR,CLEAR_OPACITY,CLEAR_RGB,clearColor} from '../src/color-choice.js';
@@ -75,6 +75,23 @@ test('transparent paint affects only its selected faces and exports a distinct f
  assert.equal(bodyMaterialOptions({color:tinted,customColor:true}).color,blue);
  const result=await createColor3mf([colorMeshSnapshot(new THREE.Mesh(blueFace),'Tinted')]);
  assert.match(strFromU8(unzipSync(result.data)['3D/3dmodel.model']),/<m:color color="#2288EEFF"/);
+});
+
+test('opaque face paint overrides a transparent body without affecting the other faces',()=>{
+ const source=new THREE.BoxGeometry(10,10,10);
+ const face={...facePaintReference(source,[{start:0,count:6}]),color:'#cc2211'};
+ const geometry=prepareBodyPaint(source,[face]);
+ const tinted={color:clearColor('#1177aa'),customColor:true};
+ const material=applyBodyMeshPaint(geometry,tinted);
+ const attribute=geometry.attributes.color;
+ assert.equal(attribute.getW(0),1);
+ assert.equal(attribute.getW(6),Math.fround(CLEAR_OPACITY));
+ assert.equal(material.opacity,1);
+ assert.equal(material.transparent,true);
+ assert.deepEqual(bodyMeshMaterialOptions(geometry,tinted),material);
+ const opaque=applyBodyMeshPaint(geometry,{color:'#1177aa',customColor:true});
+ assert.equal(opaque.transparent,false);
+ assert.equal(attribute.getW(6),1);
 });
 
 test('planar paint survives a new hole or depth change and leaves a split face for review',()=>{

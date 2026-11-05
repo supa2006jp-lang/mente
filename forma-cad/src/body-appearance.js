@@ -1,5 +1,5 @@
 import {CLEAR_OPACITY,colorChoiceRgb,isClearColor,isColorChoice} from './color-choice.js';
-import {remapFacePaint,samePaintedFace} from './body-face-paint.js';
+import {bodyPaint,remapFacePaint,samePaintedFace,updateBodyPaint} from './body-face-paint.js';
 
 function bodyOutputs(feature){
  const result=feature.cadResult||(feature.kind==='cadop'?feature:null);
@@ -140,10 +140,26 @@ export function bodyColorValue(style,splitColor){
  return style?.customColor?style.color:splitColor??style?.color??0xa3a197;
 }
 
-export function bodyMaterialOptions(style,{splitColor,vertexColors=false,opaque=vertexColors,transparentFaces=false}={}){
+export function bodyMaterialOptions(style,{splitColor,vertexColors=false,opaque=vertexColors}={}){
  const value=bodyColorValue(style,splitColor);
  const opacity=isClearColor(value)?CLEAR_OPACITY:splitColor===undefined&&!opaque?style?.opacity??1:1;
- const transparent=opacity<1||transparentFaces;
  return {color:vertexColors?0xffffff:colorChoiceRgb(value),vertexColors,
-  roughness:opacity<1?.28:.8,opacity,transparent,depthWrite:!transparent};
+  roughness:opacity<1?.28:.8,opacity,transparent:opacity<1,depthWrite:opacity===1};
+}
+
+export function bodyMeshMaterialOptions(geometry,style,splitColor){
+ const paint=bodyPaint(geometry);
+ const options=bodyMaterialOptions(style,{splitColor,vertexColors:!!paint,opaque:!!geometry.userData.qrColors});
+ if(!paint?.layers.length)return options;
+ // The shader multiplies vertex alpha by material opacity.
+ return {...options,opacity:1,transparent:paint.transparent,depthWrite:!paint.transparent};
+}
+
+export function applyBodyMeshPaint(geometry,style,splitColor){
+ const paint=bodyPaint(geometry);
+ if(paint){
+  const base=bodyMaterialOptions(style,{splitColor,opaque:!!geometry.userData.qrColors});
+  updateBodyPaint(geometry,base.color,paint.layers.length?base.opacity:1);
+ }
+ return bodyMeshMaterialOptions(geometry,style,splitColor);
 }
