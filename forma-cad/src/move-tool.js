@@ -4,17 +4,18 @@ import {firstMoveContact} from './move-until-contact.js';
 import * as THREE from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {installMoveAxisLabels} from './move-axis-labels.js';
-import {createMoveAxisPicker,moveCenterCandidates,movePointCandidates} from './move-axis-picker.js';
+import {createMoveAxisPicker,moveAxisCandidates,moveCenterCandidates,movePointCandidates} from './move-axis-picker.js';
 import {movePointDistanceText} from './move-point-guide.js';
+import {roundPointMaterial} from './round-point-material.js';
 import {constrainMoveDelta,cursorMovePlane,cursorMovePoint,movePreviewChildMatrix,createMoveGhost,disposeMoveGhost} from './move-cursor.js';
 import {snapshotMoveReferences,transformedMoveReferences,findFreeMoveSnap,createFreeMoveSnapMarker} from './move-free-snap.js';
 export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=()=>[],expandSelection=ids=>ids,getBodyName=id=>id,getReferencePoints=()=>[],getReferenceLines=()=>[],getGridPlane=()=>({normal:[0,0,1],offset:0}),getGridSnap=()=>({enabled:false,step:10,plane:'XY'}),getControls,getSelectedEdge,onStart,onApply,onClose=()=>{}}){
  const control=new TransformControls(camera,canvas),helper=control.getHelper();scene.add(helper);control.setSize(.8);control.setSpace('world');control.enabled=false;
  installMoveAxisLabels(control,helper,camera,canvas,host);
- const panel=document.createElement('form');panel.id='move-panel';panel.hidden=true;panel.innerHTML='<strong>移動／回転</strong><p id="move-hint">移動するボディをクリック</p><div class="move-modes"><button type="button" data-mode="translate">↔ 移動</button><button type="button" data-mode="rotate">↻ 回転</button></div><div class="move-fields">'+[['x','X移動 (mm)'],['rx','X回転 (°)'],['y','Y移動 (mm)'],['ry','Y回転 (°)'],['z','Z移動 (mm)'],['rz','Z回転 (°)']].map(([id,label])=>'<label>'+label+'<input id="move-'+id+'" type="number" step="any" value="0" required min="-10000" max="10000"></label>').join('')+'</div><small>矢印・平面ハンドルで移動、リングで回転。回転中心はボディの中心です。ホイールで拡大・縮小。</small><p id="move-error" role="alert"></p><div><button type="button" id="move-cancel">キャンセル</button><button id="move-apply" type="submit">確定</button></div>';host.parentElement.append(panel);
+ const panel=document.createElement('form');panel.id='move-panel';panel.hidden=true;panel.innerHTML='<strong>移動／回転</strong><p id="move-hint">移動するボディをクリック</p><div class="move-modes"><button type="button" data-mode="translate">↔ 移動</button><button type="button" data-mode="rotate">↻ 回転</button></div><div class="move-fields">'+[['x','X移動 (mm)'],['rx','X回転 (°)'],['y','Y移動 (mm)'],['ry','Y回転 (°)'],['z','Z移動 (mm)'],['rz','Z回転 (°)']].map(([id,label])=>'<label>'+label+'<input id="move-'+id+'" type="number" step="any" value="0" required min="-10000" max="10000"></label>').join('')+'</div><small id="move-rotation-help">矢印・平面ハンドルで移動、リングで回転。回転中心はボディの中心です。ホイールで拡大・縮小。</small><p id="move-error" role="alert"></p><div><button type="button" id="move-cancel">キャンセル</button><button id="move-apply" type="submit">確定</button></div>';host.parentElement.append(panel);
  const methodLabel=document.createElement('label');methodLabel.className='move-method';methodLabel.innerHTML='操作<select id="move-method"><option value="move">移動</option><option value="copy">複製して移動</option></select>';panel.querySelector('.move-modes').before(methodLabel);
  const method=panel.querySelector('#move-method'),reverseLabel=document.createElement('label');reverseLabel.className='move-reverse';reverseLabel.hidden=true;reverseLabel.innerHTML='<input id="move-reverse-copy" type="checkbox">移動方向に対して鏡写しに複製';methodLabel.after(reverseLabel);const reverse=panel.querySelector('#move-reverse-copy');
- const fields=['x','y','z','rx','ry','rz'].map(id=>panel.querySelector('#move-'+id)),hint=panel.querySelector('#move-hint'),error=panel.querySelector('#move-error');
+ const fields=['x','y','z','rx','ry','rz'].map(id=>panel.querySelector('#move-'+id)),hint=panel.querySelector('#move-hint'),error=panel.querySelector('#move-error'),rotationHelp=panel.querySelector('#move-rotation-help');
  const rotationOptions=document.createElement('div');rotationOptions.innerHTML='<label id="move-edge-angle-label" hidden>選択した軸で回転 (°)<input id="move-edge-angle" type="number" step="any" value="0"></label><label>90°回転の軸 <select id="move-quarter-axis"><option>X</option><option>Y</option><option selected>Z</option></select></label><button type="button" id="move-minus90">−90°</button> <button type="button" id="move-plus90">＋90°</button>';panel.querySelector('.move-fields').after(rotationOptions);
  const edgeInput=panel.querySelector('#move-edge-angle'),axisSelect=panel.querySelector('#move-quarter-axis');
  const contactPanel=document.createElement('fieldset');contactPanel.id='move-until-contact';contactPanel.innerHTML='<legend>ぶつかるまで移動</legend><div>'+['X','Y','Z'].flatMap((axis,index)=>[-1,1].map(direction=>'<button type="button" id="move-until-'+axis.toLowerCase()+'-'+(direction<0?'minus':'plus')+'" data-contact-axis="'+index+'" data-contact-direction="'+direction+'" title="'+axis+(direction<0?'−':'＋')+'方向の最初の別ボディまで移動">'+axis+(direction<0?'−':'＋')+'</button>')).join('')+'</div><small id="move-until-contact-status" role="status">移動するボディを選択してください</small>';panel.querySelector('.move-fields').after(contactPanel);
@@ -122,11 +123,11 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   world.addScaledVector(axis,-world.dot(axis));
   return world.lengthSq()>1e-8?world.normalize():null;
  }
- function clearPreview(){contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=originalVisibility.get(mesh)??true;originalVisibility.clear();if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
- function close(force=false,applied=false){if(busy&&!force)return;finishFreeMove(false);const targets=originals.map(m=>m.userData.bodyId);++revision;busy=false;control.dragging=false;control.axis=null;if(dragPointer&&canvas.hasPointerCapture(dragPointer.id))canvas.releasePointerCapture(dragPointer.id);dragPointer=null;pointMove=null;pickingCenter=false;closeCenterPicker();closePointPicker();pickingAxis=false;closeAxisPicker();clearPreview();active=false;control.enabled=false;panel.hidden=true;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;pickButton.setAttribute('aria-pressed','false');getControls().enabled=enabledBefore;host.dataset.moveActive='false';delete host.dataset.movePreview;onClose({targets,applied,force});}
+ function clearPreview(){drawAxisGuide(null);contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=originalVisibility.get(mesh)??true;originalVisibility.clear();if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
+ function close(force=false,applied=false){if(busy&&!force)return;finishFreeMove(false);const targets=originals.map(m=>m.userData.bodyId);++revision;busy=false;control.dragging=false;control.axis=null;if(dragPointer&&canvas.hasPointerCapture(dragPointer.id))canvas.releasePointerCapture(dragPointer.id);dragPointer=null;pointMove=null;pickingCenter=false;closeCenterPicker();closePointPicker();pickingAxis=false;closeAxisPicker();clearPreview();active=false;control.enabled=false;panel.hidden=true;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;getControls().enabled=enabledBefore;host.dataset.moveActive='false';delete host.dataset.movePreview;onClose({targets,applied,force});}
  function mode(value){control.setMode(value);control.setSpace(edgeAxis&&value==='rotate'?'local':'world');control.showX=control.showY=!(edgeAxis&&value==='rotate');control.showZ=true;for(const button of panel.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===value));}
  for(const button of panel.querySelectorAll('[data-mode]'))button.onclick=()=>{finishFreeMove(false);stopPointModes();mode(button.dataset.mode);};
- function mark(){contactMove=null;delete host.dataset.moveUntilContact;updateContactButtons();if(pointResult)closePointPicker();hideGhost();reflectPreview();host.dataset.movePreview=JSON.stringify({copy:copying(),reverseCopy:copying()&&reverse.checked,targets:originals.map(m=>m.userData.bodyId),position:proxy.position.toArray(),rotation:degrees().map(x=>x*Math.PI/180),edgeAxis:edgeAxis?.toArray(),pivot:center.toArray(),hingeAngle:edgeAxis?edgeAngle:null});updateGroundButton();}
+ function mark(){contactMove=null;delete host.dataset.moveUntilContact;updateContactButtons();if(pointResult)closePointPicker();hideGhost();reflectPreview();host.dataset.movePreview=JSON.stringify({copy:copying(),reverseCopy:copying()&&reverse.checked,targets:originals.map(m=>m.userData.bodyId),position:proxy.position.toArray(),rotation:degrees().map(x=>x*Math.PI/180),edgeAxis:edgeAxis?.toArray(),pivot:center.toArray(),hingeAngle:edgeAxis?edgeAngle:null});updateGroundButton();updateAxisGuide();}
  function select(selection){
   const selectedMeshes=[...new Set([].concat(selection))],ids=new Set(expandSelection(selectedMeshes.map(mesh=>mesh.userData.bodyId)));
   const meshes=[...selectedMeshes,...getMeshes().filter(mesh=>ids.has(mesh.userData.bodyId)&&!selectedMeshes.includes(mesh))];if(!meshes.length)return;
@@ -135,7 +136,9 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
    chosenEdge=null;chosenAxisPivot=null;const hinge=pointAction||meshes.length>1?null:lidHinge(original,chosenCenter);
    if(hinge){chosenEdge={bodyId:hinge.bodyId,a:[...hinge.a],b:[...hinge.b]};chosenAxisPivot=[...hinge.pivot];}
   }
-  edgeAngle=0;center=chosenCenter?new THREE.Vector3(...chosenCenter):selectionBounds().getCenter(new THREE.Vector3());
+  const bounds=selectionBounds();
+  axisGuideLength=Math.max(20,bounds.getSize(new THREE.Vector3()).length());
+  edgeAngle=0;center=chosenCenter?new THREE.Vector3(...chosenCenter):bounds.getCenter(new THREE.Vector3());
   edgeAxis=chosenEdge&&!chosenEdge.circle&&!chosenEdge.arc&&!chosenEdge.curve?new THREE.Vector3(...chosenEdge.b).sub(new THREE.Vector3(...chosenEdge.a)).normalize():null;
   if(edgeAxis)center=chosenAxisPivot?new THREE.Vector3(...chosenAxisPivot):new THREE.Vector3(...chosenEdge.a).add(new THREE.Vector3(...chosenEdge.b)).multiplyScalar(.5);
   alignment=edgeAxis?new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),edgeAxis):new THREE.Quaternion();
@@ -146,9 +149,9 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   copy.traverse(o=>{if(o.material){o.material=o.material.clone();o.userData.moveMaterial=true;if(o.isMesh)o.material.color.set(o.userData.qrColors?0xffffff:0x3868ad);}});
   proxy.add(copy);scene.add(proxy);copy.updateMatrix();proxyBaseMatrix=copy.matrix.clone();copy.matrixAutoUpdate=false;
   for(const mesh of originals)mesh.visible=copying()&&originalVisibility.get(mesh);fields.forEach((f,i)=>f.value=i<3?'0':'0.0');edgeInput.value='0.0';
-  panel.querySelector('#move-edge-angle-label').hidden=!edgeAxis;axisSelect.disabled=!!edgeAxis;fields.slice(3).forEach(f=>f.parentElement.hidden=!!edgeAxis);
+  panel.querySelector('#move-edge-angle-label').hidden=!edgeAxis;axisSelect.disabled=!!edgeAxis;axisSelect.parentElement.hidden=!!edgeAxis;axisDirectionLabel.hidden=!chosenEdge?.pointNormal;axisDirection.value=chosenEdge?.pointDirection||'normal';fields.slice(3).forEach(f=>f.parentElement.hidden=!!edgeAxis);
   resetCenter.textContent=meshes.length>1?'選択全体の中心に戻す':'ボディ中心に戻す';
-  panel.querySelector('small').textContent=edgeAxis?'選択した直線を共通の軸として回転します。ホイールで拡大・縮小。':meshes.length>1?'選択したボディを一緒に動かします。回転中心は選択全体の中心です。「回転中心を選択」で変更できます。':'先端がグリッドの目盛りや他のボディに近づくと吸着します。「回転中心を選択」「回転軸を選択」で基準を変更できます。';
+  rotationHelp.textContent=edgeAxis?'画面の青い破線が回転軸です。ホイールで拡大・縮小。':meshes.length>1?'選択したボディを一緒に動かします。回転中心は選択全体の中心です。「回転中心を選択」で変更できます。':'先端がグリッドの目盛りや他のボディに近づくと吸着します。「回転中心を選択」「回転軸を選択」で基準を変更できます。';
   control.attach(proxy);control.enabled=true;hint.textContent=meshes.length>1?meshes.length+'個のボディをまとめて移動／回転':'ボディを選択済み · ドラッグまたは数値で調整';panel.querySelector('#move-apply').disabled=false;mode(edgeAxis?'rotate':'translate');mark();
   if(pointAction){mode(pointAction==='rotate'?'rotate':'translate');if(pointAction==='origin'){fields.slice(0,3).forEach((f,i)=>f.value=String(-chosenCenter[i]));fields[0].dispatchEvent(new Event('input',{bubbles:true}));}hint.textContent=(pointAction==='rotate'?'選択した点を回転中心に使用':'選択した点を原点（0, 0, 0）に合わせます')+' · 確定で反映';}
  }
@@ -235,40 +238,138 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   hint.textContent=(distance>.0001?'グリッド面まで上げました':distance<-.0001?'グリッド面まで下ろしました':'グリッド面に接地しています')+'。「確定」で適用';
   mark();
  };
- const pickButton=document.createElement('button');pickButton.type='button';pickButton.id='move-pick-axis';pickButton.textContent='回転軸を選択';rotationOptions.prepend(pickButton);
- const axisStatus=document.createElement('small');axisStatus.id='move-axis-pick-status';axisStatus.hidden=true;axisStatus.setAttribute('role','status');rotationOptions.prepend(axisStatus);
+ const pickButton=document.createElement('button');pickButton.type='button';pickButton.id='move-pick-axis';pickButton.textContent='回転軸を選択';
+ const pairButton=document.createElement('button');pairButton.type='button';pairButton.id='move-pick-axis-pair';pairButton.textContent='2点で回転軸を選択';
+ const axisStatus=document.createElement('small');axisStatus.id='move-axis-pick-status';axisStatus.hidden=true;axisStatus.setAttribute('role','status');rotationOptions.prepend(axisStatus,pickButton,pairButton);
+ const axisDirectionLabel=document.createElement('label');axisDirectionLabel.hidden=true;
+ axisDirectionLabel.innerHTML='点を通る軸の方向 <select id="move-point-axis-direction"><option value="normal">スケッチ面に垂直</option><option value="X">X方向</option><option value="Y">Y方向</option><option value="Z">Z方向</option></select>';
+ rotationOptions.querySelector('#move-edge-angle-label').before(axisDirectionLabel);
+ const axisDirection=axisDirectionLabel.querySelector('select');
+ let firstAxisPoint=null,axisGuideLength=20;
+
+ const axisGuide=new THREE.Group();axisGuide.visible=false;scene.add(axisGuide);
+ const guidePositions=new THREE.Float32BufferAttribute(new Float32Array(6),3),guideDistances=new THREE.Float32BufferAttribute(new Float32Array(2),1);
+ const guideGeometry=new THREE.BufferGeometry().setAttribute('position',guidePositions).setAttribute('lineDistance',guideDistances);
+ const guideLine=new THREE.Line(guideGeometry,new THREE.LineDashedMaterial({transparent:true,depthTest:false,depthWrite:false}));
+ const guidePoint=new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]),roundPointMaterial({size:10,sizeAttenuation:false,depthTest:false}));
+ for(const object of [guideLine,guidePoint]){object.frustumCulled=false;object.renderOrder=35;axisGuide.add(object);}
+ function drawAxisGuide(point,direction=null,{hover=false,both=false,length=axisGuideLength}={}){
+  axisGuide.visible=!!point;
+  if(!point){delete host.dataset.moveRotationGuide;return;}
+  const color=hover?0xdd7400:0x0089a5;
+  guidePoint.position.copy(point);guidePoint.material.color.setHex(color);
+  guideLine.visible=!!direction;
+  if(direction){
+   const start=both?point.clone().addScaledVector(direction,-length):point;
+   const end=point.clone().addScaledVector(direction,length);
+   guidePositions.setXYZ(0,start.x,start.y,start.z);guidePositions.setXYZ(1,end.x,end.y,end.z);guidePositions.needsUpdate=true;
+   guideDistances.setX(1,both?length*2:length);guideDistances.needsUpdate=true;
+   guideLine.material.color.setHex(color);guideLine.material.dashSize=length/18;guideLine.material.gapSize=length/30;
+  }
+  host.dataset.moveRotationGuide=JSON.stringify({point:point.toArray(),direction:direction?.toArray(),hover});
+ }
+ function updateAxisGuide(candidate=null){
+  if(pickingAxis==='pair'&&firstAxisPoint){
+   const delta=candidate?.point.clone().sub(firstAxisPoint),distance=delta?.length();
+   if(distance>1e-6){drawAxisGuide(firstAxisPoint,delta.normalize(),{hover:true,length:distance});return;}
+   drawAxisGuide(firstAxisPoint);return;
+  }
+  if(pickingAxis==='single'&&candidate?.kind==='point'){
+   const axis=axisForPoint(candidate,axisTransform().invert());
+   if(axis){drawAxisGuide(candidate.point,axis.direction,{hover:true});return;}
+  }
+  if(!pickingAxis&&edgeAxis&&proxy){
+   const direction=new THREE.Vector3(0,0,1).applyQuaternion(proxy.quaternion);
+   drawAxisGuide(proxy.position,direction,{both:!chosenEdge?.fromPoint,length:Math.max(axisGuideLength,chosenEdge?.span||0)});return;
+  }
+  drawAxisGuide(null);
+ }
  function axisTransform(){proxy.updateMatrixWorld(true);const matrix=proxy.matrixWorld.clone().multiply(proxy.children[0].matrix);if(originals.length===1){original.updateMatrixWorld(true);matrix.multiply(original.matrixWorld.clone().invert());}return matrix;}
  function axisSources(){
   const transform=axisTransform(),selected=new Set(originals.map(m=>m.userData.bodyId));
   const convert=ref=>{if(!selected.has(ref.bodyId))return ref;const next={...ref};for(const key of ['point','a','b'])if(ref[key])next[key]=new THREE.Vector3(...ref[key]).applyMatrix4(transform).toArray();return next;};
   return {meshes:previewMeshes(),occluders:[...previewMeshes(),...getMeshes().filter(m=>m.visible)],lines:getReferenceLines().map(convert),points:getReferencePoints().map(convert),pointKinds:pointKinds(),pointLabel:ref=>'回転軸候補：'+(ref.name||'点')};
  }
- const axisPicker=createMoveAxisPicker({host,canvas,camera,getSources:axisSources,getRevision:()=>proxy?[...proxy.matrixWorld.elements,...proxy.children[0].matrix.elements].join(','):'',onPick:chooseAxisCandidate,onUpdate:candidates=>{const lines=candidates.filter(c=>c.kind==='line').length,points=candidates.length-lines;axisStatus.textContent=lines||points?'選択可能：直線 '+lines+' 本・点 '+points+' 個。橙色の線・○をクリック':'この視点では候補が見えません。視点を回して確認してください';}});
- function closeAxisPicker(){axisPicker.close();axisStatus.hidden=true;helper.visible=!!control.object;}
- pickButton.onclick=()=>{finishFreeMove(false);pointMove=null;if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}pickingCenter=false;closeCenterPicker();closePointPicker();pickingAxis=!pickingAxis;control.enabled=!pickingAxis;pickButton.setAttribute('aria-pressed',String(pickingAxis));error.textContent='';if(pickingAxis){helper.visible=false;axisStatus.hidden=false;axisPicker.open();}else closeAxisPicker();hint.textContent=pickingAxis?'橙色の直線か○の点を選択。スケッチ点からは作図面に垂直な軸を作ります':'ボディを選択済み · ドラッグまたは数値で調整';};
- function chooseAxisCandidate(candidate){
-  if(!pickingAxis||!proxy)return;const inverse=axisTransform().invert(),basePoint=point=>point.clone().applyMatrix4(inverse);
-  if(candidate.kind==='line')selectAxis({a:basePoint(candidate.a),b:basePoint(candidate.b)});
-  else{
-   const point=candidate.point,pivot=basePoint(point),ref=candidate.ref;
-   if(ref.a&&ref.b){selectAxis({a:basePoint(new THREE.Vector3(...ref.a)),b:basePoint(new THREE.Vector3(...ref.b))},pivot);return;}
-   const hinge=originals.length===1?lidHinge(original,pivot.toArray()):null;
-   if(hinge){selectAxis({a:new THREE.Vector3(...hinge.a),b:new THREE.Vector3(...hinge.b)},pivot);return;}
-   const towardBody=new THREE.Box3().setFromObject(proxy).getCenter(new THREE.Vector3()).sub(point);
-   const direction=ref.normal?new THREE.Vector3(...ref.normal).normalize():towardBody.clone().normalize();
-   if(direction.lengthSq()<1e-12){error.textContent='この点から軸の方向を決められません。別の点か直線を選択してください';return;}
-   if(direction.dot(towardBody)<-1e-8)direction.negate();
-   selectAxis({a:pivot,b:basePoint(point.clone().add(direction))},pivot);
-   hint.textContent='選択した点を通る回転軸を設定しました · リング・角度・±90°で調整';
-   panel.querySelector('small').textContent=ref.normal?'スケッチ面に垂直に、点からボディ側へ伸びる軸で回転します。':'点からボディ側へ伸びる軸で回転します。';
+ function axisForPoint({point,ref},inverse){
+  const pivot=point.clone().applyMatrix4(inverse);
+  if(ref.a&&ref.b){
+   const a=new THREE.Vector3(...ref.a),b=new THREE.Vector3(...ref.b);
+   return {pivot,a:a.clone().applyMatrix4(inverse),b:b.clone().applyMatrix4(inverse),direction:b.sub(a).normalize()};
   }
+  const hinge=originals.length===1?lidHinge(original,pivot.toArray()):null;
+  if(hinge){
+   const a=new THREE.Vector3(...hinge.a),b=new THREE.Vector3(...hinge.b);
+   return {pivot,a,b,direction:b.clone().sub(a).transformDirection(inverse.clone().invert())};
+  }
+  const towardBody=new THREE.Box3().setFromObject(proxy).getCenter(new THREE.Vector3()).sub(point);
+  const direction=ref.normal?new THREE.Vector3(...ref.normal).normalize():towardBody.clone().normalize();
+  if(direction.lengthSq()<1e-12)return null;
+  if(direction.dot(towardBody)<-1e-8)direction.negate();
+  return {pivot,a:pivot,b:point.clone().add(direction).applyMatrix4(inverse),direction,pointNormal:ref.normal?direction.toArray():null};
  }
- function pickAxis(event){const candidate=axisPicker.pick(event);if(candidate)chooseAxisCandidate(candidate);else error.textContent='橙色の直線または○の点をクリックしてください';}
+ const axisPicker=createMoveAxisPicker({host,canvas,camera,getSources:axisSources,getRevision:()=>proxy?[...proxy.matrixWorld.elements,...proxy.children[0].matrix.elements].join(','):'',
+  getCandidates:options=>{
+   if(pickingAxis!=='pair')return moveAxisCandidates(options);
+   const candidates=moveCenterCandidates({...options,meshes:[...options.meshes,...otherMeshes()],labelPrefix:'回転軸の点候補：'});
+   return firstAxisPoint?candidates.filter(candidate=>candidate.point.distanceToSquared(firstAxisPoint)>=1e-12):candidates;
+  },
+  onPick:chooseAxisCandidate,onHover:updateAxisGuide,onUpdate:candidates=>{
+   updateAxisGuide();
+   if(!candidates.length){axisStatus.textContent='この視点では候補が見えません。視点を回して確認してください';return;}
+   const points=candidates.filter(c=>c.kind==='point').length;
+   axisStatus.textContent=pickingAxis==='pair'?(firstAxisPoint?'2点目を選択。青い点が軸の始点です':'回転軸の1点目を選択'):'選択可能：直線 '+(candidates.length-points)+' 本・点 '+points+' 個。橙色の線・○をクリック';
+  }});
+ function closeAxisPicker(){axisPicker.close();firstAxisPoint=null;axisStatus.hidden=true;pickButton.setAttribute('aria-pressed','false');pairButton.setAttribute('aria-pressed','false');helper.visible=!!control.object;updateAxisGuide();}
+ function toggleAxisPicking(kind){
+  finishFreeMove(false);
+  if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}
+  const next=pickingAxis===kind?false:kind;
+  stopPointModes();
+  pickingAxis=next;control.enabled=!pickingAxis;error.textContent='';
+  if(!pickingAxis){hint.textContent='ボディを選択済み · ドラッグまたは数値で調整';return;}
+  (kind==='pair'?pairButton:pickButton).setAttribute('aria-pressed','true');
+  helper.visible=false;axisStatus.hidden=false;axisPicker.open();
+  hint.textContent=kind==='pair'?'2点を順に選択。1点目から2点目へ伸びる直線で回転します':'橙色の直線か○の点を選択。点にカーソルを合わせると軸が見えます';
+ }
+ pickButton.onclick=()=>toggleAxisPicking('single');
+ pairButton.onclick=()=>toggleAxisPicking('pair');
+ function chooseAxisCandidate(candidate){
+  if(!pickingAxis||!proxy||busy)return;
+  const inverse=axisTransform().invert(),basePoint=point=>point.clone().applyMatrix4(inverse);
+  if(pickingAxis==='pair'){
+   if(candidate.kind!=='point')return;
+   if(!firstAxisPoint){firstAxisPoint=candidate.point.clone();error.textContent='';axisPicker.open();return;}
+   const span=firstAxisPoint.distanceTo(candidate.point);
+   if(span<1e-6){error.textContent='1点目とは別の点を選択してください';return;}
+   const pivot=basePoint(firstAxisPoint);
+   selectAxis({a:pivot,b:basePoint(candidate.point),fromPoint:true,span},pivot);
+   hint.textContent='2点を通る回転軸を設定しました · リング・角度・±90°で調整';
+   return;
+  }
+  if(candidate.kind==='line'){selectAxis({a:basePoint(candidate.a),b:basePoint(candidate.b)});return;}
+  const axis=axisForPoint(candidate,inverse);
+  if(!axis){error.textContent='この点から軸の方向を決められません。別の点か直線を選択してください';return;}
+  selectAxis({...axis,fromPoint:true},axis.pivot);
+  hint.textContent='選択した点を通る回転軸を設定しました · リング・角度・±90°で調整';
+ }
+ function pickAxis(event){const candidate=axisPicker.pick(event);if(candidate)chooseAxisCandidate(candidate);else error.textContent=pickingAxis==='pair'?'橙色の○で表示された点をクリックしてください':'橙色の直線または○の点をクリックしてください';}
+ axisDirection.onchange=()=>{
+  const normal=chosenEdge?.pointNormal;
+  if(!proxy||busy||!normal)return;
+  const pointDirection=axisDirection.value,angle=edgeAngle;
+  const direction=pointDirection==='normal'?new THREE.Vector3(...normal):new THREE.Vector3().setComponent(['X','Y','Z'].indexOf(pointDirection),1);
+  const pivot=center.clone(),end=pivot.clone().add(direction.applyQuaternion(baseRotation.clone().invert()));
+  // Keep the starting pose and reapply the current angle about the new axis.
+  proxy.quaternion.copy(baseRotation).multiply(alignment);
+  selectAxis({a:pivot,b:end,pointNormal:normal,pointDirection,fromPoint:true},pivot);
+  if(angle){edgeInput.value=String(angle);edgeInput.dispatchEvent(new Event('input',{bubbles:true}));}
+  hint.textContent='同じ点を通る回転軸の方向を変更しました';
+ };
  function selectAxis(best,pivot=null){
   const oldRotation=rotation(),oldCenter=center.clone(),oldPosition=proxy.position.clone(),target=originals.slice();
-  chosenCenter=null;chosenAxisPivot=pivot?.toArray()||null;chosenEdge={bodyId:original.userData.bodyId,a:best.a.toArray(),b:best.b.toArray()};select(target);
+  chosenCenter=null;chosenAxisPivot=pivot?.toArray()||null;chosenEdge={bodyId:original.userData.bodyId,a:best.a.toArray(),b:best.b.toArray(),pointNormal:best.pointNormal,pointDirection:best.pointDirection,fromPoint:best.fromPoint,span:best.span};select(target);
   baseRotation.copy(oldRotation);proxy.quaternion.copy(oldRotation).multiply(alignment);proxy.position.copy(oldPosition).add(center.clone().sub(oldCenter).applyQuaternion(oldRotation));
-  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=delta.getComponent(i));fields.slice(3).forEach((f,i)=>f.value=rotationAngleText(degrees()[i]));proxy.updateMatrixWorld(true);pickingAxis=false;closeAxisPicker();pickButton.setAttribute('aria-pressed','false');control.enabled=true;error.textContent='';hint.textContent='回転軸を選択済み · リング・角度・±90°で調整';mark();
+  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=delta.getComponent(i));fields.slice(3).forEach((f,i)=>f.value=rotationAngleText(degrees()[i]));proxy.updateMatrixWorld(true);pickingAxis=false;closeAxisPicker();control.enabled=true;error.textContent='';hint.textContent='回転軸を選択済み · リング・角度・±90°で調整';mark();
  }
 
  const pointButton=document.createElement('button');pointButton.type='button';pointButton.id='move-point-to-point';pointButton.textContent='点から点へ移動';panel.querySelector('.move-fields').after(pointButton);
@@ -296,7 +397,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   scene.add(ghost);ghost.updateMatrixWorld(true);host.dataset.moveGhost=JSON.stringify({delta:delta.toArray(),targets:originals.map(m=>m.userData.bodyId)});
  }
  function translationFields(){const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=Number(delta.getComponent(i).toFixed(8)));}
- function stopPointModes(){pointMove=null;closePointPicker();pickingAxis=false;closeAxisPicker();pickButton.setAttribute('aria-pressed','false');pickingCenter=false;closeCenterPicker();control.enabled=!!proxy&&!busy;}
+ function stopPointModes(){pointMove=null;closePointPicker();pickingAxis=false;closeAxisPicker();pickingCenter=false;closeCenterPicker();control.enabled=!!proxy&&!busy;}
  function finishFreeMove(restore){
   if(!freeMove)return;
   const start=freeMove.startPosition;freeMove=null;freeSnapMarker.close();freeSnapStatus.hidden=true;freeButton.setAttribute('aria-pressed','false');delete host.dataset.moveFree;
@@ -369,19 +470,19 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   const source=pointSource(),target=destination(candidate.point),sourceName=pointMove.name,targetName=candidate.ref.name,distance=source.distanceTo(target);
   proxy.position.add(target.clone().sub(source));proxy.updateMatrixWorld(true);translationFields();pointMove=null;closePointPicker();control.enabled=true;mark();pointResult={source,target,sourceName,targetName};pointStatus.hidden=false;pointPicker.open();hint.textContent=(directionSelect.value==='free'?'2点を合わせました':'指定方向に合わせました')+'（移動距離 '+movePointDistanceText(distance)+'）。「確定」で適用';
  }
- pointButton.onclick=()=>{finishFreeMove(false);if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}if(pointMove){pointMove=null;closePointPicker();control.enabled=true;hint.textContent='点から点への移動を中止しました';return;}closePointPicker();pickingAxis=false;closeAxisPicker();pickButton.setAttribute('aria-pressed','false');pickingCenter=false;closeCenterPicker();control.enabled=false;helper.visible=false;pointMove={source:null};pointButton.setAttribute('aria-pressed','true');pointStatus.hidden=false;error.textContent='';hint.textContent='青い○から移動元を選択してください。点の種類はカーソルを合わせると確認できます';pointPicker.open();};
+ pointButton.onclick=()=>{finishFreeMove(false);if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}if(pointMove){pointMove=null;closePointPicker();control.enabled=true;hint.textContent='点から点への移動を中止しました';return;}closePointPicker();pickingAxis=false;closeAxisPicker();pickingCenter=false;closeCenterPicker();control.enabled=false;helper.visible=false;pointMove={source:null};pointButton.setAttribute('aria-pressed','true');pointStatus.hidden=false;error.textContent='';hint.textContent='青い○から移動元を選択してください。点の種類はカーソルを合わせると確認できます';pointPicker.open();};
  const centerButton=document.createElement('button');centerButton.type='button';centerButton.id='move-pick-center';centerButton.textContent='回転中心を選択';rotationOptions.prepend(centerButton);
  const resetCenter=document.createElement('button');resetCenter.type='button';resetCenter.id='move-reset-center';resetCenter.textContent='ボディ中心に戻す';rotationOptions.append(resetCenter);
  function changeCenter(point){
   const oldRotation=rotation(),oldCenter=center.clone(),oldPosition=proxy.position.clone(),target=originals.slice();
   chosenCenter=point.toArray();chosenAxisPivot=null;chosenEdge=null;select(target);if(edgeAxis){baseRotation.copy(oldRotation);proxy.quaternion.copy(oldRotation).multiply(alignment);}else proxy.quaternion.copy(oldRotation);proxy.position.copy(oldPosition).add(center.clone().sub(oldCenter).applyQuaternion(oldRotation));
-  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=Number(delta.getComponent(i).toFixed(5)));fields.slice(3).forEach((f,i)=>f.value=rotationAngleText(degrees()[i]));proxy.updateMatrixWorld(true);pickingCenter=false;closeCenterPicker();closePointPicker();control.enabled=true;mode('rotate');error.textContent='';hint.textContent=edgeAxis?'ヒンジ軸を選択済み · リング・角度・±90°で調整':'回転中心を選択済み · リング・角度・±90°で調整';panel.querySelector('small').textContent=edgeAxis?'選択した点から奥へ伸びるヒンジ軸で回転します。ホイールで拡大・縮小、Shift＋ホイールで視点を水平回転。':'選択した中心を通るX・Y・Z軸で回転します。';mark();
+  const delta=proxy.position.clone().sub(center);fields.slice(0,3).forEach((f,i)=>f.value=Number(delta.getComponent(i).toFixed(5)));fields.slice(3).forEach((f,i)=>f.value=rotationAngleText(degrees()[i]));proxy.updateMatrixWorld(true);pickingCenter=false;closeCenterPicker();closePointPicker();control.enabled=true;mode('rotate');error.textContent='';hint.textContent=edgeAxis?'ヒンジ軸を選択済み · リング・角度・±90°で調整':'回転中心を選択済み · リング・角度・±90°で調整';rotationHelp.textContent=edgeAxis?'選択した点から奥へ伸びるヒンジ軸で回転します。ホイールで拡大・縮小、Shift＋ホイールで視点を水平回転。':'選択した中心を通るX・Y・Z軸で回転します。';mark();
  }
  const centerStatus=document.createElement('small');centerStatus.id='move-center-pick-status';centerStatus.hidden=true;centerStatus.setAttribute('role','status');centerButton.before(centerStatus);
  const centerPicker=createMoveAxisPicker({host,canvas,camera,id:'move-center-candidates',dataset:'moveCenter',getCandidates:moveCenterCandidates,getSources:()=>{const sources=axisSources(),meshes=[...sources.meshes,...otherMeshes()];return {...sources,meshes,occluders:meshes};},getRevision:()=>proxy?[...proxy.matrixWorld.elements,...proxy.children[0].matrix.elements].join(','):'',onPick:chooseCenterCandidate,onUpdate:candidates=>{centerStatus.textContent=candidates.length?'選択可能：'+candidates.length+' 点。橙色の○をクリック':'この視点では候補が見えません。視点を回して確認してください';}});
  function closeCenterPicker(){centerPicker.close();centerStatus.hidden=true;centerButton.setAttribute('aria-pressed','false');helper.visible=!!control.object;}
  function chooseCenterCandidate(candidate){if(!pickingCenter||!proxy||busy)return;const point=candidate.point.clone().applyMatrix4(axisTransform().invert());changeCenter(point);hint.textContent=candidate.ref.name+'を回転中心に設定しました · リング・角度で調整';}
- centerButton.onclick=()=>{finishFreeMove(false);pointMove=null;if(!proxy||busy){error.textContent='先にボディを選択してください';return;}pickingAxis=false;closeAxisPicker();pickButton.setAttribute('aria-pressed','false');pickingCenter=!pickingCenter;control.enabled=!pickingCenter;closePointPicker();error.textContent='';if(pickingCenter){helper.visible=false;centerButton.setAttribute('aria-pressed','true');centerStatus.hidden=false;centerPicker.open();hint.textContent='橙色の○から回転中心を選択。頂点・辺の中点・面や円の中心・スケッチ点を選べます';}else{closeCenterPicker();hint.textContent='ボディを選択済み';}};
+ centerButton.onclick=()=>{finishFreeMove(false);pointMove=null;if(!proxy||busy){error.textContent='先にボディを選択してください';return;}pickingAxis=false;closeAxisPicker();pickingCenter=!pickingCenter;control.enabled=!pickingCenter;closePointPicker();error.textContent='';if(pickingCenter){helper.visible=false;centerButton.setAttribute('aria-pressed','true');centerStatus.hidden=false;centerPicker.open();hint.textContent='橙色の○から回転中心を選択。頂点・辺の中点・面や円の中心・スケッチ点を選べます';}else{closeCenterPicker();hint.textContent='ボディを選択済み';}};
  resetCenter.onclick=()=>{if(proxy&&!busy){finishFreeMove(false);stopPointModes();changeCenter(selectionBounds().getCenter(new THREE.Vector3()));}};
  panel.querySelector('#move-cancel').onclick=()=>close();
  for(const [id,delta] of [['move-plus90',90],['move-minus90',-90]])panel.querySelector('#'+id).onclick=()=>{if(!proxy||busy)return;mode('rotate');const input=edgeAxis?edgeInput:fields[3+['X','Y','Z'].indexOf(axisSelect.value)];const angle=(edgeAxis?edgeAngle:degrees()[['X','Y','Z'].indexOf(axisSelect.value)])+delta;input.value=String(angle);input.dispatchEvent(new Event('input',{bubbles:true}));input.value=rotationAngleText(angle);};
