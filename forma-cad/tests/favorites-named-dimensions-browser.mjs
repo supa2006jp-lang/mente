@@ -19,8 +19,21 @@ try{
  const el=id=>page.locator('#'+id),settings=el('favorite-commands-dialog');
  await el('favorite-commands-open').click();
  const row=id=>settings.locator('[data-command="'+id+'"]');
- for(const id of ['solid-tool','move-tool','direct-fillet'])await row(id).locator('button').first().click();
+ assert.equal(await row('solid-tool').getByRole('button',{name:'を前へ',exact:false}).count(),0,'unregistered commands should offer registration instead of inactive arrows');
+ await settings.getByRole('button',{name:'すべて登録',exact:true}).click();
+ const all=await settings.locator('[data-command]').evaluateAll(items=>items.map(item=>item.dataset.command));assert(all.length>20);
+ assert.equal(await settings.getByRole('button',{name:'を登録する',exact:false}).count(),0);
+ const first=all[0],second=all[1];await row(second).getByRole('button',{name:'を前へ',exact:false}).click();
+ assert.deepEqual(await settings.locator('[data-command]').evaluateAll(items=>items.slice(0,2).map(item=>item.dataset.command)),[second,first]);
+ await settings.getByRole('button',{name:'すべて登録',exact:true}).click();
+ assert.deepEqual(await settings.locator('[data-command]').evaluateAll(items=>items.slice(0,2).map(item=>item.dataset.command)),[second,first],'bulk registration preserves an adjusted order and does not duplicate commands');
+ await settings.getByRole('button',{name:'登録をすべて解除',exact:true}).click();
+ assert.match(await settings.locator('[data-order-preview]').textContent(),/まだ登録/);
+ await settings.getByRole('button',{name:'キャンセル',exact:true}).click();assert.equal(await el('favorite-commands').isVisible(),false);
+ await el('favorite-commands-open').click();
+ for(const id of ['solid-tool','move-tool','direct-fillet'])await row(id).getByRole('button',{name:'を登録する',exact:false}).click();
  await row('move-tool').getByRole('button',{name:'を前へ',exact:false}).click();
+ assert.match(await settings.locator('[data-order-preview]').textContent(),/1\. 移動/);
  await row('direct-chamfer').getByRole('checkbox').uncheck();
  await settings.locator('[data-collapse]').check();await settings.getByRole('button',{name:'保存',exact:true}).click();
  assert.equal(await page.locator('.command-toolbar').isVisible(),false);
@@ -92,6 +105,6 @@ try{
  const unchanged=await save();assert.deepEqual(unchanged.namedDimensions,stable.namedDimensions);assert.deepEqual(unchanged.features,stable.features);
  if(process.env.FORMA_FAVORITE_SCREENSHOTS){await el('favorite-commands-open').click();await page.screenshot({path:'.sites-runtime/favorite-commands-settings.png'});await settings.getByRole('button',{name:'キャンセル',exact:true}).click();await page.screenshot({path:'.sites-runtime/favorite-commands-bar.png'});}
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({pass:true,favoriteOrder:true,favoritePersistence:true,hiddenSurvivesResize:true,favoriteInvokesOriginal:true,sketchBindings:true,holeBinding:true,filletBinding:true,downstreamReplay:true,filletHistoryBinding:true,manualInputUnlinks:true,reloadPreservesLinks:true,invalidEditPreservesDocument:true,errors}));
+ console.log(JSON.stringify({pass:true,bulkRegistration:true,bulkPreservesOrder:true,registrationBeforeReorder:true,favoriteOrder:true,favoritePersistence:true,hiddenSurvivesResize:true,favoriteInvokesOriginal:true,sketchBindings:true,holeBinding:true,filletBinding:true,downstreamReplay:true,filletHistoryBinding:true,manualInputUnlinks:true,reloadPreservesLinks:true,invalidEditPreservesDocument:true,errors}));
 }catch(error){if(page)await page.screenshot({path:'.sites-runtime/favorites-named-failure.png'});throw error;}
 finally{await browser?.close();server.close();}
