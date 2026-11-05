@@ -1,11 +1,34 @@
 import * as THREE from 'three';
 import {rotationAngleText} from './rotation-snap.js';
 
-export function createMoveRotationFeedback({scene,camera,canvas,host}){
- const readout=document.createElement('output');
- readout.id='move-rotation-readout';readout.hidden=true;readout.setAttribute('aria-live','off');
- readout.style.cssText='position:absolute;z-index:10;pointer-events:none;white-space:nowrap;padding:4px 8px;border:1px solid;border-radius:5px;font:600 13px sans-serif;box-shadow:0 2px 7px #1233';
- host.append(readout);
+export function createMoveRotationFeedback({scene,camera,canvas,host,onAngle}){
+ const badge=document.createElement('div');
+ badge.hidden=true;badge.style.cssText='position:absolute;z-index:10;pointer-events:none';
+ badge.innerHTML='<button type="button" id="move-rotation-readout"></button><input id="move-rotation-edit" type="number" step="any" min="-10000" max="10000" aria-label="回転角度 (°)" hidden>';
+ host.append(badge);
+ const [readout,input]=badge.children;
+ readout.style.cssText='white-space:nowrap;padding:4px 8px;border:1px solid;border-radius:5px;font:600 13px sans-serif;box-shadow:0 2px 7px #1233';
+ input.style.cssText='pointer-events:auto;width:7em;padding:4px 8px;border:1px solid #1679bf;border-radius:5px;color:#204d66;background:#f6fbff;font:600 13px sans-serif';
+ let angleValue=0,editable=false;
+ readout.onclick=()=>{
+  if(!editable)return;
+  input.value=String(Number(angleValue.toFixed(10)));readout.hidden=true;input.hidden=false;input.focus();input.select();
+ };
+ function finishEdit(apply,focus=false){
+  if(input.hidden)return false;
+  const value=input.valueAsNumber;
+  input.hidden=true;readout.hidden=false;
+  if(apply&&Number.isFinite(value)&&input.checkValidity()&&value!==Number(angleValue.toFixed(10)))onAngle(value);
+  if(focus&&editable&&!badge.hidden)readout.focus();
+  return true;
+ }
+ input.addEventListener('blur',()=>finishEdit(true));
+ input.addEventListener('keydown',event=>{
+  if(event.key!=='Enter')return;
+  event.preventDefault();event.stopPropagation();
+  if(!input.value||!input.reportValidity())return;
+  finishEdit(true,true);
+ });
  const outline=new THREE.Group();outline.visible=false;scene.add(outline);
  const outlineMaterial=new THREE.LineDashedMaterial({color:0x536779,transparent:true,opacity:.58,depthTest:false,depthWrite:false,dashSize:2,gapSize:1.2});
  let baseline=null,anchor=null,frame=null;
@@ -15,12 +38,12 @@ export function createMoveRotationFeedback({scene,camera,canvas,host}){
   frame=null;
   if(!anchor)return;
   const rect=canvas.getBoundingClientRect(),base=host.getBoundingClientRect(),p=projected.copy(anchor).project(camera);
-  readout.style.left=Math.max(4,Math.min(rect.width-readout.offsetWidth-4,(p.x+1)*rect.width/2+22))+rect.left-base.left+'px';
-  readout.style.top=Math.max(4,Math.min(rect.height-readout.offsetHeight-4,(1-p.y)*rect.height/2-37))+rect.top-base.top+'px';
+  badge.style.left=Math.max(4,Math.min(rect.width-badge.offsetWidth-4,(p.x+1)*rect.width/2+22))+rect.left-base.left+'px';
+  badge.style.top=Math.max(4,Math.min(rect.height-badge.offsetHeight-4,(1-p.y)*rect.height/2-37))+rect.top-base.top+'px';
   frame=requestAnimationFrame(positionReadout);
  }
  function hideAngle(){
-  anchor=null;readout.hidden=true;
+  finishEdit(false);anchor=null;badge.hidden=true;
   if(frame!==null)cancelAnimationFrame(frame);frame=null;
  }
  function clear(){
@@ -49,14 +72,23 @@ export function createMoveRotationFeedback({scene,camera,canvas,host}){
    outline.visible=visible;
    if(visible)host.dataset.moveRotationOutline=String(outline.children.length);else delete host.dataset.moveRotationOutline;
   },
-  showAngle(degrees,{snapped,alt},center){
-   const angle=rotationAngleText(degrees).replace(/\.0$/,'').replace(/^-/,'−')+'°';
+  showAngle(degrees,{snapped=false,alt=false,edit=false}={},center){
+   angleValue=degrees;editable=edit;
+   if(!edit)finishEdit(false);
+   const angle=(edit?String(Number(degrees.toFixed(3))):rotationAngleText(degrees).replace(/\.0$/,'')).replace(/^-/,'−')+'°';
    readout.textContent=angle+(snapped?' ✓ 吸着':alt?' · 吸着オフ':'');
+   readout.tabIndex=edit?0:-1;
+   readout.title=edit?'クリックして角度を入力':'';
+   readout.setAttribute('aria-label',edit?angle+' · クリックして角度を入力':angle);
+   readout.style.pointerEvents=edit?'auto':'none';
+   readout.style.cursor=edit?'text':'default';
    readout.style.color=snapped?'#824500':'#204d66';
    readout.style.backgroundColor=snapped?'#fff1d8':'#f6fbff';
-   readout.hidden=false;anchor=center;
+   badge.hidden=false;anchor=center;
    if(frame===null)positionReadout();
   },
+  get editing(){return !input.hidden;},
+  cancelEdit:()=>finishEdit(false,true),
   hideAngle,clear
  };
 }

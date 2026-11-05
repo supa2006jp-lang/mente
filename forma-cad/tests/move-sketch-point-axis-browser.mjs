@@ -35,8 +35,8 @@ try{
   {...defaults,id:'point-axis',name:'Axis point',kind:'sketch',profile:'point',groupId:'point-axis',groupNumber:1,plane:'XZ',x:6,y:-10,z:5},
   {...defaults,id:'point-axis-end',name:'Axis point 2',kind:'sketch',profile:'point',groupId:'point-axis',groupNumber:1,plane:'XZ',x:15,y:-10,z:12},
  ];
- async function startMove(){
-  await field('file').setInputFiles({name:'point-axis.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});
+ async function startMove(additional=[]){
+  await field('file').setInputFiles({name:'point-axis.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[...features,...additional]}))});
   await field('project-preview-open').click();
   await field('project-load-preview').waitFor({state:'hidden'});
   await page.locator('[data-view=front]').dispatchEvent('keydown',{key:'Enter'});
@@ -80,7 +80,7 @@ try{
   const readout=field('move-rotation-readout'),stepSelect=field('move-rotation-snap-step');
   const outline=()=>host.getAttribute('data-move-rotation-outline');
   assert.equal(await stepSelect.inputValue(),'15');
-  assert.equal(await readout.isVisible(),false);
+  assert.equal(await readout.isVisible(),customAxis);
   assert.equal(await outline(),null);
   await pointerAt(0);await page.mouse.down();
   await pointerAt(11);
@@ -110,7 +110,16 @@ try{
   assert.equal(await snap(),null,'ending the drag removes the snap highlight');
   const ended=await facePixel();
   assert(ended[2]>ended[0]+40,'ending the drag restores the normal color, got '+ended);
-  assert.equal(await readout.isVisible(),false);
+  assert(await readout.isVisible());
+  assert.match(await readout.textContent(),/^(−)?30°$/);
+  const edit=field('move-rotation-edit');
+  await readout.click();await edit.fill('22.55');await edit.press('Enter');
+  assert.equal(await readout.textContent(),'22.55°');
+  const adjusted=await preview();
+  const previewAngle=customAxis?adjusted.hingeAngle:Math.abs(THREE.MathUtils.radToDeg(adjusted.rotation[1]));
+  assert(Math.abs(previewAngle-22.55)<1e-7,JSON.stringify(adjusted));
+  await readout.click();await edit.fill('42');await edit.press('Escape');
+  assert.deepEqual(await preview(),adjusted);
   assert.equal(await outline(),'1','original outline remains available for comparison');
   if(customAxis){
    for(const [step,drag,expected] of [['5',8.8,10],['45',38,45]]){
@@ -198,6 +207,44 @@ try{
  assert(Math.abs(savedPairRotation.dot(new THREE.Quaternion().setFromAxisAngle(diagonal,Math.PI/4)))>1-1e-8);
  assert.equal(await field('canvas-host').getAttribute('data-move-rotation-guide'),null);
  assert.equal(await field('canvas-host').getAttribute('data-move-rotation-outline'),null);
+ const targetTurn=THREE.MathUtils.degToRad(30);
+ await startMove([{...defaults,id:'fixed-box',name:'Fixed box',width:24,height:20,depth:16,x:-56,angle:30}]);
+ await field('move-pick-axis').click();await point.click();
+ const impossible=await preview(),align=field('move-align-faces');
+ await align.click();
+ assert.match(await field('move-hint').textContent(),/①/);
+ const rect=await page.locator('#canvas-host canvas').boundingBox();
+ const view=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
+ const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
+ camera.position.fromArray(view);camera.quaternion.fromArray(view,3);camera.zoom=view[7];
+ camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+ async function pickFace(point){
+  const p=point.project(camera);
+  await page.mouse.click(rect.x+(p.x+1)*rect.width/2,rect.y+(1-p.y)*rect.height/2);
+ }
+ await pickFace(new THREE.Vector3(4,-10,8));
+ assert.match(await field('move-hint').textContent(),/②/);
+ const fixedFace=new THREE.Vector3(0,-10,8).applyAxisAngle(new THREE.Vector3(0,0,1),targetTurn).add(new THREE.Vector3(-56,0,0));
+ await pickFace(fixedFace.clone());
+ assert.match(await field('move-error').textContent(),/この回転軸では2面を平行にできません/);
+ assert.deepEqual(await preview(),impossible);
+ await page.keyboard.press('Escape');
+ assert.equal(await align.getAttribute('aria-pressed'),'false');
+ await axisDirection.selectOption('Z');
+ const beforeAlignment=await preview();
+ await align.click();
+ await pickFace(new THREE.Vector3(4,-10,8));
+ await pickFace(fixedFace);
+ assert.match(await field('move-hint').textContent(),/平行にしました/);
+ const aligned=await preview();
+ assert.deepEqual(aligned.position,beforeAlignment.position);
+ assert.deepEqual(aligned.pivot,beforeAlignment.pivot);
+ assert.deepEqual(aligned.edgeAxis,beforeAlignment.edgeAxis);
+ assert(Math.abs(aligned.rotation[2]-targetTurn)<1e-7);
+ const alignedSpec=await applyAndSave();
+ assert.deepEqual(alignedSpec.pivot,[2,-10,5]);
+ assert.equal(alignedSpec.x,4);
+ assert(Math.abs(alignedSpec.rotation[2]-30)<1e-7);
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,errors}));
+ console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,inlineAngle:true,fixedAxisAlignment:true,impossibleAlignmentPreserved:true,errors}));
 }finally{await browser?.close();server.close();}

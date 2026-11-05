@@ -929,7 +929,7 @@ function performToolEscape(){
  if(sketchMoveTool?.active){sketchMoveTool.cancel();return;}
  if(mirrorAxisDrag?.cancelInput())return;
  if(cancelExtrusionJoinConfirmation())return;
- if(moveTool?.cancelFreeMove())return;
+ if(moveTool?.escape())return;
  if(splineEditor?.closeMenu())return;
  if(splineEditor?.cancelDrag())return;
  if(bossJointController?.cancelDrag())return;
