@@ -1,6 +1,5 @@
-const step=Math.PI/12,enter=4.5*Math.PI/180,release=6*Math.PI/180;
-
-export function rotationSnapTarget(angle,previous=null){
+export function rotationSnapTarget(angle,previous=null,stepDegrees=15){
+ const step=stepDegrees*Math.PI/180,enter=step*.3,release=step*.4;
  // A wider release range keeps the angle steady near the edge of the snap zone.
  if(previous!==null&&Math.abs(angle-previous)<=release+1e-10)return previous;
  const target=Math.round(angle/step)*step;

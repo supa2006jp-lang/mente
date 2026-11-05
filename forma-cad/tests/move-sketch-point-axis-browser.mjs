@@ -77,15 +77,31 @@ try{
    },{image,x,y});
   }
   const snap=()=>host.getAttribute('data-move-rotation-snap');
+  const readout=field('move-rotation-readout'),stepSelect=field('move-rotation-snap-step');
+  const outline=()=>host.getAttribute('data-move-rotation-outline');
+  assert.equal(await stepSelect.inputValue(),'15');
+  assert.equal(await readout.isVisible(),false);
+  assert.equal(await outline(),null);
   await pointerAt(0);await page.mouse.down();
   await pointerAt(11);
   assert.equal(Math.abs(Number(await snap())),15,JSON.stringify({snap:await snap(),preview:await preview()}));
   const orange=await facePixel();
   assert(orange[0]>orange[2]+50,'snapped preview should be orange, got '+orange);
+  assert.match(await readout.textContent(),/^(−)?15° ✓ 吸着$/);
+  assert.equal(await outline(),'1');
+  await page.keyboard.down('Alt');
+  assert.equal(await snap(),null);
+  assert.match(await readout.textContent(),/° · 吸着オフ$/);
+  const bypassed=await facePixel();
+  assert(bypassed[2]>bypassed[0]+40,'holding Alt immediately removes the orange tint');
+  await page.keyboard.up('Alt');
+  assert.equal(Math.abs(Number(await snap())),15);
+  assert.match(await readout.textContent(),/15° ✓ 吸着$/);
   await pointerAt(20);
   assert.equal(Math.abs(Number(await snap())),15,'small movement out of capture keeps the angle locked');
   await pointerAt(22);
   assert.equal(await snap(),null,'moving farther away releases the angle');
+  assert.match(await readout.textContent(),/°$/);
   const blue=await facePixel();
   assert(blue[2]>blue[0]+40,'released preview should be blue, got '+blue);
   await pointerAt(27);
@@ -94,6 +110,19 @@ try{
   assert.equal(await snap(),null,'ending the drag removes the snap highlight');
   const ended=await facePixel();
   assert(ended[2]>ended[0]+40,'ending the drag restores the normal color, got '+ended);
+  assert.equal(await readout.isVisible(),false);
+  assert.equal(await outline(),'1','original outline remains available for comparison');
+  if(customAxis){
+   for(const [step,drag,expected] of [['5',8.8,10],['45',38,45]]){
+    await stepSelect.selectOption(step);
+    await field('move-edge-angle').fill('0');
+    await pointerAt(0);await page.mouse.down();await pointerAt(drag);
+    assert.equal(Math.abs(Number(await snap())),expected);
+    assert((await readout.textContent()).endsWith(expected+'° ✓ 吸着'));
+    await page.mouse.up();
+   }
+   await stepSelect.selectOption('15');
+  }
  }
  await page.locator('#move-panel [data-mode=rotate]').click();
  await checkRotationDrag();
@@ -142,6 +171,7 @@ try{
  const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(...spec.rotation.map(value=>THREE.MathUtils.degToRad(value)),'ZYX'));
  assert(new THREE.Vector3(1,0,0).applyQuaternion(q).distanceTo(new THREE.Vector3(0,0,-1))<1e-7,'saved Euler angles: '+JSON.stringify(spec.rotation));
  assert.equal(await field('canvas-host').getAttribute('data-move-rotation-guide'),null);
+ assert.equal(await field('canvas-host').getAttribute('data-move-rotation-outline'),null);
 
  await startMove();
  await field('move-pick-axis-pair').click();
@@ -167,6 +197,7 @@ try{
  const savedPairRotation=new THREE.Quaternion().setFromEuler(new THREE.Euler(...pairSpec.rotation.map(THREE.MathUtils.degToRad),'ZYX'));
  assert(Math.abs(savedPairRotation.dot(new THREE.Quaternion().setFromAxisAngle(diagonal,Math.PI/4)))>1-1e-8);
  assert.equal(await field('canvas-host').getAttribute('data-move-rotation-guide'),null);
+ assert.equal(await field('canvas-host').getAttribute('data-move-rotation-outline'),null);
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,errors}));
+ console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,errors}));
 }finally{await browser?.close();server.close();}
