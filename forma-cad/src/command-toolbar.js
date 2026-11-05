@@ -40,7 +40,7 @@ export function fitCommandToolbar(bar){
   }
   const count=optional.filter(button=>button.hidden).length;
   const advanced=bar.querySelector('#advanced-tools');
-  const title=count?'入りきらない '+count+' コマンドを含むすべての作成・修正':'すべての作成・修正';
+  const title=count?'全コマンド（入りきらない '+count+' コマンドを含む）':'全コマンド';
   if(advanced&&advanced.title!==title)advanced.title=title;
   bar.dataset.overflowCount=String(count);observe();
  }

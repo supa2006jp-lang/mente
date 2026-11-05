@@ -1,10 +1,11 @@
 import {readCommandUsage,orderFavoriteCommands,moveFavoriteCommand} from './favorite-command-order.js';
 import {fitCommandToolbar} from './command-toolbar.js';
+import {readCommandColors,applyCommandColor} from './favorite-command-colors.js';
 const storageKey='forma-command-toolbar-v1';
 const usageKey='forma-command-usage-v1';
 export function readFavoriteCommands(value){
  const ids=list=>[...new Set(Array.isArray(list)?list.filter(id=>typeof id==='string'&&/^[\w-]{1,80}$/.test(id)):[])].slice(0,100);
- return {favorites:ids(value?.favorites),hidden:ids(value?.hidden),collapsed:value?.collapsed===true,autoSort:value?.autoSort===true};
+ return {favorites:ids(value?.favorites),hidden:ids(value?.hidden),collapsed:value?.collapsed===true,autoSort:value?.autoSort===true,colors:readCommandColors(value?.colors)};
 }
 export function installFavoriteCommands({bar,notify=()=>{}}){
  const document=bar.ownerDocument;
@@ -17,6 +18,10 @@ export function installFavoriteCommands({bar,notify=()=>{}}){
  const dialog=document.createElement('dialog');dialog.id='favorite-commands-dialog';
  dialog.innerHTML='<form><h2>よく使うコマンド</h2><p>「すべて登録」で一括追加、「＋ 登録」で個別追加できます。登録後にドラッグまたは↑↓で並べ替えます。変更は「保存」でバーに反映されます。「表示」を外したコマンドは元のバーで非表示になります。</p><label><input type="checkbox" data-collapse> 元のコマンドバーを畳む</label><div data-list></div><p data-status role="status"></p><div class="editor-actions"><button type="button" data-reset>初期設定</button><button type="button" data-cancel>キャンセル</button><button type="submit" class="accent">保存</button></div></form>';
  document.body.append(dialog);
+ dialog.querySelector('form>p').append(' 各コマンドの「色」で背景色を選べます。「標準」で元の色に戻せます。');
+ const colorStyle=document.createElement('style');
+ colorStyle.textContent='#favorite-commands button[data-command-color],#favorite-commands-dialog .favorite-name[data-command-color]{background:var(--favorite-bg);color:var(--favorite-fg);border-color:var(--favorite-fg)}#favorite-commands button[data-command-color] :is(span,svg){color:inherit}#favorite-commands button[data-command-color]:hover:not(:disabled){filter:brightness(1.12)}#favorite-commands button[data-command-color]:is(.active,[aria-pressed=true]){box-shadow:inset 0 0 0 2px var(--favorite-fg)}#favorite-commands-dialog .favorite-name[data-command-color]{padding:4px 6px;border-radius:4px}#favorite-commands-dialog .favorite-color{font-size:12px;flex:none}#favorite-commands-dialog input[type=color]{width:30px;height:28px;padding:2px;margin:0;cursor:pointer;border-radius:4px}#favorite-commands-dialog [data-color-reset]{font-size:11px;padding:4px}';
+ document.head.append(colorStyle);
  const style=document.createElement('style');style.textContent='#favorite-commands-dialog{box-sizing:border-box;padding:20px;border:1px solid #456176;border-radius:10px;background:#142232;color:#e2edf5;overflow:hidden}#favorite-commands-dialog form{padding:0;display:flex;flex-direction:column;max-height:calc(85vh - 42px);min-height:0}#favorite-commands-dialog form>:not([data-list]){flex-shrink:0}#favorite-commands-dialog form>h2{margin:0 0 10px}#favorite-commands-dialog form>p{margin:8px 0;font-size:13px;line-height:1.5}#favorite-commands-dialog form>small{font-size:12px;line-height:1.4}#favorite-commands-dialog form>.editor-actions{position:static;padding:8px 0 0}#favorite-commands-dialog [data-list]{flex:1 1 auto;min-height:0}#favorite-commands-dialog .favorite-name[draggable=true],#favorite-commands-dialog .favorite-drag-handle{cursor:grab;user-select:none}#favorite-commands-dialog .favorite-drag-handle{font-size:21px;color:#74d4e1}#favorite-commands-dialog .favorite-dragging{opacity:.45}#favorite-commands-dialog .favorite-drop-before{box-shadow:inset 0 3px #46cbe0}#favorite-commands-dialog .favorite-drop-after{box-shadow:inset 0 -3px #46cbe0}#favorite-commands-dialog [data-order-preview]{padding:9px;border:1px solid #4b7788;border-radius:5px;font-size:13px;max-height:90px;overflow:auto}#favorite-commands-dialog [data-list]>h3{margin:10px 0 5px;font-size:13px;color:#75d6df}#favorite-commands-dialog .favorite-moved{background:#134b5c;outline:1px solid #46cbe0}.command-toolbar[hidden]{display:none!important}#favorite-commands-open{flex:none;font-size:12px;padding:6px 8px;margin-right:6px}#favorite-commands{display:flex;flex-direction:column;gap:3px;align-items:stretch;overflow-x:auto;flex:none;padding:5px 16px;background:#172a39;border-bottom:1px solid #354253}#favorite-commands[hidden]{display:none}#favorite-commands .command-row{display:flex;align-items:center;gap:5px;min-height:34px;min-width:100%;width:max-content;flex-shrink:0}#favorite-commands .command-row>button{flex-shrink:0}#favorite-commands button{display:flex;align-items:center;gap:5px;padding:5px 9px;font-size:13px}#favorite-commands svg{width:21px;height:21px}#favorite-commands-dialog{width:min(680px,94vw);max-height:85vh}#favorite-commands-dialog [data-list]{max-height:50vh;overflow:auto;margin:12px 0}#favorite-commands-dialog .favorite-row{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #8da5b433}#favorite-commands-dialog .favorite-name{flex:1;min-width:0}#favorite-commands-dialog label{display:flex;gap:5px;align-items:center;margin:0}#favorite-commands-dialog input[type=checkbox]{width:auto;margin:0}#favorite-commands-dialog .favorite-row button{padding:4px 8px}';document.head.append(style);
  let catalog=[],signature='',draft=null;const proxies=new Map(),list=dialog.querySelector('[data-list]'),collapse=dialog.querySelector('[data-collapse]'),status=dialog.querySelector('[data-status]');
  const orderPreview=document.createElement('p');orderPreview.dataset.orderPreview='';orderPreview.setAttribute('role','status');list.before(orderPreview);
@@ -87,6 +92,7 @@ export function installFavoriteCommands({bar,notify=()=>{}}){
    proxy.title=original.title;proxy.disabled=original.disabled;proxy.setAttribute('aria-disabled',original.getAttribute('aria-disabled')||'false');
    proxy.classList.toggle('active',original.classList.contains('active'));
    if(original.hasAttribute('aria-pressed'))proxy.setAttribute('aria-pressed',original.getAttribute('aria-pressed'));else proxy.removeAttribute('aria-pressed');
+   applyCommandColor(proxy,settings.colors[original.id]);
   }
   // Keep the two-row layout intact when only command state has changed.
   const desired=ordered.map(original=>proxies.get(original.id));
@@ -110,6 +116,12 @@ export function installFavoriteCommands({bar,notify=()=>{}}){
    if(index>=0&&draft.autoSort){const count=document.createElement('small');count.textContent=' · '+(usage[id]||0)+'回';count.style.color='#8faebc';name.append(count);}
    if(index>=0){const grip=document.createElement('span');grip.className='favorite-drag-handle';grip.textContent='⠿';grip.setAttribute('aria-hidden','true');for(const handle of [grip,name]){handle.draggable=true;handle.dataset.favoriteDrag='';handle.title='ドラッグして並べ替え';}row.append(grip);}
    const show=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=!draft.hidden.includes(id);check.setAttribute('aria-label',label(command)+'を元のバーに表示');check.onchange=()=>{draft.hidden=draft.hidden.filter(value=>value!==id);if(!check.checked)draft.hidden.push(id);};show.append(check,'表示');row.append(star,name,show);
+   const colorLabel=document.createElement('label');colorLabel.className='favorite-color';
+   const color=document.createElement('input');color.type='color';color.value=draft.colors[id]||'#202c3a';color.setAttribute('aria-label',label(command)+'の背景色');color.title='コマンドの背景色（文字色は自動調整）';
+   const resetColor=document.createElement('button');resetColor.type='button';resetColor.dataset.colorReset='';resetColor.textContent='標準';resetColor.setAttribute('aria-label',label(command)+'の色を標準に戻す');resetColor.disabled=!draft.colors[id];
+   color.oninput=()=>{draft.colors[id]=color.value;applyCommandColor(name,color.value);resetColor.disabled=false;};
+   resetColor.onclick=()=>{delete draft.colors[id];color.value='#202c3a';applyCommandColor(name,null);resetColor.disabled=true;};
+   applyCommandColor(name,draft.colors[id]);colorLabel.append('色',color);row.append(colorLabel,resetColor);
    if(index<0){
     const register=document.createElement('button');register.type='button';register.textContent='＋ 登録';register.setAttribute('aria-label',label(command)+'を登録する');register.title='登録すると↑↓で順番を変更できます';
     register.onclick=()=>{draft.favorites.push(id);renderRows(id);};row.append(register);

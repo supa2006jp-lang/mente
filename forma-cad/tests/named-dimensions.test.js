@@ -26,8 +26,8 @@ test('one named edit updates every linked shape dimension, hole and fillet witho
 });
 
 test('favorite settings accept unique stable command IDs and discard malformed storage data',()=>{
- assert.deepEqual(readFavoriteCommands(null),{favorites:[],hidden:[],collapsed:false,autoSort:false});
- assert.deepEqual(readFavoriteCommands({favorites:['solid-tool','solid-tool',null,'<script>','move-tool'],hidden:['direct-fillet'],collapsed:true}),{favorites:['solid-tool','move-tool'],hidden:['direct-fillet'],collapsed:true,autoSort:false});
+ assert.deepEqual(readFavoriteCommands(null),{favorites:[],hidden:[],collapsed:false,autoSort:false,colors:{}});
+ assert.deepEqual(readFavoriteCommands({favorites:['solid-tool','solid-tool',null,'<script>','move-tool'],hidden:['direct-fillet'],collapsed:true}),{favorites:['solid-tool','move-tool'],hidden:['direct-fillet'],collapsed:true,autoSort:false,colors:{}});
 });
 
 test('named values update only linked dimensions and reject dangling references before touching history',()=>{
