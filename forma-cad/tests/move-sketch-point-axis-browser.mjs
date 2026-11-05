@@ -35,12 +35,15 @@ try{
   {...defaults,id:'point-axis',name:'Axis point',kind:'sketch',profile:'point',groupId:'point-axis',groupNumber:1,plane:'XZ',x:6,y:-10,z:5},
   {...defaults,id:'point-axis-end',name:'Axis point 2',kind:'sketch',profile:'point',groupId:'point-axis',groupNumber:1,plane:'XZ',x:15,y:-10,z:12},
  ];
- async function startMove(additional=[]){
+ async function loadProject(additional=[]){
   await field('file').setInputFiles({name:'point-axis.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[...features,...additional]}))});
   await field('project-preview-open').click();
   await field('project-load-preview').waitFor({state:'hidden'});
   await page.locator('[data-view=front]').dispatchEvent('keydown',{key:'Enter'});
   await field('fit').click();
+ }
+ async function startMove(additional=[]){
+  await loadProject(additional);
   const rect=await page.locator('#canvas-host canvas').boundingBox();
   const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
   const state=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
@@ -208,20 +211,22 @@ try{
  assert.equal(await field('canvas-host').getAttribute('data-move-rotation-guide'),null);
  assert.equal(await field('canvas-host').getAttribute('data-move-rotation-outline'),null);
  const targetTurn=THREE.MathUtils.degToRad(30);
- await startMove([{...defaults,id:'fixed-box',name:'Fixed box',width:24,height:20,depth:16,x:-56,angle:30}]);
+ const fixedBox={...defaults,id:'fixed-box',name:'Fixed box',width:24,height:20,depth:16,x:-56,angle:30};
+ await startMove([fixedBox]);
  await field('move-pick-axis').click();await point.click();
  const impossible=await preview(),align=field('move-align-faces');
  await align.click();
  assert.match(await field('move-hint').textContent(),/①/);
- const rect=await page.locator('#canvas-host canvas').boundingBox();
- const view=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
- const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
- camera.position.fromArray(view);camera.quaternion.fromArray(view,3);camera.zoom=view[7];
- camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
- async function pickFace(point){
-  const p=point.project(camera);
-  await page.mouse.click(rect.x+(p.x+1)*rect.width/2,rect.y+(1-p.y)*rect.height/2);
+ async function screen(point){
+  const rect=await page.locator('#canvas-host canvas').boundingBox();
+  const view=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
+  const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
+  camera.position.fromArray(view);camera.quaternion.fromArray(view,3);camera.zoom=view[7];
+  camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+  const p=point.clone().project(camera);
+  return [rect.x+(p.x+1)*rect.width/2,rect.y+(1-p.y)*rect.height/2];
  }
+ async function pickFace(point){await page.mouse.click(...await screen(point));}
  await pickFace(new THREE.Vector3(4,-10,8));
  assert.match(await field('move-hint').textContent(),/②/);
  const fixedFace=new THREE.Vector3(0,-10,8).applyAxisAngle(new THREE.Vector3(0,0,1),targetTurn).add(new THREE.Vector3(-56,0,0));
@@ -245,6 +250,47 @@ try{
  assert.deepEqual(alignedSpec.pivot,[2,-10,5]);
  assert.equal(alignedSpec.x,4);
  assert(Math.abs(alignedSpec.rotation[2]-30)<1e-7);
+
+ async function alignAboutCenter(expectedPivot){
+  await field('move-x').fill('4.1234567');
+  const before=await preview(),direction=field('move-quarter-axis');
+  assert.deepEqual(before.pivot,expectedPivot);
+  assert.equal(before.edgeAxis,undefined);
+  assert.match(await direction.locator('..').textContent(),/回転中心を通る軸/);
+  await direction.selectOption('Y');
+  await align.click();
+  assert.deepEqual((await guide()).point,before.position);
+  assert.deepEqual((await guide()).direction,[0,1,0]);
+  await pickFace(new THREE.Vector3(4.1234567,-10,8));
+  await pickFace(fixedFace);
+  assert.match(await field('move-error').textContent(),/平行にできません/);
+  assert.deepEqual(await preview(),before);
+  await direction.selectOption('Z');
+  assert.deepEqual((await guide()).direction,[0,0,1]);
+  await pickFace(fixedFace);
+  assert.match(await field('move-hint').textContent(),/平行にしました/);
+  const after=await preview();
+  assert.deepEqual(after.position,before.position);
+  assert.deepEqual(after.pivot,expectedPivot);
+  assert(Math.abs(after.rotation[2]-targetTurn)<1e-7);
+  const saved=await applyAndSave();
+  assert.deepEqual(saved.pivot,expectedPivot);
+  assert.equal(saved.x,4.1234567);
+  assert(Math.abs(saved.rotation[2]-30)<1e-7);
+ }
+ await startMove([fixedBox]);
+ await field('move-pick-center').click();
+ await field('move-center-candidates').locator('circle[data-point="[6,-10,5]"]').click();
+ await alignAboutCenter([2,-10,5]);
+
+ await loadProject([fixedBox]);
+ await page.mouse.move(...await screen(new THREE.Vector3(6,-10,5)));
+ await page.locator('#center-markers button[title="スケッチ点の中心を選択"]:visible').click();
+ await field('point-rotate').click();
+ await pickFace(new THREE.Vector3(0,-10,8));
+ await field('move-x').fill('4');
+ await alignAboutCenter([6,-10,5]);
+
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,inlineAngle:true,fixedAxisAlignment:true,impossibleAlignmentPreserved:true,errors}));
+ console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,inlineAngle:true,fixedAxisAlignment:true,impossibleAlignmentPreserved:true,alignmentFromPickedCenter:true,alignmentFromSketchPointAction:true,errors}));
 }finally{await browser?.close();server.close();}

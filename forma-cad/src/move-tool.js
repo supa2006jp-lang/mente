@@ -20,12 +20,11 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  const methodLabel=document.createElement('label');methodLabel.className='move-method';methodLabel.innerHTML='操作<select id="move-method"><option value="move">移動</option><option value="copy">複製して移動</option></select>';panel.querySelector('.move-modes').before(methodLabel);
  const method=panel.querySelector('#move-method'),reverseLabel=document.createElement('label');reverseLabel.className='move-reverse';reverseLabel.hidden=true;reverseLabel.innerHTML='<input id="move-reverse-copy" type="checkbox">移動方向に対して鏡写しに複製';methodLabel.after(reverseLabel);const reverse=panel.querySelector('#move-reverse-copy');
  const fields=['x','y','z','rx','ry','rz'].map(id=>panel.querySelector('#move-'+id)),hint=panel.querySelector('#move-hint'),error=panel.querySelector('#move-error'),rotationHelp=panel.querySelector('#move-rotation-help');
- const rotationOptions=document.createElement('div');rotationOptions.innerHTML='<label id="move-edge-angle-label" hidden>選択した軸で回転 (°)<input id="move-edge-angle" type="number" step="any" value="0"></label><label>90°回転の軸 <select id="move-quarter-axis"><option>X</option><option>Y</option><option selected>Z</option></select></label><button type="button" id="move-minus90">−90°</button> <button type="button" id="move-plus90">＋90°</button>';panel.querySelector('.move-fields').after(rotationOptions);
+ const rotationOptions=document.createElement('div');rotationOptions.innerHTML='<label id="move-edge-angle-label" hidden>選択した軸で回転 (°)<input id="move-edge-angle" type="number" step="any" value="0"></label><label><span>90°回転の軸</span> <select id="move-quarter-axis"><option>X</option><option>Y</option><option selected>Z</option></select></label><button type="button" id="move-minus90">−90°</button> <button type="button" id="move-plus90">＋90°</button>';panel.querySelector('.move-fields').after(rotationOptions);
  const edgeInput=panel.querySelector('#move-edge-angle'),axisSelect=panel.querySelector('#move-quarter-axis');
  const faceAlignButton=document.createElement('button');
  faceAlignButton.type='button';faceAlignButton.id='move-align-faces';faceAlignButton.textContent='この軸で面を平行に';
- faceAlignButton.title='回転軸を選び、回転するボディの平面と別ボディの平面を順に選択';
- rotationOptions.querySelector('#move-edge-angle-label').after(faceAlignButton);
+ axisSelect.parentElement.after(faceAlignButton);
  let faceAlignment=null,faceHighlight=null;
  const rotationStepLabel=document.createElement('label');rotationStepLabel.hidden=true;
  rotationStepLabel.innerHTML='回転の吸着間隔 <select id="move-rotation-snap-step"><option value="5">5°</option><option value="15" selected>15°</option><option value="45">45°</option></select><small>Altを押している間は吸着を解除</small>';
@@ -62,23 +61,33 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  const selectionBounds=()=>originals.reduce((box,mesh)=>box.union(new THREE.Box3().setFromObject(mesh)),new THREE.Box3());
  const ray=new THREE.Raycaster(),dragRay=new THREE.Raycaster();
  const faceRay=new THREE.Raycaster();faceRay.firstHitOnly=true;
+ const hasPointPivot=()=>!!chosenCenter&&pointAction!=='origin';
+ function faceAlignmentAxis(){
+  return edgeAxis?new THREE.Vector3(0,0,1).applyQuaternion(proxy.quaternion).normalize():
+   new THREE.Vector3().setComponent(axisSelect.selectedIndex,1);
+ }
  function updateFaceAlignButton(){
-  faceAlignButton.hidden=!proxy||!edgeAxis;
-  faceAlignButton.disabled=busy||!otherMeshes().length||copying()&&reverse.checked;
+  const hasTarget=otherMeshes().length>0;
+  faceAlignButton.hidden=!proxy||!(edgeAxis||hasPointPivot());
+  faceAlignButton.disabled=busy||!hasTarget||copying()&&reverse.checked;
+  faceAlignButton.title=hasTarget?'回転させるボディの平面、基準にする別ボディの平面の順に選択':'基準にする別ボディを表示してください';
+  axisSelect.previousElementSibling.textContent=hasPointPivot()?'回転中心を通る軸':'90°回転の軸';
  }
  function clearFaceAlignment(){
+  if(faceAlignment&&!edgeAxis)drawAxisGuide(null);
   faceAlignment=null;
   faceAlignButton.setAttribute('aria-pressed','false');
   if(faceHighlight){faceHighlight.removeFromParent();faceHighlight.geometry.dispose();faceHighlight.material.dispose();faceHighlight=null;}
  }
  faceAlignButton.onclick=()=>{
-  if(!proxy||busy||!edgeAxis)return;
+  if(faceAlignButton.hidden||faceAlignButton.disabled)return;
   const starting=!faceAlignment;
   finishFreeMove(false);stopPointModes();error.textContent='';
   if(!starting){hint.textContent='面の選択を中止しました';refreshRotationAngle();return;}
   mode('rotate');faceAlignment={source:null};
   rotationFeedback.hideAngle();
   control.enabled=false;control.axis=null;helper.visible=false;
+  updateAxisGuide();
   faceAlignButton.setAttribute('aria-pressed','true');
   hint.textContent='① 回転させるボディの平面をクリック';
  };
@@ -103,15 +112,24 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
     hint.textContent='② 基準にする別ボディの平面をクリック';
     return;
    }
-   const axis=new THREE.Vector3(0,0,1).applyQuaternion(proxy.quaternion).normalize();
+   const axis=faceAlignmentAxis();
    const turn=rotationToParallelFaces(axis,source.normal,face.normal);
    if(turn===null)throw Error('この回転軸では2面を平行にできません。別の平面か軸を選んでください');
    stopPointModes();
-   if(turn!==0){setFixedRotationAngle(edgeAngle+THREE.MathUtils.radToDeg(turn));syncDragPreview();}
-   else refreshRotationAngle();
+   if(turn!==0){
+    if(edgeAxis)setFixedRotationAngle(edgeAngle+THREE.MathUtils.radToDeg(turn));
+    else{
+     rotationFeedback.capture(previewMeshes(),rotation());rotationEdit=null;
+     proxy.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,turn)).normalize();
+    }
+    syncDragPreview({updateTranslation:false});
+   }else refreshRotationAngle();
    hint.textContent=(turn===0?'2面はすでに平行です':'軸を固定したまま2面を平行にしました')+'。「確定」で適用';
   }catch(e){error.textContent=e.message;}
  }
+ axisSelect.addEventListener('change',()=>{
+  if(faceAlignment){error.textContent='';updateAxisGuide();}
+ });
  function softMoveSnap(){
   if(!proxy||!control.dragging||control.mode!=='translate'||!dragStartPosition||!dragStartBounds)return;
   const {enabled,step,plane}=getGridSnap(),gridEnabled=enabled&&Number.isFinite(step)&&step>0;
@@ -272,10 +290,13 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   dragStartRotation=null;dragHinge=null;rotationSample=null;rotationAlt=false;
   if(keepReadout)refreshRotationAngle(true);else rotationFeedback.hideAngle();
  }
- function syncDragPreview(){
+ function syncDragPreview({updateTranslation=true}={}){
   const d=proxy.position.clone().sub(center),e=new THREE.Euler().setFromQuaternion(rotation(),'ZYX');
   const values=[...d.toArray(),e.x*180/Math.PI,e.y*180/Math.PI,e.z*180/Math.PI];
-  fields.forEach((field,i)=>field.value=i<3?Number(values[i].toFixed(5)):rotationAngleText(values[i]));
+  fields.forEach((field,i)=>{
+   if(i>=3)field.value=rotationAngleText(values[i]);
+   else if(updateTranslation)field.value=Number(values[i].toFixed(5));
+  });
   if(edgeAxis)edgeInput.value=control.dragging?rotationAngleText(edgeAngle):String(Number(edgeAngle.toFixed(10)));
   mark();
  }
@@ -430,6 +451,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
    const direction=new THREE.Vector3(0,0,1).applyQuaternion(proxy.quaternion);
    drawAxisGuide(proxy.position,direction,{both:!chosenEdge?.fromPoint,length:Math.max(axisGuideLength,chosenEdge?.span||0)});return;
   }
+  if(faceAlignment){drawAxisGuide(proxy.position,faceAlignmentAxis(),{both:true});return;}
   drawAxisGuide(null);
  }
  function axisTransform(){proxy.updateMatrixWorld(true);const matrix=proxy.matrixWorld.clone().multiply(proxy.children[0].matrix);if(originals.length===1){original.updateMatrixWorld(true);matrix.multiply(original.matrixWorld.clone().invert());}return matrix;}
