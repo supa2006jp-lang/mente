@@ -1,4 +1,5 @@
 import {referencePointIndex} from './reference-point-index.js';
+import {bodyAppearances,bodyMaterialOptions,importBodyAppearance} from './body-appearance.js';
 import {installProjectDrafts} from './project-drafts.js';
 import {readNamedDimensions,namedDimensionBinding,linkedDimensionFields,planNamedDimensionChange} from './named-dimensions.js';
 import {installFavoriteCommands} from './favorite-commands.js';
@@ -685,11 +686,11 @@ function refreshDrawingCoordinates(revision){
  }).catch(error=>{if(features===revision)notify('作図用の精密な座標を取得できませんでした。'+error.message);});
  for(const [,mesh] of meshes)mesh.userData.drawingCoordinatesReady=ready;
 }
-function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();extrusionBoundaryFeedback.clear();extrusionResultCache.clear();fastExtrusionPreview.clear();sectionControl?.beforeModelChange();workspaceImprovements?.beforeModelChange();selectionPicker?.close();printQuality?.invalidate();bodyDisplay?.stopExploded(true);const splitStyles=sectionBodyStyles(colorFeatures),qrDisplays=qrBodyDisplays(colorFeatures);fragmentSelection=null;clearBodySelection();clearFaceSelection();
+function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();extrusionBoundaryFeedback.clear();extrusionResultCache.clear();fastExtrusionPreview.clear();sectionControl?.beforeModelChange();workspaceImprovements?.beforeModelChange();selectionPicker?.close();printQuality?.invalidate();bodyDisplay?.stopExploded(true);const splitStyles=sectionBodyStyles(colorFeatures),appearance=bodyAppearances(colorFeatures),qrDisplays=qrBodyDisplays(colorFeatures);fragmentSelection=null;clearBodySelection();clearFaceSelection();
  for(const child of [...modelGroup.children])disposeObject(child);meshes.clear();let triangles=0;
  for(const [id,brush] of next){
-  const baseColor=splitStyles.get(id)?.color??0xa3a197,geometry=colorQrGeometry(brush.geometry,qrDisplays.get(id),baseColor),qrColors=!!geometry.userData.qrColors;if(geometry!==brush.geometry)brush.geometry.dispose();
-  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:qrColors?0xffffff:baseColor,vertexColors:qrColors,metalness:0,roughness:.8}));mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;accelerateMeshPicking(mesh);mesh.visible=!hiddenBodies.has(id);
+  const style=appearance.get(id),splitColor=splitStyles.get(id)?.color,baseColor=splitColor??style?.color??0xa3a197,geometry=colorQrGeometry(brush.geometry,qrDisplays.get(id),baseColor),qrColors=!!geometry.userData.qrColors;if(geometry!==brush.geometry)brush.geometry.dispose();
+  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial(bodyMaterialOptions(style,{splitColor,vertexColors:qrColors})));mesh.userData.bodyAppearance=style;mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;accelerateMeshPicking(mesh);mesh.visible=!hiddenBodies.has(id);
   const edges=new THREE.LineSegments(bodyEdges(mesh.geometry,28),new THREE.LineBasicMaterial({color:0x33332f,transparent:true,opacity:.85}));edges.geometry.userData.circularEdges=featureCircularEdges(features,id,edges.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges.geometry);edges.visible=showEdges;mesh.add(edges);modelGroup.add(mesh);meshes.set(id,mesh);triangles+=(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3;
  }
  refreshDrawingCoordinates(colorFeatures);
@@ -718,7 +719,7 @@ $('reset-section-colors').onclick=()=>{
  const styles=sectionBodyStyles(features);if(![...meshes.keys()].some(id=>styles.has(id)))return;const colorize=![...meshes.keys()].some(id=>styles.get(id)?.color!==undefined);
  past.push(historySnapshot());if(past.length>40)past.shift();future=[];hideExtrusionNotice();
  features=features.map(f=>isSectionSplit(f)?{...f,spec:{...f.spec,colorize}}:f);
- const nextStyles=sectionBodyStyles(features);for(const [id,mesh] of meshes)mesh.material.color.setHex(mesh.userData.qrColors?0xffffff:nextStyles.get(id)?.color??0xa3a197);
+ const nextStyles=sectionBodyStyles(features);sectionControl?.beforeModelChange();for(const [id,mesh] of meshes){mesh.material.setValues(bodyMaterialOptions(mesh.userData.bodyAppearance,{splitColor:nextStyles.get(id)?.color,vertexColors:mesh.userData.qrColors}));mesh.material.needsUpdate=true;}
  modified=true;sectionControl?.refresh();renderTree();notify(colorize?'断面で分離したボディの色分けを表示しました。':'断面で分離したボディの色を通常の色に戻しました。');
 };
 const filletVisual=createFilletVisualPreview({scene,meshes,host,getFeatures:()=>features,getOverlays:()=>[regionGroup,sketchGroup,bodySelectionHighlight]});
@@ -1344,7 +1345,7 @@ async function readProjectDocument(text){
  const {document:documentData,compressed}=await decodeProjectDocument(text),validated=validateProject(documentData);let supportFailure=null,supportFailureWarning='';
  try{supportFailure=printSupportFailureFromDocument(documentData);}catch(error){supportFailureWarning=error.message;}
  const repair=validated.some(f=>(f.cadResult?.outputs||f.outputs||[]).some(o=>o.brep))?await kernelClient.run(validated,{type:'repairProjectDisplay'}):{records:[],warnings:[]};
- const next=applyProjectDisplayRepairs(validated,repair.records);await legacyRebuild.prepare(next);return {next,dimensions:readNamedDimensions(documentData.namedDimensions),drawingData:readDrawingState(documentData.drawing),measurementData:readMeasurementState(documentData.measurements),preview:repair.records.length?null:documentData.preview,compressed,displayRepair:{count:repair.records.length,warnings:repair.warnings},supportFailure,supportFailureWarning};
+ const next=importBodyAppearance(applyProjectDisplayRepairs(validated,repair.records),documentData.modelInfo);await legacyRebuild.prepare(next);return {next,dimensions:readNamedDimensions(documentData.namedDimensions),drawingData:readDrawingState(documentData.drawing),measurementData:readMeasurementState(documentData.measurements),preview:repair.records.length?null:documentData.preview,compressed,displayRepair:{count:repair.records.length,warnings:repair.warnings},supportFailure,supportFailureWarning};
 }
 const projectLibrary=createProjectLibrary({parse:readProjectDocument,onChoose:item=>projectLoadPreview.show(item),getRevision:()=>toolCancelRevision,getModified:()=>modified});
 $('load-images').onclick=()=>{projectLoadPreview.cancel();projectLibrary.open();};

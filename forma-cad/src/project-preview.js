@@ -1,12 +1,13 @@
 import * as THREE from 'three';
+import {bodyMaterialOptions} from './body-appearance.js';
 
 // Use committed geometry and a separate render target: tool previews, hidden bodies,
 // selection colors and display clipping must not change the saved model's image.
 export function captureProjectPreview({renderer,camera,meshes,sketches,width=640,height=480}){
  const scene=new THREE.Scene(),group=new THREE.Group(),materials=[];
  scene.background=new THREE.Color('#ffffff');scene.add(group);
- const solid=new THREE.MeshStandardMaterial({color:0xa3a197,roughness:.8}),edge=new THREE.LineBasicMaterial({color:0x33332f});materials.push(solid,edge);
- for(const mesh of meshes){const copy=new THREE.Mesh(mesh.geometry,solid);copy.matrixAutoUpdate=false;mesh.updateMatrixWorld(true);copy.matrix.copy(mesh.matrixWorld);group.add(copy);for(const child of mesh.children.filter(c=>c.isLineSegments)){const line=new THREE.LineSegments(child.geometry,edge);line.matrixAutoUpdate=false;child.updateMatrixWorld(true);line.matrix.copy(child.matrixWorld);group.add(line);}}
+ const solids=new Map(),edge=new THREE.LineBasicMaterial({color:0x33332f});materials.push(edge);
+ for(const mesh of meshes){const options=bodyMaterialOptions(mesh.userData.bodyAppearance,{vertexColors:!!mesh.userData.qrColors}),key=[options.color,options.opacity,options.vertexColors].join('|');let solid=solids.get(key);if(!solid){solid=new THREE.MeshStandardMaterial(options);solids.set(key,solid);materials.push(solid);}const copy=new THREE.Mesh(mesh.geometry,solid);copy.matrixAutoUpdate=false;mesh.updateMatrixWorld(true);copy.matrix.copy(mesh.matrixWorld);group.add(copy);for(const child of mesh.children.filter(c=>c.isLineSegments)){const line=new THREE.LineSegments(child.geometry,edge);line.matrixAutoUpdate=false;child.updateMatrixWorld(true);line.matrix.copy(child.matrixWorld);group.add(line);}}
  // Sketches are useful when no solid has been made; keep finished solids unobscured.
  if(!group.children.length)for(const item of sketches){const material=item.material.clone();material.color?.set(0x416b9c);material.clippingPlanes=null;materials.push(material);const copy=item.clone(false);copy.material=material;copy.visible=true;copy.matrixAutoUpdate=false;item.updateMatrixWorld(true);copy.matrix.copy(item.matrixWorld);group.add(copy);}
  group.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(group);
