@@ -3,6 +3,32 @@ import assert from 'node:assert/strict';
 import {namedDimensionBinding,planNamedDimensionChange,readNamedDimensions} from '../src/named-dimensions.js';
 import {findMachiningValues} from '../src/machining-value-trials.js';
 import {KernelClient} from '../src/kernel-client.js';
+import {filletRadiusChange} from '../src/fillet-history.js';
+import {readFavoriteCommands} from '../src/favorite-commands.js';
+
+test('one named edit updates every linked shape dimension, hole and fillet without changing unlinked values',()=>{
+ const before={幅:40,穴径:8,丸み:1},after={幅:50,穴径:10,丸み:.8};
+ const features=[
+  {id:'rect',kind:'sketch',profile:'rect',width:40,height:20,dimensionLinks:{width:'幅',height:'幅 / 2'}},
+  {id:'circle',kind:'sketch',profile:'circle',diameter:8,dimensionLinks:{diameter:'穴径'}},
+  {id:'hole',name:'穴',kind:'extrusion',profile:'circle',hole:true,counterbore:true,diameter:8,depth:-4,counterboreDiameter:12,counterboreDepth:2,dimensionLinks:{diameter:'穴径',counterboreDiameter:'穴径+4'}},
+  {id:'fillet',kind:'cadop',spec:{type:'fillet',radius:1,target:'body'},dimensionLinks:{radius:'丸み'}},
+ ];
+ const original=structuredClone(features),plan=planNamedDimensionChange(features,before,after);
+ assert.equal(plan.start,0);assert.deepEqual([plan.next[0].width,plan.next[0].height,plan.next[1].diameter],[50,25,10]);
+ assert.deepEqual([plan.next[2].diameter,plan.next[2].counterboreDiameter,plan.next[2].depth],[10,14,-4]);
+ assert.equal(plan.next[3].spec.radius,.8);assert.deepEqual(features,original);
+ assert.throws(()=>planNamedDimensionChange(features,before,{...after,穴径:-1}),/範囲外/);
+ assert.throws(()=>planNamedDimensionChange(features,before,{幅:50,穴径:10}),/丸み/);
+ assert.deepEqual(features,original);
+ const linked=filletRadiusChange(features,'fillet',.8,'丸み');assert.equal(linked.features[3].dimensionLinks.radius,'丸み');
+ const manual=filletRadiusChange(features,'fillet',2);assert.equal(manual.features[3].dimensionLinks,undefined);
+});
+
+test('favorite settings accept unique stable command IDs and discard malformed storage data',()=>{
+ assert.deepEqual(readFavoriteCommands(null),{favorites:[],hidden:[],collapsed:false});
+ assert.deepEqual(readFavoriteCommands({favorites:['solid-tool','solid-tool',null,'<script>','move-tool'],hidden:['direct-fillet'],collapsed:true}),{favorites:['solid-tool','move-tool'],hidden:['direct-fillet'],collapsed:true});
+});
 
 test('named values update only linked dimensions and reject dangling references before touching history',()=>{
  const before=readNamedDimensions({壁厚:2,高さ:8});

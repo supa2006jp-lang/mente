@@ -8,7 +8,7 @@ export function fitCommandToolbar(bar){
   pending=false;mutations.disconnect();
   // Re-read commands so tools installed after startup also participate.
   const items=[...bar.children].flatMap(el=>rows.includes(el)?[...el.children]:[el]);
-  for(const item of items)if(item.hasAttribute('data-overflow-priority'))item.hidden=false;
+  for(const item of items)if(item.hasAttribute('data-overflow-priority'))item.hidden=item.hasAttribute('data-user-hidden');
   rows[0].replaceChildren(...items);rows[1].replaceChildren();bar.replaceChildren(...rows);
   const gap=parseFloat(getComputedStyle(rows[0]).columnGap)||0;
   const widths=new Map(items.map(el=>{const style=getComputedStyle(el);return [el,el.getBoundingClientRect().width+(parseFloat(style.marginLeft)||0)+(parseFloat(style.marginRight)||0)];}));

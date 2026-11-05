@@ -25,30 +25,40 @@ export function extrusionHasFixedDepth(feature){
  return feature.kind==='extrusion'&&!feature.gridExtentPlane&&!feature.endPlane&&!feature.untilSolid&&!feature.throughAll;
 }
 
-export function linkedDimensionField(feature){
- if(extrusionHasFixedDepth(feature))return {key:'depth',data:feature,min:.1,max:10000,signed:!feature.symmetric};
- if(feature.kind==='cadop'&&feature.spec?.type==='shell')return {key:'thickness',data:feature.spec,min:.000001,max:10000};
- if(feature.kind==='cadop'&&feature.spec?.type==='join'&&feature.spec.combineMode==='切り取り'){
-  return {key:'cutClearance',data:feature.spec,min:0,max:1000};
+export function linkedDimensionFields(feature){
+ const fields=[],add=(key,data=feature,min=.1,signed=false)=>fields.push({key,data,min,max:10000,signed});
+ if(extrusionHasFixedDepth(feature))add('depth',feature,.1,!feature.symmetric);
+ if(['sketch','extrusion'].includes(feature.kind)&&!feature.region){
+  if(feature.profile==='rect'){add('width');add('height');}
+  if(feature.profile==='circle')add('diameter');
+  if(feature.profile==='line')add('width');
  }
- return null;
+ if(feature.hole&&feature.counterbore){add('counterboreDiameter');add('counterboreDepth');}
+ if(feature.kind==='cadop'&&feature.spec?.type==='fillet')add('radius',feature.spec,.000001);
+ if(feature.kind==='cadop'&&feature.spec?.type==='shell')add('thickness',feature.spec,.000001);
+ if(feature.kind==='cadop'&&feature.spec?.type==='join'&&feature.spec.combineMode==='切り取り'){
+  fields.push({key:'cutClearance',data:feature.spec,min:0,max:1000});
+ }
+ return fields;
 }
+export const linkedDimensionField=feature=>linkedDimensionFields(feature)[0]||null;
 
 export function planNamedDimensionChange(features,before,after){
  let start=features.length;
  const next=features.map((feature,index)=>{
-  const field=linkedDimensionField(feature);
-  const expression=field&&feature.dimensionLinks?.[field.key];
-  if(typeof expression!=='string')return feature;
-  const binding=namedDimensionBinding(expression,before);
-  if(!binding?.names.some(name=>before[name]!==after[name]))return feature;
-  const value=namedDimensionBinding(expression,after).value;
-  const measure=field.signed?Math.abs(value):value;
-  if(measure<field.min||measure>field.max)throw Error('「'+feature.name+'」の寸法が範囲外です');
-  if(value===field.data[field.key])return feature;
-  start=Math.min(start,index);
-  const values={...field.data,[field.key]:value};
-  return field.data===feature?values:{...feature,spec:values};
+  let updated=feature;
+  for(const field of linkedDimensionFields(feature)){
+   const expression=feature.dimensionLinks?.[field.key];
+   if(typeof expression!=='string')continue;
+   const binding=namedDimensionBinding(expression,before);
+   if(!binding?.names.some(name=>before[name]!==after[name]))continue;
+   const value=namedDimensionBinding(expression,after).value,measure=field.signed?Math.abs(value):value;
+   if(measure<field.min||measure>field.max)throw Error('「'+feature.name+'」の寸法が範囲外です');
+   if(value===field.data[field.key])continue;
+   start=Math.min(start,index);
+   updated=field.data===feature?{...updated,[field.key]:value}:{...updated,spec:{...updated.spec,[field.key]:value}};
+  }
+  return updated;
  });
  return {next,start};
 }

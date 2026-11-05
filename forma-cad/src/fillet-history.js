@@ -13,10 +13,12 @@ export function filletHistoryChange(features,id,suppressed){
  if(suppressed)spec.suppressed=true;else delete spec.suppressed;
  return {before:features,features:next,start,id,suppressed,action:'toggle'};
 }
-export function filletRadiusChange(features,id,radius){
+export function filletRadiusChange(features,id,radius,expression){
  const start=filletIndex(features,id);
  if(!Number.isFinite(radius)||radius<=0)throw Error('半径は0より大きい数値で指定してください');
  const next=structuredClone(features);next[start].spec.radius=radius;
+ const links={...next[start].dimensionLinks};delete links.radius;if(expression)links.radius=expression;
+ if(Object.keys(links).length)next[start].dimensionLinks=links;else delete next[start].dimensionLinks;
  return {before:features,features:next,start,id,radius,action:'radius'};
 }
 export function bodyFilletFeatures(features,bodyId,suppressed=false){
@@ -30,7 +32,7 @@ export function bodyFilletsChange(features,bodyId,suppressed=true){
  return {before:features,features:next,start,ids:[...ids],bodyId,count:ids.size,suppressed,action:'batch'};
 }
 
-export function createFilletHistoryDialog({getFeatures,apply,cancel,preview,clearPreview,highlight,bodyName=id=>id}){
+export function createFilletHistoryDialog({getFeatures,apply,cancel,preview,clearPreview,highlight,bodyName=id=>id,onOpen=()=>{},getRadiusLink=()=>undefined}){
  let dialog=null,id=null,busy=false,revision=0,previewRevision=0,timer=null,previewState='idle';
  const el=name=>dialog.querySelector('#fillet-history-'+name);
  function close(){dialog.close();}
@@ -43,19 +45,19 @@ export function createFilletHistoryDialog({getFeatures,apply,cancel,preview,clea
   el('radius-help').textContent=suppressed?'解除中は半径だけを保存し、解除状態を維持します。':'指定した半径で丸め直し、後続の加工も再計算します。';
   el('apply').textContent=suppressed?'フィレットを再適用':'この工程のフィレットを解除';
   el('apply').disabled=busy;el('radius').disabled=busy;el('body').disabled=busy;el('preview').disabled=busy;
-  el('radius-apply').disabled=busy||!el('radius').value.trim()||!Number.isFinite(radius)||radius<=0||radius===feature.spec.radius||(el('preview').checked&&previewState!=='ready');
+  el('radius-apply').disabled=busy||!el('radius').value.trim()||!Number.isFinite(radius)||radius<=0||radius===feature.spec.radius&&getRadiusLink(radius)===feature.dimensionLinks?.radius||(el('preview').checked&&previewState!=='ready');
   const count=bodyFilletFeatures(features,el('body').value).length,off=bodyFilletFeatures(features,el('body').value,true).length;
   el('batch-status').textContent='選んだボディ：適用中 '+count+' 工程 / 解除中 '+off+' 工程。他のボディの状態は維持します。';el('batch').disabled=busy||!count;el('restore').disabled=busy||!off;
  }
  function schedulePreview(){
   resetPreview();el('error').textContent='';el('preview-status').textContent='';
   const original=getFeatures(),feature=original.find(f=>f.id===id),radius=Number(el('radius').value);
-  if(!el('preview').checked||!el('radius').value.trim()||!Number.isFinite(radius)||radius<=0||radius===feature?.spec.radius){update();return;}
+  if(!el('preview').checked||!el('radius').value.trim()||!Number.isFinite(radius)||radius<=0||radius===feature?.spec.radius&&getRadiusLink(radius)===feature?.dimensionLinks?.radius){update();return;}
   highlight?.(null);previewState='pending';update();el('preview-status').textContent='プレビューを計算します…';const request=previewRevision,session=revision;
   const current=()=>dialog.open&&session===revision&&request===previewRevision&&getFeatures()===original;
   timer=setTimeout(async()=>{
    try{
-    await preview(filletRadiusChange(original,id,radius),current,progress=>{if(current())el('preview-status').textContent=progress.stage||'後続工程を含めて計算中…';});
+    await preview(filletRadiusChange(original,id,radius,getRadiusLink(radius)),current,progress=>{if(current())el('preview-status').textContent=progress.stage||'後続工程を含めて計算中…';});
     if(current()){previewState='ready';el('preview-status').textContent='水色：変更後の形状（未確定）。「半径を変更」で確定します。';}
    }catch(e){if(current()){previewState='error';clearPreview?.();el('preview-status').textContent='プレビューできません。変更前の形状を表示しています。';el('error').textContent=e.message||'この半径ではフィレットを作成できません';}}
    finally{if(current())update();}
@@ -79,7 +81,7 @@ export function createFilletHistoryDialog({getFeatures,apply,cancel,preview,clea
   document.body.append(dialog);draggableDialog(dialog);el('close').onclick=el('cancel').onclick=close;
   dialog.addEventListener('close',()=>{revision++;resetPreview(true);highlight?.(null);if(busy)cancel?.();});
   el('radius').addEventListener('input',schedulePreview);el('preview').onchange=schedulePreview;el('body').addEventListener('change',()=>{update();if(previewState==='idle')highlight?.(id,el('body').value);});
-  el('radius-form').onsubmit=e=>{e.preventDefault();if(el('radius-apply').disabled)return;commit(features=>filletRadiusChange(features,id,Number(el('radius').value)));};
+  el('radius-form').onsubmit=e=>{e.preventDefault();if(el('radius-apply').disabled)return;commit(features=>filletRadiusChange(features,id,Number(el('radius').value),getRadiusLink(Number(el('radius').value))));};
   el('apply').onclick=()=>commit(features=>filletHistoryChange(features,id,filletSuppressionState(features.find(f=>f.id===id)?.spec)!=='suppressed'));
   el('batch').onclick=()=>commit(features=>bodyFilletsChange(features,el('body').value));
   el('restore').onclick=()=>commit(features=>bodyFilletsChange(features,el('body').value,false));
@@ -87,6 +89,7 @@ export function createFilletHistoryDialog({getFeatures,apply,cancel,preview,clea
  return {open(featureId,preferredBody=null){
   if(busy)return;const feature=getFeatures().find(f=>f.id===featureId);if(feature?.spec?.type!=='fillet')return;
   if(!dialog)build();resetPreview();id=featureId;dialog.dataset.featureId=featureId;revision++;el('error').textContent='';el('preview-status').textContent='';el('radius').value=feature.spec.radius;
+  onOpen(feature);
   el('body').replaceChildren();for(const bodyId of filletBodyTargets(feature.spec))el('body').add(new Option(bodyName(bodyId),bodyId));
   if(filletBodyTargets(feature.spec).includes(preferredBody))el('body').value=preferredBody;
   update();if(!dialog.open)dialog.show();highlight?.(id,el('body').value);el('radius').focus();el('radius').select();
