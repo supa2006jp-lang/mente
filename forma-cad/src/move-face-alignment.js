@@ -22,8 +22,12 @@ export function movePlanarFace(hit){
  const mesh=hit.object,geometry=mesh.geometry,group=cadFaceGroup(geometry,hit.faceIndex);
  if(group?.cylinder||group&&geometry.userData.planarFaces&&!geometry.userData.planarFaces.includes(group.faceId))return null;
  const position=cadPosition(geometry),{a,b,c}=hit.face;
- const normal=new THREE.Triangle(...[a,b,c].map(i=>new THREE.Vector3().fromBufferAttribute(position,i)))
-  .getNormal(new THREE.Vector3()).applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld));
- if(!normal.lengthSq())return null;
- return {normal,mesh,outline:()=>group?cadFaceGeometry(geometry,group):regionFaceGeometry(planarFace(geometry,hit.faceIndex))};
+ const points=[a,b,c].map(i=>new THREE.Vector3().fromBufferAttribute(position,i));
+ const localNormal=new THREE.Triangle(...points).getNormal(new THREE.Vector3());
+ if(!localNormal.lengthSq())return null;
+ const key=mesh.uuid+':'+(group?.faceId??[...localNormal.toArray(),localNormal.dot(points[0])].map(value=>Math.round(value*1e6)).join(','));
+ return {key,mesh,get normal(){
+  mesh.updateWorldMatrix(true,false);
+  return localNormal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld));
+ },outline:()=>group?cadFaceGeometry(geometry,group):regionFaceGeometry(planarFace(geometry,hit.faceIndex))};
 }

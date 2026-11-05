@@ -239,14 +239,78 @@ try{
  const beforeAlignment=await preview();
  await align.click();
  await pickFace(new THREE.Vector3(4,-10,8));
+ const sourceLabel=page.locator('[data-alignment-role=source]');
+ const targetLabel=page.locator('[data-alignment-role=target]');
+ const angleLabel=field('move-face-alignment-angle'),undoAlignment=field('move-undo-face-alignment');
+ assert.match(await sourceLabel.textContent(),/① 動かす面/);
+ const hoverPreview=async()=>JSON.parse(await field('canvas-host').getAttribute('data-move-face-alignment-preview'));
+ async function hoverFace(point){
+  await page.mouse.move(...await screen(point));
+  try{await page.waitForFunction(()=>!!document.getElementById('canvas-host').dataset.moveFaceAlignmentPreview,null,{timeout:10000});}
+  catch(error){
+   await page.screenshot({path:'.sites-runtime/face-alignment-hover-failure.png'});
+   console.log(JSON.stringify({point:point.toArray(),screen:await screen(point),hint:await field('move-hint').textContent(),error:await field('move-error').textContent(),faces:await field('canvas-host').getAttribute('data-move-face-alignment'),preview:await preview(),pageErrors:errors}));
+   throw error;
+  }
+ }
+ await hoverFace(fixedFace);
+ assert.deepEqual(await preview(),beforeAlignment,'hover must preserve the actual pose and numeric fields');
+ const ghost=await hoverPreview();
+ assert.equal(await angleLabel.textContent(),'回転後 ＋30°');
+ assert(Math.abs(ghost.angle-30)<1e-7);
+ assert.deepEqual(ghost.pivot,beforeAlignment.position);
+ assert.deepEqual(ghost.axis,[0,0,1]);
+ const ghostMatrix=new THREE.Matrix4().fromArray(ghost.matrix);
+ assert(new THREE.Vector3().setFromMatrixPosition(ghostMatrix).distanceTo(new THREE.Vector3(...beforeAlignment.position))<1e-7);
+ const ghostRotation=new THREE.Quaternion().setFromRotationMatrix(ghostMatrix);
+ const axisAlignment=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),new THREE.Vector3(...beforeAlignment.edgeAxis));
+ const expectedGhostRotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),targetTurn)
+  .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...beforeAlignment.rotation,'ZYX'))).multiply(axisAlignment);
+ assert(Math.abs(ghostRotation.dot(expectedGhostRotation))>1-1e-8,'ghost must rotate around the same fixed world axis as the applied move');
+ assert.match(await targetLabel.textContent(),/② 基準面.*候補/);
+ assert.notEqual(await sourceLabel.evaluate(node=>getComputedStyle(node).borderTopColor),await targetLabel.evaluate(node=>getComputedStyle(node).borderTopColor));
+ const panelBounds=await field('move-panel').boundingBox();
+ for(const label of [sourceLabel,targetLabel]){
+  await label.waitFor({state:'visible'});
+  const box=await label.boundingBox();
+  assert(box.x+box.width<=panelBounds.x||box.x>=panelBounds.x+panelBounds.width||box.y+box.height<=panelBounds.y||box.y>=panelBounds.y+panelBounds.height,'face role labels should stay clear of the move panel');
+ }
+ await page.screenshot({path:'.sites-runtime/face-alignment-hover-preview.png'});
+ await page.mouse.move(20,20);
+ assert.equal(await hoverPreview(),null);
+ assert.deepEqual(await preview(),beforeAlignment);
+ await hoverFace(fixedFace);
+ await page.keyboard.press('Escape');
+ assert.equal(await hoverPreview(),null);
+ assert.equal(await sourceLabel.count(),0);
+ assert.equal(await targetLabel.count(),0);
+ assert.deepEqual(await preview(),beforeAlignment);
+ await align.click();
+ await pickFace(new THREE.Vector3(4,-10,8));
+ await hoverFace(fixedFace);
  await pickFace(fixedFace);
  assert.match(await field('move-hint').textContent(),/平行にしました/);
+ assert.equal(await hoverPreview(),null);
+ assert.match(await sourceLabel.textContent(),/① 動かす面/);
+ assert.match(await targetLabel.textContent(),/② 基準面/);
+ assert(!/候補/.test(await targetLabel.textContent()));
  const aligned=await preview();
  assert.deepEqual(aligned.position,beforeAlignment.position);
  assert.deepEqual(aligned.pivot,beforeAlignment.pivot);
  assert.deepEqual(aligned.edgeAxis,beforeAlignment.edgeAxis);
  assert(Math.abs(aligned.rotation[2]-targetTurn)<1e-7);
+ assert.equal(await angleLabel.textContent(),'面合わせ ＋30°');
+ await undoAlignment.click();
+ assert.deepEqual(await preview(),beforeAlignment);
+ assert.equal(await undoAlignment.isVisible(),false);
+ assert.equal(await sourceLabel.count(),0);
+ assert.equal(await angleLabel.isVisible(),false);
+ await align.click();
+ await pickFace(new THREE.Vector3(4,-10,8));
+ await pickFace(fixedFace);
  const alignedSpec=await applyAndSave();
+ assert.equal(await sourceLabel.count(),0);
+ assert.equal(await targetLabel.count(),0);
  assert.deepEqual(alignedSpec.pivot,[2,-10,5]);
  assert.equal(alignedSpec.x,4);
  assert(Math.abs(alignedSpec.rotation[2]-30)<1e-7);
@@ -267,6 +331,10 @@ try{
   assert.deepEqual(await preview(),before);
   await direction.selectOption('Z');
   assert.deepEqual((await guide()).direction,[0,0,1]);
+  await hoverFace(fixedFace);
+  assert.deepEqual(await preview(),before,'point-pivot hover must leave the pending move untouched');
+  assert.deepEqual((await hoverPreview()).pivot,before.position);
+  assert(Math.abs((await hoverPreview()).angle-30)<1e-7);
   await pickFace(fixedFace);
   assert.match(await field('move-hint').textContent(),/平行にしました/);
   const after=await preview();
@@ -291,6 +359,60 @@ try{
  await field('move-x').fill('4');
  await alignAboutCenter([6,-10,5]);
 
+ const otherTarget={...fixedBox,id:'other-target',name:'Other target',width:18,x:-94,angle:-20};
+ const otherFace=new THREE.Vector3(0,-10,8).applyAxisAngle(new THREE.Vector3(0,0,1),THREE.MathUtils.degToRad(-20)).add(new THREE.Vector3(-94,0,0));
+ await startMove([fixedBox,otherTarget]);
+ await field('move-pick-axis').click();await point.click();await axisDirection.selectOption('Z');
+ await align.click();await pickFace(new THREE.Vector3(4,-10,8));await pickFace(fixedFace);
+ const initialResult=await preview();
+ const faceState=async()=>JSON.parse(await field('canvas-host').getAttribute('data-move-face-alignment'));
+ const initialFaces=await faceState();
+ await targetLabel.click();
+ assert.equal((await faceState()).source.key,initialFaces.source.key);
+ assert.equal(await targetLabel.count(),0);
+ await hoverFace(otherFace);
+ assert.equal(await angleLabel.textContent(),'回転後 −50°');
+ assert.deepEqual(await preview(),initialResult);
+ await pickFace(otherFace);
+ assert(Math.abs((await preview()).rotation[2]-THREE.MathUtils.degToRad(-20))<1e-7);
+ assert.equal((await faceState()).source.key,initialFaces.source.key);
+ assert.equal((await faceState()).target.bodyId,'other-target');
+ assert.equal(await angleLabel.textContent(),'面合わせ −50°');
+ await undoAlignment.click();
+ assert.deepEqual(await preview(),initialResult,'undoing a replacement restores the previous alignment');
+ assert.equal((await faceState()).target.key,initialFaces.target.key);
+
+ await sourceLabel.click();
+ assert.equal((await faceState()).target.key,initialFaces.target.key);
+ assert.equal(await sourceLabel.count(),0);
+ const sourcePoint=new THREE.Vector3(-19,3,8).sub(new THREE.Vector3(...initialResult.pivot))
+  .applyEuler(new THREE.Euler(...initialResult.rotation,'ZYX')).add(new THREE.Vector3(...initialResult.position));
+ await hoverFace(sourcePoint);
+ const sourceReplacement=await hoverPreview();
+ assert(Math.abs(Math.abs(sourceReplacement.angle)-90)<1e-7);
+ assert.match(await sourceLabel.textContent(),/①.*候補/);
+ await pickFace(sourcePoint);
+ assert.equal((await faceState()).target.key,initialFaces.target.key);
+ assert.notEqual((await faceState()).source.key,initialFaces.source.key);
+ const sourceAdjusted=await preview(),adjustedQuaternion=new THREE.Quaternion().setFromEuler(new THREE.Euler(...sourceAdjusted.rotation,'ZYX'));
+ const sourceNormal=new THREE.Vector3(-1,0,0).applyQuaternion(adjustedQuaternion);
+ const targetNormal=new THREE.Vector3(0,-1,0).applyAxisAngle(new THREE.Vector3(0,0,1),targetTurn);
+ assert(sourceNormal.cross(targetNormal).length()<1e-7,'only selecting a replacement source face should align it with the retained target');
+ await undoAlignment.click();
+ assert.deepEqual(await preview(),initialResult);
+ assert.equal((await faceState()).source.key,initialFaces.source.key);
+
+ await targetLabel.click();
+ await hoverFace(otherFace);
+ await page.keyboard.press('Escape');
+ assert.deepEqual(await preview(),initialResult);
+ assert.equal((await faceState()).target.key,initialFaces.target.key);
+ assert.equal(await hoverPreview(),null);
+ const finalSpec=await applyAndSave();
+ assert.equal(finalSpec.x,4);
+ assert(Math.abs(finalSpec.rotation[2]-30)<1e-7);
+ assert.equal(await undoAlignment.isVisible(),false);
+
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,inlineAngle:true,fixedAxisAlignment:true,impossibleAlignmentPreserved:true,alignmentFromPickedCenter:true,alignmentFromSketchPointAction:true,errors}));
+ console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,inlineAngle:true,fixedAxisAlignment:true,impossibleAlignmentPreserved:true,alignmentFromPickedCenter:true,alignmentFromSketchPointAction:true,faceAlignmentHoverPreview:true,faceAlignmentColoredRoles:true,hoverCancellationPreservesPose:true,alignmentSignedAngle:true,alignmentReselectSource:true,alignmentReselectTarget:true,alignmentUndo:true,errors}));
 }finally{await browser?.close();server.close();}

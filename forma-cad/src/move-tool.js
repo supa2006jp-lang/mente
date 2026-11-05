@@ -6,6 +6,7 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {installMoveAxisLabels} from './move-axis-labels.js';
 import {createMoveRotationFeedback} from './move-rotation-feedback.js';
 import {movePlanarFace,rotationToParallelFaces} from './move-face-alignment.js';
+import {createMoveFaceAlignmentView} from './move-face-alignment-view.js';
 import {accelerateMeshPicking} from './mesh-picking.js';
 import {createMoveAxisPicker,moveAxisCandidates,moveCenterCandidates,movePointCandidates} from './move-axis-picker.js';
 import {movePointDistanceText} from './move-point-guide.js';
@@ -25,7 +26,14 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  const faceAlignButton=document.createElement('button');
  faceAlignButton.type='button';faceAlignButton.id='move-align-faces';faceAlignButton.textContent='この軸で面を平行に';
  axisSelect.parentElement.after(faceAlignButton);
- let faceAlignment=null,faceHighlight=null;
+ const alignmentView=createMoveFaceAlignmentView({scene,camera,canvas,host,panel,getBodyName,
+  getObjects:()=>[...previewMeshes(),...otherMeshes()],onReselect:reselectAlignmentFace});
+ const undoAlignmentButton=document.createElement('button');
+ undoAlignmentButton.type='button';undoAlignmentButton.id='move-undo-face-alignment';undoAlignmentButton.hidden=true;
+ undoAlignmentButton.textContent='面合わせだけ元に戻す';
+ undoAlignmentButton.title='直前の面合わせの前の姿勢へ戻します';
+ faceAlignButton.after(undoAlignmentButton);
+ let faceAlignment=null,alignmentHoverFrame=null,alignmentResult=null,alignmentUndo=null;
  const rotationStepLabel=document.createElement('label');rotationStepLabel.hidden=true;
  rotationStepLabel.innerHTML='回転の吸着間隔 <select id="move-rotation-snap-step"><option value="5">5°</option><option value="15" selected>15°</option><option value="45">45°</option></select><small>Altを押している間は吸着を解除</small>';
  rotationOptions.append(rotationStepLabel);
@@ -66,55 +74,150 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   return edgeAxis?new THREE.Vector3(0,0,1).applyQuaternion(proxy.quaternion).normalize():
    new THREE.Vector3().setComponent(axisSelect.selectedIndex,1);
  }
+ function alignmentPose(){
+  return {proxy,quaternion:proxy.quaternion.clone(),position:proxy.position.clone(),method:method.value,reverse:reverse.checked};
+ }
+ function matchesAlignmentPose(pose){
+  return pose.proxy===proxy&&pose.quaternion.equals(proxy.quaternion)&&pose.position.equals(proxy.position)&&pose.method===method.value&&pose.reverse===reverse.checked;
+ }
+ function updateAlignmentState(){
+  if(alignmentUndo&&!matchesAlignmentPose(alignmentUndo.after))alignmentUndo=null;
+  if(alignmentResult&&!matchesAlignmentPose(alignmentResult.pose)){alignmentResult=null;alignmentView.clear();}
+  undoAlignmentButton.hidden=!alignmentUndo;undoAlignmentButton.disabled=busy;
+ }
+ function showAlignmentResult(){
+  if(!alignmentResult)return;
+  alignmentView.setFace('source',alignmentResult.source);
+  alignmentView.setFace('target',alignmentResult.target);
+  alignmentView.setAngle(alignmentResult.angle,proxy.position);
+ }
  function updateFaceAlignButton(){
+  updateAlignmentState();
   const hasTarget=otherMeshes().length>0;
   faceAlignButton.hidden=!proxy||!(edgeAxis||hasPointPivot());
   faceAlignButton.disabled=busy||!hasTarget||copying()&&reverse.checked;
-  faceAlignButton.title=hasTarget?'回転させるボディの平面、基準にする別ボディの平面の順に選択':'基準にする別ボディを表示してください';
+  faceAlignButton.title=[
+   '回転中心と軸を固定して、選んだ平面を別ボディの平面と平行に揃えます。',
+   '① 回転軸を選びます。点を回転中心にした場合は、X・Y・Zから軸の方向を選びます。',
+   '② このボタンを押します。',
+   '③ 回転させるボディの平面をクリックします。',
+   '④ 基準にする別ボディの平面をクリックします。',
+   '⑤ プレビューを確認し、「確定」で反映します。',
+   ...(!hasTarget?['基準にする別ボディを表示してください。']:[])
+  ].join('\n');
   axisSelect.previousElementSibling.textContent=hasPointPivot()?'回転中心を通る軸':'90°回転の軸';
  }
  function clearFaceAlignment(){
+  if(alignmentHoverFrame!==null)cancelAnimationFrame(alignmentHoverFrame);alignmentHoverFrame=null;
   if(faceAlignment&&!edgeAxis)drawAxisGuide(null);
   faceAlignment=null;
   faceAlignButton.setAttribute('aria-pressed','false');
-  if(faceHighlight){faceHighlight.removeFromParent();faceHighlight.geometry.dispose();faceHighlight.material.dispose();faceHighlight=null;}
+  alignmentView.clear();
  }
+ function beginFaceSelection({source=null,target=null,role='source'}={}){
+  finishFreeMove(false);stopPointModes();error.textContent='';
+  mode('rotate');faceAlignment={source,target,role};
+  if(source)alignmentView.setFace('source',source);
+  if(target)alignmentView.setFace('target',target);
+  rotationFeedback.hideAngle();control.enabled=false;control.axis=null;helper.visible=false;
+  updateAxisGuide();faceAlignButton.setAttribute('aria-pressed','true');
+  hint.textContent=role==='source'?'① 回転させるボディの平面をクリック':'② 基準にする別ボディの平面にカーソルを合わせて確認し、クリックしてください';
+ }
+ function reselectAlignmentFace(role){
+  if(!proxy||busy)return;
+  const selected=faceAlignment||alignmentResult;
+  if(!selected)return;
+  beginFaceSelection({source:role==='source'?null:selected.source,target:role==='target'?null:selected.target,role});
+ }
+ undoAlignmentButton.onclick=()=>{
+  if(!alignmentUndo||busy)return;
+  const before=alignmentUndo.before;
+  stopPointModes();alignmentUndo=null;alignmentResult=before.result;
+  proxy.quaternion.copy(before.pose.quaternion);proxy.position.copy(before.pose.position);
+  edgeAngle=before.edgeAngle;rotationEdit=before.rotationEdit;
+  fields.forEach((field,i)=>field.value=before.values[i]);edgeInput.value=before.edgeValue;
+  mark();
+  showAlignmentResult();
+  contactMove=before.contactMove;
+  if(before.contactReadout)host.dataset.moveUntilContact=before.contactReadout;
+  error.textContent='';hint.textContent='面合わせ直前の姿勢に戻しました。「確定」で反映します';
+ };
  faceAlignButton.onclick=()=>{
   if(faceAlignButton.hidden||faceAlignButton.disabled)return;
-  const starting=!faceAlignment;
-  finishFreeMove(false);stopPointModes();error.textContent='';
-  if(!starting){hint.textContent='面の選択を中止しました';refreshRotationAngle();return;}
-  mode('rotate');faceAlignment={source:null};
-  rotationFeedback.hideAngle();
-  control.enabled=false;control.axis=null;helper.visible=false;
-  updateAxisGuide();
-  faceAlignButton.setAttribute('aria-pressed','true');
-  hint.textContent='① 回転させるボディの平面をクリック';
+  if(faceAlignment){stopPointModes();showAlignmentResult();error.textContent='';hint.textContent='面の選択を中止しました';refreshRotationAngle();return;}
+  beginFaceSelection();
  };
- function pickAlignmentFace(event){
+ function alignmentHit(event){
   const rect=canvas.getBoundingClientRect(),moving=previewMeshes();
   faceRay.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2),camera);
   for(const mesh of moving)accelerateMeshPicking(mesh);
-  const hit=faceRay.intersectObjects([...moving,...getMeshes().filter(mesh=>mesh.visible)],false)[0];
-  const source=faceAlignment.source;
-  if(!hit||(source?!otherMeshes().includes(hit.object):!moving.includes(hit.object))){
-   error.textContent=source?'② 表示中の別ボディの平面を選択してください':'① 回転させるボディの平面を選択してください';
+  return faceRay.intersectObjects([...moving,...getMeshes().filter(mesh=>mesh.visible)],false)[0];
+ }
+ function clearAlignmentHover(){
+  if(alignmentHoverFrame!==null)cancelAnimationFrame(alignmentHoverFrame);alignmentHoverFrame=null;
+  if(!faceAlignment)return;
+  faceAlignment.hover=null;faceAlignment.pointer=null;
+  alignmentView.clearPreview();alignmentView.setFace(faceAlignment.role,null);
+ }
+ function hoverAlignmentFace(event){
+  if(!faceAlignment||busy)return;
+  const hit=alignmentHit(event);
+  let face=null;
+  const role=faceAlignment.role,meshes=role==='source'?previewMeshes():otherMeshes();
+  if(hit&&meshes.includes(hit.object))try{face=movePlanarFace(hit);}catch{}
+  if(!face){
+   clearAlignmentHover();
+   hint.textContent=role==='source'?'① 回転させるボディの平面をクリック':'② 基準にする別ボディの平面にカーソルを合わせて確認し、クリックしてください';
+   return;
+  }
+  const source=role==='source'?face:faceAlignment.source,target=role==='target'?face:faceAlignment.target;
+  const axis=faceAlignmentAxis(),turn=source&&target?rotationToParallelFaces(axis,source.normal,target.normal):null;
+  const key=face.key+'|'+axis.toArray().join(',')+'|'+turn;
+  if(faceAlignment.hover===key)return;
+  alignmentView.clearPreview();
+  alignmentView.setFace(role,face,{selected:false});
+  faceAlignment.hover=key;
+  if(!source||!target)return;
+  if(turn===null){hint.textContent='この軸では2面を平行にできません。別の平面か軸を選んでください';return;}
+  error.textContent='';
+  alignmentView.preview(proxy,axis,turn);
+  hint.textContent='半透明が回転後の形です。面をクリックで仮配置し、「確定」で反映します';
+ }
+ canvas.addEventListener('pointermove',event=>{
+  if(!faceAlignment||busy)return;
+  faceAlignment.pointer={clientX:event.clientX,clientY:event.clientY};
+  if(alignmentHoverFrame===null)alignmentHoverFrame=requestAnimationFrame(()=>{
+   alignmentHoverFrame=null;
+   if(faceAlignment?.pointer)hoverAlignmentFace(faceAlignment.pointer);
+  });
+  event.stopImmediatePropagation();
+ },{capture:true});
+ canvas.addEventListener('pointerleave',clearAlignmentHover);
+ function pickAlignmentFace(event){
+  if(alignmentHoverFrame!==null)cancelAnimationFrame(alignmentHoverFrame);alignmentHoverFrame=null;
+  const hit=alignmentHit(event);
+  const role=faceAlignment.role,meshes=role==='source'?previewMeshes():otherMeshes();
+  if(!hit||!meshes.includes(hit.object)){
+   error.textContent=role==='target'?'② 表示中の別ボディの平面を選択してください':'① 回転させるボディの平面を選択してください';
    return;
   }
   try{
    const face=movePlanarFace(hit);
    if(!face)throw Error('平らな面を選択してください');
    error.textContent='';
-   if(!source){
-    faceHighlight=new THREE.Mesh(face.outline(),new THREE.MeshBasicMaterial({color:0x16a575,side:THREE.DoubleSide,transparent:true,opacity:.7,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3}));
-    faceHighlight.matrixAutoUpdate=false;faceHighlight.matrix.copy(face.mesh.matrixWorld);faceHighlight.renderOrder=7;scene.add(faceHighlight);
-    faceAlignment.source=face;
-    hint.textContent='② 基準にする別ボディの平面をクリック';
+   const source=role==='source'?face:faceAlignment.source,target=role==='target'?face:faceAlignment.target;
+   if(!target){
+    alignmentView.clearPreview();
+    alignmentView.setFace('source',face);
+    faceAlignment.source=face;faceAlignment.role='target';faceAlignment.hover=null;faceAlignment.pointer=null;
+    hint.textContent='② 基準にする別ボディの平面にカーソルを合わせて確認し、クリックしてください';
     return;
    }
    const axis=faceAlignmentAxis();
-   const turn=rotationToParallelFaces(axis,source.normal,face.normal);
+   const turn=rotationToParallelFaces(axis,source.normal,target.normal);
    if(turn===null)throw Error('この回転軸では2面を平行にできません。別の平面か軸を選んでください');
+   const before={pose:alignmentPose(),result:alignmentResult,edgeAngle,values:fields.map(field=>field.value),edgeValue:edgeInput.value,
+    rotationEdit:rotationEdit?{...rotationEdit,axis:rotationEdit.axis.clone()}:null,contactMove,contactReadout:host.dataset.moveUntilContact};
    stopPointModes();
    if(turn!==0){
     if(edgeAxis)setFixedRotationAngle(edgeAngle+THREE.MathUtils.radToDeg(turn));
@@ -124,11 +227,14 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
     }
     syncDragPreview({updateTranslation:false});
    }else refreshRotationAngle();
+   if(turn!==0)alignmentUndo={before,after:alignmentPose()};
+   alignmentResult={source,target,angle:turn,pose:alignmentPose()};
+   showAlignmentResult();updateAlignmentState();
    hint.textContent=(turn===0?'2面はすでに平行です':'軸を固定したまま2面を平行にしました')+'。「確定」で適用';
   }catch(e){error.textContent=e.message;}
  }
  axisSelect.addEventListener('change',()=>{
-  if(faceAlignment){error.textContent='';updateAxisGuide();}
+  if(faceAlignment){error.textContent='';faceAlignment.hover=null;updateAxisGuide();if(faceAlignment.pointer)hoverAlignmentFace(faceAlignment.pointer);}
  });
  function softMoveSnap(){
   if(!proxy||!control.dragging||control.mode!=='translate'||!dragStartPosition||!dragStartBounds)return;
@@ -205,7 +311,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   world.addScaledVector(axis,-world.dot(axis));
   return world.lengthSq()>1e-8?world.normalize():null;
  }
- function clearPreview(){clearFaceAlignment();finishRotationDrag();rotationEdit=null;rotationFeedback.clear();drawAxisGuide(null);contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=originalVisibility.get(mesh)??true;originalVisibility.clear();if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
+ function clearPreview(){alignmentUndo=null;alignmentResult=null;undoAlignmentButton.hidden=true;clearFaceAlignment();finishRotationDrag();rotationEdit=null;rotationFeedback.clear();drawAxisGuide(null);contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=originalVisibility.get(mesh)??true;originalVisibility.clear();if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
  function close(force=false,applied=false){if(busy&&!force)return;finishFreeMove(false);const targets=originals.map(m=>m.userData.bodyId);++revision;busy=false;control.dragging=false;control.axis=null;if(dragPointer&&canvas.hasPointerCapture(dragPointer.id))canvas.releasePointerCapture(dragPointer.id);dragPointer=null;pointMove=null;pickingCenter=false;closeCenterPicker();closePointPicker();pickingAxis=false;closeAxisPicker();clearPreview();active=false;control.enabled=false;panel.hidden=true;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;getControls().enabled=enabledBefore;host.dataset.moveActive='false';delete host.dataset.movePreview;onClose({targets,applied,force});}
  function mode(value){if(value!=='rotate'){finishRotationDrag();rotationEdit=null;rotationFeedback.clear();}rotationStepLabel.hidden=value!=='rotate';control.setMode(value);control.setSpace(edgeAxis&&value==='rotate'?'local':'world');control.showX=control.showY=!(edgeAxis&&value==='rotate');control.showZ=true;for(const button of panel.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===value));refreshRotationAngle();}
  for(const button of panel.querySelectorAll('[data-mode]'))button.onclick=()=>{finishFreeMove(false);stopPointModes();mode(button.dataset.mode);};
@@ -662,7 +768,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   if(freeMove){finishFreeMove(true);return true;}
   if(rotationFeedback.cancelEdit())return true;
   if(!faceAlignment)return false;
-  stopPointModes();error.textContent='';hint.textContent='面の選択を中止しました';refreshRotationAngle();return true;
+  stopPointModes();showAlignmentResult();error.textContent='';hint.textContent='面の選択を中止しました';refreshRotationAngle();return true;
  }
  window.addEventListener('keydown',e=>{if(active&&e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(!escape())close();}},{capture:true});
  window.addEventListener('keydown',e=>{if(!active||e.key==='Escape'||rotationFeedback.editing)return;if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){if(busy){e.preventDefault();e.stopImmediatePropagation();}else close();}else if(!e.target.matches?.('input,select,textarea')&&['e','l'].includes(e.key.toLowerCase())){e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
