@@ -1,4 +1,4 @@
-export function fitCommandToolbar(bar){
+export function fitCommandToolbar(bar,{singleRowWhenFits=false}={}){
  if(!bar)return;
  const rows=Array.from({length:2},()=>{const row=document.createElement('div');row.className='command-row';return row;});
  let pending=false;
@@ -14,9 +14,11 @@ export function fitCommandToolbar(bar){
   for(const row of rows)if(row.parentElement!==bar)bar.append(row);
   for(const item of items)if(!rows.includes(item.parentElement))rows[0].append(item);
   const gap=parseFloat(getComputedStyle(rows[0]).columnGap)||0;
+  const barStyle=getComputedStyle(bar),available=bar.clientWidth-(parseFloat(barStyle.paddingLeft)||0)-(parseFloat(barStyle.paddingRight)||0);
   const widths=new Map(items.map(el=>{const style=getComputedStyle(el);return [el,el.getBoundingClientRect().width+(parseFloat(style.marginLeft)||0)+(parseFloat(style.marginRight)||0)];}));
   function layout(){
    const visible=items.filter(el=>!el.hidden),total=visible.reduce((sum,el)=>sum+widths.get(el),0);
+   if(singleRowWhenFits&&total+gap*Math.max(0,visible.length-1)<=available)return {index:visible.length,width:total,visible};
    let left=0,best={index:1,width:visible.length<=1?total:Infinity};
    for(let i=1;i<visible.length;i++){
     left+=widths.get(visible[i-1]);
@@ -28,7 +30,7 @@ export function fitCommandToolbar(bar){
   const optional=items.filter(el=>el.hasAttribute('data-overflow-priority')).sort((a,b)=>Number(b.dataset.overflowPriority)-Number(a.dataset.overflowPriority));
   let plan=layout();
   for(const button of optional){
-   if(plan.width<=bar.clientWidth)break;
+   if(plan.width<=available)break;
    button.hidden=true;plan=layout();
   }
   const second=new Set(plan.visible.slice(plan.index));
@@ -38,6 +40,7 @@ export function fitCommandToolbar(bar){
   for(let i=0;i<rows.length;i++)for(let j=0;j<planned[i].length;j++){
    if(rows[i].children[j]!==planned[i][j])rows[i].insertBefore(planned[i][j],rows[i].children[j]||null);
   }
+  rows[1].hidden=!planned[1].some(item=>!item.hidden);
   const count=optional.filter(button=>button.hidden).length;
   const advanced=bar.querySelector('#advanced-tools');
   const title=count?'全コマンド（入りきらない '+count+' コマンドを含む）':'全コマンド';

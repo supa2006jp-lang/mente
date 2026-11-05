@@ -1,12 +1,10 @@
 import {readCommandUsage,orderFavoriteCommands,moveFavoriteCommand} from './favorite-command-order.js';
 import {fitCommandToolbar} from './command-toolbar.js';
-import {readCommandColors,applyCommandColor} from './favorite-command-colors.js';
+import {applyCommandColor} from './favorite-command-colors.js';
+import {readFavoriteCommands,exportCommandSettings,importCommandSettings,saveCommandSettings} from './favorite-command-settings.js';
+export {readFavoriteCommands} from './favorite-command-settings.js';
 const storageKey='forma-command-toolbar-v1';
 const usageKey='forma-command-usage-v1';
-export function readFavoriteCommands(value){
- const ids=list=>[...new Set(Array.isArray(list)?list.filter(id=>typeof id==='string'&&/^[\w-]{1,80}$/.test(id)):[])].slice(0,100);
- return {favorites:ids(value?.favorites),hidden:ids(value?.hidden),collapsed:value?.collapsed===true,autoSort:value?.autoSort===true,colors:readCommandColors(value?.colors)};
-}
 export function installFavoriteCommands({bar,notify=()=>{}}){
  const document=bar.ownerDocument;
  let settings;try{settings=readFavoriteCommands(JSON.parse(localStorage.getItem(storageKey)||'null'));}catch{settings=readFavoriteCommands();}
@@ -16,26 +14,76 @@ export function installFavoriteCommands({bar,notify=()=>{}}){
  const tabs=bar.parentElement;tabs.insertBefore(open,bar);
  const favorites=document.createElement('nav');favorites.id='favorite-commands';favorites.setAttribute('aria-label','よく使うコマンド');favorites.hidden=true;tabs.after(favorites);
  const dialog=document.createElement('dialog');dialog.id='favorite-commands-dialog';
- dialog.innerHTML='<form><h2>よく使うコマンド</h2><p>「すべて登録」で一括追加、「＋ 登録」で個別追加できます。登録後にドラッグまたは↑↓で並べ替えます。変更は「保存」でバーに反映されます。「表示」を外したコマンドは元のバーで非表示になります。</p><label><input type="checkbox" data-collapse> 元のコマンドバーを畳む</label><div data-list></div><p data-status role="status"></p><div class="editor-actions"><button type="button" data-reset>初期設定</button><button type="button" data-cancel>キャンセル</button><button type="submit" class="accent">保存</button></div></form>';
+ dialog.innerHTML='<form><h2>よく使うコマンド</h2><details data-help><summary>操作ガイド</summary><p>「すべて登録」で一括追加、「＋ 登録」で個別追加。登録後にドラッグまたは↑↓で並べ替えます。「表示」を外すと元のバーで非表示になります。各行の「色」で背景色、「標準」で元の色に戻せます。変更・読み込みは「保存」で反映します。</p></details><div data-options><label><input type="checkbox" data-collapse> 元のコマンドバーを畳む</label></div><div data-list></div><p data-status role="status"></p><div class="editor-actions"><button type="button" data-reset>初期設定</button><button type="button" data-cancel>キャンセル</button><button type="submit" class="accent">保存</button></div></form>';
  document.body.append(dialog);
- dialog.querySelector('form>p').append(' 各コマンドの「色」で背景色を選べます。「標準」で元の色に戻せます。');
  const colorStyle=document.createElement('style');
  colorStyle.textContent='#favorite-commands button[data-command-color],#favorite-commands-dialog .favorite-name[data-command-color]{background:var(--favorite-bg);color:var(--favorite-fg);border-color:var(--favorite-fg)}#favorite-commands button[data-command-color] :is(span,svg){color:inherit}#favorite-commands button[data-command-color]:hover:not(:disabled){filter:brightness(1.12)}#favorite-commands button[data-command-color]:is(.active,[aria-pressed=true]){box-shadow:inset 0 0 0 2px var(--favorite-fg)}#favorite-commands-dialog .favorite-name[data-command-color]{padding:4px 6px;border-radius:4px}#favorite-commands-dialog .favorite-color{font-size:12px;flex:none}#favorite-commands-dialog input[type=color]{width:30px;height:28px;padding:2px;margin:0;cursor:pointer;border-radius:4px}#favorite-commands-dialog [data-color-reset]{font-size:11px;padding:4px}';
  document.head.append(colorStyle);
  const style=document.createElement('style');style.textContent='#favorite-commands-dialog{box-sizing:border-box;padding:20px;border:1px solid #456176;border-radius:10px;background:#142232;color:#e2edf5;overflow:hidden}#favorite-commands-dialog form{padding:0;display:flex;flex-direction:column;max-height:calc(85vh - 42px);min-height:0}#favorite-commands-dialog form>:not([data-list]){flex-shrink:0}#favorite-commands-dialog form>h2{margin:0 0 10px}#favorite-commands-dialog form>p{margin:8px 0;font-size:13px;line-height:1.5}#favorite-commands-dialog form>small{font-size:12px;line-height:1.4}#favorite-commands-dialog form>.editor-actions{position:static;padding:8px 0 0}#favorite-commands-dialog [data-list]{flex:1 1 auto;min-height:0}#favorite-commands-dialog .favorite-name[draggable=true],#favorite-commands-dialog .favorite-drag-handle{cursor:grab;user-select:none}#favorite-commands-dialog .favorite-drag-handle{font-size:21px;color:#74d4e1}#favorite-commands-dialog .favorite-dragging{opacity:.45}#favorite-commands-dialog .favorite-drop-before{box-shadow:inset 0 3px #46cbe0}#favorite-commands-dialog .favorite-drop-after{box-shadow:inset 0 -3px #46cbe0}#favorite-commands-dialog [data-order-preview]{padding:9px;border:1px solid #4b7788;border-radius:5px;font-size:13px;max-height:90px;overflow:auto}#favorite-commands-dialog [data-list]>h3{margin:10px 0 5px;font-size:13px;color:#75d6df}#favorite-commands-dialog .favorite-moved{background:#134b5c;outline:1px solid #46cbe0}.command-toolbar[hidden]{display:none!important}#favorite-commands-open{flex:none;font-size:12px;padding:6px 8px;margin-right:6px}#favorite-commands{display:flex;flex-direction:column;gap:3px;align-items:stretch;overflow-x:auto;flex:none;padding:5px 16px;background:#172a39;border-bottom:1px solid #354253}#favorite-commands[hidden]{display:none}#favorite-commands .command-row{display:flex;align-items:center;gap:5px;min-height:34px;min-width:100%;width:max-content;flex-shrink:0}#favorite-commands .command-row>button{flex-shrink:0}#favorite-commands button{display:flex;align-items:center;gap:5px;padding:5px 9px;font-size:13px}#favorite-commands svg{width:21px;height:21px}#favorite-commands-dialog{width:min(680px,94vw);max-height:85vh}#favorite-commands-dialog [data-list]{max-height:50vh;overflow:auto;margin:12px 0}#favorite-commands-dialog .favorite-row{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #8da5b433}#favorite-commands-dialog .favorite-name{flex:1;min-width:0}#favorite-commands-dialog label{display:flex;gap:5px;align-items:center;margin:0}#favorite-commands-dialog input[type=checkbox]{width:auto;margin:0}#favorite-commands-dialog .favorite-row button{padding:4px 8px}';document.head.append(style);
- let catalog=[],signature='',draft=null;const proxies=new Map(),list=dialog.querySelector('[data-list]'),collapse=dialog.querySelector('[data-collapse]'),status=dialog.querySelector('[data-status]');
- const orderPreview=document.createElement('p');orderPreview.dataset.orderPreview='';orderPreview.setAttribute('role','status');list.before(orderPreview);
- const autoLabel=document.createElement('label');autoLabel.style.margin='8px 0';
- const autoSort=document.createElement('input');autoSort.type='checkbox';autoSort.dataset.autoSort='';autoLabel.append(autoSort,' 使用頻度順に自動で並べる');orderPreview.before(autoLabel);
- const autoHelp=document.createElement('small');autoHelp.textContent='バーのボタンを使った回数で並べます。同数なら現在の順番を保ちます。ドラッグや↑↓で動かすと自動並べ替えはオフになります。';autoLabel.after(autoHelp);
- const registeredOrder=state=>{const ids=state.favorites.filter(id=>catalog.some(button=>button.id===id));return state.autoSort?orderFavoriteCommands(ids,usage):ids;};
+ style.textContent+=`
+ #favorite-commands-dialog{width:min(920px,96vw);max-height:90dvh;padding:14px}
+ #favorite-commands-dialog form{max-height:calc(90dvh - 30px);height:min(780px,calc(90dvh - 30px))}
+ #favorite-commands-dialog form>h2{font-size:19px;margin:0 0 6px}
+ #favorite-commands-dialog details{font-size:12px;margin:3px 0}
+ #favorite-commands-dialog summary{cursor:pointer;color:#91c5da}
+ #favorite-commands-dialog [data-help] p{line-height:1.5;margin:6px 0}
+ #favorite-commands-dialog [data-options],#favorite-commands-dialog [data-bulk-colors]{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;margin:5px 0;font-size:12px}
+ #favorite-commands-dialog [data-bulk-colors]{gap:6px;padding:7px;background:#1c3040;border-radius:5px}
+ #favorite-commands-dialog [data-bulk-colors] button{font-size:12px;padding:5px 8px}
+ #favorite-commands-dialog [data-list]{max-height:none;margin:5px 0}
+ #favorite-commands-dialog [data-list]>h3{margin:7px 0 4px}
+ #favorite-commands-dialog .favorite-row{gap:7px;padding:4px 2px;min-height:36px}
+ #favorite-commands-dialog .favorite-color-selected{background:#244455}
+ #favorite-commands-dialog [data-bulk-select]{flex:none;accent-color:#46cbe0}
+ #favorite-commands-dialog .favorite-name[data-command-color] small{color:inherit!important}
+ #favorite-commands-dialog [data-status]:empty{display:none}
+ #favorite-commands-dialog [data-order-preview]{margin:5px 0;padding:6px;max-height:75px}
+ #favorite-commands .command-row{min-height:32px}
+ #favorite-commands{padding:4px 12px;gap:2px}
+ #favorite-commands .command-row[hidden]{display:none!important}
+ @media(max-width:650px){#favorite-commands-dialog .favorite-row{flex-wrap:wrap;gap:5px}#favorite-commands-dialog .favorite-name{min-width:calc(100% - 110px)}#favorite-commands-dialog [data-bulk-colors]{gap:5px}#favorite-commands-dialog form{height:calc(90dvh - 30px)}}`;
+ let catalog=[],signature='',draft=null,draftUsage={};const selected=new Set(),proxies=new Map(),list=dialog.querySelector('[data-list]'),collapse=dialog.querySelector('[data-collapse]'),status=dialog.querySelector('[data-status]');
+ const orderDetails=document.createElement('details');orderDetails.dataset.orderDetails='';orderDetails.innerHTML='<summary>並び順を確認</summary>';list.before(orderDetails);
+ const orderPreview=document.createElement('p');orderPreview.dataset.orderPreview='';orderPreview.setAttribute('role','status');orderDetails.append(orderPreview);
+ const autoLabel=document.createElement('label');autoLabel.style.margin='0';
+ const autoSort=document.createElement('input');autoSort.type='checkbox';autoSort.dataset.autoSort='';autoLabel.append(autoSort,' 使用頻度順に自動で並べる');dialog.querySelector('[data-options]').append(autoLabel);
+ const autoHelp=document.createElement('small');autoHelp.textContent='使用回数が同じなら現在の順番を保ちます。ドラッグや↑↓で動かすと自動並べ替えはオフになります。設定ファイルには並び順・色・表示設定・使用回数を保存します。';dialog.querySelector('[data-help]').append(autoHelp);
+ const registeredOrder=state=>{const ids=state.favorites.filter(id=>catalog.some(button=>button.id===id));return state.autoSort?orderFavoriteCommands(ids,state===draft?draftUsage:usage):ids;};
  autoSort.onchange=()=>{const current=registeredOrder(draft);draft.autoSort=autoSort.checked;if(!draft.autoSort)draft.favorites=current;renderRows();};
  const bulk=document.createElement('div');bulk.className='editor-actions';bulk.style.cssText='display:flex;gap:8px;padding:6px 0;background:transparent;position:static';
  const registerAll=document.createElement('button'),clearAll=document.createElement('button');
  registerAll.type=clearAll.type='button';registerAll.textContent='すべて登録';clearAll.textContent='登録をすべて解除';
  registerAll.onclick=()=>{draft.favorites=[...draft.favorites.filter(id=>catalog.some(button=>button.id===id)),...catalog.map(button=>button.id).filter(id=>!draft.favorites.includes(id))];renderRows();list.scrollTop=0;};
  clearAll.onclick=()=>{draft.favorites=[];renderRows();list.scrollTop=0;};
- bulk.append(registerAll,clearAll);orderPreview.before(bulk);
+ bulk.append(registerAll,clearAll);orderDetails.before(bulk);
+ const fileInput=document.createElement('input');fileInput.type='file';fileInput.accept='.json,application/json';fileInput.hidden=true;fileInput.dataset.settingsFile='';
+ const exportButton=document.createElement('button'),importButton=document.createElement('button');exportButton.type=importButton.type='button';exportButton.textContent='設定を書き出す';importButton.textContent='設定を読み込む';
+ bulk.append(exportButton,importButton,fileInput);
+ exportButton.onclick=()=>{
+  const value=exportCommandSettings({...draft,favorites:registeredOrder(draft),collapsed:collapse.checked},draftUsage),url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'})),link=document.createElement('a');
+  link.href=url;link.download='forma-command-settings.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1500);status.textContent='現在の設定を書き出しました。';
+ };
+ importButton.onclick=()=>fileInput.click();
+ fileInput.onchange=async()=>{
+  const file=fileInput.files[0],targetDraft=draft;fileInput.value='';if(!file)return;
+  try{
+   if(file.size>65536)throw Error('設定ファイルは64 KB以内にしてください');
+   const value=importCommandSettings(await file.text());if(!dialog.open||draft!==targetDraft)return;
+   const ids=new Set(catalog.map(button=>button.id)),unknown=value.settings.favorites.filter(id=>!ids.has(id));
+   if(value.settings.favorites.length&&!value.settings.favorites.some(id=>ids.has(id)))throw Error('この画面で使えるコマンドが設定に含まれていません');
+   draft=readFavoriteCommands({...value.settings,favorites:value.settings.favorites.filter(id=>ids.has(id)),hidden:value.settings.hidden.filter(id=>ids.has(id)),colors:Object.fromEntries(Object.entries(value.settings.colors).filter(([id])=>ids.has(id)))});
+   draftUsage=readCommandUsage(value.usage);collapse.checked=draft.collapsed;selected.clear();renderRows();list.scrollTop=0;
+   status.textContent='設定を読み込みました。「保存」で反映します。'+(unknown.length?' 未対応の'+unknown.length+'コマンドは除外しました。':'');
+  }catch(error){if(dialog.open&&draft===targetDraft)status.textContent='読み込めませんでした：'+error.message;}
+ };
+ const bulkColor=document.createElement('div');bulkColor.dataset.bulkColors='';bulkColor.innerHTML='<button type="button" data-select-registered>登録済みを選択</button><button type="button" data-select-clear>選択解除</button><span data-selection-count>0件選択</span><label>一括の色<input type="color" value="#00aa88" aria-label="一括設定の背景色"></label><button type="button" data-apply-color>色を適用</button><button type="button" data-reset-colors>標準色に戻す</button>';
+ orderDetails.after(bulkColor);
+ const selectedCount=bulkColor.querySelector('[data-selection-count]'),applyColor=bulkColor.querySelector('[data-apply-color]'),resetColors=bulkColor.querySelector('[data-reset-colors]');
+ function updateSelection(){selectedCount.textContent=selected.size+'件選択';applyColor.disabled=resetColors.disabled=!selected.size;}
+ bulkColor.querySelector('[data-select-registered]').onclick=()=>{for(const id of registeredOrder(draft))selected.add(id);renderRows();};
+ bulkColor.querySelector('[data-select-clear]').onclick=()=>{selected.clear();renderRows();};
+ applyColor.onclick=()=>{const color=bulkColor.querySelector('input[type=color]').value;for(const id of selected)draft.colors[id]=color;renderRows();status.textContent=selected.size+'コマンドの色を変更しました。「保存」で反映します。';};
+ resetColors.onclick=()=>{for(const id of selected)delete draft.colors[id];renderRows();status.textContent=selected.size+'コマンドを標準色に戻しました。「保存」で反映します。';};
  const label=button=>button.textContent.trim().replace(/^[↔⟳⊖↻↶↷]+\s*/u,'')||button.title||button.id;
  let drag=null,dragFrame=null;
  function clearDrop(){for(const row of list.querySelectorAll('.favorite-drop-before,.favorite-drop-after'))row.classList.remove('favorite-drop-before','favorite-drop-after');if(drag)drag.target=null;}
@@ -101,7 +149,7 @@ export function installFavoriteCommands({bar,notify=()=>{}}){
   favorites.hidden=!ordered.length;
  }
  function renderRows(movedId=null){
-  if(!draft)return;clearDrag();list.replaceChildren();autoSort.checked=draft.autoSort;
+  if(!draft)return;clearDrag();const scrollTop=list.scrollTop;list.replaceChildren();autoSort.checked=draft.autoSort;updateSelection();
   const registered=registeredOrder(draft);
   orderPreview.textContent=registered.length?'登録する順番：'+registered.map((id,index)=>(index+1)+'. '+label(catalog.find(button=>button.id===id))).join(' → '):'まだ登録されていません。使いたいコマンドの「＋ 登録」を押してください。';
   const ordered=[...registered,...catalog.map(b=>b.id).filter(id=>!draft.favorites.includes(id))];
@@ -110,10 +158,11 @@ export function installFavoriteCommands({bar,notify=()=>{}}){
    const index=registered.indexOf(id),group=index<0?'未登録':'登録済み（ドラッグ・↑↓で並べ替え）';
    if(group!==previousGroup){const heading=document.createElement('h3');heading.textContent=group;list.append(heading);previousGroup=group;}
    const row=document.createElement('div');row.className='favorite-row';row.dataset.command=id;
+   const pick=document.createElement('input');pick.type='checkbox';pick.dataset.bulkSelect='';pick.checked=selected.has(id);pick.setAttribute('aria-label',label(command)+'を一括色設定の対象にする');pick.onchange=()=>{pick.checked?selected.add(id):selected.delete(id);row.classList.toggle('favorite-color-selected',pick.checked);updateSelection();};row.append(pick);row.classList.toggle('favorite-color-selected',pick.checked);
    const star=document.createElement('button');star.type='button';star.textContent=index>=0?'★':'☆';star.setAttribute('aria-label',label(command)+(index>=0?'の登録を解除':'を登録'));star.setAttribute('aria-pressed',String(index>=0));
    star.onclick=()=>{draft.favorites=draft.favorites.includes(id)?draft.favorites.filter(value=>value!==id):[...draft.favorites,id];renderRows();};
    const name=document.createElement('span');name.className='favorite-name';name.textContent=(index>=0?(index+1)+'. ':'')+label(command);
-   if(index>=0&&draft.autoSort){const count=document.createElement('small');count.textContent=' · '+(usage[id]||0)+'回';count.style.color='#8faebc';name.append(count);}
+   if(index>=0&&draft.autoSort){const count=document.createElement('small');count.textContent=' · '+(draftUsage[id]||0)+'回';count.style.color='#8faebc';name.append(count);}
    if(index>=0){const grip=document.createElement('span');grip.className='favorite-drag-handle';grip.textContent='⠿';grip.setAttribute('aria-hidden','true');for(const handle of [grip,name]){handle.draggable=true;handle.dataset.favoriteDrag='';handle.title='ドラッグして並べ替え';}row.append(grip);}
    const show=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=!draft.hidden.includes(id);check.setAttribute('aria-label',label(command)+'を元のバーに表示');check.onchange=()=>{draft.hidden=draft.hidden.filter(value=>value!==id);if(!check.checked)draft.hidden.push(id);};show.append(check,'表示');row.append(star,name,show);
    const colorLabel=document.createElement('label');colorLabel.className='favorite-color';
@@ -130,16 +179,17 @@ export function installFavoriteCommands({bar,notify=()=>{}}){
    list.append(row);
   }
   if(movedId)list.querySelector('[data-command="'+movedId+'"]')?.scrollIntoView({block:'nearest'});
+  else list.scrollTop=scrollTop;
  }
- open.onclick=()=>{sync();draft=readFavoriteCommands(settings);collapse.checked=draft.collapsed;status.textContent='';renderRows();dialog.showModal();};
+ open.onclick=()=>{sync();draft=readFavoriteCommands(settings);draftUsage={...usage};selected.clear();collapse.checked=draft.collapsed;status.textContent='';renderRows();dialog.showModal();};
  dialog.querySelector('[data-cancel]').onclick=()=>dialog.close();
- dialog.querySelector('[data-reset]').onclick=()=>{draft=readFavoriteCommands();collapse.checked=false;renderRows();};
+ dialog.querySelector('[data-reset]').onclick=()=>{draft=readFavoriteCommands();selected.clear();collapse.checked=false;renderRows();};
  dialog.querySelector('form').onsubmit=event=>{
   event.preventDefault();draft.collapsed=collapse.checked;draft.autoSort=autoSort.checked;draft.favorites=registeredOrder(draft);
   if(draft.collapsed&&!draft.favorites.some(id=>catalog.some(b=>b.id===id))){status.textContent='バーを畳む前にコマンドを1つ以上登録してください';return;}
-  try{localStorage.setItem(storageKey,JSON.stringify(draft));}catch{status.textContent='設定を保存できませんでした。ブラウザーの保存設定を確認してください';return;}
+  try{saveCommandSettings(localStorage,storageKey,usageKey,draft,draftUsage);}catch{status.textContent='設定を保存できませんでした。ブラウザーの保存設定を確認してください';return;}
   for(const original of catalog)if(settings.hidden.includes(original.id)&&!draft.hidden.includes(original.id))original.hidden=false;
-  settings=readFavoriteCommands(draft);sync();window.dispatchEvent(new Event('resize'));dialog.close();notify('ツールバーの設定を保存しました');
+  settings=readFavoriteCommands(draft);usage={...draftUsage};sync();window.dispatchEvent(new Event('resize'));dialog.close();notify('ツールバーの設定を保存しました');
  };
  bar.addEventListener('click',event=>{
   const button=event.target.closest('button[id]');
@@ -149,5 +199,5 @@ export function installFavoriteCommands({bar,notify=()=>{}}){
   if(settings.autoSort){settings.favorites=registeredOrder(settings);try{localStorage.setItem(storageKey,JSON.stringify(settings));}catch{}sync();}
  },{capture:true});
  let pending=false;new MutationObserver(()=>{if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;sync();});}).observe(bar,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled','aria-disabled','aria-pressed','title','class']});
- fitCommandToolbar(favorites);sync();return {sync};
+ fitCommandToolbar(favorites,{singleRowWhenFits:true});sync();return {sync};
 }

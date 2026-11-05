@@ -51,7 +51,7 @@ try{
  await dragRow('move-tool','solid-tool',true);assert.deepEqual(await registeredIds(),['move-tool','solid-tool','direct-fillet']);
  await row('move-tool').locator('.favorite-name').dragTo(settings.locator('h2'));assert.deepEqual(await registeredIds(),['move-tool','solid-tool','direct-fillet'],'a drop outside the registered list must leave its order unchanged');
  assert.equal(await settings.locator('.favorite-dragging,.favorite-drop-before,.favorite-drop-after').count(),0);
- await row('direct-chamfer').getByRole('checkbox').uncheck();
+ await row('direct-chamfer').getByRole('checkbox',{name:'を元のバーに表示',exact:false}).uncheck();
  await settings.locator('[data-collapse]').check();await settings.getByRole('button',{name:'保存',exact:true}).click();
  assert.equal(await page.locator('.command-toolbar').isVisible(),false);
  assert.deepEqual(await el('favorite-commands').locator('button').evaluateAll(items=>items.map(i=>i.dataset.favoriteCommand)),['move-tool','solid-tool','direct-fillet']);
@@ -64,7 +64,7 @@ try{
  assert.equal(await el('direct-chamfer').isVisible(),false);
  const favoriteRows=el('favorite-commands').locator('.command-row');await favoriteRows.first().waitFor();
  assert.equal(await favoriteRows.count(),2);const rowBounds=await favoriteRows.evaluateAll(items=>items.map(item=>{const r=item.getBoundingClientRect();return {top:r.top,height:r.height};}));
- assert(rowBounds[1].top>=rowBounds[0].top+rowBounds[0].height,'favorite commands should occupy two distinct rows');
+ assert.equal(rowBounds[1].height,0,'a short favorite list should not reserve an empty second row');
  assert((await page.locator('.toolbar:has(.sketch-tools)').boundingBox()).height<=52,'the sketch command row should be compact');
 
  const dimensions={幅:40,高さ:20,穴径:8,丸み:1};
