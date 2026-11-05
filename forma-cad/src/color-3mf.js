@@ -1,7 +1,7 @@
 import {bodyPaint} from './body-face-paint.js';
 import {cadPosition} from './cad-coordinates.js';
 import {bodyColorHex,bodyColorValue} from './body-appearance.js';
-import {CLEAR_COLOR,CLEAR_RGB} from './color-choice.js';
+import {colorChoiceRgb,isClearColor} from './color-choice.js';
 import {indexedPrintSupportMesh} from './print-support-3mf-mesh.js';
 import {pack3mf,xmlAttribute} from './pack-3mf.js';
 
@@ -44,13 +44,21 @@ export async function createColor3mf(parts,{remesh,isCurrent=()=>true}={}){
   }
   objects.push('<object id="'+(index+2)+'" type="model" name="'+xmlAttribute(part.name)+'" pid="1" pindex="'+defaultIndex+'"><mesh><vertices>'+vertices.join('')+'</vertices><triangles>'+triangles.join('')+'</triangles></mesh></object>');
  }
- // Color groups carry opaque colors. Give clear filament its own mapping swatch.
- let clearRgb=CLEAR_RGB;
- if(palette.has(CLEAR_COLOR)){
-  let marker=parseInt(CLEAR_RGB.slice(1),16);
-  while(palette.has(clearRgb))clearRgb='#'+(--marker).toString(16).padStart(6,'0');
- }
- const colors=[...palette.keys()].map(color=>'<m:color color="'+(color===CLEAR_COLOR?clearRgb:color).toUpperCase()+'FF"/>').join('');
+ // Keep the chosen hue and give each filament a distinct swatch if RGB values coincide.
+ const paletteColors=[...palette.keys()];
+ const reserved=new Set(paletteColors.map(colorChoiceRgb));
+ const used=new Set(paletteColors.filter(color=>!isClearColor(color)));
+ const colors=paletteColors.map(color=>{
+  let rgb=colorChoiceRgb(color);
+  if(isClearColor(color)&&used.has(rgb)){
+   let marker=parseInt(rgb.slice(1),16);
+   do{marker=(marker-1+0x1000000)%0x1000000;rgb='#'+marker.toString(16).padStart(6,'0');}
+   while(reserved.has(rgb));
+   reserved.add(rgb);
+  }
+  used.add(rgb);
+  return '<m:color color="'+rgb.toUpperCase()+'FF"/>';
+ }).join('');
  const items=objects.map((_,index)=>'<item objectid="'+(index+2)+'"/>').join('');
  const model='<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="ja" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02" requiredextensions="m"><metadata name="Application">FormaCAD</metadata><resources><m:colorgroup id="1">'+colors+'</m:colorgroup>'+objects.join('')+'</resources><build>'+items+'</build></model>';
  return {data:pack3mf(model),colorCount:palette.size};

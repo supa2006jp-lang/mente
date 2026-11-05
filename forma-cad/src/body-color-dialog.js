@@ -1,5 +1,5 @@
 import {bodyColorThemes} from './automatic-body-colors.js';
-import {CLEAR_COLOR,CLEAR_RGB,colorChoiceLabel,isColorChoice} from './color-choice.js';
+import {CLEAR_COLOR,CLEAR_RGB,clearColor,colorChoiceLabel,colorChoiceRgb,isClearColor,isColorChoice} from './color-choice.js';
 
 const filamentStorage='forma-cad.filament-palette';
 const defaultFilaments=['#ffffff','#222222','#c54343','#a6a6a6'];
@@ -23,21 +23,26 @@ export function createBodyColorDialog(){
  clearLabel.innerHTML='<input type="checkbox"> 透明';
  input.parentElement.after(clearLabel);
  const clear=clearLabel.firstElementChild;
- clear.onchange=()=>{input.disabled=clear.checked;};
+ const neutral=document.createElement('button');
+ neutral.type='button';
+ neutral.textContent='無色にする';
+ clearLabel.after(neutral);
+ clear.onchange=()=>{neutral.hidden=!clear.checked;};
+ neutral.onclick=()=>{input.value=CLEAR_RGB;};
  let apply;
  function finish(color){
   const callback=apply;
   dialog.close();
   callback?.(color);
  }
- dialog.querySelector('form').onsubmit=event=>{event.preventDefault();finish(clear.checked?CLEAR_COLOR:input.value);};
+ dialog.querySelector('form').onsubmit=event=>{event.preventDefault();finish(clear.checked?clearColor(input.value):input.value);};
  reset.onclick=()=>finish(null);
  dialog.querySelector('[data-cancel]').onclick=()=>dialog.close();
  return function open({name,color,canReset,onApply,title='ボディの色'}){
   dialog.querySelector('#body-color-title').textContent=title;
   dialog.querySelector('#body-color-name').textContent=name;
-  clear.checked=color===CLEAR_COLOR;
-  input.value=clear.checked?CLEAR_RGB:color;
+  clear.checked=isClearColor(color);
+  input.value=colorChoiceRgb(color);
   clear.onchange();
   reset.disabled=!canReset;
   apply=onApply;
@@ -68,30 +73,28 @@ export function createAutoColorDialog(){
  }
  function renderFilaments(){
   filamentRows.replaceChildren(...filaments.map((color,index)=>{
-   const label=document.createElement('div'),remove=document.createElement('button');
-   if(color===CLEAR_COLOR){
+   const label=document.createElement('div'),remove=document.createElement('button'),input=document.createElement('input');
+   const transparent=isClearColor(color);
+   if(transparent){
     const tag=document.createElement('span');
     tag.className='clear-color-swatch';
     tag.textContent='透明';
     label.append(tag);
-   }else{
-    const input=document.createElement('input');
-    input.type='color';
-    input.value=color;
-    input.setAttribute('aria-label','フィラメント色 '+(index+1));
-    input.oninput=()=>{filaments[index]=input.value;saveFilaments();};
-    label.append(input);
    }
+   input.type='color';
+   input.value=colorChoiceRgb(color);
+   input.setAttribute('aria-label',(transparent?'透明フィラメント色 ':'フィラメント色 ')+(index+1));
+   input.oninput=()=>{filaments[index]=transparent?clearColor(input.value):input.value;saveFilaments();};
    remove.type='button';
    remove.textContent='×';
    remove.disabled=filaments.length===1;
    remove.setAttribute('aria-label','色 '+(index+1)+'を削除');
    remove.onclick=()=>{filaments.splice(index,1);saveFilaments();renderFilaments();refresh();};
-   label.append(remove);
+   label.append(input,remove);
    return label;
   }));
   addFilament.disabled=filaments.length>=32;
-  addClear.disabled=addFilament.disabled||filaments.includes(CLEAR_COLOR);
+  addClear.disabled=addFilament.disabled;
  }
  addFilament.onclick=()=>{
   filaments.push(defaultFilaments.find(color=>!filaments.includes(color))??'#808080');
@@ -99,9 +102,10 @@ export function createAutoColorDialog(){
   filamentRows.lastElementChild?.firstElementChild?.focus();
  };
  addClear.onclick=()=>{
-  filaments.push(CLEAR_COLOR);
+  const startingColors=[CLEAR_RGB,'#579de6','#55ba8a','#e4a953'].map(clearColor);
+  filaments.push(startingColors.find(color=>!filaments.includes(color))??CLEAR_COLOR);
   saveFilaments();renderFilaments();refresh();
-  filamentRows.lastElementChild?.querySelector('button')?.focus();
+  filamentRows.lastElementChild?.querySelector('input')?.focus();
  };
  renderFilaments();
  for(const [id,label] of Object.entries(bodyColorThemes))theme.add(new Option(label,id));
@@ -118,7 +122,10 @@ export function createAutoColorDialog(){
    current.used.size+'色を使用（上限 '+limit.valueAsNumber+'色）／ '+current.changes.size+'ボディを変更';
   palette.replaceChildren(...[...(current?.used??[])].map(color=>{
    const item=document.createElement('li'),swatch=document.createElement('span');
-   if(color===CLEAR_COLOR)swatch.className='clear-color-swatch';
+   if(isClearColor(color)){
+    swatch.className='clear-color-swatch';
+    swatch.style.setProperty('--clear-tint',colorChoiceRgb(color)+'80');
+   }
    else swatch.style.backgroundColor=color;
    item.append(swatch,colorChoiceLabel(color));return item;
   }));

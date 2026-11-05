@@ -1,4 +1,4 @@
-import {CLEAR_COLOR,colorChoiceRgb} from './color-choice.js';
+import {colorChoiceRgb,isClearColor} from './color-choice.js';
 
 const natural={
  main:'#e3e6df',dark:'#303b43',metal:'#a4b3bc',glass:'#4b7f98',
@@ -79,9 +79,11 @@ export function automaticColorPlan(bodies,{theme='natural',limit=4,replace=true,
  const closest=(color,palette)=>palette.reduce((best,candidate)=>
   colorDistance(candidate,color)<colorDistance(best,color)?candidate:best);
  if(available){
-  const solid=available.filter(color=>color!==CLEAR_COLOR);
-  for(const part of eligible)part.preferred=part.role==='glass'&&available.includes(CLEAR_COLOR)?
-   CLEAR_COLOR:closest(part.preferred,solid.length?solid:available);
+  const solid=available.filter(color=>!isClearColor(color)),clear=available.filter(isClearColor);
+  for(const part of eligible){
+   const matching=part.role==='glass'&&clear.length?clear:solid;
+   part.preferred=closest(part.preferred,matching.length?matching:available);
+  }
  }
  const weights=new Map();
  for(const {preferred,area} of eligible)weights.set(preferred,(weights.get(preferred)??0)+Math.max(1,area));

@@ -6,7 +6,7 @@ import {strFromU8,unzipSync} from 'three/addons/libs/fflate.module.js';
 import {bodyAppearances,bodyMaterialOptions,faceColorsByBody,importBodyAppearance,inheritBodyColors,setBodyColor,setBodyFaceColor} from '../src/body-appearance.js';
 import {bodyPaint,facePaintReference,prepareBodyPaint,remapFacePaint,samePaintedFace,updateBodyPaint} from '../src/body-face-paint.js';
 import {colorMeshSnapshot,createColor3mf} from '../src/color-3mf.js';
-import {CLEAR_COLOR,CLEAR_OPACITY,CLEAR_RGB} from '../src/color-choice.js';
+import {CLEAR_COLOR,CLEAR_OPACITY,CLEAR_RGB,clearColor} from '../src/color-choice.js';
 
 test('existing file colours and glazing survive a save and a shape edit',()=>{
  const original=[
@@ -67,6 +67,14 @@ test('transparent paint affects only its selected faces and exports a distinct f
  assert.match(xml,/<m:color color="#F0F4F7FF"/);
  assert.match(xml,/<m:color color="#F0F4F8FF"/);
  assert.equal(bodyMaterialOptions({color:CLEAR_COLOR,customColor:true}).opacity,CLEAR_OPACITY);
+ const blue='#2288ee',tinted=clearColor(blue);
+ const blueFace=prepareBodyPaint(source,[{...face,color:tinted}]);
+ updateBodyPaint(blueFace,CLEAR_RGB);
+ assert.equal(blueFace.attributes.color.getW(0),Math.fround(CLEAR_OPACITY));
+ assert.equal(new THREE.Color().fromBufferAttribute(blueFace.attributes.color,0).getHexString(),'2288ee');
+ assert.equal(bodyMaterialOptions({color:tinted,customColor:true}).color,blue);
+ const result=await createColor3mf([colorMeshSnapshot(new THREE.Mesh(blueFace),'Tinted')]);
+ assert.match(strFromU8(unzipSync(result.data)['3D/3dmodel.model']),/<m:color color="#2288EEFF"/);
 });
 
 test('planar paint survives a new hole or depth change and leaves a split face for review',()=>{

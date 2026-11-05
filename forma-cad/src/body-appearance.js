@@ -1,4 +1,4 @@
-import {CLEAR_COLOR,CLEAR_OPACITY,colorChoiceRgb,isColorChoice} from './color-choice.js';
+import {CLEAR_OPACITY,colorChoiceRgb,isClearColor,isColorChoice} from './color-choice.js';
 import {remapFacePaint,samePaintedFace} from './body-face-paint.js';
 
 function bodyOutputs(feature){
@@ -142,7 +142,7 @@ export function bodyColorValue(style,splitColor){
 
 export function bodyMaterialOptions(style,{splitColor,vertexColors=false,opaque=vertexColors,transparentFaces=false}={}){
  const value=bodyColorValue(style,splitColor);
- const opacity=value===CLEAR_COLOR?CLEAR_OPACITY:splitColor===undefined&&!opaque?style?.opacity??1:1;
+ const opacity=isClearColor(value)?CLEAR_OPACITY:splitColor===undefined&&!opaque?style?.opacity??1:1;
  const transparent=opacity<1||transparentFaces;
  return {color:vertexColors?0xffffff:colorChoiceRgb(value),vertexColors,
   roughness:opacity<1?.28:.8,opacity,transparent,depthWrite:!transparent};

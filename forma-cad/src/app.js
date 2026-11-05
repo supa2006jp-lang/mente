@@ -3,7 +3,7 @@ import {bodyAppearances,bodyColorHex,bodyColorValue,bodyMaterialOptions,faceColo
 import {bodyPaint,facePaintReference,prepareBodyPaint,samePaintedFace,updateBodyPaint} from './body-face-paint.js';
 import {createAutoColorDialog,createBodyColorDialog} from './body-color-dialog.js';
 import {automaticColorPlan} from './automatic-body-colors.js';
-import {CLEAR_COLOR} from './color-choice.js';
+import {colorChoiceLabel,colorChoiceRgb,isClearColor} from './color-choice.js';
 import {setSlideLidTransparency} from './slide-lid-transparency.js';
 import {colorMeshSnapshot,createColor3mf} from './color-3mf.js';
 import {installProjectDrafts} from './project-drafts.js';
@@ -839,7 +839,11 @@ function bodyColorButton(id,mesh,splitColor){
  const name=bodyDisplayName(id);
  button.setAttribute('aria-label',name+'の色を変更');
  const color=bodyColorHex(bodyColorValue(mesh.userData.bodyAppearance,splitColor));
- if(color===CLEAR_COLOR){button.classList.add('is-clear-color');button.title='ボディの色を変更（透明）';}
+ if(isClearColor(color)){
+  button.classList.add('is-clear-color');
+  button.title='ボディの色を変更（'+colorChoiceLabel(color)+'）';
+  button.style.setProperty('--clear-tint',colorChoiceRgb(color)+'80');
+ }
  else button.style.setProperty('--body-color',color);
  button.onclick=()=>openBodyColors([id],id);
  return button;

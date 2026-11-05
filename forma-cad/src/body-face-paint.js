@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {copyCadCoordinates} from './cad-coordinates.js';
 import {qrTriangleColors} from './qr-code-display.js';
 import {planarFace} from './frames.js';
-import {CLEAR_COLOR,CLEAR_OPACITY,colorChoiceRgb,isColorChoice} from './color-choice.js';
+import {CLEAR_OPACITY,colorChoiceRgb,isClearColor,isColorChoice} from './color-choice.js';
 
 const paintByGeometry=new WeakMap();
 
@@ -157,10 +157,10 @@ export function bodyPaint(geometry){return paintByGeometry.get(geometry);}
 export function updateBodyPaint(geometry,base){
  const paint=bodyPaint(geometry);
  if(!paint)return;
- const hasAlpha=paint.colors.includes(CLEAR_COLOR),size=hasAlpha?4:3;
+ const hasAlpha=paint.colors.some(isClearColor),size=hasAlpha?4:3;
  const colors=[base,...paint.palette].map(color=>{
   const rgb=new THREE.Color(colorChoiceRgb(color)).toArray();
-  return [...rgb,color===CLEAR_COLOR?CLEAR_OPACITY:1];
+  return [...rgb,isClearColor(color)?CLEAR_OPACITY:1];
  });
  let attr=geometry.getAttribute('color');
  if(attr?.itemSize!==size){
