@@ -15,7 +15,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  const methodLabel=document.createElement('label');methodLabel.className='move-method';methodLabel.innerHTML='操作<select id="move-method"><option value="move">移動</option><option value="copy">複製して移動</option></select>';panel.querySelector('.move-modes').before(methodLabel);
  const method=panel.querySelector('#move-method'),reverseLabel=document.createElement('label');reverseLabel.className='move-reverse';reverseLabel.hidden=true;reverseLabel.innerHTML='<input id="move-reverse-copy" type="checkbox">移動方向に対して鏡写しに複製';methodLabel.after(reverseLabel);const reverse=panel.querySelector('#move-reverse-copy');
  const fields=['x','y','z','rx','ry','rz'].map(id=>panel.querySelector('#move-'+id)),hint=panel.querySelector('#move-hint'),error=panel.querySelector('#move-error');
- const rotationOptions=document.createElement('div');rotationOptions.innerHTML='<label id="move-edge-angle-label" hidden>辺を軸に回転 (°)<input id="move-edge-angle" type="number" step="any" value="0"></label><label>90°回転の軸 <select id="move-quarter-axis"><option>X</option><option>Y</option><option selected>Z</option></select></label><button type="button" id="move-minus90">−90°</button> <button type="button" id="move-plus90">＋90°</button>';panel.querySelector('.move-fields').after(rotationOptions);
+ const rotationOptions=document.createElement('div');rotationOptions.innerHTML='<label id="move-edge-angle-label" hidden>選択した軸で回転 (°)<input id="move-edge-angle" type="number" step="any" value="0"></label><label>90°回転の軸 <select id="move-quarter-axis"><option>X</option><option>Y</option><option selected>Z</option></select></label><button type="button" id="move-minus90">−90°</button> <button type="button" id="move-plus90">＋90°</button>';panel.querySelector('.move-fields').after(rotationOptions);
  const edgeInput=panel.querySelector('#move-edge-angle'),axisSelect=panel.querySelector('#move-quarter-axis');
  const contactPanel=document.createElement('fieldset');contactPanel.id='move-until-contact';contactPanel.innerHTML='<legend>ぶつかるまで移動</legend><div>'+['X','Y','Z'].flatMap((axis,index)=>[-1,1].map(direction=>'<button type="button" id="move-until-'+axis.toLowerCase()+'-'+(direction<0?'minus':'plus')+'" data-contact-axis="'+index+'" data-contact-direction="'+direction+'" title="'+axis+(direction<0?'−':'＋')+'方向の最初の別ボディまで移動">'+axis+(direction<0?'−':'＋')+'</button>')).join('')+'</div><small id="move-until-contact-status" role="status">移動するボディを選択してください</small>';panel.querySelector('.move-fields').after(contactPanel);
  const contactStatus=contactPanel.querySelector('small');
@@ -241,16 +241,27 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  function axisSources(){
   const transform=axisTransform(),selected=new Set(originals.map(m=>m.userData.bodyId));
   const convert=ref=>{if(!selected.has(ref.bodyId))return ref;const next={...ref};for(const key of ['point','a','b'])if(ref[key])next[key]=new THREE.Vector3(...ref[key]).applyMatrix4(transform).toArray();return next;};
-  return {meshes:previewMeshes(),occluders:[...previewMeshes(),...getMeshes().filter(m=>m.visible)],lines:getReferenceLines().map(convert),points:getReferencePoints().map(convert),pointKinds:pointKinds()};
+  return {meshes:previewMeshes(),occluders:[...previewMeshes(),...getMeshes().filter(m=>m.visible)],lines:getReferenceLines().map(convert),points:getReferencePoints().map(convert),pointKinds:pointKinds(),pointLabel:ref=>'回転軸候補：'+(ref.name||'点')};
  }
  const axisPicker=createMoveAxisPicker({host,canvas,camera,getSources:axisSources,getRevision:()=>proxy?[...proxy.matrixWorld.elements,...proxy.children[0].matrix.elements].join(','):'',onPick:chooseAxisCandidate,onUpdate:candidates=>{const lines=candidates.filter(c=>c.kind==='line').length,points=candidates.length-lines;axisStatus.textContent=lines||points?'選択可能：直線 '+lines+' 本・点 '+points+' 個。橙色の線・○をクリック':'この視点では候補が見えません。視点を回して確認してください';}});
  function closeAxisPicker(){axisPicker.close();axisStatus.hidden=true;helper.visible=!!control.object;}
- pickButton.onclick=()=>{finishFreeMove(false);pointMove=null;if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}pickingCenter=false;closeCenterPicker();closePointPicker();pickingAxis=!pickingAxis;control.enabled=!pickingAxis;pickButton.setAttribute('aria-pressed',String(pickingAxis));error.textContent='';if(pickingAxis){helper.visible=false;axisStatus.hidden=false;axisPicker.open();}else closeAxisPicker();hint.textContent=pickingAxis?'橙色の直線・○の点から選択。カーソルを合わせると強調表示します':'ボディを選択済み · ドラッグまたは数値で調整';};
+ pickButton.onclick=()=>{finishFreeMove(false);pointMove=null;if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}pickingCenter=false;closeCenterPicker();closePointPicker();pickingAxis=!pickingAxis;control.enabled=!pickingAxis;pickButton.setAttribute('aria-pressed',String(pickingAxis));error.textContent='';if(pickingAxis){helper.visible=false;axisStatus.hidden=false;axisPicker.open();}else closeAxisPicker();hint.textContent=pickingAxis?'橙色の直線か○の点を選択。スケッチ点からは作図面に垂直な軸を作ります':'ボディを選択済み · ドラッグまたは数値で調整';};
  function chooseAxisCandidate(candidate){
   if(!pickingAxis||!proxy)return;const inverse=axisTransform().invert(),basePoint=point=>point.clone().applyMatrix4(inverse);
   if(candidate.kind==='line')selectAxis({a:basePoint(candidate.a),b:basePoint(candidate.b)});
-  else if(candidate.ref.a&&candidate.ref.b)selectAxis({a:basePoint(new THREE.Vector3(...candidate.ref.a)),b:basePoint(new THREE.Vector3(...candidate.ref.b))},basePoint(candidate.point));
-  else{pickingAxis=false;pickButton.setAttribute('aria-pressed','false');closeAxisPicker();changeCenter(basePoint(candidate.point));hint.textContent='点を回転中心に設定しました。X・Y・Zの回転軸を選んでください';}
+  else{
+   const point=candidate.point,pivot=basePoint(point),ref=candidate.ref;
+   if(ref.a&&ref.b){selectAxis({a:basePoint(new THREE.Vector3(...ref.a)),b:basePoint(new THREE.Vector3(...ref.b))},pivot);return;}
+   const hinge=originals.length===1?lidHinge(original,pivot.toArray()):null;
+   if(hinge){selectAxis({a:new THREE.Vector3(...hinge.a),b:new THREE.Vector3(...hinge.b)},pivot);return;}
+   const towardBody=new THREE.Box3().setFromObject(proxy).getCenter(new THREE.Vector3()).sub(point);
+   const direction=ref.normal?new THREE.Vector3(...ref.normal).normalize():towardBody.clone().normalize();
+   if(direction.lengthSq()<1e-12){error.textContent='この点から軸の方向を決められません。別の点か直線を選択してください';return;}
+   if(direction.dot(towardBody)<-1e-8)direction.negate();
+   selectAxis({a:pivot,b:basePoint(point.clone().add(direction))},pivot);
+   hint.textContent='選択した点を通る回転軸を設定しました · リング・角度・±90°で調整';
+   panel.querySelector('small').textContent=ref.normal?'スケッチ面に垂直に、点からボディ側へ伸びる軸で回転します。':'点からボディ側へ伸びる軸で回転します。';
+  }
  }
  function pickAxis(event){const candidate=axisPicker.pick(event);if(candidate)chooseAxisCandidate(candidate);else error.textContent='橙色の直線または○の点をクリックしてください';}
  function selectAxis(best,pivot=null){
