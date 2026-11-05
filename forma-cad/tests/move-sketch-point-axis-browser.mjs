@@ -57,6 +57,33 @@ try{
  await startMove();
  const preview=async()=>JSON.parse(await field('canvas-host').getAttribute('data-move-preview'));
  assert.equal((await preview()).position[0],4);
+ async function checkMiddlePan(target=null){
+  const rect=await page.locator('#canvas-host canvas').boundingBox();
+  const origin=target?await target.boundingBox():{x:rect.x+rect.width*.26,y:rect.y+rect.height*.6,width:0,height:0};
+  const x=origin.x+origin.width/2,y=origin.y+origin.height/2;
+  const before=await preview(),cameraBefore=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
+  await page.mouse.move(x,y);
+  await page.mouse.down({button:'middle'});
+  await page.mouse.move(x+45,y+25,{steps:6});
+  await page.mouse.up({button:'middle'});
+  await page.waitForFunction(original=>{
+   const next=JSON.parse(document.getElementById('canvas-host').dataset.cameraState);
+   return Math.hypot(next[0]-original[0],next[1]-original[1],next[2]-original[2])>1e-4;
+  },cameraBefore,{timeout:5000});
+  const cameraAfter=JSON.parse(await field('canvas-host').getAttribute('data-camera-state'));
+  assert(new THREE.Quaternion().fromArray(cameraBefore,3).angleTo(new THREE.Quaternion().fromArray(cameraAfter,3))<1e-7,'middle drag should pan without rotating the view');
+  assert.equal(cameraAfter[7],cameraBefore[7]);
+  assert.deepEqual(await preview(),before,'middle drag should preserve the body pose and pending move');
+  await page.mouse.down({button:'middle'});
+  await page.mouse.move(x,y,{steps:6});
+  await page.mouse.up({button:'middle'});
+  await page.waitForFunction(original=>{
+   const next=JSON.parse(document.getElementById('canvas-host').dataset.cameraState);
+   return Math.hypot(next[0]-original[0],next[1]-original[1],next[2]-original[2])<1e-7;
+  },cameraBefore,{timeout:5000});
+  assert.deepEqual(await preview(),before);
+ }
+ await checkMiddlePan();
 
  async function checkRotationDrag(customAxis=false){
   const host=field('canvas-host'),rect=await page.locator('#canvas-host canvas').boundingBox();
@@ -137,11 +164,15 @@ try{
   }
  }
  await page.locator('#move-panel [data-mode=rotate]').click();
+ await page.locator('[data-view=front]').dispatchEvent('keydown',{key:'Enter'});
+ await checkMiddlePan();
  await checkRotationDrag();
  await field('move-ry').fill('0');
 
  await field('move-pick-axis').click();
  const point=field('move-axis-candidates').locator('circle[data-point="[6,-10,5]"]');
+ await checkMiddlePan(point);
+ assert.equal(await field('move-pick-axis').getAttribute('aria-pressed'),'true','panning over a point candidate should keep axis picking active');
  const guide=async()=>JSON.parse(await field('canvas-host').getAttribute('data-move-rotation-guide'));
  await point.hover();
  const hovered=await guide();
@@ -216,6 +247,7 @@ try{
  await field('move-pick-axis').click();await point.click();
  const impossible=await preview(),align=field('move-align-faces');
  await align.click();
+ await checkMiddlePan();
  assert.match(await field('move-hint').textContent(),/①/);
  async function screen(point){
   const rect=await page.locator('#canvas-host canvas').boundingBox();
@@ -414,5 +446,5 @@ try{
  assert.equal(await undoAlignment.isVisible(),false);
 
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,inlineAngle:true,fixedAxisAlignment:true,impossibleAlignmentPreserved:true,alignmentFromPickedCenter:true,alignmentFromSketchPointAction:true,faceAlignmentHoverPreview:true,faceAlignmentColoredRoles:true,hoverCancellationPreservesPose:true,alignmentSignedAngle:true,alignmentReselectSource:true,alignmentReselectTarget:true,alignmentUndo:true,errors}));
+ console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,rotationReadout:true,rotationSnapSteps:true,rotationAltOverride:true,rotationOriginalOutline:true,inlineAngle:true,fixedAxisAlignment:true,impossibleAlignmentPreserved:true,alignmentFromPickedCenter:true,alignmentFromSketchPointAction:true,faceAlignmentHoverPreview:true,faceAlignmentColoredRoles:true,hoverCancellationPreservesPose:true,alignmentSignedAngle:true,alignmentReselectSource:true,alignmentReselectTarget:true,alignmentUndo:true,middlePanDuringMove:true,middlePanAfterViewReset:true,middlePanOverAxisCandidate:true,middlePanDuringFaceSelection:true,errors}));
 }finally{await browser?.close();server.close();}

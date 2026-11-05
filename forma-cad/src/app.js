@@ -2277,8 +2277,11 @@ const index=selectedEdges.findIndex(x=>same(x,edge)||matchesInteriorEdge(x,edge)
 function chooseConstructionPlane(f){if(!f)return;clearEdgeSelection();selectedSurface=null;selectedFace={...f,plane:'CUSTOM'};selected=null;chosenRegion=null;stage='model';dropPreview();syncFields();$('measurement').hidden=false;$('measurement-title').textContent='選択した構築平面';$('measurement-length').textContent=f.name;$('measurement-angle').textContent='スケッチを作成 / オフセット平面';}
 $('sketch-mirror-tool').onclick=()=>openDirectCommand('mirror');
 $('sketch-offset-tool').onclick=()=>{finishSketch(false);$('cad-command').value='sketchOffset';renderCommand();openToolsDialog();};
-renderer.domElement.addEventListener('pointerdown',e=>{
- if(!sketch||![1,2].includes(e.button)||sketchPan||shiftOrbit||moveTool?.active||e.button===1&&e.shiftKey)return;
+host.addEventListener('pointerdown',e=>{
+ const moving=moveTool?.active;
+ const onViewport=e.target===renderer.domElement||moving&&e.target.closest?.('#move-axis-candidates,#move-center-candidates,#move-point-candidates,#move-face-alignment-labels');
+ const panButton=moving?e.button===1:sketch&&[1,2].includes(e.button);
+ if(!onViewport||!panButton||sketchPan||shiftOrbit||e.button===1&&e.shiftKey)return;
  e.preventDefault();e.stopImmediatePropagation();
  sketchPan={id:e.pointerId,x:e.clientX,y:e.clientY};renderer.domElement.setPointerCapture(e.pointerId);host.style.cursor='grabbing';
 },{capture:true});
