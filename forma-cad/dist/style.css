@@ -429,3 +429,25 @@ header .filename #dirty{flex-shrink:0}
 .command-toolbar .history-tools button svg{width:24px;height:24px;flex-basis:24px}
 .toolbar:has(.sketch-tools){height:42px;min-height:42px;max-height:42px}
 .timeline{height:56px;padding:5px 12px;gap:10px}
+.body-color-button {
+ flex-shrink:0;
+ display:inline-flex;
+ align-items:center;
+ gap:4px;
+ padding:3px 5px;
+ font-size:11px;
+ border:1px solid #405468;
+ border-radius:4px;
+ color:#d7edf8;
+}
+.body-color-button::before {
+ content:"";
+ width:9px;
+ height:9px;
+ border:1px solid #fff7;
+ border-radius:2px;
+ background:var(--body-color);
+}
+#body-color-dialog form { display:grid; gap:12px; }
+#body-color-dialog p { margin:0; overflow-wrap:anywhere; }
+#body-color-dialog input[type=color] { width:64px; height:34px; padding:2px; cursor:pointer; }

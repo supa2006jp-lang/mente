@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bodyAppearances,bodyMaterialOptions,importBodyAppearance} from '../src/body-appearance.js';
+import {bodyAppearances,bodyMaterialOptions,importBodyAppearance,inheritBodyColors,setBodyColor} from '../src/body-appearance.js';
 
 test('existing file colours and glazing survive a save and a shape edit',()=>{
  const original=[
@@ -21,4 +21,18 @@ test('transparent bodies use their assigned colour without weakening section or 
  assert.equal(bodyMaterialOptions(glass,{splitColor:0x65a9d8}).opacity,1);
  assert.equal(bodyMaterialOptions(glass,{vertexColors:true}).color,0xffffff);
  assert.equal(bodyMaterialOptions().color,0xa3a197);
+});
+
+test('a chosen color stays with that solid after a history edit and restores its original appearance',()=>{
+ const created={id:'glass',kind:'extrusion',operation:'new',bodyAppearance:{glass:{color:'#355a6c',opacity:.58}}};
+ const copy={id:'copy',kind:'cadop',spec:{target:'glass'},outputs:[{id:'copy'}],remove:[]};
+ const original=[created,copy];
+ const colored=setBodyColor(original,'glass','#c72d4e');
+ const edited=inheritBodyColors([{...created,depth:24},copy],colored);
+ const saved=bodyAppearances(JSON.parse(JSON.stringify(edited)));
+ assert.equal(saved.get('glass').opacity,.58);
+ assert.equal(bodyMaterialOptions(saved.get('glass'),{splitColor:0x65a9d8}).color,'#c72d4e');
+ assert.equal(saved.get('copy').color,'#355a6c');
+ assert.deepEqual(bodyAppearances(setBodyColor(edited,'glass',null)),bodyAppearances(original));
+ assert.equal(bodyAppearances([...edited,{kind:'cadop',outputs:[],remove:['glass']}]).has('glass'),false);
 });
