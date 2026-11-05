@@ -1,6 +1,5 @@
-import {zipSync,strToU8} from 'three/addons/libs/fflate.module.js';
+import {pack3mf,xmlAttribute as xml} from './pack-3mf.js';
 import {indexedPrintSupportMesh} from './print-support-3mf-mesh.js';
-const xml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 export function printSupport3mf(pkg){
  if(!pkg?.bodies?.length||!pkg.blockers?.length||!pkg.complete)throw Error('薄壁型の配置が完了してから3MFを出力してください');
  if(!Number.isFinite(pkg.layerHeight)||pkg.layerHeight<.06||pkg.layerHeight>.4)throw Error('積層ピッチが不正です');
@@ -8,8 +7,7 @@ export function printSupport3mf(pkg){
  const objects=parts.map((part,i)=>{let o;try{o=indexedPrintSupportMesh(part);}catch(e){throw Error((part.id||'部品')+'：'+e.message);}const vertices=[];for(let j=0;j<o.vertices.length;j+=3)vertices.push('<vertex x="'+o.vertices[j]+'" y="'+o.vertices[j+1]+'" z="'+o.vertices[j+2]+'"/>');const triangles=[];for(let j=0;j<o.triangles.length;j+=3)triangles.push('<triangle v1="'+o.triangles[j]+'" v2="'+o.triangles[j+1]+'" v3="'+o.triangles[j+2]+'"/>');return '<object id="'+(i+1)+'" type="model"><mesh><vertices>'+vertices.join('')+'</vertices><triangles>'+triangles.join('')+'</triangles></mesh></object>';}).join('');
  const model='<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><metadata name="Application">FormaCAD</metadata><metadata name="BambuStudio:3mfVersion">1</metadata><resources>'+objects+'<object id="'+group+'" type="model"><components>'+parts.map((o,i)=>'<component objectid="'+(i+1)+'"/>').join('')+'</components></object></resources><build><item objectid="'+group+'"/></build></model>';
  const config='<?xml version="1.0" encoding="UTF-8"?><config><object id="'+group+'"><metadata key="name" value="FormaCAD 連結リブサポート"/><metadata key="extruder" value="1"/><metadata key="layer_height" value="'+xml(pkg.layerHeight)+'"/>'+parts.map((o,i)=>'<part id="'+(i+1)+'" subtype="'+o.type+'"><metadata key="name" value="'+xml(o.id)+'"/><metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/></part>').join('')+'</object><plate><metadata key="plater_id" value="1"/><model_instance><metadata key="object_id" value="'+group+'"/><metadata key="instance_id" value="0"/><metadata key="identify_id" value="1"/></model_instance></plate></config>';
- const types='<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="config" ContentType="application/xml"/></Types>',rels='<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>';
- return zipSync(Object.fromEntries(Object.entries({'[Content_Types].xml':types,'_rels/.rels':rels,'3D/3dmodel.model':model,'Metadata/model_settings.config':config}).map(([k,v])=>[k,strToU8(v)])),{level:6});
+ return pack3mf(model,{'Metadata/model_settings.config':config});
 }
 export async function savePrintSupport3mf(pkg,download,isCurrent=()=>true){
  const data=printSupport3mf(pkg),suggestedName='design-support.3mf';

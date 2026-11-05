@@ -42,14 +42,17 @@ export function qrBodyDisplays(features){
  return displays;
 }
 
+const qrColorMasks=new WeakMap();
+export const qrTriangleColors=geometry=>qrColorMasks.get(geometry);
+
 export function colorQrGeometry(source,displays,defaultColor=0xa3a197){
  if(!displays?.length)return source;
- const geometry=source.index?source.toNonIndexed():source.clone();geometry.userData={...source.userData};copyCadCoordinates(source,geometry);const position=geometry.attributes.position,colors=new Float32Array(position.count*3),fallback=new THREE.Color(defaultColor),point=new THREE.Vector3(),a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3(),refs=displays.map(d=>({...d,inverse:d.matrix.clone().invert()}));let black=0,white=0;
+ const geometry=source.index?source.toNonIndexed():source.clone();geometry.userData={...source.userData};copyCadCoordinates(source,geometry);const position=geometry.attributes.position,colors=new Float32Array(position.count*3),fallback=new THREE.Color(defaultColor),point=new THREE.Vector3(),a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3(),refs=displays.map(d=>({...d,inverse:d.matrix.clone().invert()}));const mask=new Uint8Array(position.count/3);let black=0,white=0;
  for(let i=0;i<position.count;i+=3){a.fromBufferAttribute(position,i);b.fromBufferAttribute(position,i+1);c.fromBufferAttribute(position,i+2);const center=a.add(b).add(c).multiplyScalar(1/3);let value=null;
   for(const ref of refs){point.copy(center).applyMatrix4(ref.inverse);const q=ref.layout,tolerance=1e-4;if(Math.abs(point.x)>q.size/2+tolerance||Math.abs(point.y)>q.size/2+tolerance||point.z< -tolerance||point.z>2+tolerance)continue;
    const column=Math.floor((point.x+q.size/2)/q.pitch)-q.quiet,row=Math.floor((q.size/2-point.y)/q.pitch)-q.quiet;value=point.z>1+tolerance&&!!q.matrix[row]?.[column]?0:1;if(value===0)break;
   }
-  if(value===0)black++;else if(value===1)white++;for(let j=0;j<3;j++){const k=(i+j)*3;colors[k]=value===null?fallback.r:value;colors[k+1]=value===null?fallback.g:value;colors[k+2]=value===null?fallback.b:value;}
+  if(value===0){black++;mask[i/3]=1;}else if(value===1){white++;mask[i/3]=2;}for(let j=0;j<3;j++){const k=(i+j)*3;colors[k]=value===null?fallback.r:value;colors[k+1]=value===null?fallback.g:value;colors[k+2]=value===null?fallback.b:value;}
  }
- geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));geometry.userData.qrColors={blackTriangles:black,whiteTriangles:white};return geometry;
+ qrColorMasks.set(geometry,mask);geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));geometry.userData.qrColors={blackTriangles:black,whiteTriangles:white};return geometry;
 }

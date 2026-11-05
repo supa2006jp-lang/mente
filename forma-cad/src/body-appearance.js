@@ -10,6 +10,7 @@ function readAppearance(value){
  return Number.isFinite(opacity)&&opacity>=.1&&opacity<1?{color,opacity}:{color};
 }
 
+export const bodyColorHex=color=>typeof color==='string'?color.toLowerCase():'#'+color.toString(16).padStart(6,'0');
 function own(record,id){return record&&Object.hasOwn(record,id)?record[id]:undefined;}
 
 // Fold file-level colours from older models into the feature that creates
@@ -32,7 +33,7 @@ export function importBodyAppearance(features,modelInfo){
 }
 
 export function bodyAppearances(features){
- const styles=new Map(),colors=new Map();
+ const styles=new Map(),colors=new Map(),automatic=new Map();
  for(const feature of features){
   const result=feature.cadResult||(feature.kind==='cadop'?feature:null);
   const inherited=styles.get(feature.spec?.target??feature.target);
@@ -41,45 +42,101 @@ export function bodyAppearances(features){
   ]);
   for(const id of result?.remove||[]){
    styles.delete(id);
-   if(!outputs.some(([outputId])=>outputId===id))colors.delete(id);
+   if(!outputs.some(([outputId])=>outputId===id)){colors.delete(id);automatic.delete(id);}
   }
   for(const [id,style] of outputs){
    if(style)styles.set(id,style);
    const color=readAppearance({color:own(feature.bodyColors,id)})?.color;
    if(color)colors.set(id,color);
+   const generated=readAppearance({color:own(feature.automaticBodyColors,id)})?.color;
+   if(generated)automatic.set(id,generated);
   }
  }
  // Apply an explicit color to its own body after resolving inherited appearance.
+ for(const [id,color] of automatic)if(!styles.has(id)&&!colors.has(id))styles.set(id,{color,customColor:true,automatic:true});
  for(const [id,color] of colors)styles.set(id,{...styles.get(id),color,customColor:true});
  return styles;
 }
 
-export function setBodyColor(features,id,color){
+const paintFields=['bodyColors','automaticBodyColors','bodyFaceColors'];
+
+function setBodyPaint(features,id,field,update){
  const index=features.findIndex(feature=>bodyOutputs(feature).includes(id));
  if(index<0)return features;
- const feature=features[index],previous=own(feature.bodyColors,id);
- if(color===null?previous===undefined:color===previous)return features;
- const bodyColors={...feature.bodyColors,[id]:color};
- if(color===null)delete bodyColors[id];
- const next=features.slice();
- next[index]={...feature,bodyColors};
+ const feature=features[index],previous=own(feature[field],id),value=update(previous);
+ if(previous===value)return features;
+ const next=features.slice(),entries={...feature[field]};
+ if(value===undefined)delete entries[id];else entries[id]=value;
+ next[index]={...feature,[field]:entries};
  return next;
 }
 
-export function inheritBodyColors(features,before){
- const colors=new Map(before.filter(feature=>feature.bodyColors).map(feature=>[feature.id,feature.bodyColors]));
- if(!colors.size)return features;
+export function setBodyColor(features,id,color,{automatic=false}={}){
+ if(!automatic)features=setBodyPaint(features,id,'automaticBodyColors',()=>undefined);
+ return setBodyPaint(features,id,automatic?'automaticBodyColors':'bodyColors',()=>color??undefined);
+}
+
+export function faceColorsByBody(features){
+ const result=new Map();
+ for(const feature of features)for(const id of bodyOutputs(feature)){
+  const entries=own(feature.bodyFaceColors,id);
+  if(Array.isArray(entries))result.set(id,entries);
+ }
+ return result;
+}
+
+export function remapBodyFaceColors(features,bodies,previousMeshes){
  return features.map(feature=>{
-  if(feature.bodyColors||!colors.has(feature.id))return feature;
-  const previous=colors.get(feature.id);
-  const bodyColors=Object.fromEntries(bodyOutputs(feature).filter(id=>Object.hasOwn(previous,id)).map(id=>[id,previous[id]]));
-  return Object.keys(bodyColors).length?{...feature,bodyColors}:feature;
+  if(!feature.bodyFaceColors)return feature;
+  const entries={...feature.bodyFaceColors};
+  let changed=false;
+  for(const [id,faces] of Object.entries(entries)){
+   const geometry=bodies.get(id)?.geometry;
+   if(!geometry||!Array.isArray(faces))continue;
+   const previous=previousMeshes?.get(id)?.geometry;
+   const mapped=faces.map(face=>remapFacePaint(geometry,face,previous));
+   entries[id]=mapped.map((face,index)=>{
+    if(!face||face.unresolved||face===faces[index])return face;
+    const conflict=mapped.some((other,i)=>i!==index&&other&&!other.unresolved&&samePaintedFace(other,face));
+    return conflict?{...faces[index],unresolved:true}:face;
+   });
+   changed||=entries[id].some((face,index)=>face!==faces[index]);
+  }
+  return changed?{...feature,bodyFaceColors:entries}:feature;
  });
 }
 
-export function bodyMaterialOptions(style,{splitColor,vertexColors=false}={}){
- const opacity=splitColor===undefined&&!vertexColors?style?.opacity??1:1;
+export function setBodyFaceColor(features,id,reference,color,sameFace){
+ return setBodyPaint(features,id,'bodyFaceColors',previous=>{
+  const entries=Array.isArray(previous)?previous:[];
+  const index=entries.findIndex(entry=>sameFace(entry,reference));
+  if((index<0&&color===null)||entries[index]?.color===color)return previous;
+  const next=entries.filter((_,i)=>i!==index);
+  if(color!==null)next.push({...reference,color});
+  return next.length?next:undefined;
+ });
+}
+
+export function inheritBodyColors(features,before){
+ const previous=new Map(before.filter(feature=>paintFields.some(field=>feature[field])).map(feature=>[feature.id,feature]));
+ if(!previous.size)return features;
+ return features.map(feature=>{
+  const source=previous.get(feature.id);
+  if(!source)return feature;
+  const outputIds=bodyOutputs(feature),inherited={};
+  for(const field of paintFields){
+   if(feature[field]||!source[field])continue;
+   const entries=outputIds.filter(id=>Object.hasOwn(source[field],id)).map(id=>[id,source[field][id]]);
+   if(entries.length)inherited[field]=Object.fromEntries(entries);
+  }
+  return Object.keys(inherited).length?{...feature,...inherited}:feature;
+ });
+}
+
+export function bodyMaterialOptions(style,{splitColor,vertexColors=false,opaque=vertexColors}={}){
+ const opacity=splitColor===undefined&&!opaque?style?.opacity??1:1;
  const color=style?.customColor?style.color:splitColor??style?.color??0xa3a197;
  return {color:vertexColors?0xffffff:color,vertexColors,
   roughness:opacity<1?.28:.8,opacity,transparent:opacity<1,depthWrite:opacity===1};
 }
+import {remapFacePaint,samePaintedFace} from './body-face-paint.js';

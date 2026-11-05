@@ -451,3 +451,20 @@ header .filename #dirty{flex-shrink:0}
 #body-color-dialog form { display:grid; gap:12px; }
 #body-color-dialog p { margin:0; overflow-wrap:anywhere; }
 #body-color-dialog input[type=color] { width:64px; height:34px; padding:2px; cursor:pointer; }
+#auto-color-dialog { position:fixed; width:min(375px,calc(100vw - 32px)); box-sizing:border-box; max-height:calc(100dvh - 32px); inset:16px 16px auto auto; margin:0; padding:16px; overflow:auto; background:#192733; color:#e2edf5; border:1px solid #63849b; border-radius:10px; box-shadow:0 8px 24px #0005; }
+#auto-color-dialog::backdrop { background:transparent; }
+#auto-color-dialog form { display:grid; gap:12px; }
+#auto-color-dialog h2 { margin:0; font-size:18px; }
+#auto-color-dialog p { margin:0; }
+#auto-color-dialog label { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+#auto-color-dialog input[type=number] { width:72px; }
+.filament-palette-editor { margin:0; padding:8px; border:1px solid #63849b; border-radius:6px; }
+.filament-palette-editor [data-filaments] { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.filament-palette-editor [data-filaments] div { display:flex; align-items:center; gap:2px; }
+.filament-palette-editor input[type=color] { width:36px; height:28px; padding:2px; cursor:pointer; }
+.filament-palette-editor button { padding:3px 7px; }
+.face-paint-review { color:#ffce83; font-size:11px; flex-shrink:0; padding:3px 4px; }
+.auto-color-palette { display:flex; flex-wrap:wrap; gap:6px 10px; padding:0; margin:0; list-style:none; }
+.auto-color-palette li { display:flex; align-items:center; gap:5px; font:12px monospace; }
+.auto-color-palette li span { width:16px; height:16px; border:1px solid #8495a3; border-radius:4px; }
+#color-selected-faces { pointer-events:auto; color:#155971; border:1px solid #8ab5c6; padding:8px 12px; margin-top:5px; background:#e8f7ff; font-size:12px; border-radius:4px; }

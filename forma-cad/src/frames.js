@@ -7,11 +7,11 @@ export function frameMatrix(f){const b=basisFor(f);return new THREE.Matrix4().ma
 export function worldPoint(r,p){const b=basisFor(r);return b.u.multiplyScalar(p[0]).addScaledVector(b.v,p[1]).addScaledVector(b.n,r.offset);}
 
 // Reconstruct planar regions by polygon union, including T-junctions from CSG.
-export function planarFace(geometry,triangle){
+export function planarFace(geometry,triangle,{includeTriangles=false}={}){
  const p=cadPosition(geometry),ix=geometry.index,count=ix?ix.count:p.count,point=i=>new THREE.Vector3().fromBufferAttribute(p,ix?ix.getX(i):i);
  const a=point(triangle*3),b=point(triangle*3+1),c=point(triangle*3+2),n=b.clone().sub(a).cross(c.clone().sub(a)).normalize(),offset=n.dot(a);
  const reference=Math.abs(n.x)<.9?new THREE.Vector3(1,0,0):new THREE.Vector3(0,1,0),u=reference.addScaledVector(n,-reference.dot(n)).normalize(),v=n.clone().cross(u),scale=100000;
- const paths=[],segments=[];for(let i=0;i<count;i+=3){const ps=[point(i),point(i+1),point(i+2)],normal=ps[1].clone().sub(ps[0]).cross(ps[2].clone().sub(ps[0])).normalize();if(normal.dot(n)<.999999||ps.some(q=>Math.abs(n.dot(q)-offset)>1e-4))continue;const projected=ps.map(q=>[q.dot(u),q.dot(v)]);for(let j=0;j<3;j++)segments.push([projected[j],projected[(j+1)%3]]);const path=projected.map(q=>({X:Math.round(q[0]*scale),Y:Math.round(q[1]*scale)}));if(!Clipper.Clipper.Orientation(path))path.reverse();paths.push(path);}
+ const paths=[],segments=[],triangles=[];for(let i=0;i<count;i+=3){const ps=[point(i),point(i+1),point(i+2)],normal=ps[1].clone().sub(ps[0]).cross(ps[2].clone().sub(ps[0])).normalize();if(normal.dot(n)<.999999||ps.some(q=>Math.abs(n.dot(q)-offset)>1e-4))continue;const projected=ps.map(q=>[q.dot(u),q.dot(v)]);for(let j=0;j<3;j++)segments.push([projected[j],projected[(j+1)%3]]);const path=projected.map(q=>({X:Math.round(q[0]*scale),Y:Math.round(q[1]*scale)}));if(!Clipper.Clipper.Orientation(path))path.reverse();paths.push(path);if(includeTriangles)triangles.push({start:i,center:{X:Math.round(projected.reduce((sum,q)=>sum+q[0],0)*scale/3),Y:Math.round(projected.reduce((sum,q)=>sum+q[1],0)*scale/3)}});}
  const union=new Clipper.Clipper();union.AddPaths(paths,Clipper.PolyType.ptSubject,true);let merged=[];union.Execute(Clipper.ClipType.ctUnion,merged,Clipper.PolyFillType.pftNonZero,Clipper.PolyFillType.pftNonZero);
  // Close only sub-micron mesh seams; preserve actual openings and disconnected faces.
  for(const delta of [20,-20]){const co=new Clipper.ClipperOffset(2);co.AddPaths(merged,Clipper.JoinType.jtMiter,Clipper.EndType.etClosedPolygon);const out=[];co.Execute(out,delta);merged=out;}
@@ -19,5 +19,13 @@ export function planarFace(geometry,triangle){
  const center=a.clone().add(b).add(c).multiplyScalar(1/3),click={X:Math.round(center.dot(u)*scale),Y:Math.round(center.dot(v)*scale)};let selected=null;
  for(let node=tree.GetFirst();node;node=node.GetNext()){if(node.IsHole()||!Clipper.Clipper.PointInPolygon(click,node.Contour()))continue;if(node.Childs().some(h=>h.IsHole()&&Clipper.Clipper.PointInPolygon(click,h.Contour())))continue;selected=node;break;}
  if(!selected)throw Error('選択面の輪郭を取得できません');const restore=q=>{const point=[q.X/scale,q.Y/scale];return p.array instanceof Float64Array?restoreContourPoint(point,segments):point;},outer=selected.Contour().map(restore),holes=selected.Childs().filter(h=>h.IsHole()&&Math.abs(Clipper.Clipper.Area(h.Contour()))>scale*scale*1e-6).map(h=>h.Contour().map(restore));const area=r=>Math.abs(r.reduce((s,p,i)=>s+p[0]*r[(i+1)%r.length][1]-p[1]*r[(i+1)%r.length][0],0)/2);
- return {id:'face-'+crypto.randomUUID(),plane:'CUSTOM',frame:{u:u.toArray(),v:v.toArray(),n:n.toArray()},offset,outer,holes,area:area(outer)-holes.reduce((s,h)=>s+area(h),0),sourceIds:[]};
+ const triangleRanges=[];
+ if(includeTriangles)for(const {start,center} of triangles){
+  if(!Clipper.Clipper.PointInPolygon(center,selected.Contour())||
+   selected.Childs().some(h=>h.IsHole()&&Clipper.Clipper.PointInPolygon(center,h.Contour())))continue;
+  const previous=triangleRanges.at(-1);
+  if(previous&&previous.start+previous.count===start)previous.count+=3;
+  else triangleRanges.push({start,count:3});
+ }
+ return {...(includeTriangles?{triangleRanges}:{}),id:'face-'+crypto.randomUUID(),plane:'CUSTOM',frame:{u:u.toArray(),v:v.toArray(),n:n.toArray()},offset,outer,holes,area:area(outer)-holes.reduce((s,h)=>s+area(h),0),sourceIds:[]};
 }
