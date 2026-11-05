@@ -55,6 +55,50 @@ try{
  const preview=async()=>JSON.parse(await field('canvas-host').getAttribute('data-move-preview'));
  assert.equal((await preview()).position[0],4);
 
+ async function checkRotationDrag(customAxis=false){
+  const host=field('canvas-host'),rect=await page.locator('#canvas-host canvas').boundingBox();
+  const view=JSON.parse(await host.getAttribute('data-camera-state'));
+  const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100);
+  camera.position.fromArray(view);camera.quaternion.fromArray(view,3);camera.zoom=view[7];
+  camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+  const center=new THREE.Vector3(...(await preview()).position).project(camera);
+  const x=rect.x+(center.x+1)*rect.width/2,y=rect.y+(1-center.y)*rect.height/2,radius=rect.height*(customAxis ? .1 : .15);
+  const pointerAt=degrees=>{
+   const angle=THREE.MathUtils.degToRad(degrees-25);
+   return page.mouse.move(x+radius*Math.cos(angle),y+radius*Math.sin(angle));
+  };
+  async function facePixel(){
+   const image=(await page.screenshot()).toString('base64');
+   return page.evaluate(async({image,x,y})=>{
+    const screenshot=new Image();screenshot.src='data:image/png;base64,'+image;await screenshot.decode();
+    const canvas=document.createElement('canvas');canvas.width=screenshot.width;canvas.height=screenshot.height;
+    const ctx=canvas.getContext('2d');ctx.drawImage(screenshot,0,0);
+    return [...ctx.getImageData(Math.round(x+12),Math.round(y+14),1,1).data];
+   },{image,x,y});
+  }
+  const snap=()=>host.getAttribute('data-move-rotation-snap');
+  await pointerAt(0);await page.mouse.down();
+  await pointerAt(11);
+  assert.equal(Math.abs(Number(await snap())),15,JSON.stringify({snap:await snap(),preview:await preview()}));
+  const orange=await facePixel();
+  assert(orange[0]>orange[2]+50,'snapped preview should be orange, got '+orange);
+  await pointerAt(20);
+  assert.equal(Math.abs(Number(await snap())),15,'small movement out of capture keeps the angle locked');
+  await pointerAt(22);
+  assert.equal(await snap(),null,'moving farther away releases the angle');
+  const blue=await facePixel();
+  assert(blue[2]>blue[0]+40,'released preview should be blue, got '+blue);
+  await pointerAt(27);
+  assert.equal(Math.abs(Number(await snap())),30);
+  await page.mouse.up();
+  assert.equal(await snap(),null,'ending the drag removes the snap highlight');
+  const ended=await facePixel();
+  assert(ended[2]>ended[0]+40,'ending the drag restores the normal color, got '+ended);
+ }
+ await page.locator('#move-panel [data-mode=rotate]').click();
+ await checkRotationDrag();
+ await field('move-ry').fill('0');
+
  await field('move-pick-axis').click();
  const point=field('move-axis-candidates').locator('circle[data-point="[6,-10,5]"]');
  const guide=async()=>JSON.parse(await field('canvas-host').getAttribute('data-move-rotation-guide'));
@@ -68,6 +112,8 @@ try{
  assert(await field('move-quarter-axis').isDisabled());
  assert.equal((await guide()).hover,false);
  assert.equal(await field('move-point-axis-direction').inputValue(),'normal');
+ await checkRotationDrag(true);
+ await field('move-edge-angle').fill('0');
  await field('move-plus90').click();
  assert.equal(Number(await field('move-edge-angle').inputValue()),90);
  const axisDirection=field('move-point-axis-direction');
@@ -122,5 +168,5 @@ try{
  assert(Math.abs(savedPairRotation.dot(new THREE.Quaternion().setFromAxisAngle(diagonal,Math.PI/4)))>1-1e-8);
  assert.equal(await field('canvas-host').getAttribute('data-move-rotation-guide'),null);
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,errors}));
+ console.log(JSON.stringify({pass:true,sketchPointAxis:true,axisNormalTowardBody:true,offsetPoint:true,translationPreserved:true,savedRotation:true,hoverGuide:true,persistentGuide:true,directionSwitch:true,twoPointAxis:true,strongRotationSnap:true,rotationSnapColor:true,errors}));
 }finally{await browser?.close();server.close();}

@@ -1,4 +1,4 @@
-import {softRotationSnap,rotationAngleText} from './rotation-snap.js';
+import {rotationSnapTarget,rotationAngleText} from './rotation-snap.js';
 import {contactTranslation} from './move-contact-geometry.js';
 import {firstMoveContact} from './move-until-contact.js';
 import * as THREE from 'three';
@@ -123,9 +123,9 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   world.addScaledVector(axis,-world.dot(axis));
   return world.lengthSq()>1e-8?world.normalize():null;
  }
- function clearPreview(){drawAxisGuide(null);contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=originalVisibility.get(mesh)??true;originalVisibility.clear();if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
+ function clearPreview(){setRotationSnap(null);drawAxisGuide(null);contactMove=null;delete host.dataset.moveUntilContact;control.detach();for(const mesh of originals)mesh.visible=originalVisibility.get(mesh)??true;originalVisibility.clear();if(proxy){scene.remove(proxy);proxy.traverse(o=>{if(o.userData.moveMaterial)o.material.dispose();});}original=null;originals=[];proxy=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;}
  function close(force=false,applied=false){if(busy&&!force)return;finishFreeMove(false);const targets=originals.map(m=>m.userData.bodyId);++revision;busy=false;control.dragging=false;control.axis=null;if(dragPointer&&canvas.hasPointerCapture(dragPointer.id))canvas.releasePointerCapture(dragPointer.id);dragPointer=null;pointMove=null;pickingCenter=false;closeCenterPicker();closePointPicker();pickingAxis=false;closeAxisPicker();clearPreview();active=false;control.enabled=false;panel.hidden=true;for(const el of panel.querySelectorAll('button,input,select'))el.disabled=false;getControls().enabled=enabledBefore;host.dataset.moveActive='false';delete host.dataset.movePreview;onClose({targets,applied,force});}
- function mode(value){control.setMode(value);control.setSpace(edgeAxis&&value==='rotate'?'local':'world');control.showX=control.showY=!(edgeAxis&&value==='rotate');control.showZ=true;for(const button of panel.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===value));}
+ function mode(value){if(value!=='rotate')setRotationSnap(null);control.setMode(value);control.setSpace(edgeAxis&&value==='rotate'?'local':'world');control.showX=control.showY=!(edgeAxis&&value==='rotate');control.showZ=true;for(const button of panel.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===value));}
  for(const button of panel.querySelectorAll('[data-mode]'))button.onclick=()=>{finishFreeMove(false);stopPointModes();mode(button.dataset.mode);};
  function mark(){contactMove=null;delete host.dataset.moveUntilContact;updateContactButtons();if(pointResult)closePointPicker();hideGhost();reflectPreview();host.dataset.movePreview=JSON.stringify({copy:copying(),reverseCopy:copying()&&reverse.checked,targets:originals.map(m=>m.userData.bodyId),position:proxy.position.toArray(),rotation:degrees().map(x=>x*Math.PI/180),edgeAxis:edgeAxis?.toArray(),pivot:center.toArray(),hingeAngle:edgeAxis?edgeAngle:null});updateGroundButton();updateAxisGuide();}
  function select(selection){
@@ -158,7 +158,24 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  function start({copy=false}={}){if(active){close();return;}method.value=copy?'copy':'move';reverse.checked=false;reverseLabel.hidden=!copy;pointAction=null;chosenCenter=null;chosenAxisPivot=null;chosenEdge=getSelectedEdge?.();const selectedIds=new Set(getSelection());const selectedMeshes=getMeshes().filter(m=>m.visible&&selectedIds.has(m.userData.bodyId));onStart();enabledBefore=getControls().enabled;getControls().enabled=false;active=true;panel.hidden=false;error.textContent='';hint.textContent='移動するボディをクリック';panel.querySelector('#move-apply').disabled=true;fields.forEach((f,i)=>f.value=i<3?'0':'0.0');host.dataset.moveActive='true';mode('translate');updateContactButtons();if(selectedMeshes.length)select(selectedMeshes);else if(chosenEdge){const mesh=getMeshes().find(m=>m.userData.bodyId===chosenEdge.bodyId);if(mesh)select(mesh);}}
  let dragPointer=null;canvas.addEventListener('pointerdown',e=>{dragPointer={id:e.pointerId,x:e.clientX,y:e.clientY};},{capture:true});canvas.addEventListener('pointermove',e=>{dragPointer={id:e.pointerId,x:e.clientX,y:e.clientY};},{capture:true});
  canvas.addEventListener('pointerdown',e=>{if(!active||busy||e.button!==0||e.shiftKey)return;if(freeMove){followCursor(e);finishFreeMove(false);hint.textContent='自在移動の位置を決めました。「確定」で適用';e.preventDefault();e.stopImmediatePropagation();return;}if(pickingCenter){const candidate=centerPicker.pick(e);if(candidate)chooseCenterCandidate(candidate);else error.textContent='橙色の○で表示された点をクリックしてください';e.preventDefault();e.stopImmediatePropagation();return;}if(pointMove){const candidate=pointPicker.pick(e);if(candidate)chooseMovePoint(candidate);else error.textContent='表示された○のポイントをクリックしてください';e.preventDefault();e.stopImmediatePropagation();return;}if(pickingAxis){pickAxis(e);e.preventDefault();e.stopImmediatePropagation();return;}if(control.axis)return;const r=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2),camera);const hit=ray.intersectObjects(getMeshes().filter(m=>m.visible),false)[0];if(hit){select(hit.object);e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
- let dragStartRotation=null,dragHinge=null,dragStartPosition=null,dragStartBounds=null;
+ let dragStartRotation=null,dragHinge=null,dragStartPosition=null,dragStartBounds=null,snappedRotation=null;
+ function setRotationSnap(target){
+  if(target===snappedRotation)return;
+  const snapped=target!==null,changed=snapped!==(snappedRotation!==null);
+  snappedRotation=target;
+  if(snapped)host.dataset.moveRotationSnap=rotationAngleText(THREE.MathUtils.radToDeg(target));
+  else delete host.dataset.moveRotationSnap;
+  if(changed)for(const mesh of previewMeshes()){
+   const vertexColors=!snapped&&!!mesh.userData.qrColors;
+   if(mesh.material.vertexColors!==vertexColors){mesh.material.vertexColors=vertexColors;mesh.material.needsUpdate=true;}
+   mesh.material.color.setHex(snapped?0xf08a20:vertexColors?0xffffff:0x3868ad);
+  }
+ }
+ function snappedRotationAngle(angle){
+  const target=rotationSnapTarget(angle,snappedRotation);
+  setRotationSnap(target);
+  return target??angle;
+ }
  control.addEventListener('mouseDown',()=>{
   dragStartPosition=proxy?.position.clone()||null;dragStartBounds=proxy?new THREE.Box3().setFromObject(proxy):null;
   dragStartRotation=proxy?rotation():null;
@@ -170,7 +187,8 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
     cameraPosition:camera.position.clone(),cameraQuaternion:camera.quaternion.clone(),cameraZoom:camera.zoom};
   }else dragHinge=null;
  });
- control.addEventListener('mouseUp',()=>{dragStartRotation=null;dragHinge=null;dragStartPosition=null;dragStartBounds=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;});
+ control.addEventListener('mouseUp',()=>{setRotationSnap(null);dragStartRotation=null;dragHinge=null;dragStartPosition=null;dragStartBounds=null;delete host.dataset.moveGridSnap;delete host.dataset.moveContactSnap;});
+ canvas.addEventListener('pointercancel',event=>{if(control.dragging&&control.mode==='rotate'&&event.pointerId===dragPointer?.id)control.pointerUp(null);});
  control.addEventListener('objectChange',()=>{if(!proxy)return;
  if(control.dragging&&dragHinge){
   const changedCamera=dragHinge.cameraPosition.distanceToSquared(camera.position)>1e-10||Math.abs(dragHinge.cameraQuaternion.dot(camera.quaternion))<1-1e-10||Math.abs(dragHinge.cameraZoom-camera.zoom)>1e-10;
@@ -187,13 +205,13 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   dragHinge.cameraPosition.copy(camera.position);
   dragHinge.cameraQuaternion.copy(camera.quaternion);
   dragHinge.cameraZoom=camera.zoom;
-  edgeAngle=softRotationSnap(dragHinge.angle*Math.PI/180+dragHinge.accum)*180/Math.PI;
+  edgeAngle=snappedRotationAngle(dragHinge.angle*Math.PI/180+dragHinge.accum)*180/Math.PI;
   proxy.quaternion.copy(dragHinge.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),(edgeAngle-dragHinge.angle)*Math.PI/180)).normalize();
   proxy.updateMatrixWorld(true);
  }else if(control.dragging&&control.mode==='rotate'&&dragStartRotation){
   const axis=control.rotationAxis.clone().normalize(),local=control.space==='local'&&!['E','XYZE'].includes(control.axis);
   const start=local?alignment.clone().invert().multiply(dragStartRotation).multiply(alignment):dragStartRotation;
-  const offset=2*Math.atan2(start.x*axis.x+start.y*axis.y+start.z*axis.z,start.w),raw=control.rotationAngle,delta=softRotationSnap(offset+raw)-offset-raw;
+  const offset=2*Math.atan2(start.x*axis.x+start.y*axis.y+start.z*axis.z,start.w),raw=control.rotationAngle,delta=snappedRotationAngle(offset+raw)-offset-raw;
   if(Math.abs(delta)>1e-10){const correction=new THREE.Quaternion().setFromAxisAngle(axis,delta);if(local)proxy.quaternion.multiply(correction);else proxy.quaternion.premultiply(correction);proxy.updateMatrixWorld(true);}
  }
  if(control.dragging&&control.mode==='translate')softMoveSnap();
