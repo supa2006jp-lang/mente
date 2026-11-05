@@ -9,12 +9,15 @@ export function fitCommandToolbar(bar){
   // Re-read commands so tools installed after startup also participate.
   const items=[...bar.children].flatMap(el=>rows.includes(el)?[...el.children]:[el]);
   for(const item of items)if(item.hasAttribute('data-overflow-priority'))item.hidden=item.hasAttribute('data-user-hidden');
-  rows[0].replaceChildren(...items);rows[1].replaceChildren();bar.replaceChildren(...rows);
+  // Measure existing rows in place; rebuilding them on every resize can cause
+  // toolbar observers to trigger each other and continuously resize the view.
+  for(const row of rows)if(row.parentElement!==bar)bar.append(row);
+  for(const item of items)if(!rows.includes(item.parentElement))rows[0].append(item);
   const gap=parseFloat(getComputedStyle(rows[0]).columnGap)||0;
   const widths=new Map(items.map(el=>{const style=getComputedStyle(el);return [el,el.getBoundingClientRect().width+(parseFloat(style.marginLeft)||0)+(parseFloat(style.marginRight)||0)];}));
   function layout(){
    const visible=items.filter(el=>!el.hidden),total=visible.reduce((sum,el)=>sum+widths.get(el),0);
-   let left=0,best={index:1,width:Infinity};
+   let left=0,best={index:1,width:visible.length<=1?total:Infinity};
    for(let i=1;i<visible.length;i++){
     left+=widths.get(visible[i-1]);
     const width=Math.max(left+gap*(i-1),total-left+gap*(visible.length-i-1));
@@ -30,11 +33,15 @@ export function fitCommandToolbar(bar){
   }
   const second=new Set(plan.visible.slice(plan.index));
   // Keep hidden commands in their original order for the next resize.
-  let row=0;
-  for(const item of items){if(second.has(item))row=1;rows[row].append(item);}
+  let row=0;const planned=[[],[]];
+  for(const item of items){if(second.has(item))row=1;planned[row].push(item);}
+  for(let i=0;i<rows.length;i++)for(let j=0;j<planned[i].length;j++){
+   if(rows[i].children[j]!==planned[i][j])rows[i].insertBefore(planned[i][j],rows[i].children[j]||null);
+  }
   const count=optional.filter(button=>button.hidden).length;
   const advanced=bar.querySelector('#advanced-tools');
-  if(advanced)advanced.title=count?'入りきらない '+count+' コマンドを含むすべての作成・修正':'すべての作成・修正';
+  const title=count?'入りきらない '+count+' コマンドを含むすべての作成・修正':'すべての作成・修正';
+  if(advanced&&advanced.title!==title)advanced.title=title;
   bar.dataset.overflowCount=String(count);observe();
  }
  function schedule(){if(!pending){pending=true;requestAnimationFrame(fit);}}

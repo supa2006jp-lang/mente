@@ -87,8 +87,11 @@ export function installFavoriteCommands({bar,notify=()=>{}}){
    proxy.title=original.title;proxy.disabled=original.disabled;proxy.setAttribute('aria-disabled',original.getAttribute('aria-disabled')||'false');
    proxy.classList.toggle('active',original.classList.contains('active'));
    if(original.hasAttribute('aria-pressed'))proxy.setAttribute('aria-pressed',original.getAttribute('aria-pressed'));else proxy.removeAttribute('aria-pressed');
-   favorites.append(proxy);
   }
+  // Keep the two-row layout intact when only command state has changed.
+  const desired=ordered.map(original=>proxies.get(original.id));
+  const current=[...favorites.querySelectorAll('[data-favorite-command]')];
+  if(current.length!==desired.length||desired.some((proxy,index)=>proxy!==current[index]))favorites.append(...desired);
   favorites.hidden=!ordered.length;
  }
  function renderRows(movedId=null){
