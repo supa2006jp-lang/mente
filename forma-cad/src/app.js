@@ -255,7 +255,7 @@ import {warmKernelOnInteraction} from './kernel-warmup.js';
 import {hideShellProfiles} from './shell-profile-visibility.js';
 import {dimensionPositions} from './dimension-layout.js';
 let loftSections=[],loftHighlight=null,loftMarkers=[];
-let revolveRegion=null,revolveEdge=null,revolvePicking="profile",revolvePreview=null,revolveTimer=null,revolveRevision=0;
+let revolveRegion=null,revolveEdge=null,revolvePoint=null,revolvePicking="profile",revolvePreview=null,revolveTimer=null,revolveRevision=0;
 let activeSketchGroup=null,editingSketchGroup=null,pendingDrawingView=null,pendingDrawingFace=null,sketchWorkingFace=null,sketchNumberTabs=null;
 let polygonMode=false;
 import {tangentArc} from './tangent-arc.js';
@@ -1279,7 +1279,10 @@ renderer.domElement.addEventListener('pointerup',e=>{
  if(!pendingExtrude&&(e.ctrlKey||e.metaKey)&&pickBodyEdge(e))return;
  if(!pendingExtrude&&!edgeSelectionMode&&faceGroup&&!bodyHit.object.geometry.userData.planarFaces?.includes(faceGroup.faceId)){chooseFace(bodyHit,e.shiftKey||e.ctrlKey||e.metaKey);return;}
  if(!pendingExtrude&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&pickBodyEdge(e,bodyHit))return;
- const sketchHit=raycaster.intersectObjects(sketchGroup.children,false)[0];if(sketchHit&&(!pendingExtrude||mode==='thin')&&(!bodyHit||sketchHit.distance<=bodyHit.distance+.05)){const thinPending=pendingExtrude&&mode==='thin';if(!thinPending&&pickSketchEdge(e))return;selectFeature(sketchHit.object.userData.featureId,sketchHit.index||0);if(thinPending)beginExtrusion('thin');return;}const regionHit=pickProfileRegion(e);if(regionHit){chooseRegion(regionHit.region,e.ctrlKey||e.metaKey,regionHit.point);return;}
+ const sketchHit=raycaster.intersectObjects(sketchGroup.children,false)[0];if(sketchHit&&(!pendingExtrude||mode==='thin')&&(!bodyHit||sketchHit.distance<=bodyHit.distance+.05)){const thinPending=pendingExtrude&&mode==='thin';
+ const hitFeature=stage==='model'&&!pendingExtrude&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey?features.find(f=>f.id===sketchHit.object.userData.featureId):null;
+ if(hitFeature?.profile==='point'){selectPatternCenter({point:[hitFeature.x,hitFeature.y,hitFeature.z],normal:basisFor(hitFeature).n.toArray(),name:'スケッチ点',kind:'center'});return;}
+ if(!thinPending&&pickSketchEdge(e))return;selectFeature(sketchHit.object.userData.featureId,sketchHit.index||0);if(thinPending)beginExtrusion('thin');return;}const regionHit=pickProfileRegion(e);if(regionHit){chooseRegion(regionHit.region,e.ctrlKey||e.metaKey,regionHit.point);return;}
  const planeHit=raycaster.intersectObjects(regionGroup.children.filter(m=>m.userData.planeId&&m.visible),false)[0];if(planeHit&&(!bodyHit||planeHit.distance<bodyHit.distance-.05)){chooseConstructionPlane(features.find(f=>f.id===planeHit.object.userData.planeId));return;}const hit=bodyHit;if(hit){chooseFace(hit,e.shiftKey||e.ctrlKey||e.metaKey);}else if(!selectFaceGrid())$('measurement').hidden=true;
 });
 function showMeasurement(f,edgeIndex=0){if(f.profile==='point'){$('measurement').hidden=false;$('measurement-title').textContent='スケッチ点';$('measurement-length').textContent=[f.x,f.y,f.z].map(fmt).join(', ')+' mm';$('measurement-angle').textContent='目標点';return;}
@@ -2332,6 +2335,14 @@ for(const [id,label,action]of [['point-rotate','この点を回転中心にす�
  const button=document.createElement('button');button.type='button';button.id=id;button.textContent=label;
  button.onclick=()=>{if(!patternCenter)return;const reference=clone(patternCenter);pointDistance.reset();selectionPicker?.close();try{moveTool.fromPoint(reference,action);}catch(error){notify(appErrorMessage(error));}};pointActions.append(button);
 }
+const pointRevolve=document.createElement('button');pointRevolve.type='button';pointRevolve.id='point-revolve';pointRevolve.textContent='回転（生成）';
+pointRevolve.title='この点を通る軸で、領域・面またはボディを回転して立体を作成';
+pointRevolve.onclick=()=>{
+ if(!patternCenter)return;
+ const reference=clone(patternCenter);pointDistance.reset();selectionPicker?.close();
+ openDirectCommand('revolve');startPointRevolve(reference);scheduleRevolve();
+};
+pointActions.querySelector('#point-rotate').after(pointRevolve);
 $('center-pattern').after(pointActions);
 const pointMeasure=document.createElement('button');pointMeasure.id='point-measure';pointMeasure.type='button';pointMeasure.textContent='この点から距離を測る';pointMeasure.onclick=()=>{if(!patternCenter)return;selectionPicker?.close();showSelectedPointInfo();pointDistance.begin(patternCenter);};pointActions.append(pointMeasure);
 const pointHole=document.createElement('button');pointHole.id='point-hole';pointHole.type='button';pointHole.textContent='この点に穴をあける';pointHole.onclick=()=>{if(!patternCenter)return;try{const placement=holeFromSelectedPoint(patternCenter);pointDistance.reset();selectionPicker?.close();startHole();placeHolePoint(placement);$('hole-diameter').focus();$('hole-diameter').select();}catch(error){notify(appErrorMessage(error));}};pointActions.prepend(pointHole);
@@ -3184,6 +3195,7 @@ async function openRevolveEdit(id){
  }catch(error){view.close();editingRevolve=null;$('cad-command').disabled=false;throw error;}
 }
 function renderRevolve(){
+ revolvePoint=null;
  const edgeBody=!editingRevolve&&selectedEdges.length===1&&selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve&&meshes.has(selectedEdge.bodyId)?edgeBodyRevolveOptions(selectedEdge):null;
  revolveRegion=chosenRegion?clone(chosenRegion):null;revolveEdge=selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve?{a:selectedEdge.a,b:selectedEdge.b}:null;revolvePicking=revolveRegion?'axis':'profile';
  $('cad-fields').innerHTML='<label>回転の対象<select id="revolve-kind"><option value="profile">領域・面</option><option value="body">ボディ</option></select></label><label id="revolve-body-label" hidden>回転するボディ<select id="revolve-body"></select></label><button type="button" id="revolve-pick-profile">領域を画面で選択</button><label>プロファイル<select id="revolve-profile"><option value="">領域を選択</option></select></label><button type="button" id="revolve-pick-axis">軸を画面で選択</button><label>回転軸<select id="revolve-axis"><option value="SELECTED">選択した直線・辺</option><option>X</option><option>Y</option><option>Z</option></select></label><small id="revolve-axis-status">軸は未選択</small><label>角度 (°)<input id="revolve-angle" type="number" min="0.01" max="360" step="any" value="360" required></label><label>方向<select id="revolve-direction"><option>片側</option><option>逆方向</option><option>対称</option></select></label><label>操作<select id="revolve-operation"><option value="new">新規ボディ</option><option value="join">結合</option><option value="cut">切り取り</option></select></label><label id="revolve-target-label" hidden>対象ボディ<select id="revolve-target"></select></label><label id="revolve-keep-source-label" hidden><input type="checkbox" id="revolve-keep-source">回転元のボディを残す</label>';
@@ -3191,7 +3203,7 @@ function renderRevolve(){
  for(const [i,r] of regions.entries())$('revolve-profile').add(new Option((i+1)+'. '+(r.overlapSource?partitionLabel(r)+' / ':'')+r.plane+' / '+fmt(r.area)+' mm²',r.id));
  if(revolveRegion)$('revolve-profile').value=revolveRegion.id;
  for(const [id] of revolveBodies()){const name=editingRevolve?(editingRevolve.prefix.find(f=>f.id===id)?.name||'ボディ')+'（'+([...revolveBodies().keys()].indexOf(id)+1)+'）':bodyDisplayName(id);$('revolve-target').add(new Option(name,id));$('revolve-body').add(new Option(name,id));}if(selectedBody)$('revolve-body').value=selectedBody;
- $('revolve-kind').onchange=()=>{const body=$('revolve-kind').value==='body';$('revolve-body-label').hidden=!body;$('revolve-profile').parentElement.hidden=body;$('revolve-pick-profile').textContent=body?'ボディを画面で選択':'領域を画面で選択';$('revolve-operation').replaceChildren(...([['new','新規ボディ'],['join','結合'],['cut','切り取り']]).map(([v,t])=>new Option(t,v)));$('revolve-direction').replaceChildren(...(['片側','逆方向','対称']).map(v=>new Option(v,v)));$('revolve-angle').value='360';if(body&&$('revolve-body').value)$('revolve-target').value=$('revolve-body').value;revolvePicking='profile';$('cad-help').textContent=body?'ボディが回転して通る範囲をソリッドにします。X・Y・Zは原点を通る軸です。':'閉じた領域または平面を回転して立体を作成します';scheduleRevolve();};
+ $('revolve-kind').onchange=()=>{const body=$('revolve-kind').value==='body';$('revolve-body-label').hidden=!body;$('revolve-profile').parentElement.hidden=body;$('revolve-pick-profile').textContent=body?'ボディを画面で選択':'領域を画面で選択';$('revolve-operation').replaceChildren(...([['new','新規ボディ'],['join','結合'],['cut','切り取り']]).map(([v,t])=>new Option(t,v)));$('revolve-direction').replaceChildren(...(['片側','逆方向','対称']).map(v=>new Option(v,v)));$('revolve-angle').value='360';if(body&&$('revolve-body').value)$('revolve-target').value=$('revolve-body').value;revolvePicking='profile';$('cad-help').textContent=body?'ボディが回転して通る範囲をソリッドにします。'+(revolvePoint?'自動では選択した点の法線方向、X・Y・Zもその点を通ります。':'X・Y・Zは原点を通る軸です。'):'閉じた領域または平面を回転して立体を作成します';scheduleRevolve();};
  $('revolve-profile').onchange=()=>{revolveRegion=clone([chosenRegion,...regions].find(r=>r?.id===$('revolve-profile').value)||null);scheduleRevolve();};
  $('revolve-pick-profile').onclick=()=>{revolvePicking='profile';$('cad-help').textContent=$('revolve-kind').value==='body'?'回転させるボディをクリックしてください':'回転させる閉じたスケッチ領域、またはソリッドの平面をクリックしてください';};
  $('revolve-pick-axis').onclick=()=>{++revolveRevision;clearTimeout(revolveTimer);clearRevolvePreview();revolvePicking='axis';$('cad-help').textContent='回転軸にするスケッチの直線、またはソリッドの直線の辺をクリックしてください';};
@@ -3218,11 +3230,36 @@ function renderRevolve(){
  if(revolveEdge)$('revolve-axis-status').textContent='直線の軸を選択済み';
  if(edgeBody){const frame=edgeTurnFrame(selectedEdge);revolveEdge={a:frame.a.toArray(),b:frame.b.toArray()};revolveRegion=null;$('revolve-kind').value='body';$('revolve-body').value=edgeBody.sourceBody;$('revolve-kind').onchange();$('revolve-angle').value=String(edgeBody.angle);$('revolve-axis').value='SELECTED';$('revolve-operation').value=edgeBody.operation;$('revolve-target').value=edgeBody.target;revolvePicking='axis';$('revolve-axis-status').textContent=bodyDisplayName(edgeBody.sourceBody)+' の選択辺を回転軸に設定済み';$('cad-help').textContent='選択辺が属する '+bodyDisplayName(edgeBody.sourceBody)+' の回転した通り道を埋め、元のボディへ結合します。角度と方向をプレビューで確認してください。';scheduleRevolve();}
 }
+function startPointRevolve(reference){
+ revolvePoint=reference;
+ const axis=$('revolve-axis');
+ axis.add(new Option('選択した点を通る軸（自動）','POINT'),0);
+ for(const direction of ['X','Y','Z']){
+  const option=[...axis.options].find(item=>item.value===direction);
+  option.value=direction;option.textContent='選択した点を通る '+direction+' 軸';
+ }
+ axis.value='POINT';
+ const body=$('revolve-body'),linked=meshes.get(reference.bodyId)?.visible;
+ body.add(new Option('回転するボディを選択',''),0);
+ body.value=linked?reference.bodyId:'';
+ if(linked||(!revolveRegion&&[...meshes.values()].some(mesh=>mesh.visible))){
+  $('revolve-kind').value='body';$('revolve-kind').onchange();
+ }else $('cad-help').textContent='選択した点を軸の基準にしました。閉じた領域か平面を選択してください。軸はその面と同じ平面内に指定します。';
+}
 function revolveSpec(){
  const body=$('revolve-kind').value==='body';if(body&&!$('revolve-body').value)throw Error('回転させるボディを選択してください');if(!body&&!revolveRegion)throw Error('回転させる領域を選択してください');
  const type=$('revolve-axis').value,n=body?new THREE.Vector3():basisFor(revolveRegion).n;let origin,axis;
  if(type==='SELECTED'){if(!revolveEdge)throw Error('回転軸にする直線・辺を選択してください');origin=new THREE.Vector3(...revolveEdge.a);axis=new THREE.Vector3(...revolveEdge.b).sub(origin).normalize();}
- else{origin=body?new THREE.Vector3():n.clone().multiplyScalar(revolveRegion.offset);axis=new THREE.Vector3(...{X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[type]);}
+ else{
+  origin=revolvePoint?new THREE.Vector3(...revolvePoint.point):body?new THREE.Vector3():n.clone().multiplyScalar(revolveRegion.offset);
+  if(type==='POINT'){
+   axis=body?new THREE.Vector3(...revolvePoint.normal).normalize():basisFor(revolveRegion).u;
+   if(body){
+    const source=revolveBodies().get($('revolve-body').value);
+    if(source&&new THREE.Box3().setFromObject(source).getCenter(new THREE.Vector3()).sub(origin).dot(axis)<-1e-8)axis.negate();
+   }
+  }else axis=new THREE.Vector3(...{X:[1,0,0],Y:[0,1,0],Z:[0,0,1]}[type]);
+ }
  const transform={origin:origin.toArray(),axisVector:axis.toArray(),angle:Number($('revolve-angle').value),direction:$('revolve-direction').value};
  if(editingRevolve){
   const saved=editingRevolve.spec;
@@ -3306,8 +3343,9 @@ function scheduleRevolve(){
  if(!$('tools-dialog').open||$('cad-command').value!=='revolve')return;
  const operation=$('revolve-operation').value,body=$('revolve-kind').value==='body',axis=$('revolve-axis').value;
  const axisStatus=$('revolve-axis-status');
- if(axis!=='SELECTED')axisStatus.textContent=axis+'軸を使用';
- else if(axisStatus.textContent.endsWith('軸を使用'))axisStatus.textContent=revolveEdge?'直線の軸を選択済み':'軸は未選択';
+ if(axis==='POINT')axisStatus.textContent=body?'選択した点を通る軸（点の法線方向）':'選択した点を通る軸（対象面に沿う方向）';
+ else if(axis!=='SELECTED')axisStatus.textContent=(revolvePoint?'選択した点を通る ':'')+axis+'軸を使用';
+ else if(revolvePoint||axisStatus.textContent.endsWith('軸を使用'))axisStatus.textContent=revolveEdge?'直線の軸を選択済み':'軸は未選択';
  $('revolve-target-label').hidden=operation==='new'||operation==='move';
  $('revolve-keep-source-label').hidden=!body||editingRevolve&&!editingRevolve.spec.bodySweep||operation==='cut'||operation==='move'||operation==='join'&&$('revolve-target').value===$('revolve-body').value;
  const draft=editingRevolve?.draft||revolveDraft;
@@ -3915,7 +3953,7 @@ function cancelAllTools(){perpendicularSketchTool?.close(false);solidBoundaryFil
  down=null;sketchRightDown=null;finishSketch(false);cancelHole();stopHingeSketchAlignment();
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  offsetPlanePreview?.clear();cancelMachiningPreview(true);clearSplitPreview();++revolveRevision;clearTimeout(revolveTimer);clearRevolvePreview();clearRevolveEdit();clearLoftHighlights();clearTrimArrow();
- loftSections=[];revolveRegion=null;revolveEdge=null;revolvePicking='profile';trimWall=null;enclosureFaces=[];enclosurePicking=false;enclosureHint.hidden=true;host.dataset.enclosurePicking='false';joinAll=false;
+ loftSections=[];revolveRegion=null;revolveEdge=null;revolvePoint=null;revolvePicking='profile';trimWall=null;enclosureFaces=[];enclosurePicking=false;enclosureHint.hidden=true;host.dataset.enclosurePicking='false';joinAll=false;
  activeSketchGroup=null;editingSketchGroup=null;enteredSketchNumber=null;pendingDrawingView=null;splinePoints=[];activeFrame=null;patternCenter=null;referencePointer=null;centerRevision=null;
  selectingFaces=false;deletingSketch=false;edgeSelectionMode=false;stage='model';selected=null;pendingExtrude=false;draftTouched=false;regionPayload=null;selectedRegions=[];contactAutoDepth=false;contactDistanceLimit=null;
  rectDimensionLocks=[false,false];circleDiameterLocked=false;clearEdgeSelection();selectedFace=null;selectedSurface=null;selectedBody=null;chosenRegion=null;fragmentSelection=null;hoverEdge=null;

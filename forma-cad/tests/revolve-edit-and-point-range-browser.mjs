@@ -11,7 +11,7 @@ import {runOperation} from '../src/kernel.js';
 import {sketchSegments} from '../src/sketch-selection.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const output='.sites-runtime/sketch-point-outline';
+const output='.sites-runtime/revolve-from-point';
 await fs.mkdir(output,{recursive:true});
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -429,8 +429,57 @@ try{
  await field('fit').click();
  pointPixel=(await sketchScreen())(0,0);
  await assertVisiblePoint('reloaded line');
+ // Select the sketch point in the viewport and generate a solid about its X axis.
+ const revolvePoint={...defaults,id:'revolve-point',name:'軸の点',kind:'sketch',profile:'point',x:10,y:2,groupId:'revolve-sketch',groupNumber:1};
+ const revolveProfile={...defaults,id:'revolve-profile-test',name:'断面',kind:'sketch',profile:'rect',x:22,y:16,width:12,height:10,groupId:'revolve-sketch',groupNumber:1};
+ await load([revolvePoint,revolveProfile]);
+ await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});
+ await field('fit').click();
+ const pickedPoint=(await sketchScreen())(10,2);
+ await page.mouse.move(...pickedPoint);
+ const pointMarker=page.locator('#center-markers .center-marker[aria-label*="スケッチ点"]:visible');
+ await pointMarker.click();
+ await field('point-revolve').click();
+ assert.equal(await field('revolve-kind').inputValue(),'profile');
+ assert.equal(await field('revolve-axis').inputValue(),'POINT');
+ const profile=field('revolve-profile');
+ await profile.selectOption({index:1});
+ await field('revolve-axis').selectOption('X');
+ await field('revolve-angle').fill('180');
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.revolvePreview==='180',{},{timeout:30000});
+ await field('cad-apply').click();
+ await field('tools-dialog').waitFor({state:'hidden',timeout:30000});
+ const fromPoint=(await save()).features.at(-1);
+ assert.equal(fromPoint.spec.type,'revolve');
+ assert.deepEqual(fromPoint.spec.origin,[10,2,0]);
+ assert.deepEqual(fromPoint.spec.axisVector,[1,0,0]);
+ assert.equal(fromPoint.spec.angle,180);
+ assert(fromPoint.outputs.length>0);
+
+ // A body face center carries over both the selected body and the point's normal.
+ const solidBody={...defaults,id:'solid-source',name:'直方体',kind:'extrusion',width:28,height:22,depth:10};
+ await load([solidBody]);
+ await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});
+ await field('fit').click();
+ await page.mouse.move(...(await sketchScreen())(0,0,10));
+ const faceCenter=page.locator('#center-markers .center-marker[aria-label="ソリッド面の中心を選択"]:visible');
+ await faceCenter.click({timeout:5000});
+ await field('point-revolve').click();
+ assert.equal(await field('revolve-kind').inputValue(),'body');
+ assert.equal(await field('revolve-body').inputValue(),solidBody.id);
+ assert.equal(await field('revolve-axis').inputValue(),'POINT');
+ await field('revolve-angle').fill('90');
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.revolvePreview==='90',{},{timeout:30000});
+ await field('cad-apply').click();
+ await field('tools-dialog').waitFor({state:'hidden',timeout:30000});
+ const bodyRevolve=(await save()).features.at(-1);
+ assert.equal(bodyRevolve.spec.sourceBody,solidBody.id);
+ assert.equal(bodyRevolve.spec.bodySweep,true);
+ assert.deepEqual(bodyRevolve.spec.origin,[0,0,10]);
+ assert.deepEqual(bodyRevolve.spec.axisVector,[0,0,-1]);
+ assert(bodyRevolve.outputs.length>0);
  assert.deepEqual(errors,[]);
- const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,pointSnapMarks:true,obliqueEdgeSnap:true,channelFrontSnap:true,pointVisibleOverLine:true,pointOutline:true,clickStillWorks:true,escapeCancelsRange:true,errors};
+ const proof={pass:true,connectedAndSeparated:true,targetLegend:true,editAxisAndAngle:true,successorReplay:true,failedReplayRollback:true,rangeCenter:true,gridIntersection:true,oppositeCorner:true,cornerGridSnap:true,halfGridMidpoint:true,solidGridSnapAtCorners:true,solidGridSnapAtCenter:true,solidGridSnapDisabled:true,edgeExtensionClick:true,edgeExtensionDrag:true,edgeExtensionDisabled:true,projectedEdgeOnBoundary:true,projectedEdgeDrag:true,projectedEdgeFaceSketch:true,overlappingEdgeSnap:true,pointSnapMarks:true,obliqueEdgeSnap:true,channelFrontSnap:true,pointVisibleOverLine:true,pointOutline:true,revolveFromPoint:true,bodyRevolveFromPoint:true,clickStillWorks:true,escapeCancelsRange:true,errors};
  await fs.writeFile(output+'/proof.json',JSON.stringify(proof,null,2)+'\n');
  console.log(JSON.stringify(proof));
 }finally{await browser?.close();server.close();}

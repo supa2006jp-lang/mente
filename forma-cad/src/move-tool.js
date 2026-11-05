@@ -239,6 +239,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   mark();
  };
  const pickButton=document.createElement('button');pickButton.type='button';pickButton.id='move-pick-axis';pickButton.textContent='回転軸を選択';
+ pickButton.title='直線・スケッチ点を選べます。スケッチ点を選んだ後は、軸の向きをスケッチ面に垂直／X／Y／Zに切り替えられます。';
  const pairButton=document.createElement('button');pairButton.type='button';pairButton.id='move-pick-axis-pair';pairButton.textContent='2点で回転軸を選択';
  const axisStatus=document.createElement('small');axisStatus.id='move-axis-pick-status';axisStatus.hidden=true;axisStatus.setAttribute('role','status');rotationOptions.prepend(axisStatus,pickButton,pairButton);
  const axisDirectionLabel=document.createElement('label');axisDirectionLabel.hidden=true;
