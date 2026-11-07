@@ -474,3 +474,63 @@ header .filename #dirty{flex-shrink:0}
 .auto-color-palette li { display:flex; align-items:center; gap:5px; font:12px monospace; }
 .auto-color-palette li span { width:16px; height:16px; border:1px solid #8495a3; border-radius:4px; }
 #color-selected-faces { pointer-events:auto; color:#155971; border:1px solid #8ab5c6; padding:8px 12px; margin-top:5px; background:#e8f7ff; font-size:12px; border-radius:4px; }
+
+dialog.form-editor {
+ position:fixed; inset:8px 8px auto auto; margin:0; width:min(320px,calc(100vw - 16px));
+ max-height:calc(100dvh - 16px); overflow:auto; z-index:52; padding:14px 16px;
+ border:1px solid #88aabb; border-radius:12px; color:#193649; background:#f5fbff;
+ box-shadow:0 12px 28px #102e4c33; box-sizing:border-box;
+}
+.form-editor .dialog-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.form-editor h2 { margin:0; font-size:17px; }
+.form-editor p { margin:8px 0; font-size:13px; line-height:1.5; }
+.form-editor label { display:grid; gap:4px; margin:7px 0; font-size:13px; color:#284f63; }
+.form-editor .form-check { display:flex; align-items:center; justify-content:flex-start; gap:7px; }
+.form-editor label[hidden] { display:none; }
+.form-editor .form-check input[type=checkbox] { width:auto; flex:none; margin:0; accent-color:#126e86; }
+.form-editor input[type=number],.form-editor select {
+ width:100%; box-sizing:border-box; min-height:31px; padding:4px 7px;
+ border:1px solid #91adbc; border-radius:5px; color:#183749; background:white;
+}
+.form-coordinate-row,.form-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.form-actions button,.form-editor #form-close {
+ min-height:33px; font-size:12px; color:#234b61; background:#e7f2f7; border-color:#99b8c8;
+}
+.form-actions button:disabled { opacity:.5; }
+.form-editor #form-apply { background:#126e86; color:white; }
+.form-editor #form-apply:disabled { opacity:.5; }
+.form-editor .form-invalid { color:#ad2634; }
+.form-editor details { padding:8px; border:1px solid #b9d1df; border-radius:6px; }
+.form-editor summary { cursor:pointer; font-size:13px; font-weight:600; }
+.form-editor select[multiple] { padding:2px; }
+.form-editor select[multiple] option { padding:4px; }
+.form-editor details .form-actions { grid-template-columns:1fr; }
+.form-editor .form-actions.form-history { grid-template-columns:1fr 1fr; margin-top:5px; }
+.form-editor .form-actions[hidden] { display:none; }
+.form-editor #form-smooth-strength { width:100%; margin:0; accent-color:#126e86; }
+.form-candidate-list { display:flex; gap:5px; flex-wrap:wrap; }
+.form-candidate-list button { padding:5px 8px; border:1px solid #88aaa7; border-radius:5px; color:#17675f; background:#e5f5f2; font-size:12px; }
+.form-editor details p:empty { display:none; }
+.form-editor label:has(#form-soft) { grid-template-columns:1fr auto; }
+.form-editor #form-soft { grid-column:1/-1; width:100%; margin:0; accent-color:#126e86; }
+.form-view-options { display:flex; gap:12px; flex-wrap:wrap; }
+.form-views { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; margin-top:8px; }
+.form-views button,.form-guide-row button { padding:4px; border:1px solid #99b8c8; border-radius:5px; background:#e7f2f7; color:#234b61; font-size:12px; }
+.form-views button[aria-pressed="true"] { background:#126e86; color:white; }
+.form-editor details + details { margin-top:5px; }
+.form-editor details[open] > summary { margin-bottom:7px; }
+.form-guide-row { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:6px; font-size:12px; }
+.form-guide-row span { overflow-wrap:anywhere; }
+.form-guide-row button { flex:none; }
+.form-control-overlay { position:absolute; inset:0; overflow:hidden; z-index:16; pointer-events:none; }
+button.form-control-point {
+ position:absolute; left:0; top:0; width:16px; height:16px; padding:0;
+ border:2px solid #fff; border-radius:50%; color:white; background:#268bbd;
+ box-shadow:0 0 0 1px #24445a,0 2px 5px #122c4b50; cursor:grab; touch-action:none; pointer-events:auto;
+}
+button.form-control-point.active { width:20px; height:20px; background:#0865a1; box-shadow:0 0 0 2px #176c9d; z-index:2; }
+button.form-control-point.locked { background:#b76f13; cursor:default; }
+button.form-control-point.corner { border-radius:3px; }
+button.form-control-point.seam { background:#0a9170; cursor:default; }
+[data-form-seam-pick="true"] canvas { cursor:crosshair; }
+button.form-control-point.invalid { background:#bc2634; }

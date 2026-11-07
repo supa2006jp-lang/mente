@@ -32,6 +32,8 @@ const fatalKernelError=message=>/indirect call to null|null function|memory acce
 export function kernelTimeout(features,spec){
  if(spec.type==='sketchRegionAnalysis')return 15000;
  if(spec.type==='meshCombinePreview')return 5000;
+ if(spec.type==='formPreview'&&spec.form?.wall)return 25000;
+ if(spec.type==='formWallSearch')return 36000;
  const operation=spec.type==='preview'?spec.operation:spec;
  const coil=['coilJoint','coilTestPiece'].includes(operation?.type)||spec.type==='replay'&&features.slice(spec.start||0).some(f=>f.spec?.type==='coilJoint');
  const svgWrap=operation?.type==='svgWrap'||spec.type==='replay'&&features.slice(spec.start||0).some(f=>f.spec?.type==='svgWrap');

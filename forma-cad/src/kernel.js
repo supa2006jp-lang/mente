@@ -105,6 +105,9 @@ import {nativeSketchFeature,nativeRingSegments} from './native-sketch-arcs.js';
 import {legacyArcBody} from './legacy-arc-body.js';
 import {decoratedShellHistory} from './shell-decoration.js';
 import {coaxialCircularLoftInfo,makeCoaxialCircularLoft} from './circular-loft.js';
+import {makeFormSolid} from './form-solid.js';
+import {makeFormWall,searchFormWalls} from './form-wall.js';
+import {compareFormSilhouette,formSilhouette} from './form-silhouette.js';
 import {pullFaces,selectedCadFaces} from './face-pull.js';
 import * as THREE from 'three';
 import * as R from 'replicad';
@@ -366,6 +369,43 @@ function repeatedBodyRevolution(features,body,p,onProgress){
  }finally{shape?.delete();earlier.forEach(shape=>shape.delete());}
 }
 export function runOperation(features,spec,onProgress,context={}){
+ if(spec.type==='formOutlineComparison')return compareFormSilhouette(formSilhouette(spec.mesh,spec.view),spec.outline,spec.tolerance);
+ if(spec.type==='formClearance'){
+  const bodies=kernelBodies(features);
+  let outer,hollow;
+  try{
+   const target=bodies.get(spec.target);
+   if(!target)throw Error('比較するボディが見つかりません。');
+   onProgress?.({stage:'比較するフォームの形状を作成しています'});
+   outer=makeFormSolid(spec.form,regionWire);
+   if(spec.form.wall)hollow=makeFormWall(outer,spec.form);
+   const {report,highlights}=inspectAssemblyContact(
+    new Map([['form',hollow??outer]]),new Map([[spec.target,target]]),{preview:true,onProgress}
+   );
+   return {row:report.rows[0],highlight:highlights[0]};
+  }finally{hollow?.delete();outer?.delete();for(const body of bodies.values())body.delete();}
+ }
+ if(spec.type==='formWallSearch'){
+  if(!spec.form?.wall)throw Error('調べる壁厚を指定してください。');
+  const shape=makeFormSolid(spec.form,regionWire);
+  try{return searchFormWalls(shape,spec.form,onProgress);}
+  finally{shape.delete();}
+ }
+ if(spec.type==='formPreview'){
+  onProgress?.({stage:'フォームの曲面を確認しています'});
+  const shape=makeFormSolid(spec.form,regionWire);
+  let hollow;
+  try{
+   if(!spec.form.wall)return cadMesh(shape,{tolerance:.24,angularTolerance:.32});
+   onProgress?.({stage:'外形を保ったまま内側を薄肉化しています'});
+   try{hollow=makeFormWall(shape,spec.form);}
+   catch(error){
+    if(error instanceof WebAssembly.RuntimeError)throw error;
+    return {...cadMesh(shape,{tolerance:.12,angularTolerance:.2}),formWall:{valid:false,message:error.message||'薄肉化できませんでした。'}};
+   }
+   return {...cadMesh(hollow,{tolerance:.07,angularTolerance:.15}),formWall:{valid:true}};
+  }finally{hollow?.delete();shape.delete();}
+ }
  if(spec.type==='solidBoundaryInfo'){const bodies=kernelBodies(features);try{return {bodies:[...bodies].filter(([id])=>!spec.targets||spec.targets.includes(id)).map(([id,shape])=>solidBoundaryInfo(shape,id))};}finally{for(const shape of bodies.values())shape.delete();}}
  if(spec.type==='refreshBoundaryLinks')return {features:refreshSolidBoundaryBundle(spec.features,spec.bundleId,(history,source,id)=>{const bodies=kernelBodies(history);try{const shape=bodies.get(id);return shape?modelSketchBoundaries(history,source,id,solidBoundaryInfo(shape,id)):[];}finally{for(const shape of bodies.values())shape.delete();}})};
  try{return computeOperation(features,spec,onProgress,context);}catch(error){throw withFailureDiagnostics(error,spec);}
@@ -747,6 +787,17 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
   if(p.direction==='対称')shape=shape.rotate(-p.angle/2,p.origin,direction.toArray());
   if(p.operation==='new')emit(p.id,shape);
   else {if(!base)throw Error('対象ボディを選択してください');const result=p.operation==='cut'?cutRevolvedSolid(base,shape,{onProgress}):fuseSolid(base,shape);if(p.operation==='cut'&&Math.abs(R.measureVolume(base)-R.measureVolume(result))<1e-7)throw Error('回転形状が対象ボディと重なっていません');emit(p.target,result);}
+ }
+ else if(p.type==='form'){
+  const shape=makeFormSolid(p.form,regionWire);
+  let hollow;
+  try{
+   if(p.form.wall){
+    onProgress?.({stage:'外形を保ったまま内側を薄肉化しています'});
+    hollow=makeFormWall(shape,p.form);
+   }
+   emit(p.id,hollow??shape);
+  }finally{hollow?.delete();shape.delete();}
  }
  else if(p.type==='loft'){if(!p.sections||p.sections.length<2)throw Error('断面を2つ以上選択してください');const circle=coaxialCircularLoftInfo(p.sections);emit(p.id,p.sections.some(r=>r.overlapSource)?selectedProfileLoft(p.sections,bodies):circle?makeCoaxialCircularLoft(circle):profileSketch(p.sections[0]).loftWith(p.sections.slice(1).map(profileSketch)));}
  else if(p.type==='thread'&&p.target){if(!base||!p.surfacePoint)throw Error('ねじにする円柱の側面を選択してください');const point=new THREE.Vector3(...p.surfacePoint);let selected=threadCylinderInfo(base,p.surfacePoint);if(!selected&&!context.circularWallRecovered){

@@ -18,6 +18,7 @@ export function compactExtrusionRequest(features,spec){
  // History edits return their complete project document, so retain its render
  // data. A new preview only needs exact source bodies, plus any prepared meshes.
  if(operation?.type==='exactExtrusionPreview')return {features:spec.editingId?features:compactKernelData(features),spec};
+ if(operation?.type==='formClearance')return {features:compactKernelData(features),spec};
  if(!['barrierPreparedPreview','extrusionToolPreview','extrusionJoinInspect','extrusionBatch','extrusion'].includes(operation?.type))return {features,spec};
  return compactKernelData({features,spec});
 }

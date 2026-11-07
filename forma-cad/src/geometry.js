@@ -1,4 +1,5 @@
 import {validateCounterbore} from './counterbore.js';
+import {validateFormProfile} from './form-profile.js';
 import {validateSolidBoundaryLink,validateSolidBoundaryLinks} from './solid-boundary-link-data.js';
 import {validateSketchMirrorLinkData,assertSketchMirrorLinks} from './sketch-mirror-links.js';
 import {preciseExtrusionGeometry,renderPreciseGeometry} from './precise-extrusion-geometry.js';
@@ -117,6 +118,7 @@ export function validateProject(data){
  if(data?.format!=='forma-cad'||data.version!==1||!Array.isArray(data.features)||data.features.length>150)throw Error('対応するFORMA CADファイルではありません（最大150工程）。');
  const ids=new Set(),bodyIds=new Set();
  for(const f of data.features){if(f.historyGroup!==undefined)historyGroupName(f.historyGroup);if(f.kind!==undefined&&!['sketch','extrusion','cadop','plane','referenceImage'].includes(f.kind))throw Error('工程種別が不正です');validateFeature(f);for(const o of f.cadResult?.outputs||(f.kind==='cadop'?f.outputs:[]))if(o.materialParts!==undefined)validateVolumeParts(o.materialParts);if(f.barrierBodies?.some(id=>!bodyIds.has(id)))throw Error('避けるボディの参照が不正です。');if(f.overlapOnly&&f.overlapTargets.some(id=>!bodyIds.has(id)))throw Error('重なりを判定するボディの参照が不正です。');if(typeof f.id!=='string'||!f.id||f.id.length>100||ids.has(f.id))throw Error('工程IDが不正です。');ids.add(f.id);if(f.kind==='plane'||f.kind==='referenceImage'){}else if(f.kind==='cadop'){for(const id of f.remove)bodyIds.delete(id);for(const o of f.outputs)bodyIds.add(o.id);}else if(f.kind==='sketch'){if(f.operation!=='new')throw Error('スケッチの操作が不正です');}else if(f.operation==='new')bodyIds.add(f.id);else if(f.targetBodies?f.targetBodies.some(id=>!bodyIds.has(id)):allExtrusionTargets(f)?!bodyIds.size:!bodyIds.has(f.target))throw Error('ボディの参照が不正です。');if(f.cadResult){for(const id of f.cadResult.remove)bodyIds.delete(id);for(const o of f.cadResult.outputs)bodyIds.add(o.id);}if(typeof f.name!=='string'||f.name.length>100)throw Error('工程名が不正です。');}
+ for(const f of data.features)if(f.kind==='cadop'&&f.spec?.type==='form')validateFormProfile(f.spec.form);
  assertSketchConstraints(data.features);assertSketchMirrorLinks(data.features);validateSolidBoundaryLinks(data.features);return data.features;
 }
 

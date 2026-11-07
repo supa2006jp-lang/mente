@@ -15,10 +15,10 @@ function intersectingOffsetShell(base,faces,thickness,rounded=false){
  }finally{builder.delete();list.delete();}
 }
 
-export function shellBody(base,p,circularLoftInfo=null){
+export function shellBody(base,p,circularLoftInfo=null,openingFaces=null){
  if(!Number.isFinite(p.thickness)||p.thickness<.1||p.thickness>1000)throw Error('壁厚は0.1〜1000 mmで指定してください');
- if(!p.faces?.length)throw Error('開口にする面を選択してください');
- const faces=selectedCadFaces(base,p.faces),original=R.measureVolume(base);
+ if(!p.faces?.length&&!openingFaces?.length)throw Error('開口にする面を選択してください');
+ const faces=openingFaces?openingFaces.map(face=>face.clone()):selectedCadFaces(base,p.faces),original=R.measureVolume(base);
  const thickness=p.direction==='外側'?-p.thickness:p.thickness;
  const attempts=[()=>base.shell(thickness,face=>face.inList(faces))];
  // Preserve the inexpensive specialized recovery for old faceted lofts before
@@ -31,8 +31,10 @@ export function shellBody(base,p,circularLoftInfo=null){
  attempts.push(()=>intersectingOffsetShell(base,faces,thickness));
  let normalized=null,normalizationError=null,normalizationTried=false;
  const normalizedSource=()=>{if(!normalizationTried){normalizationTried=true;try{normalized=normalizeShellOpenings(base,p.faces,faces);}catch(error){normalizationError=error;}}if(!normalized)throw normalizationError;return normalized;};
- attempts.push(()=>{const source=normalizedSource();return source.shape.shell(thickness,face=>face.inList(source.faces));});
- for(const rounded of [true,false])attempts.push(()=>{const source=normalizedSource();return intersectingOffsetShell(source.shape,source.faces,thickness,rounded);});
+ if(p.faces?.length){
+  attempts.push(()=>{const source=normalizedSource();return source.shape.shell(thickness,face=>face.inList(source.faces));});
+  for(const rounded of [true,false])attempts.push(()=>{const source=normalizedSource();return intersectingOffsetShell(source.shape,source.faces,thickness,rounded);});
+ }
  let reason='この壁厚ではシェルを作成できません。壁厚を小さくするか、開口面を変更してください';
  try{
   for(const build of attempts){
