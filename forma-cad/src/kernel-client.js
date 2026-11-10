@@ -38,7 +38,11 @@ export function kernelTimeout(features,spec){
  const coil=['coilJoint','coilTestPiece'].includes(operation?.type)||spec.type==='replay'&&features.slice(spec.start||0).some(f=>f.spec?.type==='coilJoint');
  const svgWrap=operation?.type==='svgWrap'||spec.type==='replay'&&features.slice(spec.start||0).some(f=>f.spec?.type==='svgWrap');
  const join=operation?.type==='join'||spec.type==='replay'&&features.slice(spec.start||0).some(f=>f.spec?.type==='join');
- return coil?600000:svgWrap||join?300000:['pull','stepImport'].includes(operation?.type)?300000:90000;
+ const detailedSupport=value=>value?.type==='printSupport'&&value.style==='walls'&&value.contactLines===true;
+ const support=detailedSupport(operation)||spec.type==='replay'&&features.slice(spec.start||0).some(f=>detailedSupport(f.spec));
+ if(coil)return 600000;
+ if(svgWrap||join||['pull','stepImport'].includes(operation?.type))return 300000;
+ return support?180000:90000;
 }
 export class KernelClient {
  constructor(factory=()=>{const url=new URL('kernel-worker.js',import.meta.url);url.search=new URL(import.meta.url).search;return new Worker(url,{type:'module'});},{filletTrialTimeout=4000}={}){this.factory=factory;this.filletTrialTimeout=filletTrialTimeout;this.worker=null;this.pending=new Map();this.next=0;this.active=null;liveClients.add(new WeakRef(this));}

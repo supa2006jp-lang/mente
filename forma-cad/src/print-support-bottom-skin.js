@@ -13,7 +13,7 @@ export function makeSupportBottomSkins(records,prism,bodies,p,onProgress){
    try{
     onProgress?.({stage:'実際の底面に薄皮を作成しています'});profile=face.clone();vector=new R.Vector([0,0,thickness]);raw=R.basicFaceExtrusion(profile,vector);skin=raw.intersect(free);const volume=Math.abs(R.measureVolume(raw)),actual=Math.abs(R.measureVolume(skin));if(actual<.001)continue;
     const parts=skin.solids;let attached;try{attached=parts.every(part=>records.some(r=>overlap(part,r.shape)>.0001));}finally{parts.forEach(part=>part.delete());}if(!attached)continue;
-    if(Math.abs(actual-volume)>Math.max(.0001,volume*1e-6))throw Error('底面の薄皮を置く高さが足りないか、モデルと干渉します。層数を減らすか底面の薄皮をオフにしてください');
+    if(Math.abs(actual-volume)>Math.max(.0001,volume*1e-6))throw Object.assign(Error('底面の薄皮を置く高さが足りないか、モデルと干渉します。層数を減らすか底面の薄皮をオフにしてください'),{code:'support-skin-clearance'});
     for(const body of bodies.values())if(overlap(skin,body)>.0001)throw Error('底面の薄皮がモデルに入り込むため作成を中止しました');if(p.bottomSeams){const cut=splitSupportBottomSkin(skin,records,p,onProgress,128-seams.count);skin.delete();skin=cut.shape;seams.count+=cut.count;seams.skipped+=cut.skipped;seams.sections+=cut.sections;}skins.push(skin);skin=null;heights.push(Number(z.toFixed(6)));
    }finally{skin?.delete();raw?.delete();profile?.delete();vector?.delete();}
   }

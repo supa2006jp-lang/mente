@@ -16,6 +16,10 @@ test('a timed out worker rejects active and queued requests and restarts cleanly
 test('preview deadlines can be shortened without shortening actual model operations',async()=>{
  const client=new KernelClient(()=>({postMessage(){},terminate(){}}));
  assert.equal(kernelTimeout([],{type:'meshCombinePreview'}),5000);
+ const support={type:'printSupport',style:'walls',contactLines:true,preview:true};
+ assert.equal(kernelTimeout([],support),180000);
+ assert.equal(kernelTimeout([{spec:support}],{type:'replay',start:0}),180000);
+ assert.equal(kernelTimeout([],{...support,contactLines:false}),90000);
  for(const type of ['fillet','shell','join','revolve','honeycomb','printSupport','storageTray','pull','split','move','stepImport','svgWrap','coilJoint','extrusion','replay']){
   const limit=kernelTimeout([],{type});assert.ok(Number.isFinite(limit)&&limit>0&&limit<=600000,type);
   const result=client.run([],{type},{timeout:1});assert.equal(client.pending.get(client.active).timeout,limit);client.worker.onmessage({data:{id:client.active,result:{outputs:[],remove:[]}}});await result;

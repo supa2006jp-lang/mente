@@ -13,5 +13,19 @@ function previewBoolean(kind,source,tool){
 // grooved faces to prepare a small contact/rib highlight. Final CAD is unchanged.
 export function supportLocalPreview(source,masks){
  const parts=cadSubshapes(source,'solid');let pieces,tools;try{pieces=parts.map(shape=>({shape,box:bounds(shape)}));tools=masks.map(shape=>({shape,box:bounds(shape)}));}catch(error){parts.forEach(p=>p.delete());throw error;}
- return {clip(tool){const box=bounds(tool),results=[];try{for(const part of pieces){if(!overlaps(part.box,box))continue;let shape=previewBoolean('common',part.shape,tool);try{for(const mask of tools)if(overlaps(mask.box,box)&&overlaps(mask.box,part.box)){const next=previewBoolean('cut',shape,mask.shape);shape.delete();shape=next;}results.push(shape);shape=null;}finally{shape?.delete();}}return results.length===1?results.pop():R.makeCompound(results);}finally{results.forEach(p=>p.delete());}},delete(){parts.forEach(p=>p.delete());}};
+ return {clip(tool,{contained=false}={}){
+  const box=bounds(tool),results=[];
+  try{
+   // An unwindowed rib is already a subset of the union.
+   for(const part of contained?[{shape:tool,box}]:pieces){
+    if(!overlaps(part.box,box))continue;
+    let shape=contained?tool.clone():previewBoolean('common',part.shape,tool);
+    try{
+     for(const mask of tools)if(overlaps(mask.box,box)&&overlaps(mask.box,part.box)){const next=previewBoolean('cut',shape,mask.shape);shape.delete();shape=next;}
+     results.push(shape);shape=null;
+    }finally{shape?.delete();}
+   }
+   return results.length===1?results.pop():R.makeCompound(results);
+  }finally{results.forEach(p=>p.delete());}
+ },delete(){parts.forEach(p=>p.delete());}};
 }
