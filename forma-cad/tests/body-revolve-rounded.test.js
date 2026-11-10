@@ -8,7 +8,7 @@ import {kernelBodies,runOperation} from '../src/kernel.js';
 import {orthogonalRoundedSweep} from '../src/orthogonal-rounded-revolution.js';
 import {inspectCadStl} from '../src/stl-cad-inspection.js';
 
-test('a filleted full body revolution can be swept 360 degrees about an intersecting perpendicular axis',async()=>{
+test('a filleted full body revolution can be swept around a perpendicular axis and hollowed from one end',async()=>{
  const oc=await init({wasmBinary:await readFile(new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url))});
  R.setOC(oc);
  const width=50,length=50,depth=36.344278074867546,fillet=2;
@@ -59,4 +59,36 @@ test('a filleted full body revolution can be swept 360 degrees about an intersec
    finally {point.delete();}
   }
  } finally {properties.delete();shape.delete();}
+
+ const thickness=2,radius=Math.hypot(width,depth),sphereRadius=Math.hypot(radius,length);
+ const left=width-radius,right=width+radius,tip=width-Math.hypot(width,depth-fillet);
+ const opening={bodyId:second.id,point:[right,10,0],normal:[1,0,0]};
+ const shell={type:'shell',id:'shell',target:second.id,thickness,direction:'内側',faces:[opening]};
+ const history=[...saved,{id:second.id,kind:'cadop',spec:second,...result}];
+ const beforeShell=JSON.stringify(history);
+ assert.throws(()=>runOperation(history,shell),{code:'shell-opening-recess'});
+ const hollow=runOperation(history,{...shell,includeOpeningRecess:true});
+ assert.equal(JSON.stringify(history),beforeShell);
+ assert.deepEqual(hollow.remove,[]);
+ assert.equal(hollow.outputs.length,1);
+ assert.equal(hollow.outputs[0].id,second.id);
+ assert.equal(hollow.outputs[0].shapeMetrics.solids,1);
+ const shellReport=inspectCadStl(hollow.outputs[0]).report;
+ assert.ok(shellReport.ok,JSON.stringify(shellReport.issues));
+ const bodyAfter=R.deserializeShape(hollow.outputs[0].brep).asShape3D();
+ const check=new oc.BRepCheck_Analyzer(bodyAfter.wrapped,true,false);
+ const distance=point=>{
+  const vertex=R.makeVertex(point);
+  try{return R.measureDistanceBetween(bodyAfter,vertex);}
+  finally{vertex.delete();}
+ };
+ try{
+  assert.ok(check.IsValid());
+  assert.ok(distance([right,0,0])>40,'opening does not retain a detached recess');
+  assert.ok(distance([left,20,0])<1e-6,'opposite flat end stays in place');
+  assert.ok(distance([tip,0,0])<1e-6,'opposite recess stays in place');
+  assert.ok(Math.abs(distance([left+thickness+.05,20,0])-.05)<1e-5,'flat end retains the requested thickness');
+  assert.ok(Math.abs(distance([tip+thickness+.05,0,0])-.05)<1e-4,'recess retains the requested thickness at its deepest point');
+  assert.ok(Math.abs(distance([width,sphereRadius-thickness-.05,0])-.05)<1e-5,'sphere retains the requested radial thickness');
+ }finally{check.delete();bodyAfter.delete();}
 });
