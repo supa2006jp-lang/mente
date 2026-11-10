@@ -1,11 +1,12 @@
 import {importStepBodies} from './step-import.js';
+import {inspectStlImport,simplifyStlImport,convertStlImport} from './stl-import.js';
 import {meshExtrusionProbe} from './extrusion-mesh-probe.js';
 import {meshCombinePreview} from './combine-mesh-preview.js';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {setOC} from 'replicad';
 import {runOperation} from './kernel.js';
 import {PhaseTimings,withPhaseTimings,barrierTimingRequest} from './phase-timings.js';
-let ready=null,queue=Promise.resolve();
+let ready=null,queue=Promise.resolve(),stlSession=null;
 function initialize(){return ready||(ready=fetch(new URL('replicad_single.wasm',self.location.href)).then(response=>{if(!response.ok)throw Error('CADエンジンを取得できませんでした');return response.arrayBuffer();}).then(wasmBinary=>init({wasmBinary})).then(setOC).catch(e=>{ready=null;throw e;}));}
 self.onmessage=({data})=>{queue=queue.then(async()=>{
  let timing;
@@ -18,8 +19,18 @@ self.onmessage=({data})=>{queue=queue.then(async()=>{
  try{
   if(data.spec?.type==='meshExtrusionProbe'){progress({stage:'ソリッドとの重なりを調べています'});self.postMessage({id:data.id,result:meshExtrusionProbe(data.spec)});return;}
   if(data.spec?.type==='meshCombinePreview'){progress({stage:'切り取り・交差の簡易形状を作成しています'});self.postMessage({id:data.id,result:meshCombinePreview(data.spec)});return;}
+  if(data.spec?.type==='stlImportInspect'){
+   stlSession=null;
+   stlSession=inspectStlImport(data.spec,progress);
+   self.postMessage({id:data.id,result:stlSession.preview});return;
+  }
+  if(data.spec?.type==='stlImportSimplify'){
+   if(stlSession?.id!==data.spec.session)throw Error('STLを読み直してください');
+   self.postMessage({id:data.id,result:await simplifyStlImport(stlSession,data.spec,progress)});return;
+  }
   if(!ready)progress({stage:'CADエンジンを準備しています'});
   await initialize();
+  if(data.spec?.type==='stlImport'){self.postMessage({id:data.id,result:convertStlImport(stlSession,data.spec,progress)});return;}
   progress({stage:'モデルの形状を準備しています'});
   const compute=()=>data.type==='warmup'?{ready:true}:data.spec?.type==='stepImport'?null:runOperation(data.features,data.spec,progress);
   const reportTimings=barrierTimingRequest(data.features||[],data.spec);

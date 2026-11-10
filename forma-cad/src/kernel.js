@@ -91,6 +91,7 @@ import {bodyRevolution} from './body-revolution.js';
 import {cutRevolvedSolid} from './revolved-cut.js';
 import {coaxialSweepPlan} from './body-revolution-history.js';
 import {orthogonalProfileSweepPlan,orthogonalProfileSweep} from './orthogonal-profile-revolution.js';
+import {orthogonalRoundedSweep} from './orthogonal-rounded-revolution.js';
 import {replayHistory} from './history-replay.js';
 import {vertexBounds} from './template-placement.js';
 import {cachedBody,rememberBody} from './body-cache.js';
@@ -357,7 +358,7 @@ export function runInternalThreadShape(features,spec,onProgress){
 }
 function repeatedBodyRevolution(features,body,p,onProgress){
  const orthogonal=orthogonalProfileSweepPlan(features,p);if(orthogonal)return orthogonalProfileSweep(body,orthogonal,onProgress);
- const plan=coaxialSweepPlan(features,p);if(!plan)return bodyRevolution(body,p,onProgress);
+ const plan=coaxialSweepPlan(features,p);if(!plan)return orthogonalRoundedSweep(features,body,p,onProgress)||bodyRevolution(body,p,onProgress);
  onProgress?.({stage:'同じ軸の回転履歴をまとめて計算しています'});
  if(plan.alreadyFull)return body.clone();
  const earlier=kernelBodies(features.slice(0,plan.end));let shape;

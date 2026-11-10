@@ -286,7 +286,7 @@ import {replayHistory} from './history-replay.js';
 import {createFilletHistoryDialog} from './fillet-history.js';
 import {createFilletVisualPreview} from './fillet-visual-preview.js';
 import {installWorkspaceImprovements} from './workspace-improvements.js';
-let workspaceImprovements=null,joinPreviewView=null,stlInspection=null;
+let workspaceImprovements=null,joinPreviewView=null,stlInspection=null,stlImport=null;
 import {filletSuppressionState} from './fillet-state.js';
 import {warmKernelOnInteraction} from './kernel-warmup.js';
 import {hideShellProfiles} from './shell-profile-visibility.js';
@@ -357,6 +357,7 @@ import {renderThreadPullOptions,threadPullOptions} from './thread-pull-dialog.js
 import {saveStl} from './save-stl.js';
 import {stlMeshSnapshot,createPreciseStl} from './stl-export-mesh.js';
 import {createStlInspectionView} from './stl-inspection-view.js';
+import {createStlImportDialog} from './stl-import-dialog.js';
 import {createThreadDisplayTool} from './thread-display-tool.js';
 let threadDisplayTool=null;
 import {createProjectFileTarget} from './project-file-target.js';
@@ -504,7 +505,7 @@ const modelGroup=new THREE.Group();scene.add(modelGroup);
 const extrusionBoundaryFeedback=createExtrusionBoundaryFeedback(scene,host);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
 let viewCube=null,extrusionJoinInspection=null;
-renderer.setAnimationLoop(()=>{imageReferences?.update();sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();formTool?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();stlInspection?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();sketchConnectionsView?.update();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
+renderer.setAnimationLoop(()=>{imageReferences?.update();sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();formTool?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();stlInspection?.sync();stlImport?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();sketchConnectionsView?.update();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
 let sketchNoticeTimer,enteredSketchNumber=null;
 function sketchSession(){if(enteredSketchNumber!==null)return features.find(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)||{groupNumber:enteredSketchNumber};const id=editingSketchGroup||activeSketchGroup;return features.find(f=>f.kind==='sketch'&&f.groupId===id)||features.find(f=>f.kind==='sketch'&&f.id===selected)||null;}
 function notifySketch(message){hideExtrusionNotice();clearTimeout(toastTimer);$('toast').style.display='none';const notice=$('sketch-notice');clearTimeout(sketchNoticeTimer);notice.textContent=message;notice.hidden=false;sketchNoticeTimer=setTimeout(()=>{notice.hidden=true;},5000);}
@@ -3949,6 +3950,20 @@ $('cad-command').addEventListener('change',scheduleMachiningPreview);
 $('tools-dialog').addEventListener('close',()=>{cancelMachiningPreview(true);recoveredMachining=null;editingShellId=null;clearCircularEdit();$('cad-command').disabled=false;});
 new MutationObserver(()=>{$('tools-dialog').open?scheduleMachiningPreview():cancelMachiningPreview(true);}).observe($('tools-dialog'),{attributes:true,attributeFilter:['open']});
 
+stlImport=createStlImportDialog({
+ anchor:$('step-import'),scene,getFeatures:()=>features,notify,
+ canOpen:()=>{
+  if(stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]')&&!$('step-import').disabled)return true;
+  notify('編集中の操作を終了してからSTLを読み込んでください');
+  return false;
+ },
+ fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)resetViewControls(center,controls.enabled);},
+ apply:(name,outputs)=>{
+  const imported=outputs.map((o,i)=>({kind:'cadop',id:o.id,name:name+(outputs.length>1?'（'+(i+1)+'）':''),outputs:[o],remove:[]}));
+  setProject([...features,...imported]);finishSketch(false);selected=null;chosenRegion=null;stage='model';dropPreview();syncFields();fit();
+  $('status').textContent=outputs.length+'個のSTLボディを追加しました';notify($('status').textContent);
+ }
+});
 $('step-import').onclick=()=>$('step-file').click();
 $('step-file').onchange=async()=>{
  const file=$('step-file').files[0];if(!file)return;const button=$('step-import'),original=features,request=toolCancelRevision;
@@ -4178,7 +4193,7 @@ $('section-toggle').addEventListener('click',()=>bodyDisplay?.stopExploded(),{ca
 $('move-tool').addEventListener('click',()=>{bodyDisplay?.stopExploded();if(editingSectionSplitId)sectionControl.cancel();},{capture:true});
 
 // Cancel transient tools in one place so capture listeners cannot leave another selection active.
-function cancelAllTools(){formTool?.close();perpendicularSketchTool?.close(false);solidBoundaryFill?.close();sketchConnectionsView?.closeRepair();partWorkshop?.close();honeycombController?.close();dimensionMeasure?.close();supportExportChoice?.cancel();printSupportController?.close();assemblyController?.close();stlInspection?.close();selectionLibrary?.cancel();textSketchController?.close();sketchMoveTool?.cancel();cancelExtrusionJoinConfirmation();faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
+function cancelAllTools(){formTool?.close();perpendicularSketchTool?.close(false);solidBoundaryFill?.close();sketchConnectionsView?.closeRepair();partWorkshop?.close();honeycombController?.close();dimensionMeasure?.close();supportExportChoice?.cancel();printSupportController?.close();assemblyController?.close();stlInspection?.close();stlImport?.close();selectionLibrary?.cancel();textSketchController?.close();sketchMoveTool?.cancel();cancelExtrusionJoinConfirmation();faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
  ++toolCancelRevision;middleConfirm.cancel();projectLoadPreview.cancel();projectLibrary.cancel();kernelClient.reset();
  boxSelection?.cancel();cancelPanelDrags();cancelDialogDrags();moveTool?.cancel(true);imageReferences?.cancel();sectionControl?.cancel();drawingController?.cancel();
  if(extrusionDrag)endExtrusionDrag({pointerId:extrusionDrag.id});if(taperDrag)endTaperDrag({pointerId:taperDrag.id});
