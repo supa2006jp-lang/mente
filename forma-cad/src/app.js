@@ -49,6 +49,7 @@ import {bindJoinBodyFields,syncJoinBodyFields} from './join-body-selection.js';
 import {createPrintSupportExportChoice} from './print-support-export-choice.js';
 let supportExportChoice=null;
 import {createPrintSupportDialog} from './print-support-dialog.js';
+import {supportHistoryFeature} from './print-support-batch.js';
 import {printSupportFailureFromDocument} from './print-support-failure.js';
 let printSupportController=null,failureRecovery=null;
 let recoveredMachining=null;
@@ -4480,9 +4481,10 @@ function supportSelectedFace(){if(stage!=='model'||sketch||pendingExtrude||extru
 printSupportController=createPrintSupportDialog({getControls:()=>controls,scene,host,canvas:renderer.domElement,camera,meshes,kernel:new KernelClient(),getFeatures:()=>features,bodyName:bodyDisplayName,getFace:supportSelectedFace,notify,download,recordFailure:(context,error)=>failureRecovery?.capture(context,error),
  onStart:()=>{cancelAllTools();finishSketch(false);clearEdgeSelection();clearFaceSelection();clearBodySelection();selected=null;selectedFace=null;selectedSurface=null;chosenRegion=null;pendingExtrude=false;stage='model';dropPreview();syncFields();$('measurement').hidden=true;},
  fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},
+ applyBatch(entries,original,isCurrent){if(features!==original||!isCurrent())throw Error('モデルが変更されました');setProject([...original,...entries.map(({input,result})=>supportHistoryFeature(input,result))]);selected=null;stage='model';syncFields();},
  apply:async(spec,result,editing,original,isCurrent)=>{if(features!==original||!isCurrent())throw Error('モデルが変更されました');let next;if(editing){const index=original.findIndex(f=>f.id===editing.id);if(index<0)throw Error('サポートの工程がありません');next=clone(original);next[index]={...next[index],spec,...result};if(index+1<next.length)next=(await kernelClient.run(next,{type:'replay',before:original,start:index+1})).features;}else next=[...original,{kind:'cadop',id:spec.id,name:'連結リブサポート',spec,...result}];if(features!==original||!isCurrent())throw Error('更新をキャンセルしました');setProject(next);selected=null;stage='model';syncFields();}
 });
-const printSupportButton=document.createElement('button');printSupportButton.id='print-support-tool';printSupportButton.type='button';printSupportButton.textContent='連結リブサポート';printSupportButton.title='薄壁と横つなぎで支える連結リブサポートを別ボディで作成（従来の柱型も選択可）';printLayoutButton.after(printSupportButton);printSupportButton.onclick=()=>{if(stage!=='model'||pendingExtrude||extrusionBusy||moveTool?.active||document.querySelector('dialog[open]')){notify('編集中の操作を終了してください');return;}const face=supportSelectedFace(),target=face?.bodyId||selectionBodyIds()[0]||[...meshes.keys()][0];printSupportController.open(target,null,face?.normal[2]<=-.5?face:null);};
+const printSupportButton=document.createElement('button');printSupportButton.id='print-support-tool';printSupportButton.type='button';printSupportButton.textContent='連結リブサポート';printSupportButton.title='薄壁と横つなぎで支える連結リブサポートを別ボディで作成（従来の柱型も選択可）';printLayoutButton.after(printSupportButton);printSupportButton.onclick=()=>{if(stage!=='model'||pendingExtrude||extrusionBusy||moveTool?.active||document.querySelector('dialog[open]')){notify('編集中の操作を終了してください');return;}const face=supportSelectedFace(),ids=selectionBodyIds(),target=face?.bodyId||ids[0]||[...meshes.keys()][0];printSupportController.open(target,null,face?.normal[2]<=-.5?face:null,null,ids.length>1?ids:[]);};
 document.addEventListener('click',event=>{if(printSupportController.active&&event.target.closest('.toolbar,.command-toolbar')&&!event.target.closest('#print-support-tool'))printSupportController.close();},{capture:true});
 
 

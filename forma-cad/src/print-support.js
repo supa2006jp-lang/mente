@@ -1,6 +1,6 @@
 import {normalizeContactSettings} from './print-support-contact-settings.js';
 import * as R from 'replicad';
-import {validateSupportFaces,resolveSupportFaces,supportSelectedFaceMeshes} from './print-support-faces.js';
+import {validateSupportFaces,validateSupportFaceOverrides,resolveSupportFaces,supportSelectedFaceMeshes} from './print-support-faces.js';
 import {fuseSolids} from './solid-fuse.js';
 import {supportBaseSurfaces} from './print-support-base.js';
 import {makeWallSupports} from './print-support-walls.js';
@@ -37,6 +37,7 @@ export function validatePrintSupport(input){
  if(!Number.isInteger(p.maxSupports)||p.tipDiameter>p.postDiameter||p.footDiameter<p.postDiameter+2||(p.braces&&p.braceDiameter>p.postDiameter))throw Error('足・支柱・先端・補強の太さの関係を確認してください');
  if(!['auto','face'].includes(p.mode))throw Error('サポートの配置方法を選択してください');
  if(p.mode==='face')p.faces=validateSupportFaces(p.faces,p.target);
+ if(p.style==='walls'&&p.faceOverrides!==undefined)p.faceOverrides=validateSupportFaceOverrides(p.faceOverrides,p.target,p.wallThickness);
  for(const key of ['connectFeet','braces','lockToModel'])if(typeof p[key]!=='boolean')throw Error('サポートの設定が不正です');
  return p;
 }
@@ -72,9 +73,9 @@ function links(points){
 }
 function rail(a,b,width,height,z){const dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);let shape=R.makeBox([0,-width/2,z],[length,width/2,z+height]);try{const rotated=shape.rotate(Math.atan2(dy,dx)*180/Math.PI,[0,0,0],[0,0,1]);if(rotated!==shape)shape.delete();shape=rotated;return shape.translate([a[0],a[1],0]);}finally{shape.delete();}}
 function diagonal(a,b,z,radius){const d=[b[0]-a[0],b[1]-a[1],Math.hypot(b[0]-a[0],b[1]-a[1])],length=Math.hypot(...d);return R.makeCylinder(radius,length,[a[0],a[1],z],d.map(v=>v/length));}
-export function makePrintSupport(bodies,input,onProgress){
+export function makePrintSupport(bodies,input,onProgress,options){
  const p=validatePrintSupport(input),model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
- if(p.style==='walls')return makeWallSupports(bodies,p,onProgress);
+ if(p.style==='walls')return makeWallSupports(bodies,p,onProgress,options);
  const selection=p.mode==='face'?resolveSupportFaces(model,p):null,faces=selection?.faces||model.faces,bounds=new Map([...bodies].map(([id,shape])=>[id,box(shape)])),candidates=[],seen=new Set(),posts=[],extras=[];
  let bases,selectedFacePreview=null;
  let skipped=0,omittedReinforcement=0,shape=null;

@@ -1,6 +1,7 @@
 import {supportContactLines} from './print-support-contact-lines.js';
 import * as R from 'replicad';
-import {resolveSupportFaces,supportSelectedFaceMeshes} from './print-support-faces.js';
+import {resolveSupportFaces,supportSelectedFaceMeshes,matchSupportFaceOverride,supportFaceContainsPoint} from './print-support-faces.js';
+import {supportCoverageFace,supportCoverageRegions} from './print-support-coverage.js';
 import {fuseSolids} from './solid-fuse.js';
 import {makeWallTies} from './print-support-wall-ties.js';
 import {makeWallWindows} from './print-support-wall-windows.js';
@@ -23,7 +24,7 @@ function roofSupportIssues(roof,original,remaining,p){
  }}finally{parts.forEach(s=>s.delete());}return issues;
 }
 function scopedBlocker(face,p,z,cells){
- const shifted=face.translate([0,0,p.layerHeight]),vector=new R.Vector([0,0,p.bedZ-z-p.layerHeight]);let blocker;
+ const shifted=face.clone().translate([0,0,p.layerHeight]),vector=new R.Vector([0,0,p.bedZ-z-p.layerHeight]);let blocker;
  try{blocker=R.basicFaceExtrusion(shifted,vector);for(const cell of cells){const tool=R.makeBox(cell.low,cell.high);try{const next=blocker.cut(tool);blocker.delete();blocker=next;}finally{tool.delete();}}const result=blocker;blocker=null;return result;}finally{blocker?.delete();shifted.delete();vector.delete();}
 }
 function inset(face,distance){
@@ -33,71 +34,234 @@ function inset(face,distance){
   const outer=hold(face.clone().outerWire()),inner=face.clone().innerWires();inner.forEach(hold);const out=hold(offset(outer,true)),holes=inner.map(w=>hold(offset(w,false,.5))),profile=hold(R.makeFace(out.clone()));return holes.length?R.addHolesInFace(profile,holes):profile.clone();
  }finally{owned.forEach(s=>s.delete());}
 }
-export function makeWallSupports(bodies,p,onProgress){
- const contactRegions=[],bottomSeams={enabled:!!p.bottomSeams,count:0,skipped:0,sections:0,spacing:p.bottomSectionLength,width:p.bottomSeamWidth},tieIntervals=new Set(),tieAttachments=[],bottomSkins=[],bottomHeights=[],skippedCeilings=[],skippedScopes=[];let selectedFacePreview=null,contactPreview=[],firstSkinFailure=null;
+function prepareWallSupports(bodies,settings,onProgress){
+ const p=settings,coverageRows=[],trimmedBlockers=new Set(),usedOverrides=new Set();
+ const contactRegions=[],bottomSeams={enabled:!!p.bottomSeams,count:0,skipped:0,sections:0,spacing:p.bottomSectionLength,width:p.bottomSeamWidth},tieIntervals=new Set(),tieAttachments=[],bottomSkins=[],bottomHeights=[],skippedCeilings=[],skippedScopes=[],clearanceRegions=[];let selectedFacePreview=null,firstSkinFailure=null;
  const model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
  const selection=p.mode==='face'?resolveSupportFaces(model,p):null,faces=selection?.faces||model.faces,owned=[],hold=s=>(owned.push(s),s),walls=[],wallRecords=[],candidateRibs=[],ribIssues=[],excludedScope=[],ties=[],roofs=[],roofTabs=[],roofPreview=[],roofPlacements=[],roofMatched=[],tieLevels=new Set(),blockers=[],baseBodyIds=new Set();let omitted=0,faceCount=0,shape=null,skippedTies=0,roofCuts=0,roofSkippedCuts=0,roofSections=0,roofSkippedTabs=0,roofManualInvalid=0,windows={enabled:false,count:0,skipped:0,limited:false,removedVolume:0,savedPercent:0};
  try{
-  selectedFacePreview=p.preview&&selection?supportSelectedFaceMeshes(selection):null;for(const face of faces){const n=tuple(face.normalAt()),b=bounds(face);if(n[2]>-.5||b[0][2]<=p.bedZ+p.topGap+1)continue;if(face.geomType!=='PLANE'||n[2]>-.999999){if(p.mode==='face')throw Error('薄壁型は水平な平面の下面を選択してください');omitted++;continue;}
-   const ownedBeforeFace=owned.length,z=tuple(face.center)[2],profile=hold(inset(face,p.edgeMargin)),shifted=hold(profile.translate([0,0,-p.topGap])),v=new R.Vector([0,0,p.bedZ-z+p.topGap]);let prism,blockedRibs=0;try{prism=hold(R.basicFaceExtrusion(shifted,v));}finally{v.delete();}
-   const pb=bounds(prism),axis=p.wallDirection==='x'?1:p.wallDirection==='y'?0:pb[1][0]-pb[0][0]>=pb[1][1]-pb[0][1]?0:1,placement=supportRibPlacement(pb[0][axis],pb[1][axis],p),count=placement.count,records=[],allRecords=[],excludedCells=[],faceCandidates=[],faceBases=new Set();if(candidateRibs.length+count>96)throw Error('薄壁の本数が多すぎます。壁の間隔を広げるか対象面を絞ってください');
-   for(let i=0;i<count;i++){
-    onProgress?.({stage:'薄壁サポートを作成しています（'+(walls.length+records.length+1)+'枚目）'});const center=placement.centers[i],a=[pb[0][0]-1,pb[0][1]-1,p.bedZ-1],b=[pb[1][0]+1,pb[1][1]+1,z+1];a[axis]=center-p.wallThickness/2;b[axis]=center+p.wallThickness/2;
-    const stripe=hold(R.makeBox(a,b));let wall=hold(prism.intersect(stripe));if(R.measureVolume(wall)<.001)continue;
-    if(p.connectFeet&&!p.wallBottomSkin){const fa=[...a],fb=[...b];fa[axis]=placement.cells[i][0];fb[axis]=placement.cells[i][1];fa[2]=p.bedZ;fb[2]=p.bedZ+p.footThickness;const footBox=hold(R.makeBox(fa,fb)),foot=hold(prism.intersect(footBox));if(R.measureVolume(foot)>.001)wall=hold(wall.fuse(foot));}
-    if(p.baseMode==='bed'){let blocked=false;for(const model of bodies.values()){const common=hold(wall.intersect(model));if(R.measureVolume(common)>.0001){blocked=true;break;}}if(blocked){blockedRibs++;continue;}}
-    else for(const [id,model]of bodies){const common=hold(wall.intersect(model));if(R.measureVolume(common)>.0001){faceBases.add(id);wall=hold(wall.cut(model));}}
-    if(R.measureVolume(wall)<.001)continue;
-    const ribId=ribReference(axis,center,z,pb),excluded=p.excludedRibs.includes(ribId),record={id:ribId,shape:wall,axis,center};allRecords.push(record);
-    const candidate={id:ribId,number:candidateRibs.length+faceCandidates.length+1,axis,center,excluded,bounds:bounds(wall)};
-    if(p.preview&&(!p.contactLines||excluded)){const display=wall.intersect(stripe);try{Object.assign(candidate,cadMesh(display));}finally{display.delete();}}faceCandidates.push(candidate);
-    if(excluded){const low=[...a],high=[...b];low[axis]=i===0?pb[0][axis]-1:placement.cells[i][0];high[axis]=i===count-1?pb[1][axis]+1:placement.cells[i][1];excludedCells.push({low,high});continue;}
-    records.push(record);
+  selectedFacePreview=p.preview&&selection?supportSelectedFaceMeshes(selection):null;
+  for(const face of faces){
+   const n=tuple(face.normalAt()),b=bounds(face);if(n[2]>-.5||b[0][2]<=settings.bedZ+settings.topGap+1)continue;
+   const horizontal=face.geomType==='PLANE'&&n[2]<=-.999999,z=tuple(face.center)[2];
+   const override=horizontal?matchSupportFaceOverride(face,settings.faceOverrides||[],z):null;
+   if(override)usedOverrides.add(override);
+   const p=override?{...settings,...override}:settings;
+   const item=p.preview&&face.geomType==='PLANE'?supportCoverageFace(face,p.target,p,override,horizontal):null;
+   const coverage=item?{item,height:z,faceBounds:b,index:-1}:null;
+   if(coverage)coverageRows.push(coverage);
+   if(!horizontal){if(p.mode==='face')throw Error('薄壁型は水平な平面の下面を選択してください');omitted++;continue;}
+   const cutouts=[];
+   let initialFailure=null;
+   for(let attempt=0;attempt<4;attempt++){
+    const ownedBeforeFace=owned.length,profile=hold(inset(face,p.edgeMargin)),shifted=hold(profile.translate([0,0,-p.topGap])),v=new R.Vector([0,0,p.bedZ-z+p.topGap]);let prism,blockedRibs=0;try{prism=hold(R.basicFaceExtrusion(shifted,v));}finally{v.delete();}
+    for(const {low,high} of cutouts)prism=hold(prism.cut(hold(R.makeBox(low,high))));
+    if(R.measureVolume(prism)<=.001){
+     owned.splice(ownedBeforeFace).forEach(item=>item.delete());
+     if(!initialFailure)break;
+     skippedCeilings.push({height:z,reason:initialFailure.code});
+     clearanceRegions.push(...initialFailure.regions.map(region=>({...region,height:z,partial:false})));
+     skippedScopes.push(hold(scopedBlocker(face,p,z,[])));
+     break;
+    }
+    const pb=bounds(prism),axis=p.wallDirection==='x'?1:p.wallDirection==='y'?0:pb[1][0]-pb[0][0]>=pb[1][1]-pb[0][1]?0:1,placement=supportRibPlacement(pb[0][axis],pb[1][axis],p),count=placement.count,records=[],allRecords=[],excludedCells=[],faceCandidates=[],faceBases=new Set();if(candidateRibs.length+count>96)throw Error('薄壁の本数が多すぎます。壁の間隔を広げるか対象面を絞ってください');
+    for(let i=0;i<count;i++){
+     onProgress?.({stage:'薄壁サポートを作成しています（'+(walls.length+records.length+1)+'枚目）'});const center=placement.centers[i],a=[pb[0][0]-1,pb[0][1]-1,p.bedZ-1],b=[pb[1][0]+1,pb[1][1]+1,z+1];a[axis]=center-p.wallThickness/2;b[axis]=center+p.wallThickness/2;
+     const stripe=hold(R.makeBox(a,b));let wall=hold(prism.intersect(stripe));if(R.measureVolume(wall)<.001)continue;
+     if(p.connectFeet&&!p.wallBottomSkin){const fa=[...a],fb=[...b];fa[axis]=placement.cells[i][0];fb[axis]=placement.cells[i][1];fa[2]=p.bedZ;fb[2]=p.bedZ+p.footThickness;const footBox=hold(R.makeBox(fa,fb)),foot=hold(prism.intersect(footBox));if(R.measureVolume(foot)>.001)wall=hold(wall.fuse(foot));}
+     if(p.baseMode==='bed'){let blocked=false;for(const model of bodies.values()){const common=hold(wall.intersect(model));if(R.measureVolume(common)>.0001){blocked=true;break;}}if(blocked){blockedRibs++;continue;}}
+     else for(const [id,model]of bodies){const common=hold(wall.intersect(model));if(R.measureVolume(common)>.0001){faceBases.add(id);wall=hold(wall.cut(model));}}
+     if(R.measureVolume(wall)<.001)continue;
+     const ribId=ribReference(axis,center,z,pb),excluded=p.excludedRibs.includes(ribId),record={id:ribId,shape:wall,axis,center};allRecords.push(record);
+     const candidate={id:ribId,number:candidateRibs.length+faceCandidates.length+1,axis,center,excluded,bounds:bounds(wall)};
+     if(p.preview&&(!p.contactLines||excluded)){const display=wall.intersect(stripe);try{Object.assign(candidate,cadMesh(display));}finally{display.delete();}}faceCandidates.push(candidate);
+     if(excluded){const low=[...a],high=[...b];low[axis]=i===0?pb[0][axis]-1:placement.cells[i][0];high[axis]=i===count-1?pb[1][axis]+1:placement.cells[i][1];excludedCells.push({low,high});continue;}
+     records.push(record);
+    }
+    // Keep all output for this ceiling provisional until both skins fit.
+    let bottom,roof;
+    try{
+     if(p.wallBottomSkin&&records.length){bottom=makeSupportBottomSkins(records,prism,bodies,p,onProgress);bottom.shapes.forEach(hold);}
+     if(p.wallRoof){const made=makeWallRoof(allRecords,prism,bodies,p,z-p.topGap,onProgress);if(made)roof=hold(made);}
+     if(cutouts.length&&(!records.length||p.wallRoof&&!roof))throw initialFailure;
+    }catch(error){
+     if(p.mode!=='auto'){
+      if(error?.code==='support-skin-clearance')error.supportClearanceRegions=clearanceDetails(error,b,z);
+      throw error;
+     }
+     if(error?.code!=='support-skin-clearance'&&!(initialFailure&&error?.code==='support-skin-anchor'))throw error;
+     initialFailure??=error;
+     firstSkinFailure??=initialFailure;
+     owned.splice(ownedBeforeFace).forEach(item=>item.delete());
+     const regions=error.regions||[],margin=.001;
+     if(!p.roofTabs&&attempt<3&&error.code==='support-skin-clearance'&&regions.length&&cutouts.length+regions.length<=24){
+      for(const region of regions){
+       const [low,high]=region.bounds;
+       cutouts.push({region,low:[low[0]-margin,low[1]-margin,p.bedZ-margin],high:[high[0]+margin,high[1]+margin,z+p.layerHeight+margin]});
+      }
+      continue;
+     }
+     skippedCeilings.push({height:z,reason:initialFailure.code});
+     clearanceRegions.push(...clearanceDetails(initialFailure,b,z));
+     skippedScopes.push(hold(scopedBlocker(face,p,z,[])));
+     break;
+    }
+    candidateRibs.push(...faceCandidates);
+    omitted+=blockedRibs;
+    excludedScope.push(...excludedCells,...cutouts);
+    clearanceRegions.push(...cutouts.map(({region})=>({...region,height:z,partial:true})));
+    faceBases.forEach(id=>baseBodyIds.add(id));
+    walls.push(...records.map(record=>record.shape));
+    wallRecords.push(...records);
+    if(bottom){bottomSkins.push(...bottom.shapes);if(p.contactLines)for(const s of bottom.shapes)contactRegions.push({shape:s,role:'lower',axis});bottomHeights.push(...bottom.heights);for(const key of ['count','skipped','sections'])bottomSeams[key]+=bottom.seams[key];if(bottomSeams.count>128)throw Error('底面薄皮の分割数が多すぎます');}
+    if(p.wallTies&&records.length>1){const made=makeWallTies(records,prism,bodies,p,onProgress);if(ties.length+made.shapes.length>512){made.shapes.forEach(s=>s.delete());throw Error('横つなぎが多すぎます。高さの間隔を広げるか対象面を絞ってください');}made.shapes.forEach(s=>ties.push(hold(s)));made.levels.forEach(z=>tieLevels.add(z));made.intervals.forEach(v=>tieIntervals.add(v));tieAttachments.push(...made.attachments);skippedTies+=made.skipped;}
+    if(roof){if(p.contactLines)contactRegions.push({shape:hold(roof.clone()),role:'upper',axis});if(excludedCells.length)ribIssues.push(...roofSupportIssues(roof,allRecords,records,p));
+     if(p.roofSeams||p.roofTabs||p.preview){const detail=roofRemovalDetails(roof,records.length>=2?records:allRecords,shifted,bodies,records.length>=2?p:{...p,roofTabs:false},z-p.topGap,onProgress,{seams:128-roofCuts,tabs:64-roofTabs.length});roofs.push(hold(detail.roof));detail.tabs.forEach(tab=>roofTabs.push(hold(tab)));roofPreview.push(...detail.preview);roofPlacements.push(...detail.placements);roofMatched.push(...detail.matched);roofManualInvalid+=detail.manualInvalid;roofCuts+=detail.seams.count;roofSkippedCuts+=detail.seams.skipped;roofSections+=detail.seams.sections;roofSkippedTabs+=detail.tabInfo.skipped;}
+     else roofs.push(roof);
+    }
+    if(records.length){
+     faceCount++;const blocker=scopedBlocker(face,p,z,[]);
+     if(R.measureVolume(blocker)>.001){
+      if(coverage){
+       coverage.index=blockers.length;
+       const spans=faceCandidates.filter(r=>!r.excluded).map(r=>r.bounds);
+       coverage.ribBounds=[spans[0][0].slice(),spans[0][1].slice()];
+       for(const span of spans)for(const k of [0,1]){
+        coverage.ribBounds[0][k]=Math.min(coverage.ribBounds[0][k],span[0][k]);
+        coverage.ribBounds[1][k]=Math.max(coverage.ribBounds[1][k],span[1][k]);
+       }
+      }
+      blockers.push(blocker);
+     }else blocker.delete();
+    }
+    break;
    }
-   // Keep all output for this ceiling provisional until both skins fit.
-   let bottom,roof;
+  }
+  if(selection&&p.preview){
+   const sourceFaces=model.faces;
    try{
-    if(p.wallBottomSkin&&records.length){bottom=makeSupportBottomSkins(records,prism,bodies,p,onProgress);bottom.shapes.forEach(hold);}
-    if(p.wallRoof){const made=makeWallRoof(allRecords,prism,bodies,p,z-p.topGap,onProgress);if(made)roof=hold(made);}
-   }catch(error){
-    if(p.mode!=='auto'||error?.code!=='support-skin-clearance')throw error;
-    firstSkinFailure??=error;
-    owned.splice(ownedBeforeFace).forEach(item=>item.delete());
-    skippedCeilings.push({height:z,reason:error.code});
-    skippedScopes.push(hold(scopedBlocker(face,p,z,[])));
-    continue;
-   }
-   candidateRibs.push(...faceCandidates);
-   omitted+=blockedRibs;
-   excludedScope.push(...excludedCells);
-   faceBases.forEach(id=>baseBodyIds.add(id));
-   walls.push(...records.map(record=>record.shape));
-   wallRecords.push(...records);
-   if(bottom){bottomSkins.push(...bottom.shapes);if(p.contactLines)for(const s of bottom.shapes)contactRegions.push({shape:s,role:'lower',axis});bottomHeights.push(...bottom.heights);for(const key of ['count','skipped','sections'])bottomSeams[key]+=bottom.seams[key];if(bottomSeams.count>128)throw Error('底面薄皮の分割数が多すぎます');}
-   if(p.wallTies&&records.length>1){const made=makeWallTies(records,prism,bodies,p,onProgress);if(ties.length+made.shapes.length>512){made.shapes.forEach(s=>s.delete());throw Error('横つなぎが多すぎます。高さの間隔を広げるか対象面を絞ってください');}made.shapes.forEach(s=>ties.push(hold(s)));made.levels.forEach(z=>tieLevels.add(z));made.intervals.forEach(v=>tieIntervals.add(v));tieAttachments.push(...made.attachments);skippedTies+=made.skipped;}
-   if(roof){if(p.contactLines)contactRegions.push({shape:hold(roof.clone()),role:'upper',axis});if(excludedCells.length)ribIssues.push(...roofSupportIssues(roof,allRecords,records,p));
-    if(p.roofSeams||p.roofTabs||p.preview){const detail=roofRemovalDetails(roof,records.length>=2?records:allRecords,shifted,bodies,records.length>=2?p:{...p,roofTabs:false},z-p.topGap,onProgress,{seams:128-roofCuts,tabs:64-roofTabs.length});roofs.push(hold(detail.roof));detail.tabs.forEach(tab=>roofTabs.push(hold(tab)));roofPreview.push(...detail.preview);roofPlacements.push(...detail.placements);roofMatched.push(...detail.matched);roofManualInvalid+=detail.manualInvalid;roofCuts+=detail.seams.count;roofSkippedCuts+=detail.seams.skipped;roofSections+=detail.seams.sections;roofSkippedTabs+=detail.tabInfo.skipped;}
-    else roofs.push(roof);
-   }
-   if(records.length){faceCount++;const blocker=scopedBlocker(face,p,z,[]);if(R.measureVolume(blocker)>.001)blockers.push(blocker);else blocker.delete();}
+    for(const face of sourceFaces){
+     if(face.geomType!=='PLANE'||tuple(face.normalAt())[2]>-.999999)continue;
+     const z=tuple(face.center)[2];if(z<=p.bedZ+p.topGap+1)continue;
+     const item=supportCoverageFace(face,p.target,p,null,false);
+     if(!item||faces.some(selected=>supportFaceContainsPoint(selected,item.selection.point)))continue;
+     coverageRows.push({item,height:z,faceBounds:bounds(face),index:-1});
+     skippedScopes.push(hold(scopedBlocker(face,p,z,[])));
+    }
+   }finally{sourceFaces.forEach(face=>face.delete());}
   }
   // Leave slicer support available below omitted ceilings and excluded ribs.
-  const trimBlockers=tool=>{const [low,high]=bounds(tool);for(let i=0;i<blockers.length;i++){const b=bounds(blockers[i]);if([0,1,2].some(k=>b[1][k]<=low[k]||b[0][k]>=high[k]))continue;const next=blockers[i].cut(tool);blockers[i].delete();blockers[i]=next;}};
+  const trimBlockers=tool=>{const [low,high]=bounds(tool);for(let i=0;i<blockers.length;i++){const b=bounds(blockers[i]);if([0,1,2].some(k=>b[1][k]<=low[k]||b[0][k]>=high[k]))continue;const next=blockers[i].cut(tool);blockers[i].delete();blockers[i]=next;trimmedBlockers.add(i);}};
   for(const cell of excludedScope){const tool=R.makeBox(cell.low,cell.high);try{trimBlockers(tool);}finally{tool.delete();}}
   for(const tool of skippedScopes)trimBlockers(tool);
+  const coverage=p.preview?supportCoverageRegions(coverageRows,blockers,trimmedBlockers,p):[];
   for(let i=blockers.length-1;i>=0;i--)if(R.measureVolume(blockers[i])<.001){blockers[i].delete();blockers.splice(i,1);}
-  if(!candidateRibs.length)throw firstSkinFailure||Error('薄壁を置ける水平な下面がありません。土台と高さを確認してください');
+  if(p.mode==='auto'&&usedOverrides.size!==(p.faceOverrides?.length||0))throw Error('個別設定の下面が見つかりません。設定する下面を選び直してください');
+  if(!candidateRibs.length){
+   const error=firstSkinFailure||Error('薄壁を置ける水平な下面がありません。土台と高さを確認してください');
+   if(firstSkinFailure)error.supportClearanceRegions=clearanceRegions;
+   if(coverage.length)error.supportCoverage=coverage;
+   throw error;
+  }
   const missingRibs=p.excludedRibs.filter(id=>!candidateRibs.some(r=>r.id===id));if(missingRibs.length)ribIssues.push('リブの配置が変わったため古い除外指定を使えません。除外をすべて解除してください');if(!walls.length)ribIssues.push('すべてのリブが除外されています。1枚以上戻してください');
   if(ribIssues.length&&!p.preview)throw Error([...new Set(ribIssues)].join('。'));
   const missingPlacements=p.wallRoof&&p.roofTabs?(p.roofTabPlacements||[]).filter(v=>!roofMatched.includes(v.sectionId)).map(v=>v.sectionId):[];roofManualInvalid+=missingPlacements.length;
   if(roofManualInvalid&&!p.preview)throw Error('指定した位置にタブを作成できません。プレビューで位置を選び直すか自動配置に戻してください');
-  if(walls.length)shape=fuseSolids([...walls,...ties,...roofs,...roofTabs,...bottomSkins],{onProgress,verifyMesh:!!(p.edgeRibs||p.wallBottomSkin)});if(shape&&p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress,[...roofs,...roofTabs,...bottomSkins]);shape.delete();shape=cut.shape;windows=cut.analysis;}let contactAnalysis={enabled:!!p.contactLines,width:p.lineWidth,spacing:p.interfaceSpacing,depth:p.layerHeight,upper:0,lower:0,bedPreserved:0,slots:0,removedVolume:0};if(shape&&p.contactLines){const cut=supportContactLines(shape,contactRegions,p,onProgress,{ribRecords:p.preview?wallRecords:[],ribsAreContained:!p.wallWindows});shape.delete();shape=cut.shape;contactAnalysis=cut.analysis;contactPreview=cut.preview;for(const mesh of cut.ribPreview){const candidate=candidateRibs.find(r=>r.id===mesh.id);Object.assign(candidate,mesh);}if(windows.enabled){windows.originalVolume=R.measureVolume(shape)+windows.removedVolume;windows.savedPercent=windows.originalVolume?100*windows.removedVolume/windows.originalVolume:0;}}if(shape){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{if(!check.IsValid())throw Error('正常な薄壁サポートを作成できませんでした');}finally{check.delete();}}
-  if(shape)for(const model of bodies.values()){const common=hold(shape.intersect(model));if(R.measureVolume(common)>.0001)throw Error('薄壁が本体に入り込むため作成を中止しました');}
-  const solids=shape?.solids||[];let components;try{components=solids.length;}finally{solids.forEach(s=>s.delete());}
+  if(walls.length)shape=fuseSolids([...walls,...ties,...roofs,...roofTabs,...bottomSkins],{onProgress,verifyMesh:!!(p.edgeRibs||p.wallBottomSkin)});if(shape&&p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress,[...roofs,...roofTabs,...bottomSkins]);shape.delete();shape=cut.shape;windows=cut.analysis;}
   for(const candidate of candidateRibs)if(!candidate.excluded){const b=candidate.bounds;candidate.risk=supportRibRisk({height:b[1][2]-b[0][2],thickness:p.wallThickness,bottom:b[0][2],top:b[1][2],levels:tieAttachments.filter(a=>a.ribs.includes(candidate.id)).map(a=>a.z)});}
-  const analysis={style:'walls',contactInterface:contactAnalysis,edgeMargin:p.edgeMargin,count:walls.length,contacts:[],components,topGap:p.topGap,bottomGap:0,baseMode:p.baseMode,baseBodyIds:[...baseBodyIds],modelBasedCount:baseBodyIds.size?walls.length:0,bedBasedCount:baseBodyIds.size?0:walls.length,footDiameter:p.footDiameter,postDiameter:p.wallThickness,reinforcements:ties.length,skipped:omitted,omittedReinforcement:skippedTies,limited:false,bedZ:p.bedZ,wallPitch:p.wallPitch,wallThickness:p.wallThickness,layerHeight:p.layerHeight,faceCount,blockerCount:blockers.length,complete:omitted===0&&!ribIssues.length,wallTies:{enabled:p.wallTies,interval:p.tieInterval,count:ties.length,levels:[...tieLevels].sort((a,b)=>a-b),thickness:2*p.layerHeight,neckWidth:Math.min(Math.max(1.6,Math.min(3,2*p.wallThickness)),Math.max(.6,p.wallThickness))}};
+  const analysis={style:'walls',edgeMargin:p.edgeMargin,count:walls.length,contacts:[],topGap:p.topGap,bottomGap:0,baseMode:p.baseMode,baseBodyIds:[...baseBodyIds],modelBasedCount:baseBodyIds.size?walls.length:0,bedBasedCount:baseBodyIds.size?0:walls.length,footDiameter:p.footDiameter,postDiameter:p.wallThickness,reinforcements:ties.length,skipped:omitted,omittedReinforcement:skippedTies,limited:false,bedZ:p.bedZ,wallPitch:p.wallPitch,wallThickness:p.wallThickness,layerHeight:p.layerHeight,faceCount,blockerCount:blockers.length,complete:omitted===0&&!ribIssues.length,wallTies:{enabled:p.wallTies,interval:p.tieInterval,count:ties.length,levels:[...tieLevels].sort((a,b)=>a-b),thickness:2*p.layerHeight,neckWidth:Math.min(Math.max(1.6,Math.min(3,2*p.wallThickness)),Math.max(.6,p.wallThickness))}};
   if(skippedCeilings.length)analysis.skippedCeilings=skippedCeilings;
-  analysis.bottomSkin={enabled:!!p.wallBottomSkin,count:bottomSkins.length,layers:p.bottomSkinLayers,thickness:p.bottomSkinLayers*p.layerHeight,heights:[...new Set(bottomHeights)].sort((a,b)=>a-b),contactGap:0,...(p.bottomSeams?{seams:bottomSeams}:{})};analysis.wallTies.auto=!!p.autoReinforce;analysis.wallTies.intervals=[...tieIntervals].sort((a,b)=>a-b);analysis.strength={heuristic:true,ribs:candidateRibs.filter(r=>!r.excluded).map(({id,number,risk})=>({id,number,...risk})),skippedTies};const volume=shape?R.measureVolume(shape):0;analysis.material=supportMaterialEstimate(volume,p,windows.enabled?windows.originalVolume:volume);
-  analysis.roof={enabled:!!p.wallRoof,count:roofs.length,layers:p.roofLayers??2,thickness:(p.roofLayers??2)*p.layerHeight};if(p.wallRoof&&p.roofSeams)analysis.roof.seams={enabled:true,count:roofCuts,skipped:roofSkippedCuts,sections:roofSections,spacing:p.roofSectionLength,width:p.roofSeamWidth};if(p.wallRoof&&p.roofTabs)analysis.roof.tabs={enabled:true,count:roofTabs.length,skipped:roofSkippedTabs,length:p.roofTabLength,width:4,...((p.roofTabPlacements||[]).length?{manualInvalid:roofManualInvalid}:{})};if(roofManualInvalid)analysis.complete=false;analysis.windows=windows;analysis.printSettings=supportPrintSettings(p);analysis.ribs={total:candidateRibs.length,excluded:candidateRibs.filter(r=>r.excluded).length,direction:p.wallDirection,edgeAligned:!!p.edgeRibs,issues:[...new Set(ribIssues)],missing:missingRibs};analysis.selection={mode:p.mode,count:selection?.faces.length||0};const result={shape,analysis,blockers,...(selectedFacePreview?{selectedFaces:selectedFacePreview}:{}),...(p.preview?{contactPreview,ribPreview:candidateRibs,roofPreview:{contactLines:!!p.contactLines,parts:roofPreview,placements:roofPlacements,missing:missingPlacements}}:{})};shape=null;return result;
+  if(clearanceRegions.length)analysis.clearanceRegions=clearanceRegions;
+  analysis.bottomSkin={enabled:!!p.wallBottomSkin,count:bottomSkins.length,layers:p.bottomSkinLayers,thickness:p.bottomSkinLayers*p.layerHeight,heights:[...new Set(bottomHeights)].sort((a,b)=>a-b),contactGap:0,...(p.bottomSeams?{seams:bottomSeams}:{})};analysis.wallTies.auto=!!p.autoReinforce;analysis.wallTies.intervals=[...tieIntervals].sort((a,b)=>a-b);analysis.strength={heuristic:true,ribs:candidateRibs.filter(r=>!r.excluded).map(({id,number,risk})=>({id,number,...risk})),skippedTies};
+  analysis.roof={enabled:!!p.wallRoof,count:roofs.length,layers:p.roofLayers??2,thickness:(p.roofLayers??2)*p.layerHeight};if(p.wallRoof&&p.roofSeams)analysis.roof.seams={enabled:true,count:roofCuts,skipped:roofSkippedCuts,sections:roofSections,spacing:p.roofSectionLength,width:p.roofSeamWidth};if(p.wallRoof&&p.roofTabs)analysis.roof.tabs={enabled:true,count:roofTabs.length,skipped:roofSkippedTabs,length:p.roofTabLength,width:4,...((p.roofTabPlacements||[]).length?{manualInvalid:roofManualInvalid}:{})};if(roofManualInvalid)analysis.complete=false;analysis.windows=windows;analysis.printSettings=supportPrintSettings(p);analysis.ribs={total:candidateRibs.length,excluded:candidateRibs.filter(r=>r.excluded).length,direction:p.wallDirection,edgeAligned:!!p.edgeRibs,issues:[...new Set(ribIssues)],missing:missingRibs};analysis.selection={mode:p.mode,count:selection?.faces.length||0};const result={shape,analysis,blockers,coverage,selectedFaces:selectedFacePreview,
+   wallRecords:p.preview&&p.contactLines?wallRecords.map(record=>({...record,shape:record.shape.clone()})):[],
+   contactRegions:contactRegions.map(region=>({...region,shape:region.shape.clone()})),
+   ribPreview:candidateRibs,roofPreview:{contactLines:!!p.contactLines,parts:roofPreview,placements:roofPlacements,missing:missingPlacements}};
+  shape=null;return result;
  }catch(e){blockers.forEach(s=>s.delete());throw e;}finally{shape?.delete();owned.forEach(s=>s.delete());faces.forEach(f=>f.delete());}
+}
+
+function clearanceDetails(error,bounds,height){
+ const regions=error.regions.length?error.regions:[{bounds,role:error.role,thickness:error.thickness}];
+ return regions.map(region=>({...region,height,partial:false}));
+}
+
+const contactOptions=new Set([
+ 'topContactLines','bottomContactLines','interfaceLineWidth','interfaceSpacing',
+ 'bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset',
+ 'topContactRim','topContactRimWidth','filamentDiameter','materialDensity',
+]);
+let cachedStructure=null;
+
+function structureKey(bodies,p,bodyKey){
+ if(!p.preview||!p.contactLines||!bodyKey)return null;
+ const bodiesKey=[...bodies].map(([id,shape])=>[id,bodyKey(shape)]);
+ if(bodiesKey.some(([,token])=>token==null))return null;
+ const options=Object.keys(p).sort().filter(key=>!contactOptions.has(key)).map(key=>[key,p[key]]);
+ return JSON.stringify([bodiesKey,options]);
+}
+
+function mapStructureShapes(prepared,map){
+ const mapRecords=records=>records.map(record=>({...record,shape:map(record.shape)}));
+ return {...prepared,shape:prepared.shape&&map(prepared.shape),blockers:prepared.blockers.map(map),
+  wallRecords:mapRecords(prepared.wallRecords),contactRegions:mapRecords(prepared.contactRegions)};
+}
+
+function reuseWallStructure(key){
+ if(!key||cachedStructure?.key!==key)return null;
+ const restored=[];
+ try{
+  return mapStructureShapes(JSON.parse(cachedStructure.snapshot),brep=>{
+   const shape=R.deserializeShape(brep).asShape3D();
+   restored.push(shape);return shape;
+  });
+ }catch{
+  restored.forEach(shape=>shape.delete());cachedStructure=null;return null;
+ }
+}
+
+export function makeWallSupports(bodies,p,onProgress,{bodyKey}={}){
+ const key=structureKey(bodies,p,bodyKey),reused=reuseWallStructure(key);
+ if(reused)onProgress?.({stage:'リブ本体と横つなぎを再利用しています'});
+ const prepared=reused||prepareWallSupports(bodies,p,onProgress);
+ const {analysis,blockers,wallRecords,contactRegions,ribPreview,roofPreview,selectedFaces,coverage}=prepared;
+ let shape=prepared.shape,accepted=false,contactPreview=[];
+ try{
+  if(key&&!reused){
+   const snapshot=JSON.stringify(mapStructureShapes(prepared,shape=>shape.serialize()));
+   cachedStructure=snapshot.length<=6_000_000?{key,snapshot}:null;
+  }
+  const windows=analysis.windows;
+  let contactAnalysis={enabled:!!p.contactLines,width:p.lineWidth,spacing:p.interfaceSpacing,depth:p.layerHeight,upper:0,lower:0,bedPreserved:0,slots:0,removedVolume:0};
+  if(shape&&p.contactLines){
+   const cut=supportContactLines(shape,contactRegions,p,onProgress,{ribRecords:wallRecords,ribsAreContained:!p.wallWindows});
+   shape.delete();shape=cut.shape;contactAnalysis=cut.analysis;contactPreview=cut.preview;
+   const meshesById=new Map(cut.ribPreview.map(mesh=>[mesh.id,mesh]));
+   for(const rib of ribPreview)Object.assign(rib,meshesById.get(rib.id));
+   if(windows.enabled){
+    windows.originalVolume=R.measureVolume(shape)+windows.removedVolume;
+    windows.savedPercent=windows.originalVolume?100*windows.removedVolume/windows.originalVolume:0;
+   }
+  }
+  if(shape){
+   const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);
+   try{if(!check.IsValid())throw Error('正常な薄壁サポートを作成できませんでした');}finally{check.delete();}
+   for(const model of bodies.values()){
+    const common=shape.intersect(model);
+    try{if(R.measureVolume(common)>.0001)throw Error('薄壁が本体に入り込むため作成を中止しました');}
+    finally{common.delete();}
+   }
+  }
+  const solids=shape?.solids||[];
+  analysis.components=solids.length;solids.forEach(s=>s.delete());
+  const volume=shape?R.measureVolume(shape):0;
+  analysis.contactInterface=contactAnalysis;
+  analysis.material=supportMaterialEstimate(volume,p,windows.enabled?windows.originalVolume:volume);
+  if(reused)analysis.reusedStructure=true;
+  accepted=true;
+  return {shape,analysis,blockers,...(selectedFaces?{selectedFaces}:{}),...(p.preview?{contactPreview,ribPreview,roofPreview,coverage}:{})};
+ }finally{
+  if(!accepted){shape?.delete();blockers.forEach(s=>s.delete());}
+  for(const record of [...wallRecords,...contactRegions])record.shape.delete();
+ }
 }

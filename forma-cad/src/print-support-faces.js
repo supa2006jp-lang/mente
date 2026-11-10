@@ -20,3 +20,28 @@ export function resolveSupportFaces(model,p,{allowEmpty=false,toggle=null}={}){
  }catch(error){faces.forEach(f=>f.delete());throw error;}
 }
 export function supportSelectedFaceMeshes(resolved){return resolved.faces.map((face,i)=>({selection:resolved.selections[i],area:R.measureArea(face),...cadMesh(face)}));}
+
+export function validateSupportFaceOverrides(overrides,target,wallThickness){
+ if(!Array.isArray(overrides)||overrides.length>32)throw Error('下面の個別設定は32面までです');
+ const faces=validateSupportFaces(overrides.map(row=>row?.selection),target,{allowEmpty:true});
+ return overrides.map((row,i)=>{
+  const {wallPitch,roofLayers,bottomSkinLayers}=row;
+  if(wallPitch!=null&&(!Number.isFinite(wallPitch)||wallPitch<2||wallPitch>15||wallPitch<=wallThickness))
+   throw Error('下面の薄壁間隔は2〜15 mmで、薄壁の厚みより大きくしてください');
+  for(const layers of [roofLayers,bottomSkinLayers])if(layers!=null&&(!Number.isInteger(layers)||layers<1||layers>6))
+   throw Error('下面の薄皮は1〜6層で指定してください');
+  if([wallPitch,roofLayers,bottomSkinLayers].every(v=>v==null))throw Error('下面の個別設定が空です');
+  return {selection:faces[i],...(wallPitch!=null?{wallPitch}:{}),...(roofLayers!=null?{roofLayers}:{}),...(bottomSkinLayers!=null?{bottomSkinLayers}:{})};
+ });
+}
+
+export function supportFaceContainsPoint(face,coords){
+ const point=R.makeVertex(coords);
+ try{return R.measureDistanceBetween(point,face)<1e-5;}finally{point.delete();}
+}
+
+export function matchSupportFaceOverride(face,overrides,height){
+ const matches=overrides.filter(row=>Math.abs(row.selection.point[2]-height)<=1e-5&&supportFaceContainsPoint(face,row.selection.point));
+ if(matches.length>1)throw Error('同じ下面に複数の個別設定があります');
+ return matches[0];
+}

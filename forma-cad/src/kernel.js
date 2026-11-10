@@ -532,13 +532,27 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  if(['coilJoint','enclose','shell','fillet','chamfer','move','join','split','mirror','circular','rectangular'].includes(p.type)&&!base)throw Error('対象ボディを選択してください');
  if(p.type==='printSupport'){
   if(typeof p.id!=='string'||!p.id||bodies.has(p.id))throw Error('サポートの作成先が不正です');
-  const made=makePrintSupport(bodies,p,onProgress);
+  const previousSupports=new Set(p.batch===true?features.filter(f=>f.spec?.type==='printSupport').flatMap(f=>f.outputs.map(o=>o.id)):[]);
+  previousSupports.delete(p.target);
+  const supportBodies=previousSupports.size?new Map([...bodies].filter(([id])=>!previousSupports.has(id))):bodies;
+  const made=makePrintSupport(supportBodies,p,onProgress,{bodyKey:shape=>bodyTokens.get(shape)});
   try{
+   if(made.shape&&previousSupports.size){
+    const shapeBounds=shape=>{const box=shape.boundingBox;try{return box.bounds;}finally{box.delete();}};
+    const a=shapeBounds(made.shape);
+    for(const id of previousSupports){
+     const other=bodies.get(id);if(!other)continue;
+     const b=shapeBounds(other);
+     if([0,1,2].some(i=>Math.min(a[1][i],b[1][i])-Math.max(a[0][i],b[0][i])<=1e-6))continue;
+     const common=made.shape.intersect(other);
+     try{if(R.measureVolume(common)>.0001)throw Error('作成済みのサポートと重なります。薄壁の向きや間隔を変えてください');}finally{common.delete();}
+    }
+   }
    if(made.shape){onProgress?.({stage:'サポートの表示・保存用データを作成しています'});emit(p.id,made.shape);onProgress?.({stage:'3MF出力用の形状を検査しています'});}analysis={...analysis,printSupport:made.analysis,supportLinks:p.lockToModel===false?[]:[{id:p.id+'-model-link',bodies:[...new Set([p.target,...made.analysis.baseBodyIds,p.id])],mode:'support'}]};
    if(!p.preview)return {outputs,remove,analysis};
    const supportPackage=made.blockers?.length?{complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...printSupportExportMesh(bodies.get(id))})).concat(made.shape?[{id:p.id,...printSupportExportMesh(made.shape)}]:[]),blockers:made.blockers.map(s=>printSupportExportMesh(s))}:null;
    const exportStatus=inspectPrintSupportPackage(supportPackage,{targetId:p.target,supportId:p.id});
-   return {outputs,remove,analysis,supportPreview:{...(made.contactPreview?{contact:made.contactPreview}:{}),body:{id:p.target,...cadMesh(bodies.get(p.target))},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};
+   return {outputs,remove,analysis,supportPreview:{...(made.contactPreview?{contact:made.contactPreview}:{}),body:{id:p.target,...cadMesh(bodies.get(p.target))},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview}:{}),...(made.coverage?{coverage:made.coverage}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};
   }finally{made.shape?.delete();made.blockers?.forEach(s=>s.delete());}
  }
  else if(p.type==='assemblyInfo'){analysis=assemblyReference(bodies,p.reference,p.mode);}
@@ -841,6 +855,7 @@ function remapHistoryReferences(before,after,spec){
    if(spec.type==='fillet'&&key==='edges'&&topology)return remapFilletEdges(a,b,[r]);
    return [{...r,point:point(id,r.point)}];
   });
+  if(spec.type==='printSupport'&&spec.faceOverrides)spec.faceOverrides=spec.faceOverrides.map(row=>({...row,selection:{...row.selection,point:point(row.selection.bodyId,row.selection.point)}}));
   if(spec.type==='threadMate'&&spec.destination==='existing'&&spec.placement)spec.placement={...spec.placement,point:point(spec.placement.bodyId,spec.placement.point)};
   if(spec.type==='simpleBoss')spec.point=point(spec.target,spec.point);
   if(spec.type==='assemblyMate')for(const key of ['source','destination'])spec[key]={...spec[key],point:point(spec[key].bodyId,spec[key].point)};

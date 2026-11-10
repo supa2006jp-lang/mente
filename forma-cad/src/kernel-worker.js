@@ -39,7 +39,7 @@ self.onmessage=({data})=>{queue=queue.then(async()=>{
   const result=data.spec?.type==='stepImport'?await importStepBodies(data.spec):withPhaseTimings(phases,compute);
   self.postMessage({id:data.id,result,...(timing?{timings:timing.report()}:{})});
  }catch(e){
-  const details={};for(const key of ['code','diagnostics','featureId','featureIndex','failedOperation'])if(e?.[key]!==undefined)details[key]=e[key];
+  const details={};for(const key of ['code','diagnostics','featureId','featureIndex','failedOperation','supportClearanceRegions','supportCoverage'])if(e?.[key]!==undefined)details[key]=e[key];
   self.postMessage({id:data.id,error:typeof e==='number'?'形状計算に失敗しました。寸法や選択を変更してください。':e.message||String(e),details,...(timing?{timings:timing.report()}:{})});
  }
 });};

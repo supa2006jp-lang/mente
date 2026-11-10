@@ -17,6 +17,11 @@ const before=[...doc.features,feature({...spec,preview:false},out)],saved=JSON.p
 const legacy={...base};delete legacy.wallRoof;delete legacy.roofLayers;assert.equal(validatePrintSupport(legacy).wallRoof,false);assert.equal(runOperation(doc.features,legacy).analysis.printSupport.roof.count,0);
 for(const bad of [{wallRoof:'yes'},{roofLayers:0},{roofLayers:7},{roofLayers:1.5}])assert.throws(()=>validatePrintSupport({...spec,...bad}),/薄皮/);
 const record=(id,shape)=>{try{return {kind:'cadop',id,name:id,outputs:[{id,brep:shape.serialize(),...shape.mesh()}],remove:[]};}finally{shape.delete();}};
-const obstacle=record('obstacle',R.makeBox([19,14,49.2],[21,16,49.6]));assert.throws(()=>runOperation([...doc.features,obstacle],spec),/薄皮.*干渉/);
+const obstacle=record('obstacle',R.makeBox([19,14,49.2],[21,16,49.6])),obstructed=[...doc.features,obstacle];
+const recovered=runOperation(obstructed,spec);
+assert.equal(recovered.analysis.printSupport.faceCount,1);
+assert.ok(recovered.analysis.printSupport.clearanceRegions.some(r=>r.role==='upper'&&r.partial));
+assert.ok(recovered.supportPreview.exportStatus.ok);
+assert.throws(()=>runOperation(obstructed,{...spec,mode:'face',faces:[{bodyId:'channel',point:[20,15,50],normal:[0,0,-1]}]}),/薄皮.*干渉/);
 const outer=R.makeCylinder(20,4,[0,0,50]),hole=R.makeCylinder(10,6,[0,0,49]);let ring;try{ring=outer.cut(hole);}finally{outer.delete();hole.delete();}const ringRecord=record('ring',ring),ringOut=runOperation([ringRecord],{...spec,target:'ring',baseMode:'bed',connectFeet:false}),ringShape=R.deserializeShape(ringOut.outputs[0].brep).asShape3D(),center=R.makeVertex([0,0,49.4]);try{assert(R.measureDistanceBetween(center,ringShape)>10);assert(inspectCadStl(ringOut.outputs[0]).report.ok);}finally{center.delete();ringShape.delete();}
 assert.equal(JSON.stringify(doc),snapshot);await fs.writeFile('.sites-runtime/support-slicing/roof.3mf',printSupport3mf(out.supportPackage));await fs.writeFile('.sites-runtime/print-support-roof-fixture.forma.json',JSON.stringify({format:'forma-cad',version:1,features:[...doc.features,feature({...spec,preview:false},out)]}));const proof={pass:true,wallPitch:12,roof:a.roof,topGap:.3,exactAddedBand:true,noCantilever:true,holesPreserved:true,windowsPreserveRoof:true,collisionBlocked:true,layerThicknesses:true,legacyOff:true,replay:true,closedStl:true,complete3mf:true,sourceUnchanged:true};await fs.writeFile('.sites-runtime/print-support-roof-native-proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));

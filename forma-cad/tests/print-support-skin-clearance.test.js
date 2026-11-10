@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
+import * as THREE from 'three';
 import * as R from 'replicad';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {cadMesh} from '../src/cad-mesh.js';
@@ -8,6 +9,7 @@ import {serializeCadShape} from '../src/cad-serialization.js';
 import {runOperation} from '../src/kernel.js';
 import {printSupport3mf} from '../src/print-support-3mf.js';
 import {inspectCadStl} from '../src/stl-cad-inspection.js';
+import {supportBatchPackage,supportHistoryFeature} from '../src/print-support-batch.js';
 
 test('an obstructed ceiling does not prevent automatic rib support under other ceilings',async()=>{
  const wasmBinary=await readFile(new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url));
@@ -18,6 +20,7 @@ test('an obstructed ceiling does not prevent automatic rib support under other c
   R.makeBox([-12,0,15],[0,18,18]),
  ];
  const obstacle=R.makeBox([-13,-1,0],[-.05,19,14.5]);
+ const partialObstacle=R.makeBox([-13,-1,0],[-.05,4,14.5]);
  let model=parts[0].clone();
  try{
   for(const part of parts.slice(1)){const next=model.fuse(part);model.delete();model=next;}
@@ -32,6 +35,8 @@ test('an obstructed ceiling does not prevent automatic rib support under other c
   assert.equal(analysis.roof.count,1);
   assert.equal(analysis.bottomSkin.count,1);
   assert.deepEqual(analysis.skippedCeilings,[{height:15,reason:'support-skin-clearance'}]);
+  assert.ok(analysis.clearanceRegions.some(region=>region.role==='lower'&&!region.partial
+   &&Math.abs(region.available-.2)<1e-6&&Math.abs(region.thickness-.3)<1e-6));
   assert.deepEqual(result.supportPackage.bodies.map(body=>body.id),['model','ribs']);
   assert.equal(result.supportPackage.blockers.length,1);
   assert.ok(result.supportPackage.blockers[0].vertices.every((v,i)=>i%3!==0||v>=2-1e-6),'only the successful ceiling blocks slicer supports');
@@ -44,5 +49,80 @@ test('an obstructed ceiling does not prevent automatic rib support under other c
   assert.deepEqual(topOnly.analysis.printSupport.skippedCeilings,analysis.skippedCeilings);
   assert.throws(()=>runOperation(features,{...spec,mode:'face',faces:[face],wallBottomSkin:false}),/上面の薄皮が.*干渉/);
   assert.equal(JSON.stringify(features),original);
- }finally{model.delete();obstacle.delete();parts.forEach(part=>part.delete());}
+  const partialFeatures=[features[0],feature('obstacle',partialObstacle)];
+  const partial=runOperation(partialFeatures,spec),partialAnalysis=partial.analysis.printSupport;
+  assert.equal(partialAnalysis.faceCount,2);
+  assert.equal(partialAnalysis.roof.count,2);
+  assert.equal(partialAnalysis.skippedCeilings,undefined);
+  assert.ok(partialAnalysis.clearanceRegions.some(region=>region.partial));
+  assert.ok(partial.supportPreview.exportStatus.ok);
+  const coverage=partial.supportPreview.coverage;
+  const small=coverage.find(item=>item.selection.point[2]===15);
+  const large=coverage.find(item=>item.selection.point[2]===30);
+  assert.ok(small.supported.vertices.length,'the partially covered ceiling has a clipped blocker cap');
+  assert.equal(large.supported,true);
+  const changed=runOperation(partialFeatures,{...spec,edgeRibs:false,faceOverrides:[{selection:large.selection,wallPitch:4,roofLayers:1,bottomSkinLayers:2}]});
+  const changedLarge=changed.supportPreview.coverage.find(item=>item.selection.point[2]===30);
+  const changedSmall=changed.supportPreview.coverage.find(item=>item.selection.point[2]===15);
+  assert.deepEqual(changedLarge.settings,{wallPitch:4,roofLayers:1,bottomSkinLayers:2});
+  assert.deepEqual(changedSmall.settings,{wallPitch:8,roofLayers:2,bottomSkinLayers:1});
+  assert.ok(changedLarge.caution?.triangles.length);
+  const thinner=R.deserializeShape(changed.outputs[0].brep).asShape3D();
+  const originalSkin=R.deserializeShape(partial.outputs[0].brep).asShape3D();
+  const sample=R.makeBox([9.9,6.9,29.2],[10.1,7.1,29.3]);
+  const before=originalSkin.intersect(sample),after=thinner.intersect(sample);
+  try{
+   assert.ok(R.measureVolume(before)>.001);
+   assert.ok(R.measureVolume(after)<1e-6,'the overridden ceiling actually has a thinner skin');
+  }finally{before.delete();after.delete();thinner.delete();originalSkin.delete();sample.delete();}
+  const selected=runOperation(partialFeatures,{...spec,mode:'face',faces:[large.selection]});
+  assert.equal(selected.supportPreview.coverage.find(item=>item.selection.point[2]===15).supported,null);
+  const smallBlocker=partial.supportPackage.blockers.find(mesh=>mesh.vertices.some((v,i)=>i%3===0&&v<0));
+  assert.ok(smallBlocker);
+  const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(smallBlocker.vertices,3)).setIndex(smallBlocker.triangles);
+  const material=new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),mesh=new THREE.Mesh(geometry,material);
+  try{
+   const covered=y=>new THREE.Raycaster(new THREE.Vector3(-6,y,20),new THREE.Vector3(0,0,-1)).intersectObject(mesh).length>0;
+   assert.equal(covered(2),false,'the 3MF blocker leaves the excluded column open for automatic supports');
+   assert.equal(covered(10),true,'the successful part of the ceiling still blocks automatic supports');
+  }finally{geometry.dispose();material.dispose();}
+  assert.ok(printSupport3mf(partial.supportPackage).length>0);
+
+  const contacts={...spec,contactLines:true,wallTies:true,tieInterval:12,bottomContactLines:false};
+  const first=runOperation(partialFeatures,contacts);
+  const stages=[];
+  const adjusted={...contacts,interfaceSpacing:.8};
+  const second=runOperation(partialFeatures,adjusted,update=>stages.push(update.stage));
+  const fresh=runOperation(partialFeatures,{...adjusted,id:'other-support'});
+  assert.equal(first.analysis.printSupport.reusedStructure,undefined);
+  assert.equal(second.analysis.printSupport.reusedStructure,true);
+  assert.equal(second.analysis.printSupport.contactInterface.spacing,.8);
+  assert.equal(second.analysis.printSupport.contactInterface.slots,fresh.analysis.printSupport.contactInterface.slots);
+  assert.ok(Math.abs(second.outputs[0].shapeMetrics.volume-fresh.outputs[0].shapeMetrics.volume)<1e-6);
+  assert.ok(second.supportPreview.exportStatus.ok);
+  assert.ok(stages.includes('リブ本体と横つなぎを再利用しています'));
+  assert.ok(!stages.some(stage=>stage?.startsWith('薄壁サポートを作成しています')));
+  const changedGeometry=runOperation(features,{...adjusted,id:'other-support'});
+  assert.equal(changedGeometry.analysis.printSupport.reusedStructure,undefined);
+  assert.equal(changedGeometry.analysis.printSupport.faceCount,1);
+  const changedPitch=runOperation(features,{...adjusted,id:'other-support',wallPitch:6});
+  assert.equal(changedPitch.analysis.printSupport.reusedStructure,undefined);
+ }finally{model.delete();obstacle.delete();partialObstacle.delete();parts.forEach(part=>part.delete());}
+});
+
+test('a batch exports independent successful supports once and rejects overlapping supports',()=>{
+ const makeTarget=(id,position)=>{const shape=R.makeBox([position,0,12],[position+18,18,15]);
+  try{return {id,kind:'cadop',outputs:[{id,...cadMesh(shape),brep:serializeCadShape(shape)}],remove:[]};}
+  finally{shape.delete();}
+ };
+ const features=[makeTarget('a',0),makeTarget('b',35)];
+ const settings={type:'printSupport',style:'walls',batch:true,mode:'auto',baseMode:'bed',wallPitch:8,layerHeight:.3,topGap:.3};
+ const a={...settings,id:'support-a',target:'a'},b={...settings,id:'support-b',target:'b'};
+ const first=runOperation(features,{...a,preview:true}),history=[...features,supportHistoryFeature(a,first)];
+ const second=runOperation(history,{...b,preview:true});
+ assert.equal(second.analysis.printSupport.baseBodyIds.length,0);
+ assert.throws(()=>runOperation(history,{...a,id:'overlap',preview:true}),/作成済みのサポートと重なります/);
+ const pkg=supportBatchPackage([{result:first},{result:second},{result:first}]);
+ assert.deepEqual(pkg.bodies.map(body=>body.id),['a','support-a','b','support-b']);
+ assert.ok(printSupport3mf(pkg).length>0);
 });
