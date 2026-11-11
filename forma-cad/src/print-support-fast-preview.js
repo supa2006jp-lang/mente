@@ -26,7 +26,7 @@ export function createSupportFastPreview({scene,host}){
   }
  }
  function show(p){
-  clear();if(!available||p.style!=='walls')return false;const selected=faces.filter(f=>f.bodyId===target&&f.z>p.bedZ+p.topGap+1&&(p.mode!=='face'||p.faces.some(ref=>Math.abs(ref.point[2]-f.z)<.001&&f.triangles.some(t=>contains(t,ref.point[0],ref.point[1])))));
+  clear();if(!available||p.style!=='walls'||p.faceOverrides?.some(row=>row.noSupport?.length||row.edgeAssist))return false;const selected=faces.filter(f=>f.bodyId===target&&f.z>p.bedZ+p.topGap+1&&(p.mode!=='face'||p.faces.some(ref=>Math.abs(ref.point[2]-f.z)<.001&&f.triangles.some(t=>contains(t,ref.point[0],ref.point[1])))));
   if(!selected.length)return false;const start=performance.now();group=new THREE.Group();scene.add(group);let count=0;
   function landing(x,y,top){let z=p.bedZ;for(const t of floors)if(t[0][2]>z&&t[0][2]<top-epsilon&&contains(t,x,y))z=t[0][2];return z;}
   function box(low,high,skin=false){if(count>=1024||high.some((v,i)=>v-low[i]<epsilon))return;const size=high.map((v,i)=>v-low[i]),g=new THREE.BoxGeometry(...size),m=new THREE.MeshBasicMaterial({color:skin?0x36aab0:0xdba33e,transparent:true,opacity:skin?.25:.38,depthWrite:false}),mesh=new THREE.Mesh(g,m);mesh.position.set(...low.map((v,i)=>(v+high[i])/2));group.add(mesh);count++;}

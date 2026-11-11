@@ -11,6 +11,7 @@ import {printSupport3mf} from '../src/print-support-3mf.js';
 import {inspectCadStl} from '../src/stl-cad-inspection.js';
 import {supportBatchPackage,supportHistoryFeature} from '../src/print-support-batch.js';
 import {savedSupportExportGroups} from '../src/print-support-export-choice.js';
+import {inspectSupportRemoval} from '../src/print-support-removal.js';
 
 test('an obstructed ceiling does not prevent automatic rib support under other ceilings',async()=>{
  const wasmBinary=await readFile(new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url));
@@ -194,4 +195,49 @@ test('automatic ribs omit the narrow exterior lip and disconnected pieces below 
   const manual=runOperation(features,{...spec,mode:'face',faces:[exterior],skipSmallExterior:true});
   assert.ok(volumeIn(manual.outputs[0],outside)>1);
  }finally{solids.forEach(shape=>shape.delete());}
+});
+
+test('a drawn exclusion clips every support layer and allows closer ribs inside its edges',()=>{
+ const roof=R.makeBox([0,0,24],[30,24,27]),side=R.makeBox([28,0,0],[30,24,24]);
+ const model=roof.fuse(side),area=R.makeBox([-.1,-.1,-.1],[8,12,24.3]);
+ try{
+  const features=[{id:'cabinet',kind:'cadop',outputs:[{id:'cabinet',...cadMesh(model),brep:serializeCadShape(model)}],remove:[]}];
+  const zone={selection:{bodyId:'cabinet',point:[12,12,24],normal:[0,0,-1]},noSupport:[[0,0,8,12]]};
+  const spec={type:'printSupport',id:'support',target:'cabinet',style:'walls',mode:'auto',baseMode:'bedOrModel',
+   wallDirection:'y',wallPitch:10,wallRoof:true,wallBottomSkin:true,wallTies:true,tieInterval:8,
+   layerHeight:.3,topGap:.3,faceOverrides:[zone],preview:true};
+  const before=runOperation(features,spec);
+  const after=runOperation(features,{...spec,faceOverrides:[{...zone,edgeAssist:true}]});
+  for(const result of [before,after]){
+   const shape=R.deserializeShape(result.outputs[0].brep).asShape3D(),hit=shape.intersect(area);
+   try{assert.ok(R.measureVolume(hit)<1e-6);}finally{shape.delete();hit.delete();}
+   const row=result.supportPreview.coverage[0];
+   assert.ok(row.manualExcluded.length);
+   assert.ok(row.boundaryWarnings.length);
+   assert.ok(result.supportPreview.exportStatus.ok);
+   assert.ok(result.supportPackage.blockers.some(mesh=>mesh.vertices.every((value,i)=>i%3!==2||value>=23.69)));
+   assert.ok(printSupport3mf(result.supportPackage).length>0);
+  }
+  const nearBoundary=result=>result.supportPreview.ribs.some(rib=>rib.center>=8.4&&rib.center<=8.41);
+  assert.equal(nearBoundary(before),false);
+  assert.equal(nearBoundary(after),true);
+  const feature=supportHistoryFeature({...spec,faceOverrides:[{...zone,edgeAssist:true}]},after);
+  const saved=JSON.parse(JSON.stringify([...features,feature]));
+  assert.deepEqual(saved.at(-1).spec.faceOverrides[0].noSupport,zone.noSupport);
+  const replayed=runOperation(saved,{type:'replay',before:saved,start:1,forceFull:true}).features.at(-1);
+  assert.equal(replayed.analysis.printSupport.count,after.analysis.printSupport.count);
+ }finally{[roof,side,model,area].forEach(shape=>shape.delete());}
+});
+
+test('automatic removal searches all six directions and agrees with individual checks',()=>{
+ const moving=R.makeBox([0,0,5],[1,1,6]),bed=R.makeBox([-10,-10,0],[10,10,5]),wall=R.makeBox([3,-1,4],[4,2,8]);
+ try{
+  const spec={moving:cadMesh(moving),obstacles:[{id:'bed',...cadMesh(bed)},{id:'wall',...cadMesh(wall)}]};
+  const {directions}=inspectSupportRemoval({...spec,allDirections:true});
+  assert.equal(directions.length,6);
+  assert.deepEqual(directions.map(({axis,sign})=>[axis,sign]),[[0,-1],[0,1],[1,-1],[1,1],[2,-1],[2,1]]);
+  assert.equal(directions[0].state,'clear');
+  assert.equal(directions[1].firstContact,2);
+  for(const {axis,sign} of directions)assert.deepEqual(directions.find(row=>row.axis===axis&&row.sign===sign),inspectSupportRemoval({...spec,axis,sign}));
+ }finally{[moving,bed,wall].forEach(shape=>shape.delete());}
 });

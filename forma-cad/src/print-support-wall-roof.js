@@ -5,7 +5,7 @@ const overlap=(a,b)=>{const common=a.intersect(b);try{return R.measureVolume(com
 
 // Bridge only between the outermost fins: the roof must not cantilever beyond
 // them. Intersect with the original inset prism to preserve its outline/holes.
-export function makeWallRoof(records,prism,bodies,p,top,onProgress){
+export function makeWallRoof(records,prism,bodies,p,top,onProgress,{allowPartial=false}={}){
  if(records.length<2)return null;
  const thickness=p.roofLayers*p.layerHeight,b=bounds(prism),axis=records[0].axis;
  if(top-thickness<=p.bedZ+p.layerHeight)throw skinClearanceError('薄皮を置く高さが足りません。薄皮の層数を減らしてください','upper',top,thickness);
@@ -19,8 +19,20 @@ export function makeWallRoof(records,prism,bodies,p,top,onProgress){
    try{if(R.measureVolume(collision)>.0001)throw skinClearanceError('上面の薄皮が本体・別のボディに干渉します。対象面を選び直すか薄皮をオフにしてください','upper',top,thickness,collision);}
    finally{collision.delete();}
   }
-  const parts=roof.solids;
-  try{for(const part of parts){let contacts=0;for(const record of records)if(overlap(part,record.shape)>.0001)contacts++;if(contacts<2)throw Object.assign(Error('薄皮を両側から支えるリブがありません。薄壁の間隔を狭くするか薄皮をオフにしてください'),{code:'support-skin-anchor'});}if(!parts.length)throw Error('上面の薄皮を作成できません');}finally{parts.forEach(s=>s.delete());}
+  const parts=roof.solids,anchored=[];
+  try{
+   for(const part of parts){
+    let contacts=0;
+    for(const record of records)if(overlap(part,record.shape)>.0001&&++contacts===2)break;
+    if(contacts===2)anchored.push(part);
+    else if(!allowPartial)throw Object.assign(Error('薄皮を両側から支えるリブがありません。薄壁の間隔を狭くするか薄皮をオフにしてください'),{code:'support-skin-anchor'});
+   }
+   if(allowPartial&&(!parts.length||anchored.length!==parts.length)){
+    if(!anchored.length)return null;
+    return anchored.length===1?anchored[0].clone():R.makeCompound(anchored);
+   }
+   if(!parts.length)throw Error('上面の薄皮を作成できません');
+  }finally{parts.forEach(s=>s.delete());}
   const answer=roof;roof=null;return answer;
  }finally{roof?.delete();slab.delete();}
 }

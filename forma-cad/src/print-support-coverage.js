@@ -156,12 +156,14 @@ function edgeMesh(mesh,faceBounds,ribBounds,tolerance){
 }
 
 export function supportCoverageRegions(rows,blockers,trimmed,settings){
- return rows.map(({item,index,height,faceBounds,ribBounds,landings=[]})=>{
+ return rows.map(({item,index,height,faceBounds,ribBounds,landings=[],checkExcludedEdge=false})=>{
   const blocker=blockers[index];
+  if(checkExcludedEdge)item.showBoundaryWarnings=true;
   if(blocker&&R.measureVolume(blocker)>.001)item.supported=trimmed.has(index)?supportHorizontalCap(blocker,height+settings.layerHeight,height):true;
   const tolerance=Math.max(1,2*settings.lineWidth);
   item.caution=edgeMesh(item.supported===true?item.face:item.supported,faceBounds,ribBounds,tolerance);
-  if(item.supported&&landings.length)item.boundaryWarnings=supportBoundaryWarnings(item.face,landings,item.supported,tolerance);
+  if(landings.length&&(item.supported||checkExcludedEdge))
+   item.boundaryWarnings=supportBoundaryWarnings(item.face,landings,checkExcludedEdge?true:item.supported,tolerance);
   return item;
  });
 }
