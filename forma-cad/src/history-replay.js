@@ -48,14 +48,21 @@ export function refreshRegion(region,before,after){
  if(previous.filter(r=>signature(r)===signature(old)).length!==1||matches.length!==1)throw Error('輪郭の数や接続が変わりました。閉じた領域を選び直してください');
  return copy(matches[0]);
 }
-export function replayHistory(before,proposed,start,run,remap,resolvePartition,onStep,refreshStart=false,forceFull=false){
+export function replayHistory(before,proposed,start,run,remap,resolvePartition,onStep,refreshStart=false,forceFull=false,repairs=[]){
+ if(!Array.isArray(repairs)||repairs.length>32||repairs.some(entry=>!entry||!entry.spec))throw Error('選び直す参照の工程が不正です');
+ const replacements=new Map(repairs.map(entry=>[entry.id,entry.spec]));
+ if(replacements.size!==repairs.length||
+  repairs.some(entry=>!entry||!proposed.some(f=>f.id===entry.id&&f.spec?.type===entry.spec?.type)||
+   !['fillet','chamfer','shell'].includes(entry.spec?.type)))throw Error('選び直す参照の工程が不正です');
  validateSolidBoundaryLinks(proposed);
  guardSolidBoundaryEdits(proposed,before);
  proposed=solveSketchConstraints(proposed,{before});start=Math.min(start,earliestSketchChange(before,proposed));
  const next=copy(proposed),prefix=[],changed=new Set(),ordered=before.length===next.length&&before.every((f,i)=>f.id===next[i].id);
  let reused=0,recalculated=0;const refreshedBoundaries=new Set();
  for(let i=0;i<next.length;i++){
-  let f=next[i];try{
+  let f=next[i],referenceFailed=false;try{
+   const replacement=replacements.get(f.id);
+   if(replacement){f={...f,spec:copy(replacement)};next[i]=f;}
    if(i>=start&&f.solidBoundaryLink?.enabled&&!refreshedBoundaries.has(f.solidBoundaryLink.bundleId)){
     const previous=before.find(p=>p.id===f.id),needed=forceFull||JSON.stringify(previous?.solidBoundaryLink)!==JSON.stringify(f.solidBoundaryLink)||[...featureReads(f)].some(id=>changed.has(id));
     if(needed){if(!run)throw Error('ソリッド境界の追従更新にはCADエンジンが必要です');const result=run(prefix,{type:'refreshBoundaryLinks',features:[...prefix,...next.slice(i)],bundleId:f.solidBoundaryLink.bundleId});
@@ -73,14 +80,14 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition,o
     if(f.offsetLink)f=refreshLinkedOffset(f,refresh(f.offsetLink.region));
     if(f.sketchMirrorLink?.enabled)f=resolveSketchMirrorLinks([...prefix,f,...next.slice(i+1)])[i];
     if(f.region){const region=refresh(f.region);if(region!==f.region){const n=basisFor(region).n;f={...f,region,plane:region.plane,frame:region.frame,x:n.x*region.offset,y:n.y*region.offset,z:n.z*region.offset};}}
-    if(f.kind==='cadop'&&f.spec){let spec=copy(f.spec);if(spec.type==='pipe'){const path=refreshPipePath(prefix,spec);if(path)spec.pathFeature=path;}if(spec.region)spec.region=refresh(spec.region);if(spec.sections)spec.sections=spec.sections.map(refresh);if(remap&&!(spec.type==='fillet'&&filletSuppressionState(spec)==='suppressed'))spec=spec.type==='fillet'?remapFillet(before.slice(0,i),prefix,spec,before.find(old=>old.id===f.id)?.spec,remap):remap(before.slice(0,i),prefix,spec);const result=run(prefix,{...spec,id:spec.id||f.id});f={...f,spec,...result};}
+    if(f.kind==='cadop'&&f.spec){let spec=copy(f.spec);if(spec.type==='pipe'){const path=refreshPipePath(prefix,spec);if(path)spec.pathFeature=path;}if(spec.region)spec.region=refresh(spec.region);if(spec.sections)spec.sections=spec.sections.map(refresh);if(remap&&!replacement&&!(spec.type==='fillet'&&filletSuppressionState(spec)==='suppressed')){try{spec=spec.type==='fillet'?remapFillet(before.slice(0,i),prefix,spec,before.find(old=>old.id===f.id)?.spec,remap):remap(before.slice(0,i),prefix,spec);}catch(error){referenceFailed=true;throw error;}}const result=run(prefix,{...spec,id:spec.id||f.id});f={...f,spec,...result};}
    }
    if(i>=start&&f.kind==='extrusion'&&f.gridExtentPlane)f={...f,depth:depthToGridPlane(f,f.gridExtentPlane)};
    if(i>=start&&f.kind==='extrusion'&&f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
    if(i>=start&&f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.barrier||f.untilSolid||f.overlapOnly||f.region?.overlapSource||f.taperAngle||f.cadResult)&&run){const {cadResult,...input}=f;f={...input,cadResult:run(prefix,{type:'extrusion',target:f.target,feature:input})};}
    prefix.push(f);
    if(!same||i>=start){changed.add(f.id);for(const id of featureWrites(f))changed.add(id);if(old)for(const id of featureWrites(old))changed.add(id);}
-  }catch(e){throw Object.assign(Error((i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」: '+(e.message||'形状を再計算できません。寸法を小さくしてください')+'。変更前の形状を保持しています'),{code:e.code,diagnostics:e.diagnostics,featureId:f.id,featureIndex:i,failedOperation:f.spec?.type||f.kind});}
+  }catch(e){throw Object.assign(Error((i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」: '+(e.message||'形状を再計算できません。寸法を小さくしてください')+'。変更前の形状を保持しています'),{code:e.code,diagnostics:e.diagnostics,featureId:f.id,featureIndex:i,failedOperation:f.spec?.type||f.kind,...(referenceFailed&&['fillet','chamfer','shell'].includes(f.spec?.type)?{referenceRepair:{prefix:copy(prefix),spec:copy(f.spec)}}:{})});}
  }
  onStep?.({stage:'履歴更新：再計算 '+recalculated+' 工程 ／ 再利用 '+reused+' 工程',current:Math.max(0,next.length-start),total:Math.max(0,next.length-start),reused,recalculated,complete:true});
  return prefix;

@@ -1,4 +1,5 @@
 // Pack conservative XY footprints; Z-axis quarter turns preserve print orientation.
+import {Matrix4,Vector3} from 'three';
 export const PRINT_PLATE_SIZE=180;
 const EPS=1e-6;
 export function planPrintLayout(items,{margin=2,gap=3,allowRotation=true}={}){
@@ -50,4 +51,67 @@ export function planPrintLayout(items,{margin=2,gap=3,allowRotation=true}={}){
 export function printLayoutBounds(bodies,targets){
  if(!Array.isArray(targets)||!targets.length||targets.length>100||new Set(targets).size!==targets.length||targets.some(id=>typeof id!=='string'||!bodies.has(id)))throw Error('配置するボディが見つかりません');
  return targets.map(id=>{const box=bodies.get(id).boundingBox;try{const [min,max]=box.bounds;return {id,min,max};}finally{box.delete();}});
+}
+
+export const printOrientations=[
+ ['z+','現在の上向き'],['z-','上下反転'],['x+','X＋を上に'],['x-','X−を上に'],['y+','Y＋を上に'],['y-','Y−を上に'],
+];
+const printRotations={
+ 'z+':new Matrix4(),'z-':new Matrix4().makeRotationX(Math.PI),
+ 'x+':new Matrix4().makeRotationY(-Math.PI/2),'x-':new Matrix4().makeRotationY(Math.PI/2),
+ 'y+':new Matrix4().makeRotationX(Math.PI/2),'y-':new Matrix4().makeRotationX(-Math.PI/2),
+};
+for(const matrix of Object.values(printRotations))matrix.elements=matrix.elements.map(Math.round);
+const plateQuarterTurn=new Matrix4().set(0,-1,0,0,1,0,0,0,0,0,1,0,0,0,0,1);
+const noRotation=new Matrix4();
+export function printPlacementMatrix({translation,pivot,rotation,orientation='z+'},{plateCoordinates=false}={}){
+ const [x,y,z]=translation,[px,py,pz]=pivot,offset=plateCoordinates?PRINT_PLATE_SIZE/2:0;
+ return new Matrix4().makeTranslation(x+offset,y+offset,z)
+  .multiply(new Matrix4().makeTranslation(px,py,pz))
+  .multiply(rotation===90?plateQuarterTurn:noRotation)
+  .multiply(new Matrix4().makeTranslation(-px,-py,-pz)).multiply(printRotations[orientation]);
+}
+
+export function validatePrintPlan(spec){
+ const {targets,orientations={}}=spec;
+ if(!Array.isArray(targets)||!targets.length||targets.length>100||new Set(targets).size!==targets.length||
+  targets.some(id=>typeof id!=='string'||!id)||!orientations||Array.isArray(orientations)||typeof orientations!=='object'||
+  Object.entries(orientations).some(([id,value])=>!targets.includes(id)||!Object.hasOwn(printRotations,value)))
+  throw Error('印刷するボディと向きを確認してください');
+ return orientations;
+}
+
+export function planPrintPlates(items,spec){
+ const orientations=validatePrintPlan({...spec,targets:items.map(item=>item.id)});
+ const oriented=items.map(item=>{
+  const orientation=Object.hasOwn(orientations,item.id)?orientations[item.id]:'z+';
+  if(orientation==='z+')return {...item,orientation};
+  const matrix=printRotations[orientation],min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
+  for(const x of [item.min[0],item.max[0]])for(const y of [item.min[1],item.max[1]])for(const z of [item.min[2],item.max[2]]){
+   const point=new Vector3(x,y,z).applyMatrix4(matrix).toArray();
+   point.forEach((value,i)=>{min[i]=Math.min(min[i],value);max[i]=Math.max(max[i],value);});
+  }
+  return {...item,min,max,orientation};
+ });
+ const byId=new Map(oriented.map(item=>[item.id,item]));
+ for(const item of oriented)if(item.max[2]-item.min[2]>PRINT_PLATE_SIZE+EPS)
+  throw Error((item.name||item.id)+' はこの印刷向きで高さ180 mmを超えています');
+ const place=plate=>({...plate,placements:plate.placements.map(p=>({...p,orientation:byId.get(p.id).orientation}))});
+ // First try the existing full-plate packing. For multiple plates, add larger
+ // parts first and keep each plate's last valid arrangement.
+ try{return {plates:[place(planPrintLayout(oriented,spec))]};}catch{
+  const area=item=>(item.max[0]-item.min[0])*(item.max[1]-item.min[1]);
+  const plates=[];
+  for(const item of [...oriented].sort((a,b)=>area(b)-area(a))){
+   const single=planPrintLayout([item],spec);
+   let placed=false;
+   for(const plate of plates){
+    try{plate.plan=planPrintLayout([...plate.items,item],spec);}
+    catch{continue;}
+    plate.items.push(item);placed=true;break;
+   }
+   if(!placed)plates.push({items:[item],plan:single});
+  }
+  return {plates:plates.map(plate=>place(plate.plan))};
+ }
 }
