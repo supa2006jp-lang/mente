@@ -69,6 +69,7 @@ import {isFilletBodySuppressed} from './fillet-state.js';
 import {chamferSolid} from './solid-chamfer.js';
 import {cadMesh} from './cad-mesh.js';
 import {printSupportExportMesh} from './print-support-export-mesh.js';
+import {savedSupportPackage} from './print-support-saved-export.js';
 import {inspectPrintSupportPackage} from './print-support-preflight.js';
 import {inspectSupportRemoval} from './print-support-removal.js';
 import {resolveSupportFaces,supportSelectedFaceMeshes} from './print-support-faces.js';
@@ -425,6 +426,13 @@ function computeOperation(features,spec,onProgress,context={}){
   const bodies=kernelBodies(features);try{return {info:honeycombBodyInfo(bodies.get(spec.target),spec.heightAxis||'Z')};}finally{bodies.forEach(shape=>shape.delete());}
  }
  if(spec.type==='printSupportTrial')return makeSupportContactTrials(spec.settings,onProgress);
+ if(spec.type==='printSupportSavedExport'){
+  const bodies=kernelBodies(features);
+  try{
+   return savedSupportPackage(features,spec.ids,bodies,(prefix,settings)=>
+    runOperation(prefix,{...settings,preview:false,saveSupportExport:true},onProgress).analysis.supportExport,onProgress);
+  }finally{for(const body of bodies.values())body.delete();}
+ }
  if(spec.type==='printSupportFaces'){
   if(!['posts','walls'].includes(spec.style)||!Number.isFinite(spec.bedZ)||!Number.isFinite(spec.topGap))throw Error('サポートの形と高さの条件を確認してください');
   const bodies=kernelBodies(features);let selected;try{const model=bodies.get(spec.target);if(!model)throw Error('対象ボディが見つかりません');selected=resolveSupportFaces(model,spec,{allowEmpty:true,toggle:spec.toggle});return {faces:selected.selections,selectedFaces:supportSelectedFaceMeshes(selected)};}finally{selected?.faces.forEach(f=>f.delete());bodies.forEach(s=>s.delete());}
@@ -549,9 +557,14 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
     }
    }
    if(made.shape){onProgress?.({stage:'サポートの表示・保存用データを作成しています'});emit(p.id,made.shape);onProgress?.({stage:'3MF出力用の形状を検査しています'});}analysis={...analysis,printSupport:made.analysis,supportLinks:p.lockToModel===false?[]:[{id:p.id+'-model-link',bodies:[...new Set([p.target,...made.analysis.baseBodyIds,p.id])],mode:'support'}]};
+   const blockers=p.preview||p.batch===true||p.saveSupportExport===true
+    ?made.blockers?.map(shape=>{const {vertices,triangles}=printSupportExportMesh(shape);return {vertices,triangles};})||[]:[];
+   if(p.batch===true||p.saveSupportExport===true)analysis.supportExport={
+    complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,baseBodyIds:made.analysis.baseBodyIds,blockers};
    if(!p.preview)return {outputs,remove,analysis};
-   const supportPackage=made.blockers?.length?{complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...printSupportExportMesh(bodies.get(id))})).concat(made.shape?[{id:p.id,...printSupportExportMesh(made.shape)}]:[]),blockers:made.blockers.map(s=>printSupportExportMesh(s))}:null;
+   const supportPackage=blockers.length?{complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...printSupportExportMesh(bodies.get(id))})).concat(made.shape?[{id:p.id,...printSupportExportMesh(made.shape)}]:[]),blockers}:null;
    const exportStatus=inspectPrintSupportPackage(supportPackage,{targetId:p.target,supportId:p.id});
+   if(analysis.supportExport)analysis.supportExport.complete=exportStatus.ok;
    return {outputs,remove,analysis,supportPreview:{...(made.contactPreview?{contact:made.contactPreview}:{}),body:{id:p.target,...cadMesh(bodies.get(p.target))},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview}:{}),...(made.coverage?{coverage:made.coverage}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};
   }finally{made.shape?.delete();made.blockers?.forEach(s=>s.delete());}
  }

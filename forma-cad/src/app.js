@@ -50,6 +50,7 @@ import {createPrintSupportExportChoice} from './print-support-export-choice.js';
 let supportExportChoice=null;
 import {createPrintSupportDialog} from './print-support-dialog.js';
 import {supportHistoryFeature} from './print-support-batch.js';
+import {savePrintSupport3mf} from './print-support-3mf.js';
 import {printSupportFailureFromDocument} from './print-support-failure.js';
 let printSupportController=null,failureRecovery=null;
 let recoveredMachining=null;
@@ -1618,7 +1619,16 @@ $('export-color-3mf').onclick=async()=>{
  }catch(error){notify(error.message);}
  finally{color3mfBusy=false;button.disabled=![...meshes.values()].some(mesh=>mesh.visible);}
 };
-$('export').onclick=async()=>{if(!meshes.size||$('export').disabled)return;partWorkshop?.close();$('export').disabled=true;const original=features;let token=null;try{const choice=await supportExportChoice.choose();if(choice.kind==='cancel'||features!==original)return;if(choice.kind==='support'){printSupportController.openForExport(choice.feature);return;}const bodies=stlMeshSnapshot(original,meshes),message=await saveStl(()=>{if(features!==original)throw Error('モデルが変更されたためSTL出力を中止しました');token=stlInspection.begin(original);return createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>stlInspection.current(token),onProgress:p=>stlInspection.progress(token,p),onInspection:report=>stlInspection.result(token,report)});},download,{isCurrent:()=>features===original&&(token===null||stlInspection.current(token))});if(message)notify(message+'（出力メッシュ検査済み）');}catch(error){if(token!==null)stlInspection.error(token,error);if(error.code!=='cancelled')notify('STL保存に失敗しました：'+error.message);}finally{$('export').disabled=false;}};
+$('export').onclick=async()=>{if(!meshes.size||$('export').disabled)return;partWorkshop?.close();$('export').disabled=true;const original=features;let token=null;try{const choice=await supportExportChoice.choose();if(choice.kind==='cancel'||features!==original)return;if(choice.kind==='support'){printSupportController.openForExport(choice.feature);return;}
+ if(choice.kind==='saved-support'){
+  try{
+   const current=()=>features===original;
+   const pkg=await kernelClient.run(original,{type:'printSupportSavedExport',ids:choice.ids},{document:original});
+   if(current()&&await savePrintSupport3mf(pkg,download,current))notify('現在の配置で一括3MFを出力しました');
+  }catch(error){if(error.code!=='cancelled')notify('一括3MFを保存できませんでした。'+error.message);}
+  return;
+ }
+ const bodies=stlMeshSnapshot(original,meshes),message=await saveStl(()=>{if(features!==original)throw Error('モデルが変更されたためSTL出力を中止しました');token=stlInspection.begin(original);return createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>stlInspection.current(token),onProgress:p=>stlInspection.progress(token,p),onInspection:report=>stlInspection.result(token,report)});},download,{isCurrent:()=>features===original&&(token===null||stlInspection.current(token))});if(message)notify(message+'（出力メッシュ検査済み）');}catch(error){if(token!==null)stlInspection.error(token,error);if(error.code!=='cancelled')notify('STL保存に失敗しました：'+error.message);}finally{$('export').disabled=false;}};
 async function checkedGeneratedStl(outputs,{isCurrent=()=>true,onProgress}={}){
  if(!isCurrent())throw Error('設定が変更されたためSTL出力を中止しました');const original=features,token=stlInspection.begin(original),bodies=outputs.map(({id,brep,vertices,triangles})=>({id,brep,vertices,triangles}));
  try{return await createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>isCurrent()&&stlInspection.current(token),onProgress:p=>{if(!isCurrent())stlInspection.close();else{stlInspection.progress(token,p);onProgress?.(p);}},onInspection:report=>stlInspection.result(token,report)});}catch(error){stlInspection.error(token,error);throw error;}

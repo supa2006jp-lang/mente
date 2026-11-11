@@ -37,6 +37,7 @@ export function validatePrintSupport(input){
  if(!Number.isInteger(p.maxSupports)||p.tipDiameter>p.postDiameter||p.footDiameter<p.postDiameter+2||(p.braces&&p.braceDiameter>p.postDiameter))throw Error('足・支柱・先端・補強の太さの関係を確認してください');
  if(!['auto','face'].includes(p.mode))throw Error('サポートの配置方法を選択してください');
  if(p.mode==='face')p.faces=validateSupportFaces(p.faces,p.target);
+ if(input.skipSmallExterior!==undefined&&typeof input.skipSmallExterior!=='boolean')throw Error('外側の小片を省く設定が不正です');
  if(p.style==='walls'&&p.faceOverrides!==undefined)p.faceOverrides=validateSupportFaceOverrides(p.faceOverrides,p.target,p.wallThickness);
  for(const key of ['connectFeet','braces','lockToModel'])if(typeof p[key]!=='boolean')throw Error('サポートの設定が不正です');
  return p;

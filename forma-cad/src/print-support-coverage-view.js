@@ -2,12 +2,13 @@ import * as THREE from 'three';
 
 export function createSupportCoverageView({anchor,host,camera,scene,bodyName,onSave,onReset}){
  const panel=document.createElement('details');panel.dataset.id='support-coverage';
- panel.innerHTML='<summary>支えの範囲・下面ごとの設定</summary><label><input type="checkbox" data-coverage="show">3MFの支えの範囲を色分け</label><small><b style="color:#08775a">緑：リブで支える指定範囲</b> ／ <b style="color:#155ca6">青：自動サポートに任せる範囲</b> ／ <b style="color:#966000">黄：外周からリブまで距離がある箇所（目安）</b></small><label>設定する下面<select data-coverage="face"></select></label><div data-coverage="edit" hidden></div><button type="button" data-coverage="reset">このボディの個別設定をすべて解除</button>';
+ panel.innerHTML='<summary>支えの範囲・下面ごとの設定</summary><label><input type="checkbox" data-coverage="show">3MFの支えの範囲を色分け</label><small><b style="color:#08775a">緑：リブで支える指定範囲</b> ／ <b style="color:#155ca6">青：自動サポートに任せる範囲</b> ／ <b style="color:#966000">黄：輪郭からリブまで距離がある箇所（目安）</b></small><label>設定する下面<select data-coverage="face"></select></label><div data-coverage="warning" hidden></div><div data-coverage="edit" hidden></div><button type="button" data-coverage="reset">このボディの個別設定をすべて解除</button>';
  const get=key=>panel.querySelector('[data-coverage="'+key+'"]');
  const labels=document.createElement('div');
  labels.style.cssText='position:absolute;inset:0;pointer-events:none;overflow:hidden';
  host.append(labels);anchor.before(panel);
- const display=get('show'),select=get('face'),edit=get('edit'),reset=get('reset'),projected=new THREE.Vector3();
+ const display=get('show'),select=get('face'),edit=get('edit'),reset=get('reset'),warning=get('warning'),projected=new THREE.Vector3();
+ const contourLines=new Map();
  let group=null,rows=[],markers=[],muted=false,target=null,busy=false;
  const fields=[['wallPitch','薄壁の間隔 (mm)',2,15,'any'],['roofLayers','上面の薄皮 (層)',1,6,1],['bottomSkinLayers','底面の薄皮 (層)',1,6,1]];
  function visibility(){
@@ -16,7 +17,7 @@ export function createSupportCoverageView({anchor,host,camera,scene,bodyName,onS
  }
  function clear(){
   if(group){group.removeFromParent();group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});}
-  group=null;rows=[];markers=[];labels.replaceChildren();select.replaceChildren(new Option('下面を選択',''));edit.hidden=true;edit.replaceChildren();
+  group=null;rows=[];markers=[];contourLines.clear();labels.replaceChildren();select.replaceChildren(new Option('下面を選択',''));edit.hidden=warning.hidden=true;edit.replaceChildren();warning.replaceChildren();
  }
  function sync(){
   if(labels.hidden)return;
@@ -35,6 +36,29 @@ export function createSupportCoverageView({anchor,host,camera,scene,bodyName,onS
    marker.style.background=selected?'#ad5608':'#164d64';
   }
   const row=rows[index];
+  const warnings=row?.boundaryWarnings||[];
+  warning.hidden=!warnings.length;warning.replaceChildren();
+  for(const lines of contourLines.values())for(const line of lines){
+   line.material.color.setHex(0xffbb2f);line.material.opacity=.85;
+  }
+  if(warnings.length){
+   const mm=value=>Number(value.toFixed(1))+' mm';
+   const summary=document.createElement('small');
+   summary.textContent='輪郭の注意 '+warnings.length+'区間。最長 '+mm(Math.max(...warnings.map(item=>item.length)))+'。';
+   const intervals=document.createElement('select');
+   intervals.setAttribute('aria-label','注意区間を確認');
+   intervals.add(new Option('注意区間を選択',''));
+   for(const [i,item] of warnings.entries())intervals.add(new Option('区間 '+(i+1)+' ／ 長さ '+mm(item.length)+' ／ リブまで最大 '+mm(item.maxGap),String(i)));
+   intervals.onchange=()=>{
+    display.checked=true;visibility();sync();
+    for(const [id,lines] of contourLines)for(const [i,line] of lines.entries()){
+     const active=id===index&&String(i)===intervals.value;
+     line.material.color.setHex(active?0xff6500:0xffbb2f);
+     line.material.opacity=intervals.value===''||active?1:.45;
+    }
+   };
+   warning.append(summary,intervals);
+  }
   edit.replaceChildren();edit.hidden=!row?.editable;
   if(!row?.editable)return;
   const inputs=fields.map(([key,name,min,max,step])=>{
@@ -65,11 +89,17 @@ export function createSupportCoverageView({anchor,host,camera,scene,bodyName,onS
     const material=new THREE.MeshBasicMaterial({color,side:THREE.DoubleSide,transparent:true,opacity:.8,depthTest:false,depthWrite:false});
     const part=new THREE.Mesh(geometry,material);part.renderOrder=19+layer;group.add(part);
    };
-   add(row.face,row.supported===true?0x15a97d:0x347fd0,0);
-   if(row.supported!==true)add(row.supported,0x15a97d,1);
+   add(row.face,row.suppressed?0x818995:row.supported===true?0x15a97d:0x347fd0,0);
+   if(!row.suppressed&&row.supported!==true)add(row.supported,0x15a97d,1);
    add(row.caution,0xffbb2f,2);
+   const lines=(row.boundaryWarnings||[]).map(item=>{
+    const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(item.segments,3));
+    const line=new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color:0xffbb2f,depthTest:false,depthWrite:false,transparent:true,opacity:.85}));
+    line.renderOrder=22;group.add(line);return line;
+   });
+   contourLines.set(index,lines);
    if(!row.editable)continue;
-   select.add(new Option(title+(Object.keys(row.override).length?'（個別設定）':''),String(index)));
+   select.add(new Option(title+(row.suppressed?'（外側の小片を省略）':Object.keys(row.override).length?'（個別設定）':''),String(index)));
    const marker=document.createElement('button');marker.type='button';marker.textContent=String(index+1);
    marker.dataset.supportCoverageMarker=String(index+1);marker.title=title;
    marker.style.cssText='position:absolute;transform:translate(-50%,-50%);pointer-events:auto;padding:3px 7px;border:2px solid white;border-radius:6px;background:#164d64;color:white';

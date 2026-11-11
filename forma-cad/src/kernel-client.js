@@ -41,7 +41,7 @@ export function kernelTimeout(features,spec){
  const detailedSupport=value=>value?.type==='printSupport'&&value.style==='walls'&&value.contactLines===true;
  const support=detailedSupport(operation)||spec.type==='replay'&&features.slice(spec.start||0).some(f=>detailedSupport(f.spec));
  if(coil)return 600000;
- if(svgWrap||join||['pull','stepImport'].includes(operation?.type))return 300000;
+ if(svgWrap||join||['pull','stepImport','printSupportSavedExport'].includes(operation?.type))return 300000;
  return support?180000:90000;
 }
 export class KernelClient {

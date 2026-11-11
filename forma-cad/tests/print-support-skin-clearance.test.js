@@ -10,6 +10,7 @@ import {runOperation} from '../src/kernel.js';
 import {printSupport3mf} from '../src/print-support-3mf.js';
 import {inspectCadStl} from '../src/stl-cad-inspection.js';
 import {supportBatchPackage,supportHistoryFeature} from '../src/print-support-batch.js';
+import {savedSupportExportGroups} from '../src/print-support-export-choice.js';
 
 test('an obstructed ceiling does not prevent automatic rib support under other ceilings',async()=>{
  const wasmBinary=await readFile(new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url));
@@ -125,4 +126,72 @@ test('a batch exports independent successful supports once and rejects overlappi
  const pkg=supportBatchPackage([{result:first},{result:second},{result:first}]);
  assert.deepEqual(pkg.bodies.map(body=>body.id),['a','support-a','b','support-b']);
  assert.ok(printSupport3mf(pkg).length>0);
+ const saved=[...history,supportHistoryFeature(b,second)];
+ const moved={type:'move',id:'move',target:'a',rotation:[0,0,90],pivot:[0,0,0],x:6,y:11,z:0};
+ const result=runOperation(saved,moved);
+ assert.deepEqual(result.outputs.map(output=>output.id).sort(),['a','support-a']);
+ const relocated=[...saved,{kind:'cadop',id:moved.id,spec:moved,...result}];
+ const exportSpec={type:'printSupportSavedExport',ids:[a.id,b.id]};
+ const legacy=structuredClone(relocated);delete legacy[2].analysis.supportExport;
+ const restored=runOperation(legacy,exportSpec);
+ assert.deepEqual(savedSupportExportGroups(relocated,['support-a','support-b']),[{ids:[a.id,b.id],index:2}]);
+ const placed=runOperation(relocated,exportSpec);
+ const xs=mesh=>mesh.vertices.filter((_,i)=>i%3===0);
+ assert.ok(Math.abs(Math.min(...xs(placed.blockers[0]))+12)<1e-6);
+ assert.ok(Math.abs(Math.min(...xs(placed.bodies.find(body=>body.id==='a')))+12)<1e-6);
+ assert.deepEqual(restored.blockers[0],placed.blockers[0]);
+ assert.ok(printSupport3mf(placed).length>0);
+ const unlocked=structuredClone(saved);unlocked[2].analysis.supportLinks=[];
+ const solo={...moved,id:'solo',target:'support-a'};
+ assert.throws(()=>runOperation([...unlocked,{kind:'cadop',id:solo.id,spec:solo,...runOperation(unlocked,solo)}],exportSpec),/位置がずれています/);
+});
+
+test('coverage measures warning lengths along holes and recessed contours',()=>{
+ const outer=R.makeBox([0,0,12],[28,28,15]),hole=R.makeBox([10,10,11],[18,18,16]);
+ const notch=R.makeBox([0,20,11],[8,26,16]),ring=outer.cut(hole),model=ring.cut(notch);
+ try{
+  const features=[{id:'ring',kind:'cadop',outputs:[{id:'ring',...cadMesh(model),brep:serializeCadShape(model)}],remove:[]}];
+  const result=runOperation(features,{type:'printSupport',id:'ribs',target:'ring',style:'walls',wallDirection:'x',wallPitch:8,edgeRibs:true,
+   layerHeight:.3,topGap:.3,preview:true});
+  const warnings=result.supportPreview.coverage[0].boundaryWarnings;
+  const points=warnings.flatMap(row=>Array.from({length:row.segments.length/3},(_,i)=>row.segments.slice(i*3,i*3+2)));
+  assert.ok(points.some(([x,y])=>x>=10&&x<=18&&y>=10&&y<=18),'inner hole edge');
+  assert.ok(points.some(([x,y])=>x===8&&y>20&&y<26),'concave notch edge');
+  assert.ok(warnings.some(row=>row.length>1&&row.maxGap>1),'warning lengths and rib distances');
+ }finally{outer.delete();hole.delete();notch.delete();ring.delete();model.delete();}
+});
+
+test('automatic ribs omit the narrow exterior lip and disconnected pieces below an obstruction',()=>{
+ const top=R.makeBox([-2,0,18],[26,20,21]),left=R.makeBox([0,0,0],[2,20,18]);
+ const right=R.makeBox([24,0,0],[26,20,18]),shelf=R.makeBox([22,0,9],[24,20,11]);
+ const first=top.fuse(left),second=first.fuse(right),model=second.fuse(shelf);
+ const obstruction=R.makeBox([1.5,-1,5],[24.5,21,7]);
+ const outside=R.makeBox([-2.5,-1,0],[-.05,21,18]);
+ const covered=R.makeBox([9.1,1,.1],[13.9,19,4.9]);
+ const solids=[top,left,right,shelf,first,second,model,obstruction,outside,covered];
+ function volumeIn(output,probe){
+  const shape=R.deserializeShape(output.brep).asShape3D(),common=shape.intersect(probe);
+  try{return R.measureVolume(common);}finally{shape.delete();common.delete();}
+ }
+ try{
+  const feature=(id,shape)=>({id,kind:'cadop',outputs:[{id,...cadMesh(shape),brep:serializeCadShape(shape)}],remove:[]});
+  const features=[feature('cabinet',model),feature('obstruction',obstruction)];
+  const spec={type:'printSupport',id:'support',target:'cabinet',style:'walls',mode:'auto',baseMode:'bedOrModel',
+   wallDirection:'x',wallPitch:8,edgeRibs:true,wallRoof:true,wallBottomSkin:true,layerHeight:.3,topGap:.3,preview:true};
+  const previous=runOperation(features,spec),next=runOperation(features,{...spec,skipSmallExterior:true});
+  assert.ok(volumeIn(previous.outputs[0],outside)>1);
+  assert.ok(volumeIn(next.outputs[0],outside)<1e-6);
+  assert.ok(volumeIn(previous.outputs[0],covered)>1);
+  assert.ok(volumeIn(next.outputs[0],covered)<1e-6);
+  const analysis=next.analysis.printSupport;
+  assert.equal(analysis.omittedExterior.faces,1);
+  assert.ok(analysis.omittedExterior.ribPieces>0);
+  assert.ok(next.supportPreview.coverage.some(row=>row.selection.point[0]<0&&row.suppressed&&!row.supported));
+  assert.ok(next.supportPreview.coverage.some(row=>Math.abs(row.selection.point[2]-9)<1e-6&&row.supported&&!row.suppressed),'retain the interior shelf');
+  assert.ok(next.supportPackage.blockers.some(mesh=>mesh.vertices.some((value,i)=>i%3===0&&value<-.1)));
+  assert.ok(next.supportPreview.exportStatus.ok);
+  const exterior={bodyId:'cabinet',point:[-1,10,18],normal:[0,0,-1]};
+  const manual=runOperation(features,{...spec,mode:'face',faces:[exterior],skipSmallExterior:true});
+  assert.ok(volumeIn(manual.outputs[0],outside)>1);
+ }finally{solids.forEach(shape=>shape.delete());}
 });
