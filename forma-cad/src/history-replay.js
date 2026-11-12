@@ -23,7 +23,15 @@ function remapFillet(before,after,spec,previous,remap){
  if(!spec.edges?.length)return restored.has(spec.target)?spec:remap(before,after,spec);
  const edges=spec.edges.filter(edge=>!restored.has(edge.bodyId));
  if(!edges.length)return spec;
- const mapped=remap(before,after,{...spec,edges});
+ let mapped;
+ try{mapped=remap(before,after,{...spec,edges});}
+ catch(error){
+  if(error.retainedReferences){
+   let index=0;
+   error.retainedReferences=spec.edges.map(edge=>restored.has(edge.bodyId)?[edge]:error.retainedReferences[index++]);
+  }
+  throw error;
+ }
  // One old reference may map to several surviving edge fragments.
  return {...mapped,edges:[...spec.edges.filter(edge=>restored.has(edge.bodyId)),...mapped.edges]};
 }
@@ -87,7 +95,7 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition,o
    if(i>=start&&f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.barrier||f.untilSolid||f.overlapOnly||f.region?.overlapSource||f.taperAngle||f.cadResult)&&run){const {cadResult,...input}=f;f={...input,cadResult:run(prefix,{type:'extrusion',target:f.target,feature:input})};}
    prefix.push(f);
    if(!same||i>=start){changed.add(f.id);for(const id of featureWrites(f))changed.add(id);if(old)for(const id of featureWrites(old))changed.add(id);}
-  }catch(e){throw Object.assign(Error((i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」: '+(e.message||'形状を再計算できません。寸法を小さくしてください')+'。変更前の形状を保持しています'),{code:e.code,diagnostics:e.diagnostics,featureId:f.id,featureIndex:i,failedOperation:f.spec?.type||f.kind,...(referenceFailed&&['fillet','chamfer','shell'].includes(f.spec?.type)?{referenceRepair:{prefix:copy(prefix),spec:copy(f.spec)}}:{})});}
+  }catch(e){throw Object.assign(Error((i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」: '+(e.message||'形状を再計算できません。寸法を小さくしてください')+'。変更前の形状を保持しています'),{code:e.code,diagnostics:e.diagnostics,featureId:f.id,featureIndex:i,failedOperation:f.spec?.type||f.kind,...(referenceFailed&&['fillet','chamfer','shell'].includes(f.spec?.type)?{referenceRepair:{prefix:copy(prefix),spec:copy(f.spec),retained:e.retainedReferences}}:{})});}
  }
  onStep?.({stage:'履歴更新：再計算 '+recalculated+' 工程 ／ 再利用 '+reused+' 工程',current:Math.max(0,next.length-start),total:Math.max(0,next.length-start),reused,recalculated,complete:true});
  return prefix;

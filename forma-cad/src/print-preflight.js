@@ -3,7 +3,7 @@ import {MeshBVH} from 'three-mesh-bvh';
 import {printDimensions} from './print-dimensions.js';
 const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
 const cancelled=check=>{if(check?.())throw Object.assign(new Error('確認をキャンセルしました'),{name:'AbortError'});};
-export async function analyzePrintPreflight(outputs,{capacity=[180,180,180],shouldCancel,onProgress}={}){
+export async function analyzePrintPreflight(outputs,{capacity=[180,180,180],shouldCancel,onProgress,floatingOnly=false}={}){
  const items=[],issues=[],models=[],parts=[];let count=0;
  try{
   for(const [bodyIndex,output] of outputs.entries()){
@@ -17,14 +17,14 @@ export async function analyzePrintPreflight(outputs,{capacity=[180,180,180],shou
     const indices=triangles.slice(i,i+3);if(indices.some(v=>!Number.isInteger(v)||v<0||v>=points.length))throw Error('メッシュの面データが不正です');
     const ids=indices.map(v=>points[v]),a=new THREE.Vector3().fromArray(vertices,indices[0]*3),b=new THREE.Vector3().fromArray(vertices,indices[1]*3),c=new THREE.Vector3().fromArray(vertices,indices[2]*3);
     if(new Set(ids).size<3||new THREE.Triangle(a,b,c).getArea()<1e-10){degenerate++;continue;}
-    for(let j=0;j<3;j++){const a=ids[j],b=ids[(j+1)%3],key=a<b?a+':'+b:b+':'+a,entry=edges.get(key);if(entry){entry.count++;entry.direction+=a<b?1:-1;connect(i/3,entry.triangle);}else edges.set(key,{count:1,direction:a<b?1:-1,triangle:i/3,segment:[...vertices.slice(indices[j]*3,indices[j]*3+3),...vertices.slice(indices[(j+1)%3]*3,indices[(j+1)%3]*3+3)]});}
+    for(let j=0;j<3;j++){const a=ids[j],b=ids[(j+1)%3],key=a<b?a+':'+b:b+':'+a,entry=edges.get(key);if(entry){entry.count++;entry.direction+=a<b?1:-1;connect(i/3,entry.triangle);}else edges.set(key,{count:1,direction:a<b?1:-1,triangle:i/3,segment:floatingOnly?null:[...vertices.slice(indices[j]*3,indices[j]*3+3),...vertices.slice(indices[(j+1)%3]*3,indices[(j+1)%3]*3+3)]});}
    }
-   const bad=[...edges.values()].filter(edge=>edge.count!==2||edge.direction!==0),open=bad.filter(edge=>edge.count===1).length,nonmanifold=bad.filter(edge=>edge.count>2).length,inverted=bad.filter(edge=>edge.count===2&&edge.direction!==0).length;
+   const bad=floatingOnly?[]:[...edges.values()].filter(edge=>edge.count!==2||edge.direction!==0),open=bad.filter(edge=>edge.count===1).length,nonmanifold=bad.filter(edge=>edge.count>2).length,inverted=bad.filter(edge=>edge.count===2&&edge.direction!==0).length;
    if(bad.length)issues.push({bodyId:id,type:'topology',severity:'error',message:'開いた辺 '+open+' / 非多様体の辺 '+nonmanifold+' / 面の向き不整合 '+inverted,segments:bad.slice(0,10000).flatMap(edge=>edge.segment)});
-   if(degenerate)issues.push({bodyId:id,type:'degenerate',severity:'warning',message:'面積がほぼ0の面 '+degenerate+' 枚'});
+   if(degenerate&&!floatingOnly)issues.push({bodyId:id,type:'degenerate',severity:'warning',message:'面積がほぼ0の面 '+degenerate+' 枚'});
    for(let t=0;t<triangles.length/3;t++){if(t%2000===0){cancelled(shouldCancel);await pause();}const key=root(t);let part=partBounds.get(key);if(!part){part={bodyId:id,min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity],samples:[],volume:0};partBounds.set(key,part);}const trianglePoints=[0,1,2].map(j=>new THREE.Vector3().fromArray(vertices,triangles[t*3+j]*3));part.volume+=trianglePoints[0].dot(trianglePoints[1].clone().cross(trianglePoints[2]))/6;for(let j=0;j<3;j++){const point=vertices.slice(triangles[t*3+j]*3,triangles[t*3+j]*3+3);if(point[2]<part.min[2]-.05)part.samples=[];point.forEach((v,k)=>{part.min[k]=Math.min(part.min[k],v);part.max[k]=Math.max(part.max[k],v);});if(point[2]<=part.min[2]+.05&&part.samples.length<256)part.samples.push(point);}}
    for(const part of partBounds.values())parts.push(part);
-   if(partBounds.size>1)issues.push({bodyId:id,type:'components',severity:'warning',message:'1ボディ内に '+partBounds.size+' 個の分離した面群があります（空洞の内壁を含む場合があります）'});
+   if(partBounds.size>1&&!floatingOnly)issues.push({bodyId:id,type:'components',severity:'warning',message:'1ボディ内に '+partBounds.size+' 個の分離した面群があります（空洞の内壁を含む場合があります）'});
    const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.setIndex(triangles);models.push({id,geometry,bvh:new MeshBVH(geometry,{indirect:true})});count+=triangles.length/3;
    await pause();
   }

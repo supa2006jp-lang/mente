@@ -855,6 +855,28 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='coil'||p.type==='thread'){if(p.pitch<=p.wire*1.05)throw Error('ピッチを断面の太さより大きくしてください');const path=R.makeHelix(p.pitch,p.pitch*p.turns,p.radius);const section=p.type==='coil'?R.drawCircle(p.wire/2).sketchOnPlane(new R.Plane([p.radius,0,0],[1,0,0],[0,-1,0])).wire:R.draw([-p.wire/2,-p.wire/2]).lineTo([p.wire/2,0]).lineTo([-p.wire/2,p.wire/2]).close().sketchOnPlane(new R.Plane([p.radius,0,0],[1,0,0],[0,-1,0])).wire;let shape=R.genericSweep(section,path,{frenet:true});if(p.type==='thread')shape=shape.fuse(R.makeCylinder(p.radius-p.wire*.25,p.pitch*p.turns));emit(p.id,shape.translate([p.x,p.y,p.z]));}
  else throw Error('未対応の形状操作です');return {outputs,remove,...(analysis?{analysis}:{}),...(removedPreview!==undefined?{removed:removedPreview}:{})};}finally{for(const body of bodies.values())body.delete();}}
 
+function remapUnchangedShellFace(before,after,reference){
+ const tolerance=1e-4,point=R.makeVertex(reference.point),oldFaces=before.faces,newFaces=after.faces;
+ const normal=reference.normal&&new THREE.Vector3(...reference.normal).normalize();
+ const near=faces=>faces.map(face=>({face,distance:R.measureDistanceBetween(point,face)})).filter(({face,distance})=>{
+  if(distance>.2)return false;
+  if(!normal)return true;
+  let n;try{n=face.normalAt(reference.point);return new THREE.Vector3(...n.toTuple()).dot(normal)>.9;}
+  catch{return false;}finally{n?.delete();}
+ }).sort((a,b)=>a.distance-b.distance);
+ const bounds=face=>{const box=face.boundingBox;try{return box.bounds.flat();}finally{box.delete();}};
+ try{
+  const [old,other]=near(oldFaces);
+  if(!old||other&&other.distance-old.distance<tolerance)throw Error('開口面を選び直してください');
+  const area=R.measureArea(old.face),box=bounds(old.face);
+  const matches=near(newFaces).filter(({face,distance})=>face.geomType===old.face.geomType&&
+   Math.abs(distance-old.distance)<=tolerance&&Math.abs(R.measureArea(face)-area)<=Math.max(tolerance,area*1e-7)&&
+   bounds(face).every((v,i)=>Math.abs(v-box[i])<=tolerance));
+  if(matches.length!==1)throw Error('形が変わった開口面を選び直してください');
+  return [reference];
+ }finally{point.delete();for(const face of [...oldFaces,...newFaces])face.delete();}
+}
+
 function remapHistoryReferences(before,after,spec){
  const oldBodies=kernelBodies(before),newBodies=kernelBodies(after);
  try{
@@ -863,12 +885,24 @@ function remapHistoryReferences(before,after,spec){
   const point=(id,p)=>{const {a,b,same,topology}=comparison(id);if(same)return p;
    if(topology)throw Error('面・辺の構成が変わりました。加工対象を選び直してください');
    const lo=bounds(a),hi=bounds(b);return p.map((v,i)=>hi.min[i]+(v-lo.min[i])*(hi.max[i]-hi.min[i])/Math.max(1e-9,lo.max[i]-lo.min[i]));};
-  for(const key of ['faces','edges'])if(spec[key])spec[key]=spec[key].flatMap(r=>{
+  const mapReference=(key,r)=>{
    const id=r.bodyId||spec.target;if(isFilletBodySuppressed(spec,id))return [r];
    const {a,b,topology}=comparison(id);
-   if(spec.type==='fillet'&&key==='edges'&&topology)return remapFilletEdges(a,b,[r]);
+   if(topology&&key==='edges'&&['fillet','chamfer'].includes(spec.type))return remapFilletEdges(a,b,[r]);
+   if(topology&&key==='faces'&&spec.type==='shell')return remapUnchangedShellFace(a,b,r);
    return [{...r,point:point(id,r.point)}];
-  });
+  };
+  for(const key of ['faces','edges'])if(spec[key]){
+   const repairable=spec.type==='shell'&&key==='faces'||['fillet','chamfer'].includes(spec.type)&&key==='edges';
+   if(!repairable){spec[key]=spec[key].flatMap(r=>mapReference(key,r));continue;}
+   let failure;
+   const retained=spec[key].map(r=>{
+    try{return mapReference(key,r);}
+    catch(error){failure??=error;return null;}
+   });
+   if(failure)throw Object.assign(failure,{retainedReferences:retained});
+   spec[key]=retained.flat();
+  }
   if(spec.type==='printSupport'&&spec.faceOverrides)spec.faceOverrides=spec.faceOverrides.map(row=>({...row,selection:{...row.selection,point:point(row.selection.bodyId,row.selection.point)}}));
   if(spec.type==='threadMate'&&spec.destination==='existing'&&spec.placement)spec.placement={...spec.placement,point:point(spec.placement.bodyId,spec.placement.point)};
   if(spec.type==='simpleBoss')spec.point=point(spec.target,spec.point);

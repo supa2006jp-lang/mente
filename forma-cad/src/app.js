@@ -4483,8 +4483,8 @@ function openCylinderHinge(){if(stage!=='model'||document.querySelector('dialog[
 cylinderHingeButton.onclick=openCylinderHinge;
 
 
-async function exportLayoutPlate(plate,index,original,isCurrent){
- const records=currentBodyMeshRecords(original),parts=[],transforms=new Map(),point=new THREE.Vector3();
+async function createLayoutPlateFile(plate,records,isCurrent){
+ const parts=[],transforms=new Map(),point=new THREE.Vector3();
  function transformed(part,matrix){
   const vertices=[];
   for(let i=0;i<part.vertices.length;i+=3){
@@ -4510,17 +4510,32 @@ async function exportLayoutPlate(plate,index,original,isCurrent){
   if(!result.inspection?.ok||result.outputs.length!==1)throw Error('出力用メッシュの検査に合格しませんでした');
   return transformed(result.outputs[0],transforms.get(part.id));
  };
- const {data}=await createColor3mf(parts,{isCurrent,remesh});
- if(!isCurrent())return;
+ return (await createColor3mf(parts,{isCurrent,remesh})).data;
+}
+async function exportLayoutPlates(entries,original,isCurrent,onProgress,batch=false){
  const name=projectFileName.replace(/(?:\.forma)?\.json$|\.forma$/i,'');
- download(data,name+'-plate-'+(index+1)+'.3mf','model/3mf');notify('プレート '+(index+1)+' を3MF出力しました');
+ const records=currentBodyMeshRecords(original),files=Object.create(null);
+ for(const [i,{plate,index}] of entries.entries()){
+  if(!isCurrent())return;
+  onProgress(i+1,entries.length);
+  let data;
+  try{data=await createLayoutPlateFile(plate,records,isCurrent);}
+  catch(error){throw Error('プレート '+(index+1)+' の3MFを作成できませんでした。'+error.message);}
+  if(!isCurrent())return;
+  const file=name.replace(/[\\/:*?"<>|\x00-\x1f]/g,'_')+'-plate-'+(index+1)+'.3mf';
+  if(!batch){download(data,file,'model/3mf');notify('プレート '+(index+1)+' を3MF出力しました');return;}
+  files[file]=data;
+ }
+ const {zip}=await import('three/addons/libs/fflate.module.js');
+ const archive=await new Promise((resolve,reject)=>zip(files,{level:0},(error,data)=>error?reject(error):resolve(data)));
+ if(isCurrent()){download(archive,name+'-plates.zip','application/zip');notify(entries.length+' 枚のプレートを3MFで出力しました');}
 }
 historyReferenceRepair=installHistoryReferenceRepair({
  scene,host,canvas:renderer.domElement,camera,meshes,getFeatures:()=>features,notify,
  onStart(){cancelAllTools();finishSketch(false);selected=null;stage='model';dropPreview();syncFields();},
  onApply(next,original,dimensions){if(features!==original)throw Error('モデルが変更されました');setProject(next,{dimensions:dimensions??namedDimensions});selected=null;stage='model';syncFields();}
 });
-const printLayoutController=printLayoutDialog({scene,host,meshes,kernel:kernelClient,getFeatures:()=>features,bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,exportPlate:exportLayoutPlate,apply:async(spec,result,editing,original,isCurrent)=>{
+const printLayoutController=printLayoutDialog({scene,host,canvas:renderer.domElement,camera,meshes,kernel:kernelClient,getFeatures:()=>features,bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,exportPlates:exportLayoutPlates,apply:async(spec,result,editing,original,isCurrent)=>{
  if(features!==original||!isCurrent())throw Error('モデルが変更されました');
  if(spec.type==='printLayoutPlan'){
   const entry={kind:'cadop',id:spec.id,name:'印刷配置プラン',spec,...result};
