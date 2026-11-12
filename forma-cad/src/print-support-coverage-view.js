@@ -11,6 +11,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  const ray=new THREE.Raycaster(),plane=new THREE.Plane(new THREE.Vector3(0,0,1)),corner=new THREE.Vector3(),cursor=new THREE.Vector3();
  const contourLines=new Map();
  let group=null,areas=null,rows=[],markers=[],muted=false,target=null,busy=false,focused=null,draw=null,outline=null;
+ let pointSize=[2,2];
  const fields=[['wallPitch','薄壁の間隔 (mm)',2,15,'any'],['roofLayers','上面の薄皮 (層)',1,6,1],['bottomSkinLayers','底面の薄皮 (層)',1,6,1]];
  function visibility(){
   if(group){group.visible=!muted;areas.visible=display.checked;for(const [index,lines] of contourLines)
@@ -92,21 +93,43 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  }
  function stopDrawing(){
   draw=null;
+  delete host.dataset.supportZonePicking;
   if(outline){outline.removeFromParent();outline.geometry.dispose();outline.material.dispose();outline=null;}
   visibility();
  }
  function renderZones(row){
-  const ranges=row.override.noSupport||[],button=document.createElement('button'),note=document.createElement('small');
-  button.type='button';button.textContent='除外範囲を画面で囲む';button.disabled=busy||ranges.length>=8;
+  const ranges=row.override.noSupport||[],boxButton=document.createElement('button'),pointButton=document.createElement('button'),note=document.createElement('small');
+  const sizeFields=['除外範囲の横幅 (mm)','除外範囲の奥行き (mm)'].map((name,axis)=>{
+   const label=document.createElement('label'),input=document.createElement('input');
+   Object.assign(input,{type:'number',min:.1,step:'any',required:true,value:pointSize[axis]});
+   input.setAttribute('form','');
+   input.dataset.supportZoneSize=String(axis);
+   input.oninput=()=>{if(input.validity.valid)pointSize[axis]=input.valueAsNumber;};
+   label.append(name,input);
+   return {label,input};
+  });
+  boxButton.type=pointButton.type='button';
+  boxButton.textContent='除外範囲を画面で囲む';
+  pointButton.textContent='クリックした箇所を除外';
   note.textContent='この下面でリブ・薄皮・3MFの自動サポートを省きます。';
-  button.onclick=()=>{
-   if(busy)return;
+  const start=(mode,button)=>{
+   if(busy||ranges.length>=8)return;
    if(draw){focus(rows.indexOf(row));return;}
-   draw={row,button,note,started:false};
+   if(mode==='point'&&sizeFields.some(({input})=>!input.reportValidity()))return;
+   draw={row,note,mode,size:[...pointSize],started:false};
+   host.dataset.supportZonePicking=mode;
    display.checked=true;visibility();
-   button.textContent='範囲指定をやめる';note.textContent='画面で範囲の始点と対角点をクリックしてください。';
+   for(const control of [boxButton,pointButton,...sizeFields.map(({input})=>input)])control.disabled=control!==button;
+   button.textContent='範囲指定をやめる';
+   note.textContent=mode==='point'?'画面で除外したい範囲の中心をクリックしてください。':'画面で範囲の始点と対角点をクリックしてください。';
   };
-  zones.append(button,note);
+  boxButton.onclick=()=>start('box',boxButton);
+  pointButton.onclick=()=>start('point',pointButton);
+  for(const control of [boxButton,pointButton,...sizeFields.map(({input})=>input)]){
+   control.dataset.supportZonePlacement='';
+   control.disabled=busy||ranges.length>=8;
+  }
+  zones.append(boxButton,...sizeFields.map(({label})=>label),pointButton,note);
   for(const [i,range] of ranges.entries()){
    const remove=document.createElement('button');remove.type='button';
    remove.textContent='除外 '+(i+1)+' を解除（'+(range[2]-range[0]).toFixed(1)+' × '+(range[3]-range[1]).toFixed(1)+' mm）';
@@ -120,24 +143,38 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   plane.constant=-draw.row.selection.point[2];
   return Math.abs(ray.ray.direction.z)>.02&&ray.ray.intersectPlane(plane,cursor);
  }
+ function currentZone(){
+  const {x,y}=cursor;
+  if(draw.mode==='point'){
+   const [width,depth]=draw.size;
+   return [x-width/2,y-depth/2,x+width/2,y+depth/2];
+  }
+  return [Math.min(corner.x,x),Math.min(corner.y,y),Math.max(corner.x,x),Math.max(corner.y,y)];
+ }
  canvas.addEventListener('pointermove',event=>{
-  if(!draw?.started||!project(event))return;
-  const {x,y,z}=corner,points=[[x,y,z],[cursor.x,y,z],[cursor.x,cursor.y,z],[x,cursor.y,z]];
+  if(!draw||(!draw.started&&draw.mode==='box')||!project(event)){
+   if(outline)outline.visible=false;
+   return;
+  }
+  const [x0,y0,x1,y1]=currentZone(),z=cursor.z;
+  const points=[[x0,y0,z],[x1,y0,z],[x1,y1,z],[x0,y1,z]];
   if(!outline){
    outline=new THREE.LineLoop(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(12),3)),
     new THREE.LineBasicMaterial({color:0xd33791,depthTest:false,depthWrite:false}));
    outline.renderOrder=24;outline.frustumCulled=false;scene.add(outline);
   }
+  outline.visible=true;
   const position=outline.geometry.attributes.position;
   points.forEach((point,i)=>position.setXYZ(i,...point));position.needsUpdate=true;
  });
+ canvas.addEventListener('pointerleave',()=>{if(outline)outline.visible=false;});
  function pick(event){
   if(!draw)return false;
   if(!project(event)){draw.note.textContent='下面が見えるように視点を回転してください。';return true;}
-  if(!draw.started){corner.copy(cursor);draw.started=true;draw.note.textContent='対角点をクリックしてください。';return true;}
-  const zone=[Math.min(corner.x,cursor.x),Math.min(corner.y,cursor.y),Math.max(corner.x,cursor.x),Math.max(corner.y,cursor.y)].map(value=>Number(value.toFixed(4)));
+  if(draw.mode==='box'&&!draw.started){corner.copy(cursor);draw.started=true;draw.note.textContent='対角点をクリックしてください。';return true;}
+  const zone=currentZone().map(value=>Number(value.toFixed(4)));
   const {row,note}=draw;
-  if(zone[2]-zone[0]<.1||zone[3]-zone[1]<.1){note.textContent='縦横0.1 mm以上の範囲を指定してください。';return true;}
+  if(zone[2]-zone[0]<.1-1e-9||zone[3]-zone[1]<.1-1e-9){note.textContent='縦横0.1 mm以上の範囲を指定してください。';return true;}
   if(!intersectsFace(zone,row.face)){note.textContent='選んだ下面と重なる範囲を指定してください。';return true;}
   focus(rows.indexOf(row));onSave(row,{...row.override,noSupport:[...(row.override.noSupport||[]),zone]});return true;
  }
@@ -203,8 +240,10 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
    panel.hidden=!available;busy=blocked;muted=masked||!available;target=activeTarget;
    display.disabled=busy||!rows.length;select.disabled=busy||select.options.length<2;reset.disabled=busy||!hasOverrides;
    if(draw&&(busy||muted))focus(rows.indexOf(draw.row));
-   for(const control of [...edit.querySelectorAll('input,button'),...zones.querySelectorAll('button'),...warning.querySelectorAll('button,select')])
-    control.disabled=busy||control===zones.firstChild&&(rows[Number(select.value)]?.override.noSupport?.length||0)>=8;
+   for(const control of [...edit.querySelectorAll('input,button'),...warning.querySelectorAll('button,select')])
+    control.disabled=busy;
+   if(!draw)for(const control of zones.querySelectorAll('input,button'))
+    control.disabled=busy||control.hasAttribute('data-support-zone-placement')&&(rows[Number(select.value)]?.override.noSupport?.length||0)>=8;
    for(const {marker} of markers)marker.disabled=busy;
    visibility();
   }};

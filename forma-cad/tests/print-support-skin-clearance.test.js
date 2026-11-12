@@ -221,6 +221,19 @@ test('a drawn exclusion clips every support layer and allows closer ribs inside 
   const nearBoundary=result=>result.supportPreview.ribs.some(rib=>rib.center>=8.4&&rib.center<=8.41);
   assert.equal(nearBoundary(before),false);
   assert.equal(nearBoundary(after),true);
+  const center=before.supportPreview.ribs.find(rib=>rib.center>9&&rib.center<27).center;
+  const tinyZone=[center-.05,15,center+.05,15.2];
+  const tiny=runOperation(features,{...spec,faceOverrides:[{...zone,noSupport:[tinyZone]}]});
+  const probe=R.makeBox([tinyZone[0],15,2],[tinyZone[2],15.2,22]);
+  const beforeCut=R.deserializeShape(before.outputs[0].brep).asShape3D();
+  const afterCut=R.deserializeShape(tiny.outputs[0].brep).asShape3D();
+  const originalHit=beforeCut.intersect(probe),trimmedHit=afterCut.intersect(probe);
+  try{
+   assert.ok(R.measureVolume(originalHit)>.1);
+   assert.ok(R.measureVolume(trimmedHit)<1e-6);
+   assert.equal(tiny.supportPreview.coverage[0].manualExcluded.length,1);
+   assert.ok(printSupport3mf(tiny.supportPackage).length>0);
+  }finally{[probe,beforeCut,afterCut,originalHit,trimmedHit].forEach(shape=>shape.delete());}
   const feature=supportHistoryFeature({...spec,faceOverrides:[{...zone,edgeAssist:true}]},after);
   const saved=JSON.parse(JSON.stringify([...features,feature]));
   assert.deepEqual(saved.at(-1).spec.faceOverrides[0].noSupport,zone.noSupport);
