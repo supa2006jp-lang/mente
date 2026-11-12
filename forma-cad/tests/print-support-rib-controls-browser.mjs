@@ -77,6 +77,30 @@ try{
  await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});
  const [[x0,y0,x1,y1]]=(await save()).features.at(-1).spec.faceOverrides[0].noSupport;
  assert.ok(Math.abs(x1-x0-.1)<1e-8&&Math.abs(y1-y0-.2)<1e-8);
+
+ const multiple=JSON.parse(await fs.readFile('.sites-runtime/support-multiface-fixture.forma.json','utf8'));
+ await load(multiple);
+ await page.locator('#print-support-tool').click();await ready();
+ await coverage.evaluate(e=>e.open=true);
+ const selectFace=coverage.locator('[data-coverage=face]'),zoneStatus=host.locator('.support-zone-placement [role=status]');
+ assert.equal(await selectFace.inputValue(),'');
+ await setView('0,0,1');
+ await pickZone.click();
+ await page.mouse.click(...await screen([60,10,75]));
+ assert.match(await zoneStatus.textContent(),/高さ 75 mm/);
+ await confirm.click();
+ await coverage.getByRole('button',{name:/除外 1 を解除.*高さ 75 mm/}).waitFor();
+ await ready();assert.equal(await selectFace.inputValue(),'');
+ await coverage.getByRole('button',{name:'除外範囲を画面で囲む'}).click();
+ await page.mouse.click(...await screen([7,9,55]));
+ await page.mouse.click(...await screen([9,11,55]));
+ assert.match(await zoneStatus.textContent(),/高さ 55 mm/);
+ await confirm.click();
+ await coverage.getByRole('button',{name:/除外 1 を解除.*高さ 55 mm/}).waitFor();
+ await ready();
+ await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});
+ const automatic=(await save()).features.at(-1).spec.faceOverrides;
+ assert.deepEqual(automatic.map(item=>item.selection.point[2]).sort((a,b)=>a-b),[55,75]);
  assert.deepEqual(errors,[]);
  const proof={pass:true,legacyDefaults:true,lineWidthFit:true,layerCounts:true,directionAndRotate:true,markerToggle:true,nearEdgeCanvasToggle:true,smallPointExclusion:true,excludedGhost:true,unsupportedRoofBlocked:true,emptyPreviewRecovery:true,scope3mf:true,saveReload:true,undoRedo:true,geometryChangeResetsExclusions:true,thinWallWarning:true,invalidBlocked:true,cancelPreservesHistory:true,previewCleaned:true,errors};await fs.writeFile(out+'/proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
 }catch(e){console.error(await q('error').textContent().catch(()=>''),errors);await page.screenshot({path:out+'/failure.png'});throw e;}finally{await browser.close();await new Promise(r=>server.close(r));}
