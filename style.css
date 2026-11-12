@@ -50661,6 +50661,12 @@ button.shift-photo-compare-animation-photo-sync-destination:hover {
     pointer-events: none;
 }
 
+.shift-photo-compare-animation-stage > .shift-photo-compare-animation-ocr-region-box {
+    z-index: 50;
+    border-width: 3px;
+    background: rgba(250, 204, 21, 0.22);
+}
+
 .shift-photo-compare-image-ocr-dialog {
     position: fixed;
     inset: 0;
