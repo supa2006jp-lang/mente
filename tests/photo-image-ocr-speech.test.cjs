@@ -98,6 +98,50 @@ test('recognized image text can be read unchanged or after optional editing', as
     h.app.closeShiftPhotoCompareImageOcrSpeechDialog();
 });
 
+test('immediate image read speaks without opening the editing dialog', async () => {
+    const readSources = [];
+    const h = harness(async item => {
+        readSources.push(item.src);
+        return '画像に書かれた文字';
+    });
+    assert.equal(await h.app.readShiftPhotoCompareImageOcrImmediately(), true);
+    assert.equal(h.dialog, null);
+    assert.deepEqual(readSources, ['data:image/png;base64,AAAA']);
+    assert.deepEqual(h.spoken, ['画像に書かれた文字']);
+
+    assert.equal(await h.app.readShiftPhotoCompareImageOcrImmediately({
+        src: 'data:image/png;base64,CROPPED', label: '選択範囲'
+    }), true);
+    assert.deepEqual(readSources, ['data:image/png;base64,AAAA', 'data:image/png;base64,CROPPED']);
+    assert.deepEqual(h.spoken, ['画像に書かれた文字', '画像に書かれた文字']);
+    assert.equal(h.dialog, null);
+});
+
+test('immediate read does not speak after the image editor closes during OCR', async () => {
+    let finishRead;
+    const h = harness(() => new Promise(resolve => { finishRead = resolve; }));
+    const reading = h.app.readShiftPhotoCompareImageOcrImmediately();
+    h.closeEditor();
+    finishRead('遅れて届いた文字');
+    assert.equal(await reading, false);
+    assert.deepEqual(h.spoken, []);
+});
+
+test('immediate read ignores OCR from an image that is no longer selected', async () => {
+    let finishRead;
+    const h = harness(() => new Promise(resolve => { finishRead = resolve; }));
+    let selected = 'data:image/png;base64,AAAA';
+    h.app.getShiftPhotoCompareImageOcrSources = () => [
+        { src: 'data:image/png;base64,AAAA', label: '画像 1', preferred: selected.endsWith('AAAA') },
+        { src: 'data:image/png;base64,BBBB', label: '画像 2', preferred: selected.endsWith('BBBB') }
+    ];
+    const reading = h.app.readShiftPhotoCompareImageOcrImmediately();
+    selected = 'data:image/png;base64,BBBB';
+    finishRead('最初の画像の文字');
+    assert.equal(await reading, false);
+    assert.deepEqual(h.spoken, []);
+});
+
 test('late OCR result is ignored after closing the editor dialog', async () => {
     let finishRead;
     const h = harness(() => new Promise(resolve => { finishRead = resolve; }));

@@ -3424,6 +3424,67 @@
             return true;
         }
 
+        async readShiftPhotoCompareImageOcrImmediately(options = {}) {
+            const animation = this._shiftPhotoCompareAnimationState?.overlay?.isConnected
+                ? this._shiftPhotoCompareAnimationState
+                : null;
+            const editor = animation ? null : document.getElementById('shift-photo-compare-overlay');
+            const activeGrid = animation?.grid || editor?.querySelector('.shift-photo-compare-grid');
+            const pageIndex = animation?.pageIndex;
+            const contextIsCurrent = () => animation
+                ? this._shiftPhotoCompareAnimationState === animation && animation.overlay.isConnected
+                    && animation.grid === activeGrid && animation.pageIndex === pageIndex
+                : document.getElementById('shift-photo-compare-overlay') === editor && !!activeGrid?.isConnected;
+            const sources = options.src ? [] : this.getShiftPhotoCompareImageOcrSources();
+            const source = options.src
+                ? { src: String(options.src), label: String(options.label || '選択範囲') }
+                : sources.find(item => item.preferred) || sources[0];
+            if (!source?.src || !activeGrid?.isConnected) {
+                this.showPhotoManagerNotice('読み取れる画像がありません。');
+                return false;
+            }
+            const requestId = this._shiftPhotoCompareImageOcrImmediateRequestId =
+                (this._shiftPhotoCompareImageOcrImmediateRequestId || 0) + 1;
+            this.cancelShiftPhotoCompareSpeech?.();
+            this.showPhotoManagerNotice(`${source.label || '画像'}の文字を認識しています…`);
+            try {
+                const cache = this._shiftPhotoCompareImageOcrSpeechCache;
+                let recognized = !options.src && cache instanceof Map
+                    ? String(cache.get(source.src)?.recognized || '').trim()
+                    : '';
+                if (!recognized) {
+                    recognized = String(await this.getPhotoManagerImageText({ src: source.src }) || '').trim().slice(0, 6000);
+                    if (recognized && !options.src) {
+                        const nextCache = cache instanceof Map
+                            ? cache
+                            : (this._shiftPhotoCompareImageOcrSpeechCache = new Map());
+                        nextCache.delete(source.src);
+                        nextCache.set(source.src, { recognized, draft: recognized });
+                        if (nextCache.size > 24) nextCache.delete(nextCache.keys().next().value);
+                    }
+                }
+                if (requestId !== this._shiftPhotoCompareImageOcrImmediateRequestId || !contextIsCurrent()) return false;
+                if (!options.src) {
+                    const currentSources = this.getShiftPhotoCompareImageOcrSources();
+                    const currentSource = currentSources.find(item => item.preferred) || currentSources[0];
+                    if (currentSource?.src !== source.src) return false;
+                }
+                if (!recognized) {
+                    this.showPhotoManagerNotice(this._lastPhotoManagerOcrError || '画像内の文字を認識できませんでした。');
+                    return false;
+                }
+                const started = !!this.speakShiftPhotoCompareAnimationMarks?.(
+                    [{ dataset: { mode: 'imageOcr', text: recognized } }], { force: true });
+                if (!started) this.showPhotoManagerNotice('読み上げを開始できませんでした。');
+                return started;
+            } catch (error) {
+                if (requestId === this._shiftPhotoCompareImageOcrImmediateRequestId && contextIsCurrent()) {
+                    this.showPhotoManagerNotice(error?.message || '画像内の文字を認識できませんでした。');
+                }
+                return false;
+            }
+        }
+
         openShiftPhotoCompareImageOcrSpeechDialog() {
             const sources = this.getShiftPhotoCompareImageOcrSources();
             if (!sources.length) {

@@ -16117,8 +16117,10 @@
                 <button type="button" onclick="app.saveShiftPhotoCompareAnimationAutoVideo()" title="画面キャプチャで自動再生の流れを動画として保存"><i class="fa-solid fa-file-video"></i><span>自動動画</span></button>
                 <button type="button" class="shift-photo-compare-animation-direct-video-btn" onclick="app.saveShiftPhotoCompareAnimationDirectVideo()" title="画面選択を使わず、アニメ部分を直接動画として保存"><i class="fa-solid fa-film"></i><span>直接動画</span></button>
                 <button type="button" class="shift-photo-compare-animation-manual-video-btn" onclick="app.toggleShiftPhotoCompareAnimationManualVideo()" title="クリックしたタイミングで進めた流れを動画として保存"><i class="fa-solid fa-record-vinyl"></i><span>クリック録画</span></button>
+                <button type="button" class="shift-photo-compare-animation-ocr-region-btn" onclick="app.toggleShiftPhotoCompareAnimationOcrRegionSelection()" title="アニメ画面の範囲をドラッグして画像文字を即時読み上げ" aria-pressed="false"><i class="fa-solid fa-crop-simple"></i><span>範囲を読上</span></button>
                 <button type="button" class="shift-photo-compare-animation-speech-toggle${speechSettings.enabled ? ' active' : ''}" onclick="app.toggleShiftPhotoCompareAnimationSpeech()" title="テキストの音声読み上げを切り替える"><i class="fa-solid fa-volume-high"></i><span>読上 ${speechSettings.enabled ? 'ON' : 'OFF'}</span></button>
                 <button type="button" class="shift-photo-compare-image-ocr-btn" onclick="app.openShiftPhotoCompareImageOcrSpeechDialog()" title="画像内の文字を認識して読み上げる"><i class="fa-solid fa-file-audio"></i><span>画像文字</span></button>
+                <button type="button" class="shift-photo-compare-image-ocr-btn shift-photo-compare-image-ocr-immediate-btn" onclick="app.readShiftPhotoCompareImageOcrImmediately()" title="編集画面を開かず、画像内の文字を認識してすぐに読み上げる"><i class="fa-solid fa-volume-high"></i><span>即時読上</span></button>
 <button type="button" class="shift-photo-compare-animation-avatar-toggle${speechSettings.avatarEnabled === false ? '' : ' active'}" onclick="app.toggleShiftPhotoCompareSpeechAvatar()" title="読み上げ中の口パクアバターを切り替える"><i class="fa-solid fa-face-smile"></i><span>アバ ${speechSettings.avatarEnabled === false ? 'OFF' : 'ON'}</span></button>
                 <button type="button" class="shift-photo-compare-animation-speech-settings-btn" onclick="app.toggleShiftPhotoCompareSpeechSettingsPanel()" title="アバターと音声の設定" aria-label="アバター設定"><i class="fa-solid fa-user-gear"></i><span>アバター設定</span></button>
                 <button type="button" class="shift-photo-compare-animation-fullscreen-btn" onclick="app.enterShiftPhotoCompareAnimationFullscreenMode()" title="操作表示を隠し、クリック・左右キー・スペースで再生"><i class="fa-solid fa-expand"></i><span>全画面</span></button>
@@ -16224,6 +16226,12 @@
             }
         }, true);
         animationOverlay.addEventListener('click', event => {
+            if (this._shiftPhotoCompareAnimationState?.ocrRegionSuppressClickUntil > Date.now()
+                && event.target.closest?.('.shift-photo-compare-animation-stage')) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             if (this.consumeShiftPhotoRevealClick(event)) return;
             const revealButton = event.target.closest('.photo-reveal-layer button');
             if (revealButton) {
@@ -16286,6 +16294,10 @@
             const presentationMode = this._shiftPhotoCompareAnimationState?.presentationMode;
             if (event.key === 'Escape') {
                 event.preventDefault();
+                if (this._shiftPhotoCompareAnimationState?.ocrRegionSelection) {
+                    this.cancelShiftPhotoCompareAnimationOcrRegionSelection();
+                    return;
+                }
                 if (presentationMode) this.exitShiftPhotoCompareAnimationFullscreenMode();
                 else this.closeShiftPhotoCompareAnimation();
                 return;
@@ -16367,11 +16379,133 @@
         });
     }
 
+    cancelShiftPhotoCompareAnimationOcrRegionSelection() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const selection = state?.ocrRegionSelection;
+        if (!selection) return false;
+        selection.layer.remove();
+        state.ocrRegionSelection = null;
+        const button = state.overlay?.querySelector('.shift-photo-compare-animation-ocr-region-btn');
+        button?.classList.remove('active');
+        button?.setAttribute('aria-pressed', 'false');
+        return true;
+    }
+
+    toggleShiftPhotoCompareAnimationOcrRegionSelection() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const stage = state?.overlay?.querySelector('.shift-photo-compare-animation-stage');
+        if (!state || !stage || state.presentationMode) return false;
+        if (state.ocrRegionSelection) return this.cancelShiftPhotoCompareAnimationOcrRegionSelection();
+        if (state.timer) this.toggleShiftPhotoCompareAnimationAutoPlay();
+        const layer = document.createElement('div');
+        layer.className = 'shift-photo-compare-animation-ocr-region-layer';
+        layer.innerHTML = '<span class="shift-photo-compare-animation-ocr-region-hint">読みたい範囲をドラッグで選択（Esc で中止）</span><span class="shift-photo-compare-animation-ocr-region-box" hidden></span>';
+        const box = layer.querySelector('.shift-photo-compare-animation-ocr-region-box');
+        const selection = { layer, pointerId: null, start: null, gridRect: null };
+        const stopEvent = event => { event.preventDefault(); event.stopPropagation(); };
+        const position = event => ({
+            x: Math.max(0, Math.min(selection.gridRect.width, event.clientX - selection.gridRect.left)),
+            y: Math.max(0, Math.min(selection.gridRect.height, event.clientY - selection.gridRect.top))
+        });
+        const showBox = point => {
+            const start = selection.start;
+            const stageRect = stage.getBoundingClientRect();
+            box.hidden = false;
+            box.style.left = `${selection.gridRect.left - stageRect.left + Math.min(start.x, point.x)}px`;
+            box.style.top = `${selection.gridRect.top - stageRect.top + Math.min(start.y, point.y)}px`;
+            box.style.width = `${Math.abs(point.x - start.x)}px`;
+            box.style.height = `${Math.abs(point.y - start.y)}px`;
+        };
+        layer.addEventListener('pointerdown', event => {
+            stopEvent(event);
+            if (event.button !== 0 || state.ocrRegionSelection !== selection) return;
+            const gridRect = state.grid?.getBoundingClientRect();
+            if (!gridRect?.width || !gridRect?.height
+                || event.clientX < gridRect.left || event.clientX > gridRect.right
+                || event.clientY < gridRect.top || event.clientY > gridRect.bottom) return;
+            selection.pointerId = event.pointerId;
+            selection.gridRect = gridRect;
+            selection.start = position(event);
+            showBox(selection.start);
+            layer.setPointerCapture?.(event.pointerId);
+        });
+        layer.addEventListener('pointermove', event => {
+            if (selection.pointerId !== event.pointerId || !selection.start) return;
+            stopEvent(event);
+            showBox(position(event));
+        });
+        layer.addEventListener('pointerup', event => {
+            if (selection.pointerId !== event.pointerId || !selection.start) return;
+            stopEvent(event);
+            const end = position(event);
+            const region = {
+                x: Math.min(selection.start.x, end.x),
+                y: Math.min(selection.start.y, end.y),
+                width: Math.abs(end.x - selection.start.x),
+                height: Math.abs(end.y - selection.start.y),
+                displayedWidth: selection.gridRect.width,
+                displayedHeight: selection.gridRect.height
+            };
+            selection.pointerId = null;
+            selection.start = null;
+            layer.releasePointerCapture?.(event.pointerId);
+            if (region.width < 8 || region.height < 8) {
+                box.hidden = true;
+                return;
+            }
+            state.ocrRegionSuppressClickUntil = Date.now() + 400;
+            window.setTimeout(() => {
+                if (state.ocrRegionSelection === selection) this.cancelShiftPhotoCompareAnimationOcrRegionSelection();
+            }, 0);
+            void this.readShiftPhotoCompareAnimationOcrRegion(region, state);
+        });
+        layer.addEventListener('pointercancel', event => {
+            stopEvent(event);
+            selection.pointerId = null;
+            selection.start = null;
+            box.hidden = true;
+        });
+        layer.addEventListener('click', stopEvent);
+        stage.appendChild(layer);
+        state.ocrRegionSelection = selection;
+        const button = state.overlay?.querySelector('.shift-photo-compare-animation-ocr-region-btn');
+        button?.classList.add('active');
+        button?.setAttribute('aria-pressed', 'true');
+        return true;
+    }
+
+    async readShiftPhotoCompareAnimationOcrRegion(region, expectedState = this._shiftPhotoCompareAnimationState) {
+        const state = this._shiftPhotoCompareAnimationState;
+        const grid = state?.grid;
+        if (!grid || state !== expectedState || !region?.displayedWidth || !region?.displayedHeight) return false;
+        try {
+            const content = await this.renderShiftPhotoCompareAnimationContentToCanvas(3200);
+            if (!content || this._shiftPhotoCompareAnimationState !== state || state.grid !== grid) return false;
+            const scaleX = content.width / region.displayedWidth;
+            const scaleY = content.height / region.displayedHeight;
+            const left = Math.max(0, Math.min(content.width - 1, Math.floor(region.x * scaleX)));
+            const top = Math.max(0, Math.min(content.height - 1, Math.floor(region.y * scaleY)));
+            const width = Math.max(1, Math.min(content.width - left, Math.ceil(region.width * scaleX)));
+            const height = Math.max(1, Math.min(content.height - top, Math.ceil(region.height * scaleY)));
+            const crop = document.createElement('canvas');
+            crop.width = width;
+            crop.height = height;
+            crop.getContext('2d').drawImage(content, left, top, width, height, 0, 0, width, height);
+            const src = crop.toDataURL('image/png');
+            if (this._shiftPhotoCompareAnimationState !== state || state.grid !== grid) return false;
+            return !!(await this.readShiftPhotoCompareImageOcrImmediately?.({ src, label: '選択範囲' }));
+        } catch (error) {
+            this.showPhotoManagerNotice?.(error?.message || '選択範囲を読み取れませんでした。');
+            return false;
+        }
+    }
+
     activateShiftPhotoCompareAnimationPage(pageIndex = 0) {
         const state = this._shiftPhotoCompareAnimationState;
         const page = state?.pages?.[pageIndex];
         const stage = state?.overlay?.querySelector?.('.shift-photo-compare-animation-stage');
         if (!state || !page || !stage) return false;
+        this.cancelShiftPhotoCompareAnimationOcrRegionSelection();
         if (state.pageIndex !== pageIndex) this.closeShiftPhotoCompareImageOcrSpeechDialog?.();
         (state.marks || []).forEach(item => this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item.mark));
         if (state.grid && state.grid !== page.grid) this.stopShiftPhotoCompareAnimationVideos(state.grid);
@@ -16975,6 +17109,7 @@
             return false;
         }
         const compareOverlay = document.getElementById('shift-photo-compare-overlay');
+        this.cancelShiftPhotoCompareAnimationOcrRegionSelection();
         document.getElementById('shift-photo-compare-selection-bounds')?.remove();
         if (state.videoRecording) {
             this.finishShiftPhotoCompareAnimationVideoRecording(state.videoRecording, true);
@@ -18888,6 +19023,9 @@
                             </button>
                             <button type="button" class="shift-photo-compare-image-ocr-btn" onclick="app.openShiftPhotoCompareImageOcrSpeechDialog()" title="画像内の文字を認識して読み上げる">
                                 <i class="fa-solid fa-file-audio"></i><span>画像文字</span>
+                            </button>
+                            <button type="button" class="shift-photo-compare-image-ocr-btn shift-photo-compare-image-ocr-immediate-btn" onclick="app.readShiftPhotoCompareImageOcrImmediately()" title="編集画面を開かず、画像内の文字を認識してすぐに読み上げる">
+                                <i class="fa-solid fa-volume-high"></i><span>即時読上</span>
                             </button>
                             <div class="shift-photo-compare-color-presets shift-photo-compare-mark-color-presets" title="記号色プリセット">
                                 <div class="shift-photo-compare-mark-color-preset-list">
