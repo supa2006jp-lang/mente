@@ -127,3 +127,78 @@ test('dragging a region reads once and consumes the animation click', () => {
     assert.equal(layer.removed, true);
     assert.equal(button['aria-pressed'], 'false');
 });
+
+test('fullscreen keeps region reading available while short clicks still advance', () => {
+    class MaintenanceApp {}
+    const source = fs.readFileSync(path.join(__dirname, '..', 'app-shift-notebook-core.js'), 'utf8');
+    const listeners = new Map();
+    const documentListeners = new Map();
+    const box = { hidden: true, style: {}, remove() { this.removed = true; } };
+    const stage = {
+        addEventListener(type, handler) { listeners.set(type, handler); },
+        removeEventListener(type, handler) { if (listeners.get(type) === handler) listeners.delete(type); },
+        appendChild(child) { this.child = child; },
+        getBoundingClientRect: () => ({ left: 0, top: 0 })
+    };
+    const grid = {
+        getBoundingClientRect: () => ({ left: 100, top: 40, right: 700, bottom: 340, width: 600, height: 300 })
+    };
+    vm.runInNewContext(source, {
+        MaintenanceApp,
+        document: {
+            createElement: () => box,
+            addEventListener(type, handler) { documentListeners.set(type, handler); },
+            removeEventListener(type, handler) { if (documentListeners.get(type) === handler) documentListeners.delete(type); }
+        },
+        clearTimeout: () => {},
+        console
+    }, { filename: 'app-shift-notebook-core.js' });
+    const app = new MaintenanceApp();
+    const state = { presentationMode: true, overlay: { querySelector: () => stage }, grid };
+    app._shiftPhotoCompareAnimationState = state;
+    const reads = [];
+    app.readShiftPhotoCompareAnimationOcrRegion = region => { reads.push(region); return Promise.resolve(true); };
+    assert.equal(app.enableShiftPhotoCompareAnimationFullscreenOcrRegionSelection(), true);
+    assert.equal(stage.child, box);
+    const pointer = (clientX, clientY) => ({
+        pointerId: 3, button: 0, clientX, clientY,
+        target: { closest: () => null },
+        preventDefault() { this.prevented = true; },
+        stopPropagation() { this.stopped = true; }
+    });
+    const click = () => ({
+        preventDefault() { this.prevented = true; },
+        stopImmediatePropagation() { this.stopped = true; }
+    });
+    listeners.get('pointerdown')(pointer(120, 60));
+    documentListeners.get('pointerup')(pointer(120, 60));
+    const firstClick = click();
+    listeners.get('click')(firstClick);
+    assert.equal(firstClick.prevented, undefined);
+    assert.equal(reads.length, 0);
+
+    listeners.get('pointerdown')(pointer(120, 60));
+    documentListeners.get('pointermove')(pointer(420, 180));
+    const up = pointer(420, 180);
+    documentListeners.get('pointerup')(up);
+    assert.equal(up.prevented, true);
+    assert.equal(reads.length, 1);
+    assert.deepEqual(Array.from(['x', 'y', 'width', 'height'], key => reads[0][key]), [20, 20, 300, 120]);
+    const dragClick = click();
+    listeners.get('click')(dragClick);
+    assert.equal(dragClick.prevented, true);
+    assert.equal(dragClick.stopped, true);
+    assert.equal(box.hidden, true);
+    assert.equal(state.fullscreenOcrRegionSelection.box, box);
+
+    listeners.get('pointerdown')(pointer(120, 60));
+    documentListeners.get('pointerup')(pointer(120, 60));
+    const nextClick = click();
+    listeners.get('click')(nextClick);
+    assert.equal(nextClick.prevented, undefined);
+    assert.equal(reads.length, 1);
+    assert.equal(app.disableShiftPhotoCompareAnimationFullscreenOcrRegionSelection(), true);
+    assert.equal(box.removed, true);
+    assert.equal(listeners.size, 0);
+    assert.equal(documentListeners.size, 0);
+});

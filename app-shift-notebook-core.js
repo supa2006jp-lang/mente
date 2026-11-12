@@ -16123,7 +16123,7 @@
                 <button type="button" class="shift-photo-compare-image-ocr-btn shift-photo-compare-image-ocr-immediate-btn" onclick="app.readShiftPhotoCompareImageOcrImmediately()" title="編集画面を開かず、画像内の文字を認識してすぐに読み上げる"><i class="fa-solid fa-volume-high"></i><span>即時読上</span></button>
 <button type="button" class="shift-photo-compare-animation-avatar-toggle${speechSettings.avatarEnabled === false ? '' : ' active'}" onclick="app.toggleShiftPhotoCompareSpeechAvatar()" title="読み上げ中の口パクアバターを切り替える"><i class="fa-solid fa-face-smile"></i><span>アバ ${speechSettings.avatarEnabled === false ? 'OFF' : 'ON'}</span></button>
                 <button type="button" class="shift-photo-compare-animation-speech-settings-btn" onclick="app.toggleShiftPhotoCompareSpeechSettingsPanel()" title="アバターと音声の設定" aria-label="アバター設定"><i class="fa-solid fa-user-gear"></i><span>アバター設定</span></button>
-                <button type="button" class="shift-photo-compare-animation-fullscreen-btn" onclick="app.enterShiftPhotoCompareAnimationFullscreenMode()" title="操作表示を隠し、クリック・左右キー・スペースで再生"><i class="fa-solid fa-expand"></i><span>全画面</span></button>
+                <button type="button" class="shift-photo-compare-animation-fullscreen-btn" onclick="app.enterShiftPhotoCompareAnimationFullscreenMode()" title="全画面ではクリック・左右キー・スペースで再生、ドラッグで範囲を読み上げ"><i class="fa-solid fa-expand"></i><span>全画面</span></button>
                 <button type="button" class="shift-photo-compare-animation-back-btn" onclick="app.resetShiftPhotoCompareAnimation()" title="最初に戻す"><i class="fa-solid fa-rotate-left"></i><span>戻す</span></button>
             </div>
             <section class="shift-photo-compare-speech-settings hidden" aria-label="音声読み上げ設定">
@@ -16227,7 +16227,8 @@
         }, true);
         animationOverlay.addEventListener('click', event => {
             if (this._shiftPhotoCompareAnimationState?.ocrRegionSuppressClickUntil > Date.now()
-                && event.target.closest?.('.shift-photo-compare-animation-stage')) {
+                && (this._shiftPhotoCompareAnimationState.presentationMode
+                    || event.target.closest?.('.shift-photo-compare-animation-stage'))) {
                 event.preventDefault();
                 event.stopPropagation();
                 return;
@@ -16391,6 +16392,117 @@
         return true;
     }
 
+    enableShiftPhotoCompareAnimationFullscreenOcrRegionSelection() {
+        const state = this._shiftPhotoCompareAnimationState;
+        const stage = state?.overlay?.querySelector('.shift-photo-compare-animation-stage');
+        if (!state?.presentationMode || !stage) return false;
+        if (state.fullscreenOcrRegionSelection) return true;
+        const box = document.createElement('span');
+        box.className = 'shift-photo-compare-animation-ocr-region-box';
+        box.hidden = true;
+        stage.appendChild(box);
+        const selection = { stage, box, pointerId: null, start: null, gridRect: null, dragging: false };
+        const pointFromEvent = event => ({
+            x: Math.max(0, Math.min(selection.gridRect.width, event.clientX - selection.gridRect.left)),
+            y: Math.max(0, Math.min(selection.gridRect.height, event.clientY - selection.gridRect.top))
+        });
+        const reset = () => {
+            document.removeEventListener('pointermove', onPointerMove, true);
+            document.removeEventListener('pointerup', onPointerUp, true);
+            document.removeEventListener('pointercancel', onPointerCancel, true);
+            selection.pointerId = null;
+            selection.start = null;
+            selection.gridRect = null;
+            selection.dragging = false;
+            box.hidden = true;
+        };
+        selection.reset = reset;
+        const onPointerDown = event => {
+            if (this._shiftPhotoCompareAnimationState !== state || !state.presentationMode
+                || event.button !== 0 || event.isPrimary === false) return;
+            // A fresh gesture must not inherit the synthesized-click guard from the previous drag.
+            state.ocrRegionSuppressClickUntil = 0;
+            if (event.target.closest?.('.shift-photo-compare-video-seek-controls, .shift-photo-compare-video-finish, .photo-reveal-layer button, button, input, textarea, select, a')) return;
+            const gridRect = state.grid?.getBoundingClientRect();
+            if (!gridRect?.width || !gridRect?.height
+                || event.clientX < gridRect.left || event.clientX > gridRect.right
+                || event.clientY < gridRect.top || event.clientY > gridRect.bottom) return;
+            event.preventDefault();
+            if (selection.pointerId !== null) reset();
+            clearTimeout(state.presentationExitTimer);
+            selection.pointerId = event.pointerId;
+            selection.gridRect = gridRect;
+            selection.start = pointFromEvent(event);
+            selection.dragging = false;
+            document.addEventListener('pointermove', onPointerMove, true);
+            document.addEventListener('pointerup', onPointerUp, true);
+            document.addEventListener('pointercancel', onPointerCancel, true);
+        };
+        const onPointerMove = event => {
+            if (selection.pointerId !== event.pointerId || !selection.start) return;
+            const point = pointFromEvent(event);
+            if (!selection.dragging && Math.hypot(point.x - selection.start.x, point.y - selection.start.y) < 8) return;
+            if (!selection.dragging) selection.dragging = true;
+            event.preventDefault();
+            event.stopPropagation();
+            const stageRect = stage.getBoundingClientRect();
+            box.hidden = false;
+            box.style.left = `${selection.gridRect.left - stageRect.left + Math.min(selection.start.x, point.x)}px`;
+            box.style.top = `${selection.gridRect.top - stageRect.top + Math.min(selection.start.y, point.y)}px`;
+            box.style.width = `${Math.abs(point.x - selection.start.x)}px`;
+            box.style.height = `${Math.abs(point.y - selection.start.y)}px`;
+        };
+        const onPointerUp = event => {
+            if (selection.pointerId !== event.pointerId || !selection.start) return;
+            const point = pointFromEvent(event);
+            const dragging = selection.dragging;
+            const region = dragging ? {
+                x: Math.min(selection.start.x, point.x),
+                y: Math.min(selection.start.y, point.y),
+                width: Math.abs(point.x - selection.start.x),
+                height: Math.abs(point.y - selection.start.y),
+                displayedWidth: selection.gridRect.width,
+                displayedHeight: selection.gridRect.height
+            } : null;
+            reset();
+            if (!dragging) return;
+            event.preventDefault();
+            event.stopPropagation();
+            state.ocrRegionSuppressClickUntil = Date.now() + 500;
+            if (region.width >= 8 && region.height >= 8) {
+                void this.readShiftPhotoCompareAnimationOcrRegion(region, state);
+            }
+        };
+        const onPointerCancel = event => {
+            if (selection.pointerId === event.pointerId) reset();
+        };
+        const onClick = event => {
+            if (!(state.ocrRegionSuppressClickUntil > Date.now())) return;
+            state.ocrRegionSuppressClickUntil = 0;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        };
+        stage.addEventListener('pointerdown', onPointerDown, true);
+        stage.addEventListener('click', onClick, true);
+        selection.dispose = () => {
+            reset();
+            stage.removeEventListener('pointerdown', onPointerDown, true);
+            stage.removeEventListener('click', onClick, true);
+            box.remove();
+        };
+        state.fullscreenOcrRegionSelection = selection;
+        return true;
+    }
+
+    disableShiftPhotoCompareAnimationFullscreenOcrRegionSelection() {
+        const state = this._shiftPhotoCompareAnimationState;
+        if (!state?.fullscreenOcrRegionSelection) return false;
+        state.fullscreenOcrRegionSelection.dispose();
+        state.fullscreenOcrRegionSelection = null;
+        state.ocrRegionSuppressClickUntil = 0;
+        return true;
+    }
+
     toggleShiftPhotoCompareAnimationOcrRegionSelection() {
         const state = this._shiftPhotoCompareAnimationState;
         const stage = state?.overlay?.querySelector('.shift-photo-compare-animation-stage');
@@ -16521,7 +16633,9 @@
         const savedScale = Number(page.grid.dataset.animationScale);
         const hasSavedScale = Number.isFinite(savedScale) && savedScale > 0;
         const avatars = Array.from(stage.children).filter(child => child.classList.contains('shift-photo-compare-speech-avatar'));
+        state.fullscreenOcrRegionSelection?.reset?.();
         stage.replaceChildren(page.grid, ...avatars);
+        if (state.fullscreenOcrRegionSelection) stage.appendChild(state.fullscreenOcrRegionSelection.box);
         this.hydrateShiftPhotoCompareVideoMarks(page.grid);
         this.refreshShiftPhotoCompareAnimationPolylineArrows(page.grid);
         page.grid.style.transform = hasSavedScale ? `scale(${savedScale})` : '';
@@ -16905,10 +17019,12 @@
             clearInterval(state.timer);
             state.timer = null;
         }
+        this.cancelShiftPhotoCompareAnimationOcrRegionSelection();
         clearTimeout(state.presentationExitTimer);
         state.presentationMode = true;
         state.overlay.classList.add('shift-photo-compare-animation-presentation');
         this.resetShiftPhotoCompareAnimation();
+        this.enableShiftPhotoCompareAnimationFullscreenOcrRegionSelection();
         if (!state.presentationFullscreenHandler) {
             state.presentationFullscreenHandler = () => {
                 if (this._shiftPhotoCompareAnimationState === state
@@ -16932,6 +17048,7 @@
         const state = this._shiftPhotoCompareAnimationState;
         if (!state?.presentationMode) return;
         clearTimeout(state.presentationExitTimer);
+        this.disableShiftPhotoCompareAnimationFullscreenOcrRegionSelection();
         state.presentationMode = false;
         state.overlay.classList.remove('shift-photo-compare-animation-presentation');
         if (state.presentationFullscreenHandler) {
@@ -17110,6 +17227,7 @@
         }
         const compareOverlay = document.getElementById('shift-photo-compare-overlay');
         this.cancelShiftPhotoCompareAnimationOcrRegionSelection();
+        this.disableShiftPhotoCompareAnimationFullscreenOcrRegionSelection();
         document.getElementById('shift-photo-compare-selection-bounds')?.remove();
         if (state.videoRecording) {
             this.finishShiftPhotoCompareAnimationVideoRecording(state.videoRecording, true);

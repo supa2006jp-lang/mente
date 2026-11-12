@@ -25828,6 +25828,10 @@ select.history-assist-copied-value {
 .shift-photo-compare-animation-overlay.shift-photo-compare-animation-presentation .shift-photo-compare-animation-stage {
     padding: 0;
     background: #000000;
+    cursor: crosshair;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .shift-photo-compare-animation-topbar {
