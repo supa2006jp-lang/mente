@@ -3206,9 +3206,19 @@
                 const script = document.createElement('script');
                 script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
                 script.async = true;
-                script.onload = () => resolve(window.Tesseract || null);
+                script.onload = () => {
+                    const engine = window.Tesseract || null;
+                    if (!engine) {
+                        this._photoManagerTesseractPromise = null;
+                        this._lastPhotoManagerOcrError = 'OCRエンジンを読み込めませんでした。';
+                        script.remove();
+                    }
+                    resolve(engine);
+                };
                 script.onerror = () => {
-                    this._lastPhotoManagerOcrError = 'OCR繧ｨ繝ｳ繧ｸ繝ｳ繧定ｪｭ縺ｿ霎ｼ繧√∪縺帙ｓ縺ｧ縺励◆';
+                    this._photoManagerTesseractPromise = null;
+                    this._lastPhotoManagerOcrError = 'OCRエンジンを読み込めませんでした。通信状態を確認してください。';
+                    script.remove();
                     resolve(null);
                 };
                 document.head.appendChild(script);
@@ -3317,7 +3327,7 @@
             try {
                 const Tesseract = await this.loadPhotoManagerTesseract();
                 if (!Tesseract?.createWorker) {
-                    this._lastPhotoManagerOcrError = this._lastPhotoManagerOcrError || 'OCR繧ｨ繝ｳ繧ｸ繝ｳ縺御ｽｿ縺医∪縺帙ｓ縺ｧ縺励◆';
+                    this._lastPhotoManagerOcrError = this._lastPhotoManagerOcrError || 'OCRエンジンを利用できませんでした。';
                     return '';
                 }
                 worker = await Tesseract.createWorker('jpn+eng', 1);
@@ -3344,7 +3354,7 @@
                 return bestText;
             } catch (error) {
                 console.warn('Photo manager Tesseract OCR failed', error);
-                this._lastPhotoManagerOcrError = error?.message || 'OCR蜃ｦ逅・↓螟ｱ謨励＠縺ｾ縺励◆';
+                this._lastPhotoManagerOcrError = error?.message || 'OCR処理に失敗しました。';
                 return '';
             } finally {
                 if (worker) {
@@ -3373,6 +3383,215 @@
             this._lastPhotoManagerOcrText = tesseractText.trim();
             this._lastPhotoManagerOcrSource = tesseractText.trim() ? 'Tesseract' : '';
             return tesseractText;
+        }
+
+        getShiftPhotoCompareImageOcrSources() {
+            const animation = this._shiftPhotoCompareAnimationState;
+            const grid = animation?.overlay?.isConnected
+                ? animation.grid
+                : document.querySelector('#shift-photo-compare-overlay .shift-photo-compare-grid');
+            if (!grid) return [];
+            const sources = [];
+            const seen = new Set();
+            const add = (src, label, preferred = false) => {
+                const value = String(src || '').trim();
+                if (!value || seen.has(value)) return;
+                seen.add(value);
+                sources.push({ src: value, label, preferred });
+            };
+            grid.querySelectorAll('.shift-photo-compare-item .shift-photo-compare-image-wrap').forEach((wrap, index) => {
+                const img = wrap.querySelector(':scope > img');
+                const caption = wrap.closest('.shift-photo-compare-item')
+                    ?.querySelector('.shift-photo-compare-caption')?.textContent?.trim() || '';
+                add(img?.getAttribute('src') || img?.currentSrc || img?.src,
+                    `元写真 ${index + 1}${caption ? `：${caption}` : ''}`);
+            });
+            grid.querySelectorAll('.shift-photo-compare-mark.image').forEach((mark, index) => {
+                const img = mark.querySelector(':scope > img');
+                const name = String(mark.dataset.animationName || mark.title || '').trim();
+                add(img?.getAttribute('src') || mark.dataset.imageSrc || img?.src,
+                    `画像スタンプ ${index + 1}${name ? `：${name}` : ''}`,
+                    mark.classList.contains('selected'));
+            });
+            return sources;
+        }
+
+        closeShiftPhotoCompareImageOcrSpeechDialog() {
+            const dialog = document.getElementById('shift-photo-compare-image-ocr-dialog');
+            if (!dialog) return false;
+            if (typeof dialog._closeOcrSpeechDialog === 'function') dialog._closeOcrSpeechDialog();
+            else dialog.remove();
+            return true;
+        }
+
+        openShiftPhotoCompareImageOcrSpeechDialog() {
+            const sources = this.getShiftPhotoCompareImageOcrSources();
+            if (!sources.length) {
+                this.showPhotoManagerNotice('読み取れる画像がありません。');
+                return;
+            }
+            const animation = this._shiftPhotoCompareAnimationState?.overlay?.isConnected
+                ? this._shiftPhotoCompareAnimationState
+                : null;
+            const editor = animation ? null : document.getElementById('shift-photo-compare-overlay');
+            const activeGrid = animation?.grid || editor?.querySelector('.shift-photo-compare-grid');
+            const contextIsCurrent = () => animation
+                ? this._shiftPhotoCompareAnimationState === animation && animation.overlay.isConnected && animation.grid === activeGrid
+                : document.getElementById('shift-photo-compare-overlay') === editor && !!activeGrid?.isConnected;
+            this.closeShiftPhotoCompareImageOcrSpeechDialog();
+            const cache = this._shiftPhotoCompareImageOcrSpeechCache instanceof Map
+                ? this._shiftPhotoCompareImageOcrSpeechCache
+                : (this._shiftPhotoCompareImageOcrSpeechCache = new Map());
+            const dialog = document.createElement('div');
+            dialog.id = 'shift-photo-compare-image-ocr-dialog';
+            dialog.className = 'shift-photo-compare-image-ocr-dialog';
+            dialog.innerHTML = `
+                <div class="shift-photo-compare-image-ocr-card" role="dialog" aria-modal="true" aria-label="画像内文字の読み上げ">
+                    <header><strong><i class="fa-solid fa-volume-high"></i> 画像内文字の読み上げ</strong><button type="button" data-ocr-close aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button></header>
+                    <p>写真や画像スタンプ自体に写っている文字を認識します。結果をそのまま、または修正して読み上げられます。</p>
+                    <label class="shift-photo-compare-image-ocr-source">対象画像<select aria-label="読み取る画像"></select></label>
+                    <div class="shift-photo-compare-image-ocr-preview"><img alt="読み取る画像"></div>
+                    <label class="shift-photo-compare-image-ocr-text">認識した文字<textarea maxlength="6000" placeholder="ここに文字を入力して読み上げることもできます"></textarea></label>
+                    <div class="shift-photo-compare-image-ocr-status" role="status" aria-live="polite"></div>
+                    <div class="shift-photo-compare-image-ocr-actions">
+                        <button type="button" data-ocr-retry><i class="fa-solid fa-rotate"></i> 再認識</button>
+                        <button type="button" data-ocr-read-as-is class="primary"><i class="fa-solid fa-volume-high"></i> そのまま読上</button>
+                        <button type="button" data-ocr-read><i class="fa-solid fa-pen"></i> 編集内容を読上</button>
+                        <button type="button" data-ocr-stop><i class="fa-solid fa-stop"></i> 停止</button>
+                        <button type="button" data-ocr-close>閉じる</button>
+                    </div>
+                </div>`;
+            const select = dialog.querySelector('select');
+            const preview = dialog.querySelector('.shift-photo-compare-image-ocr-preview img');
+            const textarea = dialog.querySelector('textarea');
+            const status = dialog.querySelector('.shift-photo-compare-image-ocr-status');
+            const retryButton = dialog.querySelector('[data-ocr-retry]');
+            const readAsIsButton = dialog.querySelector('[data-ocr-read-as-is]');
+            const readButton = dialog.querySelector('[data-ocr-read]');
+            sources.forEach((source, index) => {
+                const option = document.createElement('option');
+                option.value = String(index);
+                option.textContent = source.label;
+                select.appendChild(option);
+            });
+            select.value = String(Math.max(0, sources.findIndex(source => source.preferred)));
+            let requestId = 0;
+            let reading = false;
+            let recognizing = false;
+            let contextMonitor = 0;
+            const source = () => sources[Number(select.value)] || sources[0];
+            const setStatus = (message, kind = '') => {
+                status.textContent = message;
+                status.dataset.state = kind;
+            };
+            const updateButtons = () => {
+                readButton.disabled = recognizing || !textarea.value.trim();
+                readAsIsButton.disabled = recognizing || !cache.get(source().src)?.recognized?.trim();
+                retryButton.disabled = recognizing;
+            };
+            const remember = (src, text, recognized = false) => {
+                const prior = cache.get(src) || { recognized: '', draft: '' };
+                const value = String(text || '').slice(0, 6000);
+                cache.delete(src);
+                cache.set(src, { recognized: recognized ? value : prior.recognized, draft: value });
+                if (cache.size > 24) cache.delete(cache.keys().next().value);
+            };
+            const stop = () => {
+                if (reading) this.cancelShiftPhotoCompareSpeech?.();
+                reading = false;
+            };
+            const close = () => {
+                requestId += 1;
+                if (contextMonitor) window.clearInterval(contextMonitor);
+                stop();
+                dialog.remove();
+            };
+            dialog._closeOcrSpeechDialog = close;
+            const speak = text => {
+                const spoken = String(text || '').trim();
+                if (!spoken) return;
+                stop();
+                reading = !!this.speakShiftPhotoCompareAnimationMarks?.([{ dataset: { mode: 'imageOcr', text: spoken } }], { force: true });
+                setStatus(reading ? '読み上げています。' : '読み上げを開始できませんでした。', reading ? 'success' : 'error');
+            };
+            const recognize = async (force = false) => {
+                stop();
+                const target = source();
+                const currentId = ++requestId;
+                if (!force && cache.has(target.src)) {
+                    textarea.value = cache.get(target.src).draft;
+                    setStatus(textarea.value.trim() ? '認識済みの文字を表示しました。' : '文字を認識できませんでした。必要なら入力してください。');
+                    updateButtons();
+                    return;
+                }
+                recognizing = true;
+                setStatus('画像内の文字を認識しています…');
+                updateButtons();
+                try {
+                    if (force) this._lastPhotoManagerOcrError = '';
+                    const result = force
+                        ? await this.readPhotoManagerImageTextWithTesseract({ src: target.src })
+                        : await this.getPhotoManagerImageText({ src: target.src });
+                    if (!dialog.isConnected || !contextIsCurrent() || currentId !== requestId || source() !== target) return;
+                    const recognized = String(result || '').trim().slice(0, 6000);
+                    if (recognized) {
+                        textarea.value = recognized;
+                        remember(target.src, recognized, true);
+                        setStatus('認識結果をそのまま読み上げられます。必要なら文字を修正できます。', 'success');
+                    } else {
+                        if (!force) {
+                            textarea.value = '';
+                            remember(target.src, '', true);
+                        }
+                        setStatus(this._lastPhotoManagerOcrError || '文字を認識できませんでした。必要なら入力してください。', 'error');
+                    }
+                } catch (error) {
+                    if (dialog.isConnected && contextIsCurrent() && currentId === requestId && source() === target) {
+                        setStatus(error?.message || '文字の認識に失敗しました。', 'error');
+                    }
+                } finally {
+                    if (dialog.isConnected && contextIsCurrent() && currentId === requestId && source() === target) {
+                        recognizing = false;
+                        updateButtons();
+                    }
+                }
+            };
+            select.addEventListener('change', () => {
+                requestId += 1;
+                recognizing = false;
+                stop();
+                preview.src = source().src;
+                textarea.value = '';
+                recognize();
+            });
+            textarea.addEventListener('input', () => {
+                requestId += 1;
+                recognizing = false;
+                stop();
+                remember(source().src, textarea.value);
+                setStatus(textarea.value.trim() ? '修正した文字を読み上げできます。' : '読み上げる文字を入力してください。');
+                updateButtons();
+            });
+            retryButton.addEventListener('click', () => recognize(true));
+            readAsIsButton.addEventListener('click', () => speak(cache.get(source().src)?.recognized));
+            readButton.addEventListener('click', () => speak(textarea.value));
+            dialog.querySelector('[data-ocr-stop]').addEventListener('click', () => {
+                stop();
+                setStatus('読み上げを停止しました。');
+            });
+            dialog.querySelectorAll('[data-ocr-close]').forEach(button => button.addEventListener('click', close));
+            dialog.addEventListener('click', event => {
+                if (event.target === dialog) close();
+                event.stopPropagation();
+            });
+            dialog.addEventListener('keydown', event => {
+                if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
+            });
+            (animation?.overlay || document.body).appendChild(dialog);
+            contextMonitor = window.setInterval(() => { if (!contextIsCurrent()) close(); }, 250);
+            preview.src = source().src;
+            select.focus();
+            recognize();
         }
 
         getPhotoManagerOcrNoticeSuffix() {

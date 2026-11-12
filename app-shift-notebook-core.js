@@ -9550,6 +9550,9 @@
     }
 
     getShiftPhotoCompareSpeechText(mark) {
+        if (mark?.dataset?.mode === 'imageOcr') {
+            return String(mark.dataset.text || '').replace(/\s+/g, ' ').trim();
+        }
         if (!mark || !['boxedText', 'callout'].includes(mark.dataset.mode || '')) return '';
         return this.getShiftPhotoCompareLiveText(mark)
             .replace(/<br\s*\/?>/gi, ' ')
@@ -11808,7 +11811,6 @@
         const marks = allItems
             .filter(item => item.order > 0 && !syncControlledPhotoMarks.has(item.mark))
             .sort((a, b) => a.order - b.order || a.index - b.index);
-        if (!marks.length) return null;
         const baseSteps = this.buildShiftPhotoCompareAnimationBaseSteps(marks);
         const animatedMarkSet = new Set([...marks.map(item => item.mark), ...syncControlledPhotoMarks]);
         allItems.forEach(item => {
@@ -16116,6 +16118,7 @@
                 <button type="button" class="shift-photo-compare-animation-direct-video-btn" onclick="app.saveShiftPhotoCompareAnimationDirectVideo()" title="画面選択を使わず、アニメ部分を直接動画として保存"><i class="fa-solid fa-film"></i><span>直接動画</span></button>
                 <button type="button" class="shift-photo-compare-animation-manual-video-btn" onclick="app.toggleShiftPhotoCompareAnimationManualVideo()" title="クリックしたタイミングで進めた流れを動画として保存"><i class="fa-solid fa-record-vinyl"></i><span>クリック録画</span></button>
                 <button type="button" class="shift-photo-compare-animation-speech-toggle${speechSettings.enabled ? ' active' : ''}" onclick="app.toggleShiftPhotoCompareAnimationSpeech()" title="テキストの音声読み上げを切り替える"><i class="fa-solid fa-volume-high"></i><span>読上 ${speechSettings.enabled ? 'ON' : 'OFF'}</span></button>
+                <button type="button" class="shift-photo-compare-image-ocr-btn" onclick="app.openShiftPhotoCompareImageOcrSpeechDialog()" title="画像内の文字を認識して読み上げる"><i class="fa-solid fa-file-audio"></i><span>画像文字</span></button>
 <button type="button" class="shift-photo-compare-animation-avatar-toggle${speechSettings.avatarEnabled === false ? '' : ' active'}" onclick="app.toggleShiftPhotoCompareSpeechAvatar()" title="読み上げ中の口パクアバターを切り替える"><i class="fa-solid fa-face-smile"></i><span>アバ ${speechSettings.avatarEnabled === false ? 'OFF' : 'ON'}</span></button>
                 <button type="button" class="shift-photo-compare-animation-speech-settings-btn" onclick="app.toggleShiftPhotoCompareSpeechSettingsPanel()" title="アバターと音声の設定" aria-label="アバター設定"><i class="fa-solid fa-user-gear"></i><span>アバター設定</span></button>
                 <button type="button" class="shift-photo-compare-animation-fullscreen-btn" onclick="app.enterShiftPhotoCompareAnimationFullscreenMode()" title="操作表示を隠し、クリック・左右キー・スペースで再生"><i class="fa-solid fa-expand"></i><span>全画面</span></button>
@@ -16369,6 +16372,7 @@
         const page = state?.pages?.[pageIndex];
         const stage = state?.overlay?.querySelector?.('.shift-photo-compare-animation-stage');
         if (!state || !page || !stage) return false;
+        if (state.pageIndex !== pageIndex) this.closeShiftPhotoCompareImageOcrSpeechDialog?.();
         (state.marks || []).forEach(item => this.cancelShiftPhotoCompareAnimationRoundTripAnimation(item.mark));
         if (state.grid && state.grid !== page.grid) this.stopShiftPhotoCompareAnimationVideos(state.grid);
         if (state.pageIndex !== pageIndex) state.timelineSelectedItems = new Set();
@@ -16976,6 +16980,7 @@
             this.finishShiftPhotoCompareAnimationVideoRecording(state.videoRecording, true);
         }
         if (state.timer) clearInterval(state.timer);
+        this.closeShiftPhotoCompareImageOcrSpeechDialog?.();
         this.closeShiftPhotoCompareAnimationPageAudioMenu();
         this.closeShiftPhotoCompareAnimationPageRecordingDialog();
         this.cancelShiftPhotoCompareSpeech();
@@ -18878,8 +18883,11 @@
                             <button type="button" class="shift-photo-compare-animation-auto-order-btn" onclick="app.autoOrderShiftPhotoCompareAnimationMarks()" title="全記号を上から下・左から右の順に自動採番" aria-label="記号を自動採番">
                                 <i class="fa-solid fa-arrow-down-1-9"></i><span>自動順</span>
                             </button>
-                            <button type="button" class="shift-photo-compare-animation-play-btn" onclick="app.playShiftPhotoCompareAnimation()" title="順番を付けた記号を全画面でアニメ再生">
+                            <button type="button" class="shift-photo-compare-animation-play-btn" onclick="app.playShiftPhotoCompareAnimation()" title="順序なしでもアニメページを開き、順序や音声を設定">
                                 <i class="fa-solid fa-play"></i><span>アニメ</span>
+                            </button>
+                            <button type="button" class="shift-photo-compare-image-ocr-btn" onclick="app.openShiftPhotoCompareImageOcrSpeechDialog()" title="画像内の文字を認識して読み上げる">
+                                <i class="fa-solid fa-file-audio"></i><span>画像文字</span>
                             </button>
                             <div class="shift-photo-compare-color-presets shift-photo-compare-mark-color-presets" title="記号色プリセット">
                                 <div class="shift-photo-compare-mark-color-preset-list">
@@ -45834,6 +45842,7 @@
     }
 
     async closeShiftPhotoCompare() {
+        this.closeShiftPhotoCompareImageOcrSpeechDialog?.();
         this.closeShiftPhotoCompareImageContextMenu();
         this.removeAllShiftPhotoCompareAnimationEndpointOrderBadges();
         this.cancelShiftPhotoCompareEyedropper?.();
