@@ -538,3 +538,13 @@ button.form-control-point.invalid { background:#bc2634; }
 [data-support-zone-picking] canvas { cursor:crosshair; }
 [data-support-zone-picking] :is([data-support-roof-labels],[data-support-rib-labels],[data-support-face-labels],[data-support-clearance-marker]),
 [data-support-rib-picking] [data-support-clearance-marker] { visibility:hidden !important; }
+.support-zone-placement {
+ position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:38;
+ display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; width:max-content; max-width:calc(100% - 24px);
+ padding:8px 10px; color:#35224b; background:#fbf5ff; border:1px solid #9e73c4;
+ border-radius:8px; box-shadow:0 3px 12px #28193d30;
+}
+.support-zone-placement[hidden] { display:none; }
+.support-zone-placement > div { display:flex; flex-wrap:wrap; gap:6px; }
+.support-zone-placement button { padding:5px 9px; color:#472068; background:#f1e6fb; border-color:#aa83cc; }
+.support-zone-placement [data-zone-action="confirm"] { color:white; background:#722ba4; border-color:#722ba4; font-weight:700; }

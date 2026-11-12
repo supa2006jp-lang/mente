@@ -56,7 +56,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  const currentBatch=()=>[...batchEntries.values()].filter(entry=>entry.result&&batchPanel.selected.has(entry.input.target));
  const batchExportCount=()=>currentBatch().filter(entry=>entry.result.supportPreview?.exportStatus?.ok).length;
  const overridesFor=target=>faceOverrides.get(target)||[];
- const coverageView=createSupportCoverageView({anchor:exportState,host,canvas,camera,scene,bodyName,onSave(row,values){
+ const coverageView=createSupportCoverageView({anchor:exportState,host,canvas,camera,scene,bodyName,onSave(row,values,message){
   const target=row.selection.bodyId;
   const same=selection=>JSON.stringify(selection.point)===JSON.stringify(row.selection.point);
   const rows=overridesFor(target).filter(entry=>!same(entry.selection));
@@ -64,7 +64,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   if(Object.keys(settings).length)rows.push({selection:row.selection,...settings});
   try{validatePrintSupport({...spec(),target,mode:'auto',faceOverrides:rows});}
   catch(error){$('error').textContent=error.message;return;}
-  faceOverrides.set(target,rows);$('target').value=target;resetStructure();schedule();
+  faceOverrides.set(target,rows);$('target').value=target;resetStructure();schedule();if(message)notify(message);
  },onReset(target){faceOverrides.delete(target);resetStructure();schedule();}});
  const faceView=createSupportFaceView({scene,host,meshes,camera});
  const ribView=createSupportRibView({host,canvas,camera,onToggle:toggleRib});

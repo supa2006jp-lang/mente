@@ -62,8 +62,16 @@ try{
  await setView('0,0,1');
  await pickZone.click();
  assert.equal(await host.getAttribute('data-support-zone-picking'),'point');
+ const confirm=host.getByRole('button',{name:'この範囲を確定'});
+ assert(await confirm.isDisabled());
+ await page.mouse.click(...await screen([20,34,50]));
+ assert.match(await host.locator('.support-zone-placement [role=status]').textContent(),/選んだ下面と重なる/);
+ assert(await confirm.isDisabled());
  const point=await screen([20,10,50]);
  await page.mouse.move(...point);await page.mouse.click(...point);
+ assert(await confirm.isEnabled());
+ assert.equal(await coverage.getByRole('button',{name:/除外 1 を解除/}).count(),0);
+ await confirm.click();
  await coverage.getByRole('button',{name:/除外 1 を解除（0.1 × 0.2 mm）/}).waitFor();
  await ready();assert.equal(await host.getAttribute('data-support-zone-picking'),null);
  await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});

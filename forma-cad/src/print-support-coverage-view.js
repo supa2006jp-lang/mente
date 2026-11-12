@@ -6,7 +6,11 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  const get=key=>panel.querySelector('[data-coverage="'+key+'"]');
  const labels=document.createElement('div');
  labels.style.cssText='position:absolute;inset:0;pointer-events:none;overflow:hidden';
- host.append(labels);anchor.before(panel);
+ const placement=document.createElement('div');
+ placement.className='support-zone-placement';
+ placement.innerHTML='<span role="status"></span><div><button type="button" data-zone-action="cancel">やめる</button><button type="button" data-zone-action="confirm">この範囲を確定</button></div>';
+ const placementStatus=placement.querySelector('span'),cancel=placement.querySelector('[data-zone-action="cancel"]'),confirm=placement.querySelector('[data-zone-action="confirm"]');
+ host.append(labels,placement);anchor.before(panel);
  const display=get('show'),select=get('face'),edit=get('edit'),reset=get('reset'),warning=get('warning'),zones=get('zones'),projected=new THREE.Vector3();
  const ray=new THREE.Raycaster(),plane=new THREE.Plane(new THREE.Vector3(0,0,1)),corner=new THREE.Vector3(),cursor=new THREE.Vector3();
  const contourLines=new Map();
@@ -14,9 +18,13 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  let pointSize=[2,2];
  const fields=[['wallPitch','薄壁の間隔 (mm)',2,15,'any'],['roofLayers','上面の薄皮 (層)',1,6,1],['bottomSkinLayers','底面の薄皮 (層)',1,6,1]];
  function visibility(){
-  if(group){group.visible=!muted;areas.visible=display.checked;for(const [index,lines] of contourLines)
-   for(const line of lines)line.visible=display.checked||rows[index].showBoundaryWarnings===true;}
+  if(group){group.visible=!muted;areas.visible=display.checked||!!draw;
+   for(const area of areas.children)area.visible=!draw||area.userData.coverageRow===draw.row;
+   for(const [index,lines] of contourLines)for(const line of lines)
+    line.visible=!draw&&(display.checked||rows[index].showBoundaryWarnings===true);
+  }
   labels.hidden=!display.checked||muted||!!draw;
+  placement.hidden=!draw;
  }
  function clear(){
   stopDrawing();
@@ -97,6 +105,20 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   if(outline){outline.removeFromParent();outline.geometry.dispose();outline.material.dispose();outline=null;}
   visibility();
  }
+ function showPlacement(message){
+  placementStatus.textContent=message;
+  confirm.disabled=!draw?.zone;
+ }
+ cancel.onclick=()=>{if(draw)focus(rows.indexOf(draw.row));};
+ function confirmPlacement(){
+  if(!draw)return false;
+  const {row,zone}=draw;
+  if(!zone)return true;
+  focus(rows.indexOf(row));
+  onSave(row,{...row.override,noSupport:[...(row.override.noSupport||[]),zone]},'除外範囲を確定しました');
+  return true;
+ }
+ confirm.onclick=confirmPlacement;
  function renderZones(row){
   const ranges=row.override.noSupport||[],boxButton=document.createElement('button'),pointButton=document.createElement('button'),note=document.createElement('small');
   const sizeFields=['除外範囲の横幅 (mm)','除外範囲の奥行き (mm)'].map((name,axis)=>{
@@ -116,12 +138,13 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
    if(busy||ranges.length>=8)return;
    if(draw){focus(rows.indexOf(row));return;}
    if(mode==='point'&&sizeFields.some(({input})=>!input.reportValidity()))return;
-   draw={row,note,mode,size:[...pointSize],started:false};
+   draw={row,mode,size:[...pointSize],started:false,zone:null};
    host.dataset.supportZonePicking=mode;
    display.checked=true;visibility();
    for(const control of [boxButton,pointButton,...sizeFields.map(({input})=>input)])control.disabled=control!==button;
    button.textContent='範囲指定をやめる';
-   note.textContent=mode==='point'?'画面で除外したい範囲の中心をクリックしてください。':'画面で範囲の始点と対角点をクリックしてください。';
+   note.textContent='画面で範囲を指定し、「この範囲を確定」を押します。';
+   showPlacement(mode==='point'?'除外したい箇所の中心をクリック':'除外範囲の最初の角をクリック');
   };
   boxButton.onclick=()=>start('box',boxButton);
   pointButton.onclick=()=>start('point',pointButton);
@@ -151,32 +174,48 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   }
   return [Math.min(corner.x,x),Math.min(corner.y,y),Math.max(corner.x,x),Math.max(corner.y,y)];
  }
- canvas.addEventListener('pointermove',event=>{
-  if(!draw||(!draw.started&&draw.mode==='box')||!project(event)){
-   if(outline)outline.visible=false;
-   return;
-  }
-  const [x0,y0,x1,y1]=currentZone(),z=cursor.z;
+ function showOutline([x0,y0,x1,y1],color){
+  const z=draw.row.selection.point[2];
   const points=[[x0,y0,z],[x1,y0,z],[x1,y1,z],[x0,y1,z]];
   if(!outline){
    outline=new THREE.LineLoop(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(12),3)),
     new THREE.LineBasicMaterial({color:0xd33791,depthTest:false,depthWrite:false}));
    outline.renderOrder=24;outline.frustumCulled=false;scene.add(outline);
   }
+  outline.material.color.setHex(color);
   outline.visible=true;
   const position=outline.geometry.attributes.position;
   points.forEach((point,i)=>position.setXYZ(i,...point));position.needsUpdate=true;
+ }
+ canvas.addEventListener('pointermove',event=>{
+  if(!draw||draw.zone)return;
+  if((!draw.started&&draw.mode==='box')||!project(event)){
+   if(outline)outline.visible=false;
+   return;
+  }
+  showOutline(currentZone(),0xd33791);
  });
- canvas.addEventListener('pointerleave',()=>{if(outline)outline.visible=false;});
+ canvas.addEventListener('pointerleave',()=>{if(outline&&!draw?.zone)outline.visible=false;});
  function pick(event){
   if(!draw)return false;
-  if(!project(event)){draw.note.textContent='下面が見えるように視点を回転してください。';return true;}
-  if(draw.mode==='box'&&!draw.started){corner.copy(cursor);draw.started=true;draw.note.textContent='対角点をクリックしてください。';return true;}
+  if(!project(event)){showPlacement('選んだ下面が見えるよう、少し斜めに回転してください');return true;}
+  if(draw.mode==='box'&&(!draw.started||draw.zone)){
+   corner.copy(cursor);draw.started=true;draw.zone=null;
+   if(outline)outline.visible=false;
+   showPlacement('反対側の角をクリック');return true;
+  }
   const zone=currentZone().map(value=>Number(value.toFixed(4)));
-  const {row,note}=draw;
-  if(zone[2]-zone[0]<.1-1e-9||zone[3]-zone[1]<.1-1e-9){note.textContent='縦横0.1 mm以上の範囲を指定してください。';return true;}
-  if(!intersectsFace(zone,row.face)){note.textContent='選んだ下面と重なる範囲を指定してください。';return true;}
-  focus(rows.indexOf(row));onSave(row,{...row.override,noSupport:[...(row.override.noSupport||[]),zone]});return true;
+  draw.zone=null;
+  if(zone[2]-zone[0]<.1-1e-9||zone[3]-zone[1]<.1-1e-9){showPlacement('縦横0.1 mm以上になる位置をクリック');return true;}
+  if(!intersectsFace(zone,draw.row.face)){
+   showOutline(zone,0xc05213);
+   showPlacement('選んだ下面と重なる位置をクリック');return true;
+  }
+  draw.zone=zone;
+  showOutline(zone,0x8628b7);
+  showPlacement(draw.mode==='point'?'この位置で除外できます。クリックで指定し直せます。':'この範囲を除外できます。描き直す場合は最初の角をクリック。');
+  confirm.focus({preventScroll:true});
+  return true;
  }
  function intersectsFace(zone,{vertices,triangles}){
   const planes=[[0,zone[0],1],[1,zone[1],1],[0,zone[2],-1],[1,zone[3],-1]];
@@ -207,7 +246,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
     if(!mesh)return;
     const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(mesh.vertices,3)).setIndex(mesh.triangles);
     const material=new THREE.MeshBasicMaterial({color,side:THREE.DoubleSide,transparent:true,opacity:.8,depthTest:false,depthWrite:false});
-    const part=new THREE.Mesh(geometry,material);part.renderOrder=19+layer;areas.add(part);
+    const part=new THREE.Mesh(geometry,material);part.renderOrder=19+layer;part.userData.coverageRow=row;areas.add(part);
    };
    add(row.face,row.suppressed?0x818995:row.supported===true?0x15a97d:0x347fd0,0);
    if(!row.suppressed&&row.supported!==true)add(row.supported,0x15a97d,1);
