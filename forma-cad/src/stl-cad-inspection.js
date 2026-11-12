@@ -7,8 +7,9 @@ import {canonicalStlCadVertices} from './stl-cad-vertices.js';
 
 // Every attempt deserializes independently. Never alter the document BREP,
 // offset surfaces, fill a hole, fuse parts or modify the CAD topology to repair STL.
-export function inspectCadStl(body,{onProgress,meshShape=cadMesh,includeComponents=false}={}){
+export function inspectCadStl(body,{onProgress,meshShape=cadMesh,includeComponents=false,includeIssueSegments=false}={}){
  let first=null,best=null,bestScore=Infinity,attempts=0;
+ const auditOptions={includeComponents,includeIssueSegments};
  for(const [attempt,options]of [STL_MESH,{tolerance:.01,angularTolerance:.08},{tolerance:.03,angularTolerance:.1}].entries()){
   let shape;attempts++;
   try{
@@ -16,9 +17,9 @@ export function inspectCadStl(body,{onProgress,meshShape=cadMesh,includeComponen
    const analyzer=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);let valid;try{valid=analyzer.IsValid();}finally{analyzer.delete();}
    if(!valid)return {output:null,report:{id:body.id,ok:false,complete:true,triangles:0,removedDegenerate:0,issues:[{code:'invalid-cad'}],segments:[],attempts:attempt+1,repaired:false}};
    onProgress?.({stage:attempt?'STLの面を作り直して再検査しています':'STLの隙間・面の欠落を検査しています',bodyId:body.id});
-   R.getOC().BRepTools.Clean(shape.wrapped,true);let mesh=meshShape(shape,options),audit=inspectStlMesh(mesh,{includeComponents}),adjustedVertices=0;const surfaceComplete=solidMeshComplete(shape,mesh),originalIssues=audit.issues;
+   R.getOC().BRepTools.Clean(shape.wrapped,true);let mesh=meshShape(shape,options),audit=inspectStlMesh(mesh,auditOptions),adjustedVertices=0;const surfaceComplete=solidMeshComplete(shape,mesh),originalIssues=audit.issues;
    if(surfaceComplete&&audit.counts.boundary){
-    try{const canonical=canonicalStlCadVertices(shape,mesh);if(canonical.adjustedVertices&&solidMeshComplete(shape,canonical.mesh)){mesh=canonical.mesh;adjustedVertices=canonical.adjustedVertices;audit=inspectStlMesh(mesh,{includeComponents});}}catch{}
+    try{const canonical=canonicalStlCadVertices(shape,mesh);if(canonical.adjustedVertices&&solidMeshComplete(shape,canonical.mesh)){mesh=canonical.mesh;adjustedVertices=canonical.adjustedVertices;audit=inspectStlMesh(mesh,auditOptions);}}catch{}
    }
    if(!surfaceComplete){audit.issues.push({code:'missing-surface'});audit.ok=false;}
    const {cleanTriangles,...details}=audit,report={id:body.id,...details,surfaceComplete,attempts:attempt+1,repaired:false};

@@ -19,7 +19,7 @@ export function installKernelActivityView({host,onFailure,onSuccess}){
   if(!timer)timer=setInterval(render,1000);
  }
  subscribeKernelActivity(event=>{
-  if(event.state==='deferred'||['drawingCoordinates','printLayoutInfo'].includes(event.spec?.type)||!event.spec)return;
+  if(event.state==='deferred'||['drawingCoordinates','printLayoutInfo','geometryHistoryTrace'].includes(event.spec?.type)||!event.spec)return;
   const id=key(event);
   if(['completed','error','cancelled'].includes(event.state)){jobs.delete(id);if(event.spec.type==='machiningValueTrial'){render();return;}if(event.state==='error'&&(event.error?.code!=='timeout'||event.started))onFailure?.(event.error,event.spec,event.features);if(event.state==='completed')onSuccess?.();}
   else jobs.set(id,{...(jobs.get(id)||{}),...event});render();

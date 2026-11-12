@@ -20,7 +20,7 @@ function stlComponents(points,vertexIds,indices,edges,parents){
 
 // Check the actual Float32 coordinates written to binary STL, per body.
 // Do not weld nearby points: a small intentional gap must remain a gap.
-export function inspectStlMesh(mesh,{maxTriangles=400000,maxSegments=300,includeComponents=false}={}){
+export function inspectStlMesh(mesh,{maxTriangles=400000,maxSegments=300,includeComponents=false,includeIssueSegments=false}={}){
  const v=mesh.vertices,t=mesh.triangles,issues=[],segments=[],counts={boundary:0,nonmanifold:0,orientation:0,duplicate:0};
  const failure=code=>({ok:false,complete:true,triangles:0,removedDegenerate:0,counts,issues:[{code}],segments,volume:0});
  if(!Array.isArray(v)||!Array.isArray(t)||!v.length||v.length%3||!t.length||t.length%3)return failure('invalid-mesh');
@@ -36,10 +36,11 @@ export function inspectStlMesh(mesh,{maxTriangles=400000,maxSegments=300,include
   const aa=a.map((x,k)=>x-origin[k]),bb=b.map((x,k)=>x-origin[k]),cc=c.map((x,k)=>x-origin[k]);volume+=(aa[0]*(bb[1]*cc[2]-bb[2]*cc[1])+aa[1]*(bb[2]*cc[0]-bb[0]*cc[2])+aa[2]*(bb[0]*cc[1]-bb[1]*cc[0]))/6;
   for(let j=0;j<3;j++){const x=abc[j],y=abc[(j+1)%3],lo=Math.min(x,y),hi=Math.max(x,y),key=lo+','+hi;let e=edges.get(key);if(!e){e={a:lo,b:hi,count:0,sign:0};edges.set(key,e);}if(parents){if(!e.count)e.first=index;else if(e.count===1)e.second=index;}e.count++;e.sign+=x<y?1:-1;}
  }
- for(const e of edges.values()){const code=e.count===1?'boundary':e.count>2?'nonmanifold':e.sign!==0?'orientation':null;if(!code)continue;counts[code]++;if(segments.length<maxSegments*6)segments.push(...points[e.a],...points[e.b]);}
+ const issueSegments=includeIssueSegments?{boundary:[],nonmanifold:[],orientation:[]}:null;
+ for(const e of edges.values()){const code=e.count===1?'boundary':e.count>2?'nonmanifold':e.sign!==0?'orientation':null;if(!code)continue;counts[code]++;if(segments.length<maxSegments*6)segments.push(...points[e.a],...points[e.b]);if(issueSegments&&issueSegments[code].length<maxSegments*6)issueSegments[code].push(...points[e.a],...points[e.b]);}
  for(const code of Object.keys(counts))if(counts[code])issues.push({code,count:counts[code]});
  if(!clean.length)issues.push({code:'empty-mesh'});else if(!issues.length&&!(volume>0))issues.push({code:volume<0?'inverted':'zero-volume'});
- return {ok:!issues.length,complete:true,triangles:clean.length/3,removedDegenerate,counts,issues,segments,segmentsTruncated:Object.values(counts).reduce((a,b)=>a+b,0)>maxSegments,volume,...(removedDegenerate?{cleanTriangles:clean}:{}),...(parents&&!issues.length?{components:stlComponents(points,vertexIds,clean,edges,parents)}:{})};
+ return {ok:!issues.length,complete:true,triangles:clean.length/3,removedDegenerate,counts,issues,segments,segmentsTruncated:Object.values(counts).reduce((a,b)=>a+b,0)>maxSegments,volume,...(issueSegments?{issueSegments}:{}),...(removedDegenerate?{cleanTriangles:clean}:{}),...(parents&&!issues.length?{components:stlComponents(points,vertexIds,clean,edges,parents)}:{})};
 }
 
 export function stlInspectionSummary(rows){return {version:1,ok:rows.length>0&&rows.every(r=>r.ok),complete:rows.every(r=>r.complete),rows,checkedBodies:rows.length,repairedBodies:rows.filter(r=>r.repaired).length,removedDegenerate:rows.reduce((n,r)=>n+r.removedDegenerate,0)};}

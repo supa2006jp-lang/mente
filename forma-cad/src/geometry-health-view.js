@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {KernelClient} from './kernel-client.js';
 import {draggablePanel} from './draggable-panel.js';
 
-const labels={'invalid-solid':'正常でないソリッド','unexpected-volume':'移動による予期しない体積変化',disconnected:'分離した塊','small-component':'微小・極端に細い部品','short-edge':'極端に短い辺','narrow-face':'細い面（幅の目安）','micro-gap':'微小な隙間'};
+export const geometryHealthLabels={'invalid-solid':'正常でないソリッド','unexpected-volume':'移動による予期しない体積変化',disconnected:'分離した塊','small-component':'微小・極端に細い部品','short-edge':'極端に短い辺','narrow-face':'細い面（幅の目安）','micro-gap':'微小な隙間'};
 const fmt=n=>Number(n.toFixed(8)).toLocaleString(undefined,{maximumFractionDigits:8});
 export function createGeometryHealthView(context){
  const {scene,host,meshes,getFeatures,getBodyName,canOpen,notify}=context,kernel=new KernelClient();
@@ -22,7 +22,11 @@ export function createGeometryHealthView(context){
   for(const row of report?.rows||[]){if(!meshes.has(row.id))continue;
    const heading=document.createElement('strong');heading.textContent=getBodyName(row.id);list.append(heading);
    const metrics=document.createElement('p');metrics.className='hint';metrics.textContent='体積 '+(row.before?fmt(row.before.volume)+' → ':'')+fmt(row.after.volume)+' mm³ ／ 塊 '+(row.before?row.before.solids+' → ':'')+row.after.solids+' 個 ／ 検査寸法 '+fmt(row.threshold)+' mm未満';list.append(metrics);
-   for(const finding of [...row.findings].sort((a,b)=>({new:0,unknown:1,existing:2}[a.change]??1)-({new:0,unknown:1,existing:2}[b.change]??1))){if(q('new-only').checked&&finding.change!=='new')continue;count++;const b=document.createElement('button');b.type='button';b.className='geometry-health-finding';b.dataset.code=finding.code;b.dataset.change=finding.change||'uncompared';b.textContent=({new:'【今回新しく発生】',existing:'【加工前から存在】',unknown:'【比較未完了】'}[finding.change]||'【比較なし】')+(labels[finding.code]||finding.code)+(Number.isFinite(finding.size)?'：'+fmt(finding.size)+' mm':'')+(finding.count?'：'+finding.count+' 個':'')+(finding.otherId?' ／ '+getBodyName(finding.otherId):'')+' — 場所を表示';b.onclick=()=>show(finding);list.append(b);
+   if(context.onTrace&&row.findings.some(f=>!f.otherId&&f.code!=='unexpected-volume')){
+    const trace=document.createElement('button');trace.type='button';trace.textContent='形状異常を履歴で探す';
+    trace.onclick=()=>context.onTrace({target:row.id,threshold:row.threshold});list.append(trace);
+   }
+   for(const finding of [...row.findings].sort((a,b)=>({new:0,unknown:1,existing:2}[a.change]??1)-({new:0,unknown:1,existing:2}[b.change]??1))){if(q('new-only').checked&&finding.change!=='new')continue;count++;const b=document.createElement('button');b.type='button';b.className='geometry-health-finding';b.dataset.code=finding.code;b.dataset.change=finding.change||'uncompared';b.textContent=({new:'【今回新しく発生】',existing:'【加工前から存在】',unknown:'【比較未完了】'}[finding.change]||'【比較なし】')+(geometryHealthLabels[finding.code]||finding.code)+(Number.isFinite(finding.size)?'：'+fmt(finding.size)+' mm':'')+(finding.count?'：'+finding.count+' 個':'')+(finding.otherId?' ／ '+getBodyName(finding.otherId):'')+' — 場所を表示';b.onclick=()=>show(finding);list.append(b);
     if(finding.code==='micro-gap'&&finding.otherId&&meshes.has(finding.otherId)){
      const actions=document.createElement('div');actions.className='workspace-actions';
      for(const [target,other]of [[row.id,finding.otherId],[finding.otherId,row.id]]){const repair=document.createElement('button');repair.type='button';repair.dataset.gapRepair=target;repair.textContent=getBodyName(target)+'を相手に接触させる（プレビュー）';repair.onclick=()=>previewRepair(finding,row,target,other);actions.append(repair);}list.append(actions);

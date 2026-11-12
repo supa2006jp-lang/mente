@@ -20,6 +20,11 @@ import {inspectAssemblyContact} from './assembly-contact.js';
 import {makePrintSupport} from './print-support.js';
 import {gapRepairSpec} from './geometry-gap-repair.js';
 import {healthBudget,inspectShapeHealth,inspectOperationHealth,inspectGeometryHealth,diagnoseOutputHealth} from './geometry-health.js';
+import {historyStlFindings,traceGeometryHistory} from './geometry-history-trace.js';
+import {inspectStlMesh} from './stl-mesh-health.js';
+import {inspectCadStl} from './stl-cad-inspection.js';
+import {rebuild} from './geometry.js';
+import {cadPosition} from './cad-coordinates.js';
 import {MODEL_PRECISION,isContactDistance} from './model-precision.js';
 import {resolveContactMove} from './native-contact-move.js';
 import {repairProjectDisplay} from './project-display-repair.js';
@@ -370,6 +375,31 @@ function repeatedBodyRevolution(features,body,p,onProgress){
   const result=shape;shape=null;return result;
  }finally{shape?.delete();earlier.forEach(shape=>shape.delete());}
 }
+function inspectHistorySnapshot(features,node,mode,threshold){
+ const {output,id,index}=node;
+ if(mode==='stl'){
+  if(output.brep)return historyStlFindings(inspectCadStl(output,{includeIssueSegments:true}).report);
+  if(output.vertices&&output.triangles)return historyStlFindings(inspectStlMesh(output,{includeIssueSegments:true}));
+  const bodies=rebuild(features.slice(0,index+1));
+  try{
+   const geometry=bodies.get(id)?.geometry;if(!geometry)return {partial:true,findings:[]};
+   const position=cadPosition(geometry),vertices=Array.from(position.array),triangles=geometry.index?Array.from(geometry.index.array):Array.from({length:position.count},(_,i)=>i);
+   return historyStlFindings(inspectStlMesh({vertices,triangles},{includeIssueSegments:true}));
+  }finally{for(const body of bodies.values())body.geometry.dispose();}
+ }
+ if(output.brep){
+  const shape=R.deserializeShape(output.brep).asShape3D();
+  try{return inspectShapeHealth(shape,{id,threshold,budget:healthBudget(true),detailed:true});}
+  finally{shape.delete();}
+ }
+ if(output.vertices)return {partial:true,findings:[]};
+ const bodies=kernelBodies(features.slice(0,index+1));
+ try{
+  const shape=bodies.get(id);
+  return shape?inspectShapeHealth(shape,{id,threshold,budget:healthBudget(true),detailed:true}):{partial:true,findings:[]};
+ }finally{for(const shape of bodies.values())shape.delete();}
+}
+
 export function runOperation(features,spec,onProgress,context={}){
  if(spec.type==='formOutlineComparison')return compareFormSilhouette(formSilhouette(spec.mesh,spec.view),spec.outline,spec.tolerance);
  if(spec.type==='formClearance'){
@@ -443,6 +473,12 @@ function computeOperation(features,spec,onProgress,context={}){
  if(spec.type==='repairProjectDisplay')return repairProjectDisplay(features,onProgress);
  if(spec.type==='geometryGapRepair'){const bodies=kernelBodies(features);let prepared;try{prepared=gapRepairSpec(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}return {...prepared,result:runOperation(features,prepared.spec,onProgress)};}
  if(spec.type==='geometryHealth'){const bodies=kernelBodies(features);try{return inspectGeometryHealth(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}
+ if(spec.type==='geometryHistoryTrace'){
+  const {target,mode,codes,threshold=.01}=spec;
+  if(typeof target!=='string'||!['cad','stl'].includes(mode)||!Number.isFinite(threshold)||threshold<1e-6||threshold>1||
+   (codes!==undefined&&(!Array.isArray(codes)||codes.length>30||codes.some(code=>typeof code!=='string'))))throw Error('履歴検査の対象を確認してください');
+  return traceGeometryHistory(features,spec,node=>inspectHistorySnapshot(features,node,mode,threshold),onProgress);
+ }
  if(['resize','bodyComponents','compareShapes'].includes(spec.type)){
   const bodies=kernelBodies(features);let previous,changed;
   try{

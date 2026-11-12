@@ -30,6 +30,7 @@ export function freshSvgEngine(features,spec){const operation=spec?.type==='prev
 const fatalKernelError=message=>/indirect call to null|null function|memory access out of bounds|unreachable|table index|function signature mismatch|aborted|RuntimeError/i.test(message||'');
 // Requests run one at a time. A queued request cannot time out an active CAD job.
 export function kernelTimeout(features,spec){
+ if(spec.type==='geometryHistoryTrace')return 32000;
  if(spec.type==='sketchRegionAnalysis')return 15000;
  if(spec.type==='meshCombinePreview')return 5000;
  if(spec.type==='formPreview'&&spec.form?.wall)return 25000;

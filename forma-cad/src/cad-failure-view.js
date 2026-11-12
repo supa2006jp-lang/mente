@@ -1,7 +1,7 @@
 import {findMachiningValues,trialDimension} from './machining-value-trials.js';
 import * as THREE from 'three';
 import {moveMatrix} from './fillet-grid-reference.js';
-export function createCadFailureView({scene,host,meshes,getFeatures,onChoose,onFeature,getTrialContext}){
+export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,onChoose,onFeature,onTrace,getTrialContext}){
  const panel=document.createElement('section');panel.id='cad-failure-panel';panel.className='workspace-panel';panel.hidden=true;panel.innerHTML='<strong>加工できなかった箇所</strong><p id="cad-failure-message" role="status"></p><div id="cad-failure-evidence"></div><p id="cad-failure-suggestion"></p><p id="cad-failure-location" class="hint"></p><div id="cad-failure-actions" class="workspace-actions"></div><button type="button" id="cad-failure-clear">表示を消す</button>';
  host.parentElement.append(panel);let overlay=null,original=null,trial=null;
  const q=name=>panel.querySelector('#cad-failure-'+name);
@@ -11,7 +11,7 @@ export function createCadFailureView({scene,host,meshes,getFeatures,onChoose,onF
   if(error.code==='cancelled')return;clear();original=getFeatures();let operation=spec?.type==='preview'?spec.operation:spec;
   if(operation?.type==='extrusionBatch')operation={type:'extrusion',feature:operation.features?.[0],target:operation.features?.[0]?.target};
   if(operation?.type==='replay'&&error.featureId)operation=features.find(feature=>feature.id===error.featureId)?.spec||operation;
-  const diagnostics=error.diagnostics,ids=[...new Set(diagnostics?.bodyIds||[operation?.target,...(operation?.targets||[]),operation?.other,...(operation?.others||[]),operation?.feature?.target].filter(Boolean))].filter(id=>meshes.has(id));
+  const diagnostics=error.diagnostics,ids=[...new Set(diagnostics?.bodyIds?.length?diagnostics.bodyIds:[operation?.target,...(operation?.targets||[]),operation?.other,...(operation?.others||[]),operation?.feature?.target,operation?.feature?.region?.bodyId,operation?.sourceBody].filter(Boolean))].filter(id=>meshes.has(id));
   overlay=new THREE.Group();
   if(diagnostics?.edges?.length){
    for(const edge of diagnostics.edges){const points=edge.points.map(p=>new THREE.Vector3(...p));if(Number.isInteger(error.featureIndex))for(const feature of features.slice(error.featureIndex+1)){const p=feature.spec;if(p?.type==='move'&&!p.copy&&p.moveMode!=='複製して移動'&&(p.target===edge.bodyId||p.targets?.includes(edge.bodyId)))for(const point of points)point.applyMatrix4(moveMatrix(p));}const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineBasicMaterial({color:0xef4438,depthTest:false}));line.renderOrder=45;overlay.add(line);}
@@ -66,7 +66,10 @@ export function createCadFailureView({scene,host,meshes,getFeatures,onChoose,onF
    };
    q('actions').append(retry,result);
   }
-   for(const id of ids)action('対象ボディを選択して拡大',()=>onChoose(id));
+  for(const id of ids){
+   action('対象ボディを選択して拡大',()=>onChoose(id));
+   if(onTrace)action('形状異常を履歴で探す'+(ids.length>1?' ／ '+getBodyName(id):''),()=>{clear();onTrace({target:id});});
+  }
   if(error.featureId)action('失敗した工程を開く',()=>onFeature(error.featureId));
   const dialog=document.querySelector('#fillet-history-dialog[open],#tools-dialog[open]');if(dialog){panel.style.cssText='position:static;width:auto;max-height:200px;margin:10px 0;box-shadow:none';const actions=dialog.querySelector('.editor-actions');actions?actions.before(panel):dialog.append(panel);dialog.addEventListener('close',clear,{once:true});}else{host.parentElement.append(panel);panel.style.cssText='';}
   panel.hidden=false;

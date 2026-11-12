@@ -1595,7 +1595,7 @@ async function chooseProjectFile(){
 }
 $('load').onclick=chooseProjectFile;
 $('file').onchange=async()=>{legacyRebuild.cancel();const file=$('file').files[0];if(!file||projectFileTarget.busy)return;const request=toolCancelRevision,read=++projectReadRevision;projectLoadPreview.cancel();try{await previewProjectFile(file,null,request,read);}finally{if(read===projectReadRevision)$('file').value='';}};
-stlInspection=createStlInspectionView({scene,host,meshes,getFeatures:()=>features,getBodyName:bodyDisplayName});
+stlInspection=createStlInspectionView({scene,host,meshes,getFeatures:()=>features,getBodyName:bodyDisplayName,onTrace:options=>workspaceImprovements?.historyTrace.open(options)});
 supportExportChoice=createPrintSupportExportChoice({getFeatures:()=>features,getBodyIds:()=>[...meshes].filter(([,mesh])=>mesh.visible).map(([id])=>id),bodyName:bodyDisplayName});
 $('export-color-3mf').onclick=async()=>{
  if(color3mfBusy||!canSwitchSketchNumber()||stage!=='model')return;
