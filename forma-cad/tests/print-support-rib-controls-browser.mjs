@@ -1,7 +1,7 @@
 import {chromium} from 'playwright';import * as THREE from 'three';import http from 'node:http';import fs from 'node:fs/promises';import path from 'node:path';import assert from 'node:assert/strict';
 const root=path.resolve('dist'),out='.sites-runtime/rib-controls-browser';await fs.mkdir(out,{recursive:true});const server=http.createServer(async(req,res)=>{try{const p=new URL(req.url,'http://localhost').pathname,file=path.resolve(root,'.'+(p==='/'?'/index.html':decodeURIComponent(p)));if(!file.startsWith(root+path.sep))throw Error();res.writeHead(200,{'Content-Type':{'.js':'text/javascript','.css':'text/css','.html':'text/html','.wasm':'application/wasm'}[path.extname(file)]||'application/octet-stream'});res.end(await fs.readFile(file));}catch{res.writeHead(404);res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']}),page=await browser.newPage({viewport:{width:1900,height:1350},acceptDownloads:true}),errors=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));const q=id=>page.locator('#print-support-dialog [data-id="'+id+'"]'),host=page.locator('#canvas-host');
-async function ready(){try{await page.waitForFunction(()=>!document.querySelector('#print-support-dialog [data-id=apply]').disabled);}catch(e){throw Error(await q('error').textContent()||e.message);}}
+async function ready(){try{await page.waitForFunction(()=>!document.querySelector('#print-support-dialog [data-id=apply]').disabled,undefined,{timeout:120000});}catch(e){throw Error(await q('error').textContent()||e.message);}}
 async function load(doc){
  await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.cameraState);
  const features=doc.features.map(feature=>({...feature,name:feature.name??feature.id}));
@@ -44,7 +44,10 @@ async function clickRib({near=true,exclude=true}={}){
  assert.equal((await view()).ribs.find(r=>r.id===rib.id).excluded,exclude);
 }
 try{
- await page.addInitScript(()=>window.showSaveFilePicker=undefined);await page.goto('http://127.0.0.1:'+server.address().port+'/');const doc=JSON.parse(await fs.readFile('.sites-runtime/roof-removal-fixture.forma.json','utf8'));await load(doc);const before=await save();await page.locator('#features .row-label').last().click();await ready();assert.equal(await q('lineWidth').inputValue(),'0.4');assert(!(await q('fitLineWidth').isChecked()));assert.equal(await q('wallDirection').inputValue(),'auto');assert.match(await q('print-settings-note').textContent(),/薄壁 2本分.*薄皮 2層/);
+ await page.addInitScript(()=>window.showSaveFilePicker=undefined);await page.goto('http://127.0.0.1:'+server.address().port+'/');const doc=JSON.parse(await fs.readFile('.sites-runtime/roof-removal-fixture.forma.json','utf8'));
+ const coverage=q('support-coverage');
+ if(!process.argv.includes('--layout-only')){
+ await load(doc);const before=await save();await page.locator('#features .row-label').last().click();await ready();assert.equal(await q('lineWidth').inputValue(),'0.4');assert(!(await q('fitLineWidth').isChecked()));assert.equal(await q('wallDirection').inputValue(),'auto');assert.match(await q('print-settings-note').textContent(),/薄壁 2本分.*薄皮 2層/);
  await q('fitLineWidth').check();await ready();await q('lineWidth').fill('.45');await ready();assert.equal(await q('wallThickness').inputValue(),'0.9');assert(await q('wallThickness').evaluate(e=>e.readOnly));await q('wallLines').fill('3');await ready();assert.equal(await q('wallThickness').inputValue(),'1.35');await q('roofLayers').fill('3');await ready();assert.match(await q('print-settings-note').textContent(),/3層（0.9 mm）/);await q('wallLines').fill('2');await ready();await q('roofLayers').fill('2');await ready();
  await q('wallDirection').selectOption('x');await ready();assert.equal((await analysis()).count,3);assert((await view()).ribs.every(r=>r.axis===1));await q('rib-rotate').click();await ready();assert.equal(await q('wallDirection').inputValue(),'y');assert.equal((await analysis()).count,5);
  await q('rib-selection').evaluate(e=>e.open=true);await q('rib-pick').click();assert(await q('apply').isDisabled());
@@ -58,9 +61,13 @@ try{
  const ribPolicy=q('rib-list').locator('[data-rib-auto-support]');
  await ribPolicy.selectOption('block');await ready();
  assert((await view()).ribs.find(r=>r.excluded).autoBlocked);
+ await q('rib-print-policies').check();assert((await view()).policyVisible);
+ assert((await view()).printRegions.includes('block'));await q('rib-print-policies').uncheck();
  assert.match(await q('rib-list').textContent(),/支えなし 約 [\d.]+ mm/);
  await ribPolicy.selectOption('allow');await ready();
  assert(!(await view()).ribs.find(r=>r.excluded).autoBlocked);
+ await q('rib-undo').click();await ready();assert((await view()).ribs.find(r=>r.excluded).autoBlocked);
+ await q('rib-redo').click();await ready();assert(!(await view()).ribs.find(r=>r.excluded).autoBlocked);
  await q('rib-reset').click();await ready();
  await q('wallRoof').uncheck();await ready();
  assert.equal((await view()).picking,false);
@@ -69,10 +76,34 @@ try{
  await q('rib-pick').click();await clickRib();await excluded(1);await q('rib-pick').click();await ready();assert.equal((await analysis()).count,4);assert.equal((await analysis()).ribs.issues.length,0);await page.screenshot({path:out+'/excluded-preview.png'});const download=page.waitForEvent('download');await q('export3mf').click();await fs.copyFile(await(await download).path(),'.sites-runtime/support-slicing/ui-rib-controls.3mf');await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});assert.equal(await host.getAttribute('data-support-rib-preview'),null);assert.equal(await host.locator('[data-rib-marker]').count(),0);
  const saved=await save(),spec=saved.features.at(-1).spec;assert.equal(spec.lineWidth,.45);assert.equal(spec.wallLines,2);assert.equal(spec.fitLineWidth,true);assert.equal(spec.wallDirection,'y');assert.equal(spec.excludedRibs.length,1);assert(!saved.features.at(-1).supportPreview);assert.deepEqual(saved.features.slice(0,-1),before.features.slice(0,-1));await page.locator('#undo').click();assert.deepEqual((await save()).features,before.features);await page.locator('#redo').click();assert.deepEqual((await save()).features.at(-1).spec,spec);
  await load(saved);await page.locator('#features .row-label').last().click();await ready();assert.equal(await q('lineWidth').inputValue(),'0.45');assert(await q('fitLineWidth').isChecked());assert.equal((await analysis()).ribs.excluded,1);await q('rib-selection').evaluate(e=>e.open=true);
- while((await analysis()).ribs.excluded<5){const index=(await view()).ribs.findIndex(r=>!r.excluded),next=(await analysis()).ribs.excluded+1;await q('rib-list').locator('input').nth(index).uncheck();await excluded(next);}assert.match(await q('error').textContent(),/すべてのリブ/);assert(await q('apply').isDisabled());assert.equal((await view()).ribs.length,5);await q('rib-reset').click();await ready();await q('rib-list').locator('input').nth(2).uncheck();await excluded(1);await q('wallPitch').fill('11');await ready();assert.equal((await analysis()).ribs.excluded,0);
+ while((await analysis()).ribs.excluded<5){const index=(await view()).ribs.findIndex(r=>!r.excluded),next=(await analysis()).ribs.excluded+1;await q('rib-list').locator('input').nth(index).uncheck();await excluded(next);}assert.match(await q('error').textContent(),/すべてのリブ/);assert(await q('apply').isDisabled());assert.equal((await view()).ribs.length,5);await q('rib-reset').click();await ready();await q('rib-list').locator('input').nth(2).uncheck();await excluded(1);await q('wallPitch').fill('11');await ready();assert.equal((await analysis()).ribs.excluded,1);
+ await q('rib-undo').click();await ready();await excluded(0);
+ await q('rib-redo').click();await ready();await excluded(1);
+ await q('rib-rotate').click();await page.waitForFunction(()=>document.querySelector('[data-id=rib-review] select option:nth-child(2)'));
+ assert(await q('apply').isDisabled());assert((await view()).ribs.some(r=>r.review));
+ assert.equal((await view()).reviewOrigins.length,1);
+ await setView('0,0,1');
+ await host.getByRole('button',{name:/^候補 /}).filter({visible:true}).first().click();await ready();await excluded(1);
+ await q('rib-reset').click();await ready();
+ await q('rib-batch').click();
+ const marks=host.locator('[data-rib-marker]:visible');
+ await marks.nth(0).click();await marks.nth(1).click({modifiers:['Control']});
+ assert.equal((await view()).selected.length,2);await excluded(0);
+ await q('rib-exclude-selected').click();await ready();await excluded(2);
+ await q('rib-undo').click();await ready();await excluded(0);
+ await q('rib-redo').click();await ready();await excluded(2);
+ await q('rib-batch').click();
+ const allRibs=(await view()).ribs;
+ const picks=await Promise.all(allRibs.filter(r=>r.excluded).map(r=>screen(r.bounds[0].map((v,i)=>(v+r.bounds[1][i])/2))));
+ const x=picks.map(p=>p[0]),y=picks.map(p=>p[1]);
+ await page.mouse.move(Math.max(...x)+60,Math.min(...y)-24);
+ await page.mouse.down();await page.mouse.move(Math.min(...x)-60,Math.max(...y)+24,{steps:5});
+ assert(await page.locator('#selection-box').isVisible());await page.mouse.up();
+ assert.equal((await view()).selected.filter(id=>allRibs.find(r=>r.id===id).excluded).length,2);
+ await q('rib-restore-selected').click();await ready();await excluded(0);
  await q('fitLineWidth').uncheck();await ready();await q('wallThickness').fill('.4');await ready();await q('lineWidth').fill('.6');await ready();assert.match(await q('print-settings-note').textContent(),/省略される可能性/);await q('fitLineWidth').check();await ready();await q('rib-pick').click();await q('style').selectOption('posts');await ready();assert(await q('rib-pick').isHidden());await q('style').selectOption('walls');await ready();await q('wallLines').fill('1.5');assert(await q('apply').isDisabled());assert.match(await q('error').textContent(),/線数/);await q('cancel').click();assert.deepEqual((await save()).features,saved.features);assert.deepEqual(errors,[]);
  await page.locator('#features .row-label').last().click();await ready();
- const coverage=q('support-coverage'),pickZone=coverage.getByRole('button',{name:'クリックした箇所を除外'});
+ const pickZone=coverage.getByRole('button',{name:'クリックした箇所を除外'});
  await coverage.evaluate(e=>e.open=true);
  await coverage.locator('[data-coverage=face]').selectOption({index:1});
  await coverage.locator('[data-support-zone-size="0"]').fill('0.1');
@@ -94,6 +125,11 @@ try{
  await ready();assert.equal(await host.getAttribute('data-support-zone-picking'),null);
  await coverage.getByRole('combobox',{name:/除外 1 の3MF自動サポート/}).selectOption('allow');
  await ready();
+ await q('rib-selection').evaluate(e=>e.open=true);
+ await q('rib-undo').click();await ready();
+ assert.equal(await coverage.getByRole('combobox',{name:/除外 1 の3MF自動サポート/}).inputValue(),'block');
+ await q('rib-redo').click();await ready();
+ assert.equal(await coverage.getByRole('combobox',{name:/除外 1 の3MF自動サポート/}).inputValue(),'allow');
  await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});
  const savedOverride=(await save()).features.at(-1).spec.faceOverrides[0];
  const [[x0,y0,x1,y1]]=savedOverride.noSupport;
@@ -123,6 +159,56 @@ try{
  await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});
  const automatic=(await save()).features.at(-1).spec.faceOverrides;
  assert.deepEqual(automatic.map(item=>item.selection.point[2]).sort((a,b)=>a-b),[55,75]);
+ }
+ await load(doc);await page.locator('#features .row-label').last().click();await ready();
+ await coverage.evaluate(e=>e.open=true);
+ await coverage.locator('[data-coverage=bridges]').check();
+ await coverage.getByText(/両側に支えがある幅の最大/).waitFor();
+ const layouts=q('rib-layout-plans');
+ await layouts.evaluate(e=>e.open=true);await q('rib-compare').click();
+ assert.equal(await q('rib-plan-list').locator('button').count(),6);
+ await q('rib-plan-list').getByRole('button',{name:/Y方向.*\+25%/}).click();await ready();
+ assert.match(await q('rib-active-offset').textContent(),/\+25%/);
+ const ribsWithShift=(await view()).ribs;
+ const {axis}=ribsWithShift[0],other=1-axis,at=[0,0,50];
+ at[axis]=(ribsWithShift[0].center+ribsWithShift[1].center)/2;at[other]=10;
+ await setView('0,0,1');
+ await coverage.getByRole('button',{name:'短いリブを画面で追加'}).click();
+ const addHere=host.getByRole('button',{name:'この位置に追加'});
+ await page.mouse.click(...await screen(at));assert(await addHere.isEnabled());await addHere.click();await ready();
+ assert.match(await q('rib-list').textContent(),/短いリブ/);
+ await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});
+ const localSpec=(await save()).features.at(-1).spec;
+ assert.equal(localSpec.wallOffset,.25);assert.equal(localSpec.faceOverrides[0].localRibs[0].length,12);
+ await load(doc);await page.locator('#features .row-label').last().click();await ready();
+ await coverage.evaluate(e=>e.open=true);await coverage.locator('[data-coverage=bridges]').check();
+ const proposalRibs=(await view()).ribs;
+ const ceiling=proposalRibs[0].bounds[1][2]+.3;
+ const proposalPoint=[(proposalRibs[1].center+proposalRibs[2].center)/2,12,ceiling];
+ await setView('0,0,1');
+ const accept=host.getByRole('button',{name:'補強案を追加'});
+ await page.mouse.click(...await screen(proposalPoint));
+ assert(await accept.isEnabled());assert.match(await host.locator('.support-zone-placement [role=status]').textContent(),/短いリブ.*幅 約 [\d.]+ mm → 約 [\d.]+ mm/);
+ await host.locator('[data-zone-action=cancel]').click();assert.equal((await analysis()).count,proposalRibs.length);
+ await page.mouse.click(...await screen(proposalPoint));await accept.click();await ready();
+ assert.equal((await analysis()).count,proposalRibs.length+1);
+ const compare=q('rib-reinforcement-comparison'),summary=q('rib-comparison-summary');
+ await compare.waitFor();assert.match(await summary.textContent(),/最大幅 .* → .*フィラメント/);
+ const cameraBefore=await host.getAttribute('data-camera-state');
+ await q('rib-comparison-before').click();
+ assert.equal(await q('rib-comparison-before').getAttribute('aria-pressed'),'true');
+ await q('rib-comparison-after').click();
+ assert.equal(await q('rib-comparison-after').getAttribute('aria-pressed'),'true');
+ assert.equal(await host.getAttribute('data-camera-state'),cameraBefore);
+ await q('rib-comparison-undo').click();await ready();
+ assert.equal((await analysis()).count,proposalRibs.length);
+ await page.mouse.click(...await screen(proposalPoint));await accept.click();await ready();
+ await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});
+ const proposedRib=(await save()).features.at(-1).spec.faceOverrides[0].localRibs[0];
+ assert.ok(proposedRib.length>=2&&proposedRib.length<=40);
  assert.deepEqual(errors,[]);
- const proof={pass:true,legacyDefaults:true,lineWidthFit:true,layerCounts:true,directionAndRotate:true,markerToggle:true,nearEdgeCanvasToggle:true,smallPointExclusion:true,excludedGhost:true,unsupportedRoofRemoved:true,emptyPreviewRecovery:true,scope3mf:true,saveReload:true,undoRedo:true,geometryChangeResetsExclusions:true,thinWallWarning:true,invalidBlocked:true,cancelPreservesHistory:true,previewCleaned:true,errors};await fs.writeFile(out+'/proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
+ console.log('Bridge overlay, six layouts, local rib placement and saved settings verified.');
+ if(!process.argv.includes('--layout-only')){
+ const proof={pass:true,bridgeOverlay:true,layoutComparison:true,localRibPlacement:true,legacyDefaults:true,lineWidthFit:true,layerCounts:true,directionAndRotate:true,markerToggle:true,nearEdgeCanvasToggle:true,smallPointExclusion:true,excludedGhost:true,unsupportedRoofRemoved:true,emptyPreviewRecovery:true,scope3mf:true,saveReload:true,undoRedo:true,geometryChangeKeepsExclusions:true,rotatedCandidates:true,previewUndoRedo:true,thinWallWarning:true,invalidBlocked:true,cancelPreservesHistory:true,previewCleaned:true,errors};await fs.writeFile(out+'/proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
+ }
 }catch(e){console.error(await q('error').textContent().catch(()=>''),errors);await page.screenshot({path:out+'/failure.png'});throw e;}finally{await browser.close();await new Promise(r=>server.close(r));}

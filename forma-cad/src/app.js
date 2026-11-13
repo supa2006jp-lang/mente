@@ -2801,7 +2801,7 @@ $('hole-cancel').onclick=cancelHole;$('hole-panel').onsubmit=async e=>{
 document.addEventListener('click',e=>{if(holeActive&&e.target.closest('.toolbar, .command-toolbar')&&!e.target.closest('#cut-tool'))cancelHole();},{capture:true});
 import {installDirectDimensionInput} from './direct-dimension-input.js';
 boxSelection=installBoxSelection(renderer.domElement,host,{
- enabled:()=>!partWorkshop?.active&&!printSupportController?.active&&!assemblyController?.active&&!selectionLibrary?.active&&!imageReferences?.picking&&!deletingSketch&&!moveTool?.active&&(!sketch||$('profile').value==='point')&&!holeActive&&!pendingExtrude&&!extrusionDrag&&!$('tools-dialog').open,
+ enabled:()=>printSupportController?.ribRangeActive||!partWorkshop?.active&&!printSupportController?.active&&!assemblyController?.active&&!selectionLibrary?.active&&!imageReferences?.picking&&!deletingSketch&&!moveTool?.active&&(!sketch||$('profile').value==='point')&&!holeActive&&!pendingExtrude&&!extrusionDrag&&!$('tools-dialog').open,
  getControls:()=>controls,
  pointMode:()=>sketch&&$('profile').value==='point',
  resolvePoint:({clientX,clientY},{snap=true}={})=>{
@@ -2828,6 +2828,7 @@ boxSelection=installBoxSelection(renderer.domElement,host,{
   placeSketchPoint(point);
  },
  onSelect:async rect=>{
+  if(printSupportController?.ribRangeActive){down=null;printSupportController.selectRibRange(rect);return;}
   const original=features,retained=rect.add?new Map([...selectedSketchSegments].map(([id,indices])=>[id,new Set(indices)])):new Map();
   const addSketches=hits=>{selectedSketchSegments=retained;for(const [id,indices]of hits){if(!selectedSketchSegments.has(id))selectedSketchSegments.set(id,new Set());for(const i of indices)selectedSketchSegments.get(id).add(i);}if(selectedSketchSegments.size)showSketchSelection();};
   down=null;hoverEdge=null;

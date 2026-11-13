@@ -6,7 +6,7 @@ const overlap=(a,b)=>{const common=a.intersect(b);try{return R.measureVolume(com
 // Bridge only between the outermost fins: the roof must not cantilever beyond
 // them. Intersect with the original inset prism to preserve its outline/holes.
 export function makeWallRoof(records,prism,bodies,p,top,onProgress,{allowPartial=false,trimToRibs=false}={}){
- if(records.length<2)return null;
+ if(new Set(records.map(record=>record.center)).size<2)return null;
  const thickness=p.roofLayers*p.layerHeight,b=bounds(prism),axis=records[0].axis;
  if(top-thickness<=p.bedZ+p.layerHeight)throw skinClearanceError('薄皮を置く高さが足りません。薄皮の層数を減らしてください','upper',top,thickness);
  const low=[b[0][0]-1,b[0][1]-1,top-thickness],high=[b[1][0]+1,b[1][1]+1,top+1];
@@ -22,16 +22,16 @@ export function makeWallRoof(records,prism,bodies,p,top,onProgress,{allowPartial
   const parts=roof.solids,anchored=[],trimmed=[];
   try{
    for(const part of parts){
-    const contacts=[];
+    const contacts=new Set();
     for(const record of records)if(overlap(part,record.shape)>.0001){
-     contacts.push(record);
-     if(!trimToRibs&&contacts.length===2)break;
+     contacts.add(record.center);
+     if(!trimToRibs&&contacts.size===2)break;
     }
-    if(contacts.length>=2){
+    if(contacts.size>=2){
      if(trimToRibs){
       const from=[...low],to=[...high];
-      from[axis]=contacts[0].center-p.wallThickness/2;
-      to[axis]=contacts.at(-1).center+p.wallThickness/2;
+      from[axis]=Math.min(...contacts)-p.wallThickness/2;
+      to[axis]=Math.max(...contacts)+p.wallThickness/2;
       const span=R.makeBox(from,to);
       try{const clipped=part.intersect(span);trimmed.push(clipped);anchored.push(clipped);}finally{span.delete();}
      }else anchored.push(part);

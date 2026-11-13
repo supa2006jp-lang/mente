@@ -3,7 +3,7 @@ const bounds=s=>{const box=s.boundingBox;try{return box.bounds.map(p=>[...p]);}f
 // Contact layers and ribs share native edges with the source. Default boolean
 // operations can update that shared data, breaking a later circular-edge clip.
 // Keep these display-only operations exact and non-destructive on both inputs.
-function previewBoolean(kind,source,tool){
+export function supportNonDestructiveBoolean(kind,source,tool){
  const oc=R.getOC(),builder=kind==='cut'?new oc.BRepAlgoAPI_Cut():new oc.BRepAlgoAPI_Common(),a=new oc.NCollection_List_TopoDS_Shape(),b=new oc.NCollection_List_TopoDS_Shape();
  try{a.Append(source.wrapped);b.Append(tool.wrapped);builder.SetArguments(a);builder.SetTools(b);builder.SetNonDestructive(true);builder.SetFuzzyValue(0);builder.Build();if(builder.HasErrors())throw Error('サポートの表示用形状の切り出しに失敗しました');return R.cast(builder.Shape()).asShape3D();}
  finally{builder.delete();a.delete();b.delete();}
@@ -19,9 +19,9 @@ export function supportLocalPreview(source,masks){
    // An unwindowed rib is already a subset of the union.
    for(const part of contained?[{shape:tool,box}]:pieces){
     if(!overlaps(part.box,box))continue;
-    let shape=contained?tool.clone():previewBoolean('common',part.shape,tool);
+    let shape=contained?tool.clone():supportNonDestructiveBoolean('common',part.shape,tool);
     try{
-     for(const mask of tools)if(overlaps(mask.box,box)&&overlaps(mask.box,part.box)){const next=previewBoolean('cut',shape,mask.shape);shape.delete();shape=next;}
+     for(const mask of tools)if(overlaps(mask.box,box)&&overlaps(mask.box,part.box)){const next=supportNonDestructiveBoolean('cut',shape,mask.shape);shape.delete();shape=next;}
      results.push(shape);shape=null;
     }finally{shape?.delete();}
    }

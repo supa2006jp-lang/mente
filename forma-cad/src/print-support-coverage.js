@@ -1,5 +1,6 @@
 import * as R from 'replicad';
 import {cadMesh} from './cad-mesh.js';
+import {supportBridgeSpans,supportMeshTriangles} from './print-support-bridges.js';
 
 export function supportCoverageFace(face,target,settings,override,editable=true){
  const {vertices,triangles}=cadMesh(face);
@@ -13,6 +14,7 @@ export function supportCoverageFace(face,target,settings,override,editable=true)
  }
  return {selection:override?.selection||{bodyId:target,point,normal:[0,0,-1]},editable,
   settings:{wallPitch:settings.wallPitch,roofLayers:settings.roofLayers,bottomSkinLayers:settings.bottomSkinLayers},
+  wallThickness:settings.wallThickness,ribAxis:settings.wallDirection==='x'?1:settings.wallDirection==='y'?0:null,
   override:override?Object.fromEntries(Object.entries(override).filter(([key])=>key!=='selection')):{},
   face:{vertices,triangles},supported:null,caution:null};
 }
@@ -156,7 +158,7 @@ function edgeMesh(mesh,faceBounds,ribBounds,tolerance){
 }
 
 export function supportCoverageRegions(rows,blockers,trimmed,settings){
- return rows.map(({item,index,height,faceBounds,ribBounds,landings=[],checkExcludedEdge=false})=>{
+ return rows.map(({item,index,height,faceBounds,ribBounds,axis,landings=[],checkExcludedEdge=false})=>{
   const blocker=blockers[index];
   if(checkExcludedEdge)item.showBoundaryWarnings=true;
   if(blocker&&R.measureVolume(blocker)>.001)item.supported=trimmed.has(index)?supportHorizontalCap(blocker,height+settings.layerHeight,height):true;
@@ -164,6 +166,8 @@ export function supportCoverageRegions(rows,blockers,trimmed,settings){
   item.caution=edgeMesh(item.supported===true?item.face:item.supported,faceBounds,ribBounds,tolerance);
   if(landings.length&&(item.supported||checkExcludedEdge))
    item.boundaryWarnings=supportBoundaryWarnings(item.face,landings,checkExcludedEdge?true:item.supported,tolerance);
+  if(axis!==undefined)item.bridges=supportBridgeSpans(supportMeshTriangles(item.face),landings.flatMap(supportMeshTriangles),axis,8,{regions:true});
+  if(item.ribAxis===null)item.ribAxis=faceBounds[1][0]-faceBounds[0][0]>=faceBounds[1][1]-faceBounds[0][1]?0:1;
   return item;
  });
 }

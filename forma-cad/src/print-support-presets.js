@@ -1,12 +1,12 @@
 import {printSupportDefaults,validatePrintSupport} from './print-support.js';
 export const printSupportPresetKey='forma-cad-print-support-presets-v1';
-export const printSupportPresetFields=['style','contactLines','topContactLines','bottomContactLines','topContactRim','topContactRimWidth','interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','edgeMargin','bottomSeams','bottomSectionLength','bottomSeamWidth','wallBottomSkin','bottomSkinLayers','edgeRibs','autoReinforce','filamentDiameter','materialDensity','baseMode','lineWidth','fitLineWidth','wallLines','wallDirection','wallRoof','roofLayers','roofTabs','roofTabLength','roofSeams','roofSectionLength','roofSeamWidth','wallWindows','wallTies','tieInterval','wallPitch','wallThickness','layerHeight','spacing','footDiameter','footThickness','postDiameter','tipDiameter','topGap','bottomGap','maxSupports','connectFeet','braces','braceDiameter','lockToModel'];
+export const printSupportPresetFields=['style','contactLines','topContactLines','bottomContactLines','topContactRim','topContactRimWidth','interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','edgeMargin','bottomSeams','bottomSectionLength','bottomSeamWidth','wallBottomSkin','bottomSkinLayers','edgeRibs','autoReinforce','filamentDiameter','materialDensity','baseMode','lineWidth','fitLineWidth','wallLines','wallDirection','wallOffset','wallRoof','roofLayers','roofTabs','roofTabLength','roofSeams','roofSectionLength','roofSeamWidth','wallWindows','wallTies','tieInterval','wallPitch','wallThickness','layerHeight','spacing','footDiameter','footThickness','postDiameter','tipDiameter','topGap','bottomGap','maxSupports','connectFeet','braces','braceDiameter','lockToModel'];
 export function validatePrintSupportPreset(values){
  if(!values||typeof values!=='object'||Array.isArray(values))throw Error('プリセットの設定が不正です');
  const settings=Object.fromEntries(printSupportPresetFields.map(key=>[key,values[key]===undefined?printSupportDefaults[key]:values[key]]));
  settings.autoReinforce=values.autoReinforce??false;settings.roofTabs=false;
  const valid=validatePrintSupport({...settings,type:'printSupport',target:'preset',mode:'auto',faces:[],excludedRibs:[],roofTabPlacements:[],bedZ:0});
- return Object.fromEntries(printSupportPresetFields.map(key=>[key,valid[key]]));
+ return Object.fromEntries(printSupportPresetFields.filter(key=>key!=='wallOffset'||valid.wallOffset).map(key=>[key,valid[key]]));
 }
 function validateRows(rows){
  if(!Array.isArray(rows)||rows.length>50)throw Error('保存できるプリセットは50件までです');

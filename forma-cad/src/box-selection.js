@@ -75,7 +75,7 @@ export function installBoxSelection(canvas,host,{enabled,getControls,onSelect,po
  return {cancel};
 }
 
-function clipTriangle(points,rect){
+export function clipTriangle(points,rect){
  let polygon=points;
  for(const [axis,value,sign] of [['x',rect.left,1],['x',rect.right,-1],['y',rect.top,1],['y',rect.bottom,-1]]){
   const output=[];for(let i=0;i<polygon.length;i++){const a=polygon[i],b=polygon[(i+1)%polygon.length],insideA=(a[axis]-value)*sign>=0,insideB=(b[axis]-value)*sign>=0;if(insideA)output.push(a);if(insideA!==insideB){const t=(value-a[axis])/(b[axis]-a[axis]);output.push({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t});}}polygon=output;if(!polygon.length)break;
