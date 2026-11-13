@@ -22,7 +22,7 @@ const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use
 try{
  const context=await browser.newContext({viewport:{width:1900,height:1150},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
  await page.addInitScript(()=>{window.cadJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec){window.cadJobs.push(payload.spec.type);window.latestSpec=payload.spec;}return post.call(this,payload,...args);};});
- await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();
+ await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas[data-engine]').waitFor();
 
 
 
@@ -34,7 +34,7 @@ try{
  async function ready(){try{await page.waitForFunction(()=>!document.getElementById('slide-lid-apply').disabled,null,{timeout:90000});}catch{await page.screenshot({path:'.sites-runtime/slide-grip-failed.png'});await fs.writeFile('.sites-runtime/slide-labels-failed-spec.json',JSON.stringify(await page.evaluate(()=>window.latestSpec)));throw Error(await page.locator('#slide-lid-error').textContent());}}
  async function apply(){await page.locator('#slide-lid-apply').click();await page.waitForFunction(()=>!document.getElementById('slide-lid-dialog').open);}
 
- await load([{...base,angle:27}]);await page.locator('#slide-lid-tool').dispatchEvent('click');await ready();
+ await load([{...base,angle:27}]);await page.locator('#slide-lid-tool').dispatchEvent('click');await ready();await page.locator('#slide-lid-lidStyle').selectOption('top');await ready();await page.locator('#slide-lid-clearance').fill('2');await page.locator('#slide-lid-railDepth').fill('2.6');await ready();await page.locator('#slide-lid-surfaceGrip').check();await ready();
  await page.locator('#slide-lid-surfaceGripCount').fill('9');await ready();await page.locator('#slide-lid-surfaceGripPitch').fill('4');await ready();assert.match(await page.locator('#slide-lid-surface-info').textContent(),/9本.*間隔 4.00/);
  await page.locator('#slide-lid-surfaceGripPitch').fill('2');await page.waitForFunction(()=>document.getElementById('slide-lid-error').textContent.includes('1.2 mm'));assert.equal(await page.locator('#slide-lid-apply').isDisabled(),true);await page.locator('#slide-lid-surfaceGripPitch').fill('4');await ready();
  await page.locator('#slide-lid-surface-center').click();await ready();assert.equal(await page.locator('#slide-lid-surfaceGripFromFront').inputValue(),'23.4');assert.equal(await page.locator('#slide-lid-surfaceGripOffsetY').inputValue(),'0');assert.equal(await page.locator('#slide-lid-pose').inputValue(),'print');assert.equal(await page.locator('#slide-lid-surfaceGripCentered').isChecked(),true);await page.locator('#slide-lid-surfaceGripCount').fill('7');await ready();assert.equal(await page.locator('#slide-lid-surfaceGripFromFront').inputValue(),'27.4');await page.locator('#slide-lid-surfaceGripCount').fill('9');await ready();assert.equal(await page.locator('#slide-lid-surfaceGripFromFront').inputValue(),'23.4');await page.locator('#slide-lid-surfaceGripFromFront').fill('3');await ready();assert.equal(await page.locator('#slide-lid-surfaceGripCentered').isChecked(),false);await page.locator('#slide-lid-surface-move').click();await ready();assert.equal(await page.locator('#slide-lid-pose').inputValue(),'assembled');
