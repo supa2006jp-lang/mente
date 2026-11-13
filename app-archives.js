@@ -218,6 +218,160 @@
         if (toastMessage) this.showToast?.(toastMessage, 'success');
     }
 
+    beginVerifiedSafetyBackup(filename) {
+        if (typeof window.showSaveFilePicker !== 'function') return { kind: 'download' };
+        let picker;
+        try {
+            // The picker must open in the button's user gesture, before backup creation awaits.
+            picker = window.showSaveFilePicker({
+                id: 'maintenance-safety-backup',
+                suggestedName: filename,
+                types: [{ description: 'JSON ファイル', accept: { 'application/json': ['.json'] } }]
+            });
+        } catch (error) {
+            picker = Promise.reject(error);
+        }
+        // Handle a picker rejection even if the user cancels a later confirmation.
+        return { kind: 'file', outcome: Promise.resolve(picker).then(handle => ({ handle }), error => ({ error })) };
+    }
+
+    async confirmDownloadedSafetyBackup(filename, jsonText, initialDownloadError = null) {
+        const explanation = `${filename} を保存した場所から選び直してください。ファイルの内容を照合してから続行します。`;
+        const dialog = document.createElement?.('dialog');
+        if (!dialog || !document.body?.appendChild) {
+            throw new Error('保存したバックアップJSONを照合する画面を開けませんでした。');
+        }
+        const nativeDialog = typeof dialog.showModal === 'function';
+        if (!nativeDialog) dialog.setAttribute('open', '');
+        const backdrop = nativeDialog ? null : document.createElement('div');
+        const expected = new Blob([jsonText], { type: 'application/json' });
+        const previousFocus = document.activeElement;
+        return new Promise(resolve => {
+            let settled = false;
+            const finish = result => {
+                if (settled) return;
+                settled = true;
+                if (nativeDialog) dialog.close();
+                dialog.remove();
+                backdrop?.remove();
+                if (previousFocus?.isConnected !== false) previousFocus?.focus?.();
+                resolve(result);
+            };
+            const title = document.createElement('h3');
+            title.textContent = 'バックアップの保存確認';
+            title.id = 'safety-backup-confirm-title';
+            const message = document.createElement('p');
+            message.textContent = explanation;
+            const downloadAgain = document.createElement('button');
+            downloadAgain.type = 'button';
+            downloadAgain.className = 'secondary-btn';
+            downloadAgain.textContent = initialDownloadError ? 'バックアップをダウンロード' : 'バックアップを再ダウンロード';
+            downloadAgain.addEventListener('click', () => {
+                try {
+                    this.downloadJsonText(filename, jsonText);
+                    status.textContent = 'ダウンロードしたファイルを保存先から選び直してください。';
+                    downloadAgain.textContent = 'バックアップを再ダウンロード';
+                } catch (error) {
+                    status.textContent = `ダウンロードできませんでした。${error.message || 'ブラウザー設定を確認してください。'}`;
+                }
+            });
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,application/json';
+            input.setAttribute('aria-label', '保存したバックアップJSONを選択');
+            const status = document.createElement('p');
+            status.setAttribute('role', 'status');
+            status.textContent = initialDownloadError
+                ? `ダウンロードを開始できませんでした。上のボタンから再試行してください。${initialDownloadError.message || ''}`
+                : '保存したファイルを選択してください。確認が終わるまで現在のデータは変更しません。';
+            const cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.className = 'secondary-btn';
+            cancel.textContent = '中止';
+            cancel.addEventListener('click', () => finish(null));
+            input.addEventListener('change', async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                input.disabled = true;
+                status.textContent = '保存したファイルを照合中…';
+                try {
+                    if (file.size !== expected.size) throw new Error('ファイルの容量がバックアップと一致しません。');
+                    for (let offset = 0; offset < expected.size; offset += 1024 * 1024) {
+                        const end = Math.min(expected.size, offset + 1024 * 1024);
+                        const [actualBytes, expectedBytes] = await Promise.all([
+                            file.slice(offset, end).arrayBuffer(), expected.slice(offset, end).arrayBuffer()
+                        ]);
+                        const actual = new Uint8Array(actualBytes);
+                        const wanted = new Uint8Array(expectedBytes);
+                        if (actual.length !== wanted.length || actual.some((byte, index) => byte !== wanted[index])) {
+                            throw new Error('ファイルの内容がバックアップと一致しません。');
+                        }
+                    }
+                    finish({ filename: file.name || filename, method: 'verified-download' });
+                } catch (error) {
+                    status.textContent = `${error.message} 保存したバックアップJSONを選び直してください。`;
+                    input.disabled = false;
+                    input.value = '';
+                }
+            });
+            dialog.className = 'safety-backup-confirm-dialog';
+            dialog.style.cssText = `max-width:min(540px,calc(100vw - 32px));border:1px solid var(--border,#cbd5e1);border-radius:12px;padding:24px;background:var(--background,#fff);color:var(--text-primary,#111827);box-shadow:0 16px 48px rgba(0,0,0,.3);${nativeDialog ? '' : 'position:fixed;z-index:99999;top:50%;left:50%;transform:translate(-50%,-50%);'}`;
+            dialog.setAttribute('role', 'dialog');
+            dialog.setAttribute('aria-modal', 'true');
+            dialog.setAttribute('aria-labelledby', title.id);
+            dialog.addEventListener('cancel', event => { event.preventDefault(); finish(null); });
+            dialog.addEventListener('keydown', event => {
+                if (event.key === 'Escape') { event.preventDefault(); finish(null); }
+                if (!nativeDialog && event.key === 'Tab') {
+                    if (event.shiftKey && document.activeElement === downloadAgain) { event.preventDefault(); cancel.focus(); }
+                    else if (!event.shiftKey && document.activeElement === cancel) { event.preventDefault(); downloadAgain.focus(); }
+                }
+            });
+            dialog.append(title, message, downloadAgain, input, status, cancel);
+            if (backdrop) {
+                backdrop.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.55);';
+                document.body.appendChild(backdrop);
+            }
+            document.body.appendChild(dialog);
+            if (nativeDialog) dialog.showModal();
+            (initialDownloadError ? downloadAgain : input).focus();
+        });
+    }
+
+    async saveVerifiedSafetyBackup(filename, jsonText, request, toastMessage = '') {
+        if (!request) throw new Error('バックアップの保存先を確認できません。');
+        if (request.kind === 'file') {
+            const { handle, error } = await request.outcome;
+            if (error?.name === 'AbortError') return null;
+            if (handle) {
+                let writable;
+                try {
+                    writable = await handle.createWritable();
+                    await writable.write(new Blob([jsonText], { type: 'application/json' }));
+                    await writable.close();
+                    if (toastMessage) this.showToast?.(toastMessage, 'success');
+                    return { filename: handle.name || filename, method: 'file' };
+                } catch (writeError) {
+                    try { await writable?.abort?.(); } catch (_) {}
+                    throw writeError;
+                }
+            }
+            if (error) console.warn('直接保存を利用できず、ダウンロードで保存確認します。', error);
+        }
+        let downloadError = null;
+        try { this.downloadJsonText(filename, jsonText); }
+        catch (error) { downloadError = error; }
+        const verified = await this.confirmDownloadedSafetyBackup(filename, jsonText, downloadError);
+        if (verified && toastMessage) this.showToast?.(toastMessage, 'success');
+        return verified;
+    }
+
+    assertSafetyBackupSourceUnchanged(dataRef, saveRevision) {
+        if (store.data !== dataRef || store._saveRequestedRevision !== saveRevision) {
+            throw new Error('バックアップ中に現在のデータが変更されました。もう一度バックアップしてから実行してください。');
+        }
+    }
+
     getAdminDataCounts(data = store.activeData || {}) {
         let skillEvaluations = {};
         let manualSkills = [];
@@ -688,30 +842,59 @@
         if (!ok) return;
         this._repairBackupInProgress = true;
         try {
+            const backupDataRef = store.data;
+            const backupSaveRevision = store._saveRequestedRevision;
             const backupFilename = `maintenance_before_repair_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            const saveRequest = this.beginVerifiedSafetyBackup(backupFilename);
             const backupJson = await this.buildCompleteBackupJson(
                 store.exportAsJSON({ optimizeImages: true, mode: 'complete' })
             );
-            this.downloadJsonText(backupFilename, backupJson, '修復前バックアップを出力しました');
-            this.recordAdminBackupLog('repair', backupFilename);
+            const saved = await this.saveVerifiedSafetyBackup(
+                backupFilename, backupJson, saveRequest, '修復前バックアップを保存しました'
+            );
+            if (!saved) return;
+            this.assertSafetyBackupSourceUnchanged(backupDataRef, backupSaveRevision);
+            const latestReport = this.getBrokenDataReport();
+            for (const key of ['archivedMaintenanceTasks', 'archivedGuides', 'archivedTasks']) {
+                if (JSON.stringify(latestReport[key]) !== JSON.stringify(report[key])) {
+                    throw new Error('バックアップ中に修復対象が変更されました。もう一度確認してください。');
+                }
+            }
+            this.recordAdminBackupLog('repair', saved.filename);
             const active = store.activeData;
             const previous = {
-                archivedMaintenanceTasks: active.archivedMaintenanceTasks,
-                archivedGuides: active.archivedGuides,
-                archivedTasks: active.archivedTasks
+                archivedMaintenanceTasks: [...(active.archivedMaintenanceTasks || [])],
+                archivedGuides: [...(active.archivedGuides || [])],
+                archivedTasks: [...(active.archivedTasks || [])]
             };
             active.archivedMaintenanceTasks = (active.archivedMaintenanceTasks || []).filter(id => !report.archivedMaintenanceTasks.includes(id));
             active.archivedGuides = (active.archivedGuides || []).filter(id => !report.archivedGuides.includes(id));
             active.archivedTasks = (active.archivedTasks || []).filter(key => !report.archivedTasks.includes(key));
-            try { await store.save(); }
+            try { await store.save({ discardQueuedOnFailure: true }); }
             catch (error) {
-                Object.assign(active, previous);
+                for (const key of Object.keys(previous)) {
+                    const current = active[key] || (active[key] = []);
+                    const requiredCounts = new Map();
+                    previous[key].forEach((id, index) => {
+                        if (!report[key].includes(id)) return;
+                        const required = (requiredCounts.get(id) || 0) + 1;
+                        requiredCounts.set(id, required);
+                        if (current.filter(value => value === id).length < required) {
+                            current.splice(Math.min(index, current.length), 0, id);
+                        }
+                    });
+                }
                 throw error;
             }
-            this.recordAdminOperationLog('repair', '壊れた参照を自動修復', `${cleanupCount}件`, { tab: 'safety' });
-            this.renderWorkerMaintenanceModal();
-            this.renderWorkers?.();
-            this.showToast?.(`${cleanupCount}件の壊れた参照を修復しました`, 'success');
+            try {
+                this.recordAdminOperationLog('repair', '壊れた参照を自動修復', `${cleanupCount}件`, { tab: 'safety' });
+                this.renderWorkerMaintenanceModal();
+                this.renderWorkers?.();
+                this.showToast?.(`${cleanupCount}件の壊れた参照を修復しました`, 'success');
+            } catch (displayError) {
+                console.warn('修復後のログまたは画面更新に失敗しました。', displayError);
+                alert(`${cleanupCount}件の参照を修復しました。表示に反映されない場合は画面を再読み込みしてください。`);
+            }
         } catch (error) {
             console.error('修復前バックアップを作成できませんでした。', error);
             alert(`修復を実行できませんでした。${error?.message || 'バックアップを確認してください。'}`);

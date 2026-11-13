@@ -16,6 +16,12 @@ class MaintenanceStore {
         this.startupSaveSafe = false;
         this.saveTarget = 'indexeddb';
         this.storageCandidates = {};
+        this._saveRequestedRevision = 0;
+        this._savePersistedRevision = 0;
+        this._saveQueue = [];
+        this._saveQueueRunning = false;
+        this._saveIdleWaiters = [];
+        this._rejectedSaveDataRefs = new WeakSet();
         this.data = {
             currentDepartmentId: 'dept_default',
             departments: [
@@ -481,65 +487,133 @@ class MaintenanceStore {
         });
     }
 
-    async save() {
-        const backend = this.getActiveSaveBackend();
-        const savedAt = new Date().toISOString();
-        const dataAtStart = this.data;
-        const snapshot = {
-            ...dataAtStart,
-            settings: { ...(dataAtStart?.settings || {}), lastSuccessfulSaveAt: savedAt }
-        };
-        const notify = (status, detail = {}) => {
-            window.dispatchEvent(new CustomEvent('maintenance-save-status', {
-                detail: { status, backend, ...detail }
-            }));
-        };
-        const finish = () => {
-            this.lastSuccessfulSaveAt = savedAt;
-            if (this.data === dataAtStart) {
-                this.data.settings = { ...(this.data.settings || {}), lastSuccessfulSaveAt: savedAt };
-            }
-            this.storageCandidates[backend] = this.getStoredDataSummary(snapshot, backend);
-            this.startupSaveSafe = true;
-            notify('saved', { savedAt });
-        };
-        notify('saving');
+    notifySaveStatus(status, backend, detail = {}) {
+        window.dispatchEvent(new CustomEvent('maintenance-save-status', {
+            detail: { status, backend, ...detail }
+        }));
+    }
+
+    cloneSaveSnapshot() {
+        return typeof structuredClone === 'function'
+            ? structuredClone(this.data)
+            : JSON.parse(JSON.stringify(this.data));
+    }
+
+    writeSaveSnapshot(snapshot, backend) {
         if (backend === 'localStorage') {
-            try {
-                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(snapshot));
-                finish();
-            } catch (error) {
-                notify('error', { error });
-                throw error;
-            }
-            return;
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(snapshot));
+            return Promise.resolve();
         }
         return new Promise((resolve, reject) => {
-            let settled = false;
-            const fail = error => {
-                if (settled) return;
-                settled = true;
-                console.error('Save failed', error);
-                notify('error', { error });
-                reject(error);
-            };
             try {
                 const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
                 const os = tx.objectStore(this.STORE_NAME);
                 const req = os.put(snapshot, this.STORAGE_KEY);
-                req.onerror = () => fail(req.error || new Error('保存に失敗しました。'));
-                tx.onerror = () => fail(tx.error || new Error('保存に失敗しました。'));
-                tx.onabort = () => fail(tx.error || new Error('保存が中断されました。'));
+                let requestError = null;
+                // A request can fail before its transaction aborts. Keep the queue
+                // blocked until the whole transaction reaches a terminal event.
+                req.onerror = () => { requestError = req.error || new Error('保存に失敗しました。'); };
+                tx.onerror = () => { requestError ||= tx.error || new Error('保存に失敗しました。'); };
+                tx.onabort = () => reject(requestError || tx.error || new Error('保存が中断されました。'));
                 tx.oncomplete = () => {
-                    if (settled) return;
-                    settled = true;
-                    this.storageWarning = null;
-                    finish();
-                    resolve();
+                    if (requestError) reject(requestError);
+                    else resolve();
                 };
             } catch (error) {
-                fail(error);
+                reject(error);
             }
+        });
+    }
+
+    async runSaveQueue() {
+        if (this._saveQueueRunning) return;
+        this._saveQueueRunning = true;
+        try {
+            while (this._saveQueue.length) {
+                const entry = this._saveQueue.shift();
+                if (this._rejectedSaveDataRefs.has(entry.dataRef)) {
+                    const error = new Error('失敗した取込データの保存を中止しました。');
+                    entry.waiters.forEach(waiter => waiter.reject(error));
+                    this.notifySaveStatus('error', entry.backend, { error, revision: entry.revision });
+                    continue;
+                }
+                const savedAt = new Date().toISOString();
+                entry.snapshot.settings = { ...(entry.snapshot.settings || {}), lastSuccessfulSaveAt: savedAt };
+                this.notifySaveStatus('saving', entry.backend, { revision: entry.revision });
+                try {
+                    await this.writeSaveSnapshot(entry.snapshot, entry.backend);
+                    this.lastSuccessfulSaveAt = savedAt;
+                    if (this.data === entry.dataRef) {
+                        this.data.settings = { ...(this.data.settings || {}), lastSuccessfulSaveAt: savedAt };
+                    }
+                    this.storageCandidates[entry.backend] = this.getStoredDataSummary(entry.snapshot, entry.backend);
+                    this.startupSaveSafe = true;
+                    if (entry.backend === 'indexeddb') this.storageWarning = null;
+                    this._savePersistedRevision = entry.revision;
+                    entry.waiters.forEach(waiter => waiter.resolve());
+                    if (!this._saveQueue.length && this._saveRequestedRevision === entry.revision) {
+                        this.notifySaveStatus('saved', entry.backend, { savedAt, revision: entry.revision });
+                    }
+                } catch (error) {
+                    console.error('Save failed', error);
+                    if (entry.importTransaction) this._rejectedSaveDataRefs.add(entry.dataRef);
+                    if (entry.discardQueuedOnFailure) {
+                        const remaining = [];
+                        for (const pending of this._saveQueue) {
+                            if (pending.dataRef === entry.dataRef) {
+                                const discarded = new Error('前の保存に失敗したため、待機中の保存を中止しました。');
+                                pending.waiters.forEach(waiter => waiter.reject(discarded));
+                            } else {
+                                remaining.push(pending);
+                            }
+                        }
+                        this._saveQueue = remaining;
+                    }
+                    entry.waiters.forEach(waiter => waiter.reject(error));
+                    this.notifySaveStatus('error', entry.backend, { error, revision: entry.revision });
+                }
+            }
+        } finally {
+            this._saveQueueRunning = false;
+            if (this._saveQueue.length) this.runSaveQueue();
+            else this._saveIdleWaiters.splice(0).forEach(resolve => resolve());
+        }
+    }
+
+    waitForSaveQueueIdle() {
+        if (!this._saveQueueRunning && !this._saveQueue.length) return Promise.resolve();
+        return new Promise(resolve => this._saveIdleWaiters.push(resolve));
+    }
+
+    save(options = {}) {
+        const backend = this.getActiveSaveBackend();
+        const dataRef = this.data;
+        const revision = ++this._saveRequestedRevision;
+        let snapshot;
+        try {
+            if (this._rejectedSaveDataRefs.has(dataRef)) throw new Error('失敗した取込データは保存できません。');
+            snapshot = this.cloneSaveSnapshot();
+        } catch (error) {
+            this.notifySaveStatus('error', backend, { error, revision });
+            return Promise.reject(error);
+        }
+        return new Promise((resolve, reject) => {
+            const last = this._saveQueue[this._saveQueue.length - 1];
+            if (last && last.backend === backend && last.dataRef === dataRef) {
+                last.snapshot = snapshot;
+                last.revision = revision;
+                last.importTransaction ||= !!options.importTransaction;
+                last.discardQueuedOnFailure ||= !!options.discardQueuedOnFailure;
+                last.waiters.push({ resolve, reject });
+            } else {
+                this._saveQueue.push({
+                    backend, dataRef, snapshot, revision,
+                    importTransaction: !!options.importTransaction,
+                    discardQueuedOnFailure: !!options.discardQueuedOnFailure,
+                    waiters: [{ resolve, reject }]
+                });
+            }
+            this.runSaveQueue();
         });
     }
 
@@ -1373,7 +1447,16 @@ class MaintenanceStore {
         }
     }
 
-    async commitImportedState(candidate, skillUpdates = {}) {
+    async commitImportedState(candidate, skillUpdates = {}, options = {}) {
+        // Finish earlier edits before the separate skill values are replaced.
+        do {
+            await this.waitForSaveQueueIdle();
+        } while (this._saveQueueRunning || this._saveQueue.length);
+        if (options.expectedDataRef !== undefined
+            && (this.data !== options.expectedDataRef
+                || this._saveRequestedRevision !== options.expectedRevision)) {
+            throw new Error('バックアップ後に現在のデータが変更されました。取込をもう一度開始してください。');
+        }
         const previousData = this.data;
         const previousSkills = new Map();
         const changedSkills = [];
@@ -1389,7 +1472,7 @@ class MaintenanceStore {
                 changedSkills.push(key);
             }
             this.data = normalized;
-            await this.save();
+            await this.save({ importTransaction: true });
         } catch (error) {
             this.data = previousData;
             for (const key of changedSkills.reverse()) {
@@ -1405,7 +1488,7 @@ class MaintenanceStore {
         }
     }
 
-    async importFromJSON(jsonString) {
+    async importFromJSON(jsonString, options = {}) {
         try {
             const imported = this.hydratePackedImageData(JSON.parse(jsonString));
             if (!this.isImportRecord(imported)) throw new Error('取込データの形式が正しくありません。');
@@ -1415,7 +1498,7 @@ class MaintenanceStore {
             const skillUpdates = wrapped ? this.getImportedSkillUpdates(imported) : {};
 
             if (Array.isArray(dataToLoad.departments) && this.isImportRecord(dataToLoad.deptData)) {
-                await this.commitImportedState(dataToLoad, skillUpdates);
+                await this.commitImportedState(dataToLoad, skillUpdates, options);
                 return true;
             }
             if (['machines', 'history', 'tasks'].some(key => Array.isArray(dataToLoad[key]))) {
@@ -1432,12 +1515,13 @@ class MaintenanceStore {
                     archivedTasks: dataToLoad.archivedTasks || []
                 };
                 if (dataToLoad.settings) candidate.settings = dataToLoad.settings;
-                await this.commitImportedState(candidate, skillUpdates);
+                await this.commitImportedState(candidate, skillUpdates, options);
                 return true;
             }
             throw new Error('主データの形式が正しくありません。');
         } catch (e) {
             console.error('Import failed', e);
+            if (options.throwOnError) throw e;
         }
         return false;
     }

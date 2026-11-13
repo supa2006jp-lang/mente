@@ -368,10 +368,13 @@
             importBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中...';
         }
         const backupFilename = `maintenance_before_import_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        const backupDataRef = store.data;
+        const backupSaveRevision = store._saveRequestedRevision;
         let previousMedia = [];
         let mediaWritten = false;
         let imported = false;
         try {
+            const saveRequest = this.beginVerifiedSafetyBackup(backupFilename);
             const incoming = preview.raw || JSON.parse(preview.jsonText);
             const manifest = incoming?.embeddedMedia;
             const mediaRecords = this.decodeEmbeddedMedia(manifest);
@@ -383,18 +386,34 @@
             const backupJson = await this.buildCompleteBackupJson(
                 store.exportAsJSON({ optimizeImages: true, mode: 'complete' })
             );
-            if (typeof this.downloadJsonText !== 'function') {
+            if (typeof this.saveVerifiedSafetyBackup !== 'function') {
                 throw new Error('取込前バックアップの出力機能を読み込めませんでした。');
             }
-            this.downloadJsonText(backupFilename, backupJson, '取込前バックアップを出力しました');
-            this.recordAdminBackupLog?.('import', backupFilename);
+            const saved = await this.saveVerifiedSafetyBackup(
+                backupFilename, backupJson, saveRequest, '取込前バックアップを保存しました'
+            );
+            if (!saved) {
+                if (importBtn) {
+                    importBtn.disabled = false;
+                    importBtn.innerHTML = '<i class="fa-solid fa-upload"></i> バックアップして取込';
+                }
+                return;
+            }
+            this.recordAdminBackupLog?.('import', saved.filename);
+            this.assertSafetyBackupSourceUnchanged(backupDataRef, backupSaveRevision);
             if (mediaRecords.length) {
                 previousMedia = await this.readMediaRecords(mediaRecords.map(record => record.key));
                 await this.ensureMediaRestoreCapacity(mediaRecords, previousMedia);
+                this.assertSafetyBackupSourceUnchanged(backupDataRef, backupSaveRevision);
                 await this.writeMediaRecords(mediaRecords);
                 mediaWritten = true;
             }
-            if (!await store.importFromJSON(preview.jsonText)) {
+            this.assertSafetyBackupSourceUnchanged(backupDataRef, backupSaveRevision);
+            if (!await store.importFromJSON(preview.jsonText, {
+                expectedDataRef: backupDataRef,
+                expectedRevision: backupSaveRevision,
+                throwOnError: true
+            })) {
                 throw new Error('主データを保存できませんでした。');
             }
             imported = true;

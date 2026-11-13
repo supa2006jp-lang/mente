@@ -98,6 +98,7 @@ function harness({ initial = [], importSucceeds = true, data = null, capacity = 
     const app = new MaintenanceApp();
     app.requireDangerConfirm = () => true;
     app.downloadJsonText = (name, text) => files.push({ name, text });
+    app.confirmDownloadedSafetyBackup = async filename => ({ filename, method: 'test-confirmed' });
     app.recordAdminBackupLog = () => {};
     app.recordAdminOperationLog = () => {};
     app.getLocalDateString = () => '2026-11-14';
@@ -350,6 +351,7 @@ test('administration download retains Blob URL until after click and propagates 
 test('pre-import backup click failure stops before replacing media or main data', async () => {
     const h = harness();
     h.app.downloadJsonText = Object.getPrototypeOf(h.app).downloadJsonText;
+    h.app.confirmDownloadedSafetyBackup = Object.getPrototypeOf(h.app).confirmDownloadedSafetyBackup;
     h.context.URL = {
         createObjectURL() { return 'blob:test'; },
         revokeObjectURL() {}
@@ -359,7 +361,7 @@ test('pre-import backup click failure stops before replacing media or main data'
     await h.app.confirmFullImportFromPreview();
     assert.equal(h.imports, 0);
     assert.equal(h.media.records.size, 0);
-    assert.match(h.alerts[0], /download blocked/);
+    assert.match(h.alerts[0], /バックアップJSONを照合する画面を開けません/);
 });
 
 test('manual administration backup also includes separate media', async () => {
@@ -385,4 +387,184 @@ test('repair does not modify references when complete pre-repair backup fails', 
     assert.deepEqual(active.archivedMaintenanceTasks, ['task-1']);
     assert.equal(h.files.length, 0);
     assert.match(h.alerts[0], /バックアップ/);
+});
+
+test('file picker starts before asynchronous backup work and import waits for close', async () => {
+    const h = harness();
+    const events = [];
+    h.context.window.showSaveFilePicker = () => {
+        events.push('picker');
+        return Promise.resolve({
+            name: 'safety.json',
+            async createWritable() {
+                events.push('createWritable');
+                return {
+                    async write(blob) {
+                        assert.equal(JSON.parse(await blob.text()).embeddedMedia.version, 1);
+                        events.push('write');
+                    },
+                    async close() { events.push('close'); }
+                };
+            }
+        });
+    };
+    const originalBuild = h.app.buildCompleteBackupJson;
+    h.app.buildCompleteBackupJson = async function (...args) {
+        events.push('build');
+        return originalBuild.apply(this, args);
+    };
+    const originalImport = h.store.importFromJSON;
+    h.store.importFromJSON = async function (...args) {
+        events.push('import');
+        return originalImport.apply(this, args);
+    };
+    setPreview(h.app, { mainData: { currentDepartmentId: 'dept_default', deptData: { dept_default: {} } } });
+    await h.app.confirmFullImportFromPreview();
+    assert.deepEqual(events, ['picker', 'build', 'createWritable', 'write', 'close', 'import']);
+    assert.equal(h.files.length, 0);
+    assert.equal(h.imports, 1);
+});
+
+test('canceled file picker leaves import preview and saved data intact', async () => {
+    const h = harness();
+    h.context.window.showSaveFilePicker = () => Promise.reject(Object.assign(new Error('canceled'), { name: 'AbortError' }));
+    setPreview(h.app, incomingWithMedia('photo-manager-audio:dept_default:new', 'new'));
+    await h.app.confirmFullImportFromPreview();
+    assert.equal(h.imports, 0);
+    assert.equal(h.reloads, 0);
+    assert.equal(h.media.records.size, 0);
+    assert.equal(h.files.length, 0);
+    assert.ok(h.app.pendingFullImportPreview);
+    assert.equal(h.button.disabled, false);
+});
+
+test('failed file close stops import before changing media or main data', async () => {
+    const h = harness();
+    h.context.window.showSaveFilePicker = () => Promise.resolve({
+        async createWritable() { return {
+            async write() {},
+            async close() { throw new Error('disk full'); },
+            async abort() {}
+        }; }
+    });
+    setPreview(h.app, incomingWithMedia('photo-manager-audio:dept_default:new', 'new'));
+    await h.app.confirmFullImportFromPreview();
+    assert.equal(h.imports, 0);
+    assert.equal(h.reloads, 0);
+    assert.equal(h.media.records.size, 0);
+    assert.equal(h.files.length, 0);
+    assert.match(h.alerts[0], /disk full/);
+});
+
+function installSafetyBackupDialogDocument(h, nativeDialog = true) {
+    const document = h.context.document;
+    const nodes = [];
+    const previousFocus = { isConnected: true, count: 0, focus() { this.count++; } };
+    document.activeElement = previousFocus;
+    document.body = { appendChild(node) { nodes.push(node); } };
+    document.createElement = tag => {
+        const node = {
+            tag,
+            style: {},
+            listeners: {},
+            attrs: {},
+            setAttribute(name, value) { this.attrs[name] = value; },
+            addEventListener(name, listener) { this.listeners[name] = listener; },
+            append(...children) { this.children = children; },
+            remove() { this.removed = true; },
+            focus() { document.activeElement = this; },
+            close() { this.closed = true; }
+        };
+        if (tag === 'dialog' && nativeDialog) node.showModal = () => { node.opened = true; };
+        return node;
+    };
+    return { document, nodes, previousFocus };
+}
+
+test('legacy backup checks saved file bytes before continuing and restores focus', async () => {
+    const h = harness();
+    const { nodes, previousFocus } = installSafetyBackupDialogDocument(h);
+    const confirmDownloadedSafetyBackup = Object.getPrototypeOf(h.app).confirmDownloadedSafetyBackup;
+    const confirmation = confirmDownloadedSafetyBackup.call(h.app, 'safety.json', '{"saved":true}');
+    const dialog = nodes.find(node => node.tag === 'dialog');
+    const input = dialog.children.find(node => node.tag === 'input');
+    const status = dialog.children.find(node => node.attrs.role === 'status');
+    input.files = [Object.assign(new Blob(['{"saved":truf}']), { name: 'wrong.json' })];
+    await input.listeners.change();
+    assert.match(status.textContent, /内容がバックアップと一致しません/);
+    assert.equal(dialog.removed, undefined);
+    input.files = [Object.assign(new Blob(['{"saved":true}']), { name: 'confirmed.json' })];
+    await input.listeners.change();
+    const result = await confirmation;
+    assert.equal(result.filename, 'confirmed.json');
+    assert.equal(result.method, 'verified-download');
+    assert.equal(dialog.closed, true);
+    assert.equal(dialog.removed, true);
+    assert.equal(previousFocus.count, 1);
+});
+
+test('legacy overlay cancel keeps the backup unconfirmed', async () => {
+    const h = harness();
+    const { nodes, previousFocus } = installSafetyBackupDialogDocument(h, false);
+    const confirmDownloadedSafetyBackup = Object.getPrototypeOf(h.app).confirmDownloadedSafetyBackup;
+    const confirmation = confirmDownloadedSafetyBackup.call(h.app, 'safety.json', '{}');
+    const dialog = nodes.find(node => node.tag === 'dialog');
+    assert.equal(nodes.length, 2);
+    assert.equal(dialog.attrs.open, '');
+    dialog.children.find(node => node.textContent === '中止').listeners.click();
+    assert.equal(await confirmation, null);
+    assert.equal(previousFocus.count, 1);
+});
+
+test('download blocked after async backup can be retried by a user click', async () => {
+    const h = harness();
+    const { nodes } = installSafetyBackupDialogDocument(h);
+    h.app.confirmDownloadedSafetyBackup = Object.getPrototypeOf(h.app).confirmDownloadedSafetyBackup;
+    let downloadAttempts = 0;
+    h.app.downloadJsonText = () => {
+        downloadAttempts++;
+        if (downloadAttempts === 1) throw new Error('gesture expired');
+    };
+    const saving = h.app.saveVerifiedSafetyBackup('safety.json', '{"saved":true}', { kind: 'download' });
+    const dialog = nodes.find(node => node.tag === 'dialog');
+    const retry = dialog.children.find(node => node.textContent === 'バックアップをダウンロード');
+    retry.listeners.click();
+    const input = dialog.children.find(node => node.tag === 'input');
+    input.files = [Object.assign(new Blob(['{"saved":true}']), { name: 'safety.json' })];
+    await input.listeners.change();
+    assert.equal((await saving).method, 'verified-download');
+    assert.equal(downloadAttempts, 2);
+});
+
+test('a new save request during backup stops import before changing data', async () => {
+    const h = harness();
+    h.store._saveRequestedRevision = 4;
+    h.app.confirmDownloadedSafetyBackup = async filename => {
+        h.store._saveRequestedRevision++;
+        return { filename, method: 'verified-download' };
+    };
+    setPreview(h.app, incomingWithMedia('photo-manager-audio:dept_default:new', 'new'));
+    await h.app.confirmFullImportFromPreview();
+    assert.equal(h.files.length, 1);
+    assert.equal(h.imports, 0);
+    assert.equal(h.media.records.size, 0);
+    assert.ok(h.app.pendingFullImportPreview);
+    assert.match(h.alerts[0], /現在のデータが変更/);
+});
+
+test('repair save failure restores removed IDs while keeping later edits', async () => {
+    const h = harness();
+    const active = { archivedMaintenanceTasks: ['broken', 'broken'], archivedGuides: [], archivedTasks: [] };
+    h.store.activeData = active;
+    h.app.getBrokenDataReport = () => ({
+        archivedMaintenanceTasks: ['broken', 'broken'], archivedGuides: [], archivedTasks: [], missingMachineHistories: []
+    });
+    h.store.save = async options => {
+        assert.equal(options.discardQueuedOnFailure, true);
+        active.archivedMaintenanceTasks.push('later');
+        throw new Error('save failed');
+    };
+    await h.app.cleanupBrokenDataReferences();
+    assert.deepEqual(active.archivedMaintenanceTasks, ['broken', 'broken', 'later']);
+    assert.match(h.alerts[0], /save failed/);
 });

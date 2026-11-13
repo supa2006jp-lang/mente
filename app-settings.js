@@ -804,34 +804,160 @@
         });
     }
 
+    async saveDiagnosticsRepairBackup() {
+        if (typeof this.beginVerifiedSafetyBackup !== 'function'
+            || typeof this.saveVerifiedSafetyBackup !== 'function'
+            || typeof this.buildCompleteBackupJson !== 'function') {
+            throw new Error('修復前バックアップの機能を読み込めませんでした。');
+        }
+        const filename = `maintenance_before_diagnostics_repair_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        const request = this.beginVerifiedSafetyBackup(filename);
+        const json = await this.buildCompleteBackupJson(
+            store.exportAsJSON({ optimizeImages: true, mode: 'complete' })
+        );
+        return this.saveVerifiedSafetyBackup(filename, json, request, '修復前バックアップを保存しました');
+    }
+
+    assertDiagnosticsRepairSourceUnchanged(data, departmentId, revision, targetSignature, getTargets) {
+        if (store.data !== data
+            || store.data?.currentDepartmentId !== departmentId
+            || store._saveRequestedRevision !== revision
+            || JSON.stringify(getTargets()) !== targetSignature) {
+            throw new Error('バックアップの確認中にデータが変わりました。修復をもう一度開始してください。');
+        }
+    }
+
+    restoreDiagnosticsRepairOrphans(active, removedEntries) {
+        removedEntries.forEach(({ key, id, value }) => {
+            if (active[key] && !Object.prototype.hasOwnProperty.call(active[key], id)) active[key][id] = value;
+        });
+    }
+
+    restoreDiagnosticsRepairReferences(active, previous, invalidByKey) {
+        Object.entries(previous).forEach(([key, before]) => {
+            const current = Array.isArray(active[key]) ? [...active[key]] : [];
+            const original = Array.isArray(before) ? before : [];
+            const requiredCounts = new Map();
+            original.forEach(value => {
+                if (invalidByKey[key].has(value)) requiredCounts.set(value, (requiredCounts.get(value) || 0) + 1);
+            });
+            const currentCounts = new Map();
+            current.forEach(value => currentCounts.set(value, (currentCounts.get(value) || 0) + 1));
+            original.forEach((value, index) => {
+                if (!invalidByKey[key].has(value)
+                    || (currentCounts.get(value) || 0) >= requiredCounts.get(value)) return;
+                current.splice(Math.min(index, current.length), 0, value);
+                currentCounts.set(value, (currentCounts.get(value) || 0) + 1);
+            });
+            active[key] = current;
+        });
+    }
+
     async autoRepairSafeDataIssues() {
+        if (this._diagnosticRepairInProgress) return;
         const orphanEntries = this.collectOrphanPhotoManagerMetadata();
         const broken = this.getBrokenDataReport?.() || {};
         const repairKeys = ['archivedMaintenanceTasks', 'archivedGuides', 'archivedTasks'];
         const referenceCount = repairKeys.reduce((sum, key) => sum + (Array.isArray(broken[key]) ? broken[key].length : 0), 0);
         const total = orphanEntries.length + referenceCount;
         if (!total) return this.openScheduledDataDiagnosticsPanel(true);
-        if (!confirm(`安全に自動修復できる ${total}件を修復します。\n画像や履歴本体は削除しません。続行しますか？`)) return;
-        orphanEntries.forEach(({ key, id }) => { delete store.activeData[key][id]; });
-        repairKeys.forEach(key => {
-            const invalid = new Set(Array.isArray(broken[key]) ? broken[key] : []);
-            store.activeData[key] = (store.activeData[key] || []).filter(value => !invalid.has(value));
+        if (!confirm(`安全に自動修復できる ${total}件を修復します。\n修復前に完全バックアップを保存します。画像や履歴本体は削除しません。続行しますか？`)) return;
+        const dataBeforeBackup = store.data;
+        const departmentBeforeBackup = store.data?.currentDepartmentId;
+        const revisionBeforeBackup = store._saveRequestedRevision;
+        const getRepairTargets = () => {
+            const refreshedBroken = this.getBrokenDataReport?.() || {};
+            return {
+                orphanEntries: this.collectOrphanPhotoManagerMetadata(),
+                broken: repairKeys.map(key => refreshedBroken[key] || [])
+            };
+        };
+        const targetSignature = JSON.stringify({
+            orphanEntries,
+            broken: repairKeys.map(key => broken[key] || [])
         });
-        await store.save?.();
-        this.addSystemActivityLog?.('データ修復', `安全なデータ修復 ${total}件`, { level: 'info' });
-        this.showToast?.(`${total}件を修復しました`, 'success');
-        this.openScheduledDataDiagnosticsPanel(true);
+        this._diagnosticRepairInProgress = true;
+        try {
+            const saved = await this.saveDiagnosticsRepairBackup();
+            if (!saved) return;
+            this.assertDiagnosticsRepairSourceUnchanged(
+                dataBeforeBackup, departmentBeforeBackup, revisionBeforeBackup, targetSignature, getRepairTargets
+            );
+            const active = store.activeData;
+            const previousOrphans = orphanEntries.map(({ key, id }) => ({ key, id, value: active[key]?.[id] }));
+            const previousReferences = Object.fromEntries(repairKeys.map(key => [key, active[key]]));
+            const invalidByKey = Object.fromEntries(repairKeys.map(key => [
+                key, new Set(Array.isArray(broken[key]) ? broken[key] : [])
+            ]));
+            try {
+                orphanEntries.forEach(({ key, id }) => { delete active[key][id]; });
+                repairKeys.forEach(key => {
+                    active[key] = (active[key] || []).filter(value => !invalidByKey[key].has(value));
+                });
+                await store.save({ discardQueuedOnFailure: true });
+            }
+            catch (error) {
+                this.restoreDiagnosticsRepairOrphans(active, previousOrphans);
+                this.restoreDiagnosticsRepairReferences(active, previousReferences, invalidByKey);
+                throw error;
+            }
+            try {
+                this.addSystemActivityLog?.('データ修復', `安全なデータ修復 ${total}件`, { level: 'info' });
+                this.showToast?.(`${total}件を修復しました`, 'success');
+                this.openScheduledDataDiagnosticsPanel(true);
+            } catch (displayError) {
+                console.warn('修復後の画面更新に失敗しました。', displayError);
+                alert('修復は保存されました。表示が更新されない場合は画面を再読み込みしてください。');
+            }
+        } catch (error) {
+            console.error('データ診断の修復に失敗しました。', error);
+            alert(`修復を実行できませんでした。${error?.message || 'バックアップを確認してください。'}`);
+        } finally {
+            this._diagnosticRepairInProgress = false;
+        }
     }
 
-    confirmCleanOrphanPhotoManagerMetadata() {
+    async confirmCleanOrphanPhotoManagerMetadata() {
+        if (this._diagnosticRepairInProgress) return;
         const entries = this.collectOrphanPhotoManagerMetadata();
         if (!entries.length) return this.openScheduledDataDiagnosticsPanel(true);
-        if (!confirm(`画像の存在しない名前・タグ・注記 ${entries.length}件を削除します。\n画像本体は削除されません。よろしいですか？`)) return;
-        entries.forEach(({ key, id }) => { delete store.activeData[key][id]; });
-        store.save?.();
-        this.addSystemActivityLog?.('データ整理', `孤立した画像設定 ${entries.length}件を削除`, { level: 'info' });
-        this.showToast?.(`${entries.length}件の孤立した画像設定を整理しました`, 'success');
-        this.openScheduledDataDiagnosticsPanel(true);
+        if (!confirm(`画像の存在しない名前・タグ・注記 ${entries.length}件を削除します。\n先に完全バックアップを保存します。画像本体は削除されません。続けますか？`)) return;
+        const dataBeforeBackup = store.data;
+        const departmentBeforeBackup = store.data?.currentDepartmentId;
+        const revisionBeforeBackup = store._saveRequestedRevision;
+        const targetSignature = JSON.stringify(entries);
+        this._diagnosticRepairInProgress = true;
+        try {
+            const saved = await this.saveDiagnosticsRepairBackup();
+            if (!saved) return;
+            this.assertDiagnosticsRepairSourceUnchanged(
+                dataBeforeBackup, departmentBeforeBackup, revisionBeforeBackup,
+                targetSignature, () => this.collectOrphanPhotoManagerMetadata()
+            );
+            const active = store.activeData;
+            const previous = entries.map(({ key, id }) => ({ key, id, value: active[key]?.[id] }));
+            try {
+                entries.forEach(({ key, id }) => { delete active[key][id]; });
+                await store.save({ discardQueuedOnFailure: true });
+            }
+            catch (error) {
+                this.restoreDiagnosticsRepairOrphans(active, previous);
+                throw error;
+            }
+            try {
+                this.addSystemActivityLog?.('データ整理', `孤立した画像設定 ${entries.length}件を削除`, { level: 'info' });
+                this.showToast?.(`${entries.length}件の孤立した画像設定を整理しました`, 'success');
+                this.openScheduledDataDiagnosticsPanel(true);
+            } catch (displayError) {
+                console.warn('整理後の画面更新に失敗しました。', displayError);
+                alert('画像設定の整理は保存されました。表示が更新されない場合は画面を再読み込みしてください。');
+            }
+        } catch (error) {
+            console.error('画像設定の整理に失敗しました。', error);
+            alert(`画像設定を整理できませんでした。${error?.message || 'バックアップを確認してください。'}`);
+        } finally {
+            this._diagnosticRepairInProgress = false;
+        }
     }
 
     openDataHealthCheckPanel() {
