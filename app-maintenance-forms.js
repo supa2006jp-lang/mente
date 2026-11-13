@@ -627,7 +627,7 @@
     openSuddenRecordModal(defaultDate = null, prefill = null) {
         if (!prefill) this._pendingShiftSuddenRegistration = null;
         const machines = store.getMachines();
-        const dateVal = defaultDate || new Date().toISOString().split('T')[0];
+        const dateVal = defaultDate || this.getLocalDateString();
         const lastMachineCategory = store.getLastSuddenCategory();
         
         this.openModal('sudden', '突発対応の詳細記録', () => {
@@ -1760,8 +1760,10 @@
 
     openCompletionForm(taskId, dateStr) {
         const task = store.activeData.tasks.find(t => t.id === taskId);
+        if (!task) return alert('対象の予定が見つかりません。');
         const machine = store.getMachines(true).find(m => m.id === task.machineId);
         const isOneOffTask = (parseInt(task?.periodDays) || 0) <= 0;
+        const plannedDate = dateStr || task.startDate || this.getLocalDateString();
 
         // Find last parts for this specific task to auto-copy
         // First try: exact taskId match with parts
@@ -1803,6 +1805,11 @@
                         <div style="font-weight:900; font-size:1.1rem;">${machine?.name}</div>
                         <div style="font-weight:700; color:var(--text-light);">${task.content}</div>
                     </div>
+                    <div class="form-group">
+                        <label>対象の予定日 <span style="color:var(--danger)">*</span></label>
+                        <input type="date" id="c-scheduled-date" value="${this.escapeHtml(plannedDate)}" required>
+                        <small>実施日を変更しても、この予定日を完了として記録します。</small>
+                    </div>
                     ${isOneOffTask ? `
                         <div class="one-off-completion-note">
                             <i class="fa-solid fa-calendar-check"></i>
@@ -1813,7 +1820,7 @@
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                         <div class="form-group">
                             <label>実施日 <span style="color:var(--danger)">*</span></label>
-                            <input type="date" id="c-date" value="${dateStr}" required>
+                            <input type="date" id="c-date" value="${this.escapeHtml(plannedDate)}" required>
                         </div>
                         <div class="form-group">
                             <label>作業時間 (分) <span style="color:var(--danger)">*</span></label>
@@ -3626,6 +3633,7 @@
             const machineId = document.getElementById('c-machine-id').value;
             const lineNo = document.getElementById('c-line-no').value;
             const date = document.getElementById('c-date').value;
+            const scheduledDate = document.getElementById('c-scheduled-date')?.value || '';
             const notes = document.getElementById('c-notes').value || '定期メンテナンス完了';
             const machineCategory = this.getCategoryFromModalInput('c-');
             const workTime = document.getElementById('c-work-time').value;
@@ -3662,11 +3670,17 @@
             }
 
             const task = store.activeData.tasks.find(t => String(t.id) === String(taskId));
+            if (!this.isScheduledTaskOccurrenceDate(task, scheduledDate)) {
+                alert('対象の予定日を、このメンテナンスの周期に該当する日付で指定してください。');
+                document.getElementById('c-scheduled-date')?.focus();
+                return;
+            }
             const completedRecord = store.addHistoryRecord({
                 taskId,
                 taskContent: task ? task.content : '定期メンテナンス', // Save fixed label
                 machineId,
                 date,
+                scheduledDate,
                 notes,
                 workTime,
                 workers,

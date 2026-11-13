@@ -443,7 +443,7 @@
             const omittedDataWarning = store.lastExportWarnings?.length
                 ? `\n注意: ${store.lastExportWarnings.join('、')}。このJSONには一部のスキル情報が含まれません。`
                 : '';
-            const date = new Date().toISOString().split('T')[0];
+            const date = this.getLocalDateString();
             const modeLabel = options.mode === 'light' ? 'light' : 'complete';
             const deptName = store.data.departments.find(d => d.id === store.data.currentDepartmentId)?.name || 'dept';
             const filename = scope === 'dept'

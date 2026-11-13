@@ -319,7 +319,7 @@
     openHistoryCsvBuilder() {
         const machines = store.getMachines(true);
         const workers = store.getWorkers ? store.getWorkers().filter(w => !store.isWorkerArchived?.(w)) : [];
-        const today = new Date().toISOString().split('T')[0];
+        const today = this.getLocalDateString();
         const machineOptions = machines.map(m => {
             const label = `${m.name || ''}${m.model ? ` [${m.model}]` : ''}`;
             return `<option value="${this.escapeHtml(label)}" data-name="${this.escapeHtml(m.name || '')}" data-model="${this.escapeHtml(m.model || '')}" data-line="${this.escapeHtml(m.lineNo || '')}"></option>`;
@@ -475,7 +475,7 @@
         if (!body) return;
         body.innerHTML = '';
         this.addHistoryCsvBuilderRow({
-            date: new Date().toISOString().split('T')[0],
+            date: this.getLocalDateString(),
             line: '5',
             machine: 'メインコンベア',
             model: 'MC-100',
@@ -533,7 +533,7 @@
             headers.map(h => this.csvEscape(h)).join(','),
             ...rows.map(row => row.map(value => this.csvEscape(value)).join(','))
         ].join('\n');
-        this.downloadCSV(`history_import_${new Date().toISOString().split('T')[0]}.csv`, csvContent);
+        this.downloadCSV(`history_import_${this.getLocalDateString()}.csv`, csvContent);
         this.showToast?.('取込用CSVを出力しました', 'success');
     }
 
@@ -943,7 +943,7 @@
         });
 
         const csvContent = [headers.map(h => this.csvEscape(h)).join(','), ...rows].join('\n');
-        this.downloadCSV(`maintenance_history_${new Date().toISOString().split('T')[0]}.csv`, csvContent);
+        this.downloadCSV(`maintenance_history_${this.getLocalDateString()}.csv`, csvContent);
     }
 
     exportWorkTimeAsCSV() {
@@ -984,7 +984,7 @@
         });
 
         const csvContent = [headers.join(','), ...rows].join('\n');
-        this.downloadCSV(`worktime_analysis_${period}_${new Date().toISOString().split('T')[0]}.csv`, csvContent);
+        this.downloadCSV(`worktime_analysis_${period}_${this.getLocalDateString()}.csv`, csvContent);
     }
 
     exportSkillMapAsCSV() {
@@ -1032,7 +1032,7 @@
         });
 
         const csvContent = [headers.join(','), ...rows].join('\n');
-        this.downloadCSV(`skill_map_${new Date().toISOString().split('T')[0]}.csv`, csvContent);
+        this.downloadCSV(`skill_map_${this.getLocalDateString()}.csv`, csvContent);
     }
     }
 

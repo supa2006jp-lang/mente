@@ -1078,7 +1078,7 @@
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `5S_history_${new Date().toISOString().split('T')[0]}.xls`;
+        link.download = `5S_history_${this.getLocalDateString()}.xls`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -1149,7 +1149,7 @@
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `5S履歴_写真なし_${new Date().toISOString().slice(0, 10)}.xls`;
+        link.download = `5S履歴_写真なし_${this.getLocalDateString()}.xls`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -17295,7 +17295,7 @@
         const safeLabel = String(nameLabel || '').replace(/[\\/:*?"<>|]/g, '').trim();
         const anchor = document.createElement('a');
         anchor.href = URL.createObjectURL(blob);
-        anchor.download = `写真比較アニメ${safeLabel ? `_${safeLabel}` : ''}_${new Date().toISOString().slice(0, 10)}.${extension}`;
+        anchor.download = `写真比較アニメ${safeLabel ? `_${safeLabel}` : ''}_${this.getLocalDateString()}.${extension}`;
         document.body.appendChild(anchor);
         anchor.click();
         setTimeout(() => {
@@ -32631,7 +32631,7 @@
         anchor.href = url;
         const presetLabel = { plate: 'プレート', stamp: 'スタンプ', cutout: 'SVG部分のみ' }[preset];
         const mirrorLabel = mirrorTransform ? '_左右反転' : '';
-        anchor.download = `3D_${presetLabel}${mirrorLabel}_${mode === 'polyline' ? `区画${Math.max(1, data.regionIndex + 1)}` : mode}_${outputWidthMm}mm_${new Date().toISOString().slice(0, 10)}.svg`;
+        anchor.download = `3D_${presetLabel}${mirrorLabel}_${mode === 'polyline' ? `区画${Math.max(1, data.regionIndex + 1)}` : mode}_${outputWidthMm}mm_${this.getLocalDateString()}.svg`;
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
@@ -34530,7 +34530,7 @@
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `写真比較_表_${new Date().toISOString().slice(0, 10)}.xls`;
+        anchor.download = `写真比較_表_${this.getLocalDateString()}.xls`;
         anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         this.showShiftPhotoCompareActionMessage('表をExcel形式で出力しました。');
@@ -45861,7 +45861,7 @@
         if (!canvas) return;
         const link = document.createElement('a');
         link.href = canvas.toDataURL('image/png');
-        link.download = `写真比較_${new Date().toISOString().slice(0, 10)}.png`;
+        link.download = `写真比較_${this.getLocalDateString()}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -45898,7 +45898,7 @@
             await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, { x: 0, y: 0, width: canvas.width, height: canvas.height });
             const link = document.createElement('a');
             link.href = canvas.toDataURL('image/png');
-            link.download = `写真_${i + 1}_記号込み_${new Date().toISOString().slice(0, 10)}.png`;
+            link.download = `写真_${i + 1}_記号込み_${this.getLocalDateString()}.png`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

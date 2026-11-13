@@ -26,6 +26,35 @@
         }
     }
 
+    isScheduledTaskOccurrenceDate(task, dateStr) {
+        const parseDate = value => {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+            const [year, month, day] = value.split('-').map(Number);
+            const time = Date.UTC(year, month - 1, day);
+            return new Date(time).toISOString().slice(0, 10) === value ? time : null;
+        };
+        const startTime = parseDate(task?.startDate);
+        const targetTime = parseDate(dateStr);
+        if (startTime === null || targetTime === null || targetTime < startTime) return false;
+        const periodDays = parseInt(task?.periodDays, 10) || 0;
+        if (periodDays <= 0) return dateStr === task.startDate;
+        const days = Math.round((targetTime - startTime) / 86400000);
+        return days % periodDays === 0;
+    }
+
+    isScheduledTaskOccurrenceDone(task, scheduledDate, history = store.activeData.history || []) {
+        if (!task?.id || !scheduledDate) return false;
+        const taskId = String(task.id);
+        const oneOff = (parseInt(task.periodDays, 10) || 0) <= 0;
+        return history.some(record => {
+            if (!record?.taskId || String(record.taskId) !== taskId) return false;
+            if (record.scheduledDate) return record.scheduledDate === scheduledDate;
+            // Older records have only the work date. A one-off task has just one
+            // occurrence; periodic records can only be matched safely on the same day.
+            return oneOff || record.date === scheduledDate;
+        });
+    }
+
     updateTelop() {
         const telopText = document.getElementById('cal-telop-text');
         const telopContainer = document.getElementById('cal-telop-container');
@@ -40,7 +69,8 @@
         
         tasks.forEach(t => {
             if (!t.startDate) return;
-            const startDate = new Date(t.startDate);
+            const [startYear, startMonth, startDay] = t.startDate.split('-').map(Number);
+            const startDate = new Date(startYear, startMonth - 1, startDay);
             if (isNaN(startDate.getTime())) return;
             startDate.setHours(0,0,0,0);
             if (startDate > today) return;
@@ -51,7 +81,7 @@
             if (t.periodDays <= 0) {
                 // One-off or invalid period
                 if (t.startDate) {
-                    const isDone = store.activeData.history.some(h => h.taskId === t.id && h.date === t.startDate);
+                    const isDone = this.isScheduledTaskOccurrenceDone(t, t.startDate);
                     if (!isDone && startDate < today) {
                         unfinishedCount++;
                         details.push(`${modelLabel}: ${t.content}`);
@@ -65,7 +95,7 @@
                 let firstMiss = true;
                 while (checkDate <= yesterday) {
                     const dateStr = checkDate.getFullYear() + '-' + String(checkDate.getMonth()+1).padStart(2,0) + '-' + String(checkDate.getDate()).padStart(2,0);
-                    const isDone = store.activeData.history.some(h => h.taskId && String(h.taskId) === String(t.id) && h.date === dateStr);
+                    const isDone = this.isScheduledTaskOccurrenceDone(t, dateStr);
                     if (!isDone) {
                         unfinishedCount++;
                         if (firstMiss) {
@@ -115,16 +145,16 @@
             startDate.setHours(0,0,0,0);
             if (startDate > targetDate) return;
 
-            if (t.periodDays <= 0) {
+            if ((parseInt(t.periodDays, 10) || 0) <= 0) {
                 if (t.startDate === dateStr) {
-                    const isDone = store.activeData.history.some(h => h.taskId && String(h.taskId) === String(t.id) && h.date === dateStr);
+                    const isDone = this.isScheduledTaskOccurrenceDone(t, dateStr);
                     if (!isDone) scheduled.push(t);
                 }
             } else {
                 const diffTime = targetDate.getTime() - startDate.getTime();
                 const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
                 if (diffDays >= 0 && diffDays % t.periodDays === 0) {
-                    const isDone = store.activeData.history.some(h => h.taskId && String(h.taskId) === String(t.id) && h.date === dateStr);
+                    const isDone = this.isScheduledTaskOccurrenceDone(t, dateStr);
                     if (!isDone) scheduled.push(t);
                 }
             }

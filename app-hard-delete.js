@@ -110,7 +110,7 @@
 
         const finalMachineId = machineId || 'COMMON';
         const newId = store.generateId();
-        const date = new Date().toISOString().split('T')[0];
+        const date = this.getLocalDateString();
         const newHistory = {
             id: newId,
             machineId: finalMachineId,

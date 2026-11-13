@@ -759,7 +759,7 @@
     }
 
     runScheduledDataDiagnostics(force = false) {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = this.getLocalDateString();
         const previous = store.activeData.dataDiagnosticsLastReport;
         if (!force && store.activeData.dataDiagnosticsLastRun === today && previous) return previous;
         const report = this.getScheduledDataDiagnosticsReport();

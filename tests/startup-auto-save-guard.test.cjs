@@ -23,6 +23,7 @@ function harness(safe) {
     let ensured = 0;
     let logged = 0;
     app.ensurePhotoManagerData = () => { ensured += 1; };
+    app.getLocalDateString = () => '2026-11-13';
     app.getPhotoManagerToday = () => '2026-11-13';
     app.getScheduledDataDiagnosticsReport = () => ({ issueCount: 0, photoCount: 0 });
     app.addSystemActivityLog = () => { logged += 1; };
@@ -48,5 +49,5 @@ test('loaded data retains normal scheduled maintenance writes', async () => {
     assert.equal(h.saves, 2);
     assert.equal(h.ensured, 1);
     assert.equal(h.activeData.photoManagerLastAutoCleanup, '2026-11-13');
-    assert.equal(h.activeData.dataDiagnosticsLastRun, new Date().toISOString().slice(0, 10));
+    assert.equal(h.activeData.dataDiagnosticsLastRun, '2026-11-13');
 });

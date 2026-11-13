@@ -2570,7 +2570,7 @@
             const fy = this.getFiscalYear(h.date);
             if (fy) years.add(fy);
         });
-        years.add(this.getFiscalYear(new Date().toISOString().split('T')[0]));
+        years.add(this.getFiscalYear(this.getLocalDateString()));
         const sortedYears = Array.from(years).sort((a,b) => b - a);
 
         const now = new Date();
@@ -2642,7 +2642,7 @@
 
     onPeriodChange(el, renderFn) {
         if (el.value === 'custom') {
-            const current = localStorage.getItem('customStartDate') || new Date().toISOString().split('T')[0];
+            const current = localStorage.getItem('customStartDate') || this.getLocalDateString();
             const input = prompt('指定日以降のデータを集計します。開始日を入力してください (YYYY-MM-DD / M/D):', current);
             const date = this.normalizePeriodDateInput(input);
             if (date) {
@@ -2653,8 +2653,8 @@
                 el.value = 'this_month';
             }
         } else if (el.value === 'custom_range') {
-            const curS = localStorage.getItem('customRangeStart') || new Date().toISOString().split('T')[0];
-            const curE = localStorage.getItem('customRangeEnd') || new Date().toISOString().split('T')[0];
+            const curS = localStorage.getItem('customRangeStart') || this.getLocalDateString();
+            const curE = localStorage.getItem('customRangeEnd') || this.getLocalDateString();
             const start = this.normalizePeriodDateInput(prompt('開始日を入力してください (YYYY-MM-DD / M/D):', curS));
             if (start) {
                 const end = this.normalizePeriodDateInput(prompt('終了日を入力してください (YYYY-MM-DD / M/D):', curE));
@@ -2675,7 +2675,7 @@
 
     getPeriodDays(period) {
         const now = new Date();
-        const todayStr = now.toISOString().split('T')[0];
+        const todayStr = this.getLocalDateString(now);
         const dayMs = 24 * 60 * 60 * 1000;
 
         if (period === 'today' || period === 'yesterday') return 1;

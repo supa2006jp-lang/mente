@@ -501,19 +501,20 @@
         if (!task?.startDate) return '';
         const periodDays = parseInt(task.periodDays) || 0;
         if (periodDays <= 0) {
-            const done = (store.activeData.history || []).some(h => h.taskId && String(h.taskId) === String(task.id));
+            const done = this.isScheduledTaskOccurrenceDone(task, task.startDate);
             return done ? '完了済み' : task.startDate;
         }
         const [sy, sm, sd] = task.startDate.split('-').map(Number);
         const start = new Date(sy, sm - 1, sd);
         if (isNaN(start.getTime())) return '';
-        const today = new Date(todayStr);
+        const [ty, tm, td] = todayStr.split('-').map(Number);
+        const today = new Date(ty, tm - 1, td);
         today.setHours(0, 0, 0, 0);
         let due = new Date(start);
         due.setHours(0, 0, 0, 0);
-        while (due < today) {
+        while (due <= today) {
             const dueStr = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`;
-            const done = (store.activeData.history || []).some(h => h.taskId && String(h.taskId) === String(task.id) && h.date === dueStr);
+            const done = this.isScheduledTaskOccurrenceDone(task, dueStr);
             if (!done) return dueStr;
             due.setDate(due.getDate() + periodDays);
         }

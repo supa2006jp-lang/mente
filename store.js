@@ -693,7 +693,7 @@ class MaintenanceStore {
             machineId,
             content,
             periodDays: parseInt(periodDays) || 0,
-            startDate: startDate || new Date().toISOString().split('T')[0],
+            startDate: startDate || MaintenanceStore.toLocalDateString(),
             deleted: false
         };
         this.activeData.tasks.push(task);
@@ -740,7 +740,8 @@ class MaintenanceStore {
             taskId: record.taskId || null,
             taskContent: record.taskContent || '', // Fallback for deleted tasks
             machineId: record.machineId,
-            date: record.date || new Date().toISOString().split('T')[0],
+            date: record.date || MaintenanceStore.toLocalDateString(),
+            scheduledDate: record.scheduledDate || '',
             notes: record.notes || '',
             isSudden: !!record.isSudden,
             errorNo: record.errorNo || '',
@@ -1194,49 +1195,97 @@ class MaintenanceStore {
             : JSON.stringify(payload, null, 2);
     }
 
+    isImportRecord(value) {
+        return !!value && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    getImportedSkillUpdates(imported) {
+        const updates = {};
+        for (const [key, isValid] of [
+            ['skillEvaluations', value => this.isImportRecord(value)],
+            ['manualSkills', value => Array.isArray(value)]
+        ]) {
+            if (!Object.prototype.hasOwnProperty.call(imported, key) || imported[key] == null) continue;
+            if (!isValid(imported[key])) throw new Error(`${key} の形式が正しくありません。`);
+            updates[key] = JSON.stringify(imported[key]);
+        }
+        return updates;
+    }
+
+    normalizeImportedState(candidate) {
+        const previous = this.data;
+        try {
+            this.data = candidate;
+            this.normalizeData();
+            return this.data;
+        } finally {
+            this.data = previous;
+        }
+    }
+
+    async commitImportedState(candidate, skillUpdates = {}) {
+        const previousData = this.data;
+        const previousSkills = new Map();
+        const changedSkills = [];
+        try {
+            const normalized = this.normalizeImportedState(candidate);
+            for (const key of Object.keys(skillUpdates)) {
+                previousSkills.set(key, localStorage.getItem(key));
+            }
+            // Write the smaller skill values first. If the main save then fails,
+            // its transaction has not committed and these writes can be restored.
+            for (const [key, value] of Object.entries(skillUpdates)) {
+                localStorage.setItem(key, value);
+                changedSkills.push(key);
+            }
+            this.data = normalized;
+            await this.save();
+        } catch (error) {
+            this.data = previousData;
+            for (const key of changedSkills.reverse()) {
+                try {
+                    const oldValue = previousSkills.get(key);
+                    if (oldValue == null) localStorage.removeItem(key);
+                    else localStorage.setItem(key, oldValue);
+                } catch (restoreError) {
+                    console.error(`Failed to restore ${key} after import error`, restoreError);
+                }
+            }
+            throw error;
+        }
+    }
+
     async importFromJSON(jsonString) {
         try {
             const imported = this.hydratePackedImageData(JSON.parse(jsonString));
-            let dataToLoad = imported;
+            if (!this.isImportRecord(imported)) throw new Error('取込データの形式が正しくありません。');
+            const wrapped = Object.prototype.hasOwnProperty.call(imported, 'mainData');
+            const dataToLoad = wrapped ? imported.mainData : imported;
+            if (!this.isImportRecord(dataToLoad)) throw new Error('主データの形式が正しくありません。');
+            const skillUpdates = wrapped ? this.getImportedSkillUpdates(imported) : {};
 
-            // Check if this is the new payload format (includes skills)
-            if (imported.mainData) {
-                dataToLoad = imported.mainData;
-                if (imported.skillEvaluations) {
-                    localStorage.setItem('skillEvaluations', JSON.stringify(imported.skillEvaluations));
-                }
-                if (imported.manualSkills) {
-                    localStorage.setItem('manualSkills', JSON.stringify(imported.manualSkills));
-                }
-            }
-
-            // Case 1: New multi-dept format
-            if (dataToLoad.departments && dataToLoad.deptData) {
-                this.data = dataToLoad;
-                this.normalizeData();
-                await this.save();
+            if (Array.isArray(dataToLoad.departments) && this.isImportRecord(dataToLoad.deptData)) {
+                await this.commitImportedState(dataToLoad, skillUpdates);
                 return true;
             }
-            // Case 2: Legacy single-dept format
-            if (dataToLoad.machines || dataToLoad.history || dataToLoad.tasks) {
-                const currentId = this.data.currentDepartmentId;
-                if (!this.data.deptData[currentId]) {
-                    this.data.deptData[currentId] = { machines: [], tasks: [], history: [], partsMaster: [], archivedWorkers: [], archivedTasks: [] };
-                }
-                const active = this.data.deptData[currentId];
-                active.machines = dataToLoad.machines || [];
-                active.tasks = dataToLoad.tasks || [];
-                active.history = dataToLoad.history || [];
-                active.partsMaster = dataToLoad.partsMaster || [];
-                active.archivedWorkers = dataToLoad.archivedWorkers || [];
-                active.archivedTasks = dataToLoad.archivedTasks || [];
-                
-                if (dataToLoad.settings) this.data.settings = dataToLoad.settings;
-                
-                this.normalizeData();
-                await this.save();
+            if (['machines', 'history', 'tasks'].some(key => Array.isArray(dataToLoad[key]))) {
+                const candidate = JSON.parse(JSON.stringify(this.data));
+                const currentId = candidate.currentDepartmentId || 'dept_default';
+                candidate.deptData ||= {};
+                candidate.deptData[currentId] = {
+                    ...(candidate.deptData[currentId] || {}),
+                    machines: dataToLoad.machines || [],
+                    tasks: dataToLoad.tasks || [],
+                    history: dataToLoad.history || [],
+                    partsMaster: dataToLoad.partsMaster || [],
+                    archivedWorkers: dataToLoad.archivedWorkers || [],
+                    archivedTasks: dataToLoad.archivedTasks || []
+                };
+                if (dataToLoad.settings) candidate.settings = dataToLoad.settings;
+                await this.commitImportedState(candidate, skillUpdates);
                 return true;
             }
+            throw new Error('主データの形式が正しくありません。');
         } catch (e) {
             console.error('Import failed', e);
         }
@@ -1266,46 +1315,45 @@ class MaintenanceStore {
             const imported = this.hydratePackedImageData(JSON.parse(jsonString));
             
             // Validate type
-            if (imported.type !== 'single_department_backup') {
+            if (!this.isImportRecord(imported) || imported.type !== 'single_department_backup') {
                 return { success: false, message: 'このファイルは個人・単独部署用ではありません。「全データ取込」を使用してください。' };
             }
-
-            // Confirm department name mismatch (optional warning, handled by UI)
-            
-            // Overwrite current department data
-            const active = this.activeData;
-            if (imported.data) {
-                Object.keys(active).forEach(key => delete active[key]);
-                Object.entries(imported.data).forEach(([key, value]) => {
-                    if (!['__proto__', 'prototype', 'constructor'].includes(key)) active[key] = value;
-                });
-                this.normalizeData();
+            if (!this.isImportRecord(imported.data)) {
+                return { success: false, message: '部署データの形式が正しくありません。' };
             }
-
-            // Merge skills (overwrite specific keys if present)
-            if (imported.skillEvaluations) {
-                const currentSkills = JSON.parse(localStorage.getItem('skillEvaluations') || '{}');
-                const merged = { ...currentSkills, ...imported.skillEvaluations };
-                localStorage.setItem('skillEvaluations', JSON.stringify(merged));
+            const updates = this.getImportedSkillUpdates(imported);
+            if (Object.prototype.hasOwnProperty.call(updates, 'skillEvaluations')) {
+                const current = JSON.parse(localStorage.getItem('skillEvaluations') || '{}');
+                if (!this.isImportRecord(current)) throw new Error('現在のスキル評価を読み込めません。');
+                updates.skillEvaluations = JSON.stringify({ ...current, ...imported.skillEvaluations });
             }
-            if (imported.manualSkills) {
-                const currentManual = JSON.parse(localStorage.getItem('manualSkills') || '[]');
-                // Merge without duplicates based on content? For now just append and unique
-                const combined = [...currentManual, ...imported.manualSkills];
-                const unique = combined.filter((v, i, a) => a.findIndex(t => JSON.stringify(t) === JSON.stringify(v)) === i);
-                localStorage.setItem('manualSkills', JSON.stringify(unique));
+            if (Object.prototype.hasOwnProperty.call(updates, 'manualSkills')) {
+                const current = JSON.parse(localStorage.getItem('manualSkills') || '[]');
+                if (!Array.isArray(current)) throw new Error('現在の手動スキルを読み込めません。');
+                const combined = [...current, ...imported.manualSkills];
+                updates.manualSkills = JSON.stringify(combined.filter((value, index, values) =>
+                    values.findIndex(item => JSON.stringify(item) === JSON.stringify(value)) === index));
             }
-
-            await this.save();
+            const candidate = JSON.parse(JSON.stringify(this.data));
+            const deptId = candidate.currentDepartmentId || 'dept_default';
+            candidate.deptData ||= {};
+            candidate.deptData[deptId] = Object.fromEntries(
+                Object.entries(imported.data).filter(([key]) => !['__proto__', 'prototype', 'constructor'].includes(key))
+            );
+            await this.commitImportedState(candidate, updates);
             return { success: true, departmentName: imported.departmentName };
         } catch (e) {
             console.error('Dept import failed', e);
-            return { success: false, message: 'ファイルの解析に失敗しました。' };
+            return { success: false, message: '部署データの取込に失敗しました。保存先を確認してください。' };
         }
     }
 
 
     // Normalization Helpers
+    static toLocalDateString(date = new Date()) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
     static toFullWidth(str) {
         if (!str) return '';
         // Convert to full-width half-width range (!-~)

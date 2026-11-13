@@ -97,6 +97,7 @@ function exportHarness({ pickerSupported = true, savePickerSupported = true, pic
     });
     vm.runInContext(source, context, { filename: 'app-persistence.js' });
     const app = Object.create(MaintenanceApp.prototype);
+    app.getLocalDateString = () => '2026-11-14';
     app.closeModal = () => {};
     app.showToast = (...values) => { toasts.push(values); };
     app.openPendingImportResultIfAny = () => {};

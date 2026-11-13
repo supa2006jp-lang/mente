@@ -3947,6 +3947,7 @@
 
             machines.forEach(machine => {
                 if (!machine.photo) return;
+                const createdAt = machine.createdAt ? new Date(machine.createdAt) : null;
                 this.addPhotoManagerItem(items, {
                     id: this.buildPhotoManagerId(['machine', machine.id], machine.photo),
                     source: 'machine',
@@ -3954,7 +3955,7 @@
                     title: `${machine.name || '機械'} ${machine.model ? `[${machine.model}]` : ''}`.trim(),
                     defaultName: machine.name || '機械写真',
                     src: machine.photo,
-                    date: machine.createdAt ? new Date(machine.createdAt).toISOString().slice(0, 10) : '',
+                    date: createdAt && Number.isFinite(createdAt.getTime()) ? this.getLocalDateString(createdAt) : '',
                     deleteIndex: 0,
                     open: () => this.openMachineModal(machine.id),
                     replacePhoto: src => { machine.photo = src; },
@@ -5634,7 +5635,7 @@
             else if (age === '1y') date.setFullYear(date.getFullYear() - 1);
             else if (age === '2y') date.setFullYear(date.getFullYear() - 2);
             else return '';
-            return date.toISOString().slice(0, 10);
+            return this.getLocalDateString(date);
         }
 
         getFilteredPhotoManagerPageOnlyItems() {

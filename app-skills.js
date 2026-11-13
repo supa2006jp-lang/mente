@@ -625,7 +625,7 @@
             const year = monthDate.getFullYear();
             const month = monthDate.getMonth();
             const lastDay = new Date(year, month + 1, 0); 
-            const monthEndStr = lastDay.toISOString().split('T')[0];
+            const monthEndStr = this.getLocalDateString(lastDay);
 
             const count = allTaskEntries.filter(([taskKey, info]) => {
                 // 1. Check history (Historical growth)

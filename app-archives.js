@@ -658,7 +658,7 @@
         const preview = this.pendingInitialDataPreview || this.getInitialDataPreview(document.getElementById('initial-json-mode')?.value || 'empty');
         const payload = this.buildInitialDataPayload(preview);
         this.downloadJsonText(
-            `maintenance_initial_${preview.modeInfo.key}_${new Date().toISOString().split('T')[0]}.json`,
+            `maintenance_initial_${preview.modeInfo.key}_${this.getLocalDateString()}.json`,
             JSON.stringify(payload, null, 2),
             '初期化用JSONを出力しました'
         );
@@ -743,7 +743,7 @@
 
     exportAdminBackupJson() {
         const data = store.exportAsJSON({ optimizeImages: true, mode: 'complete' });
-        const filename = `maintenance_admin_backup_${new Date().toISOString().split('T')[0]}.json`;
+        const filename = `maintenance_admin_backup_${this.getLocalDateString()}.json`;
         this.downloadJsonText(filename, data, '現在データのバックアップを出力しました');
         this.recordAdminBackupLog('manual', filename);
         if (document.querySelector('.admin-backup-panel')) this.renderWorkerMaintenanceModal();

@@ -773,7 +773,7 @@
         
         // Past 3 months fixed filter for Worst History
         const date3M = new Date(); date3M.setMonth(date3M.getMonth() - 3);
-        const date3MStr = date3M.toISOString().split('T')[0];
+        const date3MStr = this.getLocalDateString(date3M);
         const dokateis3M = (store.activeData.history || []).filter(h => h.isDokatei && h.date >= date3MStr).sort((a, b) => (parseInt(b.workTime) || 0) - (parseInt(a.workTime) || 0));
 
         const totalTroubleTime = suddenTime + nonProductionStopTime + dokateiTime;

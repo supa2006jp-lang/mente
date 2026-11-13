@@ -123,8 +123,8 @@ class MaintenanceApp {
     onPeriodChange(select, callback) {
         const val = select.value;
         if (val === 'CUSTOM') {
-            const start = this.normalizePeriodDateInput(prompt('開始日 (YYYY-MM-DD / M/D)', this.customStartDate || new Date().toISOString().split('T')[0]));
-            const end = this.normalizePeriodDateInput(prompt('終了日 (YYYY-MM-DD / M/D)', this.customEndDate || new Date().toISOString().split('T')[0]));
+            const start = this.normalizePeriodDateInput(prompt('開始日 (YYYY-MM-DD / M/D)', this.customStartDate || this.getLocalDateString()));
+            const end = this.normalizePeriodDateInput(prompt('終了日 (YYYY-MM-DD / M/D)', this.customEndDate || this.getLocalDateString()));
             if (start && end) {
                 this.customStartDate = start;
                 this.customEndDate = end;

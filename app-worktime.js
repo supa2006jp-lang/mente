@@ -748,7 +748,7 @@
         }
 
         const currentFiscalYear = (typeof this.getFiscalYear === 'function')
-            ? this.getFiscalYear(new Date().toISOString().split('T')[0])
+            ? this.getFiscalYear(this.getLocalDateString())
             : (new Date().getMonth() < 3 ? new Date().getFullYear() - 1 : new Date().getFullYear());
         const periodOptions = Array.from(new Set([period, 'this_month', String(currentFiscalYear), String(currentFiscalYear - 1), 'all'])).map(pid => {
             const records = this.filterHistoryByPeriod(allHistory, pid);
