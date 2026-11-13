@@ -26,7 +26,7 @@ function makeApp(currentData, alternateData = null, legacyAlternateData = null) 
     vm.runInContext(`${source}\nglobalThis.TestApp = MaintenanceApp;`, context, { filename: 'app.js' });
     const app = Object.create(context.TestApp.prototype);
     app.updateSaveStatus = () => {};
-    return { app, store };
+    return { app, store, context };
 }
 
 test('save diagnostics distinguish all departments from the visible department', () => {
@@ -59,6 +59,35 @@ test('a newer localStorage save is flagged even when item counts match', () => {
     const { app } = makeApp(current, alternate);
     app.refreshSaveStatusAlternateCandidate();
     assert.equal(app._saveStatusAlternateCandidate.significant, true);
+});
+
+test('an older empty save remains visible as a switchable candidate', () => {
+    const current = {
+        currentDepartmentId: 'a', departments: [{ id: 'a', name: 'A工程' }],
+        deptData: { a: { machines: [{}] } },
+        settings: { lastSuccessfulSaveAt: '2026-11-13T10:00:00.000Z' }
+    };
+    const alternate = {
+        ...current,
+        deptData: { a: { machines: [] } },
+        settings: { lastSuccessfulSaveAt: '2026-11-12T10:00:00.000Z' }
+    };
+    const { app, context } = makeApp(current, alternate);
+    app.refreshSaveStatusAlternateCandidate();
+    assert.equal(app._saveStatusAlternateCandidate.significant, false);
+    const status = {
+        className: 'app-save-status',
+        classList: { contains: () => false },
+        querySelector: () => null
+    };
+    context.document = {
+        querySelectorAll: () => [status],
+        getElementById: () => null
+    };
+    app.updateSaveStatus = context.TestApp.prototype.updateSaveStatus;
+    app.updateSaveStatus('saved');
+    assert.match(status.className, /alternate-candidate/);
+    assert.match(status.innerHTML, /別保存候補あり/);
 });
 
 test('a corrupt new localStorage key does not hide a valid older candidate', () => {

@@ -131,7 +131,10 @@ test('later full export reuses the same file handle without another picker or la
     await h.app.exportOptimizedBackup('complete', 'all');
 
     assert.equal(h.pickerCalls, 1);
-    assert.deepEqual(h.writes, ['{"scope":"all"}', '{"scope":"all"}']);
+    assert.deepEqual(h.writes, [
+        '{"scope":"all"}',
+        '{"scope":"all","embeddedMedia":{"version":1,"entries":[]}}'
+    ]);
     assert.equal(h.closes, 2);
     assert.equal(h.downloads.length, 0);
 });

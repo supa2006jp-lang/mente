@@ -797,7 +797,7 @@
                     <div class="diagnostics-center-grid">
                         ${cards.map(card => `<button type="button" class="diagnostics-center-card ${card.count ? 'has-issue' : 'ok'}" ${card.action ? `onclick="${card.action}"` : 'disabled'}><i class="fa-solid ${card.icon}"></i><span><b>${card.label}</b><small>${card.meta}</small></span><strong>${card.count}</strong></button>`).join('')}
                     </div>
-                    <p class="storage-center-note"><i class="fa-solid fa-clock"></i> 診断は起動後に1日1回自動実行されます。検出だけを行い、自動削除はしません。</p>
+                    <p class="storage-center-note"><i class="fa-solid fa-clock"></i> 診断は写真・保存管理を開いた際に1日1回実行されます。検出だけを行い、自動削除はしません。</p>
                 </div>`;
             const footer = document.querySelector('.modal-footer');
             if (footer) footer.innerHTML = `<button class="primary-btn" ${report.orphanMetadataCount || report.brokenReferenceCount ? '' : 'disabled'} onclick="app.autoRepairSafeDataIssues()"><i class="fa-solid fa-screwdriver-wrench"></i> 安全な項目を自動修復</button><button class="secondary-btn" onclick="app.openScheduledDataDiagnosticsPanel(true)"><i class="fa-solid fa-rotate"></i> 再診断</button><button class="secondary-btn" onclick="app.closeModal()">閉じる</button>`;

@@ -1919,13 +1919,21 @@
     openModal(type, title, renderFn) {
         const overlay = document.getElementById('modal-overlay');
         const container = document.getElementById('modal-container');
+        if (!overlay || !container) return;
+        if (overlay.classList.contains('hidden') || !this._modalReturnFocus) {
+            this._modalReturnFocus = document.activeElement;
+        }
         container.dataset.modalType = type;
         container.className = 'modal-container';
+        container.setAttribute('role', 'dialog');
+        container.setAttribute('aria-modal', 'true');
+        container.setAttribute('aria-labelledby', 'modal-title');
+        container.tabIndex = -1;
         
         container.innerHTML = `
             <div class="modal-header">
-                <h3>${title}</h3>
-                <button class="close-btn" onclick="app.closeModal()"><i class="fa-solid fa-xmark"></i></button>
+                <h3 id="modal-title"></h3>
+                <button type="button" class="close-btn" aria-label="閉じる" onclick="app.closeModal()"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="modal-body" id="modal-content"></div>
             <div class="modal-footer">
@@ -1933,6 +1941,7 @@
                 <button class="primary-btn" id="modal-save-btn">保存する</button>
             </div>
         `;
+        container.querySelector('#modal-title').textContent = String(title || '');
         
         if (renderFn) renderFn();
         this.injectUnifiedSearchReturnButton?.();
@@ -1965,6 +1974,39 @@
         }
 
         overlay.classList.remove('hidden');
+        if (!this._modalKeyboardHandler) {
+            this._modalKeyboardHandler = event => {
+                if (overlay.classList.contains('hidden') || event.defaultPrevented) return;
+                if (event.key === 'Escape') {
+                    if (event.target?.closest?.('.shift-format-menu.open, .shift-color-menu.open, .shift-responder-menu.open, #shift-row-menu-settings-panel:not([hidden])')) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.closeModal();
+                    return;
+                }
+                if (event.key !== 'Tab') return;
+                const focusable = Array.from(container.querySelectorAll(
+                    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+                )).filter(element => element.getClientRects().length > 0 && !element.closest('[hidden]'));
+                if (!focusable.length) {
+                    event.preventDefault();
+                    container.focus();
+                    return;
+                }
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                const active = document.activeElement;
+                if (event.shiftKey && (active === container || active === first || !container.contains(active))) {
+                    event.preventDefault();
+                    last.focus();
+                } else if (!event.shiftKey && (active === container || active === last || !container.contains(active))) {
+                    event.preventDefault();
+                    first.focus();
+                }
+            };
+            container.addEventListener('keydown', this._modalKeyboardHandler);
+        }
+        container.focus();
     }
 
     setupHistoryPhotoInput(type) {
@@ -1989,6 +2031,13 @@
             photoInput.dataset.loadingLabel = '写真を読み込み中...';
 
             try {
+                if (typeof this.collectPhotoManagerItems !== 'function') {
+                    await window.maintenanceLazyFeatures?.loadPhotos?.();
+                }
+                if (typeof this.collectPhotoManagerItems !== 'function'
+                    || typeof this.addPhotoManagerLibraryImage !== 'function') {
+                    throw new Error('写真管理を読み込めませんでした。');
+                }
                 for (const file of files) {
                     if (!file.type?.startsWith('image/')) continue;
                     const src = await MaintenanceStore.readImageAsDataUrl(file);
@@ -3366,6 +3415,10 @@
             delete container.dataset.modalType;
             container.className = 'modal-container';
         }
+        const returnFocus = this._modalReturnFocus;
+        this._modalReturnFocus = null;
+        const focusTarget = returnFocus?.isConnected ? returnFocus : document.getElementById('app-settings-btn');
+        if (typeof focusTarget?.focus === 'function') focusTarget.focus();
     }
 
     // Real-time price calculator for part master (supports "price/weightKG" format)

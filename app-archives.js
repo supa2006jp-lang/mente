@@ -209,8 +209,12 @@
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
+        try { a.click(); }
+        catch (error) {
+            URL.revokeObjectURL(url);
+            throw error;
+        }
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
         if (toastMessage) this.showToast?.(toastMessage, 'success');
     }
 
@@ -666,7 +670,8 @@
         this.closeModal();
     }
 
-    cleanupBrokenDataReferences() {
+    async cleanupBrokenDataReferences() {
+        if (this._repairBackupInProgress) return;
         const report = this.getBrokenDataReport();
         const cleanupCount = report.archivedMaintenanceTasks.length + report.archivedGuides.length + report.archivedTasks.length;
         if (cleanupCount <= 0) {
@@ -681,22 +686,38 @@
             `機械が見つからない履歴 ${report.missingMachineHistories.length}件は自動削除せず、品質チェックで確認してください。`
         );
         if (!ok) return;
-        const backupFilename = `maintenance_before_repair_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-        this.downloadJsonText(
-            backupFilename,
-            store.exportAsJSON({ optimizeImages: true, mode: 'complete' }),
-            '修復前バックアップを出力しました'
-        );
-        this.recordAdminBackupLog('repair', backupFilename);
-        const active = store.activeData;
-        active.archivedMaintenanceTasks = (active.archivedMaintenanceTasks || []).filter(id => !report.archivedMaintenanceTasks.includes(id));
-        active.archivedGuides = (active.archivedGuides || []).filter(id => !report.archivedGuides.includes(id));
-        active.archivedTasks = (active.archivedTasks || []).filter(key => !report.archivedTasks.includes(key));
-        store.save();
-        this.recordAdminOperationLog('repair', '壊れた参照を自動修復', `${cleanupCount}件`, { tab: 'safety' });
-        this.renderWorkerMaintenanceModal();
-        this.renderWorkers?.();
-        this.showToast?.(`${cleanupCount}件の壊れた参照を修復しました`, 'success');
+        this._repairBackupInProgress = true;
+        try {
+            const backupFilename = `maintenance_before_repair_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            const backupJson = await this.buildCompleteBackupJson(
+                store.exportAsJSON({ optimizeImages: true, mode: 'complete' })
+            );
+            this.downloadJsonText(backupFilename, backupJson, '修復前バックアップを出力しました');
+            this.recordAdminBackupLog('repair', backupFilename);
+            const active = store.activeData;
+            const previous = {
+                archivedMaintenanceTasks: active.archivedMaintenanceTasks,
+                archivedGuides: active.archivedGuides,
+                archivedTasks: active.archivedTasks
+            };
+            active.archivedMaintenanceTasks = (active.archivedMaintenanceTasks || []).filter(id => !report.archivedMaintenanceTasks.includes(id));
+            active.archivedGuides = (active.archivedGuides || []).filter(id => !report.archivedGuides.includes(id));
+            active.archivedTasks = (active.archivedTasks || []).filter(key => !report.archivedTasks.includes(key));
+            try { await store.save(); }
+            catch (error) {
+                Object.assign(active, previous);
+                throw error;
+            }
+            this.recordAdminOperationLog('repair', '壊れた参照を自動修復', `${cleanupCount}件`, { tab: 'safety' });
+            this.renderWorkerMaintenanceModal();
+            this.renderWorkers?.();
+            this.showToast?.(`${cleanupCount}件の壊れた参照を修復しました`, 'success');
+        } catch (error) {
+            console.error('修復前バックアップを作成できませんでした。', error);
+            alert(`修復を実行できませんでした。${error?.message || 'バックアップを確認してください。'}`);
+        } finally {
+            this._repairBackupInProgress = false;
+        }
     }
 
     openBrokenDataDetailModal() {
@@ -741,12 +762,23 @@
         this.openInitialDataExportPreview();
     }
 
-    exportAdminBackupJson() {
-        const data = store.exportAsJSON({ optimizeImages: true, mode: 'complete' });
-        const filename = `maintenance_admin_backup_${this.getLocalDateString()}.json`;
-        this.downloadJsonText(filename, data, '現在データのバックアップを出力しました');
-        this.recordAdminBackupLog('manual', filename);
-        if (document.querySelector('.admin-backup-panel')) this.renderWorkerMaintenanceModal();
+    async exportAdminBackupJson() {
+        if (this._adminBackupInProgress) return;
+        this._adminBackupInProgress = true;
+        try {
+            const data = await this.buildCompleteBackupJson(
+                store.exportAsJSON({ optimizeImages: true, mode: 'complete' })
+            );
+            const filename = `maintenance_admin_backup_${this.getLocalDateString()}.json`;
+            this.downloadJsonText(filename, data, '現在データのバックアップを出力しました');
+            this.recordAdminBackupLog('manual', filename);
+            if (document.querySelector('.admin-backup-panel')) this.renderWorkerMaintenanceModal();
+        } catch (error) {
+            console.error('管理バックアップを作成できませんでした。', error);
+            alert(`バックアップを出力できませんでした。${error?.message || '保存先を確認してください。'}`);
+        } finally {
+            this._adminBackupInProgress = false;
+        }
     }
 
     renderWorkerMaintenanceModal() {

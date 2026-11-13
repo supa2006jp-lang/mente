@@ -5248,9 +5248,9 @@
 
         selectVisiblePhotoManagerItems() {
             const selected = this.ensurePhotoManagerSelectionStore();
+            (this._photoManagerVisibleIds || []).forEach(id => selected.add(id));
             document.querySelectorAll('#photo-manager-list .photo-manager-select').forEach(input => {
                 input.checked = true;
-                selected.add(input.value);
             });
             this.updatePhotoManagerBulkBar();
             this.addPhotoManagerPageOnlyCleanupButton();
@@ -5258,9 +5258,9 @@
 
         clearVisiblePhotoManagerSelection() {
             const selected = this.ensurePhotoManagerSelectionStore();
+            (this._photoManagerVisibleIds || []).forEach(id => selected.delete(id));
             document.querySelectorAll('#photo-manager-list .photo-manager-select').forEach(input => {
                 input.checked = false;
-                selected.delete(input.value);
             });
             this.updatePhotoManagerBulkBar();
             this.addPhotoManagerPageOnlyCleanupButton();
@@ -7756,6 +7756,48 @@
             }
         }
 
+        schedulePhotoManagerSearchRender() {
+            clearTimeout(this._photoManagerSearchRenderTimer);
+            this._photoManagerSearchRenderTimer = setTimeout(() => {
+                this._photoManagerSearchRenderTimer = null;
+                this.renderPhotoManager();
+            }, 180);
+        }
+
+        setPhotoManagerPage(page) {
+            this._photoManagerPage = Math.max(0, Math.floor(Number(page) || 0));
+            this.renderPhotoManager();
+            document.getElementById('photo-manager-list')?.scrollIntoView?.({ block: 'start' });
+        }
+
+        renderPhotoManagerPagination(total, page, pageSize) {
+            const controls = document.getElementById('photo-manager-pagination');
+            if (!controls) return;
+            const pages = Math.ceil(total / pageSize);
+            controls.hidden = pages <= 1;
+            controls.style.display = pages <= 1 ? 'none' : 'flex';
+            if (pages <= 1) {
+                controls.replaceChildren();
+                return;
+            }
+            const previous = document.createElement('button');
+            previous.type = 'button';
+            previous.className = 'secondary-btn';
+            previous.textContent = '前へ';
+            previous.disabled = page === 0;
+            previous.addEventListener('click', () => this.setPhotoManagerPage(page - 1));
+            const current = document.createElement('span');
+            current.textContent = `${page + 1} / ${pages} ページ（全${total}枚）`;
+            current.setAttribute('aria-live', 'polite');
+            const next = document.createElement('button');
+            next.type = 'button';
+            next.className = 'secondary-btn';
+            next.textContent = '次へ';
+            next.disabled = page >= pages - 1;
+            next.addEventListener('click', () => this.setPhotoManagerPage(page + 1));
+            controls.replaceChildren(previous, current, next);
+        }
+
         renderPhotoManager() {
             this.applyMediaManagementCardColor();
             this.ensurePhotoManagerPasteImportListener?.();
@@ -7768,7 +7810,19 @@
             this.updatePhotoManagerTagFilterOptions?.();
             const allItems = this.collectPhotoManagerItems?.() || [];
             const items = this.getFilteredPhotoManagerItems ? this.getFilteredPhotoManagerItems(allItems) : allItems;
+            const filterIds = ['photo-manager-source', 'photo-manager-period', 'photo-manager-mark-filter',
+                'photo-manager-compression-filter', 'photo-manager-format-filter', 'photo-manager-circle-filter',
+                'photo-manager-tag-filter', 'photo-manager-sort', 'photo-manager-query'];
+            const filterKey = JSON.stringify([...filterIds.map(id => document.getElementById(id)?.value || ''), this._photoManagerAlphaFilterMode || '']);
+            if (filterKey !== this._photoManagerFilterKey) this._photoManagerPage = 0;
+            this._photoManagerFilterKey = filterKey;
+            const pageSize = 48;
+            const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+            const page = Math.min(Math.max(0, this._photoManagerPage || 0), pageCount - 1);
+            this._photoManagerPage = page;
+            const pageItems = items.slice(page * pageSize, (page + 1) * pageSize);
             this._photoManagerVisibleIds = items.map(item => item.id).filter(Boolean);
+            this.renderPhotoManagerPagination(items.length, page, pageSize);
             this.prunePhotoManagerSelection?.(allItems.map(item => item.id));
             const selectedIds = this.ensurePhotoManagerSelectionStore?.() || new Set();
             const duplicateGroups = this.getPhotoManagerDuplicateGroups?.(allItems) || [];
@@ -7795,7 +7849,7 @@
                 this.addPhotoManagerPageOnlyCleanupButton?.();
                 return;
             }
-            list.innerHTML = items.map(item => {
+            list.innerHTML = pageItems.map(item => {
                 const name = this.getPhotoManagerName?.(item) || item.defaultName || item.title || '画像';
                 const sourceLabel = this.getPhotoManagerSourceLabel?.(item) || '画像';
                 const isSvg = this.isPhotoManagerSvgSource?.(item.src);
@@ -7876,18 +7930,19 @@
                     </div>
                 </article>`;
             }).join('');
-            this.refreshPhotoManagerVideoBlankEditThumbnails?.(items);
-            this.updatePhotoManagerTransparencyBadges?.(items);
+            this.refreshPhotoManagerVideoBlankEditThumbnails?.(pageItems);
+            this.updatePhotoManagerTransparencyBadges?.(pageItems);
             this.updatePhotoManagerBulkBar?.();
             this.addPhotoManagerPageOnlyCleanupButton?.();
-            this.enhancePhotoManagerCards?.(items);
+            this.enhancePhotoManagerCards?.(pageItems);
         }
         updatePhotoManagerBulkBar() {
             const bar = document.getElementById('photo-manager-bulk-bar');
             if (!bar) return;
             const selected = this.getSelectedPhotoManagerIds?.() || [];
-            const items = this.collectPhotoManagerItems?.() || [];
-            const duplicateCount = this.getPhotoManagerDuplicateGroups?.(items)?.length || 0;
+            const items = this._photoManagerRenderCache?.allItems || this.collectPhotoManagerItems?.() || [];
+            const duplicateCount = (this._photoManagerRenderCache?.duplicateGroups
+                || this.getPhotoManagerDuplicateGroups?.(items) || []).length;
             const trashCount = (store.activeData.photoManagerTrash || []).length;
             bar.innerHTML = `
                 <div class="photo-manager-bulk-info"><b>${selected.length}</b>枚選択中</div>

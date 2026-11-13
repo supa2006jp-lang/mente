@@ -312,7 +312,7 @@
                     削除された写真は復元できません。実行前に、左下の「出力」ボタンで一度バックアップ（latest.jsonなど）を保存しておくことをお勧めします。
                 </div> -->
                 <div style="font-size: 0.65rem; color: var(--text-light); margin-top: 10px; line-height: 1.4; border-top: 1px solid var(--border); padding-top: 8px;">
-                    ※「出力」で日時付きバックアップをダウンロードします。対応するChromeでは、初回に既存の「latest.json」を選び、次回から同じファイルを上書きします。他のPCへ渡す際は「latest.json」を読み込んでください。
+                    ※「出力」は latest.json を1件保存します。復旧用の完全版には登録音声・動画も含まれます。対応するChromeでは初回に保存先を選ぶと、次回から同じ latest.json を上書きします。他のPCへ渡す際はそのファイルを読み込んでください。
                 </div>
             </div>
         </div>
@@ -937,7 +937,7 @@
                             <option value="withMarks">&#27880;&#35352;&#12434;&#21547;&#12417;&#12390;&#20986;&#21147;</option>
                             <option value="original">&#20803;&#30011;&#20687;&#12398;&#12415;&#20986;&#21147;</option>
                         </select>
-                        <input type="search" id="photo-manager-query" placeholder="&#26908;&#32034;" oninput="app.renderPhotoManager()">
+                        <input type="search" id="photo-manager-query" placeholder="&#26908;&#32034;" oninput="app.schedulePhotoManagerSearchRender()">
                         <input type="file" id="photo-manager-import-input" accept="image/*" multiple hidden onchange="app.importPhotoManagerFiles(this.files); this.value=''">
                         <input type="file" id="photo-manager-video-import-input" accept="video/mp4,video/webm,video/quicktime,video/*" multiple hidden onchange="app.importPhotoManagerVideos(this.files); this.value=''">
                         <input type="file" id="photo-manager-audio-import-input" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.webm,.flac" multiple hidden onchange="app.importPhotoManagerAudios(this.files); this.value=''">
@@ -949,8 +949,8 @@
                         <button type="button" class="secondary-btn photo-manager-blank-compare-btn" onclick="app.openPhotoManagerBlankShiftPhotoCompare()" title="画像なしで写真比較を開き、白紙から編集できます" style="background:#10b981;color:#ffffff;border-color:#059669;box-shadow:0 10px 22px rgba(16,185,129,.22);"><i class="fa-solid fa-file"></i> 白紙</button>
                         <button type="button" class="secondary-btn photo-manager-blank-template-open-btn" onclick="app.openPhotoManagerBlankTemplateDialog()" title="保存した白紙テンプレートから開始"><i class="fa-regular fa-clone"></i> 白紙テンプレ</button>
                         <button type="button" class="secondary-btn" onclick="app.choosePhotoManagerStampSheetFile()"><i class="fa-solid fa-table-cells-large"></i> スタンプ集を分割取込</button>
-                        <button type="button" class="secondary-btn" onclick="app.selectVisiblePhotoManagerItems()"><i class="fa-solid fa-check-double"></i> &#34920;&#31034;&#20998;&#12434;&#20840;&#36984;&#25246;</button>
-                        <button type="button" class="secondary-btn" onclick="app.clearVisiblePhotoManagerSelection()"><i class="fa-regular fa-square"></i> &#20840;&#35299;&#38500;</button>
+                        <button type="button" class="secondary-btn" onclick="app.selectVisiblePhotoManagerItems()"><i class="fa-solid fa-check-double"></i> 絞り込み結果を全選択</button>
+                        <button type="button" class="secondary-btn" onclick="app.clearVisiblePhotoManagerSelection()"><i class="fa-regular fa-square"></i> 絞り込み結果を解除</button>
                         <button type="button" class="secondary-btn" onclick="app.compressSelectedPhotoManagerImages()"><i class="fa-solid fa-compress"></i> 画像圧縮</button>
                         <button type="button" class="secondary-btn" onclick="app.autoTagSelectedPhotoManagerItems()" title="画像内の文字を読める場合はタグ化し、読めない場合はタイトル・写真名・メモからタグを作成"><i class="fa-solid fa-tags"></i> タグ自動作成</button>
                         <button type="button" class="secondary-btn" onclick="app.exportPhotoManagerItems()" title="表示中または選択中の画像を出力します。5枚以上は1つのZIPファイルにまとめて出力します。"><i class="fa-solid fa-file-export"></i> &#20986;&#21147;</button>
@@ -960,6 +960,7 @@
                     </div>
                     <div id="photo-manager-summary" class="photo-manager-summary"></div>
                     <div id="photo-manager-list" class="photo-manager-list"></div>
+                    <div id="photo-manager-pagination" class="photo-manager-pagination" hidden style="display:none;align-items:center;justify-content:center;gap:12px;margin:16px 0 28px;"></div>
                 </section>
 
                 <section id="view-analysis" class="view">
@@ -1234,19 +1235,18 @@
     <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
-    <script src="store.js?v=20261114-fix123"></script>
-    <script src="app.js?v=20261114-fix123"></script>
-    <script src="app-settings.js?v=20261114-fix123"></script>
+    <script src="store.js?v=20261114-all5"></script>
+    <script src="app.js?v=20261114-all5"></script>
+    <script src="app-settings.js?v=20261114-all5"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
     <script src="app-calendar.js?v=20261114-improve123"></script>
     <script src="app-calendar-details.js?v=20261114-improve123"></script>
     <script src="app-shift-notebook-editor.js?v=20260802-shift-stamp-backspace1"></script>
-    <script src="app-shift-notebook-core.js?v=20261114-fix123"></script>
     <script src="app-calendar-support.js?v=20261114-improve123"></script>
     <script src="app-departments.js?v=20260623-dept-switch-import-fix"></script>
     <script src="app-machines.js?v=20261114-improve123"></script>
-    <script src="app-maintenance-forms.js?v=20261114-improve123"></script>
+    <script src="app-maintenance-forms.js?v=20261114-all5"></script>
     <script src="app-history.js?v=20261114-improve123"></script>
     <script src="app-analysis-dashboard.js?v=20261114-fix123"></script>
     <script src="app-ranking-guides.js?v=20260826-auto-contrast1"></script>
@@ -1254,18 +1254,14 @@
     <script src="app-skills.js?v=20261114-fix123"></script>
     <script src="app-outlook-assist.js?v=20261114-fix123"></script>
     <script src="app-worktime.js?v=20261114-fix123"></script>
-    <script src="app-archives.js?v=20261114-fix123"></script>
+    <script src="app-archives.js?v=20261114-all5"></script>
     <script src="app-hard-delete.js?v=20261114-fix123"></script>
-    <script src="app-persistence.js?v=20261114-fix123"></script>
+    <script src="app-persistence.js?v=20261114-all5"></script>
     <script src="app-csv.js?v=20261114-fix123"></script>
     <script src="app-misc-analysis.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
-    <script src="app-photo-manager.js?v=20261114-fix123"></script>
     <script src="app-dom-actions.js"></script>
-    <script src="app-shift-photo-camera.js?v=20260906-avatar-stage72"></script>
-    <script src="app-shift-photo-reveal.js?v=20260906-avatar-stage72"></script>
-    <script src="app-shift-avatar-conversation.js?v=20260906-avatar-stage72"></script>
-    <script src="app-boot.js?v=20261015-storage-reset1"></script>
+    <script src="app-boot.js?v=20261114-all5"></script>
 </body>
 </html>
 

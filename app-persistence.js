@@ -2,9 +2,208 @@
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppPersistenceMethods extends MaintenanceApp {
+    getSeparateMediaReferenceKeys(data = store.data) {
+        const keys = new Set();
+        const visited = new WeakSet();
+        const visit = value => {
+            if (!value || typeof value !== 'object' || visited.has(value)) return;
+            visited.add(value);
+            if (typeof value.recordedAudioKey === 'string' && value.recordedAudioKey) keys.add(value.recordedAudioKey);
+            if (typeof value.mediaKey === 'string' && value.mediaKey
+                && !['local-handle', 'url', 'youtube'].includes(value.sourceType)) keys.add(value.mediaKey);
+            Object.values(value).forEach(visit);
+        };
+        for (const [deptId, dept] of Object.entries(data?.deptData || {})) {
+            for (const video of dept?.photoManagerVideos || []) {
+                if (video?.id && !video.sourceType) keys.add(`video:${deptId}:${String(video.id)}`);
+            }
+            visit(dept);
+        }
+        if (!data?.deptData) visit(data);
+        return keys;
+    }
+
+    hasSeparateMediaReferences(data = store.data) {
+        return this.getSeparateMediaReferenceKeys(data).size > 0;
+    }
+
+    async blobToBackupBase64(blob) {
+        if (typeof FileReader !== 'undefined') {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const result = String(reader.result || '');
+                    const separator = result.indexOf(',');
+                    if (separator < 0) reject(new Error('メディアをJSONへ変換できませんでした。'));
+                    else resolve(result.slice(separator + 1));
+                };
+                reader.onerror = () => reject(reader.error || new Error('メディアを読み込めませんでした。'));
+                reader.onabort = () => reject(new Error('メディアの読み込みが中断されました。'));
+                reader.readAsDataURL(blob);
+            });
+        }
+        if (typeof btoa !== 'function' || typeof blob?.arrayBuffer !== 'function') {
+            throw new Error('メディアをJSONへ変換できないブラウザーです。');
+        }
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const chunks = [];
+        for (let offset = 0; offset < bytes.length; offset += 24576) {
+            const slice = bytes.subarray(offset, offset + 24576);
+            let binary = '';
+            for (const byte of slice) binary += String.fromCharCode(byte);
+            chunks.push(btoa(binary));
+        }
+        return chunks.join('');
+    }
+
+    async collectCompleteBackupMediaEntries(dataSnapshot = store.data) {
+        if (typeof store.listMediaEntries !== 'function' || typeof store.loadMediaBlob !== 'function') {
+            if (this.hasSeparateMediaReferences(dataSnapshot)) throw new Error('音声・動画の保存領域を確認できません。');
+            return [];
+        }
+        if (!store.db && this.hasSeparateMediaReferences(dataSnapshot)) {
+            throw new Error('別保存の音声・動画領域を開けないため、完全バックアップを作成できません。保存状態を確認してください。');
+        }
+        const descriptors = await store.listMediaEntries();
+        const entries = [];
+        for (const item of descriptors || []) {
+            const key = String(item?.key || '');
+            if (!key) continue;
+            const blob = await store.loadMediaBlob(key);
+            // File handles and external URL links do not contain a local Blob.
+            if (!blob) continue;
+            entries.push({
+                key,
+                type: blob.type || item.type || 'application/octet-stream',
+                size: blob.size,
+                base64: await this.blobToBackupBase64(blob)
+            });
+        }
+        const present = new Set(entries.map(entry => entry.key));
+        const missing = [...this.getSeparateMediaReferenceKeys(dataSnapshot)].filter(key => !present.has(key));
+        if (missing.length) {
+            throw new Error(`参照中の音声・動画 ${missing.length}件が保存領域に見つかりません。完全バックアップを作成できません。`);
+        }
+        return entries;
+    }
+
+    async buildCompleteBackupJson(jsonText) {
+        const payload = JSON.parse(jsonText);
+        const entries = await this.collectCompleteBackupMediaEntries(payload.mainData || payload);
+        payload.embeddedMedia = { version: 1, entries };
+        return JSON.stringify(payload);
+    }
+
+    inspectEmbeddedMedia(manifest) {
+        if (manifest == null) return { present: false, entries: [], count: 0, bytes: 0 };
+        if (manifest.version !== 1 || !Array.isArray(manifest.entries)) {
+            throw new Error('音声・動画バックアップの形式が正しくありません。');
+        }
+        const seen = new Set();
+        let bytes = 0;
+        for (const entry of manifest.entries) {
+            if (!entry || typeof entry !== 'object' || typeof entry.key !== 'string'
+                || !entry.key || entry.key === 'maintenance_latest_json_file'
+                || entry.key.length > 250 || seen.has(entry.key)
+                || typeof entry.base64 !== 'string' || typeof entry.type !== 'string'
+                || !Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > 100 * 1024 * 1024
+                || entry.base64.length !== Math.ceil(entry.size / 3) * 4) {
+                throw new Error('音声・動画バックアップに不正な項目があります。');
+            }
+            seen.add(entry.key);
+            bytes += entry.size;
+        }
+        return { present: true, entries: manifest.entries, count: manifest.entries.length, bytes };
+    }
+
+    assertEmbeddedMediaReferences(referenceKeys, mediaKeys) {
+        const included = new Set(mediaKeys);
+        const missing = [...referenceKeys].filter(key => !included.has(key));
+        if (missing.length) {
+            throw new Error(`バックアップ内の主データが参照する音声・動画 ${missing.length}件の本体が含まれていません。`);
+        }
+    }
+
+    decodeEmbeddedMedia(manifest) {
+        const info = this.inspectEmbeddedMedia(manifest);
+        if (!info.count) return [];
+        if (typeof atob !== 'function') throw new Error('音声・動画を復元できないブラウザーです。');
+        return info.entries.map(entry => {
+            const parts = [];
+            for (let offset = 0; offset < entry.base64.length; offset += 1048576) {
+                const binary = atob(entry.base64.slice(offset, offset + 1048576));
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                parts.push(bytes);
+            }
+            const blob = new Blob(parts, { type: entry.type });
+            if (blob.size !== entry.size) throw new Error(`音声・動画「${entry.key}」の容量が一致しません。`);
+            return { key: entry.key, value: { blob, size: blob.size, type: blob.type, updatedAt: Date.now() } };
+        });
+    }
+
+    readMediaRecords(keys) {
+        if (!keys.length) return Promise.resolve([]);
+        if (!store.db) return Promise.reject(new Error('音声・動画の保存先を開けません。'));
+        return new Promise((resolve, reject) => {
+            try {
+                const transaction = store.db.transaction(store.MEDIA_STORE_NAME, 'readonly');
+                const objectStore = transaction.objectStore(store.MEDIA_STORE_NAME);
+                const records = keys.map(key => ({ key, value: undefined }));
+                keys.forEach((key, index) => {
+                    const request = objectStore.get(key);
+                    request.onsuccess = () => { records[index].value = request.result; };
+                });
+                transaction.oncomplete = () => resolve(records);
+                transaction.onerror = () => reject(transaction.error || new Error('既存の音声・動画を読み込めませんでした。'));
+                transaction.onabort = () => reject(transaction.error || new Error('既存の音声・動画を読み込めませんでした。'));
+            } catch (error) { reject(error); }
+        });
+    }
+
+    async ensureMediaRestoreCapacity(incoming, previous) {
+        if (typeof navigator === 'undefined' || typeof navigator.storage?.estimate !== 'function') return;
+        let estimate;
+        try { estimate = await navigator.storage.estimate(); }
+        catch (error) { console.warn('保存容量を確認できませんでした。', error); return; }
+        const free = Number(estimate?.quota) - Number(estimate?.usage);
+        if (!Number.isFinite(free)) return;
+        const incomingBytes = incoming.reduce((sum, record) => sum + (record.value?.blob?.size || 0), 0);
+        const previousBytes = previous.reduce((sum, record) => sum + (record.value?.blob?.size || 0), 0);
+        const required = Math.max(0, incomingBytes - previousBytes);
+        if (free < required) {
+            throw new Error(`音声・動画の復元に必要な空き容量が不足しています（必要 約${this.formatExportBytes(required)}、空き 約${this.formatExportBytes(free)}）。`);
+        }
+    }
+
+    writeMediaRecords(records) {
+        if (!records.length) return Promise.resolve();
+        if (!store.db) return Promise.reject(new Error('音声・動画の保存先を開けません。'));
+        return new Promise((resolve, reject) => {
+            try {
+                const transaction = store.db.transaction(store.MEDIA_STORE_NAME, 'readwrite');
+                const objectStore = transaction.objectStore(store.MEDIA_STORE_NAME);
+                records.forEach(record => {
+                    if (record.value === undefined) objectStore.delete(record.key);
+                    else objectStore.put(record.value, record.key);
+                });
+                transaction.oncomplete = () => resolve();
+                transaction.onerror = () => reject(transaction.error || new Error('音声・動画を保存できませんでした。'));
+                transaction.onabort = () => reject(transaction.error || new Error('音声・動画を保存できませんでした。'));
+            } catch (error) { reject(error); }
+        });
+    }
+
     getImportPreviewInfo(jsonText, fileName = '') {
         const imported = JSON.parse(jsonText);
+        const mediaBackup = this.inspectEmbeddedMedia(imported?.embeddedMedia);
         const dataToLoad = imported.mainData || imported;
+        const incomingMediaReferenceKeys = mediaBackup.present
+            ? [...this.getSeparateMediaReferenceKeys(dataToLoad)]
+            : [];
+        if (mediaBackup.present) {
+            this.assertEmbeddedMediaReferences(incomingMediaReferenceKeys, mediaBackup.entries.map(entry => entry.key));
+        }
         const currentDeptId = store.data.currentDepartmentId || 'dept_default';
         const incomingDeptId = dataToLoad.currentDepartmentId
             || Object.keys(dataToLoad.deptData || {})[0]
@@ -39,7 +238,7 @@
         try { currentSkillEvaluations = JSON.parse(localStorage.getItem('skillEvaluations') || '{}'); } catch (e) {}
         try { currentManualSkills = JSON.parse(localStorage.getItem('manualSkills') || '[]'); } catch (e) {}
         const currentSkillEvalCount = Object.values(currentSkillEvaluations || {}).reduce((sum, evals) => sum + Object.keys(evals || {}).length, 0);
-        let typeLabel = '全データJSON';
+        let typeLabel = mediaBackup.present ? '音声・動画を含む完全バックアップ' : '全データJSON';
         let dangerLabel = '現在の全データを置き換えます';
         if (imported?.type === 'maintenance_initialization_json') {
             typeLabel = imported.initializationModeLabel || '初期化用JSON';
@@ -49,7 +248,6 @@
             dangerLabel = '全データ取込ではなく「部署取込」向けのファイルです';
         }
         return {
-            raw: imported,
             jsonText,
             fileName,
             incomingDeptId,
@@ -60,6 +258,8 @@
             dangerLabel,
             isInitialJson: imported?.type === 'maintenance_initialization_json',
             isSingleDept: imported?.type === 'single_department_backup',
+            mediaBackup: { present: mediaBackup.present, count: mediaBackup.count, bytes: mediaBackup.bytes },
+            incomingMediaReferenceKeys,
             incomingCounts: countDept(incomingDept),
             currentCounts: {
                 ...countDept(currentDept),
@@ -125,6 +325,12 @@
                         <div><span>取込後</span><b>${this.escapeHtml(preview.incomingDeptName)}</b></div>
                         <div><span>種類</span><b>${this.escapeHtml(preview.typeLabel)}</b></div>
                     </div>
+                    <div class="admin-preview-note">
+                        <b>別保存の音声・動画</b>
+                        <p>${preview.mediaBackup?.present
+                            ? `${preview.mediaBackup.count}件（約${this.formatExportBytes(preview.mediaBackup.bytes)}）を取込時に復元します。`
+                            : 'このJSONには音声・動画の本体が含まれていません。旧形式の取込は続行できます。'}</p>
+                    </div>
                     <div class="admin-import-diff">
                         <div class="admin-import-diff-head">
                             <span>項目</span><b>現在</b><i></i><strong>取込後</strong><em>差分</em>
@@ -162,30 +368,73 @@
             importBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中...';
         }
         const backupFilename = `maintenance_before_import_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-        this.downloadJsonText?.(
-            backupFilename,
-            store.exportAsJSON({ optimizeImages: true, mode: 'complete' }),
-            '取込前バックアップを出力しました'
-        );
-        this.recordAdminBackupLog?.('import', backupFilename);
-        this.recordAdminOperationLog?.('import', '全データ取込を実行', preview.fileName || preview.typeLabel || 'JSON', { tab: 'backup' });
-        if (await store.importFromJSON(preview.jsonText)) {
-            localStorage.setItem('maintenance_pending_import_result', JSON.stringify({
-                at: new Date().toISOString(),
-                fileName: preview.fileName,
-                typeLabel: preview.typeLabel,
-                incomingDeptName: preview.incomingDeptName,
-                incomingCounts: preview.incomingCounts,
-                currentCounts: preview.currentCounts
-            }));
+        let previousMedia = [];
+        let mediaWritten = false;
+        let imported = false;
+        try {
+            const incoming = preview.raw || JSON.parse(preview.jsonText);
+            const manifest = incoming?.embeddedMedia;
+            const mediaRecords = this.decodeEmbeddedMedia(manifest);
+            if (this.inspectEmbeddedMedia(manifest).present) {
+                const keys = preview.incomingMediaReferenceKeys
+                    || [...this.getSeparateMediaReferenceKeys(incoming.mainData || incoming)];
+                this.assertEmbeddedMediaReferences(keys, mediaRecords.map(record => record.key));
+            }
+            const backupJson = await this.buildCompleteBackupJson(
+                store.exportAsJSON({ optimizeImages: true, mode: 'complete' })
+            );
+            if (typeof this.downloadJsonText !== 'function') {
+                throw new Error('取込前バックアップの出力機能を読み込めませんでした。');
+            }
+            this.downloadJsonText(backupFilename, backupJson, '取込前バックアップを出力しました');
+            this.recordAdminBackupLog?.('import', backupFilename);
+            if (mediaRecords.length) {
+                previousMedia = await this.readMediaRecords(mediaRecords.map(record => record.key));
+                await this.ensureMediaRestoreCapacity(mediaRecords, previousMedia);
+                await this.writeMediaRecords(mediaRecords);
+                mediaWritten = true;
+            }
+            if (!await store.importFromJSON(preview.jsonText)) {
+                throw new Error('主データを保存できませんでした。');
+            }
+            imported = true;
+            try {
+                this.recordAdminOperationLog?.('import', '全データ取込を実行', preview.fileName || preview.typeLabel || 'JSON', { tab: 'backup' });
+            } catch (error) {
+                console.warn('取込操作ログを保存できませんでした。', error);
+            }
+            try {
+                localStorage.setItem('maintenance_pending_import_result', JSON.stringify({
+                    at: new Date().toISOString(),
+                    fileName: preview.fileName,
+                    typeLabel: preview.typeLabel,
+                    incomingDeptName: preview.incomingDeptName,
+                    incomingCounts: preview.incomingCounts,
+                    currentCounts: preview.currentCounts,
+                    mediaCount: mediaRecords.length
+                }));
+            } catch (error) {
+                console.warn('取込結果の表示情報を保存できませんでした。', error);
+            }
             this.pendingFullImportPreview = null;
             location.reload();
-        } else {
+        } catch (error) {
+            if (imported) {
+                console.error('取込後の画面再読み込みに失敗しました。', error);
+                alert('データの取込は完了しました。画面を手動で再読み込みしてください。');
+                return;
+            }
+            let rollbackError = null;
+            if (mediaWritten && !imported) {
+                try { await this.writeMediaRecords(previousMedia); }
+                catch (restoreError) { rollbackError = restoreError; }
+            }
             if (importBtn) {
                 importBtn.disabled = false;
                 importBtn.innerHTML = '<i class="fa-solid fa-upload"></i> バックアップして取込';
             }
-            alert('インポートに失敗しました。ファイル形式を確認してください。');
+            console.error('全データの取込に失敗しました。', error);
+            alert(`インポートに失敗しました。${error?.message || 'ファイル形式と保存先を確認してください。'}${rollbackError ? '\n元の音声・動画を戻せませんでした。取込前バックアップを保管してください。' : ''}`);
         }
     }
 
@@ -285,7 +534,7 @@
                     <div class="admin-preview-alert ok">
                         <i class="fa-solid fa-chart-pie"></i>
                         <div>
-                            <b>現在のJSON容量 ${this.formatExportBytes(analysis.rawJsonBytes)}</b>
+                            <b>現在の主データJSON容量 ${this.formatExportBytes(analysis.rawJsonBytes)}</b>
                             <span>画像 ${analysis.images.occurrences}個（実体 ${analysis.images.uniqueCount}個）／重複分 約${this.formatExportBytes(analysis.images.duplicateBytes)}</span>
                         </div>
                     </div>
@@ -294,19 +543,20 @@
                         ${this.renderBackupCapacityRows(analysis)}
                     </div>
                     <div class="backup-export-choices">
-                        <button type="button" class="backup-export-choice recommended" onclick="app.exportOptimizedBackup('light', '${scope}')">
-                            <i class="fa-solid fa-feather-pointed"></i>
-                            <span><b>軽量バックアップ <em id="backup-light-size">計算中…</em></b><small>最近使用・ゴミ箱・編集用元画像を除外。同一画像は1回だけ保存します。</small></span>
-                        </button>
-                        <button type="button" class="backup-export-choice" onclick="app.exportOptimizedBackup('complete', '${scope}')">
+                        <button type="button" class="backup-export-choice recommended" onclick="app.exportOptimizedBackup('complete', '${scope}')">
                             <i class="fa-solid fa-box-archive"></i>
-                            <span><b>完全バックアップ <em id="backup-complete-size">計算中…</em></b><small>ゴミ箱や元画像を含め、同一画像だけ重複排除して保存します。</small></span>
+                            <span><b>完全バックアップ <em id="backup-complete-size">計算中…</em></b><small>${scope === 'all' ? '復旧用。写真・ゴミ箱・元画像と、ブラウザー内の音声・動画本体を含みます。' : '写真・ゴミ箱・元画像を含みます。別保存の音声・動画本体は部署出力の対象外です。'}</small></span>
+                        </button>
+                        <button type="button" class="backup-export-choice" onclick="app.exportOptimizedBackup('light', '${scope}')">
+                            <i class="fa-solid fa-feather-pointed"></i>
+                            <span><b>軽量バックアップ <em id="backup-light-size">計算中…</em></b><small>容量優先。最近使用・ゴミ箱・編集用元画像と、別保存の音声・動画本体を除外します。</small></span>
                         </button>
                     </div>
                     ${scope === 'all' ? `
                         <div class="backup-cleanup-panel">
                             <b>latest.json の保存先</b>
                             <p>初回に latest.json の保存先を選ぶと、次回から同じファイルを上書きします。出力ファイルは latest.json の1件だけです。</p>
+                            <p>PCリンク動画と外部URL動画は参照先のファイル・URLが別途必要です。</p>
                             <button type="button" class="secondary-btn" onclick="app.changeLatestJsonSaveTarget()">保存先を変更</button>
                         </div>
                     ` : ''}
@@ -334,13 +584,22 @@
     }
 
     async updateBackupExportEstimates(scope = 'all') {
+        let mediaBytes = 0;
+        if (scope === 'all' && typeof store.listMediaEntries === 'function') {
+            try {
+                const media = await store.listMediaEntries();
+                mediaBytes = (media || []).reduce((sum, entry) => sum + Math.ceil((Number(entry?.size) || 0) / 3) * 4, 0);
+            } catch (error) {
+                console.warn('音声・動画の容量を見積もれませんでした。', error);
+            }
+        }
         const calculate = async (mode, elementId) => {
             await new Promise(resolve => setTimeout(resolve, 20));
             const text = scope === 'dept'
                 ? store.exportCurrentDeptAsJSON({ optimizeImages: true, mode })
                 : store.exportAsJSON({ optimizeImages: true, mode });
             const element = document.getElementById(elementId);
-            if (element) element.textContent = `予想 ${this.formatExportBytes(new Blob([text]).size)}`;
+            if (element) element.textContent = `予想 ${this.formatExportBytes(new Blob([text]).size + (mode === 'complete' ? mediaBytes : 0))}`;
         };
         try {
             await calculate('light', 'backup-light-size');
@@ -417,7 +676,7 @@
         this.updateSaveStatus?.(this._saveStatusState || 'saved');
     }
 
-    async exportOptimizedBackup(mode = 'light', scope = 'all') {
+    async exportOptimizedBackup(mode = 'complete', scope = 'all') {
         if (this._backupExportInProgress) return;
         this._backupExportInProgress = true;
         const choiceButtons = Array.from(document.querySelectorAll('.backup-export-choice'));
@@ -439,7 +698,10 @@
                 }
             }
             const options = { optimizeImages: true, mode: mode === 'complete' ? 'complete' : 'light' };
-            const data = scope === 'dept' ? store.exportCurrentDeptAsJSON(options) : store.exportAsJSON(options);
+            const baseData = scope === 'dept' ? store.exportCurrentDeptAsJSON(options) : store.exportAsJSON(options);
+            const data = scope === 'all' && options.mode === 'complete'
+                ? await this.buildCompleteBackupJson(baseData)
+                : baseData;
             const omittedDataWarning = store.lastExportWarnings?.length
                 ? `\n注意: ${store.lastExportWarnings.join('、')}。このJSONには一部のスキル情報が含まれません。`
                 : '';

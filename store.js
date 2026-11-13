@@ -9,10 +9,13 @@ class MaintenanceStore {
         this.STORE_NAME = 'state';
         this.MEDIA_STORE_NAME = 'media';
         this.STORAGE_KEY = 'factory_maintenance_next_data_v2'; // Versioning for department support
+        this.STORAGE_SELECTION_KEY = 'maintenance_selected_storage_source_v1';
         this.storageWarning = null;
         this.lastSuccessfulSaveAt = null;
         this.startupStateSource = 'default';
         this.startupSaveSafe = false;
+        this.saveTarget = 'indexeddb';
+        this.storageCandidates = {};
         this.data = {
             currentDepartmentId: 'dept_default',
             departments: [
@@ -49,6 +52,159 @@ class MaintenanceStore {
             };
         }
         return this.data.deptData[this.data.currentDepartmentId];
+    }
+
+    getActiveSaveBackend() {
+        return this.db && this.saveTarget !== 'localStorage' ? 'indexeddb' : 'localStorage';
+    }
+
+    getStoredDataSummary(data, source, key = this.STORAGE_KEY) {
+        const fields = [
+            'machines', 'tasks', 'history', 'partsMaster', 'partStockMovements',
+            'archivedWorkers', 'archivedTasks', 'archivedParts', 'archivedMaintenanceTasks', 'archivedGuides',
+            'machineCategories', 'archivedMachineCategories', 'tipsNotes',
+            'localTodos', 'localTodoLogs', 'historyImportLogs', 'shiftNotebookGroupPresets',
+            'photoManagerLibrary', 'photoManagerVideos', 'photoManagerAudios'
+        ];
+        const departments = data?.deptData && typeof data.deptData === 'object' && !Array.isArray(data.deptData)
+            ? Object.values(data.deptData)
+            : [data];
+        const total = departments.reduce((sum, department) => {
+            if (!department || typeof department !== 'object') return sum;
+            const records = fields.reduce((count, field) => count + (Array.isArray(department[field]) ? department[field].length : 0), 0);
+            const outlook = department.outlookAssist || {};
+            const outlookRecords = ['templates', 'recipientSets', 'recipientContacts', 'insertHistory']
+                .reduce((count, field) => count + (Array.isArray(outlook[field]) ? outlook[field].length : 0), 0);
+            return sum + records + outlookRecords
+                + Object.keys(outlook.draftsByWorker || {}).length
+                + Object.keys(department.shiftNotebooks || {}).length
+                + Object.keys(department.memos || {}).length;
+        }, 0);
+        const savedAt = data?.settings?.lastSuccessfulSaveAt || null;
+        return {
+            source,
+            key,
+            total,
+            departments: Array.isArray(data?.departments) ? data.departments.length : departments.length,
+            savedAt,
+            savedAtMs: Date.parse(savedAt || '') || 0
+        };
+    }
+
+    readLocalStorageCandidate() {
+        for (const key of [this.STORAGE_KEY, 'factory_maintenance_next_data']) {
+            try {
+                const raw = localStorage.getItem(key);
+                if (!raw) continue;
+                const data = JSON.parse(raw);
+                if (!this.isValidStoredData(data)) throw new Error('保存データの構造が正しくありません。');
+                return { data, summary: this.getStoredDataSummary(data, 'localStorage', key) };
+            } catch (error) {
+                console.error(`Failed to load storage data (${key})`, error);
+            }
+        }
+        return null;
+    }
+
+    getStorageSourcePreference() {
+        const locations = [];
+        if (typeof sessionStorage !== 'undefined') locations.push(sessionStorage);
+        locations.push(localStorage);
+        for (const storage of locations) {
+            try {
+                const value = JSON.parse(storage.getItem(this.STORAGE_SELECTION_KEY) || 'null');
+                if (['indexeddb', 'localStorage'].includes(value?.source)) {
+                    return {
+                        source: value.source,
+                        selectedAtMs: Date.parse(value.selectedAt || '') || 0,
+                        alternate: value.alternate || null
+                    };
+                }
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    chooseStartupCandidate(indexedCandidate, localCandidate) {
+        if (!indexedCandidate) return localCandidate;
+        if (!localCandidate) return indexedCandidate;
+        const preference = this.getStorageSourcePreference();
+        if (preference?.source) {
+            const selected = preference.source === 'indexeddb' ? indexedCandidate : localCandidate;
+            const alternate = preference.source === 'indexeddb' ? localCandidate : indexedCandidate;
+            if (preference.alternate) {
+                const current = alternate.summary;
+                const previous = preference.alternate;
+                if (current.savedAt === previous.savedAt
+                    && current.total === previous.total
+                    && current.departments === previous.departments
+                    && current.key === previous.key) return selected;
+            } else if (alternate.summary.savedAtMs <= preference.selectedAtMs) {
+                return selected;
+            }
+        }
+        const indexedTime = indexedCandidate.summary.savedAtMs;
+        const localTime = localCandidate.summary.savedAtMs;
+        if (localTime > indexedTime) return localCandidate;
+        if (indexedTime > localTime) return indexedCandidate;
+        return localCandidate.summary.total > indexedCandidate.summary.total ? localCandidate : indexedCandidate;
+    }
+
+    applyLoadedCandidate(candidate) {
+        this.applyStoredData(candidate.data);
+        this.startupStateSource = candidate.summary.source;
+        this.saveTarget = candidate.summary.source;
+        // Background startup writes stay disabled while a local fallback is active.
+        // User edits still save to that fallback without touching IndexedDB.
+        this.startupSaveSafe = candidate.summary.source === 'indexeddb';
+    }
+
+    async readIndexedDbCandidate() {
+        if (!this.db) throw new Error('IndexedDBを開けませんでした。');
+        return new Promise((resolve, reject) => {
+            try {
+                const tx = this.db.transaction(this.STORE_NAME, 'readonly');
+                const request = tx.objectStore(this.STORE_NAME).get(this.STORAGE_KEY);
+                request.onsuccess = () => {
+                    const data = request.result;
+                    if (!this.isValidStoredData(data)) return reject(new Error('IndexedDBの保存データを確認できませんでした。'));
+                    resolve({ data, summary: this.getStoredDataSummary(data, 'indexeddb') });
+                };
+                request.onerror = () => reject(request.error || new Error('IndexedDBを読み込めませんでした。'));
+                tx.onerror = () => reject(tx.error || new Error('IndexedDBを読み込めませんでした。'));
+                tx.onabort = () => reject(tx.error || new Error('IndexedDBの読込が中断されました。'));
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    async selectStorageCandidate(source) {
+        if (source !== 'indexeddb' && source !== 'localStorage') throw new Error('保存先を選択できません。');
+        const candidate = source === 'indexeddb' ? await this.readIndexedDbCandidate() : this.readLocalStorageCandidate();
+        if (!candidate) throw new Error('選択した保存候補を読み込めませんでした。');
+        const alternate = source === 'indexeddb' ? this.readLocalStorageCandidate() : await this.readIndexedDbCandidate().catch(() => null);
+        const summary = alternate?.summary;
+        const value = JSON.stringify({
+            source,
+            selectedAt: new Date().toISOString(),
+            alternate: summary ? {
+                savedAt: summary.savedAt,
+                total: summary.total,
+                departments: summary.departments,
+                key: summary.key
+            } : null
+        });
+        try {
+            localStorage.setItem(this.STORAGE_SELECTION_KEY, value);
+            if (typeof sessionStorage !== 'undefined') {
+                try { sessionStorage.removeItem(this.STORAGE_SELECTION_KEY); } catch (_) {}
+            }
+        } catch (error) {
+            if (typeof sessionStorage === 'undefined') throw error;
+            sessionStorage.setItem(this.STORAGE_SELECTION_KEY, value);
+        }
+        return candidate.summary;
     }
 
     async init() {
@@ -143,19 +299,24 @@ class MaintenanceStore {
                 request.onsuccess = () => {
                     if (finished) return;
                     try {
-                        if (this.isValidStoredData(request.result)) {
-                            this.applyStoredData(request.result);
-                            this.startupStateSource = 'indexeddb';
-                            this.startupSaveSafe = true;
-                        } else {
-                            if (request.result != null) {
-                                this.storageWarning = new Error('IndexedDBの保存データの構造を確認できませんでした。');
-                            }
-                            // A missing record may be temporary. Never write an empty initial
-                            // state over it during startup; the first user edit saves normally.
-                            this.loadLegacy();
-                            this.startupSaveSafe = false;
+                        const indexedCandidate = this.isValidStoredData(request.result)
+                            ? { data: request.result, summary: this.getStoredDataSummary(request.result, 'indexeddb') }
+                            : null;
+                        if (request.result != null && !indexedCandidate) {
+                            this.storageWarning = new Error('IndexedDBの保存データの構造を確認できませんでした。');
                         }
+                        const localCandidate = this.readLocalStorageCandidate();
+                        this.storageCandidates = {
+                            ...(indexedCandidate ? { indexeddb: indexedCandidate.summary } : {}),
+                            ...(localCandidate ? { localStorage: localCandidate.summary } : {})
+                        };
+                        const chosen = this.chooseStartupCandidate(indexedCandidate, localCandidate);
+                        if (chosen) {
+                            this.applyLoadedCandidate(chosen);
+                            if (chosen.summary.source === 'localStorage' && indexedCandidate) this.startupSaveSafe = true;
+                        }
+                        // A missing record may be temporary. Do not write the default
+                        // state at startup; a later user edit still saves normally.
                         this.normalizeData();
                         this.lastSuccessfulSaveAt = this.data.settings?.lastSuccessfulSaveAt || null;
                         finish('idb');
@@ -198,21 +359,10 @@ class MaintenanceStore {
     }
 
     loadLegacy() {
-        for (const key of [this.STORAGE_KEY, 'factory_maintenance_next_data']) {
-            try {
-                const saved = localStorage.getItem(key);
-                if (!saved) continue;
-                const parsed = JSON.parse(saved);
-                if (!this.isValidStoredData(parsed)) {
-                    throw new Error('保存データの構造が正しくありません。');
-                }
-
-                this.applyStoredData(parsed);
-                this.startupStateSource = 'localStorage';
-                break;
-            } catch (e) {
-                console.error(`Failed to load storage data (${key})`, e);
-            }
+        const candidate = this.readLocalStorageCandidate();
+        if (candidate) {
+            this.storageCandidates.localStorage = candidate.summary;
+            this.applyLoadedCandidate(candidate);
         }
         this.normalizeData();
         this.lastSuccessfulSaveAt = this.data.settings?.lastSuccessfulSaveAt || null;
@@ -332,7 +482,7 @@ class MaintenanceStore {
     }
 
     async save() {
-        const backend = this.db ? 'indexeddb' : 'localStorage';
+        const backend = this.getActiveSaveBackend();
         const savedAt = new Date().toISOString();
         const dataAtStart = this.data;
         const snapshot = {
@@ -349,12 +499,12 @@ class MaintenanceStore {
             if (this.data === dataAtStart) {
                 this.data.settings = { ...(this.data.settings || {}), lastSuccessfulSaveAt: savedAt };
             }
-            this.startupStateSource = backend;
+            this.storageCandidates[backend] = this.getStoredDataSummary(snapshot, backend);
             this.startupSaveSafe = true;
             notify('saved', { savedAt });
         };
         notify('saving');
-        if (!this.db) {
+        if (backend === 'localStorage') {
             try {
                 localStorage.setItem(this.STORAGE_KEY, JSON.stringify(snapshot));
                 finish();

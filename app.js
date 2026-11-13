@@ -305,7 +305,13 @@ class MaintenanceApp {
     }
 
     getSaveStatusCounts(data = store.data) {
-        const fields = ['machines', 'tasks', 'history', 'partsMaster', 'localTodos', 'photoManagerLibrary'];
+        const fields = [
+            'machines', 'tasks', 'history', 'partsMaster', 'partStockMovements',
+            'archivedWorkers', 'archivedTasks', 'archivedParts', 'archivedMaintenanceTasks', 'archivedGuides',
+            'machineCategories', 'archivedMachineCategories', 'tipsNotes',
+            'localTodos', 'localTodoLogs', 'historyImportLogs', 'shiftNotebookGroupPresets',
+            'photoManagerLibrary', 'photoManagerVideos', 'photoManagerAudios'
+        ];
         const byDepartment = data?.deptData && typeof data.deptData === 'object'
             ? data.deptData
             : { dept_default: data || {} };
@@ -313,6 +319,12 @@ class MaintenanceApp {
             const counts = Object.fromEntries(fields.map(key => [key, Array.isArray(entry?.[key]) ? entry[key].length : 0]));
             counts.notebookDays = entry?.shiftNotebooks && typeof entry.shiftNotebooks === 'object'
                 ? Object.keys(entry.shiftNotebooks).length : 0;
+            counts.memos = entry?.memos && typeof entry.memos === 'object' && !Array.isArray(entry.memos)
+                ? Object.keys(entry.memos).length : 0;
+            const outlook = entry?.outlookAssist || {};
+            counts.outlookRecords = ['templates', 'recipientSets', 'recipientContacts', 'insertHistory']
+                .reduce((sum, key) => sum + (Array.isArray(outlook[key]) ? outlook[key].length : 0), 0);
+            counts.outlookDrafts = Object.keys(outlook.draftsByWorker || {}).length;
             counts.total = Object.values(counts).reduce((sum, value) => sum + value, 0);
             return counts;
         };
@@ -334,7 +346,24 @@ class MaintenanceApp {
 
     refreshSaveStatusAlternateCandidate() {
         this._saveStatusAlternateCandidate = null;
-        if (store.db) {
+        const activeBackend = store.getActiveSaveBackend?.() || (store.db ? 'indexeddb' : 'localStorage');
+        const alternateBackend = activeBackend === 'indexeddb' ? 'localStorage' : 'indexeddb';
+        const known = store.storageCandidates?.[alternateBackend];
+        if (known) {
+            const active = this.getSaveStatusCounts(store.data);
+            const activeAt = Date.parse(store.lastSuccessfulSaveAt || store.data?.settings?.lastSuccessfulSaveAt || '') || 0;
+            this._saveStatusAlternateCandidate = {
+                ...known,
+                source: alternateBackend,
+                significant: known.total >= active.total + Math.max(5, Math.ceil(active.total * 0.2))
+                    || (known.total >= 5 && active.total <= known.total * 0.2)
+                    || known.departments > active.departments
+                    || known.savedAtMs > activeAt + 1_000
+            };
+            this.updateSaveStatus(this._saveStatusState || 'saved');
+            return;
+        }
+        if (activeBackend === 'indexeddb') {
             for (const key of [store.STORAGE_KEY, 'factory_maintenance_next_data']) {
                 try {
                     const raw = localStorage.getItem(key);
@@ -351,6 +380,7 @@ class MaintenanceApp {
                         const alternateAt = Date.parse(savedAt || '') || 0;
                         this._saveStatusAlternateCandidate = {
                             ...counts,
+                            source: 'localStorage',
                             savedAt,
                             significant: counts.total >= active.total + Math.max(5, Math.ceil(active.total * 0.2))
                                 || counts.departments > active.departments
@@ -400,7 +430,7 @@ class MaintenanceApp {
         title.textContent = '保存状態の詳細';
         panel.appendChild(title);
         const current = this.getSaveStatusCounts(store.data);
-        const fallback = !store.db;
+        const fallback = (store.getActiveSaveBackend?.() || (store.db ? 'indexeddb' : 'localStorage')) === 'localStorage';
         add('現在の保存先', fallback ? '代替保存（localStorage）' : 'IndexedDB');
         add('起動時の読み込み元', {
             indexeddb: 'IndexedDB',
@@ -417,10 +447,32 @@ class MaintenanceApp {
         if (store.storageWarning) add('保存先切替の理由', store.storageWarning.message || String(store.storageWarning));
         if (this._saveStatusError) add('直近の保存エラー', this._saveStatusError.message || String(this._saveStatusError));
         const alternate = this._saveStatusAlternateCandidate;
-        if (alternate?.error) add('localStorage 側', `確認できません: ${alternate.error}`);
-        else if (alternate) add('localStorage 側の候補', `${alternate.total}件 / ${alternate.departments}部署・最終保存 ${this.formatSaveStatusTime(alternate.savedAt)}`);
-        else if (store.db) add('localStorage 側の候補', '記録なし');
-        else add('IndexedDB 側', '現在開けないため比較できません');
+        const alternateLabel = alternate?.source === 'indexeddb' ? 'IndexedDB' : 'localStorage';
+        if (alternate?.error) add(`${alternateLabel} 側`, `確認できません: ${alternate.error}`);
+        else if (alternate) {
+            add(`${alternateLabel} 側の候補`, `${alternate.total}件 / ${alternate.departments}部署・最終保存 ${this.formatSaveStatusTime(alternate.savedAt)}`);
+            if (typeof store.selectStorageCandidate === 'function') {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'secondary-btn';
+                button.textContent = `${alternateLabel} 側の内容に切り替える`;
+                button.addEventListener('click', () => this.switchSaveStatusCandidate(alternate.source));
+                panel.appendChild(button);
+            }
+        } else if (store.db && !fallback) add('localStorage 側の候補', '記録なし');
+        else add('IndexedDB 側', store.db ? '有効な保存候補なし' : '現在開けないため比較できません');
+    }
+
+    async switchSaveStatusCandidate(source) {
+        const label = source === 'indexeddb' ? 'IndexedDB' : 'localStorage';
+        const message = `${label} 側の保存内容に切り替えます。現在表示中の未保存の入力は破棄されます。保存済みの両候補はそのまま残ります。続けますか？`;
+        if (!confirm(message)) return;
+        try {
+            await store.selectStorageCandidate(source);
+            window.location.reload();
+        } catch (error) {
+            alert(`保存候補を切り替えられませんでした。${error?.message || ''}`);
+        }
     }
 
     updateSaveStatus(status = 'saved', detail = {}) {
@@ -438,12 +490,12 @@ class MaintenanceApp {
         };
         const state = states[status] || states.saved;
         const counts = this.getSaveStatusCounts(store.data);
-        const fallback = !store.db;
+        const fallback = (store.getActiveSaveBackend?.() || (store.db ? 'indexeddb' : 'localStorage')) === 'localStorage';
         const backend = fallback ? '代替保存 localStorage' : 'IndexedDB';
         const savedAt = this.formatSaveStatusTime(store.lastSuccessfulSaveAt || store.data?.settings?.lastSuccessfulSaveAt);
         const latestAt = this.formatSaveStatusTime(this._lastLatestJsonExport?.at);
         const errorText = this._saveStatusError?.message || (store.storageWarning?.message || '');
-        const candidate = !!this._saveStatusAlternateCandidate?.significant;
+        const candidate = !!this._saveStatusAlternateCandidate?.source;
         const unverified = store.startupSaveSafe === false;
         const title = `${state.text} / ${backend} / 全体 ${counts.total}件 / ${counts.departmentName} ${counts.current}件\n最終保存 ${savedAt} / latest ${latestAt}${errorText ? `\n${errorText}` : ''}${unverified ? '\n起動時に保存済みデータを確認できませんでした。入力は続けられます。' : ''}${candidate ? '\n別保存候補あり（クリックで詳細）' : ''}`;
         elements.forEach(el => {
