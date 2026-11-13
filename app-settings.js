@@ -763,6 +763,9 @@
         const previous = store.activeData.dataDiagnosticsLastReport;
         if (!force && store.activeData.dataDiagnosticsLastRun === today && previous) return previous;
         const report = this.getScheduledDataDiagnosticsReport();
+        // An unreadable or absent startup record must not be replaced by a
+        // scheduled background write of an otherwise empty state.
+        if (!force && store.startupSaveSafe === false) return report;
         store.activeData.dataDiagnosticsLastRun = today;
         store.activeData.dataDiagnosticsLastReport = report;
         store.save?.();

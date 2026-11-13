@@ -10,6 +10,9 @@ class MaintenanceStore {
         this.MEDIA_STORE_NAME = 'media';
         this.STORAGE_KEY = 'factory_maintenance_next_data_v2'; // Versioning for department support
         this.storageWarning = null;
+        this.lastSuccessfulSaveAt = null;
+        this.startupStateSource = 'default';
+        this.startupSaveSafe = false;
         this.data = {
             currentDepartmentId: 'dept_default',
             departments: [
@@ -62,6 +65,9 @@ class MaintenanceStore {
                 console.error('IndexedDB unavailable; using localStorage', this.storageWarning);
                 try {
                     this.loadLegacy();
+                    // The fallback may be older than IndexedDB. Leave startup maintenance
+                    // read-only until an explicit edit establishes the active save target.
+                    this.startupSaveSafe = false;
                 } catch (localError) {
                     this.storageWarning = localError;
                     console.error('localStorage unavailable', localError);
@@ -122,6 +128,7 @@ class MaintenanceStore {
                 console.error('IndexedDB read failed; using localStorage', this.storageWarning);
                 try {
                     this.loadLegacy();
+                    this.startupSaveSafe = false;
                 } catch (localError) {
                     this.storageWarning = localError;
                     console.error('localStorage unavailable', localError);
@@ -136,14 +143,21 @@ class MaintenanceStore {
                 request.onsuccess = () => {
                     if (finished) return;
                     try {
-                        if (request.result) {
-                            this.data = request.result;
+                        if (this.isValidStoredData(request.result)) {
+                            this.applyStoredData(request.result);
+                            this.startupStateSource = 'indexeddb';
+                            this.startupSaveSafe = true;
                         } else {
-                            // A missing record no longer blocks startup.
+                            if (request.result != null) {
+                                this.storageWarning = new Error('IndexedDBの保存データの構造を確認できませんでした。');
+                            }
+                            // A missing record may be temporary. Never write an empty initial
+                            // state over it during startup; the first user edit saves normally.
                             this.loadLegacy();
-                            Promise.resolve(this.save()).catch(error => console.error('Initial save failed', error));
+                            this.startupSaveSafe = false;
                         }
                         this.normalizeData();
+                        this.lastSuccessfulSaveAt = this.data.settings?.lastSuccessfulSaveAt || null;
                         finish('idb');
                     } catch (error) {
                         useLocalStorage(error);
@@ -158,32 +172,50 @@ class MaintenanceStore {
         });
     }
 
+    isValidStoredData(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+        const hasDepartmentData = value.deptData && typeof value.deptData === 'object'
+            && !Array.isArray(value.deptData);
+        const hasLegacyData = ['machines', 'history', 'tasks'].some(key => Array.isArray(value[key]));
+        return !!(hasDepartmentData || hasLegacyData);
+    }
+
+    applyStoredData(parsed) {
+        // The old single-department format can exist in either storage backend.
+        if (Array.isArray(parsed.machines) || Array.isArray(parsed.history) || Array.isArray(parsed.tasks)) {
+            this.data.deptData.dept_default = {
+                machines: parsed.machines || [],
+                tasks: parsed.tasks || [],
+                history: parsed.history || [],
+                partsMaster: parsed.partsMaster || [],
+                archivedWorkers: parsed.archivedWorkers || [],
+                archivedTasks: parsed.archivedTasks || []
+            };
+            if (parsed.settings) this.data.settings = parsed.settings;
+        } else {
+            this.data = parsed;
+        }
+    }
+
     loadLegacy() {
-        const saved = localStorage.getItem(this.STORAGE_KEY) || localStorage.getItem('factory_maintenance_next_data');
-        if (saved) {
+        for (const key of [this.STORAGE_KEY, 'factory_maintenance_next_data']) {
             try {
+                const saved = localStorage.getItem(key);
+                if (!saved) continue;
                 const parsed = JSON.parse(saved);
-                
-                // Migration: From single-dept to multi-dept
-                if (parsed.machines || parsed.history || parsed.tasks) {
-                    console.log('Migrating legacy data to department structure...');
-                    this.data.deptData['dept_default'] = {
-                        machines: parsed.machines || [],
-                        tasks: parsed.tasks || [],
-                        history: parsed.history || [],
-                        partsMaster: parsed.partsMaster || [],
-                        archivedWorkers: parsed.archivedWorkers || [],
-                        archivedTasks: parsed.archivedTasks || []
-                    };
-                    if (parsed.settings) this.data.settings = parsed.settings;
-                } else {
-                    this.data = parsed;
+                if (!this.isValidStoredData(parsed)) {
+                    throw new Error('保存データの構造が正しくありません。');
                 }
+
+                this.applyStoredData(parsed);
+                this.startupStateSource = 'localStorage';
+                break;
             } catch (e) {
-                console.error('Failed to parse storage data', e);
+                console.error(`Failed to load storage data (${key})`, e);
             }
         }
         this.normalizeData();
+        this.lastSuccessfulSaveAt = this.data.settings?.lastSuccessfulSaveAt || null;
     }
 
     normalizeData() {
@@ -300,16 +332,32 @@ class MaintenanceStore {
     }
 
     async save() {
+        const backend = this.db ? 'indexeddb' : 'localStorage';
+        const savedAt = new Date().toISOString();
+        const dataAtStart = this.data;
+        const snapshot = {
+            ...dataAtStart,
+            settings: { ...(dataAtStart?.settings || {}), lastSuccessfulSaveAt: savedAt }
+        };
         const notify = (status, detail = {}) => {
             window.dispatchEvent(new CustomEvent('maintenance-save-status', {
-                detail: { status, ...detail }
+                detail: { status, backend, ...detail }
             }));
+        };
+        const finish = () => {
+            this.lastSuccessfulSaveAt = savedAt;
+            if (this.data === dataAtStart) {
+                this.data.settings = { ...(this.data.settings || {}), lastSuccessfulSaveAt: savedAt };
+            }
+            this.startupStateSource = backend;
+            this.startupSaveSafe = true;
+            notify('saved', { savedAt });
         };
         notify('saving');
         if (!this.db) {
             try {
-                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
-                notify('saved');
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(snapshot));
+                finish();
             } catch (error) {
                 notify('error', { error });
                 throw error;
@@ -328,7 +376,7 @@ class MaintenanceStore {
             try {
                 const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
                 const os = tx.objectStore(this.STORE_NAME);
-                const req = os.put(this.data, this.STORAGE_KEY);
+                const req = os.put(snapshot, this.STORAGE_KEY);
                 req.onerror = () => fail(req.error || new Error('保存に失敗しました。'));
                 tx.onerror = () => fail(tx.error || new Error('保存に失敗しました。'));
                 tx.onabort = () => fail(tx.error || new Error('保存が中断されました。'));
@@ -336,7 +384,7 @@ class MaintenanceStore {
                     if (settled) return;
                     settled = true;
                     this.storageWarning = null;
-                    notify('saved');
+                    finish();
                     resolve();
                 };
             } catch (error) {
@@ -1113,13 +1161,30 @@ class MaintenanceStore {
         return count;
     }
 
+    getOptionalExportData() {
+        const values = {};
+        this.lastExportWarnings = [];
+        for (const [key, defaultValue, isValid] of [
+            ['skillEvaluations', {}, value => value && typeof value === 'object' && !Array.isArray(value)],
+            ['manualSkills', [], value => Array.isArray(value)]
+        ]) {
+            try {
+                const saved = localStorage.getItem(key);
+                const value = saved == null ? defaultValue : JSON.parse(saved);
+                if (!isValid(value)) throw new Error('保存データの構造が正しくありません。');
+                values[key] = value;
+            } catch (error) {
+                // Keep mainData exportable. Omitting an unreadable field also prevents
+                // an import from replacing existing skills with an invented empty value.
+                this.lastExportWarnings.push(`${key} を読み込めず、出力から除外しました`);
+                console.warn(`Could not include ${key} in JSON export`, error);
+            }
+        }
+        return values;
+    }
+
     getExportPayload() {
-        const payload = {
-            mainData: this.data,
-            skillEvaluations: JSON.parse(localStorage.getItem('skillEvaluations') || '{}'),
-            manualSkills: JSON.parse(localStorage.getItem('manualSkills') || '[]')
-        };
-        return payload;
+        return { mainData: this.data, ...this.getOptionalExportData() };
     }
 
     exportAsJSON(options = {}) {
@@ -1189,8 +1254,7 @@ class MaintenanceStore {
             timestamp: new Date().toISOString(),
             data: this.activeData,
             // Skill data is global but included for context
-            skillEvaluations: JSON.parse(localStorage.getItem('skillEvaluations') || '{}'),
-            manualSkills: JSON.parse(localStorage.getItem('manualSkills') || '[]')
+            ...this.getOptionalExportData()
         };
         return options.optimizeImages
             ? this.createOptimizedExport(payload, options)

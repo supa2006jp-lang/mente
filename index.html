@@ -12,7 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="all.min.css?v=6.5.1-embedded3">
-    <link rel="stylesheet" href="style.css?v=20261113-fullscreen-ocr-visual1">
+    <link rel="stylesheet" href="style.css?v=20261113-save-ocr2">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
@@ -355,10 +355,11 @@
                     </button>
                 </div>
                 <div class="header-right">
-                    <div id="app-save-status" class="app-save-status saved" title="保存状態">
+                    <div id="app-save-status" class="app-save-status saved" title="保存状態の詳細を表示" role="button" tabindex="0" aria-expanded="false" aria-controls="app-save-diagnostics">
                         <i class="fa-solid fa-circle-check"></i>
                         <span>保存済み</span>
                     </div>
+                    <div id="app-save-diagnostics" class="app-save-diagnostics" hidden></div>
                 </div>
             </header>
 
@@ -1233,9 +1234,9 @@
     <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
-    <script src="store.js?v=20261015-storage-reset1"></script>
-    <script src="app.js?v=20261015-storage-reset1"></script>
-    <script src="app-settings.js?v=20260711-guide-bulk-compress"></script>
+    <script src="store.js?v=20261113-save-ocr2"></script>
+    <script src="app.js?v=20261113-save-ocr2"></script>
+    <script src="app-settings.js?v=20261113-save-ocr2"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
     <script src="app-calendar.js?v=20260613-calendar-bg-toggle-fix"></script>
@@ -1255,11 +1256,11 @@
     <script src="app-worktime.js?v=20260803-worktime-history-all2"></script>
     <script src="app-archives.js?v=20261015-storage-reset1"></script>
     <script src="app-hard-delete.js?v=20260606-admin-log-targets"></script>
-    <script src="app-persistence.js?v=20261026-latest-overwrite1"></script>
+    <script src="app-persistence.js?v=20261113-save-ocr2"></script>
     <script src="app-csv.js?v=20260803-single-maintenance1"></script>
     <script src="app-misc-analysis.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
-    <script src="app-photo-manager.js?v=20261113-ocr-immediate-region1"></script>
+    <script src="app-photo-manager.js?v=20261113-save-ocr2"></script>
     <script src="app-dom-actions.js"></script>
     <script src="app-shift-photo-camera.js?v=20260906-avatar-stage72"></script>
     <script src="app-shift-photo-reveal.js?v=20260906-avatar-stage72"></script>

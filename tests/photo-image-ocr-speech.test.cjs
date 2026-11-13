@@ -199,6 +199,7 @@ test('OCR engine load can be retried after a failed download', async () => {
     const app = Object.create(MaintenanceApp.prototype);
     const first = app.loadPhotoManagerTesseract();
     assert.equal(scripts.length, 1);
+    assert.equal(scripts[0].src, 'assets/ocr/tesseract/tesseract.min.js');
     scripts[0].onerror();
     assert.equal(await first, null);
     const engine = { createWorker() {} };
@@ -207,4 +208,21 @@ test('OCR engine load can be retried after a failed download', async () => {
     window.Tesseract = engine;
     scripts[1].onload();
     assert.equal(await second, engine);
+});
+
+test('OCR worker assets resolve to this app origin when hosted under a subpath', async () => {
+    class MaintenanceApp {}
+    const document = { baseURI: 'https://example.test/mente/index.html' };
+    vm.runInNewContext(source, { MaintenanceApp, document, URL, console }, { filename: 'app-photo-manager.js' });
+    const app = Object.create(MaintenanceApp.prototype);
+    let creation = null;
+    app.loadPhotoManagerTesseract = async () => ({
+        createWorker: (...args) => { creation = args; return {}; }
+    });
+    await app.createPhotoManagerOcrWorker();
+    assert.equal(creation[0], 'jpn+eng');
+    assert.equal(creation[2].workerPath, 'https://example.test/mente/assets/ocr/tesseract/worker.min.js');
+    assert.equal(creation[2].corePath, 'https://example.test/mente/assets/ocr/tesseract/core/');
+    assert.equal(creation[2].langPath, 'https://example.test/mente/assets/ocr/tesseract/lang/');
+    assert.equal(creation[2].workerBlobURL, false);
 });

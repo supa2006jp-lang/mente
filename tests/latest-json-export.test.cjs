@@ -8,9 +8,9 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'app-persistence.js'), 'utf8');
 
-function exportHarness({ pickerSupported = true, pickerName = 'latest.json', persistedHandle = false,
+function exportHarness({ pickerSupported = true, savePickerSupported = true, pickerName = 'latest.json', persistedHandle = false,
     permissionState = 'granted', permissionAfterRequest = 'granted', writeError = null,
-    backupClickError = null } = {}) {
+    backupClickError = null, pickerError = null } = {}) {
     const downloads = [];
     const writes = [];
     const alerts = [];
@@ -42,9 +42,18 @@ function exportHarness({ pickerSupported = true, pickerName = 'latest.json', per
     class MaintenanceApp {}
     const window = {};
     if (pickerSupported) {
+        if (savePickerSupported) {
+            window.showSaveFilePicker = async options => {
+                pickerCalls += 1;
+                assert.equal(options.suggestedName, 'latest.json');
+                if (pickerError) throw pickerError;
+                return handle;
+            };
+        }
         window.showOpenFilePicker = async options => {
             pickerCalls += 1;
             assert.ok(Array.isArray(options.types));
+            if (pickerError) throw pickerError;
             return [handle];
         };
     }
@@ -101,7 +110,7 @@ function exportHarness({ pickerSupported = true, pickerName = 'latest.json', per
     };
 }
 
-test('first full export overwrites the selected existing latest.json and downloads only the dated backup', async () => {
+test('first full export writes only latest.json through the save picker', async () => {
     const h = exportHarness();
     await h.app.exportOptimizedBackup('light', 'all');
 
@@ -109,8 +118,8 @@ test('first full export overwrites the selected existing latest.json and downloa
     assert.deepEqual(h.writes, ['{"scope":"all"}']);
     assert.equal(h.closes, 1);
     assert.equal(h.savedHandles[0].id, 'maintenance_latest_json_file');
-    assert.equal(h.downloads.length, 1);
-    assert.match(h.downloads[0], /^maintenance_ALL_light_\d{4}-\d{2}-\d{2}\.json$/);
+    assert.equal(h.downloads.length, 0);
+    assert.equal(h.app._lastLatestJsonExport.kind, 'file');
     assert.equal(h.alerts.length, 0);
     assert.ok(h.buttons.every(button => button.disabled === false));
 });
@@ -123,9 +132,7 @@ test('later full export reuses the same file handle without another picker or la
     assert.equal(h.pickerCalls, 1);
     assert.deepEqual(h.writes, ['{"scope":"all"}', '{"scope":"all"}']);
     assert.equal(h.closes, 2);
-    assert.equal(h.downloads.length, 2);
-    assert.ok(h.downloads.every(name => name !== 'latest.json'));
-    assert.match(h.downloads[1], /^maintenance_ALL_complete_\d{4}-\d{2}-\d{2}\.json$/);
+    assert.equal(h.downloads.length, 0);
 });
 
 test('a previously saved handle is loaded on startup and reused without opening a picker', async () => {
@@ -152,15 +159,33 @@ test('a saved handle requests write permission again before reuse', async () => 
     assert.deepEqual(h.writes, ['{"scope":"all"}']);
 });
 
-test('without a file picker, only the dated backup downloads and the user is told latest.json was not updated', async () => {
+test('without a file picker, one latest.json download is started', async () => {
     const h = exportHarness({ pickerSupported: false });
     await h.app.exportOptimizedBackup('light', 'all');
 
     assert.equal(h.downloads.length, 1);
-    assert.notEqual(h.downloads[0], 'latest.json');
+    assert.equal(h.downloads[0], 'latest.json');
     assert.equal(h.writes.length, 0);
     assert.equal(h.alerts.length, 1);
-    assert.match(h.alerts[0], /latest\.json は更新していません/);
+    assert.match(h.alerts[0], /直接上書きを利用できません/);
+    assert.equal(h.app._lastLatestJsonExport.kind, 'download');
+});
+
+test('when only the open picker exists, it still overwrites selected latest.json', async () => {
+    const h = exportHarness({ savePickerSupported: false });
+    await h.app.exportOptimizedBackup('light', 'all');
+    assert.equal(h.pickerCalls, 1);
+    assert.equal(h.writes.length, 1);
+    assert.equal(h.downloads.length, 0);
+});
+
+test('canceling the picker produces no file', async () => {
+    const h = exportHarness({ pickerError: Object.assign(new Error('Canceled'), { name: 'AbortError' }) });
+    await h.app.exportOptimizedBackup('light', 'all');
+    assert.equal(h.writes.length, 0);
+    assert.equal(h.downloads.length, 0);
+    assert.equal(h.alerts.length, 0);
+    assert.ok(h.buttons.every(button => button.disabled === false));
 });
 
 test('choosing a differently named file never writes to it', async () => {
@@ -171,15 +196,17 @@ test('choosing a differently named file never writes to it', async () => {
     assert.equal(h.writes.length, 0);
     assert.equal(h.savedHandles.length, 0);
     assert.equal(h.downloads.length, 1);
+    assert.equal(h.downloads[0], 'latest.json');
     assert.equal(h.alerts.length, 1);
-    assert.match(h.alerts[0], /latest\.json は更新していません/);
+    assert.match(h.alerts[0], /保存先には latest\.json/);
 });
 
-test('failed latest.json write leaves the dated backup and removes the unusable handle', async () => {
+test('failed latest.json write starts only one latest.json download and removes the unusable handle', async () => {
     const h = exportHarness({ writeError: new Error('Disk full') });
     await h.app.exportOptimizedBackup('light', 'all');
 
     assert.equal(h.downloads.length, 1);
+    assert.equal(h.downloads[0], 'latest.json');
     assert.equal(h.writes.length, 0);
     assert.equal(h.closes, 0);
     assert.equal(h.aborts, 1);
@@ -187,8 +214,7 @@ test('failed latest.json write leaves the dated backup and removes the unusable 
     assert.equal(h.app._latestJsonFileHandle, null);
     assert.equal(h.app._latestJsonForcePicker, true);
     assert.equal(h.alerts.length, 1);
-    assert.match(h.alerts[0], /latest\.json は更新していません/);
-    assert.equal(h.toasts.length, 0);
+    assert.match(h.alerts[0], /Disk full/);
 });
 
 test('a stale persisted handle with the wrong filename is removed without writing', async () => {
@@ -201,20 +227,18 @@ test('a stale persisted handle with the wrong filename is removed without writin
     assert.equal(h.writes.length, 0);
     assert.deepEqual(h.deletedHandles, ['maintenance_latest_json_file']);
     assert.equal(h.downloads.length, 1);
-    assert.match(h.alerts[0], /latest\.json は更新していません/);
+    assert.equal(h.downloads[0], 'latest.json');
+    assert.match(h.alerts[0], /保存先が latest\.json ではありません/);
 });
 
-test('dated backup failure after latest.json write reports partial success', async () => {
+test('successful direct latest.json write never triggers a second download', async () => {
     const h = exportHarness({ backupClickError: new Error('Download blocked') });
     await h.app.exportOptimizedBackup('light', 'all');
 
     assert.deepEqual(h.writes, ['{"scope":"all"}']);
     assert.equal(h.closes, 1);
     assert.equal(h.downloads.length, 0);
-    assert.equal(h.alerts.length, 1);
-    assert.match(h.alerts[0], /latest\.json は更新しましたが/);
-    assert.match(h.alerts[0], /日時付きバックアップを出力できませんでした/);
-    assert.equal(h.toasts.length, 0);
+    assert.equal(h.alerts.length, 0);
 });
 
 test('department export remains a single dated download and never requests latest.json', async () => {

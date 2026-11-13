@@ -271,9 +271,15 @@ class MaintenanceApp {
     }
 
     setupSaveStatusIndicator() {
-        this.updateSaveStatus(store.storageWarning ? 'dirty' : 'saved');
+        try {
+            this._lastLatestJsonExport = JSON.parse(localStorage.getItem('maintenance_latest_json_export_v1') || 'null');
+        } catch (_) {
+            this._lastLatestJsonExport = null;
+        }
+        this._saveStatusState = store.startupSaveSafe === false ? 'unverified' : 'saved';
+        this.updateSaveStatus(this._saveStatusState);
         window.addEventListener('maintenance-save-status', (event) => {
-            this.updateSaveStatus(event.detail?.status || 'saved');
+            this.updateSaveStatus(event.detail?.status || 'saved', event.detail || {});
         });
         document.addEventListener('input', (event) => {
             if (event.target?.closest?.('#modal-content')) this.updateSaveStatus('dirty');
@@ -281,26 +287,173 @@ class MaintenanceApp {
         document.addEventListener('change', (event) => {
             if (event.target?.closest?.('#modal-content')) this.updateSaveStatus('dirty');
         }, true);
+        const status = document.getElementById('app-save-status');
+        status?.addEventListener('click', () => this.toggleSaveStatusDiagnostics());
+        status?.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            this.toggleSaveStatusDiagnostics();
+        });
+        document.addEventListener('click', event => {
+            if (event.target?.closest?.('.header-right')) return;
+            this.closeSaveStatusDiagnostics();
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') this.closeSaveStatusDiagnostics();
+        });
+        setTimeout(() => this.refreshSaveStatusAlternateCandidate(), 0);
     }
 
-    updateSaveStatus(status = 'saved') {
+    getSaveStatusCounts(data = store.data) {
+        const fields = ['machines', 'tasks', 'history', 'partsMaster', 'localTodos', 'photoManagerLibrary'];
+        const byDepartment = data?.deptData && typeof data.deptData === 'object'
+            ? data.deptData
+            : { dept_default: data || {} };
+        const countDepartment = entry => {
+            const counts = Object.fromEntries(fields.map(key => [key, Array.isArray(entry?.[key]) ? entry[key].length : 0]));
+            counts.notebookDays = entry?.shiftNotebooks && typeof entry.shiftNotebooks === 'object'
+                ? Object.keys(entry.shiftNotebooks).length : 0;
+            counts.total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+            return counts;
+        };
+        const entries = Object.entries(byDepartment).map(([id, value]) => ({ id, ...countDepartment(value) }));
+        const currentId = String(data?.currentDepartmentId || entries[0]?.id || 'dept_default');
+        const current = entries.find(entry => entry.id === currentId) || countDepartment({});
+        const total = entries.reduce((sum, entry) => sum + entry.total, 0);
+        const departments = Array.isArray(data?.departments) ? data.departments : [];
+        const departmentName = departments.find(dept => String(dept?.id) === currentId)?.name || currentId;
+        return { total, current: current.total, currentId, departmentName, departments: departments.length || entries.length, entries };
+    }
+
+    formatSaveStatusTime(value) {
+        const date = value ? new Date(value) : null;
+        return date && Number.isFinite(date.getTime())
+            ? date.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : '記録なし';
+    }
+
+    refreshSaveStatusAlternateCandidate() {
+        this._saveStatusAlternateCandidate = null;
+        if (store.db) {
+            for (const key of [store.STORAGE_KEY, 'factory_maintenance_next_data']) {
+                try {
+                    const raw = localStorage.getItem(key);
+                    if (!raw) continue;
+                    const data = JSON.parse(raw);
+                    const valid = data && typeof data === 'object' && !Array.isArray(data)
+                        && ((data.deptData && typeof data.deptData === 'object' && !Array.isArray(data.deptData))
+                            || ['machines', 'history', 'tasks'].some(name => Array.isArray(data[name])));
+                    if (valid) {
+                        const counts = this.getSaveStatusCounts(data);
+                        const savedAt = data.settings?.lastSuccessfulSaveAt || null;
+                        const active = this.getSaveStatusCounts(store.data);
+                        const activeAt = Date.parse(store.lastSuccessfulSaveAt || store.data?.settings?.lastSuccessfulSaveAt || '') || 0;
+                        const alternateAt = Date.parse(savedAt || '') || 0;
+                        this._saveStatusAlternateCandidate = {
+                            ...counts,
+                            savedAt,
+                            significant: counts.total >= active.total + Math.max(5, Math.ceil(active.total * 0.2))
+                                || counts.departments > active.departments
+                                || (alternateAt > activeAt + 1_000)
+                        };
+                        break;
+                    }
+                    throw new Error('保存データの構造が正しくありません。');
+                } catch (error) {
+                    this._saveStatusAlternateCandidate = { error: error?.message || '読み取れませんでした。' };
+                }
+            }
+        }
+        this.updateSaveStatus(this._saveStatusState || 'saved');
+    }
+
+    closeSaveStatusDiagnostics() {
+        const panel = document.getElementById('app-save-diagnostics');
+        if (panel) panel.hidden = true;
+        document.getElementById('app-save-status')?.setAttribute('aria-expanded', 'false');
+    }
+
+    toggleSaveStatusDiagnostics() {
+        const panel = document.getElementById('app-save-diagnostics');
+        if (!panel) return;
+        panel.hidden = !panel.hidden;
+        document.getElementById('app-save-status')?.setAttribute('aria-expanded', String(!panel.hidden));
+        if (!panel.hidden) this.renderSaveStatusDiagnostics();
+    }
+
+    renderSaveStatusDiagnostics() {
+        const panel = document.getElementById('app-save-diagnostics');
+        if (!panel) return;
+        panel.replaceChildren();
+        const add = (label, value) => {
+            const row = document.createElement('div');
+            row.className = 'app-save-diagnostics-row';
+            const name = document.createElement('span');
+            const content = document.createElement('strong');
+            name.textContent = label;
+            content.textContent = value;
+            row.append(name, content);
+            panel.appendChild(row);
+        };
+        const title = document.createElement('strong');
+        title.className = 'app-save-diagnostics-title';
+        title.textContent = '保存状態の詳細';
+        panel.appendChild(title);
+        const current = this.getSaveStatusCounts(store.data);
+        const fallback = !store.db;
+        add('現在の保存先', fallback ? '代替保存（localStorage）' : 'IndexedDB');
+        add('起動時の読み込み元', {
+            indexeddb: 'IndexedDB',
+            localStorage: 'localStorage の候補',
+            default: '保存済みデータを確認できず初期状態'
+        }[store.startupStateSource] || '不明');
+        add('最終成功保存', this.formatSaveStatusTime(store.lastSuccessfulSaveAt || store.data?.settings?.lastSuccessfulSaveAt));
+        add('全体の主要データ', `${current.total}件 / ${current.departments}部署`);
+        add('表示中の部署', `${current.departmentName} (${current.currentId}) / ${current.current}件`);
+        if (store.startupSaveSafe === false) add('起動時の確認', '保存済みデータを確認できませんでした。入力は続けられます。');
+        add('latest.json', this._lastLatestJsonExport?.at
+            ? `${this.formatSaveStatusTime(this._lastLatestJsonExport.at)}（${this._lastLatestJsonExport.kind === 'file' ? '直接保存' : 'ダウンロード開始'}）`
+            : '出力記録なし');
+        if (store.storageWarning) add('保存先切替の理由', store.storageWarning.message || String(store.storageWarning));
+        if (this._saveStatusError) add('直近の保存エラー', this._saveStatusError.message || String(this._saveStatusError));
+        const alternate = this._saveStatusAlternateCandidate;
+        if (alternate?.error) add('localStorage 側', `確認できません: ${alternate.error}`);
+        else if (alternate) add('localStorage 側の候補', `${alternate.total}件 / ${alternate.departments}部署・最終保存 ${this.formatSaveStatusTime(alternate.savedAt)}`);
+        else if (store.db) add('localStorage 側の候補', '記録なし');
+        else add('IndexedDB 側', '現在開けないため比較できません');
+    }
+
+    updateSaveStatus(status = 'saved', detail = {}) {
         const elements = document.querySelectorAll('.app-save-status');
         if (!elements.length) return;
+        this._saveStatusState = status;
+        if (status === 'error') this._saveStatusError = detail.error || new Error('保存に失敗しました。');
+        else if (status === 'saved') this._saveStatusError = null;
         const states = {
+            unverified: { icon: 'fa-circle-question', text: '起動時データ未確認' },
             dirty: { icon: 'fa-circle-exclamation', text: '未保存' },
             saving: { icon: 'fa-spinner fa-spin', text: '保存中' },
             saved: { icon: 'fa-circle-check', text: '保存済み' },
             error: { icon: 'fa-triangle-exclamation', text: '保存失敗' }
         };
         const state = states[status] || states.saved;
-        const title = status === 'saved'
-            ? `保存済み ${new Date().toLocaleTimeString()}`
-            : (status === 'error' ? '保存に失敗しました' : state.text);
+        const counts = this.getSaveStatusCounts(store.data);
+        const fallback = !store.db;
+        const backend = fallback ? '代替保存 localStorage' : 'IndexedDB';
+        const savedAt = this.formatSaveStatusTime(store.lastSuccessfulSaveAt || store.data?.settings?.lastSuccessfulSaveAt);
+        const latestAt = this.formatSaveStatusTime(this._lastLatestJsonExport?.at);
+        const errorText = this._saveStatusError?.message || (store.storageWarning?.message || '');
+        const candidate = !!this._saveStatusAlternateCandidate?.significant;
+        const unverified = store.startupSaveSafe === false;
+        const title = `${state.text} / ${backend} / 全体 ${counts.total}件 / ${counts.departmentName} ${counts.current}件\n最終保存 ${savedAt} / latest ${latestAt}${errorText ? `\n${errorText}` : ''}${unverified ? '\n起動時に保存済みデータを確認できませんでした。入力は続けられます。' : ''}${candidate ? '\n別保存候補あり（クリックで詳細）' : ''}`;
         elements.forEach(el => {
-            el.className = `app-save-status ${status}${el.classList.contains('modal-save-status') ? ' modal-save-status' : ''}`;
-            el.innerHTML = `<i class="fa-solid ${state.icon}"></i><span>${state.text}</span>`;
+            el.className = `app-save-status ${status}${fallback ? ' local-fallback' : ''}${candidate ? ' alternate-candidate' : ''}${unverified ? ' startup-unverified' : ''}${el.classList.contains('modal-save-status') ? ' modal-save-status' : ''}`;
+            el.innerHTML = `<span class="app-save-status-main"><i class="fa-solid ${state.icon}"></i><strong>${state.text}</strong><em>${backend}</em>${unverified && status !== 'unverified' ? '<b>起動時データ未確認</b>' : ''}${candidate ? '<b>別保存候補あり</b>' : ''}</span><small>全体 ${counts.total}件 / 現部署 ${counts.current}件 ・保存 ${savedAt} ・latest ${latestAt}</small>${status === 'error' ? '<small class="app-save-error-reason"></small>' : ''}`;
+            if (status === 'error') el.querySelector('.app-save-error-reason').textContent = `保存失敗: ${this._saveStatusError?.message || '保存先を確認してください。'}`;
             el.title = title;
         });
+        const panel = document.getElementById('app-save-diagnostics');
+        if (panel && !panel.hidden) this.renderSaveStatusDiagnostics();
     }
 
     setupShiftNoteFormatMenuClose() {

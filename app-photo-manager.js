@@ -3194,8 +3194,7 @@
         }
 
         canReadPhotoManagerImageText() {
-            return typeof window !== 'undefined'
-                && (typeof window.TextDetector === 'function' || typeof window.Tesseract !== 'undefined');
+            return typeof window !== 'undefined' && typeof document !== 'undefined';
         }
 
         loadPhotoManagerTesseract() {
@@ -3204,7 +3203,7 @@
             if (this._photoManagerTesseractPromise) return this._photoManagerTesseractPromise;
             this._photoManagerTesseractPromise = new Promise(resolve => {
                 const script = document.createElement('script');
-                script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+                script.src = 'assets/ocr/tesseract/tesseract.min.js';
                 script.async = true;
                 script.onload = () => {
                     const engine = window.Tesseract || null;
@@ -3224,6 +3223,22 @@
                 document.head.appendChild(script);
             });
             return this._photoManagerTesseractPromise;
+        }
+
+        async createPhotoManagerOcrWorker() {
+            const Tesseract = await this.loadPhotoManagerTesseract();
+            if (!Tesseract?.createWorker) {
+                this._lastPhotoManagerOcrError = this._lastPhotoManagerOcrError || 'OCRエンジンを利用できませんでした。';
+                return null;
+            }
+            const base = new URL('assets/ocr/tesseract/', document.baseURI);
+            return Tesseract.createWorker('jpn+eng', 1, {
+                workerPath: new URL('worker.min.js', base).href,
+                corePath: new URL('core/', base).href,
+                langPath: new URL('lang/', base).href,
+                workerBlobURL: false,
+                cacheMethod: 'none'
+            });
         }
 
         async createPhotoManagerOcrImageSrc(src = '', options = {}) {
@@ -3273,20 +3288,6 @@
             return canvas.toDataURL('image/png');
         }
 
-        getPhotoManagerOcrVariants() {
-            return [
-                { name: '超強補正', mode: 'contrast', maxSide: 2600, maxScale: 6, threshold: 205, darkBoost: 125, lightBoost: 60, contrastFactor: 2.15 },
-                { name: '濃い白黒', mode: 'binary', maxSide: 2600, maxScale: 6, threshold: 190 },
-                { name: '薄文字強調', mode: 'contrast', maxSide: 2600, maxScale: 6, threshold: 215, darkBoost: 80, lightBoost: 85, contrastFactor: 2.35 },
-                { name: '元画像', mode: 'original', maxSide: 1800, maxScale: 3 },
-                { name: '標準補正', mode: 'contrast', maxSide: 1800, maxScale: 4, threshold: 170, darkBoost: 45, lightBoost: 25 },
-                { name: '弱補正', mode: 'contrast', maxSide: 1800, maxScale: 4, threshold: 150, darkBoost: 22, lightBoost: 12 },
-                { name: '強補正', mode: 'contrast', maxSide: 2200, maxScale: 5, threshold: 190, darkBoost: 75, lightBoost: 35 },
-                { name: '白黒強調', mode: 'binary', maxSide: 2200, maxScale: 5, threshold: 165 },
-                { name: '反転白黒', mode: 'binary', maxSide: 2200, maxScale: 5, threshold: 165, invert: true }
-            ];
-        }
-
         getPhotoManagerOcrTextScore(text = '') {
             const normalized = String(text || '').replace(/\s+/g, '');
             if (!normalized) return 0;
@@ -3299,6 +3300,8 @@
             return [
                 { name: '元画像', mode: 'plain', maxSide: 1800, maxScale: 3, whiteBackground: false },
                 { name: '白背景拡大', mode: 'plain', maxSide: 2200, maxScale: 5, whiteBackground: true },
+                { name: '薄文字強調', mode: 'contrast', maxSide: 2600, maxScale: 6, threshold: 215, darkBoost: 80, lightBoost: 85, contrastFactor: 2.35 },
+                { name: '濃い白黒', mode: 'binary', maxSide: 2600, maxScale: 6, threshold: 190 },
                 { name: '大きく拡大', mode: 'plain', maxSide: 2800, maxScale: 7, whiteBackground: true }
             ];
         }
@@ -3321,50 +3324,98 @@
             }
         }
 
+        async getPhotoManagerReusableOcrWorker() {
+            if (this._photoManagerOcrWorker) return this._photoManagerOcrWorker;
+            if (!this._photoManagerOcrWorkerPromise) {
+                this._photoManagerOcrWorkerPromise = (async () => {
+                    const worker = await this.createPhotoManagerOcrWorker?.();
+                    if (!worker) return null;
+                    try {
+                        await worker.setParameters({
+                            preserve_interword_spaces: '1',
+                            tessedit_pageseg_mode: '6'
+                        });
+                    } catch (error) {
+                        try { await worker.terminate(); } catch (_) {}
+                        throw error;
+                    }
+                    this._photoManagerOcrWorker = worker;
+                    return worker;
+                })();
+            }
+            const loading = this._photoManagerOcrWorkerPromise;
+            try {
+                return await loading;
+            } finally {
+                if (this._photoManagerOcrWorkerPromise === loading) this._photoManagerOcrWorkerPromise = null;
+            }
+        }
+
+        async releasePhotoManagerReusableOcrWorker() {
+            if (this._photoManagerOcrWorkerIdleTimer && typeof clearTimeout === 'function') {
+                clearTimeout(this._photoManagerOcrWorkerIdleTimer);
+            }
+            this._photoManagerOcrWorkerIdleTimer = null;
+            const worker = this._photoManagerOcrWorker;
+            this._photoManagerOcrWorker = null;
+            if (!worker) return;
+            try {
+                await worker.terminate();
+            } catch (error) {
+                console.warn('Photo manager Tesseract terminate failed', error);
+            }
+        }
+
         async readPhotoManagerImageTextWithTesseract(item = {}) {
             if (!item?.src) return '';
-            let worker = null;
-            try {
-                const Tesseract = await this.loadPhotoManagerTesseract();
-                if (!Tesseract?.createWorker) {
-                    this._lastPhotoManagerOcrError = this._lastPhotoManagerOcrError || 'OCRエンジンを利用できませんでした。';
-                    return '';
-                }
-                worker = await Tesseract.createWorker('jpn+eng', 1);
-                await worker.setParameters({
-                    preserve_interword_spaces: '1',
-                    tessedit_pageseg_mode: '6'
-                });
-                let bestText = '';
-                let bestScore = 0;
-                let bestVariant = '';
-                for (const variant of this.getPhotoManagerOcrVariants()) {
-                    const ocrSrc = await this.createPhotoManagerOcrImageSrc(item.src, variant);
-                    const result = await worker.recognize(ocrSrc);
-                    const text = String(result?.data?.text || '').trim();
-                    const score = this.getPhotoManagerOcrTextScore(text);
-                    if (score > bestScore) {
-                        bestText = text;
-                        bestScore = score;
-                        bestVariant = variant.name;
-                    }
-                    if (score >= 90) break;
-                }
-                if (bestVariant) this._lastPhotoManagerOcrVariant = bestVariant;
-                return bestText;
-            } catch (error) {
-                console.warn('Photo manager Tesseract OCR failed', error);
-                this._lastPhotoManagerOcrError = error?.message || 'OCR処理に失敗しました。';
-                return '';
-            } finally {
-                if (worker) {
-                    try {
-                        await worker.terminate();
-                    } catch (error) {
-                        console.warn('Photo manager Tesseract terminate failed', error);
-                    }
-                }
+            if (this._photoManagerOcrWorkerIdleTimer && typeof clearTimeout === 'function') {
+                clearTimeout(this._photoManagerOcrWorkerIdleTimer);
+                this._photoManagerOcrWorkerIdleTimer = null;
             }
+            this._photoManagerOcrPendingJobs = (this._photoManagerOcrPendingJobs || 0) + 1;
+            const previous = this._photoManagerOcrQueue || Promise.resolve();
+            const recognize = async () => {
+                try {
+                    const worker = await this.getPhotoManagerReusableOcrWorker();
+                    if (!worker) {
+                        this._lastPhotoManagerOcrError = this._lastPhotoManagerOcrError || 'OCRエンジンを利用できませんでした。';
+                        return '';
+                    }
+                    let bestText = '';
+                    let bestScore = 0;
+                    let bestVariant = '';
+                    for (const variant of this.getPhotoManagerOcrVariants()) {
+                        const ocrSrc = await this.createPhotoManagerOcrImageSrc(item.src, variant);
+                        const result = await worker.recognize(ocrSrc);
+                        const text = String(result?.data?.text || '').trim();
+                        const score = this.getPhotoManagerOcrTextScore(text);
+                        if (score > bestScore) {
+                            bestText = text;
+                            bestScore = score;
+                            bestVariant = variant.name;
+                        }
+                        const confidence = Number(result?.data?.confidence);
+                        if (score >= 90 || (text.replace(/\s+/g, '').length >= 3 && confidence >= 90)) break;
+                    }
+                    if (bestVariant) this._lastPhotoManagerOcrVariant = bestVariant;
+                    return bestText;
+                } catch (error) {
+                    console.warn('Photo manager Tesseract OCR failed', error);
+                    this._lastPhotoManagerOcrError = error?.message || 'OCR処理に失敗しました。';
+                    await this.releasePhotoManagerReusableOcrWorker();
+                    return '';
+                } finally {
+                    this._photoManagerOcrPendingJobs = Math.max(0, (this._photoManagerOcrPendingJobs || 1) - 1);
+                    if (!this._photoManagerOcrPendingJobs && this._photoManagerOcrWorker && typeof setTimeout === 'function') {
+                        this._photoManagerOcrWorkerIdleTimer = setTimeout(() => {
+                            if (!this._photoManagerOcrPendingJobs) void this.releasePhotoManagerReusableOcrWorker();
+                        }, 60000);
+                    }
+                }
+            };
+            const job = previous.then(recognize, recognize);
+            this._photoManagerOcrQueue = job.catch(() => '');
+            return job;
         }
 
         async getPhotoManagerImageText(item = {}) {
@@ -7604,6 +7655,9 @@
             return labels[item.source] || item.sourceLabel || item.source || '画像';
         }
         async cleanupExpiredShiftNotebookPhotos() {
+            // A missing startup record may be temporary. Do not turn an empty view
+            // into a persisted replacement before the user makes an edit.
+            if (store.startupSaveSafe === false) return;
             this.ensurePhotoManagerData();
             const today = this.getPhotoManagerToday();
             if (store.activeData.photoManagerLastAutoCleanup === today) return;

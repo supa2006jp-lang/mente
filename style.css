@@ -7663,6 +7663,7 @@ body {
     align-items: center;
     gap: 20px;
     flex: 0 0 auto;
+    position: relative;
 }
 
 .app-save-status {
@@ -7711,6 +7712,99 @@ body {
     min-width: 86px;
     padding: 6px 9px;
     font-size: 0.74rem;
+}
+
+.app-save-status:not(.modal-save-status) {
+    min-width: 285px;
+    max-width: min(390px, calc(100vw - 20px));
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 6px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+}
+
+.app-save-status:focus-visible {
+    outline: 3px solid #2563eb;
+    outline-offset: 2px;
+}
+
+.app-save-status-main {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    line-height: 1.2;
+}
+
+.app-save-status-main em,
+.app-save-status-main b {
+    padding: 2px 5px;
+    border-radius: 5px;
+    background: rgba(15, 23, 42, 0.08);
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 800;
+}
+
+.app-save-status-main b { background: #fef3c7; color: #92400e; }
+
+.app-save-status:not(.modal-save-status) > small {
+    display: block;
+    overflow: hidden;
+    max-width: 100%;
+    color: inherit;
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-save-status.local-fallback:not(.error),
+.app-save-status.startup-unverified:not(.error) {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.app-save-status.error > .app-save-error-reason { font-weight: 900; }
+
+.app-save-diagnostics {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 20000;
+    width: min(440px, calc(100vw - 24px));
+    max-height: min(70vh, 540px);
+    overflow: auto;
+    padding: 12px;
+    border: 1px solid #94a3b8;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.28);
+}
+
+.app-save-diagnostics[hidden] { display: none; }
+.app-save-diagnostics-title { display: block; margin-bottom: 8px; font-size: 0.88rem; }
+.app-save-diagnostics-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-top: 1px solid #e2e8f0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+.app-save-diagnostics-row span { flex: 0 0 38%; color: #475569; }
+.app-save-diagnostics-row strong { min-width: 0; overflow-wrap: anywhere; text-align: right; }
+
+@media (max-width: 760px) {
+    .app-save-status:not(.modal-save-status) { min-width: 0; max-width: 190px; }
+    .app-save-status:not(.modal-save-status) > small { display: none; }
+    .app-save-status-main { flex-wrap: wrap; }
 }
 
 ::highlight(guide-photo-token) {
