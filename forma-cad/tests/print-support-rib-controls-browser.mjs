@@ -30,25 +30,29 @@ async function setView(direction){
  await page.locator('[data-cube-direction="'+direction+'"]').dispatchEvent('keydown',{key:'Enter'});
  await page.waitForTimeout(200);
 }
-async function clickRib(){
+async function clickRib({near=true,exclude=true}={}){
  await setView('0,0,1');
- const ribs=(await view()).ribs.filter(r=>!r.excluded),axis=ribs[0].axis,other=1-axis;
+ const ribs=(await view()).ribs.filter(r=>r.excluded!==exclude),axis=ribs[0].axis,other=1-axis;
  const rib=ribs.reduce((first,next)=>first.bounds[0][axis]<next.bounds[0][axis]?first:next);
  const edge=[...rib.bounds[0]],inside=[...edge];
  edge[other]=inside[other]=rib.bounds[0][other]+3;
  inside[axis]=rib.center;
  const [x,y]=await screen(edge),[insideX,insideY]=await screen(inside);
  const distance=Math.hypot(x-insideX,y-insideY);
- await page.mouse.click(x+4*(x-insideX)/distance,y+4*(y-insideY)/distance);
- await excluded(1);
- assert.equal((await view()).ribs.find(r=>r.excluded).id,rib.id);
+ await page.mouse.click(...(near?[x+4*(x-insideX)/distance,y+4*(y-insideY)/distance]:[insideX,insideY]));
+ await excluded(exclude?1:0);
+ assert.equal((await view()).ribs.find(r=>r.id===rib.id).excluded,exclude);
 }
 try{
  await page.addInitScript(()=>window.showSaveFilePicker=undefined);await page.goto('http://127.0.0.1:'+server.address().port+'/');const doc=JSON.parse(await fs.readFile('.sites-runtime/roof-removal-fixture.forma.json','utf8'));await load(doc);const before=await save();await page.locator('#features .row-label').last().click();await ready();assert.equal(await q('lineWidth').inputValue(),'0.4');assert(!(await q('fitLineWidth').isChecked()));assert.equal(await q('wallDirection').inputValue(),'auto');assert.match(await q('print-settings-note').textContent(),/薄壁 2本分.*薄皮 2層/);
  await q('fitLineWidth').check();await ready();await q('lineWidth').fill('.45');await ready();assert.equal(await q('wallThickness').inputValue(),'0.9');assert(await q('wallThickness').evaluate(e=>e.readOnly));await q('wallLines').fill('3');await ready();assert.equal(await q('wallThickness').inputValue(),'1.35');await q('roofLayers').fill('3');await ready();assert.match(await q('print-settings-note').textContent(),/3層（0.9 mm）/);await q('wallLines').fill('2');await ready();await q('roofLayers').fill('2');await ready();
  await q('wallDirection').selectOption('x');await ready();assert.equal((await analysis()).count,3);assert((await view()).ribs.every(r=>r.axis===1));await q('rib-rotate').click();await ready();assert.equal(await q('wallDirection').inputValue(),'y');assert.equal((await analysis()).count,5);
  await q('rib-selection').evaluate(e=>e.open=true);await q('rib-pick').click();assert(await q('apply').isDisabled());await host.locator('[data-rib-marker]').nth(2).click();await excluded(1);assert.match(await q('error').textContent(),/間隔/);assert.equal((await view()).ribs.filter(r=>r.excluded).length,1);await q('rib-pick').click();assert(await q('apply').isDisabled());assert(await q('export3mf').isDisabled());await page.screenshot({path:out+'/unsupported-roof.png'});await q('rib-reset').click();await ready();
- await q('wallRoof').uncheck();await ready();await q('rib-pick').click();await clickRib();await excluded(1);await q('rib-pick').click();await ready();assert.equal((await analysis()).count,4);assert.equal((await analysis()).ribs.issues.length,0);await page.screenshot({path:out+'/excluded-preview.png'});const download=page.waitForEvent('download');await q('export3mf').click();await fs.copyFile(await(await download).path(),'.sites-runtime/support-slicing/ui-rib-controls.3mf');await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});assert.equal(await host.getAttribute('data-support-rib-preview'),null);assert.equal(await host.locator('[data-rib-marker]').count(),0);
+ await q('wallRoof').uncheck();await ready();
+ assert.equal((await view()).picking,false);
+ await clickRib({near:false});await ready();
+ await clickRib({near:false,exclude:false});await ready();
+ await q('rib-pick').click();await clickRib();await excluded(1);await q('rib-pick').click();await ready();assert.equal((await analysis()).count,4);assert.equal((await analysis()).ribs.issues.length,0);await page.screenshot({path:out+'/excluded-preview.png'});const download=page.waitForEvent('download');await q('export3mf').click();await fs.copyFile(await(await download).path(),'.sites-runtime/support-slicing/ui-rib-controls.3mf');await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});assert.equal(await host.getAttribute('data-support-rib-preview'),null);assert.equal(await host.locator('[data-rib-marker]').count(),0);
  const saved=await save(),spec=saved.features.at(-1).spec;assert.equal(spec.lineWidth,.45);assert.equal(spec.wallLines,2);assert.equal(spec.fitLineWidth,true);assert.equal(spec.wallDirection,'y');assert.equal(spec.excludedRibs.length,1);assert(!saved.features.at(-1).supportPreview);assert.deepEqual(saved.features.slice(0,-1),before.features.slice(0,-1));await page.locator('#undo').click();assert.deepEqual((await save()).features,before.features);await page.locator('#redo').click();assert.deepEqual((await save()).features.at(-1).spec,spec);
  await load(saved);await page.locator('#features .row-label').last().click();await ready();assert.equal(await q('lineWidth').inputValue(),'0.45');assert(await q('fitLineWidth').isChecked());assert.equal((await analysis()).ribs.excluded,1);await q('rib-selection').evaluate(e=>e.open=true);
  while((await analysis()).ribs.excluded<5){const index=(await view()).ribs.findIndex(r=>!r.excluded),next=(await analysis()).ribs.excluded+1;await q('rib-list').locator('input').nth(index).uncheck();await excluded(next);}assert.match(await q('error').textContent(),/すべてのリブ/);assert(await q('apply').isDisabled());assert.equal((await view()).ribs.length,5);await q('rib-reset').click();await ready();await q('rib-list').locator('input').nth(2).uncheck();await excluded(1);await q('wallPitch').fill('11');await ready();assert.equal((await analysis()).ribs.excluded,0);

@@ -17,7 +17,7 @@ export function createSupportRibView({host,canvas,camera,onToggle}){
  }
  function setPicking(value){picking=value;host.toggleAttribute('data-support-rib-picking',value);for(let i=0;i<meshes.length;i++)meshes[i].material.opacity=picking?.45:restOpacity(items[i]);sync();}
  function pick(event){
-  if(!group||!picking)return null;
+  if(!group||!meshes.length)return null;
   const {left,top,width,height}=canvas.getBoundingClientRect(),x=event.clientX-left,y=event.clientY-top;
   const hitAt=(dx,dy)=>{
    screenPoint.set((x+dx)*2/width-1,1-(y+dy)*2/height);
@@ -26,6 +26,7 @@ export function createSupportRibView({host,canvas,camera,onToggle}){
   };
   const direct=hitAt(0,0);
   if(direct)return direct.object.userData.ribId;
+  if(!picking)return null;
   // The mesh raycast has no pixel tolerance. Probe outward only after a direct miss.
   for(const radius of [2,4,6,8]){
    let nearest;

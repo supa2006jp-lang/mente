@@ -22,7 +22,21 @@ export function makeSupportBottomSkins(records,prism,bodies,p,onProgress){
     for(const body of bodies.values())if(overlap(skin,body)>.0001)throw Error('底面の薄皮がモデルに入り込むため作成を中止しました');if(p.bottomSeams){const cut=splitSupportBottomSkin(skin,records,p,onProgress,128-seams.count);skin.delete();skin=cut.shape;seams.count+=cut.count;seams.skipped+=cut.skipped;seams.sections+=cut.sections;}skins.push(skin);skin=null;heights.push(Number(z.toFixed(6)));
    }finally{skin?.delete();raw?.delete();profile?.delete();vector?.delete();}
   }
-  if(!skins.length)throw Object.assign(Error('底面の薄皮を置ける水平な土台がありません。土台とサポートの高さを確認してください'),{code:'support-skin-anchor'});
+  if(!skins.length){
+   const regions=[];
+   for(const {shape} of records){
+    const parts=shape.solids;
+    try{for(const part of parts){
+     const box=part.boundingBox;
+     let bounds;
+     try{bounds=box.bounds;}finally{box.delete();}
+     const available=bounds[1][2]-bounds[0][2];
+     if(available<thickness-1e-6)regions.push({bounds,role:'lower',available,thickness});
+    }}finally{parts.forEach(part=>part.delete());}
+   }
+   if(regions.length)throw Object.assign(Error('底面の薄皮を置く高さが足りません。層数や配置を調整してください'),{code:'support-skin-clearance',role:'lower',regions});
+   throw Object.assign(Error('底面の薄皮を置ける水平な土台がありません。土台とサポートの高さを確認してください'),{code:'support-skin-anchor'});
+  }
   return {shapes:skins,heights,thickness,seams};
  }catch(error){skins.forEach(s=>s.delete());throw error;}finally{faces.forEach(f=>f.delete());free.delete();}
 }
