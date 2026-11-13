@@ -10,6 +10,9 @@ const excluded=ribs[2].id,spec={...base,excludedRibs:[excluded]},removed=runOper
 const blockers=removed.supportPackage.blockers.map(m=>new THREE.Mesh(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(m.vertices,3)).setIndex(m.triangles),new THREE.MeshBasicMaterial({side:THREE.DoubleSide})));
 const query=x=>new THREE.Raycaster(new THREE.Vector3(x,15,100),new THREE.Vector3(0,0,-1)).intersectObjects(blockers,false);assert.equal(query(ribs[2].center).length,0);assert(query(ribs[1].center).length>0);blockers.forEach(m=>{m.geometry.dispose();m.material.dispose();});
 const withSkins={...spec,wallRoof:true,wallBottomSkin:true};
+const skinPreview=runOperation(doc.features,{...base,wallRoof:true,wallBottomSkin:true}).supportPreview;
+assert(skinPreview.skins[skinPreview.ribs[2].skinGroup].some(skin=>skin.side==='upper'&&skin.ribs.includes(excluded)));
+assert(skinPreview.skins[skinPreview.ribs[2].skinGroup].some(skin=>skin.side==='lower'&&skin.ribs.includes(excluded)));
 const trimmed=runOperation(doc.features,withSkins);
 assert.deepEqual(trimmed.analysis.printSupport.ribs.issues,[]);
 assert(trimmed.supportPreview.exportStatus.ok);
@@ -27,6 +30,20 @@ try{
  }
 }finally{shape.delete();}
 assert(printSupport3mf(trimmed.supportPackage).length>0);
+const restoredBlocker=runOperation(doc.features,{...withSkins,excludedRibBlockers:[excluded]});
+assert(restoredBlocker.supportPreview.exportStatus.ok);
+assert(restoredBlocker.supportPreview.ribs.find(rib=>rib.id===excluded).autoBlocked);
+assert.ok(restoredBlocker.supportPreview.ribs.find(rib=>rib.id===excluded).unsupportedWidth>base.wallPitch);
+assert.ok(restoredBlocker.supportPackage.blockers.some(mesh=>mesh.vertices.every((v,i)=>i%3!==2||v>45)&&
+ mesh.vertices.some((v,i)=>i%3===0&&v<ribs[2].center)&&mesh.vertices.some((v,i)=>i%3===0&&v>ribs[2].center)));
+assert(printSupport3mf(restoredBlocker.supportPackage).length>0);
+assert.throws(()=>validatePrintSupport({...base,excludedRibBlockers:[excluded]}),/禁止するリブ/);
+const zone={selection:{bodyId:'channel',point:[20,10,ribs[0].bounds[1][2]+base.topGap],normal:[0,0,-1]},noSupport:[[18,8,20,12]]};
+const blockedZone=runOperation(doc.features,{...base,faceOverrides:[zone]});
+const allowedZone=runOperation(doc.features,{...base,faceOverrides:[{...zone,allowAutoSupport:[0]}]});
+assert(blockedZone.supportPreview.exportStatus.ok&&allowedZone.supportPreview.exportStatus.ok);
+assert.equal(blockedZone.supportPackage.blockers.length,allowedZone.supportPackage.blockers.length+1);
+assert(printSupport3mf(allowedZone.supportPackage).length>0);
 const one=runOperation(doc.features,{...withSkins,excludedRibs:ribs.slice(1).map(r=>r.id)});
 assert.equal(one.analysis.printSupport.count,1);assert.equal(one.analysis.printSupport.roof.count,0);assert(one.supportPreview.exportStatus.ok);
 const edge=runOperation(doc.features,{...base,wallRoof:true,excludedRibs:[ribs[0].id]});assert(edge.supportPreview.exportStatus.ok);

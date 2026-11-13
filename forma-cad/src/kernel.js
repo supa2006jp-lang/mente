@@ -602,7 +602,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    const supportPackage=blockers.length?{complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...printSupportExportMesh(bodies.get(id))})).concat(made.shape?[{id:p.id,...printSupportExportMesh(made.shape)}]:[]),blockers}:null;
    const exportStatus=inspectPrintSupportPackage(supportPackage,{targetId:p.target,supportId:p.id});
    if(analysis.supportExport)analysis.supportExport.complete=exportStatus.ok;
-   return {outputs,remove,analysis,supportPreview:{...(made.contactPreview?{contact:made.contactPreview}:{}),body:{id:p.target,...cadMesh(bodies.get(p.target))},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview}:{}),...(made.coverage?{coverage:made.coverage}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};
+   return {outputs,remove,analysis,supportPreview:{...(made.contactPreview?{contact:made.contactPreview}:{}),body:{id:p.target,...cadMesh(bodies.get(p.target))},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview,skins:made.skinPreview}:{}),...(made.coverage?{coverage:made.coverage}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};
   }finally{made.shape?.delete();made.blockers?.forEach(s=>s.delete());}
  }
  else if(p.type==='assemblyInfo'){analysis=assemblyReference(bodies,p.reference,p.mode);}

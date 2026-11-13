@@ -20,6 +20,10 @@ export function validatePrintSupport(input){
  if(!Number.isFinite(p.lineWidth)||p.lineWidth<.2||p.lineWidth>1||typeof p.fitLineWidth!=='boolean'||!Number.isInteger(p.wallLines)||p.wallLines<1||p.wallLines>8)throw Error('線幅は0.2〜1 mm、薄壁の線数は1〜8本で指定してください');
  if(!['auto','x','y'].includes(p.wallDirection))throw Error('薄壁の向きを選択してください');
  if(!Array.isArray(p.excludedRibs)||p.excludedRibs.length>96||new Set(p.excludedRibs).size!==p.excludedRibs.length||p.excludedRibs.some(v=>typeof v!=='string'||!v||v.length>500))throw Error('除外するリブの指定が不正です');
+ p.excludedRibBlockers=input.excludedRibBlockers??[];
+ if(!Array.isArray(p.excludedRibBlockers)||p.excludedRibBlockers.length>p.excludedRibs.length||
+  new Set(p.excludedRibBlockers).size!==p.excludedRibBlockers.length||p.excludedRibBlockers.some(id=>!p.excludedRibs.includes(id)))
+  throw Error('自動サポートを禁止するリブの指定が不正です');
  if(p.fitLineWidth&&p.style==='walls')p.wallThickness=Number((p.lineWidth*p.wallLines).toFixed(6));
  if(typeof p.wallRoof!=='boolean'||!Number.isInteger(p.roofLayers)||p.roofLayers<1||p.roofLayers>6)throw Error('薄皮の層数は1〜6層で指定してください');
  if(typeof p.roofTabs!=='boolean'||typeof p.roofSeams!=='boolean')throw Error('薄皮のタブ・分割線の設定が不正です');

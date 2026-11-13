@@ -92,11 +92,11 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   save.onclick=()=>{
    if(busy||inputs.some(([,input])=>!input.reportValidity()))return;
    const values=Object.fromEntries(inputs.filter(([,input])=>input.value!=='').map(([key,input])=>[key,input.valueAsNumber]));
-   const {noSupport,edgeAssist}=row.override;
-   onSave(row,{...values,noSupport,edgeAssist});
+   const {noSupport,allowAutoSupport,edgeAssist}=row.override;
+   onSave(row,{...values,noSupport,allowAutoSupport,edgeAssist});
   };
   const remove=document.createElement('button');remove.type='button';remove.textContent='共通設定に戻す';remove.disabled=busy;
-  remove.onclick=()=>{if(!busy){const {noSupport,edgeAssist}=row.override;onSave(row,{noSupport,edgeAssist});}};
+  remove.onclick=()=>{if(!busy){const {noSupport,allowAutoSupport,edgeAssist}=row.override;onSave(row,{noSupport,allowAutoSupport,edgeAssist});}};
   edit.append(save,remove);
  }
  function stopDrawing(){
@@ -137,7 +137,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   boxButton.type=pointButton.type='button';
   boxButton.textContent='除外範囲を画面で囲む';
   pointButton.textContent='クリックした箇所を除外';
-  note.textContent=row?'この下面でリブ・薄皮・3MFの自動サポートを省きます。':'画面で指定した位置から下面を判定し、リブ・薄皮・3MFの自動サポートを省きます。';
+  note.textContent='指定範囲のリブと薄皮を省きます。3MFの自動サポートは除外範囲ごとに切り替えられます。';
   const start=(mode,button)=>{
    if(busy||!canPlace(row))return;
    if(draw){focus(rows.indexOf(row));return;}
@@ -159,11 +159,25 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   zones.append(boxButton,...sizeFields.map(({label})=>label),pointButton,note);
   for(const entry of row?[row]:rows){
    const exclusions=entry.override.noSupport||[];
+   const allowed=entry.override.allowAutoSupport||[];
    for(const [i,range] of exclusions.entries()){
     const remove=document.createElement('button');remove.type='button';
     remove.textContent='除外 '+(i+1)+' を解除（'+(range[2]-range[0]).toFixed(1)+' × '+(range[3]-range[1]).toFixed(1)+' mm）'+(row?'':' ／ '+faceLabel(entry));
-    remove.onclick=()=>{if(!busy)onSave(entry,{...entry.override,noSupport:exclusions.filter((_,index)=>i!==index)});};
-    zones.append(remove);
+    remove.onclick=()=>{if(!busy)onSave(entry,{...entry.override,noSupport:exclusions.filter((_,index)=>i!==index),
+     allowAutoSupport:allowed.filter(index=>index!==i).map(index=>index>i?index-1:index)});};
+    const mode=document.createElement('select');
+    mode.add(new Option('自動サポートも禁止','block'));mode.add(new Option('自動サポートに任せる','allow'));
+    mode.value=allowed.includes(i)?'allow':'block';
+    mode.setAttribute('aria-label',faceLabel(entry)+' ／ 除外 '+(i+1)+' の3MF自動サポート');
+    mode.onchange=()=>{
+     if(busy)return;
+     const next=allowed.filter(index=>index!==i);
+     if(mode.value==='allow')next.push(i);
+     onSave(entry,{...entry.override,allowAutoSupport:next});
+    };
+    const width=document.createElement('small');
+    width.textContent='除外範囲 '+(range[2]-range[0]).toFixed(1)+' × '+(range[3]-range[1]).toFixed(1)+' mm';
+    zones.append(remove,mode,width);
    }
   }
  }
@@ -320,7 +334,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
     control.disabled=busy;
    const row=select.value===''?null:rows[Number(select.value)];
    const canDraw=canPlace(row);
-   if(!draw)for(const control of zones.querySelectorAll('input,button'))
+   if(!draw)for(const control of zones.querySelectorAll('input,button,select'))
     control.disabled=busy||control.hasAttribute('data-support-zone-placement')&&!canDraw;
    for(const {marker} of markers)marker.disabled=busy;
    visibility();

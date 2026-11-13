@@ -548,3 +548,4 @@ button.form-control-point.invalid { background:#bc2634; }
 .support-zone-placement > div { display:flex; flex-wrap:wrap; gap:6px; }
 .support-zone-placement button { padding:5px 9px; color:#472068; background:#f1e6fb; border-color:#aa83cc; }
 .support-zone-placement [data-zone-action="confirm"] { color:white; background:#722ba4; border-color:#722ba4; font-weight:700; }
+.support-rib-hover { position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:38; pointer-events:none; max-width:90%; padding:8px 12px; color:#742333; background:#fff4f5; border:1px solid #dc7b8e; border-radius:8px; }

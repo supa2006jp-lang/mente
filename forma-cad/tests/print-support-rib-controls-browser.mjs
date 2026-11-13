@@ -47,7 +47,21 @@ try{
  await page.addInitScript(()=>window.showSaveFilePicker=undefined);await page.goto('http://127.0.0.1:'+server.address().port+'/');const doc=JSON.parse(await fs.readFile('.sites-runtime/roof-removal-fixture.forma.json','utf8'));await load(doc);const before=await save();await page.locator('#features .row-label').last().click();await ready();assert.equal(await q('lineWidth').inputValue(),'0.4');assert(!(await q('fitLineWidth').isChecked()));assert.equal(await q('wallDirection').inputValue(),'auto');assert.match(await q('print-settings-note').textContent(),/薄壁 2本分.*薄皮 2層/);
  await q('fitLineWidth').check();await ready();await q('lineWidth').fill('.45');await ready();assert.equal(await q('wallThickness').inputValue(),'0.9');assert(await q('wallThickness').evaluate(e=>e.readOnly));await q('wallLines').fill('3');await ready();assert.equal(await q('wallThickness').inputValue(),'1.35');await q('roofLayers').fill('3');await ready();assert.match(await q('print-settings-note').textContent(),/3層（0.9 mm）/);await q('wallLines').fill('2');await ready();await q('roofLayers').fill('2');await ready();
  await q('wallDirection').selectOption('x');await ready();assert.equal((await analysis()).count,3);assert((await view()).ribs.every(r=>r.axis===1));await q('rib-rotate').click();await ready();assert.equal(await q('wallDirection').inputValue(),'y');assert.equal((await analysis()).count,5);
- await q('rib-selection').evaluate(e=>e.open=true);await q('rib-pick').click();assert(await q('apply').isDisabled());await host.locator('[data-rib-marker]').nth(2).click();await excluded(1);assert.deepEqual((await analysis()).ribs.issues,[]);assert.equal((await view()).ribs.filter(r=>r.excluded).length,1);await q('rib-pick').click();await ready();assert(await q('export3mf').isEnabled());await q('rib-reset').click();await ready();
+ await q('rib-selection').evaluate(e=>e.open=true);await q('rib-pick').click();assert(await q('apply').isDisabled());
+ const marker=host.locator('[data-rib-marker]').nth(2);
+ await marker.hover();
+ assert.match(await host.locator('.support-rib-hover').textContent(),/除外後の支えなし幅.*上面/);
+ await marker.click();await excluded(1);
+ assert.deepEqual((await analysis()).ribs.issues,[]);
+ assert.equal((await view()).ribs.filter(r=>r.excluded).length,1);
+ await q('rib-pick').click();await ready();assert(await q('export3mf').isEnabled());
+ const ribPolicy=q('rib-list').locator('[data-rib-auto-support]');
+ await ribPolicy.selectOption('block');await ready();
+ assert((await view()).ribs.find(r=>r.excluded).autoBlocked);
+ assert.match(await q('rib-list').textContent(),/支えなし 約 [\d.]+ mm/);
+ await ribPolicy.selectOption('allow');await ready();
+ assert(!(await view()).ribs.find(r=>r.excluded).autoBlocked);
+ await q('rib-reset').click();await ready();
  await q('wallRoof').uncheck();await ready();
  assert.equal((await view()).picking,false);
  await clickRib({near:false});await ready();
@@ -78,8 +92,12 @@ try{
  await confirm.click();
  await coverage.getByRole('button',{name:/除外 1 を解除（0.1 × 0.2 mm）/}).waitFor();
  await ready();assert.equal(await host.getAttribute('data-support-zone-picking'),null);
+ await coverage.getByRole('combobox',{name:/除外 1 の3MF自動サポート/}).selectOption('allow');
+ await ready();
  await q('apply').click();await page.locator('#print-support-dialog').waitFor({state:'hidden'});
- const [[x0,y0,x1,y1]]=(await save()).features.at(-1).spec.faceOverrides[0].noSupport;
+ const savedOverride=(await save()).features.at(-1).spec.faceOverrides[0];
+ const [[x0,y0,x1,y1]]=savedOverride.noSupport;
+ assert.deepEqual(savedOverride.allowAutoSupport,[0]);
  assert.ok(Math.abs(x1-x0-.1)<1e-8&&Math.abs(y1-y0-.2)<1e-8);
 
  const multiple=JSON.parse(await fs.readFile('.sites-runtime/support-multiface-fixture.forma.json','utf8'));
