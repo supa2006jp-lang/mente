@@ -16,14 +16,6 @@ import {supportRibPlacement} from './print-support-rib-placement.js';
 import {makeSupportBottomSkins} from './print-support-bottom-skin.js';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
 const bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}};
-function roofSupportIssues(roof,original,remaining,p){
- const issues=[],parts=roof.solids,overlap=(a,b)=>{const s=a.intersect(b);try{return R.measureVolume(s)>.0001;}finally{s.delete();}};
- try{for(const part of parts){const before=original.filter(r=>overlap(part,r.shape)),after=remaining.filter(r=>overlap(part,r.shape));if(before.length===after.length)continue;
-  if(after.length<2)issues.push('薄皮の支えが不足します。各区画を支えるリブを2枚以上残してください');
-  else if(after[0]!==before[0]||after.at(-1)!==before.at(-1))issues.push('薄皮の端が片持ちになります。両端のリブを戻すか薄皮をオフにしてください');
-  else if(after.some((r,i)=>i&&r.center-after[i-1].center>p.wallPitch*1.05))issues.push('薄皮を支えるリブの間隔が設定値を超えます。リブを戻すか薄皮をオフにしてください');
- }}finally{parts.forEach(s=>s.delete());}return issues;
-}
 function scopedBlocker(face,p,z,cells){
  const shifted=face.clone().translate([0,0,p.layerHeight]),vector=new R.Vector([0,0,p.bedZ-z-p.layerHeight]);let blocker;
  try{blocker=R.basicFaceExtrusion(shifted,vector);for(const cell of cells){const tool=R.makeBox(cell.low,cell.high);try{const next=blocker.cut(tool);blocker.delete();blocker=next;}finally{tool.delete();}}const result=blocker;blocker=null;return result;}finally{blocker?.delete();shifted.delete();vector.delete();}
@@ -96,7 +88,7 @@ function prepareWallSupports(bodies,settings,onProgress){
     }
     const pb=bounds(prism),axis=p.wallDirection==='x'?1:p.wallDirection==='y'?0:pb[1][0]-pb[0][0]>=pb[1][1]-pb[0][1]?0:1;
     const placement=supportRibPlacement(pb[0][axis],pb[1][axis],{...p,edgeRibs:p.edgeRibs||p.edgeAssist,ribAxis:axis,noSupport:manualZones});
-    const count=placement.count,records=[],allRecords=[],excludedCells=[],faceCandidates=[],faceBases=new Set();if(candidateRibs.length+count>96)throw Error('薄壁の本数が多すぎます。壁の間隔を広げるか対象面を絞ってください');
+    const count=placement.count,records=[],excludedCells=[],faceCandidates=[],faceBases=new Set();if(candidateRibs.length+count>96)throw Error('薄壁の本数が多すぎます。壁の間隔を広げるか対象面を絞ってください');
     let faceOmittedPieces=0;
     for(let i=0;i<count;i++){
      onProgress?.({stage:'薄壁サポートを作成しています（'+(walls.length+records.length+1)+'枚目）'});const center=placement.centers[i],a=[pb[0][0]-1,pb[0][1]-1,p.bedZ-1],b=[pb[1][0]+1,pb[1][1]+1,z+1];a[axis]=center-p.wallThickness/2;b[axis]=center+p.wallThickness/2;
@@ -121,7 +113,7 @@ function prepareWallSupports(bodies,settings,onProgress){
       if(R.measureVolume(wall)>.001)for(const id of bases)faceBases.add(id);
      }
      if(R.measureVolume(wall)<.001)continue;
-     const ribId=ribReference(axis,center,z,pb),excluded=p.excludedRibs.includes(ribId),record={id:ribId,shape:wall,axis,center};allRecords.push(record);
+     const ribId=ribReference(axis,center,z,pb),excluded=p.excludedRibs.includes(ribId),record={id:ribId,shape:wall,axis,center};
      const candidate={id:ribId,number:candidateRibs.length+faceCandidates.length+1,axis,center,excluded,bounds:bounds(wall)};
      if(p.preview&&(!p.contactLines||excluded)){const display=wall.intersect(stripe);try{Object.assign(candidate,cadMesh(display));}finally{display.delete();}}faceCandidates.push(candidate);
      if(excluded){const low=[...a],high=[...b];low[axis]=i===0?pb[0][axis]-1:placement.cells[i][0];high[axis]=i===count-1?pb[1][axis]+1:placement.cells[i][1];excludedCells.push({low,high});continue;}
@@ -130,9 +122,13 @@ function prepareWallSupports(bodies,settings,onProgress){
     // Keep all output for this ceiling provisional until both skins fit.
     let bottom,roof;
     try{
-     if(p.wallBottomSkin&&records.length){bottom=makeSupportBottomSkins(records,prism,bodies,p,onProgress);bottom.shapes.forEach(hold);}
-     if(p.wallRoof){const made=makeWallRoof(allRecords,prism,bodies,p,z-p.topGap,onProgress,{allowPartial:!!zoneTools.length});if(made)roof=hold(made);}
-     if(cutouts.length&&(!records.length||p.wallRoof&&!roof))throw initialFailure;
+     let skinPrism=prism;
+     if(records.length&&(p.wallBottomSkin||p.wallRoof))for(const {low,high} of excludedCells){
+      skinPrism=hold(skinPrism.cut(hold(R.makeBox(low,high))));
+     }
+     if(p.wallBottomSkin&&records.length){bottom=makeSupportBottomSkins(records,skinPrism,bodies,p,onProgress);bottom.shapes.forEach(hold);}
+     if(p.wallRoof){const made=makeWallRoof(records,skinPrism,bodies,p,z-p.topGap,onProgress,{allowPartial:!!(zoneTools.length||excludedCells.length),trimToRibs:!!excludedCells.length});if(made)roof=hold(made);}
+     if(cutouts.length&&(!records.length||p.wallRoof&&!roof&&!excludedCells.length))throw initialFailure;
     }catch(error){
      if(p.mode!=='auto'){
       if(error?.code==='support-skin-clearance')error.supportClearanceRegions=clearanceDetails(error,b,z);
@@ -165,8 +161,8 @@ function prepareWallSupports(bodies,settings,onProgress){
     wallRecords.push(...records);
     if(bottom){bottomSkins.push(...bottom.shapes);if(p.contactLines)for(const s of bottom.shapes)contactRegions.push({shape:s,role:'lower',axis});bottomHeights.push(...bottom.heights);for(const key of ['count','skipped','sections'])bottomSeams[key]+=bottom.seams[key];if(bottomSeams.count>128)throw Error('底面薄皮の分割数が多すぎます');}
     if(p.wallTies&&records.length>1){const made=makeWallTies(records,prism,bodies,p,onProgress);if(ties.length+made.shapes.length>512){made.shapes.forEach(s=>s.delete());throw Error('横つなぎが多すぎます。高さの間隔を広げるか対象面を絞ってください');}made.shapes.forEach(s=>ties.push(hold(s)));made.levels.forEach(z=>tieLevels.add(z));made.intervals.forEach(v=>tieIntervals.add(v));tieAttachments.push(...made.attachments);skippedTies+=made.skipped;}
-    if(roof){if(p.contactLines)contactRegions.push({shape:hold(roof.clone()),role:'upper',axis});if(excludedCells.length)ribIssues.push(...roofSupportIssues(roof,allRecords,records,p));
-     if(p.roofSeams||p.roofTabs||p.preview){const detail=roofRemovalDetails(roof,records.length>=2?records:allRecords,shifted,bodies,records.length>=2?p:{...p,roofTabs:false},z-p.topGap,onProgress,{seams:128-roofCuts,tabs:64-roofTabs.length});roofs.push(hold(detail.roof));detail.tabs.forEach(tab=>roofTabs.push(hold(tab)));roofPreview.push(...detail.preview);roofPlacements.push(...detail.placements);roofMatched.push(...detail.matched);roofManualInvalid+=detail.manualInvalid;roofCuts+=detail.seams.count;roofSkippedCuts+=detail.seams.skipped;roofSections+=detail.seams.sections;roofSkippedTabs+=detail.tabInfo.skipped;}
+    if(roof){if(p.contactLines)contactRegions.push({shape:hold(roof.clone()),role:'upper',axis});
+     if(p.roofSeams||p.roofTabs||p.preview){const detail=roofRemovalDetails(roof,records,shifted,bodies,p,z-p.topGap,onProgress,{seams:128-roofCuts,tabs:64-roofTabs.length});roofs.push(hold(detail.roof));detail.tabs.forEach(tab=>roofTabs.push(hold(tab)));roofPreview.push(...detail.preview);roofPlacements.push(...detail.placements);roofMatched.push(...detail.matched);roofManualInvalid+=detail.manualInvalid;roofCuts+=detail.seams.count;roofSkippedCuts+=detail.seams.skipped;roofSections+=detail.seams.sections;roofSkippedTabs+=detail.tabInfo.skipped;}
      else roofs.push(roof);
     }
     if(records.length){
