@@ -97,6 +97,16 @@
         if (!h) return;
 
         const machines = store.getMachines();
+        const scheduledTask = !h.isSudden && h.taskId
+            ? (store.activeData.tasks || []).find(task => String(task.id) === String(h.taskId))
+            : null;
+        const scheduleSegments = scheduledTask ? this.getTaskScheduleSegments(scheduledTask) : [];
+        const legacyScheduledDate = scheduledTask && !h.scheduledDate
+            ? (this.isScheduledTaskOccurrenceDate(scheduledTask, h.date)
+                ? h.date
+                : (scheduleSegments.length === 1 && scheduleSegments[0].periodDays <= 0 ? scheduleSegments[0].startDate : ''))
+            : '';
+        const scheduledDate = h.scheduledDate || legacyScheduledDate || '';
         this._tempPhotos = h.photos ? [...h.photos] : [];
 
         this.openModal('edit-history', 'メンテナンス記録の編集', () => {
@@ -149,6 +159,14 @@
                             </label>
                         </div>
                     </div>
+
+                    ${scheduledTask ? `
+                    <div class="form-group" style="background:#eff6ff; padding:12px; border-radius:8px; border:1px solid #bfdbfe;">
+                        <label for="e-scheduled-date" style="font-weight:800;">対象の予定日</label>
+                        <input type="date" id="e-scheduled-date" value="${this.escapeHtml(scheduledDate)}">
+                        <div style="font-size:0.75rem; color:var(--text-light); margin-top:6px;">${this.escapeHtml(scheduledTask.content || '定期メンテナンス')} の予定日です。実施日とは別に修正できます。${scheduledDate ? '' : '旧記録の予定日が不明な場合は空欄のまま保存できます。'}</div>
+                    </div>
+                    ` : ''}
 
                     <div class="form-group">
                         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:#fffbeb; padding:10px 16px; border-radius:var(--radius-md); border:1px solid #fde68a;">

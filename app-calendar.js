@@ -67,6 +67,53 @@
         monthDisplay.setAttribute('aria-label', `${monthDisplay.textContent} 背景切り替え`);
     }
 
+    buildCalendarRenderCache() {
+        const historyByDate = new Map();
+        const completionByTaskDate = new Set();
+        const legacyCompletionByTask = new Set();
+        for (const record of store.activeData.history || []) {
+            if (record?.date) {
+                if (!historyByDate.has(record.date)) historyByDate.set(record.date, []);
+                historyByDate.get(record.date).push(record);
+            }
+            if (!record?.taskId) continue;
+            const taskId = String(record.taskId);
+            const completedDate = record.scheduledDate || record.date;
+            if (completedDate) completionByTaskDate.add(JSON.stringify([taskId, String(completedDate)]));
+            if (!record.scheduledDate) legacyCompletionByTask.add(taskId);
+        }
+        return {
+            historyByDate,
+            scheduledByDate: new Map(),
+            completionByTaskDate,
+            legacyCompletionByTask
+        };
+    }
+
+    indexCalendarScheduledTasks(year, month) {
+        const scheduledByDate = this._calendarRenderCache.scheduledByDate;
+        const lastDate = new Date(year, month + 1, 0).getDate();
+        if (Number.isFinite(lastDate)) {
+            const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+            for (let day = 1; day <= lastDate; day++) {
+                scheduledByDate.set(`${monthPrefix}${String(day).padStart(2, '0')}`, []);
+            }
+            const activeMachineIds = new Set(store.getMachines().map(machine => machine.id));
+            const firstDate = `${monthPrefix}01`;
+            const finalDate = `${monthPrefix}${String(lastDate).padStart(2, '0')}`;
+            for (const task of store.activeData.tasks || []) {
+                if (!activeMachineIds.has(task.machineId)) continue;
+                const oneOff = (parseInt(task.periodDays, 10) || 0) <= 0;
+                if (!oneOff && (task.deleted || store.isMaintenanceTaskArchived(task.id))) continue;
+                for (const dateStr of this.getTaskScheduledDatesBetween(task, firstDate, finalDate)) {
+                    if (!scheduledByDate.has(dateStr)) continue;
+                    if (this.isScheduledTaskOccurrenceDone(task, dateStr)) continue;
+                    scheduledByDate.get(dateStr).push(task);
+                }
+            }
+        }
+    }
+
     renderCalendar() {
         const year = this.currentDate.getFullYear();
         const month = this.currentDate.getMonth();
@@ -108,6 +155,10 @@
         // Get first day of month (0 = Sunday)
         const firstDay = new Date(year, month, 1).getDay();
         const lastDate = new Date(year, month + 1, 0).getDate();
+        const previousCache = this._calendarRenderCache;
+        this._calendarRenderCache = this.buildCalendarRenderCache();
+        try {
+        this.indexCalendarScheduledTasks(year, month);
         
         // Blank cells before first day
         for (let i = 0; i < firstDay; i++) {
@@ -261,14 +312,17 @@
             // 2. Scheduled (Planned)
             dateScheduled.forEach(s => {
                 const badge = document.createElement('div');
-                const isOneOff = (parseInt(s.periodDays) || 0) <= 0;
+                const isOneOff = this.getScheduledTaskOccurrencePeriodDays(s, dateStr) <= 0;
                 badge.className = `event-badge success${isOneOff ? ' one-off-planned' : ''}`;
-                badge.draggable = true;
-                badge.ondragstart = (e) => {
-                    e.dataTransfer.setData('h-task', JSON.stringify({ taskId: s.id, sourceDate: dateStr }));
-                    badge.classList.add('dragging');
-                };
-                badge.ondragend = () => badge.classList.remove('dragging');
+                const canMove = this.isTaskScheduleOccurrenceDraggable(s, dateStr);
+                badge.draggable = canMove;
+                if (canMove) {
+                    badge.ondragstart = (e) => {
+                        e.dataTransfer.setData('h-task', JSON.stringify({ taskId: s.id, sourceDate: dateStr }));
+                        badge.classList.add('dragging');
+                    };
+                    badge.ondragend = () => badge.classList.remove('dragging');
+                }
 
                 const machine = store.getMachines(true).find(m => m.id === s.machineId);
                 const lineNo = machine?.lineNo;
@@ -301,7 +355,7 @@
                     unfStamp.textContent = '未完';
                     badge.appendChild(unfStamp);
                 }
-                badge.title = 'クリックして完了報告';
+                badge.title = canMove ? 'クリックして完了報告' : '過去の周期の予定は移動できません。クリックして完了報告';
                 badge.onclick = (e) => {
                     e.stopPropagation();
                     this.openCompletionForm(s.id, dateStr);
@@ -330,6 +384,9 @@
 
         this.updateCalendarStats();
         this.updateTelop();
+        } finally {
+            this._calendarRenderCache = previousCache || null;
+        }
     }
 
     renderCalendarLegend() {

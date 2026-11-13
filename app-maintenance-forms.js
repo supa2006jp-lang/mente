@@ -223,7 +223,7 @@
                     <span style="font-size:0.7rem; color:var(--text-light); white-space:nowrap;">日毎</span>
                     <span class="one-off-badge ${task && (parseInt(task.periodDays) || 0) === 0 ? '' : 'hidden'}">1回きり</span>
                 </div>
-                <input type="date" class="t-start" style="flex:1" value="${task?.startDate || this.getLocalDateString()}" onchange="app.updateTaskCyclePreview(this)">
+                <input type="date" class="t-start" style="flex:1" value="${task ? (task.startDate || '') : this.getLocalDateString()}" onchange="app.updateTaskCyclePreview(this)">
                 <div style="display:flex; gap:4px;">
                     ${task && task.id 
                         ? `
@@ -1762,8 +1762,8 @@
         const task = store.activeData.tasks.find(t => t.id === taskId);
         if (!task) return alert('対象の予定が見つかりません。');
         const machine = store.getMachines(true).find(m => m.id === task.machineId);
-        const isOneOffTask = (parseInt(task?.periodDays) || 0) <= 0;
         const plannedDate = dateStr || task.startDate || this.getLocalDateString();
+        const isOneOffTask = this.getScheduledTaskOccurrencePeriodDays(task, plannedDate) <= 0;
 
         // Find last parts for this specific task to auto-copy
         // First try: exact taskId match with parts
@@ -3449,8 +3449,7 @@
                         const taskToUpdate = store.activeData.tasks.find(x => x.id === tId);
                         if (taskToUpdate) {
                             taskToUpdate.content = content;
-                            taskToUpdate.periodDays = parseInt(period) || 0;
-                            taskToUpdate.startDate = start;
+                            this.updateTaskScheduleFromEditor(taskToUpdate, start, parseInt(period) || 0);
                         }
                         currentTaskIds.push(tId);
                     }
@@ -3764,6 +3763,25 @@
             const index = store.activeData.history.findIndex(x => x.id === hId);
             if (index !== -1) {
                 const oldRecord = store.activeData.history[index];
+                const scheduledDateInput = document.getElementById('e-scheduled-date');
+                let scheduledDate = oldRecord.scheduledDate;
+                if (scheduledDateInput) {
+                    const selectedScheduledDate = String(scheduledDateInput.value || '').trim();
+                    if (!selectedScheduledDate && oldRecord.scheduledDate) {
+                        alert('対象の予定日を入力してください。');
+                        scheduledDateInput.focus();
+                        return;
+                    }
+                    if (selectedScheduledDate && selectedScheduledDate !== oldRecord.scheduledDate) {
+                        const task = (store.activeData.tasks || []).find(t => String(t.id) === String(oldRecord.taskId));
+                        if (!this.isScheduledTaskOccurrenceDate(task, selectedScheduledDate)) {
+                            alert('対象の予定日を、このメンテナンスの周期に該当する日付で指定してください。');
+                            scheduledDateInput.focus();
+                            return;
+                        }
+                    }
+                    if (selectedScheduledDate) scheduledDate = selectedScheduledDate;
+                }
                 
                 // Apply only the difference so unchanged parts do not create duplicate ledger entries.
                 const stockDifferences = new Map();
@@ -3789,7 +3807,7 @@
 
                 store.activeData.history[index] = {
                     ...store.activeData.history[index],
-                    machineId, date, notes, cause, errorContent: symptom, errorNo, workTime, startTime, endTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
+                    machineId, date, scheduledDate, notes, cause, errorContent: symptom, errorNo, workTime, startTime, endTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
                     isFirstTime: document.querySelector('input[name="e-occurrence"]:checked')?.value === 'first',
                     recurrenceGroup: this.getCurrentRecurrenceMeta('e-'),
                     photos: this.getHistoryPhotosForSave()

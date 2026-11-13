@@ -10,8 +10,8 @@
     }
 
     renderCompactCalendarItems(container, dateStr, history, scheduled, memoValue, targetDate, today) {
-        const oneOffScheduled = scheduled.filter(s => (parseInt(s.periodDays) || 0) <= 0);
-        const periodicScheduled = scheduled.filter(s => (parseInt(s.periodDays) || 0) > 0);
+        const oneOffScheduled = scheduled.filter(s => this.getScheduledTaskOccurrencePeriodDays(s, dateStr) <= 0);
+        const periodicScheduled = scheduled.filter(s => this.getScheduledTaskOccurrencePeriodDays(s, dateStr) > 0);
         const groups = [
             {
                 type: 'sudden',
@@ -383,8 +383,8 @@
             dokatei: { title: 'ドカ停', items: history.filter(h => !!h.isDokatei), icon: 'fa-triangle-exclamation' },
             nonProductionStop: { title: '非生産停止', items: history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop), icon: 'fa-circle-pause' },
             done: { title: '完了済み定期メンテ', items: history.filter(h => !!h.taskId), icon: 'fa-circle-check' },
-            oneOffPlanned: { title: targetDate < today ? '未完了の単発メンテ' : '単発メンテ予定', items: scheduled.filter(s => (parseInt(s.periodDays) || 0) <= 0), icon: 'fa-calendar-day' },
-            planned: { title: targetDate < today ? '未完了定期メンテ' : '定期メンテ予定', items: scheduled.filter(s => (parseInt(s.periodDays) || 0) > 0), icon: targetDate < today ? 'fa-triangle-exclamation' : 'fa-wrench' },
+            oneOffPlanned: { title: targetDate < today ? '未完了の単発メンテ' : '単発メンテ予定', items: scheduled.filter(s => this.getScheduledTaskOccurrencePeriodDays(s, dateStr) <= 0), icon: 'fa-calendar-day' },
+            planned: { title: targetDate < today ? '未完了定期メンテ' : '定期メンテ予定', items: scheduled.filter(s => this.getScheduledTaskOccurrencePeriodDays(s, dateStr) > 0), icon: targetDate < today ? 'fa-triangle-exclamation' : 'fa-wrench' },
             memo: { title: 'メモ', items: memoValue ? [{ value: memoValue }] : [], icon: 'fa-note-sticky' }
         };
         const config = configMap[type];
@@ -477,7 +477,7 @@
         scheduled.forEach(s => {
             const machine = store.getMachines(true).find(m => m.id === s.machineId);
             const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
-            const isOneOff = (parseInt(s.periodDays) || 0) <= 0;
+            const isOneOff = this.getScheduledTaskOccurrencePeriodDays(s, dateStr) <= 0;
             cards.push(`
                 <div class="compact-detail-card ${isOneOff ? 'one-off-planned' : 'planned'}" onclick="app.closeModal(); app.openCompletionForm('${this.escapeHtml(s.id)}', '${dateStr}')">
                     <div class="compact-detail-icon"><i class="fa-solid ${isOneOff ? 'fa-calendar-day' : 'fa-wrench'}"></i></div>

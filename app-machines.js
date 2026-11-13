@@ -498,27 +498,15 @@
     }
 
     getMachineMaintenanceNextDue(task, todayStr = this.getLocalDateString()) {
-        if (!task?.startDate) return '';
-        const periodDays = parseInt(task.periodDays) || 0;
-        if (periodDays <= 0) {
-            const done = this.isScheduledTaskOccurrenceDone(task, task.startDate);
-            return done ? '完了済み' : task.startDate;
+        const segments = this.getTaskScheduleSegments(task);
+        if (segments.length === 0 || this.parseTaskScheduleDate(todayStr) === null) return '';
+        const earliest = segments.map(segment => segment.fromDate < segment.startDate ? segment.startDate : segment.fromDate).sort()[0];
+        for (const due of this.getTaskScheduledDatesBetween(task, earliest, todayStr)) {
+            if (!this.isScheduledTaskOccurrenceDone(task, due)) return due;
         }
-        const [sy, sm, sd] = task.startDate.split('-').map(Number);
-        const start = new Date(sy, sm - 1, sd);
-        if (isNaN(start.getTime())) return '';
-        const [ty, tm, td] = todayStr.split('-').map(Number);
-        const today = new Date(ty, tm - 1, td);
-        today.setHours(0, 0, 0, 0);
-        let due = new Date(start);
-        due.setHours(0, 0, 0, 0);
-        while (due <= today) {
-            const dueStr = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`;
-            const done = this.isScheduledTaskOccurrenceDone(task, dueStr);
-            if (!done) return dueStr;
-            due.setDate(due.getDate() + periodDays);
-        }
-        return `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`;
+        const nextDay = new Date(this.parseTaskScheduleDate(todayStr) + 86400000).toISOString().slice(0, 10);
+        const next = this.getNextTaskScheduledDate(task, nextDay);
+        return next || '完了済み';
     }
 
     setMachineMaintenanceListFilter(key, value) {

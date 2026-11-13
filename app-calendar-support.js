@@ -5,47 +5,184 @@
     handleTaskDrop(taskId, sourceDate, targetDate) {
         if (sourceDate === targetDate) return;
         const task = store.activeData.tasks.find(t => t.id === taskId);
-        if (!task) return;
+        if (!task || !this.isTaskScheduleOccurrenceDraggable(task, sourceDate)) return;
 
-        const sDate = new Date(sourceDate);
-        const tDate = new Date(targetDate);
-        const diffTime = tDate.getTime() - sDate.getTime();
-        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+        const sourceTime = this.parseTaskScheduleDate(sourceDate);
+        const targetTime = this.parseTaskScheduleDate(targetDate);
+        if (sourceTime === null || targetTime === null) return;
+        const diffDays = Math.round((targetTime - sourceTime) / 86400000);
         const isOneOff = (parseInt(task.periodDays) || 0) <= 0;
         const moveText = diffDays > 0 ? `${diffDays}日後に移動` : `${Math.abs(diffDays)}日前へ移動`;
         const confirmText = isOneOff
             ? `単発予定「${task.content}」の日付を ${moveText} しますか？`
-            : `「${task.content}」の予定を ${moveText} してサイクルを調整しますか？`;
+            : `「${task.content}」のこの予定を ${moveText} し、以降の周期を調整しますか？`;
 
         if (confirm(confirmText)) {
-            const currentStart = new Date(task.startDate);
-            currentStart.setDate(currentStart.getDate() + diffDays);
-            task.startDate = currentStart.getFullYear() + '-' + String(currentStart.getMonth() + 1).padStart(2, '0') + '-' + String(currentStart.getDate()).padStart(2, '0');
+            if (isOneOff) {
+                task.startDate = targetDate;
+            } else {
+                const movedPeriod = parseInt(task.periodDays, 10) || 0;
+                const movesEarlier = targetTime < sourceTime;
+                this.replaceTaskScheduleFromDate(task, sourceDate, targetDate, movedPeriod, movesEarlier ? sourceDate : targetDate);
+                if (movesEarlier) {
+                    // Keep earlier planned days. The dragged day alone is inserted
+                    // before the cutover; the shifted cycle resumes at the cutover.
+                    task.scheduleHistory.push({
+                        startDate: targetDate,
+                        periodDays: movedPeriod,
+                        fromDate: targetDate,
+                        untilDate: new Date(targetTime + 86400000).toISOString().slice(0, 10)
+                    });
+                }
+            }
             store.save();
             this.renderCalendar();
         }
     }
 
+    parseTaskScheduleDate(value) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+        const [year, month, day] = value.split('-').map(Number);
+        const time = Date.UTC(year, month - 1, day);
+        return new Date(time).toISOString().slice(0, 10) === value ? time : null;
+    }
+
+    getTaskScheduleSegments(task) {
+        if (!task) return [];
+        const oldSegments = Array.isArray(task.scheduleHistory) ? task.scheduleHistory : [];
+        const rawSegments = [
+            ...oldSegments,
+            {
+                startDate: task.startDate,
+                periodDays: task.periodDays,
+                fromDate: task.scheduleEffectiveDate || task.startDate
+            }
+        ];
+        return rawSegments.filter(segment => {
+            const start = this.parseTaskScheduleDate(segment.startDate);
+            const from = this.parseTaskScheduleDate(segment.fromDate || segment.startDate);
+            const until = segment.untilDate == null ? null : this.parseTaskScheduleDate(segment.untilDate);
+            return start !== null && from !== null && (segment.untilDate == null || until !== null);
+        }).map(segment => ({
+            startDate: segment.startDate,
+            periodDays: parseInt(segment.periodDays, 10) || 0,
+            fromDate: segment.fromDate || segment.startDate,
+            untilDate: segment.untilDate || null
+        }));
+    }
+
+    isTaskScheduleSegmentDate(segment, targetTime) {
+        const startTime = this.parseTaskScheduleDate(segment.startDate);
+        const fromTime = this.parseTaskScheduleDate(segment.fromDate);
+        const untilTime = segment.untilDate ? this.parseTaskScheduleDate(segment.untilDate) : null;
+        if (targetTime < startTime || targetTime < fromTime || (untilTime !== null && targetTime >= untilTime)) return false;
+        return segment.periodDays <= 0
+            ? targetTime === startTime
+            : ((targetTime - startTime) / 86400000) % segment.periodDays === 0;
+    }
+
     isScheduledTaskOccurrenceDate(task, dateStr) {
-        const parseDate = value => {
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
-            const [year, month, day] = value.split('-').map(Number);
-            const time = Date.UTC(year, month - 1, day);
-            return new Date(time).toISOString().slice(0, 10) === value ? time : null;
-        };
-        const startTime = parseDate(task?.startDate);
-        const targetTime = parseDate(dateStr);
-        if (startTime === null || targetTime === null || targetTime < startTime) return false;
-        const periodDays = parseInt(task?.periodDays, 10) || 0;
-        if (periodDays <= 0) return dateStr === task.startDate;
-        const days = Math.round((targetTime - startTime) / 86400000);
-        return days % periodDays === 0;
+        const targetTime = this.parseTaskScheduleDate(dateStr);
+        return targetTime !== null && this.getTaskScheduleSegments(task).some(segment => this.isTaskScheduleSegmentDate(segment, targetTime));
+    }
+
+    getScheduledTaskOccurrencePeriodDays(task, dateStr) {
+        const targetTime = this.parseTaskScheduleDate(dateStr);
+        if (targetTime === null) return parseInt(task?.periodDays, 10) || 0;
+        const segment = this.getTaskScheduleSegments(task).find(item => this.isTaskScheduleSegmentDate(item, targetTime));
+        return segment ? segment.periodDays : (parseInt(task?.periodDays, 10) || 0);
+    }
+
+    isTaskScheduleOccurrenceDraggable(task, dateStr) {
+        const targetTime = this.parseTaskScheduleDate(dateStr);
+        if (targetTime === null || this.parseTaskScheduleDate(task?.startDate) === null) return false;
+        const segments = this.getTaskScheduleSegments(task);
+        const current = segments[segments.length - 1];
+        if (!current || current.startDate !== task.startDate || !this.isTaskScheduleSegmentDate(current, targetTime)) return false;
+        return !segments.slice(0, -1).some(segment => this.isTaskScheduleSegmentDate(segment, targetTime));
+    }
+
+    getTaskScheduledDatesBetween(task, fromDate, toDate) {
+        const fromTime = this.parseTaskScheduleDate(fromDate);
+        const toTime = this.parseTaskScheduleDate(toDate);
+        if (fromTime === null || toTime === null || fromTime > toTime) return [];
+        const dates = new Set();
+        for (const segment of this.getTaskScheduleSegments(task)) {
+            const startTime = this.parseTaskScheduleDate(segment.startDate);
+            const activeFrom = Math.max(fromTime, startTime, this.parseTaskScheduleDate(segment.fromDate));
+            const untilTime = segment.untilDate ? this.parseTaskScheduleDate(segment.untilDate) : Infinity;
+            const activeTo = Math.min(toTime, untilTime - 86400000);
+            if (activeFrom > activeTo) continue;
+            if (segment.periodDays <= 0) {
+                if (startTime >= activeFrom && startTime <= activeTo) dates.add(segment.startDate);
+                continue;
+            }
+            const step = segment.periodDays * 86400000;
+            for (let time = startTime + Math.ceil((activeFrom - startTime) / step) * step; time <= activeTo; time += step) {
+                dates.add(new Date(time).toISOString().slice(0, 10));
+            }
+        }
+        return [...dates].sort();
+    }
+
+    getNextTaskScheduledDate(task, onOrAfter) {
+        const lower = this.parseTaskScheduleDate(onOrAfter);
+        if (lower === null) return '';
+        let next = null;
+        for (const segment of this.getTaskScheduleSegments(task)) {
+            const start = this.parseTaskScheduleDate(segment.startDate);
+            const from = this.parseTaskScheduleDate(segment.fromDate);
+            const until = segment.untilDate ? this.parseTaskScheduleDate(segment.untilDate) : Infinity;
+            const activeFrom = Math.max(lower, start, from);
+            const step = segment.periodDays > 0 ? segment.periodDays * 86400000 : 0;
+            const candidate = step ? start + Math.ceil((activeFrom - start) / step) * step : start;
+            if (candidate >= activeFrom && candidate < until && (next === null || candidate < next)) next = candidate;
+        }
+        return next === null ? '' : new Date(next).toISOString().slice(0, 10);
+    }
+
+    replaceTaskScheduleFromDate(task, cutoffDate, nextStartDate, nextPeriodDays, effectiveDate = nextStartDate) {
+        const cutoff = this.parseTaskScheduleDate(cutoffDate);
+        const nextStart = nextStartDate === '' ? null : this.parseTaskScheduleDate(nextStartDate);
+        const effective = this.parseTaskScheduleDate(effectiveDate);
+        if (cutoff === null || (nextStartDate !== '' && nextStart === null) || effective === null) return false;
+        const closed = [];
+        for (const segment of this.getTaskScheduleSegments(task)) {
+            const originalUntil = segment.untilDate ? this.parseTaskScheduleDate(segment.untilDate) : Infinity;
+            const until = Math.min(originalUntil, cutoff);
+            if (this.parseTaskScheduleDate(segment.fromDate) >= until) continue;
+            closed.push({
+                startDate: segment.startDate,
+                periodDays: segment.periodDays,
+                fromDate: segment.fromDate,
+                untilDate: new Date(until).toISOString().slice(0, 10)
+            });
+        }
+        task.scheduleHistory = closed;
+        task.startDate = nextStartDate;
+        task.periodDays = parseInt(nextPeriodDays, 10) || 0;
+        task.scheduleEffectiveDate = effectiveDate;
+        return true;
+    }
+
+    updateTaskScheduleFromEditor(task, nextStartDate, nextPeriodDays) {
+        if (task.startDate === nextStartDate && (parseInt(task.periodDays, 10) || 0) === (parseInt(nextPeriodDays, 10) || 0)) return;
+        const today = this.getLocalDateString();
+        this.replaceTaskScheduleFromDate(task, today, nextStartDate, nextPeriodDays, today);
     }
 
     isScheduledTaskOccurrenceDone(task, scheduledDate, history = store.activeData.history || []) {
         if (!task?.id || !scheduledDate) return false;
         const taskId = String(task.id);
-        const oneOff = (parseInt(task.periodDays, 10) || 0) <= 0;
+        const targetTime = this.parseTaskScheduleDate(scheduledDate);
+        const segments = this.getTaskScheduleSegments(task);
+        const matching = targetTime === null ? [] : segments.filter(segment => this.isTaskScheduleSegmentDate(segment, targetTime));
+        const oneOff = segments.length === 1 && matching.length === 1 && matching[0].periodDays <= 0;
+        const cache = history === store.activeData.history ? this._calendarRenderCache : null;
+        if (cache?.completionByTaskDate && cache?.legacyCompletionByTask) {
+            return cache.completionByTaskDate.has(JSON.stringify([taskId, String(scheduledDate)])) ||
+                (oneOff && cache.legacyCompletionByTask.has(taskId));
+        }
         return history.some(record => {
             if (!record?.taskId || String(record.taskId) !== taskId) return false;
             if (record.scheduledDate) return record.scheduledDate === scheduledDate;
@@ -60,50 +197,30 @@
         const telopContainer = document.getElementById('cal-telop-container');
         if (!telopText || !telopContainer) return;
 
-        const today = new Date();
-        today.setHours(0,0,0,0);
+        const today = this.getLocalDateString();
+        const yesterday = new Date(this.parseTaskScheduleDate(today) - 86400000).toISOString().slice(0, 10);
         
         let unfinishedCount = 0;
         let details = [];
         const tasks = store.getTasks();
         
         tasks.forEach(t => {
-            if (!t.startDate) return;
-            const [startYear, startMonth, startDay] = t.startDate.split('-').map(Number);
-            const startDate = new Date(startYear, startMonth - 1, startDay);
-            if (isNaN(startDate.getTime())) return;
-            startDate.setHours(0,0,0,0);
-            if (startDate > today) return;
+            const segments = this.getTaskScheduleSegments(t);
+            if (segments.length === 0) return;
+            const earliest = segments.map(segment => segment.fromDate < segment.startDate ? segment.startDate : segment.fromDate).sort()[0];
+            if (earliest > yesterday) return;
 
             const machine = store.getMachines(true).find(m => m.id === t.machineId);
             const modelLabel = MaintenanceApp.toHalfWidthLower(machine?.model || '？');
 
-            if (t.periodDays <= 0) {
-                // One-off or invalid period
-                if (t.startDate) {
-                    const isDone = this.isScheduledTaskOccurrenceDone(t, t.startDate);
-                    if (!isDone && startDate < today) {
-                        unfinishedCount++;
+            let firstMiss = true;
+            for (const dateStr of this.getTaskScheduledDatesBetween(t, earliest, yesterday)) {
+                if (!this.isScheduledTaskOccurrenceDone(t, dateStr)) {
+                    unfinishedCount++;
+                    if (firstMiss) {
                         details.push(`${modelLabel}: ${t.content}`);
+                        firstMiss = false;
                     }
-                }
-            } else {
-                const yesterday = new Date(today);
-                yesterday.setDate(yesterday.getDate() - 1);
-                
-                let checkDate = new Date(startDate);
-                let firstMiss = true;
-                while (checkDate <= yesterday) {
-                    const dateStr = checkDate.getFullYear() + '-' + String(checkDate.getMonth()+1).padStart(2,0) + '-' + String(checkDate.getDate()).padStart(2,0);
-                    const isDone = this.isScheduledTaskOccurrenceDone(t, dateStr);
-                    if (!isDone) {
-                        unfinishedCount++;
-                        if (firstMiss) {
-                            details.push(`${modelLabel}: ${t.content}`);
-                            firstMiss = false; 
-                        }
-                    }
-                    checkDate.setDate(checkDate.getDate() + t.periodDays);
                 }
             }
         });
@@ -119,16 +236,17 @@
     }
 
     getHistoryForDate(dateStr) {
-        return store.activeData.history.filter(h => h.date === dateStr && !h.isManualGuide);
+        const cache = this._calendarRenderCache;
+        const history = cache?.historyByDate ? (cache.historyByDate.get(dateStr) || []) : (store.activeData.history || []).filter(h => h.date === dateStr);
+        return history.filter(h => !h.isManualGuide);
     }
 
     getScheduledTasksForDate(dateStr) {
-        const [ty, tm, td] = dateStr.split('-').map(Number);
-        const targetDate = new Date(ty, tm - 1, td);
-        targetDate.setHours(0,0,0,0);
-        const activeMachineIds = store.getMachines().map(m => m.id);
+        const cache = this._calendarRenderCache;
+        if (cache?.scheduledByDate?.has(dateStr)) return cache.scheduledByDate.get(dateStr);
+        const activeMachineIds = new Set(store.getMachines().map(m => m.id));
         const tasks = (store.activeData.tasks || []).filter(t => {
-            if (!activeMachineIds.includes(t.machineId)) return false;
+            if (!activeMachineIds.has(t.machineId)) return false;
             const periodDays = parseInt(t.periodDays) || 0;
             if (periodDays <= 0) return true;
             return !t.deleted && !store.isMaintenanceTaskArchived(t.id);
@@ -136,29 +254,9 @@
         const scheduled = [];
 
         tasks.forEach(t => {
-            if (!t.startDate) return;
-            const parts = t.startDate.split('-');
-            if (parts.length !== 3) return;
-            const [sy, sm, sd] = parts.map(Number);
-            const startDate = new Date(sy, sm - 1, sd);
-            if (isNaN(startDate.getTime())) return;
-            startDate.setHours(0,0,0,0);
-            if (startDate > targetDate) return;
-
-            if ((parseInt(t.periodDays, 10) || 0) <= 0) {
-                if (t.startDate === dateStr) {
-                    const isDone = this.isScheduledTaskOccurrenceDone(t, dateStr);
-                    if (!isDone) scheduled.push(t);
-                }
-            } else {
-                const diffTime = targetDate.getTime() - startDate.getTime();
-                const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-                if (diffDays >= 0 && diffDays % t.periodDays === 0) {
-                    const isDone = this.isScheduledTaskOccurrenceDone(t, dateStr);
-                    if (!isDone) scheduled.push(t);
-                }
-            }
+            if (this.isScheduledTaskOccurrenceDate(t, dateStr) && !this.isScheduledTaskOccurrenceDone(t, dateStr)) scheduled.push(t);
         });
+        if (cache?.scheduledByDate) cache.scheduledByDate.set(dateStr, scheduled);
         return scheduled;
     }
 
@@ -175,36 +273,23 @@
         const lastDate = new Date(year, month + 1, 0).getDate();
 
         let totalRemaining = 0;
-        let totalDone = 0;
         let dokateiCount = 0;
         let dokateiTime = 0;
+        let scheduledDoneCount = 0;
+        let suddenCount = 0;
+        const indexedHistory = this._calendarRenderCache?.historyByDate;
 
         for (let d = 1; d <= lastDate; d++) {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            
-            // Done count (Scheduled + Sudden)
-            const history = store.activeData.history.filter(h => h.date === dateStr);
-            totalDone += history.filter(h => h.taskId).length; // Only count scheduled tasks completion?
-            // User likely wants ALL completions shown as 'Done' vs 'Remaining'
-            // Let's count all history records as Done and Scheduled (not done) as Remaining
-            
+            const history = indexedHistory ? (indexedHistory.get(dateStr) || []) : (store.activeData.history || []).filter(h => h.date === dateStr);
+            scheduledDoneCount += history.filter(h => !!h.taskId).length;
+            suddenCount += history.filter(h => this.isCalendarSuddenResponseHistory(h)).length;
             const scheduled = this.getScheduledTasksForDate(dateStr);
             totalRemaining += scheduled.length;
-            
-            // Dokatei
             const dokas = history.filter(h => h.isDokatei);
             dokateiCount += dokas.length;
             dokateiTime += dokas.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
         }
-
-        // Re-count Done properly: Only scheduled tasks that were completed this month
-        const allMonthHistory = store.activeData.history.filter(h => {
-            const d = new Date(h.date);
-            return d.getFullYear() === year && d.getMonth() === month;
-        });
-        
-        const scheduledDoneCount = allMonthHistory.filter(h => !!h.taskId).length;
-        const suddenCount = allMonthHistory.filter(h => this.isCalendarSuddenResponseHistory(h)).length;
 
         document.getElementById('cal-stat-remaining').textContent = totalRemaining;
         document.getElementById('cal-stat-done').textContent = scheduledDoneCount;
