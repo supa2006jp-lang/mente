@@ -35,7 +35,7 @@ export function slideLeadIn(body,lid,p,info,top,lower,hold,q){
  for(const side of [-1,1]){
   if(q.entrance>1e-6){const c=q.entrance,y=S+p.railDepth;const tool=prism([[front-.02,side*(y-.02)],[front-.02,side*(y+c+.02)],[front+c+.02,side*(y-.02)]],lower,H+.02);body=hold(body.cut(tool));}
   // The far end enters first. Only trim the outer ridge, leaving its stem and cap intact.
-  const c=q.ridge,y=S+p.railDepth-p.clearance;const tool=prism([[back-c-.02,side*(y+.02)],[back+.02,side*(y+.02)],[back+.02,side*(y-c-.02)]],lower-.02,top?top.capLower:info.height+.02);lid=hold(lid.cut(tool));
+  const c=q.ridge,y=S+p.railDepth-(top?p.clearance:p.sideClearance??p.clearance);const tool=prism([[back-c-.02,side*(y+.02)],[back+.02,side*(y+.02)],[back+.02,side*(y-c-.02)]],lower-.02,top?top.capLower:info.height+.02);lid=hold(lid.cut(tool));
  }
  return {body,lid};
 }

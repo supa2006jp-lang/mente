@@ -22,10 +22,32 @@ export function slideLidInfo(source,direction='long',entry='negative'){
   return {length,width,height,center:[center[0],center[1],bottom[2]],angle,axis:[...axis,0],exitVector:[-axis[0],-axis[1],0]};
  }catch{throw Error(fail);}finally{top?.delete();topWire?.delete();faces.forEach(f=>f.delete());}
 }
-function sectionPrism(points,start,end){
+export function sectionPrism(points,start,end){
  let plane;try{let drawing=R.draw(points[0]);for(const point of points.slice(1))drawing=drawing.lineTo(point);plane=new R.Plane([start,0,0],[0,1,0],[1,0,0]);return drawing.close().sketchOnPlane(plane).extrude(end-start);}finally{plane?.delete();}
 }
 function valid(shape,label){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false),solids=shape.solids;try{if(!check.IsValid()||solids.length!==1||!(R.measureVolume(shape)>1e-7))throw Error(label+'を有効なソリッドにできません。寸法を調整してください');}finally{check.delete();solids.forEach(s=>s.delete());}}
+export function slideLidFit(p,upper){
+ const gap=p.clearance,side=p.sideClearance??gap,vertical=p.verticalClearance??gap;
+ for(const value of [gap,side,vertical])if(!Number.isFinite(value)||value<.05||value>2)throw Error('すき間は0.05〜2 mmで指定してください');
+ const slope=side===vertical?side:Math.hypot(side,vertical)/Math.SQRT2;
+ const lower=upper-p.lidThickness-2*vertical;
+ const rootInset=slope*Math.SQRT2-vertical;
+ const tipInset=slope*Math.SQRT2-side;
+ const tipHeight=upper-lower-2*p.railDepth-2*tipInset;
+ if(p.wall-p.railDepth<1.2-1e-6||p.railDepth-side<.6-1e-6)throw Error('溝の外側に1.2 mm以上の肉厚、蓋の掛かりに0.6 mm以上が必要です。壁厚・溝深さ・すき間を調整してください');
+ if(upper-lower<=2*p.railDepth+1e-6||tipHeight<1.2-1e-6)throw Error('蓋の両端が薄くなりすぎます。蓋厚を増やすか溝深さを小さくしてください');
+ if(p.railDepth-side+rootInset<=1e-6)throw Error('蓋の端の斜面を作れません。上下のすき間を小さくするか溝を深くしてください');
+ return {side,vertical,slope,lower,rootInset,tipInset,tipHeight};
+}
+export function slideChannelProfile(halfInterior,depth,lower,upper){
+ const s=halfInterior,d=depth;
+ return [[-s,lower],[s,lower],[s+d,lower+d],[s+d,upper-d],[s,upper],[-s,upper],[-s-d,upper-d],[-s-d,lower+d]];
+}
+export function slidePlateProfile(halfInterior,depth,upper,fit){
+ const {lower,side,vertical,rootInset,tipInset}=fit;
+ const root=halfInterior-rootInset,tip=halfInterior+depth-side,low=lower+vertical,high=upper-vertical;
+ return [[-root,low],[root,low],[tip,lower+depth+tipInset],[tip,upper-depth-tipInset],[root,high],[-root,high],[-tip,upper-depth-tipInset],[-tip,lower+depth+tipInset]];
+}
 export function makeSlideLid(source,p){
  if(p.lidStyle!==undefined&&!['top','inset'].includes(p.lidStyle))throw Error('蓋の形を選択してください');
  if(!['print','assembled'].includes(p.pose))throw Error('配置を選択してください');
@@ -33,9 +55,12 @@ export function makeSlideLid(source,p){
  for(const key of ['wall','floor','lidThickness','railDepth','cover','clearance'])if(!Number.isFinite(p[key])||p[key]<=0)throw Error('壁厚・底厚・蓋厚・溝の寸法は0より大きい数値で指定してください');
  const {wall:w,floor,railDepth:d,cover,clearance:g,lidThickness:t}=p;
  if(Math.min(w,floor,t,cover)<1.2||d<.6||g<.05||g>2)throw Error('0.6 mmノズル用に壁・底・蓋・溝上部の厚さは1.2 mm以上、溝深さは0.6 mm以上、すき間は0.05〜2 mmにしてください');
- if(w-d<1.2-1e-6||d-g<.6-1e-6)throw Error('溝の外側に1.2 mm以上の肉厚、蓋の掛かりに0.6 mm以上が必要です。壁厚・溝深さ・すき間を調整してください');
- const top=p.lidStyle==='top'?topSlideLayout(info,p):null,bodyHeight=top?.bodyHeight??H,S=W/2-w,upper=top?.upper??H-cover,lower=top?.lower??upper-t-2*g,k=g*(Math.SQRT2-1),tipHeight=top?.tipHeight??upper-lower-2*d-2*k;
- if(tipHeight<1.2-1e-6)throw Error('蓋の両端が薄くなりすぎます。蓋厚を増やすか溝深さを小さくしてください');
+ if(p.lidStyle==='top'&&(w-d<1.2-1e-6||d-g<.6-1e-6))throw Error('溝の外側に1.2 mm以上の肉厚、蓋の掛かりに0.6 mm以上が必要です。壁厚・溝深さ・すき間を調整してください');
+ const top=p.lidStyle==='top'?topSlideLayout(info,p):null,bodyHeight=top?.bodyHeight??H,S=W/2-w,upper=top?.upper??H-cover;
+ const fit=top?null:slideLidFit(p,upper);
+ const lower=top?.lower??fit.lower,tipHeight=top?.tipHeight??fit.tipHeight;
+ const side=fit?.side??g,vertical=fit?.vertical??g;
+
  if(L-2*w<6||W-2*w<6||lower-floor<3)throw Error('収納部分の大きさが足りません。壁・底・蓋を薄くするか、元の直方体を大きくしてください');
  if(p.grip!==undefined&&typeof p.grip!=='boolean')throw Error('指掛け溝の設定を確認してください');
  const finishing=slideFinishingOptions(p,info,top),options=slideLidOptions(p,info,lower),labels=slideLabelLayout(p,options,lower);const objects=[],hold=shape=>(objects.push(shape),shape);
@@ -46,13 +71,12 @@ export function makeSlideLid(source,p){
   for(const pocket of options.pockets){const cavity=hold(slidePocket(pocket,floor,H+1,options.fillet));hollow=hold(hollow.cut(cavity));}
   // Clear everything above the divider/fillet tops without changing the sliding rails.
   if(options.divider||options.fillet?.innerRadius){const upperPocket=hold(R.makeBox([-L/2+w,-S,lower],[L/2-w,S,H+1]));hollow=hold(hollow.cut(upperPocket));}
-  const channelPoints=[[-S,lower],[S,lower],[S+d,lower+d],[S+d,upper-d],[S,upper],[-S,upper],[-S-d,upper-d],[-S-d,lower+d]];
+  const channelPoints=slideChannelProfile(S,d,lower,upper);
   const channel=hold(sectionPrism(channelPoints,-L/2-.02,L/2-w)),grooved=hold(hollow.cut(channel));
   // Remove the entrance roof entirely so no bridge spans the open end when printed.
   const entrance=hold(R.makeBox([-L/2-.02,top?-W/2-.02:-S-d,lower],[ -L/2+w+.02,top?W/2+.02:S+d,H+.02]));let body=hold(grooved.cut(entrance));
-  // Inset every channel surface by the same normal clearance, including 45 degree edges.
-  const root=S-k,tip=S+d-g,low=lower+g,high=upper-g;
-  const lidPoints=[[-root,low],[root,low],[tip,lower+d+k],[tip,upper-d-k],[root,high],[-root,high],[-tip,upper-d-k],[-tip,lower+d+k]];
+  const root=S-(fit?.rootInset??0),low=lower+vertical,high=upper-vertical;
+  const lidPoints=fit?slidePlateProfile(S,d,upper,fit):null;
   const front=-L/2+g,back=L/2-w-g,lidBlank=top?topSlideBlank(top,info,sectionPrism,hold,finishing.lidCorners):hold(sectionPrism(lidPoints,front,back));let lid=lidBlank,grip=null;
   if(p.grip&&top){const out=topSlideGrip(lid,top,info,p,hold);lid=out.lid;grip=out.grip;}
   if(p.grip&&!top){const width=Math.min(18,2*root-3),depth=Math.min(.8,t-1.2),gripLength=Math.min(6,back-front-4);if(width<3||gripLength<2)throw Error('指掛け溝を入れる余裕がありません');const tool=hold(R.drawRoundedRectangle(gripLength,width,.8).sketchOnPlane('XY',high-depth).extrude(depth+.02).translate([front+2+gripLength/2,0,0]));lid=hold(lidBlank.cut(tool));grip={width,length:gripLength,depth};}
@@ -68,7 +92,7 @@ export function makeSlideLid(source,p){
   const toWorld=shape=>shape.clone().rotate(info.angle,[0,0,0],[0,0,1]).translate(info.center);
   let bodyOut=toWorld(body),lidOut=toWorld(lid);let printTranslation=null;
   try{if(p.pose==='print'){if(top){lidOut.delete();const flipped=lid.clone().rotate(180,[0,0,0],[1,0,0]);try{lidOut=toWorld(flipped);}finally{flipped.delete();}}bodyOut=bodyOut.translate([0,0,-info.center[2]]);const bb=bounds(bodyOut),lb=bounds(lidOut);printTranslation=[bb[1][0]-lb[0][0]+10,0,-lb[0][2]];lidOut=lidOut.translate(printTranslation);}
-   return {body:bodyOut,lid:lidOut,analysis:{...info,lidStyle:top?'top':'inset',...finishing,bodyHeight,capLower:top?.capLower??null,capUpper:top?.capUpper??null,railStemWidth:top?.stemWidth??null,frontClosure:top?{front:top.frontWall.front,back:top.frontWall.back,thickness:top.frontWall.thickness,lower:top.frontWall.lower,upper:top.frontWall.upper}:null,printFlipped:!!top,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,tipHeight,remainingWall:w-d,engagement:d-g,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,surfaceGrip,lock,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
+   return {body:bodyOut,lid:lidOut,analysis:{...info,lidStyle:top?'top':'inset',...finishing,bodyHeight,capLower:top?.capLower??null,capUpper:top?.capUpper??null,railStemWidth:top?.stemWidth??null,frontClosure:top?{front:top.frontWall.front,back:top.frontWall.back,thickness:top.frontWall.thickness,lower:top.frontWall.lower,upper:top.frontWall.upper}:null,printFlipped:!!top,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,sideClearance:side,verticalClearance:vertical,slopeClearance:fit?.slope??g,tipHeight,remainingWall:w-d,engagement:d-side,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,surfaceGrip,lock,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
   }catch(error){bodyOut.delete();lidOut.delete();throw error;}
  }finally{objects.reverse().forEach(shape=>shape.delete());}
 }

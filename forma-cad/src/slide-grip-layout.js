@@ -21,7 +21,7 @@ export function slideGripLayout(p,info,top,upper,corners=null){
  if(!Number.isFinite(requestedPitch)||requestedPitch<0||requestedPitch>1000)throw Error('溝の中心間隔は0（自動）〜1000 mmで指定してください');
  const depth=Math.min(requestedOpening?requestedOpening/2:requestedDepth,p.lidThickness-1.2);
  if(depth<.2-1e-6)throw Error('滑り止めを入れるには蓋厚1.4 mm以上が必要です。蓋を厚くするか滑り止めをオフにしてください');
- const {length:L,width:W}=info,front=top?top.capFront:-L/2+p.clearance,back=top?top.capBack:L/2-p.wall-p.clearance,zTop=top?top.capUpper:upper-p.clearance,maxWidth=top?W-6:W-2*p.wall-4,opening=2*depth,minPitch=opening+1.2,pitch=requestedPitch||Math.max(2.4,minPitch);
+ const {length:L,width:W}=info,front=top?top.capFront:-L/2+p.clearance,back=top?top.capBack:L/2-p.wall-p.clearance,zTop=top?top.capUpper:upper-(p.verticalClearance??p.clearance),maxWidth=top?W-6:W-2*p.wall-4,opening=2*depth,minPitch=opening+1.2,pitch=requestedPitch||Math.max(2.4,minPitch);
  if(requestedCount>1&&pitch<minPitch-1e-6)throw Error('溝どうしの間に1.2 mm残すため、中心間隔を'+minPitch.toFixed(2)+' mm以上にしてください');
  // Diagonal spacing is measured perpendicular to the grooves, preserving the lands.
  const diagonal=pattern==='diagonal',diagonalLimit=Math.min(back-front-6,maxWidth)*Math.SQRT2;

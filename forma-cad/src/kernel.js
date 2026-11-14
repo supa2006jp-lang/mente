@@ -50,6 +50,7 @@ import {makeBossJoint} from './boss-joint.js';
 import {makeSimpleBoss} from './simple-boss.js';
 import {makeQrCode} from './qr-code-solid.js';
 import {makeSlideLid} from './slide-lid.js';
+import {makeSlideLidTrials} from './slide-lid-trials.js';
 import {planPrintLayout,printLayoutBounds,validatePrintPlan} from './print-layout.js';
 import {makeSnapLid,snapLidInfo} from './snap-lid.js';
 import {svgCylinderInfo,wrapSvgSolid} from './svg-wrap.js';
@@ -455,6 +456,7 @@ function computeOperation(features,spec,onProgress,context={}){
  if(spec.type==='honeycombInspect'){
   const bodies=kernelBodies(features);try{return {info:honeycombBodyInfo(bodies.get(spec.target),spec.heightAxis||'Z')};}finally{bodies.forEach(shape=>shape.delete());}
  }
+ if(spec.type==='slideLidTrial')return makeSlideLidTrials(spec.settings,spec.dimensions,onProgress);
  if(spec.type==='printSupportTrial')return makeSupportContactTrials(spec.settings,onProgress);
  if(spec.type==='printSupportSavedExport'){
   const bodies=kernelBodies(features);

@@ -9,11 +9,17 @@ export function slideLocalPoint(point,index,q,pose){
 const isRailSection=focus=>focus==='rail'||focus==='rail-left';
 export function createSlideSectionModel(result,spec){
  const q=result.analysis,geometries=result.outputs.map((output,index)=>{const vertices=[];for(let i=0;i<output.vertices.length;i+=3)vertices.push(...slideLocalPoint(output.vertices.slice(i,i+3),index,q,spec.pose));const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));g.setIndex(output.triangles);return g;}),cache=new Map();
- function slice(index,focus,distance){const rail=isRailSection(focus),at=rail?-q.length/2+q.wall+Math.min(2,q.cavityLength/4):focus==='lock'?q.lock?.ys[0]??0:0,constant=at+(rail&&index===1?distance:0),key=index+':'+(rail?'rail':focus)+':'+constant;
-  let raw=cache.get(key);if(!raw){const plane=new THREE.Plane(new THREE.Vector3(rail?1:0,rail?0:1,0),-constant),segments=sectionSegments(geometries[index],plane);raw=[];for(let i=0;i<segments.length;i+=3)raw.push(segments[i+(rail?1:0)],0,segments[i+2]);if(index===0||!rail)cache.set(key,raw);}
+ function slice(index,focus,distance,position){const rail=isRailSection(focus),at=rail?position:focus==='lock'?q.lock?.ys[0]??0:0,constant=at+(rail&&index===1?distance:0),key=index+':'+(rail?'rail':focus)+':'+constant;
+  let raw=cache.get(key);if(!raw){const plane=new THREE.Plane(new THREE.Vector3(rail?1:0,rail?0:1,0),-constant),segments=sectionSegments(geometries[index],plane);raw=[];for(let i=0;i<segments.length;i+=3)raw.push(segments[i+(rail?1:0)],0,segments[i+2]);if(!rail)cache.set(key,raw);}
   const segments=raw.map((v,i)=>!rail&&index===1&&i%3===0?v-distance:v);return {lid:index===1,segments,fill:sectionFillStrips(segments)};
  }
- return {q,spec,slice(focus='rail',percent=0){const distance=q.openTravel*Math.max(0,Math.min(100,Number(percent)||0))/100,parts=geometries.map((_,index)=>slice(index,focus,distance)),contact=slideSectionContact(parts);return {q,spec,focus,percent,distance,parts,contact};},dispose(){geometries.forEach(g=>g.dispose());cache.clear();}};
+ const initialPosition=q.wall+Math.min(2,q.cavityLength/4);
+ return {q,spec,initialPosition,slice(focus='rail',percent=0,fromEntry=initialPosition){
+  const distance=q.openTravel*Math.max(0,Math.min(100,Number(percent)||0))/100;
+  const position=Math.max(.001,Math.min(q.length-.001,fromEntry))-q.length/2;
+  const parts=geometries.map((_,index)=>slice(index,focus,distance,position));
+  return {q,spec,focus,percent,distance,position,parts,contact:slideSectionContact(parts)};
+ },dispose(){geometries.forEach(g=>g.dispose());cache.clear();}};
 }
 const cross=(a,b,p)=>(b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);
 const area=points=>Math.abs(points.reduce((s,p,i)=>s+p[0]*points[(i+1)%points.length][1]-points[(i+1)%points.length][0]*p[1],0))/2;
@@ -26,30 +32,54 @@ export function slideSectionContact(parts){
  for(const a of body)for(const b of lid){if(a.maxX<b.minX||a.minX>b.maxX||a.maxZ<b.minZ||a.minZ>b.maxZ)continue;const polygon=clipped(a.points,b.points),value=polygon.length>=3?area(polygon):0;if(value>1e-7){polygons.push(polygon);total+=value;}}
  return {polygons,area:total};
 }
+function onSectionEdge(part,[x,z]){
+ for(let i=0;i<part.segments.length;i+=6){
+  const [ax,,az,bx,,bz]=part.segments.slice(i,i+6);
+  const dx=bx-ax,dz=bz-az,lengthSquared=dx*dx+dz*dz;
+  if(!lengthSquared)continue;
+  const t=Math.max(0,Math.min(1,((x-ax)*dx+(z-az)*dz)/lengthSquared));
+  if(Math.hypot(x-ax-t*dx,z-az-t*dz)<.003)return true;
+ }
+ return false;
+}
 const ns='http://www.w3.org/2000/svg',fmt=v=>v.toFixed(2),node=(tag,attrs={},text)=>{const el=document.createElementNS(ns,tag);for(const [k,v]of Object.entries(attrs))el.setAttribute(k,v);if(text!==undefined)el.textContent=text;return el;};
-export function createSlideLidSection(parent,onOpening){
- const panel=document.createElement('section');panel.id='slide-lid-section-panel';panel.hidden=true;panel.innerHTML='<button type="button" class="slide-section-close" aria-label="断面図を閉じる">×</button><p>組み付け位置に戻した実際の形状です。水色：本体 ／ 橙色：蓋 ／ 赤：干渉部分。</p><div class="slide-section-actions"><button type="button" data-slide-focus="rail-left">左の溝</button><button type="button" data-slide-focus="rail">右の溝</button><button type="button" data-slide-focus="all">全体（縦断面）</button></div><label>開閉確認 <output id="slide-section-opening-label">0%</output><input id="slide-section-opening" type="range" min="0" max="100" step="0.1" value="0"></label><div class="slide-section-actions"><button type="button" id="slide-section-closed">閉じた位置</button><button type="button" id="slide-section-opened">全開</button></div><p class="slide-section-status" role="status" aria-live="polite"></p><svg viewBox="0 0 640 380" role="img" aria-label="スライド蓋の実形状から作成した拡大断面"></svg><div class="slide-section-metrics"></div><p>印刷用の配置でも、この断面で蓋と本体のすき間や開閉を確認できます。</p>';
+export function createSlideLidSection(parent,onOpening,onSectionPosition){
+ const panel=document.createElement('section');panel.id='slide-lid-section-panel';panel.hidden=true;panel.innerHTML='<button type="button" class="slide-section-close" aria-label="断面図を閉じる">×</button><p>組み付け位置に戻した実際の形状です。水色：本体 ／ 橙色：蓋 ／ 赤：干渉部分。</p><div class="slide-section-actions"><button type="button" data-slide-focus="rail-left">左の溝</button><button type="button" data-slide-focus="rail">右の溝</button><button type="button" data-slide-focus="all">全体（縦断面）</button></div><label id="slide-section-position-control">差し込み口からの断面位置 <output id="slide-section-position-label"></output><input id="slide-section-position" type="range" min="0" max="100" step="0.01" value="0" disabled></label><label>開閉確認 <output id="slide-section-opening-label">0%</output><input id="slide-section-opening" type="range" min="0" max="100" step="0.1" value="0"></label><div class="slide-section-actions"><button type="button" id="slide-section-closed">閉じた位置</button><button type="button" id="slide-section-opened">全開</button></div><p class="slide-section-status" role="status" aria-live="polite"></p><svg viewBox="0 0 640 380" role="img" aria-label="スライド蓋の実形状から作成した拡大断面"></svg><div class="slide-section-metrics"></div><p>印刷用の配置でも、この断面で蓋と本体のすき間や開閉を確認できます。</p>';
  const style=document.createElement('style');style.textContent='#slide-lid-section-panel{position:absolute;left:var(--panel-left,12px);top:var(--panel-top,90px);z-index:105;width:min(640px,calc(100% - 24px));max-height:calc(100% - 100px);overflow:auto;padding:14px;border:1px solid #7896aa;border-radius:10px;background:#f5fafd;color:#234457;box-shadow:0 8px 25px #0003}#slide-lid-section-panel[hidden]{display:none}#slide-lid-section-panel p,#slide-lid-section-panel label{font-size:13px;line-height:1.5;margin:8px 0}#slide-lid-section-panel label,#slide-lid-section-panel output{color:#234457}#slide-lid-section-panel .panel-drag-handle{padding-right:32px;font-weight:bold;cursor:grab}#slide-lid-section-panel svg{display:block;width:100%;max-height:40vh;background:white;border-radius:5px}#slide-lid-section-panel input{display:block;width:100%;accent-color:#c5872f}#slide-lid-section-panel button{padding:7px;background:#edf4f8;color:#234457;border:1px solid #9ab6c7;border-radius:5px}#slide-lid-section-panel button[aria-pressed=true]{background:#c5ebf2;border-color:#1687a3}#slide-lid-section-panel .slide-section-close{position:absolute;right:10px;top:8px}.slide-section-actions{display:flex;flex-wrap:wrap;gap:6px}.slide-section-metrics{font-size:13px;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:10px}.slide-section-metrics b{display:block;font-size:16px}';document.head.append(style);parent.append(panel);draggablePanel(panel,'スライド蓋の拡大断面');
  let model=null,focus='rail',opening=0;const svg=panel.querySelector('svg'),status=panel.querySelector('.slide-section-status'),metrics=panel.querySelector('.slide-section-metrics'),slider=panel.querySelector('#slide-section-opening'),label=panel.querySelector('#slide-section-opening-label');
- function draw(){if(!model||panel.hidden)return;const data=model.slice(focus,opening),{q,spec,parts,contact}=data,W=640,H=380;svg.replaceChildren();let bounds;
+ const positionSlider=panel.querySelector('#slide-section-position'),positionLabel=panel.querySelector('#slide-section-position-label');
+ let positionFraction=null;
+ function draw(){if(!model||panel.hidden)return;const fromEntry=positionFraction===null?model.initialPosition:positionFraction*model.q.length/100;const data=model.slice(focus,opening,fromEntry),{q,spec,parts,contact,position}=data,W=640,H=380;svg.replaceChildren();let bounds;
   const rail=isRailSection(focus),left=focus==='rail-left';
+  positionSlider.closest('label').hidden=!rail;
+  positionSlider.closest('label').style.display=rail?'':'none';
+  positionSlider.value=100*fromEntry/q.length;
+  positionLabel.textContent=fmt(fromEntry)+' mm';
+  panel.dataset.sectionPosition=String(position);
+  onSectionPosition(rail?{q,spec,position}:null);
   if(rail){const inner=q.width/2-q.wall-2,outer=q.width/2+1;bounds=[left?-outer:inner,q.grooveLower-1,left?-inner:outer,q.height+1];}
 
   else{const points=parts.flatMap(p=>p.fill);bounds=points.length?[Math.min(...points.map(p=>p[0]))-1,0,Math.max(...points.map(p=>p[0]))+1,q.height+1]:[-q.length/2,0,q.length/2,q.height];}
   const scale=Math.min((W-100)/(bounds[2]-bounds[0]),(H-95)/(bounds[3]-bounds[1])),cx=(bounds[0]+bounds[2])/2,cz=(bounds[1]+bounds[3])/2,map=p=>[W/2+(p[0]-cx)*scale,H/2-(p[1]-cz)*scale];
-  svg.append(node('title',{},'スライド溝のすき間 '+fmt(spec.clearance)+' mm、開き '+Number(opening.toFixed(1))+'%'));
+  svg.append(node('title',{},'スライド蓋の断面、開き '+Number(opening.toFixed(1))+'%'));
   const defs=node('defs'),clip=node('clipPath',{id:'slide-section-clip'});clip.append(node('rect',{x:8,y:36,width:W-16,height:H-44}));defs.append(clip);svg.append(defs);const drawing=node('g',{'clip-path':'url(#slide-section-clip)'});svg.append(drawing);
   for(const part of parts){let d='';for(let i=0;i<part.fill.length;i+=3)d+='M'+map(part.fill[i]).join(',')+'L'+map(part.fill[i+1]).join(',')+'L'+map(part.fill[i+2]).join(',')+'Z';drawing.append(node('path',{'data-slide-part':part.lid?'lid':'body',d,fill:part.lid?'#edb35d':'#76c0dc','fill-opacity':'.75'}));d='';for(let i=0;i<part.segments.length;i+=6)d+='M'+map([part.segments[i],part.segments[i+2]]).join(',')+'L'+map([part.segments[i+3],part.segments[i+5]]).join(',');drawing.append(node('path',{d,fill:'none',stroke:part.lid?'#99550c':'#087698','stroke-width':1.4}));}
   if(contact.polygons.length)drawing.append(node('path',{'data-slide-contact':'true',d:contact.polygons.map(p=>'M'+p.map(v=>map(v).join(',')).join('L')+'Z').join(''),fill:'#ef5049',stroke:'#bb2621','stroke-width':.8}));
   function dimension(a,b,text,color){const pa=map(a),pb=map(b);svg.append(node('line',{x1:pa[0],y1:pa[1],x2:pb[0],y2:pb[1],stroke:color,'stroke-width':2}));for(const p of [pa,pb])svg.append(node('circle',{cx:p[0],cy:p[1],r:2.5,fill:color}));svg.append(node('rect',{x:W-280,y:8,width:270,height:27,rx:4,fill:'white'}));svg.append(node('text',{x:W-20,y:27,'text-anchor':'end',fill:color,'font-size':15,'font-weight':600},text));}
-  if(rail&&parts[1].segments.length){const sign=left?-1:1,y=q.width/2-q.wall+spec.railDepth/2,z=q.grooveUpper-spec.railDepth/2,gap=spec.clearance/Math.SQRT2;dimension([sign*y,z],[sign*(y-gap),z-gap],'すき間（斜面に直角） '+fmt(spec.clearance)+' mm','#075b76');}
+  if(rail){
+   const sign=left?-1:1;
+   const y=q.width/2-q.wall+spec.railDepth/2,z=q.grooveUpper-spec.railDepth/2;
+   const slope=q.slopeClearance??spec.clearance,gap=slope/Math.SQRT2;
+   const a=[sign*y,z],b=[sign*(y-gap),z-gap];
+   if(onSectionEdge(parts[0],a)&&onSectionEdge(parts[1],b))dimension(a,b,'斜面のすき間 '+fmt(slope)+' mm','#075b76');
+  }
 
-  const entries=[['蓋と溝のすき間',spec.clearance],['蓋の掛かり',q.engagement],['溝の深さ',spec.railDepth],['溝の外側の肉厚',q.remainingWall]];if(q.lidStyle==='top')entries.push(['上面を覆う蓋板の厚さ',spec.lidThickness],['蓋裏のレール幅',q.railStemWidth]);metrics.replaceChildren(...entries.map(([title,value])=>{const el=document.createElement('div');el.textContent=title;const b=document.createElement('b');b.textContent=fmt(value)+' mm';el.append(b);return el;}));
+  const entries=[['横のすき間（片側）',q.sideClearance??spec.clearance],['上下のすき間（片側）',q.verticalClearance??spec.clearance],['蓋の掛かり',q.engagement],['溝の深さ',spec.railDepth],['溝の外側の肉厚',q.remainingWall]];if(q.lidStyle==='top')entries.push(['上面を覆う蓋板の厚さ',spec.lidThickness],['蓋裏のレール幅',q.railStemWidth]);metrics.replaceChildren(...entries.map(([title,value])=>{const el=document.createElement('div');el.textContent=title;const b=document.createElement('b');b.textContent=fmt(value)+' mm';el.append(b);return el;}));
   status.textContent='開き '+Number(opening.toFixed(1))+'% ／ '+(rail?(left?'左の溝。収納側は右。':'右の溝。収納側は左。'):'本体の中央を通る縦断面。蓋は左へ引き抜きます。')+(contact.area>1e-7?' 赤は本体と蓋が干渉している部分です。':' この断面での干渉なし。')+(rail&&!parts[1].segments.length?' 蓋はこの断面位置から外れています。':'');
   panel.dataset.focus=focus;panel.dataset.opening=String(opening);panel.dataset.contactArea=String(contact.area);panel.dataset.clearance=String(spec.clearance);label.textContent=Number(opening.toFixed(1))+'%';slider.value=opening;for(const b of panel.querySelectorAll('[data-slide-focus]')){b.setAttribute('aria-pressed',String(b.dataset.slideFocus===focus));}
  }
- function release(){model?.dispose();model=null;svg.replaceChildren();metrics.replaceChildren();for(const key of ['contactArea','clearance','opening'])delete panel.dataset[key];}
+ function release(){onSectionPosition(null);model?.dispose();model=null;svg.replaceChildren();metrics.replaceChildren();for(const key of ['contactArea','clearance','opening','sectionPosition'])delete panel.dataset[key];}
  function request(value){if(!model)return;onOpening(value);}
- slider.addEventListener('input',()=>request(Number(slider.value)));panel.querySelector('#slide-section-closed').onclick=()=>request(0);panel.querySelector('#slide-section-opened').onclick=()=>request(100);panel.querySelector('.slide-section-close').onclick=()=>panel.hidden=true;for(const b of panel.querySelectorAll('[data-slide-focus]'))b.onclick=()=>{focus=b.dataset.slideFocus;draw();};
- return {open(){panel.hidden=false;draw();},close(){panel.hidden=true;focus='rail';release();},pending(){release();slider.disabled=true;status.textContent='形状を計算して断面を更新しています…';},error(message){this.pending();status.textContent=message;},update(result,spec){release();model=createSlideSectionModel(result,spec);opening=0;slider.disabled=false;draw();},setOpening(value){opening=Math.max(0,Math.min(100,Number(value)||0));draw();}};
+ slider.addEventListener('input',()=>request(Number(slider.value)));panel.querySelector('#slide-section-closed').onclick=()=>request(0);panel.querySelector('#slide-section-opened').onclick=()=>request(100);panel.querySelector('.slide-section-close').onclick=()=>{panel.hidden=true;onSectionPosition(null);};positionSlider.oninput=()=>{positionFraction=Number(positionSlider.value);draw();};for(const b of panel.querySelectorAll('[data-slide-focus]'))b.onclick=()=>{focus=b.dataset.slideFocus;draw();};
+ return {open(){panel.hidden=false;draw();},close(){panel.hidden=true;focus='rail';positionFraction=null;release();},pending(){release();slider.disabled=positionSlider.disabled=true;status.textContent='形状を計算して断面を更新しています…';},error(message){this.pending();status.textContent=message;},update(result,spec){release();model=createSlideSectionModel(result,spec);opening=0;slider.disabled=positionSlider.disabled=false;draw();},setOpening(value){opening=Math.max(0,Math.min(100,Number(value)||0));draw();}};
 }
