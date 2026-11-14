@@ -93,26 +93,26 @@
                 <form id="machine-form">
                     <input type="hidden" id="f-machine-id" value="${id || ''}">
                     <div class="form-group">
-                        <label>機械名・部品名 <span style="color:var(--danger)">*</span></label>
+                        <label for="f-machine-name">機械名・部品名 <span style="color:var(--danger)">*</span></label>
                         <input type="text" id="f-machine-name" placeholder="例: メインコンベア" value="${machine ? machine.name : ''}" list="list-m-names" required>
                     </div>
                     <div class="form-group">
-                        <label>型式 <span style="color:var(--danger)">*</span></label>
+                        <label for="f-machine-model">型式 <span style="color:var(--danger)">*</span></label>
                         <input type="text" id="f-machine-model" placeholder="例: MC-100" value="${machine ? machine.model : ''}" list="list-m-models" required>
                     </div>
                     <div class="form-group">
-                        <label>製造元 (メーカー) <span style="font-size:0.7rem; font-weight:normal; color:var(--text-light);">※任意</span></label>
+                        <label for="f-machine-manufacturer">製造元 (メーカー) <span style="font-size:0.7rem; font-weight:normal; color:var(--text-light);">※任意</span></label>
                         <input type="text" id="f-machine-manufacturer" placeholder="例: 〇〇精機" value="${machine && machine.manufacturer ? machine.manufacturer : ''}">
                     </div>
                     <div class="form-group">
-                        <label>所属ライン番号 <span style="color:var(--danger)">*</span></label>
+                        <label for="f-machine-line-no">所属ライン番号 <span style="color:var(--danger)">*</span></label>
                         <select id="f-machine-line-no" required style="height:44px; font-weight:700;">
                             <option value="">-- ラインを選択 --</option>
                             ${this.generateLineOptionsHTML(machine?.lineNo || '')}
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>装置区分 (例: 包装機, 充填機) <span style="color:var(--danger)">*</span></label>
+                        <label for="f-machine-category">装置区分 (例: 包装機, 充填機) <span style="color:var(--danger)">*</span></label>
                         <select id="f-machine-category" onchange="app.toggleNewCategoryField('f-')" required style="height:44px;">
                             <option value="">-- 選択してください --</option>
                             ${this.getMachineCategoryOptions(machine ? machine.category : '')}
@@ -120,13 +120,13 @@
                         <input type="text" id="f-new-category-input" placeholder="新しい装置区分名を入力" style="display:none; margin-top:8px; border:2px solid var(--primary); padding:8px;" onblur="this.value = MaintenanceApp.toFullWidthUpper(this.value)">
                     </div>
                     <div class="form-group">
-                        <label>備考</label>
+                        <label for="f-machine-remarks">備考</label>
                         <textarea id="f-machine-remarks" rows="2" placeholder="設置場所など">${machine ? machine.remarks : ''}</textarea>
                     </div>
                     ${troubleStampsHTML}
 
                     <div class="form-group" style="margin-top:16px;">
-                        <label>機械の写真 (プロフィール用)</label>
+                        <label for="f-machine-photo">機械の写真 (プロフィール用)</label>
                         <div style="display:flex; gap:16px; align-items:center;">
                             <div id="f-machine-photo-preview" class="img-box" style="width:100px; height:100px; border-radius:12px; border:2px dashed var(--border);">
                                 ${machine && machine.photo ? `<img src="${machine.photo}">` : '<i class="fa-solid fa-camera" style="font-size:1.5rem; color:#cbd5e1;"></i>'}
@@ -148,7 +148,7 @@
 
                     <div style="margin-top: 24px; border-top: 2px solid #94a3b8; padding-top: 16px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                            <label style="font-size:0.85rem; font-weight:700;">メンテナンス項目</label>
+                            <div style="font-size:0.85rem; font-weight:700;">メンテナンス項目</div>
                             <div class="maintenance-task-header-actions">
                                 <input type="search" id="maintenance-task-template-search" class="maintenance-task-template-search" placeholder="テンプレート検索" oninput="app.filterMaintenanceTaskTemplates(this.value)" ${this._maintenanceTaskTemplates.length ? '' : 'disabled'}>
                                 <select id="maintenance-task-template-select" class="maintenance-task-template-select" ${this._maintenanceTaskTemplates.length ? '' : 'disabled'}>
@@ -642,7 +642,7 @@
                         <small>チェックすると、突発トラブルではなく1回きりのメンテ完了記録として保存します。</small>
                     </div>
                     <div class="form-group" style="background:#f1f5f9; padding:12px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:15px;">
-                        <label style="font-weight:900; color:#475569;"><i class="fa-solid fa-list-ol"></i> 対応ライン番号 <span style="color:var(--danger)">*</span></label>
+                        <label for="s-line-no" style="font-weight:900; color:#475569;"><i class="fa-solid fa-list-ol"></i> 対応ライン番号 <span style="color:var(--danger)">*</span></label>
                         <select id="s-line-no" required style="height:44px; font-weight:900; color:var(--text-main); font-size:1rem; border:2.5px solid var(--border-dark);">
                             <option value="">-- ラインを選択してください --</option>
                             ${this.generateLineOptionsHTML()}
@@ -650,13 +650,13 @@
                     </div>
 
                     <div class="form-group">
-                        <label>対象の機械 <span style="color:var(--danger)">*</span></label>
+                        <div class="form-group-label">対象の機械 <span style="color:var(--danger)">*</span></div>
                         <div style="font-size:0.7rem; color:var(--primary); font-weight:800; margin-bottom:8px;">
                             <i class="fa-solid fa-circle-info"></i> 対象機械本体を選択すると対応ラインと装置区分が自動入力されます。
                         </div>
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:10px;">
                             <div class="form-group" style="margin-bottom:0">
-                                <label>装置区分 (例: 包装機, 充填機) <span style="color:var(--danger)">*</span></label>
+                                <label for="s-machine-category">装置区分 (例: 包装機, 充填機) <span style="color:var(--danger)">*</span></label>
                                 <select id="s-machine-category" onchange="app.toggleNewCategoryField('s-')" required style="height:44px;">
                                     <option value="">-- 選択してください --</option>
                                     ${this.getMachineCategoryOptions(lastMachineCategory || '')}
@@ -664,7 +664,7 @@
                                 <input type="text" id="s-new-category-input" placeholder="新しい装置区分名を入力" style="display:none; margin-top:8px; border:2px solid var(--primary); padding:8px;" onblur="this.value = MaintenanceApp.toFullWidthUpper(this.value)">
                             </div>
                             <div class="form-group" style="margin-bottom:0">
-                                <label style="font-size:0.75rem">対象機械本体</label>
+                                <label style="font-size:0.75rem" for="s-machine-id">対象機械本体</label>
                                 <select id="s-machine-id" onchange="app.onSuddenMachineChange(this.value)" required style="height:44px; font-weight:700; border:2px solid var(--primary);">
                                     <option value="">-- 選択してください --</option>
                                     ${machines.sort((a,b) => {
@@ -678,11 +678,11 @@
                         </div>
                         <div id="s-new-machine-fields" style="display:none; grid-template-columns: 1fr 1fr; gap:12px; margin-top:10px; padding:12px; background:var(--background); border-radius:var(--radius-sm);">
                             <div class="form-group" style="margin-bottom:0">
-                                <label style="font-size:0.75rem">新規機械名</label>
+                                <label style="font-size:0.75rem" for="s-new-name">新規機械名</label>
                                 <input type="text" id="s-new-name" placeholder="例: 新規プレス機" list="list-m-names">
                             </div>
                             <div class="form-group" style="margin-bottom:0">
-                                <label style="font-size:0.75rem">新規型式</label>
+                                <label style="font-size:0.75rem" for="s-new-model">新規型式</label>
                                 <input type="text" id="s-new-model" placeholder="例: NP-500" list="list-m-models">
                             </div>
                         </div>
@@ -691,9 +691,9 @@
                     <!-- Search Guides & Copy Last Record -->
                     <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;">
                         <div id="s-related-guides-section" style="display:none; border-bottom:1px dashed var(--border); padding-bottom:12px;">
-                            <label style="font-size:0.8rem; font-weight:800; color:var(--primary); display:flex; align-items:center; gap:6px;">
+                            <div style="font-size:0.8rem; font-weight:800; color:var(--primary); display:flex; align-items:center; gap:6px;">
                                 <i class="fa-solid fa-lightbulb"></i> 関連する手順書・ナレッジ
-                            </label>
+                            </div>
                             <div id="s-related-guides-list" style="margin-top:8px; display:flex; flex-direction:column; gap:8px; max-height:200px; overflow-y:auto; padding:4px;"></div>
                         </div>
 
@@ -708,7 +708,7 @@
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                         <div class="form-group">
-                            <label>発生日 <span style="color:var(--danger)">*</span></label>
+                            <label for="s-date">発生日 <span style="color:var(--danger)">*</span></label>
                             <input type="date" id="s-date" value="${dateVal}" required>
                         </div>
                         <div class="form-group" style="display:flex; align-items:flex-end;">
@@ -727,30 +727,30 @@
                     </div>
 
                     <div class="form-group">
-                        <label>エラー番号</label>
+                        <label for="s-error-no">エラー番号</label>
                         <input type="text" id="s-error-no" placeholder="例: E-01" list="s-list-model-error-nos">
                         <div id="s-error-no-suggestions" class="suggestion-area"></div>
                     </div>
 
                     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px;">
                         <div class="form-group">
-                            <label>作業時間 (分) <span style="color:var(--danger)">*</span></label>
+                            <label for="s-work-time">作業時間 (分) <span style="color:var(--danger)">*</span></label>
                             <input type="number" id="s-work-time" placeholder="例: 30" min="0" required>
                         </div>
                         <div class="form-group">
-                            <label>開始時間 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">任意</span></label>
+                            <label for="s-start-time">開始時間 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">任意</span></label>
                             <input type="time" id="s-start-time">
                         </div>
                         <div class="form-group">
-                            <label>終了時間 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">任意</span></label>
+                            <label for="s-end-time">終了時間 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">任意</span></label>
                             <input type="time" id="s-end-time">
                         </div>
                     </div>
                     <div id="s-time-status" class="maintenance-time-status"></div>
 
                     <div class="form-group">
-                        <label>対応種別 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">※「初回」のみスキルマップの集計対象になります</span></label>
-                        <div style="display:flex; gap:16px; background:var(--background); padding:10px; border-radius:8px; border:1px solid var(--border);">
+                        <div id="s-occurrence-label" class="form-group-label">対応種別 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">※「初回」のみスキルマップの集計対象になります</span></div>
+                        <div role="group" aria-labelledby="s-occurrence-label" style="display:flex; gap:16px; background:var(--background); padding:10px; border-radius:8px; border:1px solid var(--border);">
                             <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
                                 <input type="radio" name="s-occurrence" value="first" checked style="width:auto;"> <span style="font-weight:800; color:var(--primary);">初回対応 (技術習得)</span>
                             </label>
@@ -761,19 +761,19 @@
                     </div>
 
                     <div class="form-group">
-                        <label id="s-content-label">症状・故障内容 <span style="color:var(--danger)">*</span></label>
+                        <label id="s-content-label" for="s-content">症状・故障内容 <span style="color:var(--danger)">*</span></label>
                         <textarea id="s-content" class="sudden-detail-textarea" rows="6" placeholder="どのような異常が発生したか記入してください" required oninput="app.updateHistorySmartAssist('s-', false)"></textarea>
                         <div id="s-content-suggestions" class="suggestion-area"></div>
                     </div>
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                         <div class="form-group">
-                            <label>原因</label>
+                            <label for="s-cause">原因</label>
                             <textarea id="s-cause" class="sudden-detail-textarea" rows="9" placeholder="故障の根本原因" list="s-list-model-causes"></textarea>
                             <div id="s-cause-suggestions" class="suggestion-area"></div>
                         </div>
                         <div class="form-group">
-                            <label>処置・対応内容</label>
+                            <label for="s-notes">処置・対応内容</label>
                             <textarea id="s-notes" class="sudden-detail-textarea" rows="9" placeholder="どのような修理・処置を行ったか" list="s-list-model-treatments"></textarea>
                             <div id="s-notes-suggestions" class="suggestion-area"></div>
                         </div>
@@ -784,7 +784,7 @@
                     <datalist id="s-list-model-treatments"></datalist>
 
                     <div class="form-group">
-                        <label>作業者 (カンマ区切りで複数登録) <span style="color:var(--danger)">*</span></label>
+                        <label for="s-workers">作業者 (カンマ区切りで複数登録) <span style="color:var(--danger)">*</span></label>
                         <input type="text" id="s-workers" placeholder="例: 田中, 鈴木" list="list-workers" style="border:2px solid var(--primary);" required>
                         <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
                             ${store.getWorkers().filter(w => !(store.activeData.archivedSuggestions?.workers || []).includes(w)).map(w => `
@@ -801,7 +801,7 @@
                     </div>
 
                     <div class="form-group">
-                        <label>対応区分 (集計用セレクト) <span style="color:var(--danger)">*</span></label>
+                        <label for="s-category">対応区分 (集計用セレクト) <span style="color:var(--danger)">*</span></label>
                         <select id="s-category" required>
                             <option value="">-- 選択してください --</option>
                             <option value="machine">機械修理</option>
@@ -814,7 +814,7 @@
                     </div>
 
                     <div class="form-group">
-                        <label>添付資料 (写真・登録動画)</label>
+                        <label for="s-photos">添付資料 (写真・登録動画)</label>
                         <div class="attachment-input-actions">
                             <input type="file" id="s-photos" accept="image/*" multiple>
                             <button type="button" class="secondary-btn registered-video-attach-btn" onclick="app.openRegisteredVideoAttachmentPicker('history', 's-photo-previews')"><i class="fa-solid fa-video"></i> 登録動画</button>
@@ -824,7 +824,7 @@
 
                     <div style="margin-top: 24px; border-top: 2px solid #94a3b8; padding-top: 16px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                            <label style="font-size:0.85rem; font-weight:700;">交換部品・資材</label>
+                            <div style="font-size:0.85rem; font-weight:700;">交換部品・資材</div>
                             <button type="button" class="secondary-btn" style="padding:4px 10px; font-size:0.75rem;" onclick="app.addPartRow(null, true)"><i class="fa-solid fa-plus"></i> 追加</button>
                         </div>
                         <div id="s-parts-container" style="display:flex; flex-direction:column; gap:8px;"></div>
@@ -1793,7 +1793,7 @@
                     <input type="hidden" id="c-machine-id" value="${task.machineId}">
 
                     <div class="form-group" style="background:#f1f5f9; padding:12px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:15px;">
-                        <label style="font-weight:900; color:#475569;"><i class="fa-solid fa-list-ol"></i> 実施ライン番号 <span style="color:var(--danger)">*</span></label>
+                        <label for="c-line-no" style="font-weight:900; color:#475569;"><i class="fa-solid fa-list-ol"></i> 実施ライン番号 <span style="color:var(--danger)">*</span></label>
                         <select id="c-line-no" required style="height:44px; font-weight:900; color:var(--primary); font-size:1rem; border:2px solid var(--primary);">
                             <option value="">-- ラインを選択してください --</option>
                             ${this.generateLineOptionsHTML(machine?.lineNo || '')}
@@ -1806,7 +1806,7 @@
                         <div style="font-weight:700; color:var(--text-light);">${task.content}</div>
                     </div>
                     <div class="form-group">
-                        <label>対象の予定日 <span style="color:var(--danger)">*</span></label>
+                        <label for="c-scheduled-date">対象の予定日 <span style="color:var(--danger)">*</span></label>
                         <input type="date" id="c-scheduled-date" value="${this.escapeHtml(plannedDate)}" required>
                         <small>実施日を変更しても、この予定日を完了として記録します。</small>
                     </div>
@@ -1819,17 +1819,17 @@
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                         <div class="form-group">
-                            <label>実施日 <span style="color:var(--danger)">*</span></label>
+                            <label for="c-date">実施日 <span style="color:var(--danger)">*</span></label>
                             <input type="date" id="c-date" value="${this.escapeHtml(plannedDate)}" required>
                         </div>
                         <div class="form-group">
-                            <label>作業時間 (分) <span style="color:var(--danger)">*</span></label>
+                            <label for="c-work-time">作業時間 (分) <span style="color:var(--danger)">*</span></label>
                             <input type="number" id="c-work-time" placeholder="例: 30" required>
                         </div>
                     </div>
 
                     <div class="form-group">
-                        <label>装置区分 (例: 包装機, 充填機) <span style="color:var(--danger)">*</span></label>
+                        <label for="c-machine-category">装置区分 (例: 包装機, 充填機) <span style="color:var(--danger)">*</span></label>
                         <select id="c-machine-category" onchange="app.toggleNewCategoryField('c-')" required style="height:44px;">
                             <option value="">-- 選択してください --</option>
                             ${this.getMachineCategoryOptions(lastMachineCategory || machine?.category || '')}
@@ -1838,7 +1838,7 @@
                     </div>
 
                     <div class="form-group">
-                        <label>対応区分 (集計用セレクト) <span style="color:var(--danger)">*</span></label>
+                        <label for="c-category">対応区分 (集計用セレクト) <span style="color:var(--danger)">*</span></label>
                         <select id="c-category" required>
                             <option value="">-- 選択してください --</option>
                             <option value="machine">機械修理</option>
@@ -1851,18 +1851,18 @@
                     </div>
 
                     <div class="form-group">
-                        <label>作業報告・備考</label>
+                        <label for="c-notes">作業報告・備考</label>
                         <textarea id="c-notes" rows="2" placeholder="特記事項があれば記入"></textarea>
                     </div>
 
                     <div class="form-group">
-                        <label>作業者 (カンマ区切り) <span style="color:var(--danger)">*</span></label>
+                        <label for="c-workers">作業者 (カンマ区切り) <span style="color:var(--danger)">*</span></label>
                         <input type="text" id="c-workers" placeholder="例: 田中, 鈴木" list="list-workers" style="border:2px solid var(--primary);" required>
                     </div>
 
                     <div class="form-group">
-                        <label>対応種別 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">※「初回」のみスキルマップの集計対象になります</span></label>
-                        <div style="display:flex; gap:16px; background:var(--background); padding:10px; border-radius:8px; border:1px solid var(--border);">
+                        <div id="c-occurrence-label" class="form-group-label">対応種別 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">※「初回」のみスキルマップの集計対象になります</span></div>
+                        <div role="group" aria-labelledby="c-occurrence-label" style="display:flex; gap:16px; background:var(--background); padding:10px; border-radius:8px; border:1px solid var(--border);">
                             <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
                                 <input type="radio" name="c-occurrence" value="first" ${!isDoneBefore ? 'checked' : ''} style="width:auto;"> <span style="font-weight:800; color:var(--primary);">初回対応 (技術習得)</span>
                             </label>
@@ -1874,7 +1874,7 @@
 
                      <div style="margin-top: 24px; border-top: 2px solid #94a3b8; padding-top: 16px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                            <label style="font-size:0.85rem; font-weight:700;">使用部品・グリス等</label>
+                            <div style="font-size:0.85rem; font-weight:700;">使用部品・グリス等</div>
                             <button type="button" class="secondary-btn" style="padding:4px 10px; font-size:0.75rem;" onclick="app.addPartRow(null, true)"><i class="fa-solid fa-plus"></i> 追加</button>
                         </div>
                         <div id="s-parts-container" style="display:flex; flex-direction:column; gap:8px;"></div>
@@ -2750,15 +2750,15 @@
                         <div style="font-weight:900;">${oldName} [${oldModel}]</div>
                     </div>
                     <div class="form-group">
-                        <label>新しい部品名 (最新名称) <span style="color:var(--danger)">*</span></label>
+                        <label for="sub-new-name">新しい部品名 (最新名称) <span style="color:var(--danger)">*</span></label>
                         <input type="text" id="sub-new-name" value="${oldName}" required>
                     </div>
                     <div class="form-group">
-                        <label>新しい型式 (最新型番) <span style="color:var(--danger)">*</span></label>
+                        <label for="sub-new-model">新しい型式 (最新型番) <span style="color:var(--danger)">*</span></label>
                         <input type="text" id="sub-new-model" value="" placeholder="例: NP-501-A" required>
                     </div>
                     <div class="form-group">
-                        <label>新しい標準単価</label>
+                        <label for="sub-new-price">新しい標準単価</label>
                         <input type="number" id="sub-new-price" placeholder="価格に変更がなければ空欄">
                     </div>
                     <p style="font-size:0.75rem; color:var(--text-light); line-height:1.4;">
@@ -2816,11 +2816,11 @@
                     ${isNew ? `
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                             <div class="form-group">
-                                <label>部品名称 <span style="color:var(--danger)">*</span></label>
+                                <label for="pm-name">部品名称 <span style="color:var(--danger)">*</span></label>
                                 <input type="text" id="pm-name" placeholder="例: ベアリング" required>
                             </div>
                             <div class="form-group">
-                                <label>型番・スペック <span style="color:var(--danger)">*</span></label>
+                                <label for="pm-model">型番・スペック <span style="color:var(--danger)">*</span></label>
                                 <input type="text" id="pm-model" placeholder="例: 6204ZZ" required>
                             </div>
                         </div>
@@ -2841,7 +2841,7 @@
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                         <div class="form-group">
-                            <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;" for="pm-price-raw">
                                 標準単価
                                 <span style="font-size:0.65rem; color:var(--text-light); font-weight:400;">液体は 値段/重量(kg) で入力するとg単価が自動計算されます</span>
                             </label>
@@ -2851,23 +2851,23 @@
                         </div>
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
                             <div class="form-group">
-                                <label>主要仕入先</label>
+                                <label for="pm-supplier">主要仕入先</label>
                                 <input type="text" id="pm-supplier" value="${master?.supplier || ''}" placeholder="例: 〇〇商事">
                             </div>
                             <div class="form-group">
-                                <label>棚番 (任意)</label>
+                                <label for="pm-shelf">棚番 (任意)</label>
                                 <input type="text" id="pm-shelf" value="${master?.shelf || ''}" placeholder="例: A-1-2">
                             </div>
                         </div>
                     </div>
 
                     <div class="form-group">
-                        <label>備考・管理メモ</label>
+                        <label for="pm-remarks">備考・管理メモ</label>
                         <textarea id="pm-remarks" rows="2" placeholder="図面番号や保管場所など">${master?.remarks || ''}</textarea>
                     </div>
 
                     <div class="form-group">
-                        <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                        <label for="pm-seeds" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                             別名・名寄せ
                             <span style="font-size:0.65rem; color:var(--text-light); font-weight:400;">1行に1つ。例: ベルト x1 個 @1200 / ﾍﾞﾙﾄ / 旧型番</span>
                         </label>
@@ -2889,25 +2889,25 @@
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:16px; padding:15px; background:#fff7ed; border:1.5px solid #fed7aa; border-radius:12px;">
                         <div class="form-group" style="grid-column: span 2;">
-                             <label style="font-weight:800; color:#c2410c;">管理単位</label>
+                             <label for="pm-unit" style="font-weight:800; color:#c2410c;">管理単位</label>
                              <select id="pm-unit" style="border-color:#fdba74;">
                                  <option value="個" ${master?.unit === '個' ? 'selected' : ''}>個 (pcs)</option>
                                  <option value="g" ${master?.unit === 'g' || master?.unit === 'kg' ? 'selected' : ''}>g (グラム)</option>
                              </select>
                         </div>
                         <div class="form-group">
-                            <label style="font-weight:800; color:#c2410c;"><i class="fa-solid fa-boxes-stacked"></i> 現在庫数</label>
+                            <label style="font-weight:800; color:#c2410c;" for="pm-stock"><i class="fa-solid fa-boxes-stacked"></i> 現在庫数</label>
                             <input type="number" id="pm-stock" value="${master?.stock || 0}" step="0.001" style="border-color:#fdba74; font-size:1.1rem; font-weight:900;">
                         </div>
                         <div class="form-group">
-                            <label style="font-weight:800; color:#c2410c;"><i class="fa-solid fa-bell"></i> 発注アラート閾値</label>
+                            <label style="font-weight:800; color:#c2410c;" for="pm-min-stock"><i class="fa-solid fa-bell"></i> 発注アラート閾値</label>
                             <input type="number" id="pm-min-stock" value="${master?.minStock || 0}" step="0.1" placeholder="0以下で無効" style="border-color:#fdba74;">
                             <p style="font-size:0.65rem; color:#9a3412; margin-top:4px;">※在庫がこの値を下回るとダッシュボード等で警告が出ます。</p>
                         </div>
                     </div>
 
                     <div class="form-group" style="margin-top:20px; padding:15px; border:2px dashed var(--border); border-radius:12px; background:var(--background);">
-                        <label style="margin-bottom:12px; display:block;">部品の写真</label>
+                        <label for="pm-photo" style="margin-bottom:12px; display:block;">部品の写真</label>
                         <div style="display:flex; gap:20px; align-items:center;">
                             <div id="pm-photo-preview" class="img-box" style="width:100px; height:100px; border-radius:10px;">
                                 ${master && master.photo ? `<img src="${master.photo}">` : '<i class="fa-solid fa-camera" style="font-size:1.8rem; color:#cbd5e1;"></i>'}
@@ -2928,7 +2928,7 @@
 
                     <div style="display:grid; grid-template-columns: 1fr 2fr; gap:16px; margin-top:16px;">
                         <div>
-                            <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:8px;">年度別消費金額</label>
+                            <div style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:8px;">年度別消費金額</div>
                             <div style="background:var(--background); border-radius:8px; padding:12px; max-height:220px; overflow-y:auto;">
                                 ${Object.keys(yearlyCosts).length === 0 ? '<div style="font-size:0.75rem; color:var(--text-light)">実績なし</div>' : `
                                     <table style="width:100%; font-size:0.75rem; border-collapse:collapse;">
@@ -2943,7 +2943,7 @@
                             </div>
                         </div>
                         <div>
-                            <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:8px;">使用履歴 (直近20件)</label>
+                            <div style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:8px;">使用履歴 (直近20件)</div>
                             <div style="background:var(--background); border-radius:8px; padding:12px; max-height:220px; overflow-y:auto;">
                                 ${usageHistory.length === 0 ? '<div style="font-size:0.75rem; color:var(--text-light)">履歴なし</div>' : `
                                     <table style="width:100%; font-size:0.75rem; border-collapse:collapse;">
@@ -4149,7 +4149,7 @@
                 </div>
 
                 <div class="form-group" style="margin-bottom:16px;">
-                    <label>手順書タイトル</label>
+                    <label for="g-title">手順書タイトル</label>
                     <input type="text" id="g-title" placeholder="例: 搬送ベルトの交換手順" value="${this.escapeHtml(guideTitle)}" oninput="app.autoSaveGuideDraftFromModal()">
                     ${guideTitleCandidates.length ? `
                         <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
@@ -4176,11 +4176,11 @@
 
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
                     <div class="form-group">
-                        <label>作成者</label>
+                        <label for="g-author">作成者</label>
                         <input type="text" id="g-author" placeholder="例: メンテナンス 田中" value="${this.escapeHtml(guide.author || '')}" list="list-workers">
                     </div>
                     <div class="form-group">
-                        <label>タグ (カンマ区切り)</label>
+                        <label for="g-tags">タグ (カンマ区切り)</label>
                         <input type="text" id="g-tags" placeholder="例: 油漏れ, センサー異常" value="${this.escapeHtml((guide.tags || []).join(', '))}">
                     </div>
                 </div>
@@ -4188,7 +4188,7 @@
                 <div class="guide-edit-layout">
                     <div class="guide-edit-main">
                         <div class="form-group">
-                            <label>手順書・技術メモ</label>
+                            <div id="g-text-label" class="form-group-label">手順書・技術メモ</div>
                             <div class="guide-photo-token-help">右の写真ボタンで本文中に [[写真1]] を挿入できます。</div>
                             <div class="guide-text-controls">
                                 <label>
@@ -4217,19 +4217,19 @@
                             </div>
                             <div class="guide-font-note">※ ゴシック以外の書体を使うと、印刷時の適切な改行ポイントがずれる場合があります。青線は印刷時の改ページ位置の目安です。</div>
                             <div class="guide-editor-page-wrap">
-                                <div id="g-text" class="guide-detail-textarea guide-rich-editor" contenteditable="true" spellcheck="false" data-placeholder="次回同じトラブルが起きた際の参考となる手順、重要なポイントなどを記入してください。" oninput="app.rememberGuideEditorSelection(); app.autoSaveGuideDraftFromModal(); app.updateGuidePageBreakGuides(); app.updateGuidePhotoTokenHighlights()" onkeyup="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides(); app.updateGuidePhotoTokenHighlights()" onmouseup="app.rememberGuideEditorSelection()" onfocus="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides(); app.updateGuidePhotoTokenHighlights()" onscroll="app.updateGuidePageBreakGuides()">${this.sanitizeGuideRichHtml(guide.html || this.getGuideRichHtmlFromText(guide.text || ''))}</div>
+                                <div id="g-text" class="guide-detail-textarea guide-rich-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="g-text-label" spellcheck="false" data-placeholder="次回同じトラブルが起きた際の参考となる手順、重要なポイントなどを記入してください。" oninput="app.rememberGuideEditorSelection(); app.autoSaveGuideDraftFromModal(); app.updateGuidePageBreakGuides(); app.updateGuidePhotoTokenHighlights()" onkeyup="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides(); app.updateGuidePhotoTokenHighlights()" onmouseup="app.rememberGuideEditorSelection()" onfocus="app.rememberGuideEditorSelection(); app.updateGuidePageBreakGuides(); app.updateGuidePhotoTokenHighlights()" onscroll="app.updateGuidePageBreakGuides()">${this.sanitizeGuideRichHtml(guide.html || this.getGuideRichHtmlFromText(guide.text || ''))}</div>
                                 <div id="g-page-break-guides" class="guide-page-break-guides" aria-hidden="true"></div>
                             </div>
                         </div>
 
                         <div class="form-group">
-                            <label>今回の変更内容</label>
+                            <label for="g-change-note">今回の変更内容</label>
                             <input type="text" id="g-change-note" placeholder="例: 写真を追加、注意点を追記、手順2を修正">
                         </div>
                     </div>
 
                     <aside class="guide-photo-side">
-                        <label>手順写真・参考資料</label>
+                        <label for="g-photos">手順写真・参考資料</label>
                         <div class="attachment-input-actions">
                             <input type="file" id="g-photos" accept="image/*" multiple>
                             <button type="button" class="secondary-btn registered-video-attach-btn" onclick="app.openRegisteredVideoAttachmentPicker('guide')"><i class="fa-solid fa-video"></i> 登録動画</button>

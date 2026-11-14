@@ -6469,7 +6469,8 @@ body {
     scrollbar-width: thin;
 }
 
-.history-filter-chips span {
+.history-filter-chips > span,
+.history-filter-chips > button {
     display: inline-flex;
     align-items: center;
     min-height: 24px;
@@ -6593,6 +6594,24 @@ body {
     border-radius: 4px;
     color: var(--text-main);
     transition: color 0.15s ease, background 0.15s ease;
+}
+
+:where(button.history-inline-action) {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    text-align: inherit;
+    cursor: pointer;
+}
+
+button.history-inline-action:focus-visible {
+    outline: 3px solid #2563eb;
+    outline-offset: 2px;
 }
 
 .history-machine-name-filter:hover {
@@ -7800,6 +7819,22 @@ body {
 }
 .app-save-diagnostics-row span { flex: 0 0 38%; color: #475569; }
 .app-save-diagnostics-row strong { min-width: 0; overflow-wrap: anywhere; text-align: right; }
+.app-save-persist-button, .app-save-failure-copy { width: 100%; margin: 6px 0 10px; }
+.app-save-failure-title { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
+.app-save-failure-history {
+    max-height: 132px;
+    margin: 0;
+    padding: 8px;
+    overflow: auto;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #334155;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    font-family: inherit;
+}
 
 @media (max-width: 760px) {
     .app-save-status:not(.modal-save-status) { min-width: 0; max-width: 190px; }
@@ -12276,6 +12311,18 @@ body {
     transition: var(--transition);
 }
 
+button.compact-detail-card {
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+}
+
+button.compact-detail-card:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
+}
+
 .compact-detail-card:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
@@ -12317,6 +12364,11 @@ body {
 .compact-detail-main {
     min-width: 0;
     flex: 1;
+}
+
+.compact-detail-main > .compact-detail-title,
+.compact-detail-main > .compact-detail-sub {
+    display: block;
 }
 
 .compact-detail-title {
@@ -34141,7 +34193,8 @@ button.shift-photo-compare-animation-symbol-badge.dragging {
     margin-bottom: 20px;
 }
 
-.form-group label {
+.form-group label,
+.form-group .form-group-label {
     display: block;
     font-size: 0.85rem;
     font-weight: 700;

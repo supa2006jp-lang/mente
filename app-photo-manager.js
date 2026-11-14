@@ -644,7 +644,7 @@
 
         getPhotoManagerAudioTranscriberWorker() {
             if (this._photoManagerAudioTranscriberWorker) return this._photoManagerAudioTranscriberWorker;
-            const worker = new Worker('audio-transcriber-worker.js?v=20260815-local-audio-name1', { type: 'module' });
+            const worker = new Worker('audio-transcriber-worker.js?v=20261115-all5', { type: 'module' });
             this._photoManagerAudioTranscriptionRequests = new Map();
             worker.onmessage = event => {
                 const data = event.data || {};
@@ -711,9 +711,10 @@
 
         async transcribePhotoManagerAudioOnMainThread(audioData, onProgress = null) {
             if (!this._photoManagerAudioMainTranscriberPromise) {
-                this._photoManagerAudioMainTranscriberPromise = import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1')
+                this._photoManagerAudioMainTranscriberPromise = import(new URL('assets/vendor/transformers/3.8.1/transformers.web.min.js', document.baseURI).href)
                     .then(({ pipeline, env }) => {
                         env.allowLocalModels = false;
+                        env.backends.onnx.wasm.wasmPaths = new URL('assets/vendor/transformers/3.8.1/', document.baseURI).href;
                         return pipeline('automatic-speech-recognition', 'onnx-community/whisper-tiny', {
                             dtype: 'q8',
                             progress_callback: progress => {
@@ -1966,7 +1967,7 @@
                 const ffmpeg = window.FFmpeg.createFFmpeg({
                     log: false,
                     mainName: 'main',
-                    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+                    corePath: new URL('assets/vendor/ffmpeg-core-st/0.11.1/ffmpeg-core.js', document.baseURI).href,
                     progress: ({ ratio }) => {
                         const value = Math.max(0, Math.min(0.99, Number(ratio) || 0));
                         if (this._photoManagerVideoProgressOperation === 'convert') {
@@ -6564,7 +6565,7 @@
                 try {
                     const engine = new KuroshiroClass();
                     await engine.init(new AnalyzerClass({
-                        dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/'
+                        dictPath: new URL('assets/vendor/kuromoji/0.1.2/dict/', document.baseURI).href
                     }));
                     return engine;
                 } catch (error) {

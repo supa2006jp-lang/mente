@@ -13775,7 +13775,7 @@
         const ffmpeg = window.FFmpeg.createFFmpeg({
             log: false,
             mainName: 'main',
-            corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+            corePath: new URL('assets/vendor/ffmpeg-core-st/0.11.1/ffmpeg-core.js', document.baseURI).href
         });
         this._shiftPhotoCompareAudioFFmpegLoading = ffmpeg;
         try {
@@ -17574,7 +17574,7 @@
         const ffmpeg = window.FFmpeg.createFFmpeg({
             log: false,
             mainName: 'main',
-            corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+            corePath: new URL('assets/vendor/ffmpeg-core-st/0.11.1/ffmpeg-core.js', document.baseURI).href
         });
         try {
             await ffmpeg.load();

@@ -411,14 +411,14 @@
                     const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
                     const lineText = machine?.lineNo ? this.getLineLabel(machine.lineNo) : '';
                     return `
-                        <div class="compact-detail-card ${type === 'oneOffPlanned' ? 'one-off-planned' : 'planned'}" onclick="app.closeModal(); app.openCompletionForm('${this.escapeHtml(s.id)}', '${dateStr}')">
-                            <div class="compact-detail-icon"><i class="fa-solid ${config.icon}"></i></div>
-                            <div class="compact-detail-main">
-                                <div class="compact-detail-title">${this.escapeHtml(s.content || '予定')}</div>
-                                <div class="compact-detail-sub">${this.escapeHtml(machineLabel)}${lineText ? ` / ${this.escapeHtml(lineText)}` : ''}</div>
-                            </div>
-                            <i class="fa-solid fa-chevron-right compact-detail-arrow"></i>
-                        </div>
+                        <button type="button" class="compact-detail-card ${type === 'oneOffPlanned' ? 'one-off-planned' : 'planned'}" onclick="app.closeModal(); app.openCompletionForm('${this.escapeHtml(this.escapeJs(s.id))}', '${this.escapeHtml(this.escapeJs(dateStr))}')">
+                            <span class="compact-detail-icon" aria-hidden="true"><i class="fa-solid ${config.icon}"></i></span>
+                            <span class="compact-detail-main">
+                                <span class="compact-detail-title">${this.escapeHtml(s.content || '予定')}</span>
+                                <span class="compact-detail-sub">${this.escapeHtml(machineLabel)}${lineText ? ` / ${this.escapeHtml(lineText)}` : ''}</span>
+                            </span>
+                            <i class="fa-solid fa-chevron-right compact-detail-arrow" aria-hidden="true"></i>
+                        </button>
                     `;
                 }).join('');
             } else {
@@ -430,14 +430,14 @@
                     const dokateiText = h.isDokatei ? ' / ドカ停' : '';
                     const nonProductionText = h.isNonProductionStop ? ' / 非生産停止' : '';
                     return `
-                        <div class="compact-detail-card ${type}" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeHtml(h.id)}')">
-                            <div class="compact-detail-icon"><i class="fa-solid ${config.icon}"></i></div>
-                            <div class="compact-detail-main">
-                                <div class="compact-detail-title">${this.escapeHtml(this.getHistoryDisplayText(h))}</div>
-                                <div class="compact-detail-sub">${this.escapeHtml(machineLabel + workerText + dokateiText + nonProductionText)}</div>
-                            </div>
-                            <i class="fa-solid fa-chevron-right compact-detail-arrow"></i>
-                        </div>
+                        <button type="button" class="compact-detail-card ${type}" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeHtml(this.escapeJs(h.id))}')">
+                            <span class="compact-detail-icon" aria-hidden="true"><i class="fa-solid ${config.icon}"></i></span>
+                            <span class="compact-detail-main">
+                                <span class="compact-detail-title">${this.escapeHtml(this.getHistoryDisplayText(h))}</span>
+                                <span class="compact-detail-sub">${this.escapeHtml(machineLabel + workerText + dokateiText + nonProductionText)}</span>
+                            </span>
+                            <i class="fa-solid fa-chevron-right compact-detail-arrow" aria-hidden="true"></i>
+                        </button>
                     `;
                 }).join('');
             }
@@ -463,14 +463,14 @@
             const type = h.taskId ? 'done' : (h.isDokatei ? 'dokatei' : (h.isNonProductionStop ? 'nonProductionStop' : 'sudden'));
             const icon = h.taskId ? 'fa-circle-check' : (h.isDokatei ? 'fa-triangle-exclamation' : (h.isNonProductionStop ? 'fa-circle-pause' : 'fa-bolt-lightning'));
             cards.push(`
-                <div class="compact-detail-card ${type}" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeHtml(h.id)}')">
-                    <div class="compact-detail-icon"><i class="fa-solid ${icon}"></i></div>
-                    <div class="compact-detail-main">
-                        <div class="compact-detail-title">${this.escapeHtml(this.getHistoryDisplayText(h))}</div>
-                        <div class="compact-detail-sub">${this.escapeHtml(machineLabel + workerText)}</div>
-                    </div>
-                    <i class="fa-solid fa-chevron-right compact-detail-arrow"></i>
-                </div>
+                <button type="button" class="compact-detail-card ${type}" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeHtml(this.escapeJs(h.id))}')">
+                    <span class="compact-detail-icon" aria-hidden="true"><i class="fa-solid ${icon}"></i></span>
+                    <span class="compact-detail-main">
+                        <span class="compact-detail-title">${this.escapeHtml(this.getHistoryDisplayText(h))}</span>
+                        <span class="compact-detail-sub">${this.escapeHtml(machineLabel + workerText)}</span>
+                    </span>
+                    <i class="fa-solid fa-chevron-right compact-detail-arrow" aria-hidden="true"></i>
+                </button>
             `);
         });
 
@@ -479,14 +479,14 @@
             const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
             const isOneOff = this.getScheduledTaskOccurrencePeriodDays(s, dateStr) <= 0;
             cards.push(`
-                <div class="compact-detail-card ${isOneOff ? 'one-off-planned' : 'planned'}" onclick="app.closeModal(); app.openCompletionForm('${this.escapeHtml(s.id)}', '${dateStr}')">
-                    <div class="compact-detail-icon"><i class="fa-solid ${isOneOff ? 'fa-calendar-day' : 'fa-wrench'}"></i></div>
-                    <div class="compact-detail-main">
-                        <div class="compact-detail-title">${this.escapeHtml(s.content || '予定')}</div>
-                        <div class="compact-detail-sub">${this.escapeHtml(machineLabel)}${isOneOff ? ' / 単発予定' : ''}</div>
-                    </div>
-                    <i class="fa-solid fa-chevron-right compact-detail-arrow"></i>
-                </div>
+                <button type="button" class="compact-detail-card ${isOneOff ? 'one-off-planned' : 'planned'}" onclick="app.closeModal(); app.openCompletionForm('${this.escapeHtml(this.escapeJs(s.id))}', '${this.escapeHtml(this.escapeJs(dateStr))}')">
+                    <span class="compact-detail-icon" aria-hidden="true"><i class="fa-solid ${isOneOff ? 'fa-calendar-day' : 'fa-wrench'}"></i></span>
+                    <span class="compact-detail-main">
+                        <span class="compact-detail-title">${this.escapeHtml(s.content || '予定')}</span>
+                        <span class="compact-detail-sub">${this.escapeHtml(machineLabel)}${isOneOff ? ' / 単発予定' : ''}</span>
+                    </span>
+                    <i class="fa-solid fa-chevron-right compact-detail-arrow" aria-hidden="true"></i>
+                </button>
             `);
         });
 

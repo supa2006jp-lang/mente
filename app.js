@@ -251,6 +251,7 @@ class MaintenanceApp {
     }
 
     init() {
+        this.setupSaveStatusIndicator();
         this.setupNavigation();
         this.setupCalendarControls();
         this.updateDepartmentUI(); // Initialize department label
@@ -265,7 +266,6 @@ class MaintenanceApp {
         this.restoreStatsState();
         this.setupShiftNoteFormatMenuClose();
         this.setupDelegatedActions?.();
-        this.setupSaveStatusIndicator();
         this.updateTodoRequestCountBadge();
         this.cleanupExpiredShiftNotebookPhotos?.();
     }
@@ -276,10 +276,14 @@ class MaintenanceApp {
         } catch (_) {
             this._lastLatestJsonExport = null;
         }
+        this._saveFailureHistory = this.loadSaveFailureHistory();
+        this._persistentStorageState = 'checking';
         this._saveStatusState = store.startupSaveSafe === false ? 'unverified' : 'saved';
         this.updateSaveStatus(this._saveStatusState);
         window.addEventListener('maintenance-save-status', (event) => {
-            this.updateSaveStatus(event.detail?.status || 'saved', event.detail || {});
+            const detail = event.detail || {};
+            if (detail.status === 'error') this.recordSaveFailure(detail);
+            this.updateSaveStatus(detail.status || 'saved', detail);
         });
         document.addEventListener('input', (event) => {
             if (event.target?.closest?.('#modal-content')) this.updateSaveStatus('dirty');
@@ -295,13 +299,128 @@ class MaintenanceApp {
             this.toggleSaveStatusDiagnostics();
         });
         document.addEventListener('click', event => {
-            if (event.target?.closest?.('.header-right')) return;
+            if (event.composedPath?.().some(node => node?.classList?.contains?.('header-right'))
+                || event.target?.closest?.('.header-right')) return;
             this.closeSaveStatusDiagnostics();
         });
         document.addEventListener('keydown', event => {
             if (event.key === 'Escape') this.closeSaveStatusDiagnostics();
         });
         setTimeout(() => this.refreshSaveStatusAlternateCandidate(), 0);
+        this.refreshPersistentStorageStatus();
+    }
+
+    loadSaveFailureHistory() {
+        try {
+            const saved = JSON.parse(localStorage.getItem('maintenance_save_failure_history_v1') || '[]');
+            if (!Array.isArray(saved)) return [];
+            return saved.filter(entry => entry && typeof entry === 'object')
+                .slice(0, 8)
+                .map(entry => ({
+                    at: String(entry.at || ''),
+                    backend: entry.backend === 'localStorage' ? 'localStorage' : 'indexeddb',
+                    revision: Number.isSafeInteger(entry.revision) ? entry.revision : null,
+                    reason: String(entry.reason || '').slice(0, 240)
+                }));
+        } catch (_) {
+            return [];
+        }
+    }
+
+    recordSaveFailure(detail = {}) {
+        const error = detail.error;
+        const reason = String(error?.message || error || '保存に失敗しました。')
+            .replace(/[\r\n\t]+/g, ' ').slice(0, 240);
+        const record = {
+            at: new Date().toISOString(),
+            backend: detail.backend === 'localStorage' ? 'localStorage' : 'indexeddb',
+            revision: Number.isSafeInteger(detail.revision) ? detail.revision : null,
+            reason
+        };
+        this._saveFailureHistory = [record, ...(this._saveFailureHistory || [])].slice(0, 8);
+        try {
+            localStorage.setItem('maintenance_save_failure_history_v1', JSON.stringify(this._saveFailureHistory));
+        } catch (storageError) {
+            console.warn('保存失敗履歴を端末に記録できませんでした。', storageError);
+        }
+    }
+
+    formatSaveFailureHistory() {
+        return (this._saveFailureHistory || []).map(entry => {
+            const time = new Date(entry.at);
+            const at = Number.isFinite(time.getTime()) ? time.toLocaleString('ja-JP') : entry.at;
+            const backend = entry.backend === 'localStorage' ? 'localStorage' : 'IndexedDB';
+            return `${at} / ${backend} / revision ${entry.revision ?? '-'} / ${entry.reason}`;
+        }).join('\n');
+    }
+
+    async copySaveFailureHistory() {
+        const value = this.formatSaveFailureHistory();
+        if (!value) return;
+        try {
+            if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(value);
+            } else {
+                const input = document.createElement('textarea');
+                input.value = value;
+                input.setAttribute('readonly', '');
+                input.style.position = 'fixed';
+                input.style.left = '-9999px';
+                document.body.appendChild(input);
+                try {
+                    input.select();
+                    if (!document.execCommand?.('copy')) throw new Error('コピーできませんでした。');
+                } finally {
+                    input.remove();
+                }
+            }
+            this.showToast?.('保存失敗履歴をコピーしました', 'success');
+        } catch (error) {
+            alert(`保存失敗履歴をコピーできませんでした。${error?.message || ''}`);
+        }
+    }
+
+    async refreshPersistentStorageStatus() {
+        if (typeof navigator === 'undefined' || typeof navigator.storage?.persisted !== 'function') {
+            this._persistentStorageState = 'unsupported';
+        } else {
+            try {
+                this._persistentStorageState = await navigator.storage.persisted() ? 'granted' : 'not-granted';
+            } catch (error) {
+                console.warn('保存領域の永続化状態を確認できませんでした。', error);
+                this._persistentStorageState = 'error';
+            }
+        }
+        const panel = typeof document !== 'undefined' && document.getElementById('app-save-diagnostics');
+        if (panel && !panel.hidden) this.renderSaveStatusDiagnostics();
+        return this._persistentStorageState;
+    }
+
+    async requestPersistentStorage() {
+        if (this._persistentStorageRequestInProgress) return;
+        if (typeof navigator === 'undefined' || typeof navigator.storage?.persist !== 'function') {
+            this._persistentStorageState = 'unsupported';
+            this.renderSaveStatusDiagnostics();
+            return;
+        }
+        this._persistentStorageRequestInProgress = true;
+        this._persistentStorageState = 'requesting';
+        this.renderSaveStatusDiagnostics();
+        try {
+            const granted = await navigator.storage.persist();
+            this._persistentStorageState = granted ? 'granted' : 'not-granted';
+        } catch (error) {
+            console.warn('保存領域の永続化を要求できませんでした。', error);
+            this._persistentStorageState = 'error';
+        } finally {
+            this._persistentStorageRequestInProgress = false;
+            this.renderSaveStatusDiagnostics();
+            if (typeof document !== 'undefined') {
+                const nextFocus = document.getElementById('app-save-diagnostics')?.querySelector('.app-save-persist-button')
+                    || document.getElementById('app-save-status');
+                nextFocus?.focus?.();
+            }
+        }
     }
 
     getSaveStatusCounts(data = store.data) {
@@ -438,6 +557,23 @@ class MaintenanceApp {
             default: '保存済みデータを確認できず初期状態'
         }[store.startupStateSource] || '不明');
         add('最終成功保存', this.formatSaveStatusTime(store.lastSuccessfulSaveAt || store.data?.settings?.lastSuccessfulSaveAt));
+        add('保存領域の永続化', {
+            checking: '確認中',
+            requesting: '許可を確認中',
+            granted: '許可済み',
+            'not-granted': '未許可（通常のブラウザー保存）',
+            unsupported: 'このブラウザーでは確認できません',
+            error: '状態を確認できませんでした'
+        }[this._persistentStorageState] || '確認中');
+        if (['not-granted', 'error'].includes(this._persistentStorageState)
+            && typeof navigator !== 'undefined' && typeof navigator.storage?.persist === 'function') {
+            const requestButton = document.createElement('button');
+            requestButton.type = 'button';
+            requestButton.className = 'secondary-btn app-save-persist-button';
+            requestButton.textContent = '保存領域の永続化を要求';
+            requestButton.addEventListener('click', () => this.requestPersistentStorage());
+            panel.appendChild(requestButton);
+        }
         add('全体の主要データ', `${current.total}件 / ${current.departments}部署`);
         add('表示中の部署', `${current.departmentName} (${current.currentId}) / ${current.current}件`);
         if (store.startupSaveSafe === false) add('起動時の確認', '保存済みデータを確認できませんでした。入力は続けられます。');
@@ -446,6 +582,23 @@ class MaintenanceApp {
             : '出力記録なし');
         if (store.storageWarning) add('保存先切替の理由', store.storageWarning.message || String(store.storageWarning));
         if (this._saveStatusError) add('直近の保存エラー', this._saveStatusError.message || String(this._saveStatusError));
+        const failures = this._saveFailureHistory || [];
+        const failureTitle = document.createElement('strong');
+        failureTitle.className = 'app-save-diagnostics-title app-save-failure-title';
+        failureTitle.textContent = `保存失敗履歴（${failures.length}件・最大8件）`;
+        panel.appendChild(failureTitle);
+        const failureText = document.createElement('pre');
+        failureText.className = 'app-save-failure-history';
+        failureText.textContent = failures.length ? this.formatSaveFailureHistory() : '記録なし';
+        panel.appendChild(failureText);
+        if (failures.length) {
+            const copyButton = document.createElement('button');
+            copyButton.type = 'button';
+            copyButton.className = 'secondary-btn app-save-failure-copy';
+            copyButton.textContent = '失敗履歴をコピー';
+            copyButton.addEventListener('click', () => this.copySaveFailureHistory());
+            panel.appendChild(copyButton);
+        }
         const alternate = this._saveStatusAlternateCandidate;
         const alternateLabel = alternate?.source === 'indexeddb' ? 'IndexedDB' : 'localStorage';
         if (alternate?.error) add(`${alternateLabel} 側`, `確認できません: ${alternate.error}`);

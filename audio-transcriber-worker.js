@@ -1,6 +1,7 @@
-import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
+import { pipeline, env } from './assets/vendor/transformers/3.8.1/transformers.web.min.js';
 
 env.allowLocalModels = false;
+env.backends.onnx.wasm.wasmPaths = new URL('assets/vendor/transformers/3.8.1/', self.location.href).href;
 
 let transcriberPromise = null;
 

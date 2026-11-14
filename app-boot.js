@@ -1,7 +1,7 @@
 (function () {
     const featureSources = {
-        notebook: 'app-shift-notebook-core.js?v=20261114-lazy1',
-        photos: 'app-photo-manager.js?v=20261114-photo-page1',
+        notebook: 'app-shift-notebook-core.js?v=20261115-all5',
+        photos: 'app-photo-manager.js?v=20261115-all5',
         camera: 'app-shift-photo-camera.js?v=20260906-avatar-stage72',
         reveal: 'app-shift-photo-reveal.js?v=20260906-avatar-stage72',
         avatar: 'app-shift-avatar-conversation.js?v=20260906-avatar-stage72'
@@ -301,6 +301,11 @@
         } catch (error) {
             console.error('Failed to start app:', error);
             alert('アプリの起動に失敗しました。ページを再読み込みしてください。');
+        }
+        if (typeof navigator !== 'undefined' && navigator.serviceWorker
+            && (window.location?.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(window.location?.hostname))) {
+            navigator.serviceWorker.register('./service-worker.js', { scope: './', updateViaCache: 'none' })
+                .catch(error => console.warn('Offline cache registration failed:', error));
         }
     });
 })();

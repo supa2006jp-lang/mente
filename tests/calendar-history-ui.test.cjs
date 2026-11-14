@@ -32,11 +32,13 @@ function makeApp(task) {
         static toHalfWidthLower(value) { return String(value).toLowerCase(); }
     }
     const calendarDays = makeElement();
+    const modalContent = { innerHTML: '' };
     const stats = new Map();
     const document = {
         createElement() { return makeElement(); },
         getElementById(id) {
             if (id === 'calendar-days') return calendarDays;
+            if (id === 'modal-content') return modalContent;
             if (id.startsWith('cal-stat-')) {
                 if (!stats.has(id)) stats.set(id, makeElement());
                 return stats.get(id);
@@ -59,8 +61,9 @@ function makeApp(task) {
     app.getCalendarBackgroundMode = () => 'anime';
     app.getLineStampLabel = () => '';
     app.escapeHtml = value => String(value);
+    app.escapeJs = value => String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     app.getLocalDateString = () => '2026-11-16';
-    return { app, calendarDays };
+    return { app, calendarDays, modalContent };
 }
 
 test('calendar badges block dragging historical dates while retaining completion click', () => {
@@ -96,4 +99,26 @@ test('calendar and compact view classify old one-off dates by their original seg
     app.renderCompactCalendarItems(newChips, '2026-11-20', [], [task], '', new Date(2026, 10, 20), today);
     assert.equal(oldChips.children.some(chip => chip.classList.contains('one-off-planned')), true);
     assert.equal(newChips.children.some(chip => chip.classList.contains('planned')), true);
+});
+
+test('calendar detail actions render as keyboard-activatable buttons', () => {
+    const task = { id: 'planned', machineId: 'machine-1', content: '予定', periodDays: 7 };
+    const history = { id: 'history-1', machineId: 'machine-1', content: '完了記録', workers: [] };
+    const { app, modalContent } = makeApp(task);
+    app.getHistoryForDate = () => [history];
+    app.getScheduledTasksForDate = () => [task];
+    app.matchesCalendarLineFilter = () => true;
+    app.getHistoryDisplayText = item => item.content;
+    app.getScheduledTaskOccurrencePeriodDays = () => 7;
+    app.openModal = (_type, _title, render) => render();
+
+    app.openCalendarDayDetails('2026-11-16');
+    assert.equal((modalContent.innerHTML.match(/<button type="button" class="compact-detail-card /g) || []).length, 2);
+    assert.equal((modalContent.innerHTML.match(/<\/button>/g) || []).length, 2);
+    assert.doesNotMatch(modalContent.innerHTML, /<div class="compact-detail-card [^"]+" onclick=/);
+
+    app.openCompactCalendarDetails('2026-11-16', 'sudden');
+    assert.match(modalContent.innerHTML, /<button type="button" class="compact-detail-card sudden"/);
+    app.openCompactCalendarDetails('2026-11-16', 'planned');
+    assert.match(modalContent.innerHTML, /<button type="button" class="compact-detail-card planned"/);
 });

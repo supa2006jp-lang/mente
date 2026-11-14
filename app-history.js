@@ -32,12 +32,12 @@
                     ${history.length === 0 ? '<p style="font-size:0.85rem; padding:12px; background:var(--background); border-radius:8px;">記録はありません。</p>' : `
                         <div style="display:flex; flex-direction:column; gap:10px;">
                             ${history.map(h => `
-                                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:white; border:1px solid var(--border); border-radius:8px; cursor:pointer;" onclick="app.closeModal(); app.openHistoryEditForm('${h.id}')">
-                                    <div>
-                                        <div style="font-weight:800;">${h.isSudden ? '<span style="color:var(--danger)">[突発]</span> ' : ''}${this.getHistoryDisplayText(h)}</div>
-                                        <div style="font-size:0.75rem; color:var(--text-light);">${store.getMachines(true).find(m => m.id === h.machineId)?.name || '不明'}</div>
-                                    </div>
-                                </div>
+                                <button type="button" class="history-inline-action" style="display:flex; width:100%; justify-content:space-between; align-items:center; padding:12px; background:white; border:1px solid var(--border); border-radius:8px; text-align:left;" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeJs(h.id)}')">
+                                    <span>
+                                        <span style="display:block; font-weight:800;">${h.isSudden ? '<span style="color:var(--danger)">[突発]</span> ' : ''}${this.escapeHtml(this.getHistoryDisplayText(h))}</span>
+                                        <span style="display:block; font-size:0.75rem; color:var(--text-light);">${this.escapeHtml(store.getMachines(true).find(m => m.id === h.machineId)?.name || '不明')}</span>
+                                    </span>
+                                </button>
                             `).join('')}
                         </div>
                     `}
@@ -496,11 +496,14 @@
     renderHistoryPrioritySigns(history, recurrenceGroup, cost) {
         const { signs, missingPartPrices } = this.getHistoryPrioritySignItems(history, recurrenceGroup, cost);
         if (!signs.length) return '';
-        return `<span class="history-priority-signs">${signs.map(sign => `
-            <span class="history-priority-sign ${sign.cls}" title="${this.escapeHtml(sign.label)}"${sign.cls === 'part-price' && missingPartPrices[0] ? ` onclick="app.openMissingPartPriceMaster('${this.escapeJs(missingPartPrices[0].name)}', '${this.escapeJs(missingPartPrices[0].model)}', event)"` : ''}>
+        return `<span class="history-priority-signs">${signs.map(sign => {
+            const actionable = sign.cls === 'part-price' && missingPartPrices[0];
+            const tag = actionable ? 'button' : 'span';
+            return `
+            <${tag} ${actionable ? 'type="button" ' : ''}class="history-priority-sign ${sign.cls}${actionable ? ' history-inline-action' : ''}" title="${this.escapeHtml(sign.label)}"${actionable ? ` onclick="app.openMissingPartPriceMaster('${this.escapeJs(missingPartPrices[0].name)}', '${this.escapeJs(missingPartPrices[0].model)}', event)"` : ''}>
                 <i class="fa-solid ${sign.icon}"></i>${this.escapeHtml(sign.label)}
-            </span>
-        `).join('')}</span>`;
+            </${tag}>`;
+        }).join('')}</span>`;
     }
 
     toggleHistoryBadgeFold(historyId, event = null) {
@@ -697,24 +700,169 @@
         sortByDate();
     }
 
-    deleteHistoryEntry(id) {
-        if (confirm('この記録を完全に削除しますか？')) {
-            const h = store.activeData.history.find(h => h.id === id);
-            if (h && h.replacedParts) {
-                h.replacedParts.forEach(p => {
-                    store.adjustStock(p.name, p.model, p.count, {
-                        source: 'maintenance-delete',
-                        sourceId: h.id,
-                        reason: 'メンテナンス履歴削除（使用分を戻す）'
-                    });
-                });
+    applyHistoryDeletionStockChanges(active, parts, source, reason, changes, requireMaster = false) {
+        for (const part of parts) {
+            const delta = Math.round((parseFloat(part.delta) || 0) * 1000) / 1000;
+            if (!delta) continue;
+            const master = part.master && active.partsMaster?.includes(part.master)
+                ? part.master
+                : store.getPartMaster(part.name, part.model);
+            if (!master) {
+                if (requireMaster) throw new Error(`部品「${part.name || ''}」の在庫を確認できません。`);
+                continue;
             }
-            store.activeData.history = store.activeData.history.filter(h => h.id !== id);
-            store.save();
+            const before = parseFloat(master.stock) || 0;
+            master.stock = Math.round((before + delta) * 1000) / 1000;
+            const change = { master, name: master.name, model: master.model, delta, movement: null };
+            changes.push(change);
+            change.movement = store.recordPartStockMovement(master, delta, before, master.stock, {
+                source, sourceId: part.sourceId, reason
+            });
+        }
+    }
+
+    rollbackHistoryDeletionStockChanges(active, changes) {
+        for (const change of [...changes].reverse()) {
+            const master = active.partsMaster?.includes(change.master)
+                ? change.master
+                : active.partsMaster?.find(part => part.name === change.name && part.model === change.model);
+            if (master) master.stock = Math.round(((parseFloat(master.stock) || 0) - change.delta) * 1000) / 1000;
+            if (change.movement && Array.isArray(active.partStockMovements)) {
+                const index = active.partStockMovements.indexOf(change.movement);
+                if (index !== -1) active.partStockMovements.splice(index, 1);
+            }
+        }
+    }
+
+    async deleteHistoryEntry(id) {
+        if (this._historyDeleteInProgress) return;
+        const active = store.activeData;
+        const index = active.history.findIndex(record => record.id === id);
+        if (index < 0 || !confirm('この記録を削除しますか？削除直後は取り消せます。')) return;
+        const record = active.history[index];
+        const dataRef = store.data;
+        const departmentId = dataRef.currentDepartmentId;
+        const deleteButton = document.querySelector('.modal-footer .danger-btn');
+        const stockChanges = [];
+        let removed = false;
+        this._historyDeleteInProgress = true;
+        if (deleteButton) deleteButton.disabled = true;
+        try {
+            const parts = (record.replacedParts || []).map(part => ({
+                name: part.name, model: part.model, delta: part.count, sourceId: record.id
+            }));
+            this.applyHistoryDeletionStockChanges(
+                active, parts, 'maintenance-delete', 'メンテナンス履歴削除（使用分を戻す）', stockChanges
+            );
+            active.history.splice(index, 1);
+            removed = true;
+            await store.save({ discardQueuedOnFailure: true });
+        } catch (error) {
+            if (removed && !active.history.some(item => item.id === record.id)) {
+                active.history.splice(Math.min(index, active.history.length), 0, record);
+            }
+            this.rollbackHistoryDeletionStockChanges(active, stockChanges);
+            console.error('履歴を削除できませんでした。', error);
+            alert(`履歴を削除できませんでした。${error?.message || '保存先を確認してください。'}`);
+            return;
+        } finally {
+            this._historyDeleteInProgress = false;
+            if (deleteButton?.isConnected) deleteButton.disabled = false;
+        }
+        try {
             this.closeModal();
             this.renderCalendar();
-            this.renderHistory(); // Refresh history view if active
+            this.renderHistory();
+        } catch (displayError) {
+            console.warn('履歴削除後の画面更新に失敗しました。', displayError);
         }
+        this.showHistoryDeleteUndoNotice(record, () => this.undoHistoryDeletion({
+            active, dataRef, departmentId, index, record, stockChanges
+        }));
+    }
+
+    async undoHistoryDeletion({ active, dataRef, departmentId, index, record, stockChanges }) {
+        if (store.data !== dataRef || store.data.currentDepartmentId !== departmentId) {
+            throw new Error('作業中のデータが切り替わりました。元の部署に戻ってから操作してください。');
+        }
+        if (active.history.some(item => item.id === record.id)) return;
+        const parts = stockChanges.map(change => ({
+            master: change.master, name: change.name, model: change.model,
+            delta: -change.delta, sourceId: record.id
+        }));
+        const undoChanges = [];
+        active.history.splice(Math.min(index, active.history.length), 0, record);
+        try {
+            this.applyHistoryDeletionStockChanges(
+                active, parts, 'maintenance-delete-undo', 'メンテナンス履歴削除を取り消す（在庫を再反映）',
+                undoChanges, true
+            );
+            await store.save({ discardQueuedOnFailure: true });
+        } catch (error) {
+            const recordIndex = active.history.indexOf(record);
+            if (recordIndex !== -1) active.history.splice(recordIndex, 1);
+            this.rollbackHistoryDeletionStockChanges(active, undoChanges);
+            throw error;
+        }
+        try {
+            this.renderCalendar();
+            this.renderHistory();
+        } catch (displayError) {
+            console.warn('履歴復元後の画面更新に失敗しました。', displayError);
+        }
+    }
+
+    showHistoryDeleteUndoNotice(record, undo) {
+        const notice = document.createElement('div');
+        notice.className = 'shift-notebook-undo-toast history-delete-undo-toast';
+        notice.setAttribute('role', 'status');
+        notice.style.bottom = `${22 + document.querySelectorAll('.history-delete-undo-toast').length * 64}px`;
+        const message = document.createElement('span');
+        message.textContent = '履歴を削除しました';
+        const countdown = document.createElement('span');
+        countdown.className = 'undo-countdown';
+        countdown.setAttribute('aria-hidden', 'true');
+        countdown.textContent = '10秒';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = '取り消す';
+        notice.append(message, countdown, button);
+        document.body.appendChild(notice);
+        const returnFocus = document.activeElement;
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => notice.classList.add('show'));
+        else notice.classList.add('show');
+        button.focus();
+        let remaining = 10;
+        const interval = setInterval(() => {
+            remaining -= 1;
+            countdown.textContent = `${Math.max(0, remaining)}秒`;
+        }, 1000);
+        const finish = () => {
+            clearTimeout(timer);
+            clearInterval(interval);
+            const restoreFocus = document.activeElement === button;
+            notice.remove();
+            if (restoreFocus) returnFocus?.focus?.();
+        };
+        const timer = setTimeout(finish, 10000);
+        button.addEventListener('click', async () => {
+            clearTimeout(timer);
+            clearInterval(interval);
+            button.disabled = true;
+            countdown.textContent = '保存中';
+            try {
+                await undo();
+                finish();
+                this.showToast?.('履歴の削除を取り消しました', 'success');
+            } catch (error) {
+                console.error('履歴削除の取り消しに失敗しました。', error);
+                message.textContent = `取り消せませんでした。${error?.message || '保存先を確認してください。'}`;
+                countdown.textContent = '';
+                button.textContent = '再試行';
+                button.disabled = false;
+                button.focus();
+            }
+        });
     }
 
     ensureHistorySelectionState() {
@@ -1663,16 +1811,16 @@
                                 ${ (h.machineCategory || machine?.category) ? `<span style="font-size:0.65rem; color:var(--text-light); font-weight:800;"><i class="fa-solid fa-tag"></i> ${h.machineCategory || machine.category}</span>` : ''}
                             </div>
                             <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; font-weight:700;" title="${normMName}">
-                                <span class="history-machine-name-filter ${machine && document.getElementById('hist-filter-machine')?.value === String(machine.id) ? 'active' : ''}" onclick="app.toggleMachineFilter('${this.escapeJs(machine?.id || '')}', event)" title="この機械名で抽出">
+                                <button type="button" class="history-inline-action history-machine-name-filter ${machine && document.getElementById('hist-filter-machine')?.value === String(machine.id) ? 'active' : ''}" onclick="app.toggleMachineFilter('${this.escapeJs(machine?.id || '')}', event)" title="この機械名で抽出">
                                     ${this.highlightText(normMName, query)}
                                     ${machine && document.getElementById('hist-filter-machine')?.value === String(machine.id) ? ' <i class="fa-solid fa-filter" style="font-size:0.6rem"></i>' : ''}
-                                </span>
+                                </button>
                             </div>
                             <div style="display:flex; align-items:center; gap:6px; min-width:0;">
-                                <span class="history-model-label ${isBlankModel ? 'blank' : ''}" onclick="app.toggleModelFilter('${normMModel}', event)" title="この型式で抽出">
+                                <button type="button" class="history-inline-action history-model-label ${isBlankModel ? 'blank' : ''}" onclick="app.toggleModelFilter('${this.escapeJs(normMModel)}', event)" title="この型式で抽出">
                                     [${this.highlightText(normMModel, query)}]
                                     ${this.modelFilter === normMModel ? ' <i class="fa-solid fa-filter" style="font-size:0.6rem"></i>' : ''}
-                                </span>
+                                </button>
                                 ${machine ? `
                                     <button type="button" class="history-machine-edit-btn" onclick="event.stopPropagation(); app.openMachineModal('${this.escapeJs(machine.id)}')" title="この機械の編集画面を開く" aria-label="機械編集">
                                         <i class="fa-solid fa-pen-to-square"></i>
@@ -1685,26 +1833,26 @@
                 <td class="history-content-cell" onclick="app.openHistoryEditForm('${this.escapeJs(h.id)}')" title="クリックして編集">
                     <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
                         <div style="font-weight:900; color:${titleColor}; flex:1; display:flex; align-items:center; min-width:0; gap:6px;">
-                            <span class="history-main-content ${this.historyTitleOutlineEnabled ? `history-main-content-outline outline-${this.historyTitleOutlineWeight}` : ''}" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${this.getHistoryDisplayText(h)}" onclick="event.stopPropagation(); app.openHistoryEditForm('${this.escapeJs(h.id)}', 'symptom')">${this.highlightText(this.getHistoryDisplayText(h), query)}</span>
+                            <button type="button" class="history-inline-action history-main-content ${this.historyTitleOutlineEnabled ? `history-main-content-outline outline-${this.historyTitleOutlineWeight}` : ''}" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${this.escapeHtml(this.getHistoryDisplayText(h))}" onclick="event.stopPropagation(); app.openHistoryEditForm('${this.escapeJs(h.id)}', 'symptom')">${this.highlightText(this.getHistoryDisplayText(h), query)}</button>
                             ${this.renderHistoryFoldableBadges(h, recurrenceFrequency, cost)}
                         </div>
                         <div style="font-size:0.85rem; color:var(--text-light); font-weight:700; white-space:nowrap; display:flex; gap:4px; align-items:center; flex-shrink:0;">
                             <i class="fa-solid fa-user-gear" style="font-size:0.75rem; opacity:0.8;"></i> 
                             ${(h.workers || []).map(w => {
                                 const colors = this.getWorkerColors(w);
-                                return `<span class="worker-badge" style="cursor:pointer; padding:2px 6px; border-radius:4px; background-color:${colors.bg}; color:${colors.text}; border:1px solid ${colors.border}; font-size:0.75rem; ${this.workerFilter === w ? 'ring:2px solid var(--primary); outline:2px solid var(--primary);' : ''}" onclick="app.toggleWorkerFilter('${w}', event)">${w}</span>`;
+                                return `<button type="button" class="history-inline-action worker-badge" style="padding:2px 6px; border-radius:4px; background-color:${colors.bg}; color:${colors.text}; border:1px solid ${colors.border}; font-size:0.75rem; ${this.workerFilter === w ? 'outline:2px solid var(--primary);' : ''}" onclick="app.toggleWorkerFilter('${this.escapeJs(w)}', event)">${this.escapeHtml(w)}</button>`;
                             }).join('') || '-'}
                             ${this.workerFilter && (h.workers || []).includes(this.workerFilter) ? ' <i class="fa-solid fa-filter" style="font-size:0.75rem; color:var(--primary)"></i>' : ''}
                         </div>
                     </div>
                     <div class="history-detail-lines">
                         ${causeText
-                            ? `<div class="history-row-detail-text history-cause-detail has-value"><span class="history-row-detail-hit" data-detail-full="${this.escapeHtml(`原因: ${causeText}`)}" title="クリックで原因を表示" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'cause', event)"><span class="history-row-detail-label">原因</span><span class="history-row-detail-value">${this.highlightText(causeText, query)}</span></span></div>`
-                            : (isTroubleHistory ? `<div class="history-row-detail-text history-cause-detail is-missing"><span class="history-row-detail-hit" data-detail-full="原因未入力" title="クリックで原因未入力だけ表示" onclick="app.setHistoryMissingDetailFilter('cause', event)"><span class="history-row-detail-label">原因</span><span class="history-row-detail-value">未入力</span></span></div>` : '')
+                            ? `<div class="history-row-detail-text history-cause-detail has-value"><button type="button" class="history-inline-action history-row-detail-hit" data-detail-full="${this.escapeHtml(`原因: ${causeText}`)}" title="クリックで原因を表示" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'cause', event)"><span class="history-row-detail-label">原因</span><span class="history-row-detail-value">${this.highlightText(causeText, query)}</span></button></div>`
+                            : (isTroubleHistory ? `<div class="history-row-detail-text history-cause-detail is-missing"><button type="button" class="history-inline-action history-row-detail-hit" data-detail-full="原因未入力" title="クリックで原因未入力だけ表示" onclick="app.setHistoryMissingDetailFilter('cause', event)"><span class="history-row-detail-label">原因</span><span class="history-row-detail-value">未入力</span></button></div>` : '')
                         }
                         ${notesText
-                            ? `<div class="history-row-detail-text history-action-detail has-value"><span class="history-row-detail-hit" data-detail-full="${this.escapeHtml(`処置: ${notesText}`)}" title="クリックで処置を表示" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'notes', event)"><span class="history-row-detail-label">処置</span><span class="history-row-detail-value">${this.highlightText(notesText, query)}</span></span></div>`
-                            : (isTroubleHistory ? `<div class="history-row-detail-text history-action-detail is-missing"><span class="history-row-detail-hit" data-detail-full="処置未入力" title="クリックで処置未入力だけ表示" onclick="app.setHistoryMissingDetailFilter('notes', event)"><span class="history-row-detail-label">処置</span><span class="history-row-detail-value">未入力</span></span></div>` : '')
+                            ? `<div class="history-row-detail-text history-action-detail has-value"><button type="button" class="history-inline-action history-row-detail-hit" data-detail-full="${this.escapeHtml(`処置: ${notesText}`)}" title="クリックで処置を表示" onclick="app.showHistoryDetailPopover(this, '${this.escapeJs(h.id)}', 'notes', event)"><span class="history-row-detail-label">処置</span><span class="history-row-detail-value">${this.highlightText(notesText, query)}</span></button></div>`
+                            : (isTroubleHistory ? `<div class="history-row-detail-text history-action-detail is-missing"><button type="button" class="history-inline-action history-row-detail-hit" data-detail-full="処置未入力" title="クリックで処置未入力だけ表示" onclick="app.setHistoryMissingDetailFilter('notes', event)"><span class="history-row-detail-label">処置</span><span class="history-row-detail-value">未入力</span></button></div>` : '')
                         }
                     </div>
                     ${matchLabels.length ? `
@@ -1729,7 +1877,7 @@
                         </div>
                     ` : '<span style="color:var(--text-light); font-size:0.75rem;">-</span>'}
                 </td>
-                <td style="text-align: center;"><span class="badge ${badgeClass}" style="cursor:pointer; padding:4px 6px; font-size:0.65rem; min-width:40px; ${h.isNonProductionStop ? 'background:#fef3c7; color:#92400e; border:1px solid #fcd34d;' : ''}" onclick="app.toggleTypeFilter('${typeInfo.key}', event)" title="この区分で抽出">${badgeText}</span></td>
+                <td style="text-align: center;"><button type="button" class="history-inline-action badge ${badgeClass}" style="padding:4px 6px; font-size:0.65rem; min-width:40px; ${h.isNonProductionStop ? 'background:#fef3c7; color:#92400e; border:1px solid #fcd34d;' : ''}" onclick="app.toggleTypeFilter('${typeInfo.key}', event)" title="この区分で抽出">${badgeText}</button></td>
                 <td>
                     <div class="history-metric-cell time">
                         ${this.renderHistoryWorkTimeCell(h)}
@@ -1883,11 +2031,11 @@
                 <div class="history-filter-chips">
                     ${commonBadge}
                     ${chips.length ? chips.map(chip => `<span>${this.escapeHtml(chip)}</span>`).join('') : '<span>絞り込みなし</span>'}
-                    <span class="history-row-color-legend periodic ${filters.type === 'periodic' ? 'active' : ''}" onclick="app.toggleTypeFilter('periodic', event)" title="定期で抽出"><i style="background:${typePalette.periodicBg}"></i> 定期</span>
-                    <span class="history-row-color-legend single-maintenance ${filters.type === 'singleMaintenance' ? 'active' : ''}" onclick="app.toggleTypeFilter('singleMaintenance', event)" title="単発メンテで抽出"><i style="background:${typePalette.singleBg}"></i> 単発メンテ</span>
-                    <span class="history-row-color-legend sudden ${filters.type === 'sudden' ? 'active' : ''}" onclick="app.toggleTypeFilter('sudden', event)" title="突発で抽出"><i style="background:${typePalette.suddenBg}"></i> 突発</span>
-                    <span class="history-row-color-legend non-production ${filters.type === 'nonProductionStop' ? 'active' : ''}" onclick="app.toggleTypeFilter('nonProductionStop', event)" title="非生産停止で抽出"><i style="background:${typePalette.nonProductionBg}"></i> 非生産停止</span>
-                    <span class="history-row-color-legend dokatei ${filters.type === 'dokatei' ? 'active' : ''}" onclick="app.toggleTypeFilter('dokatei', event)" title="ドカ停で抽出"><i style="background:${typePalette.dokateiBg}"></i> ドカ停</span>
+                    <button type="button" class="history-inline-action history-row-color-legend periodic ${filters.type === 'periodic' ? 'active' : ''}" onclick="app.toggleTypeFilter('periodic', event)" title="定期で抽出"><i style="background:${typePalette.periodicBg}"></i> 定期</button>
+                    <button type="button" class="history-inline-action history-row-color-legend single-maintenance ${filters.type === 'singleMaintenance' ? 'active' : ''}" onclick="app.toggleTypeFilter('singleMaintenance', event)" title="単発メンテで抽出"><i style="background:${typePalette.singleBg}"></i> 単発メンテ</button>
+                    <button type="button" class="history-inline-action history-row-color-legend sudden ${filters.type === 'sudden' ? 'active' : ''}" onclick="app.toggleTypeFilter('sudden', event)" title="突発で抽出"><i style="background:${typePalette.suddenBg}"></i> 突発</button>
+                    <button type="button" class="history-inline-action history-row-color-legend non-production ${filters.type === 'nonProductionStop' ? 'active' : ''}" onclick="app.toggleTypeFilter('nonProductionStop', event)" title="非生産停止で抽出"><i style="background:${typePalette.nonProductionBg}"></i> 非生産停止</button>
+                    <button type="button" class="history-inline-action history-row-color-legend dokatei ${filters.type === 'dokatei' ? 'active' : ''}" onclick="app.toggleTypeFilter('dokatei', event)" title="ドカ停で抽出"><i style="background:${typePalette.dokateiBg}"></i> ドカ停</button>
                     <span class="history-guide-legend has-guide"><i class="fa-solid fa-file-invoice"></i> 手順有</span>
                     <span class="history-guide-legend no-guide"><i class="fa-solid fa-file-invoice"></i> 手順無</span>
                     <span class="history-guide-legend ref-guide"><i class="fa-solid fa-file-invoice"></i> 関連手順</span>
@@ -2002,10 +2150,10 @@
             Number.isFinite(group.monthlyRate) ? `月換算 ${group.monthlyRate.toFixed(1)}件` : ''
         ].filter(Boolean).join(' / ');
         return `
-            <span class="history-recurrence-frequency-chip ${group.count < 2 ? 'is-single' : ''}" title="${this.escapeHtml(detail)} / クリックで同じグループを表示" onclick="app.setHistoryRecurrenceFrequencyFilter('${this.escapeJs(payload)}', '${this.escapeJs(label)}', event)">
+            <button type="button" class="history-inline-action history-recurrence-frequency-chip ${group.count < 2 ? 'is-single' : ''}" title="${this.escapeHtml(detail)} / クリックで同じグループを表示" onclick="app.setHistoryRecurrenceFrequencyFilter('${this.escapeJs(payload)}', '${this.escapeJs(label)}', event)">
                 <i class="fa-solid fa-chart-line"></i>
                 <span>${this.escapeHtml(group.frequencyLabel)}</span>
-            </span>
+            </button>
         `;
     }
 
