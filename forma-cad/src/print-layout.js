@@ -31,6 +31,13 @@ export function movePrintPlacement(plate,id,dx,dy){
  const placements=plate.placements.map(p=>p===original?moved:p);
  return {...plate,placements,used:placementExtent(placements)};
 }
+export function centerPrintPlacements(plate){
+ if(!plate.placements.length||plate.placements.some(p=>p.locked))return plate;
+ const offset=[0,1].map(i=>-(Math.min(...plate.placements.map(p=>p.min[i]))+Math.max(...plate.placements.map(p=>p.max[i])))/2);
+ if(offset.every(value=>Math.abs(value)<=EPS))return plate;
+ const shift=([x,y,z])=>[x+offset[0],y+offset[1],z];
+ return {...plate,placements:plate.placements.map(p=>({...p,min:shift(p.min),max:shift(p.max),translation:shift(p.translation)}))};
+}
 export function planPrintLayout(items,{margin=2,gap=3,allowRotation=true,fixed=[]}={}){
  if(!Number.isFinite(margin)||margin<0||margin>20||!Number.isFinite(gap)||gap<0||gap>30||typeof allowRotation!=='boolean')throw Error('端の余白は0〜20 mm、部品の間隔は0〜30 mmで指定してください');
  if(!Array.isArray(items)||!items.length||items.length>100||new Set(items.map(b=>b.id)).size!==items.length)throw Error('配置するボディを1〜100個指定してください');

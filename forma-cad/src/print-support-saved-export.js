@@ -1,6 +1,7 @@
 import {Matrix4,Vector3} from 'three';
 import {printSupportExportMesh} from './print-support-export-mesh.js';
 import {inspectPrintSupportPackage} from './print-support-preflight.js';
+import {printPlacementMatrix} from './print-layout.js';
 
 function moveMatrix(move){
  const pivot=move.rotation&&move.pivot?move.pivot:[0,0,0],matrix=new Matrix4().makeTranslation(...pivot.map(v=>-v));
@@ -24,7 +25,7 @@ function bodyPlacement(features,start,id){
   if(spec?.type==='assemblyMate')move=result.analysis?.assembly?.transform;
   if(spec?.type==='printLayout'){
    const row=result.analysis?.placements?.find(item=>item.id===id);
-   if(row)move={rotation:[0,0,row.rotation],pivot:row.pivot,x:row.translation[0],y:row.translation[1],z:row.translation[2]};
+   if(row){placement.premultiply(printPlacementMatrix(row));continue;}
   }
   if(!move||![move.x,move.y,move.z].every(Number.isFinite))throw Error('作成後に本体・土台・リブの形状が変わりました。現在の形状でサポートを作り直してください');
   placement.premultiply(moveMatrix(move));

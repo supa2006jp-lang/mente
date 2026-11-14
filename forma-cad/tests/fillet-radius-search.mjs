@@ -34,6 +34,14 @@ const original=JSON.stringify(features),operation={id:'machining-preview',type:'
 const result=runOperation(features,{type:'filletRadiusSearch',operation},p=>progress.push(p)),info=result.analysis.filletRadiusSearch;
 assert.ok(info.radius>=.9&&info.radius<1);assert.equal(info.bodies,2);assert.equal(info.edges,24);assert.equal(result.analysis.partialFillet,undefined);assert.deepEqual(result.outputs.map(o=>o.id),['slab','cube']);assert.equal(result.remove.length,0);
 assert.equal(info.limiting.radius,1);assert.deepEqual(info.limiting.diagnostics.bodyIds,['slab']);assert.ok(info.limiting.diagnostics.edges.length);assert.ok(info.limiting.diagnostics.edges.every(e=>e.bodyId==='slab'));
+const originalSelection=progress.find(p=>p.filletRadiusSelection).filletRadiusSelection;
+const limitingEdge=info.limiting.diagnostics.edges.find(e=>Number.isInteger(e.selectionIndex));
+assert.equal(info.limiting.diagnostics.certainty,'faulty-contour');
+assert.ok(limitingEdge);
+const remaining=originalSelection.flatMap(({bodyId,references})=>references.flatMap((ref,index)=>bodyId===limitingEdge.bodyId&&index===limitingEdge.selectionIndex?[]:[{bodyId,...ref}]));
+const reduced=runOperation(features,{type:'filletRadiusSearch',operation:{type:'fillet',target:remaining[0].bodyId,radius:2,edges:remaining}});
+assert.equal(reduced.analysis.filletRadiusSearch.edges,23);
+assert.deepEqual(reduced.outputs.map(o=>o.id),['slab','cube']);
 const expandedNative=runOperation(features,{type:'filletRadiusSearch',expand:true,operation:{...operation,radius:.25}});assert.equal(expandedNative.analysis.filletRadiusSearch.radius,.99);assert.equal(expandedNative.analysis.filletRadiusSearch.expanded,true);assert.deepEqual(expandedNative.analysis.filletRadiusSearch.limiting.diagnostics.bodyIds,['slab']);
 assert.ok(progress.some(p=>p.filletRadiusCheckpoint));for(const p of progress.filter(p=>p.filletRadiusCheckpoint)){const checked=p.filletRadiusCheckpoint;assert.equal(checked.outputs.length,2);assert.equal(checked.analysis.fillets.reduce((n,f)=>n+f.edges,0),24);}
 for(const output of result.outputs){const shape=R.deserializeShape(output.brep).asShape3D(),check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{assert.ok(check.IsValid());}finally{check.delete();shape.delete();}}

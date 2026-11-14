@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {rebuild} from './geometry.js';
-import {movePrintPlacement,planPrintLayout,planPrintPlates,printOrientations,printPlacementMatrix} from './print-layout.js';
+import {centerPrintPlacements,movePrintPlacement,planPrintLayout,planPrintPlates,printOrientations,printPlacementMatrix} from './print-layout.js';
 import {comparePrintOrientations,inspectPrintLayoutPlate,printWarningSummary} from './print-layout-inspection.js';
 import {copyCadCoordinates} from './cad-coordinates.js';
 import {draggableDialog} from './draggable-dialog.js';
@@ -21,6 +21,8 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  document.body.append(dialog);draggableDialog(dialog);const $=id=>document.getElementById('print-layout-'+id);const editsModel=()=>editing?.spec.type==='printLayout';
  const legacy=()=>editsModel()&&!editing.spec.placementOverrides;
  $('orientations').before(Object.assign(document.createElement('div'),{id:'print-layout-placement-tools',innerHTML:'<p>プレート上の部品をドラッグして移動できます。固定した部品は、自動で並べ直しても位置と向きを保ちます。</p><button type="button" id="print-layout-repack">固定を残して自動で並べ直す</button>'}));
+ $('repack').after(Object.assign(document.createElement('button'),{type:'button',id:'print-layout-center',textContent:'このプレートの部品を中央に寄せる',disabled:true}));
+ $('apply-model').after(Object.assign(document.createElement('button'),{type:'button',id:'print-layout-copy-model',textContent:'表示中のプレートを印刷用に複製',disabled:true}));
  $('export').before(Object.assign(document.createElement('div'),{id:'print-layout-inspection',innerHTML:'<label class="plate-check"><input type="checkbox" id="print-layout-warnings" checked>印刷チェックを色で表示</label><p id="print-layout-warning-status" role="status"></p><ul id="print-layout-warning-parts"></ul>'}));
  $('export').after(Object.assign(document.createElement('button'),{type:'button',id:'print-layout-export-all',textContent:'全プレートを3MF出力（ZIP）',disabled:true}));
  $('plate-row').after(Object.assign(document.createElement('details'),{id:'print-layout-overview',innerHTML:'<summary>全プレートの確認</summary><button type="button" id="print-layout-check-all">全プレートを検査</button><ol id="print-layout-overview-rows"></ol>'}));
@@ -35,7 +37,10 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  const geometries=()=>new Map(preview.children.map(mesh=>[mesh.userData.layoutId,mesh.geometry]));
  function syncExport(){
   const unavailable=busy||!!drag||!!comparison||!plan?.placements.length||legacy();
-  $('apply-model').disabled=unavailable;
+  $('apply-model').disabled=$('copy-model').disabled=unavailable;
+  const hasLocks=plan?.placements.some(p=>p.locked);
+  $('center').disabled=unavailable||!!hasLocks;
+  $('center').title=hasLocks?'中央に寄せるには、このプレートの位置固定を解除してください':'部品の間隔と向きを保ってプレート中央へ移動します';
   $('export').disabled=unavailable||checking;
   $('export-all').disabled=$('check-all').disabled=unavailable;
  }
@@ -172,6 +177,16 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
   })));
  }
  $('repack').onclick=()=>{if(busy||drag)return;overrides=overrides.filter(row=>row.locked);renderOrientations();update();};
+ $('center').onclick=()=>{
+  if($('center').disabled)return;
+  const centered=centerPrintPlacements(plan);
+  $('error').textContent='';
+  if(centered===plan){notify('表示中の部品は中央に配置されています');return;}
+  plates[Number($('plate').value)]=centered;
+  snapshotPlacements();
+  showCurrentPlate();
+  notify('表示中の部品をプレート中央に寄せました');
+ };
  function updateRay(event){
   const rect=canvas.getBoundingClientRect();
   pointer.set((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2);
@@ -281,7 +296,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
    const row=document.createElement('div'),label=document.createElement('label'),select=document.createElement('select'),check=document.createElement('input'),lock=document.createElement('button'),compare=document.createElement('button');
    const locked=!!overrides.find(saved=>saved.id===item.id)?.locked;
    const inactive=busy||!!comparison;
-   label.className='plate-check';check.type='checkbox';check.checked=targets.includes(item.id);check.disabled=inactive;
+   label.className='plate-check';check.type='checkbox';check.checked=targets.includes(item.id);check.disabled=inactive||editing?.spec.copy===true;
    label.append(check,item.name);row.append(label,select,lock,compare);
    check.onchange=()=>{targets=items.filter(entry=>entry.id===item.id?check.checked:targets.includes(entry.id)).map(entry=>entry.id);if(!check.checked)overrides=overrides.filter(saved=>saved.id!==item.id);renderOrientations();update();};
    select.setAttribute('aria-label',item.name+' の印刷向き');
@@ -325,9 +340,9 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  $('plate').onchange=()=>{focusNext=false;showCurrentPlate();};
  function updateMode(){
   $('orientations').hidden=$('plate-row').hidden=$('export').hidden=$('export-all').hidden=$('overview').hidden=$('inspection').hidden=$('placement-tools').hidden=legacy();
-  $('apply').textContent=editsModel()?'モデルの配置を更新':'印刷配置を保存';
-  $('apply-model').hidden=editsModel();
-  $('apply-model').style.marginTop='8px';
+  $('apply').textContent=editing?.spec.copy?'印刷用コピーの配置を更新':editsModel()?'モデルの配置を更新':'印刷配置を保存';
+  $('apply-model').hidden=$('copy-model').hidden=editsModel();
+  $('apply-model').style.marginTop=$('copy-model').style.marginTop='8px';
  }
  async function checkOrExport({all=false,exportFiles=false}={}){
   if(busy||drag||comparison||!plan?.placements.length||legacy())return;
@@ -353,12 +368,14 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  $('form').addEventListener('input',event=>{if(event.target.matches('input[type=number],#print-layout-rotation'))update();});
  $('form').onsubmit=event=>{event.preventDefault();if(!$('apply').disabled)saveLayout(editsModel());};
  $('apply-model').onclick=()=>saveLayout(true);
- async function saveLayout(moveBodies){
+ $('copy-model').onclick=()=>saveLayout(true,true);
+ async function saveLayout(moveBodies,copy=false){
   if(busy||drag||comparison||!plan?.placements.length)return;
   const input=spec(),current=version;
   if(moveBodies&&!legacy()){
    input.type='printLayout';
    input.id=editsModel()?id:relocationId;
+   if(copy||editing?.spec.copy===true)input.copy=true;
    input.targets=plan.placements.map(p=>p.id);
    input.orientations=Object.fromEntries(plan.placements.map(p=>[p.id,p.orientation]));
    input.placementOverrides=plan.placements.map(p=>({
@@ -366,7 +383,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
    }));
   }
   setBusy(true);
-  $('error').textContent=moveBodies?'モデルの位置と向きを更新しています…':'印刷配置を保存しています…';
+  $('error').textContent=input.copy?'印刷用ボディを複製しています…':moveBodies?'モデルの位置と向きを更新しています…':'印刷配置を保存しています…';
   try{
    const result=moveBodies?await kernel.run(history,input):{outputs:[],remove:[]};
    if(current!==version||!dialog.open)return;
@@ -374,7 +391,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
    await apply(input,result,editing?.spec.type===input.type?editing:null,original,()=>current===version&&dialog.open);
    if(current!==version||!dialog.open)return;
    busy=false;applied=moveBodies;dialog.close();
-   notify(moveBodies?'表示していたプレートの '+input.targets.length+' ボディを移動しました':'印刷配置を'+plates.length+'枚のプレートで保存しました');
+   notify(input.copy?'表示していたプレートの '+input.targets.length+' ボディを印刷用に複製しました':moveBodies?'表示していたプレートの '+input.targets.length+' ボディを移動しました':'印刷配置を'+plates.length+'枚のプレートで保存しました');
   }catch(error){if(current===version&&dialog.open)$('error').textContent=error.message;}
   finally{if(current===version)setBusy(false);}
  }

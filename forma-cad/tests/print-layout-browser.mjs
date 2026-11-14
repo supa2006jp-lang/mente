@@ -40,4 +40,28 @@ try{
  await page.locator('#undo').click();assert.deepEqual((await save()).features,before.features);await page.locator('#redo').click();assert.equal((await save()).features.at(-1).spec.type,'printLayout');await load(saved.features);await page.locator('#features .row-label').last().click();await ready();assert.equal(await page.locator('#print-layout-gap').inputValue(),'3');await page.locator('#print-layout-repack').click();await page.locator('#print-layout-gap').fill('6');await ready();await page.locator('#print-layout-apply').click();await page.waitForFunction(()=>!document.getElementById('print-layout-dialog').open);assert.equal((await save()).features.at(-1).analysis.gap,6);
  await load([{...source[0],width:181}]);await page.locator('#print-layout-tool').click();await page.waitForFunction(()=>document.getElementById('print-layout-error').textContent.includes('超えています'));assert.ok(await page.locator('#print-layout-apply').isDisabled());await page.locator('#print-layout-cancel').click();assert.equal((await save()).features.length,1);
  await load([{...source[0],width:180,height:180}]);await page.locator('#print-layout-tool').click();await page.waitForFunction(()=>document.getElementById('print-layout-error').textContent.includes('超えています'));await page.locator('#print-layout-margin').fill('0');await page.locator('#print-layout-gap').fill('0');await ready();await page.locator('#print-layout-apply-model').click();await page.waitForFunction(()=>!document.getElementById('print-layout-dialog').open);assert.equal((await save()).features.at(-1).analysis.placements.length,1);assert.deepEqual(errors,[]);console.log('PASS plate preview/options, visible-only targets, cancel, rigid layout, saved model/reedit, undo/redo, STL positions, overflow rejection and exact single-body edge fit');await context.close();
+ const copyContext=await browser.newContext({viewport:{width:1900,height:1150},acceptDownloads:true}),copyPage=await copyContext.newPage();
+ copyPage.on('dialog',d=>d.accept(d.defaultValue()));
+ await copyPage.addInitScript(()=>{window.showSaveFilePicker=undefined;});
+ await copyPage.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);
+ await copyPage.locator('#canvas-host canvas').waitFor();
+ await copyPage.locator('#file').setInputFiles({name:'copy.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:source.slice(0,2)}))});
+ await copyPage.locator('#project-preview-open').click();await copyPage.waitForFunction(()=>!document.getElementById('project-load-preview').open);
+ await copyPage.locator('#print-layout-tool').click();
+ const lock=copyPage.locator('[data-print-lock=part0]'),center=copyPage.locator('#print-layout-center');
+ await lock.click();assert.ok(await center.isDisabled());await lock.click();await center.click();
+ await copyPage.locator('[data-print-orientation=part0]').selectOption('x+');
+ await copyPage.locator('#print-layout-copy-model').click();
+ await copyPage.waitForFunction(()=>!document.getElementById('print-layout-dialog').open);
+ assert.equal(await copyPage.locator('#body-count').textContent(),'4');
+ const savedCopy=copyPage.waitForEvent('download');await copyPage.locator('#save').click();
+ const copiedProject=JSON.parse(await fs.readFile(await(await savedCopy).path(),'utf8'));
+ assert.deepEqual(copiedProject.features.slice(0,2).map(f=>[f.id,f.x,f.y,f.z]),source.slice(0,2).map(f=>[f.id,f.x,f.y,f.z]));
+ const copyFeature=copiedProject.features.at(-1);
+ assert.equal(copyFeature.spec.copy,true);assert.equal(copyFeature.spec.orientations.part0,'x+');
+ assert.equal(copyFeature.outputs.length,2);assert.deepEqual(copyFeature.remove,[]);
+ await copyPage.locator('#undo').click();assert.equal(await copyPage.locator('#body-count').textContent(),'2');
+ await copyPage.locator('#redo').click();assert.equal(await copyPage.locator('#body-count').textContent(),'4');
+ await copyContext.close();
+ console.log('PASS center respects locks, print copy creates separate bodies, and undo/redo');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

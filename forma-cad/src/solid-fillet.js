@@ -10,7 +10,10 @@ function failedContours(builder,edges){
  const segments=[];let exact=false;
  try{
   const count=builder.NbFaultyContours();exact=count>0;
-  for(let i=1;i<=count&&segments.length<64;i++){const contour=builder.FaultyContour(i);for(let j=1;j<=builder.NbEdges(contour)&&segments.length<64;j++){const edge=R.cast(builder.Edge(contour,j));try{segments.push({points:Array.from({length:17},(_,k)=>sample(edge,k/16))});}finally{edge.delete();}}}
+  for(let i=1;i<=count&&segments.length<64;i++){const contour=builder.FaultyContour(i);for(let j=1;j<=builder.NbEdges(contour)&&segments.length<64;j++){const edge=R.cast(builder.Edge(contour,j));try{
+   const index=edges.findIndex(selected=>selected.isSame(edge));
+   segments.push({points:Array.from({length:17},(_,k)=>sample(edge,k/16)),...(index>=0?{selectionIndex:index}:{})});
+  }finally{edge.delete();}}}
  }catch{segments.length=0;exact=false;}
  if(!segments.length)for(const edge of edges.slice(0,64))try{segments.push({points:Array.from({length:17},(_,k)=>sample(edge,k/16))});}catch{}
  return {kind:'fillet',certainty:exact?'faulty-contour':'selected-edges',edges:segments};
@@ -86,6 +89,7 @@ export function prepareFilletRadiusTrial(base,selection={}){
  if(!valid(base))throw failure('元のソリッドに形状の不整合があるため検査できません','fillet-input');
  const edges=resolveFilletEdges(base,selection);let normalized=null,normalizedEdges=null,normalizationChecked=false;
  return {
+  references:()=>edges.map(edgeReference),
   test(radius){
    let original;
    try{return {...buildEdges(base,radius,edges),radius,normalized:false};}catch(error){if(error.code!=='fillet-geometry')throw error;original=error;}
@@ -100,7 +104,12 @@ export function prepareFilletRadiusTrial(base,selection={}){
     finally{upgrader.delete();}
    }
    if(!normalizedEdges)throw original;
-   return {...buildEdges(normalized,radius,normalizedEdges),radius,normalized:true};
+   try{return {...buildEdges(normalized,radius,normalizedEdges),radius,normalized:true};}
+   catch(error){
+    // Indices from normalized topology cannot be applied to the original edges.
+    if(error.code==='fillet-geometry')throw original;
+    throw error;
+   }
   },
   dispose(){edges.forEach(edge=>edge.delete());normalizedEdges?.forEach(edge=>edge.delete());normalized?.delete();}
  };

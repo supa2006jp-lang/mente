@@ -40,6 +40,17 @@ try{for(const mode of modes.length?modes:['normal','expand','bounded','use','sta
   const jobs=await page.evaluate(()=>window.radiusJobs.length);await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('tools-dialog').open);assert.equal(await page.locator('#canvas-host').getAttribute('data-machining-cache-applied'),'true');assert.equal(await page.evaluate(()=>window.radiusJobs.length),jobs);assert.equal(await page.locator('#partial-fillet-confirm').count(),0);assert.equal(await page.locator('#canvas-host').getAttribute('data-fillet-radius-limit'),null);
   const saved=await save(),last=saved.features.at(-1);assert.equal(saved.features.length,2);assert.equal(last.spec.radius,radius);assert.equal(last.analysis.partialFillet,undefined);assert.equal(last.outputs.length,2);assert.equal(saved.features[0].outputs[0].brep,project.features[0].outputs[0].brep);for(const o of last.outputs){const shape=R.deserializeShape(o.brep).asShape3D(),check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{assert.ok(check.IsValid());}finally{check.delete();shape.delete();}}
   await page.locator('#undo').click();assert.equal((await save()).features.length,1);await page.locator('#redo').click();assert.equal((await save()).features.length,2);
+  if(mode==='normal'){
+   await page.locator('#undo').click();
+   await page.locator('#bodies [data-body-id="slab"] .row-label').click();await page.locator('#bodies [data-body-id="cube"] .row-label').click({modifiers:['Control']});
+   await page.locator('#advanced-tools').click();await page.locator('#cad-command').selectOption('fillet');
+   await page.locator('#fillet-radius-search').click();
+   await page.locator('.fillet-radius-exclude-edge').first().click({timeout:40000});
+   await page.waitForFunction(()=>document.getElementById('fillet-radius-verified').textContent.includes('23辺')&&!document.getElementById('cad-apply').disabled);
+   assert.match(await page.locator('#fillet-radius-selection').textContent(),/23 辺を対象 ／ 1 辺を除外中/);
+   await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('tools-dialog').open);
+   assert.equal((await save()).features.at(-1).spec.edges.length,23);
+  }
  }
  assert.deepEqual(errors,[]);proof.push({mode,cacheApplied:mode!=='stall-first',errors});await context.close();
 }console.log(JSON.stringify(proof));await fs.writeFile('.sites-runtime/fillet-radius-improvements-browser-proof.json',JSON.stringify(proof,null,2));

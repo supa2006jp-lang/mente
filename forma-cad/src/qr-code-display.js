@@ -1,6 +1,7 @@
 import {copyCadCoordinates} from './cad-coordinates.js';
 import * as THREE from 'three';
 import {qrCodeLayout} from './qr-code-layout.js';
+import {printPlacementMatrix} from './print-layout.js';
 
 const translation=p=>new THREE.Matrix4().makeTranslation(...p);
 function rotation(angles,pivot=[0,0,0]){
@@ -25,7 +26,7 @@ export function qrBodyDisplays(features){
    if(copy&&p.reverseCopy&&Math.hypot(...delta)>1e-7)matrix.premultiply(reflection(delta,pivot));matrix.premultiply(translation(delta));
    targets.forEach((id,i)=>{const items=displays.get(id),out=copy?(i?p.id+'-copy-'+i:p.id):id;if(items&&result.outputs.some(o=>o.id===out))displays.set(out,transform(items,matrix));});
   }else if(p?.type==='printLayout'){
-   for(const placement of feature.analysis?.placements||[]){const items=displays.get(placement.id);if(items)displays.set(placement.id,transform(items,translation(placement.translation).multiply(rotation([0,0,placement.rotation||0],placement.pivot))));}
+   for(const placement of feature.analysis?.placements||[]){const items=displays.get(placement.id);if(items)displays.set(placement.outputId??placement.id,transform(items,printPlacementMatrix(placement)));}
   }else if(p?.type==='mirror'){
    const normal=p.mirrorNormal||({XY:[0,0,1],XZ:[0,1,0],YZ:[1,0,0]}[p.plane]),n=new THREE.Vector3(...normal).normalize(),origin=p.mirrorNormal?new THREE.Vector3(...p.mirrorOrigin).addScaledVector(n,p.offset||0).toArray():n.multiplyScalar(p.offset||0).toArray(),matrix=reflection(normal,origin);
    const entries=result.analysis?.mirrors||(p.targets||[p.target]).map((id,i)=>({bodyId:id,outputId:p.mirrorMode==='反転移動'?id:i?p.id+'-mirror-'+i:p.id}));

@@ -714,6 +714,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
     const references=operation.edges?.length?operation.edges.filter(e=>e.bodyId===id):operation.edgePoint?[{point:operation.edgePoint}]:[],basis=operation.face?basisFor(operation.face):null;
     entries.push({id,arcRecovery:repaired?.info,trial:prepareFilletRadiusTrial(solid,{references,plane:basis?{normal:basis.n.toArray(),offset:operation.face.offset}:null})});
    }
+   onProgress?.({filletRadiusSelection:entries.map(entry=>({bodyId:entry.id,references:entry.trial.references()}))});
    // Establish a full-selection checkpoint before probing large blends. On
    // joined thin walls, the first oversized OCCT Build can trap instead of
    // reporting IsDone=false, even though smaller common radii are valid.
@@ -766,7 +767,8 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='coilJoint'){const result=makeCoilJoint(base,p,onProgress,{preview:context.coilPreview===true,preferredAxis:jointSourceAxis(features,p.target)});analysis=result.analysis;try{onProgress?.({stage:'表示データを作成しています'});emit(p.target,result.parts[0]);emit(p.id+'-lid',result.parts[1]);}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='enclose'){if(p.faces?.some(f=>f.bodyId&&f.bodyId!==p.target))throw Error('同じ対象ボディの開口面を選択してください');const parts=encloseParts(base,p);analysis={...(parts.analysis||{boxExtra:0,effectiveClearance:p.clearance}),...(parts.hingeFrame?{hingeFrame:parts.hingeFrame}:{})};try{parts.forEach((shape,i)=>emit(i?p.id+'-part2':p.id,shape));}finally{parts.forEach(shape=>shape.delete());}}
  else if(p.type==='printLayout'){
-  if(assemblyLinks(features,new Set(bodies.keys())).some(link=>link.bodies.some(id=>!p.targets||p.targets.includes(id))))throw Error('固定された部品は「移動／回転」でまとめて動かすか、部品の固定を解除してから印刷配置してください');
+  const copy=p.copy===true;
+  if(!copy&&assemblyLinks(features,new Set(bodies.keys())).some(link=>link.bodies.some(id=>!p.targets||p.targets.includes(id))))throw Error('固定された部品は印刷用に複製するか、「移動／回転」でまとめて動かすか、固定を解除してから印刷配置してください');
   const items=printLayoutBounds(bodies,p.targets);
   if(p.placementOverrides){
    validatePrintPlan(p);
@@ -774,7 +776,13 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    if(plates.length!==1)throw Error('モデルに適用する部品は1枚のプレートに収めてください');
    analysis=plates[0];
   }else analysis=planPrintLayout(items,p);
+  if(copy){
+   if(!p.id||typeof p.id!=='string')throw Error('複製先の工程IDがありません');
+   analysis.placements=analysis.placements.map((placement,index)=>({...placement,outputId:index?p.id+'-copy-'+index:p.id}));
+   if(analysis.placements.some(p=>bodies.has(p.outputId)))throw Error('複製先のボディIDが重複しています');
+  }
   for(const placement of analysis.placements){
+   const outputId=placement.outputId??placement.id;
    const matrix=printPlacementMatrix(placement);
    // The move command applies rotations in X, Y, Z order about the origin.
    const {x,y,z}=new THREE.Euler().setFromRotationMatrix(matrix,'ZYX');
@@ -793,10 +801,10 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    };
    const moved=place(bodies.get(placement.id));
    try{
-    emit(placement.id,moved,placement.id,{ids:[placement.id],transform:place,existingOnly:true});
+    emit(outputId,moved,placement.id,{ids:[placement.id],transform:place,existingOnly:!copy,copyColor:copy});
     const source=threadSource(features,placement.id);
     if(source)outputs.at(-1).threadSource={...source,transforms:[...(source.transforms||[]),{
-     type:'move',target:placement.id,rotation,x:translation[0],y:translation[1],z:translation[2]
+     type:'move',target:placement.id,...(copy?{copy:true,id:outputId}:{}),rotation,x:translation[0],y:translation[1],z:translation[2]
     }]};
    }finally{moved.delete();}
   }
