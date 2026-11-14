@@ -35,7 +35,7 @@ try{
  async function apply(){await page.locator('#slide-lid-apply').click();await page.waitForFunction(()=>!document.getElementById('slide-lid-dialog').open);}
 
 
- await load([base]);await page.locator('#slide-lid-tool').dispatchEvent('click');await ready();await page.locator('#slide-lid-lidStyle').selectOption('top');await ready();await page.locator('#slide-lid-clearance').fill('2');await page.locator('#slide-lid-railDepth').fill('2.6');await ready();await page.locator('#slide-lid-surfaceGrip').check();await ready();
+ await load([base]);await page.locator('#slide-lid-tool').dispatchEvent('click');await ready();await page.locator('#slide-lid-surfaceGrip').check();await ready();
  assert.equal(await page.locator('#slide-lid-surfaceGripPattern').inputValue(),'transverse');assert.equal(await page.locator('#slide-lid-surfaceGripCentered').isChecked(),false);
  await page.locator('#slide-lid-surface-center').click();await ready();
  for(const [pattern,name]of [['diagonal','斜め溝'],['grid','格子']]){

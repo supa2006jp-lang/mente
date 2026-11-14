@@ -35,16 +35,16 @@ try{
  async function apply(){await page.locator('#slide-lid-apply').click();await page.waitForFunction(()=>!document.getElementById('slide-lid-dialog').open);}
  await load([base]);await page.locator('#slide-lid-tool').dispatchEvent('click');await ready();
  assert.equal(await page.locator('#slide-lid-clearance').inputValue(),'0.25');assert.equal(await page.locator('#slide-lid-railDepth').inputValue(),'1.2');assert.equal(await page.locator('#slide-lid-clearance').getAttribute('max'),'2');
- async function configureWideTop(){await page.locator('#slide-lid-lidStyle').selectOption('top');await ready();await page.locator('#slide-lid-clearance').fill('2');await page.locator('#slide-lid-railDepth').fill('2.6');await ready();}
- await configureWideTop();
+ async function configureWidePlate(){await page.locator('#slide-lid-lidThickness').fill('4.2');await page.locator('#slide-lid-clearance').fill('2');await page.locator('#slide-lid-railDepth').fill('2.6');await ready();}
+ await configureWidePlate();
  for(const direction of ['long','short'])for(const entry of ['negative','positive']){
   await page.locator('#slide-lid-direction').selectOption(direction);await page.locator('#slide-lid-entry').selectOption(entry);await ready();await apply();
-  const saved=await save(),op=saved.features.at(-1);assert.equal(op.spec.clearance,2);assert.equal(op.spec.railDepth,2.6);assert.equal(op.analysis.clearance,2);assert.ok(op.analysis.engagement>=.6-1e-6);assert.ok(op.analysis.remainingWall>=1.2);assert.equal(op.analysis.overlap,0);assert.equal(op.analysis.slidingOverlap,0);assert.ok(op.analysis.frontClosure.thickness>=1.2);assert.equal(op.outputs.length,2);
+  const saved=await save(),op=saved.features.at(-1);assert.equal(op.spec.clearance,2);assert.equal(op.spec.railDepth,2.6);assert.equal(op.analysis.clearance,2);assert.ok(op.analysis.engagement>=.6-1e-6);assert.ok(op.analysis.remainingWall>=1.2);assert.equal(op.analysis.overlap,0);assert.equal(op.analysis.slidingOverlap,0);assert.equal(op.analysis.frontClosure,null);assert.equal(op.spec.lidStyle,'inset');assert.equal(op.outputs.length,2);
   for(const output of op.outputs){const zs=output.vertices.filter((_,i)=>i%3===2);assert.ok(Math.abs(Math.min(...zs))<1e-5,'both print parts rest on Z=0');}
   await load(saved.features);await page.locator('#bodies [data-slide-lid-id]').last().click();await ready();assert.equal(await page.locator('#slide-lid-clearance').inputValue(),'2');assert.equal(await page.locator('#slide-lid-railDepth').inputValue(),'2.6');
   console.log('PASS 2.0 mm clearance, engagement, wall thickness, interference-free sliding, print placement and reload: '+direction+' / '+entry);
   if(direction==='short'&&entry==='positive')break;
-  await page.locator('#slide-lid-cancel').click();await load([base]);await page.locator('#slide-lid-tool').dispatchEvent('click');await ready();await configureWideTop();
+  await page.locator('#slide-lid-cancel').click();await load([base]);await page.locator('#slide-lid-tool').dispatchEvent('click');await ready();await configureWidePlate();
  }
  await page.locator('#slide-lid-pose').selectOption('assembled');await ready();await apply();let saved=await save();assert.equal(saved.features.at(-1).spec.clearance,2);assert.equal(saved.features.at(-1).analysis.slidingOverlap,0);
  await page.locator('#bodies [data-slide-lid-id]').last().click();await ready();await page.locator('#slide-lid-clearance').fill('0.25');await page.locator('#slide-lid-railDepth').fill('1.2');await ready();await apply();saved=await save();await load(saved.features);await page.locator('#bodies [data-slide-lid-id]').last().click();await ready();assert.equal(await page.locator('#slide-lid-clearance').inputValue(),'0.25');assert.equal(await page.locator('#slide-lid-railDepth').inputValue(),'1.2');
