@@ -39,7 +39,7 @@ export function slideClickSettings(spec){
  return amount;
 }
 
-export function applySlidePressFit(lid,{front,back,halfWidth,depth,upper,fit,amount,ramps},hold){
+export function applySlidePressFit(lid,{front,back,halfWidth,depth,upper,fit,amount,ramps,body,entry},hold){
  const grooveEdge=halfWidth+depth,root=grooveEdge-fit.side-.15;
  const peakStart=front+ramps.open,peakEnd=peakStart+.8;
  const end=peakEnd+ramps.close;
@@ -53,7 +53,40 @@ export function applySlidePressFit(lid,{front,back,halfWidth,depth,upper,fit,amo
    .lineTo([end,sign*root]).close().sketchOnPlane('XY',z).extrude(height));
   lid=hold(lid.fuse(bump));
  }
- return {lid,analysis:{mode:'press',amount,position:(peakStart+peakEnd)/2}};
+ const analysis={mode:'press',amount,position:(peakStart+peakEnd)/2};
+ if(body){
+  const beyondGroove=ramps.close*amount/(amount+fit.side+.15);
+  analysis.contactStartsBeforeClosed=firstPressContact(body,{entry,peakEnd,beyondGroove,grooveEdge,amount,z,height});
+ }
+ return {lid,analysis};
+}
+
+function firstPressContact(body,{entry,peakEnd,beyondGroove,grooveEdge,amount,z,height}){
+ // The closing slope leads each tab. Sweep its overhanging portion up to
+ // the given lid position so the search also handles a rounded entrance.
+ function contacts(distance){
+  const end=peakEnd-distance;
+  const reach=end+beyondGroove;
+  const start=Math.min(entry,end)-1;
+  for(const sign of [-1,1]){
+   const swept=R.draw([start,sign*grooveEdge])
+    .lineTo([reach,sign*grooveEdge]).lineTo([end,sign*(grooveEdge+amount)])
+    .lineTo([start,sign*(grooveEdge+amount)]).close().sketchOnPlane('XY',z).extrude(height);
+   let hit;
+   try{
+    hit=body.intersect(swept);
+    if(R.measureVolume(hit)>1e-7)return true;
+   }finally{hit?.delete();swept.delete();}
+  }
+  return false;
+ }
+ let low=0,high=peakEnd+beyondGroove-entry;
+ while(high-low>.001){
+  const mid=(low+high)/2;
+  if(contacts(mid))low=mid;
+  else high=mid;
+ }
+ return (low+high)/2;
 }
 
 export function applySlideClickFit(body,lid,{start,throat,back,halfWidth,depth,upper,fit,wall,endClearance,amount},hold){

@@ -54,7 +54,15 @@ try{
  const modelXml=strFromU8(unzipSync(new Uint8Array(await fs.readFile(await trial.path())))['3D/3dmodel.model']);
  assert.equal((modelXml.match(/<item objectid=/g)||[]).length,6);
  assert.match(modelXml,/B 横 0.25 mm・上下 0.25 mm/);
- assert.equal((await save()).features.length,2,'trial export does not change the model');
+ const pressDownload=page.waitForEvent('download');
+ await page.locator('#slide-lid-press-trial-export').click();
+ const pressTrial=await pressDownload;
+ assert.equal(pressTrial.suggestedFilename(),'slide-lid-press-fit-test.3mf');
+ const pressXml=strFromU8(unzipSync(new Uint8Array(await fs.readFile(await pressTrial.path())))['3D/3dmodel.model']);
+ assert.equal((pressXml.match(/<item objectid=/g)||[]).length,4);
+ assert.match(pressXml,/共通の溝/);
+ for(const amount of ['0.30','0.40','0.50'])assert.ok(pressXml.includes('押し当て '+amount+' mm'));
+ assert.equal((await save()).features.length,2,'trial exports do not change the model');
  await page.locator('#slide-lid-clickFit').check();
  assert.equal(Number(await page.locator('#slide-lid-clickFitAmount').inputValue()),.4);
  await ready();
@@ -62,7 +70,8 @@ try{
  await sectionPanel.locator('#slide-section-click').click();
  assert.ok(Number(await sectionPanel.getAttribute('data-section-position'))<0);
  assert.ok(Number(await sectionPanel.getAttribute('data-contact-area'))>0);
- assert.match(await sectionPanel.locator('.slide-section-status').textContent(),/溝に押し当たる/);
+ assert.match(await sectionPanel.locator('.slide-section-status').textContent(),/溝に押し当たる.*閉じる [0-9.]+ mm 手前から接触/);
+ assert.match(await page.locator('#slide-lid-click-info').textContent(),/閉じる [0-9.]+ mm 手前から接触/);
  assert.match(await sectionPanel.locator('svg').textContent(),/この断面の押し当て量 0.40 mm/);
  await sectionPanel.locator('[data-slide-focus=rail-left]').click();
  assert.match(await sectionPanel.locator('svg').textContent(),/この断面の押し当て量 0.40 mm/);

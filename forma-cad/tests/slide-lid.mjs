@@ -45,6 +45,13 @@ const box=R.makeBox([-40,-25,0],[40,25,30]);try{
   assert.ok(press.analysis.clickFit.pressOverlap>.1);
   assert.equal(press.analysis.overlap,0);
   assert.equal(press.analysis.slidingOverlap,0);
+  const starts=press.analysis.clickFit.contactStartsBeforeClosed;
+  assert.ok(starts>0&&starts<5);
+  for(const away of [-.05,.05]){
+   const moved=press.lid.clone().translate(press.analysis.exitVector.map(v=>v*(starts+away))),contact=press.body.intersect(moved);
+   try{assert.equal(R.measureVolume(contact)>1e-7,away<0,'reported contact start matches actual lid overlap');}
+   finally{contact.delete();moved.delete();}
+  }
   const shifted=press.lid.clone().translate(press.analysis.exitVector.map(v=>v*5)),hit=press.body.intersect(shifted);
   try{assert.equal(R.measureVolume(hit),0,'the widened end clears the groove when the lid is slightly open');}
   finally{hit.delete();shifted.delete();}

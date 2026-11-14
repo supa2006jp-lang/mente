@@ -89,7 +89,7 @@ export function makeSlideLid(source,p){
   const regularLid=lid;
   let clickFit=null;
   if(clickAmount&&p.clickFitMode==='press'){
-   ({lid,analysis:clickFit}=applySlidePressFit(lid,{front,back,halfWidth:S,depth:d,upper,fit,amount:clickAmount,ramps:slidePressRamps(p,fit.side,clickAmount)},hold));
+   ({lid,analysis:clickFit}=applySlidePressFit(lid,{front,back,halfWidth:S,depth:d,upper,fit,amount:clickAmount,ramps:slidePressRamps(p,fit.side,clickAmount),body,entry:-L/2},hold));
    clickFit.pressOverlap=R.measureVolume(hold(body.intersect(lid)));
    if(clickFit.pressOverlap<=1e-5)throw Error('蓋の広がりが溝に届きません。差し込み口の形状を確認してください');
   }else if(clickAmount){

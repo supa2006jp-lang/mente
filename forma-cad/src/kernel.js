@@ -456,7 +456,7 @@ function computeOperation(features,spec,onProgress,context={}){
  if(spec.type==='honeycombInspect'){
   const bodies=kernelBodies(features);try{return {info:honeycombBodyInfo(bodies.get(spec.target),spec.heightAxis||'Z')};}finally{bodies.forEach(shape=>shape.delete());}
  }
- if(spec.type==='slideLidTrial')return makeSlideLidTrials(spec.settings,spec.dimensions,onProgress);
+ if(spec.type==='slideLidTrial')return makeSlideLidTrials(spec.settings,spec.dimensions,onProgress,spec.comparison);
  if(spec.type==='printSupportTrial')return makeSupportContactTrials(spec.settings,onProgress);
  if(spec.type==='printSupportSavedExport'){
   const bodies=kernelBodies(features);

@@ -108,7 +108,9 @@ export function createSlideLidSection(parent,onOpening,onSectionPosition){
   }
 
   const entries=[['横のすき間（片側）',q.sideClearance??spec.clearance],['上下のすき間（片側）',q.verticalClearance??spec.clearance],['蓋の掛かり',q.engagement],['溝の深さ',spec.railDepth],['溝の外側の肉厚',q.remainingWall]];if(q.lidStyle==='top')entries.push(['上面を覆う蓋板の厚さ',spec.lidThickness],['蓋裏のレール幅',q.railStemWidth]);metrics.replaceChildren(...entries.map(([title,value])=>{const el=document.createElement('div');el.textContent=title;const b=document.createElement('b');b.textContent=fmt(value)+' mm';el.append(b);return el;}));
-  status.textContent='開き '+Number(opening.toFixed(1))+'% ／ '+(rail?(left?'左の溝。収納側は右。':'右の溝。収納側は左。'):'本体の中央を通る縦断面。蓋は左へ引き抜きます。')+(contact.area>1e-7?(pressing?' 紫は蓋が溝に押し当たる範囲です。変形前の形状を表示しています。':' 赤は本体と蓋が干渉している部分です。'):' この断面での干渉なし。')+(rail&&!parts[1].segments.length?' 蓋はこの断面位置から外れています。':'');
+  const starts=q.clickFit?.contactStartsBeforeClosed;
+  const contactStart=Number.isFinite(starts)?' ／ 閉じる '+fmt(starts)+' mm 手前から接触':'';
+  status.textContent='開き '+Number(opening.toFixed(1))+'% ／ '+(rail?(left?'左の溝。収納側は右。':'右の溝。収納側は左。'):'本体の中央を通る縦断面。蓋は左へ引き抜きます。')+(contact.area>1e-7?(pressing?' 紫は蓋が溝に押し当たる範囲です。変形前の形状を表示しています。':' 赤は本体と蓋が干渉している部分です。'):' この断面での干渉なし。') +contactStart+(rail&&!parts[1].segments.length?' 蓋はこの断面位置から外れています。':'');
   panel.dataset.focus=focus;panel.dataset.opening=String(opening);panel.dataset.contactArea=String(contact.area);panel.dataset.clearance=String(spec.clearance);label.textContent=Number(opening.toFixed(1))+'%';slider.value=opening;for(const b of panel.querySelectorAll('[data-slide-focus]')){b.setAttribute('aria-pressed',String(b.dataset.slideFocus===focus));}
  }
  function release(){clickButton.hidden=true;onSectionPosition(null);model?.dispose();model=null;svg.replaceChildren();metrics.replaceChildren();for(const key of ['contactArea','clearance','opening','sectionPosition'])delete panel.dataset[key];}
