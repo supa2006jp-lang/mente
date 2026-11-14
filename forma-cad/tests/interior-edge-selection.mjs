@@ -8,6 +8,18 @@ for(const shape of [box,tray,closed]){
  const result=filletSolid(shape,.5,{references:outside.map(e=>e.reference)});
  try{assert.equal(result.edgeCount,4);}finally{result.shape.delete();}
 }
+for(const [axis,index] of [['X',0],['Y',1],['Z',2]]){
+ const outside=exteriorVerticalEdges(closed,{axis});
+ assert.equal(outside.length,4,'closed cavity edges are excluded on '+axis);
+ assert(outside.every(({a,b})=>a.every((value,i)=>i===index?value!==b[i]:value===b[i])));
+}
+const across=throughCutAlongX();
+try{assert.equal(exteriorVerticalEdges(across,{axis:'X'}).length,4);}
+finally{across.delete();}
+function throughCutAlongX(){
+ const cutter=R.makeBox([-1,3,3],[41,29,21]);
+ try{return box.cut(cutter);}finally{cutter.delete();}
+}
 const spun=tray.clone().rotate(31,[0,0,0],[0,0,1]);
 const tilted=box.clone().rotate(15,[0,0,0],[1,1,0]);
 try{

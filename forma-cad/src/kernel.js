@@ -51,7 +51,7 @@ import {makeSimpleBoss} from './simple-boss.js';
 import {makeQrCode} from './qr-code-solid.js';
 import {makeSlideLid} from './slide-lid.js';
 import {makeSlideLidTrials} from './slide-lid-trials.js';
-import {planPrintLayout,printLayoutBounds,validatePrintPlan} from './print-layout.js';
+import {planPrintLayout,planPrintPlates,printLayoutBounds,printPlacementMatrix,validatePrintPlan} from './print-layout.js';
 import {makeSnapLid,snapLidInfo} from './snap-lid.js';
 import {svgCylinderInfo,wrapSvgSolid} from './svg-wrap.js';
 import {allExtrusionTargets,multipleExtrusionTargets,extrusionTargetEntries,batchExtrusionFeature} from './extrusion-targets.js';
@@ -767,8 +767,39 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='enclose'){if(p.faces?.some(f=>f.bodyId&&f.bodyId!==p.target))throw Error('同じ対象ボディの開口面を選択してください');const parts=encloseParts(base,p);analysis={...(parts.analysis||{boxExtra:0,effectiveClearance:p.clearance}),...(parts.hingeFrame?{hingeFrame:parts.hingeFrame}:{})};try{parts.forEach((shape,i)=>emit(i?p.id+'-part2':p.id,shape));}finally{parts.forEach(shape=>shape.delete());}}
  else if(p.type==='printLayout'){
   if(assemblyLinks(features,new Set(bodies.keys())).some(link=>link.bodies.some(id=>!p.targets||p.targets.includes(id))))throw Error('固定された部品は「移動／回転」でまとめて動かすか、部品の固定を解除してから印刷配置してください');
-  analysis=planPrintLayout(printLayoutBounds(bodies,p.targets),p);
-  for(const placement of analysis.placements){const place=source=>{let moved=source.clone();if(placement.rotation)moved=moved.rotate(placement.rotation,placement.pivot,[0,0,1]);return moved.translate(placement.translation);};const moved=place(bodies.get(placement.id));try{emit(placement.id,moved,placement.id,{ids:[placement.id],transform:place,existingOnly:true});const source=threadSource(features,placement.id);if(source)outputs.at(-1).threadSource={...source,transforms:[...(source.transforms||[]),{type:'move',target:placement.id,rotation:[0,0,placement.rotation],pivot:placement.pivot,x:placement.translation[0],y:placement.translation[1],z:placement.translation[2]}]};}finally{moved.delete();}}
+  const items=printLayoutBounds(bodies,p.targets);
+  if(p.placementOverrides){
+   validatePrintPlan(p);
+   const {plates}=planPrintPlates(items,p);
+   if(plates.length!==1)throw Error('モデルに適用する部品は1枚のプレートに収めてください');
+   analysis=plates[0];
+  }else analysis=planPrintLayout(items,p);
+  for(const placement of analysis.placements){
+   const matrix=printPlacementMatrix(placement);
+   // The move command applies rotations in X, Y, Z order about the origin.
+   const {x,y,z}=new THREE.Euler().setFromRotationMatrix(matrix,'ZYX');
+   const rotation=[x,y,z].map(angle=>Math.round(angle*180/Math.PI));
+   const translation=matrix.elements.slice(12,15);
+   const place=source=>{
+    let moved=source.clone();
+    try{
+     for(const [index,degrees] of rotation.entries()){
+      if(!degrees)continue;
+      const axis=[0,0,0];axis[index]=1;
+      moved=moved.rotate(degrees,[0,0,0],axis);
+     }
+     return moved.translate(translation);
+    }catch(error){moved.delete();throw error;}
+   };
+   const moved=place(bodies.get(placement.id));
+   try{
+    emit(placement.id,moved,placement.id,{ids:[placement.id],transform:place,existingOnly:true});
+    const source=threadSource(features,placement.id);
+    if(source)outputs.at(-1).threadSource={...source,transforms:[...(source.transforms||[]),{
+     type:'move',target:placement.id,rotation,x:translation[0],y:translation[1],z:translation[2]
+    }]};
+   }finally{moved.delete();}
+  }
  }
  else if(p.type==='move'){
   const grouped=assemblyTargets(features,p.targets||[p.target],new Set(bodies.keys()));p={...p,targets:grouped,...(p.contactMove?{contactMove:{...p.contactMove,obstacles:p.contactMove.obstacles?.filter(id=>!grouped.includes(id))}}:{})};spec=p;

@@ -22,7 +22,41 @@ try{
  const verticalFillet=(await save()).features.at(-1);
  assert.equal(verticalFillet.analysis.fillets[0].edges,4);
  await load();
- await body('tray').click();await select(8);console.log('selected 8');assert.equal(JSON.parse(await host.getAttribute('data-interior-edge-selection')).edgeCount,8);assert.deepEqual((await save()).features,expected);await page.locator('[data-view=iso]').click();await page.locator('#fit-selection').click();await worldClick([0,17,3],['Control']);await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.selectedEdgeCount==='7');await select(8);await page.screenshot({path:out+'/selected.png'});
+ await body('solid').click();
+ const axis=page.locator('#exterior-edge-axis');
+ await exterior.hover();
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.exteriorEdgePreviewCount==='4');
+ assert.match(await page.locator('#interior-edge-selection-status').textContent(),/選択候補 4 本/);
+ assert.equal(await host.getAttribute('data-selected-edge-count'),'0');
+ await body('solid').hover();
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.exteriorEdgePreviewCount===undefined);
+ for(const [direction,index] of [['X',0],['Y',1]]){
+  await body('solid').click();
+  await axis.selectOption(direction);
+  await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.exteriorEdgePreviewCount==='4');
+  await exterior.click();
+  await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.selectedEdgeCount==='4');
+  assert.equal(JSON.parse(await host.getAttribute('data-exterior-vertical-edge-selection')).axis,direction);
+  assert.equal(await host.getAttribute('data-exterior-edge-preview-count'),null);
+  await page.locator('#selected-edge-radius-search').click();
+  await page.waitForFunction(()=>document.getElementById('fillet-radius-status').textContent.includes('適用します'),null,{timeout:30000});
+  assert.match(await page.locator('#fillet-radius-verified').textContent(),/1ボディ・4辺/);
+  assert.ok(Number(await page.locator('#cad-radius').inputValue())>2);
+  assert.equal(await host.getAttribute('data-machining-preview'),'fillet');
+  if(direction==='X'){
+   await page.locator('#cad-apply').click();
+   await page.waitForFunction(()=>!document.getElementById('tools-dialog').open);
+   const op=(await save()).features.at(-1);
+   assert.equal(op.spec.edges.length,4);
+   assert(op.spec.edges.every(({a,b})=>a.every((value,i)=>i===index?value!==b[i]:value===b[i])));
+   assert.equal(op.analysis.fillets[0].edges,4);
+   await load();
+  }else{
+   await page.locator('#cad-cancel').click();
+   assert.deepEqual((await save()).features,expected);
+  }
+ }
+ await body('tray').click();await axis.selectOption('Z');await select(8);console.log('selected 8');assert.equal(JSON.parse(await host.getAttribute('data-interior-edge-selection')).edgeCount,8);assert.deepEqual((await save()).features,expected);await page.locator('[data-view=iso]').click();await page.locator('#fit-selection').click();await worldClick([0,17,3],['Control']);await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.selectedEdgeCount==='7');await select(8);await page.screenshot({path:out+'/selected.png'});
  await page.locator('#edge-fillet').click();await page.locator('#cad-radius').fill('.5');await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('tools-dialog').open);const rounded=await save(),last=rounded.features.at(-1);assert.equal(last.spec.edges.length,8);assert.equal(last.outputs.length,1);assert.equal(last.analysis.fillets[0].edges,8);assert.equal(last.analysis.partialFillet,undefined);assert.deepEqual(rounded.features.slice(0,-1),expected);
  console.log('fillet 8');await page.locator('#undo').click();assert.equal((await save()).features.length,1);await page.locator('#redo').click();assert.equal((await save()).features.length,2);
  await load();await body('cup').click();await select(1);await page.locator('#edge-fillet').click();await page.locator('#cad-radius').fill('.5');await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('tools-dialog').open);const roundCup=await save();assert.equal(roundCup.features.at(-1).spec.edges.length,1,'native circle reference remains one edge');assert.equal(roundCup.features.at(-1).analysis.fillets[0].edges,1);

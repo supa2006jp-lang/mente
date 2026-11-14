@@ -96,7 +96,7 @@ try{
  await page.locator('#print-layout-repack').click();
  const fixed=JSON.parse(await host.getAttribute('data-print-layout')).placements[0];
  assert.equal(fixed.locked,true);
- assert.deepEqual(fixed.min,moved.min);
+ assert.ok(fixed.min.every((value,i)=>Math.abs(value-moved.min[i])<1e-10));
  assert.equal(fixed.orientation,'z-');
  await page.waitForFunction(()=>document.querySelector('#print-layout-warning-status').textContent.includes('見つかりませんでした'));
  const download=page.waitForEvent('download');await page.locator('#print-layout-export').click();
@@ -130,8 +130,20 @@ try{
  await page.waitForFunction(()=>!document.querySelector('#print-layout-apply').disabled);
  assert.equal(await page.locator('[data-print-orientation=part-0]').inputValue(),'z-');
  assert.equal(await page.locator('[data-print-lock=part-0]').getAttribute('aria-pressed'),'true');
- assert.deepEqual(JSON.parse(await host.getAttribute('data-print-layout')).placements[0].min,moved.min);
+ assert.ok(JSON.parse(await host.getAttribute('data-print-layout')).placements[0].min.every((value,i)=>Math.abs(value-moved.min[i])<1e-10));
  await page.locator('#print-layout-cancel').click();
+ assert.deepEqual((await save()).features,saved.features);
+ await page.locator('#print-layout-tool').click();
+ await page.waitForFunction(()=>!document.querySelector('#print-layout-apply-model').disabled);
+ await page.locator('#print-layout-plate').selectOption('1');
+ const active=JSON.parse(await host.getAttribute('data-print-layout'));
+ await page.locator('#print-layout-apply-model').click();
+ await page.waitForFunction(()=>!document.querySelector('#print-layout-dialog').open);
+ const placed=await save(),operation=placed.features.at(-1);
+ assert.deepEqual(placed.features.slice(0,-1),saved.features);
+ assert.equal(operation.spec.type,'printLayout');
+ assert.deepEqual(operation.outputs.map(output=>output.id),active.placements.map(part=>part.id));
+ await page.locator('#undo').click();
  assert.deepEqual((await save()).features,saved.features);
  const stem=R.makeBox([0,0,0],[10,10,20]),roof=R.makeBox([0,0,15],[30,10,20]),cantilever=stem.fuse(roof);
  try{

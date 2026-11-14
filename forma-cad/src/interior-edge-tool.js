@@ -2,51 +2,151 @@ import {KernelClient} from './kernel-client.js';
 import * as THREE from 'three';
 import {compactKernelData} from './kernel-transfer.js';
 
-export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,onSelect,notify}){
- const kernel=new KernelClient(),status=document.createElement('small');
- const modes=[
-  {type:'interiorEdges',id:'select-interior-edges',label:'内側の辺をまとめて選択',
-   title:'上面（＋Z）が開いた入れ物の、底の角・縦の角などを選択します。外周と開口のふちは含みません。',
-   progress:'入れ物の内側を調べています…',empty:'上面が開いた底付きの空間に、選択できる角のある辺が見つかりません。',
-   name:'内側の辺'},
-  {type:'exteriorVerticalEdges',id:'select-exterior-vertical-edges',label:'外側の縦辺（Z）をまとめて選択',
-   title:'水平な上下面の辺や穴の内側の辺を除き、外周でZ軸に平行な角のある辺を選びます。',
-   progress:'外周の縦辺を調べています…',empty:'外周に選択できるZ方向の辺が見つかりません。',
-   name:'外側の縦辺'},
- ];
- const buttons=modes.map(mode=>{
+export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,onSelect,onPreview,notify}){
+ const kernel=new KernelClient();
+ const inside={type:'interiorEdges',label:'内側の辺をまとめて選択',name:'内側の辺',
+  progress:'入れ物の内側を調べています…',empty:'上面が開いた底付きの空間に、選択できる角のある辺が見つかりません。'};
+ const outside={type:'exteriorVerticalEdges',label:'外側の辺をまとめて選択',name:'外側の辺',
+  progress:'外周の辺を調べています…',empty:'指定した方向に選択できる外側の辺が見つかりません。'};
+ const makeButton=(id,label)=>{
   const button=document.createElement('button');
-  button.id=mode.id;button.type='button';button.hidden=true;button.textContent=mode.label;button.title=mode.title;
-  button.style.cssText='pointer-events:auto;width:100%;margin-top:7px;background:#ddf3f7;color:#17475a;border-color:#79b1c8';
-  button.onclick=()=>select(mode,button);
+  button.id=id;button.type='button';button.textContent=label;
+  button.style.cssText='pointer-events:auto;margin-top:7px;background:#ddf3f7;color:#17475a;border-color:#79b1c8';
   return button;
- });
- status.id='interior-edge-selection-status';status.setAttribute('role','status');status.style.cssText='display:block;font-size:12px;line-height:1.6;margin-top:5px';container.append(...buttons,status);
- let ids=[],queryIds=[],active=null,revision=0,original=null,selectionKey=null,statusKey=null;
- function resetButtons(){buttons.forEach((button,index)=>{button.textContent=modes[index].label;button.disabled=false;});}
- function stop(){++revision;kernel.reset();active=null;resetButtons();}
- async function select(mode,button){
-  if(active){stop();status.textContent='選択の検査を中止しました';return;}
-  if(!ids.length)return;
-  const targets=[...ids],current=++revision;
-  queryIds=targets;original=getFeatures();selectionKey=getSelectionKey();statusKey=selectionKey;active=mode;
-  buttons.forEach(other=>{other.disabled=other!==button;});
-  button.textContent=mode.name+'の検査を中止';status.textContent=mode.progress;
-  try{
-   const result=await kernel.run(compactKernelData(original),{type:mode.type,targets},{onProgress:p=>{if(current===revision&&p.stage)status.textContent=p.stage;}});
-   if(current!==revision||getFeatures()!==original||getSelectionKey()!==selectionKey)return;
-   if(!result.edges?.length){status.textContent=mode.empty+'元の選択は残しています。';return;}
-   active=null;onSelect(result.edges,result.analysis[mode.type],mode.type);
-   statusKey=getSelectionKey();status.textContent=result.edges.length+' 辺を選択しました';notify(mode.name+'を '+result.edges.length+' 本選択しました。フィレット・面取りに使用できます');
-  }catch(e){if(current===revision)status.textContent=e.message;}
-  finally{if(current===revision){active=null;resetButtons();}}
+ };
+ const insideButton=makeButton('select-interior-edges',inside.label);
+ insideButton.title='上面（＋Z）が開いた入れ物の、底の角・縦の角などを選択します。外周と開口のふちは含みません。';
+ insideButton.style.width='100%';
+ const outsideGroup=document.createElement('div'),axisLabel=document.createElement('label');
+ axisLabel.textContent='方向 ';
+ axisLabel.style.cssText='white-space:nowrap;pointer-events:auto';
+ const axisInput=document.createElement('select');
+ axisInput.id='exterior-edge-axis';axisInput.setAttribute('aria-label','外側の辺の方向');
+ for(const axis of ['X','Y','Z'])axisInput.add(new Option(axis,axis));
+ axisInput.value='Z';axisLabel.append(axisInput);
+ const outsideButton=makeButton('select-exterior-vertical-edges',outside.label);
+ outsideButton.style.flex='1';
+ outsideButton.title='指定した軸に平行な外側の辺を選択します。カーソルを合わせると対象を表示します。';
+ outsideGroup.style.cssText='display:none;align-items:baseline;gap:6px;flex-wrap:wrap';
+
+ const status=document.createElement('small');
+ status.id='interior-edge-selection-status';status.setAttribute('role','status');
+ status.style.cssText='font-size:12px;line-height:1.6;margin-top:5px;min-height:3.2em';
+ outsideGroup.append(axisLabel,outsideButton);container.append(insideButton,outsideGroup,status);
+ insideButton.hidden=outsideGroup.hidden=status.hidden=true;
+ let ids=[],features=null,key=null,active=null,cached=null,hovered=false,focused=false,axisPreview=false,previewVisible=false,previewStatus=false,previewTimer;
+ const previewRequested=()=>hovered||focused||axisPreview;
+ function setPreview(edges){
+  if(!edges.length&&!previewVisible)return;
+  previewVisible=edges.length>0;
+  onPreview(edges);
  }
+ function setStatus(message,temporary=false){status.textContent=message;previewStatus=temporary;}
+ function syncButtons(){
+  const axis=axisInput.value;
+  const insideBusy=active?.mode===inside;
+  const outsideBusy=active?.mode===outside&&active.commit;
+  insideButton.textContent=insideBusy?'内側の辺の検査を中止':inside.label;
+  outsideButton.textContent=outsideBusy?'外側の辺の検査を中止':axis==='Z'?'外側の縦辺（Z）をまとめて選択':'外側の辺（'+axis+'）をまとめて選択';
+  insideButton.disabled=!!outsideBusy;
+  outsideButton.disabled=axisInput.disabled=insideBusy;
+ }
+ function stop(){
+  clearTimeout(previewTimer);
+  if(active){active=null;kernel.reset();}
+  setPreview([]);
+  syncButtons();
+ }
+ function apply(mode,result){
+  const edges=result.edges;
+  setPreview([]);
+  if(!edges?.length){setStatus(mode.empty+'元の選択は残しています。');return;}
+  onSelect(edges,result.analysis[mode.type],mode.type);
+  features=getFeatures();key=getSelectionKey();
+  setStatus(edges.length+' 辺を選択しました');
+  notify(mode.name+'を '+edges.length+' 本選択しました。フィレット・面取りに使用できます');
+ }
+ function showPreview(result){
+  const edges=result.edges||[];
+  setPreview(edges);
+  setStatus(edges.length?'選択候補 '+edges.length+' 本（青緑）':outside.empty,true);
+ }
+ async function request(mode,commit){
+  clearTimeout(previewTimer);
+  if(!ids.length||outsideGroup.hidden)return;
+  const axis=axisInput.value;
+  if(active){
+   if(active.mode===mode&&!active.commit&&commit){
+    active.commit=true;setPreview([]);setStatus(mode.progress);syncButtons();return;
+   }
+   const cancel=active.mode===mode&&active.commit&&commit;
+   stop();
+   if(cancel){setStatus('選択の検査を中止しました');return;}
+  }
+  if(mode===outside&&cached?.axis===axis){
+   if(commit)apply(mode,cached.result);
+   else showPreview(cached.result);
+   return;
+  }
+  const request={mode,commit},model=features,selection=key;
+  active=request;
+  syncButtons();
+  setStatus(mode.progress,!commit);
+  const spec={type:mode.type,targets:[...ids],...(mode===outside?{axis}:{})};
+  const isCurrent=()=>active===request&&getFeatures()===model&&getSelectionKey()===selection;
+  try{
+   const result=await kernel.run(compactKernelData(model),spec,{onProgress:progress=>{
+    if(isCurrent()&&request.commit&&progress.stage)setStatus(progress.stage);
+   }});
+   if(!isCurrent())return;
+   active=null;syncButtons();
+   if(mode===outside)cached={axis,result};
+   if(request.commit)apply(mode,result);
+   else if(previewRequested())showPreview(result);
+  }catch(error){if(isCurrent()&&(request.commit||previewRequested()))setStatus(error.message,!request.commit);}
+  finally{if(active===request){active=null;syncButtons();}}
+ }
+ function schedulePreview(){
+  clearTimeout(previewTimer);
+  if(!previewRequested()||active||outsideGroup.hidden)return;
+  if(cached?.axis===axisInput.value)showPreview(cached.result);
+  else previewTimer=setTimeout(()=>request(outside,false),120);
+ }
+ function clearHover(){
+  if(previewRequested())return;
+  clearTimeout(previewTimer);
+  setPreview([]);
+  if(previewStatus)setStatus('');
+ }
+ insideButton.onclick=()=>request(inside,true);
+ outsideButton.onclick=()=>{
+  hovered=focused=axisPreview=false;
+  request(outside,true);
+ };
+ outsideButton.onpointerenter=()=>{hovered=true;schedulePreview();};
+ outsideButton.onpointerleave=()=>{hovered=false;clearHover();};
+ outsideButton.onfocus=()=>{focused=outsideButton.matches(':focus-visible');schedulePreview();};
+ outsideButton.onblur=()=>{focused=false;clearHover();};
+ axisInput.onblur=()=>{axisPreview=false;clearHover();};
+ axisInput.onchange=()=>{
+  stop();cached=null;setStatus('');
+  axisPreview=true;
+  schedulePreview();
+ };
+ syncButtons();
  return {update(next,enabled){
-  if(active&&(getFeatures()!==original||getSelectionKey()!==selectionKey||JSON.stringify(queryIds)!==JSON.stringify(next)||!enabled)){stop();status.textContent='選択が変わったため検査を中止しました';}
-  if(!active&&statusKey!==null&&(getSelectionKey()!==statusKey||getFeatures()!==original)){status.textContent='';statusKey=null;}
-  ids=[...next];status.hidden=!(enabled&&ids.length);
-  buttons.forEach(button=>{button.hidden=status.hidden;});
- },cancel(){if(active)stop();status.textContent='';},get busy(){return !!active;}};
+  const model=getFeatures(),selection=getSelectionKey(),visible=!!(enabled&&next.length);
+  if(model!==features||selection!==key||next.length!==ids.length||next.some((id,i)=>id!==ids[i])||visible===outsideGroup.hidden){
+   const cancelled=active?.commit;
+   stop();cached=null;hovered=focused=axisPreview=false;
+   if(cancelled)setStatus('選択が変わったため検査を中止しました');
+   else if(model!==features||selection!==key||!visible)setStatus('');
+   features=model;key=selection;ids=[...next];
+  }
+  if(outsideGroup.hidden===visible)outsideGroup.style.display=visible?'flex':'none';
+  status.style.display=visible?'block':'none';
+  insideButton.hidden=outsideGroup.hidden=status.hidden=!visible;
+ },cancel(){stop();hovered=focused=false;setStatus('');},get busy(){return !!active;}};
 }
 
 // A native curved edge and a clicked display chord have different IDs. Keep

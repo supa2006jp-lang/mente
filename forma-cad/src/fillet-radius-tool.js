@@ -37,7 +37,7 @@ export function createFilletRadiusTool({getFeatures,getSpec,cancelPreview,showRe
   finally{if(current===revision){busy=false;$('cad-apply').disabled=false;useButton.hidden=useButton.disabled=true;button.textContent='全ての辺に掛けられる半径を調べる';}}
  }
  return {
-  cancel,
+  cancel,start,
   render(){
    cancel();$('fillet-radius-tools')?.remove();button=status=verifiedStatus=useButton=expandInput=limitStatus=limitToggle=null;
    if($('cad-command').value!=='fillet'||!$('cad-radius'))return;

@@ -38,29 +38,39 @@ function isNearLoop(loop,p,tolerance){
  });
 }
 
-export function exteriorVerticalEdges(shape,{bodyId,onProgress}={}){
+export function exteriorVerticalEdges(shape,{bodyId,onProgress,axis='Z'}={}){
+ const axisIndex=['X','Y','Z'].indexOf(axis);
+ if(axisIndex<0)throw Error('辺の方向は X・Y・Z から選んでください');
+ const project=point=>[point[(axisIndex+1)%3],point[(axisIndex+2)%3],point[axisIndex]];
  let edges;
  try{edges=resolveFilletEdges(shape);}catch(error){if(error.code==='fillet-selection')return [];throw error;}
  try{
   const candidates=[];
   for(const edge of edges){
    if(edge.geomType!=='LINE')continue;
-   const a=sample(edge,0),b=sample(edge,1);
-   const length=Math.abs(b[2]-a[2]);
-   if(length<=1e-6||Math.hypot(b[0]-a[0],b[1]-a[1])>length*1e-6)continue;
-   candidates.push({bodyId,a,b,point:sample(edge,.5),length,key:'exterior-z-'+bodyId+'-'+edge.hashCode});
+   const a=sample(edge,0),b=sample(edge,1),start=project(a),end=project(b);
+   const length=Math.abs(end[2]-start[2]);
+   if(length<=1e-6||Math.hypot(end[0]-start[0],end[1]-start[1])>length*1e-6)continue;
+   candidates.push({bodyId,a,b,point:sample(edge,.5),length,key:'exterior-'+axis+'-'+bodyId+'-'+edge.hashCode});
   }
   if(!candidates.length)return [];
   const {vertices,triangles}=cadMesh(shape,{tolerance:.001,angularTolerance:.05});
+  const sectionVertices=vertices.slice();
+  for(let i=0;i<vertices.length;i+=3){
+   sectionVertices[i]=vertices[i+(axisIndex+1)%3];
+   sectionVertices[i+1]=vertices[i+(axisIndex+2)%3];
+   sectionVertices[i+2]=vertices[i+axisIndex];
+  }
   const sections=new Map(),tolerance=1e-6;
   return candidates.filter((edge,index)=>{
-   if(index%20===0)onProgress?.({stage:'外周の縦辺を調べています',current:index,total:candidates.length});
-   // Try a second height when the section coincides with other geometry.
+   if(index%20===0)onProgress?.({stage:'外側の'+axis+'方向の辺を調べています',current:index,total:candidates.length});
+   // Try another cut when the section coincides with other geometry.
    for(const fraction of [.5,.37,.63]){
-    const z=edge.a[2]+(edge.b[2]-edge.a[2])*fraction;
+    const z=edge.a[axisIndex]+(edge.b[axisIndex]-edge.a[axisIndex])*fraction;
     const key=z.toPrecision(14);
-    if(!sections.has(key))sections.set(key,horizontalLoops(vertices,triangles,z,tolerance));
-    const loops=sections.get(key),matching=loops.filter(loop=>isNearLoop(loop,edge.point,tolerance*4));
+    if(!sections.has(key))sections.set(key,horizontalLoops(sectionVertices,triangles,z,tolerance));
+    const loops=sections.get(key),xy=project(edge.point);
+    const matching=loops.filter(loop=>isNearLoop(loop,xy,tolerance*4));
     if(matching.length!==1)continue;
     const [loop]=matching;
     return !loops.some(other=>other!==loop&&contains(other,loop[0]));
@@ -121,7 +131,8 @@ export function inspectInteriorEdges(bodies,spec,onProgress){
  const ids=[...new Set(spec.targets||[spec.target])];
  if(!ids.length||ids.length>100||ids.some(id=>!bodies.has(id)))throw Error('辺をまとめて選ぶボディを選択してください');
  const findEdges=exterior?exteriorVerticalEdges:interiorEdges;
- const edges=ids.flatMap(bodyId=>findEdges(bodies.get(bodyId),{bodyId,onProgress}));
+ const axis=spec.axis??'Z';
+ const edges=ids.flatMap(bodyId=>findEdges(bodies.get(bodyId),{bodyId,onProgress,axis}));
  const selection={bodyIds:ids,edgeCount:edges.length,up:[0,0,1]};
- return {edges,analysis:exterior?{exteriorVerticalEdges:selection}:{interiorEdges:{...selection,rimIncluded:false}}};
+ return {edges,analysis:exterior?{exteriorVerticalEdges:{bodyIds:ids,edgeCount:edges.length,axis}}:{interiorEdges:{...selection,rimIncluded:false}}};
 }

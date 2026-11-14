@@ -17,8 +17,9 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  const dialog=document.createElement('dialog');dialog.id='print-layout-dialog';Object.assign(dialog.style,{position:'fixed',margin:'0',width:'min(390px,calc(100vw - 32px))',maxHeight:'85vh',overflow:'auto'});
  const style=document.createElement('style');style.textContent='#print-layout-dialog{z-index:110;background:#192733;color:#dce6ef;border:1px solid #63849b;border-radius:10px;padding:18px;box-shadow:0 10px 30px #0006}#print-layout-dialog h2{font-size:17px}#print-layout-dialog p{font-size:13px;line-height:1.6}#print-layout-dialog label{display:block;font-size:13px;margin:12px 0}#print-layout-dialog input[type=number]{display:block;width:100%;padding:9px;background:#243649;color:white;border:1px solid #486071;border-radius:5px;margin-top:5px}#print-layout-error{color:#ffb295}#print-layout-dialog .plate-check{display:flex;align-items:center;gap:8px}#print-layout-dialog .plate-check input{accent-color:#46cbe0}#print-layout-dialog .dialog-heading{cursor:grab;touch-action:none}#print-layout-dialog .editor-actions{display:flex;gap:10px}#print-layout-dialog .editor-actions button{flex:1}';document.head.append(style);
  style.textContent+='#print-layout-dialog .plate-check input{width:auto;flex:none;margin:0}#print-layout-orientations>div{padding-bottom:8px;border-bottom:1px solid #486071}#print-layout-orientations button{margin-top:4px}#print-layout-warning-parts{margin:0 0 8px;padding-left:1.2em;font-size:13px;max-height:96px;overflow:auto}';
- dialog.innerHTML='<form id="print-layout-form"><div class="dialog-heading"><h2>180 mmプレートに自動配置</h2><button type="button" id="print-layout-close" aria-label="閉じる">×</button></div><p>表示中のソリッドを180 × 180 mmの四角の中に並べ、各ボディの底をZ=0に合わせます。印刷用の向きと配置を保存できます。</p><label>端からの余白 (mm)<input id="print-layout-margin" type="number" value="2" min="0" max="20" step="0.5" required></label><label>部品同士の間隔 (mm)<input id="print-layout-gap" type="number" value="3" min="0" max="30" step="0.5" required></label><label class="plate-check"><input id="print-layout-rotation" type="checkbox" checked>Z軸方向に90°回転して配置してよい</label><p>表示中のソリッドを対象に、収まらないときは複数のプレートに分けます。</p><label class="plate-check"><input id="print-layout-legacy" type="checkbox">モデル自体を1枚のプレートに移動する</label><div id="print-layout-orientations" style="max-height:160px;overflow:auto"></div><label id="print-layout-plate-row">表示するプレート <select id="print-layout-plate"></select></label><button id="print-layout-export" type="button" disabled>このプレートを3MF出力</button><p id="print-layout-info"></p><p id="print-layout-error" role="status" aria-live="polite"></p><div class="editor-actions"><button type="button" id="print-layout-cancel">キャンセル</button><button type="submit" id="print-layout-apply" class="accent" disabled>配置を確定</button></div></form>';
- document.body.append(dialog);draggableDialog(dialog);const $=id=>document.getElementById('print-layout-'+id);const legacy=()=>$('legacy').checked;
+ dialog.innerHTML='<form id="print-layout-form"><div class="dialog-heading"><h2>180 mmプレートに自動配置</h2><button type="button" id="print-layout-close" aria-label="閉じる">×</button></div><p>表示中のソリッドを180 × 180 mmの四角の中に並べ、各ボディの底をZ=0に合わせます。印刷用の向きと配置を保存できます。</p><label>端からの余白 (mm)<input id="print-layout-margin" type="number" value="2" min="0" max="20" step="0.5" required></label><label>部品同士の間隔 (mm)<input id="print-layout-gap" type="number" value="3" min="0" max="30" step="0.5" required></label><label class="plate-check"><input id="print-layout-rotation" type="checkbox" checked>Z軸方向に90°回転して配置してよい</label><p>表示中のソリッドを対象に、収まらないときは複数のプレートに分けます。「表示中のプレートをモデルに適用」で、そのプレートの位置と向きを実際のボディに反映します。</p><div id="print-layout-orientations" style="max-height:160px;overflow:auto"></div><label id="print-layout-plate-row">表示するプレート <select id="print-layout-plate"></select></label><button id="print-layout-export" type="button" disabled>このプレートを3MF出力</button><p id="print-layout-info"></p><p id="print-layout-error" role="status" aria-live="polite"></p><div class="editor-actions"><button type="button" id="print-layout-cancel">キャンセル</button><button type="submit" id="print-layout-apply" class="accent" disabled>印刷配置を保存</button></div><button type="button" id="print-layout-apply-model" disabled>表示中のプレートをモデルに適用</button></form>';
+ document.body.append(dialog);draggableDialog(dialog);const $=id=>document.getElementById('print-layout-'+id);const editsModel=()=>editing?.spec.type==='printLayout';
+ const legacy=()=>editsModel()&&!editing.spec.placementOverrides;
  $('orientations').before(Object.assign(document.createElement('div'),{id:'print-layout-placement-tools',innerHTML:'<p>プレート上の部品をドラッグして移動できます。固定した部品は、自動で並べ直しても位置と向きを保ちます。</p><button type="button" id="print-layout-repack">固定を残して自動で並べ直す</button>'}));
  $('export').before(Object.assign(document.createElement('div'),{id:'print-layout-inspection',innerHTML:'<label class="plate-check"><input type="checkbox" id="print-layout-warnings" checked>印刷チェックを色で表示</label><p id="print-layout-warning-status" role="status"></p><ul id="print-layout-warning-parts"></ul>'}));
  $('export').after(Object.assign(document.createElement('button'),{type:'button',id:'print-layout-export-all',textContent:'全プレートを3MF出力（ZIP）',disabled:true}));
@@ -34,6 +35,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  const geometries=()=>new Map(preview.children.map(mesh=>[mesh.userData.layoutId,mesh.geometry]));
  function syncExport(){
   const unavailable=busy||!!drag||!!comparison||!plan?.placements.length||legacy();
+  $('apply-model').disabled=unavailable;
   $('export').disabled=unavailable||checking;
   $('export-all').disabled=$('check-all').disabled=unavailable;
  }
@@ -124,7 +126,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  function options(){return {margin:Number($('margin').value),gap:Number($('gap').value),allowRotation:$('rotation').checked};}
  function spec(){
   const type=legacy()?'printLayout':'printLayoutPlan';
-  return {type,id:editing&&editing.spec.type!==type?relocationId:id,targets:[...targets],...options(),
+  return {type,id,targets:[...targets],...options(),
    ...(!legacy()?{orientations:Object.fromEntries(targets.filter(id=>Object.hasOwn(orientations,id)).map(id=>[id,orientations[id]])),placementOverrides:overrides.filter(row=>targets.includes(row.id))}:{})};
  }
  function update(){
@@ -159,7 +161,9 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
   }
   plan=next;host.dataset.printLayout=JSON.stringify({...next,plateIndex:index,plateCount:plates.length});
   $('info').textContent='プレート '+(index+1)+' / '+plates.length+' ／ '+next.placements.length+'部品 ／ '+next.used.width.toFixed(1)+' × '+next.used.height.toFixed(1)+' mm';
-  $('apply').disabled=busy||!!comparison;
+  const needsSinglePlate=editsModel()&&plateEntries().length>1;
+  $('apply').disabled=busy||!!comparison||needsSinglePlate;
+  if(needsSinglePlate)$('error').textContent='モデルの配置を更新するには、対象を1枚のプレートに収めてください。';
   renderOrientations();renderOverview();inspectCurrent();syncExport();
  }
  function snapshotPlacements(){
@@ -311,19 +315,20 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
   const inactive=value||!!comparison;
   for(const el of dialog.querySelectorAll('input,select')){
    const orientation=el.dataset.printOrientation;
-   el.disabled=inactive||(el===$('legacy')&&editing?.spec.type==='printLayout')||
+   el.disabled=inactive||
     (orientation!==undefined&&(!targets.includes(orientation)||overrides.some(row=>row.id===orientation&&row.locked)));
   }
   $('repack').disabled=inactive;
   if(items)renderOrientations();
-  $('apply').disabled=inactive||!plan;renderOverview();syncExport();
+  $('apply').disabled=inactive||!plan||(editsModel()&&plateEntries().length>1);renderOverview();syncExport();
  }
  $('plate').onchange=()=>{focusNext=false;showCurrentPlate();};
  function updateMode(){
   $('orientations').hidden=$('plate-row').hidden=$('export').hidden=$('export-all').hidden=$('overview').hidden=$('inspection').hidden=$('placement-tools').hidden=legacy();
-  $('apply').textContent=legacy()?'モデルに適用':'印刷配置を保存';
+  $('apply').textContent=editsModel()?'モデルの配置を更新':'印刷配置を保存';
+  $('apply-model').hidden=editsModel();
+  $('apply-model').style.marginTop='8px';
  }
- $('legacy').onchange=()=>{updateMode();update();};
  async function checkOrExport({all=false,exportFiles=false}={}){
   if(busy||drag||comparison||!plan?.placements.length||legacy())return;
   const current=version,features=original,entries=all?plateEntries():[{plate:plan,index:Number($('plate').value)}];
@@ -346,15 +351,37 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  $('export-all').onclick=()=>checkOrExport({all:true,exportFiles:true});
  $('check-all').onclick=()=>checkOrExport({all:true});
  $('form').addEventListener('input',event=>{if(event.target.matches('input[type=number],#print-layout-rotation'))update();});
- $('form').onsubmit=async e=>{e.preventDefault();if(busy||!plan||$('apply').disabled)return;const input=spec(),current=version;setBusy(true);$('error').textContent='印刷配置を保存しています…';
-  try{const result=legacy()?await kernel.run(history,input):{outputs:[],remove:[]};if(current!==version||!dialog.open)return;if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');await apply(input,result,editing?.spec.type===input.type?editing:null,original,()=>current===version&&dialog.open);if(current!==version||!dialog.open)return;const plateCount=plates.length;busy=false;applied=legacy();dialog.close();notify(legacy()?'モデルに印刷配置を適用しました':'印刷配置を'+plateCount+'枚のプレートで保存しました');}
-  catch(error){if(current===version&&dialog.open)$('error').textContent=error.message;}
+ $('form').onsubmit=event=>{event.preventDefault();if(!$('apply').disabled)saveLayout(editsModel());};
+ $('apply-model').onclick=()=>saveLayout(true);
+ async function saveLayout(moveBodies){
+  if(busy||drag||comparison||!plan?.placements.length)return;
+  const input=spec(),current=version;
+  if(moveBodies&&!legacy()){
+   input.type='printLayout';
+   input.id=editsModel()?id:relocationId;
+   input.targets=plan.placements.map(p=>p.id);
+   input.orientations=Object.fromEntries(plan.placements.map(p=>[p.id,p.orientation]));
+   input.placementOverrides=plan.placements.map(p=>({
+    id:p.id,plate:0,x:(p.min[0]+p.max[0])/2,y:(p.min[1]+p.max[1])/2,rotation:p.rotation,locked:!!p.locked,
+   }));
+  }
+  setBusy(true);
+  $('error').textContent=moveBodies?'モデルの位置と向きを更新しています…':'印刷配置を保存しています…';
+  try{
+   const result=moveBodies?await kernel.run(history,input):{outputs:[],remove:[]};
+   if(current!==version||!dialog.open)return;
+   if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');
+   await apply(input,result,editing?.spec.type===input.type?editing:null,original,()=>current===version&&dialog.open);
+   if(current!==version||!dialog.open)return;
+   busy=false;applied=moveBodies;dialog.close();
+   notify(moveBodies?'表示していたプレートの '+input.targets.length+' ボディを移動しました':'印刷配置を'+plates.length+'枚のプレートで保存しました');
+  }catch(error){if(current===version&&dialog.open)$('error').textContent=error.message;}
   finally{if(current===version)setBusy(false);}
- };
+ }
  return {open:async(feature=null)=>{
-  if([...document.querySelectorAll('dialog[open]')].some(d=>d!==dialog)){notify('編集中の操作を終了してから印刷配置してください');return;}if(dialog.open)dialog.close();original=getFeatures();editing=feature;$('legacy').checked=feature?.spec.type==='printLayout';history=legacy()?original.slice(0,original.findIndex(f=>f.id===feature.id)):original;id=feature?.id||crypto.randomUUID();relocationId=crypto.randomUUID();const visible=[...meshes].filter(([,m])=>m.visible).map(([id])=>id);targets=legacy()?feature.spec.targets:feature?.spec.targets.filter(id=>meshes.has(id))||visible;const available=legacy()?[...targets]:[...new Set([...targets,...visible])];if(!available.length){notify('表示中のソリッドがありません');return;}
-  orientations={...feature?.spec.orientations};overrides=structuredClone(feature?.spec.placementOverrides??[]);const request=++version;items=null;plates=[];plan=null;$('plate').replaceChildren();$('plate').disabled=false;$('repack').disabled=false;$('orientations').replaceChildren();updateMode();$('export').disabled=true;dialog.querySelector('h2').textContent=legacy()?'モデルの印刷配置を編集':'印刷配置';busy=false;loading=true;applied=false;fitted=false;wasVisible=plate.visible;wasMargin=plateMargin;for(const el of dialog.querySelectorAll('input'))el.disabled=el===$('legacy')&&editing?.spec.type==='printLayout';$('margin').value=feature?.spec.margin??2;$('gap').value=feature?.spec.gap??3;$('rotation').checked=feature?.spec.allowRotation??true;$('apply').disabled=true;$('info').textContent='';$('error').textContent='ボディの正確な寸法を確認しています…';showPlate(true);dialog.show();
-  try{const result=await kernel.run(history,{type:'printLayoutInfo',targets:available});if(request!==version||!dialog.open)return;if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');items=result.items.map(b=>({...b,name:bodyName(b.id)}));if(editing?.spec.type!=='printLayout')renderOrientations();update();}
+  if([...document.querySelectorAll('dialog[open]')].some(d=>d!==dialog)){notify('編集中の操作を終了してから印刷配置してください');return;}if(dialog.open)dialog.close();original=getFeatures();editing=feature;history=editsModel()?original.slice(0,original.findIndex(f=>f.id===feature.id)):original;id=feature?.id||crypto.randomUUID();relocationId=crypto.randomUUID();const visible=[...meshes].filter(([,m])=>m.visible).map(([id])=>id);targets=editsModel()?[...feature.spec.targets]:feature?.spec.targets.filter(id=>meshes.has(id))||visible;const available=editsModel()?[...targets]:[...new Set([...targets,...visible])];if(!available.length){notify('表示中のソリッドがありません');return;}
+  orientations={...feature?.spec.orientations};overrides=structuredClone(feature?.spec.placementOverrides??[]);const request=++version;items=null;plates=[];plan=null;$('plate').replaceChildren();$('plate').disabled=false;$('repack').disabled=false;$('orientations').replaceChildren();updateMode();$('export').disabled=true;dialog.querySelector('h2').textContent=editsModel()?'モデルの印刷配置を編集':'印刷配置';busy=false;loading=true;applied=false;fitted=false;wasVisible=plate.visible;wasMargin=plateMargin;for(const el of dialog.querySelectorAll('input'))el.disabled=false;$('margin').value=feature?.spec.margin??2;$('gap').value=feature?.spec.gap??3;$('rotation').checked=feature?.spec.allowRotation??true;$('apply').disabled=true;$('info').textContent='';$('error').textContent='ボディの正確な寸法を確認しています…';showPlate(true);dialog.show();
+  try{const result=await kernel.run(history,{type:'printLayoutInfo',targets:available});if(request!==version||!dialog.open)return;if(getFeatures()!==original)throw Error('モデルが変更されました。開き直してください');items=result.items.map(b=>({...b,name:bodyName(b.id)}));if(!legacy())renderOrientations();update();}
   catch(error){if(request===version&&dialog.open)$('error').textContent=error.message;}
   finally{if(request===version)loading=false;}
  },get active(){return dialog.open;}};
