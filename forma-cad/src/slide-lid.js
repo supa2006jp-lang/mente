@@ -1,3 +1,4 @@
+import {applySlideClickFit,slideClickSettings} from './slide-lid-click-fit.js';
 import {slideSurfaceGrip} from './slide-lid-surface-grip.js';
 import {topSlideLayout,topSlideBlank,topSlideSweep,topSlideGrip,slideFinishingOptions,slideLeadIn} from './slide-lid-top.js';
 import * as R from 'replicad';
@@ -57,7 +58,7 @@ export function makeSlideLid(source,p){
  if(Math.min(w,floor,t,cover)<1.2||d<.6||g<.05||g>2)throw Error('0.6 mmノズル用に壁・底・蓋・溝上部の厚さは1.2 mm以上、溝深さは0.6 mm以上、すき間は0.05〜2 mmにしてください');
  if(p.lidStyle==='top'&&(w-d<1.2-1e-6||d-g<.6-1e-6))throw Error('溝の外側に1.2 mm以上の肉厚、蓋の掛かりに0.6 mm以上が必要です。壁厚・溝深さ・すき間を調整してください');
  const top=p.lidStyle==='top'?topSlideLayout(info,p):null,bodyHeight=top?.bodyHeight??H,S=W/2-w,upper=top?.upper??H-cover;
- const fit=top?null:slideLidFit(p,upper);
+ const fit=top?null:slideLidFit(p,upper),clickAmount=slideClickSettings(p);
  const lower=top?.lower??fit.lower,tipHeight=top?.tipHeight??fit.tipHeight;
  const side=fit?.side??g,vertical=fit?.vertical??g;
 
@@ -85,6 +86,11 @@ export function makeSlideLid(source,p){
   if(labels.length)body=hold(applySlideLabels(body,p,labels));
   const clearPathBody=body;let lock=null;
   if(p.lock){const locked=slideLock(body,lid,p,top?{...info,lockCenters:[-(S-g-top.stemWidth/2),S-g-top.stemWidth/2],lockWidth:top.stemWidth,lockThickness:top.railCore}:info,lower);body=hold(locked.body);lid=hold(locked.lid);lock=locked.analysis;}
+  let clickFit=null;
+  if(clickAmount){
+   const snapped=applySlideClickFit(body,lid,{start:-L/2,throat:-L/2+w,back,halfWidth:S,depth:d,upper,fit,wall:w,endClearance:g,amount:clickAmount},hold);
+   ({body,lid}=snapped);clickFit=snapped.analysis;
+  }
   valid(body,'本体');valid(lid,'蓋');
   const overlap=R.measureVolume(hold(body.intersect(lid))),travel=top?L+2*g:L-w,swept=top?topSlideSweep(top,info,travel,sectionPrism,hold):hold(sectionPrism(lidPoints,front-travel,back)),slidingOverlap=R.measureVolume(hold(clearPathBody.intersect(swept)));
   if(lock)lock.slidingContact=R.measureVolume(hold(body.intersect(swept)));
@@ -92,7 +98,7 @@ export function makeSlideLid(source,p){
   const toWorld=shape=>shape.clone().rotate(info.angle,[0,0,0],[0,0,1]).translate(info.center);
   let bodyOut=toWorld(body),lidOut=toWorld(lid);let printTranslation=null;
   try{if(p.pose==='print'){if(top){lidOut.delete();const flipped=lid.clone().rotate(180,[0,0,0],[1,0,0]);try{lidOut=toWorld(flipped);}finally{flipped.delete();}}bodyOut=bodyOut.translate([0,0,-info.center[2]]);const bb=bounds(bodyOut),lb=bounds(lidOut);printTranslation=[bb[1][0]-lb[0][0]+10,0,-lb[0][2]];lidOut=lidOut.translate(printTranslation);}
-   return {body:bodyOut,lid:lidOut,analysis:{...info,lidStyle:top?'top':'inset',...finishing,bodyHeight,capLower:top?.capLower??null,capUpper:top?.capUpper??null,railStemWidth:top?.stemWidth??null,frontClosure:top?{front:top.frontWall.front,back:top.frontWall.back,thickness:top.frontWall.thickness,lower:top.frontWall.lower,upper:top.frontWall.upper}:null,printFlipped:!!top,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,sideClearance:side,verticalClearance:vertical,slopeClearance:fit?.slope??g,tipHeight,remainingWall:w-d,engagement:d-side,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,surfaceGrip,lock,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
+   return {body:bodyOut,lid:lidOut,analysis:{...info,lidStyle:top?'top':'inset',...finishing,bodyHeight,capLower:top?.capLower??null,capUpper:top?.capUpper??null,railStemWidth:top?.stemWidth??null,frontClosure:top?{front:top.frontWall.front,back:top.frontWall.back,thickness:top.frontWall.thickness,lower:top.frontWall.lower,upper:top.frontWall.upper}:null,printFlipped:!!top,wall:w,floor,lidThickness:t,railDepth:d,cover,clearance:g,sideClearance:side,verticalClearance:vertical,slopeClearance:fit?.slope??g,tipHeight,remainingWall:w-d,engagement:d-side,cavityLength:L-2*w,cavityWidth:2*S,cavityHeight:low-floor,grooveLower:lower,grooveUpper:upper,lidFront:front,lidBack:back,grip,surfaceGrip,lock,clickFit,labels:labels.map(({pattern,...entry})=>entry),fillet:options.fillet,divider:options.divider,overlap,slidingOverlap,openTravel:travel,printTranslation}};
   }catch(error){bodyOut.delete();lidOut.delete();throw error;}
  }finally{objects.reverse().forEach(shape=>shape.delete());}
 }

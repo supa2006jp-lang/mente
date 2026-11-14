@@ -22,6 +22,19 @@ for(const direction of ['long','short'])for(const entry of ['negative','positive
 }
 const box=R.makeBox([-40,-25,0],[40,25,30]);try{
  for(const bad of [{wall:1},{floor:1},{clearance:0},{clearance:2},{railDepth:4},{lidThickness:1.2},{direction:'bad'},{entry:'bad'},{pose:'bad'},{grip:'yes'},{wall:NaN}])assert.throws(()=>makeSlideLid(box,{...p,...bad}));
+ const snapped=makeSlideLid(box,{...p,clickFit:true,clickFitAmount:.25,sideClearance:.35,verticalClearance:.25,leadIn:true});
+ try{
+  valid(snapped.body);valid(snapped.lid);
+  const {clickFit,exitVector,length}=snapped.analysis;
+  function overlapAt(mm){
+   const shifted=snapped.lid.clone().translate(exitVector.map(v=>v*mm)),overlap=snapped.body.intersect(shifted);
+   try{return R.measureVolume(overlap);}finally{overlap.delete();shifted.delete();}
+  }
+  assert.equal(clickFit.amount,.25);
+  assert.equal(overlapAt(0),0,'tabs sit in the recess at closure');
+  assert.ok(overlapAt(clickFit.position+length/2-p.wall-.6)>.01,'tabs engage the constriction just before closure');
+  for(const distance of [10,20,40])assert.equal(overlapAt(distance),0,'tabs clear the rest of the slide path');
+ }finally{snapped.body.delete();snapped.lid.delete();}
  const output=makeSlideLid(box,{...p,pose:'print',grip:false});try{for(const part of [output.body,output.lid]){valid(part);const b=part.boundingBox;try{assert.ok(Math.abs(b.bounds[0][2])<1e-6);}finally{b.delete();}}const b=output.body.boundingBox,l=output.lid.boundingBox;try{assert.ok(l.bounds[0][0]-b.bounds[1][0]>=9.99);}finally{b.delete();l.delete();}}finally{output.body.delete();output.lid.delete();}
 }finally{box.delete();}
 for(const shape of [R.makeCylinder(20,30),R.makeBox([-40,-25,0],[40,25,30]).rotate(15,[0,0,0],[1,0,0]),R.makeBox([-6,-6,0],[6,6,6])])try{assert.throws(()=>makeSlideLid(shape,p));}finally{shape.delete();}

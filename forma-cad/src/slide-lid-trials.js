@@ -1,4 +1,5 @@
 import * as R from 'replicad';
+import {applySlideClickFit,slideClickSettings} from './slide-lid-click-fit.js';
 import {sectionPrism,slideChannelProfile,slideLidFit,slidePlateProfile} from './slide-lid.js';
 import {printSupportExportMesh} from './print-support-export-mesh.js';
 
@@ -6,7 +7,8 @@ export function makeSlideLidTrials(settings,dimensions,onProgress){
  const {wall,railDepth,cover,lidThickness}=settings;
  const {length,width}=dimensions;
  if(![wall,railDepth,cover,lidThickness,length,width].every(Number.isFinite)||Math.min(wall,cover,lidThickness)<1.2||railDepth<.6||width-2*wall<6||length-2*wall<6)throw Error('試験片に必要な寸法が足りません');
- const span=Math.min(18,length-2*wall),interior=Math.min(7,(width-2*wall)/2);
+ const clickAmount=slideClickSettings(settings);
+ const span=Math.min(18,Math.max(clickAmount?10:6,length-2*wall)),interior=Math.min(7,(width-2*wall)/2);
  const widthOutside=interior+wall,upper=lidThickness+8;
  const current=slideLidFit(settings,upper);
  const variants=[{label:'B',fit:current}];
@@ -34,6 +36,9 @@ export function makeSlideLidTrials(settings,dimensions,onProgress){
    const opening=hold(R.makeBox([-.1,-interior,lower],[span+.1,interior,upper+cover+.1]));
    let body=hold(hold(stock.cut(channel)).cut(opening));
    let lid=hold(sectionPrism(slidePlateProfile(interior,railDepth,upper,fit),0,span));
+   if(clickAmount){
+    ({body,lid}=applySlideClickFit(body,lid,{start:0,throat:1.2,back:span,halfWidth:interior,depth:railDepth,upper,fit,wall,endClearance:settings.clearance,amount:clickAmount},hold));
+   }
    const markCount=label.charCodeAt(0)-64;
    for(let n=0;n<markCount;n++){
     const y=(n-(markCount-1)/2)*1.6;
