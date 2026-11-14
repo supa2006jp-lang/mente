@@ -183,7 +183,7 @@ test('save failure history is copyable without copying saved data contents', asy
 });
 
 test('save diagnostics show persistence request and copyable recent failures', () => {
-    const { app, context } = makeApp({ deptData: { dept_default: {} } });
+    const { app, store, context } = makeApp({ deptData: { dept_default: {} } });
     class Element {
         constructor(tagName) { this.tagName = tagName; this.children = []; this.handlers = {}; this.hidden = false; }
         append(...children) { this.children.push(...children); }
@@ -199,11 +199,19 @@ test('save diagnostics show persistence request and copyable recent failures', (
     context.navigator = { storage: { async persist() { return true; } } };
     app._persistentStorageState = 'not-granted';
     app._saveFailureHistory = [{ at: '2026-11-15T00:00:00.000Z', backend: 'indexeddb', revision: 4, reason: '保存領域エラー' }];
+    store.malformedStorageReports = [{ source: 'indexeddb', key: store.STORAGE_KEY, issues: ['部署 dept_default.machines が配列ではありません'] }];
+    store._repairCandidates = { indexeddb: { repaired: true } };
+    store.startupRepairSource = 'indexeddb';
+    store._malformedPrimary = { indexeddb: { data: { deptData: {} } } };
     app.renderSaveStatusDiagnostics();
 
     const text = panel.children.map(child => child.textContent || child.children.map(item => item.textContent).join(' ')).join('\n');
     assert.match(text, /永続化を要求/);
     assert.match(text, /保存失敗履歴/);
     assert.match(text, /保存領域エラー/);
+    assert.match(text, /部署 dept_default\.machines が配列ではありません/);
+    assert.match(text, /修復前データを出力/);
+    assert.match(text, /不正な項目を補ったコピーを使用中/);
     assert.ok(panel.children.some(child => child.textContent === '失敗履歴をコピー' && typeof child.handlers.click === 'function'));
+    assert.ok(panel.children.some(child => child.textContent === 'IndexedDB の修復前データを出力' && typeof child.handlers.click === 'function'));
 });

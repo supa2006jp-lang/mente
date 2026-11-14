@@ -1,5 +1,5 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const CACHE_NAME = 'maintenance-next-static-20261115-all5';
+const CACHE_NAME = 'maintenance-next-static-20261115-all5b';
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
     './',
@@ -7,14 +7,14 @@ const SHELL_FILES = [
     './assets/vendor/fontsource/inter/5.2.6/index.css',
     './assets/vendor/fontsource/noto-sans-jp/5.2.6/index.css',
     './all.min.css?v=6.5.1-embedded3',
-    './style.css?v=20261115-all5',
+    './style.css?v=20261115-all5b',
     './assets/vendor/chart.js/4.6.1/chart.umd.min.js',
     './assets/vendor/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js',
     './assets/vendor/kuromoji/0.1.2/kuromoji.js',
     './assets/vendor/kuroshiro/1.2.0/kuroshiro.min.js',
     './assets/vendor/kuroshiro-analyzer-kuromoji/1.1.0/kuroshiro-analyzer-kuromoji.min.js',
-    './store.js?v=20261114-save12',
-    './app.js?v=20261115-all5',
+    './store.js?v=20261115-all5b',
+    './app.js?v=20261115-all5b',
     './app-settings.js?v=20261114-save12',
     './app-todos.js?v=20260611-todo-stamp-wrap',
     './app-shift-notebook-settings.js',
@@ -24,8 +24,8 @@ const SHELL_FILES = [
     './app-calendar-support.js?v=20261114-improve123',
     './app-departments.js?v=20260623-dept-switch-import-fix',
     './app-machines.js?v=20261114-improve123',
-    './app-maintenance-forms.js?v=20261115-all5',
-    './app-history.js?v=20261115-all5',
+    './app-maintenance-forms.js?v=20261115-all5b',
+    './app-history.js?v=20261115-all5b',
     './app-analysis-dashboard.js?v=20261114-fix123',
     './app-ranking-guides.js?v=20260826-auto-contrast1',
     './app-tips.js?v=20260826-tips-copy-body1',
@@ -35,12 +35,12 @@ const SHELL_FILES = [
     './app-archives.js?v=20261114-save12',
     './app-hard-delete.js?v=20261114-fix123',
     './app-persistence.js?v=20261115-all5',
-    './app-csv.js?v=20261114-fix123',
+    './app-csv.js?v=20261115-all5b',
     './app-misc-analysis.js',
     './assets/vendor/ffmpeg/0.11.6/ffmpeg.min.js',
     './assets/vendor/ffmpeg/0.11.6/046d0074eee1d99a674a.js',
     './app-dom-actions.js',
-    './app-boot.js?v=20261115-all5'
+    './app-boot.js?v=20261115-all5b'
 ];
 
 self.addEventListener('install', event => {

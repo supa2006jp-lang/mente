@@ -249,7 +249,7 @@
         return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
     }
 
-    async addHistoryImportLog(log) {
+    appendHistoryImportLog(log) {
         const logs = this.getHistoryImportLogs();
         logs.unshift({
             id: store.generateId ? store.generateId() : String(Date.now()),
@@ -257,6 +257,10 @@
             ...log
         });
         store.activeData.historyImportLogs = logs.slice(0, 50);
+    }
+
+    async addHistoryImportLog(log) {
+        this.appendHistoryImportLog(log);
         await store.save();
     }
 
@@ -734,7 +738,9 @@
             };
 
             const records = [];
-            const machines = store.getMachines(true);
+            const machines = [...store.getMachines(true)];
+            const newMachines = [];
+            const pendingLineNos = new Map();
             let addedMachines = 0;
             let candidateRowCount = 0;
             let skippedInvalidRows = 0;
@@ -783,11 +789,15 @@
 
                 let targetMachine = machines.find(m => m.name === mName && (mModel ? m.model === mModel : true));
                 if (!targetMachine) {
-                    targetMachine = store.addMachine(mName, mModel || '', 'CSV取込で自動登録', '', '', lineNo);
+                    targetMachine = {
+                        id: store.generateId(), name: mName, model: mModel || '',
+                        remarks: 'CSV取込で自動登録', photo: '', category: '', lineNo,
+                        manufacturer: '', deleted: false, createdAt: Date.now()
+                    };
                     machines.push(targetMachine);
-                    addedMachines++;
+                    newMachines.push(targetMachine);
                 } else if (lineNo && !targetMachine.lineNo) {
-                    targetMachine.lineNo = lineNo;
+                    pendingLineNos.set(targetMachine.id, lineNo);
                 }
 
                 let isSudden = false;
@@ -843,6 +853,10 @@
                 records.push(record);
             }
 
+            const usedMachineIds = new Set(records.map(record => record.machineId));
+            const machinesToAdd = newMachines.filter(machine => usedMachineIds.has(machine.id));
+            addedMachines = machinesToAdd.length;
+
             if (records.length === 0) {
                 await this.addHistoryImportLog({
                     fileName: file.name || 'CSV取り込み',
@@ -861,19 +875,27 @@
             const parsedPartMasterKeys = new Set(parsedParts.filter(p => p.name).map(p => `${p.name}__${p.model || ''}`));
             const partMasterMessage = parsedPartMasterKeys.size ? `\n部品マスター候補 ${parsedPartMasterKeys.size}件も反映します。` : '';
             if (confirm(`${records.length}件の履歴（うち新規機械登録: ${addedMachines}件）を取り込みます。よろしいですか？${partMasterMessage}${duplicateMessage}`)) {
-                store.activeData.history.push(...records);
-                const partMasterResult = this.upsertImportedPartMasters(parsedParts);
-                await this.addHistoryImportLog({
-                    fileName: file.name || 'CSV取り込み',
-                    totalRows: candidateRowCount,
-                    added: records.length,
-                    duplicates: duplicateCount,
-                    skipped: skippedInvalidRows,
-                    addedMachines,
-                    addedPartMasters: partMasterResult.added,
-                    updatedPartMasters: partMasterResult.updated,
-                    firstTime: records.filter(r => r.isFirstTime !== false).length,
-                    recurrence: records.filter(r => r.isFirstTime === false).length
+                await store.runAtomicSaveBatch(() => {
+                    store.activeData.machines.push(...machinesToAdd);
+                    for (const [machineId, nextLineNo] of pendingLineNos) {
+                        if (!usedMachineIds.has(machineId)) continue;
+                        const machine = store.activeData.machines.find(item => item.id === machineId);
+                        if (machine && !machine.lineNo) machine.lineNo = nextLineNo;
+                    }
+                    store.activeData.history.push(...records);
+                    const partMasterResult = this.upsertImportedPartMasters(parsedParts);
+                    this.appendHistoryImportLog({
+                        fileName: file.name || 'CSV取り込み',
+                        totalRows: candidateRowCount,
+                        added: records.length,
+                        duplicates: duplicateCount,
+                        skipped: skippedInvalidRows,
+                        addedMachines,
+                        addedPartMasters: partMasterResult.added,
+                        updatedPartMasters: partMasterResult.updated,
+                        firstTime: records.filter(r => r.isFirstTime !== false).length,
+                        recurrence: records.filter(r => r.isFirstTime === false).length
+                    });
                 });
                 this.closeModal();
                 this.showToast?.(`${records.length}件の履歴をインポートしました（重複${duplicateCount}件）`, 'success');
@@ -887,7 +909,7 @@
             }
         } catch (err) {
             console.error('History import failed', err);
-            alert(`取り込みファイルを読み取れませんでした。\n${err.message || err}`);
+            alert(`取り込みに失敗しました。変更は保存されていません。\n${err.message || err}`);
         }
     }
 

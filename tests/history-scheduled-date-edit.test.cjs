@@ -10,13 +10,14 @@ const periodic = () => ({ id: 'task-1', machineId: 'machine-1', content: '週次
 function makeApp(history, tasks = [periodic()]) {
     const alerts = [];
     const elements = new Map();
-    const counts = { saves: 0, stock: 0, calendar: 0 };
+    const counts = { saves: 0, stock: 0, calendar: 0, closed: 0 };
     const machine = { id: 'machine-1', name: '機械', model: 'A', category: '装置' };
     const store = {
         activeData: { tasks, history },
         getMachines() { return [machine]; },
         getWorkers() { return []; },
-        save() { counts.saves++; },
+        save() {},
+        async runAtomicSaveBatch(mutate) { const result = mutate(); counts.saves++; return result; },
         adjustStock() { counts.stock++; },
         updateMachine() { throw new Error('Machine category must not change'); }
     };
@@ -47,7 +48,7 @@ function makeApp(history, tasks = [periodic()]) {
     app.getCurrentRecurrenceMeta = () => null;
     app.getHistoryPhotosForSave = () => [];
     app.updateDataLists = () => {};
-    app.closeModal = () => {};
+    app.closeModal = () => { counts.closed++; };
     app.renderCalendar = () => { counts.calendar++; };
     app.renderHistory = () => {};
     app.renderDashboard = () => {};
@@ -90,11 +91,11 @@ test('legacy periodic history only infers a planned date when the work date is o
     assert.match(elements.get('modal-content').innerHTML, /id="e-scheduled-date" value="2026-11-08"/);
 });
 
-test('valid planned date correction saves without changing the work date and redraws the calendar', () => {
+test('valid planned date correction saves without changing the work date and redraws the calendar', async () => {
     const history = [{ id: 'history-1', taskId: 'task-1', machineId: 'machine-1', date: '2026-11-10', scheduledDate: '2026-11-08' }];
     const { app, store, elements, alerts, counts } = makeApp(history);
     fillEditForm(elements, { scheduledDate: '2026-11-15' });
-    app.saveModalData('edit-history');
+    await app.saveModalData('edit-history');
     assert.deepEqual(alerts, []);
     assert.equal(store.activeData.history[0].date, '2026-11-10');
     assert.equal(store.activeData.history[0].scheduledDate, '2026-11-15');
@@ -102,11 +103,11 @@ test('valid planned date correction saves without changing the work date and red
     assert.equal(counts.calendar, 1);
 });
 
-test('off-cycle planned date rejects before history and inventory changes', () => {
+test('off-cycle planned date rejects before history and inventory changes', async () => {
     const record = { id: 'history-1', taskId: 'task-1', machineId: 'machine-1', date: '2026-11-10', scheduledDate: '2026-11-08', replacedParts: [{ name: '部品', model: 'A', count: 1 }] };
     const { app, store, elements, alerts, counts } = makeApp([record]);
     fillEditForm(elements, { scheduledDate: '2026-11-12' });
-    app.saveModalData('edit-history');
+    await app.saveModalData('edit-history');
     assert.equal(store.activeData.history[0], record);
     assert.equal(counts.stock, 0);
     assert.equal(counts.saves, 0);
@@ -114,21 +115,21 @@ test('off-cycle planned date rejects before history and inventory changes', () =
     assert.match(alerts[0], /周期に該当する日付/);
 });
 
-test('old delayed history remains editable with an unknown planned date', () => {
+test('old delayed history remains editable with an unknown planned date', async () => {
     const history = [{ id: 'history-1', taskId: 'task-1', machineId: 'machine-1', date: '2026-11-10' }];
     const { app, store, elements, alerts } = makeApp(history);
     fillEditForm(elements, { scheduledDate: '' });
-    app.saveModalData('edit-history');
+    await app.saveModalData('edit-history');
     assert.deepEqual(alerts, []);
     assert.equal(store.activeData.history[0].scheduledDate, undefined);
 });
 
-test('an existing planned date stays editable after the task cycle changes', () => {
+test('an existing planned date stays editable after the task cycle changes', async () => {
     const history = [{ id: 'history-1', taskId: 'task-1', machineId: 'machine-1', date: '2026-11-10', scheduledDate: '2026-11-08' }];
     const task = { ...periodic(), startDate: '2026-11-02' };
     const { app, store, elements, alerts, counts } = makeApp(history, [task]);
     fillEditForm(elements, { scheduledDate: '2026-11-08' });
-    app.saveModalData('edit-history');
+    await app.saveModalData('edit-history');
     assert.deepEqual(alerts, []);
     assert.equal(store.activeData.history[0].scheduledDate, '2026-11-08');
     assert.equal(counts.saves, 1);
@@ -142,13 +143,27 @@ test('legacy one-off history displays the task start as its planned date', () =>
     assert.match(elements.get('modal-content').innerHTML, /id="e-scheduled-date" value="2026-11-01"/);
 });
 
-test('sudden response keeps its edit form and save path free of a planned date', () => {
+test('sudden response keeps its edit form and save path free of a planned date', async () => {
     const history = [{ id: 'history-1', machineId: 'machine-1', isSudden: true, date: '2026-11-10' }];
     const { app, store, elements, alerts } = makeApp(history);
     app.openHistoryEditForm('history-1');
     assert.doesNotMatch(elements.get('modal-content').innerHTML, /id="e-scheduled-date"/);
     fillEditForm(elements);
-    app.saveModalData('edit-history');
+    await app.saveModalData('edit-history');
     assert.deepEqual(alerts, []);
     assert.equal(store.activeData.history[0].scheduledDate, undefined);
+});
+
+test('a failed edit save leaves the form open and does not redraw success', async () => {
+    const history = [{ id: 'history-1', machineId: 'machine-1', isSudden: true, date: '2026-11-10' }];
+    const { app, store, elements, alerts, counts } = makeApp(history);
+    fillEditForm(elements);
+    store.runAtomicSaveBatch = async mutate => {
+        mutate();
+        throw new Error('disk full');
+    };
+    await app.saveModalData('edit-history');
+    assert.equal(counts.closed, 0);
+    assert.equal(counts.calendar, 0);
+    assert.match(alerts[0], /disk full/);
 });

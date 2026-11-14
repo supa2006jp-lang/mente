@@ -46,6 +46,9 @@ function createRuntime() {
                     }
                 } else if (script.src.startsWith('app-photo-manager.js')) {
                     MaintenanceApp.prototype.renderPhotoManager = function () { invoked.push(['photos']); };
+                    MaintenanceApp.prototype.openPhotoManagerEditor = function (id) { invoked.push(['photo-editor', id]); };
+                    MaintenanceApp.prototype.downloadPhotoManagerItem = function (id) { invoked.push(['photo-download', id]); };
+                    MaintenanceApp.prototype.openImageSourceChoiceTransparencyPreview = function (id) { invoked.push(['alpha-preview', id]); };
                     MaintenanceApp.prototype.openPhotoManagerVideos = function () { invoked.push(['videos']); };
                     MaintenanceApp.prototype.openRegisteredVideoAttachmentPicker = function () { invoked.push(['video-picker']); };
                     MaintenanceApp.prototype.ensureImageSourceChoiceListener = function () {
@@ -134,13 +137,31 @@ test('photo comparison loads the media module after the notebook module', async 
 test('photo comparison loads its effects even when photos were opened earlier', async () => {
     const runtime = createRuntime();
     await runtime.onReady();
-    await runtime.window.app.renderMachines();
-    assert.deepEqual(runtime.injected.map(src => src.split('?')[0]), ['app-shift-notebook-core.js', 'app-photo-manager.js']);
+    await runtime.window.app.renderPhotoManager();
+    assert.deepEqual(runtime.injected.map(src => src.split('?')[0]), ['app-photo-manager.js']);
+    await runtime.window.app.openPhotoManagerEditor('photo-1');
+    assert.deepEqual(runtime.injected.map(src => src.split('?')[0]), ['app-photo-manager.js', 'app-shift-notebook-core.js']);
+    assert.deepEqual(runtime.invoked.at(-1), ['photo-editor', 'photo-1']);
     await runtime.window.app.openShiftPhotoCompare();
     assert.deepEqual(runtime.injected.map(src => src.split('?')[0]).slice(-3), [
         'app-shift-photo-camera.js', 'app-shift-photo-reveal.js', 'app-shift-avatar-conversation.js'
     ]);
     assert.deepEqual(runtime.invoked.at(-1), ['compare']);
+});
+
+test('annotated image download and transparency preview load notebook helpers on demand', async () => {
+    for (const [method, eventName] of [
+        ['downloadPhotoManagerItem', 'photo-download'],
+        ['openImageSourceChoiceTransparencyPreview', 'alpha-preview']
+    ]) {
+        const runtime = createRuntime();
+        await runtime.onReady();
+        await runtime.window.app.renderPhotoManager();
+        assert.deepEqual(runtime.injected.map(src => src.split('?')[0]), ['app-photo-manager.js']);
+        await runtime.window.app[method]('photo-1');
+        assert.deepEqual(runtime.injected.map(src => src.split('?')[0]), ['app-photo-manager.js', 'app-shift-notebook-core.js']);
+        assert.deepEqual(runtime.invoked.at(-1), [eventName, 'photo-1']);
+    }
 });
 
 test('opening a notebook with linked photos waits for the media module', async () => {
@@ -166,8 +187,7 @@ test('first file input click opens image choice after loading photos', async () 
     let prevented = false;
     const event = { target: input, preventDefault() { prevented = true; }, stopPropagation() {} };
     const listener = runtime.documentListeners.get('click');
-    listener(event);
-    await runtime.window.maintenanceLazyFeatures.loadPhotos();
+    await listener(event);
     assert.equal(prevented, true);
     assert.deepEqual(runtime.invoked.slice(-2), [['image-listener'], ['image-choice', 'calendar-photo']]);
 });

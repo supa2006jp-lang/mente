@@ -914,16 +914,42 @@
         }
 
         async deletePhotoManagerAudio(id = '') {
+            if (this._photoManagerAudioDeleteInProgress) return false;
             const item = this.getPhotoManagerAudio(id);
             if (!item) return;
             const usage = this.getPhotoManagerAudioUsageCount(item.mediaKey);
             if (usage) return this.showPhotoManagerNotice?.(`この音声は${usage}ページで使用中のため削除できません。`);
             if (!confirm(`${item.name || '音声'}を音声DBから削除しますか？`)) return;
-            store.activeData.photoManagerAudios = this.getPhotoManagerAudios().filter(audio => audio.id !== item.id);
-            await store.deleteMediaBlob(item.mediaKey).catch(() => false);
-            await store.save();
-            this.openPhotoManagerAudios();
-            this.showPhotoManagerNotice?.('音声を削除しました。');
+            this._photoManagerAudioDeleteInProgress = true;
+            try {
+                const active = store.activeData;
+                const previous = this.getPhotoManagerAudios();
+                active.photoManagerAudios = previous.filter(audio => audio.id !== item.id);
+                try {
+                    await store.save({ discardQueuedOnFailure: true });
+                } catch (error) {
+                    active.photoManagerAudios = previous;
+                    console.error('音声の削除を保存できませんでした。', error);
+                    this.showPhotoManagerNotice?.(`音声を削除できませんでした。${error?.message || '保存先を確認してください。'}`);
+                    return false;
+                }
+                let mediaRemoved = true;
+                if (item.mediaKey && !active.photoManagerAudios.some(audio => audio.mediaKey === item.mediaKey)) {
+                    try {
+                        mediaRemoved = await store.deleteMediaBlob(item.mediaKey) !== false;
+                    } catch (error) {
+                        mediaRemoved = false;
+                        console.warn('削除済み音声の保存ファイルを片付けられませんでした。', error);
+                    }
+                }
+                this.openPhotoManagerAudios();
+                this.showPhotoManagerNotice?.(mediaRemoved
+                    ? '音声を削除しました。'
+                    : '音声の登録を削除しましたが、保存ファイルの後片付けに失敗しました。保存容量が残る場合があります。');
+                return true;
+            } finally {
+                this._photoManagerAudioDeleteInProgress = false;
+            }
         }
         getPhotoManagerVideo(id = '') {
             return this.getPhotoManagerVideos().find(video => video.id === String(id)) || null;
@@ -2468,12 +2494,38 @@
         }
 
         async deletePhotoManagerVideo(id = '') {
+            if (this._photoManagerVideoDeleteInProgress) return false;
             const item = this.getPhotoManagerVideo(id);
             if (!item || !confirm(`「${item.name || '動画'}」を削除しますか？\n写真編集に配置済みの動画も再生できなくなります。`)) return;
-            store.activeData.photoManagerVideos = this.getPhotoManagerVideos().filter(video => video.id !== id);
-            if (!item.sourceType || item.sourceType === 'local-handle') await store.deleteMediaBlob(this.getPhotoManagerVideoMediaKey(id));
-            await store.save();
-            this.openPhotoManagerVideos();
+            this._photoManagerVideoDeleteInProgress = true;
+            try {
+                const active = store.activeData;
+                const previous = this.getPhotoManagerVideos();
+                const mediaKey = this.getPhotoManagerVideoMediaKey(id);
+                active.photoManagerVideos = previous.filter(video => video.id !== item.id);
+                try {
+                    await store.save({ discardQueuedOnFailure: true });
+                } catch (error) {
+                    active.photoManagerVideos = previous;
+                    console.error('動画の削除を保存できませんでした。', error);
+                    this.showPhotoManagerNotice?.(`動画を削除できませんでした。${error?.message || '保存先を確認してください。'}`);
+                    return false;
+                }
+                let mediaRemoved = true;
+                if (!item.sourceType || item.sourceType === 'local-handle') {
+                    try {
+                        mediaRemoved = await store.deleteMediaBlob(mediaKey) !== false;
+                    } catch (error) {
+                        mediaRemoved = false;
+                        console.warn('削除済み動画の保存ファイルを片付けられませんでした。', error);
+                    }
+                }
+                this.openPhotoManagerVideos();
+                if (!mediaRemoved) this.showPhotoManagerNotice?.('動画の登録を削除しましたが、保存ファイルの後片付けに失敗しました。保存容量が残る場合があります。');
+                return true;
+            } finally {
+                this._photoManagerVideoDeleteInProgress = false;
+            }
         }
 
         openShiftPhotoCompareVideoPicker() {
@@ -5575,8 +5627,8 @@
             const text = String(src || '');
             if (!text.startsWith('data:')) return 0;
             const comma = text.indexOf(',');
-            const payload = comma >= 0 ? text.slice(comma + 1) : text;
-            return Math.max(0, Math.floor(payload.length * 0.75));
+            const payloadLength = comma >= 0 ? text.length - comma - 1 : text.length;
+            return Math.max(0, Math.floor(payloadLength * 0.75));
         }
 
         formatPhotoManagerBytes(bytes = 0) {
@@ -7142,12 +7194,27 @@
             });
         }
 
+        getCachedImageTransparency(src = '') {
+            const cache = this._imageSourceTransparencyCache ||= new Map();
+            if (cache.has(src)) return Promise.resolve(cache.get(src));
+            const pending = this._imageSourceTransparencyPending ||= new Map();
+            if (pending.has(src)) return pending.get(src);
+            const check = Promise.resolve().then(() => this.imageHasTransparentPixels(src))
+                .then(value => {
+                    const transparent = !!value;
+                    cache.set(src, transparent);
+                    if (cache.size > 500) cache.delete(cache.keys().next().value);
+                    return transparent;
+                })
+                .finally(() => pending.delete(src));
+            pending.set(src, check);
+            return check;
+        }
+
         updateImageSourceChoiceTransparencyBadges(items = []) {
-            if (!this._imageSourceTransparencyCache) this._imageSourceTransparencyCache = new Map();
             const visibleIds = new Set((items || []).map(item => item.id));
             (items || []).filter(item => this.canImageSourceHaveAlpha(item.src)).slice(0, 120).forEach(async item => {
-                const isTransparent = await this.imageHasTransparentPixels(item.src);
-                this._imageSourceTransparencyCache.set(item.src, !!isTransparent);
+                const isTransparent = await this.getCachedImageTransparency(item.src);
                 if (isTransparent && !this.isKnownPhotoManagerTransparentSource(item.src)) {
                     this.rememberPhotoManagerTransparentSource(item.src, true);
                     store.save();
@@ -7163,11 +7230,9 @@
         }
 
         updatePhotoManagerTransparencyBadges(items = []) {
-            if (!this._imageSourceTransparencyCache) this._imageSourceTransparencyCache = new Map();
             const visibleIds = new Set((items || []).map(item => item.id));
             (items || []).filter(item => this.canImageSourceHaveAlpha(item.src)).slice(0, 120).forEach(async item => {
-                const isTransparent = await this.imageHasTransparentPixels(item.src);
-                this._imageSourceTransparencyCache.set(item.src, !!isTransparent);
+                const isTransparent = await this.getCachedImageTransparency(item.src);
                 if (!visibleIds.has(item.id)) return;
                 const safeId = window.CSS?.escape ? CSS.escape(item.id) : String(item.id).replace(/"/g, '\\"');
                 const card = document.querySelector(`.photo-manager-card[data-photo-id="${safeId}"]`);
@@ -7799,6 +7864,34 @@
             controls.replaceChildren(previous, current, next);
         }
 
+        getPhotoManagerRenderAggregate() {
+            const active = store.activeData;
+            const revision = store._saveRequestedRevision;
+            const previous = this._photoManagerRenderCache;
+            if (Number.isSafeInteger(revision) && previous?.dataRef === store.data
+                && previous.activeRef === active && previous.revision === revision) return previous;
+
+            const allItems = this.collectPhotoManagerItems?.() || [];
+            const duplicateGroups = this.getPhotoManagerDuplicateGroups?.(allItems) || [];
+            const aggregate = {
+                dataRef: store.data,
+                activeRef: active,
+                revision,
+                allItems,
+                allIds: allItems.map(item => item.id),
+                duplicateGroups,
+                duplicateSrcs: new Set(duplicateGroups.map(group => group.src)),
+                usageIndex: this.getPhotoManagerUsageIndex?.(allItems, false) || new Map(),
+                trashBytes: (active.photoManagerTrash || []).reduce(
+                    (sum, entry) => sum + (this.estimatePhotoManagerImageBytes?.(entry.src) || 0), 0),
+                filteredByKey: new Map(),
+                pageOnlyItems: null,
+                relationGroups: null
+            };
+            this._photoManagerRenderCache = aggregate;
+            return aggregate;
+        }
+
         renderPhotoManager() {
             this.applyMediaManagementCardColor();
             this.ensurePhotoManagerPasteImportListener?.();
@@ -7809,39 +7902,49 @@
             this.updatePhotoManagerAlphaFilterButton?.();
             this.updatePhotoManagerToolbarActiveState?.();
             this.updatePhotoManagerTagFilterOptions?.();
-            const allItems = this.collectPhotoManagerItems?.() || [];
-            const items = this.getFilteredPhotoManagerItems ? this.getFilteredPhotoManagerItems(allItems) : allItems;
+            const aggregate = this.getPhotoManagerRenderAggregate();
+            const allItems = aggregate.allItems;
             const filterIds = ['photo-manager-source', 'photo-manager-period', 'photo-manager-mark-filter',
                 'photo-manager-compression-filter', 'photo-manager-format-filter', 'photo-manager-circle-filter',
                 'photo-manager-tag-filter', 'photo-manager-sort', 'photo-manager-query'];
-            const filterKey = JSON.stringify([...filterIds.map(id => document.getElementById(id)?.value || ''), this._photoManagerAlphaFilterMode || '']);
+            const filterKey = JSON.stringify([...filterIds.map(id => document.getElementById(id)?.value || ''),
+                this._photoManagerAlphaFilterMode || '', this.getLocalDateString?.() || '']);
             if (filterKey !== this._photoManagerFilterKey) this._photoManagerPage = 0;
             this._photoManagerFilterKey = filterKey;
+            let filtered = aggregate.filteredByKey.get(filterKey);
+            if (!filtered) {
+                const items = this.getFilteredPhotoManagerItems ? this.getFilteredPhotoManagerItems(allItems) : allItems;
+                filtered = {
+                    items,
+                    ids: items.map(item => item.id).filter(Boolean),
+                    marked: items.filter(item => item.annotated).length,
+                    compressed: items.filter(item => this.isPhotoManagerSourceCompressed?.(item.src)).length,
+                    visibleBytes: items.reduce((sum, item) => sum + (this.estimatePhotoManagerImageBytes?.(item.src) || 0), 0)
+                };
+                // Search text can produce many keys; retain only recent filter views.
+                if (aggregate.filteredByKey.size >= 4) aggregate.filteredByKey.delete(aggregate.filteredByKey.keys().next().value);
+                aggregate.filteredByKey.set(filterKey, filtered);
+            }
+            const items = filtered.items;
             const pageSize = 48;
             const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
             const page = Math.min(Math.max(0, this._photoManagerPage || 0), pageCount - 1);
             this._photoManagerPage = page;
             const pageItems = items.slice(page * pageSize, (page + 1) * pageSize);
-            this._photoManagerVisibleIds = items.map(item => item.id).filter(Boolean);
+            this._photoManagerVisibleIds = filtered.ids;
             this.renderPhotoManagerPagination(items.length, page, pageSize);
-            this.prunePhotoManagerSelection?.(allItems.map(item => item.id));
+            this.prunePhotoManagerSelection?.(aggregate.allIds);
             const selectedIds = this.ensurePhotoManagerSelectionStore?.() || new Set();
-            const duplicateGroups = this.getPhotoManagerDuplicateGroups?.(allItems) || [];
-            const duplicateSrcs = new Set(duplicateGroups.map(group => group.src));
-            const usageIndex = this.getPhotoManagerUsageIndex?.(allItems, false) || new Map();
-            this._photoManagerRenderCache = { allItems, duplicateGroups, usageIndex, pageOnlyItems: null, relationGroups: null };
+            const duplicateSrcs = aggregate.duplicateSrcs;
+            const usageIndex = aggregate.usageIndex;
             if (summary) {
-                const marked = items.filter(item => item.annotated).length;
-                const compressed = items.filter(item => this.isPhotoManagerSourceCompressed?.(item.src)).length;
-                const visibleBytes = items.reduce((sum, item) => sum + (this.estimatePhotoManagerImageBytes?.(item.src) || 0), 0);
-                const trashBytes = (store.activeData.photoManagerTrash || []).reduce((sum, entry) => sum + (this.estimatePhotoManagerImageBytes?.(entry.src) || 0), 0);
                 const parts = [
                     '<b>' + items.length + '</b> / ' + allItems.length + '枚',
-                    '<span>容量 ' + (this.formatPhotoManagerBytes?.(visibleBytes) || '0KB') + '</span>',
-                    '<span>圧縮 ' + compressed + '</span>',
-                    '<span>注記 ' + marked + '</span>'
+                    '<span>容量 ' + (this.formatPhotoManagerBytes?.(filtered.visibleBytes) || '0KB') + '</span>',
+                    '<span>圧縮 ' + filtered.compressed + '</span>',
+                    '<span>注記 ' + filtered.marked + '</span>'
                 ];
-                if (trashBytes) parts.push('<span>ゴミ箱 ' + (this.formatPhotoManagerBytes?.(trashBytes) || '0KB') + '</span>');
+                if (aggregate.trashBytes) parts.push('<span>ゴミ箱 ' + (this.formatPhotoManagerBytes?.(aggregate.trashBytes) || '0KB') + '</span>');
                 summary.innerHTML = parts.join(' ');
             }
             if (!items.length) {

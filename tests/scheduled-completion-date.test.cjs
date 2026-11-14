@@ -21,6 +21,7 @@ function makeApp(tasks, history = []) {
             history.push(saved);
             return saved;
         },
+        async runAtomicSaveBatch(mutate) { return mutate(); },
         updateMachine() { throw new Error('Machine should not change'); },
         adjustStock() { throw new Error('Stock should not change'); }
     };
@@ -87,7 +88,7 @@ test('machine next due uses the linked schedule date, including a completed due 
     assert.equal(app.isScheduledTaskOccurrenceDate(task, '2026-11-15'), true);
 });
 
-test('completion form records actual and planned dates separately', () => {
+test('completion form records actual and planned dates separately', async () => {
     const task = periodic();
     const { app, store, elements, alerts } = makeApp([task]);
     const content = { innerHTML: '' };
@@ -102,7 +103,7 @@ test('completion form records actual and planned dates separately', () => {
     };
     for (const [id, value] of Object.entries(values)) elements.set(id, { value, focus() {} });
     elements.set('complete-form', { reportValidity: () => true });
-    app.saveModalData('complete');
+    await app.saveModalData('complete');
     assert.deepEqual(alerts, []);
     assert.equal(store.activeData.history.length, 1);
     assert.equal(store.activeData.history[0].date, '2026-11-10');
@@ -110,7 +111,7 @@ test('completion form records actual and planned dates separately', () => {
     assert.equal(app.getScheduledTasksForDate('2026-11-08').length, 0);
 });
 
-test('completion form refuses a date outside the task cycle', () => {
+test('completion form refuses a date outside the task cycle', async () => {
     const task = periodic();
     const { app, store, elements, alerts } = makeApp([task]);
     const values = {
@@ -120,7 +121,7 @@ test('completion form refuses a date outside the task cycle', () => {
     };
     for (const [id, value] of Object.entries(values)) elements.set(id, { value, focus() {} });
     elements.set('complete-form', { reportValidity: () => true });
-    app.saveModalData('complete');
+    await app.saveModalData('complete');
     assert.equal(store.activeData.history.length, 0);
     assert.match(alerts[0], /周期に該当する日付/);
 });

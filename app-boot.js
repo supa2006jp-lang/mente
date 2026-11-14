@@ -1,7 +1,7 @@
 (function () {
     const featureSources = {
         notebook: 'app-shift-notebook-core.js?v=20261115-all5',
-        photos: 'app-photo-manager.js?v=20261115-all5',
+        photos: 'app-photo-manager.js?v=20261115-all5b',
         camera: 'app-shift-photo-camera.js?v=20260906-avatar-stage72',
         reveal: 'app-shift-photo-reveal.js?v=20260906-avatar-stage72',
         avatar: 'app-shift-avatar-conversation.js?v=20260906-avatar-stage72'
@@ -51,8 +51,9 @@
         }
     });
     let diagnosticsScheduled = false;
-    const loadPhotos = () => loadNotebook().then(() => loadScript('photos')).then(() => {
+    const loadPhotos = () => loadScript('photos').then(() => {
         photoFeaturesReady = true;
+        wrapPhotoManagerNotebookEntrypoints();
         try {
             window.app?.ensureImageSourceChoiceListener?.();
         } catch (error) {
@@ -69,9 +70,34 @@
             }, 0);
         }
     });
-    const loadPhotoEffects = () => loadPhotos().then(() => loadScript('camera'))
+    const loadNotebookAndPhotos = () => loadNotebook().then(loadPhotos);
+    const loadPhotoEffects = () => loadNotebookAndPhotos().then(() => loadScript('camera'))
         .then(() => loadScript('reveal')).then(() => loadScript('avatar'));
     window.maintenanceLazyFeatures = { loadNotebook, loadPhotos, loadPhotoEffects };
+
+    let photoManagerNotebookEntrypointsWrapped = false;
+    function wrapPhotoManagerNotebookEntrypoints() {
+        if (photoManagerNotebookEntrypointsWrapped) return;
+        photoManagerNotebookEntrypointsWrapped = true;
+        for (const name of [
+            'openPhotoManagerEditor', 'openPhotoManagerBlankShiftPhotoCompare',
+            'openPhotoManagerBlankEdit', 'openPhotoManagerBlankTemplate',
+            'openPhotoManagerAudios', 'openPhotoManagerVideos', 'exportPhotoManagerItems',
+            'downloadPhotoManagerItem', 'openImageSourceChoiceTransparencyPreview',
+            'reopenPhotoManagerTransparentImageForCutout'
+        ]) {
+            const original = MaintenanceApp.prototype[name];
+            if (typeof original !== 'function') continue;
+            MaintenanceApp.prototype[name] = function (...args) {
+                if (loaded.notebook) return original.apply(this, args);
+                return loadNotebook().then(() => original.apply(this, args)).catch(error => {
+                    console.error(`${name} load failed:`, error);
+                    this.showToast?.('関連機能を読み込めませんでした。もう一度お試しください。', 'error');
+                    return null;
+                });
+            };
+        }
+    }
 
     // File inputs on the initial calendar can be clicked before the photo module exists.
     function loadImageChoiceOnFirstClick(event) {
@@ -86,7 +112,7 @@
         }
         event.preventDefault();
         event.stopPropagation();
-        loadPhotos().then(() => {
+        return loadNotebookAndPhotos().then(() => {
             if (input.dataset.shiftPhotoWallpaperPicker === '1'
                 && window.app.prepareShiftPhotoCompareWallpaperPicker?.(input) === false) return;
             window.app.openImageSourceChoice(input);
@@ -120,6 +146,49 @@
             late: { stamp: '遅', name: '遅番' },
             night: { stamp: '深', name: '深夜' }
         }[shift] || { stamp: '早', name: '早番' };
+    };
+    // Photo listing needs these small notebook helpers before the notebook editor loads.
+    MaintenanceApp.prototype.getShiftNotebookRowsAndMembers = function (notebookData) {
+        if (Array.isArray(notebookData)) return { rows: notebookData, members: [] };
+        return {
+            rows: Array.isArray(notebookData?.rows) ? notebookData.rows : [],
+            members: Array.isArray(notebookData?.members) ? notebookData.members : [],
+            absentMembers: Array.isArray(notebookData?.absentMembers) ? notebookData.absentMembers : [],
+            inheritedMembers: !!notebookData?.inheritedMembers,
+            inheritedFrom: notebookData?.inheritedFrom || ''
+        };
+    };
+    MaintenanceApp.prototype.getSearchTerms = function (query = '') {
+        return MaintenanceStore.toHalfWidthLower(query || '').split(/[\s　]+/).filter(Boolean);
+    };
+    MaintenanceApp.prototype.matchesSearchTerms = function (searchable = '', terms = []) {
+        const normalized = MaintenanceStore.toHalfWidthLower(searchable || '');
+        return terms.every(term => normalized.includes(term));
+    };
+    MaintenanceApp.prototype.getNotebookSearchDateRange = function (period) {
+        const format = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        if (period === 'today') return { start: format(today), end: format(today), label: '今日' };
+        if (period === 'yesterday') return { start: format(yesterday), end: format(yesterday), label: '昨日' };
+        if (period === 'yesterday_today') return { start: format(yesterday), end: format(today), label: '昨日と今日' };
+        if (period === 'this_month' || period === 'last_month') {
+            const offset = period === 'this_month' ? 0 : -1;
+            const start = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+            const end = new Date(today.getFullYear(), today.getMonth() + offset + 1, 0);
+            return { start: format(start), end: format(end), label: period === 'this_month' ? '今月' : '先月' };
+        }
+        if (period === 'this_year' || period === 'last_year') {
+            const year = today.getFullYear() - (period === 'last_year' ? 1 : 0);
+            return { start: format(new Date(year, 0, 1)), end: format(new Date(year, 11, 31)), label: period === 'this_year' ? '今年' : '去年' };
+        }
+        if (period === 'CUSTOM') {
+            const start = this.customStartDate || '';
+            const end = this.customEndDate || '';
+            return { start, end, label: start && end ? `${start} - ${end}` : '期間指定' };
+        }
+        return { start: '', end: '', label: '全期間' };
     };
     // Keep saved page effects intact while the optional camera and reveal scripts are loading.
     MaintenanceApp.prototype.normalizeShiftPhotoCamera = value =>
@@ -217,8 +286,8 @@
         };
     }
 
-    lazyMethod('openShiftNotebookModal', loadPhotos);
-    lazyMethod('openShiftNotebookSearchResults', loadPhotos);
+    lazyMethod('openShiftNotebookModal', loadNotebookAndPhotos);
+    lazyMethod('openShiftNotebookSearchResults', loadNotebookAndPhotos);
     lazyMethod('openShiftMemberTypeManageModal', loadNotebook);
     lazyMethod('openShiftRowTemplateManageModal', loadNotebook);
     lazyMethod('showUndoNotice', loadNotebook);
@@ -230,36 +299,37 @@
         }).catch(error => console.error('Could not append notebook feedback:', error));
     };
     MaintenanceApp.prototype.appendShiftTodoFeedback = deferredTodoFeedback;
-    lazyMethod('renderFiveSManagement', loadPhotos, 'view-fiveS');
-    lazyExistingMethod('renderKanbanLocalTodos', loadPhotos, () => photoFeaturesReady, 'view-todos');
-    lazyExistingMethod('renderDashboard', loadPhotos, () => photoFeaturesReady, 'view-dashboard');
-    lazyExistingMethod('renderOutlookAssist', loadPhotos, () => photoFeaturesReady, 'view-outlookAssist');
+    lazyMethod('renderFiveSManagement', loadNotebookAndPhotos, 'view-fiveS');
+    lazyExistingMethod('renderKanbanLocalTodos', loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady, 'view-todos');
+    lazyExistingMethod('renderDashboard', loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady, 'view-dashboard');
+    lazyExistingMethod('renderOutlookAssist', loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady, 'view-outlookAssist');
     for (const [name, viewId] of [
         ['renderMachines', 'view-machines'], ['renderAnalysis', 'view-analysis'],
         ['renderWorkTime', 'view-worktime'], ['renderRanking', 'view-ranking'],
         ['renderWorkers', 'view-workers']
-    ]) lazyExistingMethod(name, loadPhotos, () => photoFeaturesReady, viewId);
-    lazyExistingMethod('renderHistory', loadPhotos, () => photoFeaturesReady, 'view-history');
-    lazyExistingMethod('renderGuides', loadPhotos, () => photoFeaturesReady, 'view-guides');
-    lazyExistingMethod('renderTips', loadPhotos, () => photoFeaturesReady, 'view-tips');
-    lazyExistingMethod('openHistoryEditForm', loadPhotos, () => photoFeaturesReady);
-    lazyExistingMethod('openGuideModal', loadPhotos, () => photoFeaturesReady);
-    lazyExistingMethod('openTipsAudioDatabase', loadPhotos, () => photoFeaturesReady);
+    ]) lazyExistingMethod(name, loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady, viewId);
+    lazyExistingMethod('renderHistory', loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady, 'view-history');
+    lazyExistingMethod('renderGuides', loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady, 'view-guides');
+    lazyExistingMethod('renderTips', loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady, 'view-tips');
+    lazyExistingMethod('openHistoryEditForm', loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady);
+    lazyExistingMethod('openGuideModal', loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady);
+    lazyExistingMethod('openTipsAudioDatabase', loadNotebookAndPhotos, () => loaded.notebook && photoFeaturesReady);
     lazyMethod('renderPhotoManager', loadPhotos, 'view-photos');
-    lazyMethod('openImageSourceChoice', loadPhotos);
+    lazyMethod('openImageSourceChoice', loadNotebookAndPhotos);
     for (const name of ['openPhotoManagerTrashDialog', 'openPhotoManagerDuplicateReview',
         'openPhotoManagerPageOnlyCleanupReview', 'openPhotoManagerDeleteReview',
         'openPhotoManagerVideos', 'openPhotoManagerAudios',
         'openRegisteredVideoAttachmentPicker', 'openRegisteredVideoAttachment',
         'openPhotoManagerBlankShiftPhotoCompare', 'openPhotoManagerBlankTemplateDialog']) {
-        lazyMethod(name, loadPhotos);
+        lazyMethod(name, ['openPhotoManagerVideos', 'openPhotoManagerAudios', 'openRegisteredVideoAttachmentPicker', 'openRegisteredVideoAttachment'].includes(name)
+            ? loadNotebookAndPhotos : loadPhotos);
     }
-    MaintenanceApp.prototype.loadPhotoManagerMethodsForStorageCenter = () => loadPhotos().then(() => true).catch(() => false);
+    MaintenanceApp.prototype.loadPhotoManagerMethodsForStorageCenter = () => loadNotebookAndPhotos().then(() => true).catch(() => false);
     const openBackupExportModal = MaintenanceApp.prototype.openBackupExportModal;
     if (typeof openBackupExportModal === 'function') {
         MaintenanceApp.prototype.openBackupExportModal = function (...args) {
             if (photoFeaturesReady) return openBackupExportModal.apply(this, args);
-            return loadPhotos().catch(error => console.warn('Photo analysis unavailable during export:', error))
+            return loadNotebookAndPhotos().catch(error => console.warn('Photo analysis unavailable during export:', error))
                 .then(() => openBackupExportModal.apply(this, args));
         };
     }
@@ -268,7 +338,7 @@
         if (typeof original !== 'function') continue;
         MaintenanceApp.prototype[name] = function (...args) {
             if (photoFeaturesReady) return original.apply(this, args);
-            return loadPhotos().catch(error => console.warn('Photo analysis unavailable:', error))
+            return loadNotebookAndPhotos().catch(error => console.warn('Photo analysis unavailable:', error))
                 .then(() => original.apply(this, args));
         };
     }

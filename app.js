@@ -380,6 +380,28 @@ class MaintenanceApp {
         }
     }
 
+    downloadMalformedStoredOriginal(source) {
+        if (!['indexeddb', 'localStorage'].includes(source)) return;
+        const original = store._malformedPrimary?.[source];
+        if (!original) return;
+        try {
+            const raw = typeof original.raw === 'string' ? original.raw : JSON.stringify(original.data, null, 2);
+            if (!raw) throw new Error('元データを読み取れませんでした。');
+            const extension = original.data == null ? 'txt' : 'json';
+            const blob = new Blob([raw], { type: extension === 'json' ? 'application/json' : 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `maintenance_invalid_original_${source}_${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (error) {
+            alert(`元データを出力できませんでした。${error?.message || ''}`);
+        }
+    }
+
     async refreshPersistentStorageStatus() {
         if (typeof navigator === 'undefined' || typeof navigator.storage?.persisted !== 'function') {
             this._persistentStorageState = 'unsupported';
@@ -581,6 +603,24 @@ class MaintenanceApp {
             ? `${this.formatSaveStatusTime(this._lastLatestJsonExport.at)}（${this._lastLatestJsonExport.kind === 'file' ? '直接保存' : 'ダウンロード開始'}）`
             : '出力記録なし');
         if (store.storageWarning) add('保存先切替の理由', store.storageWarning.message || String(store.storageWarning));
+        for (const report of store.malformedStorageReports || []) {
+            const sourceLabel = report.source === 'indexeddb' ? 'IndexedDB' : 'localStorage';
+            add(`${sourceLabel} のデータ検査`, (report.issues || []).join(' / ') || '形式に異常があります');
+            if (store._repairCandidates?.[report.source]) {
+                const activeRepair = store.startupRepairSource === report.source;
+                add('作業用の修復候補', activeRepair
+                    ? `${sourceLabel} の元データを残し、不正な項目を補ったコピーを使用中`
+                    : `${sourceLabel} の元データを残して候補を用意。現在は別の保存候補を使用中`);
+            }
+            if (store._malformedPrimary?.[report.source] && report.key === store.STORAGE_KEY) {
+                const exportButton = document.createElement('button');
+                exportButton.type = 'button';
+                exportButton.className = 'secondary-btn app-save-malformed-export';
+                exportButton.textContent = `${sourceLabel} の修復前データを出力`;
+                exportButton.addEventListener('click', () => this.downloadMalformedStoredOriginal(report.source));
+                panel.appendChild(exportButton);
+            }
+        }
         if (this._saveStatusError) add('直近の保存エラー', this._saveStatusError.message || String(this._saveStatusError));
         const failures = this._saveFailureHistory || [];
         const failureTitle = document.createElement('strong');

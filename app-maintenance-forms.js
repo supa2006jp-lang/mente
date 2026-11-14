@@ -1905,15 +1905,25 @@
         });
     }
 
-    deleteOneOffMaintenanceFromCompletion(taskId, content) {
+    async deleteOneOffMaintenanceFromCompletion(taskId, content) {
+        if (this._oneOffDeleteInProgress) return;
         if (!confirm(`1回きりの定期メンテ「${content}」をカレンダーから削除しますか？\nこの予定は未完了のまま取り消されます。`)) return;
 
-        store.freezeTaskContentInHistory(taskId);
-        store.activeData.tasks = (store.activeData.tasks || []).filter(t => String(t.id) !== String(taskId));
-        store.save();
-        this.closeModal();
-        this.renderCalendar();
-        this.renderMachines();
+        this._oneOffDeleteInProgress = true;
+        try {
+            await store.runAtomicSaveBatch(() => {
+                store.freezeTaskContentInHistory(taskId);
+                store.activeData.tasks = (store.activeData.tasks || []).filter(t => String(t.id) !== String(taskId));
+            });
+            this.closeModal();
+            this.renderCalendar();
+            this.renderMachines();
+        } catch (error) {
+            console.error('One-off maintenance delete error:', error);
+            alert('予定の削除を保存できませんでした: ' + error.message);
+        } finally {
+            this._oneOffDeleteInProgress = false;
+        }
     }
 
     openModal(type, title, renderFn) {
@@ -1933,11 +1943,11 @@
         container.innerHTML = `
             <div class="modal-header">
                 <h3 id="modal-title"></h3>
-                <button type="button" class="close-btn" aria-label="閉じる" onclick="app.closeModal()"><i class="fa-solid fa-xmark"></i></button>
+                <button type="button" class="close-btn" aria-label="閉じる" onclick="app.requestCloseModal()"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="modal-body" id="modal-content"></div>
             <div class="modal-footer">
-                <button class="secondary-btn" onclick="app.closeModal()">キャンセル</button>
+                <button type="button" class="secondary-btn" onclick="app.requestCloseModal()">キャンセル</button>
                 <button class="primary-btn" id="modal-save-btn">保存する</button>
             </div>
         `;
@@ -1981,7 +1991,7 @@
                     if (event.target?.closest?.('.shift-format-menu.open, .shift-color-menu.open, .shift-responder-menu.open, #shift-row-menu-settings-panel:not([hidden])')) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    this.closeModal();
+                    this.requestCloseModal();
                     return;
                 }
                 if (event.key !== 'Tab') return;
@@ -2007,6 +2017,14 @@
             container.addEventListener('keydown', this._modalKeyboardHandler);
         }
         container.focus();
+        const snapshotVersion = (this._modalSnapshotVersion || 0) + 1;
+        this._modalSnapshotVersion = snapshotVersion;
+        this._modalInitialState = null;
+        // Some callers finish adding form fields immediately after openModal returns.
+        Promise.resolve().then(() => {
+            if (this._modalSnapshotVersion !== snapshotVersion || overlay.classList.contains('hidden')) return;
+            this._modalInitialState = this.captureModalEditableState(type, container);
+        });
     }
 
     setupHistoryPhotoInput(type) {
@@ -3401,7 +3419,72 @@
         }
     }
 
+    captureModalEditableState(type, container = document.getElementById('modal-container')) {
+        const editableTypes = ['machine', 'sudden', 'complete', 'edit-history', 'history-bulk-edit', 'part-master', 'substitute'];
+        if (!editableTypes.includes(type)) return null;
+        const content = container?.querySelector('#modal-content');
+        if (!content) return null;
+        const fields = Array.from(content.querySelectorAll('input, select, textarea, [contenteditable="true"]'))
+            .filter(field => String(field.type || '').toLowerCase() !== 'search')
+            .map(field => {
+                const inputType = String(field.type || '').toLowerCase();
+                let value;
+                if (field.isContentEditable) value = field.innerHTML;
+                else if (inputType === 'checkbox' || inputType === 'radio') value = !!field.checked;
+                else if (inputType === 'file') value = Array.from(field.files || [])
+                    .map(file => `${file.name}\u0000${file.size}\u0000${file.lastModified}`).join('\u0001');
+                else if (field.multiple && field.selectedOptions) value = Array.from(field.selectedOptions)
+                    .map(option => option.value).join('\u001f');
+                else value = field.value;
+                return {
+                    key: `${field.tagName || ''}|${inputType}|${field.id || ''}|${field.name || ''}`,
+                    value
+                };
+            });
+        const photos = ['sudden', 'complete', 'edit-history'].includes(type)
+            ? (this._tempPhotos || []).map(photo => {
+                if (!photo || typeof photo !== 'object') return [['value', photo]];
+                return Object.keys(photo).sort().map(key => [key, photo[key] && typeof photo[key] === 'object'
+                    ? JSON.stringify(photo[key]) : photo[key]]);
+            })
+            : [];
+        return { type, fields, photos };
+    }
+
+    hasModalUnsavedChanges() {
+        const initial = this._modalInitialState;
+        const container = document.getElementById('modal-container');
+        if (!initial || !container || container.dataset.modalType !== initial.type) return false;
+        const current = this.captureModalEditableState(initial.type, container);
+        if (!current || current.fields.length !== initial.fields.length || current.photos.length !== initial.photos.length) return true;
+        for (let i = 0; i < current.fields.length; i++) {
+            if (current.fields[i].key !== initial.fields[i].key || current.fields[i].value !== initial.fields[i].value) return true;
+        }
+        for (let i = 0; i < current.photos.length; i++) {
+            const before = initial.photos[i];
+            const after = current.photos[i];
+            if (before.length !== after.length) return true;
+            for (let j = 0; j < after.length; j++) {
+                if (before[j][0] !== after[j][0] || before[j][1] !== after[j][1]) return true;
+            }
+        }
+        return false;
+    }
+
+    requestCloseModal() {
+        if (this._modalSaveInProgress || this._historyBulkEditSaving || this._oneOffDeleteInProgress) {
+            this.showToast?.('保存中です。完了までお待ちください。', 'info');
+            return false;
+        }
+        if (this.hasModalUnsavedChanges()
+            && !confirm('未保存の変更があります。変更を破棄して閉じますか？')) return false;
+        this.closeModal();
+        return true;
+    }
+
     closeModal() {
+        this._modalSnapshotVersion = (this._modalSnapshotVersion || 0) + 1;
+        this._modalInitialState = null;
         const container = document.getElementById('modal-container');
         if (container?.dataset.modalType === 'shift-notebook') {
             this._skipShiftNoteFormatCommitOnce = true;
@@ -3446,7 +3529,9 @@
         }
     }
 
-    saveModalData(type) {
+    async saveModalData(type) {
+        if (this._modalSaveInProgress) return;
+        this._modalSaveInProgress = true;
         try {
             const form = document.getElementById(`${type}-form`);
             if (form && !form.reportValidity()) return;
@@ -3470,17 +3555,8 @@
                 return;
             }
 
-            let machineId = id;
-            if (id) {
-                store.updateMachine(id, { name, model, manufacturer, remarks, photo, category, lineNo });
-            } else {
-                const newM = store.addMachine(name, model, remarks, photo, category, lineNo, manufacturer);
-                machineId = newM.id;
-            }
-
             // Tasks
             const taskRows = document.querySelectorAll('#f-tasks-container .task-row');
-            const currentTaskIds = [];
             const blankCycleRows = Array.from(taskRows).filter(row => {
                 const content = row.querySelector('.t-content')?.value.trim();
                 const period = row.querySelector('.t-period')?.value.trim();
@@ -3491,41 +3567,49 @@
                 const ok = confirm(`周期または開始日が未入力のメンテ項目が${blankCycleRows.length}件あります。\n周期が空の項目は単発予定として保存されます。このまま保存しますか？`);
                 if (!ok) return;
             }
-            taskRows.forEach(row => {
-                const tId = row.querySelector('.t-id').value;
-                const content = row.querySelector('.t-content').value;
-                const period = row.querySelector('.t-period').value;
-                const start = row.querySelector('.t-start').value;
+            await store.runAtomicSaveBatch(() => {
+                let machineId = id;
+                if (id) {
+                    store.updateMachine(id, { name, model, manufacturer, remarks, photo, category, lineNo });
+                } else {
+                    const newM = store.addMachine(name, model, remarks, photo, category, lineNo, manufacturer);
+                    machineId = newM.id;
+                }
+                const currentTaskIds = [];
+                taskRows.forEach(row => {
+                    const tId = row.querySelector('.t-id').value;
+                    const content = row.querySelector('.t-content').value;
+                    const period = row.querySelector('.t-period').value;
+                    const start = row.querySelector('.t-start').value;
 
-                if (content) {
-                    if (tId) {
-                        const taskToUpdate = store.activeData.tasks.find(x => x.id === tId);
-                        if (taskToUpdate) {
-                            taskToUpdate.content = content;
-                            this.updateTaskScheduleFromEditor(taskToUpdate, start, parseInt(period) || 0);
+                    if (content) {
+                        if (tId) {
+                            const taskToUpdate = store.activeData.tasks.find(x => x.id === tId);
+                            if (taskToUpdate) {
+                                taskToUpdate.content = content;
+                                this.updateTaskScheduleFromEditor(taskToUpdate, start, parseInt(period) || 0);
+                            }
+                            currentTaskIds.push(tId);
+                        } else {
+                            const newT = store.addTask(machineId, content, period, start);
+                            currentTaskIds.push(newT.id);
                         }
-                        currentTaskIds.push(tId);
                     }
- else {
-                        const newT = store.addTask(machineId, content, period, start);
-                        currentTaskIds.push(newT.id);
-                    }
-                }
-            });
+                });
 
-            // Delete tasks not in current rows (but keep archived ones)
-            store.activeData.tasks = store.activeData.tasks.filter(t => {
-                if (t.machineId !== machineId) return true; // Keep other machines
-                if (currentTaskIds.includes(t.id)) return true; // Keep active rows
-                if (store.isMaintenanceTaskArchived(t.id)) return true; // Keep archived tasks
-                store.freezeTaskContentInHistory(t.id);
-                if ((parseInt(t.periodDays) || 0) <= 0) {
-                    t.deleted = true;
-                    return true;
-                }
-                return false;
+                // Delete tasks not in current rows (but keep archived ones)
+                store.activeData.tasks = store.activeData.tasks.filter(t => {
+                    if (t.machineId !== machineId) return true; // Keep other machines
+                    if (currentTaskIds.includes(t.id)) return true; // Keep active rows
+                    if (store.isMaintenanceTaskArchived(t.id)) return true; // Keep archived tasks
+                    store.freezeTaskContentInHistory(t.id);
+                    if ((parseInt(t.periodDays) || 0) <= 0) {
+                        t.deleted = true;
+                        return true;
+                    }
+                    return false;
+                });
             });
-            store.save();
 
             this.closeModal();
             this.updateDataLists(); // プルダウンを更新
@@ -3550,15 +3634,16 @@
             const machineCategory = this.getCategoryFromModalInput('s-');
             if (!this.confirmPartialMaintenanceTime('s')) return;
             
-            if (machineId === 'NEW_MACHINE') {
-                const newName = document.getElementById('s-new-name').value;
-                const newModel = document.getElementById('s-new-model').value;
+            const createNewMachine = machineId === 'NEW_MACHINE';
+            let newName = '';
+            let newModel = '';
+            if (createNewMachine) {
+                newName = document.getElementById('s-new-name').value;
+                newModel = document.getElementById('s-new-model').value;
                 if (!newName || !newModel) {
                     alert('新規登録する機械の名前と型式を入力してください。');
                     return;
                 }
-                const newM = store.addMachine(newName, newModel, '', '', machineCategory, lineNo);
-                machineId = newM.id;
             }
 
             if (!machineId || !symptom) {
@@ -3600,77 +3685,89 @@
             }
 
             let newSuddenRecord = null;
-            if (isSingleMaintenance) {
-                const oneOffTask = store.addTask(machineId, symptom, 0, date);
-                oneOffTask.deleted = true;
-                oneOffTask.singleMaintenanceFromSudden = true;
-                newSuddenRecord = store.addHistoryRecord({
-                    taskId: oneOffTask.id,
-                    taskContent: symptom,
-                    machineId,
-                    date,
-                    notes: treatment || symptom,
-                    cause: '',
-                    errorContent: '',
-                    errorNo: '',
-                    workTime,
-                    startTime,
-                    endTime,
-                    workers,
-                    replacedParts,
-                    photos: this.getHistoryPhotosForSave(),
-                    isSingleMaintenance: true,
-                    isSudden: false,
-                    isDokatei: false,
-                    isNonProductionStop: false,
-                    category,
-                    machineCategory,
-                    lineNo,
-                    isFirstTime: false
-                });
-            } else {
-                newSuddenRecord = store.addHistoryRecord({
-                    machineId,
-                    date,
-                    notes: treatment,
-                    cause: cause,
-                    errorContent: symptom,
-                    errorNo,
-                    workTime,
-                    startTime,
-                    endTime,
-                    workers,
-                    replacedParts,
-                    photos: this.getHistoryPhotosForSave(),
-                    isSudden: true,
-                    isDokatei,
-                    isNonProductionStop,
-                    category,
-                    machineCategory,
-                    lineNo,
-                    isFirstTime: document.querySelector('input[name="s-occurrence"]:checked')?.value === 'first',
-                    recurrenceGroup: this.getCurrentRecurrenceMeta('s-')
-                });
-            }
-            this.markShiftNotebookRowSuddenRegistered(newSuddenRecord?.id || '');
+            const pendingShiftRegistration = this._pendingShiftSuddenRegistration;
+            try {
+                await store.runAtomicSaveBatch(() => {
+                    if (createNewMachine) {
+                        const newM = store.addMachine(newName, newModel, '', '', machineCategory, lineNo);
+                        machineId = newM.id;
+                    }
+                    if (isSingleMaintenance) {
+                        const oneOffTask = store.addTask(machineId, symptom, 0, date);
+                        oneOffTask.deleted = true;
+                        oneOffTask.singleMaintenanceFromSudden = true;
+                        newSuddenRecord = store.addHistoryRecord({
+                            taskId: oneOffTask.id,
+                            taskContent: symptom,
+                            machineId,
+                            date,
+                            notes: treatment || symptom,
+                            cause: '',
+                            errorContent: '',
+                            errorNo: '',
+                            workTime,
+                            startTime,
+                            endTime,
+                            workers,
+                            replacedParts,
+                            photos: this.getHistoryPhotosForSave(),
+                            isSingleMaintenance: true,
+                            isSudden: false,
+                            isDokatei: false,
+                            isNonProductionStop: false,
+                            category,
+                            machineCategory,
+                            lineNo,
+                            isFirstTime: false
+                        });
+                    } else {
+                        newSuddenRecord = store.addHistoryRecord({
+                            machineId,
+                            date,
+                            notes: treatment,
+                            cause: cause,
+                            errorContent: symptom,
+                            errorNo,
+                            workTime,
+                            startTime,
+                            endTime,
+                            workers,
+                            replacedParts,
+                            photos: this.getHistoryPhotosForSave(),
+                            isSudden: true,
+                            isDokatei,
+                            isNonProductionStop,
+                            category,
+                            machineCategory,
+                            lineNo,
+                            isFirstTime: document.querySelector('input[name="s-occurrence"]:checked')?.value === 'first',
+                            recurrenceGroup: this.getCurrentRecurrenceMeta('s-')
+                        });
+                    }
+                    this.markShiftNotebookRowSuddenRegistered(newSuddenRecord?.id || '');
 
-            // Update Master Category if it's missing or different (Sync back)
-            if (machineId && machineCategory && machineId !== 'NEW_MACHINE') {
-                const targetM = store.getMachines(true).find(m => m.id === machineId);
-                if (targetM && targetM.category !== machineCategory) {
-                    store.updateMachine(machineId, { category: machineCategory });
-                }
-            }
+                    // Update Master Category if it's missing or different (Sync back)
+                    if (machineId && machineCategory && machineId !== 'NEW_MACHINE') {
+                        const targetM = store.getMachines(true).find(m => m.id === machineId);
+                        if (targetM && targetM.category !== machineCategory) {
+                            store.updateMachine(machineId, { category: machineCategory });
+                        }
+                    }
 
-            // Auto-deduct stock
-            replacedParts.forEach(p => {
-                store.adjustStock(p.name, p.model, -p.count, {
-                    source: 'maintenance',
-                    sourceId: newSuddenRecord?.id || '',
-                    date,
-                    reason: 'メンテナンス使用'
+                    // Auto-deduct stock
+                    replacedParts.forEach(p => {
+                        store.adjustStock(p.name, p.model, -p.count, {
+                            source: 'maintenance',
+                            sourceId: newSuddenRecord?.id || '',
+                            date,
+                            reason: 'メンテナンス使用'
+                        });
+                    });
                 });
-            });
+            } catch (error) {
+                this._pendingShiftSuddenRegistration = pendingShiftRegistration;
+                throw error;
+            }
 
             this._tempPhotos = [];
 
@@ -3727,43 +3824,45 @@
                 document.getElementById('c-scheduled-date')?.focus();
                 return;
             }
-            const completedRecord = store.addHistoryRecord({
-                taskId,
-                taskContent: task ? task.content : '定期メンテナンス', // Save fixed label
-                machineId,
-                date,
-                scheduledDate,
-                notes,
-                workTime,
-                workers,
-                replacedParts,
-                isSudden: false,
-                isDokatei: false,
-                category,
-                machineCategory: machineCategory,
-                lineNo,
-                isFirstTime: document.querySelector('input[name="c-occurrence"]:checked')?.value === 'first'
-            });
-
-            // Update Master Machine Info (Sync back)
-            if (machineId) {
-                const targetM = store.getMachines(true).find(m => m.id === machineId);
-                const updates = {};
-                if (machineCategory && targetM?.category !== machineCategory) updates.category = machineCategory;
-                if (lineNo && targetM?.lineNo !== lineNo) updates.lineNo = lineNo;
-                
-                if (Object.keys(updates).length > 0) {
-                    store.updateMachine(machineId, updates);
-                }
-            }
-
-            // Auto-deduct stock
-            replacedParts.forEach(p => {
-                store.adjustStock(p.name, p.model, -p.count, {
-                    source: 'maintenance',
-                    sourceId: completedRecord?.id || '',
+            await store.runAtomicSaveBatch(() => {
+                const completedRecord = store.addHistoryRecord({
+                    taskId,
+                    taskContent: task ? task.content : '定期メンテナンス', // Save fixed label
+                    machineId,
                     date,
-                    reason: 'メンテナンス使用'
+                    scheduledDate,
+                    notes,
+                    workTime,
+                    workers,
+                    replacedParts,
+                    isSudden: false,
+                    isDokatei: false,
+                    category,
+                    machineCategory: machineCategory,
+                    lineNo,
+                    isFirstTime: document.querySelector('input[name="c-occurrence"]:checked')?.value === 'first'
+                });
+
+                // Update Master Machine Info (Sync back)
+                if (machineId) {
+                    const targetM = store.getMachines(true).find(m => m.id === machineId);
+                    const updates = {};
+                    if (machineCategory && targetM?.category !== machineCategory) updates.category = machineCategory;
+                    if (lineNo && targetM?.lineNo !== lineNo) updates.lineNo = lineNo;
+                
+                    if (Object.keys(updates).length > 0) {
+                        store.updateMachine(machineId, updates);
+                    }
+                }
+
+                // Auto-deduct stock
+                replacedParts.forEach(p => {
+                    store.adjustStock(p.name, p.model, -p.count, {
+                        source: 'maintenance',
+                        sourceId: completedRecord?.id || '',
+                        date,
+                        reason: 'メンテナンス使用'
+                    });
                 });
             });
 
@@ -3836,44 +3935,46 @@
                     if (selectedScheduledDate) scheduledDate = selectedScheduledDate;
                 }
                 
-                // Apply only the difference so unchanged parts do not create duplicate ledger entries.
-                const stockDifferences = new Map();
-                const addStockDifference = (part, delta) => {
-                    const key = `${part.name || ''}___${part.model || ''}`;
-                    const current = stockDifferences.get(key) || { name: part.name || '', model: part.model || '', unit: part.unit || '個', delta: 0 };
-                    current.delta += Number(delta) || 0;
-                    stockDifferences.set(key, current);
-                };
-                (oldRecord.replacedParts || []).forEach(part => addStockDifference(part, Number(part.count ?? part.qty) || 0));
-                replacedParts.forEach(part => addStockDifference(part, -(Number(part.count ?? part.qty) || 0)));
-                stockDifferences.forEach(change => {
-                    const delta = Math.round(change.delta * 1000) / 1000;
-                    if (!delta) return;
-                    store.adjustStock(change.name, change.model, delta, {
-                        source: 'maintenance-edit',
-                        sourceId: hId,
-                        date,
-                        unit: change.unit,
-                        reason: delta > 0 ? '履歴編集（使用数減少による戻し）' : '履歴編集（使用数増加による出庫）'
+                await store.runAtomicSaveBatch(() => {
+                    // Apply only the difference so unchanged parts do not create duplicate ledger entries.
+                    const stockDifferences = new Map();
+                    const addStockDifference = (part, delta) => {
+                        const key = `${part.name || ''}___${part.model || ''}`;
+                        const current = stockDifferences.get(key) || { name: part.name || '', model: part.model || '', unit: part.unit || '個', delta: 0 };
+                        current.delta += Number(delta) || 0;
+                        stockDifferences.set(key, current);
+                    };
+                    (oldRecord.replacedParts || []).forEach(part => addStockDifference(part, Number(part.count ?? part.qty) || 0));
+                    replacedParts.forEach(part => addStockDifference(part, -(Number(part.count ?? part.qty) || 0)));
+                    stockDifferences.forEach(change => {
+                        const delta = Math.round(change.delta * 1000) / 1000;
+                        if (!delta) return;
+                        store.adjustStock(change.name, change.model, delta, {
+                            source: 'maintenance-edit',
+                            sourceId: hId,
+                            date,
+                            unit: change.unit,
+                            reason: delta > 0 ? '履歴編集（使用数減少による戻し）' : '履歴編集（使用数増加による出庫）'
+                        });
                     });
-                });
 
-                store.activeData.history[index] = {
-                    ...store.activeData.history[index],
-                    machineId, date, scheduledDate, notes, cause, errorContent: symptom, errorNo, workTime, startTime, endTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
-                    isFirstTime: document.querySelector('input[name="e-occurrence"]:checked')?.value === 'first',
-                    recurrenceGroup: this.getCurrentRecurrenceMeta('e-'),
-                    photos: this.getHistoryPhotosForSave()
-                };
+                    store.activeData.history[index] = {
+                        ...store.activeData.history[index],
+                        machineId, date, scheduledDate, notes, cause, errorContent: symptom, errorNo, workTime, startTime, endTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
+                        isFirstTime: document.querySelector('input[name="e-occurrence"]:checked')?.value === 'first',
+                        recurrenceGroup: this.getCurrentRecurrenceMeta('e-'),
+                        photos: this.getHistoryPhotosForSave()
+                    };
 
-                // Update Master Category (Sync back)
-                if (machineId && machineCategory) {
-                    const targetM = store.getMachines(true).find(m => m.id === machineId);
-                    if (targetM && targetM.category !== machineCategory) {
-                        store.updateMachine(machineId, { category: machineCategory });
+                    // Update Master Category (Sync back)
+                    if (machineId && machineCategory) {
+                        const targetM = store.getMachines(true).find(m => m.id === machineId);
+                        if (targetM && targetM.category !== machineCategory) {
+                            store.updateMachine(machineId, { category: machineCategory });
+                        }
                     }
-                }
-                store.save();
+                    store.save();
+                });
             }
 
             this.updateDataLists();
@@ -3952,42 +4053,46 @@
             const minStock = document.getElementById('pm-min-stock')?.value || 0;
             const unit = document.getElementById('pm-unit')?.value || '個';
 
-            store.updatePartMaster(name, model, {
-                price: computedPrice,
-                priceRaw: priceRaw,
-                supplier,
-                shelf,
-                remarks,
-                photo,
-                stock: parseFloat(stock),
-                minStock: parseFloat(minStock),
-                unit,
-                seeds
-            });
-            if (addedSeeds.length) {
-                this.addSystemActivityLog?.('部品名寄せ', `${name}${model ? ` [${model}]` : ''} に ${addedSeeds.length}件の別名を追加`, {
-                    canonical: { name, model },
-                    aliases: addedSeeds,
-                    level: 'info'
+            let deletedAliasCount = 0;
+            await store.runAtomicSaveBatch(() => {
+                store.updatePartMaster(name, model, {
+                    price: computedPrice,
+                    priceRaw: priceRaw,
+                    supplier,
+                    shelf,
+                    remarks,
+                    photo,
+                    stock: parseFloat(stock),
+                    minStock: parseFloat(minStock),
+                    unit,
+                    seeds
                 });
-            }
-            if (shouldDeleteAliasCards) {
-                const deletedParts = aliasDeleteCandidates.map(part => ({ ...part }));
-                const deletedCount = this.deletePartMasterCardsForAliases(aliasDeleteCandidates, name, model);
-                if (deletedCount > 0) {
-                    const logId = this.addSystemActivityLog?.('部品カード削除', `名寄せ元カード ${deletedCount}件を削除`, {
+                if (addedSeeds.length) {
+                    this.addSystemActivityLog?.('部品名寄せ', `${name}${model ? ` [${model}]` : ''} に ${addedSeeds.length}件の別名を追加`, {
                         canonical: { name, model },
-                        deletedParts,
-                        level: 'warning'
+                        aliases: addedSeeds,
+                        level: 'info'
                     });
-                    const log = (store.activeData.systemActivityLogs || []).find(item => item.id === logId);
-                    if (log) {
-                        log.restoreAction = `app.restoreDeletedPartMasterLog('${this.escapeJs(logId)}')`;
-                    }
-                    store.save();
-                    this.showToast?.(`${deletedCount}件の名寄せ元カードを削除しました`);
                 }
-            }
+                if (shouldDeleteAliasCards) {
+                    const deletedParts = aliasDeleteCandidates.map(part => ({ ...part }));
+                    const deletedCount = this.deletePartMasterCardsForAliases(aliasDeleteCandidates, name, model);
+                    deletedAliasCount = deletedCount;
+                    if (deletedCount > 0) {
+                        const logId = this.addSystemActivityLog?.('部品カード削除', `名寄せ元カード ${deletedCount}件を削除`, {
+                            canonical: { name, model },
+                            deletedParts,
+                            level: 'warning'
+                        });
+                        const log = (store.activeData.systemActivityLogs || []).find(item => item.id === logId);
+                        if (log) {
+                            log.restoreAction = `app.restoreDeletedPartMasterLog('${this.escapeJs(logId)}')`;
+                        }
+                        store.save();
+                    }
+                }
+            });
+            if (deletedAliasCount > 0) this.showToast?.(`${deletedAliasCount}件の名寄せ元カードを削除しました`);
             this.closeModal();
             this.renderAnalysis();
         } else if (type === 'substitute') {
@@ -4006,13 +4111,17 @@
                 remarks: existingMaster?.remarks || ''
             };
 
-            store.updatePartMaster(oldName, oldModel, updates, true); // true = isSubstitute
+            await store.runAtomicSaveBatch(() => {
+                store.updatePartMaster(oldName, oldModel, updates, true); // true = isSubstitute
+            });
             this.closeModal();
             this.renderAnalysis();
         }
         } catch (err) {
             console.error('Save error:', err);
             alert('保存中にエラーが発生しました: ' + err.message);
+        } finally {
+            this._modalSaveInProgress = false;
         }
     }
 
@@ -4263,7 +4372,7 @@
 
             // Add Print button to footer
             const footer = document.querySelector('.modal-footer');
-            const closeFooterBtn = footer?.querySelector('.secondary-btn[onclick="app.closeModal()"]');
+            const closeFooterBtn = footer?.querySelector('.secondary-btn[onclick="app.requestCloseModal()"]');
             if (closeFooterBtn) {
                 closeFooterBtn.textContent = '閉じる';
                 closeFooterBtn.title = '画面を閉じる';

@@ -13,14 +13,20 @@ class MaintenanceStore {
         this.storageWarning = null;
         this.lastSuccessfulSaveAt = null;
         this.startupStateSource = 'default';
+        this.startupRepairSource = null;
         this.startupSaveSafe = false;
         this.saveTarget = 'indexeddb';
         this.storageCandidates = {};
+        this.malformedStorageReports = [];
+        this._malformedPrimary = {};
+        this._repairCandidates = {};
+        this._malformedBackupWarning = false;
         this._saveRequestedRevision = 0;
         this._savePersistedRevision = 0;
         this._saveQueue = [];
         this._saveQueueRunning = false;
         this._saveIdleWaiters = [];
+        this._atomicSaveBatch = null;
         this._rejectedSaveDataRefs = new WeakSet();
         this.data = {
             currentDepartmentId: 'dept_default',
@@ -99,13 +105,19 @@ class MaintenanceStore {
 
     readLocalStorageCandidate() {
         for (const key of [this.STORAGE_KEY, 'factory_maintenance_next_data']) {
+            let raw;
             try {
-                const raw = localStorage.getItem(key);
+                raw = localStorage.getItem(key);
                 if (!raw) continue;
                 const data = JSON.parse(raw);
-                if (!this.isValidStoredData(data)) throw new Error('保存データの構造が正しくありません。');
+                const issues = this.getStoredDataShapeIssues(data);
+                if (issues.length) {
+                    this.rememberMalformedStoredData('localStorage', key, data, raw, issues);
+                    continue;
+                }
                 return { data, summary: this.getStoredDataSummary(data, 'localStorage', key) };
             } catch (error) {
+                if (raw) this.rememberMalformedStoredData('localStorage', key, null, raw, ['JSONを解析できません']);
                 console.error(`Failed to load storage data (${key})`, error);
             }
         }
@@ -157,12 +169,15 @@ class MaintenanceStore {
     }
 
     applyLoadedCandidate(candidate) {
-        this.applyStoredData(candidate.data);
+        // Normalization only touches a working copy. The original candidate remains
+        // available in its storage backend until a deliberate save completes.
+        this.applyStoredData(this.cloneStoredData(candidate.data));
         this.startupStateSource = candidate.summary.source;
+        this.startupRepairSource = candidate.repaired ? candidate.summary.source : null;
         this.saveTarget = candidate.summary.source;
         // Background startup writes stay disabled while a local fallback is active.
         // User edits still save to that fallback without touching IndexedDB.
-        this.startupSaveSafe = candidate.summary.source === 'indexeddb';
+        this.startupSaveSafe = candidate.summary.source === 'indexeddb' && !candidate.repaired;
     }
 
     async readIndexedDbCandidate() {
@@ -305,21 +320,24 @@ class MaintenanceStore {
                 request.onsuccess = () => {
                     if (finished) return;
                     try {
-                        const indexedCandidate = this.isValidStoredData(request.result)
+                        const indexedIssues = request.result == null ? [] : this.getStoredDataShapeIssues(request.result);
+                        const indexedCandidate = request.result != null && !indexedIssues.length
                             ? { data: request.result, summary: this.getStoredDataSummary(request.result, 'indexeddb') }
                             : null;
-                        if (request.result != null && !indexedCandidate) {
-                            this.storageWarning = new Error('IndexedDBの保存データの構造を確認できませんでした。');
-                        }
+                        if (indexedIssues.length) this.rememberMalformedStoredData(
+                            'indexeddb', this.STORAGE_KEY, request.result, null, indexedIssues
+                        );
                         const localCandidate = this.readLocalStorageCandidate();
                         this.storageCandidates = {
                             ...(indexedCandidate ? { indexeddb: indexedCandidate.summary } : {}),
                             ...(localCandidate ? { localStorage: localCandidate.summary } : {})
                         };
-                        const chosen = this.chooseStartupCandidate(indexedCandidate, localCandidate);
+                        const chosen = this.chooseStartupCandidate(indexedCandidate, localCandidate)
+                            || this.chooseStartupCandidate(this._repairCandidates.indexeddb, this._repairCandidates.localStorage);
                         if (chosen) {
                             this.applyLoadedCandidate(chosen);
-                            if (chosen.summary.source === 'localStorage' && indexedCandidate) this.startupSaveSafe = true;
+                            if (!chosen.repaired && chosen.summary.source === 'localStorage' && indexedCandidate) this.startupSaveSafe = true;
+                            if (chosen.repaired) this.storageCandidates[chosen.summary.source] = chosen.summary;
                         }
                         // A missing record may be temporary. Do not write the default
                         // state at startup; a later user edit still saves normally.
@@ -340,11 +358,149 @@ class MaintenanceStore {
     }
 
     isValidStoredData(value) {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-        const hasDepartmentData = value.deptData && typeof value.deptData === 'object'
-            && !Array.isArray(value.deptData);
+        return this.getStoredDataShapeIssues(value).length === 0;
+    }
+
+    isStoredRecord(value) {
+        return !!value && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    cloneStoredData(value) {
+        return typeof structuredClone === 'function'
+            ? structuredClone(value)
+            : JSON.parse(JSON.stringify(value));
+    }
+
+    getStoredDataShapeIssues(value) {
+        if (!this.isStoredRecord(value)) return ['全体がデータ形式ではありません'];
+        const issues = [];
+        const arrayFields = [
+            'machines', 'tasks', 'history', 'partsMaster', 'partStockMovements',
+            'archivedWorkers', 'archivedTasks', 'archivedParts', 'archivedMaintenanceTasks',
+            'archivedGuides', 'machineCategories', 'archivedMachineCategories', 'tipsNotes',
+            'localTodos', 'localTodoWorkers', 'localTodoLogs', 'historyImportLogs',
+            'shiftNotebookGroupPresets', 'shiftNotebookMemberOrder', 'shiftNotebookTags',
+            'shiftNotebookRowGroups', 'photoManagerLibrary', 'photoManagerVideos',
+            'photoManagerAudios', 'photoManagerTrash'
+        ];
+        const objectFields = [
+            'memos', 'shiftNotebooks', 'shiftNotebookMemberTypes', 'archivedSuggestions',
+            'outlookAssist', 'photoManagerNames', 'photoManagerOverlays', 'photoManagerTags'
+        ];
+        const checkDepartment = (department, path) => {
+            if (!this.isStoredRecord(department)) {
+                issues.push(`${path} がデータ形式ではありません`);
+                return;
+            }
+            for (const field of arrayFields) {
+                if (department[field] != null && !Array.isArray(department[field])) issues.push(`${path}.${field} が配列ではありません`);
+            }
+            for (const field of objectFields) {
+                if (department[field] != null && !this.isStoredRecord(department[field])) issues.push(`${path}.${field} がデータ形式ではありません`);
+            }
+            for (const field of ['machines', 'tasks', 'history', 'partsMaster']) {
+                if (!Array.isArray(department[field])) continue;
+                if (department[field].some(item => !this.isStoredRecord(item))) issues.push(`${path}.${field} に不正な項目があります`);
+            }
+            if (Array.isArray(department.history)
+                && department.history.some(item => this.isStoredRecord(item)
+                    && item.replacedParts != null && !Array.isArray(item.replacedParts))) {
+                issues.push(`${path}.history の使用部品が配列ではありません`);
+            }
+            if (Array.isArray(department.history)
+                && department.history.some(item => this.isStoredRecord(item)
+                    && item.photos != null && !Array.isArray(item.photos))) {
+                issues.push(`${path}.history の写真が配列ではありません`);
+            }
+            if (Array.isArray(department.history)
+                && department.history.some(item => this.isStoredRecord(item)
+                    && Array.isArray(item.replacedParts)
+                    && item.replacedParts.some(part => !this.isStoredRecord(part)))) {
+                issues.push(`${path}.history の使用部品に不正な項目があります`);
+            }
+        };
         const hasLegacyData = ['machines', 'history', 'tasks'].some(key => Array.isArray(value[key]));
-        return !!(hasDepartmentData || hasLegacyData);
+        if (!this.isStoredRecord(value.deptData) && !hasLegacyData) issues.push('部署データがありません');
+        if (value.departments != null && !Array.isArray(value.departments)) issues.push('部署一覧が配列ではありません');
+        if (Array.isArray(value.departments)
+            && value.departments.some(department => !this.isStoredRecord(department)
+                || !['string', 'number'].includes(typeof department.id) || String(department.id).trim() === '')) {
+            issues.push('部署一覧に不正な項目があります');
+        }
+        if (value.settings != null && !this.isStoredRecord(value.settings)) issues.push('設定がデータ形式ではありません');
+        if (value.currentDepartmentId != null
+            && !['string', 'number'].includes(typeof value.currentDepartmentId)) {
+            issues.push('現在の部署IDが正しくありません');
+        }
+        if (this.isStoredRecord(value.deptData)) {
+            for (const [id, department] of Object.entries(value.deptData)) checkDepartment(department, `部署 ${id}`);
+        } else if (hasLegacyData) {
+            checkDepartment(value, '旧形式のデータ');
+        }
+        return issues;
+    }
+
+    repairStoredDataCandidate(data, source, key) {
+        if (!this.isStoredRecord(data)) return null;
+        const repaired = this.cloneStoredData(data);
+        const arrays = [
+            'machines', 'tasks', 'history', 'partsMaster', 'partStockMovements',
+            'archivedWorkers', 'archivedTasks', 'archivedParts', 'archivedMaintenanceTasks',
+            'archivedGuides', 'machineCategories', 'archivedMachineCategories', 'tipsNotes',
+            'localTodos', 'localTodoWorkers', 'localTodoLogs', 'historyImportLogs',
+            'shiftNotebookGroupPresets', 'shiftNotebookMemberOrder', 'shiftNotebookTags',
+            'shiftNotebookRowGroups', 'photoManagerLibrary', 'photoManagerVideos',
+            'photoManagerAudios', 'photoManagerTrash'
+        ];
+        const objects = [
+            'memos', 'shiftNotebooks', 'shiftNotebookMemberTypes', 'archivedSuggestions',
+            'outlookAssist', 'photoManagerNames', 'photoManagerOverlays', 'photoManagerTags'
+        ];
+        const repairDepartment = department => {
+            const working = this.isStoredRecord(department) ? department : {};
+            for (const field of arrays) {
+                if (working[field] != null && !Array.isArray(working[field])) working[field] = [];
+            }
+            for (const field of objects) {
+                if (working[field] != null && !this.isStoredRecord(working[field])) working[field] = {};
+            }
+            for (const field of ['machines', 'tasks', 'history', 'partsMaster']) {
+                if (Array.isArray(working[field])) working[field] = working[field].filter(item => this.isStoredRecord(item));
+            }
+            for (const history of working.history || []) {
+                if (history.replacedParts != null && !Array.isArray(history.replacedParts)) history.replacedParts = [];
+                if (Array.isArray(history.replacedParts)) history.replacedParts = history.replacedParts.filter(part => this.isStoredRecord(part));
+                if (history.photos != null && !Array.isArray(history.photos)) history.photos = [];
+            }
+            return working;
+        };
+        if (this.isStoredRecord(repaired.deptData)) {
+            for (const id of Object.keys(repaired.deptData)) repaired.deptData[id] = repairDepartment(repaired.deptData[id]);
+        } else if (['machines', 'history', 'tasks'].some(field => Array.isArray(repaired[field]))) {
+            repairDepartment(repaired);
+        } else {
+            return null;
+        }
+        if (repaired.departments != null && !Array.isArray(repaired.departments)) repaired.departments = [];
+        if (Array.isArray(repaired.departments)) {
+            repaired.departments = repaired.departments.filter(department => this.isStoredRecord(department)
+                && ['string', 'number'].includes(typeof department.id) && String(department.id).trim() !== '');
+        }
+        if (repaired.settings != null && !this.isStoredRecord(repaired.settings)) repaired.settings = {};
+        if (repaired.currentDepartmentId != null
+            && !['string', 'number'].includes(typeof repaired.currentDepartmentId)) repaired.currentDepartmentId = '';
+        if (this.getStoredDataShapeIssues(repaired).length) return null;
+        return { data: repaired, summary: this.getStoredDataSummary(repaired, source, key), repaired: true };
+    }
+
+    rememberMalformedStoredData(source, key, data, raw, issues) {
+        const report = { source, key, issues: issues.slice(0, 12) };
+        this.malformedStorageReports = this.malformedStorageReports.filter(item => item.source !== source || item.key !== key);
+        this.malformedStorageReports.push(report);
+        this.storageWarning = new Error(`${source === 'indexeddb' ? 'IndexedDB' : 'localStorage'} の保存データに異常があります（${issues[0]}）。原本を保持して読み込みます。`);
+        if (key === this.STORAGE_KEY) this._malformedPrimary[source] = { data, raw, preserved: false, backupKey: null };
+        const candidate = this.repairStoredDataCandidate(data, source, key);
+        if (candidate && (!this._repairCandidates[source] || key === this.STORAGE_KEY)) this._repairCandidates[source] = candidate;
     }
 
     applyStoredData(parsed) {
@@ -365,7 +521,7 @@ class MaintenanceStore {
     }
 
     loadLegacy() {
-        const candidate = this.readLocalStorageCandidate();
+        const candidate = this.readLocalStorageCandidate() || this._repairCandidates.localStorage;
         if (candidate) {
             this.storageCandidates.localStorage = candidate.summary;
             this.applyLoadedCandidate(candidate);
@@ -499,17 +655,45 @@ class MaintenanceStore {
             : JSON.parse(JSON.stringify(this.data));
     }
 
+    getMalformedBackupKey(source) {
+        const original = this._malformedPrimary[source];
+        if (!original || original.preserved) return null;
+        if (!original.backupKey) {
+            original.backupKey = `${this.STORAGE_KEY}_invalid_original_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        }
+        return original.backupKey;
+    }
+
     writeSaveSnapshot(snapshot, backend) {
         if (backend === 'localStorage') {
+            const original = this._malformedPrimary.localStorage;
+            const backupKey = this.getMalformedBackupKey('localStorage');
+            if (backupKey) {
+                try {
+                    localStorage.setItem(backupKey, original.raw ?? JSON.stringify(original.data));
+                    original.preserved = true;
+                    this._malformedBackupWarning = false;
+                } catch (error) {
+                    this._malformedBackupWarning = true;
+                    this.storageWarning = new Error('異常な元データを退避できませんでした。保存領域の空き容量を確認してください。');
+                    console.warn('Could not preserve malformed localStorage data', error);
+                }
+            }
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(snapshot));
             return Promise.resolve();
         }
-        return new Promise((resolve, reject) => {
+        const original = this._malformedPrimary.indexeddb;
+        const backupKey = this.getMalformedBackupKey('indexeddb');
+        const write = includeBackup => new Promise((resolve, reject) => {
             try {
                 const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
                 const os = tx.objectStore(this.STORE_NAME);
-                const req = os.put(snapshot, this.STORAGE_KEY);
                 let requestError = null;
+                if (includeBackup && backupKey) {
+                    const backupRequest = os.put(original.data, backupKey);
+                    backupRequest.onerror = () => { requestError ||= backupRequest.error || new Error('元データを退避できませんでした。'); };
+                }
+                const req = os.put(snapshot, this.STORAGE_KEY);
                 // A request can fail before its transaction aborts. Keep the queue
                 // blocked until the whole transaction reaches a terminal event.
                 req.onerror = () => { requestError = req.error || new Error('保存に失敗しました。'); };
@@ -517,11 +701,26 @@ class MaintenanceStore {
                 tx.onabort = () => reject(requestError || tx.error || new Error('保存が中断されました。'));
                 tx.oncomplete = () => {
                     if (requestError) reject(requestError);
-                    else resolve();
+                    else {
+                        if (includeBackup && backupKey) {
+                            original.preserved = true;
+                            this._malformedBackupWarning = false;
+                        }
+                        resolve();
+                    }
                 };
             } catch (error) {
                 reject(error);
             }
+        });
+        if (!backupKey) return write(false);
+        return write(true).catch(async error => {
+            // A full storage quota can reject the extra backup copy. Keep the
+            // app writable while surfacing that the original is not protected.
+            this._malformedBackupWarning = true;
+            this.storageWarning = new Error('異常な元データを退避できませんでした。保存領域の空き容量を確認してください。');
+            console.warn('Could not preserve malformed IndexedDB data', error);
+            await write(false);
         });
     }
 
@@ -548,7 +747,7 @@ class MaintenanceStore {
                     }
                     this.storageCandidates[entry.backend] = this.getStoredDataSummary(entry.snapshot, entry.backend);
                     this.startupSaveSafe = true;
-                    if (entry.backend === 'indexeddb') this.storageWarning = null;
+                    if (entry.backend === 'indexeddb' && !this._malformedBackupWarning) this.storageWarning = null;
                     this._savePersistedRevision = entry.revision;
                     entry.waiters.forEach(waiter => waiter.resolve());
                     if (!this._saveQueue.length && this._saveRequestedRevision === entry.revision) {
@@ -585,7 +784,48 @@ class MaintenanceStore {
         return new Promise(resolve => this._saveIdleWaiters.push(resolve));
     }
 
+    restoreSaveSnapshotInPlace(snapshot, dataRef) {
+        if (this.data !== dataRef) return false;
+        for (const key of Object.keys(dataRef)) delete dataRef[key];
+        Object.assign(dataRef, snapshot);
+        return true;
+    }
+
+    async runAtomicSaveBatch(mutate) {
+        if (typeof mutate !== 'function') throw new TypeError('保存する変更処理がありません。');
+        if (this._atomicSaveBatch) throw new Error('別の保存処理が進行中です。');
+        // An earlier save must not write an older snapshot after this batch.
+        do {
+            await this.waitForSaveQueueIdle();
+        } while (this._saveQueueRunning || this._saveQueue.length);
+        const dataRef = this.data;
+        const before = this.cloneSaveSnapshot();
+        this._atomicSaveBatch = { dataRef };
+        let result;
+        try {
+            result = mutate();
+            if (result && typeof result.then === 'function') {
+                throw new Error('一括保存の変更処理は同期処理にしてください。');
+            }
+        } catch (error) {
+            this.restoreSaveSnapshotInPlace(before, dataRef);
+            throw error;
+        } finally {
+            this._atomicSaveBatch = null;
+        }
+        try {
+            await this.save({ discardQueuedOnFailure: true });
+            return result;
+        } catch (error) {
+            this.restoreSaveSnapshotInPlace(before, dataRef);
+            throw error;
+        }
+    }
+
     save(options = {}) {
+        // Existing synchronous mutators may request saves during a form edit.
+        // The caller of runAtomicSaveBatch observes the single final result.
+        if (this._atomicSaveBatch) return Promise.resolve();
         const backend = this.getActiveSaveBackend();
         const dataRef = this.data;
         const revision = ++this._saveRequestedRevision;

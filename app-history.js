@@ -288,7 +288,7 @@
             const footer = document.querySelector('.modal-footer');
             footer.innerHTML = `
                 <button class="danger-btn" style="margin-right:auto" onclick="app.deleteHistoryEntry('${historyId}')">この記録を削除</button>
-                <button class="secondary-btn" onclick="app.closeModal()">キャンセル</button>
+                <button type="button" class="secondary-btn" onclick="app.requestCloseModal()">キャンセル</button>
                 <button class="primary-btn" id="modal-save-btn">上書き保存</button>
             `;
             const saveBtn = document.getElementById('modal-save-btn');
@@ -1037,7 +1037,7 @@
                 <button class="secondary-btn" id="modal-cancel">キャンセル</button>
                 <button class="primary-btn" onclick="app.applyHistoryBulkEdit()"><i class="fa-solid fa-floppy-disk"></i> 一括更新</button>
             `;
-            document.getElementById('modal-cancel').onclick = () => this.closeModal();
+            document.getElementById('modal-cancel').onclick = () => this.requestCloseModal();
         });
     }
 
@@ -1045,7 +1045,8 @@
         return String(text || '').split(/\s*(?:,|，|、|\/)\s*/).map(w => w.trim()).filter(Boolean);
     }
 
-    applyHistoryBulkEdit() {
+    async applyHistoryBulkEdit() {
+        if (this._historyBulkEditSaving) return;
         const selected = this.getSelectedHistoryRecords();
         if (!selected.length) return alert('一括編集する履歴にチェックを入れてください。');
         const useLine = !!document.getElementById('bulk-use-line')?.checked;
@@ -1076,42 +1077,49 @@
         const ok = confirm(`${selected.length}件の履歴を一括更新します。よろしいですか？`);
         if (!ok) return;
 
-        selected.forEach(h => {
-            if (useLine) h.lineNo = lineNo;
-            if (useMachineCategory) {
-                h.machineCategory = machineCategory;
-                const machine = store.getMachines(true).find(m => m.id === h.machineId);
-                if (machine && machine.category !== machineCategory) {
-                    store.updateMachine(h.machineId, { category: machineCategory });
+        this._historyBulkEditSaving = true;
+        try {
+            await store.runAtomicSaveBatch(() => selected.forEach(h => {
+                if (useLine) h.lineNo = lineNo;
+                if (useMachineCategory) {
+                    h.machineCategory = machineCategory;
+                    const machine = store.getMachines(true).find(m => m.id === h.machineId);
+                    if (machine && machine.category !== machineCategory) {
+                        store.updateMachine(h.machineId, { category: machineCategory });
+                    }
                 }
-            }
-            if (useCategory) h.category = category;
-            if (useOccurrence) h.isFirstTime = occurrence === 'first';
-            if (useType) {
-                if (h.taskId) {
-                    h.taskContent = h.taskContent || this.getHistoryDisplayText(h);
-                    h.errorContent = h.errorContent || h.taskContent || h.notes || '突発対応';
-                    delete h.taskId;
+                if (useCategory) h.category = category;
+                if (useOccurrence) h.isFirstTime = occurrence === 'first';
+                if (useType) {
+                    if (h.taskId) {
+                        h.taskContent = h.taskContent || this.getHistoryDisplayText(h);
+                        h.errorContent = h.errorContent || h.taskContent || h.notes || '突発対応';
+                        delete h.taskId;
+                    }
+                    h.isSudden = true;
+                    h.isDokatei = type === 'dokatei';
+                    h.isNonProductionStop = type === 'nonProductionStop';
                 }
-                h.isSudden = true;
-                h.isDokatei = type === 'dokatei';
-                h.isNonProductionStop = type === 'nonProductionStop';
-            }
-            if (useWorkers) {
-                const current = Array.isArray(h.workers) ? h.workers : [];
-                if (workersMode === 'replace') h.workers = [...workers];
-                if (workersMode === 'add') h.workers = Array.from(new Set([...current, ...workers]));
-                if (workersMode === 'remove') h.workers = current.filter(w => !workers.includes(w));
-            }
-        });
-        store.save();
-        this.closeModal();
-        this.clearHistorySelection();
-        this.updateDataLists();
-        this.renderHistory();
-        this.renderCalendar();
-        this.renderDashboard?.();
-        this.showToast?.(`${selected.length}件を一括更新しました`, 'success');
+                if (useWorkers) {
+                    const current = Array.isArray(h.workers) ? h.workers : [];
+                    if (workersMode === 'replace') h.workers = [...workers];
+                    if (workersMode === 'add') h.workers = Array.from(new Set([...current, ...workers]));
+                    if (workersMode === 'remove') h.workers = current.filter(w => !workers.includes(w));
+                }
+            }));
+            this.closeModal();
+            this.clearHistorySelection();
+            this.updateDataLists();
+            this.renderHistory();
+            this.renderCalendar();
+            this.renderDashboard?.();
+            this.showToast?.(`${selected.length}件を一括更新しました`, 'success');
+        } catch (error) {
+            console.error('History bulk edit save error:', error);
+            alert('一括更新の保存に失敗しました: ' + error.message);
+        } finally {
+            this._historyBulkEditSaving = false;
+        }
     }
 
     getHistoryImportLikeKey(record) {
