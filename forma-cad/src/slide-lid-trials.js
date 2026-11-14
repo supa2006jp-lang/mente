@@ -1,5 +1,5 @@
 import * as R from 'replicad';
-import {applySlideClickFit,slideClickRamp,slideClickSettings} from './slide-lid-click-fit.js';
+import {applySlideClickFit,applySlidePressFit,slideClickRamp,slideClickSettings} from './slide-lid-click-fit.js';
 import {sectionPrism,slideChannelProfile,slideLidFit,slidePlateProfile} from './slide-lid.js';
 import {printSupportExportMesh} from './print-support-export-mesh.js';
 
@@ -38,7 +38,9 @@ export function makeSlideLidTrials(settings,dimensions,onProgress){
    const opening=hold(R.makeBox([-.1,-interior,lower],[span+.1,interior,upper+cover+.1]));
    let body=hold(hold(stock.cut(channel)).cut(opening));
    let lid=hold(sectionPrism(slidePlateProfile(interior,railDepth,upper,fit),0,span));
-   if(clickAmount){
+   if(clickAmount&&settings.clickFitMode==='press'){
+    ({lid}=applySlidePressFit(lid,{front:0,back:span,halfWidth:interior,depth:railDepth,upper,fit,amount:clickAmount},hold));
+   }else if(clickAmount){
     ({body,lid}=applySlideClickFit(body,lid,{start:0,throat:1.2,back:span,halfWidth:interior,depth:railDepth,upper,fit,wall,endClearance:settings.clearance,amount:clickAmount},hold));
    }
    const markCount=label.charCodeAt(0)-64;

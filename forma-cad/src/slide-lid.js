@@ -1,4 +1,4 @@
-import {applySlideClickFit,slideClickSettings} from './slide-lid-click-fit.js';
+import {applySlideClickFit,applySlidePressFit,slideClickSettings} from './slide-lid-click-fit.js';
 import {slideSurfaceGrip} from './slide-lid-surface-grip.js';
 import {topSlideLayout,topSlideBlank,topSlideSweep,topSlideGrip,slideFinishingOptions,slideLeadIn} from './slide-lid-top.js';
 import * as R from 'replicad';
@@ -86,13 +86,18 @@ export function makeSlideLid(source,p){
   if(labels.length)body=hold(applySlideLabels(body,p,labels));
   const clearPathBody=body;let lock=null;
   if(p.lock){const locked=slideLock(body,lid,p,top?{...info,lockCenters:[-(S-g-top.stemWidth/2),S-g-top.stemWidth/2],lockWidth:top.stemWidth,lockThickness:top.railCore}:info,lower);body=hold(locked.body);lid=hold(locked.lid);lock=locked.analysis;}
+  const regularLid=lid;
   let clickFit=null;
-  if(clickAmount){
+  if(clickAmount&&p.clickFitMode==='press'){
+   ({lid,analysis:clickFit}=applySlidePressFit(lid,{front,back,halfWidth:S,depth:d,upper,fit,amount:clickAmount},hold));
+   clickFit.pressOverlap=R.measureVolume(hold(body.intersect(lid)));
+   if(clickFit.pressOverlap<=1e-5)throw Error('蓋の広がりが溝に届きません。差し込み口の形状を確認してください');
+  }else if(clickAmount){
    const snapped=applySlideClickFit(body,lid,{start:-L/2,throat:-L/2+w,back,halfWidth:S,depth:d,upper,fit,wall:w,endClearance:g,amount:clickAmount},hold);
    ({body,lid}=snapped);clickFit=snapped.analysis;
   }
   valid(body,'本体');valid(lid,'蓋');
-  const overlap=R.measureVolume(hold(body.intersect(lid))),travel=top?L+2*g:L-w,swept=top?topSlideSweep(top,info,travel,sectionPrism,hold):hold(sectionPrism(lidPoints,front-travel,back)),slidingOverlap=R.measureVolume(hold(clearPathBody.intersect(swept)));
+  const overlap=R.measureVolume(hold(body.intersect(clickFit?.mode==='press'?regularLid:lid))),travel=top?L+2*g:L-w,swept=top?topSlideSweep(top,info,travel,sectionPrism,hold):hold(sectionPrism(lidPoints,front-travel,back)),slidingOverlap=R.measureVolume(hold(clearPathBody.intersect(swept)));
   if(lock)lock.slidingContact=R.measureVolume(hold(body.intersect(swept)));
   if(overlap>1e-5||slidingOverlap>1e-5)throw Error('蓋の開閉経路が本体と干渉します。寸法を調整してください');
   const toWorld=shape=>shape.clone().rotate(info.angle,[0,0,0],[0,0,1]).translate(info.center);

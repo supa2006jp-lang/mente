@@ -35,6 +35,20 @@ const box=R.makeBox([-40,-25,0],[40,25,30]);try{
   assert.ok(overlapAt(clickFit.position+length/2-p.wall-.6)>.01,'tabs engage the constriction just before closure');
   for(const distance of [10,20,40])assert.equal(overlapAt(distance),0,'tabs clear the rest of the slide path');
  }finally{snapped.body.delete();snapped.lid.delete();}
+ const pressOptions={...p,sideClearance:.4,verticalClearance:.25,leadIn:true,entry:'positive'};
+ const baseline=makeSlideLid(box,pressOptions);
+ const press=makeSlideLid(box,{...pressOptions,clickFit:true,clickFitMode:'press',clickFitAmount:.55});
+ try{
+  valid(press.body);valid(press.lid);
+  for(const key of ['vertices','triangles'])assert.deepEqual(press.body.mesh({tolerance:.01})[key],baseline.body.mesh({tolerance:.01})[key],'press fit keeps the original groove');
+  assert.ok(R.measureVolume(press.lid)>R.measureVolume(baseline.lid));
+  assert.ok(press.analysis.clickFit.pressOverlap>.1);
+  assert.equal(press.analysis.overlap,0);
+  assert.equal(press.analysis.slidingOverlap,0);
+  const shifted=press.lid.clone().translate(press.analysis.exitVector.map(v=>v*5)),hit=press.body.intersect(shifted);
+  try{assert.equal(R.measureVolume(hit),0,'the widened end clears the groove when the lid is slightly open');}
+  finally{hit.delete();shifted.delete();}
+ }finally{for(const {body,lid} of [baseline,press]){body.delete();lid.delete();}}
  const output=makeSlideLid(box,{...p,pose:'print',grip:false});try{for(const part of [output.body,output.lid]){valid(part);const b=part.boundingBox;try{assert.ok(Math.abs(b.bounds[0][2])<1e-6);}finally{b.delete();}}const b=output.body.boundingBox,l=output.lid.boundingBox;try{assert.ok(l.bounds[0][0]-b.bounds[1][0]>=9.99);}finally{b.delete();l.delete();}}finally{output.body.delete();output.lid.delete();}
 }finally{box.delete();}
 for(const shape of [R.makeCylinder(20,30),R.makeBox([-40,-25,0],[40,25,30]).rotate(15,[0,0,0],[1,0,0]),R.makeBox([-6,-6,0],[6,6,6])])try{assert.throws(()=>makeSlideLid(shape,p));}finally{shape.delete();}
