@@ -12,6 +12,16 @@ async function worldClick(point,modifiers=[]){await page.evaluate(()=>new Promis
 try{
  await page.addInitScript(()=>{window.showSaveFilePicker=undefined;const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(window.delayInterior&&payload.spec?.type==='interiorEdges')return setTimeout(()=>post.call(this,payload,...args),500);return post.call(this,payload,...args);};});
  await page.goto('http://127.0.0.1:'+server.address().port+'/');await page.locator('#canvas-host canvas').waitFor();await load();assert(!await button.isVisible());
+ const exterior=page.locator('#select-exterior-vertical-edges');
+ await body('tray').click();await exterior.click();
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.selectedEdgeCount==='4');
+ assert.equal(JSON.parse(await host.getAttribute('data-exterior-vertical-edge-selection')).edgeCount,4);
+ assert.deepEqual((await save()).features,expected);
+ await page.locator('#edge-fillet').click();await page.locator('#cad-radius').fill('.5');await page.locator('#cad-apply').click();
+ await page.waitForFunction(()=>!document.getElementById('tools-dialog').open);
+ const verticalFillet=(await save()).features.at(-1);
+ assert.equal(verticalFillet.analysis.fillets[0].edges,4);
+ await load();
  await body('tray').click();await select(8);console.log('selected 8');assert.equal(JSON.parse(await host.getAttribute('data-interior-edge-selection')).edgeCount,8);assert.deepEqual((await save()).features,expected);await page.locator('[data-view=iso]').click();await page.locator('#fit-selection').click();await worldClick([0,17,3],['Control']);await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.selectedEdgeCount==='7');await select(8);await page.screenshot({path:out+'/selected.png'});
  await page.locator('#edge-fillet').click();await page.locator('#cad-radius').fill('.5');await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('tools-dialog').open);const rounded=await save(),last=rounded.features.at(-1);assert.equal(last.spec.edges.length,8);assert.equal(last.outputs.length,1);assert.equal(last.analysis.fillets[0].edges,8);assert.equal(last.analysis.partialFillet,undefined);assert.deepEqual(rounded.features.slice(0,-1),expected);
  console.log('fillet 8');await page.locator('#undo').click();assert.equal((await save()).features.length,1);await page.locator('#redo').click();assert.equal((await save()).features.length,2);

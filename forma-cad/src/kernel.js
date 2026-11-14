@@ -450,7 +450,7 @@ function computeOperation(features,spec,onProgress,context={}){
   return runOperation(features,operation,onProgress);
  }
  if(spec.type==='nativeExtrusionProbe')return nativeExtrusionProbe(features,spec,{bodies:kernelBodies,solid:featureSolid,onProgress});
- if(spec.type==='interiorEdges'){const bodies=kernelBodies(features);try{return inspectInteriorEdges(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}
+ if(spec.type==='interiorEdges'||spec.type==='exteriorVerticalEdges'){const bodies=kernelBodies(features);try{return inspectInteriorEdges(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}
  if(['motionCheck','motionRangeCheck','motionSetup'].includes(spec.type)){const bodies=kernelBodies(features);try{if(spec.type==='motionSetup'){return {outputs:[],remove:[],analysis:{motionSetup:motionSettings(spec,bodies)}};}return checkMotion(bodies,spec,onProgress);}finally{bodies.forEach(s=>s.delete());}}
 
  if(spec.type==='honeycombInspect'){

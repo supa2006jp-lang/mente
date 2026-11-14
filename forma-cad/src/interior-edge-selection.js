@@ -30,6 +30,46 @@ function horizontalLoops(vertices,triangles,z,tolerance){
  return loops;
 }
 
+function isNearLoop(loop,p,tolerance){
+ return loop.some((a,i)=>{
+  const b=loop[(i+1)%loop.length],dx=b[0]-a[0],dy=b[1]-a[1],lengthSquared=dx*dx+dy*dy;
+  const t=Math.max(0,Math.min(1,lengthSquared?((p[0]-a[0])*dx+(p[1]-a[1])*dy)/lengthSquared:0));
+  return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)<tolerance;
+ });
+}
+
+export function exteriorVerticalEdges(shape,{bodyId,onProgress}={}){
+ let edges;
+ try{edges=resolveFilletEdges(shape);}catch(error){if(error.code==='fillet-selection')return [];throw error;}
+ try{
+  const candidates=[];
+  for(const edge of edges){
+   if(edge.geomType!=='LINE')continue;
+   const a=sample(edge,0),b=sample(edge,1);
+   const length=Math.abs(b[2]-a[2]);
+   if(length<=1e-6||Math.hypot(b[0]-a[0],b[1]-a[1])>length*1e-6)continue;
+   candidates.push({bodyId,a,b,point:sample(edge,.5),length,key:'exterior-z-'+bodyId+'-'+edge.hashCode});
+  }
+  if(!candidates.length)return [];
+  const {vertices,triangles}=cadMesh(shape,{tolerance:.001,angularTolerance:.05});
+  const sections=new Map(),tolerance=1e-6;
+  return candidates.filter((edge,index)=>{
+   if(index%20===0)onProgress?.({stage:'外周の縦辺を調べています',current:index,total:candidates.length});
+   // Try a second height when the section coincides with other geometry.
+   for(const fraction of [.5,.37,.63]){
+    const z=edge.a[2]+(edge.b[2]-edge.a[2])*fraction;
+    const key=z.toPrecision(14);
+    if(!sections.has(key))sections.set(key,horizontalLoops(vertices,triangles,z,tolerance));
+    const loops=sections.get(key),matching=loops.filter(loop=>isNearLoop(loop,edge.point,tolerance*4));
+    if(matching.length!==1)continue;
+    const [loop]=matching;
+    return !loops.some(other=>other!==loop&&contains(other,loop[0]));
+   }
+   return false;
+  }).map(edge=>({...edge,reference:{a:edge.a,b:edge.b,point:edge.point}}));
+ }finally{edges.forEach(edge=>edge.delete());}
+}
+
 export function interiorEdges(shape,{bodyId,onProgress}={}){
  let edges;try{edges=resolveFilletEdges(shape);}catch(error){if(error.code==='fillet-selection')return [];throw error;}
  const faces=shape.faces,byHash=new Map(),meshData=cadMesh(shape,{tolerance:.001,angularTolerance:.05}),box=shape.boundingBox;
@@ -41,10 +81,9 @@ export function interiorEdges(shape,{bodyId,onProgress}={}){
  function rayHit(p,z){ray.set(vec(p),new THREE.Vector3(0,0,z));return ray.intersectObject(mesh,false)[0];}
  function section(z){const key=z.toPrecision(13);if(!sections.has(key))sections.set(key,{loops:horizontalLoops(meshData.vertices,meshData.triangles,z,tolerance),open:new Map()});return sections.get(key);}
  function enclosed(loops,p){const enclosing=loops.filter(loop=>contains(loop,p));return enclosing.length>0&&enclosing.length%2===0?enclosing.sort((a,b)=>area(a)-area(b))[0]:null;}
- function nearLoop(loop,p){return loop.some((a,i)=>{const b=loop[(i+1)%loop.length],d=[b[0]-a[0],b[1]-a[1]],n=d[0]**2+d[1]**2,t=Math.max(0,Math.min(1,n?((p[0]-a[0])*d[0]+(p[1]-a[1])*d[1])/n:0));return Math.hypot(p[0]-a[0]-t*d[0],p[1]-a[1]-t*d[1])<epsilon*4;});}
  function openAbove(p,rim){
   const cut=section(p[2]),loop=enclosed(cut.loops,p);if(!loop)return false;
-  if(rim&&nearLoop(loop,p))return false;
+  if(rim&&isNearLoop(loop,p,epsilon*4))return false;
   if(cut.open.has(loop))return cut.open.get(loop);
   // Testing the whole void cross-section also accepts corners under a small
   // inward lip, provided the same cavity has an exposed opening and a floor.
@@ -78,7 +117,11 @@ export function interiorEdges(shape,{bodyId,onProgress}={}){
 }
 
 export function inspectInteriorEdges(bodies,spec,onProgress){
- const ids=[...new Set(spec.targets||[spec.target])];if(!ids.length||ids.length>100||ids.some(id=>!bodies.has(id)))throw Error('内側の辺を選ぶボディを選択してください');
- const edges=[];for(const id of ids)edges.push(...interiorEdges(bodies.get(id),{bodyId:id,onProgress}));
- return {edges,analysis:{interiorEdges:{bodyIds:ids,edgeCount:edges.length,up:[0,0,1],rimIncluded:false}}};
+ const exterior=spec.type==='exteriorVerticalEdges';
+ const ids=[...new Set(spec.targets||[spec.target])];
+ if(!ids.length||ids.length>100||ids.some(id=>!bodies.has(id)))throw Error('辺をまとめて選ぶボディを選択してください');
+ const findEdges=exterior?exteriorVerticalEdges:interiorEdges;
+ const edges=ids.flatMap(bodyId=>findEdges(bodies.get(bodyId),{bodyId,onProgress}));
+ const selection={bodyIds:ids,edgeCount:edges.length,up:[0,0,1]};
+ return {edges,analysis:exterior?{exteriorVerticalEdges:selection}:{interiorEdges:{...selection,rimIncluded:false}}};
 }

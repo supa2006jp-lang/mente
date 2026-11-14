@@ -1,6 +1,19 @@
-import fs from 'node:fs/promises';import assert from 'node:assert/strict';import * as R from 'replicad';import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';import {interiorEdges} from '../src/interior-edge-selection.js';import {filletSolid} from '../src/solid-fillet.js';import {runOperation} from '../src/kernel.js';import {edgeFilletReferences} from '../src/edge-references.js';import {matchesInteriorEdge} from '../src/interior-edge-tool.js';
+import fs from 'node:fs/promises';import assert from 'node:assert/strict';import * as R from 'replicad';import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';import {exteriorVerticalEdges,interiorEdges} from '../src/interior-edge-selection.js';import {filletSolid} from '../src/solid-fillet.js';import {runOperation} from '../src/kernel.js';import {edgeFilletReferences} from '../src/edge-references.js';import {matchesInteriorEdge} from '../src/interior-edge-tool.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const box=R.makeBox([0,0,0],[40,32,24]),tool=R.makeBox([3,3,3],[37,29,30]),tray=box.cut(tool),closed=R.makeBox([0,0,0],[40,32,24]).cut(R.makeBox([3,3,3],[37,29,21]));
+for(const shape of [box,tray,closed]){
+ const outside=exteriorVerticalEdges(shape,{bodyId:'box'});
+ assert.equal(outside.length,4);
+ assert(outside.every(({a,b})=>a[0]===b[0]&&a[1]===b[1]&&[0,40].includes(a[0])&&[0,32].includes(a[1])));
+ const result=filletSolid(shape,.5,{references:outside.map(e=>e.reference)});
+ try{assert.equal(result.edgeCount,4);}finally{result.shape.delete();}
+}
+const spun=tray.clone().rotate(31,[0,0,0],[0,0,1]);
+const tilted=box.clone().rotate(15,[0,0,0],[1,1,0]);
+try{
+ assert.equal(exteriorVerticalEdges(spun).length,4,'outer corners follow rotation about Z');
+ assert.equal(exteriorVerticalEdges(tilted).length,0,'tilted edges do not count as Z-parallel');
+}finally{spun.delete();tilted.delete();}
 const before=R.measureVolume(tray),selected=interiorEdges(tray,{bodyId:'tray'});assert.equal(selected.length,8);assert(selected.every(e=>e.points.every(p=>p[0]>=3-1e-6&&p[0]<=37+1e-6&&p[1]>=3-1e-6&&p[1]<=29+1e-6)));assert.equal(interiorEdges(box).length,0);assert.equal(interiorEdges(closed).length,0);
 const rounded=filletSolid(tray,.5,{references:selected.map(e=>e.reference)});assert.equal(rounded.edgeCount,8);rounded.shape.delete();assert.equal(R.measureVolume(tray),before);
 const cup=R.makeCylinder(20,25).cut(R.makeCylinder(17,30,[0,0,3])),cupEdges=interiorEdges(cup,{bodyId:'cup'});assert.equal(cupEdges.length,1);assert(cupEdges[0].curved);assert(Math.abs(cupEdges[0].point[2]-3)<1e-6);
