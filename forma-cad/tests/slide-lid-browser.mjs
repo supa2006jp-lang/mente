@@ -56,6 +56,7 @@ try{
  assert.match(modelXml,/B 横 0.25 mm・上下 0.25 mm/);
  assert.equal((await save()).features.length,2,'trial export does not change the model');
  await page.locator('#slide-lid-clickFit').check();
+ assert.equal(Number(await page.locator('#slide-lid-clickFitAmount').inputValue()),.5);
  await ready();
  await page.locator('#slide-lid-section').click();
  await sectionPanel.locator('#slide-section-click').click();

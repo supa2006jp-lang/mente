@@ -4,6 +4,7 @@ const pocketClearance=.15;
 const minimumWall=1.2;
 export const slideClickMinimum=.1;
 export const slideClickPressMax=.6;
+export const slideClickPressDefault=.5;
 
 export function slideClickLimit(wall,depth){
  if(!Number.isFinite(wall)||!Number.isFinite(depth)||wall<=0||depth<=0)return null;
@@ -17,7 +18,7 @@ export function slideClickRamp(side,amount){
 export function slideClickSettings(spec){
  if(spec.clickFit===undefined||spec.clickFit===false)return null;
  if(spec.clickFit!==true||spec.lidStyle==='top'||spec.lock)throw Error('カチッと固定は1枚板のスライド蓋で使えます');
- const amount=spec.clickFitAmount??.2;
+ const amount=spec.clickFitAmount??(spec.clickFitMode==='press'?slideClickPressDefault:.2);
  if(spec.clickFitMode==='press'){
   if(!Number.isFinite(amount)||amount<slideClickMinimum||amount>slideClickPressMax)throw Error('押し当て量は片側0.10〜0.60 mmで指定してください');
   return amount;
