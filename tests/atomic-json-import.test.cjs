@@ -62,6 +62,62 @@ test('malformed full JSON leaves both main state and skill data unchanged', asyn
     assert.deepEqual(writes, []);
 });
 
+test('full import reports a malformed nested photo field before any write', async () => {
+    const { store, localValues, writes } = createStore();
+    const original = store.data;
+    const payload = fullPayload();
+    payload.mainData.deptData.dept_default.history = [{ id: 'h1', photos: { bad: true } }];
+
+    await assert.rejects(
+        store.importFromJSON(JSON.stringify(payload), { throwOnError: true }),
+        error => error.code === 'INVALID_IMPORT_SHAPE'
+            && /history\[0\]\.photos/.test(error.message)
+    );
+    assert.equal(store.data, original);
+    assert.deepEqual(writes, []);
+    assert.equal(localValues.get('skillEvaluations'), '{"original":{"level":2}}');
+    assert.equal(localValues.get('manualSkills'), '[{"id":"original-skill"}]');
+});
+
+test('full import reports an invalid department list rather than normalizing it away', async () => {
+    const { store, writes } = createStore();
+    const payload = fullPayload();
+    payload.mainData.departments = { bad: true };
+
+    await assert.rejects(
+        store.importFromJSON(JSON.stringify(payload), { throwOnError: true }),
+        /部署一覧が配列ではありません/
+    );
+    assert.deepEqual(writes, []);
+});
+
+test('full import rejects missing packed images instead of silently clearing them', async () => {
+    const { store, writes } = createStore();
+    const payload = fullPayload();
+    payload.mainData.deptData.dept_default.machines[0].photo = 'maintenance-image-ref://img_missing';
+    payload.imageAssets = {};
+
+    await assert.rejects(
+        store.importFromJSON(JSON.stringify(payload), { throwOnError: true }),
+        error => error.code === 'INVALID_IMPORT_IMAGE_ASSETS'
+            && /machines\[0\]\.photo/.test(error.message)
+    );
+    assert.deepEqual(writes, []);
+});
+
+test('full import rejects invalid packed image data', async () => {
+    const { store, writes } = createStore();
+    const payload = fullPayload();
+    payload.mainData.deptData.dept_default.machines[0].photo = 'maintenance-image-ref://img_1';
+    payload.imageAssets = { img_1: 'data:image/png;base64,not-valid!' };
+
+    await assert.rejects(
+        store.importFromJSON(JSON.stringify(payload), { throwOnError: true }),
+        /img_1 に有効な画像本体がありません/
+    );
+    assert.deepEqual(writes, []);
+});
+
 test('failed main save rolls back both skill keys and keeps the old state', async () => {
     const { store, localValues, failures } = createStore();
     const original = store.data;
@@ -161,6 +217,19 @@ test('department import rejects a missing data payload before changing skills', 
     assert.equal(result.success, false);
     assert.deepEqual(writes, []);
     assert.equal(localValues.get('skillEvaluations'), '{"original":{"level":2}}');
+});
+
+test('department import reports a malformed history field without changing data', async () => {
+    const { store, writes } = createStore();
+    const original = store.data;
+    const result = await store.importToCurrentDeptFromJSON(JSON.stringify({
+        type: 'single_department_backup',
+        data: { machines: [], tasks: [], history: [{ id: 'h1', replacedParts: { bad: true } }] }
+    }));
+    assert.equal(result.success, false);
+    assert.match(result.message, /history\[0\]\.replacedParts/);
+    assert.equal(store.data, original);
+    assert.deepEqual(writes, []);
 });
 
 test('default task and history dates use the local date helper', () => {

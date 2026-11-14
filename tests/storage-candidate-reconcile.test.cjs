@@ -393,7 +393,8 @@ test('save diagnostics expose the inactive candidate and the switch reloads the 
         }
     };
     app.renderSaveStatusDiagnostics();
-    const switchButton = panel.children.find(node => node.tagName === 'button');
+    const switchButton = panel.children.find(node => node.tagName === 'button'
+        && /IndexedDB 側の内容に切り替える/.test(node.textContent));
     assert.match(switchButton.textContent, /IndexedDB 側の内容に切り替える/);
     await app.switchSaveStatusCandidate('indexeddb');
     assert.equal(page.reloads, 1);

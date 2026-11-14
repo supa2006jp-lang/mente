@@ -276,6 +276,11 @@ class MaintenanceApp {
         } catch (_) {
             this._lastLatestJsonExport = null;
         }
+        try {
+            this._lastLatestJsonVerified = JSON.parse(localStorage.getItem('maintenance_latest_json_verified_v1') || 'null');
+        } catch (_) {
+            this._lastLatestJsonVerified = null;
+        }
         this._saveFailureHistory = this.loadSaveFailureHistory();
         this._persistentStorageState = 'checking';
         this._saveStatusState = store.startupSaveSafe === false ? 'unverified' : 'saved';
@@ -380,23 +385,34 @@ class MaintenanceApp {
         }
     }
 
-    downloadMalformedStoredOriginal(source) {
+    async downloadMalformedStoredOriginal(source) {
         if (!['indexeddb', 'localStorage'].includes(source)) return;
         const original = store._malformedPrimary?.[source];
         if (!original) return;
         try {
-            const raw = typeof original.raw === 'string' ? original.raw : JSON.stringify(original.data, null, 2);
+            let data = original.data;
+            let unresolvedImages = false;
+            if (source === 'indexeddb' && data) {
+                try {
+                    data = await store.hydrateDurableImageReferences(data);
+                } catch (error) {
+                    unresolvedImages = true;
+                    console.warn('修復前データの画像本体を含められませんでした。', error);
+                }
+            }
+            const raw = typeof original.raw === 'string' ? original.raw : JSON.stringify(data, null, 2);
             if (!raw) throw new Error('元データを読み取れませんでした。');
             const extension = original.data == null ? 'txt' : 'json';
             const blob = new Blob([raw], { type: extension === 'json' ? 'application/json' : 'text/plain' });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `maintenance_invalid_original_${source}_${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
+            link.download = `maintenance_invalid_original_${source}${unresolvedImages ? '_image_refs_unresolved' : ''}_${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
             document.body.appendChild(link);
             link.click();
             link.remove();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
+            if (unresolvedImages) alert('修復前の原本を出力しました。画像本体を含められなかったため、このJSONだけでは画像を復元できません。');
         } catch (error) {
             alert(`元データを出力できませんでした。${error?.message || ''}`);
         }
@@ -483,6 +499,21 @@ class MaintenanceApp {
         return date && Number.isFinite(date.getTime())
             ? date.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
             : '記録なし';
+    }
+
+    getLatestJsonVerificationState() {
+        const verifiedAt = Date.parse(this._lastLatestJsonVerified?.at || '');
+        if (!verifiedAt) return { needsAction: true, text: 'バックアップ実ファイルは未検証' };
+        const exportAt = Date.parse(this._lastLatestJsonExport?.at || '');
+        if (exportAt > verifiedAt) return { needsAction: true, text: '新しい latest.json は未検証' };
+        const backupSavedAt = Date.parse(this._lastLatestJsonVerified?.savedAt || '');
+        if (!backupSavedAt || Date.now() - backupSavedAt >= 7 * 24 * 60 * 60 * 1000) {
+            return { needsAction: true, text: '検証したバックアップの内容が7日以上前' };
+        }
+        if (Date.now() - verifiedAt >= 7 * 24 * 60 * 60 * 1000) {
+            return { needsAction: true, text: 'バックアップ検証から7日以上経過' };
+        }
+        return { needsAction: false, text: `${this.formatSaveStatusTime(verifiedAt)}に実ファイルを検証済み` };
     }
 
     refreshSaveStatusAlternateCandidate() {
@@ -599,9 +630,23 @@ class MaintenanceApp {
         add('全体の主要データ', `${current.total}件 / ${current.departments}部署`);
         add('表示中の部署', `${current.departmentName} (${current.currentId}) / ${current.current}件`);
         if (store.startupSaveSafe === false) add('起動時の確認', '保存済みデータを確認できませんでした。入力は続けられます。');
+        if (store.unresolvedDurableImageReferences?.length) {
+            add('復元できない画像', `${store.unresolvedDurableImageReferences.length}件。画像本体の保存領域を確認してください。`);
+        }
         add('latest.json', this._lastLatestJsonExport?.at
             ? `${this.formatSaveStatusTime(this._lastLatestJsonExport.at)}（${this._lastLatestJsonExport.kind === 'file' ? '直接保存' : 'ダウンロード開始'}）`
             : '出力記録なし');
+        const backupVerification = this.getLatestJsonVerificationState();
+        add('復元用バックアップの確認', backupVerification.text);
+        if (this._lastLatestJsonVerified?.at) {
+            add('検証したファイル', `${this._lastLatestJsonVerified.fileName || 'latest.json'} / 内容の保存日時 ${this.formatSaveStatusTime(this._lastLatestJsonVerified.savedAt)} / ${this._lastLatestJsonVerified.total || 0}件`);
+        }
+        const verifyBackupButton = document.createElement('button');
+        verifyBackupButton.type = 'button';
+        verifyBackupButton.className = 'secondary-btn app-save-backup-verify';
+        verifyBackupButton.textContent = '保存済み latest.json を検証';
+        verifyBackupButton.addEventListener('click', () => this.chooseLatestJsonBackupForVerification());
+        panel.appendChild(verifyBackupButton);
         if (store.storageWarning) add('保存先切替の理由', store.storageWarning.message || String(store.storageWarning));
         for (const report of store.malformedStorageReports || []) {
             const sourceLabel = report.source === 'indexeddb' ? 'IndexedDB' : 'localStorage';
@@ -687,13 +732,15 @@ class MaintenanceApp {
         const backend = fallback ? '代替保存 localStorage' : 'IndexedDB';
         const savedAt = this.formatSaveStatusTime(store.lastSuccessfulSaveAt || store.data?.settings?.lastSuccessfulSaveAt);
         const latestAt = this.formatSaveStatusTime(this._lastLatestJsonExport?.at);
+        const backupVerification = this.getLatestJsonVerificationState();
+        const backupWarning = counts.total > 0 && backupVerification.needsAction;
         const errorText = this._saveStatusError?.message || (store.storageWarning?.message || '');
         const candidate = !!this._saveStatusAlternateCandidate?.source;
         const unverified = store.startupSaveSafe === false;
-        const title = `${state.text} / ${backend} / 全体 ${counts.total}件 / ${counts.departmentName} ${counts.current}件\n最終保存 ${savedAt} / latest ${latestAt}${errorText ? `\n${errorText}` : ''}${unverified ? '\n起動時に保存済みデータを確認できませんでした。入力は続けられます。' : ''}${candidate ? '\n別保存候補あり（クリックで詳細）' : ''}`;
+        const title = `${state.text} / ${backend} / 全体 ${counts.total}件 / ${counts.departmentName} ${counts.current}件\n最終保存 ${savedAt} / latest ${latestAt}\n${backupVerification.text}${errorText ? `\n${errorText}` : ''}${unverified ? '\n起動時に保存済みデータを確認できませんでした。入力は続けられます。' : ''}${candidate ? '\n別保存候補あり（クリックで詳細）' : ''}`;
         elements.forEach(el => {
-            el.className = `app-save-status ${status}${fallback ? ' local-fallback' : ''}${candidate ? ' alternate-candidate' : ''}${unverified ? ' startup-unverified' : ''}${el.classList.contains('modal-save-status') ? ' modal-save-status' : ''}`;
-            el.innerHTML = `<span class="app-save-status-main"><i class="fa-solid ${state.icon}"></i><strong>${state.text}</strong><em>${backend}</em>${unverified && status !== 'unverified' ? '<b>起動時データ未確認</b>' : ''}${candidate ? '<b>別保存候補あり</b>' : ''}</span><small>全体 ${counts.total}件 / 現部署 ${counts.current}件 ・保存 ${savedAt} ・latest ${latestAt}</small>${status === 'error' ? '<small class="app-save-error-reason"></small>' : ''}`;
+            el.className = `app-save-status ${status}${fallback ? ' local-fallback' : ''}${candidate ? ' alternate-candidate' : ''}${unverified ? ' startup-unverified' : ''}${backupWarning ? ' backup-warning' : ''}${el.classList.contains('modal-save-status') ? ' modal-save-status' : ''}`;
+            el.innerHTML = `<span class="app-save-status-main"><i class="fa-solid ${state.icon}"></i><strong>${state.text}</strong><em>${backend}</em>${unverified && status !== 'unverified' ? '<b>起動時データ未確認</b>' : ''}${candidate ? '<b>別保存候補あり</b>' : ''}${backupWarning ? '<b>バックアップ要確認</b>' : ''}</span><small>全体 ${counts.total}件 / 現部署 ${counts.current}件 ・保存 ${savedAt} ・latest ${latestAt}</small>${status === 'error' ? '<small class="app-save-error-reason"></small>' : ''}`;
             if (status === 'error') el.querySelector('.app-save-error-reason').textContent = `保存失敗: ${this._saveStatusError?.message || '保存先を確認してください。'}`;
             el.title = title;
         });
@@ -985,10 +1032,6 @@ class MaintenanceApp {
 
         if (viewName === 'dashboard') {
             this.dashboardPeriod = 'yesterday_today';
-        }
-
-        if (viewName === 'tips') {
-            this.clearTipsForm?.();
         }
 
         this.currentView = viewName;

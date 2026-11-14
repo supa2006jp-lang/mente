@@ -68,7 +68,7 @@
         const entries = [];
         for (const item of descriptors || []) {
             const key = String(item?.key || '');
-            if (!key) continue;
+            if (!key || key.startsWith(store.DURABLE_IMAGE_MEDIA_PREFIX || 'image:')) continue;
             const blob = await store.loadMediaBlob(key);
             // File handles and external URL links do not contain a local Blob.
             if (!blob) continue;
@@ -104,10 +104,12 @@
         for (const entry of manifest.entries) {
             if (!entry || typeof entry !== 'object' || typeof entry.key !== 'string'
                 || !entry.key || entry.key === 'maintenance_latest_json_file'
+                || entry.key.startsWith(store.DURABLE_IMAGE_MEDIA_PREFIX || 'image:')
                 || entry.key.length > 250 || seen.has(entry.key)
                 || typeof entry.base64 !== 'string' || typeof entry.type !== 'string'
                 || !Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > 100 * 1024 * 1024
-                || entry.base64.length !== Math.ceil(entry.size / 3) * 4) {
+                || entry.base64.length !== Math.ceil(entry.size / 3) * 4
+                || !/^[A-Za-z0-9+/]*={0,2}$/.test(entry.base64)) {
                 throw new Error('音声・動画バックアップに不正な項目があります。');
             }
             seen.add(entry.key);
@@ -196,11 +198,23 @@
 
     getImportPreviewInfo(jsonText, fileName = '') {
         const imported = JSON.parse(jsonText);
+        if (!imported || typeof imported !== 'object' || Array.isArray(imported)) {
+            throw new Error('JSONの全体がデータ形式ではありません。');
+        }
+        const packedImageIssues = store.getPackedImageDataIssues?.(imported) || [];
+        if (packedImageIssues.length) {
+            throw new Error(`画像データの形式に問題があります: ${packedImageIssues.slice(0, 3).join(' / ')}`);
+        }
         const mediaBackup = this.inspectEmbeddedMedia(imported?.embeddedMedia);
         const dataToLoad = imported.mainData || imported;
-        const incomingMediaReferenceKeys = mediaBackup.present
-            ? [...this.getSeparateMediaReferenceKeys(dataToLoad)]
-            : [];
+        if (imported?.type !== 'single_department_backup') {
+            const dataIssues = store.getStoredDataShapeIssues?.(dataToLoad) || [];
+            if (dataIssues.length) {
+                throw new Error(`取込データの形式に問題があります: ${dataIssues.slice(0, 3).join(' / ')}`);
+            }
+        }
+        store.getImportedSkillUpdates?.(imported);
+        const incomingMediaReferenceKeys = [...this.getSeparateMediaReferenceKeys(dataToLoad)];
         if (mediaBackup.present) {
             this.assertEmbeddedMediaReferences(incomingMediaReferenceKeys, mediaBackup.entries.map(entry => entry.key));
         }
@@ -260,6 +274,8 @@
             isSingleDept: imported?.type === 'single_department_backup',
             mediaBackup: { present: mediaBackup.present, count: mediaBackup.count, bytes: mediaBackup.bytes },
             incomingMediaReferenceKeys,
+            backupSavedAt: dataToLoad.settings?.lastSuccessfulSaveAt || null,
+            backupMode: imported.imageExportMeta?.mode || 'legacy',
             incomingCounts: countDept(incomingDept),
             currentCounts: {
                 ...countDept(currentDept),
@@ -577,6 +593,7 @@
                             <p>初回に latest.json の保存先を選ぶと、次回から同じファイルを上書きします。出力ファイルは latest.json の1件だけです。</p>
                             <p>PCリンク動画と外部URL動画は参照先のファイル・URLが別途必要です。</p>
                             <button type="button" class="secondary-btn" onclick="app.changeLatestJsonSaveTarget()">保存先を変更</button>
+                            <button type="button" class="secondary-btn" onclick="app.chooseLatestJsonBackupForVerification()">保存済み latest.json を検証</button>
                         </div>
                     ` : ''}
                     <div class="backup-cleanup-panel">
@@ -607,7 +624,9 @@
         if (scope === 'all' && typeof store.listMediaEntries === 'function') {
             try {
                 const media = await store.listMediaEntries();
-                mediaBytes = (media || []).reduce((sum, entry) => sum + Math.ceil((Number(entry?.size) || 0) / 3) * 4, 0);
+                mediaBytes = (media || []).filter(entry => !String(entry?.key || '')
+                    .startsWith(store.DURABLE_IMAGE_MEDIA_PREFIX || 'image:'))
+                    .reduce((sum, entry) => sum + Math.ceil((Number(entry?.size) || 0) / 3) * 4, 0);
             } catch (error) {
                 console.warn('音声・動画の容量を見積もれませんでした。', error);
             }
@@ -693,6 +712,69 @@
             localStorage.setItem('maintenance_latest_json_export_v1', JSON.stringify(value));
         } catch (_) {}
         this.updateSaveStatus?.(this._saveStatusState || 'saved');
+    }
+
+    async verifyLatestJsonBackupFile(file) {
+        if (!file || typeof file.text !== 'function') throw new Error('検証するJSONファイルを選択してください。');
+        if (!/^latest(?: \(\d+\))?\.json$/i.test(String(file.name || ''))) {
+            throw new Error('latest.json を選択してください。');
+        }
+        if (this._latestJsonVerifyInProgress) throw new Error('別のバックアップを検証中です。');
+        this._latestJsonVerifyInProgress = true;
+        try {
+            const text = await file.text();
+            const preview = this.getImportPreviewInfo(text, file.name || 'latest.json');
+            if (preview.isSingleDept || preview.isInitialJson) {
+                throw new Error('全データのバックアップJSONを選択してください。');
+            }
+            if (preview.backupMode === 'light') {
+                throw new Error('軽量バックアップは一部の画像を省略しています。完全バックアップの latest.json を選択してください。');
+            }
+            if (!preview.mediaBackup.present && preview.incomingMediaReferenceKeys.length) {
+                throw new Error('音声・動画の本体が含まれていないため、完全な復元用バックアップとして検証できません。');
+            }
+            const verified = {
+                at: new Date().toISOString(),
+                fileName: String(file.name || 'latest.json'),
+                size: Number(file.size) || new Blob([text]).size,
+                savedAt: preview.backupSavedAt || null,
+                total: Object.values(preview.incomingCounts || {}).reduce((sum, count) => sum + (Number(count) || 0), 0),
+                mediaCount: preview.mediaBackup.count,
+                kind: preview.mediaBackup.present ? 'complete' : 'legacy'
+            };
+            this._lastLatestJsonVerified = verified;
+            try {
+                localStorage.setItem('maintenance_latest_json_verified_v1', JSON.stringify(verified));
+            } catch (error) {
+                console.warn('バックアップ検証日時を保存できませんでした。', error);
+            }
+            this.updateSaveStatus?.(this._saveStatusState || 'saved');
+            return verified;
+        } finally {
+            this._latestJsonVerifyInProgress = false;
+        }
+    }
+
+    chooseLatestJsonBackupForVerification() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,application/json';
+        input.hidden = true;
+        input.addEventListener('change', async () => {
+            const file = input.files?.[0];
+            input.remove();
+            if (!file) return;
+            try {
+                const verified = await this.verifyLatestJsonBackupFile(file);
+                this.showToast?.(`${verified.fileName} を読み取り、復元用データを確認しました`, 'success');
+            } catch (error) {
+                console.error('Backup verification failed', error);
+                alert(`バックアップを検証できませんでした。${error?.message || 'ファイルを確認してください。'}`);
+            }
+        }, { once: true });
+        input.addEventListener('cancel', () => input.remove(), { once: true });
+        document.body.appendChild(input);
+        input.click();
     }
 
     async exportOptimizedBackup(mode = 'complete', scope = 'all') {
@@ -848,7 +930,7 @@
                         const preview = this.getImportPreviewInfo(text, file.name);
                         this.openImportPreviewModal(preview);
                     } catch (error) {
-                        alert('インポートに失敗しました。ファイル形式を確認してください。');
+                        alert(`取込ファイルを確認できませんでした。${error?.message || 'ファイル形式を確認してください。'}`);
                     }
                     fileInput.value = '';
                 };

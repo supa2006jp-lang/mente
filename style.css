@@ -7819,7 +7819,8 @@ button.history-inline-action:focus-visible {
 }
 .app-save-diagnostics-row span { flex: 0 0 38%; color: #475569; }
 .app-save-diagnostics-row strong { min-width: 0; overflow-wrap: anywhere; text-align: right; }
-.app-save-persist-button, .app-save-failure-copy, .app-save-malformed-export { width: 100%; margin: 6px 0 10px; }
+.app-save-persist-button, .app-save-failure-copy, .app-save-malformed-export, .app-save-backup-verify { width: 100%; margin: 6px 0 10px; }
+.app-save-status.backup-warning:not(.error) { border-color: #f59e0b; }
 .app-save-failure-title { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
 .app-save-failure-history {
     max-height: 132px;

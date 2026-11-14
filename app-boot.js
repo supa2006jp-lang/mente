@@ -1,7 +1,7 @@
 (function () {
     const featureSources = {
         notebook: 'app-shift-notebook-core.js?v=20261115-all5',
-        photos: 'app-photo-manager.js?v=20261115-all5b',
+        photos: 'app-photo-manager.js?v=20261115-six1',
         camera: 'app-shift-photo-camera.js?v=20260906-avatar-stage72',
         reveal: 'app-shift-photo-reveal.js?v=20260906-avatar-stage72',
         avatar: 'app-shift-avatar-conversation.js?v=20260906-avatar-stage72'

@@ -2705,73 +2705,90 @@
     };
 
     proto.saveTipsNote = async function (options = {}) {
-        const saveAsNew = options === true || options?.asNew === true;
-        const groupInput = document.getElementById('tips-group-input');
-        const branchInput = document.getElementById('tips-branch-input');
-        const subBranchInput = document.getElementById('tips-sub-branch-input');
-        const bodyInput = document.getElementById('tips-body-input');
-        const fileInput = document.getElementById('tips-file-input');
-        const group = (groupInput?.value || '').trim() || '未分類';
-        const branch = (branchInput?.value || '').trim();
-        const subBranch = (subBranchInput?.value || '').trim();
-        const body = (bodyInput?.value || '').trim();
-        if (!body) {
-            this.showToast('本文を入力してください', 'warning');
-            bodyInput?.focus();
-            return;
-        }
-
-        const files = Array.from(fileInput?.files || []);
-        let attachments = [];
+        if (this._tipsSaveInProgress) return;
+        this._tipsSaveInProgress = true;
+        const controls = Array.from(document.querySelectorAll('#tips-compose-panel input, #tips-compose-panel textarea, #tips-compose-panel select, #tips-compose-panel button'));
+        const previouslyDisabled = controls.map(control => !!control.disabled);
+        controls.forEach(control => { control.disabled = true; });
         try {
-            attachments = await Promise.all(files.map(file => this.readTipsFile(file)));
-        } catch (error) {
-            console.error('Failed to read tips attachment', error);
-            this.showToast('添付ファイルを読み込めませんでした', 'error');
-            return;
-        }
-        const photoAttachments = Array.isArray(this._tipsPhotoManagerAttachments) ? this._tipsPhotoManagerAttachments : [];
-        const audioDatabaseAttachments = Array.isArray(this._tipsAudioDatabaseAttachments) ? this._tipsAudioDatabaseAttachments : [];
-        const clonedAttachments = Array.isArray(this._tipsClonedAttachments) ? this._tipsClonedAttachments : [];
-        attachments = [...attachments, ...photoAttachments.map(item => ({ ...item })), ...audioDatabaseAttachments.map(item => ({ ...item })), ...clonedAttachments.map(({ _cloneId, ...item }) => ({ ...item }))];
+            const saveAsNew = options === true || options?.asNew === true;
+            const groupInput = document.getElementById('tips-group-input');
+            const branchInput = document.getElementById('tips-branch-input');
+            const subBranchInput = document.getElementById('tips-sub-branch-input');
+            const bodyInput = document.getElementById('tips-body-input');
+            const fileInput = document.getElementById('tips-file-input');
+            const group = (groupInput?.value || '').trim() || '未分類';
+            const branch = (branchInput?.value || '').trim();
+            const subBranch = (subBranchInput?.value || '').trim();
+            const body = (bodyInput?.value || '').trim();
+            if (!body) {
+                this.showToast('本文を入力してください', 'warning');
+                bodyInput?.focus();
+                return;
+            }
 
-        const notes = this.ensureTipsState();
-        const editingId = this._editingTipsId || '';
-        const existing = editingId ? notes.find(note => note.id === editingId) : null;
-        const cloningId = this._tipsCloningSourceId || '';
-        const cloningSource = cloningId ? notes.find(note => note.id === cloningId) : null;
-        const duplicateSource = (saveAsNew && existing) ? existing : cloningSource;
-        if (duplicateSource) {
-            const sourcePath = [duplicateSource.group || '未分類', duplicateSource.branch, duplicateSource.subBranch].filter(Boolean).join(' / ');
-            const sourceAttachmentCount = Array.isArray(duplicateSource.attachments) ? duplicateSource.attachments.length : 0;
-            const message = '「' + sourcePath + '」を別のTIPSとして新規登録します。\n本文と添付' + sourceAttachmentCount + '件を複製します。\n元のTIPSは変更されません。登録しますか？';
-            if (!confirm(message)) return;
+            const files = Array.from(fileInput?.files || []);
+            let attachments = [];
+            try {
+                attachments = await Promise.all(files.map(file => this.readTipsFile(file)));
+            } catch (error) {
+                console.error('Failed to read tips attachment', error);
+                this.showToast('添付ファイルを読み込めませんでした', 'error');
+                return;
+            }
+            const photoAttachments = Array.isArray(this._tipsPhotoManagerAttachments) ? this._tipsPhotoManagerAttachments : [];
+            const audioDatabaseAttachments = Array.isArray(this._tipsAudioDatabaseAttachments) ? this._tipsAudioDatabaseAttachments : [];
+            const clonedAttachments = Array.isArray(this._tipsClonedAttachments) ? this._tipsClonedAttachments : [];
+            attachments = [...attachments, ...photoAttachments.map(item => ({ ...item })), ...audioDatabaseAttachments.map(item => ({ ...item })), ...clonedAttachments.map(({ _cloneId, ...item }) => ({ ...item }))];
+
+            const notes = this.ensureTipsState();
+            const editingId = this._editingTipsId || '';
+            const existing = editingId ? notes.find(note => note.id === editingId) : null;
+            const cloningId = this._tipsCloningSourceId || '';
+            const cloningSource = cloningId ? notes.find(note => note.id === cloningId) : null;
+            const duplicateSource = (saveAsNew && existing) ? existing : cloningSource;
+            if (duplicateSource) {
+                const sourcePath = [duplicateSource.group || '未分類', duplicateSource.branch, duplicateSource.subBranch].filter(Boolean).join(' / ');
+                const sourceAttachmentCount = Array.isArray(duplicateSource.attachments) ? duplicateSource.attachments.length : 0;
+                const message = '「' + sourcePath + '」を別のTIPSとして新規登録します。\n本文と添付' + sourceAttachmentCount + '件を複製します。\n元のTIPSは変更されません。登録しますか？';
+                if (!confirm(message)) return;
+            }
+            try {
+                await store.runAtomicSaveBatch(() => {
+                    if (existing && !saveAsNew) {
+                        existing.group = group;
+                        existing.branch = branch;
+                        existing.subBranch = subBranch;
+                        existing.body = body;
+                        existing.updatedAt = new Date().toISOString();
+                        existing.attachments = [...(Array.isArray(existing.attachments) ? existing.attachments : []), ...attachments];
+                    } else {
+                        const existingAttachments = saveAsNew && existing && Array.isArray(existing.attachments)
+                            ? existing.attachments.map(item => ({ ...item }))
+                            : [];
+                        notes.unshift({
+                            id: `tips_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                            group,
+                            branch,
+                            subBranch,
+                            body,
+                            createdAt: new Date().toISOString(),
+                            attachments: [...existingAttachments, ...attachments]
+                        });
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to save TIPS', error);
+                this.showToast('TIPSを保存できませんでした。入力内容は残しています', 'error');
+                return;
+            }
+            this.clearTipsForm();
+            this.renderTips();
+            this.showToast(saveAsNew && existing ? '別のTIPSとして新規登録しました' : (existing ? 'TIPSを更新しました' : 'TIPSを登録しました'), 'success');
+        } finally {
+            controls.forEach((control, index) => { control.disabled = previouslyDisabled[index]; });
+            this._tipsSaveInProgress = false;
         }
-        if (existing && !saveAsNew) {
-            existing.group = group;
-            existing.branch = branch;
-            existing.subBranch = subBranch;
-            existing.body = body;
-            existing.updatedAt = new Date().toISOString();
-            existing.attachments = [...(Array.isArray(existing.attachments) ? existing.attachments : []), ...attachments];
-        } else {
-            const existingAttachments = saveAsNew && existing && Array.isArray(existing.attachments)
-                ? existing.attachments.map(item => ({ ...item }))
-                : [];
-            notes.unshift({
-                id: `tips_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                group,
-                branch,
-                subBranch,
-                body,
-                createdAt: new Date().toISOString(),
-                attachments: [...existingAttachments, ...attachments]
-            });
-        }
-        store.save();
-        this.clearTipsForm();
-        this.renderTips();
-        this.showToast(saveAsNew && existing ? '別のTIPSとして新規登録しました' : (existing ? 'TIPSを更新しました' : 'TIPSを登録しました'), 'success');
     };
 
     proto.addTipsNote = function () {
@@ -3025,6 +3042,35 @@
         this._tipsBodyEditorInitialValue = '';
     };
 
+    proto.hasUnsavedTipsDraft = function () {
+        const read = id => String(document.getElementById(id)?.value || '');
+        const pendingFiles = document.getElementById('tips-file-input')?.files?.length || 0;
+        const pendingAttachments = (this._tipsPhotoManagerAttachments?.length || 0)
+            + (this._tipsAudioDatabaseAttachments?.length || 0)
+            + (this._tipsClonedAttachments?.length || 0);
+        if (pendingFiles || pendingAttachments || this._tipsCloningSourceId) return true;
+        const values = [
+            read('tips-group-input'), read('tips-branch-input'),
+            read('tips-sub-branch-input'), read('tips-body-input')
+        ];
+        const editing = this._editingTipsId
+            ? this.ensureTipsState().find(note => note.id === this._editingTipsId) : null;
+        if (editing) {
+            return values.some((value, index) => value !== String([
+                editing.group || '', editing.branch || '', editing.subBranch || '', editing.body || ''
+            ][index]));
+        }
+        return values.some(value => value.trim());
+    };
+
+    proto.requestClearTipsForm = function () {
+        if (this._tipsSaveInProgress) return false;
+        if (this.hasUnsavedTipsDraft()
+            && !confirm('未保存のTIPSがあります。内容を破棄してクリアしますか？')) return false;
+        this.clearTipsForm();
+        return true;
+    };
+
     proto.clearTipsForm = function () {
         const groupInput = document.getElementById('tips-group-input');
         const branchInput = document.getElementById('tips-branch-input');
@@ -3061,8 +3107,11 @@
     };
 
     proto.editTipsNote = function (id, jumpToBody = false) {
+        if (this._tipsSaveInProgress) return;
         const note = this.ensureTipsState().find(item => item.id === id);
         if (!note) return;
+        if (this.hasUnsavedTipsDraft()
+            && !confirm('未保存のTIPSがあります。内容を破棄して別のTIPSを編集しますか？')) return;
         note.lastViewedAt = new Date().toISOString();
         store.save();
         this._editingTipsId = id;
@@ -3093,8 +3142,11 @@
     };
 
     proto.duplicateTipsNoteForEdit = function (id = '') {
+        if (this._tipsSaveInProgress) return;
         const note = this.ensureTipsState().find(item => item.id === id);
         if (!note) return;
+        if (this.hasUnsavedTipsDraft()
+            && !confirm('未保存のTIPSがあります。内容を破棄して複製を始めますか？')) return;
         this._editingTipsId = '';
         this._tipsCloningSourceId = id;
         const groupInput = document.getElementById('tips-group-input');
@@ -3124,7 +3176,7 @@
     };
 
     proto.cancelTipsEdit = function () {
-        this.clearTipsForm();
+        if (!this.requestClearTipsForm()) return;
         this.renderTips();
     };
 

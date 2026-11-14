@@ -814,14 +814,19 @@
 
     confirmInitialDataExport() {
         const preview = this.pendingInitialDataPreview || this.getInitialDataPreview(document.getElementById('initial-json-mode')?.value || 'empty');
-        const payload = this.buildInitialDataPayload(preview);
-        this.downloadJsonText(
-            `maintenance_initial_${preview.modeInfo.key}_${this.getLocalDateString()}.json`,
-            JSON.stringify(payload, null, 2),
-            '初期化用JSONを出力しました'
-        );
-        this.pendingInitialDataPreview = null;
-        this.closeModal();
+        try {
+            const payload = this.buildInitialDataPayload(preview);
+            store.assertNoUnresolvedDurableImages?.(payload);
+            this.downloadJsonText(
+                `maintenance_initial_${preview.modeInfo.key}_${this.getLocalDateString()}.json`,
+                JSON.stringify(payload, null, 2),
+                '初期化用JSONを出力しました'
+            );
+            this.pendingInitialDataPreview = null;
+            this.closeModal();
+        } catch (error) {
+            alert(`初期化用JSONを出力できませんでした。${error?.message || '画像の保存状態を確認してください。'}`);
+        }
     }
 
     async cleanupBrokenDataReferences() {

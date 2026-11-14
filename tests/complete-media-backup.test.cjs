@@ -157,6 +157,20 @@ test('complete JSON marks an empty media store explicitly', async () => {
     assert.deepEqual(Array.from(backup.embeddedMedia.entries), []);
 });
 
+test('complete backup keeps inline images once and omits their IndexedDB copies', async () => {
+    const image = 'data:image/png;base64,AQID';
+    const h = harness({ initial: [['image:sha256-example', {
+        blob: new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' })
+    }]] });
+    h.store.data.deptData.dept_default.photoManagerLibrary = [{ id: 'image-1', src: image }];
+    const backup = JSON.parse(await h.app.buildCompleteBackupJson(h.store.exportAsJSON()));
+    assert.equal(backup.mainData.deptData.dept_default.photoManagerLibrary[0].src, image);
+    assert.equal(backup.embeddedMedia.entries.length, 0);
+    assert.throws(() => h.app.inspectEmbeddedMedia({ version: 1, entries: [{
+        key: 'image:sha256-example', type: 'image/png', size: 3, base64: 'AQID'
+    }] }), /不正な項目/);
+});
+
 test('complete export still writes one latest.json containing the media payload', async () => {
     const h = harness({ initial: [['photo-manager-audio:dept_default:a', {
         blob: new Blob(['audio'], { type: 'audio/wav' })

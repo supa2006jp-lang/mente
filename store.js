@@ -8,6 +8,8 @@ class MaintenanceStore {
         this.DB_VERSION = 3;
         this.STORE_NAME = 'state';
         this.MEDIA_STORE_NAME = 'media';
+        this.DURABLE_IMAGE_REF_PREFIX = 'maintenance-idb-image://';
+        this.DURABLE_IMAGE_MEDIA_PREFIX = 'image:';
         this.STORAGE_KEY = 'factory_maintenance_next_data_v2'; // Versioning for department support
         this.STORAGE_SELECTION_KEY = 'maintenance_selected_storage_source_v1';
         this.storageWarning = null;
@@ -28,6 +30,9 @@ class MaintenanceStore {
         this._saveIdleWaiters = [];
         this._atomicSaveBatch = null;
         this._rejectedSaveDataRefs = new WeakSet();
+        this._durableImageRefBySource = new Map();
+        this._durableImageInlineFallback = false;
+        this.unresolvedDurableImageReferences = [];
         this.data = {
             currentDepartmentId: 'dept_default',
             departments: [
@@ -172,6 +177,12 @@ class MaintenanceStore {
         // Normalization only touches a working copy. The original candidate remains
         // available in its storage backend until a deliberate save completes.
         this.applyStoredData(this.cloneStoredData(candidate.data));
+        this.unresolvedDurableImageReferences = [...this.collectDurableImageReferences(candidate.data)];
+        if (this.unresolvedDurableImageReferences.length
+            && !String(this.storageWarning?.message || '').includes('画像本体')) {
+            const previous = this.storageWarning?.message ? `${this.storageWarning.message} ` : '';
+            this.storageWarning = new Error(`${previous}画像本体を復元できませんでした。元の保存データは保持しています。`);
+        }
         this.startupStateSource = candidate.summary.source;
         this.startupRepairSource = candidate.repaired ? candidate.summary.source : null;
         this.saveTarget = candidate.summary.source;
@@ -317,7 +328,7 @@ class MaintenanceStore {
                 const tx = this.db.transaction(this.STORE_NAME, 'readonly');
                 const os = tx.objectStore(this.STORE_NAME);
                 const request = os.get(this.STORAGE_KEY);
-                request.onsuccess = () => {
+                request.onsuccess = async () => {
                     if (finished) return;
                     try {
                         const indexedIssues = request.result == null ? [] : this.getStoredDataShapeIssues(request.result);
@@ -335,9 +346,33 @@ class MaintenanceStore {
                         const chosen = this.chooseStartupCandidate(indexedCandidate, localCandidate)
                             || this.chooseStartupCandidate(this._repairCandidates.indexeddb, this._repairCandidates.localStorage);
                         if (chosen) {
-                            this.applyLoadedCandidate(chosen);
-                            if (!chosen.repaired && chosen.summary.source === 'localStorage' && indexedCandidate) this.startupSaveSafe = true;
-                            if (chosen.repaired) this.storageCandidates[chosen.summary.source] = chosen.summary;
+                            const prepare = async candidate => this.collectDurableImageReferences(candidate.data).size
+                                ? { ...candidate, data: await this.hydrateDurableImageReferences(candidate.data) }
+                                : candidate;
+                            let activeCandidate = chosen;
+                            let imageError = null;
+                            try {
+                                activeCandidate = await prepare(chosen);
+                            } catch (error) {
+                                imageError = error;
+                                const alternatives = [indexedCandidate, localCandidate,
+                                    this._repairCandidates.indexeddb, this._repairCandidates.localStorage]
+                                    .filter(candidate => candidate && candidate !== chosen);
+                                for (const alternate of alternatives) {
+                                    try {
+                                        activeCandidate = await prepare(alternate);
+                                        break;
+                                    } catch (_) {}
+                                }
+                                this.storageWarning = new Error(`画像本体を復元できませんでした（${error.message}）。${activeCandidate === chosen
+                                    ? '元データを保持して開きます。' : '別の保存候補を開きます。'}`);
+                            }
+                            if (finished) return;
+                            this.applyLoadedCandidate(activeCandidate);
+                            if (!activeCandidate.repaired && activeCandidate.summary.source === 'localStorage'
+                                && indexedCandidate && !imageError) this.startupSaveSafe = true;
+                            if (activeCandidate.repaired) this.storageCandidates[activeCandidate.summary.source] = activeCandidate.summary;
+                            if (imageError) this.startupSaveSafe = false;
                         }
                         // A missing record may be temporary. Do not write the default
                         // state at startup; a later user edit still saves normally.
@@ -400,23 +435,25 @@ class MaintenanceStore {
             }
             for (const field of ['machines', 'tasks', 'history', 'partsMaster']) {
                 if (!Array.isArray(department[field])) continue;
-                if (department[field].some(item => !this.isStoredRecord(item))) issues.push(`${path}.${field} に不正な項目があります`);
+                department[field].forEach((item, index) => {
+                    if (!this.isStoredRecord(item)) issues.push(`${path}.${field}[${index}] がデータ形式ではありません`);
+                });
             }
-            if (Array.isArray(department.history)
-                && department.history.some(item => this.isStoredRecord(item)
-                    && item.replacedParts != null && !Array.isArray(item.replacedParts))) {
-                issues.push(`${path}.history の使用部品が配列ではありません`);
-            }
-            if (Array.isArray(department.history)
-                && department.history.some(item => this.isStoredRecord(item)
-                    && item.photos != null && !Array.isArray(item.photos))) {
-                issues.push(`${path}.history の写真が配列ではありません`);
-            }
-            if (Array.isArray(department.history)
-                && department.history.some(item => this.isStoredRecord(item)
-                    && Array.isArray(item.replacedParts)
-                    && item.replacedParts.some(part => !this.isStoredRecord(part)))) {
-                issues.push(`${path}.history の使用部品に不正な項目があります`);
+            if (Array.isArray(department.history)) {
+                department.history.forEach((item, index) => {
+                    if (!this.isStoredRecord(item)) return;
+                    const historyPath = `${path}.history[${index}]`;
+                    if (item.replacedParts != null && !Array.isArray(item.replacedParts)) {
+                        issues.push(`${historyPath}.replacedParts（使用部品）が配列ではありません`);
+                    } else if (Array.isArray(item.replacedParts)) {
+                        item.replacedParts.forEach((part, partIndex) => {
+                            if (!this.isStoredRecord(part)) issues.push(`${historyPath}.replacedParts[${partIndex}] がデータ形式ではありません`);
+                        });
+                    }
+                    if (item.photos != null && !Array.isArray(item.photos)) {
+                        issues.push(`${historyPath}.photos（写真）が配列ではありません`);
+                    }
+                });
             }
         };
         const hasLegacyData = ['machines', 'history', 'tasks'].some(key => Array.isArray(value[key]));
@@ -649,10 +686,197 @@ class MaintenanceStore {
         }));
     }
 
-    cloneSaveSnapshot() {
-        return typeof structuredClone === 'function'
-            ? structuredClone(this.data)
-            : JSON.parse(JSON.stringify(this.data));
+    cloneSaveSnapshot(value = this.data) {
+        // The state is JSON-shaped. Reuse immutable strings so a large in-memory
+        // image is not copied on every unrelated edit before it is stored by ref.
+        const seen = new WeakMap();
+        const clone = value => {
+            if (!value || typeof value !== 'object') return value;
+            if (seen.has(value)) return seen.get(value);
+            if (Array.isArray(value)) {
+                const result = new Array(value.length);
+                seen.set(value, result);
+                value.forEach((item, index) => { result[index] = clone(item); });
+                return result;
+            }
+            if (Object.prototype.toString.call(value) !== '[object Object]') {
+                return typeof structuredClone === 'function' ? structuredClone(value) : value;
+            }
+            const result = {};
+            seen.set(value, result);
+            Object.keys(value).forEach(key => { result[key] = clone(value[key]); });
+            return result;
+        };
+        return clone(value);
+    }
+
+    isDurableImageReference(value) {
+        return typeof value === 'string' && value.startsWith(this.DURABLE_IMAGE_REF_PREFIX);
+    }
+
+    collectDurableImageReferences(value) {
+        const refs = new Set();
+        const seen = new WeakSet();
+        const visit = node => {
+            if (this.isDurableImageReference(node)) {
+                refs.add(node);
+                return;
+            }
+            if (!node || typeof node !== 'object' || seen.has(node)) return;
+            seen.add(node);
+            Object.values(node).forEach(visit);
+        };
+        visit(value);
+        return refs;
+    }
+
+    assertNoUnresolvedDurableImages(value = this.data) {
+        const refs = this.collectDurableImageReferences(value);
+        if (refs.size) {
+            throw new Error(`画像本体が未復元の参照 ${refs.size}件あります。画像を含む完全なJSONは出力できません。`);
+        }
+    }
+
+    collectImageDataUrls(value) {
+        const sources = new Set();
+        const seen = new WeakSet();
+        const visit = node => {
+            if (this.isImageDataUrl(node)) {
+                sources.add(node);
+                return;
+            }
+            if (!node || typeof node !== 'object' || seen.has(node)) return;
+            seen.add(node);
+            Object.values(node).forEach(visit);
+        };
+        visit(value);
+        return sources;
+    }
+
+    mapImageStrings(value, convert) {
+        const seen = new WeakSet();
+        const visit = node => {
+            if (typeof node === 'string') return convert(node);
+            if (!node || typeof node !== 'object' || seen.has(node)) return node;
+            seen.add(node);
+            Object.keys(node).forEach(key => { node[key] = visit(node[key]); });
+            return node;
+        };
+        return visit(value);
+    }
+
+    async createDurableImageKey(source) {
+        if (typeof crypto !== 'undefined' && crypto.subtle && typeof TextEncoder !== 'undefined') {
+            const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
+            return this.DURABLE_IMAGE_MEDIA_PREFIX
+                + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+        const unique = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        return this.DURABLE_IMAGE_MEDIA_PREFIX + unique;
+    }
+
+    imageDataUrlToBlob(source) {
+        const match = /^data:([^;,]+);base64,(.*)$/is.exec(source);
+        if (!match || typeof atob !== 'function' || typeof Blob === 'undefined') {
+            throw new Error('画像本体を別保存用に変換できませんでした。');
+        }
+        const binary = atob(match[2].replace(/\s/g, ''));
+        // Source hashes are also used as photo-management IDs. Preserve any
+        // unusual but valid Data URL byte-for-byte across a restart.
+        const normalized = typeof btoa === 'function'
+            ? `data:${match[1].toLowerCase()};base64,${btoa(binary)}` : '';
+        if (normalized !== source) {
+            return { blob: new Blob([source], { type: 'text/plain' }), encoding: 'data-url' };
+        }
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+        return { blob: new Blob([bytes], { type: match[1] }), encoding: 'image' };
+    }
+
+    async prepareDurableImageSnapshot(snapshot, sources) {
+        const replacements = new Map();
+        const newMedia = new Map();
+        let newBytes = 0;
+        let skippedInvalid = 0;
+        for (const source of sources) {
+            let reference = this._durableImageRefBySource.get(source);
+            if (!reference) {
+                const size = this.estimateDataUrlBytes(source);
+                // Convert a bounded amount on each edit so the old inline state
+                // and new Blobs do not require a second full copy of storage.
+                if (newMedia.size >= 30 || size > 20 * 1024 * 1024
+                    || newBytes + size > 20 * 1024 * 1024) continue;
+                let imageEntry;
+                let key;
+                try {
+                    imageEntry = this.imageDataUrlToBlob(source);
+                    key = await this.createDurableImageKey(source);
+                } catch (error) {
+                    skippedInvalid++;
+                    console.warn('Invalid embedded image remains inline', error);
+                    continue;
+                }
+                reference = this.DURABLE_IMAGE_REF_PREFIX + key;
+                newMedia.set(key, imageEntry);
+                newBytes += size;
+            }
+            replacements.set(source, reference);
+        }
+        const storedSnapshot = this.cloneSaveSnapshot(snapshot);
+        this.mapImageStrings(storedSnapshot, value => replacements.get(value) || value);
+        return { snapshot: storedSnapshot, newMedia, replacements, skippedInvalid };
+    }
+
+    blobToImageDataUrl(blob) {
+        return new Promise((resolve, reject) => {
+            if (typeof FileReader === 'undefined') return reject(new Error('画像本体を読み込めませんでした。'));
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(reader.error || new Error('画像本体を読み込めませんでした。'));
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    async hydrateDurableImageReferences(value) {
+        const working = this.cloneStoredData(value);
+        const refs = this.collectDurableImageReferences(working);
+        if (!refs.size) return working;
+        if (!this.db) throw new Error('画像本体の保存領域を開けませんでした。');
+        const blobs = await new Promise((resolve, reject) => {
+            try {
+                const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readonly');
+                const media = tx.objectStore(this.MEDIA_STORE_NAME);
+                const found = new Map();
+                let requestError = null;
+                for (const reference of refs) {
+                    const key = reference.slice(this.DURABLE_IMAGE_REF_PREFIX.length);
+                    const request = media.get(key);
+                    request.onsuccess = () => {
+                        const entry = request.result;
+                        if (entry?.blob instanceof Blob) found.set(reference, entry);
+                        else requestError ||= new Error(`画像本体が見つかりません（${key}）。`);
+                    };
+                    request.onerror = () => { requestError ||= request.error || new Error(`画像本体を読み込めません（${key}）。`); };
+                }
+                tx.onerror = () => { requestError ||= tx.error || new Error('画像本体の読込に失敗しました。'); };
+                tx.onabort = () => reject(requestError || tx.error || new Error('画像本体の読込が中断されました。'));
+                tx.oncomplete = () => requestError ? reject(requestError) : resolve(found);
+            } catch (error) {
+                reject(error);
+            }
+        });
+        const hydrated = new Map();
+        for (const [reference, entry] of blobs) {
+            const source = entry.encoding === 'data-url'
+                ? await entry.blob.text() : await this.blobToImageDataUrl(entry.blob);
+            if (!this.isImageDataUrl(source)) throw new Error(`画像本体を復元できません（${reference}）。`);
+            hydrated.set(reference, source);
+        }
+        this.mapImageStrings(working, value => hydrated.get(value) || value);
+        for (const [reference, source] of hydrated) this._durableImageRefBySource.set(source, reference);
+        return working;
     }
 
     getMalformedBackupKey(source) {
@@ -682,13 +906,67 @@ class MaintenanceStore {
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(snapshot));
             return Promise.resolve();
         }
+        const sources = this.collectImageDataUrls(snapshot);
+        if (!sources.size) {
+            this._durableImageInlineFallback = false;
+            return this.writeIndexedDbSnapshot(snapshot);
+        }
+        if (this.db.objectStoreNames?.contains && !this.db.objectStoreNames.contains(this.MEDIA_STORE_NAME)) {
+            // A legacy database without the media store must retain inline images.
+            this._durableImageInlineFallback = true;
+            this.storageWarning = new Error('画像の別保存領域がないため、画像は従来形式で保存しています。');
+            return this.writeIndexedDbSnapshot(snapshot);
+        }
+        this._durableImageInlineFallback = false;
+        return this.prepareDurableImageSnapshot(snapshot, sources).then(async prepared => {
+            try {
+                await this.writeIndexedDbSnapshot(prepared.snapshot, prepared.newMedia);
+                for (const [source, reference] of prepared.replacements) {
+                    this._durableImageRefBySource.set(source, reference);
+                }
+                if (prepared.skippedInvalid) {
+                    this._durableImageInlineFallback = true;
+                    this.storageWarning = new Error(`形式が正しくない画像 ${prepared.skippedInvalid}件は従来形式で保存しました。`);
+                }
+            } catch (error) {
+                if (!prepared.newMedia.size) throw error;
+                // A Blob quota failure must not turn an otherwise writable form
+                // into a failed edit. Keep previously committed references,
+                // while leaving only new images inline in the retry snapshot.
+                this._durableImageInlineFallback = true;
+                const fallbackSnapshot = this.cloneSaveSnapshot(snapshot);
+                this.mapImageStrings(fallbackSnapshot, value => this._durableImageRefBySource.get(value) || value);
+                await this.writeIndexedDbSnapshot(fallbackSnapshot);
+                this.storageWarning = new Error(`画像の別保存に失敗したため新しい画像は従来形式で保存しました（${error.message}）。`);
+            }
+        });
+    }
+
+    writeIndexedDbSnapshot(snapshot, newMedia = new Map()) {
         const original = this._malformedPrimary.indexeddb;
         const backupKey = this.getMalformedBackupKey('indexeddb');
         const write = includeBackup => new Promise((resolve, reject) => {
             try {
-                const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
+                const stores = newMedia.size ? [this.STORE_NAME, this.MEDIA_STORE_NAME] : this.STORE_NAME;
+                const tx = this.db.transaction(stores, 'readwrite');
                 const os = tx.objectStore(this.STORE_NAME);
                 let requestError = null;
+                if (newMedia.size) {
+                    const media = tx.objectStore(this.MEDIA_STORE_NAME);
+                    for (const [key, entry] of newMedia) {
+                        const { blob, encoding } = entry;
+                        const mediaRequest = media.put({
+                            blob,
+                            encoding,
+                            size: blob.size,
+                            type: blob.type,
+                            updatedAt: Date.now()
+                        }, key);
+                        mediaRequest.onerror = () => {
+                            requestError ||= mediaRequest.error || new Error('画像本体を保存できませんでした。');
+                        };
+                    }
+                }
                 if (includeBackup && backupKey) {
                     const backupRequest = os.put(original.data, backupKey);
                     backupRequest.onerror = () => { requestError ||= backupRequest.error || new Error('元データを退避できませんでした。'); };
@@ -745,9 +1023,18 @@ class MaintenanceStore {
                     if (this.data === entry.dataRef) {
                         this.data.settings = { ...(this.data.settings || {}), lastSuccessfulSaveAt: savedAt };
                     }
+                    if (this._durableImageRefBySource.size) {
+                        const currentSources = this.collectImageDataUrls(this.data);
+                        for (const source of this._durableImageRefBySource.keys()) {
+                            if (!currentSources.has(source)) this._durableImageRefBySource.delete(source);
+                        }
+                    }
                     this.storageCandidates[entry.backend] = this.getStoredDataSummary(entry.snapshot, entry.backend);
-                    this.startupSaveSafe = true;
-                    if (entry.backend === 'indexeddb' && !this._malformedBackupWarning) this.storageWarning = null;
+                    this.unresolvedDurableImageReferences = [...this.collectDurableImageReferences(this.data)];
+                    this.startupSaveSafe = this.unresolvedDurableImageReferences.length === 0;
+                    if (entry.backend === 'indexeddb' && !this._malformedBackupWarning
+                        && !this.unresolvedDurableImageReferences.length
+                        && !this._durableImageInlineFallback) this.storageWarning = null;
                     this._savePersistedRevision = entry.revision;
                     entry.waiters.forEach(waiter => waiter.resolve());
                     if (!this._saveQueue.length && this._saveRequestedRevision === entry.revision) {
@@ -857,20 +1144,32 @@ class MaintenanceStore {
         });
     }
 
+    runMediaWriteTransaction(action, failureMessage) {
+        return new Promise((resolve, reject) => {
+            let tx;
+            let request;
+            try {
+                tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readwrite');
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => reject(tx.error || request?.error || new Error(failureMessage));
+                tx.onabort = () => reject(tx.error || request?.error || new Error(failureMessage));
+                request = action(tx.objectStore(this.MEDIA_STORE_NAME));
+                request.onerror = () => reject(request.error || new Error(failureMessage));
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
     saveMediaBlob(id, blob) {
         if (!this.db || !id || !(blob instanceof Blob)) return Promise.reject(new Error('動画保存領域を利用できません。'));
         if (blob.size > 100 * 1024 * 1024) return Promise.reject(new Error('動画は100MBまで保存できます。'));
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readwrite');
-            const request = tx.objectStore(this.MEDIA_STORE_NAME).put({
+        return this.runMediaWriteTransaction(mediaStore => mediaStore.put({
                 blob,
                 size: blob.size,
                 type: blob.type || 'video/mp4',
                 updatedAt: Date.now()
-            }, String(id));
-            request.onsuccess = () => resolve(true);
-            request.onerror = () => reject(request.error || new Error('動画を保存できませんでした。'));
-        });
+            }, String(id)), '動画を保存できませんでした。');
     }
 
     loadMediaBlob(id) {
@@ -915,16 +1214,11 @@ class MaintenanceStore {
         if (!this.db || !id || !handle || handle.kind !== 'file') {
             return Promise.reject(new Error('PC動画のリンク情報を保存できません。'));
         }
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readwrite');
-            const request = tx.objectStore(this.MEDIA_STORE_NAME).put({
+        return this.runMediaWriteTransaction(mediaStore => mediaStore.put({
                 handle,
                 kind: 'file-handle',
                 updatedAt: Date.now()
-            }, String(id));
-            request.onsuccess = () => resolve(true);
-            request.onerror = () => reject(request.error || new Error('PC動画のリンク情報を保存できません。'));
-        });
+            }, String(id)), 'PC動画のリンク情報を保存できません。');
     }
 
     loadMediaFileHandle(id) {
@@ -939,12 +1233,7 @@ class MaintenanceStore {
 
     deleteMediaBlob(id) {
         if (!this.db || !id) return Promise.resolve(false);
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(this.MEDIA_STORE_NAME, 'readwrite');
-            const request = tx.objectStore(this.MEDIA_STORE_NAME).delete(String(id));
-            request.onsuccess = () => resolve(true);
-            request.onerror = () => reject(request.error || new Error('動画を削除できませんでした。'));
-        });
+        return this.runMediaWriteTransaction(mediaStore => mediaStore.delete(String(id)), '動画を削除できませんでした。');
     }
 
     // --- Parts Master & Aliases ---
@@ -1555,7 +1844,49 @@ class MaintenanceStore {
         return { payload: clone(payload), assets, excluded, mode };
     }
 
+    getPackedImageDataIssues(imported) {
+        if (!imported || typeof imported !== 'object') return [];
+        const assets = imported.imageAssets;
+        const issues = [];
+        const checkedAssets = new Map();
+        if (assets !== undefined && !this.isImportRecord(assets)) {
+            issues.push('imageAssets がデータ形式ではありません');
+        }
+        const visit = (node, path = '') => {
+            if (typeof node === 'string' && node.startsWith('maintenance-image-ref://')) {
+                const id = node.slice('maintenance-image-ref://'.length);
+                const source = this.isImportRecord(assets) && Object.prototype.hasOwnProperty.call(assets, id)
+                    ? assets[id] : null;
+                if (!checkedAssets.has(id)) {
+                    const encoded = this.isImageDataUrl(source) ? source.slice(source.indexOf(',') + 1) : '';
+                    checkedAssets.set(id, !!encoded && encoded.length % 4 !== 1 && /^[A-Za-z0-9+/]+={0,2}$/.test(encoded));
+                }
+                if (!checkedAssets.get(id)) issues.push(`${path || '画像'} の参照 ${id || '(空)'} に有効な画像本体がありません`);
+                return;
+            }
+            if (Array.isArray(node)) {
+                node.forEach((item, index) => visit(item, `${path}[${index}]`));
+            } else if (node && typeof node === 'object') {
+                Object.entries(node).forEach(([key, value]) => {
+                    if (key === 'imageAssets') return;
+                    visit(value, path ? `${path}.${key}` : key);
+                });
+            }
+        };
+        visit(imported);
+        return issues;
+    }
+
     hydratePackedImageData(imported) {
+        const issues = this.getPackedImageDataIssues(imported);
+        if (issues.length) {
+            const details = issues.slice(0, 5).join(' / ');
+            const rest = issues.length > 5 ? ` / ほか${issues.length - 5}件` : '';
+            const error = new Error(`取込画像の参照に異常があります: ${details}${rest}`);
+            error.code = 'INVALID_IMPORT_IMAGE_ASSETS';
+            error.issues = issues;
+            throw error;
+        }
         if (!imported || typeof imported !== 'object' || !imported.imageAssets) return imported;
         const assets = imported.imageAssets;
         const hydrate = (node) => {
@@ -1653,6 +1984,7 @@ class MaintenanceStore {
     }
 
     exportAsJSON(options = {}) {
+        this.assertNoUnresolvedDurableImages();
         const payload = this.getExportPayload();
         return options.optimizeImages
             ? this.createOptimizedExport(payload, options)
@@ -1687,7 +2019,23 @@ class MaintenanceStore {
         }
     }
 
+    assertImportedStateShape(candidate) {
+        if (this.collectDurableImageReferences(candidate).size) {
+            throw new Error('取込JSONに画像の内部参照が含まれています。画像本体を含むバックアップJSONを選択してください。');
+        }
+        const issues = this.getStoredDataShapeIssues(candidate);
+        if (!issues.length) return;
+        const details = issues.slice(0, 5).join(' / ');
+        const rest = issues.length > 5 ? ` / ほか${issues.length - 5}件` : '';
+        const error = new Error(`取込データの構造に異常があります: ${details}${rest}`);
+        error.code = 'INVALID_IMPORT_SHAPE';
+        error.issues = issues;
+        throw error;
+    }
+
     async commitImportedState(candidate, skillUpdates = {}, options = {}) {
+        // Reject malformed input before normalization can silently change or crash on it.
+        this.assertImportedStateShape(candidate);
         // Finish earlier edits before the separate skill values are replaced.
         do {
             await this.waitForSaveQueueIdle();
@@ -1702,6 +2050,7 @@ class MaintenanceStore {
         const changedSkills = [];
         try {
             const normalized = this.normalizeImportedState(candidate);
+            this.assertImportedStateShape(normalized);
             for (const key of Object.keys(skillUpdates)) {
                 previousSkills.set(key, localStorage.getItem(key));
             }
@@ -1737,7 +2086,8 @@ class MaintenanceStore {
             if (!this.isImportRecord(dataToLoad)) throw new Error('主データの形式が正しくありません。');
             const skillUpdates = wrapped ? this.getImportedSkillUpdates(imported) : {};
 
-            if (Array.isArray(dataToLoad.departments) && this.isImportRecord(dataToLoad.deptData)) {
+            if (Object.prototype.hasOwnProperty.call(dataToLoad, 'departments')
+                || Object.prototype.hasOwnProperty.call(dataToLoad, 'deptData')) {
                 await this.commitImportedState(dataToLoad, skillUpdates, options);
                 return true;
             }
@@ -1768,6 +2118,7 @@ class MaintenanceStore {
 
     // --- Single Department Support ---
     exportCurrentDeptAsJSON(options = {}) {
+        this.assertNoUnresolvedDurableImages(this.activeData);
         const deptId = this.data.currentDepartmentId;
         const deptInfo = this.data.departments.find(d => d.id === deptId);
         
@@ -1818,7 +2169,8 @@ class MaintenanceStore {
             return { success: true, departmentName: imported.departmentName };
         } catch (e) {
             console.error('Dept import failed', e);
-            return { success: false, message: '部署データの取込に失敗しました。保存先を確認してください。' };
+            return { success: false, message: ['INVALID_IMPORT_SHAPE', 'INVALID_IMPORT_IMAGE_ASSETS'].includes(e.code)
+                ? e.message : '部署データの取込に失敗しました。保存先を確認してください。' };
         }
     }
 
