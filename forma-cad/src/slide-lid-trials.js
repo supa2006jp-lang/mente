@@ -1,5 +1,5 @@
 import * as R from 'replicad';
-import {applySlideClickFit,slideClickSettings} from './slide-lid-click-fit.js';
+import {applySlideClickFit,slideClickRamp,slideClickSettings} from './slide-lid-click-fit.js';
 import {sectionPrism,slideChannelProfile,slideLidFit,slidePlateProfile} from './slide-lid.js';
 import {printSupportExportMesh} from './print-support-export-mesh.js';
 
@@ -8,7 +8,7 @@ export function makeSlideLidTrials(settings,dimensions,onProgress){
  const {length,width}=dimensions;
  if(![wall,railDepth,cover,lidThickness,length,width].every(Number.isFinite)||Math.min(wall,cover,lidThickness)<1.2||railDepth<.6||width-2*wall<6||length-2*wall<6)throw Error('試験片に必要な寸法が足りません');
  const clickAmount=slideClickSettings(settings);
- const span=Math.min(18,Math.max(clickAmount?10:6,length-2*wall)),interior=Math.min(7,(width-2*wall)/2);
+ const baseSpan=Math.min(18,length-2*wall),interior=Math.min(7,(width-2*wall)/2);
  const widthOutside=interior+wall,upper=lidThickness+8;
  const current=slideLidFit(settings,upper);
  const variants=[{label:'B',fit:current}];
@@ -26,8 +26,10 @@ export function makeSlideLidTrials(settings,dimensions,onProgress){
  }
  variants.sort((a,b)=>a.label.localeCompare(b.label));
  const parts=[];
+ let x=0;
  for(const [index,{label,fit}] of variants.entries()){
   onProgress?.({stage:'かみ合わせ試験片 '+label+' を作成しています',current:index+1,total:variants.length});
+  const span=clickAmount?Math.max(baseSpan,Math.ceil(4+2*slideClickRamp(fit.side,clickAmount))):baseSpan;
   const owned=[],hold=shape=>(owned.push(shape),shape);
   try{
    const {lower,side,vertical}=fit;
@@ -47,12 +49,13 @@ export function makeSlideLidTrials(settings,dimensions,onProgress){
     body=hold(body.cut(baseMark));
     lid=hold(lid.cut(topMark));
    }
-   const x=index*(span+5),name=label+' 横 '+side+' mm・上下 '+vertical+' mm';
+   const name=label+' 横 '+side+' mm・上下 '+vertical+' mm';
    const bodyPlaced=hold(body.clone().translate([x,widthOutside,2-lower]));
    const lidPlaced=hold(lid.clone().translate([x,3*widthOutside+5,-lower-vertical]));
    for(const [role,shape] of [['溝',bodyPlaced],['蓋',lidPlaced]]){
     parts.push({name:name+' '+role,...printSupportExportMesh(shape),color:'#B8B8B8'});
    }
+   x+=span+5;
   }finally{owned.reverse().forEach(shape=>shape.delete());}
  }
  return {parts,variants:variants.map(({label,fit})=>({label,side:fit.side,vertical:fit.vertical}))};
