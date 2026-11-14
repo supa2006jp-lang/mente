@@ -18,7 +18,10 @@ export function createSlideSectionModel(result,spec){
   const distance=q.openTravel*Math.max(0,Math.min(100,Number(percent)||0))/100;
   const position=Math.max(.001,Math.min(q.length-.001,fromEntry))-q.length/2;
   const parts=geometries.map((_,index)=>slice(index,focus,distance,position));
-  return {q,spec,focus,percent,distance,position,parts,contact:slideSectionContact(parts)};
+  const contact=slideSectionContact(parts);
+  const press=q.clickFit?.mode==='press'&&isRailSection(focus)
+   ?slidePressSectionWidth(contact.polygons,(q.grooveLower+q.grooveUpper)/2,focus==='rail-left'?-1:1):null;
+  return {q,spec,focus,percent,distance,position,parts,contact,press};
  },dispose(){geometries.forEach(g=>g.dispose());cache.clear();}};
 }
 const cross=(a,b,p)=>(b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);
@@ -31,6 +34,30 @@ export function slideSectionContact(parts){
  const body=triangles(parts[0]),lid=triangles(parts[1]),polygons=[];let total=0;
  for(const a of body)for(const b of lid){if(a.maxX<b.minX||a.minX>b.maxX||a.maxZ<b.minZ||a.minZ>b.maxZ)continue;const polygon=clipped(a.points,b.points),value=polygon.length>=3?area(polygon):0;if(value>1e-7){polygons.push(polygon);total+=value;}}
  return {polygons,area:total};
+}
+function slidePressSectionWidth(polygons,z,side){
+ const intervals=[];
+ for(const polygon of polygons){
+  const crossings=[];
+  for(const [i,a] of polygon.entries()){
+   const b=polygon[(i+1)%polygon.length];
+   if(a[1]===z)crossings.push(a[0]);
+   if((a[1]<z&&b[1]>z)||(a[1]>z&&b[1]<z)){
+    crossings.push(a[0]+(b[0]-a[0])*(z-a[1])/(b[1]-a[1]));
+   }
+  }
+  if(crossings.length<2)continue;
+  const min=Math.min(...crossings),max=Math.max(...crossings);
+  if(max-min>1e-7&&side*(min+max)>0)intervals.push([min,max]);
+ }
+ const merged=[];
+ for(const [min,max] of intervals.sort((a,b)=>a[0]-b[0])){
+  const previous=merged.at(-1);
+  if(previous&&min<=previous[1]+1e-7)previous[1]=Math.max(previous[1],max);
+  else merged.push([min,max]);
+ }
+ const widest=merged.sort((a,b)=>(b[1]-b[0])-(a[1]-a[0]))[0];
+ return widest?{from:[widest[0],z],to:[widest[1],z],width:widest[1]-widest[0]}:null;
 }
 function onSectionEdge(part,[x,z]){
  for(let i=0;i<part.segments.length;i+=6){
@@ -50,7 +77,7 @@ export function createSlideLidSection(parent,onOpening,onSectionPosition){
  const clickButton=panel.querySelector('#slide-section-click');
  const positionSlider=panel.querySelector('#slide-section-position'),positionLabel=panel.querySelector('#slide-section-position-label');
  let positionFraction=null;
- function draw(){if(!model||panel.hidden)return;const fromEntry=positionFraction===null?model.initialPosition:positionFraction*model.q.length/100;const data=model.slice(focus,opening,fromEntry),{q,spec,parts,contact,position}=data,W=640,H=380;svg.replaceChildren();let bounds;
+ function draw(){if(!model||panel.hidden)return;const fromEntry=positionFraction===null?model.initialPosition:positionFraction*model.q.length/100;const data=model.slice(focus,opening,fromEntry),{q,spec,parts,contact,position,press}=data,W=640,H=380;svg.replaceChildren();let bounds;
   const rail=isRailSection(focus),left=focus==='rail-left';
   const pressing=q.clickFit?.mode==='press';
   clickButton.hidden=!q.clickFit;
@@ -70,7 +97,9 @@ export function createSlideLidSection(parent,onOpening,onSectionPosition){
   for(const part of parts){let d='';for(let i=0;i<part.fill.length;i+=3)d+='M'+map(part.fill[i]).join(',')+'L'+map(part.fill[i+1]).join(',')+'L'+map(part.fill[i+2]).join(',')+'Z';drawing.append(node('path',{'data-slide-part':part.lid?'lid':'body',d,fill:part.lid?'#edb35d':'#76c0dc','fill-opacity':'.75'}));d='';for(let i=0;i<part.segments.length;i+=6)d+='M'+map([part.segments[i],part.segments[i+2]]).join(',')+'L'+map([part.segments[i+3],part.segments[i+5]]).join(',');drawing.append(node('path',{d,fill:'none',stroke:part.lid?'#99550c':'#087698','stroke-width':1.4}));}
   if(contact.polygons.length)drawing.append(node('path',{'data-slide-contact':'true',d:contact.polygons.map(p=>'M'+p.map(v=>map(v).join(',')).join('L')+'Z').join(''),fill:pressing?'#8851bf':'#ef5049',stroke:pressing?'#59308a':'#bb2621','stroke-width':.8}));
   function dimension(a,b,text,color){const pa=map(a),pb=map(b);svg.append(node('line',{x1:pa[0],y1:pa[1],x2:pb[0],y2:pb[1],stroke:color,'stroke-width':2}));for(const p of [pa,pb])svg.append(node('circle',{cx:p[0],cy:p[1],r:2.5,fill:color}));svg.append(node('rect',{x:W-280,y:8,width:270,height:27,rx:4,fill:'white'}));svg.append(node('text',{x:W-20,y:27,'text-anchor':'end',fill:color,'font-size':15,'font-weight':600},text));}
-  if(rail){
+  if(press){
+   dimension(press.from,press.to,'この断面の押し当て量 '+fmt(press.width)+' mm','#59308a');
+  }else if(rail){
    const sign=left?-1:1;
    const y=q.width/2-q.wall+spec.railDepth/2,z=q.grooveUpper-spec.railDepth/2;
    const slope=q.slopeClearance??spec.clearance,gap=slope/Math.SQRT2;

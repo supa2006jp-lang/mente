@@ -22,7 +22,7 @@ const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use
 try{
  const context=await browser.newContext({viewport:{width:1900,height:1150},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
  await page.addInitScript(()=>{window.cadJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec)window.cadJobs.push(payload.spec.type);return post.call(this,payload,...args);};});
- await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();
+ await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas[data-engine]').waitFor();
 
 
 
@@ -34,7 +34,7 @@ try{
  async function apply(){await page.locator('#slide-lid-apply').click();await page.waitForFunction(()=>!document.getElementById('slide-lid-dialog').open);}
  await load([base]);await page.locator('#slide-lid-tool').dispatchEvent('click');await ready();await page.locator('#slide-lid-clearance').fill('0.25');await page.locator('#slide-lid-railDepth').fill('1.2');await ready();
  for(const key of ['filletInside','filletOutside','divider']){assert.ok(!(await page.locator('#slide-lid-'+key).isChecked()),key+' must be opt-in');await page.locator('#slide-lid-'+key).check();await ready();}
- assert.equal(await page.locator('#slide-lid-lock').count(),0);assert.match(await page.locator('#slide-lid-info').textContent(),/開閉経路とも干渉なし/);assert.match(await page.locator('#slide-lid-fillet-info').textContent(),/本体・仕切りの内角と底：R1.00/);
+ assert.equal(await page.locator('#slide-lid-lock').count(),0);assert.match(await page.locator('#slide-lid-info').textContent(),/溝に押し当たります/);assert.match(await page.locator('#slide-lid-fillet-info').textContent(),/本体・仕切りの内角と底：R1.00/);
  await page.locator('#slide-lid-dividerCompartments').selectOption('4');await ready();assert.equal(await page.locator('#slide-lid-divider-offsets input').count(),3);await page.locator('#slide-lid-dividerOffset0').fill('-2');await ready();await page.locator('#slide-lid-dividerOffset1').fill('1');await ready();assert.match(await page.locator('#slide-lid-divider-info').textContent(),/4分割.*蓋とのすき間 0.25 mm/);
  await page.locator('#slide-lid-dividerOffset0').fill('100');await page.waitForFunction(()=>document.getElementById('slide-lid-error').textContent.includes('空間が足りません'));assert.ok(await page.locator('#slide-lid-apply').isDisabled());assert.equal((await save()).features.length,1,'invalid preview cannot commit');await page.locator('#slide-lid-divider-equal').click();await ready();assert.equal(await page.locator('#slide-lid-dividerOffset0').inputValue(),'0');
  await page.locator('#slide-lid-dividerDirection').selectOption('long');await ready();await page.locator('#slide-lid-innerFilletRadius').fill('100');await ready();assert.match(await page.locator('#slide-lid-fillet-info').textContent(),/半径を調整/);await page.locator('#slide-lid-innerFilletRadius').fill('1');await ready();await page.locator('#slide-lid-pose').selectOption('assembled');await ready();await page.locator('#slide-lid-openAmount').fill('100');await page.locator('#slide-lid-filletInside').scrollIntoViewIfNeeded();await page.screenshot({path:'.sites-runtime/slide-lid-options-preview.png'});await apply();

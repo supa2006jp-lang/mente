@@ -1,5 +1,5 @@
 import * as R from 'replicad';
-import {applySlideClickFit,applySlidePressFit,slideClickRamp,slideClickSettings} from './slide-lid-click-fit.js';
+import {applySlideClickFit,applySlidePressFit,slideClickRamp,slideClickSettings,slidePressRamps} from './slide-lid-click-fit.js';
 import {sectionPrism,slideChannelProfile,slideLidFit,slidePlateProfile} from './slide-lid.js';
 import {printSupportExportMesh} from './print-support-export-mesh.js';
 
@@ -29,7 +29,9 @@ export function makeSlideLidTrials(settings,dimensions,onProgress){
  let x=0;
  for(const [index,{label,fit}] of variants.entries()){
   onProgress?.({stage:'かみ合わせ試験片 '+label+' を作成しています',current:index+1,total:variants.length});
-  const span=clickAmount?Math.max(baseSpan,Math.ceil(4+2*slideClickRamp(fit.side,clickAmount))):baseSpan;
+  const ramps=clickAmount&&settings.clickFitMode==='press'?slidePressRamps(settings,fit.side,clickAmount):null;
+  const span=ramps?Math.max(baseSpan,Math.ceil(2+ramps.open+ramps.close))
+   :clickAmount?Math.max(baseSpan,Math.ceil(4+2*slideClickRamp(fit.side,clickAmount))):baseSpan;
   const owned=[],hold=shape=>(owned.push(shape),shape);
   try{
    const {lower,side,vertical}=fit;
@@ -39,7 +41,7 @@ export function makeSlideLidTrials(settings,dimensions,onProgress){
    let body=hold(hold(stock.cut(channel)).cut(opening));
    let lid=hold(sectionPrism(slidePlateProfile(interior,railDepth,upper,fit),0,span));
    if(clickAmount&&settings.clickFitMode==='press'){
-    ({lid}=applySlidePressFit(lid,{front:0,back:span,halfWidth:interior,depth:railDepth,upper,fit,amount:clickAmount},hold));
+    ({lid}=applySlidePressFit(lid,{front:0,back:span,halfWidth:interior,depth:railDepth,upper,fit,amount:clickAmount,ramps},hold));
    }else if(clickAmount){
     ({body,lid}=applySlideClickFit(body,lid,{start:0,throat:1.2,back:span,halfWidth:interior,depth:railDepth,upper,fit,wall,endClearance:settings.clearance,amount:clickAmount},hold));
    }

@@ -18,6 +18,19 @@ for(const angle of [0,27])for(const direction of ['long','short']){
   console.log('PASS native widths, actual rail/lock sections, print pose recovery, opening and contact '+angle+' degrees / '+direction);
  }finally{a.dispose();b.dispose();result.body.delete();result.lid.delete();printed.body.delete();printed.lid.delete();source.delete();}
 }
+const pressSpec={...p,lock:false,clickFit:true,clickFitMode:'press',clickFitAmount:.4,clickFitCloseRamp:3,clickFitOpenRamp:1.2,entry:'positive',leadIn:true};
+const pressSource=R.makeBox([-40,-25,3],[40,25,33]);
+const pressResult=makeSlideLid(pressSource,pressSpec),pressAnalysis=pressResult.analysis;
+const pressModel=createSlideSectionModel({outputs:[pressResult.body.mesh({tolerance:.01}),pressResult.lid.mesh({tolerance:.01})],analysis:pressAnalysis},pressSpec);
+try{
+ const fromEntry=pressAnalysis.clickFit.position+pressAnalysis.length/2;
+ const width=(position,travel=0,focus='rail')=>pressModel.slice(focus,travel/pressAnalysis.openTravel*100,position).press?.width??0;
+ for(const rail of ['rail','rail-left'])assert.ok(Math.abs(width(fromEntry,0,rail)-.4)<1e-5);
+ assert.ok(width(fromEntry+1)>0&&width(fromEntry+1)<.4,'closing ramp has a smaller overlap in the actual section');
+ assert.ok(width(fromEntry-.65)>0&&width(fromEntry-.65)<.4,'opening ramp has a smaller overlap in the actual section');
+ assert.equal(width(fromEntry,5),0);
+ assert.throws(()=>makeSlideLid(pressSource,{...pressSpec,clickFitOpenRamp:.1}),/0.2〜10/);
+}finally{pressModel.dispose();pressResult.body.delete();pressResult.lid.delete();pressSource.delete();}
 const triangle=[[0,0],[2,0],[0,2]];assert.ok(Math.abs(slideSectionContact([{fill:triangle},{fill:triangle}]).area-2)<1e-8);assert.equal(slideSectionContact([{fill:triangle},{fill:triangle.map(p=>[p[0]+5,p[1]])}]).area,0);
 const base={...defaults,id:'box',kind:'extrusion',name:'直方体',width:80,height:50,depth:30,z:3},spec={...p,type:'slideLid',id:'slide',target:'box',pose:'print'},result=runOperation([base],spec),op={kind:'cadop',id:'slide',name:'スライド蓋',spec,...result},layoutSpec={type:'printLayout',id:'plate',targets:['box','slide-lid'],margin:2,gap:3,allowRotation:true},layout=runOperation([base,op],layoutSpec),before=[base,op,{kind:'cadop',id:'plate',name:'印刷配置',spec:layoutSpec,...layout}],next=structuredClone(before);next[1].spec.dividerWidths=[25,20];const replay=runOperation(next,{type:'replay',before,start:1});assert.deepEqual(replay.features[1].analysis.divider.requestedWidths,[25,20]);assert.ok(Math.abs(replay.features[1].analysis.divider.compartmentWidths.at(-1)-21.8)<1e-8);validateProject({format:'forma-cad',version:1,features:replay.features});
 console.log('PASS contact polygon geometry, direct dimensions saved/replayed through print layout and valid outputs');

@@ -4,7 +4,8 @@ const pocketClearance=.15;
 const minimumWall=1.2;
 export const slideClickMinimum=.1;
 export const slideClickPressMax=.6;
-export const slideClickPressDefault=.5;
+export const slideClickPressDefault=.4;
+export const slideClickOpenRampDefault=.6;
 
 export function slideClickLimit(wall,depth){
  if(!Number.isFinite(wall)||!Number.isFinite(depth)||wall<=0||depth<=0)return null;
@@ -13,6 +14,15 @@ export function slideClickLimit(wall,depth){
 
 export function slideClickRamp(side,amount){
  return Math.max(1.4,side+amount,1.4+2*Math.max(0,amount-.4));
+}
+
+export function slidePressRamps(spec,side,amount){
+ const open=spec.clickFitOpenRamp??slideClickOpenRampDefault;
+ const close=spec.clickFitCloseRamp??slideClickRamp(side,amount);
+ for(const length of [open,close]){
+  if(!Number.isFinite(length)||length<.2||length>10)throw Error('斜面の長さは0.2〜10 mmで指定してください');
+ }
+ return {open,close};
 }
 
 export function slideClickSettings(spec){
@@ -29,10 +39,10 @@ export function slideClickSettings(spec){
  return amount;
 }
 
-export function applySlidePressFit(lid,{front,back,halfWidth,depth,upper,fit,amount},hold){
+export function applySlidePressFit(lid,{front,back,halfWidth,depth,upper,fit,amount,ramps},hold){
  const grooveEdge=halfWidth+depth,root=grooveEdge-fit.side-.15;
- const peakStart=front+.6,peakEnd=peakStart+.8;
- const end=peakEnd+slideClickRamp(fit.side,amount);
+ const peakStart=front+ramps.open,peakEnd=peakStart+.8;
+ const end=peakEnd+ramps.close;
  if(end+.2>back)throw Error('蓋の端を広げる余裕がありません。箱を長くしてください');
  const height=Math.min(1.2,fit.tipHeight);
  const z=(fit.lower+upper-height)/2;
