@@ -5,7 +5,7 @@ import {compactKernelData} from './kernel-transfer.js';
 export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,onSelect,onPreview,notify}){
  const kernel=new KernelClient();
  const inside={type:'interiorEdges',label:'内側の辺をまとめて選択',name:'内側の辺',
-  progress:'入れ物の内側を調べています…',empty:'上面が開いた底付きの空間に、選択できる角のある辺が見つかりません。'};
+  progress:'入れ物の内側を調べています…',empty:'開口のある入れ物に、選択できる内側の辺が見つかりません。'};
  const outside={type:'exteriorVerticalEdges',label:'外側の辺をまとめて選択',name:'外側の辺',
   progress:'外周の辺を調べています…',empty:'指定した方向に選択できる外側の辺が見つかりません。'};
  const makeButton=(id,label)=>{
@@ -15,7 +15,7 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,on
   return button;
  };
  const insideButton=makeButton('select-interior-edges',inside.label);
- insideButton.title='上面（＋Z）が開いた入れ物の、底の角・縦の角などを選択します。外周と開口のふちは含みません。';
+ insideButton.title='開口の向きを自動で調べ、入れ物の奥や側壁の角を選択します。';
  insideButton.style.width='100%';
  const outsideGroup=document.createElement('div'),axisLabel=document.createElement('label');
  axisLabel.textContent='方向 ';

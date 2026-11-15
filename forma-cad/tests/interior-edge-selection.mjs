@@ -28,6 +28,19 @@ try{
 }finally{spun.delete();tilted.delete();}
 const before=R.measureVolume(tray),selected=interiorEdges(tray,{bodyId:'tray'});assert.equal(selected.length,8);assert(selected.every(e=>e.points.every(p=>p[0]>=3-1e-6&&p[0]<=37+1e-6&&p[1]>=3-1e-6&&p[1]<=29+1e-6)));assert.equal(interiorEdges(box).length,0);assert.equal(interiorEdges(closed).length,0);
 const rounded=filletSolid(tray,.5,{references:selected.map(e=>e.reference)});assert.equal(rounded.edgeCount,8);rounded.shape.delete();assert.equal(R.measureVolume(tray),before);
+for(const [angle,axis] of [[90,[1,0,0]],[90,[0,1,0]],[180,[1,0,0]],[118,[1,1,0]]]){
+ const turned=tray.clone().rotate(angle,[0,0,0],axis);
+ try{
+  const result=interiorEdges(turned);
+  assert.equal(result.length,8,'the opening follows the rotation of the body');
+  const filleted=filletSolid(turned,.5,{references:result.map(edge=>edge.reference)});
+  try{assert.equal(filleted.edgeCount,8);}
+  finally{filleted.shape.delete();}
+ }finally{turned.delete();}
+}
+const sideThrough=throughCutAlongX();
+try{assert.equal(interiorEdges(sideThrough).length,0,'a sideways through-hole has no back wall');}
+finally{sideThrough.delete();}
 const cup=R.makeCylinder(20,25).cut(R.makeCylinder(17,30,[0,0,3])),cupEdges=interiorEdges(cup,{bodyId:'cup'});assert.equal(cupEdges.length,1);assert(cupEdges[0].curved);assert(Math.abs(cupEdges[0].point[2]-3)<1e-6);
 const native=cupEdges[0],ui={bodyId:'cup',nativeReference:native.reference,curve:{points:native.points}};assert.equal(edgeFilletReferences([ui]).length,1);const rim=filletSolid(cup,.5,{references:edgeFilletReferences([ui])});assert.equal(rim.edgeCount,1);rim.shape.delete();assert(matchesInteriorEdge(ui,{bodyId:'cup',point:[0,17,3]}));assert(!matchesInteriorEdge(ui,{bodyId:'cup',point:[0,20,25]}));
 const cells=R.makeBox([0,0,0],[64,34,24]).cut(R.makeBox([3,3,3],[30,31,30])).cut(R.makeBox([34,3,3],[61,31,30]));assert.equal(interiorEdges(cells).length,16);
