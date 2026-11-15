@@ -223,7 +223,7 @@ let sketchOverlapCache=null;
 import {gridCellOccluders} from './grid-cell-occlusion.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains,faceGridPatches} from './face-grid.js';
 import {planarFaceMeasurement} from './planar-face-measurement.js';
-import {createFaceOpeningSketch} from './face-opening-sketch.js';
+import {createFaceOpeningSketches} from './face-opening-sketch.js';
 import {createFilletGridReference,filletGridSource} from './fillet-grid-reference.js';
 const filletGridReference=createFilletGridReference();
 const referenceFaceGrid=face=>face?.kind==='plane'?offsetPlaneGridFace(face):filletGridReference.reference(face,features);
@@ -546,6 +546,7 @@ measurementToggle.onclick=()=>{
  measurementToggle.setAttribute('aria-expanded',String(!collapsed));
  measurementToggle.textContent=collapsed?'▸ 選択メニューを開く':'▾ メニューを畳む';
  if(!collapsed)measurementPanel.scrollTop=measurementScroll;
+ updateOpeningHighlight();
 };
 measurementHeader.append(measurementHandle,measurementReset,measurementToggle,measurementFaceBody);
 measurementPanel.prepend(measurementHeader);
@@ -1593,6 +1594,7 @@ renderer.domElement.addEventListener('pointerup',e=>{
  raycaster.params.Line.threshold=viewHeight()/r.height*7;
  let bodyHit=raycaster.intersectObjects([...meshes.values()].filter(m=>m.visible),false)[0];if(stage==='model'&&['auto','face'].includes(selectionMode)&&faceSelectionFeedback?.preferPlane&&bodyHit)bodyHit=preferNearbyPlanarFace(bodyHit,{project:screenPoint,cameraDirection:camera.getWorldDirection(new THREE.Vector3()),isVisible:hit=>{const q=hit.point.clone().project(camera),test=new THREE.Raycaster();test.setFromCamera(new THREE.Vector2(q.x,q.y),camera);const front=test.intersectObjects([...meshes.values()].filter(m=>m.visible),false)[0];return front?.object===hit.object&&front.point.distanceTo(hit.point)<.001;}});
  if(stage==='extrusion'&&!pendingExtrude&&!extrusionBusy&&bodyHit&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey){const profileHit=pickProfileRegion(e);if(!profileHit){snapExtrusionToFace(bodyHit);return;}}
+ if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&pickMeasuredFaceOpening(e.clientX-r.left,e.clientY-r.top))return;
  if(stage==='model'&&!pendingExtrude&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&selectionPicker){
   const frontSketch=raycaster.intersectObjects([...sketchGroup.children,...regionGroup.children].filter(m=>m.visible&&!m.userData.multiFace&&!m.userData.displayBodyId),false)[0],rect=renderer.domElement.getBoundingClientRect(),vertices=bodyDisplay?.exploded?[]:screenVertexCandidates([...meshes.values()],camera,rect.width,rect.height,e.clientX-rect.left,e.clientY-rect.top);
   if((bodyHit||selectionMode==='edge'||vertices.length)&&(!frontSketch||!bodyHit||frontSketch.distance>bodyHit.distance+.05)){
@@ -2205,8 +2207,9 @@ function chooseFaceRange(hits,add){
  if(selectedFace?.outer)showPlanarFaceMeasurement(selectedFace);
 }
 let openingHighlight=null;
+let openingSketchSelection=null;
 function canUseFaceOpening(face){
- return stage==='model'&&!sketch&&!measurementPanel.hidden&&selectedFace===face&&
+ return !!face&&stage==='model'&&!sketch&&!measurementPanel.hidden&&selectedFace===face&&
   selectedFaces.length<=1&&meshes.get(face.bodyId)?.visible===true&&
   !bodyDisplay?.exploded&&!dimensionMeasure?.active&&canSwitchSketchNumber();
 }
@@ -2219,31 +2222,105 @@ function clearOpeningHighlight(row){
 function highlightFaceOpening(face,index,row){
  if(openingHighlight?.row===row||!canUseFaceOpening(face))return;
  clearOpeningHighlight();
- const {u,v,n}=basisFor(face),origin=n.multiplyScalar(face.offset),ring=face.holes[index];
- const points=[...ring,ring[0]].map(([x,y])=>origin.clone().addScaledVector(u,x).addScaledVector(v,y));
- const geometry=new THREE.BufferGeometry().setFromPoints(points);
- const line=sketchLine(geometry,{color:0xf29b14,depthTest:false,order:25});
+ const line=drawOpeningOutline(openingSketchSelection.rows[index].points,0xf29b14,25);
  openingHighlight={face,row,line};
  row.classList.add('opening-highlighted');
+}
+function drawOpeningOutline(points,color,order){
+ const line=sketchLine(new THREE.BufferGeometry().setFromPoints(points),{color,depthTest:false,order});
  scene.add(line);
+ return line;
+}
+function clearOpeningSketchPreview(state){
+ for(const line of state.lines)disposeObject(line);
+ state.lines=[];
 }
 function updateOpeningHighlight(){
- if(openingHighlight&&(!canUseFaceOpening(openingHighlight.face)||
-  !openingHighlight.row.getClientRects().length||!openingHighlight.row.matches(':hover,:focus-within')))clearOpeningHighlight();
+ const state=openingSketchSelection;
+ const available=state&&canUseFaceOpening(state.face)&&state.controls.isConnected;
+ const expanded=!measurementPanel.hasAttribute('data-collapsed');
+ if(openingHighlight&&(!available||!expanded||!openingHighlight.row.matches(':hover,:focus-within')))clearOpeningHighlight();
+ if(!state)return;
+ if(!available||!expanded)clearOpeningSketchPreview(state);
+ else if(state.plan?.length&&!state.lines.length)renderOpeningSketchPreview(state);
+ if(selectedFace!==state.face||!state.controls.isConnected)openingSketchSelection=null;
 }
-function copyFaceOpening(face,index){
+function pickMeasuredFaceOpening(x,y){
+ const state=openingSketchSelection;
+ if(!state||!canUseFaceOpening(state.face)||!['auto','face'].includes(selectionMode)||edgeSelectionMode||pointDistance.active)return false;
+ if(raycaster.ray.direction.dot(basisFor(state.face).n)>=-1e-4)return false;
+ let closest=null,limit=7;
+ const cursor=new THREE.Vector3(x,y,0),segment=new THREE.Line3(),point=new THREE.Vector3();
+ for(const entry of state.rows){
+  let previous;
+  for(const [i,world] of entry.points.entries()){
+   const screen=screenPoint(world);
+   if(previous&&Math.abs(previous.z)<=1&&Math.abs(screen.z)<=1){
+    segment.start.set(previous.x,previous.y,0);
+    segment.end.set(screen.x,screen.y,0);
+    if(segment.distanceSq()>1e-8){
+     const t=segment.closestPointToPointParameter(cursor,true);
+     const distance=segment.at(t,point).distanceTo(cursor);
+     if(distance<limit){limit=distance;closest={entry,world:entry.points[i-1].clone().lerp(world,t)};}
+    }
+   }
+   previous=screen;
+  }
+ }
+ if(!closest)return false;
+ const ray=visibilityRay(closest.world);
+ ray.far=ray.ray.origin.distanceTo(closest.world)-.001;
+ if(ray.intersectObjects([...meshes.values()].filter(mesh=>mesh.visible),false).length)return false;
+ selectionPicker?.close();
+ if(measurementPanel.hasAttribute('data-collapsed'))measurementToggle.click();
+ closest.entry.copy.focus({preventScroll:true});
+ const row=closest.entry.row.getBoundingClientRect(),panel=measurementPanel.getBoundingClientRect();
+ const top=measurementHeader.getBoundingClientRect().bottom+4;
+ if(row.top<top)measurementPanel.scrollTop+=row.top-top;
+ else if(row.bottom>panel.bottom-4)measurementPanel.scrollTop+=row.bottom-panel.bottom+4;
+ return true;
+}
+function commitFaceOpeningSketches(face,sketches){
  if(!canUseFaceOpening(face))return;
  try{
-  const groupNumber=Math.max(0,...features.map(feature=>feature.groupNumber||0))+1;
-  const feature=createFaceOpeningSketch(face,index,groupNumber);
-  setProject([...features,feature]);
+  setProject([...features,...sketches]);
   selectionPicker?.close();
   syncFields();
-  notify('開口の輪郭をスケッチ'+groupNumber+'に作成しました');
+  notify(sketches.length+'箇所の開口をスケッチ'+sketches[0].groupNumber+'に作成しました');
  }catch(error){notify(appErrorMessage(error));}
+}
+function nextOpeningSketchNumber(){return Math.max(0,...features.map(feature=>feature.groupNumber||0))+1;}
+function renderOpeningSketchPreview(state){
+ for(const [i,sketch] of state.plan.entries()){
+  const original=state.rows[state.indices[i]].points;
+  state.lines.push(drawOpeningOutline(original,0xf29b14,24));
+  if(state.clearance>0)state.lines.push(drawOpeningOutline(sketchPoints(sketch).map(p=>worldPoint(state.face,p)),0x00b58f,26));
+ }
+}
+function refreshOpeningSketchPreview(state){
+ clearOpeningSketchPreview(state);
+ state.plan=null;
+ state.indices=state.rows.flatMap(({check},index)=>check.checked?[index]:[]);
+ state.apply.disabled=true;
+ state.status.textContent='';
+ if(!state.indices.length)return;
+ try{
+  if(!state.distance.value||!state.distance.validity.valid)throw Error('すき間を0 mm以上で入力してください');
+  state.clearance=state.distance.valueAsNumber;
+  state.plan=createFaceOpeningSketches(state.face,state.indices,nextOpeningSketchNumber(),state.clearance);
+  if(features.length+state.plan.length>150)throw Error('工程数は150までです。選ぶ開口を減らしてください');
+  renderOpeningSketchPreview(state);
+  state.apply.disabled=false;
+  state.status.textContent=state.indices.length+'箇所 ／ 橙は元の輪郭'+(state.clearance>0?'・緑は作成する輪郭':'');
+ }catch(error){
+  state.plan=null;
+  state.status.textContent=appErrorMessage(error);
+ }
 }
 function showPlanarFaceMeasurement(face){
  clearOpeningHighlight();
+ if(openingSketchSelection)clearOpeningSketchPreview(openingSketchSelection);
+ openingSketchSelection=null;
  const {diameter,sides,outline,openings,rimThickness}=planarFaceMeasurement(face);
  const mm=value=>fmt(value)+' mm',pair=values=>values.map(mm).join(' × ');
  const length=$('measurement-length');
@@ -2251,12 +2328,17 @@ function showPlanarFaceMeasurement(face){
  length.textContent=diameter
   ?(openings.length?'外径 ':'直径 ')+mm(diameter)
   :(outline?'外形 ':openings.length?'外寸 ':'')+pair(sides);
+ const rows=[];
  function addDetail(text,index){
   const detail=document.createElement('small');
   detail.className='measurement-face-detail';
   if(index===undefined)detail.textContent=text;
   else{
-   const value=document.createElement('span'),copy=document.createElement('button');
+   const value=document.createElement('span'),copy=document.createElement('button'),check=document.createElement('input'),label=document.createElement('label');
+   check.type='checkbox';
+   check.setAttribute('aria-label','開口 '+(index+1)+' をスケッチ化する対象に追加');
+   check.onchange=()=>refreshOpeningSketchPreview(openingSketchSelection);
+   label.className='measurement-opening-label';
    detail.classList.add('measurement-opening-row');
    value.className='measurement-opening-size';
    value.textContent=text;
@@ -2264,12 +2346,19 @@ function showPlanarFaceMeasurement(face){
    copy.textContent='スケッチ化';
    copy.setAttribute('aria-label','開口 '+(index+1)+' の輪郭をスケッチ化');
    copy.title='この開口の輪郭を同じ平面にスケッチとして作成';
-   copy.onclick=()=>copyFaceOpening(face,index);
+   copy.onclick=()=>{
+    if(!canUseFaceOpening(face))return;
+    try{commitFaceOpeningSketches(face,createFaceOpeningSketches(face,[index],nextOpeningSketchNumber(),0));}
+    catch(error){notify(appErrorMessage(error));}
+   };
    for(const event of ['pointerenter','focusin'])detail.addEventListener(event,()=>highlightFaceOpening(face,index,detail));
    for(const event of ['pointerleave','focusout'])detail.addEventListener(event,()=>{
     if(!detail.matches(event==='pointerleave'?':focus-within':':hover'))clearOpeningHighlight(detail);
    });
-   detail.append(value,copy);
+   const ring=face.holes[index],points=[...ring,ring[0]].map(p=>worldPoint(face,p));
+   rows.push({row:detail,points,copy,check});
+   label.append(check,value);
+   detail.append(label,copy);
   }
   length.append(detail);
  }
@@ -2279,6 +2368,26 @@ function showPlanarFaceMeasurement(face){
   else addDetail(label+(opening.outline?'の外形 ':' ')+pair(opening.sides),i);
  });
  if(rimThickness!==undefined)addDetail('縁の厚さ '+mm(rimThickness));
+ if(!rows.length)return;
+ const controls=document.createElement('span'),label=document.createElement('label'),distance=document.createElement('input'),apply=document.createElement('button'),status=document.createElement('small');
+ controls.className='measurement-opening-controls';
+ distance.type='number';
+ distance.min='0';
+ distance.max='10000';
+ distance.step='any';
+ distance.value='0';
+ label.append('全周のすき間 (mm)',distance);
+ apply.type='button';
+ apply.textContent='選んだ開口をスケッチ化';
+ apply.disabled=true;
+ status.setAttribute('role','status');
+ controls.append(label,apply,status);
+ const state={face,rows,controls,distance,apply,status,lines:[],plan:null};
+ openingSketchSelection=state;
+ distance.oninput=()=>refreshOpeningSketchPreview(state);
+ distance.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();apply.click();}};
+ apply.onclick=()=>{if(state.plan)commitFaceOpeningSketches(face,state.plan);};
+ length.append(controls);
 }
 function chooseSingleFace(hit){patternCenter=null;fragmentSelection={bodyId:hit.object.userData.bodyId,point:hit.point.toArray()};$('center-pattern').hidden=true;clearEdgeSelection();selectedSurface={bodyId:hit.object.userData.bodyId,point:hit.point.toArray()};const curved=cylindricalSelection(features,hit.object.userData.bodyId,hit.object.geometry,hit.faceIndex,hit.point);if(curved){selectedSurface.radius=curved.radius;selectedSurface.internal=curved.internal;finishSketch(false);selectedFace=null;selectedBody=hit.object.userData.bodyId;selected=null;chosenRegion=null;pendingExtrude=false;stage='model';dropPreview();syncFields();for(const c of [...regionGroup.children])disposeObject(c);const m=new THREE.Mesh(curved.geometry,new THREE.MeshBasicMaterial({color:0x3868ad,transparent:false,opacity:1,side:THREE.DoubleSide,depthTest:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));m.renderOrder=5;regionGroup.add(m);$('measurement').hidden=false;$('wrap-selected-cylinder').hidden=curved.internal===true;$('pattern-selected-cylinder').hidden=curved.internal===true;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=curved.internal===true;$('measurement-title').textContent=curved.internal===true?'選択した穴の内壁':curved.internal===false?'選択した円柱の側面':'選択した曲面';$('measurement-length').textContent=curved.radius?'直径 '+fmt(curved.radius*2)+' mm':'ボディの面';$('measurement-angle').textContent=curved.internal?'この内壁をねじ化 / プレス・プル':'この側面をねじ化 / 側面の模様を作成';notify('曲面を選択しました。全コマンドからプレス／プルやねじを実行できます');return;}try{const groups=hit.object.geometry.userData.faceGroups,planar=hit.object.geometry.userData.planarFaces;if(groups&&planar){const group=groups.find(g=>hit.faceIndex*3>=g.start&&hit.faceIndex*3<g.start+g.count);if(group&&!planar.includes(group.faceId))throw Error('曲面には直接作図できません。平面を選択してください');}selectedBody=hit.object.userData.bodyId;const face=planarFace(hit.object.geometry,hit.faceIndex);const bounds=new THREE.Box3().setFromBufferAttribute(hit.object.geometry.attributes.position);if(face.area<bounds.getSize(new THREE.Vector3()).lengthSq()*.00001)throw Error('曲面上には直接スケッチできません。平面を選んでください');const pending=pendingExtrude,desired=mode;finishSketch(false);selectedFace={...face,bodyId:hit.object.userData.bodyId,cadFace:hit.object.geometry.userData.faceGroups?{bodyId:hit.object.userData.bodyId,point:hit.point.toArray(),normal:face.frame.n}:undefined};chosenRegion=selectedFace;selected=null;stage='model';activeFrame=face.frame;dropPreview();syncFields();for(const c of [...regionGroup.children])disposeObject(c);const m=new THREE.Mesh(regionFaceGeometry(face),new THREE.MeshBasicMaterial({color:0x3868ad,transparent:false,opacity:1,side:THREE.DoubleSide,depthTest:false}));regionGroup.add(m);$('measurement').hidden=false;showPlanarFaceMeasurement(selectedFace);$('measurement-angle').textContent='スケッチを作成 / 押し出し（E）';$('status').textContent='面を選択しました。スケッチを作成、または押し出し（E）';if(pending)beginExtrusion(desired);}catch(e){selectedFace=null;selectedBody=hit.object.userData.bodyId;selected=null;chosenRegion=null;stage='model';dropPreview();syncFields();$('measurement').hidden=false;$('measurement-title').textContent='選択した曲面';$('measurement-length').textContent='ボディの面';$('measurement-angle').textContent='円柱側面なら「ねじ」を実行できます';notify('面を選択しました。円柱の側面には「ねじ」を使用できます');}}
 window.addEventListener('keydown',e=>{

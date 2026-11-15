@@ -228,8 +228,8 @@ try{
   const angle=sign*i*Math.PI/64;
   return [radius*Math.cos(angle),radius*Math.sin(angle)];
  });
- const withOpening=(id,outer,hole)=>({...defaults,id,kind:'extrusion',name:id,profile:'region',depth:10,
-  region:{plane:'XY',offset:0,outer,holes:[hole]}});
+ const withOpening=(id,outer,...holes)=>({...defaults,id,kind:'extrusion',name:id,profile:'region',depth:10,
+  region:{plane:'XY',offset:0,outer,holes}});
  const length=measurement.locator('#measurement-length'),details=length.locator('.measurement-face-detail');
  await load([withOpening('リング',outline(25),outline(15,-1))]);
  await page.locator('#selection-mode').selectOption('face');
@@ -261,8 +261,43 @@ try{
  await pick([44,4,10]);
  await length.filter({hasText:'外寸 50 mm × 100 mm'}).waitFor();
  assert.deepEqual(await length.locator('.measurement-opening-size').allTextContents(),['開口 30 mm × 80 mm']);
+ await load([withOpening('開口2箇所',[[-45,-28],[45,-28],[45,28],[-45,28]],
+  outline(8,-1).map(([x,y])=>[x-20,y]),[[12,-7],[12,7],[28,7],[28,-7]])]);
+ await page.locator('#selection-mode').selectOption('face');
+ await pick([3,12,10]);
+ await openingRow.nth(1).waitFor();
+ await page.locator('#measurement-toggle').click();
+ await pick([28,0,10]);
+ assert.equal(await page.locator('#measurement-toggle').getAttribute('aria-expanded'),'true');
+ assert.equal(await openingRow.nth(1).getByRole('button').evaluate(el=>el===document.activeElement),true);
+ assert.ok(await openingRow.nth(1).evaluate(el=>el.classList.contains('opening-highlighted')));
+ await openingRow.nth(0).getByRole('checkbox').check();
+ await openingRow.nth(1).getByRole('checkbox').check();
+ const clearance=length.getByRole('spinbutton',{name:'全周のすき間 (mm)'});
+ const applyOpenings=length.getByRole('button',{name:'選んだ開口をスケッチ化'});
+ await clearance.fill('8');
+ assert.ok(await applyOpenings.isDisabled());
+ await length.getByRole('status').filter({hasText:'開口 1'}).waitFor();
+ await clearance.fill('0.2');
+ await length.getByRole('status').filter({hasText:'緑は作成する輪郭'}).waitFor();
+ await applyOpenings.click();
+ const sketchGroup=page.locator('#sketches [data-sketch-group]');
+ await sketchGroup.and(page.locator('[data-remaining-region-count="2"]')).waitFor();
+ assert.equal(await sketchGroup.count(),1);
+ const batchDownload=page.waitForEvent('download');
+ page.once('dialog',dialog=>dialog.accept(dialog.defaultValue()));
+ await page.locator('#save').click();
+ const batchFile=JSON.parse(await fs.readFile(await (await batchDownload).path(),'utf8'));
+ const batch=batchFile.features.filter(feature=>feature.kind==='sketch');
+ assert.equal(batch.length,2);
+ assert.equal(batch[0].groupId,batch[1].groupId);
+ assert.ok(Math.abs(batch[0].diameter-15.6)<.001&&Math.abs(batch[0].x+20)<.001);
+ const rectSides=[batch[1].width,batch[1].height].sort((a,b)=>a-b);
+ assert.ok(Math.abs(rectSides[0]-13.6)<.001&&Math.abs(rectSides[1]-15.6)<.001&&Math.abs(batch[1].x-20)<.001);
+ await page.locator('#undo').click();
+ await sketchGroup.waitFor({state:'detached'});
  assert.deepEqual(errors,[]);
- console.log('PASS face owner, face dimensions, circular and rectangular openings, edge shortcuts, alignment, and shell');
+ console.log('PASS face measurement, rim picking, opening clearance and batch sketches, edge shortcuts, alignment, and shell');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

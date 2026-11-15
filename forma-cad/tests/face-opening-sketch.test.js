@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {createFaceOpeningSketch} from '../src/face-opening-sketch.js';
+import {createFaceOpeningSketch,createFaceOpeningSketches} from '../src/face-opening-sketch.js';
 import {planeCoordinates,sketchPoints} from '../src/regions.js';
 
 const frame={u:[0,1,0],v:[0,0,1],n:[1,0,0]};
@@ -17,6 +17,29 @@ test('copies the second opening as a circle in the original face plane',()=>{
  near(sketch.x,12);
  near(sketch.y,8);
  near(sketch.z,-2);
+});
+
+test('creates one sketch group with inward clearance for distinct openings',()=>{
+ const circle=Array.from({length:64},(_,i)=>[8+6*Math.cos(i*Math.PI/32),-2+6*Math.sin(i*Math.PI/32)]);
+ const rect=[[20,0],[30,0],[30,8],[20,8]];
+ const triangle=[[35,0],[45,0],[35,10]];
+ const input={...face,holes:[circle,rect,triangle]};
+ const [a,b,c]=createFaceOpeningSketches(input,[0,1,2],9,.2);
+ assert.equal(new Set([a.groupId,b.groupId,c.groupId]).size,1);
+ assert.equal(new Set([a.id,b.id,c.id]).size,3);
+ assert.ok([a,b,c].every(sketch=>sketch.groupNumber===9));
+ near(a.diameter,11.6);
+ near(a.y,8);
+ near(a.z,-2);
+ near(b.width,9.6);
+ near(b.height,7.6);
+ near(b.y,25);
+ near(b.z,4);
+ near(Math.min(...c.points.map(p=>p[0])),35.2);
+ near(Math.min(...c.points.map(p=>p[1])),.2);
+ near(planeCoordinates(c).offset,12);
+ assert.throws(()=>createFaceOpeningSketches(input,[0,1],9,4),/開口 2/);
+ assert.throws(()=>createFaceOpeningSketches(input,[2],9,4),/開口 3/);
 });
 
 test('retains a rotated rectangular outline and copies irregular openings as closed polylines',()=>{

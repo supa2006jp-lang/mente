@@ -622,8 +622,16 @@ button.form-control-point.invalid { background:#bc2634; }
 #measurement > #measurement-length { font-size:16px; }
 .measurement-face-detail { display:block; margin-top:3px; font-size:12px; font-weight:500; }
 .measurement-opening-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px; padding:2px 4px; border-radius:4px; }
+.measurement-opening-label { display:inline-flex; align-items:center; gap:5px; }
+.measurement-opening-label input { margin:0; }
 .measurement-opening-row.opening-highlighted { background:#fff0ce; }
 #measurement .measurement-opening-row button { background:#edf6fa; color:#1a5069; border-color:#9fbfce; }
+.measurement-opening-controls { display:flex; flex-wrap:wrap; align-items:center; gap:4px; padding:5px 4px 2px; font-size:11px; font-weight:500; }
+.measurement-opening-controls label { display:flex; align-items:center; gap:4px; }
+.measurement-opening-controls input { width:64px; min-height:25px; padding:2px 4px; font-size:inherit; }
+.measurement-opening-controls small { flex-basis:100%; font-size:inherit; }
+.measurement-opening-controls small:empty { display:none; }
+#measurement .measurement-opening-controls button { background:#dff5ee; color:#0e5747; border-color:#8ebcaa; }
 #measurement :is(button,select) {
  padding:3px 6px;
  min-height:25px;
