@@ -196,6 +196,8 @@ async function launchHarness(options = {}) {
     }
 }
 
+function makeWorkbookFixture(files){let offset=0;const local=[],central=[];for(const [name,text] of Object.entries(files)){const n=Buffer.from(name),data=Buffer.from(text);let crc=0xffffffff;for(const byte of data){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}crc=(crc^0xffffffff)>>>0;const a=Buffer.alloc(30);a.writeUInt32LE(0x04034b50);a.writeUInt16LE(20,4);a.writeUInt32LE(crc,14);a.writeUInt32LE(data.length,18);a.writeUInt32LE(data.length,22);a.writeUInt16LE(n.length,26);local.push(a,n,data);const c=Buffer.alloc(46);c.writeUInt32LE(0x02014b50);c.writeUInt16LE(20,4);c.writeUInt16LE(20,6);c.writeUInt32LE(crc,16);c.writeUInt32LE(data.length,20);c.writeUInt32LE(data.length,24);c.writeUInt16LE(n.length,28);c.writeUInt32LE(offset,42);central.push(c,n);offset+=a.length+n.length+data.length;}const end=Buffer.alloc(22),directory=Buffer.concat(central);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(central.length/2,8);end.writeUInt16LE(central.length/2,10);end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);return Buffer.concat([...local,directory,end]).toString('base64');}
+
 test('real Chrome regression: persistence, restore, offline photos, and save failure', { timeout: 180000 }, async t => {
     const harness = await launchHarness();
     t.after(() => harness.close());
@@ -363,9 +365,9 @@ test('data refinements: measurement, validation, periodic imports, unknown time,
     });
     await t.test('real Excel bytes convert the selected date column including the 1904 date system',async()=>{
         // Minimal uncompressed ZIP: exercise the actual workbook parser without a runtime spreadsheet dependency.
-        function workbook(files){let offset=0;const local=[],central=[];for(const [name,text] of Object.entries(files)){const n=Buffer.from(name),data=Buffer.from(text);let crc=0xffffffff;for(const byte of data){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}crc=(crc^0xffffffff)>>>0;const a=Buffer.alloc(30);a.writeUInt32LE(0x04034b50);a.writeUInt16LE(20,4);a.writeUInt32LE(crc,14);a.writeUInt32LE(data.length,18);a.writeUInt32LE(data.length,22);a.writeUInt16LE(n.length,26);local.push(a,n,data);const c=Buffer.alloc(46);c.writeUInt32LE(0x02014b50);c.writeUInt16LE(20,4);c.writeUInt16LE(20,6);c.writeUInt32LE(crc,16);c.writeUInt32LE(data.length,20);c.writeUInt32LE(data.length,24);c.writeUInt16LE(n.length,28);c.writeUInt32LE(offset,42);central.push(c,n);offset+=a.length+n.length+data.length;}const end=Buffer.alloc(22),directory=Buffer.concat(central);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(central.length/2,8);end.writeUInt16LE(central.length/2,10);end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);return Buffer.concat([...local,directory,end]).toString('base64');}
+
         const sheet='<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">'+['作業日','実施日','設備名','作業内容','ライン'].map((s,i)=>`<c r="${String.fromCharCode(65+i)}1" t="inlineStr"><is><t>${s}</t></is></c>`).join('')+'</row><row r="7"><c r="A7"><v>44865</v></c><c r="B7"><v>44866</v></c><c r="C7" t="inlineStr"><is><t>データポンプ</t></is></c><c r="D7" t="inlineStr"><is><t>Excel確認</t></is></c><c r="E7"><v>1</v></c></row></sheetData></worksheet>';
-        const bytes=workbook({'xl/workbook.xml':'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><workbookPr date1904="1"/></workbook>','xl/worksheets/sheet1.xml':sheet});
+        const bytes=makeWorkbookFixture({'xl/workbook.xml':'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><workbookPr date1904="1"/></workbook>','xl/worksheets/sheet1.xml':sheet});
         const result=await page.evaluate(`(async()=>{
             app.openHistoryImportModal();const d=new DataTransfer();d.items.add(new File([Uint8Array.from(atob('${bytes}'),c=>c.charCodeAt(0))],'dates.xlsx'));document.getElementById('hist-csv-upload').files=d.files;await app.refreshHistoryImportPreview();
             let select=document.querySelector('[data-import-column=date]');select.value='0';select.dispatchEvent(new Event('change'));const first=document.getElementById('hist-csv-preview').textContent;
@@ -1177,5 +1179,125 @@ test('workspace improvements: equipment, today actions, saved searches, forms, e
         await reloadApp(page,'collapsed search preference');
         assert.equal(await page.evaluate("document.getElementById('search-workspace-controls').hidden"),true);
         await page.evaluate('app.setSearchWorkspaceCollapsed(false)');
+    });
+});
+
+
+test('integrity refinements: exact exports, strict CSV, selected worksheets, stock deletion and legacy reloads', {timeout:180000}, async t=>{
+    const h=await launchHarness();t.after(()=>h.close());const {page}=h;
+    await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadNotebook();await maintenanceLazyFeatures.loadPhotos();
+        window.integrityImport=async(text)=>{
+            app.openHistoryImportModal();const files=new DataTransfer();files.items.add(new File([text],'integrity.csv'));document.getElementById('hist-csv-upload').files=files.files;
+            const confirm=window.confirm;try{window.confirm=()=>true;await app.processHistoryImportCSV();}finally{window.confirm=confirm;}
+        };
+        await store.runAtomicSaveBatch(()=>{
+            store.activeData.machines=[{id:'if1',name:'対象ポンプ',model:'P1',lineNo:'1',category:'循環'},{id:'if2',name:'他ポンプ',model:'P2',lineNo:'2',category:'電気'}];
+            store.activeData.history=[];store.activeData.tasks=[];store.activeData.partsMaster=[];store.activeData.partStockMovements=[];store.activeData.historyImportLogs=[];
+        });app.updateDataLists();
+    })()`);
+    await t.test('every history filter exports the same records and count shown in the screen',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            const common={machineId:'if1',date:'2026-11-01',isSudden:true,workers:['田中'],workTime:10,category:'parts',notes:'処置',cause:'原因',replacedParts:[],photos:[]};
+            await store.runAtomicSaveBatch(()=>store.activeData.history=[
+                {...common,id:'a',errorContent:'対象a',cause:'',guide:'手順',replacedParts:[{name:'部品',model:'',count:1,unit:'個',price:5}],photos:[{source:'photoManagerVideo',videoId:'v'}]},
+                {...common,id:'b',errorContent:'対象b',machineId:'if2',isDokatei:true,notes:''},
+                {...common,id:'c',errorContent:'対象c',isSudden:false,historyType:'periodic'},
+                {...common,id:'d',errorContent:'対象d',isSudden:false,isSingleMaintenance:true},
+                {...common,id:'g',errorContent:'手順書',isManualGuide:true}
+            ]);
+            app.switchView('history');app.updateDataLists();const result=[];
+            const cases=[
+                ['line',()=>document.getElementById('hist-filter-line').value='2'],
+                ['parts',()=>document.getElementById('hist-filter-parts').checked=true],
+                ['photos',()=>document.getElementById('hist-filter-photos').checked=true],
+                ['guide',()=>document.getElementById('hist-filter-guide').checked=true],
+                ['category',()=>app.machineCategoryFilter='電気'],
+                ['model',()=>app.modelFilter='P2'],
+                ['worker',()=>app.workerFilter='田中'],
+                ['missing',()=>app.historyMissingDetailFilter='cause'],
+                ['recurrence',()=>app.historyRecurrenceFrequencyFilter={ids:['b'],kind:'single',label:'選択履歴'}],
+                ['type',()=>document.getElementById('hist-filter-type').value='suddenBundle'],
+                ['query',()=>document.getElementById('global-search').value='対象c'],
+                ['combined',()=>{document.getElementById('hist-filter-line').value='1';document.getElementById('hist-filter-parts').checked=true;app.historyMissingDetailFilter='cause';}],
+                ['empty',()=>app.workerFilter='存在しない作業者']
+            ];
+            for(const [name,configure] of cases){
+                app.clearCurrentViewSearchAndFilters();document.getElementById('hist-filter-period').value='all';configure();app.renderHistory();
+                const visible=[...document.querySelectorAll('#view-history tr[data-history-id]')].map(tr=>store.activeData.history.find(r=>r.id===tr.dataset.historyId).errorContent);
+                let csv;const original=app.downloadCSV;try{app.downloadCSV=(n,v)=>csv=v;app.exportHistoryAsCSV();}finally{app.downloadCSV=original;}
+                const rows=app.parseCSV(csv);result.push({name,visible,exported:rows.slice(1).map(row=>row[6]),button:document.getElementById('history-export-csv').textContent});
+            }
+            return result;
+        })()`);
+        const expected={line:['対象b'],parts:['対象a'],photos:['対象a'],guide:['対象a'],category:['対象b'],model:['対象b'],worker:['対象a','対象b','対象c','対象d'],missing:['対象a'],recurrence:['対象b'],type:['対象a','対象b'],query:['対象c'],combined:['対象a'],empty:[]};
+        for(const row of result){assert.deepEqual(row.exported,row.visible,row.name);assert.deepEqual([...row.exported].sort(),expected[row.name],row.name);assert.match(row.button,new RegExp(row.exported.length+'件'));}
+    });
+    await t.test('malformed CSV shows row diagnostics and writes neither records nor provisional masters',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.clearCurrentViewSearchAndFilters();const before=JSON.stringify(store.activeData),messages=[];
+            for(const text of ['日付,機械名,作業内容\\n2026-11-01,新規機械,"閉じない\\n2026-11-02,別機械,確認','日付,機械名,作業内容\\n2026-11-01,新規機械,交換,余分']){
+                await integrityImport(text.replaceAll('\\\\n','\\n'));
+                const dialog=document.querySelector('.history-import-errors');messages.push(dialog.textContent);dialog.close();app.closeModal();
+            }
+            return {unchanged:JSON.stringify(store.activeData)===before,messages};
+        })()`);
+        assert.equal(result.unchanged,true);assert.match(result.messages[0],/引用符が閉じていません/);assert.match(result.messages[1],/見出しは3列/);
+    });
+    await t.test('imported history deletion and immediate undo preserve stock, then batch undo reverses only edited stock',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            await store.runAtomicSaveBatch(()=>store.activeData.partsMaster=[{name:'シール',model:'',stock:10,price:2,unit:'個'}]);
+            await integrityImport('日付,機械名,型式,作業内容,部品名,部品数量,部品単位\\n2026-11-10,対象ポンプ,P1,削除検証,シール,2,個'.replaceAll('\\\\n','\\n'));
+            const record=store.activeData.history.find(r=>r.errorContent==='削除検証'),log=store.activeData.historyImportLogs[0];
+            let undo;const notice=app.showHistoryDeleteUndoNotice,confirm=window.confirm;
+            try{
+                app.showHistoryDeleteUndoNotice=(r,action)=>undo=action;window.confirm=()=>true;
+                await app.deleteHistoryEntry(record.id);const deleted=store.getPartMaster('シール','').stock;await undo();const restored=store.getPartMaster('シール','').stock;
+                await store.runAtomicSaveBatch(()=>{store.adjustStock('シール','',-1,{unit:'個',source:'maintenance-edit',sourceId:record.id});store.activeData.history.find(r=>r.id===record.id).replacedParts[0].count=3;});
+                await app.deleteHistoryEntry(record.id);const afterEditDelete=store.getPartMaster('シール','').stock;await undo();
+                const plan=app.createHistoryImportUndoPlan(log.id);plan.selected.add(record.id);await app.commitHistoryImportUndo(plan);
+                return {deleted,restored,afterEditDelete,batchStock:store.getPartMaster('シール','').stock,exists:store.activeData.history.some(r=>r.id===record.id)};
+            }finally{app.showHistoryDeleteUndoNotice=notice;window.confirm=confirm;app.closeModal();}
+        })()`);
+        assert.deepEqual(result,{deleted:10,restored:10,afterEditDelete:10,batchStock:10,exists:false});
+    });
+    await t.test('workbook relationships preserve sheet names and selection previews the exact rows on mobile',async()=>{
+        const sheet=(name,date)=>'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">'+['日付','機械名','型式','作業内容'].map((s,i)=>`<c r="${String.fromCharCode(65+i)}1" t="inlineStr"><is><t>${s}</t></is></c>`).join('')+'</row><row r="8"><c r="A8"><v>'+date+'</v></c><c r="B8" t="inlineStr"><is><t>対象ポンプ</t></is></c><c r="C8" t="inlineStr"><is><t>P1</t></is></c><c r="D8" t="inlineStr"><is><t>'+name+'</t></is></c></row></sheetData></worksheet>';
+        const bytes=makeWorkbookFixture({
+            'xl/workbook.xml':'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><workbookPr date1904="1"/><sheets><sheet name="使い方" sheetId="9" r:id="cover"/><sheet name="先月の作業" sheetId="7" r:id="previous"/><sheet name="今月の作業" sheetId="3" r:id="current"/></sheets></workbook>',
+            'xl/_rels/workbook.xml.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="cover" Target="worksheets/cover.xml"/><Relationship Id="previous" Target="worksheets/sheet7.xml"/><Relationship Id="current" Target="/xl/worksheets/sheet3.xml"/></Relationships>',
+            'xl/worksheets/cover.xml':'<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>入力方法の説明</t></is></c></row></sheetData></worksheet>',
+            'xl/worksheets/sheet7.xml':sheet('先月の点検',44865),'xl/worksheets/sheet3.xml':sheet('今月の点検',44866)
+        });
+        await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
+        const result=await page.evaluate(`(async()=>{
+            app.openHistoryImportModal();const files=new DataTransfer();files.items.add(new File([Uint8Array.from(atob('${bytes}'),c=>c.charCodeAt(0))],'multi.xlsx'));document.getElementById('hist-csv-upload').files=files.files;
+            await app.refreshHistoryImportPreview();let select=document.getElementById('hist-import-sheet');const names=[...select.options].map(o=>o.textContent),recommended=select.selectedOptions[0].textContent;
+            select.value='xl/worksheets/cover.xml';select.onchange();const cover=document.getElementById('hist-csv-preview').textContent;
+            const before=store.activeData.history.length,confirm=window.confirm;window.confirm=()=>true;
+            try{
+                await app.processHistoryImportCSV();const blocked=store.activeData.history.length===before,errors=document.querySelector('.history-import-errors').textContent;document.querySelector('.history-import-errors').close();
+                select=document.getElementById('hist-import-sheet');select.value='xl/worksheets/sheet3.xml';select.onchange();
+                const preview=document.getElementById('hist-csv-preview').textContent,box=document.getElementById('hist-import-sheet').getBoundingClientRect();
+                await app.processHistoryImportCSV();return {names,recommended,cover,blocked,errors,preview,fits:box.left>=0&&box.right<=innerWidth,record:store.activeData.history.find(r=>r.errorContent==='今月の点検'),wrong:store.activeData.history.some(r=>r.errorContent==='先月の点検')};
+            }finally{window.confirm=confirm;}
+        })()`);
+        assert.deepEqual(result.names,['使い方','先月の作業','今月の作業']);assert.equal(result.recommended,'先月の作業');assert.equal(result.blocked,true);assert.match(result.errors,/取込シート/);assert.match(result.cover,/別のシート/);assert.match(result.preview,/2026-11-02/);assert.match(result.preview,/今月の点検/);assert.equal(result.fits,true);assert.equal(result.record.date,'2026-11-02');assert.equal(result.wrong,false);
+        await page.send('Emulation.clearDeviceMetricsOverride');
+    });
+    await t.test('legacy kg records and import-undo baselines keep cost through repeated persistence reloads',async()=>{
+        await page.evaluate(`(async()=>{
+            await store.runAtomicSaveBatch(()=>{
+                store.activeData.partsMaster=[{name:'旧油',model:'',unit:'kg',stock:10,minStock:1,price:1500,priceRaw:'1500'}];
+                const record={id:'legacy-weight',machineId:'if1',date:'2026-11-15',isSudden:true,errorContent:'旧データ確認',workTime:0,workers:[],importBatchId:'legacy-batch',replacedParts:[{name:'旧油',model:'',unit:'kg',count:2,price:1500}]};
+                store.activeData.history=[record];store.activeData.partStockMovements=[{id:'weight-movement',partName:'旧油',partModel:'',unit:'kg',delta:-.5,quantity:.5,before:10.5,after:10,source:'manual',sourceId:''}];
+                store.activeData.historyImportLogs=[{id:'legacy-batch',undo:{version:1,records:JSON.parse(JSON.stringify([record])),machines:[],partsMaster:[]}}];
+            });
+        })()`);
+        for(let i=0;i<2;i++){
+            await reloadApp(page,'legacy weight reload');
+            const result=await page.evaluate(`(async()=>{const record=store.activeData.history.find(r=>r.id==='legacy-weight');const result={cost:app.calculateHistoryPartCost(record),count:record.replacedParts[0].count,price:record.replacedParts[0].price,stock:store.activeData.partsMaster[0].stock,delta:store.activeData.partStockMovements[0].delta,changed:app.getHistoryImportUndoEntries(store.activeData.historyImportLogs[0])[0].changed};await store.save();return result;})()`);
+            assert.deepEqual(result,{cost:3000,count:2000,price:1.5,stock:10000,delta:-500,changed:false});
+        }
     });
 });

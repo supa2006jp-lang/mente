@@ -9,6 +9,7 @@
         ['type', '対応種別', ['対応種別', '区分']], ['occurrence', '初回・再発', ['初回/再発', '初回・再発', '初回', '再発', '対応回数']],
         ['cause', '原因', ['原因']], ['notes', '処置', ['処置', '処置内容', '備考']], ['errorNo', 'エラー番号', ['エラー番号', 'エラー', 'エラーNo']],
         ['time', '作業時間', ['作業時間', '時間']], ['category', '作業区分', ['作業区分']], ['workers', '作業者', ['作業者', '作業員']],
+        ['partsData', '交換部品（再取込用）', ['交換部品データ']],
         ['parts', '交換部品（一括）', ['交換部品', '部品一括', '部品テキスト', '部品']], ['partName', '部品名', ['部品名']],
         ['partCount', '部品数量', ['部品数量', '使用数量']], ['partUnit', '部品単位', ['部品単位', '単位']], ['partPrice', '部品単価', ['部品単価', '単価']]
     ];
@@ -50,13 +51,23 @@
             const decoded = this.decodeHistoryImportCsv(await file.arrayBuffer(), encoding);
             rows = this.parseCSV(decoded.text); detected = decoded.encoding === 'utf-8' ? 'UTF-8' : 'Shift_JIS';
         }
-        if (rows.length <= 1) throw Error('データがありません。');
-        const prepared = { file, encoding, detected, excel, rows, ...this.detectHistoryImportColumns(rows) };
+        if (!excel && rows.length <= 1) throw Error('データがありません。');
+        const prepared = { file, encoding, detected, excel, rows, sheets: rows.workbookSheets, sheetKey: rows.sheetKey };
+        this.setHistoryImportSheetRows(prepared, rows);
         // A slow decode must not replace the preview for a newer file or encoding selection.
         if (document.getElementById('hist-csv-upload')?.files[0] !== file || (document.getElementById('hist-csv-encoding')?.value || 'auto') !== encoding) return null;
         this._historyImportPrepared = prepared;
         this.renderHistoryImportPreview(prepared);
         return prepared;
+    };
+    P.setHistoryImportSheetRows = function (prepared, rows) {
+        prepared.rows = rows; prepared.sheetError = '';
+        try { Object.assign(prepared, this.detectHistoryImportColumns(rows)); }
+        catch (error) {
+            if (!prepared.excel) throw error;
+            Object.assign(prepared, { headers: rows[0] || [], headerRowIndex: 0, indexMap: Object.fromEntries(fields.map(([key]) => [key, -1])), ambiguous: [], confirmed: new Set() });
+            prepared.sheetError = rows.length ? error.message : 'このシートにはデータがありません。';
+        }
     };
     P.refreshHistoryImportPreview = async function () {
         const target = document.getElementById('hist-csv-preview');
@@ -69,7 +80,20 @@
     P.renderHistoryImportPreview = function (prepared) {
         const target = document.getElementById('hist-csv-preview'); if (!target) return;
         target.replaceChildren();
-        node('p', `${prepared.detected}で読み込みました。文字化けがないか確認してください。先頭5件を表示しています。`, target);
+        if (prepared.sheets?.length) {
+            const label = node('label', '取込シート ', target); label.className = 'history-import-sheet-picker';
+            const select = node('select', null, label); select.id = 'hist-import-sheet'; select.setAttribute('aria-label', '取込シート');
+            for (const sheet of prepared.sheets) select.add(new Option(`${sheet.name}${sheet.hidden ? '（非表示）' : ''}`, sheet.key));
+            select.value = prepared.sheetKey;
+            select.onchange = () => {
+                const sheet = prepared.sheets.find(s => s.key === select.value); if (!sheet) return;
+                prepared.sheetKey = sheet.key; this.setHistoryImportSheetRows(prepared, sheet.rows); this.renderHistoryImportPreview(prepared);
+                document.getElementById('hist-import-sheet')?.focus({ preventScroll: true });
+            };
+        }
+        node('p', `${prepared.detected}で読み込みました。${prepared.excel ? '取り込むシートと内容を確認してください。' : '文字化けがないか確認してください。'}先頭5件を表示しています。`, target);
+        if (prepared.sheetError) { const warning = node('p', prepared.sheetError + ' 別のシートを選択してください。', target); warning.setAttribute('role', 'alert'); }
+
         const wrap = node('div', null, target); wrap.className = 'history-import-preview-table';
         const table = node('table', null, wrap); const head = node('tr', null, node('thead', null, table));
         node('th', '行', head); prepared.headers.forEach(h => node('th', h, head));
@@ -82,6 +106,7 @@
         const details = node('details', null, target); details.className = 'history-import-column-map'; details.open = !!prepared.ambiguous.length;
         node('summary', prepared.ambiguous.length ? '候補が複数ある列を選んでください' : '列の対応を確認・変更', details);
         node('p', '同じ列を複数の項目には使えません。不要な項目は「取り込まない」を選べます。', details);
+        if (prepared.indexMap.partsData >= 0) node('p', '再取込用の交換部品データを優先します。交換部品欄を編集したCSVでは、「交換部品（再取込用）」を「取り込まない」に変更してください。', details);
         for (const [key, title, , required] of fields) {
             const label = node('label', `${title}${required ? '（必須）' : ''}`, details);
             const select = node('select', null, label); select.dataset.importColumn = key; select.setAttribute('aria-label', `${title}の列`);
@@ -93,7 +118,8 @@
         }
     };
     P.getHistoryImportColumnErrors = function (prepared) {
-        const errors = [], used = new Map(), row = prepared.rows[prepared.headerRowIndex].sourceRow || prepared.headerRowIndex + 1;
+        if (prepared.sheetError) return [{ row: 1, field: '取込シート', value: prepared.sheets?.find(s => s.key === prepared.sheetKey)?.name || '', reason: prepared.sheetError + ' 別のシートを選択してください。' }];
+        const errors = [], used = new Map(), row = prepared.rows[prepared.headerRowIndex]?.sourceRow || prepared.headerRowIndex + 1;
         for (const [key, title, , required] of fields) {
             const index = prepared.indexMap[key];
             let reason = '';
@@ -104,6 +130,13 @@
             if (index >= 0) used.set(index, title);
         }
         return errors;
+    };
+    P.getHistoryImportRowShapeErrors = function (prepared) {
+        if (prepared.excel) return [];
+        return prepared.rows.slice(prepared.headerRowIndex + 1).flatMap((row, i) => row.length === prepared.headers.length ? [] : [{
+            row: row.sourceRow || prepared.headerRowIndex + i + 2, field: 'CSVの列数', value: `${row.length}列`,
+            reason: `見出しは${prepared.headers.length}列です。区切りのカンマや引用符を確認してください。`
+        }]);
     };
     P.exportHistoryImportErrors = function (errors) {
         const rows = [['行番号', '項目', '入力値', '理由'], ...errors.map(e => [e.row, e.field, e.value, e.reason])];

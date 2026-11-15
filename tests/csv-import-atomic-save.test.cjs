@@ -304,3 +304,49 @@ test('undo keeps imported equipment referenced by a later ToDo',async()=>{
     const page=makePage(true);await page.app.processHistoryImportCSV();const machine=page.activeData.machines[0];page.activeData.localTodos=[{id:'later',machineId:machine.id,title:'後の予定'}];
     const plan=page.app.createHistoryImportUndoPlan(page.activeData.historyImportLogs[0].id);assert.equal(await page.app.commitHistoryImportUndo(plan),true);assert.equal(page.activeData.machines[0].id,machine.id);assert.equal(page.activeData.localTodos.length,1);
 });
+
+test('malformed quotes reject the whole import and report the physical row',async()=>{
+    for(const bad of ['"交換\n2026-11-15,ポンプ,点検','交"換','"交換"余分']) {
+        const page=makePage(true,'日付,機械名,作業内容\r\n\r\n2026-11-14,ポンプ,'+bad);
+        await page.app.processHistoryImportCSV();
+        assert.equal(page.saves,0);assert.equal(page.activeData.history.length,0);
+        assert.equal(page.errors[0].row,3);assert.equal(page.errors[0].field,'CSVの書式');
+    }
+});
+
+test('CSV column mismatch stops all rows before any data or masters are written',async()=>{
+    const page=makePage(true,'日付,機械名,作業内容\n2026-11-14,ポンプ,正常\n2026-11-15,ポンプ\n2026-11-16,ポンプ,余分,列');
+    await page.app.processHistoryImportCSV();
+    assert.equal(page.saves,0);assert.equal(page.activeData.machines.length,0);
+    assert.deepEqual(Array.from(page.errors,e=>e.row),[3,4]);assert.ok(page.errors.every(e=>e.field==='CSVの列数'));
+});
+
+test('quoted commas, escaped quotes, line breaks and trailing empty cells remain valid CSV',()=>{
+    const {app}=makePage(true),rows=app.parseCSV('\ufeffA,B,C\r\n"a,b","line1\r\n""line2""",\r\nx,y,z');
+    assert.deepEqual(Array.from(rows[1]),['a,b','line1\r\n"line2"','']);assert.equal(rows[2].sourceRow,4);
+});
+
+test('history CSV round trip preserves separators, quotes, newlines, tiny prices, zero and missing prices',async()=>{
+    const page=makePage(true); const parts=[
+        {name:'Oil/Seal; "A"\nB',model:'A/B;[C],"D"',count:.25,unit:'g',price:1e-7},
+        {name:'無償',model:'',count:0,unit:'個',price:0},
+        {name:'未設定',model:'',count:2,unit:'個',price:null}];
+    page.activeData.machines=[{id:'m',name:'ポンプ',model:'P1'}];
+    page.activeData.history=[{id:'h',date:'2026-11-01',machineId:'m',isSudden:true,errorContent:'交換',replacedParts:parts,workers:'田中、鈴木',workTime:null}];
+    page.store.getMachines=()=>page.activeData.machines;
+    page.app.getFilteredHistoryContext=()=>({filtered:page.activeData.history});
+    page.app.getLineLabel=()=>'';page.app.getLocalDateString=()=> '2026-11-15';let csv;
+    page.app.downloadCSV=(name,text)=>csv=text;page.app.exportHistoryAsCSV();
+    const restored=makePage(true,csv);await restored.app.processHistoryImportCSV();
+    assert.deepEqual(restored.errors,[]);assert.equal(restored.saves,1);
+    assert.deepEqual(JSON.parse(JSON.stringify(restored.activeData.history[0].replacedParts)),parts);
+    assert.deepEqual(Array.from(restored.activeData.history[0].workers),['田中','鈴木']);
+});
+
+test('invalid structured parts fail visibly without falling back to ambiguous readable text',()=>{
+    const {app}=makePage(true);
+    for(const raw of ['oops',JSON.stringify({version:2,parts:[]}),JSON.stringify({version:1,parts:[{name:'x',model:'',count:-1,unit:'個',price:1}]})]){
+        const result=app.parseHistoryImportParts('シール x1 個 @10','','','','',raw);
+        assert.equal(result.length,0);assert.match(result.issues[0].reason,/壊れて/);
+    }
+});

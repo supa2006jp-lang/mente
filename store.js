@@ -663,27 +663,53 @@ class MaintenanceStore {
             ];
         });
 
-        // Global normalization: unit conversion (pcs -> 個, kg -> g)
-        Object.keys(this.data.deptData || {}).forEach(id => {
-            const d = this.data.deptData[id];
-            (d.history || []).forEach(h => {
-                (h.replacedParts || []).forEach(p => {
-                    if (p.unit === 'pcs') p.unit = '個';
-                    if (p.unit === 'kg') {
-                        p.unit = 'g';
-                        p.count = (parseFloat(p.count) || 0) * 1000;
-                    }
-                });
-            });
-            (d.partsMaster || []).forEach(m => {
-                if (m.unit === 'pcs') m.unit = '個';
-                if (m.unit === 'kg') {
-                    m.unit = 'g';
-                    m.stock = (parseFloat(m.stock) || 0) * 1000;
-                    if (m.minStock) m.minStock = (parseFloat(m.minStock) || 0) * 1000;
+        Object.values(this.data.deptData).forEach(department => MaintenanceStore.normalizeDepartmentUnits(department));
+    }
+
+    static normalizeDepartmentUnits(department) {
+        const normalize = (item, kind) => {
+            if (!item || typeof item !== 'object') return;
+            const unit = String(item.unit || '').normalize('NFKC').trim().toLowerCase();
+            if (unit === 'pcs') item.unit = '個';
+            if (!['kg', 'キログラム'].includes(unit)) return;
+            const scale = (key, factor) => {
+                if (item[key] == null || String(item[key]).trim() === '') return;
+                const value = Number(item[key]);
+                if (Number.isFinite(value) && Number.isFinite(value * factor)) item[key] = value * factor;
+            };
+            if (kind === 'movement') ['quantity', 'delta', 'before', 'after'].forEach(key => scale(key, 1000));
+            else {
+                (kind === 'master' ? ['stock', 'minStock'] : ['count', 'qty']).forEach(key => scale(key, 1000));
+                scale('price', 1 / 1000);
+                if (item.priceRaw != null && String(item.priceRaw).trim() !== '') {
+                    scale('priceRaw', 1 / 1000); item.priceRaw = String(item.priceRaw);
                 }
-            });
-        });
+            }
+            item.unit = 'g'; // Unit itself is the idempotence marker; new legacy imports are also converted.
+        };
+        const record = item => (item?.replacedParts || []).forEach(part => normalize(part, 'part'));
+        (department.history || []).forEach(record);
+        (department.partsMaster || []).forEach(item => normalize(item, 'master'));
+        (department.partStockMovements || []).forEach(item => normalize(item, 'movement'));
+        for (const log of department.historyImportLogs || []) {
+            const undo = log.undo; if (!undo) continue;
+            (undo.records || []).forEach(record);
+            for (const kind of ['machines', 'partsMaster']) for (const change of undo[kind] || []) {
+                if (kind === 'partsMaster') { normalize(change.before, 'master'); normalize(change.after, 'master'); }
+                if (typeof change.references === 'string') {
+                    try {
+                        const references = JSON.parse(change.references);
+                        if (Array.isArray(references)) {
+                            for (const [collection, item] of references) {
+                                if (collection === 'stock') normalize(item, 'movement');
+                                else { record(item); (item?.parts || []).forEach(part => normalize(part, 'part')); }
+                            }
+                            change.references = JSON.stringify(references);
+                        }
+                    } catch { /* Preserve signatures from an unknown legacy format. */ }
+                }
+            }
+        }
     }
 
     notifySaveStatus(status, backend, detail = {}) {
@@ -1766,6 +1792,7 @@ class MaintenanceStore {
             cause: record.cause || '',
             workers: record.workers || [],
             replacedParts: record.replacedParts || [],
+            stockTracking: 'ledger',
             photos: record.photos || [],
             workTime: rawTime ? Number(rawTime) : 0,
             startTime: record.startTime || '',

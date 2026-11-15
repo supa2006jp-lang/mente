@@ -9,43 +9,38 @@
 
     parseCSV(text) {
         const rows = [];
-        let row = [];
-        let current = '';
-        let inQuotes = false;
-        let line = 1, rowLine = 1;
-        const appendRow = () => {
-            Object.defineProperty(row, 'sourceRow', { value: rowLine });
-            if (row.some(v => String(v).trim() !== '')) rows.push(row);
+        let row = [], current = '', state = 'start', line = 1, rowLine = 1;
+        const fail = reason => {
+            const error = new Error(`${rowLine}行目：${reason}`);
+            error.importErrors = [{ row: rowLine, field: 'CSVの書式', value: current.slice(0, 160), reason }];
+            throw error;
         };
-
+        const append = () => {
+            row.push(current); Object.defineProperty(row, 'sourceRow', { value: rowLine });
+            if (row.some(value => value.trim())) rows.push(row);
+            row = []; current = ''; state = 'start';
+        };
+        text = String(text).replace(/^\ufeff/, '');
         for (let i = 0; i < text.length; i++) {
-            const char = text[i];
-            const next = text[i + 1];
-
-            if (char === '"' && inQuotes && next === '"') {
-                current += '"';
-                i++;
-            } else if (char === '"') {
-                inQuotes = !inQuotes;
-            } else if (char === ',' && !inQuotes) {
-                row.push(current);
-                current = '';
-            } else if ((char === '\n' || char === '\r') && !inQuotes) {
+            const char = text[i], next = text[i + 1];
+            if (state === 'quoted') {
+                if (char === '"') {
+                    if (next === '"') { current += '"'; i++; } else state = 'closed';
+                } else { current += char; if (char === '\n' || (char === '\r' && next !== '\n')) line++; }
+            } else if (char === ',') {
+                row.push(current); current = ''; state = 'start';
+            } else if (char === '\r' || char === '\n') {
                 if (char === '\r' && next === '\n') i++;
-                row.push(current);
-                appendRow();
-                line++; rowLine = line;
-                row = [];
-                current = '';
-            } else {
-                current += char;
-                if (char === '\n' || (char === '\r' && next !== '\n')) line++;
-            }
+                append(); line++; rowLine = line;
+            } else if (char === '"') {
+                if (state !== 'start') fail('引用符はセルの先頭から囲んでください。');
+                state = 'quoted';
+            } else if (state === 'closed') {
+                if (char !== ' ' && char !== '\t') fail('閉じた引用符の後に余分な文字があります。');
+            } else { current += char; state = 'plain'; }
         }
-
-        row.push(current);
-        appendRow();
-        return rows;
+        if (state === 'quoted') fail('引用符が閉じていません。セルの終わりの「"」を確認してください。');
+        append(); return rows;
     }
 
     getCategoryLabel(category) {
@@ -131,12 +126,24 @@
         return raw;
     }
 
-    parseHistoryImportParts(partsText, partName, partCount, partUnit, partPrice) {
+    parseHistoryImportParts(partsText, partName, partCount, partUnit, partPrice, partsData = '') {
         const issues = [];
         const issue = (field, value, reason) => issues.push({ field, value, reason });
         const hasSplitInput = [partName, partCount, partUnit, partPrice].some(v => String(v ?? '').trim());
         let parts;
-        if (hasSplitInput) {
+        if (String(partsData).trim()) {
+            try {
+                const payload = JSON.parse(partsData);
+                if (payload?.version !== 1 || !Array.isArray(payload.parts)) throw Error('対応していない部品データです。');
+                parts = payload.parts.map(part => {
+                    if (!part || typeof part.name !== 'string' || !part.name.trim() || typeof part.model !== 'string'
+                        || typeof part.count !== 'number' || !Number.isFinite(part.count) || part.count < 0
+                        || (part.price !== null && (typeof part.price !== 'number' || !Number.isFinite(part.price) || part.price < 0))
+                        || typeof part.unit !== 'string') throw Error('名前・型式・数量・単位・単価を確認してください。');
+                    return { name: part.name, model: part.model, count: part.count, unit: part.unit, price: part.price };
+                });
+            } catch (error) { issue('交換部品データ', partsData, `再取込用の部品データが壊れています。${error.message}`); parts = []; }
+        } else if (hasSplitInput) {
             const base = this.parseHistoryPartsText(partName)[0];
             if (!base?.name) { issue('部品名', partName, '数量・単価を指定した部品の名前を入力してください。'); parts = []; }
             else {
@@ -674,31 +681,52 @@
             const sharedDoc = new DOMParser().parseFromString(sharedXml, 'application/xml');
             Array.from(sharedDoc.getElementsByTagName('si')).forEach(si => sharedStrings.push(this.xmlTextContent(si)));
         }
-        const sheetPath = entries['xl/worksheets/sheet1.xml'] ? 'xl/worksheets/sheet1.xml' : Object.keys(entries).find(name => /^xl\/worksheets\/sheet\d+\.xml$/.test(name));
-        if (!sheetPath) throw new Error('Excel内の入力シートが見つかりませんでした。');
-        const sheetXml = this.getXlsxEntryText(entries, sheetPath);
-        const sheetDoc = new DOMParser().parseFromString(sheetXml, 'application/xml');
-        const rows = Array.from(sheetDoc.getElementsByTagName('row')).map(rowEl => {
-            const row = [];
-            Array.from(rowEl.getElementsByTagName('c')).forEach(cell => {
-                const { col } = this.parseXlsxCellRef(cell.getAttribute('r'));
-                const type = cell.getAttribute('t');
-                const valueNode = cell.getElementsByTagName('v')[0];
-                let value = valueNode ? (valueNode.textContent || '') : '';
-                if (type === 's') value = sharedStrings[parseInt(value, 10)] || '';
-                else if (type === 'inlineStr') value = this.xmlTextContent(cell);
-                else if (type === 'b') value = value === '1' ? 'TRUE' : 'FALSE';
-                row[col] = value;
-            });
-            const normalized = row.map(value => value ?? '');
-            Object.defineProperty(normalized, 'sourceRow', { value: Number(rowEl.getAttribute('r')) || 0 });
-            return normalized;
-        }).filter(row => row.some(col => String(col).trim() !== ''));
         const workbookXml = this.getXlsxEntryText(entries, 'xl/workbook.xml');
-        const workbookDoc = workbookXml ? new DOMParser().parseFromString(workbookXml, 'application/xml') : null;
-        const flag = workbookDoc?.getElementsByTagName('workbookPr')[0]?.getAttribute('date1904');
-        Object.defineProperty(rows, 'excelDate1904', { value: flag === '1' || flag === 'true' });
-        return rows;
+        const workbookDoc = new DOMParser().parseFromString(workbookXml || '<workbook/>', 'application/xml');
+        const relations = new DOMParser().parseFromString(this.getXlsxEntryText(entries, 'xl/_rels/workbook.xml.rels') || '<Relationships/>', 'application/xml');
+        const paths = new Map(Array.from(relations.getElementsByTagName('Relationship')).filter(r => r.getAttribute('TargetMode') !== 'External').map(r => {
+            const target = (r.getAttribute('Target') || '').replace(/\\/g, '/');
+            const segments = (target.startsWith('/') ? target.slice(1) : 'xl/' + target).split('/'), resolved = [];
+            for (const segment of segments) { if (segment === '..') resolved.pop(); else if (segment && segment !== '.') resolved.push(segment); }
+            return [r.getAttribute('Id'), resolved.join('/')];
+        }));
+        const flag = workbookDoc.getElementsByTagName('workbookPr')[0]?.getAttribute('date1904');
+        let sheets = Array.from(workbookDoc.getElementsByTagName('sheet')).map(sheet => ({
+            name: sheet.getAttribute('name') || '名前のないシート', key: paths.get(sheet.getAttribute('r:id')),
+            hidden: sheet.getAttribute('state') === 'hidden' || sheet.getAttribute('state') === 'veryHidden'
+        })).filter(sheet => sheet.key && entries[sheet.key] && /\.xml$/i.test(sheet.key));
+        // Older simple workbooks may omit the workbook relationships.
+        if (!sheets.length) sheets = Object.keys(entries).filter(name => /^xl\/worksheets\/[^/]+\.xml$/i.test(name)).map((key, i) => ({ key, name: `シート${i + 1}` }));
+        if (!sheets.length) throw new Error('Excel内の入力シートが見つかりませんでした。');
+        for (const sheet of sheets) {
+            const sheetDoc = new DOMParser().parseFromString(this.getXlsxEntryText(entries, sheet.key), 'application/xml');
+            if (sheetDoc.getElementsByTagName('parsererror').length) throw Error(`シート「${sheet.name}」の書式を読み取れません。`);
+            const rows = Array.from(sheetDoc.getElementsByTagName('row')).map(rowEl => {
+                const row = [];
+                Array.from(rowEl.getElementsByTagName('c')).forEach(cell => {
+                    const { col } = this.parseXlsxCellRef(cell.getAttribute('r'));
+                    const type = cell.getAttribute('t');
+                    let value = cell.getElementsByTagName('v')[0]?.textContent || '';
+                    if (type === 's') value = sharedStrings[parseInt(value, 10)] || '';
+                    else if (type === 'inlineStr') value = this.xmlTextContent(cell);
+                    else if (type === 'b') value = value === '1' ? 'TRUE' : 'FALSE';
+                    row[col] = value;
+                });
+                const normalized = Array.from(row, value => value ?? '');
+                Object.defineProperty(normalized, 'sourceRow', { value: Number(rowEl.getAttribute('r')) || 0 });
+                return normalized;
+            }).filter(row => row.some(col => String(col).trim() !== ''));
+            Object.defineProperty(rows, 'excelDate1904', { value: flag === '1' || flag === 'true' });
+            sheet.rows = rows;
+            try {
+                const mapping = this.detectHistoryImportColumns(rows);
+                sheet.score = ['date', 'machine', 'content'].filter(key => mapping.indexMap[key] !== -1).length * 100
+                    + Object.values(mapping.indexMap).filter(index => index >= 0).length;
+            } catch { sheet.score = 0; }
+        }
+        const selected = [...sheets].sort((a, b) => b.score - a.score || Number(!!a.hidden) - Number(!!b.hidden))[0];
+        Object.defineProperties(selected.rows, { workbookSheets: { value: sheets }, sheetKey: { value: selected.key } });
+        return selected.rows;
     }
 
     async processHistoryImportCSV() {
@@ -713,7 +741,7 @@
             if (!prepared) return;
             const { headerRowIndex, indexMap } = prepared;
             const rows = prepared.excel ? this.normalizeXlsxImportRows(prepared.rows, prepared) : prepared.rows;
-            const columnErrors = this.getHistoryImportColumnErrors(prepared);
+            const columnErrors = [...this.getHistoryImportColumnErrors(prepared), ...this.getHistoryImportRowShapeErrors(prepared)];
             if (columnErrors.length) { this.openHistoryImportErrors(columnErrors); return; }
             const getCol = (cols, key) => {
                 const index = indexMap[key];
@@ -771,7 +799,7 @@
                 const partPriceStr = getCol(cols, 'partPrice');
                 if (!mName) errors.push({ row: sourceRow, field: '機械名', value: mName, reason: '機械名を入力してください。' });
                 if (!content) errors.push({ row: sourceRow, field: '作業内容', value: content, reason: '作業内容を入力してください。' });
-                const replacedParts = this.parseHistoryImportParts(partsStr, partNameStr, partCountStr, partUnitStr, partPriceStr);
+                const replacedParts = this.parseHistoryImportParts(partsStr, partNameStr, partCountStr, partUnitStr, partPriceStr, getCol(cols, 'partsData'));
                 for (const issue of replacedParts.issues || []) errors.push({ row: sourceRow, ...issue });
                 if (errors.length > errorCount) continue;
 
@@ -848,29 +876,16 @@
             }
         } catch (err) {
             console.error('History import failed', err);
-            alert(`取り込みに失敗しました。変更は保存されていません。\n${err.message || err}`);
+            if (err.importErrors) this.openHistoryImportErrors(err.importErrors);
+            else alert(`取り込みに失敗しました。変更は保存されていません。\n${err.message || err}`);
         } finally {
             this._historyImportReading = false;
         }
     }
 
     exportHistoryAsCSV() {
-        const period = document.getElementById('hist-filter-period')?.value || 'all';
-        const machineId = document.getElementById('hist-filter-machine')?.value || '';
-        const type = document.getElementById('hist-filter-type')?.value || '';
-        const query = document.getElementById('global-search')?.value || '';
-
-        let history = store.getHistory({ machineId, search: query }).filter(h => !h.isManualGuide);
-        history = this.filterHistoryByPeriod(history, period);
-        if (type) {
-            if (type === 'periodic') history = history.filter(h => this.getHistoryTypeKey(h) === 'periodic');
-            else if (type === 'singleMaintenance') history = history.filter(h => !!h.isSingleMaintenance);
-            else if (type === 'sudden') history = history.filter(h => this.getHistoryTypeKey(h) === 'sudden');
-            else if (type === 'nonProductionStop') history = history.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop');
-            else if (type === 'dokatei') history = history.filter(h => h.isDokatei);
-        }
-
-        const headers = ["日付", "ライン", "機械名", "型式", "対応種別", "初回/再発", "作業内容(症状)", "原因", "処置内容(備考)", "エラー番号", "作業時間(分)", "作業区分", "作業者", "交換部品"];
+        const { filtered: history } = this.getFilteredHistoryContext(this._historyRenderedQuery);
+        const headers = ["日付", "ライン", "機械名", "型式", "対応種別", "初回/再発", "作業内容(症状)", "原因", "処置内容(備考)", "エラー番号", "作業時間(分)", "作業区分", "作業者", "交換部品", "交換部品データ"];
         const rows = history.map(h => {
             const m = store.getMachines(true).find(x => x.id === h.machineId);
             const mName = m ? m.name : '不明';
@@ -879,7 +894,7 @@
             const typeInfo = this.getHistoryTypeInfo(h);
             const typeLabel = typeInfo.key === 'nonProductionStop' ? '非生産停止' : typeInfo.label;
             const displayText = this.getHistoryDisplayText(h);
-            const workers = (h.workers || []).join(', ');
+            const workers = this.splitWorkerText(h.workers).join(', ');
             const parts = (h.replacedParts || []).map(p => {
                 const count = p.count ?? p.qty ?? 0;
                 const unit = p.unit || '個';
@@ -902,7 +917,11 @@
                 h.workTime ?? '',
                 this.getCategoryLabel(h.category),
                 workers,
-                parts
+                parts,
+                JSON.stringify({ version: 1, parts: (h.replacedParts || []).map(p => ({
+                    name: p.name || '', model: p.model || '', count: Number(p.count ?? p.qty ?? 0), unit: p.unit || '個',
+                    price: p.price == null || String(p.price).trim() === '' ? null : Number(p.price)
+                })) })
             ].map(v => this.csvEscape(v)).join(',');
         });
 

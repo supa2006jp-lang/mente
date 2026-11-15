@@ -699,6 +699,132 @@
         if (costIcon) costIcon.className = 'fa-solid fa-arrow-down-wide-short history-sort-dir-icon';
     }
 
+    getFilteredHistoryContext(searchQuery) {
+        const mFilter = document.getElementById('hist-filter-machine');
+        const tFilter = document.getElementById('hist-filter-type');
+        const pFilter = document.getElementById('hist-filter-period');
+        const globalSearch = (document.getElementById('global-search')?.value || '').toLowerCase();
+        const query = searchQuery || globalSearch;
+
+        const machineId = mFilter?.value;
+        const lineVal = document.getElementById('hist-filter-line')?.value || 'all';
+        const type = tFilter?.value;
+        const period = pFilter?.value || 'this_month';
+        const partsOnly = !!document.getElementById('hist-filter-parts')?.checked;
+        const photosOnly = !!document.getElementById('hist-filter-photos')?.checked;
+        const guideOnly = !!document.getElementById('hist-filter-guide')?.checked;
+
+        let filtered = store.activeData.history ? store.activeData.history.filter(h => !h.isManualGuide) : [];
+        const filterSteps = [{ label: '全履歴', count: filtered.length }];
+        filtered = this.filterHistoryByPeriod(filtered, period, 'history');
+        filterSteps.push({ label: period === 'all' ? '期間: 全期間' : `期間: ${document.getElementById('hist-filter-period')?.selectedOptions?.[0]?.textContent || period}`, count: filtered.length });
+
+        if (machineId) {
+            filtered = filtered.filter(h => h.machineId === machineId);
+            const machine = store.getMachines(true).find(m => String(m.id) === String(machineId));
+            filterSteps.push({ label: `機械: ${machine?.name || machineId}`, count: filtered.length });
+        }
+
+        if (lineVal !== 'all') {
+            filtered = filtered.filter(h => {
+                const m = store.getMachines(true).find(x => x.id === h.machineId);
+                const l = h.lineNo || m?.lineNo;
+                return String(l) === String(lineVal);
+            });
+            filterSteps.push({ label: `ライン: ${this.getLineLabel(lineVal)}`, count: filtered.length });
+        }
+
+        if (this.modelFilter) {
+            const normFilter = MaintenanceApp.toHalfWidthLower(this.modelFilter);
+            filtered = filtered.filter(h => {
+                const machine = store.getMachines(true).find(m => m.id === h.machineId);
+                const mModel = MaintenanceApp.toHalfWidthLower(machine?.model || '');
+                return mModel === normFilter;
+            });
+            filterSteps.push({ label: `型式: ${this.modelFilter}`, count: filtered.length });
+        }
+
+        if (this.workerFilter) {
+            filtered = filtered.filter(h => h.workers && h.workers.includes(this.workerFilter));
+            filterSteps.push({ label: `作業者: ${this.workerFilter}`, count: filtered.length });
+        }
+
+        if (this.machineCategoryFilter) {
+            const normCategory = MaintenanceStore.toHalfWidthLower(this.machineCategoryFilter);
+            filtered = filtered.filter(h => {
+                const machine = store.getMachines(true).find(m => m.id === h.machineId);
+                const cat = h.machineCategory || machine?.category || 'その他';
+                return MaintenanceStore.toHalfWidthLower(cat) === normCategory;
+            });
+            filterSteps.push({ label: `装置区分: ${this.machineCategoryFilter}`, count: filtered.length });
+        }
+
+        if (type === 'periodic') {
+            filtered = filtered.filter(h => this.getHistoryTypeKey(h) === 'periodic');
+            filterSteps.push({ label: '区分: 定期のみ', count: filtered.length });
+        } else if (type === 'singleMaintenance') {
+            filtered = filtered.filter(h => !!h.isSingleMaintenance);
+            filterSteps.push({ label: '区分: 単発メンテのみ', count: filtered.length });
+        } else if (type === 'suddenBundle') {
+            filtered = filtered.filter(h => this.isCalendarSuddenResponseHistory
+                ? this.isCalendarSuddenResponseHistory(h)
+                : (!h.taskId && !h.isManualGuide && (h.isSudden === true || h.isDokatei || h.isNonProductionStop)));
+            filterSteps.push({ label: '区分: 突発+ドカ停+非生産停止', count: filtered.length });
+        } else if (type === 'sudden') {
+            filtered = filtered.filter(h => this.getHistoryTypeKey(h) === 'sudden');
+            filterSteps.push({ label: '区分: 突発のみ', count: filtered.length });
+        } else if (type === 'nonProductionStop') {
+            filtered = filtered.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop');
+            filterSteps.push({ label: '区分: 非生産停止のみ', count: filtered.length });
+        } else if (type === 'dokatei') {
+            filtered = filtered.filter(h => !!h.isDokatei);
+            filterSteps.push({ label: '区分: ドカ停のみ', count: filtered.length });
+        }
+
+        if (partsOnly) {
+            filtered = filtered.filter(h => (h.replacedParts || []).length > 0);
+            filterSteps.push({ label: '部品有', count: filtered.length });
+        }
+        if (photosOnly) {
+            filtered = filtered.filter(h => (h.photos || []).some(photo => (photo?.source === 'photoManagerVideo' && photo?.videoId) || !!this.getHistoryPhotoSrc?.(photo)));
+            filterSteps.push({ label: '添付有', count: filtered.length });
+        }
+        if (guideOnly) {
+            filtered = filtered.filter(h => this.hasHistoryGuide(h));
+            filterSteps.push({ label: '手順有', count: filtered.length });
+        }
+
+        if (this.historyMissingDetailFilter) {
+            const kind = this.historyMissingDetailFilter;
+            filtered = filtered.filter(h => this.isTroubleHistoryForDetail(h) && !String(kind === 'cause' ? h.cause || '' : h.notes || '').trim());
+            filterSteps.push({ label: kind === 'cause' ? '原因未入力' : '処置未入力', count: filtered.length });
+        }
+
+        if (this.historyRecurrenceFrequencyFilter?.ids?.length) {
+            const idSet = new Set(this.historyRecurrenceFrequencyFilter.ids.map(String));
+            filtered = filtered.filter(h => idSet.has(String(h.id)));
+            const historyFilterLabel = this.historyRecurrenceFrequencyFilter.kind === 'single'
+                ? `該当履歴: ${this.historyRecurrenceFrequencyFilter.label || '選択した履歴'}`
+                : `再発グループ: ${this.historyRecurrenceFrequencyFilter.label || '同じグループ'}`;
+            filterSteps.push({ label: historyFilterLabel, count: filtered.length });
+        }
+
+        if (query) {
+            const terms = MaintenanceStore.toHalfWidthLower(query).split(/\s+/).filter(t => t);
+            filtered = filtered.filter(h => {
+                const machine = store.getMachines(true).find(m => m.id === h.machineId);
+                const taskName = this.getHistoryDisplayText(h);
+                const searchableText = (h.date || '') + ' ' + taskName + ' ' + (h.notes || '') + ' ' + (h.cause || '') + ' ' + (machine?.name || '') + ' ' + (machine?.model || '') + ' ' + (h.machineCategory || '');
+                const normTxt = MaintenanceStore.toHalfWidthLower(searchableText);
+                return terms.every(t => normTxt.includes(t));
+            });
+            filterSteps.push({ label: `検索: ${query}`, count: filtered.length });
+        }
+
+        this.sortHistoryRows(filtered);
+        return { filtered, filterSteps, period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly };
+    }
+
     sortHistoryRows(rows) {
         const sortByDate = () => {
             const dir = this.historyDateSortDir === 'asc' ? 1 : -1;
@@ -729,6 +855,17 @@
             return;
         }
         sortByDate();
+    }
+
+    getHistoryStockReversalParts(records, active = store.activeData) {
+        return records.flatMap(record => {
+            const movements = (active.partStockMovements || []).filter(m => String(m.sourceId) === String(record.id)
+                && ['maintenance', 'maintenance-edit'].includes(m.source));
+            if (record.importBatchId || record.stockTracking === 'ledger' || movements.some(m => m.source === 'maintenance')) {
+                return movements.map(m => ({ name: m.partName, model: m.partModel, delta: -Number(m.delta), unit: m.unit, sourceId: record.id }));
+            }
+            return (record.replacedParts || []).map(p => ({ name: p.name, model: p.model, delta: p.count ?? p.qty, unit: p.unit, sourceId: record.id }));
+        });
     }
 
     applyHistoryDeletionStockChanges(active, parts, source, reason, changes, requireMaster = false) {
@@ -782,9 +919,7 @@
         this._historyDeleteInProgress = true;
         if (deleteButton) deleteButton.disabled = true;
         try {
-            const parts = (record.replacedParts || []).map(part => ({
-                name: part.name, model: part.model, delta: part.count, unit: part.unit, sourceId: record.id
-            }));
+            const parts = this.getHistoryStockReversalParts([record], active);
             this.applyHistoryDeletionStockChanges(
                 active, parts, 'maintenance-delete', 'メンテナンス履歴削除（使用分を戻す）', stockChanges
             );
@@ -1571,10 +1706,6 @@
             }
         }
 
-        const mFilter = document.getElementById('hist-filter-machine');
-        const tFilter = document.getElementById('hist-filter-type');
-        const pFilter = document.getElementById('hist-filter-period');
-
         // ラインフィルタの選択肢を動的生成 (初回のみ)
         const lineFilterEl = document.getElementById('hist-filter-line');
         if (lineFilterEl && lineFilterEl.options.length <= 1) {
@@ -1589,113 +1720,12 @@
             });
         }
         
-        const globalSearch = document.getElementById('global-search').value.toLowerCase();
-        const query = searchQuery || globalSearch;
-
-        const machineId = mFilter?.value;
-        const lineVal = document.getElementById('hist-filter-line')?.value || 'all';
-        const type = tFilter?.value;
-        const period = pFilter?.value || 'this_month';
-        const partsOnly = !!document.getElementById('hist-filter-parts')?.checked;
-        const photosOnly = !!document.getElementById('hist-filter-photos')?.checked;
-        const guideOnly = !!document.getElementById('hist-filter-guide')?.checked;
-        const recurrenceFrequencyByHistoryId = this.getHistoryRecurrenceFrequencyMap();
-
-        let filtered = store.activeData.history ? store.activeData.history.filter(h => !h.isManualGuide) : [];
-        const filterSteps = [{ label: '全履歴', count: filtered.length }];
-        filtered = this.filterHistoryByPeriod(filtered, period, 'history');
-        filterSteps.push({ label: period === 'all' ? '期間: 全期間' : `期間: ${document.getElementById('hist-filter-period')?.selectedOptions?.[0]?.textContent || period}`, count: filtered.length });
+        const { filtered, filterSteps, period, machineId, lineVal, type, query, partsOnly, photosOnly, guideOnly } = this.getFilteredHistoryContext(searchQuery);
+        this._historyRenderedQuery = query;
         this.updateViewSubtitle('view-history', period);
-
-        if (machineId) {
-            filtered = filtered.filter(h => h.machineId === machineId);
-            const machine = store.getMachines(true).find(m => String(m.id) === String(machineId));
-            filterSteps.push({ label: `機械: ${machine?.name || machineId}`, count: filtered.length });
-        }
-
-        if (lineVal !== 'all') {
-            filtered = filtered.filter(h => {
-                const m = store.getMachines(true).find(x => x.id === h.machineId);
-                const l = h.lineNo || m?.lineNo;
-                return String(l) === String(lineVal);
-            });
-            filterSteps.push({ label: `ライン: ${this.getLineLabel(lineVal)}`, count: filtered.length });
-        }
-        
-        if (this.modelFilter) {
-            const normFilter = MaintenanceApp.toHalfWidthLower(this.modelFilter);
-            filtered = filtered.filter(h => {
-                const machine = store.getMachines(true).find(m => m.id === h.machineId);
-                const mModel = MaintenanceApp.toHalfWidthLower(machine?.model || '');
-                return mModel === normFilter;
-            });
-            filterSteps.push({ label: `型式: ${this.modelFilter}`, count: filtered.length });
-        }
-
-        if (this.workerFilter) {
-            filtered = filtered.filter(h => h.workers && h.workers.includes(this.workerFilter));
-            filterSteps.push({ label: `作業者: ${this.workerFilter}`, count: filtered.length });
-        }
-
-        if (this.machineCategoryFilter) {
-            const normCategory = MaintenanceStore.toHalfWidthLower(this.machineCategoryFilter);
-            filtered = filtered.filter(h => {
-                const machine = store.getMachines(true).find(m => m.id === h.machineId);
-                const cat = h.machineCategory || machine?.category || 'その他';
-                return MaintenanceStore.toHalfWidthLower(cat) === normCategory;
-            });
-            filterSteps.push({ label: `装置区分: ${this.machineCategoryFilter}`, count: filtered.length });
-        }
-
-        if (type === 'periodic') {
-            filtered = filtered.filter(h => this.getHistoryTypeKey(h) === 'periodic');
-            filterSteps.push({ label: '区分: 定期のみ', count: filtered.length });
-        } else if (type === 'singleMaintenance') {
-            filtered = filtered.filter(h => !!h.isSingleMaintenance);
-            filterSteps.push({ label: '区分: 単発メンテのみ', count: filtered.length });
-        } else if (type === 'suddenBundle') {
-            filtered = filtered.filter(h => this.isCalendarSuddenResponseHistory
-                ? this.isCalendarSuddenResponseHistory(h)
-                : (!h.taskId && !h.isManualGuide && (h.isSudden === true || h.isDokatei || h.isNonProductionStop)));
-            filterSteps.push({ label: '区分: 突発+ドカ停+非生産停止', count: filtered.length });
-        } else if (type === 'sudden') {
-            filtered = filtered.filter(h => this.getHistoryTypeKey(h) === 'sudden');
-            filterSteps.push({ label: '区分: 突発のみ', count: filtered.length });
-        } else if (type === 'nonProductionStop') {
-            filtered = filtered.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop');
-            filterSteps.push({ label: '区分: 非生産停止のみ', count: filtered.length });
-        } else if (type === 'dokatei') {
-            filtered = filtered.filter(h => !!h.isDokatei);
-            filterSteps.push({ label: '区分: ドカ停のみ', count: filtered.length });
-        }
-
-        if (partsOnly) {
-            filtered = filtered.filter(h => (h.replacedParts || []).length > 0);
-            filterSteps.push({ label: '部品有', count: filtered.length });
-        }
-        if (photosOnly) {
-            filtered = filtered.filter(h => (h.photos || []).some(photo => (photo?.source === 'photoManagerVideo' && photo?.videoId) || !!this.getHistoryPhotoSrc?.(photo)));
-            filterSteps.push({ label: '添付有', count: filtered.length });
-        }
-        if (guideOnly) {
-            filtered = filtered.filter(h => this.hasHistoryGuide(h));
-            filterSteps.push({ label: '手順有', count: filtered.length });
-        }
-
-        if (this.historyMissingDetailFilter) {
-            const kind = this.historyMissingDetailFilter;
-            filtered = filtered.filter(h => this.isTroubleHistoryForDetail(h) && !String(kind === 'cause' ? h.cause || '' : h.notes || '').trim());
-            filterSteps.push({ label: kind === 'cause' ? '原因未入力' : '処置未入力', count: filtered.length });
-        }
-
-        if (this.historyRecurrenceFrequencyFilter?.ids?.length) {
-            const idSet = new Set(this.historyRecurrenceFrequencyFilter.ids.map(String));
-            filtered = filtered.filter(h => idSet.has(String(h.id)));
-            const historyFilterLabel = this.historyRecurrenceFrequencyFilter.kind === 'single'
-                ? `該当履歴: ${this.historyRecurrenceFrequencyFilter.label || '選択した履歴'}`
-                : `再発グループ: ${this.historyRecurrenceFrequencyFilter.label || '同じグループ'}`;
-            filterSteps.push({ label: historyFilterLabel, count: filtered.length });
-        }
+        const recurrenceFrequencyByHistoryId = this.getHistoryRecurrenceFrequencyMap();
+        const exportButton = document.getElementById('history-export-csv');
+        if (exportButton) { exportButton.textContent = `表示中の${filtered.length}件をCSV出力`; exportButton.disabled = !filtered.length; }
 
         if (this.historyRecurrenceFrequencyFilter?.ids?.length && activeFiltersArea) {
             const idSet = new Set(this.historyRecurrenceFrequencyFilter.ids.map(String));
@@ -1722,19 +1752,6 @@
             `;
         }
 
-        if (query) {
-            const terms = MaintenanceStore.toHalfWidthLower(query).split(/\s+/).filter(t => t);
-            filtered = filtered.filter(h => {
-                const machine = store.getMachines(true).find(m => m.id === h.machineId);
-                const taskName = this.getHistoryDisplayText(h);
-                const searchableText = (h.date || '') + ' ' + taskName + ' ' + (h.notes || '') + ' ' + (h.cause || '') + ' ' + (machine?.name || '') + ' ' + (machine?.model || '') + ' ' + (h.machineCategory || '');
-                const normTxt = MaintenanceStore.toHalfWidthLower(searchableText);
-                return terms.every(t => normTxt.includes(t));
-            });
-            filterSteps.push({ label: `検索: ${query}`, count: filtered.length });
-        }
-
-        this.sortHistoryRows(filtered);
         for (const id of Array.from(this.selectedHistoryIds)) {
             if (!(store.activeData.history || []).some(h => String(h.id) === id && !h.isManualGuide)) {
                 this.selectedHistoryIds.delete(id);

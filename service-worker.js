@@ -1,5 +1,5 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const APP_BUILD = '20261115-data6';
+const APP_BUILD = '20261115-integrity6';
 const CACHE_NAME = 'maintenance-next-static-' + APP_BUILD;
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
@@ -10,7 +10,7 @@ const SHELL_FILES = [
     './app-five-s-management.js?v=20261115-workspace6',
     './app-unified-search.js?v=20261115-data6',
     './app-photo-export.js?v=20261115-workspace6',
-    './workspace-improvements.css?v=20261115-data6',
+    './workspace-improvements.css?v=20261115-integrity6',
     './',
     './index.html',
     './assets/vendor/fontsource/inter/5.2.6/index.css',
@@ -22,7 +22,7 @@ const SHELL_FILES = [
     './assets/vendor/kuromoji/0.1.2/kuromoji.js',
     './assets/vendor/kuroshiro/1.2.0/kuroshiro.min.js',
     './assets/vendor/kuroshiro-analyzer-kuromoji/1.1.0/kuroshiro-analyzer-kuromoji.min.js',
-    './store.js?v=20261115-data6',
+    './store.js?v=20261115-integrity6',
     './app.js?v=20261115-workspace-refine6',
     './app-settings.js?v=20261115-data6',
     './app-todos.js?v=20261115-edit-safety1',
@@ -34,7 +34,7 @@ const SHELL_FILES = [
     './app-departments.js?v=20261115-five1',
     './app-machines.js?v=20261115-data6',
     './app-maintenance-forms.js?v=20261115-data6',
-    './app-history.js?v=20261115-data6',
+    './app-history.js?v=20261115-integrity6',
     './app-analysis-dashboard.js?v=20261115-data6',
     './app-ranking-guides.js?v=20261115-data6',
     './app-tips.js?v=20261115-five1',
@@ -44,10 +44,10 @@ const SHELL_FILES = [
     './app-archives.js?v=20261115-data6',
     './app-hard-delete.js?v=20261115-five1',
     './app-persistence.js?v=20261115-five1',
-    './app-csv.js?v=20261115-data6',
-    './app-import-input.js?v=20261115-data6',
-    './app-import-undo.js?v=20261115-data6',
-    './app-import-review.js?v=20261115-data6',
+    './app-csv.js?v=20261115-integrity6',
+    './app-import-input.js?v=20261115-integrity6',
+    './app-import-undo.js?v=20261115-integrity6',
+    './app-import-review.js?v=20261115-integrity6',
     './app-misc-analysis.js?v=20261115-data6',
     './assets/vendor/ffmpeg/0.11.6/ffmpeg.min.js',
     './assets/vendor/ffmpeg/0.11.6/046d0074eee1d99a674a.js',

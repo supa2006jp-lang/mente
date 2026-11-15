@@ -104,7 +104,7 @@
                 if (plan.department !== store.data?.currentDepartmentId || plan.snapshot !== this.getHistoryImportSnapshot()) throw Error('確認中にデータが変わりました。読み込み直してください。');
                 const before = JSON.parse(JSON.stringify(store.activeData));
                 const batchId = store.generateId();
-                records.forEach(record => { record.importBatchId = batchId; });
+                records.forEach(record => { record.importBatchId = batchId; record.stockTracking = 'ledger'; });
                 store.activeData.machines.push(...machinesToAdd);
                 for (const [id, line] of lineAssignments) {
                     const machine = store.activeData.machines.find(m => m.id === id);

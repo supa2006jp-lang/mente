@@ -140,3 +140,42 @@ test('undo restores current department after another failed batch replaced its o
     assert.equal(h.store.activeData.partsMaster[0].stock, 5);
     assert.equal(h.store.activeData.partStockMovements[1].source, 'maintenance-delete-undo');
 });
+
+test('deleting an untouched CSV import and undoing never changes stock', async () => {
+    const h = makeHarness(); h.record.importBatchId = 'csv-batch';
+    await h.app.deleteHistoryEntry(h.record.id);
+    assert.equal(h.master.stock, 5); assert.equal(h.active.partStockMovements.length, 0);
+    await h.app.undoCallback();
+    assert.equal(h.master.stock, 5); assert.equal(h.active.history.length, 1);
+});
+
+test('import delete reverses only actual edits, including different parts and unit changes, on repeated undo', async () => {
+    const h = makeHarness(); h.record.importBatchId = 'csv-batch';
+    h.active.partsMaster.push({name:'oil',model:'',stock:4500,unit:'g'});
+    h.active.partStockMovements.push(
+        {source:'maintenance-edit',sourceId:h.record.id,partName:'bolt',partModel:'M3',delta:-1,unit:'個'},
+        {source:'maintenance-edit',sourceId:h.record.id,partName:'oil',partModel:'',delta:-.5,unit:'kg'},
+        {source:'manual',sourceId:h.record.id,partName:'bolt',partModel:'M3',delta:20,unit:'個'},
+        {source:'maintenance-edit',sourceId:'other',partName:'bolt',partModel:'M3',delta:-4,unit:'個'});
+    for(let i=0;i<2;i++) {
+        await h.app.deleteHistoryEntry(h.record.id);
+        assert.equal(h.master.stock,6); assert.equal(h.active.partsMaster[1].stock,5000);
+        await h.app.undoCallback();
+        assert.equal(h.master.stock,5); assert.equal(h.active.partsMaster[1].stock,4500);
+    }
+});
+
+test('failed imported-history deletion restores stock and only removes its new ledger movements', async () => {
+    const h = makeHarness(async () => {throw Error('write failed');}); h.record.importBatchId='batch';
+    h.active.partStockMovements.push({source:'maintenance-edit',sourceId:h.record.id,partName:'bolt',partModel:'M3',delta:1,unit:'個'});
+    await h.app.deleteHistoryEntry(h.record.id);
+    assert.equal(h.master.stock,5);assert.equal(h.active.history.length,1);assert.equal(h.active.partStockMovements.length,1);
+});
+
+test('ledger-tracked records do not return parts for which no stock was originally deducted', async () => {
+    const h=makeHarness();h.record.stockTracking='ledger';
+    await h.app.deleteHistoryEntry(h.record.id);assert.equal(h.master.stock,5);
+    await h.app.undoCallback();
+    h.active.partStockMovements.push({source:'maintenance',sourceId:h.record.id,partName:'bolt',partModel:'M3',delta:-1,unit:'個'});
+    await h.app.deleteHistoryEntry(h.record.id);assert.equal(h.master.stock,6);
+});

@@ -53,12 +53,11 @@
             await store.runAtomicSaveBatch(() => {
                 validate(); // Recheck after any earlier queued save has finished.
                 const data = store.activeData;
-                // Import itself does not move stock. Reverse only subsequent edits tied to these records.
-                const movements = (data.partStockMovements || []).filter(m => m.source === 'maintenance-edit' && ids.has(m.sourceId));
-                for (const movement of movements) {
-                    if (!store.adjustStock(movement.partName, movement.partModel, -Number(movement.delta), {
-                        unit: movement.unit, source: 'import-undo', sourceId: plan.id, reason: '取込取消（取込後の履歴編集による在庫変更を戻す）'
-                    })) throw Error(`部品「${movement.partName}」の在庫を確認できません。`);
+                const parts = this.getHistoryStockReversalParts(data.history.filter(record => ids.has(record.id)), data);
+                for (const part of parts) {
+                    if (!store.adjustStock(part.name, part.model, part.delta, {
+                        unit: part.unit, source: 'import-undo', sourceId: plan.id, reason: '取込取消（履歴に伴う在庫変更を戻す）'
+                    })) throw Error(`部品「${part.name}」の在庫を確認できません。`);
                 }
                 data.history = data.history.filter(record => !ids.has(record.id));
                 for (const kind of ['machines', 'partsMaster']) {

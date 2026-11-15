@@ -138,3 +138,5 @@
 .history-time-unknown { color: #a16207; font-size: .75rem; }
 .history-import-log-list { max-height: 340px; overflow: auto; }
 .history-import-undo .history-import-review-list { overflow-wrap: anywhere; }
+.history-import-sheet-picker { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; font-weight: 700; }
+.history-import-sheet-picker select { flex: 1 1 180px; min-width: 0; max-width: 100%; min-height: 38px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; }
