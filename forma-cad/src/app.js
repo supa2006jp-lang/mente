@@ -299,12 +299,14 @@ import {hideShellProfiles} from './shell-profile-visibility.js';
 import {dimensionPositions} from './dimension-layout.js';
 let loftSections=[],loftHighlight=null,loftMarkers=[];
 let revolveRegion=null,revolveEdge=null,revolvePoint=null,revolvePicking="profile",revolvePreview=null,revolveTimer=null,revolveRevision=0;
-let activeSketchGroup=null,editingSketchGroup=null,pendingDrawingView=null,pendingDrawingFace=null,sketchWorkingFace=null,sketchNumberTabs=null;
+let activeSketchGroup=null,editingSketchGroup=null,pendingDrawingView=null,pendingDrawingFace=null,sketchWorkingFace=null,sketchNumberTabs=null,sketchBannerPlacement=null,sketchBannerPoint=null;
 let polygonMode=false;
 import {tangentArc} from './tangent-arc.js';
 import {extrusionView} from './extrusion-view.js';
 import {outwardExtrusion} from './extrusion-direction.js';
 import {sketchViewUp} from './sketch-view.js';
+import {installSketchDrawingSettings} from './sketch-drawing-settings.js';
+import {createSketchBannerPlacement} from './sketch-banner-placement.js';
 import {kernelClient,KernelClient} from './kernel-client.js';
 import {patternSketch} from './patterns.js';
 import {sketchMirrorPlane} from './sketch-mirror.js';
@@ -561,7 +563,7 @@ if(measurementNavigation){
  measurementLayout.observe(measurementNavigation);
 }
 let viewCube=null,extrusionJoinInspection=null;
-renderer.setAnimationLoop(()=>{imageReferences?.update();sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();formTool?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();historyReferenceRepair?.sync();stlInspection?.sync();stlImport?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();sketchConnectionsView?.update();updateCenterMarkers();updateSelectedPoint();measurementPlacement.update();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
+renderer.setAnimationLoop(()=>{imageReferences?.update();sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();formTool?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();historyReferenceRepair?.sync();stlInspection?.sync();stlImport?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);updateSketchBannerPlacement();sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();sketchConnectionsView?.update();updateCenterMarkers();updateSelectedPoint();measurementPlacement.update();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
 let sketchNoticeTimer,enteredSketchNumber=null;
 function sketchSession(){if(enteredSketchNumber!==null)return features.find(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)||{groupNumber:enteredSketchNumber};const id=editingSketchGroup||activeSketchGroup;return features.find(f=>f.kind==='sketch'&&f.groupId===id)||features.find(f=>f.kind==='sketch'&&f.id===selected)||null;}
 function notifySketch(message){hideExtrusionNotice();clearTimeout(toastTimer);$('toast').style.display='none';const notice=$('sketch-notice');clearTimeout(sketchNoticeTimer);notice.textContent=message;notice.hidden=false;sketchNoticeTimer=setTimeout(()=>{notice.hidden=true;},5000);}
@@ -1424,9 +1426,10 @@ function automaticSketchSnap(hit,event={},context=null){
  host.dataset.snapKind='free';return hit.clone();
 }
 function showSnap(hit,basis=sketchBasis){
+ if(sketch)sketchBannerPoint=hit;
  const kind=host.dataset.snapKind||'grid',labels={gridLine:'＋ グリッド線',gridSketch:'× グリッドとスケッチ線の交点',gridBoundary:'× グリッドとソリッドの交点',edgeExtension:'× ソリッドの辺を延長した交点',perpendicularBoundary:'⊥ ソリッド境界へ垂直',perpendicularSketch:'⊥ スケッチ線へ垂直',axis:'⊥ '+(host.dataset.sketchSnapAxis||'作図')+'軸へ垂直',angle:'∠ '+(host.dataset.sketchSnapAngle||'0')+'°（'+sketchAngleStep($('line-angle-step').value)+'°吸着）',endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={gridLine:'+',gridSketch:'×',gridBoundary:'×',edgeExtension:'×',perpendicularBoundary:'⊥',perpendicularSketch:'⊥',axis:'⊥',angle:'∠',endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.color=['gridLine','gridSketch','gridBoundary','edgeExtension','angle','axis','perpendicularBoundary','perpendicularSketch'].includes(kind)?'#087f5b':'';$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm'+(sketchSnapCycle.items.length>1?' ／ 候補 '+(sketchSnapCycle.index+1)+'/'+sketchSnapCycle.items.length+' · Tabで切替（Shiftで逆順）':'');
 }
-function finishSketch(message=true){if(sketch&&$('profile').value==='point')boxSelection?.cancel();splineDisplayFeature=null;splineEditor?.closeSimplify();clearSketchSnapChoice();lineConstruction=false;constructionToggle.hidden=true;solidBoundaryFillLabel.hidden=true;solidBoundaryFill?.clear({forget:true});delete host.dataset.drawingConstruction;lastSketchPointer=null;delete host.dataset.sketchSnapAngle;delete host.dataset.sketchSnapAxis;connectedSketch=null;updateConnectedSketchUI();splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;channelMode=false;channelReverse=false;channelDirection.hidden=true;channelEditDirection.hidden=true;channelResize?.hide();channelArrow?.hide();restoreChannelSource();$('profile').querySelector('[value=rect]').textContent='長方形';$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
+function finishSketch(message=true){if(sketch&&$('profile').value==='point')boxSelection?.cancel();splineDisplayFeature=null;splineEditor?.closeSimplify();clearSketchSnapChoice();lineConstruction=false;constructionToggle.hidden=true;solidBoundaryFillLabel.hidden=true;solidBoundaryFill?.clear({forget:true});delete host.dataset.drawingConstruction;lastSketchPointer=null;sketchBannerPoint=null;delete host.dataset.sketchSnapAngle;delete host.dataset.sketchSnapAxis;connectedSketch=null;updateConnectedSketchUI();splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;channelMode=false;channelReverse=false;channelDirection.hidden=true;channelEditDirection.hidden=true;channelResize?.hide();channelArrow?.hide();restoreChannelSource();$('profile').querySelector('[value=rect]').textContent='長方形';$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notify('スケッチを終了しました');}
 function stopLineDrawing(){if(stage!=='sketch'||$('profile').value!=='line')return false;$('cancel').click();$('status').textContent='線分の作図を終了しました。確定済みの線は残ります';return true;}
 $('end-sketch').onclick=()=>{if(!stopLineDrawing())finishSketch();};
 $('draw').onclick=()=>{dimensionMeasure?.close();const wasSketchStage=stage==='sketch',workingFace=pendingDrawingFace||sketchWorkingFace,previousZoom=camera.zoom;
@@ -3641,7 +3644,7 @@ function switchSketchNumber(id){
  if(!canSwitchSketchNumber())return;
  if(stage==='sketch'&&(activeSketchGroup===id||id==='pending')){$('finish-sketch-tool').click();return;}
  if(!features.some(f=>f.kind==='sketch'&&f.groupId===id))return;
- selectionPicker?.close();clearBodySelection();clearFaceSelection();editSketchGroup(id);startFeature('line','thin');$('draw').click();
+ selectionPicker?.close();clearBodySelection();clearFaceSelection();editSketchGroup(id);startFeature('line','thin');pendingDrawingView=null;$('draw').click();
 }
 document.addEventListener('pointerdown',e=>{const faceMenu=$('solid-face-menu');if(faceMenu&&!faceMenu.contains(e.target))closeSolidFaceMenu();const menu=$('sketch-group-menu');if(menu&&!menu.contains(e.target))menu.remove();});
 
@@ -5165,24 +5168,26 @@ textSketchButton.onclick=()=>{
 sketchNumberTabs=createSketchNumberTabs({anchor:document.querySelector('.viewport-title'),onSelect:switchSketchNumber});syncSketchNumberTabs();
 
 const sketchBanner=$('sketch-banner'),sketchViewport=host.parentElement;
-const sketchHeaderControls=[sketchViewport.querySelector('.viewport-title'),$('sketch-number-tabs'),$('snap-controls')];
-const sketchRightControls=[sketchViewport.querySelector('.view-cube'),$('reference-plane-control')];
-function placeSketchBanner(){
- const viewport=sketchViewport.getBoundingClientRect();
- const visibleBounds=controls=>controls.filter(control=>control.getClientRects().length).map(control=>control.getBoundingClientRect());
- const rightBounds=visibleBounds(sketchRightControls);
- const leftOfRightControls=Math.min(viewport.right,...rightBounds.map(box=>box.left));
- const fullWidth=leftOfRightControls-viewport.left<500;
- const headerBounds=visibleBounds(sketchHeaderControls);
- if(fullWidth)headerBounds.push(...rightBounds);
- const top=Math.max(viewport.top,...headerBounds.map(box=>box.bottom));
- sketchBanner.style.setProperty('--sketch-banner-top',Math.ceil(top-viewport.top+8)+'px');
- sketchBanner.style.setProperty('--sketch-banner-right',fullWidth?'12px':Math.ceil(viewport.right-leftOfRightControls+8)+'px');
+installSketchDrawingSettings(sketchBanner,[
+ [solidBoundaryFillLabel,'ソリッド境界で自動的に囲む'],
+ [lineAngleSnapLabel,'角度吸着'],
+ [sketchBanner.querySelector('.continuous-label'),'連続線'],
+ [autoTangentLabel,'接線の引き継ぎ'],
+ [channelDirection,'コの字の開く向き'],
+]);
+sketchBannerPlacement=createSketchBannerPlacement({
+ banner:sketchBanner,host,camera,
+ header:[sketchViewport.querySelector('.viewport-title'),$('sketch-number-tabs'),$('snap-controls')],
+ right:[sketchViewport.querySelector('.view-cube'),$('reference-plane-control')],
+ bottom:[measurementNavigation,sketchViewport.querySelector('.view-help')],
+});
+function updateSketchBannerPlacement(){
+ if(!sketchBannerPlacement)return;
+ if(!sketch){sketchBannerPlacement.update([],[]);return;}
+ const objects=preview?.geometry?[preview]:[...(preview?.children||[])];
+ if(splinePreview)objects.push(splinePreview);
+ sketchBannerPlacement.update([firstPoint,sketchBannerPoint].filter(Boolean),objects);
 }
-const sketchBannerLayout=new ResizeObserver(placeSketchBanner);
-for(const control of [sketchViewport,...sketchHeaderControls,...sketchRightControls])sketchBannerLayout.observe(control);
-window.addEventListener('resize',placeSketchBanner);
-placeSketchBanner();
 
 
 const dimensionReplayClient=new KernelClient();

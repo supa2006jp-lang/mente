@@ -1,3 +1,4 @@
+import {setDrawingControl} from './sketch-drawing-control.mjs';
 import {chromium} from 'playwright';
 import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
@@ -24,7 +25,7 @@ try{
  };
  const start=async(continuous)=>{
   await page.locator('#new-line').click();
-  continuous?await page.locator('#continuous-line').check():await page.locator('#continuous-line').uncheck();
+  continuous?await setDrawingControl(page,'#continuous-line','check'):await setDrawingControl(page,'#continuous-line','uncheck');
   const rect=await page.locator('#canvas-host canvas').boundingBox();
   return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};
  };

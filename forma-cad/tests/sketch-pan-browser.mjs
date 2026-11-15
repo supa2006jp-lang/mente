@@ -1,3 +1,4 @@
+import {setDrawingControl} from './sketch-drawing-control.mjs';
 import {chromium} from 'playwright';
 import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
@@ -48,8 +49,8 @@ try{
   await page.locator('#new-line').click();
   await page.locator('#plane').selectOption(plane);
   await page.locator('#draw').click();
-  await page.locator('#continuous-line').uncheck();
-  const rect=await page.locator('canvas').boundingBox();
+  await setDrawingControl(page,'#continuous-line','uncheck');
+  const rect=await page.locator('#canvas-host canvas').boundingBox();
   const x=rect.x+rect.width/2,y=rect.y+rect.height/2;
   await page.mouse.click(x,y);
   assert.equal(await page.locator('#feature-count').textContent(),'0');
@@ -80,7 +81,7 @@ try{
  await page.locator('#new-point').click();
  await page.locator('#plane').selectOption('XY');
  await page.locator('#draw').click();
- const rect=await page.locator('canvas').boundingBox(),x=rect.x+rect.width/2,y=rect.y+rect.height/2;
+ const rect=await page.locator('#canvas-host canvas').boundingBox(),x=rect.x+rect.width/2,y=rect.y+rect.height/2;
  await pan('middle',x,y,110,60);
  assert.equal(await page.locator('#feature-count').textContent(),'0','pan must not place a point');
  await page.mouse.click(x+160,y+90);

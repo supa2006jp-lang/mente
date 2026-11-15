@@ -74,6 +74,19 @@
 #sketch-banner .continuous-label { font-size:inherit !important; }
 #sketch-banner input[type=checkbox] { width:14px; height:14px; margin:0; }
 #sketch-banner select { width:auto; max-width:100%; margin:0; padding:2px 5px; font-size:inherit; background:#fff; color:#193a50; }
+#sketch-banner #sketch-settings-toggle[aria-expanded="true"] { background:#d6edf7; color:#172e40; }
+#sketch-banner:not(:has(.sketch-drawing-option > label:not([hidden]))) #sketch-settings-toggle,
+.sketch-drawing-option:not(:has(> label:not([hidden]))) { display:none; }
+#sketch-pinned-settings { display:contents; }
+#sketch-drawing-settings {
+ display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; flex:1 0 100%;
+ padding-top:4px; border-top:1px solid #597285;
+}
+#sketch-drawing-settings:not(:has(.sketch-drawing-option > label:not([hidden]))) { display:none; }
+.sketch-drawing-option { display:inline-flex; align-items:center; gap:3px; max-width:100%; }
+#sketch-banner .sketch-drawing-option button { padding:2px 4px; }
+#sketch-banner .sketch-drawing-option button[aria-pressed="true"] { color:#ffda82; }
+#sketch-settings-toggle[aria-expanded="false"] ~ #sketch-pinned-settings .sketch-drawing-option button { display:none; }
 
 
 #polygon-dimensions{position:absolute;z-index:25;width:210px;padding:12px;background:#f7fcff;color:#173a4f;border:1px solid #84aabd;border-radius:8px;box-shadow:0 4px 12px #0002}#polygon-dimensions[hidden]{display:none}#polygon-dimensions label{display:block;margin-top:8px;font-size:12px}#polygon-dimensions input{width:100%;padding:6px;background:white;color:#173a4f;border:1px solid #84aabd}#polygon-dimensions input:focus{background:#d9efff;outline:2px solid #008bd2}#polygon-dimensions small{display:block;margin:8px 0;font-size:11px}#polygon-dimensions button{color:#173a4f;background:#d9efff}
