@@ -3,49 +3,78 @@
 
     class MaintenanceAppHardDeleteMethods extends MaintenanceApp {
     // --- Hard Delete Actions (Permanent Deletion) ---
-    hardDeleteWorker(name) {
+    async saveHardDelete(mutate, afterSave) {
+        if (this._hardDeleteInProgress) return false;
+        this._hardDeleteInProgress = true;
+        try {
+            await store.runAtomicSaveBatch(mutate);
+        } catch (error) {
+            console.error('完全削除を保存できませんでした。', error);
+            const message = `削除を保存できませんでした。元の状態に戻しました。${error?.message || '保存先を確認してください。'}`;
+            if (this.showToast) this.showToast(message, 'error');
+            else alert(message);
+            return false;
+        } finally {
+            this._hardDeleteInProgress = false;
+        }
+        try { afterSave?.(); }
+        catch (error) { console.warn('削除後の表示を更新できませんでした。', error); }
+        return true;
+    }
+
+    tryRecordHardDeleteLog(...args) {
+        try { this.recordAdminOperationLog?.(...args); }
+        catch (error) { console.warn('完全削除の操作ログを記録できませんでした。', error); }
+    }
+
+    async hardDeleteWorker(name) {
         if (this.requireDangerConfirm?.(`作業員「${name}」を完全に削除しますか？`, 'この操作は取り消せません。') ?? confirm(`作業員「${name}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
-            store.hardDeleteWorker(name);
-            this.recordAdminOperationLog?.('delete', '作業員を完全削除', name, { tab: 'archive', search: name });
-            this.renderWorkerMaintenanceModal();
-            this.renderWorkers();
+            return this.saveHardDelete(() => store.hardDeleteWorker(name), () => {
+                this.tryRecordHardDeleteLog('delete', '作業員を完全削除', name, { tab: 'archive', search: name });
+                this.renderWorkerMaintenanceModal();
+                this.renderWorkers();
+            });
         }
     }
 
-    hardDeleteTask(tk, label) {
+    async hardDeleteTask(tk, label) {
         if (this.requireDangerConfirm?.(`スキルマップ項目「${label}」を完全に削除しますか？`, 'この操作は取り消せません。') ?? confirm(`スキルマップ項目「${label}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
-            store.hardDeleteTask(tk);
-            this.recordAdminOperationLog?.('delete', 'スキル項目を完全削除', label, { tab: 'archive', search: label });
-            this.renderWorkerMaintenanceModal();
-            this.renderWorkers();
+            return this.saveHardDelete(() => store.hardDeleteTask(tk), () => {
+                this.tryRecordHardDeleteLog('delete', 'スキル項目を完全削除', label, { tab: 'archive', search: label });
+                this.renderWorkerMaintenanceModal();
+                this.renderWorkers();
+            });
         }
     }
 
-    hardDeletePart(name, model) {
+    async hardDeletePart(name, model) {
         if (this.requireDangerConfirm?.(`部品「${name} [${model}]」を完全に削除しますか？`, 'マスターからも削除されます。この操作は取り消せません。') ?? confirm(`部品「${name} [${model}]」を完全に削除しますか？\nマスターからも削除されます。この操作は取り消せません。`)) {
-            store.hardDeletePart(name, model);
-            this.recordAdminOperationLog?.('delete', '部品を完全削除', `${name} [${model || '-'}]`, { tab: 'archive', search: name });
-            this.renderWorkerMaintenanceModal();
-            this.renderAnalysis();
+            return this.saveHardDelete(() => store.hardDeletePart(name, model), () => {
+                this.tryRecordHardDeleteLog('delete', '部品を完全削除', `${name} [${model || '-'}]`, { tab: 'archive', search: name });
+                this.renderWorkerMaintenanceModal();
+                this.renderAnalysis();
+            });
         }
     }
 
-    hardDeleteMaintenanceTask(id, content) {
+    async hardDeleteMaintenanceTask(id, content) {
         if (this.requireDangerConfirm?.(`周期設定「${content}」を完全に削除しますか？`, '設定データそのものが消去されます。この操作は取り消せません。') ?? confirm(`周期設定「${content}」を完全に削除しますか？\n設定データそのものが消去されます。この操作は取り消せません。`)) {
-            store.hardDeleteMaintenanceTask(id);
-            this.recordAdminOperationLog?.('delete', '周期設定を完全削除', content, { tab: 'archive', search: content });
-            this.renderWorkerMaintenanceModal();
-            this.renderMachines();
-            this.renderCalendar();
+            return this.saveHardDelete(() => store.hardDeleteMaintenanceTask(id), () => {
+                this.tryRecordHardDeleteLog('delete', '周期設定を完全削除', content, { tab: 'archive', search: content });
+                this.renderWorkerMaintenanceModal();
+                this.renderMachines();
+                this.renderCalendar();
+            });
         }
     }
 
-    hardDeleteGuide(id, title) {
+    async hardDeleteGuide(id, title) {
         if (this.requireDangerConfirm?.(`手順書「${title}」を完全に削除しますか？`, 'この操作は取り消せません。') ?? confirm(`手順書「${title}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
-            store.hardDeleteGuide(id);
-            this.recordAdminOperationLog?.('delete', '手順書を完全削除', title, { tab: 'archive', search: title });
-            this.renderWorkerMaintenanceModal();
-            this.renderGuides();
+            return this.saveHardDelete(() => store.hardDeleteGuide(id), () => {
+                this.tryRecordHardDeleteLog('delete', '手順書を完全削除', title, { tab: 'archive', search: title });
+                this.renderWorkerMaintenanceModal();
+                this.renderGuides();
+            });
         }
     }
 
@@ -133,31 +162,35 @@
         setTimeout(() => this.openGuideModal(newId), 150);
     }
 
-    hardDeleteMachineCategory(name) {
+    async hardDeleteMachineCategory(name) {
         if (this.requireDangerConfirm?.(`装置区分「${name}」を完全に削除しますか？`, 'この操作は取り消せません。') ?? confirm(`装置区分「${name}」を完全に削除しますか？\nこの操作は取り消せません。`)) {
-            store.activeData.archivedMachineCategories = store.activeData.archivedMachineCategories.filter(c => c !== name);
-            store.save();
-            this.recordAdminOperationLog?.('delete', '装置区分を完全削除', name, { tab: 'archive', search: name });
-            this.renderWorkerMaintenanceModal();
-            this.updateDataLists();
+            return this.saveHardDelete(() => {
+                store.activeData.archivedMachineCategories = store.activeData.archivedMachineCategories.filter(c => c !== name);
+            }, () => {
+                this.tryRecordHardDeleteLog('delete', '装置区分を完全削除', name, { tab: 'archive', search: name });
+                this.renderWorkerMaintenanceModal();
+                this.updateDataLists();
+            });
         }
     }
 
-    hardDeleteMachine(id, name) {
+    async hardDeleteMachine(id, name) {
         if (this.requireDangerConfirm?.(`装置「${name}」を完全に削除しますか？`, '装置に関連する周期設定も削除されます（履歴は残ります）。この操作は取り消せません。') ?? confirm(`装置「${name}」を完全に削除しますか？\n装置に関連する周期設定も削除されます（履歴は残ります）。\nこの操作は取り消せません。`)) {
-            store.hardDeleteMachine(id);
-            this.recordAdminOperationLog?.('delete', '装置を完全削除', name, { tab: 'archive', search: name });
-            this.renderWorkerMaintenanceModal();
-            this.renderMachines();
-            this.renderCalendar();
+            return this.saveHardDelete(() => store.hardDeleteMachine(id), () => {
+                this.tryRecordHardDeleteLog('delete', '装置を完全削除', name, { tab: 'archive', search: name });
+                this.renderWorkerMaintenanceModal();
+                this.renderMachines();
+                this.renderCalendar();
+            });
         }
     }
 
-    hardDeleteSuggestion(kind, value) {
+    async hardDeleteSuggestion(kind, value) {
         if (this.requireDangerConfirm?.(`サジェスト項目「${value}」をリストから完全に消去しますか？`, '今後再びサジェストの候補に現れるようになります。') ?? confirm(`サジェスト項目「${value}」をリストから完全に消去しますか？\n今後再びサジェストの候補に現れるようになります。`)) {
-            store.toggleArchivedSuggestion(kind, value); // toggle to remove from archive
-            this.recordAdminOperationLog?.('delete', 'サジェストを完全削除', value, { tab: 'suggest', search: value });
-            this.renderWorkerMaintenanceModal();
+            return this.saveHardDelete(() => store.toggleArchivedSuggestion(kind, value), () => {
+                this.tryRecordHardDeleteLog('delete', 'サジェストを完全削除', value, { tab: 'suggest', search: value });
+                this.renderWorkerMaintenanceModal();
+            });
         }
     }
     }

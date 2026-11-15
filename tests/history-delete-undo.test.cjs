@@ -15,7 +15,7 @@ function makeHarness(save = async () => {}) {
         replacedParts: [{ name: 'bolt', model: 'M3', count: 2 }]
     };
     const master = { name: 'bolt', model: 'M3', stock: 5, unit: '個' };
-    const active = {
+    let active = {
         history: [record],
         partsMaster: [master],
         partStockMovements: []
@@ -25,7 +25,8 @@ function makeHarness(save = async () => {}) {
     const button = { disabled: false, isConnected: true };
     const store = {
         data: { currentDepartmentId: 'dept-default' },
-        activeData: active,
+        get activeData() { return active; },
+        set activeData(value) { active = value; },
         getPartMaster(name, model) {
             return active.partsMaster.find(part => part.name === name && part.model === model) || null;
         },
@@ -36,8 +37,18 @@ function makeHarness(save = async () => {}) {
         },
         save(options) {
             const saveCount = calls.filter(call => call.type === 'save').length + 1;
-            calls.push({ type: 'save', options, stock: master.stock, count: active.history.length });
+            calls.push({ type: 'save', options, stock: active.partsMaster[0].stock, count: active.history.length });
             return save(saveCount);
+        },
+        async runAtomicSaveBatch(mutate) {
+            const before = structuredClone(active);
+            try {
+                mutate();
+                await this.save({ discardQueuedOnFailure: true });
+            } catch (error) {
+                active = before;
+                throw error;
+            }
         }
     };
     const context = vm.createContext({
@@ -100,9 +111,10 @@ test('failed undo leaves the successful deletion in place for retry', async () =
     await h.app.deleteHistoryEntry(h.record.id);
     await assert.rejects(h.app.undoCallback(), /undo save failed/);
 
-    assert.equal(h.active.history.length, 0);
-    assert.equal(h.master.stock, 7);
-    assert.equal(h.active.partStockMovements.length, 1);
+    assert.equal(h.store.activeData.history.length, 0);
+    assert.equal(h.store.activeData.partsMaster[0].stock, 7);
+    assert.equal(h.store.activeData.partStockMovements.length, 1);
+    assert.equal(h.calls.filter(call => call.type === 'calendar').length, 1);
 });
 
 test('undo reverses only the deletion stock delta after another stock change', async () => {
@@ -113,4 +125,18 @@ test('undo reverses only the deletion stock delta after another stock change', a
 
     assert.equal(h.master.stock, 8);
     assert.equal(h.active.history[0], h.record);
+});
+
+test('undo restores current department after another failed batch replaced its objects', async () => {
+    const h = makeHarness();
+    await h.app.deleteHistoryEntry(h.record.id);
+    const staleActive = h.store.activeData;
+    h.store.activeData = structuredClone(staleActive);
+
+    await h.app.undoCallback();
+
+    assert.equal(staleActive.history.length, 0);
+    assert.equal(h.store.activeData.history[0].id, h.record.id);
+    assert.equal(h.store.activeData.partsMaster[0].stock, 5);
+    assert.equal(h.store.activeData.partStockMovements[1].source, 'maintenance-delete-undo');
 });

@@ -1,5 +1,5 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const CACHE_NAME = 'maintenance-next-static-20261115-six1';
+const CACHE_NAME = 'maintenance-next-static-20261115-five1';
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
     './',
@@ -7,14 +7,14 @@ const SHELL_FILES = [
     './assets/vendor/fontsource/inter/5.2.6/index.css',
     './assets/vendor/fontsource/noto-sans-jp/5.2.6/index.css',
     './all.min.css?v=6.5.1-embedded3',
-    './style.css?v=20261115-six1',
+    './style.css?v=20261115-five1',
     './assets/vendor/chart.js/4.6.1/chart.umd.min.js',
     './assets/vendor/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js',
     './assets/vendor/kuromoji/0.1.2/kuromoji.js',
     './assets/vendor/kuroshiro/1.2.0/kuroshiro.min.js',
     './assets/vendor/kuroshiro-analyzer-kuromoji/1.1.0/kuroshiro-analyzer-kuromoji.min.js',
-    './store.js?v=20261115-six1',
-    './app.js?v=20261115-six1',
+    './store.js?v=20261115-five1',
+    './app.js?v=20261115-five1',
     './app-settings.js?v=20261114-save12',
     './app-todos.js?v=20260611-todo-stamp-wrap',
     './app-shift-notebook-settings.js',
@@ -22,25 +22,30 @@ const SHELL_FILES = [
     './app-calendar-details.js?v=20261115-all5',
     './app-shift-notebook-editor.js?v=20260802-shift-stamp-backspace1',
     './app-calendar-support.js?v=20261114-improve123',
-    './app-departments.js?v=20260623-dept-switch-import-fix',
+    './app-departments.js?v=20261115-five1',
     './app-machines.js?v=20261114-improve123',
     './app-maintenance-forms.js?v=20261115-all5b',
-    './app-history.js?v=20261115-all5b',
+    './app-history.js?v=20261115-five1',
     './app-analysis-dashboard.js?v=20261114-fix123',
     './app-ranking-guides.js?v=20260826-auto-contrast1',
-    './app-tips.js?v=20261115-six1',
+    './app-tips.js?v=20261115-five1',
     './app-skills.js?v=20261114-fix123',
     './app-outlook-assist.js?v=20261114-fix123',
     './app-worktime.js?v=20261114-fix123',
-    './app-archives.js?v=20261115-six1',
-    './app-hard-delete.js?v=20261114-fix123',
-    './app-persistence.js?v=20261115-six1',
+    './app-archives.js?v=20261115-five1',
+    './app-hard-delete.js?v=20261115-five1',
+    './app-persistence.js?v=20261115-five1',
     './app-csv.js?v=20261115-all5b',
     './app-misc-analysis.js',
     './assets/vendor/ffmpeg/0.11.6/ffmpeg.min.js',
     './assets/vendor/ffmpeg/0.11.6/046d0074eee1d99a674a.js',
     './app-dom-actions.js',
-    './app-boot.js?v=20261115-six1'
+    './app-boot.js?v=20261115-five1',
+    './app-shift-notebook-core.js?v=20261115-all5',
+    './app-photo-manager.js?v=20261115-six1',
+    './app-shift-photo-camera.js?v=20260906-avatar-stage72',
+    './app-shift-photo-reveal.js?v=20260906-avatar-stage72',
+    './app-shift-avatar-conversation.js?v=20260906-avatar-stage72'
 ];
 
 self.addEventListener('install', event => {
@@ -48,6 +53,31 @@ self.addEventListener('install', event => {
         const cache = await caches.open(CACHE_NAME);
         const requests = SHELL_FILES.map(path => new Request(new URL(path, self.registration.scope), { cache: 'reload' }));
         await cache.addAll(requests);
+    })());
+});
+
+self.addEventListener('message', event => {
+    if (event.data?.type === 'maintenance-image-gc-clients-v1') {
+        event.waitUntil((async () => {
+            const reply = event.ports?.[0];
+            if (!reply) return;
+            const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+            const sourceId = event.source?.id;
+            reply.postMessage({
+                type: 'maintenance-image-gc-clients-v1',
+                sourceFound: !!sourceId && windows.some(client => client.id === sourceId),
+                otherCount: windows.filter(client => client.id !== sourceId).length
+            });
+        })());
+        return;
+    }
+    if (event.data?.type !== 'MAINTENANCE_ACTIVATE_UPDATE') return;
+    event.waitUntil((async () => {
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        if (windows.length > 1) {
+            event.source?.postMessage({ type: 'MAINTENANCE_UPDATE_OTHER_TABS' });
+            return;
+        }
         await self.skipWaiting();
     })());
 });
@@ -55,7 +85,11 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
     event.waitUntil((async () => {
         const keys = await caches.keys();
-        await Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+        // A page loaded before the update can still ask for its versioned lazy
+        // modules. Retain one previous shell until the next deployment.
+        const previous = keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+            .pop();
+        await Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME && key !== previous)
             .map(key => caches.delete(key)));
         await self.clients.claim();
     })());
@@ -72,9 +106,14 @@ self.addEventListener('fetch', event => {
     const isStatic = (!relativePath.includes('/') || relativePath.startsWith('assets/'))
         && /\.(?:js|mjs|css|png|jpe?g|svg|webp|woff2?|ttf|otf|wasm|gz|html)$/i.test(relativePath);
     if (!isAppPage && !isStatic) return;
+    const versionedCode = /\.(?:js|mjs|css)$/i.test(relativePath) && url.searchParams.has('v');
 
     event.respondWith((async () => {
         const cache = await caches.open(CACHE_NAME);
+        if (versionedCode) {
+            const cached = await cache.match(request) || await caches.match?.(request);
+            if (cached) return cached;
+        }
         try {
             const response = await fetch(request);
             if (response.ok && response.type === 'basic') {

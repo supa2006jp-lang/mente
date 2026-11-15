@@ -343,6 +343,133 @@
         };
     }
 
+    function setupServiceWorkerUpdates(registration) {
+        let banner = null;
+        let messageNode = null;
+        let updateButton = null;
+        let reloadAfterActivation = false;
+        let hadController = !!navigator.serviceWorker.controller;
+        let updating = false;
+
+        const pendingEditorMessage = () => {
+            try {
+                const app = window.app;
+                if (app?.hasUnsavedTipsDraft?.()) {
+                    return '未保存のTIPSがあります。保存するか入力をクリアしてから更新してください。';
+                }
+                if (app?.isTipsBodyEditorDirty?.()) {
+                    return 'TIPS本文の編集中です。保存するか編集を閉じてから更新してください。';
+                }
+                const modal = document.getElementById('modal-overlay');
+                if (modal && !modal.classList.contains('hidden')) {
+                    return app?.hasModalUnsavedChanges?.() || app?._saveStatusState === 'dirty'
+                        ? '入力画面に未保存の内容があります。保存して画面を閉じてから更新してください。'
+                        : '入力画面が開いています。画面を閉じてから更新してください。';
+                }
+            } catch (error) {
+                console.warn('Could not check pending edits before update:', error);
+                return '入力中の内容を確認できませんでした。画面を確認してから更新してください。';
+            }
+            return null;
+        };
+
+        const showBanner = (message = '新しい版を利用できます。入力中の内容を保存してから更新してください。') => {
+            if (!banner) {
+                banner = document.createElement('aside');
+                banner.id = 'maintenance-update-banner';
+                banner.setAttribute('role', 'status');
+                banner.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:10000;max-width:min(420px,calc(100vw - 32px));padding:14px 16px;border:1px solid #64748b;border-radius:10px;background:#0f172a;color:#fff;box-shadow:0 8px 24px #0005;display:flex;gap:10px;align-items:center;flex-wrap:wrap;';
+                messageNode = document.createElement('span');
+                messageNode.style.cssText = 'flex:1 1 100%;font-size:14px;';
+                updateButton = document.createElement('button');
+                updateButton.type = 'button';
+                updateButton.style.cssText = 'padding:8px 12px;border:0;border-radius:6px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;';
+                updateButton.addEventListener('click', async () => {
+                    if (updating) return;
+                    const pendingBefore = pendingEditorMessage();
+                    if (pendingBefore) {
+                        messageNode.textContent = pendingBefore;
+                        return;
+                    }
+                    if (!confirm('最新版に更新してページを再読み込みします。入力途中の内容は保存してから続けてください。更新しますか？')) return;
+                    updating = true;
+                    updateButton.disabled = true;
+                    messageNode.textContent = '保存待ちの処理と未保存の入力を確認しています…';
+                    try {
+                        await store.waitForSaveQueueIdle?.();
+                        if (store._saveRequestedRevision > store._savePersistedRevision) {
+                            throw new Error('保存に失敗した変更があります。保存状態を確認してから更新してください。');
+                        }
+                        const pendingAfter = pendingEditorMessage();
+                        if (pendingAfter) throw new Error(pendingAfter);
+                        if (registration.waiting) {
+                            reloadAfterActivation = true;
+                            registration.waiting.postMessage({ type: 'MAINTENANCE_ACTIVATE_UPDATE' });
+                            messageNode.textContent = '更新を適用しています…';
+                        } else {
+                            window.location.reload();
+                        }
+                    } catch (error) {
+                        reloadAfterActivation = false;
+                        messageNode.textContent = error?.message || '更新の準備ができませんでした。';
+                        updateButton.disabled = false;
+                        updating = false;
+                    }
+                });
+                const laterButton = document.createElement('button');
+                laterButton.type = 'button';
+                laterButton.textContent = 'あとで';
+                laterButton.setAttribute('aria-label', '更新案内を閉じる');
+                laterButton.style.cssText = 'padding:8px 10px;border:1px solid #94a3b8;border-radius:6px;background:transparent;color:#fff;cursor:pointer;';
+                laterButton.addEventListener('click', () => {
+                    banner.remove();
+                    banner = null;
+                });
+                banner.append(messageNode, updateButton, laterButton);
+            }
+            messageNode.textContent = message;
+            updateButton.textContent = registration.waiting ? '更新して再読み込み' : '再読み込み';
+            document.body.appendChild(banner);
+        };
+        const showWaiting = () => {
+            if (registration.waiting && navigator.serviceWorker.controller) showBanner();
+        };
+
+        navigator.serviceWorker.addEventListener('message', event => {
+            if (event.data?.type !== 'MAINTENANCE_UPDATE_OTHER_TABS') return;
+            reloadAfterActivation = false;
+            updating = false;
+            showBanner('別のタブでも開いています。そちらを閉じてから更新してください。');
+            updateButton.disabled = false;
+        });
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (reloadAfterActivation) {
+                const pending = pendingEditorMessage();
+                if (pending) {
+                    reloadAfterActivation = false;
+                    updating = false;
+                    showBanner(pending);
+                    updateButton.disabled = false;
+                    return;
+                }
+                window.location.reload();
+                return;
+            }
+            if (hadController) showBanner('更新の準備ができました。入力中の内容を保存してから再読み込みしてください。');
+            hadController = true;
+        });
+        const trackInstalling = installing => {
+            if (!installing) return;
+            if (installing.state === 'installed') showWaiting();
+            else installing.addEventListener('statechange', () => {
+                if (installing.state === 'installed') showWaiting();
+            });
+        };
+        registration.addEventListener('updatefound', () => trackInstalling(registration.installing));
+        trackInstalling(registration.installing);
+        showWaiting();
+    }
+
     window.addEventListener('DOMContentLoaded', async () => {
         // Retired workspace links now use the normal save area; clear the old label in the URL.
         try {
@@ -375,6 +502,7 @@
         if (typeof navigator !== 'undefined' && navigator.serviceWorker
             && (window.location?.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(window.location?.hostname))) {
             navigator.serviceWorker.register('./service-worker.js', { scope: './', updateViaCache: 'none' })
+                .then(setupServiceWorkerUpdates)
                 .catch(error => console.warn('Offline cache registration failed:', error));
         }
     });

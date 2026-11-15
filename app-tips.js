@@ -2429,18 +2429,7 @@
         const name = this.getTipsAttachmentDisplayName(file, attachmentIndex);
         if (!confirm(`添付「${name}」を削除しますか？`)) return;
 
-        attachments.splice(attachmentIndex, 1);
-        note.updatedAt = new Date().toISOString();
-        store.save();
-        this.renderTipsExistingFiles(note);
-        this.renderTips();
-
-        if (!attachments.length) {
-            this.closeTipsAttachmentViewer();
-        } else {
-            this.openTipsAttachment(noteId, Math.min(attachmentIndex, attachments.length - 1));
-        }
-        this.showToast('添付ファイルを削除しました', 'success');
+        return this.deleteTipsAttachment(noteId, attachmentIndex, { fromViewer: true });
     };
 
     proto.zoomTipsAttachment = function (delta = 0) {
@@ -3022,13 +3011,8 @@
         const note = this.ensureTipsState().find(item => item.id === noteId);
         if (!note) return;
         const location = [note.group || '未分類', note.branch, note.subBranch].filter(Boolean).join(' / ');
-        if (!confirm(`TIPS「${location}」を削除しますか？\nこの操作は元に戻せません。`)) return;
-        store.activeData.tipsNotes = this.ensureTipsState().filter(item => item.id !== noteId);
-        store.save();
-        this.closeTipsBodyEditor(null, true);
-        if (this._editingTipsId === noteId) this.clearTipsForm();
-        this.renderTips();
-        this.showToast('TIPSを削除しました', 'success');
+        if (!confirm(`TIPS「${location}」を削除しますか？\n削除直後は10秒間取り消せます。`)) return;
+        return this.deleteTipsNote(noteId);
     };
 
     proto.closeTipsBodyEditor = function (event = null, force = false) {
@@ -3180,16 +3164,57 @@
         this.renderTips();
     };
 
-    proto.deleteTipsAttachment = function (noteId, attachmentIndex = 0) {
+    proto.deleteTipsAttachment = async function (noteId, attachmentIndex = 0, options = {}) {
+        if (this._tipsDeleteInProgress) return false;
+        const index = Number(attachmentIndex);
         const note = this.ensureTipsState().find(item => item.id === noteId);
-        if (!note || !Array.isArray(note.attachments)) return;
-        const removed = note.attachments.splice(attachmentIndex, 1);
-        if (!removed.length) return;
-        note.updatedAt = new Date().toISOString();
-        store.save();
-        this.renderTipsExistingFiles(note);
+        const file = Number.isInteger(index) && index >= 0 ? note?.attachments?.[index] : null;
+        if (!file) return false;
+        const dataRef = store.data;
+        const departmentId = dataRef.currentDepartmentId;
+        this._tipsDeleteInProgress = true;
+        try {
+            await store.runAtomicSaveBatch(() => {
+                const current = this.ensureTipsState().find(item => item.id === noteId);
+                if (current?.attachments?.[index] !== file) {
+                    throw new Error('削除する添付が変更されました。');
+                }
+                current.attachments.splice(index, 1);
+                current.updatedAt = new Date().toISOString();
+            });
+        } catch (error) {
+            console.error('TIPSの添付を削除できませんでした。', error);
+            this.showToast(`添付を削除できませんでした。${error?.message || '保存先を確認してください。'}`, 'error');
+            return false;
+        } finally {
+            this._tipsDeleteInProgress = false;
+        }
+        const savedNote = this.ensureTipsState().find(item => item.id === noteId);
+        this.renderTipsExistingFiles(this._editingTipsId === noteId ? savedNote : null);
         this.renderTips();
-        this.showToast('添付ファイルを削除しました', 'success');
+        if (options.fromViewer) {
+            this.closeTipsAttachmentViewer();
+            if (savedNote?.attachments?.length) {
+                this.openTipsAttachment(noteId, Math.min(index, savedNote.attachments.length - 1));
+            }
+        }
+        this.showTipsDeleteUndoNotice('添付ファイルを削除しました', async () => {
+            if (store.data !== dataRef || store.data.currentDepartmentId !== departmentId) {
+                throw new Error('作業中のデータが切り替わりました。元の部署で操作してください。');
+            }
+            await store.runAtomicSaveBatch(() => {
+                const current = this.ensureTipsState().find(item => item.id === noteId);
+                if (!current) throw new Error('元のTIPSが見つかりません。');
+                if (!Array.isArray(current.attachments)) current.attachments = [];
+                if (current.attachments.includes(file)) throw new Error('添付はすでに復元されています。');
+                current.attachments.splice(Math.min(index, current.attachments.length), 0, file);
+                current.updatedAt = new Date().toISOString();
+            });
+            const restored = this.ensureTipsState().find(item => item.id === noteId);
+            this.renderTipsExistingFiles(this._editingTipsId === noteId ? restored : null);
+            this.renderTips();
+        });
+        return true;
     };
 
     proto.deleteTipsAttachmentFromCard = function (noteId, attachmentIndex = 0) {
@@ -3199,7 +3224,7 @@
         if (!file) return;
         const name = this.getTipsAttachmentDisplayName(file, attachmentIndex);
         if (!confirm(`添付「${name}」を削除しますか？`)) return;
-        this.deleteTipsAttachment(noteId, attachmentIndex);
+        return this.deleteTipsAttachment(noteId, attachmentIndex);
     };
 
     proto.replaceTipsAttachment = function (noteId, attachmentIndex = 0) {
@@ -3716,7 +3741,7 @@
         event.preventDefault();
         const id = event.dataTransfer?.getData('application/x-tips-note-id') || event.dataTransfer?.getData('text/plain');
         event.currentTarget?.classList.remove('ready', 'over');
-        if (id) this.deleteTipsNote(id, { fromDrop: true });
+        if (id) this.deleteTipsNote(id);
     };
 
     proto.deleteEditingTipsNote = function () {
@@ -3724,22 +3749,101 @@
         const note = id ? this.ensureTipsState().find(item => item.id === id) : null;
         if (!note) return this.showToast('削除するTIPSが選択されていません', 'warning');
         const location = [note.group || '未分類', note.branch, note.subBranch].filter(Boolean).join(' / ');
-        if (!confirm(`編集中のTIPS「${location}」を削除しますか？\nこの操作は元に戻せません。`)) return;
-        store.activeData.tipsNotes = this.ensureTipsState().filter(item => item.id !== id);
-        store.save();
-        this.clearTipsForm();
-        this.renderTips();
-        this.showToast('TIPSを削除しました', 'success');
+        if (!confirm(`編集中のTIPS「${location}」を削除しますか？\n削除直後は10秒間取り消せます。`)) return;
+        return this.deleteTipsNote(id);
     };
 
-    proto.deleteTipsNote = function (id, options = {}) {
+    proto.deleteTipsNote = async function (id) {
+        if (this._tipsDeleteInProgress) return false;
         const notes = this.ensureTipsState();
-        const before = notes.length;
-        store.activeData.tipsNotes = notes.filter(note => note.id !== id);
-        if (store.activeData.tipsNotes.length === before) return;
-        store.save();
+        const index = notes.findIndex(note => note.id === id);
+        if (index < 0) return false;
+        const deletedNote = notes[index];
+        const dataRef = store.data;
+        const departmentId = dataRef.currentDepartmentId;
+        this._tipsDeleteInProgress = true;
+        try {
+            await store.runAtomicSaveBatch(() => {
+                const current = this.ensureTipsState();
+                const currentIndex = current.findIndex(note => note.id === id);
+                if (currentIndex < 0) throw new Error('削除するTIPSが見つかりません。');
+                current.splice(currentIndex, 1);
+            });
+        } catch (error) {
+            console.error('TIPSを削除できませんでした。', error);
+            this.showToast(`TIPSを削除できませんでした。${error?.message || '保存先を確認してください。'}`, 'error');
+            return false;
+        } finally {
+            this._tipsDeleteInProgress = false;
+        }
+        if (this._tipsBodyEditorNoteId === id) this.closeTipsBodyEditor(null, true);
+        if (this._editingTipsId === id) this.clearTipsForm();
         this.renderTips();
-        this.showToast(options.fromDrop ? 'TIPSをゴミ箱へ移動しました' : 'TIPSを削除しました', 'success');
+        this.showTipsDeleteUndoNotice('TIPSを削除しました', async () => {
+            if (store.data !== dataRef || store.data.currentDepartmentId !== departmentId) {
+                throw new Error('作業中のデータが切り替わりました。元の部署で操作してください。');
+            }
+            await store.runAtomicSaveBatch(() => {
+                const current = this.ensureTipsState();
+                if (current.some(note => note.id === id)) throw new Error('TIPSはすでに復元されています。');
+                current.splice(Math.min(index, current.length), 0, deletedNote);
+            });
+            this.renderTips();
+        });
+        return true;
+    };
+
+    proto.showTipsDeleteUndoNotice = function (messageText, undo) {
+        const notice = document.createElement('div');
+        notice.className = 'shift-notebook-undo-toast history-delete-undo-toast tips-delete-undo-toast';
+        notice.setAttribute('role', 'status');
+        notice.style.bottom = `${22 + document.querySelectorAll('.history-delete-undo-toast').length * 64}px`;
+        const message = document.createElement('span');
+        message.textContent = messageText;
+        const countdown = document.createElement('span');
+        countdown.className = 'undo-countdown';
+        countdown.setAttribute('aria-hidden', 'true');
+        countdown.textContent = '10秒';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = '取り消す';
+        notice.append(message, countdown, button);
+        document.body.appendChild(notice);
+        const returnFocus = document.activeElement;
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => notice.classList.add('show'));
+        else notice.classList.add('show');
+        button.focus();
+        let remaining = 10;
+        const interval = setInterval(() => {
+            remaining -= 1;
+            countdown.textContent = `${Math.max(0, remaining)}秒`;
+        }, 1000);
+        const finish = () => {
+            clearTimeout(timer);
+            clearInterval(interval);
+            const restoreFocus = document.activeElement === button;
+            notice.remove();
+            if (restoreFocus) returnFocus?.focus?.();
+        };
+        const timer = setTimeout(finish, 10000);
+        button.addEventListener('click', async () => {
+            clearTimeout(timer);
+            clearInterval(interval);
+            button.disabled = true;
+            countdown.textContent = '保存中';
+            try {
+                await undo();
+                finish();
+                this.showToast?.('削除を取り消しました', 'success');
+            } catch (error) {
+                console.error('TIPS削除の取り消しに失敗しました。', error);
+                message.textContent = `取り消せませんでした。${error?.message || '保存先を確認してください。'}`;
+                countdown.textContent = '';
+                button.textContent = '再試行';
+                button.disabled = false;
+                button.focus();
+            }
+        });
     };
 
     document.addEventListener('click', event => {

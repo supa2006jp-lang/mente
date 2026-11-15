@@ -4,6 +4,8 @@
 class MaintenanceApp {
     constructor() {
         this.currentView = 'calendar';
+        this._viewSearchQueries = Object.create(null);
+        this._commonTopFilterInitialized = new Set();
         this.currentDate = new Date(); // Displayed month in calendar
         this._tempPhotos = []; 
         this.modelFilter = null; // Filter history by machine model
@@ -148,6 +150,8 @@ class MaintenanceApp {
     }
 
     applyCommonTopFilters(viewName = this.currentView) {
+        this._commonTopFilterInitialized ||= new Set();
+        if (this._commonTopFilterInitialized.has(viewName)) return;
         const periodMap = {
             history: 'hist-filter-period',
             analysis: 'analysis-filter-period',
@@ -167,6 +171,7 @@ class MaintenanceApp {
         };
         applyValue(periodMap[viewName], localStorage.getItem('common_filter_period'));
         applyValue(lineMap[viewName], localStorage.getItem('common_filter_line'));
+        this._commonTopFilterInitialized.add(viewName);
     }
 
     onCommonLineFilterChange(select, callback) {
@@ -647,6 +652,19 @@ class MaintenanceApp {
         verifyBackupButton.textContent = '保存済み latest.json を検証';
         verifyBackupButton.addEventListener('click', () => this.chooseLatestJsonBackupForVerification());
         panel.appendChild(verifyBackupButton);
+        if (store.db && typeof store.cleanupUnusedImageBlobs === 'function') {
+            const cleanupButton = document.createElement('button');
+            cleanupButton.type = 'button';
+            cleanupButton.className = 'secondary-btn app-save-image-cleanup';
+            cleanupButton.textContent = '不要画像の容量を確認・回収';
+            cleanupButton.disabled = !!this._imageCleanupInProgress;
+            cleanupButton.addEventListener('click', () => this.cleanupUnusedSavedImages());
+            panel.appendChild(cleanupButton);
+            if (this._lastImageCleanupResult) {
+                const result = this._lastImageCleanupResult;
+                add('画像容量の回収', `${result.reclaimedImages}件 / ${this.formatSaveStatusBytes(result.reclaimedBytes)}を回収`);
+            }
+        }
         if (store.storageWarning) add('保存先切替の理由', store.storageWarning.message || String(store.storageWarning));
         for (const report of store.malformedStorageReports || []) {
             const sourceLabel = report.source === 'indexeddb' ? 'IndexedDB' : 'localStorage';
@@ -699,6 +717,37 @@ class MaintenanceApp {
             }
         } else if (store.db && !fallback) add('localStorage 側の候補', '記録なし');
         else add('IndexedDB 側', store.db ? '有効な保存候補なし' : '現在開けないため比較できません');
+    }
+
+    formatSaveStatusBytes(bytes) {
+        const amount = Math.max(0, Number(bytes) || 0);
+        if (amount < 1024) return `${amount} B`;
+        if (amount < 1024 * 1024) return `${(amount / 1024).toFixed(1)} KB`;
+        return `${(amount / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    async cleanupUnusedSavedImages() {
+        if (this._imageCleanupInProgress || typeof store.cleanupUnusedImageBlobs !== 'function') return;
+        this._imageCleanupInProgress = true;
+        this.renderSaveStatusDiagnostics();
+        try {
+            const preview = await store.cleanupUnusedImageBlobs({ dryRun: true });
+            if (!preview.eligibleImages) {
+                this.showToast('回収できる不要画像はありません', 'info');
+                return;
+            }
+            const description = `${preview.gracePeriodDays}日以上参照されていない画像 ${preview.eligibleImages}件（${this.formatSaveStatusBytes(preview.eligibleBytes)}）を回収します。続けますか？`;
+            if (!confirm(description)) return;
+            const result = await store.cleanupUnusedImageBlobs({ dryRun: false });
+            this._lastImageCleanupResult = result;
+            this.showToast(`${result.reclaimedImages}件の不要画像を回収しました（${this.formatSaveStatusBytes(result.reclaimedBytes)}）`, 'success');
+        } catch (error) {
+            console.error('Unused image cleanup failed', error);
+            this.showToast(`不要画像を回収できませんでした: ${error.message || error}`, 'error');
+        } finally {
+            this._imageCleanupInProgress = false;
+            this.renderSaveStatusDiagnostics();
+        }
     }
 
     async switchSaveStatusCandidate(source) {
@@ -797,7 +846,6 @@ class MaintenanceApp {
             btn.addEventListener('click', (e) => {
                 const viewName = e.currentTarget.dataset.view;
                 if (!viewName) return;
-                this.resetSearchAndFilters();
                 this.switchView(viewName);
             });
         });
@@ -805,7 +853,6 @@ class MaintenanceApp {
         const homeBtn = document.getElementById('sidebar-home');
         if (homeBtn) {
             homeBtn.addEventListener('click', () => {
-                this.resetSearchAndFilters();
                 this.switchView('calendar');
             });
         }
@@ -814,26 +861,13 @@ class MaintenanceApp {
         if (searchIn) {
             searchIn.addEventListener('input', (e) => {
                 const query = e.target.value.toLowerCase();
+                this._viewSearchQueries ||= Object.create(null);
+                this._viewSearchQueries[this.currentView] = e.target.value;
                 if (this.currentView === 'calendar' && query) {
-                    this.switchView('history'); // Jump from calendar to history
+                    this._viewSearchQueries.history = e.target.value;
+                    this.switchView('history');
                 }
-                
-                if (this.currentView === 'history') {
-                    this.renderHistory(query);
-                } else if (this.currentView === 'machines') {
-                    this.renderMachines(query);
-                } else if (this.currentView === 'analysis') {
-                    this.renderAnalysis(query);
-                } else if (this.currentView === 'workers') {
-                    this.skillSearchQuery = query;
-                    this.renderWorkers();
-                } else if (this.currentView === 'worktime') {
-                    this.renderWorkTime(query);
-                } else if (this.currentView === 'guides') {
-                    this.renderGuides();
-                } else if (this.currentView === 'tips') {
-                    this.renderTips();
-                }
+                this.runGlobalSearchForCurrentView(query);
             });
         }
 
@@ -842,25 +876,16 @@ class MaintenanceApp {
             searchClear.addEventListener('click', () => {
                 if (searchIn) {
                     searchIn.value = '';
-                    if (this.currentView === 'history') {
-                        this.renderHistory('');
-                    } else if (this.currentView === 'machines') {
-                        this.renderMachines('');
-                    } else if (this.currentView === 'analysis') {
-                        this.renderAnalysis('');
-                    } else if (this.currentView === 'workers') {
-                        this.skillSearchQuery = '';
-                        this.renderWorkers();
-                    } else if (this.currentView === 'worktime') {
-                        this.renderWorkTime('');
-                    } else if (this.currentView === 'guides') {
-                        this.renderGuides();
-                    } else if (this.currentView === 'tips') {
-                        this.renderTips();
-                    }
+                    this._viewSearchQueries ||= Object.create(null);
+                    this._viewSearchQueries[this.currentView] = '';
+                    this.runGlobalSearchForCurrentView('');
+                    searchIn.focus();
                 }
             });
         }
+
+        document.getElementById('view-filter-clear')?.addEventListener('click', () => this.clearCurrentViewSearchAndFilters());
+        this.updateGlobalSearchForView(this.currentView);
 
         const notebookSearch = document.getElementById('notebook-search');
         const notebookSearchBtn = document.getElementById('notebook-search-btn');
@@ -928,6 +953,117 @@ class MaintenanceApp {
         }
     }
 
+    runGlobalSearchForCurrentView(query = '') {
+        if (this.currentView === 'history') this.renderHistory(query);
+        else if (this.currentView === 'machines') this.renderMachines(query);
+        else if (this.currentView === 'analysis') this.renderAnalysis(query);
+        else if (this.currentView === 'workers') {
+            this.skillSearchQuery = query;
+            this.renderWorkers();
+        } else if (this.currentView === 'worktime') this.renderWorkTime(query);
+        else if (this.currentView === 'guides') this.renderGuides();
+        else if (this.currentView === 'tips') this.renderTips();
+    }
+
+    updateGlobalSearchForView(viewName) {
+        const input = document.getElementById('global-search');
+        if (!input) return;
+        const placeholders = {
+            calendar: '履歴を検索（入力で履歴へ移動）',
+            history: '履歴を検索',
+            machines: '機械を検索',
+            analysis: '部品を検索',
+            guides: '手順書を検索'
+        };
+        const enabled = Object.prototype.hasOwnProperty.call(placeholders, viewName);
+        const explanation = {
+            fiveS: '5Sは画面内の検索欄を使用',
+            photos: 'メディア管理は画面内の検索欄を使用',
+            workers: 'スキルマップは画面内の検索欄を使用',
+            worktime: '作業時間は画面内の検索欄を使用',
+            tips: 'TIPSは画面内の検索欄を使用'
+        }[viewName] || 'この画面は上部検索の対象外';
+        input.disabled = !enabled;
+        input.placeholder = enabled ? placeholders[viewName] : explanation;
+        input.setAttribute('aria-label', input.placeholder);
+        input.value = enabled ? (this._viewSearchQueries?.[viewName] || '') : '';
+        const clear = document.getElementById('search-clear');
+        if (clear) clear.hidden = !enabled;
+        document.querySelector('.search-bar')?.classList.toggle('is-unavailable', !enabled);
+        const filterClear = document.getElementById('view-filter-clear');
+        if (filterClear) filterClear.hidden = !new Set([
+            'calendar', 'history', 'machines', 'fiveS', 'analysis', 'dashboard',
+            'ranking', 'workers', 'worktime', 'guides', 'tips'
+        ]).has(viewName);
+    }
+
+    clearCurrentViewSearchAndFilters() {
+        const viewName = this.currentView;
+        this._viewSearchQueries ||= Object.create(null);
+        this._viewSearchQueries[viewName] = '';
+        const search = document.getElementById('global-search');
+        if (search) search.value = '';
+        const defaults = {
+            calendar: { 'cal-filter-line': 'all' },
+            history: { 'hist-filter-period': 'last_this_month', 'hist-filter-machine': '', 'hist-filter-line': 'all', 'hist-filter-type': '' },
+            fiveS: { 'fiveS-filter-period': 'all', 'fiveS-filter-shift': 'all', 'fiveS-filter-group': '', 'fiveS-filter-query': '' },
+            analysis: { 'analysis-filter-period': 'last_this_month', 'analysis-filter-line': 'all' },
+            dashboard: { 'dashboard-filter-period': 'this_month' },
+            ranking: { 'ranking-filter-period': 'last_this_month', 'ranking-filter-line': 'all' },
+            worktime: { 'worktime-filter-period': 'last_this_month', 'worktime-filter-line': 'all', 'worktime-search': '' },
+            guides: { 'guides-filter-line': 'all' },
+            tips: { 'tips-search-input': '', 'tips-filter-group': '', 'tips-filter-branch': '', 'tips-filter-attachment': 'all', 'tips-sort-select': 'createdDesc' }
+        }[viewName] || {};
+        for (const [id, value] of Object.entries(defaults)) {
+            const control = document.getElementById(id);
+            if (control) control.value = value;
+        }
+        if (viewName === 'fiveS') {
+            for (const id of ['fiveS-filter-photos', 'fiveS-filter-pending']) {
+                const control = document.getElementById(id);
+                if (control) control.checked = false;
+            }
+        }
+        if (viewName === 'history') {
+            for (const id of ['hist-filter-parts', 'hist-filter-photos', 'hist-filter-guide']) {
+                const control = document.getElementById(id);
+                if (control) control.checked = false;
+            }
+            this.modelFilter = null;
+            this.workerFilter = null;
+            this.machineCategoryFilter = null;
+            this.historyMissingDetailFilter = null;
+            this.historyRecurrenceFrequencyFilter = null;
+            this.historyReturnContext = null;
+            this.customStartDate = null;
+            this.customEndDate = null;
+        } else if (viewName === 'machines') {
+            this.machineMaintenanceListFilters = { status: 'all', kind: 'all', line: 'all' };
+        } else if (viewName === 'workers') {
+            this.skillModelFilter = null;
+            this.skillSearchQuery = '';
+            this.skillRiskFilter = false;
+            this.skillSoloFilter = false;
+            const skillSearch = document.getElementById('skill-search');
+            if (skillSearch) skillSearch.value = '';
+            this.updateSkillFilterButtons?.();
+        } else if (viewName === 'guides') {
+            this.guideTagFilter = null;
+            this.guideLineFilter = 'all';
+        } else if (viewName === 'analysis') {
+            this.costDrillDownCategory = null;
+            this.costFilter = 'all';
+        }
+        else if (viewName === 'worktime') {
+            this.workTimeDrillDownCategory = null;
+            this.workTimeSearchQuery = '';
+            this.saveWorkTimePeriodSelection?.();
+        } else if (viewName === 'dashboard') this.dashboardPeriod = 'yesterday_today';
+        else if (viewName === 'calendar') this.calLineFilter = 'all';
+        this.renderView(viewName);
+        this.showToast?.('この画面の検索・絞り込みをクリアしました', 'info');
+    }
+
     initTrendChartConfig() {
         const savedHeight = localStorage.getItem('worktimeTrendHeight') || 250;
         this.updateTrendChartHeight(savedHeight, false);
@@ -957,6 +1093,11 @@ class MaintenanceApp {
     switchView(viewName, options = {}) {
         if (!viewName) return;
         if (this.currentView === viewName && !options.force) return;
+        const currentSearch = document.getElementById('global-search');
+        if (currentSearch && this.currentView && !currentSearch.disabled) {
+            this._viewSearchQueries ||= Object.create(null);
+            this._viewSearchQueries[this.currentView] = currentSearch.value;
+        }
         this.updateSidebarCurrentShiftLink?.();
         
         // Update Nav UI
@@ -1023,18 +1164,10 @@ class MaintenanceApp {
         const topHeader = document.querySelector('.top-header');
         if (topHeader) topHeader.dataset.viewBg = viewName;
 
-        // Reset skill filters when switching views to ensure fresh state
-        this.skillModelFilter = null;
-        this.skillSearchQuery = "";
-        this.guideTagFilter = null;
-        
         this.updateViewGuideSlot(viewName);
 
-        if (viewName === 'dashboard') {
-            this.dashboardPeriod = 'yesterday_today';
-        }
-
         this.currentView = viewName;
+        this.updateGlobalSearchForView(viewName);
         this.renderView(viewName);
         this.updateContextualHelp(viewName);
     }
@@ -1341,7 +1474,6 @@ class MaintenanceApp {
     renderView(viewName) {
         this.updateTodoRequestCountBadge();
         this.updateViewGuideSlot(viewName);
-        this.applyCommonTopFilters(viewName);
         switch (viewName) {
             case 'calendar': this.renderCalendar(); break;
             case 'todos': this.renderKanbanLocalTodos(); break;

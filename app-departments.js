@@ -144,6 +144,7 @@
     }
 
     async deleteDepartment(id) {
+        if (this._departmentDeleteInProgress) return;
         const departments = store.data.departments || [];
         const deptIndex = departments.findIndex(d => String(d.id) === String(id));
         if (deptIndex < 0) return alert('部署が見つかりません。');
@@ -164,15 +165,28 @@
         const secondConfirm = confirm(`本当に削除しますか？\n削除前に必要なら「部署出力」でバックアップしてください。\n\n削除する部署: ${dept.name}`);
         if (!secondConfirm) return;
 
-        departments.splice(deptIndex, 1);
-        if (store.data.deptData) delete store.data.deptData[id];
-
         const deletedCurrent = String(store.data.currentDepartmentId) === String(id);
-        if (deletedCurrent) {
-            store.data.currentDepartmentId = departments[0]?.id || 'dept_default';
+        this._departmentDeleteInProgress = true;
+        try {
+            await store.runAtomicSaveBatch(() => {
+                const currentDepartments = store.data.departments || [];
+                const currentIndex = currentDepartments.findIndex(item => String(item.id) === String(id));
+                if (currentIndex < 0 || currentDepartments.length <= 1) {
+                    throw new Error('削除する部署が見つからないか、最後の部署です。');
+                }
+                currentDepartments.splice(currentIndex, 1);
+                if (store.data.deptData) delete store.data.deptData[id];
+                if (deletedCurrent) {
+                    store.data.currentDepartmentId = currentDepartments[0]?.id || 'dept_default';
+                }
+            });
+        } catch (error) {
+            console.error('部署を削除できませんでした。', error);
+            alert(`部署を削除できませんでした。${error?.message || '保存先を確認してください。'}`);
+            return;
+        } finally {
+            this._departmentDeleteInProgress = false;
         }
-
-        await store.save();
         if (deletedCurrent) {
             alert(`部署「${dept.name}」を削除しました。別の部署へ切り替えます。`);
             location.reload();

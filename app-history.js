@@ -777,33 +777,33 @@
             console.warn('履歴削除後の画面更新に失敗しました。', displayError);
         }
         this.showHistoryDeleteUndoNotice(record, () => this.undoHistoryDeletion({
-            active, dataRef, departmentId, index, record, stockChanges
+            dataRef, departmentId, index, record, stockChanges
         }));
     }
 
-    async undoHistoryDeletion({ active, dataRef, departmentId, index, record, stockChanges }) {
+    async undoHistoryDeletion({ dataRef, departmentId, index, record, stockChanges }) {
         if (store.data !== dataRef || store.data.currentDepartmentId !== departmentId) {
             throw new Error('作業中のデータが切り替わりました。元の部署に戻ってから操作してください。');
         }
-        if (active.history.some(item => item.id === record.id)) return;
+        if (store.activeData.history.some(item => item.id === record.id)) return;
         const parts = stockChanges.map(change => ({
             master: change.master, name: change.name, model: change.model,
             delta: -change.delta, sourceId: record.id
         }));
-        const undoChanges = [];
-        active.history.splice(Math.min(index, active.history.length), 0, record);
-        try {
+        await store.runAtomicSaveBatch(() => {
+            if (store.data !== dataRef || store.data.currentDepartmentId !== departmentId) {
+                throw new Error('作業中のデータが切り替わりました。元の部署に戻ってから操作してください。');
+            }
+            const active = store.activeData;
+            if (active.history.some(item => item.id === record.id)) {
+                throw new Error('履歴はすでに復元されています。');
+            }
+            active.history.splice(Math.min(index, active.history.length), 0, record);
             this.applyHistoryDeletionStockChanges(
                 active, parts, 'maintenance-delete-undo', 'メンテナンス履歴削除を取り消す（在庫を再反映）',
-                undoChanges, true
+                [], true
             );
-            await store.save({ discardQueuedOnFailure: true });
-        } catch (error) {
-            const recordIndex = active.history.indexOf(record);
-            if (recordIndex !== -1) active.history.splice(recordIndex, 1);
-            this.rollbackHistoryDeletionStockChanges(active, undoChanges);
-            throw error;
-        }
+        });
         try {
             this.renderCalendar();
             this.renderHistory();

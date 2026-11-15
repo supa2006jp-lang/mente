@@ -10,6 +10,7 @@ class MaintenanceStore {
         this.MEDIA_STORE_NAME = 'media';
         this.DURABLE_IMAGE_REF_PREFIX = 'maintenance-idb-image://';
         this.DURABLE_IMAGE_MEDIA_PREFIX = 'image:';
+        this.IMAGE_GC_GRACE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
         this.STORAGE_KEY = 'factory_maintenance_next_data_v2'; // Versioning for department support
         this.STORAGE_SELECTION_KEY = 'maintenance_selected_storage_source_v1';
         this.storageWarning = null;
@@ -1210,6 +1211,194 @@ class MaintenanceStore {
             request.onerror = () => reject(request.error || new Error('保存メディア一覧を読み込めませんでした。'));
         });
     }
+
+    collectImageGcProtection() {
+        const references = new Set();
+        const seen = new WeakSet();
+        const marker = this.DURABLE_IMAGE_REF_PREFIX.split('//')[0];
+        let uncertain = false;
+        const visit = value => {
+            if (typeof value === 'string') {
+                if (value.startsWith(this.DURABLE_IMAGE_REF_PREFIX)) references.add(value);
+                else if (value.includes(marker)) uncertain = true;
+                return;
+            }
+            if (!value || typeof value !== 'object' || seen.has(value)) return;
+            seen.add(value);
+            Object.values(value).forEach(visit);
+        };
+        visit(this.data);
+        for (const original of Object.values(this._malformedPrimary)) {
+            visit(original?.data);
+            if (typeof original?.raw === 'string' && original.raw.includes(marker)) {
+                try { visit(JSON.parse(original.raw)); }
+                catch (_) { uncertain = true; }
+            }
+        }
+        for (const candidate of Object.values(this._repairCandidates)) visit(candidate?.data);
+        // A localStorage fallback can be a separate valid restore candidate.
+        // Inspect its saved records even while IndexedDB is the active backend.
+        if (typeof localStorage !== 'undefined') {
+            const keys = [this.STORAGE_KEY];
+            if (typeof localStorage.key === 'function' && Number.isInteger(localStorage.length)) {
+                for (let index = 0; index < localStorage.length; index++) {
+                    const key = localStorage.key(index);
+                    if (key && key.startsWith(this.STORAGE_KEY) && !keys.includes(key)) keys.push(key);
+                }
+            }
+            for (const key of keys) {
+                const raw = localStorage.getItem(key);
+                if (!raw || !raw.includes(marker)) continue;
+                try { visit(JSON.parse(raw)); }
+                catch (_) { uncertain = true; }
+            }
+        }
+        const currentSources = this.collectImageDataUrls(this.data);
+        for (const [source, reference] of this._durableImageRefBySource) {
+            if (currentSources.has(source)) references.add(reference);
+        }
+        return { references, uncertain };
+    }
+
+    assertSoleAppClientForImageCleanup() {
+        const controller = typeof navigator !== 'undefined' && navigator.serviceWorker?.controller;
+        if (!controller || typeof MessageChannel === 'undefined') {
+            return Promise.reject(new Error('他のタブを確認できません。アプリを再読み込みしてから画像回収を実行してください。'));
+        }
+        return new Promise((resolve, reject) => {
+            const channel = new MessageChannel();
+            let finished = false;
+            const finish = error => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timeout);
+                channel.port1.close?.();
+                error ? reject(error) : resolve();
+            };
+            const timeout = setTimeout(() => finish(new Error('他のタブを確認できなかったため、画像回収を中止しました。')), 4000);
+            channel.port1.onmessage = event => {
+                const answer = event.data || {};
+                if (answer.type !== 'maintenance-image-gc-clients-v1'
+                    || answer.sourceFound !== true || !Number.isInteger(answer.otherCount)
+                    || answer.otherCount < 0) {
+                    finish(new Error('他のタブを確認できなかったため、画像回収を中止しました。'));
+                } else if (answer.otherCount > 0) {
+                    finish(new Error('別のタブでアプリが開いています。他のタブを閉じてから画像回収を実行してください。'));
+                } else {
+                    finish();
+                }
+            };
+            channel.port1.onmessageerror = () => finish(new Error('他のタブを確認できなかったため、画像回収を中止しました。'));
+            try {
+                controller.postMessage({ type: 'maintenance-image-gc-clients-v1' }, [channel.port2]);
+            } catch (error) {
+                finish(new Error(`他のタブを確認できませんでした（${error.message}）。`));
+            }
+        });
+    }
+
+    async cleanupUnusedImageBlobs({ dryRun = true } = {}) {
+        if (!this.db || !this.db.objectStoreNames?.contains?.(this.MEDIA_STORE_NAME)) {
+            throw new Error('画像の別保存領域を開けませんでした。');
+        }
+        // The primary record and a new image Blob are saved in one transaction.
+        // Finish pending edits before comparing their references with media keys.
+        do {
+            await this.waitForSaveQueueIdle();
+        } while (this._saveQueueRunning || this._saveQueue.length);
+        if (!dryRun) await this.assertSoleAppClientForImageCleanup();
+        const protection = this.collectImageGcProtection();
+        if (protection.uncertain) {
+            throw new Error('保存候補の画像参照を確認できないため、画像の回収を中止しました。');
+        }
+        const now = Date.now();
+        const result = {
+            dryRun: !!dryRun,
+            totalImages: 0,
+            unreferencedImages: 0,
+            eligibleImages: 0,
+            eligibleBytes: 0,
+            reclaimedImages: 0,
+            reclaimedBytes: 0,
+            gracePeriodDays: Math.round(this.IMAGE_GC_GRACE_PERIOD_MS / 86400000)
+        };
+        return new Promise((resolve, reject) => {
+            let transaction;
+            let requestError = null;
+            const marker = this.DURABLE_IMAGE_REF_PREFIX.split('//')[0];
+            const fail = error => {
+                requestError ||= error || new Error('画像の参照確認に失敗しました。');
+                try { transaction.abort(); } catch (_) {}
+            };
+            const inspect = value => {
+                const seen = new WeakSet();
+                const visit = node => {
+                    if (typeof node === 'string') {
+                        if (node.startsWith(this.DURABLE_IMAGE_REF_PREFIX)) protection.references.add(node);
+                        else if (node.includes(marker)) {
+                            throw new Error('保存済みデータに解析できない画像参照があります。');
+                        }
+                        return;
+                    }
+                    if (!node || typeof node !== 'object' || seen.has(node)) return;
+                    seen.add(node);
+                    Object.values(node).forEach(visit);
+                };
+                visit(value);
+            };
+            try {
+                transaction = this.db.transaction([this.STORE_NAME, this.MEDIA_STORE_NAME], dryRun ? 'readonly' : 'readwrite');
+                transaction.onerror = () => { requestError ||= transaction.error || new Error('画像の回収に失敗しました。'); };
+                transaction.onabort = () => reject(requestError || transaction.error || new Error('画像の回収が中断されました。'));
+                transaction.oncomplete = () => requestError ? reject(requestError) : resolve(result);
+                const stateRequest = transaction.objectStore(this.STORE_NAME).openCursor();
+                stateRequest.onerror = () => fail(stateRequest.error);
+                stateRequest.onsuccess = () => {
+                    const cursor = stateRequest.result;
+                    if (cursor) {
+                        try { inspect(cursor.value); }
+                        catch (error) { fail(error); return; }
+                        cursor.continue();
+                        return;
+                    }
+                    const mediaRequest = transaction.objectStore(this.MEDIA_STORE_NAME).openCursor();
+                    mediaRequest.onerror = () => fail(mediaRequest.error);
+                    mediaRequest.onsuccess = () => {
+                        const mediaCursor = mediaRequest.result;
+                        if (!mediaCursor) return;
+                        const key = String(mediaCursor.key || '');
+                        if (key.startsWith(this.DURABLE_IMAGE_MEDIA_PREFIX)) {
+                            result.totalImages++;
+                            const reference = this.DURABLE_IMAGE_REF_PREFIX + key;
+                            if (!protection.references.has(reference)) {
+                                result.unreferencedImages++;
+                                const entry = mediaCursor.value || {};
+                                const updatedAt = Number(entry.updatedAt) || 0;
+                                if (entry.blob instanceof Blob && updatedAt > 0
+                                    && now - updatedAt >= this.IMAGE_GC_GRACE_PERIOD_MS) {
+                                    const size = Math.max(0, Number(entry.size) || entry.blob.size || 0);
+                                    result.eligibleImages++;
+                                    result.eligibleBytes += size;
+                                    if (!dryRun) {
+                                        const deleteRequest = mediaCursor.delete();
+                                        deleteRequest.onerror = () => fail(deleteRequest.error);
+                                        deleteRequest.onsuccess = () => {
+                                            result.reclaimedImages++;
+                                            result.reclaimedBytes += size;
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                        mediaCursor.continue();
+                    };
+                };
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
     saveMediaFileHandle(id, handle) {
         if (!this.db || !id || !handle || handle.kind !== 'file') {
             return Promise.reject(new Error('PC動画のリンク情報を保存できません。'));

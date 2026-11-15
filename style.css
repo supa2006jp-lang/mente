@@ -7877,6 +7877,55 @@ button.history-inline-action:focus-visible {
     font-size: 0.9rem;
 }
 
+.search-bar.is-unavailable {
+    opacity: 0.72;
+}
+
+.search-bar input:disabled {
+    cursor: not-allowed;
+}
+
+.header-search-clear {
+    border: 0;
+    background: transparent;
+    color: var(--text-light);
+    cursor: pointer;
+    padding: 2px;
+    opacity: 0.65;
+    font-size: 1rem;
+}
+
+.header-filter-clear {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text-main);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    padding: 7px 9px;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.header-filter-clear[hidden],
+.header-search-clear[hidden] {
+    display: none !important;
+}
+
+.header-filter-clear:hover,
+.header-filter-clear:focus-visible,
+.header-search-clear:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+@media (max-width: 1180px) {
+    .header-filter-clear span { display: none; }
+}
+
 .notebook-search-bar {
     background-color: #eff6ff;
     border-radius: 99px;

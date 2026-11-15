@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="assets/vendor/fontsource/noto-sans-jp/5.2.6/index.css">
     <!-- FontAwesome -->
     <link rel="stylesheet" href="all.min.css?v=6.5.1-embedded3">
-    <link rel="stylesheet" href="style.css?v=20261115-six1">
+    <link rel="stylesheet" href="style.css?v=20261115-five1">
     <!-- Chart.js -->
     <script src="assets/vendor/chart.js/4.6.1/chart.umd.min.js"></script>
     <script src="assets/vendor/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
@@ -323,7 +323,7 @@
         <main class="main-content">
             <header class="top-header" data-view-bg="calendar">
                 <div class="header-left">
-                    <button id="sidebar-toggle" class="icon-btn"><i class="fa-solid fa-bars"></i></button>
+                    <button id="sidebar-toggle" class="icon-btn" type="button" aria-label="サイドバーを開閉"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
                     <h2 id="view-title"><img class="calendar-title-logo" src="assets/calendar-title.png?v=20260823" alt="カレンダー"></h2>
                     <div id="view-guide-slot" class="view-guide-slot"></div>
                     <div id="contextual-help-slot" class="contextual-help-slot" aria-live="polite"></div>
@@ -331,10 +331,11 @@
                         <i class="fa-solid fa-gear"></i>
                     </button>
                     <div class="search-bar">
-                        <i class="fa-solid fa-magnifying-glass"></i>
-                        <input type="text" id="global-search" placeholder="機械・履歴を検索...">
-                        <i class="fa-solid fa-circle-xmark" id="search-clear" style="cursor:pointer; color:var(--text-light); opacity:0.6; transition:var(--transition);" title="クリア"></i>
+                        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                        <input type="search" id="global-search" placeholder="履歴を検索..." aria-label="この画面を検索">
+                        <button type="button" id="search-clear" class="header-search-clear" title="検索文字をクリア" aria-label="検索文字をクリア"><i class="fa-solid fa-circle-xmark" aria-hidden="true"></i></button>
                     </div>
+                    <button type="button" id="view-filter-clear" class="header-filter-clear" title="この画面の検索・絞り込み条件をクリア" aria-label="この画面の検索・絞り込み条件をクリア"><i class="fa-solid fa-filter-circle-xmark" aria-hidden="true"></i><span>条件クリア</span></button>
                     <div class="notebook-search-bar">
                         <i class="fa-solid fa-book-open"></i>
                         <input type="text" id="notebook-search" placeholder="履歴・手順書・連絡帳・ToDoを検索...">
@@ -369,9 +370,9 @@
                 <section id="view-calendar" class="view active">
                     <div class="calendar-header" style="display:flex; align-items:center; justify-content:space-between;">
                         <div class="month-selector">
-                            <button class="icon-btn" id="cal-prev"><i class="fa-solid fa-chevron-left"></i></button>
+                            <button class="icon-btn" id="cal-prev" type="button" aria-label="前の月"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
                             <h3 id="current-month-display">2026年 3月</h3>
-                            <button class="icon-btn" id="cal-next"><i class="fa-solid fa-chevron-right"></i></button>
+                            <button class="icon-btn" id="cal-next" type="button" aria-label="次の月"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
                         </div>
                         <div style="display:flex; align-items:center; gap:10px;">
                             <label style="font-size:0.75rem; color:var(--text-light); font-weight:700; white-space:nowrap;"><i class="fa-solid fa-filter"></i> ライン絞込:</label>
@@ -1236,8 +1237,8 @@
     <script src="assets/vendor/kuromoji/0.1.2/kuromoji.js"></script>
     <script src="assets/vendor/kuroshiro/1.2.0/kuroshiro.min.js"></script>
     <script src="assets/vendor/kuroshiro-analyzer-kuromoji/1.1.0/kuroshiro-analyzer-kuromoji.min.js"></script>
-    <script src="store.js?v=20261115-six1"></script>
-    <script src="app.js?v=20261115-six1"></script>
+    <script src="store.js?v=20261115-five1"></script>
+    <script src="app.js?v=20261115-five1"></script>
     <script src="app-settings.js?v=20261114-save12"></script>
     <script src="app-todos.js?v=20260611-todo-stamp-wrap"></script>
     <script src="app-shift-notebook-settings.js"></script>
@@ -1245,24 +1246,24 @@
     <script src="app-calendar-details.js?v=20261115-all5"></script>
     <script src="app-shift-notebook-editor.js?v=20260802-shift-stamp-backspace1"></script>
     <script src="app-calendar-support.js?v=20261114-improve123"></script>
-    <script src="app-departments.js?v=20260623-dept-switch-import-fix"></script>
+    <script src="app-departments.js?v=20261115-five1"></script>
     <script src="app-machines.js?v=20261114-improve123"></script>
     <script src="app-maintenance-forms.js?v=20261115-all5b"></script>
-    <script src="app-history.js?v=20261115-all5b"></script>
+    <script src="app-history.js?v=20261115-five1"></script>
     <script src="app-analysis-dashboard.js?v=20261114-fix123"></script>
     <script src="app-ranking-guides.js?v=20260826-auto-contrast1"></script>
-    <script src="app-tips.js?v=20261115-six1"></script>
+    <script src="app-tips.js?v=20261115-five1"></script>
     <script src="app-skills.js?v=20261114-fix123"></script>
     <script src="app-outlook-assist.js?v=20261114-fix123"></script>
     <script src="app-worktime.js?v=20261114-fix123"></script>
-    <script src="app-archives.js?v=20261115-six1"></script>
-    <script src="app-hard-delete.js?v=20261114-fix123"></script>
-    <script src="app-persistence.js?v=20261115-six1"></script>
+    <script src="app-archives.js?v=20261115-five1"></script>
+    <script src="app-hard-delete.js?v=20261115-five1"></script>
+    <script src="app-persistence.js?v=20261115-five1"></script>
     <script src="app-csv.js?v=20261115-all5b"></script>
     <script src="app-misc-analysis.js"></script>
     <script src="assets/vendor/ffmpeg/0.11.6/ffmpeg.min.js"></script>
     <script src="app-dom-actions.js"></script>
-    <script src="app-boot.js?v=20261115-six1"></script>
+    <script src="app-boot.js?v=20261115-five1"></script>
 </body>
 </html>
 
