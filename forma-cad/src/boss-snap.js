@@ -4,6 +4,7 @@ import {Matrix4, Quaternion, Vector3} from 'three';
 export const snapBossMinimum = Object.freeze({diameter:5,length:8,bossWall:1.6});
 export const snapBossLengthMin = diameter => Math.max(snapBossMinimum.length,diameter*1.6);
 export const snapBossMinimumAxialPlay = .05;
+export const snapBossAxialGap = clearance => Math.max(.5,clearance);
 export const snapBossEngagementPresets = Object.freeze([
  {id:'light',label:'軽め',rise:.3,minimumOverlap:.05},
  {id:'standard',label:'標準',rise:.4,minimumOverlap:.1},
@@ -46,7 +47,7 @@ export function snapBossSettings({pinStyle,diameter,length,bossWall,clearance,sn
  // Place the retaining face from the seated pin, including a little axial
  // clearance so the shoulders do not overlap at full insertion.
  const shoulderOffset=snapRetentionRidge ? .6*scale+clearance-snapBossMinimumAxialPlay : snapShoulderOffset;
- return {scale,shaftRadius,headRadius,engagement:preset.id,slotWidth:1.2*scale,axialGap:Math.max(.5,clearance),neckRadius:shaftRadius+clearance,pocketRadius:headRadius+clearance,shoulderOffset,retentionRidgeHeight};
+ return {scale,shaftRadius,headRadius,engagement:preset.id,slotWidth:1.2*scale,axialGap:snapBossAxialGap(clearance),neckRadius:shaftRadius+clearance,pocketRadius:headRadius+clearance,shoulderOffset,retentionRidgeHeight};
 }
 
 function socketProfile({scale,neckRadius,pocketRadius,axialGap,shoulderOffset=0,retentionRidgeHeight=0},length) {

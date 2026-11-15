@@ -42,11 +42,13 @@ try{
  assert.equal((await analysis()).snap ?? null,null);
  await pinStyle.selectOption('snap');await ready();
  assert.equal(await engagement.inputValue(),'standard');
- assert.equal(await page.locator('#boss-joint-diameter').inputValue(),'5');
- assert.equal(await page.locator('#boss-joint-length').inputValue(),'8');
+ assert.equal(await page.getByRole('button',{name:'ロッカーの寸法を入れる',exact:true}).count(),0);
+ assert.equal(await page.locator('#boss-joint-diameter').inputValue(),'6');
+ assert.equal(await page.locator('#boss-joint-length').inputValue(),'9.6');
+ assert.equal(await page.locator('#boss-joint-bossHeight').inputValue(),'11.3');
  await ridge.check();await ready();
  assert.ok(await shoulder.isDisabled());
- assert.ok(Math.abs((await analysis()).snap.shoulderOffset-.75)<1e-8);
+ assert.ok(Math.abs((await analysis()).snap.shoulderOffset-.87)<1e-8);
  await page.locator('#boss-joint-section').click();
  const snapPanel=page.locator('#boss-joint-section-panel');
  assert.match(await snapPanel.locator('#boss-section-play-value').textContent(),/軸方向のガタ 0.05 mm/);
