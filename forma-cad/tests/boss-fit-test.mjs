@@ -4,7 +4,7 @@ import {runOperation} from '../src/kernel.js';import {solidMeshComplete} from '.
 import {savedBodyMeshes} from '../src/cad-output-mesh.js';
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 assert.deepEqual(bossFitPresets.map(p=>p.clearance),[.25,.2,.1]);for(const p of bossFitPresets)assert.equal(bossFitPreset(p.clearance),p.id);assert.equal(bossFitPreset(.15),'custom');
-for(const settings of [{diameter:3,length:4,bossWall:1.6,bossHeight:8},{diameter:6,length:7,bossWall:1.2,bossHeight:9}]){
+for(const settings of [{diameter:3,length:4,bossWall:1.6,bossHeight:8},{diameter:6,length:7,bossWall:1.2,bossHeight:9},{pinStyle:'snap',diameter:5,length:8,bossWall:1.6,bossHeight:10.5}]){
  const result=runOperation([],{type:'bossFitTest',id:'test',...settings}),a=result.analysis;assert.equal(result.outputs.length,8);assert.deepEqual(a.samples.map(s=>s.clearance),[.1,.15,.2,.25]);assert.ok(a.width<=180&&a.depth<=180);const shapes=new Map();
  const inspected=savedBodyMeshes({type:'stlMeshes',bodies:result.outputs});assert(inspected.inspection.ok,'all labelled pieces export with closed manifold edges');assert.equal(inspected.inspection.checkedBodies,8);
  try{
@@ -15,6 +15,23 @@ for(const settings of [{diameter:3,length:4,bossWall:1.6,bossHeight:8},{diameter
    assert.ok(amount(pin,[px+r-.04,py,a.baseThickness+.4])>.999);assert.ok(amount(pin,[px+r+.04,py,a.baseThickness+.4])<1e-5,'all four pins have the same nominal diameter');
    assert.ok(amount(boss,[x,y,a.baseThickness+.5])>.999,'receiver retains its bottom');
    const assembled=pin.clone().rotate(180,[0,0,0],[1,0,0]).translate([x-px,y+py,2*a.baseThickness+a.bossHeight]),common=boss.intersect(assembled);try{assert.ok(Math.abs(R.measureVolume(common))<1e-5,'labelled pins insert without touching the hole walls or bottom');}finally{common.delete();assembled.delete();}
+   if(settings.pinStyle==='snap'){
+    assert.ok(amount(pin,[px,py,a.baseThickness+6])<1e-5,'slit separates the prongs');
+    assert.ok(amount(pin,[px+2.82,py,a.baseThickness+6])>.999,'head projects past the shaft');
+    assert.ok(amount(boss,[x+2.85,y,sample.rootZ-6])<1e-5,'receiver has a wider pocket');
+    if(sample.clearance===.1){
+     const neck=R.makeCylinder(r+.05,8,[px,py,a.baseThickness+2.5]);
+     try{
+      for(const sign of [-1,1]){
+       const half=R.makeBox([px+(sign<0?-4:0),py-4,a.baseThickness+2.5],[px+(sign<0?0:4),py+4,a.baseThickness+8.1]);
+       const arm=pin.intersect(half).translate([-sign*.56,0,0]),outside=arm.cut(neck);
+       try{assert.ok(R.measureVolume(arm)>1);assert.ok(R.measureVolume(outside)<1e-5,'each deflected prong clears the minimum throat');}finally{half.delete();arm.delete();outside.delete();}
+      }
+     }finally{neck.delete();}
+    }
+    const pulled=pin.clone().rotate(180,[0,0,0],[1,0,0]).translate([x-px,y+py,2*a.baseThickness+a.bossHeight+2]),catchContact=boss.intersect(pulled);
+    try{assert.ok(R.measureVolume(catchContact)>.01,'unflexed head catches in the throat when pulled');}finally{catchContact.delete();pulled.delete();}
+   }
    const labelX=x-11.1/2;assert.ok(amount(boss,[labelX+1.4,1.2+5.6-.325,a.baseThickness+.2],.1)>.999,'numeric clearance label is real raised geometry');assert.ok(amount(boss,[labelX+1.4,1.2+2,a.baseThickness+.2],.1)<1e-5,'digits keep their open interior');
   }
  }finally{shapes.forEach(s=>s.delete());}

@@ -57,3 +57,17 @@ const shellPairBodies=kernelBodies(history);try{
  }finally{a.delete();b.delete();}
 }finally{for(const shape of shellPairBodies.values())shape.delete();}
 console.log('PASS shell before joints: split/pair, both cavities, walls/floors, thickness edits, circular/XZ/YZ, reinforcement, existing hollow preservation and invalid inputs');
+
+const snapSpec={...p,pinStyle:'snap',diameter:5,length:8,clearance:.2,bossHeight:10.5};
+for(const [features,settings]of [[ [base],snapSpec ],[ history,{...snapSpec,mode:'pair',pinTarget:'upper',pose:'print'} ],[ [base],{...snapSpec,plane:'YZ',offset:0} ]]){
+ const result=runOperation(features,settings);validResult(result);assert.ok(result.analysis.overlap<1e-5);
+ assert.equal(result.analysis.snap.headDiameter,5.8);
+ assert.equal(result.analysis.snap.slotWidth,1.2);
+ assert.equal(result.analysis.snap.pocketDiameter,6.2);
+ validateProject({format:'forma-cad',version:1,features:[...features,{kind:'cadop',id:settings.id,name:'ボス接合',spec:settings,...result}]});
+}
+for(const [change,message]of [
+ [{diameter:4.95},/軸径5/],[{length:7.95},/長さ8/],[{diameter:6,length:8},/長さ9.6/],
+ [{bossWall:1.55},/肉厚1.6/],[{clearance:.35},/0.3 mm以下/],[{bossHeight:9.65},/底厚/],
+])assert.throws(()=>runOperation([base],{...snapSpec,...change}),message);
+console.log('PASS split snap bosses, keeper pocket, print orientation, saved features and minimum dimensions');
