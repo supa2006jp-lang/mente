@@ -55,6 +55,7 @@ import {printSupportFailureFromDocument} from './print-support-failure.js';
 let printSupportController=null,failureRecovery=null;
 let recoveredMachining=null;
 import {createAssemblyDialog} from './assembly-dialog.js';
+import {createSelectionCommands} from './selection-commands.js';
 import {assemblyTargets} from './assembly-state.js';
 let assemblyController=null;
 import {installFailureRecovery} from './failure-recovery.js';
@@ -2663,6 +2664,56 @@ function updateModelGrid(){
  return layout;
 }
 const sketchOnFaceGrid=document.createElement('button');sketchOnFaceGrid.id='sketch-on-face-grid';sketchOnFaceGrid.type='button';sketchOnFaceGrid.hidden=true;Object.assign(sketchOnFaceGrid.style,{gridColumn:'1 / -1',padding:'6px 8px',color:'#59358a',background:'#f5edff',border:'1px solid #b58bd8',borderRadius:'4px',fontSize:'12px'});sketchOnFaceGrid.textContent='紫グリッドでスケッチ';sketchOnFaceGrid.title='基準平面の設定を変えず、選択した面の紫グリッドで作図';sketchOnFaceGrid.onclick=()=>{if(!selectedFace||sketch||holeActive)return;startFeature('line','thin');$('draw').click();};$('reference-plane-control').append(sketchOnFaceGrid);
+const selectionCommands=createSelectionCommands({
+ container:$('measurement'),
+ sketchButton:sketchOnFaceGrid,
+ getState(){
+  if($('measurement').hidden||stage!=='model'||sketch||holeActive||pendingExtrude||extrusionBusy||
+   machiningBusy||deletingSketch||moveTool?.active||dimensionMeasure?.active||bodyDisplay?.exploded||
+   imageReferences?.picking||document.querySelector('dialog[open]'))return {available:false};
+  let faceCount=0,planarFaces=0,cylinder=false,faceBody=null,faceBodies=0;
+  for(const entry of selectedFaces){
+   if(!meshes.get(entry.bodyId)?.visible)continue;
+   faceCount++;
+   if(entry.plane?.outer||entry.planeSeed)planarFaces++;
+   if(Number.isFinite(entry.surface?.radius))cylinder=true;
+   if(faceBody!==entry.bodyId)faceBodies=faceBody===null?1:2;
+   faceBody=entry.bodyId;
+  }
+  if(!selectedFaces.length){
+   faceBody=selectedFace?.bodyId||selectedSurface?.bodyId;
+   if(meshes.get(faceBody)?.visible){
+    faceBodies=faceCount=1;
+    planarFaces=selectedFace?.outer?1:0;
+    cylinder=Number.isFinite(selectedSurface?.radius);
+   }
+  }
+  let hasOtherBody=false,bodies=0;
+  if(planarFaces){
+   for(const [id,mesh] of meshes){
+    if(id!==faceBody&&mesh.visible){hasOtherBody=true;break;}
+   }
+  }
+  for(const id of selectedBodies)if(meshes.get(id)?.visible&&++bodies===2)break;
+  const edges=selectedEdges.some(edge=>meshes.get(edge.bodyId)?.visible);
+  return {available:true,planarFaces,faceCount,faceBodies,edges,cylinder,bodies,hasOtherBody};
+ },
+ run(action){
+  const originalButtons={hole:'cut-tool',boss:'boss-joint-tool',shell:'shell-tool',fillet:'direct-fillet',chamfer:'direct-chamfer',pull:'direct-pull',join:'join-tool'};
+  if(action!=='align'){$(originalButtons[action])?.click();return;}
+  const faces=selectedFaces.length?selectedFaces:[{bodyId:selectedFace?.bodyId,point:selectedSurface?.point,plane:selectedFace}];
+  const references=faces.map(entry=>{
+   const plane=selectionFacePlane(entry);
+   return plane?.outer&&entry.point?{bodyId:entry.bodyId,point:[...entry.point],normal:basisFor(plane).n.toArray()}:null;
+  });
+  if(references.some(reference=>!reference)){
+   notify('位置合わせに使う平面を選び直してください');
+   return;
+  }
+  const [source,destination]=references;
+  assemblyController?.open(null,{source,destination});
+ }
+});
 let sketchGridPatchCache=null;
 function workingGridPatches(face,basis,step){
  const offset=sketchOrigin.dot(basis.n),key=JSON.stringify([face.id,basis.n.toArray(),offset,step]);
@@ -4328,7 +4379,7 @@ $('align-hinge-sketch').onclick=()=>{
 };
 imageReferences=referenceImages({onSvg:()=>{stage='model';selected=null;syncFields();fit();},scene,camera,canvas:renderer.domElement,host,getFeatures:()=>features,setFeatures:next=>{setProject(next);updateTargets();},getBodyVisible:id=>meshes.get(id)?.visible===true,getBodyMesh:id=>meshes.get(id),applyPhotoFit:(original,spec,result,photo)=>{if(features!==original)throw Error('モデルが変更されました。写真へのサイズ合わせをやり直してください');const info=result.analysis.resize.photoFit;setProject([...features.map(f=>f.id===photo.id?fittedPhotoSurface(f,info):f),{kind:'cadop',id:spec.id,name:'写真サイズに合わせる',spec,...result}]);stage='model';selected=null;syncFields();},getPlane:()=>{if(selectedFace?.bodyId&&selectedFace.outer)return faceReferencePlane(selectedFace);const f=selectedFace||{plane:$('plane').value,frame:activeFrame,offset:planeCoordinates(current()).offset},b=basisFor(f);return {plane:f.plane,frame:{u:b.u.toArray(),v:b.v.toArray(),n:b.n.toArray()},offset:f.offset||0};},prepare:()=>{moveTool?.cancel();finishSketch(false);stage='model';dropPreview();syncFields();},viewPlane:f=>{const b=basisFor(f),origin=b.u.clone().multiplyScalar(f.center[0]).addScaledVector(b.v,f.center[1]).addScaledVector(b.n,f.offset);camera.up.copy(b.v);camera.position.copy(origin).addScaledVector(b.n,180);resetViewControls(origin,!sketch);camera.zoom=200/(Math.max(f.width/(host.clientWidth/host.clientHeight),f.height)*1.3);camera.lookAt(origin);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);},startSketch:f=>{chooseConstructionPlane({...f,kind:'plane',...(f.surface?{bodyId:f.surface.bodyId,outer:clone(f.surface.outer),holes:clone(f.surface.holes)}:{})});$('new-line').click();},notify});imageReferences.refresh();
 
-function updateSelectionUI(){const radiusShortcut=$('selected-edge-radius-search');if(radiusShortcut)radiusShortcut.hidden=selectedEdges.length<2||stage!=='model'||sketch||!!document.querySelector('dialog[open]');perpendicularSketchTool?.update();solidBoundaryFill?.update();interiorEdgeTool?.update(selectionBodyIds(),stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));sketchMoveButton.hidden=!activeSketchMoveReference();updateFaceContact();const mirrorSketchSource=activeSketchMirrorEdge();sketchMirrorButton.hidden=!mirrorSketchSource;if(!mirrorSketchSource||sketchMirrorChoices.dataset.reference!==JSON.stringify(sketchMirrorEdge))closeSketchMirrorChoices();if(mirrorSketchSource)sketchMirrorButton.title=mirrorSketchSource.name+' のクリックした辺'+(sketchMirrorEdge.index+1)+'を基準に、端点がつながる線・曲線をまとめてミラーします';const selectedBodyIds=selectionBodyIds(),bodyActionsAvailable=stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]');bodySelectionActions?.update(bodyActionsAvailable&&selectedBodies.size>0,{mirrorVisible:bodyActionsAvailable&&(selectedBodies.size>0||selectedBodyIds.length>1)});threadActions?.update();$('wrap-selected-cylinder').hidden=!(selectedSurface&&!selectedFace&&selectedSurface.internal!==true&&stage==='model'&&!document.querySelector('dialog[open]'));$('pattern-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
+function updateSelectionUI(){selectionCommands?.update();const radiusShortcut=$('selected-edge-radius-search');if(radiusShortcut)radiusShortcut.hidden=selectedEdges.length<2||stage!=='model'||sketch||!!document.querySelector('dialog[open]');perpendicularSketchTool?.update();solidBoundaryFill?.update();interiorEdgeTool?.update(selectionBodyIds(),stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));sketchMoveButton.hidden=!activeSketchMoveReference();updateFaceContact();const mirrorSketchSource=activeSketchMirrorEdge();sketchMirrorButton.hidden=!mirrorSketchSource;if(!mirrorSketchSource||sketchMirrorChoices.dataset.reference!==JSON.stringify(sketchMirrorEdge))closeSketchMirrorChoices();if(mirrorSketchSource)sketchMirrorButton.title=mirrorSketchSource.name+' のクリックした辺'+(sketchMirrorEdge.index+1)+'を基準に、端点がつながる線・曲線をまとめてミラーします';const selectedBodyIds=selectionBodyIds(),bodyActionsAvailable=stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]');bodySelectionActions?.update(bodyActionsAvailable&&selectedBodies.size>0,{mirrorVisible:bodyActionsAvailable&&(selectedBodies.size>0||selectedBodyIds.length>1)});threadActions?.update();$('wrap-selected-cylinder').hidden=!(selectedSurface&&!selectedFace&&selectedSurface.internal!==true&&stage==='model'&&!document.querySelector('dialog[open]'));$('pattern-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
  const wholeBodyIds=selectionBodyIds();wholeBodyButton.hidden=!!selectedBodies.size||!wholeBodyIds.length||stage!=='model'||sketch||pendingExtrude||extrusionBusy||!!moveTool?.active||!!document.querySelector('dialog[open]');wholeBodyButton.textContent=wholeBodyIds.length>1?'選択元のソリッド全体を選択':'このソリッド全体を選択';
  edgeReverseTurnButton.hidden=edgeTurnButton.hidden=!edgeTurnBusy&&!(selectedEdges.length===1&&selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve&&meshes.has(selectedEdge.bodyId)&&stage==='model'&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));edgeReverseTurnButton.disabled=edgeTurnButton.disabled=edgeTurnBusy||extrusionBusy;edgeTurnActions.hidden=edgeTurnButton.hidden;edgeBodyRevolveButton.hidden=edgeTurnButton.hidden||edgeTurnBusy;edgeBodyRevolveButton.disabled=edgeTurnBusy||extrusionBusy||machiningBusy||!!pendingKernelCancel;
  faceMirrorButton.hidden=!faceMirrorBusy&&!(selectedFace?.bodyId&&meshes.has(selectedFace.bodyId)&&selectedFaces.length<=1&&stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));facePhotoButton.hidden=faceMirrorButton.hidden;facePhotoActions.update();faceColorButton.hidden=!(bodyActionsAvailable&&selectedFaces.length);faceMirrorButton.disabled=faceMirrorBusy;faceMirrorJoinButton.hidden=faceMirrorButton.hidden;faceMirrorJoinButton.disabled=faceMirrorBusy;if(faceMirrorPreviewFace&&(faceMirrorPreviewFace!==selectedFace||faceMirrorButton.hidden||document.querySelector('dialog[open]')))clearFaceMirrorPreview();

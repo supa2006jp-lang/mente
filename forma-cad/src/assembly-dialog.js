@@ -93,8 +93,18 @@ export function createAssemblyDialog({host,scene,camera,canvas,meshes,kernel,get
   try{await apply(input,stored,editing,original,()=>dialog.open&&request===revision);if(request===revision){close();notify(editing?'部品の固定位置を更新しました':'別ボディのまま位置を合わせて固定しました');}}catch(e){if(request===revision)$('error').textContent=e.message;}finally{if(request===revision){busy=false;controls();}}
  };
  return {
-  open(feature=null){onStart();original=getFeatures();editing=feature;const index=feature?original.findIndex(f=>f.id===feature.id):-1;if(feature&&index<0)return;history=feature?original.slice(0,index):original;id=feature?.id||crypto.randomUUID();source=feature?.spec.source||null;destination=feature?.spec.destination||null;const saved=feature?.spec||{};
-   $('mode').value=saved.mode||'plane';$('alignment').value=feature?(saved.planeAlignment||'picked'):'center';$('source-anchor').value=saved.sourceAnchor||'center';$('destination-anchor').value=saved.destinationAnchor||'center';$('offset').value=saved.offset??0;$('u').value=saved.slideU??0;$('v').value=saved.slideV??0;$('angle').value=saved.twist??0;$('flip').checked=!!saved.flip;picking=editing?null:'source';busy=false;$('apply').textContent=editing?'固定位置を更新':'位置を合わせて固定';links();dialog.show();schedule();
+  open(feature=null,selection={}){
+   onStart();original=getFeatures();editing=feature;
+   const index=feature?original.findIndex(f=>f.id===feature.id):-1;
+   if(feature&&index<0)return;
+   history=feature?original.slice(0,index):original;
+   id=feature?.id||crypto.randomUUID();
+   source=feature?.spec.source??selection.source??null;
+   destination=feature?.spec.destination??selection.destination??null;
+   const saved=feature?.spec||{};
+   $('mode').value=saved.mode||'plane';$('alignment').value=feature?(saved.planeAlignment||'picked'):'center';$('source-anchor').value=saved.sourceAnchor||'center';$('destination-anchor').value=saved.destinationAnchor||'center';$('offset').value=saved.offset??0;$('u').value=saved.slideU??0;$('v').value=saved.slideV??0;$('angle').value=saved.twist??0;$('flip').checked=!!saved.flip;
+   picking=editing||source&&destination?null:source?'destination':'source';
+   busy=false;$('apply').textContent=editing?'固定位置を更新':'位置を合わせて固定';links();dialog.show();schedule();
   },
   async pick(event){
    if(!dialog.open||busy||!picking)return;const rect=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2),camera);const hit=ray.intersectObjects([...meshes.values()].filter(m=>m.visible),false)[0];if(!hit){$('error').textContent='部品の面をクリックしてください';return;}

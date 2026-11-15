@@ -549,3 +549,11 @@ button.form-control-point.invalid { background:#bc2634; }
 .support-zone-placement button { padding:5px 9px; color:#472068; background:#f1e6fb; border-color:#aa83cc; }
 .support-zone-placement [data-zone-action="confirm"] { color:white; background:#722ba4; border-color:#722ba4; font-weight:700; }
 .support-rib-hover { position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:38; pointer-events:none; max-width:90%; padding:8px 12px; color:#742333; background:#fff4f5; border:1px solid #dc7b8e; border-radius:8px; }
+
+#selection-commands{border-top:1px solid #d8cfae;padding-top:6px;margin-top:3px;pointer-events:auto}
+#selection-commands strong{display:block;font-size:12px;color:#385468;margin-bottom:4px}
+#selection-commands .selection-command-buttons{display:flex;flex-wrap:wrap;gap:4px;max-width:310px}
+#selection-commands button{width:auto;margin:0;padding:5px 8px;border:1px solid #91b6c8;border-radius:4px;background:#e5f4fa;color:#17475a;font-size:12px}
+#selection-commands button:hover{background:#d1ebf4}
+#selection-commands .selection-command-hint{display:block;max-width:310px;margin-top:4px;font-size:11px;color:#52636d}
+#selection-commands[hidden],#selection-commands [hidden]{display:none}
