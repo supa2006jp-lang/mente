@@ -3,6 +3,7 @@ import {selectedCadFaces} from './face-pull.js';
 import {shellCoaxialCircularLoft} from './circular-loft.js';
 import {normalizeShellOpenings} from './shell-normalize.js';
 import {shellRecessedSphere} from './shell-recessed-sphere.js';
+import {shellRoundedPrism} from './shell-rounded-prism.js';
 
 // The default rounded offset can return the unmodified solid where short
 // planar faces meet circular walls. Join the offset surfaces by intersection
@@ -36,6 +37,7 @@ export function shellBody(base,p,circularLoftInfo=null,openingFaces=null){
   attempts.push(()=>{const source=normalizedSource();return source.shape.shell(thickness,face=>face.inList(source.faces));});
   for(const rounded of [true,false])attempts.push(()=>{const source=normalizedSource();return intersectingOffsetShell(source.shape,source.faces,thickness,rounded);});
  }
+ if(thickness>0&&faces.length===1)attempts.push(()=>shellRoundedPrism(base,faces[0],thickness,original));
  if(thickness>0)attempts.push(()=>shellRecessedSphere(base,faces,thickness,p.includeOpeningRecess));
  let reason='この壁厚ではシェルを作成できません。壁厚を小さくするか、開口面を変更してください';
  try{
