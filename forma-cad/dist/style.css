@@ -620,6 +620,10 @@ button.form-control-point.invalid { background:#bc2634; }
 #measurement > * { flex-shrink:0; }
 #measurement > span { font-size:inherit; }
 #measurement > #measurement-length { font-size:16px; }
+.measurement-face-detail { display:block; margin-top:3px; font-size:12px; font-weight:500; }
+.measurement-opening-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px; padding:2px 4px; border-radius:4px; }
+.measurement-opening-row.opening-highlighted { background:#fff0ce; }
+#measurement .measurement-opening-row button { background:#edf6fa; color:#1a5069; border-color:#9fbfce; }
 #measurement :is(button,select) {
  padding:3px 6px;
  min-height:25px;

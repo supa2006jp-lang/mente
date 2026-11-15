@@ -223,8 +223,46 @@ try{
  assert.equal(saved.features[0].bodyNames['round-cap'],'支柱 A');
  await load(saved.features);
  await bodyLabel.filter({hasText:'支柱 A'}).waitFor();
+
+ const outline=(radius,sign=1)=>Array.from({length:128},(_,i)=>{
+  const angle=sign*i*Math.PI/64;
+  return [radius*Math.cos(angle),radius*Math.sin(angle)];
+ });
+ const withOpening=(id,outer,hole)=>({...defaults,id,kind:'extrusion',name:id,profile:'region',depth:10,
+  region:{plane:'XY',offset:0,outer,holes:[hole]}});
+ const length=measurement.locator('#measurement-length'),details=length.locator('.measurement-face-detail');
+ await load([withOpening('リング',outline(25),outline(15,-1))]);
+ await page.locator('#selection-mode').selectOption('face');
+ await pick([20,0,10]);
+ await length.filter({hasText:'外径 50 mm'}).waitFor();
+ const openingRow=length.locator('.measurement-opening-row');
+ assert.deepEqual(await length.locator('.measurement-opening-size').allTextContents(),['内径 30 mm']);
+ assert.deepEqual(await details.last().textContent(),'縁の厚さ 10 mm');
+ await openingRow.hover();
+ await length.locator('.opening-highlighted').waitFor();
+ await page.locator('#body-count').hover();
+ await length.locator('.opening-highlighted').waitFor({state:'detached'});
+ await openingRow.getByRole('button').focus();
+ await length.locator('.opening-highlighted').waitFor();
+ await page.keyboard.press('Enter');
+ await page.locator('#sketches [data-sketch-group][data-remaining-region-count="1"]').waitFor();
+ assert.equal(await page.locator('#body-count').textContent(),'1');
+ const openingDownload=page.waitForEvent('download');
+ page.once('dialog',dialog=>dialog.accept(dialog.defaultValue()));
+ await page.locator('#save').click();
+ const openingFile=JSON.parse(await fs.readFile(await (await openingDownload).path(),'utf8'));
+ const circle=openingFile.features.find(feature=>feature.kind==='sketch');
+ assert.equal(circle.profile,'circle');
+ assert.ok(Math.abs(circle.diameter-30)<.001&&Math.abs(circle.z-10)<.001);
+ await page.locator('#undo').click();
+ await page.locator('#sketches [data-sketch-group]').waitFor({state:'detached'});
+ await load([withOpening('長方形の枠',[[-50,-25],[50,-25],[50,25],[-50,25]],[[-40,-15],[-40,15],[40,15],[40,-15]])]);
+ await page.locator('#selection-mode').selectOption('face');
+ await pick([44,4,10]);
+ await length.filter({hasText:'外寸 50 mm × 100 mm'}).waitFor();
+ assert.deepEqual(await length.locator('.measurement-opening-size').allTextContents(),['開口 30 mm × 80 mm']);
  assert.deepEqual(errors,[]);
- console.log('PASS face owner, face size and diameter, edge shortcuts, alignment, and shell');
+ console.log('PASS face owner, face dimensions, circular and rectangular openings, edge shortcuts, alignment, and shell');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

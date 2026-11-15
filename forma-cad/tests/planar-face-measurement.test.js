@@ -12,19 +12,36 @@ test('measures the actual sides of a rotated rectangle',()=>{
  assert.equal(outline,undefined);
 });
 
-test('reports diameter for a circle and outside diameter when it has holes',()=>{
- const outer=Array.from({length:72},(_,i)=>{
+function circle(radius,x=10,y=-24){
+ return Array.from({length:72},(_,i)=>{
   const angle=i*Math.PI*2/72,a=angle+.24*Math.sin(angle);
-  return [10+25*Math.cos(a),-24+25*Math.sin(a)];
+  return [x+radius*Math.cos(a),y+radius*Math.sin(a)];
  });
- for(const holes of [[],[outer.map(([x,y])=>[10+(x-10)/2,-24+(y+24)/2])]]){
-  const result=planarFaceMeasurement({outer,holes});
-  assert.ok(Math.abs(result.diameter-50)<1e-9);
-  assert.equal(result.hasHoles,holes.length>0);
- }
+}
+
+test('measures the outer diameter, inner diameter and uniform radial thickness',()=>{
+ const outer=circle(25),plain=planarFaceMeasurement({outer});
+ assert.ok(Math.abs(plain.diameter-50)<1e-9);
+ assert.deepEqual(plain.openings,[]);
+ const ring=planarFaceMeasurement({outer,holes:[circle(15).reverse()]});
+ assert.ok(Math.abs(ring.openings[0].diameter-30)<1e-9);
+ assert.ok(Math.abs(ring.rimThickness-10)<1e-9);
+ const eccentric=planarFaceMeasurement({outer,holes:[circle(15,12,-24)]});
+ assert.ok(Math.abs(eccentric.openings[0].diameter-30)<1e-9);
+ assert.equal(eccentric.rimThickness,undefined);
+});
+
+test('measures rectangular and circular openings independently',()=>{
+ const outer=[[0,0],[100,0],[100,50],[0,50]];
+ const holes=[[[5,5],[5,25],[45,25],[45,5]],circle(8,70,30)];
+ const {sides,openings,rimThickness}=planarFaceMeasurement({outer,holes});
+ assert.deepEqual(sides,[50,100]);
+ assert.deepEqual(openings[0].sides,[20,40]);
+ assert.ok(Math.abs(openings[1].diameter-16)<1e-9);
+ assert.equal(rimThickness,undefined);
 });
 
 test('reports the outline extents of an irregular face',()=>{
  const outer=[[5,-12],[43,11],[15,40]];
- assert.deepEqual(planarFaceMeasurement({outer}),{sides:[38,52],outline:true});
+ assert.deepEqual(planarFaceMeasurement({outer}),{sides:[38,52],outline:true,openings:[]});
 });

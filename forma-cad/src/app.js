@@ -223,6 +223,7 @@ let sketchOverlapCache=null;
 import {gridCellOccluders} from './grid-cell-occlusion.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains,faceGridPatches} from './face-grid.js';
 import {planarFaceMeasurement} from './planar-face-measurement.js';
+import {createFaceOpeningSketch} from './face-opening-sketch.js';
 import {createFilletGridReference,filletGridSource} from './fillet-grid-reference.js';
 const filletGridReference=createFilletGridReference();
 const referenceFaceGrid=face=>face?.kind==='plane'?offsetPlaneGridFace(face):filletGridReference.reference(face,features);
@@ -2203,14 +2204,83 @@ function chooseFaceRange(hits,add){
  host.dataset.selectedFaceCount=String(previous.length);$('measurement').hidden=!previous.length;$('measurement-title').textContent=previous.length+' 面を選択';$('measurement-length').textContent='複数平面をまとめて押し出し／プレス・プル';$('measurement-angle').textContent='Ctrl＋クリックで追加・解除 / 押し出し（E）・プレス／プル';
  if(selectedFace?.outer)showPlanarFaceMeasurement(selectedFace);
 }
-function showPlanarFaceMeasurement(face){
- const size=planarFaceMeasurement(face);
- $('measurement-title').textContent='選択したソリッドの平面';
- $('measurement-length').textContent=size.diameter
-  ?(size.hasHoles?'外径 ':'直径 ')+fmt(size.diameter)+' mm'
-  :(size.outline?'外形 ':'')+size.sides.map(value=>fmt(value)+' mm').join(' × ');
+let openingHighlight=null;
+function canUseFaceOpening(face){
+ return stage==='model'&&!sketch&&!measurementPanel.hidden&&selectedFace===face&&
+  selectedFaces.length<=1&&meshes.get(face.bodyId)?.visible===true&&
+  !bodyDisplay?.exploded&&!dimensionMeasure?.active&&canSwitchSketchNumber();
 }
-function chooseSingleFace(hit){patternCenter=null;fragmentSelection={bodyId:hit.object.userData.bodyId,point:hit.point.toArray()};$('center-pattern').hidden=true;clearEdgeSelection();selectedSurface={bodyId:hit.object.userData.bodyId,point:hit.point.toArray()};const curved=cylindricalSelection(features,hit.object.userData.bodyId,hit.object.geometry,hit.faceIndex,hit.point);if(curved){selectedSurface.radius=curved.radius;selectedSurface.internal=curved.internal;finishSketch(false);selectedFace=null;selectedBody=hit.object.userData.bodyId;selected=null;chosenRegion=null;pendingExtrude=false;stage='model';dropPreview();syncFields();for(const c of [...regionGroup.children])disposeObject(c);const m=new THREE.Mesh(curved.geometry,new THREE.MeshBasicMaterial({color:0x3868ad,transparent:false,opacity:1,side:THREE.DoubleSide,depthTest:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));m.renderOrder=5;regionGroup.add(m);$('measurement').hidden=false;$('wrap-selected-cylinder').hidden=curved.internal===true;$('pattern-selected-cylinder').hidden=curved.internal===true;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=curved.internal===true;$('measurement-title').textContent=curved.internal===true?'選択した穴の内壁':curved.internal===false?'選択した円柱の側面':'選択した曲面';$('measurement-length').textContent=curved.radius?'直径 '+fmt(curved.radius*2)+' mm':'ボディの面';$('measurement-angle').textContent=curved.internal?'この内壁をねじ化 / プレス・プル':'この側面をねじ化 / 側面の模様を作成';notify('曲面を選択しました。全コマンドからプレス／プルやねじを実行できます');return;}try{const groups=hit.object.geometry.userData.faceGroups,planar=hit.object.geometry.userData.planarFaces;if(groups&&planar){const group=groups.find(g=>hit.faceIndex*3>=g.start&&hit.faceIndex*3<g.start+g.count);if(group&&!planar.includes(group.faceId))throw Error('曲面には直接作図できません。平面を選択してください');}selectedBody=hit.object.userData.bodyId;const face=planarFace(hit.object.geometry,hit.faceIndex);const bounds=new THREE.Box3().setFromBufferAttribute(hit.object.geometry.attributes.position);if(face.area<bounds.getSize(new THREE.Vector3()).lengthSq()*.00001)throw Error('曲面上には直接スケッチできません。平面を選んでください');const pending=pendingExtrude,desired=mode;finishSketch(false);selectedFace={...face,bodyId:hit.object.userData.bodyId,cadFace:hit.object.geometry.userData.faceGroups?{bodyId:hit.object.userData.bodyId,point:hit.point.toArray(),normal:face.frame.n}:undefined};chosenRegion=selectedFace;selected=null;stage='model';activeFrame=face.frame;dropPreview();syncFields();for(const c of [...regionGroup.children])disposeObject(c);const m=new THREE.Mesh(regionFaceGeometry(face),new THREE.MeshBasicMaterial({color:0x3868ad,transparent:false,opacity:1,side:THREE.DoubleSide,depthTest:false}));regionGroup.add(m);$('measurement').hidden=false;showPlanarFaceMeasurement(face);$('measurement-angle').textContent='スケッチを作成 / 押し出し（E）';$('status').textContent='面を選択しました。スケッチを作成、または押し出し（E）';if(pending)beginExtrusion(desired);}catch(e){selectedFace=null;selectedBody=hit.object.userData.bodyId;selected=null;chosenRegion=null;stage='model';dropPreview();syncFields();$('measurement').hidden=false;$('measurement-title').textContent='選択した曲面';$('measurement-length').textContent='ボディの面';$('measurement-angle').textContent='円柱側面なら「ねじ」を実行できます';notify('面を選択しました。円柱の側面には「ねじ」を使用できます');}}
+function clearOpeningHighlight(row){
+ if(!openingHighlight||(row&&openingHighlight.row!==row))return;
+ openingHighlight.row.classList.remove('opening-highlighted');
+ disposeObject(openingHighlight.line);
+ openingHighlight=null;
+}
+function highlightFaceOpening(face,index,row){
+ if(openingHighlight?.row===row||!canUseFaceOpening(face))return;
+ clearOpeningHighlight();
+ const {u,v,n}=basisFor(face),origin=n.multiplyScalar(face.offset),ring=face.holes[index];
+ const points=[...ring,ring[0]].map(([x,y])=>origin.clone().addScaledVector(u,x).addScaledVector(v,y));
+ const geometry=new THREE.BufferGeometry().setFromPoints(points);
+ const line=sketchLine(geometry,{color:0xf29b14,depthTest:false,order:25});
+ openingHighlight={face,row,line};
+ row.classList.add('opening-highlighted');
+ scene.add(line);
+}
+function updateOpeningHighlight(){
+ if(openingHighlight&&(!canUseFaceOpening(openingHighlight.face)||
+  !openingHighlight.row.getClientRects().length||!openingHighlight.row.matches(':hover,:focus-within')))clearOpeningHighlight();
+}
+function copyFaceOpening(face,index){
+ if(!canUseFaceOpening(face))return;
+ try{
+  const groupNumber=Math.max(0,...features.map(feature=>feature.groupNumber||0))+1;
+  const feature=createFaceOpeningSketch(face,index,groupNumber);
+  setProject([...features,feature]);
+  selectionPicker?.close();
+  syncFields();
+  notify('開口の輪郭をスケッチ'+groupNumber+'に作成しました');
+ }catch(error){notify(appErrorMessage(error));}
+}
+function showPlanarFaceMeasurement(face){
+ clearOpeningHighlight();
+ const {diameter,sides,outline,openings,rimThickness}=planarFaceMeasurement(face);
+ const mm=value=>fmt(value)+' mm',pair=values=>values.map(mm).join(' × ');
+ const length=$('measurement-length');
+ $('measurement-title').textContent='選択したソリッドの平面';
+ length.textContent=diameter
+  ?(openings.length?'外径 ':'直径 ')+mm(diameter)
+  :(outline?'外形 ':openings.length?'外寸 ':'')+pair(sides);
+ function addDetail(text,index){
+  const detail=document.createElement('small');
+  detail.className='measurement-face-detail';
+  if(index===undefined)detail.textContent=text;
+  else{
+   const value=document.createElement('span'),copy=document.createElement('button');
+   detail.classList.add('measurement-opening-row');
+   value.className='measurement-opening-size';
+   value.textContent=text;
+   copy.type='button';
+   copy.textContent='スケッチ化';
+   copy.setAttribute('aria-label','開口 '+(index+1)+' の輪郭をスケッチ化');
+   copy.title='この開口の輪郭を同じ平面にスケッチとして作成';
+   copy.onclick=()=>copyFaceOpening(face,index);
+   for(const event of ['pointerenter','focusin'])detail.addEventListener(event,()=>highlightFaceOpening(face,index,detail));
+   for(const event of ['pointerleave','focusout'])detail.addEventListener(event,()=>{
+    if(!detail.matches(event==='pointerleave'?':focus-within':':hover'))clearOpeningHighlight(detail);
+   });
+   detail.append(value,copy);
+  }
+  length.append(detail);
+ }
+ openings.forEach((opening,i)=>{
+  const label=openings.length>1?'開口 '+(i+1):'開口';
+  if(opening.diameter)addDetail((openings.length>1?label+' ':'')+'内径 '+mm(opening.diameter),i);
+  else addDetail(label+(opening.outline?'の外形 ':' ')+pair(opening.sides),i);
+ });
+ if(rimThickness!==undefined)addDetail('縁の厚さ '+mm(rimThickness));
+}
+function chooseSingleFace(hit){patternCenter=null;fragmentSelection={bodyId:hit.object.userData.bodyId,point:hit.point.toArray()};$('center-pattern').hidden=true;clearEdgeSelection();selectedSurface={bodyId:hit.object.userData.bodyId,point:hit.point.toArray()};const curved=cylindricalSelection(features,hit.object.userData.bodyId,hit.object.geometry,hit.faceIndex,hit.point);if(curved){selectedSurface.radius=curved.radius;selectedSurface.internal=curved.internal;finishSketch(false);selectedFace=null;selectedBody=hit.object.userData.bodyId;selected=null;chosenRegion=null;pendingExtrude=false;stage='model';dropPreview();syncFields();for(const c of [...regionGroup.children])disposeObject(c);const m=new THREE.Mesh(curved.geometry,new THREE.MeshBasicMaterial({color:0x3868ad,transparent:false,opacity:1,side:THREE.DoubleSide,depthTest:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));m.renderOrder=5;regionGroup.add(m);$('measurement').hidden=false;$('wrap-selected-cylinder').hidden=curved.internal===true;$('pattern-selected-cylinder').hidden=curved.internal===true;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=curved.internal===true;$('measurement-title').textContent=curved.internal===true?'選択した穴の内壁':curved.internal===false?'選択した円柱の側面':'選択した曲面';$('measurement-length').textContent=curved.radius?'直径 '+fmt(curved.radius*2)+' mm':'ボディの面';$('measurement-angle').textContent=curved.internal?'この内壁をねじ化 / プレス・プル':'この側面をねじ化 / 側面の模様を作成';notify('曲面を選択しました。全コマンドからプレス／プルやねじを実行できます');return;}try{const groups=hit.object.geometry.userData.faceGroups,planar=hit.object.geometry.userData.planarFaces;if(groups&&planar){const group=groups.find(g=>hit.faceIndex*3>=g.start&&hit.faceIndex*3<g.start+g.count);if(group&&!planar.includes(group.faceId))throw Error('曲面には直接作図できません。平面を選択してください');}selectedBody=hit.object.userData.bodyId;const face=planarFace(hit.object.geometry,hit.faceIndex);const bounds=new THREE.Box3().setFromBufferAttribute(hit.object.geometry.attributes.position);if(face.area<bounds.getSize(new THREE.Vector3()).lengthSq()*.00001)throw Error('曲面上には直接スケッチできません。平面を選んでください');const pending=pendingExtrude,desired=mode;finishSketch(false);selectedFace={...face,bodyId:hit.object.userData.bodyId,cadFace:hit.object.geometry.userData.faceGroups?{bodyId:hit.object.userData.bodyId,point:hit.point.toArray(),normal:face.frame.n}:undefined};chosenRegion=selectedFace;selected=null;stage='model';activeFrame=face.frame;dropPreview();syncFields();for(const c of [...regionGroup.children])disposeObject(c);const m=new THREE.Mesh(regionFaceGeometry(face),new THREE.MeshBasicMaterial({color:0x3868ad,transparent:false,opacity:1,side:THREE.DoubleSide,depthTest:false}));regionGroup.add(m);$('measurement').hidden=false;showPlanarFaceMeasurement(selectedFace);$('measurement-angle').textContent='スケッチを作成 / 押し出し（E）';$('status').textContent='面を選択しました。スケッチを作成、または押し出し（E）';if(pending)beginExtrusion(desired);}catch(e){selectedFace=null;selectedBody=hit.object.userData.bodyId;selected=null;chosenRegion=null;stage='model';dropPreview();syncFields();$('measurement').hidden=false;$('measurement-title').textContent='選択した曲面';$('measurement-length').textContent='ボディの面';$('measurement-angle').textContent='円柱側面なら「ねじ」を実行できます';notify('面を選択しました。円柱の側面には「ねじ」を使用できます');}}
 window.addEventListener('keydown',e=>{
  if(e.key==='Enter'&&e.target.closest('#sketch-banner button'))return;
  if(e.key==='Enter'&&sketch&&firstPoint&&lastDrawPoint&&$('profile').value==='rect'&&!e.defaultPrevented&&!e.isComposing&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!document.querySelector('dialog[open]')&&!e.target.closest('input,textarea,select,[contenteditable]')){e.preventDefault();placeEndpoint(lastDrawPoint);return;}
@@ -4658,7 +4728,7 @@ function updateMeasurementFaceBody(){
  measurementFaceBodyFeatures=features;
  measurementFaceBody.textContent='所属ボディ　'+bodyDisplayName(id);
 }
-function updateSelectionUI(){updateMeasurementFaceBody();selectionCommands?.update();const radiusShortcut=$('selected-edge-radius-search');if(radiusShortcut)radiusShortcut.hidden=selectedEdges.length<2||stage!=='model'||sketch||!!document.querySelector('dialog[open]');perpendicularSketchTool?.update();solidBoundaryFill?.update();interiorEdgeTool?.update(selectionBodyIds(),stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));sketchMoveButton.hidden=!activeSketchMoveReference();updateFaceContact();const mirrorSketchSource=activeSketchMirrorEdge();sketchMirrorButton.hidden=!mirrorSketchSource;if(!mirrorSketchSource||sketchMirrorChoices.dataset.reference!==JSON.stringify(sketchMirrorEdge))closeSketchMirrorChoices();if(mirrorSketchSource)sketchMirrorButton.title=mirrorSketchSource.name+' のクリックした辺'+(sketchMirrorEdge.index+1)+'を基準に、端点がつながる線・曲線をまとめてミラーします';const selectedBodyIds=selectionBodyIds(),bodyActionsAvailable=stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]');bodySelectionActions?.update(bodyActionsAvailable&&selectedBodies.size>0,{mirrorVisible:bodyActionsAvailable&&(selectedBodies.size>0||selectedBodyIds.length>1)});threadActions?.update();$('wrap-selected-cylinder').hidden=!(selectedSurface&&!selectedFace&&selectedSurface.internal!==true&&stage==='model'&&!document.querySelector('dialog[open]'));$('pattern-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
+function updateSelectionUI(){updateOpeningHighlight();updateMeasurementFaceBody();selectionCommands?.update();const radiusShortcut=$('selected-edge-radius-search');if(radiusShortcut)radiusShortcut.hidden=selectedEdges.length<2||stage!=='model'||sketch||!!document.querySelector('dialog[open]');perpendicularSketchTool?.update();solidBoundaryFill?.update();interiorEdgeTool?.update(selectionBodyIds(),stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));sketchMoveButton.hidden=!activeSketchMoveReference();updateFaceContact();const mirrorSketchSource=activeSketchMirrorEdge();sketchMirrorButton.hidden=!mirrorSketchSource;if(!mirrorSketchSource||sketchMirrorChoices.dataset.reference!==JSON.stringify(sketchMirrorEdge))closeSketchMirrorChoices();if(mirrorSketchSource)sketchMirrorButton.title=mirrorSketchSource.name+' のクリックした辺'+(sketchMirrorEdge.index+1)+'を基準に、端点がつながる線・曲線をまとめてミラーします';const selectedBodyIds=selectionBodyIds(),bodyActionsAvailable=stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]');bodySelectionActions?.update(bodyActionsAvailable&&selectedBodies.size>0,{mirrorVisible:bodyActionsAvailable&&(selectedBodies.size>0||selectedBodyIds.length>1)});threadActions?.update();$('wrap-selected-cylinder').hidden=!(selectedSurface&&!selectedFace&&selectedSurface.internal!==true&&stage==='model'&&!document.querySelector('dialog[open]'));$('pattern-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;if($('image-relief-selected-cylinder'))$('image-relief-selected-cylinder').hidden=$('wrap-selected-cylinder').hidden;bodyDisplay?.update();$('fit-selection').disabled=!hasFitSelection();
  const wholeBodyIds=selectionBodyIds();wholeBodyButton.hidden=!!selectedBodies.size||!wholeBodyIds.length||stage!=='model'||sketch||pendingExtrude||extrusionBusy||!!moveTool?.active||!!document.querySelector('dialog[open]');wholeBodyButton.textContent=wholeBodyIds.length>1?'選択元のソリッド全体を選択':'このソリッド全体を選択';
  edgeReverseTurnButton.hidden=edgeTurnButton.hidden=!edgeTurnBusy&&!(selectedEdges.length===1&&selectedEdge&&!selectedEdge.circle&&!selectedEdge.arc&&!selectedEdge.curve&&meshes.has(selectedEdge.bodyId)&&stage==='model'&&!sketch&&!pendingExtrude&&!moveTool?.active&&!document.querySelector('dialog[open]'));edgeReverseTurnButton.disabled=edgeTurnButton.disabled=edgeTurnBusy||extrusionBusy;edgeTurnActions.hidden=edgeTurnButton.hidden;edgeBodyRevolveButton.hidden=edgeTurnButton.hidden||edgeTurnBusy;edgeBodyRevolveButton.disabled=edgeTurnBusy||extrusionBusy||machiningBusy||!!pendingKernelCancel;
  faceMirrorButton.hidden=!faceMirrorBusy&&!(selectedFace?.bodyId&&meshes.has(selectedFace.bodyId)&&selectedFaces.length<=1&&stage==='model'&&!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!document.querySelector('dialog[open]'));facePhotoButton.hidden=faceMirrorButton.hidden;facePhotoActions.update();faceColorButton.hidden=!(bodyActionsAvailable&&selectedFaces.length);faceMirrorButton.disabled=faceMirrorBusy;faceMirrorJoinButton.hidden=faceMirrorButton.hidden;faceMirrorJoinButton.disabled=faceMirrorBusy;if(faceMirrorPreviewFace&&(faceMirrorPreviewFace!==selectedFace||faceMirrorButton.hidden||document.querySelector('dialog[open]')))clearFaceMirrorPreview();
