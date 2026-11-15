@@ -6,7 +6,7 @@ const intersects=(point,width,height,rect,gap)=>point.x+width+gap>rect.left&&poi
 
 export function createSketchBannerPlacement({banner,host,camera,header,right,bottom}){
  const viewport=host.parentElement;
- let previous=null,dirty=true,lastCamera,lastPoints,lastObjects;
+ let previous=null,lastCamera;
  function positionHeader(){
   const viewportBounds=viewport.getBoundingClientRect(),rightBounds=visibleBounds(right);
   const leftOfRight=Math.min(viewportBounds.right,...rightBounds.map(box=>box.left));
@@ -16,7 +16,6 @@ export function createSketchBannerPlacement({banner,host,camera,header,right,bot
   const top=Math.max(viewportBounds.top,...headerBounds.map(box=>box.bottom));
   banner.style.setProperty('--sketch-banner-top',Math.ceil(top-viewportBounds.top+8)+'px');
   banner.style.setProperty('--sketch-banner-right',fullWidth?'12px':Math.ceil(viewportBounds.right-leftOfRight+8)+'px');
-  dirty=true;
  }
  function move(x=0,y=0){
   const value=x||y?`${x}px ${y}px`:'';
@@ -26,17 +25,19 @@ export function createSketchBannerPlacement({banner,host,camera,header,right,bot
  for(const item of [viewport,banner,...header,...right,...bottom])observer.observe(item);
  window.addEventListener('resize',positionHeader);
  positionHeader();
- return {update(points,objects){
-  if(banner.hidden){
+ return {update(getDrawing){
+  if(banner.hidden||!getDrawing){
    if(previous)move();
-   previous=null;dirty=true;
+   previous=null;lastCamera=undefined;
    return;
   }
-  const changed=(a,b)=>!a||a.length!==b.length||b.some((value,index)=>value!==a[index]);
   const cameraState=host.dataset.cameraState;
-  if(!dirty&&cameraState===lastCamera&&!changed(lastPoints,points)&&!changed(lastObjects,objects))return;
+  const cameraMoved=lastCamera!==undefined&&cameraState!==lastCamera;
+  lastCamera=cameraState;
+  // Cursor motion changes the preview continuously, including when approaching the toolbar.
+  if(!cameraMoved)return;
   if(banner.matches(':hover,:has(:focus-visible)'))return;
-  dirty=false;lastCamera=cameraState;lastPoints=points;lastObjects=objects;
+  const {points,objects}=getDrawing();
   const width=host.clientWidth,height=host.clientHeight,panelWidth=banner.offsetWidth,panelHeight=banner.offsetHeight;
   if(!width||!height||!panelWidth||!panelHeight)return;
   const base={x:banner.offsetLeft,y:banner.offsetTop};

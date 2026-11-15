@@ -5182,11 +5182,12 @@ sketchBannerPlacement=createSketchBannerPlacement({
  bottom:[measurementNavigation,sketchViewport.querySelector('.view-help')],
 });
 function updateSketchBannerPlacement(){
- if(!sketchBannerPlacement)return;
- if(!sketch){sketchBannerPlacement.update([],[]);return;}
+ sketchBannerPlacement?.update(sketch?sketchBannerDrawing:null);
+}
+function sketchBannerDrawing(){
  const objects=preview?.geometry?[preview]:[...(preview?.children||[])];
  if(splinePreview)objects.push(splinePreview);
- sketchBannerPlacement.update([firstPoint,sketchBannerPoint].filter(Boolean),objects);
+ return {points:[firstPoint,sketchBannerPoint].filter(Boolean),objects};
 }
 
 

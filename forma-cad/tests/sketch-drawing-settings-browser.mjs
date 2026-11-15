@@ -37,6 +37,14 @@ try{
  const point={x:before.x+before.width*.35,y:before.y+before.height/2};
  const dy=160;
  await page.mouse.click(point.x,point.y+dy);
+ const button=await settings.boundingBox(),buttonX=button.x+button.width/2,buttonY=button.y+button.height/2;
+ await page.mouse.move(buttonX,buttonY+dy);
+ await page.mouse.move(buttonX,buttonY,{steps:20});
+ assert.deepEqual(await banner.boundingBox(),before);
+ await page.mouse.click(buttonX,buttonY);
+ assert.equal(await settings.getAttribute('aria-expanded'),'true');
+ await settings.click();
+
  const pan={x:canvas.x+canvas.width*.76,y:canvas.y+canvas.height*.6};
  await page.mouse.move(pan.x,pan.y);
  await page.mouse.down({button:'middle'});
@@ -45,6 +53,8 @@ try{
  await page.waitForFunction(()=>!!document.getElementById('sketch-banner').style.translate);
  const moved=await banner.boundingBox();
  assert.ok(point.y<moved.y||point.y>moved.y+moved.height||point.x<moved.x||point.x>moved.x+moved.width);
+ await page.mouse.move(canvas.x+canvas.width*.95,canvas.y+canvas.height*.8);
+ assert.deepEqual(await banner.boundingBox(),moved);
  await page.mouse.move(pan.x,pan.y-dy);
  await page.mouse.down({button:'middle'});
  await page.mouse.move(pan.x,pan.y,{steps:10});
