@@ -56,6 +56,7 @@ let printSupportController=null,failureRecovery=null;
 let recoveredMachining=null;
 import {createAssemblyDialog} from './assembly-dialog.js';
 import {createSelectionCommands} from './selection-commands.js';
+import {createMeasurementPlacement} from './measurement-placement.js';
 import {assemblyTargets} from './assembly-state.js';
 let assemblyController=null;
 import {installFailureRecovery} from './failure-recovery.js';
@@ -518,7 +519,7 @@ if(measurementNavigation){
  measurementLayout.observe(measurementNavigation);
 }
 let viewCube=null,extrusionJoinInspection=null;
-renderer.setAnimationLoop(()=>{imageReferences?.update();sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();formTool?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();historyReferenceRepair?.sync();stlInspection?.sync();stlImport?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();sketchConnectionsView?.update();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
+renderer.setAnimationLoop(()=>{imageReferences?.update();sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();formTool?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();historyReferenceRepair?.sync();stlInspection?.sync();stlImport?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();sketchConnectionsView?.update();updateCenterMarkers();updateSelectedPoint();measurementPlacement.update();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
 let sketchNoticeTimer,enteredSketchNumber=null;
 function sketchSession(){if(enteredSketchNumber!==null)return features.find(f=>f.kind==='sketch'&&f.groupNumber===enteredSketchNumber)||{groupNumber:enteredSketchNumber};const id=editingSketchGroup||activeSketchGroup;return features.find(f=>f.kind==='sketch'&&f.groupId===id)||features.find(f=>f.kind==='sketch'&&f.id===selected)||null;}
 function notifySketch(message){hideExtrusionNotice();clearTimeout(toastTimer);$('toast').style.display='none';const notice=$('sketch-notice');clearTimeout(sketchNoticeTimer);notice.textContent=message;notice.hidden=false;sketchNoticeTimer=setTimeout(()=>{notice.hidden=true;},5000);}
@@ -2685,6 +2686,8 @@ const sketchOnFaceGrid=document.createElement('button');sketchOnFaceGrid.id='ske
 const selectionCommands=createSelectionCommands({
  container:$('measurement'),
  sketchButton:sketchOnFaceGrid,
+ edgeButtons:{fillet:$('edge-fillet'),chamfer:edgeChamferButton},
+ secondaryControls:[facePhotoButton,faceColorButton,faceMirrorButton,faceMirrorJoinButton],
  getState(){
   if($('measurement').hidden||stage!=='model'||sketch||holeActive||pendingExtrude||extrusionBusy||
    machiningBusy||deletingSketch||moveTool?.active||dimensionMeasure?.active||bodyDisplay?.exploded||
@@ -2714,10 +2717,11 @@ const selectionCommands=createSelectionCommands({
   }
   for(const id of selectedBodies)if(meshes.get(id)?.visible&&++bodies===2)break;
   const edges=selectedEdges.some(edge=>meshes.get(edge.bodyId)?.visible);
-  return {available:true,planarFaces,faceCount,faceBodies,edges,cylinder,bodies,hasOtherBody};
+  return {available:true,planarFaces,faceCount,faceBodies,edges,cylinder,bodies,hasOtherBody,canExtrude:faceCount>0&&planarFaces===faceCount&&!!selectedExtrudeShortcut()};
  },
  run(action){
-  const originalButtons={hole:'cut-tool',boss:'boss-joint-tool',shell:'shell-tool',fillet:'direct-fillet',chamfer:'direct-chamfer',pull:'direct-pull',join:'join-tool'};
+  if(action==='extrude'){openFaceExtrusionShortcut();return;}
+  const originalButtons={hole:'cut-tool',boss:'boss-joint-tool',shell:'shell-tool',pull:'direct-pull',join:'join-tool'};
   if(action!=='align'){$(originalButtons[action])?.click();return;}
   const faces=selectedFaces.length?selectedFaces:[{bodyId:selectedFace?.bodyId,point:selectedSurface?.point,plane:selectedFace}];
   const references=faces.map(entry=>{
@@ -2731,6 +2735,14 @@ const selectionCommands=createSelectionCommands({
   const [source,destination]=references;
   assemblyController?.open(null,{source,destination});
  }
+});
+const measurementPlacement=createMeasurementPlacement({
+ panel:$('measurement'),host,camera,
+ getTargets:()=>selectedEdges.length?edgeHighlight?.children||[]:
+  selectedFaces.length||selectedFace?.bodyId||selectedSurface?.bodyId
+   ?regionGroup.children.filter(child=>child.isMesh&&!child.userData.planeId&&(!selectedFaces.length||child.userData.multiFace))
+   :[...selectedBodies].map(id=>meshes.get(id)).filter(Boolean),
+ canMove:()=>stage==='model'&&!sketch&&!pendingExtrude,
 });
 let sketchGridPatchCache=null;
 function workingGridPatches(face,basis,step){

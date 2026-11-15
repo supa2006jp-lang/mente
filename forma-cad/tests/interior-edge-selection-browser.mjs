@@ -189,9 +189,16 @@ try{
  await page.mouse.wheel(0,300);
  await page.waitForFunction(()=>document.getElementById('measurement').scrollTop>0);
  assert.equal(await host.getAttribute('data-camera-state'),cameraBeforeScroll);
+ await page.locator('#selection-more-actions summary').click();
  await page.locator('#photo-selected-face').scrollIntoViewIfNeeded();
  await corner.selectOption('all');
- await button.scrollIntoViewIfNeeded();
+ await adjust.click();await previewCount(8);
+ const pinned=page.locator('#interior-edge-adjustment');
+ await measurement.evaluate(panel=>panel.scrollTop=panel.scrollHeight);
+ const pinnedBounds=await pinned.boundingBox(),panelBounds=await measurement.boundingBox();
+ assert.ok(pinnedBounds.y>=panelBounds.y&&pinnedBounds.y+pinnedBounds.height<=panelBounds.y+panelBounds.height);
+ assert.match(await pinned.textContent(),/選択候補 8 本/);
+ await undoExclusion.waitFor();await restoreExclusions.waitFor();
  await select(8);
  assert.deepEqual(errors,[]);const proof={pass:true,build,syntheticFixturesOnly:true,rectangular:8,circular:1,multipleBodies:9,faceEntry:true,ctrlRemoval:true,fillet:true,chamfer:true,nativeCurveReference:true,sourcePreserved:true,undoRedo:true,emptyKeepsSelection:true,staleQueryCancelled:true,explicitCancel:true,escapeCancel:true,stl,errors};await fs.writeFile(out+'/proof.json',JSON.stringify(proof,null,2));console.log(proof);
 }catch(error){await page.screenshot({path:out+'/failure.png'});await fs.writeFile(out+'/error.txt',error.stack+'\n'+await page.locator('body').innerText());throw error;}finally{await browser.close();await new Promise(r=>server.close(r));}

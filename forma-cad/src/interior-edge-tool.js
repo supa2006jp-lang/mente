@@ -16,7 +16,6 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
  };
  const insideButton=makeButton('select-interior-edges',inside.label);
  insideButton.title='カーソルを合わせると候補を表示します。内壁・底面を Ctrl＋クリックすると、複数の区画を対象にできます。';
- insideButton.style.width='100%';
  const insideGroup=document.createElement('div');
  insideGroup.style.cssText='display:none;align-items:baseline;gap:6px;flex-wrap:wrap;pointer-events:auto';
  const scopeInput=document.createElement('select'),cornerInput=document.createElement('select');
@@ -31,7 +30,16 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
  adjustButton.title='プレビューを固定し、辺をクリックして除外・復元します。';
  const undoExclusion=makeButton('undo-interior-exclusion','最後の除外を戻す');
  const restoreExclusions=makeButton('restore-interior-exclusions','すべて戻す');
- insideGroup.append(scopeInput,cornerInput,insideButton,adjustButton,undoExclusion,restoreExclusions);
+ const normalActions=document.createElement('div');
+ normalActions.className='interior-edge-actions';
+ normalActions.append(insideButton,adjustButton);
+ insideGroup.append(scopeInput,cornerInput,normalActions);
+ const adjustmentBar=document.createElement('div');
+ adjustmentBar.id='interior-edge-adjustment';
+ adjustmentBar.hidden=true;
+ const adjustmentActions=document.createElement('div');
+ adjustmentActions.className='interior-edge-actions';
+ adjustmentBar.append(adjustmentActions);
  const outsideGroup=document.createElement('div'),axisLabel=document.createElement('label');
  axisLabel.textContent='方向 ';
  axisLabel.style.cssText='white-space:nowrap;pointer-events:auto';
@@ -47,7 +55,7 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
  const status=document.createElement('small');
  status.id='interior-edge-selection-status';status.setAttribute('role','status');
  status.style.cssText='font-size:12px;line-height:1.45;min-height:2.9em';
- outsideGroup.append(axisLabel,outsideButton);container.append(status,insideGroup,outsideGroup);
+ outsideGroup.append(axisLabel,outsideButton);container.prepend(adjustmentBar);container.append(status,insideGroup,outsideGroup);
  insideGroup.hidden=outsideGroup.hidden=status.hidden=true;
  const cache=new Map();
  let ids=[],features=null,key=null,active=null,hovered=null,focused=null,settingPreview=null,previewVisible=false,previewStatus=false,previewTimer;
@@ -76,6 +84,11 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
   adjustButton.setAttribute('aria-pressed',String(adjusting));
   undoExclusion.hidden=restoreExclusions.hidden=!adjusting;
   undoExclusion.disabled=restoreExclusions.disabled=!excluded.size||!!(insideBusy||outsideBusy);
+  if(adjusting===adjustmentBar.hidden){
+   adjustmentBar.hidden=!adjusting;
+   if(adjusting){adjustmentBar.prepend(status);adjustmentActions.append(insideButton,adjustButton,undoExclusion,restoreExclusions);container.scrollTop=0;}
+   else{insideGroup.before(status);normalActions.append(insideButton,adjustButton);}
+  }
  }
  function stop(){
   clearTimeout(previewTimer);
@@ -129,7 +142,7 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
  }
  function apply(mode,result){
   const {edges,anchors,message,note,compartmentCount}=candidates(mode,result);
-  if(adjusting&&!edges.length){setStatus(message||mode.empty);return;}
+  if(adjusting&&!edges.length){showPreview(mode,result);return;}
   setPreview([]);
   if(!edges.length){setStatus(message||mode.empty);return;}
   const analysis=mode===inside?{...result.analysis[mode.type],edgeCount:edges.length,bodyIds:[...new Set(edges.map(edge=>edge.bodyId))],scope:scopeInput.value,corner:cornerInput.value,compartmentCount}:result.analysis[mode.type];
@@ -149,7 +162,7 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
   editableEdges=adjusting?[...edges,...omitted]:[];
   setPreview(edges,mode,omitted);
   const count='選択候補 '+edges.length+' 本（青緑）'+(compartmentCount>1?' ／ '+compartmentCount+' 区画':'');
-  const text=adjusting&&edges.length?count+' ／ 除外 '+omitted.length+' 本。辺をクリックで切り替え。':
+  const text=adjusting&&(edges.length||omitted.length)?count+' ／ 除外 '+omitted.length+' 本。'+(message||'辺をクリックで切り替え。'):
    edges.length?count:message||mode.empty;
   setStatus(note?text+' '+note:text,true);
   syncButtons();

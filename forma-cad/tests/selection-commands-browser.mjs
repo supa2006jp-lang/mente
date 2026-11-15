@@ -31,6 +31,8 @@ try{
  const host=page.locator('#canvas-host'),canvas=host.locator('canvas');
  const commands=page.locator('#selection-commands');
  const action=id=>commands.locator('[data-selection-action="'+id+'"]');
+ const more=commands.locator('details');
+ async function openMore(){if(!await more.evaluate(element=>element.open))await more.locator('summary').click();}
  const assembly=page.locator('#assembly-dialog');
  const field=id=>assembly.locator('[data-id="'+id+'"]');
  const boxes=[
@@ -45,25 +47,52 @@ try{
   await page.locator('#fit').click();
   await page.waitForTimeout(250);
  }
- async function pick(point,{add=false}={}){
+ async function screenPoint(point){
   const rect=await canvas.boundingBox(),state=JSON.parse(await host.getAttribute('data-camera-state'));
   const clip=JSON.parse(await host.getAttribute('data-camera-clip'));
   const camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100,...clip);
   camera.position.fromArray(state);camera.quaternion.fromArray(state,3);camera.zoom=state[7];
   camera.updateProjectionMatrix();camera.updateMatrixWorld();
   const projected=new THREE.Vector3(...point).project(camera);
+  return {x:rect.x+(projected.x+1)*rect.width/2,y:rect.y+(1-projected.y)*rect.height/2};
+ }
+ async function pick(point,{add=false}={}){
+  const {x,y}=await screenPoint(point);
   if(add)await page.keyboard.down('Control');
-  try{await page.mouse.click(rect.x+(projected.x+1)*rect.width/2,rect.y+(1-projected.y)*rect.height/2);}
+  try{await page.mouse.click(x,y);}
   finally{if(add)await page.keyboard.up('Control');}
  }
  await load(boxes);
  await commands.waitFor({state:'hidden'});
  await page.locator('#selection-mode').selectOption('face');
  const left=[-22,2,10],right=[26,2,10];
+ const view=await canvas.boundingBox(),beforePan=await screenPoint(left);
+ const drag={x:view.x+view.width*.7,y:view.y+view.height*.3};
+ await page.mouse.move(drag.x,drag.y);await page.mouse.down({button:'middle'});
+ await page.mouse.move(drag.x+view.x+155-beforePan.x,drag.y+view.y+view.height*.72-beforePan.y,{steps:8});
+ await page.mouse.up({button:'middle'});
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
  await pick(left);
- await action('hole').waitFor();
+ await action('extrude').waitFor();
+ const selectedPoint=await screenPoint(left),measurement=page.locator('#measurement');
+ await page.waitForFunction(()=>!!document.getElementById('measurement').style.translate);
+ const menuBounds=await measurement.boundingBox();
+ assert.ok(selectedPoint.x<menuBounds.x||selectedPoint.x>menuBounds.x+menuBounds.width||
+  selectedPoint.y<menuBounds.y||selectedPoint.y>menuBounds.y+menuBounds.height);
+ const arrow=await page.locator('#face-extrude-shortcut').boundingBox();
+ assert.ok(arrow&&(
+  arrow.x>=menuBounds.x+menuBounds.width||arrow.x+arrow.width<=menuBounds.x||
+  arrow.y>=menuBounds.y+menuBounds.height||arrow.y+arrow.height<=menuBounds.y
+ ));
+ await page.locator('#fit').click();
  assert.ok(await commands.getByRole('button',{name:'この面にスケッチ'}).isVisible());
+ assert.equal(await action('hole').isVisible(),false);
  assert.equal(await page.locator('#sketch-on-face-grid').count(),1);
+ await action('extrude').click();
+ await page.locator('#extrude-distance').waitFor();
+ await page.keyboard.press('Escape');
+ await pick(left);
+ await openMore();
  assert.match(await commands.textContent(),/別のボディの平面をもう1つ/);
  await action('hole').click();
  await page.locator('#hole-panel').waitFor();
@@ -71,12 +100,12 @@ try{
  await commands.waitFor({state:'hidden'});
  await page.keyboard.press('Escape');
 
- await pick(left);await action('boss').click();
+ await pick(left);await openMore();await action('boss').click();
  await page.locator('#boss-joint-dialog').waitFor();
  assert.equal(await page.locator('#boss-joint-target').inputValue(),'a');
  await page.locator('#boss-joint-cancel').click();
 
- await pick(left);await action('align').click();
+ await pick(left);await openMore();await action('align').click();
  await assembly.waitFor();
  assert.match(await field('source-name').textContent(),/左の箱/);
  assert.equal(await field('destination').getAttribute('aria-pressed'),'true');
@@ -85,6 +114,7 @@ try{
  await field('cancel').click();
 
  await pick(left);await pick(right,{add:true});
+ await openMore();
  await commands.getByText('最初に選んだ面のボディを動かします。').waitFor();
  await action('hole').waitFor({state:'hidden'});
  await action('align').click();
@@ -111,6 +141,7 @@ try{
  await load([box,{kind:'cadop',id:fillet.id,name:'フィレット',spec:fillet,...runOperation([box],fillet)}]);
  await page.locator('#selection-mode').selectOption('face');
  await pick(left);
+ await openMore();
  await action('shell').click();
  await page.locator('#tools-dialog').waitFor();
  assert.equal(await page.locator('#cad-command').inputValue(),'shell');

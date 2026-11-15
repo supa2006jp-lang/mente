@@ -584,3 +584,20 @@ button.form-control-point.invalid { background:#bc2634; }
 #measurement :is(#interior-edge-scope,#interior-edge-corner) { flex:1 1 125px; width:auto; }
 #measurement label:has(> #exterior-edge-axis) { display:flex; align-items:center; gap:4px; }
 #measurement #exterior-edge-axis { width:auto; }
+#measurement #selection-commands { border-top:0; margin:0; padding:0 0 6px; border-bottom:1px solid #d8cfae; }
+#selection-more-actions { margin-top:4px; }
+#selection-more-actions:not(:has(.selection-command-buttons:not(:empty),.selection-command-hint:not([hidden]),.selection-more-controls > :not([hidden]))) { display:none; }
+#selection-more-actions summary { cursor:pointer; padding:3px 0; color:#365264; }
+#selection-more-actions[open] summary { margin-bottom:4px; }
+.selection-more-controls { display:grid; gap:4px; margin-top:4px; }
+.selection-more-controls:empty { display:none; }
+#interior-edge-adjustment {
+ position:sticky; top:0; z-index:1; order:-1;
+ background:#fffef6; border:1px solid #9abfc9; border-radius:5px;
+ padding:5px; box-shadow:0 2px 5px #263f5220;
+}
+#interior-edge-adjustment[hidden] { display:none; }
+#interior-edge-adjustment #interior-edge-selection-status { min-height:0 !important; margin-bottom:4px; }
+.interior-edge-actions { display:flex; flex-wrap:wrap; gap:4px; width:100%; }
+.interior-edge-actions #select-interior-edges { flex:1 1 auto; }
+#interior-edge-adjustment #select-interior-edges { background:#087fa1 !important; color:white !important; }
