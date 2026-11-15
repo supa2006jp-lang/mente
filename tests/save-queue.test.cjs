@@ -92,6 +92,53 @@ test('overlapping saves serialize and pending edits collapse into the newest sna
     assert.equal(store.storageCandidates.indexeddb.total, 3);
 });
 
+for (const [name, corrupt, expectedPath] of [
+    ['a department array', store => { store.activeData.machines = {}; }, /部署 dept_default\.machines/],
+    ['the department list', store => { store.data.departments = {}; }, /部署一覧/],
+    ['nested history photos', store => { store.activeData.history = [{ id: 'h1', photos: {} }]; }, /history\[0\]\.photos/]
+]) {
+    test(`corrupt ${name} is rejected before IndexedDB is written`, async () => {
+        const page = makeStore();
+        corrupt(page.store);
+
+        await assert.rejects(page.store.save(), error =>
+            error.code === 'INVALID_SAVE_SHAPE' && expectedPath.test(error.message));
+        assert.equal(page.started.length, 0);
+        assert.equal(page.localValues.has(page.store.STORAGE_KEY), false);
+        assert.deepEqual(page.events, ['error']);
+    });
+}
+
+test('an invalid later edit cannot replace an earlier valid queued snapshot', async () => {
+    const page = makeStore();
+    page.store.activeData.machines.push({ id: 'valid' });
+    const validSave = page.store.save();
+    page.store.activeData.machines = { invalid: true };
+
+    await assert.rejects(page.store.save(), error => error.code === 'INVALID_SAVE_SHAPE');
+    assert.equal(page.started.length, 1);
+    page.complete(0);
+    await validSave;
+
+    assert.equal(page.committed[0].deptData.dept_default.machines[0].id, 'valid');
+    assert.deepEqual(page.events, ['saving', 'error']);
+});
+
+test('invalid state is not written to the localStorage fallback and can be corrected', async () => {
+    const page = makeStore();
+    page.store.db = null;
+    page.store.activeData.tasks = 'invalid';
+
+    await assert.rejects(page.store.save(), error =>
+        error.code === 'INVALID_SAVE_SHAPE' && /部署 dept_default\.tasks/.test(error.message));
+    assert.equal(page.localValues.has(page.store.STORAGE_KEY), false);
+
+    page.store.activeData.tasks = [];
+    await page.store.save();
+    assert.equal(JSON.parse(page.localValues.get(page.store.STORAGE_KEY)).deptData.dept_default.tasks.length, 0);
+    assert.deepEqual(page.events, ['error', 'saving', 'saved']);
+});
+
 test('a failed write rejects its caller while a newer queued edit can still save', async () => {
     const page = makeStore();
     const { store } = page;

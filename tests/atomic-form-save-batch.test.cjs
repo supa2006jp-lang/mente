@@ -76,3 +76,19 @@ test('exception during a batch restores the old data without attempting a save',
     assert.equal(page.store.activeData.machines.length, 0);
     assert.equal(page.writes, 0);
 });
+
+test('invalid final state rolls back an atomic edit without writing it', async () => {
+    const page = makeStore();
+    const originalData = page.store.data;
+
+    await assert.rejects(page.store.runAtomicSaveBatch(() => {
+        page.store.addMachine('機械', '型式');
+        page.store.activeData.history = { invalid: true };
+    }), error => error.code === 'INVALID_SAVE_SHAPE' && /部署 dept_default\.history/.test(error.message));
+
+    assert.equal(page.store.data, originalData);
+    assert.equal(page.store.activeData.machines.length, 0);
+    assert.equal(page.store.activeData.history.length, 0);
+    assert.equal(page.writes, 0);
+    assert.equal(page.values.has(storageKey), false);
+});

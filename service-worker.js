@@ -1,5 +1,5 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const CACHE_NAME = 'maintenance-next-static-20261115-five1';
+const CACHE_NAME = 'maintenance-next-static-20261115-save-shape1';
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
     './',
@@ -13,7 +13,7 @@ const SHELL_FILES = [
     './assets/vendor/kuromoji/0.1.2/kuromoji.js',
     './assets/vendor/kuroshiro/1.2.0/kuroshiro.min.js',
     './assets/vendor/kuroshiro-analyzer-kuromoji/1.1.0/kuroshiro-analyzer-kuromoji.min.js',
-    './store.js?v=20261115-five1',
+    './store.js?v=20261115-save-shape1',
     './app.js?v=20261115-five1',
     './app-settings.js?v=20261114-save12',
     './app-todos.js?v=20260611-todo-stamp-wrap',

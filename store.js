@@ -1121,6 +1121,15 @@ class MaintenanceStore {
         try {
             if (this._rejectedSaveDataRefs.has(dataRef)) throw new Error('失敗した取込データは保存できません。');
             snapshot = this.cloneSaveSnapshot();
+            const issues = this.getStoredDataShapeIssues(snapshot);
+            if (issues.length) {
+                const details = issues.slice(0, 3).join('、');
+                const remaining = issues.length > 3 ? `（ほか${issues.length - 3}件）` : '';
+                const error = new Error(`保存データの形式に問題があります: ${details}${remaining}。保存を中止しました。`);
+                error.code = 'INVALID_SAVE_SHAPE';
+                error.issues = issues;
+                throw error;
+            }
         } catch (error) {
             this.notifySaveStatus('error', backend, { error, revision });
             return Promise.reject(error);
