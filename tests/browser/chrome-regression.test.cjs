@@ -540,4 +540,32 @@ test('workspace improvements: equipment, today actions, saved searches, forms, e
         assert.ok(result.ms<8000,JSON.stringify(result));
         t.diagnostic(`10,000 records: ${Math.round(result.ms)} ms, 50 visible evidence rows`);
     });
+    await t.test('compact search collapses without clearing input and machine chart buttons remain horizontal', async () => {
+        await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+        await page.evaluate("app.switchView('machines'); app.machineMaintenanceListMode=false; document.getElementById('global-search').value=''; app.renderMachines(); document.getElementById('search-scope').value='all'; app.updateSearchScope()");
+        await page.evaluate('document.fonts.ready.then(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))');
+        const sizes = await page.evaluate(`(() => {
+            const bar=document.querySelector('.header-search-workspace'), chart=document.querySelector('.machine-card-chart-link'), edit=document.querySelector('.machine-card-actions .edit-btn');
+            const openHeight=bar.getBoundingClientRect().height;
+            document.querySelector('.saved-search-controls').open=true;
+            const panelHeight=bar.getBoundingClientRect().height;
+            const savedName=document.getElementById('saved-search-name'), fieldRect=savedName.getBoundingClientRect();
+            const panelAccessible=document.elementFromPoint(fieldRect.left+fieldRect.width/2,fieldRect.top+fieldRect.height/2)===savedName;
+            document.getElementById('notebook-search').value='保持する検索';
+            document.getElementById('search-workspace-toggle').click();
+            const folded={height:bar.getBoundingClientRect().height,hidden:document.getElementById('search-workspace-controls').hidden,expanded:document.getElementById('search-workspace-toggle').getAttribute('aria-expanded')};
+            document.getElementById('search-workspace-toggle').click();
+            const text=document.getElementById('notebook-search').value;
+            document.getElementById('search-workspace-toggle').click();
+            const a=chart.getBoundingClientRect(), b=edit.getBoundingClientRect();
+            return {openHeight,panelHeight,panelAccessible,folded,text,chartHeight:a.height,chartWidth:a.width,overlap:a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top};
+        })()`);
+        assert.ok(sizes.openHeight<=48,JSON.stringify(sizes)); assert.equal(sizes.panelHeight,sizes.openHeight);
+        assert.equal(sizes.panelAccessible,true);
+        assert.ok(sizes.folded.height<=32,JSON.stringify(sizes)); assert.equal(sizes.folded.hidden,true); assert.equal(sizes.folded.expanded,'false'); assert.equal(sizes.text,'保持する検索');
+        assert.ok(sizes.chartHeight<=32 && sizes.chartWidth>sizes.chartHeight*2,JSON.stringify(sizes)); assert.equal(sizes.overlap,false);
+        await reloadApp(page,'collapsed search preference');
+        assert.equal(await page.evaluate("document.getElementById('search-workspace-controls').hidden"),true);
+        await page.evaluate('app.setSearchWorkspaceCollapsed(false)');
+    });
 });

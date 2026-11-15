@@ -72,14 +72,31 @@
         if (all) all.hidden = scope !== 'all';
         this.refreshNamedSearchOptions();
     };
+    P.setSearchWorkspaceCollapsed = function (collapsed, persist = true) {
+        const bar = document.querySelector('.header-search-workspace');
+        const controls = document.getElementById('search-workspace-controls');
+        const toggle = document.getElementById('search-workspace-toggle');
+        if (!bar || !controls || !toggle) return;
+        controls.hidden = !!collapsed;
+        bar.classList.toggle('is-collapsed', !!collapsed);
+        toggle.textContent = collapsed ? '▸ 検索を表示' : '▾ 検索を隠す';
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+        if (collapsed) {
+            bar.querySelector('.saved-search-controls').open = false;
+            if (controls.contains(document.activeElement)) toggle.focus();
+        }
+        if (persist) {
+            try { localStorage.setItem('maintenance-search-panel-collapsed-v1', String(!!collapsed)); } catch (_) {}
+        }
+    };
     P.initializeSearchPresets = function () {
         const search = document.querySelector('.search-bar'); if (!search || document.getElementById('search-scope')) return;
         const group = document.createElement('div'); group.className = 'search-scope-controls workspace-toolbar';
         const label = document.createElement('label'); label.textContent = '検索対象';
         const scope = document.createElement('select'); scope.id = 'search-scope'; scope.add(new Option('この画面', 'view')); scope.add(new Option('全体', 'all')); scope.onchange = () => this.updateSearchScope(); label.append(scope);
         const details = document.createElement('details'); details.className = 'saved-search-controls';
-        const summary = document.createElement('summary'); summary.textContent = '検索条件を保存・呼び出す'; details.append(summary);
-        const panel = document.createElement('div'); panel.className = 'workspace-toolbar';
+        const summary = document.createElement('summary'); summary.textContent = '保存条件'; summary.title = '検索条件を保存・呼び出す'; details.append(summary);
+        const panel = document.createElement('div'); panel.className = 'workspace-toolbar saved-search-panel';
         const name = document.createElement('input'); name.id = 'saved-search-name'; name.placeholder = '条件の名前'; name.setAttribute('aria-label', '検索条件の名前'); name.maxLength = 80;
         const select = document.createElement('select'); select.id = 'saved-search-select'; select.setAttribute('aria-label', '保存した検索条件');
         const btn = (text, action) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'secondary-btn'; b.textContent = text; b.onclick = action; return b; };
@@ -89,11 +106,20 @@
             catch (_) { this.showToast('検索条件を削除できませんでした。', 'error'); }
         }));
         const note = document.createElement('small'); note.textContent = 'この端末・部署ごとに、検索語・期間・絞り込み条件を保存します。'; panel.append(note);
-        details.append(panel); group.append(label, details);
+        details.append(panel); group.append(label);
         const bar = document.createElement('div'); bar.className = 'header-search-workspace';
         document.querySelector('.top-header').after(bar);
-        bar.append(group, search);
-        for (const item of [document.getElementById('view-filter-clear'), document.querySelector('.notebook-search-bar')]) if (item) bar.append(item);
+        const toggle = btn('検索を隠す', () => this.setSearchWorkspaceCollapsed(!controls.hidden));
+        toggle.id = 'search-workspace-toggle'; toggle.setAttribute('aria-controls', 'search-workspace-controls');
+        const controls = document.createElement('div'); controls.id = 'search-workspace-controls'; controls.className = 'search-workspace-controls';
+        controls.append(group, search);
+        for (const item of [document.querySelector('.notebook-search-bar'), document.getElementById('view-filter-clear')]) if (item) controls.append(item);
+        controls.append(details); bar.append(toggle, controls);
+        document.addEventListener('click', event => { if (details.open && !details.contains(event.target)) details.open = false; });
+        details.addEventListener('keydown', event => { if (event.key === 'Escape') { details.open = false; summary.focus(); event.stopPropagation(); } });
+        let collapsed = false;
+        try { collapsed = localStorage.getItem('maintenance-search-panel-collapsed-v1') === 'true'; } catch (_) {}
+        this.setSearchWorkspaceCollapsed(collapsed, false);
         this.updateSearchScope();
         this.initializeCompactNavigation();
     };

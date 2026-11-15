@@ -316,6 +316,7 @@
                                 </div>
                             ` : ''}
                         </div>
+                        <button type="button" class="secondary-btn machine-card-chart-link" data-machine-id="${this.escapeHtml(m.id)}" onclick="app.openEquipmentWorkspace(this.dataset.machineId)"><i class="fa-solid fa-book-medical" aria-hidden="true"></i> 機械カルテ</button>
                     </div>
                     <div class="machine-last-history-info">
                             <div class="machine-last-history-row trouble">
@@ -328,7 +329,6 @@
                             </div>
                     </div>
                     <div class="actions machine-card-actions">
-                        <button type="button" class="secondary-btn" data-machine-id="${this.escapeHtml(m.id)}" onclick="app.openEquipmentWorkspace(this.dataset.machineId)">機械カルテ</button>
                         <button class="icon-btn edit-btn" title="編集"><i class="fa-solid fa-pen"></i></button>
                         <button class="icon-btn delete-btn" style="color:var(--danger)" title="削除"><i class="fa-solid fa-trash"></i></button>
                     </div>

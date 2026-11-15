@@ -1,16 +1,16 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const APP_BUILD = '20261115-workspace6b';
+const APP_BUILD = '20261115-compact-search1';
 const CACHE_NAME = 'maintenance-next-static-' + APP_BUILD;
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
     './app-equipment-workspace.js?v=20261115-workspace6',
     './app-record-assist.js?v=20261115-workspace6',
     './app-worktime-evidence.js?v=20261115-workspace6',
-    './app-search-presets.js?v=20261115-workspace6',
+    './app-search-presets.js?v=20261115-compact-search1',
     './app-five-s-management.js?v=20261115-workspace6',
     './app-unified-search.js?v=20261115-workspace6',
     './app-photo-export.js?v=20261115-workspace6',
-    './workspace-improvements.css?v=20261115-workspace6b',
+    './workspace-improvements.css?v=20261115-compact-search1',
     './',
     './index.html',
     './assets/vendor/fontsource/inter/5.2.6/index.css',
@@ -32,7 +32,7 @@ const SHELL_FILES = [
     './app-shift-notebook-editor.js?v=20260802-shift-stamp-backspace1',
     './app-calendar-support.js?v=20261114-improve123',
     './app-departments.js?v=20261115-five1',
-    './app-machines.js?v=20261115-workspace6',
+    './app-machines.js?v=20261115-compact-search1',
     './app-maintenance-forms.js?v=20261115-workspace6',
     './app-history.js?v=20261115-edit-safety1',
     './app-analysis-dashboard.js?v=20261115-workspace6',
