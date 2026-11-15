@@ -2214,17 +2214,29 @@
         this.renderAnalysis();
     }
 
+    getHistoryPartPrice(part) {
+        const number = value => {
+            const raw = typeof value === 'number' || typeof value === 'string' ? String(value).trim() : '';
+            return /^\d+(?:\.\d+)?$/.test(raw) && Number.isFinite(Number(raw)) ? Number(raw) : null;
+        };
+        const direct = number(part?.price);
+        if (direct !== null) return { price: direct, source: 'record' };
+        const master = store.getPartMaster?.(part?.name || '', part?.model || '');
+        const fallback = master?.price === 0 && master?.priceRaw === '' ? null : number(master?.price);
+        return { price: fallback, source: fallback === null ? 'missing' : 'master' };
+    }
+
+    getHistoryPartCostItems(history) {
+        return (history?.replacedParts || []).map(part => {
+            const rawCount = Number(part.count ?? part.qty ?? 0);
+            const count = Number.isFinite(rawCount) && rawCount >= 0 ? rawCount : 0;
+            const resolved = this.getHistoryPartPrice(part);
+            return { ...part, count, price: resolved.price, priceSource: resolved.source, cost: count * (resolved.price ?? 0) };
+        });
+    }
+
     calculateHistoryPartCost(history) {
-        return (history?.replacedParts || []).reduce((sum, part) => {
-            const count = parseFloat(part.count ?? part.qty ?? 0) || 0;
-            const directPrice = parseFloat(part.price);
-            const master = store.getPartMaster?.(part.name || '', part.model || '');
-            const masterPrice = parseFloat(master?.price);
-            const unitPrice = !Number.isNaN(directPrice) && directPrice > 0
-                ? directPrice
-                : (!Number.isNaN(masterPrice) && masterPrice > 0 ? masterPrice : 0);
-            return sum + (count * unitPrice);
-        }, 0);
+        return this.getHistoryPartCostItems(history).reduce((sum, part) => sum + part.cost, 0);
     }
 
     getHistoryMissingPartPrices(history) {
@@ -2232,10 +2244,7 @@
             const name = String(part?.name || '').trim();
             if (!name) return null;
             const model = String(part?.model || '').trim();
-            const directPrice = parseFloat(part.price);
-            const master = store.getPartMaster?.(name, model);
-            const masterPrice = parseFloat(master?.price);
-            const hasPrice = (!Number.isNaN(directPrice) && directPrice > 0) || (!Number.isNaN(masterPrice) && masterPrice > 0);
+            const hasPrice = this.getHistoryPartPrice(part).price !== null;
             if (hasPrice) return null;
             return {
                 name,
@@ -2351,7 +2360,7 @@
                     ${parts.map(p => {
                         const count = p.count ?? p.qty ?? 0;
                         const unit = this.formatHistoryPartUnit(p.unit);
-                        const price = Number(p.price || 0);
+                        const price = this.getHistoryPartPrice(p).price;
                         const name = p.name || '';
                         const model = p.model || '';
                         return `
@@ -2362,7 +2371,7 @@
                                     <span>${this.escapeHtml(p.model || '型式なし')}</span>
                                 </div>
                                 <strong>${this.escapeHtml(String(count))}${this.escapeHtml(unit)}</strong>
-                                ${price ? `<em>¥${Math.round(price).toLocaleString()}</em>` : '<em>-</em>'}
+                                ${price !== null ? `<em>¥${price.toLocaleString()}</em>` : '<em>単価未設定</em>'}
                                 <i class="fa-solid fa-pen-to-square history-parts-edit-cue"></i>
                             </button>
                         `;

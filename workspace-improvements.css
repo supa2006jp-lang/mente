@@ -42,6 +42,29 @@
 .equipment-overdue-group button { flex-shrink: 0; }
 .comparison-range { display: block; font-size: .72rem; color: var(--text-light); margin-top: 6px; white-space: pre-line; }
 #saved-search-undo[hidden] { display: none; }
+.history-import-review { width: min(900px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); margin: auto; padding: 20px; border: 1px solid var(--border); border-radius: 14px; color: var(--text-main); }
+.history-import-review[open] { display: flex; flex-direction: column; gap: 10px; }
+.history-import-review::backdrop { background: #0f172a99; }
+.history-import-review > h3, .history-import-review > p { margin: 0; }
+.history-import-review > h3, .history-import-review > p, .history-import-review-actions { flex-shrink: 0; }
+.history-import-review > p { font-size: .82rem; }
+.history-import-review-list { min-height: 0; overflow: auto; }
+.history-import-review-list section { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; overflow-wrap: anywhere; }
+.history-import-review-list label { display: flex; align-items: center; gap: 8px; font-size: .85rem; }
+.history-import-review-list input[type=checkbox] { width: 18px; flex-shrink: 0; }
+.history-import-review-list select { min-width: 0; min-height: 32px; flex: 1; width: 100%; padding: 5px; font-size: .8rem; border: 1px solid var(--border); border-radius: 5px; }
+.history-import-review-list p { margin: 5px 0; font-size: .8rem; white-space: pre-wrap; }
+.history-import-review-list details { margin-top: 8px; padding: 8px; background: #fff7ed; font-size: .8rem; }
+.history-import-review-list summary { cursor: pointer; }
+.history-import-review-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.history-import-review-actions button { padding: 8px 12px; font-size: .8rem; }
+.history-import-review button:disabled { opacity: .5; cursor: not-allowed; }
+.history-import-review-error { color: var(--danger, #dc2626); }
+.history-import-review-error[hidden] { display: none; }
+.part-price-editor { grid-column: 1 / -1; font-size: .75rem; }
+.part-price-editor summary { cursor: pointer; color: var(--text-light); }
+.part-price-editor label { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+.part-price-editor input { max-width: 180px; }
 .equipment-return-button { margin-right: auto; }
 .modal-footer:has(.equipment-return-button) { flex-wrap: wrap; }
 #search-condition-summary { min-width: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; font-size: .72rem; line-height: 1.5; color: var(--primary); background: var(--primary-light); border: 1px solid var(--border); border-radius: 10px; }

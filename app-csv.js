@@ -98,17 +98,17 @@
                     model: MaintenanceStore.toHalfWidthLower((xMatch[2] || '').trim()),
                     count: parseFloat(xMatch[3]) || 0,
                     unit: (xMatch[4] || '個').trim() || '個',
-                    price: 0
+                    price: null
                 };
             }
             const match = normalized.match(/^(.*?)(?:\s+\[(.*?)\])?\s*\(([-+]?\d*\.?\d+)\s*([^)]*)\)(?:\s*@\s*([-+]?\d*\.?\d+))?$/);
-            if (!match) return { name: MaintenanceStore.toFullWidth(text), model: '', count: 0, unit: '個', price: 0 };
+            if (!match) return { name: MaintenanceStore.toFullWidth(text), model: '', count: 0, unit: '個', price: null };
             return {
                 name: MaintenanceStore.toFullWidth(match[1].trim()),
                 model: MaintenanceStore.toHalfWidthLower((match[2] || '').trim()),
                 count: parseFloat(match[3]) || 0,
                 unit: (match[4] || '個').trim() || '個',
-                price: parseFloat(match[5]) || 0
+                price: match[5] == null ? null : Number(match[5])
             };
         }).filter(Boolean);
     }
@@ -144,7 +144,7 @@
             model: '',
             count: 0,
             unit: '個',
-            price: 0
+            price: null
         };
         if (!base.name) return this.parseHistoryPartsText(partsText);
 
@@ -154,7 +154,7 @@
             ...base,
             count: Number.isFinite(count) ? count : (parseFloat(base.count) || 0),
             unit: this.normalizeImportedPartUnit(partUnit, base.unit || '個'),
-            price: Number.isFinite(price) ? price : (parseFloat(base.price) || 0)
+            price: Number.isFinite(price) ? price : (base.price ?? null)
         }];
     }
 
@@ -172,15 +172,15 @@
                 store.updatePartMaster?.(name, model, {
                     name,
                     model,
-                    price: !Number.isNaN(price) && price > 0 ? price : 0,
-                    priceRaw: !Number.isNaN(price) && price > 0 ? String(price) : '',
+                    price: Number.isFinite(price) && price >= 0 ? price : null,
+                    priceRaw: Number.isFinite(price) && price >= 0 ? String(price) : '',
                     stock: 0,
                     minStock: 0,
                     supplier: '',
                     unit
                 });
                 added++;
-            } else if ((!parseFloat(master.price) || parseFloat(master.price) <= 0) && !Number.isNaN(price) && price > 0) {
+            } else if ((master.price == null || String(master.price).trim() === '' || (master.price === 0 && master.priceRaw === '')) && Number.isFinite(price) && price >= 0) {
                 store.updatePartMaster?.(master.name || name, master.model || model, {
                     ...master,
                     price,
@@ -688,11 +688,13 @@
     }
 
     async processHistoryImportCSV() {
+        if (this._historyImportReading || document.querySelector?.('.history-import-review[open]')) return;
         const fileInput = document.getElementById('hist-csv-upload');
         if (!fileInput.files.length) return alert("ExcelまたはCSVファイルを選択してください。");
         const file = fileInput.files[0];
         const isExcel = /\.xlsx$/i.test(file.name || '');
 
+        this._historyImportReading = true;
         try {
             const rows = isExcel
                 ? await this.parseHistoryImportWorkbook(await file.arrayBuffer())
@@ -728,8 +730,8 @@
                 partPrice: findIndex(['部品単価', '単価'])
             };
             if (indexMap.parts < 0) indexMap.parts = headers.findIndex(h => h === '部品');
-            const getCol = (cols, key, fallbackIndex = -1) => {
-                const index = indexMap[key] >= 0 ? indexMap[key] : fallbackIndex;
+            const getCol = (cols, key) => {
+                const index = indexMap[key];
                 return index >= 0 ? String(cols[index] || '').trim() : '';
             };
             const normalizeLineNo = (value) => {
@@ -747,23 +749,12 @@
                 return name;
             };
 
-            const records = [];
-            const machines = [...store.getMachines(true)];
+            const entries = [];
+            const machines = store.getMachines(true).map(machine => ({ ...machine }));
             const newMachines = [];
-            const pendingLineNos = new Map();
-            let addedMachines = 0;
             let candidateRowCount = 0;
             let skippedInvalidRows = 0;
-            const invalidTimes = [];
-            const importKey = (record) => [
-                record.date || '',
-                record.machineId || '',
-                record.taskContent || record.errorContent || record.notes || '',
-                String(record.workTime || 0)
-            ].map(v => MaintenanceStore.toHalfWidthLower(String(v).trim())).join('__');
-            const existingKeys = new Set((store.activeData.history || []).map(importKey));
-            const importKeys = new Set();
-            let duplicateCount = 0;
+            const invalidTimes = [], invalidDates = [];
 
             for (let i = headerRowIndex + 1; i < rows.length; i++) {
                 const cols = rows[i];
@@ -774,46 +765,43 @@
                     continue;
                 }
 
-                const date = getCol(cols, 'date', 0);
+                const rawDate = getCol(cols, 'date');
+                const date = this.normalizeHistoryImportDate(rawDate);
+                if (!date) { invalidDates.push(`${cols.sourceRow || i + 1}行目: 「${rawDate.slice(0, 60)}」`); continue; }
                 const lineNo = normalizeLineNo(getCol(cols, 'line'));
-                const mName = getCol(cols, 'machine', 1);
-                const mModel = getCol(cols, 'model', 2);
-                const occType = getCol(cols, 'type', 3);
-                const occurrenceText = getCol(cols, 'occurrence', -1);
-                const hasOccurrenceColumn = indexMap.occurrence >= 0;
-                const content = getCol(cols, 'content', hasOccurrenceColumn ? 5 : 4);
-                const cause = getCol(cols, 'cause', hasOccurrenceColumn ? 6 : 5);
-                const notes = getCol(cols, 'notes', hasOccurrenceColumn ? 7 : 6);
-                const errorNo = getCol(cols, 'errorNo', hasOccurrenceColumn ? 8 : 7);
-                const time = getCol(cols, 'time', hasOccurrenceColumn ? 9 : 8);
+                const mName = getCol(cols, 'machine');
+                const mModel = getCol(cols, 'model');
+                const occType = getCol(cols, 'type');
+                const occurrenceText = getCol(cols, 'occurrence');
+                const content = getCol(cols, 'content');
+                const cause = getCol(cols, 'cause');
+                const notes = getCol(cols, 'notes');
+                const errorNo = getCol(cols, 'errorNo');
+                const time = getCol(cols, 'time');
                 if (time && (!/^\d+(?:\.\d+)?$/.test(time) || !Number.isFinite(Number(time)))) {
                     invalidTimes.push(`${cols.sourceRow || i + 1}行目: 「${time.slice(0, 60)}」`);
                     continue;
                 }
-                const categoryName = getCol(cols, 'category', hasOccurrenceColumn ? 10 : 9);
-                const workersStr = getCol(cols, 'workers', hasOccurrenceColumn ? 11 : 10);
-                const partsStr = getCol(cols, 'parts', hasOccurrenceColumn ? 12 : 11);
-                const partNameStr = getCol(cols, 'partName', hasOccurrenceColumn ? 13 : 12);
-                const partCountStr = getCol(cols, 'partCount', hasOccurrenceColumn ? 14 : 13);
-                const partUnitStr = getCol(cols, 'partUnit', hasOccurrenceColumn ? 15 : 14);
-                const partPriceStr = getCol(cols, 'partPrice', hasOccurrenceColumn ? 16 : 15);
+                const categoryName = getCol(cols, 'category');
+                const workersStr = getCol(cols, 'workers');
+                const partsStr = getCol(cols, 'parts');
+                const partNameStr = getCol(cols, 'partName');
+                const partCountStr = getCol(cols, 'partCount');
+                const partUnitStr = getCol(cols, 'partUnit');
+                const partPriceStr = getCol(cols, 'partPrice');
                 if (!date || !mName) {
                     skippedInvalidRows++;
                     continue;
                 }
 
-                let targetMachine = machines.find(m => m.name === mName && (mModel ? m.model === mModel : true));
-                if (!targetMachine) {
-                    targetMachine = {
-                        id: store.generateId(), name: mName, model: mModel || '',
-                        remarks: 'CSV取込で自動登録', photo: '', category: '', lineNo,
-                        manufacturer: '', deleted: false, createdAt: Date.now()
-                    };
-                    machines.push(targetMachine);
-                    newMachines.push(targetMachine);
-                } else if (lineNo && !targetMachine.lineNo) {
-                    pendingLineNos.set(targetMachine.id, lineNo);
+                const candidates = this.getHistoryImportMachineCandidates(mName, mModel, lineNo, machines);
+                let provisional = newMachines.find(m => MaintenanceStore.toHalfWidthLower(m.name).trim() === MaintenanceStore.toHalfWidthLower(mName).trim() && MaintenanceStore.toHalfWidthLower(m.model).trim() === MaintenanceStore.toHalfWidthLower(mModel).trim() && m.lineNo === lineNo);
+                if (!provisional) {
+                    provisional = { id: store.generateId(), name: mName, model: mModel, lineNo,
+                        remarks: 'CSV取込で自動登録', photo: '', category: '', manufacturer: '', deleted: false, createdAt: Date.now() };
+                    newMachines.push(provisional);
                 }
+                const targetMachine = candidates.length === 1 && (!lineNo || candidates[0].lineNo) ? candidates[0] : candidates.length === 0 ? provisional : null;
 
                 let isSudden = false;
                 let isDokatei = false;
@@ -834,7 +822,7 @@
                 const replacedParts = this.parseHistoryImportParts(partsStr, partNameStr, partCountStr, partUnitStr, partPriceStr);
                 const record = {
                     id: store.generateId(),
-                    machineId: targetMachine.id,
+                    machineId: targetMachine?.id || '',
                     date,
                     workTime: time === '' ? 0 : Number(time),
                     isSudden,
@@ -845,8 +833,8 @@
                     cause: cause || '',
                     notes: notes || '',
                     category,
-                    machineCategory: targetMachine.category || '',
-                    lineNo: lineNo || targetMachine.lineNo || '',
+                    machineCategory: targetMachine?.category || '',
+                    lineNo: lineNo || targetMachine?.lineNo || '',
                     isFirstTime,
                     workers,
                     replacedParts,
@@ -859,76 +847,35 @@
                     delete record.errorContent;
                 }
 
-                const key = importKey(record);
-                if (existingKeys.has(key) || importKeys.has(key)) {
-                    duplicateCount++;
-                    continue;
-                }
-                importKeys.add(key);
-                records.push(record);
+                entries.push({ record, candidates, provisional, lineNo, machineName: mName, sourceRow: cols.sourceRow || i + 1, decision: null });
             }
 
+            if (invalidDates.length) {
+                alert(`日付に不正な値が${invalidDates.length}件あります。年・月・日と実在する日付を確認してください。まだ取り込んでいません。\n\n${invalidDates.slice(0, 50).join('\n')}${invalidDates.length > 50 ? `\nほか${invalidDates.length - 50}件` : ''}`);
+                return;
+            }
             if (invalidTimes.length) {
                 alert(`作業時間に不正な値が${invalidTimes.length}件あります。0以上の数値（小数可）に修正してください。まだ取り込んでいません。\n\n${invalidTimes.slice(0, 50).join('\n')}${invalidTimes.length > 50 ? `\nほか${invalidTimes.length - 50}件` : ''}`);
                 return;
             }
-            const usedMachineIds = new Set(records.map(record => record.machineId));
-            const machinesToAdd = newMachines.filter(machine => usedMachineIds.has(machine.id));
-            addedMachines = machinesToAdd.length;
-
-            if (records.length === 0) {
-                await this.addHistoryImportLog({
-                    fileName: file.name || 'CSV取り込み',
-                    totalRows: candidateRowCount,
-                    added: 0,
-                    duplicates: duplicateCount,
-                    skipped: skippedInvalidRows,
-                    addedMachines,
-                    firstTime: 0,
-                    recurrence: 0
-                });
-                return alert(duplicateCount > 0 ? `すべて重複候補だったため、取り込みはありませんでした。（${duplicateCount}件）` : "取り込めるデータがありませんでした。");
+            if (!entries.length) return alert('取り込めるデータがありませんでした。');
+            const plan = { entries, newMachines, fileName: file.name || 'CSV取り込み', totalRows: candidateRowCount,
+                skipped: skippedInvalidRows, department: store.data?.currentDepartmentId, snapshot: this.getHistoryImportSnapshot() };
+            this.assessHistoryImportPlan(plan);
+            if (entries.some(entry => !entry.record.machineId || entry.duplicates.length)) {
+                this.openHistoryImportReview(plan);
+                return;
             }
-            const duplicateMessage = duplicateCount > 0 ? `\n\n重複候補 ${duplicateCount}件はスキップします。` : '';
-            const parsedParts = records.flatMap(record => record.replacedParts || []);
-            const parsedPartMasterKeys = new Set(parsedParts.filter(p => p.name).map(p => `${p.name}__${p.model || ''}`));
-            const partMasterMessage = parsedPartMasterKeys.size ? `\n部品マスター候補 ${parsedPartMasterKeys.size}件も反映します。` : '';
-            if (confirm(`${records.length}件の履歴（うち新規機械登録: ${addedMachines}件）を取り込みます。よろしいですか？${partMasterMessage}${duplicateMessage}`)) {
-                await store.runAtomicSaveBatch(() => {
-                    store.activeData.machines.push(...machinesToAdd);
-                    for (const [machineId, nextLineNo] of pendingLineNos) {
-                        if (!usedMachineIds.has(machineId)) continue;
-                        const machine = store.activeData.machines.find(item => item.id === machineId);
-                        if (machine && !machine.lineNo) machine.lineNo = nextLineNo;
-                    }
-                    store.activeData.history.push(...records);
-                    const partMasterResult = this.upsertImportedPartMasters(parsedParts);
-                    this.appendHistoryImportLog({
-                        fileName: file.name || 'CSV取り込み',
-                        totalRows: candidateRowCount,
-                        added: records.length,
-                        duplicates: duplicateCount,
-                        skipped: skippedInvalidRows,
-                        addedMachines,
-                        addedPartMasters: partMasterResult.added,
-                        updatedPartMasters: partMasterResult.updated,
-                        firstTime: records.filter(r => r.isFirstTime !== false).length,
-                        recurrence: records.filter(r => r.isFirstTime === false).length
-                    });
-                });
-                this.closeModal();
-                this.showToast?.(`${records.length}件の履歴をインポートしました（重複${duplicateCount}件）`, 'success');
-                this.updateDataLists();
-                this.updateHistoryPeriodOptions();
-                requestAnimationFrame(() => {
-                    this.switchView('history');
-                    this.renderHistory();
-                    this.renderCalendar();
-                });
+            const usedIds = new Set(entries.map(e => e.record.machineId));
+            const newCount = newMachines.filter(m => usedIds.has(m.id)).length;
+            if (confirm(`${entries.length}件の履歴（うち新規機械登録: ${newCount}件）を取り込みます。よろしいですか？`)) {
+                await this.commitHistoryImportPlan(plan);
             }
         } catch (err) {
             console.error('History import failed', err);
             alert(`取り込みに失敗しました。変更は保存されていません。\n${err.message || err}`);
+        } finally {
+            this._historyImportReading = false;
         }
     }
 
@@ -962,7 +909,7 @@
                 const unit = p.unit || '個';
                 const model = p.model ? ` [${p.model}]` : '';
                 const price = parseFloat(p.price);
-                return `${p.name || ''}${model} x${count} ${unit}${!Number.isNaN(price) && price > 0 ? ` @${price}` : ''}`;
+                return `${p.name || ''}${model} x${count} ${unit}${Number.isFinite(price) && price >= 0 ? ` @${price}` : ''}`;
             }).join(' / ');
 
             return [

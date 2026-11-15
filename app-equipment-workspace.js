@@ -64,6 +64,7 @@
         const section = node('section', null, root);
         section.className = 'equipment-section' + (key === 'overdue' ? ' equipment-overdue' : '');
         const details = node('details', null, section); details.dataset.equipmentSection = key;
+        details.dataset.itemCount = String(count);
         const summary = node('summary', null, details);
         node('h3', `${title} ${count} 件`, summary);
         details.open = count > 0 && (typeof states[key] === 'boolean' ? states[key] : initiallyOpen);
@@ -87,7 +88,17 @@
         return [...groups.values()].sort((a, b) => a.dates[0].localeCompare(b.dates[0]));
     };
 
-    P.openEquipmentWorkspace = function (machineId, scrollTop = 0) {
+    P.captureEquipmentWorkspaceState = function (root) {
+        const overdue = root.querySelector('.equipment-overdue-rows');
+        return {
+            groupsShown: Number(overdue?.dataset.shown || 50),
+            overdueScrollTop: overdue?.scrollTop || 0,
+            sections: Object.fromEntries([...root.querySelectorAll('[data-equipment-section]')].map(d => [d.dataset.equipmentSection, d.open])),
+            groups: Object.fromEntries([...root.querySelectorAll('.equipment-overdue-group')].map(d => [d.dataset.taskId, { open: d.open, shown: Number(d.dataset.shown || 50) }]))
+        };
+    };
+
+    P.openEquipmentWorkspace = function (machineId, scrollTop = 0, workspaceState = null) {
         const data = this.getEquipmentWorkspace(machineId);
         if (!data) return this.showToast('対象の機械が見つかりません。', 'warning');
         this.openModal('equipment-workspace', '機械カルテ', () => {
@@ -107,6 +118,9 @@
             const appendOverdue = () => {
                 for (const { task, dates } of overdueGroups.slice(shown, shown + 50)) {
                     const group = node('details', null, overdueRows); group.className = 'equipment-overdue-group';
+                    group.dataset.taskId = String(task.id);
+                    const restored = workspaceState?.groups?.[String(task.id)];
+                    group.open = !!restored?.open;
                     const summary = node('summary', null, group);
                     node('strong', task.content || 'メンテナンス', summary);
                     node('span', `未完了 ${dates.length} 回・最も古い期限 ${dates[0]}`, summary);
@@ -121,15 +135,19 @@
                             button(row, '完了を記録', () => this.openEquipmentChild(() => this.openCompletionForm(task.id, date)));
                         }
                         dateCount = Math.min(dateCount + 50, dates.length);
+                        group.dataset.shown = String(dateCount);
                         moreDates.hidden = dateCount >= dates.length;
                         moreDates.textContent = `続きを表示（残り ${dates.length - dateCount} 回）`;
                     };
                     appendDates();
+                    while (dateCount < Math.min(restored?.shown || 50, dates.length)) appendDates();
                 }
                 shown = Math.min(shown + 50, overdueGroups.length); more.hidden = shown >= overdueGroups.length;
+                overdueRows.dataset.shown = String(shown);
                 more.textContent = `続きを表示（残り ${overdueGroups.length - shown} 項目）`;
             };
             const todayForDisplay = this.getLocalDateString(); appendOverdue();
+            while (shown < Math.min(workspaceState?.groupsShown || 50, overdueGroups.length)) appendOverdue();
             const next = this.createEquipmentSection(root, 'upcoming', '次回のメンテ予定', data.upcoming.length, true);
             for (const { task, date } of data.upcoming) {
                 const row = node('div', null, next); row.className = 'workspace-row';
@@ -143,19 +161,27 @@
             if (data.guides.length > 10) button(guides, 'すべての関連手順書', () => this.openEquipmentChild(() => this.openEvidenceRecords(data.guides, '関連手順書', { guides: true })));
             const parts = this.createEquipmentSection(root, 'parts', '使用部品（種類・対応履歴の累計）', data.parts.length);
             for (const part of data.parts) node('p', `${part.name} ${part.model}　${part.count} ${part.unit}`, parts);
+            for (const section of root.querySelectorAll('[data-equipment-section]')) {
+                const restored = workspaceState?.sections?.[section.dataset.equipmentSection];
+                if (typeof restored === 'boolean' && Number(section.dataset.itemCount) > 0) section.open = restored;
+            }
         });
         document.getElementById('modal-save-btn').hidden = true;
         document.querySelector('#modal-container .modal-footer [onclick="app.requestCloseModal()"]').textContent = '閉じる';
         requestAnimationFrame(() => {
             const root = document.getElementById('modal-content');
-            if (root?.dataset.equipmentId === machineId) root.scrollTop = scrollTop;
+            if (root?.dataset.equipmentId === machineId) {
+                const overdue = root.querySelector('.equipment-overdue-rows');
+                if (overdue) overdue.scrollTop = workspaceState?.overdueScrollTop || 0;
+                root.scrollTop = scrollTop;
+            }
         });
     };
 
     P.openEquipmentChild = function (action) {
         const root = document.getElementById('modal-content');
         const context = root?.dataset.equipmentId
-            ? { machineId: root.dataset.equipmentId, department: store.data.currentDepartmentId, scrollTop: root.scrollTop }
+            ? { machineId: root.dataset.equipmentId, department: store.data.currentDepartmentId, scrollTop: root.scrollTop, workspaceState: this.captureEquipmentWorkspaceState(root) }
             : this._equipmentReturnContext;
         this._pendingEquipmentReturn = context;
         return action();
@@ -176,7 +202,7 @@
         back.classList.add('equipment-return-button'); footer.prepend(back);
     };
     P.restoreEquipmentWorkspace = function (context) {
-        if (context?.department === store.data.currentDepartmentId) this.openEquipmentWorkspace(context.machineId, context.scrollTop);
+        if (context?.department === store.data.currentDepartmentId) this.openEquipmentWorkspace(context.machineId, context.scrollTop, context.workspaceState);
     };
     P.onEquipmentModalClosed = function (type, saved) {
         const context = this._equipmentReturnContext;

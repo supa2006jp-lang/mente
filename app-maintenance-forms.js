@@ -382,7 +382,7 @@
                 master,
                 stock: hasStock ? stock : null,
                 minStock: Number.isNaN(minStock) ? 0 : minStock,
-                price: parseFloat(master?.price) || 0,
+                price: this.getHistoryPartPrice({ name: part.name, model: part.model }).price,
                 supplier: master?.supplier || '',
                 shelf: master?.shelf || '',
                 stockStatus: lowStock ? 'low-stock' : (master ? 'has-master' : 'no-master')
@@ -424,7 +424,7 @@
         }
         const unit = this.escapeHtml(part.master.unit || part.unit || '個');
         const stockText = part.stock === null ? '未入力' : `${this.escapeHtml(part.stock)}${unit}`;
-        const priceText = part.price > 0 ? ` / 単価 ${this.escapeHtml(part.price)}円` : '';
+        const priceText = part.price != null ? ` / 単価 ${this.escapeHtml(part.price)}円` : ' / 単価未入力';
         const supplierText = part.supplier ? ` / ${this.escapeHtml(part.supplier)}` : '';
         const alertText = part.minStock > 0 ? ` / 発注目安 ${this.escapeHtml(part.minStock)}${unit}` : '';
         return `
@@ -2671,7 +2671,7 @@
                     if (isMatch) {
                         const fy = this.getFiscalYear(h.date);
                         if (fy) {
-                            const cost = (parseFloat(p.price) || (master?.price || 0)) * (parseFloat(p.count) || 0);
+                            const cost = this.calculateHistoryPartCost({ replacedParts: [p] });
                             yearlyCosts[fy] = (yearlyCosts[fy] || 0) + cost;
                         }
                         const m = store.getMachines(true).find(machine => machine.id === h.machineId);
@@ -3005,7 +3005,7 @@
         const model = p?.model || '';
         const count = p?.count || '';
         const unit = p?.unit || '個';
-        const price = p?.price || '';
+        const price = p?.price ?? '';
         const e = (value) => this.escapeHtml(value ?? '');
 
         const row = document.createElement('div');
@@ -3013,14 +3013,14 @@
         row.style = 'display:grid; grid-template-columns: 2fr 2fr 1fr 1.5fr ' + (hidePrice ? '' : '1fr ') + 'auto; gap:8px; margin-bottom:8px;';
         
         // Auto-price lookup logic
+        let updatePriceLabel = () => {};
         const updatePrice = () => {
             const n = row.querySelector('.p-name').value;
             const m = row.querySelector('.p-model').value;
             if (n) {
-                const master = store.getPartMaster(n, m);
-                if (master && (master.price || master.price === 0)) {
-                    row.querySelector('.p-price').value = master.price;
-                }
+                const price = this.getHistoryPartPrice({ name: n, model: m }).price;
+                row.querySelector('.p-price').value = price ?? '';
+                updatePriceLabel();
             }
         };
 
@@ -3044,12 +3044,23 @@
             </select>
             ${hidePrice 
                 ? `<input type="hidden" class="p-price" value="${e(price)}">` 
-                : `<input type="number" class="p-price" placeholder="単価" value="${e(price)}">`}
+                : `<input type="number" class="p-price" placeholder="単価（空欄は補完）" min="0" step="any" value="${e(price)}">`}
             <button type="button" class="close-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
         `;
 
         const nameIn = row.querySelector('.p-name');
         const modelIn = row.querySelector('.p-model');
+        if (hidePrice) {
+            const details = document.createElement('details'); details.className = 'part-price-editor';
+            const summary = document.createElement('summary');
+            const label = document.createElement('label'); label.textContent = '今回の単価（円）';
+            const input = row.querySelector('.p-price'); input.type = 'number'; input.min = '0'; input.step = 'any'; input.placeholder = '空欄はマスターで補完';
+            label.append(input);
+            const note = document.createElement('small'); note.textContent = '無償交換は0を入力。空欄だけマスター単価で補完します。';
+            details.append(summary, label, note); row.append(details);
+            updatePriceLabel = () => { summary.textContent = input.value === '' ? '今回の単価：未入力（マスターで補完）' : `今回の単価：${Number(input.value).toLocaleString()}円`; };
+            input.addEventListener('input', updatePriceLabel); details.addEventListener('toggle', updatePriceLabel); updatePriceLabel();
+        }
         nameIn.addEventListener('input', updatePrice);
         modelIn.addEventListener('input', updatePrice);
         this.ensurePartMasterSearchDatalist();
@@ -3105,7 +3116,7 @@
                 name,
                 model,
                 unit: part.unit || existing?.unit || '個',
-                price: parseFloat(part.price) || existing?.price || 0,
+                price: part.price != null && String(part.price).trim() !== '' && Number.isFinite(Number(part.price)) && Number(part.price) >= 0 ? Number(part.price) : (existing?.price ?? null),
                 stock: part.stock ?? existing?.stock,
                 supplier: part.supplier || existing?.supplier || '',
                 shelf: part.shelf || existing?.shelf || '',
@@ -3556,7 +3567,7 @@
                         model: MaintenanceStore.toHalfWidthLower(modelInput ? modelInput.value : ''),
                         count: parseFloat(countInput ? countInput.value : 0) || 0, 
                         unit: unitInput ? unitInput.value : '個',
-                        price: parseFloat(priceInput ? priceInput.value : 0) || 0
+                        price: priceInput?.value.trim() ? Number(priceInput.value) : null
                     });
                 }
             });
@@ -3686,7 +3697,7 @@
                         model: MaintenanceStore.toHalfWidthLower(modelInput ? modelInput.value : ''),
                         count: parseFloat(countInput ? countInput.value : 0) || 0, 
                         unit: unitInput ? unitInput.value : '個',
-                        price: parseFloat(priceInput ? priceInput.value : 0) || 0
+                        price: priceInput?.value.trim() ? Number(priceInput.value) : null
                     });
                 }
             });
@@ -3786,7 +3797,7 @@
                         model: MaintenanceStore.toHalfWidthLower(modelInput ? modelInput.value : ''),
                         count: parseFloat(countInput ? countInput.value : 0) || 0, 
                         unit: unitInput ? unitInput.value : '個',
-                        price: parseFloat(priceInput ? priceInput.value : 0) || 0
+                        price: priceInput?.value.trim() ? Number(priceInput.value) : null
                     });
                 }
             });

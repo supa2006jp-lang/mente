@@ -33,6 +33,18 @@ test('labor costs deduplicate trimmed workers, preserve decimal minutes, and ret
     assert.equal(JSON.stringify(record), snapshot);
 });
 
+test('part costs distinguish free from missing, use the master only for missing prices, and preserve source records', () => {
+    const {app,store}=runtime();store.getPartMaster=()=>({price:200,priceRaw:'200'});
+    const record={replacedParts:[{name:'シール',price:0,count:2},{name:'シール',price:null,count:1},{name:'シール',price:100,count:1}]};
+    const snapshot=JSON.stringify(record);
+    assert.equal(app.calculateHistoryPartCost(record),300);assert.equal(app.getHistoryMissingPartPrices(record).length,0);
+    assert.equal(app.getHistoryPartPrice({price:'0'}).source,'record');assert.equal(app.getHistoryPartPrice({price:''}).source,'master');
+    store.getPartMaster=()=>({price:0,priceRaw:''});assert.equal(app.getHistoryPartPrice({price:null}).price,null);
+    assert.equal(app.getHistoryMissingPartPrices({replacedParts:[{name:'シール',price:0,count:1}]}).length,0);
+    store.getPartMaster=()=>({price:0,priceRaw:'0'});assert.equal(app.getHistoryPartPrice({price:null}).price,0);
+    assert.equal(JSON.stringify(record),snapshot);
+});
+
 test('comparison date prompts and persisted ranges stay independent of each other and the current view', () => {
     const { app, values, prompts, store } = runtime();
     app.setPeriodDateState({ start:'2026-09-01',end:'2026-09-30' }, 'history');

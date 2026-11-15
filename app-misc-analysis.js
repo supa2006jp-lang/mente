@@ -344,19 +344,20 @@
             
             // Parts Cost
             if (h.replacedParts) {
-                h.replacedParts.forEach(p => {
-                    const master = store.getPartMaster(p.name, p.model);
-                    const price = parseFloat(p.price) || master?.price || 0;
-                    const count = parseFloat(p.count) || 0;
+                this.getHistoryPartCostItems(h).forEach(p => {
+                    const price = p.price;
+                    const count = p.count;
 
                     if (count > 0) {
                         const pName = p.name || '不明な部品';
                         const pModel = p.model || '-';
-                        const pKey = `${pName}::${pModel}`;
+                        const unit = p.unit || '個';
+                        const pKey = JSON.stringify([pName, pModel, unit, price]);
                         if (!stats.partsUsed[pKey]) {
-                            stats.partsUsed[pKey] = { name: pName, model: pModel, count: 0, price: price };
+                            stats.partsUsed[pKey] = { name: pName, model: pModel, unit, count: 0, price, cost: 0 };
                         }
                         stats.partsUsed[pKey].count += count;
+                        stats.partsUsed[pKey].cost += p.cost;
                     }
                 });
             }
@@ -428,7 +429,7 @@
                             // Tooltip Breakdown Text
                             const laborLabel = `【作業費】 ${(s.laborMinutes/60).toFixed(2)}人時 × ¥${laborRate.toLocaleString()} = ¥${Math.round(s.laborCost).toLocaleString()}`;
                             const pEntries = Object.values(s.partsUsed || {});
-                            const partsDetails = pEntries.map(p => `・${p.name} [${p.model}]: ¥${Math.round(p.price).toLocaleString()} × ${p.count} = ¥${Math.round(p.price * p.count).toLocaleString()}`).join('\n');
+                            const partsDetails = pEntries.map(p => `・${p.name} [${p.model}]: ${p.price === null ? '単価未設定' : '¥' + p.price.toLocaleString()} × ${p.count}${p.unit} = ¥${Math.round(p.cost).toLocaleString()}`).join('\n');
                             const fullBreakdown = `【内訳】\n${partsDetails ? partsDetails + '\n' : ''}${laborLabel}`.replace(/"/g, '&quot;');
 
                             return `
@@ -545,7 +546,7 @@
                                         if (datasetIndex === 0) {
                                             // Parts Cost segment
                                             const pEntries = Object.values(s.partsUsed || {});
-                                            const partsDetails = pEntries.map(p => `・${p.name}: ¥${Math.round(p.price).toLocaleString()} × ${p.count}`).join('\n');
+                                            const partsDetails = pEntries.map(p => `・${p.name} [${p.model}]: ${p.price === null ? '単価未設定' : '¥' + p.price.toLocaleString()} × ${p.count}${p.unit} = ¥${Math.round(p.cost).toLocaleString()}`).join('\n');
                                             return `\n【内訳】\n${partsDetails || '部品交換なし'}`;
                                         } else {
                                             // Labor Cost segment
