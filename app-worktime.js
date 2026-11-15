@@ -524,10 +524,8 @@
     }
 
     getWorkTimeHistoryTypeKey(history) {
-        if (history?.taskId) return 'periodic';
-        if (history?.isDokatei) return 'dokatei';
-        if (history?.isNonProductionStop) return 'nonProductionStop';
-        return 'sudden';
+        const key = this.getHistoryTypeKey(history);
+        return key === 'singleMaintenance' ? 'periodic' : key;
     }
 
     getWorkTimeHistoryTypeLabel(typeKey) {
@@ -881,7 +879,7 @@
 
         history.forEach(h => {
             const time = this.getWorkTimeRecordFacts(h).minutes;
-            const isPeriodic = !!h.taskId;
+            const isPeriodic = this.isPlannedHistory(h);
             const m = workTimeMachinesById.get(h.machineId);
             
             // Get group key
@@ -1101,7 +1099,7 @@
         }
         
         if (this.excludePeriodicInTrend) {
-            history = history.filter(h => !h.taskId);
+            history = history.filter(h => !this.isPlannedHistory(h));
         }
 
         const isDrilledDownTrend = !!this.workTimeDrillDownCategory;
@@ -1132,7 +1130,7 @@
                 const sel = (this.workTimeDrillDownCategory || '').trim();
                 
                 history.forEach(h => {
-                    const isPt = !!h.taskId;
+                    const isPt = this.isPlannedHistory(h);
                     const isDt = !!h.isDokatei;
                     const isNp = !isPt && !isDt && !!h.isNonProductionStop;
                     const isSt = !isPt && !isDt && !isNp;
@@ -1177,7 +1175,7 @@
                     const time = this.getWorkTimeContribution(h);
                     const target = months.find(m => m.year === d.getFullYear() && m.month === d.getMonth());
                     if (target) {
-                        if (h.taskId) target.pt += time;
+                        if (this.isPlannedHistory(h)) target.pt += time;
                         else if (h.isDokatei) target.dt += time;
                         else if (h.isNonProductionStop) target.np += time;
                         else target.st += time;
@@ -1397,10 +1395,10 @@
             }
         }
 
-        const ptData = history.filter(h => !!h.taskId);
-        const stData = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
-        const npData = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop);
-        const dtData = history.filter(h => !h.taskId && !!h.isDokatei);
+        const ptData = history.filter(h => this.isPlannedHistory(h));
+        const stData = history.filter(h => this.getHistoryTypeKey(h) === 'sudden');
+        const npData = history.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop');
+        const dtData = history.filter(h => this.getHistoryTypeKey(h) === 'dokatei');
 
         const ptTime = ptData.reduce((sum, h) => sum + (this.getWorkTimeContribution(h)), 0);
         const stTime = stData.reduce((sum, h) => sum + (this.getWorkTimeContribution(h)), 0);

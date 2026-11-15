@@ -259,7 +259,7 @@
                 }
 
                 const badge = document.createElement('div');
-                const isSudden = !h.taskId;
+                const isSudden = !this.isPlannedHistory(h);
                 badge.className = `event-badge ${isSudden ? 'sudden' : 'success'}`;
                 
                 const machine = store.getMachines(true).find(m => m.id === h.machineId);
@@ -286,7 +286,7 @@
                 badge.innerHTML = `<span style="text-overflow:ellipsis; overflow:hidden; display:flex; align-items:center;">${combinedStamp}${modelStr}${displayText}${workerText}</span>`;
                 
                 // Done Stamp (Always Periodic if h.taskId exists)
-                if (h.taskId) {
+                if (this.isPlannedHistory(h)) {
                     const doneStamp = document.createElement('div');
                     doneStamp.className = 'stamp-done';
                     doneStamp.textContent = '完';

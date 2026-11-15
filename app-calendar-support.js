@@ -282,11 +282,11 @@
         for (let d = 1; d <= lastDate; d++) {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
             const history = (indexedHistory ? (indexedHistory.get(dateStr) || []) : (store.activeData.history || []).filter(h => h.date === dateStr)).filter(h => !h.isManualGuide);
-            scheduledDoneCount += history.filter(h => !!h.taskId).length;
+            scheduledDoneCount += history.filter(h => this.isPlannedHistory(h)).length;
             suddenCount += history.filter(h => this.isCalendarSuddenResponseHistory(h)).length;
             const scheduled = this.getScheduledTasksForDate(dateStr);
             totalRemaining += scheduled.length;
-            const dokas = history.filter(h => !h.taskId && h.isDokatei);
+            const dokas = history.filter(h => this.getHistoryTypeKey(h) === 'dokatei');
             dokateiCount += dokas.length;
             dokateiTime += dokas.reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
         }

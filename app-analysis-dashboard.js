@@ -760,22 +760,22 @@
         let history = (store.activeData.history || []).filter(h => !h.isManualGuide);
         history = this.filterHistoryByPeriod(history, period, 'dashboard');
 
-        const periodicTime = history.filter(h => !!h.taskId).reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
-        const dokateiTime = history.filter(h => !h.taskId && h.isDokatei).reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
-        const suddenTime = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop).reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
-        const nonProductionStopTime = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop).reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
+        const periodicTime = history.filter(h => this.isPlannedHistory(h)).reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
+        const dokateiTime = history.filter(h => this.getHistoryTypeKey(h) === 'dokatei').reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
+        const suddenTime = history.filter(h => this.getHistoryTypeKey(h) === 'sudden').reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
+        const nonProductionStopTime = history.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop').reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
         
         const totalTime = periodicTime + suddenTime + nonProductionStopTime + dokateiTime;
-        const suddenCount = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop).length;
-        const nonProductionStopCount = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop).length;
-        const dokateiCount = history.filter(h => !h.taskId && h.isDokatei).length;
-        const suddens = history.filter(h => !h.taskId && !h.isNonProductionStop && h.date);
-        const dokateis = history.filter(h => !h.taskId && h.isDokatei).sort((a, b) => (this.getRecordWorkMinutes(b)) - (this.getRecordWorkMinutes(a)));
+        const suddenCount = history.filter(h => this.getHistoryTypeKey(h) === 'sudden').length;
+        const nonProductionStopCount = history.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop').length;
+        const dokateiCount = history.filter(h => this.getHistoryTypeKey(h) === 'dokatei').length;
+        const suddens = history.filter(h => ['sudden', 'dokatei'].includes(this.getHistoryTypeKey(h)) && h.date);
+        const dokateis = history.filter(h => this.getHistoryTypeKey(h) === 'dokatei').sort((a, b) => (this.getRecordWorkMinutes(b)) - (this.getRecordWorkMinutes(a)));
         
         // Past 3 months fixed filter for Worst History
         const date3M = new Date(); date3M.setMonth(date3M.getMonth() - 3);
         const date3MStr = this.getLocalDateString(date3M);
-        const dokateis3M = (store.activeData.history || []).filter(h => !h.isManualGuide && !h.taskId && h.isDokatei && h.date >= date3MStr).sort((a, b) => (this.getRecordWorkMinutes(b)) - (this.getRecordWorkMinutes(a)));
+        const dokateis3M = (store.activeData.history || []).filter(h => !h.isManualGuide && this.getHistoryTypeKey(h) === 'dokatei' && h.date >= date3MStr).sort((a, b) => (this.getRecordWorkMinutes(b)) - (this.getRecordWorkMinutes(a)));
 
         const totalTroubleTime = suddenTime + nonProductionStopTime + dokateiTime;
         const totalTroubleCount = suddenCount + nonProductionStopCount + dokateiCount;
@@ -929,7 +929,7 @@
                     <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--primary); cursor:pointer;" onclick="app.setPeriodDateState(app.getPeriodDateState('dashboard'),'history'); app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='periodic'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">定期保全 合計</div>
                         <div style="font-size:1.6rem; font-weight:900; color:var(--primary); line-height:1.2;">${periodicTime}<span style="font-size:0.8rem">分</span></div>
-                        <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${history.filter(h=>!!h.taskId).length}件の実施履歴</div>
+                        <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${history.filter(h=>this.isPlannedHistory(h)).length}件の実施履歴</div>
                     </div>
                     <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--success); cursor:pointer;" onclick="app.setPeriodDateState(app.getPeriodDateState('dashboard'),'history'); app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='sudden'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">突発故障（生産停止）</div>

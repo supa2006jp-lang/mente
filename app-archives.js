@@ -100,7 +100,7 @@
         const histories = (active.history || []).filter(h => h.isFirstTime !== false && !h.hideFromSkillMap);
         const validKeys = new Set();
         histories.forEach(h => {
-            const content = h.taskId
+            const content = this.isPlannedHistory(h)
                 ? (tasks.find(t => String(t.id) === String(h.taskId))?.content || h.taskContent || '定期メンテナンス')
                 : (h.errorContent || h.notes || '突発対応');
             validKeys.add(`${h.machineId}__${content}`);
@@ -155,7 +155,7 @@
 
         const skillKeys = new Set();
         histories.filter(h => h.isFirstTime !== false && !h.hideFromSkillMap).forEach(h => {
-            const content = h.taskId
+            const content = this.isPlannedHistory(h)
                 ? (tasks.find(t => String(t.id) === String(h.taskId))?.content || h.taskContent || '定期メンテナンス')
                 : (h.errorContent || h.notes || '突発対応');
             skillKeys.add(`${h.machineId}__${content}`);

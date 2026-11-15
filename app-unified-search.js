@@ -274,7 +274,7 @@
             const machine = machineById.get(String(h.machineId)) || null;
             const task = h.taskId ? taskById.get(String(h.taskId)) : null;
             const workers = Array.isArray(h.workers) ? h.workers.join(', ') : (h.workers || '');
-            const typeLabel = h.isDokatei ? 'ドカ停' : (h.taskId ? '定期履歴' : (h.isNonProductionStop ? '非生産停止' : '突発対応'));
+            const typeLabel = h.isDokatei ? 'ドカ停' : (this.isPlannedHistory(h) ? '定期履歴' : (h.isNonProductionStop ? '非生産停止' : '突発対応'));
             const title = this.getHistoryDisplayText(h);
             const body = [
                 h.errorContent,
@@ -297,7 +297,7 @@
                 text: body || title,
                 snippet: this.getUnifiedSearchSnippet(`${title}\n${body}`, query),
                 sub: `${machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし'}${workers ? ` / ${workers}` : ''}`,
-                historyKind: h.isDokatei ? 'dokatei' : (h.taskId ? 'periodic' : (h.isNonProductionStop ? 'nonProductionStop' : 'sudden')),
+                historyKind: h.isDokatei ? 'dokatei' : (this.isPlannedHistory(h) ? 'periodic' : (h.isNonProductionStop ? 'nonProductionStop' : 'sudden')),
                 hasGuide: hasRelatedGuide(h),
                 matchLabels: this.getUnifiedSearchMatchLabels({
                     '日付': h.date,
@@ -465,7 +465,7 @@
         return (store.activeData.history || [])
             .filter(h => !h.isManualGuide)
             .filter(h => this.matchesNotebookSearchPeriod(h.date || '', period))
-            .filter(h => !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden)
+            .filter(h => !this.isPlannedHistory(h))
             .filter(h => !hasGuideForHistory(h))
             .map(h => {
                 const machine = machineById.get(String(h.machineId)) || null;

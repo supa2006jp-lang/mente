@@ -22,6 +22,8 @@ function makeApp(history, tasks = []) {
         }
     };
     const context = vm.createContext({ MaintenanceApp, store, document, console });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'app-history.js'), 'utf8'), context, { filename: 'app-history.js' });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'app-history.js'), 'utf8'), context, { filename: 'app-history.js' });
     vm.runInContext(source, context, { filename: 'app-calendar.js' });
     vm.runInContext(supportSource, context, { filename: 'app-calendar-support.js' });
     return { app: new MaintenanceApp(), store, metrics, document };

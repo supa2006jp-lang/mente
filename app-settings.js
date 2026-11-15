@@ -1097,7 +1097,7 @@
             id: h.id || '',
             time: h.date || '',
             title: this.getHistoryDisplayText(h),
-            type: h.taskId ? '定期メンテ' : (h.isDokatei ? 'ドカ停' : '突発')
+            type: this.isPlannedHistory(h) ? '定期メンテ' : (h.isDokatei ? 'ドカ停' : '突発')
         }));
         const logs = [...systemLogs, ...todoLogs, ...historyLogs].sort((a, b) => String(b.time || '').localeCompare(String(a.time || ''))).slice(0, 140);
         this.openKanbanPanel('操作ログ', `
@@ -1175,7 +1175,7 @@
 
     getDataFixCenterSummary() {
         const histories = (store.activeData.history || []).filter(h => !h.isManualGuide);
-        const trouble = histories.filter(h => !h.taskId || h.isSudden || h.isDokatei || h.isNonProductionStop);
+        const trouble = histories.filter(h => !this.isPlannedHistory(h));
         const causeCount = trouble.filter(h => !String(h.cause || '').trim()).length;
         const notesCount = trouble.filter(h => !String(h.notes || '').trim()).length;
         const priceCount = histories.flatMap(h => this.getHistoryMissingPartPrices?.(h) || []).length;
@@ -1191,7 +1191,7 @@
 
     openDataFixCenterPanel() {
         const histories = (store.activeData.history || []).filter(h => !h.isManualGuide);
-        const trouble = histories.filter(h => !h.taskId || h.isSudden || h.isDokatei || h.isNonProductionStop);
+        const trouble = histories.filter(h => !this.isPlannedHistory(h));
         const causeItems = trouble.filter(h => !String(h.cause || '').trim()).sort((a, b) => this.compareFixCenterHistoryPriority(a, b)).slice(0, 20);
         const notesItems = trouble.filter(h => !String(h.notes || '').trim()).sort((a, b) => this.compareFixCenterHistoryPriority(a, b)).slice(0, 20);
         const partUseCount = this.getFixCenterPartUseCountMap(histories);
@@ -1256,7 +1256,7 @@
         let score = 0;
         if (history?.isDokatei) score += 100;
         if (history?.isNonProductionStop) score += 55;
-        if (history?.isSudden || !history?.taskId) score += 30;
+        if (!this.isPlannedHistory(history)) score += 30;
         if (history?.isFirstTime === false) score += 25;
         score += Math.min(50, workTime);
         return score;
@@ -1278,7 +1278,7 @@
         const reasons = [];
         if (history?.isDokatei) reasons.push('ドカ停');
         else if (history?.isNonProductionStop) reasons.push('非生産停止');
-        else if (history?.isSudden || !history?.taskId) reasons.push('突発');
+        else if (!this.isPlannedHistory(history)) reasons.push('突発');
         if (history?.isFirstTime === false) reasons.push('再発');
         const workTime = this.getRecordWorkMinutes(history);
         if (workTime > 0) reasons.push(`${workTime}分`);

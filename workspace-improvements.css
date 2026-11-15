@@ -135,3 +135,6 @@
 .history-import-bulk-target, .part-use-master-price { font-size: .75rem; padding: 5px 9px; margin: 6px 0; max-width: 100%; white-space: normal; }
 .history-import-bulk-status:empty { display: none; }
 .part-price-editor small { display: block; }
+.history-time-unknown { color: #a16207; font-size: .75rem; }
+.history-import-log-list { max-height: 340px; overflow: auto; }
+.history-import-undo .history-import-review-list { overflow-wrap: anywhere; }

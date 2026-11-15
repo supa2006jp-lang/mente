@@ -318,6 +318,83 @@ test('real Chrome regression: persistence, restore, offline photos, and save fai
     });
 });
 
+test('data refinements: measurement, validation, periodic imports, unknown time, Excel and undo', {timeout:180000}, async t=>{
+    const h=await launchHarness();t.after(()=>h.close());const {page}=h;
+    await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadNotebook();await maintenanceLazyFeatures.loadPhotos();
+        await store.runAtomicSaveBatch(()=>{
+            store.activeData.machineCategories=['循環'];store.activeData.machines=[{id:'d-machine',name:'データポンプ',model:'D1',lineNo:'1',category:'循環'}];
+            store.activeData.tasks=[];store.activeData.history=[];store.activeData.historyImportLogs=[];store.activeData.partStockMovements=[];
+            store.activeData.partsMaster=[{name:'オイル',model:'',price:1000,priceRaw:'1000',unit:'kg',stock:5,minStock:0},{name:'既存シール',model:'',price:null,priceRaw:'',unit:'個',stock:10,minStock:0}];
+        });app.updateDataLists();
+        window.dataImport=async(text,name='data.csv')=>{app.openHistoryImportModal();const d=new DataTransfer();d.items.add(new File([text],name));document.getElementById('hist-csv-upload').files=d.files;const confirm=window.confirm;try{window.confirm=()=>true;await app.processHistoryImportCSV();}finally{window.confirm=confirm;}};
+    })()`);
+    await t.test('weight import and edit preserve cost and convert stock in the master unit',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            await dataImport('日付,機械名,作業内容,対応種別,ライン,部品名,部品数量,部品単位,部品単価\\n2026-11-01,データポンプ,オイル交換,突発,1,オイル,2,kg,1000');
+            const record=store.activeData.history[0],before={part:record.replacedParts[0],cost:app.calculateHistoryPartCost(record),stock:store.getPartMaster('オイル','').stock};window.weightImportLog=store.activeData.historyImportLogs[0].id;
+            app.openHistoryEditForm(record.id);const inputs={quantity:document.querySelector('.p-count').value,price:document.querySelector('.p-price').value,unit:document.querySelector('.p-unit').value};document.getElementById('e-notes').value='内容だけ更新';await app.saveModalData('edit-history');
+            const unchanged=store.getPartMaster('オイル','').stock;app.openHistoryEditForm(record.id);document.querySelector('.p-count').value='3000';await app.saveModalData('edit-history');
+            return {before,inputs,unchanged,after:store.getPartMaster('オイル','').stock,movement:store.activeData.partStockMovements.at(-1),cost:app.calculateHistoryPartCost(store.activeData.history.find(r=>r.id===record.id))};
+        })()`);
+        assert.equal(result.before.part.count,2000);assert.equal(result.before.part.unit,'g');assert.equal(result.before.part.price,1);assert.equal(result.before.cost,2000);assert.deepEqual(result.inputs,{quantity:'2000',price:'1',unit:'g'});assert.equal(result.unchanged,5);assert.equal(result.after,4);assert.equal(result.movement.delta,-1);assert.equal(result.movement.unit,'kg');assert.equal(result.cost,3000);
+    });
+    await t.test('invalid part numbers join row errors and negative form quantities cannot save',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            const before=store.activeData.history.length;await dataImport('日付,機械名,作業内容,作業時間,部品名,部品数量,部品単位,部品単価\\n2026-02-30,データポンプ,不正確認,bad,シール,12abc,個,-5');
+            const dialog=document.querySelector('.history-import-errors');const errors=dialog.textContent;dialog.close();app.closeModal();
+            app.openHistoryEditForm(store.activeData.history[0].id);document.querySelector('.p-count').value='-2';const valid=document.getElementById('edit-history-form').checkValidity();await app.saveModalData('edit-history');
+            const quantity=store.activeData.history[0].replacedParts[0].count;app.closeModal();return {errors,valid,quantity,unchanged:store.activeData.history.length===before};
+        })()`);
+        assert.match(result.errors,/日付/);assert.match(result.errors,/作業時間/);assert.match(result.errors,/部品数量/);assert.match(result.errors,/部品単価/);assert.equal(result.valid,false);assert.equal(result.quantity,3000);assert.equal(result.unchanged,true);
+    });
+    await t.test('periodic classification and unknown duration agree in history, worktime and CSV round trips',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            await dataImport('日付,機械名,作業内容,対応種別,ライン,作業時間,作業者\\n2026-11-02,データポンプ,未確認点検,定期,1,,田中\\n2026-11-03,データポンプ,ゼロ点検,定期,1,0,田中\\n2026-11-04,データポンプ,定期点検,定期,1,12.5,田中\\n2026-11-05,データポンプ,突発点検,突発,1,10,田中');
+            const records=store.activeData.history.filter(r=>r.taskContent?.includes('点検')||r.errorContent==='突発点検');
+            app.switchView('worktime');document.getElementById('worktime-filter-period').value='all';app.workTimeGroupBy='worker';app.renderWorkTime('');
+            const row=app._workTimeEvidenceContext.results.find(r=>r.name==='田中');const evidence=app.getWorkTimeEvidence(app._workTimeEvidenceContext.history,app._workTimeEvidenceContext.results,'worker',store.getMachines(true));
+            app.switchView('history');app.clearCurrentViewSearchAndFilters();document.getElementById('hist-filter-period').value='all';document.getElementById('hist-filter-type').value='periodic';app.renderHistory();
+            const table=document.getElementById('view-history').textContent;let csv;const download=app.downloadCSV;try{app.downloadCSV=(name,text)=>csv=text;app.exportHistoryAsCSV();}finally{app.downloadCSV=download;}
+            let plan;const review=app.openHistoryImportReview;try{app.openHistoryImportReview=p=>plan=p;await dataImport(csv);}finally{app.openHistoryImportReview=review;app.closeModal();}
+            return {types:records.map(r=>app.getHistoryTypeInfo(r).key),times:records.map(r=>r.workTime),row:{pt:row.pt,pc:row.pc,st:row.st,sc:row.sc},unknown:evidence.unknownTimes.length,table,csv,roundtrip:plan.entries.map(e=>({type:app.getHistoryTypeKey(e.record),time:e.record.workTime})),tasks:store.activeData.tasks.length};
+        })()`);
+        assert.deepEqual(result.types,['periodic','periodic','periodic','sudden']);assert.deepEqual(result.times,[null,0,12.5,10]);assert.deepEqual(result.row,{pt:12.5,pc:3,st:10,sc:1});assert.ok(result.unknown>=1);assert.match(result.table,/未確認点検/);assert.match(result.table,/未入力・要確認/);assert.deepEqual(result.roundtrip.map(r=>r.type),['periodic','periodic','periodic']);assert.deepEqual(result.roundtrip.map(r=>r.time).sort((a,b)=>(a??-1)-(b??-1)),[null,0,12.5]);assert.equal(result.tasks,0);
+    });
+    await t.test('real Excel bytes convert the selected date column including the 1904 date system',async()=>{
+        // Minimal uncompressed ZIP: exercise the actual workbook parser without a runtime spreadsheet dependency.
+        function workbook(files){let offset=0;const local=[],central=[];for(const [name,text] of Object.entries(files)){const n=Buffer.from(name),data=Buffer.from(text);let crc=0xffffffff;for(const byte of data){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}crc=(crc^0xffffffff)>>>0;const a=Buffer.alloc(30);a.writeUInt32LE(0x04034b50);a.writeUInt16LE(20,4);a.writeUInt32LE(crc,14);a.writeUInt32LE(data.length,18);a.writeUInt32LE(data.length,22);a.writeUInt16LE(n.length,26);local.push(a,n,data);const c=Buffer.alloc(46);c.writeUInt32LE(0x02014b50);c.writeUInt16LE(20,4);c.writeUInt16LE(20,6);c.writeUInt32LE(crc,16);c.writeUInt32LE(data.length,20);c.writeUInt32LE(data.length,24);c.writeUInt16LE(n.length,28);c.writeUInt32LE(offset,42);central.push(c,n);offset+=a.length+n.length+data.length;}const end=Buffer.alloc(22),directory=Buffer.concat(central);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(central.length/2,8);end.writeUInt16LE(central.length/2,10);end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);return Buffer.concat([...local,directory,end]).toString('base64');}
+        const sheet='<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">'+['作業日','実施日','設備名','作業内容','ライン'].map((s,i)=>`<c r="${String.fromCharCode(65+i)}1" t="inlineStr"><is><t>${s}</t></is></c>`).join('')+'</row><row r="7"><c r="A7"><v>44865</v></c><c r="B7"><v>44866</v></c><c r="C7" t="inlineStr"><is><t>データポンプ</t></is></c><c r="D7" t="inlineStr"><is><t>Excel確認</t></is></c><c r="E7"><v>1</v></c></row></sheetData></worksheet>';
+        const bytes=workbook({'xl/workbook.xml':'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><workbookPr date1904="1"/></workbook>','xl/worksheets/sheet1.xml':sheet});
+        const result=await page.evaluate(`(async()=>{
+            app.openHistoryImportModal();const d=new DataTransfer();d.items.add(new File([Uint8Array.from(atob('${bytes}'),c=>c.charCodeAt(0))],'dates.xlsx'));document.getElementById('hist-csv-upload').files=d.files;await app.refreshHistoryImportPreview();
+            let select=document.querySelector('[data-import-column=date]');select.value='0';select.dispatchEvent(new Event('change'));const first=document.getElementById('hist-csv-preview').textContent;
+            select=document.querySelector('[data-import-column=date]');select.value='1';select.dispatchEvent(new Event('change'));const second=document.getElementById('hist-csv-preview').textContent;
+            const confirm=window.confirm;try{window.confirm=()=>true;await app.processHistoryImportCSV();}finally{window.confirm=confirm;}
+            return {first,second,date:store.activeData.history.find(r=>r.errorContent==='Excel確認').date};
+        })()`);
+        assert.match(result.first,/2026-11-01/);assert.match(result.second,/2026-11-02/);assert.equal(result.date,'2026-11-02');
+    });
+    await t.test('reviewed undo reverses only edits to imported stock and retains other records',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.openHistoryImportModal();app.openHistoryImportUndo(weightImportLog);const dialog=document.querySelector('.history-import-undo');const before={text:dialog.textContent,checked:dialog.querySelector('input').checked,disabled:document.getElementById('history-import-undo-save').disabled};
+            dialog.querySelector('input').click();await document.getElementById('history-import-undo-save').onclick();
+            return {before,stock:store.getPartMaster('オイル','').stock,removed:!store.activeData.history.some(r=>r.errorContent==='オイル交換'),retained:store.activeData.history.filter(r=>r.historyType==='periodic').length,movement:store.activeData.partStockMovements.at(-1)};
+        })()`);
+        assert.equal(result.before.checked,false);assert.equal(result.before.disabled,true);assert.match(result.before.text,/編集済み/);assert.match(result.before.text,/2000g.*3000g/);assert.equal(result.stock,5);assert.equal(result.removed,true);assert.equal(result.retained,3);assert.equal(result.movement.source,'import-undo');assert.equal(result.movement.delta,1);
+    });
+    await t.test('failed undo leaves all data and selections intact, then retry restores unused masters',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            await dataImport('日付,機械名,作業内容,対応種別,交換部品\\n2026-11-06,取消用新機械,取消確認,突発,取消用部品 x2 個 @20 / 既存シール x1 個 @50');const id=store.activeData.historyImportLogs[0].id;const recordId=store.activeData.history.at(-1).id;
+            app.openHistoryImportModal();app.openHistoryImportUndo(id);const write=store.writeSaveSnapshot;let failed;
+            try{store.writeSaveSnapshot=async()=>{throw Error('取消保存の失敗確認')};await document.getElementById('history-import-undo-save').onclick();failed={exists:store.activeData.history.some(r=>r.id===recordId),master:!!store.getPartMaster('取消用部品',''),checked:document.querySelector('.history-import-undo input').checked,error:document.querySelector('.history-import-undo [role=alert]').textContent};}finally{store.writeSaveSnapshot=write;}
+            await document.getElementById('history-import-undo-save').onclick();return {failed,record:store.activeData.history.some(r=>r.id===recordId),machine:store.activeData.machines.some(m=>m.name==='取消用新機械'),part:!!store.getPartMaster('取消用部品',''),price:store.getPartMaster('既存シール','').price,cancelled:store.activeData.historyImportLogs.find(l=>l.id===id).cancelledRecordIds.length};
+        })()`);
+        assert.equal(result.failed.exists,true);assert.equal(result.failed.master,true);assert.equal(result.failed.checked,true);assert.match(result.failed.error,/失敗確認/);assert.equal(result.record,false);assert.equal(result.machine,false);assert.equal(result.part,false);assert.equal(result.price,null);assert.equal(result.cancelled,1);
+        await reloadApp(page,'undo persists');assert.equal(await page.evaluate("store.activeData.history.some(r=>r.errorContent==='取消確認')"),false);
+    });
+});
+
 test('input refinements: workers, protected prices, column mapping, encodings, review and error reports', {timeout:180000}, async t=>{
     const h=await launchHarness();t.after(()=>h.close());const {page}=h;
     await page.evaluate(`(async()=>{

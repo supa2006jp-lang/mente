@@ -2,6 +2,33 @@
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppHistoryMethods extends MaintenanceApp {
+    getHistoryTypeKey(h = {}) {
+        h ||= {};
+        if (h.isManualGuide) return 'guide';
+        if (h.isSingleMaintenance) return 'singleMaintenance';
+        if (h.taskId) return 'periodic';
+        if (h.isDokatei) return 'dokatei';
+        if (h.isNonProductionStop) return 'nonProductionStop';
+        if (h.historyType === 'singleMaintenance') return 'singleMaintenance';
+        if (h.historyType === 'periodic') return 'periodic';
+        // Older CSV imports stored a task title without a schedule ID.
+        if (!h.historyType && h.isSudden === false && h.taskContent && !h.errorContent) return 'periodic';
+        return 'sudden';
+    }
+
+    isPlannedHistory(h) {
+        return ['periodic', 'singleMaintenance'].includes(this.getHistoryTypeKey(h));
+    }
+
+    normalizeHistoryPartMeasurement(part) {
+        if (!part) return part;
+        const unit = String(part.unit || '個').normalize('NFKC').trim().toLowerCase();
+        if (!['kg', 'キログラム'].includes(unit)) return { ...part, unit: ['g', 'グラム'].includes(unit) ? 'g' : part.unit || '個' };
+        const number = value => Number.isFinite(Number(value)) ? Number(value) : null;
+        const count = number(part.count ?? part.qty ?? 0), price = part.price == null || String(part.price).trim() === '' ? null : number(part.price);
+        return { ...part, count: count === null ? part.count : count * 1000, unit: 'g', price: price === null ? part.price : price / 1000 };
+    }
+
     openDayQuickMenu(dateStr) {
         const scheduled = this.getScheduledTasksForDate(dateStr);
         const history = this.getHistoryForDate(dateStr);
@@ -184,8 +211,8 @@
                             <div id="e-error-no-suggestions" class="suggestion-area"></div>
                         </div>
                         <div class="form-group">
-                            <label>作業時間 (分) <span style="color:var(--danger)">*</span></label>
-                            <input type="number" id="e-work-time" value="${this.escapeHtml(h.workTime ?? '')}" placeholder="例: 30" required min="0" step="any">
+                            <label>作業時間（分・未入力可）</label>
+                            <input type="number" id="e-work-time" value="${this.escapeHtml(h.workTime ?? '')}" placeholder="未入力" min="0" step="any">
                         </div>
                     </div>
 
@@ -432,6 +459,7 @@
     }
 
     formatHistoryWorkTime(history) {
+        if (this.getWorkTimeRecordFacts(history).unknownTime) return '未入力・要確認';
         const workTime = this.getRecordWorkMinutes(history);
         if (history?.startTime && history?.endTime) {
             return `${history.startTime}-${history.endTime} / ${workTime}分`;
@@ -440,6 +468,7 @@
     }
 
     renderHistoryWorkTimeCell(history) {
+        if (this.getWorkTimeRecordFacts(history).unknownTime) return '<b class="history-time-unknown">未入力・要確認</b>';
         const workTime = this.getRecordWorkMinutes(history);
         if (history?.startTime && history?.endTime) {
             return `
@@ -690,10 +719,10 @@
         if (this.historyMetricSortMode === 'type') {
             const rank = (h) => {
                 if (h.isDokatei) return 1;
-                if (!h.taskId && !h.isSingleMaintenance && !h.isNonProductionStop) return 2;
+                if (this.getHistoryTypeKey(h) === 'sudden') return 2;
                 if (h.isNonProductionStop) return 3;
                 if (h.isSingleMaintenance) return 4;
-                if (h.taskId) return 5;
+                if (this.isPlannedHistory(h)) return 5;
                 return 9;
             };
             rows.sort((a, b) => rank(a) - rank(b) || new Date(b.date || '') - new Date(a.date || ''));
@@ -704,7 +733,7 @@
 
     applyHistoryDeletionStockChanges(active, parts, source, reason, changes, requireMaster = false) {
         for (const part of parts) {
-            const delta = Math.round((parseFloat(part.delta) || 0) * 1000) / 1000;
+            let delta = Math.round((parseFloat(part.delta) || 0) * 1000) / 1000;
             if (!delta) continue;
             const master = part.master && active.partsMaster?.includes(part.master)
                 ? part.master
@@ -713,6 +742,9 @@
                 if (requireMaster) throw new Error(`部品「${part.name || ''}」の在庫を確認できません。`);
                 continue;
             }
+            const scale = unit => ['kg', 'キログラム'].includes(String(unit || '').normalize('NFKC').toLowerCase()) ? 1000 : ['g', 'グラム'].includes(String(unit || '').normalize('NFKC').toLowerCase()) ? 1 : null;
+            const from = scale(part.unit), to = scale(master.unit);
+            if (from && to) delta = Math.round(delta * from / to * 1000) / 1000;
             const before = parseFloat(master.stock) || 0;
             master.stock = Math.round((before + delta) * 1000) / 1000;
             const change = { master, name: master.name, model: master.model, delta, movement: null };
@@ -751,7 +783,7 @@
         if (deleteButton) deleteButton.disabled = true;
         try {
             const parts = (record.replacedParts || []).map(part => ({
-                name: part.name, model: part.model, delta: part.count, sourceId: record.id
+                name: part.name, model: part.model, delta: part.count, unit: part.unit, sourceId: record.id
             }));
             this.applyHistoryDeletionStockChanges(
                 active, parts, 'maintenance-delete', 'メンテナンス履歴削除（使用分を戻す）', stockChanges
@@ -1094,12 +1126,14 @@
                 if (useCategory) h.category = category;
                 if (useOccurrence) h.isFirstTime = occurrence === 'first';
                 if (useType) {
-                    if (h.taskId) {
+                    if (this.isPlannedHistory(h)) {
                         h.taskContent = h.taskContent || this.getHistoryDisplayText(h);
                         h.errorContent = h.errorContent || h.taskContent || h.notes || '突発対応';
                         delete h.taskId;
                     }
                     h.isSudden = true;
+                    h.historyType = 'sudden';
+                    h.isSingleMaintenance = false;
                     h.isDokatei = type === 'dokatei';
                     h.isNonProductionStop = type === 'nonProductionStop';
                 }
@@ -1130,7 +1164,7 @@
             record.date || '',
             record.machineId || '',
             this.getHistoryDisplayText(record) || record.errorContent || record.notes || '',
-            String(record.workTime || 0)
+            record.workTime == null || String(record.workTime).trim() === '' ? 'missing' : String(record.workTime)
         ].map(v => MaintenanceStore.toHalfWidthLower(String(v).trim())).join('__');
     }
 
@@ -1148,6 +1182,7 @@
             { key: 'missingCause', label: '原因未入力（突発系）', icon: 'fa-magnifying-glass-chart', severity: 'info', items: [] },
             { key: 'missingNotes', label: '処置未入力（突発系）', icon: 'fa-screwdriver-wrench', severity: 'info', items: [] },
             { key: 'zeroTime', label: '作業時間0分', icon: 'fa-clock', severity: 'warning', items: [] },
+            { key: 'missingTime', label: '作業時間未入力・不正値', icon: 'fa-circle-question', severity: 'warning', items: [] },
             { key: 'invalidDate', label: '日付不正・未入力', icon: 'fa-calendar-xmark', severity: 'danger', items: [] },
             { key: 'duplicateCandidate', label: '重複候補', icon: 'fa-clone', severity: 'info', groups: [] }
         ];
@@ -1157,7 +1192,7 @@
             const line = h.lineNo || machine?.lineNo || '';
             const category = h.machineCategory || machine?.category || '';
             const content = this.getHistoryDisplayText(h);
-            const isTrouble = !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden;
+            const isTrouble = !this.isPlannedHistory(h);
             const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(String(h.date || '')) && !isNaN(new Date(h.date).getTime());
             const item = {
                 id: h.id,
@@ -1173,7 +1208,8 @@
             if (!content || content === '突発対応' || content === '定期メンテナンス') byKey.missingContent.items.push(item);
             if (isTrouble && !String(h.cause || '').trim()) byKey.missingCause.items.push(item);
             if (isTrouble && !String(h.notes || '').trim()) byKey.missingNotes.items.push(item);
-            if ((this.getRecordWorkMinutes(h)) <= 0) byKey.zeroTime.items.push(item);
+            if (this.getWorkTimeRecordFacts(h).unknownTime) byKey.missingTime.items.push(item);
+            else if (this.getRecordWorkMinutes(h) === 0) byKey.zeroTime.items.push(item);
             if (!dateOk) byKey.invalidDate.items.push(item);
             const key = this.getHistoryImportLikeKey(h);
             if (!duplicateMap.has(key)) duplicateMap.set(key, []);
@@ -1324,7 +1360,7 @@
     }
 
     isTroubleHistoryForDetail(h) {
-        return !h?.taskId || h?.isDokatei || h?.isNonProductionStop || h?.isSudden;
+        return !this.isPlannedHistory(h);
     }
 
     setHistoryMissingDetailFilter(kind, event) {
@@ -1612,7 +1648,7 @@
         }
 
         if (type === 'periodic') {
-            filtered = filtered.filter(h => !!h.taskId && !h.isSingleMaintenance);
+            filtered = filtered.filter(h => this.getHistoryTypeKey(h) === 'periodic');
             filterSteps.push({ label: '区分: 定期のみ', count: filtered.length });
         } else if (type === 'singleMaintenance') {
             filtered = filtered.filter(h => !!h.isSingleMaintenance);
@@ -1623,10 +1659,10 @@
                 : (!h.taskId && !h.isManualGuide && (h.isSudden === true || h.isDokatei || h.isNonProductionStop)));
             filterSteps.push({ label: '区分: 突発+ドカ停+非生産停止', count: filtered.length });
         } else if (type === 'sudden') {
-            filtered = filtered.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
+            filtered = filtered.filter(h => this.getHistoryTypeKey(h) === 'sudden');
             filterSteps.push({ label: '区分: 突発のみ', count: filtered.length });
         } else if (type === 'nonProductionStop') {
-            filtered = filtered.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop);
+            filtered = filtered.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop');
             filterSteps.push({ label: '区分: 非生産停止のみ', count: filtered.length });
         } else if (type === 'dokatei') {
             filtered = filtered.filter(h => !!h.isDokatei);
@@ -1750,22 +1786,22 @@
             
             let rowBg = '#ffffff';
             const typeInfo = this.getHistoryTypeInfo(h);
-            let badgeClass = h.isSingleMaintenance ? 'badge-single-maintenance' : (h.taskId ? 'badge-periodic' : 'badge-sudden');
+            let badgeClass = h.isSingleMaintenance ? 'badge-single-maintenance' : (this.isPlannedHistory(h) ? 'badge-periodic' : 'badge-sudden');
             let badgeText = typeInfo.label;
             let titleColor = typeInfo.color;
             
-            if (h.isDokatei) {
+            if (typeInfo.key === 'dokatei') {
                 rowBg = typePalette.dokateiBg;
                 badgeClass = 'badge-dokatei';
                 badgeText = 'ドカ停';
                 titleColor = 'var(--danger)';
-            } else if (h.isSingleMaintenance) {
+            } else if (typeInfo.key === 'singleMaintenance') {
                 rowBg = typePalette.singleBg;
                 titleColor = typePalette.singleTitle;
-            } else if (h.taskId) {
+            } else if (this.isPlannedHistory(h)) {
                 rowBg = typePalette.periodicBg;
                 titleColor = typePalette.periodicTitle;
-            } else if (h.isNonProductionStop) {
+            } else if (typeInfo.key === 'nonProductionStop') {
                 rowBg = typePalette.nonProductionBg;
                 badgeClass = 'badge-sudden';
             } else {
@@ -1774,7 +1810,7 @@
             }
             tr.style.backgroundColor = rowBg;
 
-            let guideBtnClass = h.guide ? (h.isDokatei ? 'guide-dokatei' : (h.taskId ? 'guide-periodic' : 'guide-sudden')) : 'guide-none';
+            let guideBtnClass = h.guide ? (h.isDokatei ? 'guide-dokatei' : (this.isPlannedHistory(h) ? 'guide-periodic' : 'guide-sudden')) : 'guide-none';
             
             const normMName = MaintenanceApp.toFullWidthUpper(machine ? machine.name : '不明');
             const normMModel = MaintenanceApp.toHalfWidthLower(machine ? machine.model : '');
@@ -1786,7 +1822,7 @@
             const cost = this.calculateHistoryCost(h);
             const missingPartPrices = this.getHistoryMissingPartPrices(h);
             const matchLabels = this.getHistorySearchMatchLabels(h, machine, query);
-            const isTroubleHistory = !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden;
+            const isTroubleHistory = !this.isPlannedHistory(h);
             const causeText = String(h.cause || '').trim();
             const notesText = String(h.notes || '').trim();
             const recurrenceFrequency = recurrenceFrequencyByHistoryId.get(String(h.id));
@@ -2217,18 +2253,23 @@
 
     getHistoryPartPrice(part) {
         const number = value => {
+            if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
             const raw = typeof value === 'number' || typeof value === 'string' ? String(value).trim() : '';
             return /^\d+(?:\.\d+)?$/.test(raw) && Number.isFinite(Number(raw)) ? Number(raw) : null;
         };
         const direct = number(part?.price);
         if (direct !== null) return { price: direct, source: 'record' };
         const master = store.getPartMaster?.(part?.name || '', part?.model || '');
-        const fallback = master?.price === 0 && master?.priceRaw === '' ? null : number(master?.price);
+        let fallback = master?.price === 0 && master?.priceRaw === '' ? null : number(master?.price);
+        const factor = unit => ['kg', 'キログラム'].includes(String(unit || '').normalize('NFKC').toLowerCase()) ? 1000 : ['g', 'グラム'].includes(String(unit || '').normalize('NFKC').toLowerCase()) ? 1 : null;
+        const from = factor(master?.unit), to = factor(part?.unit);
+        if (fallback !== null && from && to) fallback = fallback * to / from;
         return { price: fallback, source: fallback === null ? 'missing' : 'master' };
     }
 
     getHistoryPartCostItems(history) {
-        return (history?.replacedParts || []).map(part => {
+        return (history?.replacedParts || []).map(original => {
+            const part = this.normalizeHistoryPartMeasurement(original);
             const rawCount = Number(part.count ?? part.qty ?? 0);
             const count = Number.isFinite(rawCount) && rawCount >= 0 ? rawCount : 0;
             const resolved = this.getHistoryPartPrice(part);
@@ -2635,7 +2676,7 @@
         if (!h) return '';
         const recordItem = String(h?.errorContent || '').trim();
         if (recordItem) return recordItem;
-        if (!h.taskId) return h.notes || '突発対応';
+        if (!h.taskId) return h.taskContent || h.notes || (this.isPlannedHistory(h) ? '定期メンテナンス' : '突発対応');
         const task = store.activeData.tasks.find(t => String(t.id) === String(h.taskId));
         return task ? task.content : (h.taskContent || '定期メンテナンス');
     }

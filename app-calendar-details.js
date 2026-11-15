@@ -17,7 +17,7 @@
                 type: 'sudden',
                 label: '突',
                 title: '突発対応',
-                items: history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop),
+                items: history.filter(h => this.getHistoryTypeKey(h) === 'sudden'),
                 className: 'sudden'
             },
             {
@@ -31,14 +31,14 @@
                 type: 'nonProductionStop',
                 label: '非',
                 title: '非生産停止',
-                items: history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop),
+                items: history.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop'),
                 className: 'non-production-stop'
             },
             {
                 type: 'done',
                 label: '完',
                 title: '完了済み定期メンテ',
-                items: history.filter(h => !!h.taskId),
+                items: history.filter(h => this.isPlannedHistory(h)),
                 className: 'done'
             },
             {
@@ -390,10 +390,10 @@
         today.setHours(0,0,0,0);
 
         const configMap = {
-            sudden: { title: '突発対応', items: history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop), icon: 'fa-bolt-lightning' },
+            sudden: { title: '突発対応', items: history.filter(h => this.getHistoryTypeKey(h) === 'sudden'), icon: 'fa-bolt-lightning' },
             dokatei: { title: 'ドカ停', items: history.filter(h => !!h.isDokatei), icon: 'fa-triangle-exclamation' },
-            nonProductionStop: { title: '非生産停止', items: history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop), icon: 'fa-circle-pause' },
-            done: { title: '完了済み定期メンテ', items: history.filter(h => !!h.taskId), icon: 'fa-circle-check' },
+            nonProductionStop: { title: '非生産停止', items: history.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop'), icon: 'fa-circle-pause' },
+            done: { title: '完了済み定期メンテ', items: history.filter(h => this.isPlannedHistory(h)), icon: 'fa-circle-check' },
             oneOffPlanned: { title: targetDate < today ? '未完了の単発メンテ' : '単発メンテ予定', items: scheduled.filter(s => this.getScheduledTaskOccurrencePeriodDays(s, dateStr) <= 0), icon: 'fa-calendar-day' },
             planned: { title: targetDate < today ? '未完了定期メンテ' : '定期メンテ予定', items: scheduled.filter(s => this.getScheduledTaskOccurrencePeriodDays(s, dateStr) > 0), icon: targetDate < today ? 'fa-triangle-exclamation' : 'fa-wrench' },
             memo: { title: 'メモ', items: memoValue ? [{ value: memoValue }] : [], icon: 'fa-note-sticky' }
@@ -471,8 +471,8 @@
             const machineLabel = machine ? `${machine.name || ''}${machine.model ? ` [${machine.model}]` : ''}` : '対象機械なし';
             const workers = Array.isArray(h.workers) ? h.workers : (typeof h.workers === 'string' ? h.workers.split(',').map(s => s.trim()).filter(Boolean) : []);
             const workerText = workers.length ? ` / ${workers.join(', ')}` : '';
-            const type = h.taskId ? 'done' : (h.isDokatei ? 'dokatei' : (h.isNonProductionStop ? 'nonProductionStop' : 'sudden'));
-            const icon = h.taskId ? 'fa-circle-check' : (h.isDokatei ? 'fa-triangle-exclamation' : (h.isNonProductionStop ? 'fa-circle-pause' : 'fa-bolt-lightning'));
+            const type = this.isPlannedHistory(h) ? 'done' : (h.isDokatei ? 'dokatei' : (h.isNonProductionStop ? 'nonProductionStop' : 'sudden'));
+            const icon = this.isPlannedHistory(h) ? 'fa-circle-check' : (h.isDokatei ? 'fa-triangle-exclamation' : (h.isNonProductionStop ? 'fa-circle-pause' : 'fa-bolt-lightning'));
             cards.push(`
                 <button type="button" class="compact-detail-card ${type}" onclick="app.closeModal(); app.openHistoryEditForm('${this.escapeHtml(this.escapeJs(h.id))}')">
                     <span class="compact-detail-icon" aria-hidden="true"><i class="fa-solid ${icon}"></i></span>

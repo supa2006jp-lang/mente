@@ -61,11 +61,13 @@
     }
 
     getHistoryTypeInfo(h) {
-        if (h.isDokatei) return { key: 'dokatei', label: 'ドカ停', color: 'var(--danger)', chartColor: '#ef4444' };
-        if (h.isSingleMaintenance) return { key: 'singleMaintenance', label: '単発', color: '#0f766e', chartColor: '#14b8a6' };
-        if (h.taskId) return { key: 'periodic', label: '定期', color: 'var(--primary)', chartColor: '#3b82f6' };
-        if (h.isNonProductionStop) return { key: 'nonProductionStop', label: '非停止', color: '#d97706', chartColor: '#f59e0b' };
-        return { key: 'sudden', label: '突発', color: 'var(--success)', chartColor: '#10b981' };
+        const key = this.getHistoryTypeKey(h);
+        const types = {
+            dokatei: ['ドカ停', 'var(--danger)', '#ef4444'], singleMaintenance: ['単発', '#0f766e', '#14b8a6'],
+            periodic: ['定期', 'var(--primary)', '#3b82f6'], nonProductionStop: ['非停止', '#d97706', '#f59e0b'],
+            sudden: ['突発', 'var(--success)', '#10b981'], guide: ['手順書', 'var(--text-light)', '#64748b']
+        };
+        const [label, color, chartColor] = types[key]; return { key, label, color, chartColor };
     }
 
     parseHistoryPartsText(partsText) {
@@ -73,7 +75,7 @@
         return String(partsText).split(/\s*(?:\/|／|;|；|\r?\n)\s*/).map(item => {
             const text = item.trim();
             if (!text) return null;
-            const normalized = text
+            const normalized = text.normalize('NFKC')
                 .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
                 .replace(/[＠]/g, '@')
                 .replace(/[ｘＸ×]/g, 'x')
@@ -102,7 +104,7 @@
                 };
             }
             const match = normalized.match(/^(.*?)(?:\s+\[(.*?)\])?\s*\(([-+]?\d*\.?\d+)\s*([^)]*)\)(?:\s*@\s*([-+]?\d*\.?\d+))?$/);
-            if (!match) return { name: MaintenanceStore.toFullWidth(text), model: '', count: 0, unit: '個', price: null };
+            if (!match) return { name: MaintenanceStore.toFullWidth(text), model: '', count: 0, unit: '個', price: null, ...(/\s[x×]\s*|@|\(\s*[-+0-9]/i.test(normalized) ? { _invalidFormat: text } : {}) };
             return {
                 name: MaintenanceStore.toFullWidth(match[1].trim()),
                 model: MaintenanceStore.toHalfWidthLower((match[2] || '').trim()),
@@ -113,49 +115,56 @@
         }).filter(Boolean);
     }
 
-    parseImportedPartNumber(value) {
-        const normalized = String(value ?? '')
-            .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
-            .replace(/[，、]/g, ',')
-            .replace(/[￥円個gＧ\s]/g, '')
-            .replace(/,/g, '')
-            .trim();
-        if (!normalized) return NaN;
-        const match = normalized.match(/[-+]?\d*\.?\d+/);
-        return match ? parseFloat(match[0]) : NaN;
+    parseImportedPartNumber(value, currency = false) {
+        let raw = String(value ?? '').normalize('NFKC').trim();
+        if (currency) raw = raw.replace(/^[¥￥]\s*/, '').replace(/\s*円$/, '');
+        if (!/^(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)$/.test(raw)) return NaN;
+        const number = Number(raw.replace(/,/g, ''));
+        return Number.isFinite(number) ? number : NaN;
     }
 
     normalizeImportedPartUnit(value, fallback = '個') {
-        const raw = String(value ?? '').trim();
-        if (!raw) return fallback || '個';
-        const half = raw.replace(/[Ｇｇ]/g, 'g').toLowerCase();
-        if (half.includes('g') || raw.includes('グラム')) return 'g';
-        if (raw.includes('個') || raw.includes('コ')) return '個';
+        const raw = String(value || fallback || '個').normalize('NFKC').trim().toLowerCase();
+        if (['g', 'グラム'].includes(raw)) return 'g';
+        if (['kg', 'キログラム'].includes(raw)) return 'kg';
+        if (['個', 'コ', 'pcs'].includes(raw)) return '個';
         return raw;
     }
 
     parseHistoryImportParts(partsText, partName, partCount, partUnit, partPrice) {
+        const issues = [];
+        const issue = (field, value, reason) => issues.push({ field, value, reason });
         const hasSplitInput = [partName, partCount, partUnit, partPrice].some(v => String(v ?? '').trim());
-        if (!hasSplitInput) return this.parseHistoryPartsText(partsText);
-
-        const parsedFromName = this.parseHistoryPartsText(partName);
-        const base = parsedFromName[0] || {
-            name: MaintenanceStore.toFullWidth(String(partName || '').trim()),
-            model: '',
-            count: 0,
-            unit: '個',
-            price: null
-        };
-        if (!base.name) return this.parseHistoryPartsText(partsText);
-
-        const count = this.parseImportedPartNumber(partCount);
-        const price = this.parseImportedPartNumber(partPrice);
-        return [{
-            ...base,
-            count: Number.isFinite(count) ? count : (parseFloat(base.count) || 0),
-            unit: this.normalizeImportedPartUnit(partUnit, base.unit || '個'),
-            price: Number.isFinite(price) ? price : (base.price ?? null)
-        }];
+        let parts;
+        if (hasSplitInput) {
+            const base = this.parseHistoryPartsText(partName)[0];
+            if (!base?.name) { issue('部品名', partName, '数量・単価を指定した部品の名前を入力してください。'); parts = []; }
+            else {
+                const count = String(partCount ?? '').trim() ? this.parseImportedPartNumber(partCount) : base.count;
+                const price = String(partPrice ?? '').trim() ? this.parseImportedPartNumber(partPrice, true) : base.price;
+                if (!Number.isFinite(count) || count < 0) issue('部品数量', partCount, '0以上の数値を入力してください。単位は単位列に指定します。');
+                if (price != null && (!Number.isFinite(price) || price < 0)) issue('部品単価', partPrice, '0以上の数値を入力してください。');
+                parts = [{ ...base, count, price, unit: this.normalizeImportedPartUnit(partUnit, base.unit) }];
+            }
+        } else {
+            parts = this.parseHistoryPartsText(partsText);
+            parts.forEach((part, i) => {
+                if (part._invalidFormat) issue(`部品${i + 1}の書式`, part._invalidFormat, '「部品名 x数量 単位 @単価」の形式を確認してください。');
+                if (!Number.isFinite(part.count) || part.count < 0) issue(`部品${i + 1}の数量`, part.count, '0以上の数値を入力してください。');
+                if (part.price != null && (!Number.isFinite(part.price) || part.price < 0)) issue(`部品${i + 1}の単価`, part.price, '0以上の数値を入力してください。');
+            });
+        }
+        parts = parts.map(part => {
+            if (part._invalidFormat && hasSplitInput) issue('部品の書式', part._invalidFormat, '部品名・数量・単価の形式を確認してください。');
+            const unit = this.normalizeImportedPartUnit(part.unit);
+            if (!['個', 'g', 'kg'].includes(unit)) issue('部品単位', unit, '個・g・kgのいずれかを指定してください。');
+            const clean = { ...part, unit }; delete clean._invalidFormat;
+            const normalized = this.normalizeHistoryPartMeasurement(clean);
+            if ((Number.isFinite(part.count) && !Number.isFinite(normalized.count)) || (Number.isFinite(part.price) && !Number.isFinite(normalized.price))) issue('部品数量・単価', '', '単位換算後の数値が大きすぎます。');
+            return normalized;
+        });
+        Object.defineProperty(parts, 'issues', { value: issues });
+        return parts;
     }
 
     upsertImportedPartMasters(parts = []) {
@@ -181,10 +190,14 @@
                 });
                 added++;
             } else if ((master.price == null || String(master.price).trim() === '' || (master.price === 0 && master.priceRaw === '')) && Number.isFinite(price) && price >= 0) {
+                const scale = value => value === 'kg' ? 1000 : value === 'g' ? 1 : null;
+                const fromUnit = this.normalizeImportedPartUnit(unit), toUnit = this.normalizeImportedPartUnit(master.unit || unit);
+                if (fromUnit !== toUnit && !(scale(fromUnit) && scale(toUnit))) return;
+                const masterPrice = price * (scale(toUnit) || 1) / (scale(fromUnit) || 1);
                 store.updatePartMaster?.(master.name || name, master.model || model, {
                     ...master,
-                    price,
-                    priceRaw: String(price),
+                    price: masterPrice,
+                    priceRaw: String(masterPrice),
                     unit: master.unit || unit
                 });
                 updated++;
@@ -211,7 +224,7 @@
     }
 
     renderHistoryImportLogsHtml() {
-        const logs = this.getHistoryImportLogs().slice(0, 10);
+        const logs = this.getHistoryImportLogs().slice(0, 50);
         if (!logs.length) {
             return `
                 <div class="history-import-log-panel empty">
@@ -243,6 +256,7 @@
                                 <em>再発 ${Number(log.recurrence || 0).toLocaleString()}件</em>
                                 ${Number(log.skipped || 0) > 0 ? `<em>未取込 ${Number(log.skipped || 0).toLocaleString()}件</em>` : ''}
                             </div>
+                            ${log.undo?.version === 1 ? `<button type="button" class="secondary-btn" onclick="app.openHistoryImportUndo('${this.escapeJs(log.id)}')">対象を確認・取り消す</button>${log.cancelledRecordIds?.length ? `<small>取消済み ${log.cancelledRecordIds.length}件</small>` : ''}` : '<small>このログは取消機能追加前の取り込みです。</small>'}
                         </div>
                     `).join('')}
                 </div>
@@ -272,9 +286,8 @@
     }
 
     async clearHistoryImportLogs() {
-        if (!confirm('CSV取り込みログを消去しますか？')) return;
-        store.activeData.historyImportLogs = [];
-        await store.save();
+        if (!confirm('CSV取り込みログを消去しますか？取り込み単位の取消もできなくなります。履歴は削除されません。')) return;
+        await store.runAtomicSaveBatch(() => { store.activeData.historyImportLogs = []; });
         this.openHistoryImportModal();
     }
 
@@ -630,34 +643,24 @@
         return { col: col - 1, row: parseInt(match[2], 10) };
     }
 
-    excelSerialToDate(value) {
-        const serial = Number(value);
-        if (!Number.isFinite(serial) || serial < 1) return String(value || '');
-        const utcDays = Math.floor(serial - 25569);
-        const date = new Date(utcDays * 86400 * 1000);
-        const y = date.getUTCFullYear();
-        const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-        const d = String(date.getUTCDate()).padStart(2, '0');
-        return `${y}-${m}-${d}`;
+    excelSerialToDate(value, date1904 = false) {
+        const serial = Math.floor(Number(value));
+        if (!Number.isFinite(serial) || serial < (date1904 ? 0 : 1) || (!date1904 && serial === 60)) return String(value ?? '');
+        const base = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 31);
+        const days = date1904 ? serial : serial - (serial > 60 ? 1 : 0);
+        const date = new Date(base + days * 86400000);
+        if (!Number.isFinite(date.getTime()) || date.getUTCFullYear() > 9999) return String(value ?? '');
+        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     }
 
-    normalizeXlsxImportRows(rows) {
-        const headerRowIndex = rows.findIndex(row => {
-            const normalized = row.map(h => String(h).replace(/^\ufeff/, '').trim());
-            return normalized.some(h => h.includes('日付')) && normalized.some(h => h.includes('機械名'));
-        });
-        if (headerRowIndex < 0) return rows;
-        const dateIndex = rows[headerRowIndex].findIndex(h => String(h).includes('日付'));
+    normalizeXlsxImportRows(rows, mapping = null) {
+        if (!mapping) { try { mapping = this.detectHistoryImportColumns(rows); } catch { return rows; } }
+        const { headerRowIndex, indexMap } = mapping, dateIndex = indexMap.date;
         if (dateIndex < 0) return rows;
-        return rows.map((row, rowIndex) => {
-            if (rowIndex <= headerRowIndex) return row;
-            const next = row.slice();
-            const raw = String(next[dateIndex] || '').trim();
-            if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(raw) || /^\d{4}\/\d{1,2}\/\d{1,2}$/.test(raw)) {
-                next[dateIndex] = raw.replace(/\//g, '-');
-            } else if (/^\d+(\.\d+)?$/.test(raw)) {
-                next[dateIndex] = this.excelSerialToDate(raw);
-            }
+        return rows.map((row, index) => {
+            if (index <= headerRowIndex) return row;
+            const next = row.slice(), raw = String(next[dateIndex] ?? '').normalize('NFKC').trim();
+            next[dateIndex] = /^\d+(?:\.\d+)?$/.test(raw) ? this.excelSerialToDate(raw, !!rows.excelDate1904) : raw;
             if (row.sourceRow) Object.defineProperty(next, 'sourceRow', { value: row.sourceRow });
             return next;
         });
@@ -691,7 +694,11 @@
             Object.defineProperty(normalized, 'sourceRow', { value: Number(rowEl.getAttribute('r')) || 0 });
             return normalized;
         }).filter(row => row.some(col => String(col).trim() !== ''));
-        return this.normalizeXlsxImportRows(rows);
+        const workbookXml = this.getXlsxEntryText(entries, 'xl/workbook.xml');
+        const workbookDoc = workbookXml ? new DOMParser().parseFromString(workbookXml, 'application/xml') : null;
+        const flag = workbookDoc?.getElementsByTagName('workbookPr')[0]?.getAttribute('date1904');
+        Object.defineProperty(rows, 'excelDate1904', { value: flag === '1' || flag === 'true' });
+        return rows;
     }
 
     async processHistoryImportCSV() {
@@ -704,7 +711,8 @@
         try {
             const prepared = await this.prepareHistoryImportFile();
             if (!prepared) return;
-            const { rows, headerRowIndex, indexMap } = prepared;
+            const { headerRowIndex, indexMap } = prepared;
+            const rows = prepared.excel ? this.normalizeXlsxImportRows(prepared.rows, prepared) : prepared.rows;
             const columnErrors = this.getHistoryImportColumnErrors(prepared);
             if (columnErrors.length) { this.openHistoryImportErrors(columnErrors); return; }
             const getCol = (cols, key) => {
@@ -763,6 +771,8 @@
                 const partPriceStr = getCol(cols, 'partPrice');
                 if (!mName) errors.push({ row: sourceRow, field: '機械名', value: mName, reason: '機械名を入力してください。' });
                 if (!content) errors.push({ row: sourceRow, field: '作業内容', value: content, reason: '作業内容を入力してください。' });
+                const replacedParts = this.parseHistoryImportParts(partsStr, partNameStr, partCountStr, partUnitStr, partPriceStr);
+                for (const issue of replacedParts.issues || []) errors.push({ row: sourceRow, ...issue });
                 if (errors.length > errorCount) continue;
 
                 const candidates = this.getHistoryImportMachineCandidates(mName, mModel, lineNo, machines);
@@ -774,7 +784,9 @@
                 }
                 const targetMachine = candidates.length === 1 && (!lineNo || candidates[0].lineNo) ? candidates[0] : candidates.length === 0 ? provisional : null;
 
-                let isSudden = false;
+                const isPeriodic = occType.includes('定期');
+                const isSingleMaintenance = occType.includes('単発');
+                let isSudden = !isPeriodic && !isSingleMaintenance;
                 let isDokatei = false;
                 const isNonProductionStop = occType.includes("非生産停止") || occType.includes("非停止");
                 if (occType.includes("突発") || isNonProductionStop) isSudden = true;
@@ -788,12 +800,13 @@
                 }
 
                 const workers = this.splitWorkerText(this.splitWorkerText(workersStr).map(normalizeImportedWorkerName));
-                const replacedParts = this.parseHistoryImportParts(partsStr, partNameStr, partCountStr, partUnitStr, partPriceStr);
                 const record = {
                     id: store.generateId(),
                     machineId: targetMachine?.id || '',
                     date,
-                    workTime: time === '' ? 0 : Number(time),
+                    workTime: time === '' ? null : Number(time),
+                    historyType: isPeriodic ? 'periodic' : isSingleMaintenance ? 'singleMaintenance' : 'sudden',
+                    isSingleMaintenance,
                     isSudden,
                     isDokatei,
                     isNonProductionStop: !isDokatei && isNonProductionStop,
@@ -850,10 +863,10 @@
         let history = store.getHistory({ machineId, search: query }).filter(h => !h.isManualGuide);
         history = this.filterHistoryByPeriod(history, period);
         if (type) {
-            if (type === 'periodic') history = history.filter(h => !!h.taskId && !h.isSingleMaintenance);
+            if (type === 'periodic') history = history.filter(h => this.getHistoryTypeKey(h) === 'periodic');
             else if (type === 'singleMaintenance') history = history.filter(h => !!h.isSingleMaintenance);
-            else if (type === 'sudden') history = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
-            else if (type === 'nonProductionStop') history = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop);
+            else if (type === 'sudden') history = history.filter(h => this.getHistoryTypeKey(h) === 'sudden');
+            else if (type === 'nonProductionStop') history = history.filter(h => this.getHistoryTypeKey(h) === 'nonProductionStop');
             else if (type === 'dokatei') history = history.filter(h => h.isDokatei);
         }
 
@@ -863,7 +876,8 @@
             const mName = m ? m.name : '不明';
             const mModel = m ? m.model : '';
             const lineLabel = this.getLineLabel(h.lineNo || m?.lineNo || '');
-            const typeLabel = h.isDokatei ? 'ドカ停' : (h.taskId ? '定期' : (h.isNonProductionStop ? '非生産停止' : '突発'));
+            const typeInfo = this.getHistoryTypeInfo(h);
+            const typeLabel = typeInfo.key === 'nonProductionStop' ? '非生産停止' : typeInfo.label;
             const displayText = this.getHistoryDisplayText(h);
             const workers = (h.workers || []).join(', ');
             const parts = (h.replacedParts || []).map(p => {
@@ -885,7 +899,7 @@
                 h.cause || '',
                 (h.notes || '').replace(/\r?\n/g, ' '),
                 h.errorNo || '',
-                h.workTime || 0,
+                h.workTime ?? '',
                 this.getCategoryLabel(h.category),
                 workers,
                 parts
@@ -922,7 +936,7 @@
         const allTaskMap = {};
         history.forEach(h => {
             const m = machines.find(x => x.id === h.machineId);
-            const content = h.taskId ? (store.activeData.tasks.find(t => t.id === h.taskId)?.content || h.taskContent || '定期メンテナンス') : (h.errorContent || h.notes || '突発対応');
+            const content = this.isPlannedHistory(h) ? (store.activeData.tasks.find(t => t.id === h.taskId)?.content || h.taskContent || '定期メンテナンス') : (h.errorContent || h.notes || '突発対応');
             const tk = `${h.machineId}__${content}`;
             if (!allTaskMap[tk]) allTaskMap[tk] = { label: content, machine: m ? m.name : '不明', model: m ? m.model : '' };
         });

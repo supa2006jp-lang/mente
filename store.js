@@ -1614,11 +1614,13 @@ class MaintenanceStore {
         if (master) {
             const idx = this.activeData.partsMaster.indexOf(master);
             const currentStock = parseFloat(this.activeData.partsMaster[idx].stock) || 0;
-            const safeDelta = Math.round((parseFloat(delta) || 0) * 1000) / 1000;
+            const scale = unit => ['kg', 'キログラム'].includes(String(unit || '').normalize('NFKC').toLowerCase()) ? 1000 : ['g', 'グラム'].includes(String(unit || '').normalize('NFKC').toLowerCase()) ? 1 : null;
+            const from = scale(options.unit), to = scale(master.unit);
+            const safeDelta = Math.round((parseFloat(delta) || 0) * (from && to ? from / to : 1) * 1000) / 1000;
             const newStock = currentStock + safeDelta;
             this.activeData.partsMaster[idx].stock = Math.round(newStock * 1000) / 1000;
             if (safeDelta) {
-                this.recordPartStockMovement(this.activeData.partsMaster[idx], safeDelta, currentStock, this.activeData.partsMaster[idx].stock, options);
+                this.recordPartStockMovement(this.activeData.partsMaster[idx], safeDelta, currentStock, this.activeData.partsMaster[idx].stock, { ...options, unit: master.unit || options.unit });
             }
             this.save();
             return true;

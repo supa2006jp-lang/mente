@@ -39,7 +39,7 @@
             const m = machines.find(x => x.id === h.machineId);
             const machineName = m ? `${m.name}` : '不明';
             const machineModel = m ? m.model : '';
-            const content = h.taskId
+            const content = this.isPlannedHistory(h)
                 ? (store.activeData.tasks.find(t => t.id === h.taskId)?.content || h.taskContent || '定期メンテナンス')
                 : (h.errorContent || h.notes || '突発対応');
             const taskKey = `${h.machineId}__${content}`;
@@ -48,7 +48,7 @@
 
             let typeColor = '#16a34a';
             if (h.isDokatei) typeColor = '#dc2626';
-            else if (h.taskId) typeColor = '#1e3a8a';
+            else if (this.isPlannedHistory(h)) typeColor = '#1e3a8a';
             if (!taskTypeMap[taskKey] || typeColor !== '#1e3a8a') taskTypeMap[taskKey] = typeColor;
 
             if (!latestNotesMap[taskKey]) {
@@ -630,7 +630,7 @@
             const count = allTaskEntries.filter(([taskKey, info]) => {
                 // 1. Check history (Historical growth)
                 const hasMatchHistory = history.some(h => {
-                    const hTaskKey = `${h.machineId}__${h.taskId ? (store.activeData.tasks.find(t=>t.id===h.taskId)?.content || h.taskContent || '定期メンテナンス') : (h.errorContent || h.notes || '突発対応')}`;
+                    const hTaskKey = `${h.machineId}__${this.isPlannedHistory(h) ? (store.activeData.tasks.find(t=>t.id===h.taskId)?.content || h.taskContent || '定期メンテナンス') : (h.errorContent || h.notes || '突発対応')}`;
                     if (hTaskKey !== taskKey || h.date > monthEndStr) return false;
                     if (selectedWorker) return (h.workers || []).includes(selectedWorker);
                     return (h.workers || []).length > 0;

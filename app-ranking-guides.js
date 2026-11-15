@@ -125,7 +125,7 @@
             if (!m) return;
             const key = m.id;
             if (!machineMap[key]) machineMap[key] = { id: m.id, name: m.name, model: m.model, lineNo: m.lineNo, count: 0, dokatei: 0, time: 0, cost: 0 };
-            if (!h.taskId) {
+            if (!this.isPlannedHistory(h)) {
                 machineMap[key].count++;
                 if (h.isDokatei) machineMap[key].dokatei++;
                 machineMap[key].time += (this.getRecordWorkMinutes(h));

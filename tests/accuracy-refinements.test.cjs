@@ -30,6 +30,13 @@ test('legacy joined worker names use the same distinct headcount for labor and w
     }
 });
 
+test('weight conversion preserves recorded cost and resolves a master in the correct price unit',()=>{
+    const {app,store}=runtime();store.getPartMaster=()=>({price:1000,priceRaw:'1000',unit:'kg'});
+    for(const part of [{name:'oil',count:2,unit:'kg',price:1000},{name:'oil',count:2000,unit:'g',price:null},{name:'oil',count:2,unit:'kg',price:null}])assert.equal(app.calculateHistoryPartCost({replacedParts:[part]}),2000);
+    assert.equal(app.getWorkTimeRecordFacts({workTime:null}).unknownTime,true);assert.equal(app.getWorkTimeRecordFacts({workTime:0}).unknownTime,false);
+    assert.equal(app.calculateHistoryPartCost({replacedParts:[{name:'oil',count:2,unit:'kg',price:.0001}]}),.0002);
+});
+
 test('labor costs deduplicate trimmed workers, preserve decimal minutes, and retain one-person fallback', () => {
     const { app } = runtime();
     const record = { workTime: 12.5, workers: ['田中',' 田中 ','鈴木','',null], replacedParts: [{price: 100, count: 2}] };

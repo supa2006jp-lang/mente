@@ -11,7 +11,7 @@
         let troubleStampsHTML = '';
         if (id) {
             const troubleHistory = (store.activeData.history || [])
-                .filter(h => String(h.machineId) === String(id) && !h.taskId)
+                .filter(h => String(h.machineId) === String(id) && !this.isPlannedHistory(h))
                 .sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
             if (troubleHistory.length > 0) {
                 const counts = troubleHistory.reduce((acc, h) => {
@@ -273,7 +273,7 @@
     openMachineTroubleHistoryPanel(machineId, type = 'all') {
         const machine = store.getMachines(true).find(m => String(m.id) === String(machineId));
         const histories = (store.activeData.history || [])
-            .filter(h => String(h.machineId) === String(machineId) && !h.taskId)
+            .filter(h => String(h.machineId) === String(machineId) && !this.isPlannedHistory(h))
             .filter(h => type === 'all' || this.getMachineTroubleTypeInfo(h).key === type)
             .sort((a, b) => new Date(b.date || '') - new Date(a.date || ''));
         const titleMap = {
@@ -1038,7 +1038,7 @@
             .filter(h => String(h.id) !== String(currentId))
             .filter(h => !excludedIds.has(String(h.id)))
             .filter(h => !h.isManualGuide)
-            .filter(h => !h.taskId || h.isDokatei || h.isNonProductionStop || h.isSudden)
+            .filter(h => !this.isPlannedHistory(h))
             .map(h => {
                 const m = machines.find(mm => String(mm.id) === String(h.machineId));
                 const text = normalize(`${this.getHistoryDisplayText(h)} ${h.errorContent || ''} ${h.cause || ''} ${h.notes || ''} ${h.errorNo || ''}`);
@@ -2998,12 +2998,13 @@
     }
 
     addPartRow(p = null, hidePrice = false) {
+        p = this.normalizeHistoryPartMeasurement(p);
         const container = document.getElementById('s-parts-container');
         if (!container) return;
         
         const name = p?.name || '';
         const model = p?.model || '';
-        const count = p?.count || '';
+        const count = p?.count ?? '';
         const unit = p?.unit || '個';
         const price = p?.price ?? '';
         const e = (value) => this.escapeHtml(value ?? '');
@@ -3019,7 +3020,7 @@
             if (manualPrice && force !== true) return;
             const n = row.querySelector('.p-name').value;
             const m = row.querySelector('.p-model').value;
-            const masterPrice = n ? this.getHistoryPartPrice({ name: n, model: m }).price : null;
+            const masterPrice = n ? this.getHistoryPartPrice({ name: n, model: m, unit: row.querySelector('.p-unit').value }).price : null;
             row.querySelector('.p-price').value = masterPrice ?? '';
             manualPrice = false;
             updatePriceLabel();
@@ -3038,7 +3039,7 @@
             </div>
             <input type="text" class="p-name" placeholder="部品名" value="${e(name)}" list="list-part-names">
             <input type="text" class="p-model" placeholder="型番" value="${e(model)}" list="list-part-models">
-            <input type="number" class="p-count" placeholder="量" value="${e(count)}" step="0.001">
+            <input type="number" class="p-count" placeholder="量" value="${e(count)}" min="0" step="any">
             <select class="p-unit">
                 <option value="個" ${unit === 'pcs' || unit === '個' ? 'selected' : ''}>個</option>
                 <option value="g" ${unit === 'g' || unit === 'kg' ? 'selected' : ''}>g</option>
@@ -3071,6 +3072,7 @@
         } else { const actions = document.createElement('div'); actions.className = 'part-price-editor'; actions.append(useMaster); row.append(actions); }
         nameIn.addEventListener('input', updatePrice);
         modelIn.addEventListener('input', updatePrice);
+        row.querySelector('.p-unit').addEventListener('change', updatePrice);
         this.ensurePartMasterSearchDatalist();
         
         // Initial lookup if name provided
@@ -3423,7 +3425,7 @@
             const form = document.getElementById(`${type}-form`);
             const prefix = { sudden: 's-', complete: 'c-', 'edit-history': 'e-' }[type];
             const time = prefix && document.getElementById(prefix + 'work-time');
-            if (time && this.getWorkTimeRecordFacts({ workTime: time.value }).unknownTime) {
+            if (time && !(type === 'edit-history' && time.value.trim() === '') && this.getWorkTimeRecordFacts({ workTime: time.value }).unknownTime) {
                 time.closest('details')?.setAttribute('open', '');
                 this.showToast?.('作業時間は0以上の数値で入力してください。', 'warning');
                 time.focus();
@@ -3844,7 +3846,7 @@
                         current.delta += Number(delta) || 0;
                         stockDifferences.set(key, current);
                     };
-                    (oldRecord.replacedParts || []).forEach(part => addStockDifference(part, Number(part.count ?? part.qty) || 0));
+                    (oldRecord.replacedParts || []).map(part => this.normalizeHistoryPartMeasurement(part)).forEach(part => addStockDifference(part, Number(part.count ?? part.qty) || 0));
                     replacedParts.forEach(part => addStockDifference(part, -(Number(part.count ?? part.qty) || 0)));
                     stockDifferences.forEach(change => {
                         const delta = Math.round(change.delta * 1000) / 1000;
@@ -3860,7 +3862,7 @@
 
                     store.activeData.history[index] = {
                         ...store.activeData.history[index],
-                        machineId, date, scheduledDate, notes, cause, errorContent: symptom, errorNo, workTime, startTime, endTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
+                        machineId, date, scheduledDate, notes, cause, errorContent: symptom, errorNo, workTime: workTime === '' ? null : Number(workTime), historyType: this.getHistoryTypeKey(oldRecord), startTime, endTime, workers, replacedParts, isDokatei, isNonProductionStop, category, machineCategory, lineNo,
                         isFirstTime: document.querySelector('input[name="e-occurrence"]:checked')?.value === 'first',
                         recurrenceGroup: this.getCurrentRecurrenceMeta('e-'),
                         photos: this.getHistoryPhotosForSave()

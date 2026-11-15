@@ -27,6 +27,8 @@ function makePage(confirmed, text = csv) {
         data: { currentDepartmentId: 'a' },
         activeData,
         getMachines() { return activeData.machines; },
+        getPartMaster(name, model) { return activeData.partsMaster.find(p => p.name === name && p.model === model); },
+        updatePartMaster(name, model, updates) { const old=this.getPartMaster(name,model); if(old) Object.assign(old,updates); else activeData.partsMaster.push({name,model,...updates}); },
         generateId() { return `new-${++nextId}`; },
         async runAtomicSaveBatch(mutate) { const value = mutate(); saves++; return value; }
     };
@@ -38,10 +40,9 @@ function makePage(confirmed, text = csv) {
         requestAnimationFrame: callback => callback(), console, Date, TextDecoder
     });
     vm.runInContext(source, context, { filename: 'app-csv.js' });
-    for (const name of ['app-history.js', 'app-import-input.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), context);
+    for (const name of ['app-history.js', 'app-import-input.js', 'app-import-undo.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), context);
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'app-import-review.js'), 'utf8'), context);
     const app = new MaintenanceApp();
-    app.parseHistoryImportParts = () => [];
     app.closeModal = () => { closed++; };
     app.showToast = () => {};
     app.updateDataLists = () => {};
@@ -49,6 +50,7 @@ function makePage(confirmed, text = csv) {
     app.switchView = () => {};
     app.renderHistory = () => {};
     app.renderCalendar = () => {};
+    app.openHistoryImportModal = () => {};
     app.openHistoryImportReview = plan => { review = plan; };
     app.openHistoryImportErrors = items => { errors = items; };
     return { app, store, activeData, alerts, confirmations, get errors() { return errors; }, get review() { return review; }, get saves() { return saves; }, get closed() { return closed; } };
@@ -210,4 +212,95 @@ test('bulk target assignment affects only identical equipment inputs and preserv
     await page.app.processHistoryImportCSV();const entries=page.review.entries;entries[1].decision=false;
     page.app.setHistoryImportTarget(entries[0],'b');assert.equal(page.app.applyHistoryImportTargetToMatching(page.review,entries[0]),1);
     assert.equal(entries[1].record.machineId,'b');assert.equal(entries[1].decision,false);assert.notEqual(entries[2].record.machineId,'b');
+});
+
+test('part numbers reject partial tokens, negatives, malformed grouping and infinity', () => {
+    const {app}=makePage(true);
+    for (const raw of ['12abc','-2','1,2','1e309','Infinity','2kg']) assert.ok(Number.isNaN(app.parseImportedPartNumber(raw)),raw);
+    for (const [raw,value] of [['１，２００．５',1200.5],['0',0],['.25',.25]]) assert.equal(app.parseImportedPartNumber(raw),value);
+    assert.equal(app.parseImportedPartNumber('￥1,200円',true),1200);
+    assert.equal(app.parseHistoryImportParts('','シール','12abc','個','-50').issues.length,2);
+    assert.ok(app.parseHistoryImportParts('シール x2 個 @oops','','','','').issues.length);
+});
+
+test('kilograms convert quantity and per-unit price together, preserving zero and missing prices', () => {
+    const {app}=makePage(true);
+    for (const parts of [app.parseHistoryImportParts('','オイル','2','kg','1000'),app.parseHistoryImportParts('オイル x2 kg @1000','','','','')]) {
+        assert.equal(parts.issues.length,0);assert.equal(parts[0].count,2000);assert.equal(parts[0].unit,'g');assert.equal(parts[0].price,1);
+    }
+    assert.equal(app.parseHistoryImportParts('','オイル','0.5','kg','0')[0].price,0);
+    assert.equal(app.parseHistoryImportParts('','オイル','0.5','kg','')[0].price,null);
+});
+
+test('a blank kilogram master receives the equivalent kilogram price from a gram import',async()=>{
+    const page=makePage(true,'日付,機械名,作業内容,部品名,部品数量,部品単位,部品単価\n2026-11-01,ポンプ,交換,オイル,2,kg,1000');
+    page.activeData.partsMaster.push({name:'オイル',model:'',unit:'kg',price:null,priceRaw:'',stock:5});await page.app.processHistoryImportCSV();
+    assert.equal(page.activeData.partsMaster[0].price,1000);assert.equal(page.activeData.partsMaster[0].priceRaw,'1000');assert.equal(page.activeData.partsMaster[0].stock,5);assert.equal(page.activeData.history[0].replacedParts[0].price,1);
+});
+
+test('part errors join date and time errors without any provisional writes',async()=>{
+    const page=makePage(true,'日付,機械名,作業内容,作業時間,部品名,部品数量,部品単位,部品単価\n2026-02-30,ポンプ,交換,bad,シール,12abc,個,-5');
+    await page.app.processHistoryImportCSV();
+    assert.deepEqual(Array.from(page.errors,e=>e.field),['日付','作業時間','部品数量','部品単価']);assert.equal(page.saves,0);assert.equal(page.activeData.machines.length,0);
+});
+
+test('imported periodic and single histories retain type and content without creating schedules',async()=>{
+    const page=makePage(true,'日付,機械名,作業内容,対応種別\n2026-11-01,ポンプ,定期確認,定期\n2026-11-02,ポンプ,単発確認,単発');await page.app.processHistoryImportCSV();
+    assert.deepEqual(Array.from(page.activeData.history,r=>page.app.getHistoryTypeInfo(r).key),['periodic','singleMaintenance']);
+    assert.deepEqual(Array.from(page.activeData.history,r=>page.app.getHistoryDisplayText(r)),['定期確認','単発確認']);
+    assert.ok(page.activeData.history.every(r=>!r.taskId));assert.equal(page.app.getHistoryTypeKey({isSudden:false,taskContent:'旧CSV定期'}),'periodic');
+});
+
+test('missing duration remains unknown and differs from an explicit zero when finding duplicates',async()=>{
+    const page=makePage(true,'日付,機械名,作業内容,作業時間\n2026-11-01,ポンプ,確認,\n2026-11-01,ポンプ,確認,0');await page.app.processHistoryImportCSV();
+    assert.equal(page.review,null);assert.deepEqual(Array.from(page.activeData.history,r=>r.workTime),[null,0]);
+    assert.notEqual(page.app.getHistoryImportKey(page.activeData.history[0]),page.app.getHistoryImportKey(page.activeData.history[1]));
+});
+
+test('Excel aliases and chosen date columns convert from raw cells without altering the alternate column',()=>{
+    const {app}=makePage(true),rows=[['作業日','別の日付','設備名','作業内容'],['46327','46328','ポンプ','確認']];
+    Object.defineProperty(rows[1],'sourceRow',{value:7});const mapping=app.detectHistoryImportColumns(rows);
+    let converted=app.normalizeXlsxImportRows(rows,mapping);assert.equal(converted[1][0],'2026-11-01');assert.equal(converted[1][1],'46328');assert.equal(converted[1].sourceRow,7);
+    mapping.indexMap.date=1;converted=app.normalizeXlsxImportRows(rows,mapping);assert.equal(converted[1][0],'46327');assert.equal(converted[1][1],'2026-11-02');assert.equal(rows[1][0],'46327');
+});
+
+test('Excel date systems support 1904, preserve row zero serial, and reject the fictitious leap day',()=>{
+    const {app}=makePage(true);assert.equal(app.excelSerialToDate(1),'1900-01-01');assert.equal(app.excelSerialToDate(60),'60');assert.equal(app.excelSerialToDate(61),'1900-03-01');assert.equal(app.excelSerialToDate(0,true),'1904-01-01');
+    const rows=[['実施日','設備名','作業内容'],['0','ポンプ','確認']];Object.defineProperty(rows,'excelDate1904',{value:true});assert.equal(app.normalizeXlsxImportRows(rows)[1][0],'1904-01-01');
+});
+
+test('undo removes imported records and unused new machines and parts, and is idempotent',async()=>{
+    const page=makePage(true,'日付,機械名,作業内容,部品名,部品数量,部品単位,部品単価\n2026-11-01,ポンプ,交換,シール,1,個,20');await page.app.processHistoryImportCSV();
+    const log=page.activeData.historyImportLogs[0],plan=page.app.createHistoryImportUndoPlan(log.id);assert.equal(plan.selected.size,1);
+    assert.equal(await page.app.commitHistoryImportUndo(plan),true);assert.equal(page.activeData.history.length,0);assert.equal(page.activeData.machines.length,0);assert.equal(page.activeData.partsMaster.length,0);
+    assert.equal(page.activeData.historyImportLogs[0].cancelledRecordIds.length,1);assert.equal(await page.app.commitHistoryImportUndo(page.app.createHistoryImportUndoPlan(log.id)),false);
+});
+
+test('undo preserves edited records and shared masters until they are explicitly reviewed',async()=>{
+    const page=makePage(true,csv+'\n2026-11-15,ポンプ,P1,突発,確認');await page.app.processHistoryImportCSV();
+    const changed=page.activeData.history[0];changed.notes='取込後に追記';
+    const id=page.activeData.historyImportLogs[0].id,plan=page.app.createHistoryImportUndoPlan(id);assert.equal(plan.entries.filter(e=>e.changed).length,1);assert.equal(plan.selected.has(changed.id),false);
+    assert.equal(await page.app.commitHistoryImportUndo(plan),true);assert.equal(page.activeData.history.length,1);assert.equal(page.activeData.machines.length,1);assert.equal(page.activeData.history[0].notes,'取込後に追記');
+    const reviewed=page.app.createHistoryImportUndoPlan(id);reviewed.selected.add(changed.id);assert.equal(await page.app.commitHistoryImportUndo(reviewed),true);assert.equal(page.activeData.machines.length,0);
+});
+
+test('undo restores a filled master price but never overwrites a later master edit',async()=>{
+    const text='日付,機械名,作業内容,部品名,部品数量,部品単位,部品単価\n2026-11-01,ポンプ,交換,シール,1,個,20';
+    for(const changed of [false,true]){
+        const page=makePage(true,text);page.activeData.partsMaster.push({name:'シール',model:'',price:null,unit:'個'});await page.app.processHistoryImportCSV();
+        if(changed)page.activeData.partsMaster[0].price=99;
+        const plan=page.app.createHistoryImportUndoPlan(page.activeData.historyImportLogs[0].id);assert.equal(await page.app.commitHistoryImportUndo(plan),true);assert.equal(page.activeData.partsMaster[0].price,changed?99:null);
+    }
+});
+
+test('undo detects department changes and changes while waiting for another save',async()=>{
+    const page=makePage(true);await page.app.processHistoryImportCSV();const id=page.activeData.historyImportLogs[0].id;
+    let plan=page.app.createHistoryImportUndoPlan(id);page.store.data.currentDepartmentId='b';assert.equal(await page.app.commitHistoryImportUndo(plan),false);page.store.data.currentDepartmentId='a';
+    plan=page.app.createHistoryImportUndoPlan(id);page.store.runAtomicSaveBatch=async mutate=>{page.activeData.history[0].notes='別の保存';return mutate();};
+    assert.equal(await page.app.commitHistoryImportUndo(plan),false);assert.match(plan.error,/データが変わりました/);assert.equal(page.activeData.history.length,1);
+});
+
+test('undo keeps imported equipment referenced by a later ToDo',async()=>{
+    const page=makePage(true);await page.app.processHistoryImportCSV();const machine=page.activeData.machines[0];page.activeData.localTodos=[{id:'later',machineId:machine.id,title:'後の予定'}];
+    const plan=page.app.createHistoryImportUndoPlan(page.activeData.historyImportLogs[0].id);assert.equal(await page.app.commitHistoryImportUndo(plan),true);assert.equal(page.activeData.machines[0].id,machine.id);assert.equal(page.activeData.localTodos.length,1);
 });

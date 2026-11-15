@@ -53,7 +53,7 @@ function makeApp(task) {
         isMaintenanceTaskArchived() { return false; }
     };
     const context = vm.createContext({ MaintenanceApp, document, store, Date, console });
-    for (const name of ['app-calendar.js', 'app-calendar-support.js', 'app-calendar-details.js']) {
+    for (const name of ['app-history.js', 'app-calendar.js', 'app-calendar-support.js', 'app-calendar-details.js']) {
         vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), context, { filename: name });
     }
     const app = new MaintenanceApp();

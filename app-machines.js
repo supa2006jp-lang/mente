@@ -151,7 +151,7 @@
                      machineCostMap[h.machineId].parts += cost.parts || 0;
                  }
                  // Total trouble rank (Sudden + Dokatei)
-                 if (!h.taskId || h.isDokatei) {
+                 if (!this.isPlannedHistory(h)) {
                      troubleCountMap[h.machineId] = (troubleCountMap[h.machineId] || 0) + 1;
                  }
                  // Recurrence rank (isFirstTime === false)
@@ -198,10 +198,10 @@
             const mId = m.id;
             const mTasks = store.getTasks(mId) || [];
             const mHistory = allHistory
-                .filter(h => h.machineId === mId && (!h.taskId || h.isDokatei))
+                .filter(h => h.machineId === mId && (!this.isPlannedHistory(h)))
                 .sort((a, b) => this.compareMachineHistoryDateDesc(a, b));
             const maintenanceHistory = allHistory
-                .filter(h => h.machineId === mId && h.taskId && !h.isDokatei && !h.isNonProductionStop)
+                .filter(h => h.machineId === mId && this.isPlannedHistory(h))
                 .sort((a, b) => this.compareMachineHistoryDateDesc(a, b));
             const troubleCount = mHistory.length;
             const rank = rankBasis.findIndex(x => x.id === mId) + 1;

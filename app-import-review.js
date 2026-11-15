@@ -41,7 +41,7 @@
     };
     P.getHistoryImportKey = function (record) {
         return JSON.stringify([this.normalizeHistoryImportDate(record.date) || text(record.date), String(record.machineId || ''),
-            text(record.taskContent || record.errorContent || record.notes), String(Number(record.workTime) || 0)]);
+            text(record.taskContent || record.errorContent || record.notes), record.workTime == null || String(record.workTime).trim() === '' ? 'missing' : String(Number(record.workTime))]);
     };
     P.getHistoryImportDetails = function (record) {
         const parts = (record.replacedParts || []).map(p => `${p.name || ''} [${p.model || ''}] ${p.count ?? p.qty ?? 0}${p.unit || '個'} @${p.price == null || String(p.price).trim() === '' ? '未入力' : p.price}`).sort();
@@ -51,7 +51,7 @@
             '作業者': this.splitWorkerText(record.workers).sort().join('、'),
             '部品': parts.join(' / '), '原因': record.cause || '', '処置': record.notes || '', 'エラー': record.errorNo || '',
             '作業区分': record.category || '', 'ライン': String(record.lineNo || ''), '装置区分': record.machineCategory || '',
-            '対応種別': record.isDokatei ? 'ドカ停' : record.isNonProductionStop ? '非生産停止' : record.isSudden ? '突発' : '定期',
+            '対応種別': this.getHistoryTypeInfo(record).label,
             '初回・再発': record.isFirstTime === false ? '再発' : '初回', '予定': record.taskId || '',
             '写真': String((record.photos || []).length), '手順書': record.guide || ''
         };
@@ -101,6 +101,10 @@
         try {
             const parts = records.flatMap(r => r.replacedParts || []);
             await store.runAtomicSaveBatch(() => {
+                if (plan.department !== store.data?.currentDepartmentId || plan.snapshot !== this.getHistoryImportSnapshot()) throw Error('確認中にデータが変わりました。読み込み直してください。');
+                const before = JSON.parse(JSON.stringify(store.activeData));
+                const batchId = store.generateId();
+                records.forEach(record => { record.importBatchId = batchId; });
                 store.activeData.machines.push(...machinesToAdd);
                 for (const [id, line] of lineAssignments) {
                     const machine = store.activeData.machines.find(m => m.id === id);
@@ -108,7 +112,7 @@
                 }
                 store.activeData.history.push(...records);
                 const master = this.upsertImportedPartMasters(parts);
-                this.appendHistoryImportLog({ fileName: plan.fileName, totalRows: plan.totalRows, added: records.length,
+                this.appendHistoryImportLog({ id: batchId, undo: this.captureHistoryImportUndo(before, records), fileName: plan.fileName, totalRows: plan.totalRows, added: records.length,
                     duplicates: plan.entries.filter(e => !e.selected && e.duplicates.length).length,
                     skipped: plan.skipped + plan.entries.filter(e => !e.selected && !e.duplicates.length).length,
                     addedMachines: machinesToAdd.length, addedPartMasters: master.added, updatedPartMasters: master.updated,
@@ -169,7 +173,7 @@
                 const row = node('section', null, list); row.dataset.importRow = String(entry.sourceRow);
                 const label = node('label', null, row); const check = node('input', null, label); check.type = 'checkbox'; check.checked = entry.selected;
                 check.dataset.importControl = 'include';
-                node('strong', `${entry.sourceRow}行目を取り込む：${entry.record.date} / ${entry.machineName} / ${entry.record.workTime}分`, label);
+                node('strong', `${entry.sourceRow}行目を取り込む：${entry.record.date} / ${entry.machineName} / ${entry.record.workTime == null ? '時間未入力' : entry.record.workTime + '分'}`, label);
                 check.onchange = () => { entry.decision = check.checked; render(); };
                 node('p', entry.record.taskContent || entry.record.errorContent || '', row);
                 const targetLabel = node('label', '取り込み先', row); const select = node('select', null, targetLabel); select.setAttribute('aria-label', `${entry.sourceRow}行目の取り込み先`);

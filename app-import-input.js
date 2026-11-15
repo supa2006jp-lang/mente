@@ -51,7 +51,7 @@
             rows = this.parseCSV(decoded.text); detected = decoded.encoding === 'utf-8' ? 'UTF-8' : 'Shift_JIS';
         }
         if (rows.length <= 1) throw Error('データがありません。');
-        const prepared = { file, encoding, detected, rows, ...this.detectHistoryImportColumns(rows) };
+        const prepared = { file, encoding, detected, excel, rows, ...this.detectHistoryImportColumns(rows) };
         // A slow decode must not replace the preview for a newer file or encoding selection.
         if (document.getElementById('hist-csv-upload')?.files[0] !== file || (document.getElementById('hist-csv-encoding')?.value || 'auto') !== encoding) return null;
         this._historyImportPrepared = prepared;
@@ -74,7 +74,8 @@
         const table = node('table', null, wrap); const head = node('tr', null, node('thead', null, table));
         node('th', '行', head); prepared.headers.forEach(h => node('th', h, head));
         const body = node('tbody', null, table);
-        prepared.rows.slice(prepared.headerRowIndex + 1, prepared.headerRowIndex + 6).forEach((row, index) => {
+        const previewRows = prepared.excel ? this.normalizeXlsxImportRows(prepared.rows, prepared) : prepared.rows;
+        previewRows.slice(prepared.headerRowIndex + 1, prepared.headerRowIndex + 6).forEach((row, index) => {
             const tr = node('tr', null, body); node('td', row.sourceRow || prepared.headerRowIndex + index + 2, tr);
             prepared.headers.forEach((_, i) => node('td', String(row[i] || '').slice(0, 160), tr));
         });
@@ -88,7 +89,7 @@
             select.add(new Option(required ? '列を選択してください' : '取り込まない', '-1'));
             prepared.headers.forEach((header, i) => select.add(new Option(`${i + 1}列目：${header || '見出しなし'}`, String(i))));
             select.value = String(prepared.indexMap[key]);
-            select.onchange = () => { prepared.indexMap[key] = Number(select.value); prepared.confirmed.add(key); };
+            select.onchange = () => { prepared.indexMap[key] = Number(select.value); prepared.confirmed.add(key); if (key === 'date' && prepared.excel) { this.renderHistoryImportPreview(prepared); const map = target.querySelector('.history-import-column-map'); map.open = true; map.querySelector('[data-import-column=date]').focus({ preventScroll: true }); } };
         }
     };
     P.getHistoryImportColumnErrors = function (prepared) {

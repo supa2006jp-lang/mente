@@ -120,7 +120,7 @@
         }
         const getStats = (range) => {
             const hist = store.activeData.history.filter(h => h.date >= range.start && h.date <= range.end);
-            const troubles = hist.filter(h => !h.isManualGuide && !h.taskId);
+            const troubles = hist.filter(h => !h.isManualGuide && !this.isPlannedHistory(h));
             const time = troubles.reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
             const count = troubles.length;
             return { time, count };
