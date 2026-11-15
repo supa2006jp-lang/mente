@@ -1,5 +1,5 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const APP_BUILD = '20261115-integrity6';
+const APP_BUILD = '20261116-image4';
 const CACHE_NAME = 'maintenance-next-static-' + APP_BUILD;
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
@@ -7,10 +7,10 @@ const SHELL_FILES = [
     './app-record-assist.js?v=20261115-consistency6',
     './app-worktime-evidence.js?v=20261115-workspace-refine6',
     './app-search-presets.js?v=20261115-accuracy6',
-    './app-five-s-management.js?v=20261115-workspace6',
+    './app-five-s-management.js?v=20261116-image4',
     './app-unified-search.js?v=20261115-data6',
     './app-photo-export.js?v=20261115-workspace6',
-    './workspace-improvements.css?v=20261115-integrity6',
+    './workspace-improvements.css?v=20261116-image4',
     './',
     './index.html',
     './assets/vendor/fontsource/inter/5.2.6/index.css',
@@ -33,7 +33,7 @@ const SHELL_FILES = [
     './app-calendar-support.js?v=20261115-data6',
     './app-departments.js?v=20261115-five1',
     './app-machines.js?v=20261115-data6',
-    './app-maintenance-forms.js?v=20261115-data6',
+    './app-maintenance-forms.js?v=20261116-image4',
     './app-history.js?v=20261115-integrity6',
     './app-analysis-dashboard.js?v=20261115-data6',
     './app-ranking-guides.js?v=20261115-data6',
@@ -53,9 +53,10 @@ const SHELL_FILES = [
     './assets/vendor/ffmpeg/0.11.6/046d0074eee1d99a674a.js',
     './app-dom-actions.js',
     './app-edit-safety.js?v=20261115-workspace-refine6',
-    './app-boot.js?v=20261115-data6',
-    './app-shift-notebook-core.js?v=20261115-workspace6',
-    './app-photo-manager.js?v=20261115-workspace6',
+    './app-image-edit-workspace.js?v=20261116-image4',
+    './app-boot.js?v=20261116-image4',
+    './app-shift-notebook-core.js?v=20261116-image4',
+    './app-photo-manager.js?v=20261116-image4',
     './app-shift-photo-camera.js?v=20260906-avatar-stage72',
     './app-shift-photo-reveal.js?v=20260906-avatar-stage72',
     './app-shift-avatar-conversation.js?v=20260906-avatar-stage72'

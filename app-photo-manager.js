@@ -3947,8 +3947,9 @@
             item.date = this.normalizePhotoManagerDate(item.date);
             const overlays = this.getPhotoManagerOverlays();
             item.managerMarks = Array.isArray(overlays[item.id]) ? overlays[item.id] : [];
+            item.managerGlobalMarks = Array.isArray(store.activeData.photoManagerEditorGlobals?.[item.id]) ? store.activeData.photoManagerEditorGlobals[item.id] : [];
             item.annotated = !!item.annotated || (Array.isArray(item.marks) && item.marks.length > 0);
-            item.annotated = item.annotated || (Array.isArray(item.globalMarks) && item.globalMarks.length > 0) || item.managerMarks.length > 0;
+            item.annotated = item.annotated || (Array.isArray(item.globalMarks) && item.globalMarks.length > 0) || item.managerMarks.length > 0 || item.managerGlobalMarks.length > 0;
             item.annotated = item.annotated || (Array.isArray(item.photoCompareBlankEdit?.marks) && item.photoCompareBlankEdit.marks.length > 0);
             item.displayName = this.getPhotoManagerName(item);
             item.tags = this.getPhotoManagerTags(item);
@@ -5090,7 +5091,7 @@
             return `${month}/${day} ${hour}:${minute} 白紙編集`;
         }
 
-        async syncPhotoManagerBlankEditFromCompare(context = {}) {
+        async syncPhotoManagerBlankEditFromCompare(context = {}, options = {}) {
             if (!context || !String(context.source || '').startsWith('photoManagerBlank')) return null;
             const wrap = document.querySelector('.shift-photo-compare-image-wrap[data-photo-index="0"]')
                 || document.querySelector('.shift-photo-compare-image-wrap');
@@ -5136,6 +5137,7 @@
             } catch (error) {
                 console.error('白紙編集の画像を保存できませんでした。', error);
                 this.showPhotoManagerNotice(`白紙編集を保存できませんでした。${error?.message || '保存先を確認してください。'}`);
+                if (options.throwOnError) throw error;
                 return null;
             }
             context.photoManagerBlankEditItemId = savedItem.id;
@@ -5255,10 +5257,12 @@
                 pairStep: null
             };
             const getEditorFullSignature = value => JSON.stringify({
+                src: value?.src || '',
                 caption: value?.caption || '',
                 marks: Array.isArray(value?.marks) ? value.marks : []
             });
             const getEditorSemanticSignature = value => JSON.stringify({
+                src: value?.src || '',
                 caption: value?.caption || '',
                 marks: (Array.isArray(value?.marks) ? value.marks : []).map(mark => ({
                     mode: mark?.mode || 'circle',
@@ -5295,22 +5299,25 @@
                     points: Array.isArray(mark?.points) ? mark.points.map(point => ({ x: Number(point?.x) || 0, y: Number(point?.y) || 0 })) : []
                 }))
             });
-            let lastFullSignature = getEditorFullSignature(photo);
-            let lastSemanticSignature = getEditorSemanticSignature(photo);
-            let editorDataChanged = false;
+            const initialGlobals = Array.isArray(item.managerGlobalMarks) ? item.managerGlobalMarks : [];
+            let lastFullSignature = JSON.stringify([getEditorFullSignature(photo), initialGlobals]);
+            let lastSemanticSignature = JSON.stringify([getEditorSemanticSignature(photo), initialGlobals]);
             let editorSemanticChanged = false;
             this.openShiftPhotoCompareWithPhotos([photo], {
                 source: 'photoManager',
+                imageEditKey: `photoManager:${item.id}`,
                 title: `写真編集 ${this.getPhotoManagerName(item) || item.defaultName || "写真"}`,
-                globalMarks: [],
+                globalMarks: initialGlobals,
                 onSync: (context) => {
                     const edited = context.photos?.[0] || {};
-                    const fullSignature = getEditorFullSignature(edited);
-                    const semanticSignature = getEditorSemanticSignature(edited);
+                    const globals = Array.isArray(context.globalMarks) ? context.globalMarks : [];
+                    const fullSignature = JSON.stringify([getEditorFullSignature(edited), globals]);
+                    const semanticSignature = JSON.stringify([getEditorSemanticSignature(edited), globals]);
                     if (fullSignature === lastFullSignature) return;
                     const semanticChanged = semanticSignature !== lastSemanticSignature;
                     const userSemanticChanged = semanticChanged && !context._closing;
                     if (item.source === 'library' && libraryPhoto) {
+                        libraryPhoto.src = edited.src || libraryPhoto.src;
                         libraryPhoto.caption = edited.caption || '';
                         libraryPhoto.marks = Array.isArray(edited.marks) ? edited.marks : [];
                         if (userSemanticChanged) libraryPhoto.updatedAt = Date.now();
@@ -5318,15 +5325,15 @@
                         overlays[item.id] = Array.isArray(edited.marks) ? edited.marks : [];
                         if (userSemanticChanged) store.activeData.photoManagerEditedAt[item.id] = Date.now();
                     }
+                    store.activeData.photoManagerEditorGlobals ||= {};
+                    store.activeData.photoManagerEditorGlobals[item.id] = globals;
                     lastFullSignature = fullSignature;
                     lastSemanticSignature = semanticSignature;
-                    editorDataChanged = true;
                     editorSemanticChanged = editorSemanticChanged || userSemanticChanged;
-                    if (!context._closing) store.save();
+                    if (!context._closing) return store.save();
                 },
                 onClose: () => {
                     setTimeout(() => {
-                        if (editorDataChanged) store.save();
                         if (editorSemanticChanged && document.getElementById('photo-manager-list')) this.renderPhotoManager();
                     }, 0);
                 }
@@ -6213,7 +6220,7 @@
         downloadPhotoManagerItem(id) {
             const item = this.findPhotoManagerItem(id);
             if (!item) return alert('写真が見つかりませんでした。');
-            this.downloadPhotoManagerImage(item);
+            return this.openPhotoManagerExportSettings([item]);
         }
 
         loadPhotoManagerImage(src = '') {
@@ -7492,6 +7499,11 @@
         }
 
         createPhotoManagerMarkElement(mark = {}) {
+            if (typeof this.getShiftPhotoCompareMarkHtml === 'function') {
+                const template = document.createElement('template');
+                template.innerHTML = this.getShiftPhotoCompareMarkHtml(mark);
+                if (template.content.firstElementChild) return template.content.firstElementChild;
+            }
             const el = document.createElement('div');
             const mode = mark.mode || 'circle';
             el.className = `shift-photo-compare-mark ${mode}`;
@@ -7607,22 +7619,23 @@
             return converted;
         }
 
-        async renderPhotoManagerImageWithMarks(item) {
+        async renderPhotoManagerImageWithMarks(item, maxSide = Infinity) {
             const img = await this.loadShiftPhotoCompareImage(item.src);
             const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth || img.width;
-            canvas.height = img.naturalHeight || img.height;
+            const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+            canvas.width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+            canvas.height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             const rect = { x: 0, y: 0, width: canvas.width, height: canvas.height };
             const localMarks = [...(item.marks || []), ...(item.managerMarks || [])].map(mark => this.convertPhotoManagerLocalMark(mark, img, item));
-            const globalMarks = (item.globalMarks || []).map(mark => this.convertPhotoManagerGlobalMark(mark, item, img));
+            const globalMarks = [...(item.globalMarks || []), ...(item.managerGlobalMarks || [])].map(mark => this.convertPhotoManagerGlobalMark(mark, item, img));
             for (const mark of [...localMarks, ...globalMarks]) {
                 ctx.save();
                 ctx.beginPath();
                 ctx.rect(0, 0, canvas.width, canvas.height);
                 ctx.clip();
-                await this.drawShiftPhotoCompareMark(ctx, this.createPhotoManagerMarkElement(mark), rect, mark._sizeScale || 1);
+                await this.drawShiftPhotoCompareMark(ctx, this.createPhotoManagerMarkElement(mark), rect, (mark._sizeScale || 1) * scale);
                 ctx.restore();
             }
             return canvas.toDataURL('image/png');
@@ -8048,13 +8061,7 @@
             const filtered = this.getFilteredPhotoManagerItems ? this.getFilteredPhotoManagerItems(allItems) : allItems;
             const items = filtered.filter(item => !selected.size || selected.has(item.id));
             if (!items.length) return alert('No images to export.');
-            if (items.length >= 5) {
-                await this.exportPhotoManagerItemsAsZip(items);
-                return;
-            }
-            items.forEach((item, index) => {
-                setTimeout(() => this.downloadPhotoManagerImage(item, index + 1), index * 160);
-            });
+            return this.openPhotoManagerExportSettings(items);
         }
     }
 

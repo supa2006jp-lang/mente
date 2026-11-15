@@ -1301,3 +1301,111 @@ test('integrity refinements: exact exports, strict CSV, selected worksheets, sto
         }
     });
 });
+
+
+test('image editor: awaited saves, redo, persistent versions, comparison and export preview', {timeout:180000}, async t=>{
+    const harness=await launchHarness();t.after(()=>harness.close());const {page}=harness;
+    await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1000;const c=canvas.getContext('2d');c.fillStyle='#0f766e';c.fillRect(300,250,1000,500);
+        await store.runAtomicSaveBatch(()=>{window.imageTestId=app.addPhotoManagerLibraryImage(canvas.toDataURL('image/png'),'画像検証').id;});
+        await app.openPhotoManagerEditor(imageTestId);
+        window.imageTestAddMark=(x=30)=>{app.pushShiftPhotoCompareUndo();const wrap=document.querySelector('.shift-photo-compare-image-wrap');wrap.querySelector('.shift-photo-compare-mark-layer').insertAdjacentHTML('beforeend',app.getShiftPhotoCompareMarkHtml({mode:'circle',x,y:50,size:60,color:'#dc2626'}));app.syncShiftPhotoCompareMarks(wrap);};
+        window.imageTestFlush=async()=>{await Promise.allSettled([...(app._shiftPhotoCompareContext?.imagePendingSaves||[])]);};
+        window.imageTestCount=()=>document.querySelectorAll('.shift-photo-compare-image-wrap .shift-photo-compare-mark:not([data-animation-ghost="1"])').length;
+    })()`);
+    await t.test('save cannot report success before disk completion and failed close keeps the editor retryable',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            const write=store.writeSaveSnapshot;let release;const gate=new Promise(r=>release=r);let done=false;
+            try{
+                store.writeSaveSnapshot=async function(...args){await gate;return write.apply(this,args);};
+                imageTestAddMark();const saving=app.saveShiftPhotoCompare().then(result=>{done=true;return result;});
+                await new Promise(r=>setTimeout(r,60));const pending={done,text:document.querySelector('.shift-photo-compare-save').textContent,status:document.getElementById('image-edit-save-status').textContent};
+                release();const saved=await saving;
+                store.writeSaveSnapshot=async()=>{throw Error('画像保存の失敗テスト');};
+                imageTestAddMark(60);await imageTestFlush();const closed=await app.closeShiftPhotoCompare();
+                const failed={closed,open:!!document.getElementById('shift-photo-compare-overlay'),count:imageTestCount(),status:document.getElementById('image-edit-save-status').textContent};
+                store.writeSaveSnapshot=write;const retried=await app.saveShiftPhotoCompare();return {pending,saved,failed,retried};
+            }finally{release?.();store.writeSaveSnapshot=write;}
+        })()`);
+        assert.equal(result.pending.done,false);assert.match(result.pending.text,/保存中/);assert.equal(result.saved,true);
+        assert.deepEqual(result.failed,{closed:false,open:true,count:2,status:'保存失敗・再保存できます'});assert.equal(result.retried,true);
+    });
+    await t.test('undo and redo preserve annotation data and shortcuts leave text input and IME alone',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            const counts=[imageTestCount()];document.querySelector('.shift-photo-compare-undo').click();await imageTestFlush();counts.push(imageTestCount());
+            document.querySelector('.shift-photo-compare-redo').click();await imageTestFlush();counts.push(imageTestCount());
+            document.getElementById('shift-photo-compare-overlay').focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true}));await imageTestFlush();counts.push(imageTestCount());
+            document.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,shiftKey:true,bubbles:true}));await imageTestFlush();counts.push(imageTestCount());
+            const input=document.getElementById('shift-photo-compare-text-input');input.focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true}));counts.push(imageTestCount());
+            document.getElementById('shift-photo-compare-overlay').focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,isComposing:true,bubbles:true}));counts.push(imageTestCount());
+            app.undoShiftPhotoCompareMarkChange();imageTestAddMark(80);await imageTestFlush();const reset=document.querySelector('.shift-photo-compare-redo').disabled;await app.saveShiftPhotoCompare();return {counts,reset};
+        })()`);
+        assert.deepEqual(result.counts,[2,1,2,1,2,2,2]);assert.equal(result.reset,true);
+    });
+    await t.test('comparison is read-only and does not rewrite the current image or its saved data',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            await imageTestFlush();const before=JSON.stringify(store.activeData),count=imageTestCount();
+            document.getElementById('image-edit-compare').click();const showing=imageTestCount(),readonly=document.querySelector('.shift-photo-compare-grid').inert;
+            app.undoShiftPhotoCompareMarkChange();const ignored=imageTestCount();document.getElementById('image-edit-compare').click();
+            return {showing,readonly,ignored,restored:imageTestCount()===count,unchanged:before===JSON.stringify(store.activeData)};
+        })()`);
+        assert.deepEqual(result,{showing:0,readonly:true,ignored:0,restored:true,unchanged:true});
+    });
+    await t.test('saved versions survive close and reload, and restoring a version can itself be undone',async()=>{
+        await page.evaluate('(async()=>{await app.saveShiftPhotoCompare();await app.closeShiftPhotoCompare();})()');
+        await reloadApp(page,'image version reload');
+        const result=await page.evaluate(`(async()=>{
+            await maintenanceLazyFeatures.loadPhotoEffects();const item=app.getPhotoManagerLibrary().find(p=>p.name==='画像検証');window.imageTestId=item.id;await app.openPhotoManagerEditor(item.id);
+            app.updateShiftPhotoCompareCaption(0,'点検後 点検完了');await app.saveShiftPhotoCompare();
+            const versions=app.getImageEditVersions(),before=app.captureImageEditSnapshot();app.openImageEditVersions();
+            const buttons=[...document.querySelectorAll('.image-edit-version button')];buttons.at(-1).click();
+            const restored=app.captureImageEditSnapshot(),restoredCaption=document.querySelector('.shift-photo-compare-caption-input').value;app.undoShiftPhotoCompareMarkChange();await app.saveShiftPhotoCompare();
+            return {count:versions.length,restored:restored.wraps[0].marks.length,undo:app.captureImageEditSnapshot().wraps[0].marks.length,original:before.wraps[0].marks.length,captionRestored:restoredCaption===restored.wraps[0].caption,captionUndone:document.querySelector('.shift-photo-compare-caption-input').value,role:app._shiftPhotoCompareContext.photos[0].role};
+        })()`);
+        assert.ok(result.count>=3);assert.equal(result.restored,0);assert.equal(result.undo,result.original);assert.equal(result.original,2);assert.equal(result.captionRestored,true);assert.equal(result.captionUndone,'点検後 点検完了');assert.equal(result.role,'after');
+    });
+    await t.test('export preview matches PNG transparency, JPEG background, dimensions and downloaded bytes',async()=>{
+        await page.evaluate(`(()=>{const item=app.findPhotoManagerItem(imageTestId);app.openPhotoManagerExportSettings([item]);})()`);
+        await page.waitFor("document.querySelector('.image-export-dialog .image-edit-dialog-actions button:last-child')?.disabled===false",'image export preview');
+        const png=await page.evaluate(`(async()=>{
+            const dialog=document.querySelector('.image-export-dialog'),image=dialog.querySelector('img');await image.decode();const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const c=canvas.getContext('2d');c.drawImage(image,0,0);
+            const output={width:image.naturalWidth,height:image.naturalHeight,alpha:c.getImageData(0,0,1,1).data[3],status:dialog.querySelector('[role=status]').textContent};
+            const format=dialog.querySelector('[aria-label="形式"]'),size=dialog.querySelector('[aria-label="長辺の上限"]');format.value='jpeg';format.dispatchEvent(new Event('input'));size.value='1280';size.dispatchEvent(new Event('input'));return output;
+        })()`);
+        assert.equal(png.width,1920);assert.equal(png.height,960);assert.equal(png.alpha,0);assert.match(png.status,/1920.*960/);
+        await page.waitFor("document.querySelector('.image-export-dialog .image-edit-dialog-actions button:last-child')?.disabled===false",'JPEG export preview');
+        const jpeg=await page.evaluate(`(async()=>{
+            const dialog=document.querySelector('.image-export-dialog'),image=dialog.querySelector('img');await image.decode();const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const c=canvas.getContext('2d');c.drawImage(image,0,0);const pixel=[...c.getImageData(0,0,1,1).data];
+            let captured;const download=app.downloadPhotoManagerBlob;try{app.downloadPhotoManagerBlob=(blob,name)=>captured={blob,name};await dialog.querySelector('.image-edit-dialog-actions button:last-child').onclick();}finally{app.downloadPhotoManagerBlob=download;}
+            const bytes=new Uint8Array(await captured.blob.arrayBuffer());const output={pixel,width:image.naturalWidth,height:image.naturalHeight,mime:captured.blob.type,name:captured.name,signature:[bytes[0],bytes[1]]};dialog.close();return output;
+        })()`);
+        assert.deepEqual(jpeg.pixel,[255,255,255,255]);assert.equal(jpeg.width,1280);assert.equal(jpeg.height,640);assert.equal(jpeg.mime,'image/jpeg');assert.match(jpeg.name,/\.jpg$/);assert.deepEqual(jpeg.signature,[255,216]);
+    });
+    await t.test('bulk export uses the chosen format, unique names and a responsive preview',async()=>{
+        await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
+        await page.evaluate(`(()=>{const item=app.findPhotoManagerItem(imageTestId);app.openPhotoManagerExportSettings([item,item]);})()`);
+        await page.waitFor("document.querySelector('.image-export-dialog .image-edit-dialog-actions button:last-child')?.disabled===false",'bulk preview');
+        const result=await page.evaluate(`(async()=>{
+            const dialog=document.querySelector('.image-export-dialog'),box=dialog.getBoundingClientRect();let captured;const download=app.downloadPhotoManagerBlob;
+            try{app.downloadPhotoManagerBlob=(blob,name)=>captured={blob,name};await dialog.querySelector('.image-edit-dialog-actions button:last-child').onclick();}finally{app.downloadPhotoManagerBlob=download;}
+            const entries=await app.readXlsxZipEntries(await captured.blob.arrayBuffer()),names=Object.keys(entries);const output={names,jpeg:names.every(n=>entries[n][0]===255&&entries[n][1]===216),fits:box.left>=0&&box.right<=innerWidth&&dialog.scrollWidth<=dialog.clientWidth,name:captured.name};dialog.close();return output;
+        })()`);
+        assert.equal(result.names.length,2);assert.equal(new Set(result.names).size,2);assert.ok(result.names.every(n=>n.endsWith('.jpg')));assert.equal(result.jpeg,true);assert.equal(result.fits,true);assert.match(result.name,/\.zip$/);
+        await page.send('Emulation.clearDeviceMetricsOverride');
+    });
+    await t.test('global annotations persist and blank background undo survives a failed save and retry',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.pushShiftPhotoCompareUndo();const layer=document.querySelector('.shift-photo-compare-global-layer');layer.insertAdjacentHTML('beforeend',app.getShiftPhotoCompareMarkHtml({mode:'arrow',x:50,y:50,size:70,color:'#dc2626'}));app.syncShiftPhotoCompareGlobalMarks(layer);await app.saveShiftPhotoCompare();await app.closeShiftPhotoCompare();
+            await app.openPhotoManagerEditor(imageTestId);const globals=app._shiftPhotoCompareContext.globalMarks.length;await app.closeShiftPhotoCompare();
+            await app.openShiftPhotoCompareWithPhotos([app.createShiftPhotoCompareBlankBasePhoto()],{source:'photoManagerBlank',title:'背景検証'});
+            app.setShiftPhotoCompareBlankBaseColor('#ff0000');app.undoShiftPhotoCompareMarkChange();const undone=app.getShiftPhotoCompareBlankBaseColor();app.redoShiftPhotoCompareMarkChange();const redone=app.getShiftPhotoCompareBlankBaseColor();
+            const write=store.writeSaveSnapshot;let failed;
+            try{store.writeSaveSnapshot=async()=>{throw Error('白紙保存失敗')};failed=await app.saveShiftPhotoCompare();}finally{store.writeSaveSnapshot=write;}
+            const retained=!!document.getElementById('shift-photo-compare-overlay'),retry=await app.saveShiftPhotoCompare(),id=app._shiftPhotoCompareContext.photoManagerBlankEditItemId;
+            const saved=app.getPhotoManagerLibrary().find(p=>p.id===id).photoCompareBlankEdit.blankBaseColor;await app.closeShiftPhotoCompare();await app.openPhotoManagerBlankEdit(id);
+            return {globals,undone,redone,failed,retained,retry,saved,reopened:app.getShiftPhotoCompareBlankBaseColor(),versions:app.getImageEditVersions().length};
+        })()`);
+        assert.equal(result.globals,1);assert.equal(result.undone,'#ffffff');assert.equal(result.redone,'#ff0000');assert.equal(result.failed,false);assert.equal(result.retained,true);assert.equal(result.retry,true);assert.equal(result.saved,'#ff0000');assert.equal(result.reopened,'#ff0000');assert.ok(result.versions>=2);
+    });
+});

@@ -6320,6 +6320,7 @@
     syncShiftPhotoCompareMarks(wrap) {
         const photoIndex = Number(wrap?.dataset.photoIndex);
         const context = this._shiftPhotoCompareContext;
+        if (context?._imageComparison || context?._applyingImageSnapshot) return;
         if (!context || !Number.isFinite(photoIndex)) return;
         const photo = context.photos?.[photoIndex];
         let marks = this.readShiftPhotoCompareMarksFromWrap(wrap);
@@ -6339,7 +6340,7 @@
         if (photo) photo.marks = marks;
         const previewItem = photo?.previewItem;
         if (previewItem) previewItem.dataset.shiftPhotoMarks = JSON.stringify(this.compactShiftPhotoCompareMarkImages(marks));
-        if (context.onSync) context.onSync(context);
+        this.trackImageEditSave(context.onSync?.(context), context);
         this.flashShiftPhotoCompareSaved(photoIndex);
         if (context.row) {
             this.updateShiftPhotoToolState(context.row);
@@ -6350,7 +6351,7 @@
 
     syncShiftPhotoCompareGlobalMarks(layer = document.querySelector('.shift-photo-compare-global-layer')) {
         const context = this._shiftPhotoCompareContext;
-        if (!context || !layer) return;
+        if (!context || !layer || context._imageComparison || context._applyingImageSnapshot) return;
         const marks = this.readShiftPhotoCompareMarksFromWrap(layer);
         context.globalMarks = marks;
         if (context.row) {
@@ -6359,7 +6360,7 @@
             this.saveShiftPhotoCompareAnimationTimelineBackupFromEditor(context.row);
             this.scheduleShiftNotebookAutoSave();
         }
-        context.onSync?.(context);
+        this.trackImageEditSave(context.onSync?.(context), context);
     }
 
     getShiftPhotoCompareAnimationOrderValue(value = 0) {
@@ -16808,7 +16809,7 @@
         const selector = `[data-photo-index="${CSS.escape(String(index))}"]`;
         const status = document.querySelector(`.shift-photo-compare-save-status${selector}`);
         if (!status) return;
-        status.textContent = '保存済み';
+        status.textContent = '変更を反映';
         status.classList.add('show');
         clearTimeout(status._hideTimer);
         status._hideTimer = setTimeout(() => status.classList.remove('show'), 1200);
@@ -17002,6 +17003,8 @@
     }
 
     setShiftPhotoCompareBlankBaseColor(color = '#ffffff') {
+        if (this._shiftPhotoCompareContext?._imageComparison || this._shiftPhotoCompareContext?._saving) return;
+        this.pushShiftPhotoCompareUndo();
         const safeColor = /^#[0-9a-fA-F]{6}$/.test(String(color || '')) ? String(color).toLowerCase() : '#ffffff';
         const src = this.createShiftPhotoCompareBlankBaseSrc(safeColor);
         const context = this._shiftPhotoCompareContext;
@@ -17110,6 +17113,9 @@
     }
 
     openShiftPhotoCompareWithPhotos(photos = [], options = {}) {
+        if (this._shiftPhotoCompareContext && document.getElementById('shift-photo-compare-overlay')) {
+            return this.closeShiftPhotoCompare().then(closed => closed === false ? null : this.openShiftPhotoCompareWithPhotos(photos, options));
+        }
         if (!photos.length) photos = [this.createShiftPhotoCompareBlankBasePhoto()];
         document.getElementById('shift-photo-compare-overlay')?.remove();
         const roleLabels = this.getShiftPhotoCompareLabels(photos);
@@ -17798,7 +17804,11 @@
         this.updateShiftPhotoCompareImageBrushSizeControl();
         this.updateShiftPhotoCompareOneShotButton();
         this.renderShiftPhotoCompareRecentImageStamps();
+        this.initializeImageEditWorkspace(options);
         const onKeydown = (e) => {
+            if (e.isComposing || document.querySelector('.image-edit-dialog[open]')) return;
+            if (this._shiftPhotoCompareContext?._imageComparison) { if (e.key === 'Escape') { e.preventDefault(); this.toggleImageEditComparison(); } return; }
+            if (this._shiftPhotoCompareContext?._saving) return;
             if (this.isShiftPhotoCompareEscapeEvent(e)) {
                 this.handleShiftPhotoCompareEscape(e);
                 return;
@@ -17815,9 +17825,10 @@
                 this.finishShiftPhotoComparePolyline();
                 return;
             }
-            if (!isTextInput && (e.ctrlKey || e.metaKey) && String(e.key || '').toLowerCase() === 'z') {
+            if (!isTextInput && (e.ctrlKey || e.metaKey) && ['z','y'].includes(String(e.key || '').toLowerCase())) {
                 e.preventDefault();
-                this.undoShiftPhotoCompareMarkChange();
+                if (e.shiftKey || String(e.key).toLowerCase() === 'y') this.redoShiftPhotoCompareMarkChange();
+                else this.undoShiftPhotoCompareMarkChange();
                 return;
             }
             const selectedMarks = this.getShiftPhotoCompareSelectedMarks();
@@ -17830,7 +17841,7 @@
             }
         };
         const onEscapeCapture = (e) => {
-            if (!this.isShiftPhotoCompareEscapeEvent(e)) return;
+            if (e.type === 'keyup' || e.isComposing || !this.isShiftPhotoCompareEscapeEvent(e)) return;
             this.handleShiftPhotoCompareEscape(e);
         };
         const onPaste = (e) => this.handleShiftPhotoComparePasteEvent(e);
@@ -17853,6 +17864,9 @@
     }
 
     handleShiftPhotoCompareEscape(event = null) {
+        if (document.querySelector('.image-edit-dialog[open]')) return;
+        if (this._shiftPhotoCompareContext?._imageComparison) { event?.preventDefault?.(); event?.stopImmediatePropagation?.(); this.toggleImageEditComparison(); return; }
+        if (this._shiftPhotoCompareContext?._saving) return;
         event?.preventDefault?.();
         event?.stopPropagation?.();
         event?.stopImmediatePropagation?.();
@@ -21232,58 +21246,40 @@
         button.classList.toggle('has-undo', count > 0);
         button.title = count ? `元に戻す (${count}件)` : '元に戻す';
         button.dataset.undoCount = count ? String(count) : '';
+        button.disabled = count === 0;
+        const redo = document.querySelector('.shift-photo-compare-redo');
+        if (redo) { const n = this._shiftPhotoCompareRedoStack?.length || 0; redo.disabled = n === 0; redo.title = `やり直す (${n}件) · Ctrl+Y / Ctrl+Shift+Z`; }
     }
 
     getShiftPhotoCompareSnapshot() {
-        return {
-            wraps: Array.from(document.querySelectorAll('.shift-photo-compare-image-wrap')).map(wrap => ({
-                html: wrap.querySelector('.shift-photo-compare-mark-layer')?.innerHTML || ''
-            })),
-            globalHtml: document.querySelector('.shift-photo-compare-global-layer')?.innerHTML || ''
-        };
+        return this.captureImageEditSnapshot();
     }
 
     pushShiftPhotoCompareUndo() {
-        this._shiftPhotoCompareUndoStack = this._shiftPhotoCompareUndoStack || [];
+        if (this._shiftPhotoCompareContext?._imageComparison || this._shiftPhotoCompareContext?._saving) return;
+        this._shiftPhotoCompareUndoStack ||= [];
         this._shiftPhotoCompareUndoStack.push(this.getShiftPhotoCompareSnapshot());
         if (this._shiftPhotoCompareUndoStack.length > 30) this._shiftPhotoCompareUndoStack.shift();
+        this._shiftPhotoCompareRedoStack = [];
         this.updateShiftPhotoCompareUndoButton();
     }
 
     restoreShiftPhotoCompareSnapshot(snapshot) {
         if (!snapshot) return;
-        Array.from(document.querySelectorAll('.shift-photo-compare-image-wrap')).forEach((wrap, index) => {
-            const layer = wrap.querySelector('.shift-photo-compare-mark-layer');
-            if (layer) layer.innerHTML = snapshot.wraps?.[index]?.html || '';
-            this.syncShiftPhotoCompareMarks(wrap);
-        });
-        const globalLayer = document.querySelector('.shift-photo-compare-global-layer');
-        if (globalLayer) {
-            globalLayer.innerHTML = snapshot.globalHtml || '';
-            this.syncShiftPhotoCompareGlobalMarks(globalLayer);
-        }
-        if (this._shiftPhotoCompareMarkMode === 'polyline') {
-            const active = document.querySelector('.shift-photo-compare-mark.polyline[data-polyline-active="1"]');
-            const polylines = Array.from(document.querySelectorAll('.shift-photo-compare-mark.polyline'));
-            this._shiftPhotoComparePendingPolylineMark = active || polylines[polylines.length - 1] || null;
-            this.setShiftPhotoCompareActivePolyline(this._shiftPhotoComparePendingPolylineMark);
-        } else {
-            this._shiftPhotoComparePendingPolylineMark = null;
-        }
-        this.selectShiftPhotoCompareMark(null);
-        this.refreshShiftPhotoCompareMarkList();
-        this.autoSaveShiftNotebook(true);
-        this.updateShiftPhotoCompareUndoButton();
-        this.updateShiftPhotoCompareMiniToolbar();
+        this.applyImageEditSnapshot(snapshot);
+        const polylines = Array.from(document.querySelectorAll('.shift-photo-compare-mark.polyline'));
+        this._shiftPhotoComparePendingPolylineMark = this._shiftPhotoCompareMarkMode === 'polyline' ? polylines.at(-1) || null : null;
+        this.setShiftPhotoCompareActivePolyline(this._shiftPhotoComparePendingPolylineMark);
     }
 
     undoShiftPhotoCompareMarkChange() {
+        if (this._shiftPhotoCompareContext?._imageComparison || this._shiftPhotoCompareContext?._saving) return;
         const snapshot = this._shiftPhotoCompareUndoStack?.pop?.();
         if (!snapshot) return;
+        this._shiftPhotoCompareRedoStack ||= [];
+        this._shiftPhotoCompareRedoStack.push(this.getShiftPhotoCompareSnapshot());
         this.restoreShiftPhotoCompareSnapshot(snapshot);
-        this.showShiftPhotoCompareActionMessage(this._shiftPhotoCompareMarkMode === 'polyline' && this._shiftPhotoComparePendingPolylineMark
-            ? '直前の一区間を元に戻しました。'
-            : '元に戻しました。');
+        this.showShiftPhotoCompareActionMessage('元に戻しました。');
     }
 
     toggleShiftPhotoCompareGlobalTarget() {
@@ -43900,15 +43896,15 @@
         }
     }
 
-    async renderShiftPhotoCompareAllVisibleImagesToCanvas() {
+    async renderShiftPhotoCompareAllVisibleImagesToCanvas(maxSide = 3200) {
         const wraps = Array.from(document.querySelectorAll('.shift-photo-compare-image-wrap'));
         if (!wraps.length) return null;
         if (document.fonts?.ready) await document.fonts.ready;
         wraps.forEach(wrap => this.syncShiftPhotoCompareMarks(wrap));
         this.syncShiftPhotoCompareGlobalMarks();
         const exportScale = 3;
-        const gap = 18 * exportScale;
-        const cellW = 720 * exportScale;
+        let gap = 18 * exportScale;
+        let cellW = 720 * exportScale;
         const exportItems = [];
         for (const wrap of wraps) {
             const imgEl = wrap.querySelector(':scope > img') || wrap.querySelector('img');
@@ -43930,9 +43926,15 @@
             const start = row * cols;
             return Math.max(...exportItems.slice(start, start + cols).map(item => item.height), 1);
         });
+        const rawWidth = cols * cellW + (cols - 1) * gap;
+        const rawHeight = rowHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, rows - 1) * gap;
+        const fit = Math.min(1, maxSide / Math.max(rawWidth, rawHeight));
+        cellW *= fit; gap *= fit;
+        exportItems.forEach(item => { item.width *= fit; item.height *= fit; });
+        rowHeights.forEach((height, i) => rowHeights[i] = height * fit);
         const canvas = document.createElement('canvas');
-        canvas.width = cols * cellW + (cols - 1) * gap;
-        canvas.height = rowHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, rows - 1) * gap;
+        canvas.width = Math.max(1, Math.round(rawWidth * fit));
+        canvas.height = Math.max(1, Math.round(rawHeight * fit));
         const ctx = canvas.getContext('2d');
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
@@ -43955,15 +43957,8 @@
     }
 
     async exportShiftPhotoCompareImage() {
-        const canvas = await this.renderShiftPhotoCompareAllVisibleImagesToCanvas();
-        if (!canvas) return;
-        const link = document.createElement('a');
-        link.href = canvas.toDataURL('image/png');
-        link.download = `写真比較_${this.getLocalDateString()}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        this.autoSaveShiftNotebook(true);
+        if (this._shiftPhotoCompareContext?._imageComparison) this.toggleImageEditComparison();
+        return this.openImageExportDialog([{ name: `写真編集_${this.getLocalDateString()}`, render: () => this.renderShiftPhotoCompareAllVisibleImagesToCanvas(3200) }], '編集画像');
     }
 
     async exportShiftPhotoCompareEachImage() {
@@ -43971,11 +43966,10 @@
         if (!wraps.length) return;
         if (document.fonts?.ready) await document.fonts.ready;
         this.syncShiftPhotoCompareGlobalMarks();
-        for (let i = 0; i < wraps.length; i += 1) {
-            const wrap = wraps[i];
+        return this.openImageExportDialog(wraps.map((wrap, i) => ({ name: `写真_${i + 1}_記号込み`, render: async () => {
             this.syncShiftPhotoCompareMarks(wrap);
             const imgEl = wrap.querySelector(':scope > img') || wrap.querySelector('img');
-            if (!imgEl?.src) continue;
+            if (!imgEl?.src) throw Error('画像が見つかりません。');
             const img = await this.loadShiftPhotoCompareImage(imgEl.src);
             const naturalW = img.naturalWidth || img.width || 1;
             const naturalH = img.naturalHeight || img.height || 1;
@@ -43994,14 +43988,8 @@
                 await this.drawShiftPhotoCompareMarkFromWrap(ctx, mark, wrap, { x: 0, y: 0, width: canvas.width, height: canvas.height });
             }
             await this.drawShiftPhotoCompareGlobalMarksForWrap(ctx, wrap, { x: 0, y: 0, width: canvas.width, height: canvas.height });
-            const link = document.createElement('a');
-            link.href = canvas.toDataURL('image/png');
-            link.download = `写真_${i + 1}_記号込み_${this.getLocalDateString()}.png`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-        this.autoSaveShiftNotebook(true);
+            return canvas;
+        }})), '写真ごとの書き出し');
     }
 
     async renderShiftPhotoCompareWrapWithMarks(wrap, options = {}) {
@@ -44138,7 +44126,10 @@
         const context = this._shiftPhotoCompareContext;
         const button = overlay?.querySelector('.shift-photo-compare-save');
         if (!overlay || !context || context._saving) return false;
+        if (context._imageComparison) this.toggleImageEditComparison();
         context._saving = true;
+        this.setImageEditReadOnly(true);
+        this.setImageEditSaveStatus('saving', context);
         clearTimeout(this._shiftPhotoCompareSaveButtonTimer);
         button?.classList.remove('saved', 'failed');
         button?.classList.add('saving');
@@ -44151,22 +44142,8 @@
             this.removeEmptyShiftPhotoComparePolylineMarks();
             overlay.querySelectorAll('.shift-photo-compare-image-wrap').forEach(wrap => this.syncShiftPhotoCompareMarks(wrap));
             this.syncShiftPhotoCompareGlobalMarks();
-            const syncTasks = [];
-            if (context.row) {
-                const saveResult = this.autoSaveShiftNotebook(true);
-                if (saveResult && typeof saveResult.then === 'function') syncTasks.push(saveResult);
-            }
-            if (String(context.source || '').startsWith('photoManagerBlank') && typeof this.syncPhotoManagerBlankEditFromCompare === 'function') {
-                const blankResult = this.syncPhotoManagerBlankEditFromCompare(context);
-                if (blankResult && typeof blankResult.then === 'function') syncTasks.push(blankResult);
-            }
-            const syncResult = context.onSync?.(context);
-            if (syncResult && typeof syncResult.then === 'function') syncTasks.push(syncResult);
-            if (context.source === 'guide') {
-                const guideResult = this.autoSaveGuideDraftFromModal?.();
-                if (guideResult && typeof guideResult.then === 'function') syncTasks.push(guideResult);
-            }
-            if (syncTasks.length) await Promise.all(syncTasks);
+            await this.persistImageEditor(context);
+            this.setImageEditSaveStatus('saved', context);
             button?.classList.remove('saving', 'failed');
             button?.classList.add('saved');
             if (button) {
@@ -44182,6 +44159,7 @@
             return true;
         } catch (error) {
             console.error(error);
+            this.setImageEditSaveStatus('failed', context);
             button?.classList.remove('saving', 'saved');
             button?.classList.add('failed');
             if (button) {
@@ -44192,39 +44170,23 @@
             return false;
         } finally {
             context._saving = false;
+            this.setImageEditReadOnly(false);
         }
     }
 
     async closeShiftPhotoCompare() {
+        const context = this._shiftPhotoCompareContext;
+        if (context?._saving) return false;
+        if (context && !await this.saveShiftPhotoCompare()) return false;
         this.closeShiftPhotoCompareImageOcrSpeechDialog?.();
         this.closeShiftPhotoCompareImageContextMenu();
         this.removeAllShiftPhotoCompareAnimationEndpointOrderBadges();
         this.cancelShiftPhotoCompareEyedropper?.();
-        if (this._shiftPhotoCompareContext) this._shiftPhotoCompareContext._closing = true;
         this._shiftPhotoCompareResizeObserver?.disconnect?.();
         this._shiftPhotoCompareResizeObserver = null;
-        this.removeEmptyShiftPhotoComparePolylineMarks();
         this.setShiftPhotoCompareActivePolyline(null);
         this._shiftPhotoComparePendingPolylineMark = null;
-        document.querySelectorAll('.shift-photo-compare-image-wrap').forEach(wrap => this.syncShiftPhotoCompareMarks(wrap));
-        this.syncShiftPhotoCompareGlobalMarks();
-        if (this._shiftPhotoCompareContext?.row) this.autoSaveShiftNotebook(true);
-        const context = this._shiftPhotoCompareContext;
-        const syncTasks = [];
-        if (String(context?.source || '').startsWith('photoManagerBlank') && typeof this.syncPhotoManagerBlankEditFromCompare === 'function') {
-            syncTasks.push(this.syncPhotoManagerBlankEditFromCompare(context));
-        }
-        const syncResult = context?.onSync?.(context);
-        if (syncResult && typeof syncResult.then === 'function') syncTasks.push(syncResult);
-        if (syncTasks.length) {
-            try {
-                await Promise.all(syncTasks);
-            } catch (error) {
-                console.error(error);
-            }
-        }
-        this._shiftPhotoCompareContext?.onClose?.(this._shiftPhotoCompareContext);
-        if (this._shiftPhotoCompareContext?.source === 'guide') this.autoSaveGuideDraftFromModal?.();
+        if (context) { context._closing = true; context._disposed = true; context.onClose?.(context); }
         document.getElementById('shift-photo-compare-overlay')?.remove();
         this._shiftPhotoCompareContext = null;
         if (this._shiftPhotoCompareKeydown) {

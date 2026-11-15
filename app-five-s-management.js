@@ -559,6 +559,7 @@
         const groupName = source.row.group || '未設定';
         this.openShiftPhotoCompareWithPhotos(photos, {
             source: 'fiveS',
+            imageEditKey: `fiveS:${dateStr}:${shift}:${rowId || sourceIndex}:${shared}`,
             title: `5S写真編集: ${dateStr} / ${shiftLabel.name} / ${groupName}`,
             row: null,
             globalMarks: source.row.photoCompareMarks || [],
@@ -569,8 +570,9 @@
                     marks: this.compactShiftPhotoCompareMarkImages(photo.marks)
                 }));
                 source.row.photoCompareMarks = this.compactShiftPhotoCompareMarkImages(context.globalMarks);
-                store.save();
+                const saved = store.save();
                 if (document.getElementById('fiveS-list')) this.renderFiveSManagement();
+                return saved;
             },
             onClose: () => this.showFiveSPhotoSavedNotice()
         });

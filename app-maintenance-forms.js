@@ -2393,9 +2393,11 @@
             changeNote: oldGuide.changeNote || '自動保存',
             revisions: []
         };
-        store.save();
+        const saved = store.save();
+        saved.catch(() => {});
         this.renderHistory?.();
         this.renderGuides?.();
+        return saved;
     }
 
     getImageNaturalSize(src) {
