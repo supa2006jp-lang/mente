@@ -14,6 +14,15 @@ try{
   await banner.waitFor();
  }
  await start();
+ const hint=page.locator('#sketch-draw-instruction'),help=page.locator('#sketch-drawing-help-toggle'),details=page.locator('#sketch-drawing-help');
+ await hint.filter({hasText:'始点をクリック'}).waitFor();
+ assert.equal(await details.isVisible(),false);
+ await help.focus();
+ await page.keyboard.press('Enter');
+ assert.equal(await help.getAttribute('aria-expanded'),'true');
+ assert.match(await details.textContent(),/右クリック.*Esc/);
+ await help.click();
+ assert.equal(await details.isVisible(),false);
  assert.equal(await settings.getAttribute('aria-expanded'),'false');
  assert.equal(await angle.isVisible(),false);
  assert.ok(await page.locator('#sketch-construction-toggle').isVisible());
@@ -34,9 +43,11 @@ try{
  assert.equal(await angle.isVisible(),false);
 
  const before=await banner.boundingBox(),canvas=await page.locator('#canvas-host canvas').boundingBox();
+ assert.ok(before.width<canvas.width*.9);
  const point={x:before.x+before.width*.35,y:before.y+before.height/2};
  const dy=160;
  await page.mouse.click(point.x,point.y+dy);
+ await hint.filter({hasText:'終点をクリック'}).waitFor();
  const button=await settings.boundingBox(),buttonX=button.x+button.width/2,buttonY=button.y+button.height/2;
  await page.mouse.move(buttonX,buttonY+dy);
  await page.mouse.move(buttonX,buttonY,{steps:20});
@@ -49,6 +60,8 @@ try{
  await page.mouse.move(pan.x,pan.y);
  await page.mouse.down({button:'middle'});
  await page.mouse.move(pan.x,pan.y-dy,{steps:10});
+ await page.waitForTimeout(220);
+ assert.deepEqual(await banner.boundingBox(),before);
  await page.mouse.up({button:'middle'});
  await page.waitForFunction(()=>!!document.getElementById('sketch-banner').style.translate);
  const moved=await banner.boundingBox();
@@ -60,6 +73,43 @@ try{
  await page.mouse.move(pan.x,pan.y,{steps:10});
  await page.mouse.up({button:'middle'});
  await page.waitForFunction(()=>!document.getElementById('sketch-banner').style.translate);
+
+ const fixed=page.locator('#sketch-banner-fixed'),grip=await page.locator('#sketch-banner-grip').boundingBox();
+ await fixed.click();
+ assert.equal(await fixed.getAttribute('aria-pressed'),'true');
+ assert.equal((await banner.boundingBox()).x,before.x);
+ assert.equal((await banner.boundingBox()).y,before.y);
+ await fixed.click();
+ assert.equal(await fixed.getAttribute('aria-pressed'),'false');
+ await page.mouse.move(grip.x+grip.width/2,grip.y+grip.height/2);
+ await page.mouse.down();
+ await page.mouse.move(grip.x+grip.width/2+110,grip.y+grip.height/2+78,{steps:6});
+ await page.mouse.up();
+ const manual=await banner.boundingBox();
+ assert.equal(await fixed.getAttribute('aria-pressed'),'true');
+ assert.ok(Math.abs(manual.x-before.x-110)<2&&Math.abs(manual.y-before.y-78)<2);
+ await page.mouse.move(pan.x,pan.y);
+ await page.mouse.down({button:'middle'});
+ await page.mouse.move(pan.x,pan.y-dy,{steps:10});
+ await page.mouse.up({button:'middle'});
+ await page.waitForTimeout(240);
+ assert.deepEqual(await banner.boundingBox(),manual);
+ await start();
+ await page.waitForFunction(()=>document.getElementById('sketch-banner').dataset.panelPosition==='manual');
+ assert.deepEqual(await banner.boundingBox(),manual);
+ await page.setViewportSize({width:1050,height:850});
+ const narrowViewport=await page.locator('#canvas-host').boundingBox();
+ await page.waitForFunction(()=>{
+  const panel=document.getElementById('sketch-banner').getBoundingClientRect(),viewport=document.getElementById('canvas-host').getBoundingClientRect();
+  return panel.right<=viewport.right+1&&panel.bottom<=viewport.bottom+1;
+ });
+ assert.ok(narrowViewport.width<canvas.width);
+ await page.setViewportSize({width:1750,height:1050});
+ await page.locator('#sketch-banner-position-reset').click();
+ assert.equal(await fixed.getAttribute('aria-pressed'),'false');
+ assert.deepEqual(await banner.boundingBox(),before);
+ await start();
+ assert.equal(await fixed.getAttribute('aria-pressed'),'false');
  await page.locator('#end-sketch').click();
  await banner.waitFor({state:'hidden'});
 
@@ -74,7 +124,39 @@ try{
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
  const viewAfter=JSON.parse(await host.getAttribute('data-camera-state'));
  assert.ok(viewAfter.every((value,i)=>Math.abs(value-viewBefore[i])<1e-6));
+
+ await start();
+ const zoomBanner=await banner.boundingBox();
+ const anchor={x:zoomBanner.x+zoomBanner.width*.45,y:zoomBanner.y+zoomBanner.height/2};
+ const zoomFactor=Math.exp(.3);
+ await page.mouse.click(anchor.x,anchor.y+80);
+ await page.mouse.move(anchor.x,anchor.y+80*zoomFactor/(zoomFactor-1));
+ await page.mouse.wheel(0,-100);
+ await page.mouse.wheel(0,-100);
+ assert.deepEqual(await banner.boundingBox(),zoomBanner);
+ await page.waitForFunction(()=>!!document.getElementById('sketch-banner').style.translate);
+
+ await start();
+ await page.locator('#snap-enabled').uncheck();
+ const dimensionBase=await banner.boundingBox();
+ const y=dimensionBase.y+dimensionBase.height+24;
+ const x=dimensionBase.x+30;
+ await page.mouse.click(x,y);
+ await page.mouse.move(x+86,y);
+ await page.waitForFunction(()=>!!document.getElementById('sketch-banner').style.translate);
+ const separated=await banner.boundingBox();
+ for(const field of await page.locator('.sketch-dim-field').all()){
+  const box=await field.boundingBox();
+  assert.ok(box.x+box.width<=separated.x||box.x>=separated.x+separated.width||box.y+box.height<=separated.y||box.y>=separated.y+separated.height);
+ }
+
+ await page.setViewportSize({width:780,height:850});
+ await start();
+ await settings.click();
+ const narrow=await banner.boundingBox(),narrowCanvas=await page.locator('#canvas-host canvas').boundingBox();
+ assert.ok(narrow.x>=narrowCanvas.x&&narrow.x+narrow.width<=narrowCanvas.x+narrowCanvas.width);
+ assert.ok(narrow.height>zoomBanner.height);
  assert.deepEqual(errors,[]);
- console.log('PASS drawing settings, persistent pins and relocation away from the active endpoint');
+ console.log('PASS drawing settings, contextual help, persistent position, and dimension-aware placement');
 }finally{await browser.close();}
 process.exit(0);
