@@ -4459,11 +4459,16 @@ const slideLidButton=document.createElement('button');slideLidButton.id='slide-l
 slideLidButton.onclick=()=>{if(stage!=='model'||document.querySelector('dialog[open]')||pendingExtrude||extrusionBusy||moveTool?.active){notify('編集中の操作を終了してからスライド蓋を作成してください');return;}bodyDisplay?.stopExploded();sectionControl?.cancel();printQuality?.close();finishSketch(false);$('measurement').hidden=true;slideLidController.open();clearEdgeSelection();clearFaceSelection();};
 
 async function exportBossFitTest(input,isCurrent,onProgress){
+ const compare=input.testMode==='engagement';
  let result;const ensure=()=>{if(!isCurrent())throw Error('操作をキャンセルしました');};
  const message=await saveStl(async()=>{
   ensure();result=await kernelClient.run([],{type:'bossFitTest',id:crypto.randomUUID(),...input},{onProgress});ensure();return checkedGeneratedStl(result.outputs,{isCurrent,onProgress});
- },download,{suggestedName:'boss-fit-D'+input.diameter+'-L'+input.length+'.stl',isCurrent});
- if(!message)return null;ensure();host.dataset.bossFitTest=JSON.stringify(result.analysis);return '4組・8部品のテストSTLを保存しました。浮き文字は片側すき間（mm）です。合うすき間を「片側のすき間」に設定してください。';
+ },download,{suggestedName:(compare?'boss-engagement-D':'boss-fit-D')+input.diameter+'-L'+input.length+'.stl',isCurrent});
+ if(!message)return null;ensure();host.dataset.bossFitTest=JSON.stringify(result.analysis);
+ const text=compare
+  ?'3組・6部品の比較用STLを保存しました。1は軽め、2は標準、3は強めです。'
+  :'4組・8部品のテストSTLを保存しました。浮き文字は片側すき間（mm）です。';
+ return {text,analysis:result.analysis};
 }
 qrCodeController=qrCodeDialog({scene,meshes,host,kernel:kernelClient,getFeatures:()=>features,notify,apply:async(spec,result,editing,original,isCurrent)=>{
  if(features!==original||!isCurrent())throw Error('モデルが変更されました');

@@ -3,7 +3,7 @@ import {fuseSolid,fuseSolids} from './solid-fuse.js';
 import {bossFitTestSettings} from './boss-fit.js';
 import {snapBossSettings,makeSnapPin,makeSnapSocket,placeSnapTool} from './boss-snap.js';
 import {Vector3} from 'three';
-const digits={'0':'abcdef','1':'bc','2':'abged','5':'afgcd'};
+const digits={'0':'abcdef','1':'bc','2':'abged','3':'abgcd','5':'afgcd'};
 // Font-independent seven-segment numerals: every stroke is at least 0.8 mm.
 function label(shape,text,x,y,z,hold){
  // Overlap the stroke ends in area. Corner-only contacts leave four STL
@@ -16,12 +16,15 @@ function label(shape,text,x,y,z,hold){
  return hold(fuseSolids([shape,...bars]));
 }
 export function makeBossFitTest(p,onProgress){
- const s=bossFitTestSettings(p),owned=[],hold=shape=>(owned.push(shape),shape),parts=[],samples=[];
+ const {variants,...s}=bossFitTestSettings(p),owned=[],hold=shape=>(owned.push(shape),shape),parts=[],samples=[];
  try{
-  for(const [i,clearance]of s.clearances.entries()){
-   onProgress?.({stage:'はめ合いテスト '+clearance.toFixed(2)+' mm を作成しています',current:i+1,total:4});
-   const snap=snapBossSettings({...s,clearance});
-   const x=i*(s.padWidth+s.gap),r=s.diameter/2,holeRadius=r+clearance,outerRadius=(snap?.pocketRadius??holeRadius)+s.bossWall,center=[x+s.padWidth/2,8+outerRadius],text=clearance.toFixed(2),labelX=x+(s.padWidth-11.1)/2;
+  for(const [i,variant]of variants.entries()){
+   const {key,clearance,label:text}=variant;
+   const stage=s.testMode==='engagement'?'掛かりの比較 '+text:'はめ合いテスト '+text+' mm';
+   onProgress?.({stage:stage+' を作成しています',current:i+1,total:variants.length});
+   const snap=snapBossSettings({...s,...variant});
+   const x=i*(s.padWidth+s.gap),r=s.diameter/2,holeRadius=r+clearance,outerRadius=(snap?.pocketRadius??holeRadius)+s.bossWall,center=[x+s.padWidth/2,8+outerRadius];
+   const labelX=x+(s.padWidth-(text.length===1?2.8:11.1))/2;
    const pad=hold(R.makeBox([x,0,0],[x+s.padWidth,s.padLength,s.baseThickness])),cylinder=hold(R.makeCylinder(outerRadius,s.bossHeight,[...center,s.baseThickness]));let boss=hold(fuseSolid(pad,cylinder));
    const hole=snap?placeSnapTool(makeSnapSocket(snap,s.length,hold),[...center,s.baseThickness+s.bossHeight],new Vector3(0,0,-1),new Vector3(1,0,0),hold):hold(R.makeCylinder(holeRadius,s.length+clearance+.01,[...center,s.baseThickness+s.bossHeight-s.length-clearance]));boss=hold(boss.cut(hole));boss=label(boss,text,labelX,1.2,s.baseThickness,hold);
    const row=s.padLength+s.gap,pinCenter=[center[0],center[1]+row],pinPad=hold(R.makeBox([x,row,0],[x+s.padWidth,row+s.padLength,s.baseThickness]));
@@ -34,9 +37,10 @@ export function makeBossFitTest(p,onProgress){
     const bottom=new R.Plane([...pinCenter,s.baseThickness+s.length-lead],[1,0,0],[0,0,1]),top=new R.Plane([...pinCenter,s.baseThickness+s.length],[1,0,0],[0,0,1]),tip=hold(R.drawCircle(r).sketchOnPlane(bottom).loftWith(R.drawCircle(r-lead).sketchOnPlane(top),{ruled:true}));pin=hold(fuseSolid(hold(fuseSolid(pinPad,stem)),tip));
    }
    pin=label(pin,text,labelX,row+1.2,s.baseThickness,hold);
-   for(const [role,shape]of [['boss',boss],['pin',pin]]){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false),solids=shape.solids;try{if(!check.IsValid()||solids.length!==1)throw Error('テストピースを一体のソリッドにできません');}finally{check.delete();solids.forEach(q=>q.delete());}parts.push({role,clearance,shape:shape.clone()});}
-   samples.push({clearance,holeDiameter:holeRadius*2,diameter:s.diameter,bossCenter:center,pinCenter,rootZ:s.baseThickness+s.bossHeight,floor:s.bossHeight-s.length-(snap?.axialGap??clearance),label:text});
+   for(const [role,shape]of [['boss',boss],['pin',pin]]){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false),solids=shape.solids;try{if(!check.IsValid()||solids.length!==1)throw Error('テストピースを一体のソリッドにできません');}finally{check.delete();solids.forEach(q=>q.delete());}parts.push({role,key,shape:shape.clone()});}
+   samples.push({clearance,holeDiameter:holeRadius*2,diameter:s.diameter,bossCenter:center,pinCenter,rootZ:s.baseThickness+s.bossHeight,floor:s.bossHeight-s.length-(snap?.axialGap??clearance),label:text,
+    ...(snap&&{snapEngagement:snap.engagement,snapRetentionRidge:snap.retentionRidgeHeight>0,retentionRidgeHeight:snap.retentionRidgeHeight,shoulderOffset:snap.shoulderOffset,headDiameter:snap.headRadius*2,engagementDepth:snap.headRadius-snap.neckRadius})});
   }
-  return {parts,analysis:{...s,samples,strokeWidth:.8,labelHeight:.6,count:8}};
+  return {parts,analysis:{...s,samples,strokeWidth:.8,labelHeight:.6,count:parts.length}};
  }catch(e){parts.forEach(p=>p.shape.delete());throw e;}finally{owned.reverse().forEach(shape=>shape.delete());}
 }

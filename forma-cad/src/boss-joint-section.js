@@ -3,14 +3,16 @@ import {sectionSegments} from './section-view.js';
 import {sectionFillStrips} from './coil-section.js';
 import {bossJointTransform} from './boss-joint-layout.js';
 import {draggablePanel} from './draggable-panel.js';
+import {snapBossAxialPlay,snapBossInsertion} from './boss-snap.js';
 
 export function createBossSectionModel(result){
  const q=result.analysis,u=new THREE.Vector3(...q.frame.u),v=new THREE.Vector3(...q.frame.v),n=new THREE.Vector3(...q.frame.n);
  const geometries=result.outputs.map((output,index)=>{const inverse=bossJointTransform(q,index).invert(),vertices=[];for(let i=0;i<output.vertices.length;i+=3){const p=new THREE.Vector3(...output.vertices.slice(i,i+3)).applyMatrix4(inverse);vertices.push(p.dot(u),p.dot(v),p.dot(n)-q.offset);}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));g.setIndex(output.triangles);return g;});
- return {q,slice(index=0){index=Math.max(0,Math.min(q.positions.length-1,index));const axis=q.layout.long===0?1:0,horizontal=1-axis,at=q.positions[index].uv[axis],normal=axis===0?u:v,parts=geometries.map((g,part)=>{
+ const slices=new Map();
+ return {q,slice(index=0){index=Math.max(0,Math.min(q.positions.length-1,index));if(slices.has(index))return slices.get(index);const axis=q.layout.long===0?1:0,horizontal=1-axis,at=q.positions[index].uv[axis],normal=axis===0?u:v,parts=geometries.map((g,part)=>{
    const raw=sectionSegments(g,new THREE.Plane(new THREE.Vector3(axis===0?1:0,axis===1?1:0,0),-at)),segments=[];for(let i=0;i<raw.length;i+=3)segments.push(raw[i+horizontal],0,raw[i+2]);
    const plane=new THREE.Plane(normal.clone(),-at).applyMatrix4(bossJointTransform(q,part));return {segments,fill:sectionFillStrips(segments),plane};
-  });return {q,index,axis,horizontal,at,parts};},dispose(){geometries.forEach(g=>g.dispose());}};
+  });const slice={q,index,axis,horizontal,at,parts};slices.set(index,slice);return slice;},dispose(){geometries.forEach(g=>g.dispose());}};
 }
 
 export function applyBossSection(preview,data,camera,reverse=false){
@@ -25,22 +27,68 @@ export function applyBossSection(preview,data,camera,reverse=false){
 }
 
 const ns='http://www.w3.org/2000/svg',node=(tag,attrs={},text)=>{const el=document.createElementNS(ns,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,v);if(text!==undefined)el.textContent=text;return el;};
+
+function drawSnapContact(drawing,map,x,contact) {
+ if(contact.depth===undefined)return;
+ const z=-contact.depth;
+ const color=contact.state==='contact'?'#b32636':'#087347';
+ for(const sign of [-1,1]){
+  const [cx,cy]=map([x+sign*contact.pinRadius,z]);
+  if(contact.state==='contact'){
+   const [x1,y1]=map([x+sign*contact.socketRadius,z]);
+   drawing.append(node('line',{x1,y1,x2:cx,y2:cy,stroke:color,'stroke-width':4,'stroke-linecap':'round'}));
+  }
+  drawing.append(node('circle',{cx,cy,r:4,fill:color,stroke:'white','stroke-width':1}));
+ }
+}
 export function createBossJointSection(parent,onSlice,onVisibility){
- const panel=document.createElement('section');panel.id='boss-joint-section-panel';panel.hidden=true;panel.innerHTML='<button type="button" id="boss-section-close" aria-label="断面図を閉じる">×</button><p>実際の形状を組み立て位置へ戻した断面です。水色：ボス側 ／ 橙色：棒側。3Dプレビューも半分に切って表示します。</p><label>断面を通す接合<select id="boss-section-joint"></select></label><div class="boss-section-actions"><button type="button" data-boss-focus="all">全体</button><button type="button" data-boss-focus="joint">ボスと棒を拡大</button><button type="button" data-boss-focus="rim">位置決めを拡大</button><button type="button" id="boss-section-reverse">3Dの表示側を反転</button></div><p id="boss-section-status" role="status" aria-live="polite"></p><svg viewBox="0 0 600 360" role="img" aria-label="ボス接合の実形状の断面"></svg><p id="boss-section-metrics"></p>';
- const style=document.createElement('style');style.textContent='#boss-joint-section-panel{position:absolute;left:var(--panel-left,12px);top:var(--panel-top,90px);z-index:104;width:min(600px,calc(100% - 24px));max-height:calc(100% - 110px);overflow:auto;padding:14px;border:1px solid #7896aa;border-radius:10px;background:#f5fafded;color:#234457;box-shadow:0 8px 25px #0003}#boss-joint-section-panel[hidden]{display:none}#boss-joint-section-panel p,#boss-joint-section-panel label{font-size:13px;line-height:1.6;margin:8px 0;color:#234457}#boss-joint-section-panel .panel-drag-handle{padding-right:32px;font-weight:bold;cursor:grab}#boss-joint-section-panel svg{display:block;width:100%;max-height:40vh;background:white;border-radius:5px}#boss-joint-section-panel button,#boss-joint-section-panel select{padding:7px;background:#edf4f8;color:#234457;border:1px solid #9ab6c7;border-radius:5px}#boss-joint-section-panel button[aria-pressed=true]{background:#c5ebf2;border-color:#1687a3}#boss-section-close{position:absolute;right:10px;top:8px}.boss-section-actions{display:flex;flex-wrap:wrap;gap:6px}';document.head.append(style);parent.append(panel);draggablePanel(panel,'ボス接合の断面');
- let model=null,index=0,focus='all',reverse=false;const svg=panel.querySelector('svg'),select=panel.querySelector('select'),status=panel.querySelector('#boss-section-status'),metrics=panel.querySelector('#boss-section-metrics');
- function draw(){if(!model||panel.hidden)return;const data=model.slice(index),{q,parts}=data,points=parts.flatMap(p=>p.fill);if(!points.length){status.textContent='この位置では断面を表示できません';onSlice(null);return;}
+ const panel=document.createElement('section');panel.id='boss-joint-section-panel';panel.hidden=true;panel.innerHTML='<button type="button" id="boss-section-close" aria-label="断面図を閉じる">×</button><p>実際の形状を組み立て位置へ戻した断面です。水色：ボス側 ／ 橙色：棒側。3Dプレビューも半分に切って表示します。</p><label>断面を通す接合<select id="boss-section-joint"></select></label><div class="boss-section-actions"><button type="button" data-boss-focus="all">全体</button><button type="button" data-boss-focus="joint">ボスと棒を拡大</button><button type="button" data-boss-focus="rim">位置決めを拡大</button><button type="button" id="boss-section-reverse">3Dの表示側を反転</button></div><label id="boss-section-insertion-field" hidden>差し込み深さ <output for="boss-section-insertion"></output><input id="boss-section-insertion" type="range" min="0" max="8" step="any" value="8"></label><p id="boss-section-insertion-state" hidden></p><div id="boss-section-play" hidden><p id="boss-section-play-value"></p><button id="boss-section-show-play" type="button">ガタ分だけ引く</button></div><p id="boss-section-status" role="status" aria-live="polite"></p><svg viewBox="0 0 600 360" role="img" aria-label="ボス接合の実形状の断面"></svg><p id="boss-section-metrics"></p>';
+ const style=document.createElement('style');style.textContent='#boss-joint-section-panel{position:absolute;left:var(--panel-left,12px);top:var(--panel-top,90px);z-index:104;width:min(600px,calc(100% - 24px));max-height:calc(100% - 110px);overflow:auto;padding:14px;border:1px solid #7896aa;border-radius:10px;background:#f5fafded;color:#234457;box-shadow:0 8px 25px #0003}#boss-joint-section-panel[hidden]{display:none}#boss-joint-section-panel p,#boss-joint-section-panel label{font-size:13px;line-height:1.6;margin:8px 0;color:#234457}#boss-joint-section-panel .panel-drag-handle{padding-right:32px;font-weight:bold;cursor:grab}#boss-joint-section-panel svg{display:block;width:100%;max-height:40vh;background:white;border-radius:5px}#boss-joint-section-panel button,#boss-joint-section-panel select{padding:7px;background:#edf4f8;color:#234457;border:1px solid #9ab6c7;border-radius:5px}#boss-joint-section-panel button[aria-pressed=true]{background:#c5ebf2;border-color:#1687a3}#boss-section-insertion{display:block;width:100%;margin-top:4px}#boss-section-insertion-state[data-state=contact]{color:#a52331}#boss-section-insertion-state[data-state=engaged]{color:#087347}#boss-section-close{position:absolute;right:10px;top:8px}.boss-section-actions{display:flex;flex-wrap:wrap;gap:6px}';document.head.append(style);parent.append(panel);draggablePanel(panel,'ボス接合の断面');
+ let model=null,index=0,focus='all',reverse=false,insertionProgress=1;const svg=panel.querySelector('svg'),select=panel.querySelector('select'),status=panel.querySelector('#boss-section-status'),metrics=panel.querySelector('#boss-section-metrics');
+ const insertionField=panel.querySelector('#boss-section-insertion-field'),insertionInput=insertionField.querySelector('input');
+ const insertionValue=insertionField.querySelector('output'),insertionStatus=panel.querySelector('#boss-section-insertion-state');
+ const playReadout=panel.querySelector('#boss-section-play'),playValue=panel.querySelector('#boss-section-play-value');
+ const showPlay=panel.querySelector('#boss-section-show-play');
+ function draw(update3D=true){if(!model||panel.hidden)return;const data=model.slice(index),{q,parts}=data;
+  const insertion=q.snap?Number(insertionInput.value):q.length,remaining=q.length-insertion;
+  const points=parts.flatMap((part,i)=>part.fill.map(([x,z])=>[x,z+(i?remaining:0)]));if(!points.length){status.textContent='この位置では断面を表示できません';onSlice(null);return;}
   let bounds=[Math.min(...points.map(p=>p[0])),Math.min(...points.map(p=>p[1])),Math.max(...points.map(p=>p[0])),Math.max(...points.map(p=>p[1]))];const position=q.positions[data.index];
-  if(focus==='joint'){const x=position.uv[data.horizontal],w=q.outerDiameter+3;bounds=[x-w,position.root-q.offset-1,x+w,position.pinBase-q.offset+1];}
+  if(focus==='joint'){const x=position.uv[data.horizontal],w=q.outerDiameter+3;bounds=[x-w,position.root-q.offset-1,x+w,position.pinBase-q.offset+1+(q.snap?q.length:0)];}
   if(focus==='rim'&&q.alignment?.enabled){const z=q.alignment.height/2,crossings=[];for(const part of parts)for(let i=0;i<part.segments.length;i+=6){const x1=part.segments[i],z1=part.segments[i+2],x2=part.segments[i+3],z2=part.segments[i+5];if(Math.abs(z2-z1)>1e-8&&z>=Math.min(z1,z2)&&z<=Math.max(z1,z2))crossings.push(x1+(x2-x1)*(z-z1)/(z2-z1));}const x=crossings.length?Math.max(...crossings):bounds[2];bounds=[x-q.alignment.width-2.5,-1.5,x+1,q.alignment.grooveDepth+1];}
   const width=Math.max(1,bounds[2]-bounds[0]),height=Math.max(1,bounds[3]-bounds[1]),scale=Math.min(540/(width+2),300/(height+2)),cx=(bounds[0]+bounds[2])/2,cz=(bounds[1]+bounds[3])/2,map=p=>[300+(p[0]-cx)*scale,180-(p[1]-cz)*scale];svg.replaceChildren();const defs=node('defs'),clip=node('clipPath',{id:'boss-section-clip'});clip.append(node('rect',{x:8,y:8,width:584,height:344}));defs.append(clip);svg.append(defs);const drawing=node('g',{'clip-path':'url(#boss-section-clip)'});svg.append(drawing);
-  for(const [i,part]of parts.entries()){let d='';for(let j=0;j<part.fill.length;j+=3)d+='M'+map(part.fill[j]).join(',')+'L'+map(part.fill[j+1]).join(',')+'L'+map(part.fill[j+2]).join(',')+'Z';drawing.append(node('path',{'data-boss-section-part':i,d,fill:i?'#edb35d':'#76c0dc','fill-opacity':'.8'}));d='';for(let j=0;j<part.segments.length;j+=6)d+='M'+map([part.segments[j],part.segments[j+2]]).join(',')+'L'+map([part.segments[j+3],part.segments[j+5]]).join(',');drawing.append(node('path',{d,fill:'none',stroke:i?'#99550c':'#087698','stroke-width':1.2}));}
+  for(const [i,part]of parts.entries()){
+   const mapPart=([x,z])=>map([x,z+(i?remaining:0)]).join(',');
+   let d='';
+   for(let j=0;j<part.fill.length;j+=3)d+='M'+mapPart(part.fill[j])+'L'+mapPart(part.fill[j+1])+'L'+mapPart(part.fill[j+2])+'Z';
+   drawing.append(node('path',{'data-boss-section-part':i,d,fill:i?'#edb35d':'#76c0dc','fill-opacity':'.8'}));
+   d='';
+   for(let j=0;j<part.segments.length;j+=6)d+='M'+mapPart([part.segments[j],part.segments[j+2]])+'L'+mapPart([part.segments[j+3],part.segments[j+5]]);
+   drawing.append(node('path',{d,fill:'none',stroke:i?'#99550c':'#087698','stroke-width':1.2}));
+  }
+  if(q.snap){
+   const contact=snapBossInsertion(q,insertion);
+   const play=snapBossAxialPlay(q);
+   playValue.textContent='軸方向のガタ '+play.toFixed(2)+' mm（組み立て位置から受け穴の段に当たるまで）';
+   drawSnapContact(drawing,map,position.uv[data.horizontal],contact);
+   insertionValue.value=insertion.toFixed(2)+' mm';
+   insertionStatus.dataset.state=contact.state;
+   insertionStatus.textContent=Math.abs(remaining-play)<1e-6?'先端が受け穴の段に当たる位置':{
+    outside:'入口の手前',
+    approaching:'差し込み中',
+    contact:'赤い箇所で接触 ／ 断面上で必要なしなりは片側 '+contact.deflection.toFixed(2)+' mm',
+    engaged:'緑の箇所で先端が受け穴の奥に掛かっています',
+   }[contact.state];
+  }
   const a=map([bounds[0]-1,0]),b=map([bounds[2]+1,0]);drawing.append(node('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#586b7c','stroke-dasharray':'6 5'}));
-  status.textContent='接合 '+(data.index+1)+' を通る断面 ／ 破線：合わせ面。印刷用の配置でも組み立て位置で確認できます。';metrics.textContent='棒 Ø'+q.diameter.toFixed(2)+' mm ／ 穴 Ø'+q.holeDiameter.toFixed(2)+' mm ／ 片側すき間 '+q.clearance.toFixed(2)+' mm'+(q.snap?' ／ 先端 Ø'+q.snap.headDiameter.toFixed(2)+' mm ／ 割り溝 '+q.snap.slotWidth.toFixed(2)+' mm ／ 受け穴の奥 Ø'+q.snap.pocketDiameter.toFixed(2)+' mm':'')+(q.shell?.enabled?' ／ シェル指定壁厚 '+q.shell.thickness.toFixed(2)+' mm':'')+(q.alignment?.enabled?'。位置決め：深さ '+q.alignment.height.toFixed(2)+' mm・縁の幅 '+q.alignment.width.toFixed(2)+' mm・片側／底すき間 '+q.alignment.clearance.toFixed(2)+' mm':'');
-  for(const b of panel.querySelectorAll('[data-boss-focus]')){b.setAttribute('aria-pressed',String(b.dataset.bossFocus===focus));b.disabled=b.dataset.bossFocus==='rim'&&!q.alignment?.enabled;}panel.dataset.joint=String(data.index);panel.dataset.focus=focus;panel.dataset.reverse=String(reverse);panel.dataset.sectionReady='true';onSlice(data,reverse);
+  status.textContent='接合 '+(data.index+1)+' を通る断面 ／ 破線は合わせ面です。'+(q.snap?'差し込み深さは断面図に反映します。':'印刷用の配置でも組み立て位置で確認できます。');metrics.textContent='棒 Ø'+q.diameter.toFixed(2)+' mm ／ 穴 Ø'+q.holeDiameter.toFixed(2)+' mm ／ 片側すき間 '+q.clearance.toFixed(2)+' mm'+(q.snap?' ／ 先端 Ø'+q.snap.headDiameter.toFixed(2)+' mm ／ 割り溝 '+q.snap.slotWidth.toFixed(2)+' mm ／ 受け穴の奥 Ø' +q.snap.pocketDiameter.toFixed(2)+' mm ／ 片側の掛かり '+(q.snap.headDiameter/2-q.holeDiameter/2).toFixed(2)+' mm'+(q.snap.retentionRidgeHeight?' ／ 内側の突起 '+q.snap.retentionRidgeHeight.toFixed(2)+' mm':''):'')+(q.shell?.enabled?' ／ シェル指定壁厚 '+q.shell.thickness.toFixed(2)+' mm':'')+(q.alignment?.enabled?'。位置決め：深さ '+q.alignment.height.toFixed(2)+' mm・縁の幅 '+q.alignment.width.toFixed(2)+' mm・片側／底すき間 '+q.alignment.clearance.toFixed(2)+' mm':'');
+  for(const b of panel.querySelectorAll('[data-boss-focus]')){b.setAttribute('aria-pressed',String(b.dataset.bossFocus===focus));b.disabled=b.dataset.bossFocus==='rim'&&!q.alignment?.enabled;}panel.dataset.joint=String(data.index);panel.dataset.focus=focus;panel.dataset.reverse=String(reverse);panel.dataset.sectionReady='true';if(update3D)onSlice(data,reverse);
  }
- function clear(){model?.dispose();model=null;svg.replaceChildren();metrics.textContent='';delete panel.dataset.sectionReady;onSlice(null);}
+ function clear(){model?.dispose();model=null;svg.replaceChildren();metrics.textContent='';insertionField.hidden=insertionStatus.hidden=playReadout.hidden=true;delete insertionStatus.dataset.state;delete panel.dataset.sectionReady;onSlice(null);}
  function close(){panel.hidden=true;onSlice(null);onVisibility(false);}
- select.onchange=()=>{index=Number(select.value);draw();};for(const b of panel.querySelectorAll('[data-boss-focus]'))b.onclick=()=>{focus=b.dataset.bossFocus;draw();};panel.querySelector('#boss-section-reverse').onclick=()=>{reverse=!reverse;draw();};panel.querySelector('#boss-section-close').onclick=close;
- return {get active(){return !panel.hidden;},toggle(){if(panel.hidden){panel.hidden=false;onVisibility(true);draw();}else close();},close,clear,pending(){clear();status.textContent='形状を計算して断面を更新しています…';select.disabled=true;},error(message){clear();status.textContent=message;},update(result){clear();model=createBossSectionModel(result);index=Math.min(index,result.analysis.count-1);select.replaceChildren(...result.analysis.positions.map((_,i)=>new Option('接合 '+(i+1),i)));select.value=index;select.disabled=false;if(focus==='rim'&&!result.analysis.alignment?.enabled)focus='all';draw();},reset(){close();clear();index=0;focus='all';reverse=false;}};
+ insertionInput.oninput=()=>{insertionProgress=Number(insertionInput.value)/model.q.length;focus='joint';draw(false);};
+ showPlay.onclick=()=>{const q=model.q;insertionInput.value=q.length-snapBossAxialPlay(q);insertionInput.oninput();};
+ select.onchange=()=>{index=Number(select.value);draw();};for(const b of panel.querySelectorAll('[data-boss-focus]'))b.onclick=()=>{focus=b.dataset.bossFocus;if(focus==='rim'){insertionProgress=1;insertionInput.value=insertionInput.max;}draw();};panel.querySelector('#boss-section-reverse').onclick=()=>{reverse=!reverse;draw();};panel.querySelector('#boss-section-close').onclick=close;
+ return {get active(){return !panel.hidden;},toggle(){if(panel.hidden){panel.hidden=false;onVisibility(true);draw();}else close();},close,clear,pending(){clear();status.textContent='形状を計算して断面を更新しています…';select.disabled=true;},error(message){clear();status.textContent=message;},update(result){clear();model=createBossSectionModel(result);index=Math.min(index,result.analysis.count-1);select.replaceChildren(...result.analysis.positions.map((_,i)=>new Option('接合 '+(i+1),i)));select.value=index;select.disabled=false;if(focus==='rim'&&!result.analysis.alignment?.enabled)focus='all';
+  if(result.analysis.snap){insertionField.hidden=insertionStatus.hidden=playReadout.hidden=false;insertionInput.max=result.analysis.length;insertionInput.value=result.analysis.length*insertionProgress;}
+  draw();},reset(){close();clear();index=0;focus='all';reverse=false;insertionProgress=1;}};
 }

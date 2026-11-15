@@ -1,4 +1,6 @@
-import * as THREE from 'three';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import * as R from 'replicad';
+import {runOperation} from '../src/kernel.js';
 import {defaults} from '../src/geometry.js';
 import {chromium} from 'playwright';
 import http from 'node:http';
@@ -21,7 +23,7 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 try{
  const context=await browser.newContext({viewport:{width:1900,height:1150},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
- await page.addInitScript(()=>{window.cadJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec)window.cadJobs.push(payload.spec.type);return post.call(this,payload,...args);};});
+ await page.addInitScript(()=>{Object.defineProperty(window,'showSaveFilePicker',{value:undefined,configurable:true});window.cadJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec)window.cadJobs.push(payload.spec.type);return post.call(this,payload,...args);};});
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas[data-engine]').waitFor();
 
 
@@ -33,25 +35,57 @@ try{
  async function save(){const event=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await event).path(),'utf8'));}
  async function close(){await page.locator('#boss-joint-cancel').click();await page.waitForFunction(()=>!document.getElementById('boss-joint-dialog').open);}
  await load([base]);await page.locator('#boss-joint-tool').click();await ready();
- const pinStyle=page.locator('#boss-joint-pinStyle');
+ const pinStyle=page.locator('#boss-joint-pinStyle'),ridge=page.locator('#boss-joint-snapRetentionRidge');
+ const engagement=page.locator('#boss-joint-snapEngagement'),shoulder=page.locator('#boss-joint-snapShoulderOffset');
  assert.equal(await pinStyle.inputValue(),'straight');
+ assert.ok(await ridge.isHidden());
+ assert.equal((await analysis()).snap ?? null,null);
  await pinStyle.selectOption('snap');await ready();
+ assert.equal(await engagement.inputValue(),'standard');
  assert.equal(await page.locator('#boss-joint-diameter').inputValue(),'5');
  assert.equal(await page.locator('#boss-joint-length').inputValue(),'8');
- assert.equal((await analysis()).snap.headDiameter,5.8);
+ await ridge.check();await ready();
+ assert.ok(await shoulder.isDisabled());
+ assert.ok(Math.abs((await analysis()).snap.shoulderOffset-.75)<1e-8);
  await page.locator('#boss-joint-section').click();
  const snapPanel=page.locator('#boss-joint-section-panel');
- assert.match(await snapPanel.locator('#boss-section-metrics').textContent(),/割り溝 1.20/);
- assert.equal(await snapPanel.locator('[data-boss-section-part]').count(),2);
- await page.locator('#boss-joint-diameter').fill('4.95');
- assert.ok(await page.locator('#boss-joint-apply').isDisabled());
- assert.match(await page.locator('#boss-joint-error').textContent(),/軸径5 mm以上/);
- await page.locator('#boss-joint-snap-defaults').click();await ready();
- await page.locator('#boss-joint-apply').click();await page.waitForFunction(()=>!document.getElementById('boss-joint-dialog').open);
- const snapSaved=await save();assert.equal(snapSaved.features.at(-1).spec.pinStyle,'snap');
- await load(snapSaved.features);await page.locator('#bodies [data-boss-joint-id]').first().click();await ready();
- assert.equal(await pinStyle.inputValue(),'snap');assert.equal((await analysis()).snap.slotWidth,1.2);await close();
- console.log('PASS snap-boss selection, minimum dimensions, section, save and edit');
+ assert.match(await snapPanel.locator('#boss-section-play-value').textContent(),/軸方向のガタ 0.05 mm/);
+ await snapPanel.locator('#boss-section-close').click();
+ const comparison=page.waitForEvent('download');
+ await page.locator('#boss-joint-snap-test-export').click();
+ const file=await comparison;
+ assert.match(file.suggestedFilename(),/^boss-engagement/);
+ await ready();
+ await page.getByRole('button',{name:'2番を適用',exact:true}).click();await ready();
+ assert.equal(await ridge.isChecked(),true);
+ await page.locator('#boss-joint-apply').click();
+ await page.waitForFunction(()=>!document.getElementById('boss-joint-dialog').open);
+ assert.equal((await save()).features.at(-1).spec.pinStyle,'snap');
+
+ // Open a saved joint with a manual shoulder setting as well as a retention ridge.
+ R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+ const legacy={type:'bossJoint',id:'legacy-boss',mode:'split',target:base.id,plane:'XY',offset:15,pose:'assembled',count:2,
+  pinStyle:'snap',snapEngagement:'strong',snapShoulderOffset:.45,snapRetentionRidge:true,
+  diameter:5,length:8,bossWall:1.6,bossHeight:10.5,clearance:.2,spacing:0,offsetU:0,offsetV:0,jointPositions:[[-12,0],[12,0]]};
+ const legacyResult=runOperation([base],legacy);
+ await load([base,{kind:'cadop',id:legacy.id,name:'ボス接合',spec:legacy,...legacyResult}]);
+ const edit=page.locator('#bodies [data-boss-joint-id]').first();
+ await edit.click();await ready();
+ assert.equal(await pinStyle.inputValue(),'snap');
+ assert.equal(await engagement.inputValue(),'strong');
+ assert.equal(await ridge.isChecked(),true);
+ assert.equal(await shoulder.inputValue(),'0.45');
+ assert.equal(await page.locator('#boss-joint-apply').textContent(),'変更を適用');
+ assert.deepEqual((await analysis()).positions.map(({uv})=>uv),legacy.jointPositions);
+ await engagement.selectOption('light');await ready();
+ await page.locator('#boss-joint-apply').click();
+ await page.waitForFunction(()=>!document.getElementById('boss-joint-dialog').open);
+ const edited=(await save()).features.at(-1);
+ assert.equal(edited.spec.pinStyle,'snap');
+ assert.equal(edited.spec.snapEngagement,'light');
+ assert.equal(edited.spec.snapRetentionRidge,true);
+ assert.equal(edited.spec.snapShoulderOffset,.45);
+ console.log('PASS standard and snap creation, ridge settings, STL comparison, saved snap editing');
  await load([base]);await page.locator('#boss-joint-tool').click();await ready();assert.equal(await page.locator('#boss-joint-alignmentEnabled').isChecked(),false);for(const key of ['Height','Width','Clearance'])assert.ok(await page.locator('#boss-joint-alignment'+key).isDisabled());
  await page.locator('#boss-joint-shellEnabled').check();await ready();await page.locator('#boss-joint-alignmentEnabled').check();await ready();let a=await analysis();assert.ok(await page.locator('#boss-joint-alignmentPrintSafe').isChecked());assert.equal(a.alignment.width,1.2);assert.equal(a.alignment.outerLand,1.2);assert.equal(a.alignment.innerLand,1.2);assert.equal(a.alignment.floor,1.2);assert.ok(a.alignment.collarAddedVolume>0);await page.locator('#boss-joint-alignmentPrintSafe').uncheck();await page.locator('#boss-joint-alignmentWidth').fill('0.8');await ready();a=await analysis();assert.equal(a.alignment.height,1.5);assert.equal(a.alignment.width,.8);assert.equal(a.alignment.clearance,.25);assert.ok(a.alignment.addedVolume>100);assert.match(await page.locator('#boss-joint-info').textContent(),/位置決め/);
  const camera=await page.locator('[data-camera-state]').getAttribute('data-camera-state'),jobs=await page.evaluate(()=>cadJobs.length);await page.locator('#boss-joint-section').click();const panel=page.locator('#boss-joint-section-panel');await page.waitForFunction(()=>document.getElementById('boss-joint-section-panel').dataset.sectionReady==='true');assert.ok(await panel.isVisible());assert.equal(await panel.locator('[data-boss-section-part]').count(),2);assert.equal(await page.locator('#boss-joint-section').getAttribute('aria-pressed'),'true');assert.equal(await page.locator('[data-camera-state]').getAttribute('data-camera-state'),camera,'opening the section preserves the viewpoint');
