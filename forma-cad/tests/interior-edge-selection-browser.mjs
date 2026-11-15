@@ -170,5 +170,28 @@ try{
  assert.equal(await host.getAttribute('data-selected-edge-count'),'0');
  await undoExclusion.click();await previewCount(1);
  await select(1);
+ await load();
+ await page.setViewportSize({width:1350,height:720});
+ await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});
+ await page.locator('#fit').click();
+ await page.locator('#selection-mode').selectOption('face');
+ await worldClick([0,0,3]);
+ const measurement=page.locator('#measurement');
+ await measurement.waitFor();
+ const layout=await measurement.evaluate(panel=>{
+  const viewport=panel.parentElement.getBoundingClientRect(),bounds=panel.getBoundingClientRect();
+  return {topInset:bounds.top-viewport.top,bottomInset:viewport.bottom-bounds.bottom,width:bounds.width,overflow:panel.scrollHeight-panel.clientHeight};
+ });
+ assert.ok(layout.topInset>=11&&layout.bottomInset>0,'selection menu stays inside the viewport');
+ assert.ok(layout.width<=344&&layout.overflow>0,'compact menu scrolls at a short viewport height');
+ const cameraBeforeScroll=await host.getAttribute('data-camera-state');
+ await measurement.hover({position:{x:14,y:12}});
+ await page.mouse.wheel(0,300);
+ await page.waitForFunction(()=>document.getElementById('measurement').scrollTop>0);
+ assert.equal(await host.getAttribute('data-camera-state'),cameraBeforeScroll);
+ await page.locator('#photo-selected-face').scrollIntoViewIfNeeded();
+ await corner.selectOption('all');
+ await button.scrollIntoViewIfNeeded();
+ await select(8);
  assert.deepEqual(errors,[]);const proof={pass:true,build,syntheticFixturesOnly:true,rectangular:8,circular:1,multipleBodies:9,faceEntry:true,ctrlRemoval:true,fillet:true,chamfer:true,nativeCurveReference:true,sourcePreserved:true,undoRedo:true,emptyKeepsSelection:true,staleQueryCancelled:true,explicitCancel:true,escapeCancel:true,stl,errors};await fs.writeFile(out+'/proof.json',JSON.stringify(proof,null,2));console.log(proof);
 }catch(error){await page.screenshot({path:out+'/failure.png'});await fs.writeFile(out+'/error.txt',error.stack+'\n'+await page.locator('body').innerText());throw error;}finally{await browser.close();await new Promise(r=>server.close(r));}

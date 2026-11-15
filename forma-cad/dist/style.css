@@ -557,3 +557,30 @@ button.form-control-point.invalid { background:#bc2634; }
 #selection-commands button:hover{background:#d1ebf4}
 #selection-commands .selection-command-hint{display:block;max-width:310px;margin-top:4px;font-size:11px;color:#52636d}
 #selection-commands[hidden],#selection-commands [hidden]{display:none}
+
+#measurement {
+ --measurement-bottom:min(var(--measurement-nav-clearance,112px),45%);
+ bottom:var(--measurement-bottom);
+ max-height:calc(100% - var(--measurement-bottom) - 12px);
+ max-width:min(344px,calc(100% - 32px));
+ overflow:auto;
+ overscroll-behavior:contain;
+ pointer-events:auto;
+ touch-action:pan-y;
+ padding:8px 10px;
+ gap:4px;
+ font-size:12px;
+}
+#measurement > * { flex-shrink:0; }
+#measurement > #measurement-length { font-size:17px; }
+#measurement :is(button,select) {
+ padding:4px 7px;
+ min-height:28px;
+ margin-block:0 !important;
+ font-size:12px;
+ line-height:1.35;
+}
+#measurement button { white-space:normal; }
+#measurement :is(#interior-edge-scope,#interior-edge-corner) { flex:1 1 125px; width:auto; }
+#measurement label:has(> #exterior-edge-axis) { display:flex; align-items:center; gap:4px; }
+#measurement #exterior-edge-axis { width:auto; }

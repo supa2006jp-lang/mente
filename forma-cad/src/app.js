@@ -509,6 +509,14 @@ for(const [end,color] of [[[5000,0,0],0xe94b55],[[0,5000,0],0x42ba54],[[0,0,5000
 const modelGroup=new THREE.Group();scene.add(modelGroup);
 const extrusionBoundaryFeedback=createExtrusionBoundaryFeedback(scene,host);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
+const measurementNavigation=host.parentElement.querySelector('.navigation');
+if(measurementNavigation){
+ const measurementLayout=new ResizeObserver(()=>{
+  const bottom=parseFloat(getComputedStyle(measurementNavigation).bottom)||0;
+  $('measurement').style.setProperty('--measurement-nav-clearance',measurementNavigation.offsetHeight+bottom+8+'px');
+ });
+ measurementLayout.observe(measurementNavigation);
+}
 let viewCube=null,extrusionJoinInspection=null;
 renderer.setAnimationLoop(()=>{imageReferences?.update();sketchNumberTabs?.update({active:stage==='sketch'?enteredSketchNumber:null,enabled:canSwitchSketchNumber()});printQuality?.syncVisibility();printDimensionsView?.sync();viewCube?.update();formTool?.update();updateSelectionUI();selectionLibrary?.update();faceSelectionFeedback?.sync();workspaceImprovements?.sync();historyReferenceRepair?.sync();stlInspection?.sync();stlImport?.sync();printSupportController?.sync();assemblyController?.sync();sketchMoveTool?.update();sketchVertexRotation?.update();sketchConstraintsController?.update();textSketchController?.update();threadDisplayTool?.sync();historyOrganizer?.sync();if(moveTool?.active)controls.enabled=false;if(controls.enabled)controls.update();host.dataset.cameraTarget=JSON.stringify(controls.target.toArray());updateSketchGrid();updateCameraDepth();host.dataset.cameraState=JSON.stringify([...camera.position.toArray(),...camera.quaternion.toArray(),camera.zoom]);host.dataset.cameraClip=JSON.stringify([camera.near,camera.far]);sectionControl?.update();crosshair.update();splineEditor?.update();updateExtrusionOverlay();sketchOffsetDrag?.update();rectangularPatternTool?.update();circularPatternTool?.update();mirrorAxisDrag?.update();updateSplitPreview();offsetPlanePreview?.update();updateCoilFilletOverlay();updateCoilSplitOverlay();updateCoilStopFaceOverlay();updateCircleInput();updateSketchDimensions();updateChannelVisual();sketchConnectionsView?.update();updateCenterMarkers();updateSelectedPoint();faceExtrudeShortcut?.update();updateHingeAlignMarkers();updateEdgeOverlay();if($('tools-dialog').open){updateBodyNames();if(loftMarkers.length)updateLoftMarkers();}else if(!bodyNames.hidden)bodyNames.hidden=true;if(bodyDisplay)bodyDisplay.withDisplay(()=>renderer.render(scene,camera));else renderer.render(scene,camera);});
 let sketchNoticeTimer,enteredSketchNumber=null;

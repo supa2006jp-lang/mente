@@ -46,8 +46,8 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
 
  const status=document.createElement('small');
  status.id='interior-edge-selection-status';status.setAttribute('role','status');
- status.style.cssText='font-size:12px;line-height:1.6;margin-top:5px;min-height:3.2em';
- outsideGroup.append(axisLabel,outsideButton);container.append(insideGroup,outsideGroup,status);
+ status.style.cssText='font-size:12px;line-height:1.45;min-height:2.9em';
+ outsideGroup.append(axisLabel,outsideButton);container.append(status,insideGroup,outsideGroup);
  insideGroup.hidden=outsideGroup.hidden=status.hidden=true;
  const cache=new Map();
  let ids=[],features=null,key=null,active=null,hovered=null,focused=null,settingPreview=null,previewVisible=false,previewStatus=false,previewTimer;
