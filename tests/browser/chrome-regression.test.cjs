@@ -47,7 +47,7 @@ function findChrome() {
     return chrome;
 }
 
-function startServer() {
+function startServer(options = {}) {
     const server = http.createServer((request, response) => {
         let pathname;
         try { pathname = decodeURIComponent(new URL(request.url, 'http://127.0.0.1').pathname); }
@@ -59,10 +59,18 @@ function startServer() {
         }
         fs.stat(file, (error, stat) => {
             if (error || !stat.isFile()) { response.writeHead(404).end(); return; }
+            if (options.updateBuilds && ['index.html', 'service-worker.js'].includes(path.basename(file))) {
+                let text = fs.readFileSync(file, 'utf8');
+                text = text.replace(/(name="maintenance-build" content=")[^"]+/, '$1' + server.fixtureBuild)
+                    .replace(/const APP_BUILD = '[^']+'/, `const APP_BUILD = '${server.fixtureBuild}'`)
+                    .replace(/app-boot\.js\?v=[\w-]+/g, 'app-boot.js?v=' + server.fixtureBuild);
+                response.writeHead(200, { 'Content-Type': mime[path.extname(file)], 'Cache-Control': 'no-store' }); response.end(text); return;
+            }
             response.writeHead(200, { 'Content-Type': mime[path.extname(file).toLowerCase()] || 'application/octet-stream' });
             fs.createReadStream(file).pipe(response);
         });
     });
+    server.fixtureBuild = 'test-old';
     return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
@@ -117,8 +125,8 @@ async function reloadApp(page, label) {
     await page.waitFor(`performance.timeOrigin !== ${previousOrigin} && Boolean(window.app && window.store?.data)`, label);
 }
 
-async function launchHarness() {
-    const server = await startServer();
+async function launchHarness(options = {}) {
+    const server = await startServer(options);
     const origin = `http://127.0.0.1:${server.address().port}`;
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'maintenance-chrome-regression-'));
     const chrome = spawn(findChrome(), [
@@ -153,6 +161,7 @@ async function launchHarness() {
         await reloadApp(page, 'authorized app startup');
         return {
             page, origin,
+            deployBuild(build) { server.fixtureBuild = build; },
             async newPage() {
                 const response = await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(origin)}`, { method: 'PUT' });
                 const target = await response.json();
@@ -381,4 +390,41 @@ test('edit safety: failed save, drafts, structural repair, and concurrent tabs',
             assert.deepEqual(results.sort(), ['SAVE_CONFLICT','ok']);
         } finally { await other.close(); }
     });
+});
+
+test('service worker update banner clears after update or a normal reload into the new build', { timeout: 120000 }, async () => {
+    const harness = await launchHarness({ updateBuilds: true });
+    const { page } = harness;
+    let other;
+    try {
+        await page.waitFor('Boolean(navigator.serviceWorker.controller)', 'initial worker');
+        await page.evaluate("(async()=>{store.activeData.memos['update-proof']='保存データは残る';await store.save()})()");
+        harness.deployBuild('test-new');
+        await page.evaluate('navigator.serviceWorker.getRegistration().then(r=>r.update()).then(()=>true)');
+        await page.waitFor("Boolean(document.getElementById('maintenance-update-banner'))", 'actual new build banner');
+        const before = await page.evaluate('performance.timeOrigin');
+        await page.evaluate("window.confirm=()=>true;document.querySelector('#maintenance-update-banner button').click()");
+        await page.waitFor(`performance.timeOrigin !== ${before} && Boolean(window.app)`, 'update reload');
+        await page.waitFor("!document.getElementById('maintenance-update-banner') && document.querySelector('meta[name=maintenance-build]').content==='test-new'", 'no repeated update notice');
+        await reloadApp(page, 'second reload after update');
+        await page.waitFor('navigator.serviceWorker.getRegistration().then(r=>!r.waiting)', 'activated worker');
+        assert.equal(await page.evaluate("Boolean(document.getElementById('maintenance-update-banner'))"), false);
+        assert.equal(await page.evaluate("store.activeData.memos['update-proof']"), '保存データは残る');
+
+        // Keep another app tab alive so a browser refresh cannot auto-activate the waiting worker.
+        other = await harness.newPage();
+        harness.deployBuild('test-next');
+        await page.evaluate('navigator.serviceWorker.getRegistration().then(r=>r.update()).then(()=>true)');
+        await page.waitFor("Boolean(document.getElementById('maintenance-update-banner'))", 'next actual update');
+        await reloadApp(page, 'normal browser refresh with another tab');
+        await page.waitFor("document.querySelector('meta[name=maintenance-build]').content==='test-next'", 'latest page loaded');
+        await sleep(600);
+        assert.equal(await page.evaluate("Boolean(document.getElementById('maintenance-update-banner'))"), false, 'a page already at the waiting build is current');
+        assert.equal(await page.evaluate('navigator.serviceWorker.getRegistration().then(r=>!!r.waiting)'), true, 'old tab remains protected');
+        await other.close(); other = null;
+        await reloadApp(page, 'align worker after other tab closes');
+        await page.waitFor('navigator.serviceWorker.getRegistration().then(r=>!r.waiting)', 'quiet activation of matching build');
+        await sleep(300);
+        assert.equal(await page.evaluate("Boolean(document.getElementById('maintenance-update-banner'))"), false);
+    } finally { if (other) await other.close(); await harness.close(); }
 });

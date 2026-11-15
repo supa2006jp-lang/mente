@@ -1,5 +1,6 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const CACHE_NAME = 'maintenance-next-static-20261115-edit-safety1';
+const APP_BUILD = '20261115-update-sync1';
+const CACHE_NAME = 'maintenance-next-static-' + APP_BUILD;
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
     './',
@@ -41,7 +42,7 @@ const SHELL_FILES = [
     './assets/vendor/ffmpeg/0.11.6/046d0074eee1d99a674a.js',
     './app-dom-actions.js',
     './app-edit-safety.js?v=20261115-edit-safety1',
-    './app-boot.js?v=20261115-five1',
+    './app-boot.js?v=20261115-update-sync1',
     './app-shift-notebook-core.js?v=20261115-all5',
     './app-photo-manager.js?v=20261115-six1',
     './app-shift-photo-camera.js?v=20260906-avatar-stage72',
@@ -58,6 +59,10 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('message', event => {
+    if (event.data?.type === 'MAINTENANCE_GET_VERSION') {
+        event.ports?.[0]?.postMessage({ type: 'MAINTENANCE_VERSION', build: APP_BUILD });
+        return;
+    }
     if (event.data?.type === 'maintenance-image-gc-clients-v1') {
         event.waitUntil((async () => {
             const reply = event.ports?.[0];
@@ -75,7 +80,16 @@ self.addEventListener('message', event => {
     if (event.data?.type !== 'MAINTENANCE_ACTIVATE_UPDATE') return;
     event.waitUntil((async () => {
         const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        if (windows.length > 1) {
+        const scope = new URL(self.registration.scope);
+        const appWindows = windows.filter(client => {
+            // Unknown clients remain blockers; other apps hosted below this scope do not.
+            if (!client.url) return true;
+            try {
+                const url = new URL(client.url);
+                return url.origin === scope.origin && [scope.pathname, scope.pathname + 'index.html'].includes(url.pathname);
+            } catch (_) { return true; }
+        });
+        if (appWindows.some(client => client.id !== event.source?.id)) {
             event.source?.postMessage({ type: 'MAINTENANCE_UPDATE_OTHER_TABS' });
             return;
         }

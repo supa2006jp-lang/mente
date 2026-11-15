@@ -84,7 +84,7 @@ test('service worker waits for consent to activate and protects another open tab
     const context = vm.createContext({
         self: {
             registration: { scope: 'https://example.test/mente/' },
-            clients: { matchAll: async () => Array.from({ length: windowCount }, () => ({})) },
+            clients: { matchAll: async () => Array.from({ length: windowCount }, (_, i) => ({ id: i ? 'other' : 'current', url: 'https://example.test/mente/' })) },
             skipWaiting: async () => { skipCount++; },
             addEventListener(type, listener) { listeners[type] = listener; }
         },
@@ -99,7 +99,7 @@ test('service worker waits for consent to activate and protects another open tab
 
     listeners.message({
         data: { type: 'MAINTENANCE_ACTIVATE_UPDATE' },
-        source: { postMessage(value) { sent = value; } },
+        source: { id: 'current', postMessage(value) { sent = value; } },
         waitUntil(value) { pending = value; }
     });
     await pending;
@@ -109,6 +109,7 @@ test('service worker waits for consent to activate and protects another open tab
     windowCount = 1;
     listeners.message({
         data: { type: 'MAINTENANCE_ACTIVATE_UPDATE' },
+        source: { id: 'current' },
         waitUntil(value) { pending = value; }
     });
     await pending;
@@ -140,6 +141,22 @@ test('service worker reports other open app tabs before image garbage collection
     assert.deepEqual(JSON.parse(JSON.stringify(replies[0])), {
         type: 'maintenance-image-gc-clients-v1', sourceFound: true, otherCount: 1
     });
+});
+
+test('update permits other applications on the same site but protects maintenance tabs', async () => {
+    const listeners = {}; let skipped = 0, blocked = 0;
+    const clients = [{id:'current',url:'https://example.test/mente/'},{id:'cad',url:'https://example.test/mente/forma-cad/'}];
+    vm.runInNewContext(workerSource, { self: {
+        registration:{scope:'https://example.test/mente/'}, clients:{matchAll:async()=>clients},
+        skipWaiting:async()=>{skipped++;}, addEventListener(type,handler){listeners[type]=handler;}
+    }, URL, Request, Response });
+    const run=async()=>{let pending;listeners.message({data:{type:'MAINTENANCE_ACTIVATE_UPDATE'},source:{id:'current',postMessage(){blocked++;}},waitUntil(p){pending=p;}});await pending;};
+    await run(); assert.equal(skipped,1); assert.equal(blocked,0);
+    clients.push({id:'maintenance',url:'https://example.test/mente/index.html?view=history'});
+    await run(); assert.equal(skipped,1); assert.equal(blocked,1);
+    let reply;listeners.message({data:{type:'MAINTENANCE_GET_VERSION'},ports:[{postMessage(v){reply=v;}}]});
+    const build=html.match(/name="maintenance-build" content="([^"]+)"/)[1];
+    assert.equal(reply.build,build);
 });
 
 test('versioned lazy scripts come from a prior cache before the network', async () => {
@@ -178,8 +195,8 @@ test('activation keeps one earlier shell for already open pages', async () => {
         caches: {
             keys: async () => [
                 'maintenance-next-static-20261113-old',
-                'maintenance-next-static-20261115-save-shape1',
-                'maintenance-next-static-20261115-edit-safety1'
+                'maintenance-next-static-20261115-edit-safety1',
+                'maintenance-next-static-20261115-update-sync1'
             ],
             delete: async key => { deleted.push(key); }
         },

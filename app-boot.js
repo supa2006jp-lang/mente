@@ -350,10 +350,34 @@
         let reloadAfterActivation = false;
         let hadController = !!navigator.serviceWorker.controller;
         let updating = false;
+        const pageBuild = document.querySelector?.('meta[name="maintenance-build"]')?.content || '';
+        let quietActivation = null;
+        const workerBuilds = new WeakMap();
+        const getWorkerBuild = worker => {
+            if (!worker || !pageBuild || typeof MessageChannel === 'undefined') return Promise.resolve(null);
+            if (workerBuilds.has(worker)) return workerBuilds.get(worker);
+            const result = new Promise(resolve => {
+                const channel = new MessageChannel();
+                let timer;
+                const finish = build => {
+                    clearTimeout(timer); channel.port1.close(); channel.port2.close(); resolve(build);
+                };
+                timer = setTimeout(() => finish(null), 2000);
+                channel.port1.onmessage = event => finish(event.data?.type === 'MAINTENANCE_VERSION' ? event.data.build : null);
+                try { worker.postMessage({ type: 'MAINTENANCE_GET_VERSION' }, [channel.port2]); }
+                catch (_) { finish(null); }
+            });
+            workerBuilds.set(worker, result);
+            return result;
+        };
+        const clearBanner = () => { banner?.remove(); banner = null; };
 
         const pendingEditorMessage = () => {
             try {
                 const app = window.app;
+                if (app?._safeEditBusy || app?._modalSaveInProgress) return '保存中です。完了してから更新してください。';
+                if (document.getElementById('kt-todo-modal-overlay')) return 'ToDoの入力画面が開いています。保存または下書き保存を確認し、画面を閉じてから更新してください。';
+                if (app?._calendarMemoEditor) return '日別メモの入力画面が開いています。保存して画面を閉じてから更新してください。';
                 if (app?.hasUnsavedTipsDraft?.()) {
                     return '未保存のTIPSがあります。保存するか入力をクリアしてから更新してください。';
                 }
@@ -431,18 +455,33 @@
             updateButton.textContent = registration.waiting ? '更新して再読み込み' : '再読み込み';
             document.body.appendChild(banner);
         };
-        const showWaiting = () => {
-            if (registration.waiting && navigator.serviceWorker.controller) showBanner();
+        const showWaiting = async () => {
+            const waiting = registration.waiting;
+            if (!waiting || !navigator.serviceWorker.controller) return;
+            const build = pageBuild ? await getWorkerBuild(waiting) : null;
+            if (registration.waiting !== waiting) return;
+            if (build && build === pageBuild) {
+                clearBanner();
+                // A normal reload already loaded this build. Align its offline worker
+                // without forcing another reload or interrupting an editor.
+                if (!pendingEditorMessage() && store._saveRequestedRevision <= store._savePersistedRevision) {
+                    quietActivation = waiting;
+                    waiting.postMessage({ type: 'MAINTENANCE_ACTIVATE_UPDATE' });
+                }
+                return;
+            }
+            showBanner();
         };
 
         navigator.serviceWorker.addEventListener('message', event => {
             if (event.data?.type !== 'MAINTENANCE_UPDATE_OTHER_TABS') return;
+            if (event.source === quietActivation) return;
             reloadAfterActivation = false;
             updating = false;
             showBanner('別のタブでも開いています。そちらを閉じてから更新してください。');
             updateButton.disabled = false;
         });
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
+        navigator.serviceWorker.addEventListener('controllerchange', async () => {
             if (reloadAfterActivation) {
                 const pending = pendingEditorMessage();
                 if (pending) {
@@ -455,7 +494,11 @@
                 window.location.reload();
                 return;
             }
-            if (hadController) showBanner('更新の準備ができました。入力中の内容を保存してから再読み込みしてください。');
+            const controller = navigator.serviceWorker.controller;
+            const build = pageBuild ? await getWorkerBuild(controller) : null;
+            if (navigator.serviceWorker.controller !== controller) return;
+            if (build && build === pageBuild) clearBanner();
+            else if (hadController) showBanner('更新の準備ができました。入力中の内容を保存してから再読み込みしてください。');
             hadController = true;
         });
         const trackInstalling = installing => {
