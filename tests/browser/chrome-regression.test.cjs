@@ -318,6 +318,146 @@ test('real Chrome regression: persistence, restore, offline photos, and save fai
     });
 });
 
+test('six refinements isolate filters, reconcile time and preserve equipment editing context', { timeout: 180000 }, async t => {
+    const harness = await launchHarness(); t.after(() => harness.close());
+    const { page } = harness;
+    await page.evaluate(`(async () => {
+        await maintenanceLazyFeatures.loadNotebook(); await maintenanceLazyFeatures.loadPhotos();
+        const today=app.getLocalDateString(), day=n=>new Date(app.parseTaskScheduleDate(today)+n*86400000).toISOString().slice(0,10);
+        await store.runAtomicSaveBatch(() => {
+            store.activeData.machineCategories=['包装'];
+            store.activeData.machines=[{id:'ref-machine',name:'検証ポンプ',model:'RP-1',lineNo:'1',category:'包装'}];
+            store.activeData.tasks=[{id:'ref-task',machineId:'ref-machine',content:'点検',startDate:day(-14),periodDays:7,workers:['田中']}];
+            store.activeData.history=[
+                {id:'ref-history',machineId:'ref-machine',date:today,lineNo:'1',machineCategory:'包装',errorContent:'シール交換',cause:'摩耗',notes:'交換確認',workTime:30,workers:['田中','鈴木'],category:'parts',isSudden:true,photos:[],replacedParts:[]},
+                {id:'ref-done',machineId:'ref-machine',taskId:'ref-task',scheduledDate:day(-7),date:day(-2),workTime:10,workers:['田中'],category:'clean',photos:[],replacedParts:[]}
+            ];
+        }); app.updateDataLists();
+    })()`);
+    await t.test('view presets and older snapshots leave unrelated views and date ranges intact', async () => {
+        const result = await page.evaluate(`(async () => {
+            app.switchView('history'); document.getElementById('search-scope').value='view'; app.updateSearchScope();
+            document.getElementById('hist-filter-period').value='CUSTOM'; app.customStartDate='2026-10-01'; app.customEndDate='2026-10-31';
+            document.getElementById('hist-filter-line').value='1'; document.getElementById('global-search').value='シール'; app.saveNamedSearch('履歴だけ');
+            const key='maintenance-search-presets-v1:'+store.data.currentDepartmentId, old=JSON.parse(localStorage.getItem(key));
+            old[0].props.todayWorkspaceFilters=null; old[0].props.workTimeGroupBy='category'; localStorage.setItem(key,JSON.stringify(old));
+            app.switchView('worktime'); app.customStartDate='2026-09-01'; app.customEndDate='2026-09-30'; app.workTimeGroupBy='worker';
+            app.getTodayWorkspaceFilters(); app.todayWorkspaceFilters={line:'1',worker:'田中'};
+            await app.applyNamedSearch('履歴だけ');
+            const historyDates=[app.customStartDate,app.customEndDate], untouched=app.todayWorkspaceFilters, group=app.workTimeGroupBy;
+            app.switchView('worktime'); const workDates=[app.customStartDate,app.customEndDate]; app.switchView('history');
+            return {historyDates,workDates,untouched,group,captured:Object.keys(app.captureNamedSearch('x').props)};
+        })()`);
+        assert.deepEqual(result.historyDates,['2026-10-01','2026-10-31']); assert.deepEqual(result.workDates,['2026-09-01','2026-09-30']);
+        assert.deepEqual(result.untouched,{line:'1',worker:'田中'}); assert.equal(result.group,'worker'); assert.ok(!result.captured.includes('todayWorkspaceFilters'));
+        const all = await page.evaluate(`(async () => {
+            document.getElementById('search-scope').value='all'; app.updateSearchScope(); document.getElementById('notebook-search').value='シール'; app.saveNamedSearch('全体だけ');
+            app.switchView('machines'); app.machineMaintenanceListFilters={status:'overdue',kind:'all',line:'1'};
+            await app.applyNamedSearch('全体だけ');
+            const result={view:app.currentView,filters:app.machineMaintenanceListFilters,type:document.getElementById('modal-container').dataset.modalType}; app.closeModal(); return result;
+        })()`);
+        assert.equal(all.view,'machines'); assert.equal(all.filters.status,'overdue'); assert.equal(all.type,'shift-notebook-search');
+    });
+    await t.test('collapsed search reports active conditions without adding toolbar height', async () => {
+        await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+        const state = await page.evaluate(`(() => {
+            app.switchView('history'); document.getElementById('search-scope').value='view'; app.updateSearchScope();
+            document.getElementById('hist-filter-period').value='all'; document.getElementById('hist-filter-line').value='1';
+            document.getElementById('global-search').value='シール'; app.setSearchWorkspaceCollapsed(true);
+            const badge=document.getElementById('search-condition-summary');
+            const result={text:badge.textContent,hidden:badge.hidden,title:badge.getAttribute('aria-label'),height:document.querySelector('.header-search-workspace').getBoundingClientRect().height};
+            badge.click(); result.expanded=!document.getElementById('search-workspace-controls').hidden;
+            app.clearCurrentViewSearchAndFilters(); return result;
+        })()`);
+        assert.match(state.text,/条件 2 件/); assert.equal(state.hidden,false); assert.match(state.title,/シール/); assert.equal(state.expanded,true); assert.ok(state.height<=32,JSON.stringify(state));
+    });
+    await t.test('legacy anomalies agree across table, graph, evidence and equipment totals without rewriting records', async () => {
+        const result = await page.evaluate(`(() => {
+            const saved=store.activeData.history; const today=app.getLocalDateString();
+            try {
+                store.activeData.history=[
+                    {...saved[0],id:'duplicate',workers:['田中',' 田中 ','鈴木']},
+                    {...saved[0],id:'negative',workTime:-20},
+                    {...saved[0],id:'invalid',workTime:'30x'},
+                    {...saved[0],id:'guide-only',isManualGuide:true,workTime:999}
+                ]; const raw=JSON.stringify(store.activeData.history);
+                app.switchView('worktime'); document.getElementById('worktime-filter-period').value='all'; app.saveWorkTimePeriodSelection(); app.setWorkTimeGroup('worker'); app.renderWorkTime('');
+                const c=app._workTimeEvidenceContext, evidence=app.getWorkTimeEvidence(c.history,c.results,c.groupBy,c.machines);
+                const table=c.results.reduce((n,r)=>n+r.totalTime,0);
+                const trend=Chart.getChart(document.getElementById('worktime-trend-chart')).data.datasets.reduce((n,d)=>n+d.data.reduce((a,b)=>a+b,0),0);
+                const download=app.downloadCSV; let csv='';
+                try {app.downloadCSV=(name,text)=>{csv=text};app.exportWorkTimeAsCSV();}finally{app.downloadCSV=download;}
+                const csvTotal=csv.split('\\n').slice(1).reduce((n,row)=>n+Number(row.split(',')[1].replace(/"/g,'')),0);
+                app.openWorkTimeGraph();
+                const graph=Object.values(app._currentGraphData.total).reduce((n,x)=>n+x,0); app.closeModal();
+                const chart=app.getEquipmentWorkspace('ref-machine');
+                return {total:evidence.total,table,graph,trend,csvTotal,elapsed:chart.minutes,duplicate:evidence.duplicateWorkers.length,invalid:evidence.unknownTimes.length,guides:evidence.guideOnly.length,unchanged:JSON.stringify(store.activeData.history)===raw};
+            } finally {store.activeData.history=saved;}
+        })()`);
+        assert.deepEqual(result,{total:60,table:60,graph:60,trend:60,csvTotal:60,elapsed:30,duplicate:1,invalid:2,guides:1,unchanged:true});
+    });
+    await t.test('past due occurrence opens with its original date and successful save returns to refreshed chart', async () => {
+        const before=await page.evaluate(`(() => {
+            app._unifiedSearchReturn=null; app.openEquipmentWorkspace('ref-machine');
+            const data=app.getEquipmentWorkspace('ref-machine'); document.querySelector('.equipment-overdue .workspace-row button').click();
+            const result={overdue:data.overdue.length,scheduled:document.getElementById('c-scheduled-date').value,expected:data.overdue[0].date,back:!!document.querySelector('.equipment-return-button')};
+            document.getElementById('c-work-time').value='12'; document.getElementById('c-category').value='clean'; return result;
+        })()`);
+        assert.equal(before.overdue,1); assert.equal(before.scheduled,before.expected); assert.equal(before.back,true);
+        await page.evaluate("app.saveModalData('complete')");
+        await page.waitFor("document.getElementById('modal-container').dataset.modalType==='equipment-workspace'",'chart after completion');
+        assert.equal(await page.evaluate("app.getEquipmentWorkspace('ref-machine').overdue.length"),0);
+        assert.match(await page.evaluate("document.querySelector('.equipment-overdue h3').textContent"),/0 件/);
+    });
+    await t.test('history return respects unsaved changes and a failed save, then refreshes after a successful edit', async () => {
+        await page.evaluate(`(() => {
+            app.openEquipmentWorkspace('ref-machine'); const root=document.getElementById('modal-content');root.scrollTop=120;
+            [...root.querySelectorAll('button')].find(b=>b.textContent.startsWith('対応履歴')).click();
+            [...document.querySelectorAll('#modal-content .workspace-row')].find(r=>r.textContent.includes('シール交換')).querySelector('button').click();
+        })()`);
+        assert.equal(await page.evaluate("document.getElementById('modal-container').dataset.modalType"),'edit-history');
+        await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:false});
+        const footer=await page.evaluate(`(() => { const f=document.querySelector('.modal-footer');return {width:f.clientWidth,scroll:f.scrollWidth,button:document.querySelector('.equipment-return-button').getBoundingClientRect().height}; })()`);
+        assert.ok(footer.scroll<=footer.width+2 && footer.button<50,JSON.stringify(footer));
+        await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+        const blocked=await page.evaluate(`(() => {
+            document.getElementById('e-notes').value='変更後の処置'; const old=app.hasDurableEditDraft, ask=window.confirm;
+            try { app.hasDurableEditDraft=()=>false; window.confirm=()=>false; document.querySelector('.equipment-return-button').click(); return document.getElementById('modal-container').dataset.modalType; }
+            finally {app.hasDurableEditDraft=old;window.confirm=ask;}
+        })()`);
+        assert.equal(blocked,'edit-history');
+        const failed=await page.evaluate(`(async () => {
+            const original=store.runAtomicSaveBatch; try {store.runAtomicSaveBatch=async()=>{throw new Error('検証用の保存失敗')};await app.saveModalData('edit-history');return {type:document.getElementById('modal-container').dataset.modalType,value:document.getElementById('e-notes').value,back:!!document.querySelector('.equipment-return-button')};}finally{store.runAtomicSaveBatch=original;}
+        })()`);
+        assert.equal(failed.type,'edit-history'); assert.equal(failed.value,'変更後の処置'); assert.equal(failed.back,true);
+        await page.evaluate("app.saveModalData('edit-history')");
+        await page.waitFor("document.getElementById('modal-container').dataset.modalType==='equipment-workspace'",'chart after history save');
+        assert.equal(await page.evaluate("store.activeData.history.find(h=>h.id==='ref-history').notes"),'変更後の処置');
+        const back = await page.evaluate(`(() => { document.querySelector('#modal-content section:not(.equipment-overdue)');
+            [...document.querySelectorAll('#modal-content button')].find(b=>b.textContent.startsWith('対応履歴')).click(); document.querySelector('.equipment-return-button').click(); return document.getElementById('modal-container').dataset.modalType; })()`);
+        assert.equal(back,'equipment-workspace'); await page.evaluate('app.closeModal()');
+    });
+    await t.test('reuse chooses fields and requires an explicit choice for duration and workers, including old copy actions', async () => {
+        await page.evaluate(`(() => { app.openSuddenRecordModal(); document.getElementById('s-machine-id').value='ref-machine'; app.onSuddenMachineChange('ref-machine'); document.getElementById('s-machine-id').dispatchEvent(new Event('change',{bubbles:true})); })()`);
+        const copied=await page.evaluate(`(() => {
+            document.getElementById('s-work-time').value='';document.getElementById('s-workers').value='';document.getElementById('s-notes').value='今回の処置';
+            store.activeData.history.find(h=>h.id==='ref-history').replacedParts=[{name:'シール',model:'P-1',count:2,unit:'個',price:0}];
+            app.applyHistoryAssistCandidate('ref-history','s-','full');
+            const before=document.getElementById('s-cause').value;
+            document.querySelector('.record-reuse button').click();
+            const after={cause:document.getElementById('s-cause').value,notes:document.getElementById('s-notes').value,time:document.getElementById('s-work-time').value,workers:document.getElementById('s-workers').value,partsBefore:document.querySelectorAll('#s-parts-container .part-row').length,before};
+            document.querySelector('[data-reuse-field="work-time"]').checked=true;document.querySelector('[data-reuse-field="workers"]').checked=true;
+            document.querySelector('[data-reuse-field="parts"]').checked=true;
+            document.querySelector('.record-reuse button').click(); document.querySelector('.record-reuse button').click(); after.optedTime=document.getElementById('s-work-time').value;after.optedWorkers=document.getElementById('s-workers').value;after.partsAfter=document.querySelectorAll('#s-parts-container .part-row').length;return after;
+        })()`);
+        assert.equal(copied.before,'');assert.equal(copied.cause,'摩耗');assert.equal(copied.notes,'今回の処置');assert.equal(copied.time,'');assert.equal(copied.workers,'');assert.equal(copied.optedTime,'30');assert.equal(copied.optedWorkers,'田中, 鈴木');assert.equal(copied.partsBefore,0);assert.equal(copied.partsAfter,1);
+        await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:false});
+        await page.evaluate('document.fonts.ready'); await sleep(450);
+        const layout=await page.evaluate("({width:document.querySelector('.record-reuse').clientWidth,scroll:document.querySelector('.record-reuse').scrollWidth})");
+        assert.ok(layout.scroll<=layout.width+2,JSON.stringify(layout)); await page.evaluate('app.closeModal()');
+    });
+});
+
 test('edit safety: failed save, drafts, structural repair, and concurrent tabs', { timeout: 180000 }, async t => {
     const harness = await launchHarness(); t.after(() => harness.close());
     const { page } = harness;

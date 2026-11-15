@@ -1168,6 +1168,7 @@ class MaintenanceApp {
 
         this.updateViewGuideSlot(viewName);
 
+        this.switchSearchDateContext?.(viewName);
         this.currentView = viewName;
         this.updateGlobalSearchForView(viewName);
         this.renderView(viewName);
@@ -1492,6 +1493,7 @@ class MaintenanceApp {
             case 'tips': this.renderTips(); break;
             case 'photos': this.renderPhotoManager(); break;
         }
+        this.refreshSearchConditionSummary?.();
         this.updateContextualHelp(viewName);
     }
 

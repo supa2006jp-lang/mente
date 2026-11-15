@@ -28,7 +28,7 @@
         return result.sort((a, b) => b.at - a.at);
     }
     function fields(root) {
-        return [...root.querySelectorAll('input,select,textarea')].filter(f => !f.closest('.edit-safety-note,.edit-save-error') && !['file', 'search', 'password'].includes(f.type) && !f.closest('#s-parts-container'));
+        return [...root.querySelectorAll('input,select,textarea')].filter(f => !f.closest('.edit-safety-note,.edit-save-error,.record-reuse') && !['file', 'search', 'password'].includes(f.type) && !f.closest('#s-parts-container'));
     }
     function fieldKey(f, i) { return f.id ? 'id:' + f.id : [f.tagName, f.type, f.name, f.value && ['radio', 'checkbox'].includes(f.type) ? f.value : '', i].join(':'); }
     function capture(c) {

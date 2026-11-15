@@ -21,6 +21,16 @@
 .worktime-evidence-number { border: 0; padding: 6px; background: none; font: inherit; color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .record-reuse { padding: 12px; border: 1px solid var(--border, #cbd5e1); border-radius: 8px; }
 .record-reuse select { max-width: min(450px, 100%); }
+.record-reuse .record-reuse-choices { display: flex; flex-wrap: wrap; gap: 8px 14px; flex-basis: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.record-reuse-choices legend { padding: 0 4px; font-size: .8rem; }
+.record-reuse .record-reuse-choices label { width: auto; margin: 0; font-size: .85rem; white-space: nowrap; }
+.record-reuse .record-reuse-choices input { width: 16px; min-width: 16px; height: 16px; padding: 0; margin: 0; }
+.equipment-overdue h3 { color: #b45309; }
+.equipment-overdue-rows { max-height: 280px; overflow-y: auto; }
+.equipment-return-button { margin-right: auto; }
+.modal-footer:has(.equipment-return-button) { flex-wrap: wrap; }
+#search-condition-summary { min-width: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; font-size: .72rem; line-height: 1.5; color: var(--primary); background: var(--primary-light); border: 1px solid var(--border); border-radius: 10px; }
+#search-condition-summary[hidden] { display: none; }
 .header-search-workspace { position: relative; z-index: 51; display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 5px 14px; background: var(--surface, #fff); border-bottom: 1px solid var(--border, #cbd5e1); }
 .search-workspace-controls { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; }
 .search-workspace-controls[hidden] { display: none; }
@@ -50,6 +60,7 @@
     .header-search-workspace .search-bar, .header-search-workspace .notebook-search-bar { order: 4; flex-basis: 100%; max-width: none; }
 }
 @media (max-width: 720px) {
+    .modal-footer .equipment-return-button { flex-basis: 100%; padding: 7px 10px; white-space: nowrap; }
     #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(280px, 85vw); z-index: 100; transform: translateX(-100%); }
     #sidebar.mobile-open { transform: translateX(0); }
     .header-search-workspace { align-items: flex-start; padding: 4px 8px; }

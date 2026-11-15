@@ -53,3 +53,46 @@ test('50,000 records with 500 machines retain correct totals within the performa
     assert.equal(card.history.length,100); assert.equal(card.minutes,3000); assert.equal(evidence.total,3000000);
     assert.ok(performance.now()-start < 5000, '50k data derivation exceeds 5 seconds');
 });
+
+test('duplicate workers, invalid times and guide-only entries cannot inflate or subtract from totals', () => {
+    const { app, data } = runtime();
+    const records = [
+        { id:'duplicate', machineId:'m1', workTime:30, workers:['田中', ' 田中 ', '鈴木'] },
+        ...[-10, '30minutes', '', 'Infinity', null].map((workTime,i)=>({id:'bad'+i,machineId:'m1',workTime,workers:['田中']})),
+        { id:'zero',machineId:'m1',workTime:0,workers:['田中'] },
+        { id:'guide',machineId:'m1',isManualGuide:true,workTime:999,workers:['田中'] },
+        { id:'actual-with-guide',machineId:'m1',guide:'手順',workTime:15,workers:['鈴木'] }
+    ];
+    const original = JSON.stringify(records);
+    const evidence = app.getWorkTimeEvidence(records,[{name:'田中'},{name:'鈴木'}],'worker',data.machines);
+    assert.equal(evidence.total,75); assert.equal(evidence.count,9);
+    assert.equal(evidence.duplicateWorkers.length,1); assert.equal(evidence.unknownTimes.length,5); assert.equal(evidence.guideOnly.length,1);
+    assert.equal(app.getWorkTimeMinutes(records),45);
+    assert.equal(records.reduce((n,h)=>n+app.getWorkTimeContribution(h,'worker','田中'),0),30);
+    assert.equal(records.reduce((n,h)=>n+app.getWorkTimeContribution(h,'category'),0),45);
+    data.history=records; assert.equal(app.getEquipmentWorkspace('m1').minutes,45);
+    assert.equal(JSON.stringify(records), original, 'derivation must not edit legacy records');
+});
+
+test('equipment overdue dates use scheduled completion dates, legacy one-off completion and schedule history', () => {
+    const { app, data } = runtime();
+    data.tasks = [
+        {id:'cycle',machineId:'m1',startDate:'2026-11-01',periodDays:7},
+        {id:'single',machineId:'m1',startDate:'2026-11-02',periodDays:0},
+        {id:'changed',machineId:'m1',startDate:'2026-11-13',periodDays:7,scheduleEffectiveDate:'2026-11-10',scheduleHistory:[{startDate:'2026-11-03',fromDate:'2026-11-03',untilDate:'2026-11-10',periodDays:7}]}
+    ];
+    data.history = [
+        {machineId:'m1',taskId:'cycle',date:'2026-11-09',scheduledDate:'2026-11-08',workTime:10},
+        {machineId:'m1',taskId:'single',date:'2026-11-04',workTime:10}
+    ];
+    const chart=app.getEquipmentWorkspace('m1');
+    assert.deepEqual(Array.from(chart.overdue,x=>x.task.id+':'+x.date),['cycle:2026-11-01','changed:2026-11-03','changed:2026-11-13']);
+    assert.deepEqual(Array.from(chart.upcoming,x=>x.date),['2026-11-15','2026-11-20']);
+});
+
+test('today filters recover from an older preset with null state', () => {
+    const { app, store } = runtime();
+    app._todayWorkspaceDepartment=store.data.currentDepartmentId; app.todayWorkspaceFilters=null;
+    assert.equal(app.getTodayWorkspaceFilters().line,'all');
+    assert.equal(app.matchesTodayWorkspaceFilter({machineId:'m1'}),true);
+});

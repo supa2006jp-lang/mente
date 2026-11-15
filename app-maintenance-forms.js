@@ -702,9 +702,9 @@
 
                         <div id="s-copy-last-section" style="display:none;">
                             <button type="button" id="btn-s-copy-last" class="secondary-btn" style="width:100%; padding:10px; font-weight:800; background:var(--primary-light); color:var(--primary); border:1.5px solid var(--primary); display:flex; align-items:center; justify-content:center; gap:8px;" onclick="app.copyLastSuddenRecord()">
-                                <i class="fa-solid fa-clone"></i> この機械の前回の記録をコピー
+                                <i class="fa-solid fa-clone"></i> この機械の前回の記録から選択
                             </button>
-                            <div style="font-size:0.65rem; color:var(--text-light); text-align:center; margin-top:4px;">※症状/原因/処置/作業者/部品を自動入力します</div>
+                            <div style="font-size:0.65rem; color:var(--text-light); text-align:center; margin-top:4px;">※取り込む項目を選び、空欄に反映します</div>
                         </div>
                         <div id="s-history-assist-panel"></div>
                     </div>
@@ -980,71 +980,12 @@
 
     copyLastSuddenRecord(isEdit = false) {
         const prefix = isEdit ? 'e-' : 's-';
-        const machineId = document.getElementById(`${prefix}machine-id`).value;
+        const machineId = document.getElementById(`${prefix}machine-id`)?.value;
+        const currentId = document.getElementById('e-h-id')?.value;
         if (!machineId || machineId === 'NEW_MACHINE') return;
-
-        // Find latest history for this machine (prefer sudden records)
-        const history = store.activeData.history
-            .filter(h => h.machineId === machineId)
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
-        const lastRecord = history.find(h => h.isSudden) || history[0];
-
-        if (!lastRecord) return;
-
-        // Populate fields
-        if (lastRecord.lineNo) {
-            const lineField = document.getElementById(`${prefix}line-no`);
-            lineField.value = lastRecord.lineNo;
-            this.markHistoryAssistCopiedField(lineField);
-        }
-        const contentField = document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`);
-        if (lastRecord.errorContent && contentField) {
-            contentField.value = lastRecord.errorContent;
-            this.markHistoryAssistCopiedField(contentField);
-        }
-        if (lastRecord.cause) {
-            const causeField = document.getElementById(`${prefix}cause`);
-            causeField.value = lastRecord.cause;
-            this.markHistoryAssistCopiedField(causeField);
-        }
-        if (lastRecord.notes) {
-            const notesField = document.getElementById(`${prefix}notes`);
-            notesField.value = lastRecord.notes;
-            this.markHistoryAssistCopiedField(notesField);
-        }
-        if (lastRecord.category) {
-            const categoryField = document.getElementById(`${prefix}category`);
-            categoryField.value = lastRecord.category;
-            this.markHistoryAssistCopiedField(categoryField);
-        }
-        [contentField, document.getElementById(`${prefix}cause`), document.getElementById(`${prefix}notes`)]
-            .forEach(textarea => this.autoResizeTextarea(textarea));
-        
-        // Auto-set as recurrence since it's a copy of past event
-        const occRadio = document.querySelector(`input[name="${prefix}occurrence"][value="recurrence"]`);
-        if (occRadio) occRadio.checked = true;
-        
-        if (lastRecord.workers) {
-            const workersField = document.getElementById(`${prefix}workers`);
-            workersField.value = lastRecord.workers.join(', ');
-            this.markHistoryAssistCopiedField(workersField);
-        }
-
-        // Handle parts
-        const partsContainer = document.getElementById(`${prefix}parts-container`);
-        if (partsContainer && lastRecord.replacedParts && lastRecord.replacedParts.length > 0) {
-            partsContainer.innerHTML = '';
-            lastRecord.replacedParts.forEach(p => {
-                this.addPartRow(p, true);
-            });
-        }
-        
-        // Highlight briefly to show it worked
-        const form = document.getElementById(`${prefix}-form`);
-        if (form) {
-            form.style.background = '#f0f9ff';
-            setTimeout(() => { form.style.background = 'transparent'; }, 500);
-        }
+        const history = (store.activeData.history || []).filter(h => h.machineId === machineId && h.id !== currentId && !h.isManualGuide)
+            .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+        this.showRecordReuseChoice(history.find(h => h.isSudden) || history[0], prefix);
     }
 
     markHistoryAssistCopiedField(field) {
@@ -1273,10 +1214,10 @@
                             </details>
                             <div class="history-assist-actions">
                                 <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(latest?.id || '')}', '${this.escapeJs(prefix)}', 'recurrence')">
-                                    <i class="fa-solid fa-clock-rotate-left"></i> 前回一式を使う
+                                    <i class="fa-solid fa-clock-rotate-left"></i> 前回から項目を選ぶ
                                 </button>
                                 <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistText('${this.escapeJs(mostCause)}', '${this.escapeJs(mostTreatment)}', '${this.escapeJs(prefix)}', 'most', { content: '${this.escapeJs(visibleRecurrence.title || '')}', workTime: '${this.escapeJs(mostWorkTime)}', category: '${this.escapeJs(mostCategory)}', workers: '${this.escapeJs(mostWorkers)}' })">
-                                    <i class="fa-solid fa-ranking-star"></i> 最多一式を使う
+                                    <i class="fa-solid fa-ranking-star"></i> 最多候補から選ぶ
                                 </button>
                                 <button type="button" class="secondary-btn" onclick="app.openHistoryEditForm('${this.escapeJs(latest?.id || '')}')">
                                     <i class="fa-solid fa-clock-rotate-left"></i> 前回を開く
@@ -1309,7 +1250,7 @@
                                         </div>
                                         <div class="history-assist-actions vertical">
                                             <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', 'detail')">原因・処置</button>
-                                            <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', 'full')">一式反映</button>
+                                            <button type="button" class="secondary-btn" onclick="app.applyHistoryAssistCandidate('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', 'full')">項目を選択</button>
                                         </div>
                                     </article>
                                 `;
@@ -1365,99 +1306,14 @@
 
     applyHistoryAssistCandidate(historyId = '', prefix = 's-', mode = 'detail') {
         const source = (store.activeData.history || []).find(h => String(h.id) === String(historyId));
-        if (!source) return;
-        const contentField = document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`);
-        const causeField = document.getElementById(`${prefix}cause`);
-        const notesField = document.getElementById(`${prefix}notes`);
-        const workTimeField = document.getElementById(`${prefix}work-time`);
-        const categoryField = document.getElementById(`${prefix}category`);
-        const workersField = document.getElementById(`${prefix}workers`);
-        const sourceContent = this.getHistoryDisplayText(source) || source.errorContent || '';
-        if ((mode === 'full' || mode === 'recurrence') && sourceContent && contentField) {
-            contentField.value = sourceContent;
-            this.markHistoryAssistCopiedField(contentField);
-        }
-        if (source.cause && causeField) {
-            causeField.value = source.cause;
-            this.markHistoryAssistCopiedField(causeField);
-        }
-        if (source.notes && notesField) {
-            notesField.value = source.notes;
-            this.markHistoryAssistCopiedField(notesField);
-        }
-        if ((mode === 'full' || mode === 'recurrence') && source.workTime && workTimeField && !workTimeField.value) {
-            workTimeField.value = source.workTime;
-            this.markHistoryAssistCopiedField(workTimeField);
-        }
-        if ((mode === 'full' || mode === 'recurrence') && source.category && categoryField && !categoryField.value) {
-            categoryField.value = source.category;
-            this.markHistoryAssistCopiedField(categoryField);
-        }
-        if ((mode === 'full' || mode === 'recurrence') && Array.isArray(source.workers) && source.workers.length && workersField && !workersField.value) {
-            workersField.value = source.workers.join(', ');
-            this.markHistoryAssistCopiedField(workersField);
-        }
-        const recurrenceRadio = document.querySelector(`input[name="${prefix}occurrence"][value="recurrence"]`);
-        if (recurrenceRadio) recurrenceRadio.checked = true;
-        [contentField, causeField, notesField].forEach(field => {
-            this.autoResizeTextarea(field);
-            field?.dispatchEvent(new Event('input', { bubbles: true }));
-        });
-        const panel = document.getElementById(`${prefix}history-assist-panel`);
-        const contentLabel = prefix === 'e-' ? 'メンテナンス項目' : '症状';
-        this.showHistoryAssistAppliedNotice(prefix, mode === 'recurrence' ? [contentLabel, '原因', '処置', '作業時間', '対応区分', '作業者'] : (mode === 'full' ? [contentLabel, '原因', '処置', '作業時間', '対応区分', '作業者'] : ['原因', '処置']));
-        panel?.classList.add('applied');
-        setTimeout(() => panel?.classList.remove('applied'), 800);
+        if (source) this.showRecordReuseChoice(source, prefix, mode);
     }
 
     applyHistoryAssistText(cause = '', notes = '', prefix = 's-', mode = 'most', extras = {}) {
-        const contentField = document.getElementById(`${prefix}content`) || document.getElementById(`${prefix}symptom`);
-        const causeField = document.getElementById(`${prefix}cause`);
-        const notesField = document.getElementById(`${prefix}notes`);
-        const workTimeField = document.getElementById(`${prefix}work-time`);
-        const categoryField = document.getElementById(`${prefix}category`);
-        const workersField = document.getElementById(`${prefix}workers`);
-        if (extras?.content && contentField) {
-            contentField.value = extras.content;
-            this.markHistoryAssistCopiedField(contentField);
-        }
-        if (cause && causeField) {
-            causeField.value = cause;
-            this.markHistoryAssistCopiedField(causeField);
-        }
-        if (notes && notesField) {
-            notesField.value = notes;
-            this.markHistoryAssistCopiedField(notesField);
-        }
-        if (extras?.workTime && workTimeField && !workTimeField.value) {
-            workTimeField.value = extras.workTime;
-            this.markHistoryAssistCopiedField(workTimeField);
-        }
-        if (extras?.category && categoryField && !categoryField.value) {
-            categoryField.value = extras.category;
-            this.markHistoryAssistCopiedField(categoryField);
-        }
-        if (extras?.workers && workersField && !workersField.value) {
-            workersField.value = extras.workers;
-            this.markHistoryAssistCopiedField(workersField);
-        }
-        const recurrenceRadio = document.querySelector(`input[name="${prefix}occurrence"][value="recurrence"]`);
-        if (recurrenceRadio) recurrenceRadio.checked = true;
-        [contentField, causeField, notesField].forEach(field => {
-            this.autoResizeTextarea(field);
-            field?.dispatchEvent(new Event('input', { bubbles: true }));
-        });
-        const panel = document.getElementById(`${prefix}history-assist-panel`);
-        const copied = [];
-        if (extras?.content) copied.push(prefix === 'e-' ? 'メンテナンス項目' : '症状');
-        if (cause) copied.push('原因');
-        if (notes) copied.push('処置');
-        if (extras?.workTime) copied.push('作業時間');
-        if (extras?.category) copied.push('対応区分');
-        if (extras?.workers) copied.push('作業者');
-        this.showHistoryAssistAppliedNotice(prefix, copied);
-        panel?.classList.add('applied');
-        setTimeout(() => panel?.classList.remove('applied'), 800);
+        this.showRecordReuseChoice({ errorContent: extras?.content, cause, notes,
+            workTime: extras?.workTime, category: extras?.category,
+            workers: String(extras?.workers || '').split(/[,、]/).map(s => s.trim()).filter(Boolean)
+        }, prefix, extras?.content ? 'full' : 'detail');
     }
 
     showHistoryAssistAppliedNotice(prefix = 's-', labels = []) {
@@ -1933,6 +1789,7 @@
         const overlay = document.getElementById('modal-overlay');
         const container = document.getElementById('modal-container');
         if (!overlay || !container) return;
+        this.prepareEquipmentModal?.();
         this.endEditDraft?.(container, { keepSnapshot: true });
         if (overlay.classList.contains('hidden') || !this._modalReturnFocus) {
             this._modalReturnFocus = document.activeElement;
@@ -1960,6 +1817,7 @@
         if (renderFn) renderFn();
         this.organizeMaintenanceForm?.(type);
         this.injectUnifiedSearchReturnButton?.();
+        this.injectEquipmentReturnButton?.();
 
         const saveBtn = document.getElementById('modal-save-btn');
         if (saveBtn) saveBtn.onclick = () => this.saveModalData(type);
@@ -3431,7 +3289,7 @@
         const content = container?.querySelector('#modal-content');
         if (!content) return null;
         const fields = Array.from(content.querySelectorAll('input, select, textarea, [contenteditable="true"]'))
-            .filter(field => String(field.type || '').toLowerCase() !== 'search')
+            .filter(field => String(field.type || '').toLowerCase() !== 'search' && !field.closest?.('.record-reuse'))
             .map(field => {
                 const inputType = String(field.type || '').toLowerCase();
                 let value;
@@ -3490,6 +3348,7 @@
     }
 
     closeModal() {
+        const closedType = document.getElementById('modal-container')?.dataset.modalType;
         this.endEditDraft?.(document.getElementById('modal-container'), { saved: !!this._modalSaveInProgress });
         this._modalSnapshotVersion = (this._modalSnapshotVersion || 0) + 1;
         this._modalInitialState = null;
@@ -3510,6 +3369,7 @@
         this._modalReturnFocus = null;
         const focusTarget = returnFocus?.isConnected ? returnFocus : document.getElementById('app-settings-btn');
         if (typeof focusTarget?.focus === 'function') focusTarget.focus();
+        this.onEquipmentModalClosed?.(closedType, !!this._modalSaveInProgress);
     }
 
     // Real-time price calculator for part master (supports "price/weightKG" format)

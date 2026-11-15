@@ -969,43 +969,14 @@
     }
 
     exportWorkTimeAsCSV() {
+        // Export the displayed aggregation so line/search/group filters and legacy-data rules agree.
+        this.renderWorkTime();
         const period = document.getElementById('worktime-filter-period')?.value || 'this_month';
-        let history = store.getHistory({});
-        history = this.filterHistoryByPeriod(history, period);
-        const machines = store.getMachines(true);
-
-        const workerStats = {}; 
-        const archivedStats = { name: '旧作業者合計', totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0 };
-        let totalTimeSum = 0;
-
-        history.forEach(h => {
-            const workers = h.workers || [];
-            const time = parseInt(h.workTime) || 0;
-            const isPeriodic = !!h.taskId;
-            workers.forEach(w => {
-                const ww = w.trim();
-                if (!ww) return;
-                totalTimeSum += time;
-                const isArchived = store.isWorkerArchived(ww);
-                const s = isArchived ? archivedStats : (workerStats[ww] || (workerStats[ww] = { name: ww, totalTime: 0, pt: 0, st: 0, np: 0, dt: 0, pc: 0, sc: 0, npc: 0, dc: 0 }));
-                s.totalTime += time;
-                if (isPeriodic) { s.pt += time; s.pc++; }
-                else if (h.isDokatei) { s.dt += time; s.dc++; }
-                else if (h.isNonProductionStop) { s.np += time; s.npc++; }
-                else { s.st += time; s.sc++; }
-            });
-        });
-
-        const stats = Object.values(workerStats).sort((a,b) => b.totalTime - a.totalTime);
-        if (archivedStats.totalTime > 0) stats.push(archivedStats);
-
-        const headers = ["作業者", "合計時間(分)", "全体割合(%)", "定期メンテ時間", "定期件数", "突発対応時間", "突発件数", "非生産停止時間", "非生産停止件数", "ドカ停時間", "ドカ停件数"];
-        const rows = stats.map(s => {
-            const pct = totalTimeSum > 0 ? ((s.totalTime / totalTimeSum) * 100).toFixed(1) : 0;
-            return [s.name, s.totalTime, pct, s.pt, s.pc, s.st, s.sc, s.np || 0, s.npc || 0, s.dt, s.dc].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
-        });
-
-        const csvContent = [headers.join(','), ...rows].join('\n');
+        const context = this._workTimeEvidenceContext;
+        if (!context) return;
+        const headers = [context.groupBy === 'category' ? '装置区分' : '作業者', '合計時間(分)', '全体割合(%)', '定期メンテ時間', '定期件数', '突発対応時間', '突発件数', '非生産停止時間', '非生産停止件数', 'ドカ停時間', 'ドカ停件数'];
+        const rows = context.results.map(s => [s.name, s.totalTime, s.pct, s.pt, s.pc, s.st, s.sc, s.np, s.npc, s.dt, s.dc].map(v => this.csvEscape(v)).join(','));
+        const csvContent = [headers.map(v => this.csvEscape(v)).join(','), ...rows].join('\n');
         this.downloadCSV(`worktime_analysis_${period}_${this.getLocalDateString()}.csv`, csvContent);
     }
 

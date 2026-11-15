@@ -2,6 +2,26 @@
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppWorkTimeMethods extends MaintenanceApp {
+    getWorkTimeRecordFacts(record) {
+        const raw = typeof record.workTime === 'number' || typeof record.workTime === 'string' ? String(record.workTime).trim() : '';
+        const valid = /^\d+(?:\.\d+)?$/.test(raw) && Number.isFinite(Number(raw));
+        const names = (Array.isArray(record.workers) ? record.workers : []).filter(w => typeof w === 'string').map(w => w.trim()).filter(Boolean);
+        const workers = [...new Set(names)];
+        return { minutes: valid ? Number(raw) : 0, unknownTime: !valid, workers, duplicateWorkers: names.length > workers.length, guideOnly: !!record.isManualGuide };
+    }
+
+    getWorkTimeContribution(record, groupBy = this.workTimeGroupBy || 'worker', query = this.workTimeSearchQuery || '') {
+        const facts = this.getWorkTimeRecordFacts(record);
+        if (facts.guideOnly) return 0;
+        if (groupBy === 'category') return facts.minutes;
+        return facts.minutes * facts.workers.filter(w => this.matchesWorkTimeGroupQuery(store.isWorkerArchived(w) ? '旧作業者合計' : w, query)).length;
+    }
+
+    matchesWorkTimeGroupQuery(name, query) {
+        const normalized = MaintenanceStore.toHalfWidthLower(name);
+        return MaintenanceStore.toHalfWidthLower(query || '').trim().split(/[\s　]+/).filter(Boolean).every(term => normalized.includes(term));
+    }
+
     getWorkTimePeriodStorageKey() {
         return 'worktime_filter_period';
     }
@@ -202,7 +222,7 @@
     }
 
     getWorkTimeMinutes(records) {
-        return records.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
+        return records.reduce((sum, h) => sum + (h.isManualGuide ? 0 : this.getWorkTimeRecordFacts(h).minutes), 0);
     }
 
     getWorkTimeChartTooltipEl(chart) {
@@ -534,7 +554,7 @@
         const key = content || '内容なし';
         const item = stats.contentTypeMap[typeKey][key] || { count: 0, minutes: 0 };
         item.count++;
-        item.minutes += parseInt(minutes) || 0;
+        item.minutes += Number(minutes) || 0;
         stats.contentTypeMap[typeKey][key] = item;
     }
 
@@ -545,7 +565,7 @@
             const content = this.getHistoryDisplayText(h) || '内容なし';
             if (!contentMap[content]) contentMap[content] = { count: 0, minutes: 0 };
             contentMap[content].count++;
-            contentMap[content].minutes += parseInt(h.workTime) || 0;
+            contentMap[content].minutes += this.getWorkTimeRecordFacts(h).minutes;
         });
         const items = Object.entries(contentMap).sort((a, b) => b[1].count - a[1].count || b[1].minutes - a[1].minutes);
         const typeLabel = this.getWorkTimeHistoryTypeLabel(typeKey);
@@ -580,7 +600,7 @@
         const lineVal = document.getElementById('worktime-filter-line')?.value || 'all';
         const machines = store.getMachines(true);
         const workTimeMachinesById = new Map(machines.map(m => [m.id, m]));
-        let records = this.filterHistoryByPeriod(store.getHistory({}), period);
+        let records = this.filterHistoryByPeriod(store.getHistory({}).filter(h => !h.isManualGuide), period);
         records = this.filterWorkTimeRecordsByLine(records, lineVal, machines);
         records = records.filter(h => this.getWorkTimeHistoryTypeKey(h) === typeKey);
         return records.filter(h => {
@@ -589,7 +609,7 @@
                 const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
                 return cat === groupName;
             }
-            return (h.workers || []).map(w => w.trim()).filter(Boolean).includes(groupName);
+            return this.getWorkTimeRecordFacts(h).workers.includes(groupName);
         });
     }
 
@@ -834,7 +854,7 @@
         // トレンドグラフの描画
         this.renderWorkTimeTrend();
 
-        const allHistory = store.getHistory({});
+        const allHistory = store.getHistory({}).filter(h => !h.isManualGuide);
         let history = this.filterHistoryByPeriod(allHistory, period);
         const periodHistory = history.slice();
         const machines = store.getMachines(true);
@@ -854,7 +874,7 @@
         let totalTimeSum = 0;
 
         history.forEach(h => {
-            const time = parseInt(h.workTime) || 0;
+            const time = this.getWorkTimeRecordFacts(h).minutes;
             const isPeriodic = !!h.taskId;
             const m = workTimeMachinesById.get(h.machineId);
             
@@ -864,7 +884,7 @@
                 let cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
                 groupKeys = [cat];
             } else {
-                groupKeys = (h.workers || []).map(w => w.trim()).filter(Boolean);
+                groupKeys = this.getWorkTimeRecordFacts(h).workers;
             }
 
             groupKeys.forEach(k => {
@@ -910,7 +930,7 @@
             return { name, totalTime: s.totalTime, pct, pt: s.pt, st: s.st, np: s.np, dt: s.dt, pc: s.pc, sc: s.sc, npc: s.npc, dc: s.dc, avgSudden, avgDokatei, topMachines, topTroubles, contentTypeMap: s.contentTypeMap, isArchived: false };
         });
 
-        if (currentGroupBy === 'worker' && archivedStats.totalTime > 0) {
+        if (currentGroupBy === 'worker' && (archivedStats.pc + archivedStats.sc + archivedStats.npc + archivedStats.dc) > 0) {
             const s = archivedStats;
             const pct = totalTimeSum > 0 ? ((s.totalTime / totalTimeSum) * 100).toFixed(1) : 0;
             const topMachines = Object.entries(s.machineTimeMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>`・${x[0]} (${x[1]}分)`).join('<br>');
@@ -926,7 +946,7 @@
             });
         }
         results.sort((a, b) => b.totalTime - a.totalTime);
-        const displayedTotalTime = results.reduce((sum, r) => sum + (parseInt(r.totalTime) || 0), 0);
+        const displayedTotalTime = results.reduce((sum, r) => sum + r.totalTime, 0);
 
         container.innerHTML = '';
         container.appendChild(this.renderWorkTimeConditionBar({
@@ -1023,7 +1043,7 @@
                 </tbody>
         `;
         container.appendChild(table);
-        this.renderWorkTimeEvidence?.(container, history, results, currentGroupBy, machines);
+        this.renderWorkTimeEvidence?.(container, this.filterWorkTimeRecordsByLine(this.filterHistoryByPeriod(store.getHistory({}), period), lineVal, machines), results, currentGroupBy, machines);
     }
 
     renderWorkTimeTrend() {
@@ -1052,7 +1072,7 @@
             });
         }
         
-        let history = store.getHistory({});
+        let history = store.getHistory({}).filter(h => !h.isManualGuide);
         const lineVal = document.getElementById('worktime-filter-line')?.value || 'all';
         if (lineVal !== 'all') {
             history = history.filter(h => {
@@ -1067,10 +1087,10 @@
                 history = history.filter(h => {
                     const m = workTimeMachinesById.get(h.machineId);
                     const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
-                    return MaintenanceStore.toHalfWidthLower(cat).includes(q);
+                    return this.matchesWorkTimeGroupQuery(cat, q);
                 });
             } else {
-                history = history.filter(h => (h.workers || []).some(w => MaintenanceStore.toHalfWidthLower(w.trim()).includes(q)));
+                history = history.filter(h => this.getWorkTimeRecordFacts(h).workers.some(w => this.matchesWorkTimeGroupQuery(store.isWorkerArchived(w) ? '旧作業者合計' : w, q)));
             }
         }
         
@@ -1128,7 +1148,7 @@
                     if (!detailMap[title]) detailMap[title] = months.map(() => 0);
                     
                     const d = new Date(h.date);
-                    const time = parseInt(h.workTime) || 0;
+                    const time = this.getWorkTimeContribution(h);
                     const mIdx = months.findIndex(m => m.year === d.getFullYear() && m.month === d.getMonth());
                     if (mIdx !== -1) detailMap[title][mIdx] += time;
                 });
@@ -1148,7 +1168,7 @@
                 // 通常時 (タイプ別)
                 history.forEach(h => {
                     const d = new Date(h.date);
-                    const time = parseInt(h.workTime) || 0;
+                    const time = this.getWorkTimeContribution(h);
                     const target = months.find(m => m.year === d.getFullYear() && m.month === d.getMonth());
                     if (target) {
                         if (h.taskId) target.pt += time;
@@ -1186,7 +1206,7 @@
                 if (isDrilledDownTrend && m?.id && !machineIdMap[key]) machineIdMap[key] = m.id;
                 
                 const d = new Date(h.date);
-                const time = parseInt(h.workTime) || 0;
+                const time = this.getWorkTimeContribution(h);
                 const mIdx = months.findIndex(m => m.year === d.getFullYear() && m.month === d.getMonth());
                 if (mIdx !== -1) labelMap[key][mIdx] += time;
             });
@@ -1353,9 +1373,10 @@
 
     openWorkTimeGraph() {
         const period = document.getElementById('worktime-filter-period')?.value || 'this_month';
-        let history = store.getHistory({});
+        let history = store.getHistory({}).filter(h => !h.isManualGuide);
         history = this.filterHistoryByPeriod(history, period);
         
+        history = this.filterWorkTimeRecordsByLine(history, document.getElementById('worktime-filter-line')?.value || 'all', store.getMachines(true));
         // 人名フィルタが行われている場合、その人を含む履歴のみに絞り込む
         if (this.workTimeSearchQuery) {
             const q = MaintenanceStore.toHalfWidthLower(this.workTimeSearchQuery);
@@ -1363,22 +1384,22 @@
                 history = history.filter(h => {
                     const m = store.getMachines(true).find(x => x.id === h.machineId);
                     const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
-                    return MaintenanceStore.toHalfWidthLower(cat).includes(q);
+                    return this.matchesWorkTimeGroupQuery(cat, q);
                 });
             } else {
-                history = history.filter(h => (h.workers || []).some(w => MaintenanceStore.toHalfWidthLower(w.trim()).includes(q)));
+                history = history.filter(h => this.getWorkTimeRecordFacts(h).workers.some(w => this.matchesWorkTimeGroupQuery(store.isWorkerArchived(w) ? '旧作業者合計' : w, q)));
             }
         }
 
         const ptData = history.filter(h => !!h.taskId);
         const stData = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop);
         const npData = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop);
-        const dtData = history.filter(h => !!h.isDokatei);
+        const dtData = history.filter(h => !h.taskId && !!h.isDokatei);
 
-        const ptTime = ptData.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
-        const stTime = stData.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
-        const npTime = npData.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
-        const dtTime = dtData.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
+        const ptTime = ptData.reduce((sum, h) => sum + (this.getWorkTimeContribution(h)), 0);
+        const stTime = stData.reduce((sum, h) => sum + (this.getWorkTimeContribution(h)), 0);
+        const npTime = npData.reduce((sum, h) => sum + (this.getWorkTimeContribution(h)), 0);
+        const dtTime = dtData.reduce((sum, h) => sum + (this.getWorkTimeContribution(h)), 0);
         const total = ptTime + stTime + npTime + dtTime;
 
         if (total === 0) return alert('この期間のデータがありません');
@@ -1414,12 +1435,12 @@
                 }
 
                 if (!map[label]) map[label] = { time: 0, workers: new Set(), troubles: {}, searchKey };
-                map[label].time += (parseInt(h.workTime) || 0);
+                map[label].time += (this.getWorkTimeContribution(h));
                 (h.workers || []).forEach(w => map[label].workers.add(w.trim()));
                 
                 // トラブル内容（作業内容）を集計
                 const taskContent = this.getHistoryDisplayText(h);
-                map[label].troubles[taskContent] = (map[label].troubles[taskContent] || 0) + (parseInt(h.workTime) || 0);
+                map[label].troubles[taskContent] = (map[label].troubles[taskContent] || 0) + (this.getWorkTimeContribution(h));
             });
             return Object.entries(map).map(([label, info]) => {
                 const topTroubles = Object.entries(info.troubles)
