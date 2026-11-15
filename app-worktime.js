@@ -11,7 +11,7 @@
         record ||= {};
         const raw = typeof record.workTime === 'number' || typeof record.workTime === 'string' ? String(record.workTime).trim() : '';
         const valid = /^\d+(?:\.\d+)?$/.test(raw) && Number.isFinite(Number(raw));
-        const names = (Array.isArray(record.workers) ? record.workers : []).filter(w => typeof w === 'string').map(w => w.trim()).filter(Boolean);
+        const names = (Array.isArray(record.workers) ? record.workers : [record.workers]).flatMap(w => this.splitWorkerText(w));
         const workers = [...new Set(names)];
         return { minutes: valid ? Number(raw) : 0, unknownTime: !valid, workers, duplicateWorkers: names.length > workers.length, guideOnly: !!record.isManualGuide };
     }

@@ -787,7 +787,7 @@
                     <datalist id="s-list-model-treatments"></datalist>
 
                     <div class="form-group">
-                        <label for="s-workers">作業者 (カンマ区切りで複数登録) <span style="color:var(--danger)">*</span></label>
+                        <label for="s-workers">作業者 (カンマ・読点で複数登録) <span style="color:var(--danger)">*</span></label>
                         <input type="text" id="s-workers" placeholder="例: 田中, 鈴木" list="list-workers" style="border:2px solid var(--primary);" required>
                         <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
                             ${store.getWorkers().filter(w => !(store.activeData.archivedSuggestions?.workers || []).includes(w)).map(w => `
@@ -970,7 +970,7 @@
     addWorkerToInput(workerName, inputId) {
         const inp = document.getElementById(inputId);
         if (!inp) return;
-        let current = inp.value.split(',').map(x => x.trim()).filter(Boolean);
+        let current = this.splitWorkerText(inp.value);
         if (!current.includes(workerName)) {
             current.push(workerName);
         }
@@ -1312,7 +1312,7 @@
     applyHistoryAssistText(cause = '', notes = '', prefix = 's-', mode = 'most', extras = {}) {
         this.showRecordReuseChoice({ errorContent: extras?.content, cause, notes,
             workTime: extras?.workTime, category: extras?.category,
-            workers: String(extras?.workers || '').split(/[,、]/).map(s => s.trim()).filter(Boolean)
+            workers: this.splitWorkerText(extras?.workers)
         }, prefix, extras?.content ? 'full' : 'detail');
     }
 
@@ -1715,7 +1715,7 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="c-workers">作業者 (カンマ区切り) <span style="color:var(--danger)">*</span></label>
+                        <label for="c-workers">作業者 (カンマ・読点区切り) <span style="color:var(--danger)">*</span></label>
                         <input type="text" id="c-workers" value="${this.escapeHtml((task.workers || []).join(', '))}" placeholder="例: 田中, 鈴木" list="list-workers" style="border:2px solid var(--primary);" required>
                     </div>
 
@@ -3012,16 +3012,17 @@
         row.className = 'part-row';
         row.style = 'display:grid; grid-template-columns: 2fr 2fr 1fr 1.5fr ' + (hidePrice ? '' : '1fr ') + 'auto; gap:8px; margin-bottom:8px;';
         
-        // Auto-price lookup logic
+        // Only automatically derived prices follow name/model changes. Saved and typed prices are retained.
+        let manualPrice = price !== '';
         let updatePriceLabel = () => {};
-        const updatePrice = () => {
+        const updatePrice = (force = false) => {
+            if (manualPrice && force !== true) return;
             const n = row.querySelector('.p-name').value;
             const m = row.querySelector('.p-model').value;
-            if (n) {
-                const price = this.getHistoryPartPrice({ name: n, model: m }).price;
-                row.querySelector('.p-price').value = price ?? '';
-                updatePriceLabel();
-            }
+            const masterPrice = n ? this.getHistoryPartPrice({ name: n, model: m }).price : null;
+            row.querySelector('.p-price').value = masterPrice ?? '';
+            manualPrice = false;
+            updatePriceLabel();
         };
 
         row.innerHTML = `
@@ -3050,6 +3051,13 @@
 
         const nameIn = row.querySelector('.p-name');
         const modelIn = row.querySelector('.p-model');
+        const priceInput = row.querySelector('.p-price');
+        priceInput.addEventListener('input', () => { manualPrice = true; updatePriceLabel(); });
+        priceInput.addEventListener('change', () => { manualPrice = true; updatePriceLabel(); });
+        row.refreshPartPrice = () => updatePrice();
+        const useMaster = document.createElement('button');
+        useMaster.type = 'button'; useMaster.className = 'secondary-btn part-use-master-price'; useMaster.textContent = 'マスター単価を使う';
+        useMaster.onclick = () => { updatePrice(true); priceInput.dispatchEvent(new Event('input', { bubbles: true })); };
         if (hidePrice) {
             const details = document.createElement('details'); details.className = 'part-price-editor';
             const summary = document.createElement('summary');
@@ -3057,10 +3065,10 @@
             const input = row.querySelector('.p-price'); input.type = 'number'; input.min = '0'; input.step = 'any'; input.placeholder = '空欄はマスターで補完';
             label.append(input);
             const note = document.createElement('small'); note.textContent = '無償交換は0を入力。空欄だけマスター単価で補完します。';
-            details.append(summary, label, note); row.append(details);
+            details.append(summary, label, useMaster, note); row.append(details);
             updatePriceLabel = () => { summary.textContent = input.value === '' ? '今回の単価：未入力（マスターで補完）' : `今回の単価：${Number(input.value).toLocaleString()}円`; };
             input.addEventListener('input', updatePriceLabel); details.addEventListener('toggle', updatePriceLabel); updatePriceLabel();
-        }
+        } else { const actions = document.createElement('div'); actions.className = 'part-price-editor'; actions.append(useMaster); row.append(actions); }
         nameIn.addEventListener('input', updatePrice);
         modelIn.addEventListener('input', updatePrice);
         this.ensurePartMasterSearchDatalist();
@@ -3275,7 +3283,7 @@
             const normalizedUnit = selected.unit === 'kg' ? 'g' : selected.unit;
             if (Array.from(unitInput.options).some(opt => opt.value === normalizedUnit)) unitInput.value = normalizedUnit;
         }
-        if (priceInput && (selected.price || selected.price === 0)) priceInput.value = selected.price;
+        row.refreshPartPrice?.();
         if (searchInput) searchInput.value = '';
         if (resultsEl) resultsEl.innerHTML = '';
 
@@ -3470,7 +3478,7 @@
                     const content = row.querySelector('.t-content').value;
                     const period = row.querySelector('.t-period').value;
                     const start = row.querySelector('.t-start').value;
-                    const workers = [...new Set((row.querySelector('.t-workers')?.value || '').split(/[,、]/).map(value => value.trim()).filter(Boolean))];
+                    const workers = this.splitWorkerText(row.querySelector('.t-workers')?.value);
 
                     if (content) {
                         if (tId) {
@@ -3543,7 +3551,7 @@
                 return;
             }
 
-            const workers = workerText ? workerText.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const workers = this.splitWorkerText(workerText);
             if (workers.length === 0) {
                 alert('作業者は必須です。少なくとも1名入力してください。');
                 const workersInput = document.getElementById('s-workers');
@@ -3702,7 +3710,7 @@
                 }
             });
 
-            const workers = workerText ? workerText.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const workers = this.splitWorkerText(workerText);
             if (workers.length === 0) {
                 alert('作業者は必須です。少なくとも1名入力してください。');
                 const workersInput = document.getElementById('c-workers');
@@ -3802,7 +3810,7 @@
                 }
             });
 
-            const workers = workerText ? workerText.split(',').map(s => s.trim()) : [];
+            const workers = this.splitWorkerText(workerText);
             const category = document.getElementById('e-category').value;
             const index = store.activeData.history.findIndex(x => x.id === hId);
             if (index !== -1) {

@@ -318,6 +318,105 @@ test('real Chrome regression: persistence, restore, offline photos, and save fai
     });
 });
 
+test('input refinements: workers, protected prices, column mapping, encodings, review and error reports', {timeout:180000}, async t=>{
+    const h=await launchHarness();t.after(()=>h.close());const {page}=h;
+    await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadNotebook();await maintenanceLazyFeatures.loadPhotos();
+        await store.runAtomicSaveBatch(()=>{
+            store.activeData.machineCategories=['循環'];
+            store.activeData.machines=[{id:'in1',name:'入力ポンプ',model:'IN-1',lineNo:'1',category:'循環'},{id:'in2',name:'入力ポンプ',model:'IN-1',lineNo:'2',category:'循環'}];
+            store.activeData.tasks=[{id:'in-task',machineId:'in1',content:'確認',periodDays:7,startDate:app.getLocalDateString()}];store.activeData.history=[];
+            store.activeData.partsMaster=[{name:'シール',model:'a',price:200,priceRaw:'200',unit:'個'},{name:'シール',model:'b',price:500,priceRaw:'500',unit:'個'}];
+        });app.updateDataLists();
+        window.inputFile=bytes=>{const d=new DataTransfer();d.items.add(new File([bytes],'input.csv',{type:'text/csv'}));document.getElementById('hist-csv-upload').files=d.files;};
+    })()`);
+    await t.test('sudden, completion and history edit save distinct workers and reconcile person-minutes',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            const alerts=[],alert=window.alert;window.alert=m=>alerts.push(m);
+            try {
+                app.openSuddenRecordModal();document.getElementById('s-machine-id').value='in1';app.onSuddenMachineChange('in1');
+                document.getElementById('s-content').value='作業者確認';document.getElementById('s-work-time').value='10';document.getElementById('s-category').value='machine';document.getElementById('s-workers').value='田中、鈴木，田中／佐藤';
+                await app.saveModalData('sudden');const sudden=store.activeData.history.find(r=>r.errorContent==='作業者確認');
+                app.openEquipmentWorkspace('in1');[...document.querySelectorAll('#modal-content button')].find(b=>b.textContent==='完了を記録').click();
+                document.getElementById('c-work-time').value='10';document.getElementById('c-category').value='machine';document.getElementById('c-workers').value='田中，鈴木、田中';await app.saveModalData('complete');
+                const complete=store.activeData.history.find(r=>r.taskId==='in-task');
+                app.closeModal();await app.openHistoryEditForm(sudden.id);document.getElementById('e-workers').value='田中、鈴木，佐藤、田中';await app.saveModalData('edit-history');
+                const edited=store.activeData.history.find(r=>r.id===sudden.id);
+                return {alerts,sudden:sudden.workers,complete:complete.workers,edit:edited.workers,labor:app.calculateHistoryCost(edited).laborMinutes,contribution:app.getWorkTimeContribution(edited,'worker','')};
+            }finally{window.alert=alert;app.closeModal();}
+        })()`);
+        assert.deepEqual(result.alerts,[]);assert.deepEqual(result.sudden,['田中','鈴木','佐藤']);assert.deepEqual(result.complete,['田中','鈴木']);assert.deepEqual(result.edit,['田中','鈴木','佐藤']);assert.equal(result.labor,30);assert.equal(result.contribution,30);
+    });
+    await t.test('manual and saved zero prices survive name/model corrections until master price is explicitly requested',async()=>{
+        const result=await page.evaluate(`(()=>{
+            app.openSuddenRecordModal();app.addPartRow({name:'シール',model:'a',count:1,price:0},true);
+            const row=document.querySelector('.part-row'),price=row.querySelector('.p-price'),model=row.querySelector('.p-model'),summary=row.querySelector('summary');
+            model.value='b';model.dispatchEvent(new Event('input',{bubbles:true}));const zero=price.value;
+            price.value='123';price.dispatchEvent(new Event('input',{bubbles:true}));model.value='a';model.dispatchEvent(new Event('input',{bubbles:true}));
+            const typed=price.value;const confirm=window.confirm;try{window.confirm=()=>false;app.applyPartMasterToRow(row,store.activeData.partsMaster[1]);}finally{window.confirm=confirm;}
+            const corrected={value:price.value,label:summary.textContent};row.querySelector('.part-use-master-price').click();const explicit={value:price.value,label:summary.textContent};
+            price.value='';price.dispatchEvent(new Event('input',{bubbles:true}));model.value='a';model.dispatchEvent(new Event('input',{bubbles:true}));const blank=price.value;
+            app.addPartRow(null,true);const automatic=document.querySelectorAll('.part-row')[1];automatic.querySelector('.p-name').value='シール';automatic.querySelector('.p-model').value='a';automatic.querySelector('.p-model').dispatchEvent(new Event('input'));
+            const autoPrice=automatic.querySelector('.p-price').value,autoLabel=automatic.querySelector('summary').textContent;app.closeModal();return {zero,typed,corrected,explicit,blank,autoPrice,autoLabel};
+        })()`);
+        assert.equal(result.zero,'0');assert.equal(result.typed,'123');assert.equal(result.corrected.value,'123');assert.match(result.corrected.label,/123円/);assert.equal(result.explicit.value,'500');assert.match(result.explicit.label,/500円/);assert.equal(result.blank,'');assert.equal(result.autoPrice,'200');assert.match(result.autoLabel,/200円/);
+    });
+    await t.test('ambiguous columns can be chosen in preview and work category stays separate from occurrence type',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.openHistoryImportModal();inputFile('日付,機械名,作業内容,作業区分,区分,対応種別,ライン\\n2026-11-01,入力ポンプ,列確認,電気,定期,突発,1');
+            await app.refreshHistoryImportPreview();await app.processHistoryImportCSV();const blocked=!!document.querySelector('.history-import-errors');document.querySelector('.history-import-errors').close();
+            const select=document.querySelector('[data-import-column=type]');select.value='5';select.dispatchEvent(new Event('change'));
+            const confirm=window.confirm;try{window.confirm=()=>true;await app.processHistoryImportCSV();}finally{window.confirm=confirm;}
+            const record=store.activeData.history.find(r=>r.errorContent==='列確認');return {blocked,sudden:record.isSudden,category:record.category};
+        })()`);
+        assert.deepEqual(result,{blocked:true,sudden:true,category:'electric'});
+    });
+    await t.test('Shift_JIS and UTF-8 previews show decoded Japanese and fit on a narrow screen',async()=>{
+        await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:false});
+        const result=await page.evaluate(`(async()=>{
+            app.openHistoryImportModal();
+            // Shift_JIS: 日付,機械名,作業内容 / 2026-01-01,ポンプ,確認
+            inputFile(Uint8Array.from([147,250,149,116,44,139,64,138,66,150,188,44,141,236,139,198,147,224,151,101,10,50,48,50,54,45,48,49,45,48,49,44,131,124,131,147,131,118,44,138,109,148,70]));
+            await app.refreshHistoryImportPreview();const sjis=document.getElementById('hist-csv-preview').textContent;
+            const encoding=document.getElementById('hist-csv-encoding');encoding.value='utf-8';await app.refreshHistoryImportPreview();const wrong=document.getElementById('hist-csv-preview').textContent;
+            encoding.value='shift_jis';await app.refreshHistoryImportPreview();const explicit=document.getElementById('hist-csv-preview').textContent;
+            inputFile('日付,機械名,作業内容\\n2026-01-02,ポンプ,確認');encoding.value='auto';await app.refreshHistoryImportPreview();
+            const utf8=document.getElementById('hist-csv-preview').textContent,content=document.getElementById('modal-content');const layout={width:content.clientWidth,scroll:content.scrollWidth};
+            app.closeModal();return {sjis,wrong,explicit,utf8,layout};
+        })()`);
+        assert.match(result.sjis,/Shift_JIS.*ポンプ.*確認/s);assert.doesNotMatch(result.sjis,/�/);assert.doesNotMatch(result.wrong,/先頭5件/);assert.match(result.explicit,/Shift_JIS.*確認/s);assert.match(result.utf8,/UTF-8.*ポンプ/s);assert.ok(result.layout.scroll<=result.layout.width+2,JSON.stringify(result.layout));
+        await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    });
+    await t.test('large review filters rows, retains focus and scroll, and applies one target across pages',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.openHistoryImportModal();const rows=Array.from({length:120},(_,i)=>'2026-10-01,入力ポンプ,IN-1,突発,'+(i===1?'大量0':'大量'+i));inputFile('日付,機械名,型式,区分,作業内容\\n'+rows.join('\\n'));await app.processHistoryImportCSV();
+            const dialog=document.querySelector('.history-import-review'),list=dialog.querySelector('.history-import-review-list'),filter=dialog.querySelector('.history-import-review-filter select');
+            const firstCount=list.querySelectorAll('section').length;
+            const select=list.querySelector('[data-import-control=target]');select.focus();select.value='in2';select.dispatchEvent(new Event('change'));
+            const targetFocus=document.activeElement.dataset.importControl;
+            list.scrollTop=200;const check=list.querySelector('[data-import-control=include]');check.focus({preventScroll:true});const scrollBefore=list.scrollTop;check.click();
+            const retained={focus:document.activeElement.dataset.importControl,scroll:list.scrollTop,checked:list.querySelector('input').checked};
+            list.querySelector('.history-import-bulk-target').click();
+            const status=dialog.querySelector('[role=status]').textContent,bulk=dialog.querySelector('.history-import-bulk-status').textContent;
+            filter.value='unresolved';filter.dispatchEvent(new Event('change'));const unresolved=list.querySelectorAll('section').length;
+            filter.value='all';filter.dispatchEvent(new Event('change'));list.querySelector('input').click();
+            filter.value='duplicates';filter.dispatchEvent(new Event('change'));const duplicates=list.querySelectorAll('section').length;
+            dialog.close();app.closeModal();return {firstCount,targetFocus,scrollBefore,retained,status,bulk,unresolved,duplicates};
+        })()`);
+        assert.equal(result.firstCount,50);assert.equal(result.targetFocus,'target');assert.equal(result.retained.focus,'include');assert.equal(result.retained.scroll,result.scrollBefore);assert.equal(result.retained.checked,false);assert.match(result.status,/取り込み先未選択 0/);assert.match(result.bulk,/119行/);assert.equal(result.unresolved,0);assert.equal(result.duplicates,1);
+    });
+    await t.test('all row errors can be paged and downloaded without partial saves',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.openHistoryImportModal();const before=store.activeData.history.length;inputFile('日付,機械名,作業内容,作業時間\\n'+Array.from({length:30},()=>',,,bad').join('\\n'));await app.processHistoryImportCSV();
+            const dialog=document.querySelector('.history-import-errors'),list=dialog.querySelector('.history-import-review-list');const first=list.querySelectorAll('section').length,text=dialog.textContent;
+            [...dialog.querySelectorAll('button')].find(b=>b.textContent==='次へ').click();const second=list.querySelectorAll('section').length;
+            const download=app.downloadCSV;let csv;try{app.downloadCSV=(name,text)=>csv=text;[...dialog.querySelectorAll('button')].find(b=>b.textContent==='エラー一覧をCSV保存').click();}finally{app.downloadCSV=download;}
+            dialog.close();app.closeModal();return {first,second,text,csv,unchanged:store.activeData.history.length===before};
+        })()`);
+        assert.equal(result.first,50);assert.equal(result.second,50);assert.match(result.text,/30行・120件/);assert.equal(result.csv.split('\r\n').length,121);assert.match(result.csv,/"31","作業内容"/);assert.equal(result.unchanged,true);
+    });
+});
+
 test('import refinements: machine choices, duplicate review, dates, part prices and chart restoration', {timeout:180000}, async t=>{
     const h=await launchHarness();t.after(()=>h.close());const {page}=h;
     await page.evaluate(`(async()=>{
@@ -333,13 +432,13 @@ test('import refinements: machine choices, duplicate review, dates, part prices 
     await t.test('ambiguous equipment requires a choice, cancel writes nothing, and the chosen line is saved',async()=>{
         const opened=await page.evaluate(`(async()=>{
             app.openHistoryImportModal();setImportFile('日付,機械名,型式,区分,作業内容,作業時間,作業者\\n2026/1/2,取込ポンプ,IP-1,突発,CSV選択確認,12.5,田中');await app.processHistoryImportCSV();
-            const dialog=document.querySelector('.history-import-review');const result={disabled:document.getElementById('history-import-review-save').disabled,count:store.activeData.history.length,options:dialog.querySelector('select').options.length};
+            const dialog=document.querySelector('.history-import-review');const result={disabled:document.getElementById('history-import-review-save').disabled,count:store.activeData.history.length,options:dialog.querySelector('[data-import-control=target]').options.length};
             [...dialog.querySelectorAll('button')].find(b=>b.textContent==='キャンセル').click();return result;
         })()`);
         assert.equal(opened.disabled,true);assert.equal(opened.count,0);assert.equal(opened.options,4);
         await page.evaluate('app.processHistoryImportCSV()');
         await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:false});
-        const chosen=await page.evaluate(`(()=>{const dialog=document.querySelector('.history-import-review'),select=dialog.querySelector('select');select.value='im2';select.dispatchEvent(new Event('change',{bubbles:true}));return {disabled:document.getElementById('history-import-review-save').disabled,width:dialog.clientWidth,scroll:dialog.scrollWidth};})()`);
+        const chosen=await page.evaluate(`(()=>{const dialog=document.querySelector('.history-import-review'),select=dialog.querySelector('[data-import-control=target]');select.value='im2';select.dispatchEvent(new Event('change',{bubbles:true}));return {disabled:document.getElementById('history-import-review-save').disabled,width:dialog.clientWidth,scroll:dialog.scrollWidth};})()`);
         assert.equal(chosen.disabled,false);assert.ok(chosen.scroll<=chosen.width+2,JSON.stringify(chosen));
         await page.evaluate("document.getElementById('history-import-review-save').click()");await page.waitFor("!document.querySelector('.history-import-review') && store.activeData.history.length===1",'selected CSV import');
         assert.equal(await page.evaluate('store.activeData.history[0].machineId'),'im2');
@@ -367,7 +466,7 @@ test('import refinements: machine choices, duplicate review, dates, part prices 
         const result=await page.evaluate(`(async()=>{
             app.openHistoryImportModal();const alert=window.alert,confirm=window.confirm,messages=[];const before=store.activeData.history.length;
             try {window.alert=m=>messages.push(m);window.confirm=()=>true;
-                setImportFile('日付,機械名,型式,区分,作業内容,ライン\\n2026-02-30,取込ポンプ,IP-1,突発,日付確認,2');await app.processHistoryImportCSV();const unchanged=store.activeData.history.length===before;
+                setImportFile('日付,機械名,型式,区分,作業内容,ライン\\n2026-02-30,取込ポンプ,IP-1,突発,日付確認,2');await app.processHistoryImportCSV();const unchanged=store.activeData.history.length===before;messages.push(document.querySelector('.history-import-errors').textContent);document.querySelector('.history-import-errors').close();
                 setImportFile('日付,機械名,型式,区分,作業内容,ライン\\n２０２４／２／２９,取込ポンプ,IP-1,突発,閏日確認,2');await app.processHistoryImportCSV();
                 return {unchanged,messages,date:store.activeData.history.find(r=>r.errorContent==='閏日確認').date};
             }finally{window.alert=alert;window.confirm=confirm;}
@@ -486,7 +585,7 @@ test('accuracy refinements: cost, comparison, CSV, saved conditions and grouped 
             const before=store.activeData.history.length;
             try {window.alert=m=>messages.push(m);window.confirm=()=>{confirmations++;return true;};
                 file(header+'2026-11-12,確認ポンプ,ACP-1,突発,CSV確認,30min');await app.processHistoryImportCSV();
-                const rejected=store.activeData.history.length===before && confirmations===0;
+                const rejected=store.activeData.history.length===before && confirmations===0;messages.push(document.querySelector('.history-import-errors').textContent);document.querySelector('.history-import-errors').close();
                 file(header+'2026-11-12,確認ポンプ,ACP-1,突発,CSV確認,12.5');await app.processHistoryImportCSV();
                 return {rejected,messages,time:store.activeData.history.find(r=>r.errorContent==='CSV確認').workTime};
             } finally {window.alert=alert;window.confirm=confirm;}

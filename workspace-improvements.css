@@ -122,3 +122,16 @@
     .search-bar, .notebook-search-bar { min-width: 0 !important; max-width: 100%; flex-wrap: wrap; }
     .search-bar input, .notebook-search-bar input { min-width: 80px !important; }
 }
+.history-import-preview-table { overflow: auto; max-height: 220px; margin: 8px 0; border: 1px solid var(--border); }
+.history-import-preview-table table { border-collapse: collapse; font-size: .78rem; }
+.history-import-preview-table th, .history-import-preview-table td { border: 1px solid var(--border); padding: 6px 8px; min-width: 90px; max-width: 250px; overflow-wrap: anywhere; }
+.history-import-encoding, .history-import-review-filter, .history-import-column-map label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; font-size: .85rem; }
+.history-import-encoding select, .history-import-review-filter select, .history-import-column-map select { min-width: 0; max-width: 100%; min-height: 36px; padding: 5px; border: 1px solid var(--border); border-radius: 6px; }
+.history-import-column-map { margin: 10px 0; }
+.history-import-column-map summary { cursor: pointer; font-weight: 700; }
+.history-import-column-map label { justify-content: space-between; }
+.history-import-column-map select { flex: 0 1 65%; }
+.history-import-review .history-import-review-filter { flex-shrink: 0; }
+.history-import-bulk-target, .part-use-master-price { font-size: .75rem; padding: 5px 9px; margin: 6px 0; max-width: 100%; white-space: normal; }
+.history-import-bulk-status:empty { display: none; }
+.part-price-editor small { display: block; }

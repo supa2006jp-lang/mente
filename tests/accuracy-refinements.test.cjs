@@ -21,6 +21,15 @@ function runtime(values = new Map()) {
     return { app, store, values, messages, prompts, storage };
 }
 
+test('legacy joined worker names use the same distinct headcount for labor and worktime', () => {
+    const {app}=runtime();
+    for (const workers of ['田中、鈴木，田中／佐藤', ['田中、鈴木', '田中', '佐藤']]) {
+        const record={workTime:10,workers,replacedParts:[]};
+        assert.equal(app.calculateHistoryCost(record).laborMinutes,30);
+        assert.equal(app.getWorkTimeRecordFacts(record).workers.length,3);
+    }
+});
+
 test('labor costs deduplicate trimmed workers, preserve decimal minutes, and retain one-person fallback', () => {
     const { app } = runtime();
     const record = { workTime: 12.5, workers: ['田中',' 田中 ','鈴木','',null], replacedParts: [{price: 100, count: 2}] };

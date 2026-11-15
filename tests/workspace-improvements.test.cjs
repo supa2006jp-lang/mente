@@ -12,7 +12,7 @@ function runtime() {
         getTasks: id => data.tasks.filter(t => t.machineId === id && !t.deleted), isMaintenanceTaskArchived: () => false,
         isTaskArchived: () => false, isWorkerArchived: name => name === '旧担当', getHistory: () => data.history };
     const context = vm.createContext({ MaintenanceApp, MaintenanceStore: { toHalfWidthLower: value => String(value).toLowerCase() }, store, console });
-    for (const file of ['app-calendar-support.js','app-equipment-workspace.js','app-analysis-dashboard.js','app-worktime.js','app-worktime-evidence.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'), context);
+    for (const file of ['app-history.js','app-calendar-support.js','app-equipment-workspace.js','app-analysis-dashboard.js','app-worktime.js','app-worktime-evidence.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'), context);
     const app = new MaintenanceApp(); app.getLocalDateString = () => '2026-11-15'; app.getKanbanTodoWorkerName = id => data.localTodoWorkers.find(w => w.id === id)?.name || '全員'; app.getShiftNotebookLabel = () => ({});
     return { app, data, store };
 }

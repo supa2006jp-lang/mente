@@ -1,5 +1,5 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const APP_BUILD = '20261115-import6';
+const APP_BUILD = '20261115-input6';
 const CACHE_NAME = 'maintenance-next-static-' + APP_BUILD;
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
@@ -10,7 +10,7 @@ const SHELL_FILES = [
     './app-five-s-management.js?v=20261115-workspace6',
     './app-unified-search.js?v=20261115-consistency6',
     './app-photo-export.js?v=20261115-workspace6',
-    './workspace-improvements.css?v=20261115-import6',
+    './workspace-improvements.css?v=20261115-input6',
     './',
     './index.html',
     './assets/vendor/fontsource/inter/5.2.6/index.css',
@@ -33,19 +33,20 @@ const SHELL_FILES = [
     './app-calendar-support.js?v=20261115-consistency6',
     './app-departments.js?v=20261115-five1',
     './app-machines.js?v=20261115-compact-search1',
-    './app-maintenance-forms.js?v=20261115-import6',
-    './app-history.js?v=20261115-import6',
+    './app-maintenance-forms.js?v=20261115-input6',
+    './app-history.js?v=20261115-input6',
     './app-analysis-dashboard.js?v=20261115-consistency6',
     './app-ranking-guides.js?v=20261115-consistency6',
     './app-tips.js?v=20261115-five1',
     './app-skills.js?v=20261114-fix123',
     './app-outlook-assist.js?v=20261114-fix123',
-    './app-worktime.js?v=20261115-consistency6',
+    './app-worktime.js?v=20261115-input6',
     './app-archives.js?v=20261115-five1',
     './app-hard-delete.js?v=20261115-five1',
     './app-persistence.js?v=20261115-five1',
-    './app-csv.js?v=20261115-import6',
-    './app-import-review.js?v=20261115-import6',
+    './app-csv.js?v=20261115-input6',
+    './app-import-input.js?v=20261115-input6',
+    './app-import-review.js?v=20261115-input6',
     './app-misc-analysis.js?v=20261115-import6',
     './assets/vendor/ffmpeg/0.11.6/ffmpeg.min.js',
     './assets/vendor/ffmpeg/0.11.6/046d0074eee1d99a674a.js',

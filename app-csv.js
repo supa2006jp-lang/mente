@@ -302,6 +302,10 @@
                     <label style="font-weight:800; color:var(--primary);">Excel / CSVファイルを選択</label>
                     <input type="file" id="hist-csv-upload" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="margin-top:8px; display:block;">
                 </div>
+                <label class="history-import-encoding">CSVの文字コード
+                    <select id="hist-csv-encoding"><option value="auto">自動判定</option><option value="utf-8">UTF-8</option><option value="shift_jis">Shift_JIS（WindowsのCSV）</option></select>
+                </label>
+                <div id="hist-csv-preview" aria-live="polite"></div>
                 ${this.renderHistoryImportLogsHtml()}
             `;
             const footer = document.querySelector('.modal-footer');
@@ -310,6 +314,9 @@
                 <button class="primary-btn" onclick="app.processHistoryImportCSV()"><i class="fa-solid fa-cloud-arrow-up"></i> 取り込む</button>
             `;
             document.getElementById('modal-cancel').onclick = () => this.closeModal();
+            this._historyImportPrepared = null;
+            document.getElementById('hist-csv-upload').onchange = () => this.refreshHistoryImportPreview();
+            document.getElementById('hist-csv-encoding').onchange = () => this.refreshHistoryImportPreview();
         });
     }
 
@@ -381,7 +388,7 @@
                     </div>
                     <div class="history-csv-builder-note">
                         <span><i class="fa-solid fa-circle-info"></i> 機械名は候補から選ぶと型式とラインを自動入力します。</span>
-                        <span>作業者は「山田, 田中」のようにカンマ区切りで複数入力できます。</span>
+                        <span>作業者は「山田、田中」のようにカンマ・読点で区切って複数入力できます。</span>
                     </div>
                 </div>
             `;
@@ -692,50 +699,20 @@
         const fileInput = document.getElementById('hist-csv-upload');
         if (!fileInput.files.length) return alert("ExcelまたはCSVファイルを選択してください。");
         const file = fileInput.files[0];
-        const isExcel = /\.xlsx$/i.test(file.name || '');
 
         this._historyImportReading = true;
         try {
-            const rows = isExcel
-                ? await this.parseHistoryImportWorkbook(await file.arrayBuffer())
-                : this.parseCSV(await file.text()).filter(row => row.some(col => String(col).trim() !== ''));
-            if (rows.length <= 1) return alert("データがありません。");
-
-            const headerRowIndex = rows.findIndex(row => {
-                const normalized = row.map(h => String(h).replace(/^\ufeff/, '').trim());
-                return normalized.some(h => h.includes('日付')) && normalized.some(h => h.includes('機械名'));
-            });
-            if (headerRowIndex < 0) return alert("CSVの見出し行が見つかりませんでした。日付・機械名などの見出しがある行を残してください。");
-
-            const headers = rows[headerRowIndex].map(h => String(h).replace(/^\ufeff/, '').trim());
-            const findIndex = (keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
-            const indexMap = {
-                date: findIndex(['日付']),
-                line: findIndex(['ライン']),
-                machine: findIndex(['機械名']),
-                model: findIndex(['型式']),
-                type: findIndex(['区分', '対応種別']),
-                occurrence: findIndex(['初回', '再発', '対応回数']),
-                content: findIndex(['作業内容', '内容']),
-                cause: findIndex(['原因']),
-                notes: findIndex(['処置']),
-                errorNo: findIndex(['エラー']),
-                time: findIndex(['作業時間']),
-                category: findIndex(['作業区分']),
-                workers: findIndex(['作業員', '作業者']),
-                parts: findIndex(['交換部品', '部品一括', '部品テキスト']),
-                partName: findIndex(['部品名']),
-                partCount: findIndex(['部品数量', '使用数量']),
-                partUnit: findIndex(['部品単位', '単位(個/g)', '単位']),
-                partPrice: findIndex(['部品単価', '単価'])
-            };
-            if (indexMap.parts < 0) indexMap.parts = headers.findIndex(h => h === '部品');
+            const prepared = await this.prepareHistoryImportFile();
+            if (!prepared) return;
+            const { rows, headerRowIndex, indexMap } = prepared;
+            const columnErrors = this.getHistoryImportColumnErrors(prepared);
+            if (columnErrors.length) { this.openHistoryImportErrors(columnErrors); return; }
             const getCol = (cols, key) => {
                 const index = indexMap[key];
                 return index >= 0 ? String(cols[index] || '').trim() : '';
             };
             const normalizeLineNo = (value) => {
-                const raw = String(value || '').trim();
+                const raw = String(value || '').normalize('NFKC').trim();
                 if (!raw) return '';
                 if (raw === 'その他' || raw === '他' || raw.toLowerCase() === 'other') return 'other';
                 const match = raw.match(/\d+/);
@@ -754,20 +731,16 @@
             const newMachines = [];
             let candidateRowCount = 0;
             let skippedInvalidRows = 0;
-            const invalidTimes = [], invalidDates = [];
+            const errors = [];
 
             for (let i = headerRowIndex + 1; i < rows.length; i++) {
                 const cols = rows[i];
                 if (!cols.some(col => String(col).trim() !== '')) continue;
                 candidateRowCount++;
-                if (cols.length < 5) {
-                    skippedInvalidRows++;
-                    continue;
-                }
-
                 const rawDate = getCol(cols, 'date');
                 const date = this.normalizeHistoryImportDate(rawDate);
-                if (!date) { invalidDates.push(`${cols.sourceRow || i + 1}行目: 「${rawDate.slice(0, 60)}」`); continue; }
+                const sourceRow = cols.sourceRow || i + 1, errorCount = errors.length;
+                if (!date) errors.push({ row: sourceRow, field: '日付', value: rawDate, reason: rawDate ? '年・月・日と実在する日付を確認してください。' : '日付を入力してください。' });
                 const lineNo = normalizeLineNo(getCol(cols, 'line'));
                 const mName = getCol(cols, 'machine');
                 const mModel = getCol(cols, 'model');
@@ -779,8 +752,7 @@
                 const errorNo = getCol(cols, 'errorNo');
                 const time = getCol(cols, 'time');
                 if (time && (!/^\d+(?:\.\d+)?$/.test(time) || !Number.isFinite(Number(time)))) {
-                    invalidTimes.push(`${cols.sourceRow || i + 1}行目: 「${time.slice(0, 60)}」`);
-                    continue;
+                    errors.push({ row: sourceRow, field: '作業時間', value: time, reason: '0以上の数値（小数可）を入力してください。' });
                 }
                 const categoryName = getCol(cols, 'category');
                 const workersStr = getCol(cols, 'workers');
@@ -789,10 +761,9 @@
                 const partCountStr = getCol(cols, 'partCount');
                 const partUnitStr = getCol(cols, 'partUnit');
                 const partPriceStr = getCol(cols, 'partPrice');
-                if (!date || !mName) {
-                    skippedInvalidRows++;
-                    continue;
-                }
+                if (!mName) errors.push({ row: sourceRow, field: '機械名', value: mName, reason: '機械名を入力してください。' });
+                if (!content) errors.push({ row: sourceRow, field: '作業内容', value: content, reason: '作業内容を入力してください。' });
+                if (errors.length > errorCount) continue;
 
                 const candidates = this.getHistoryImportMachineCandidates(mName, mModel, lineNo, machines);
                 let provisional = newMachines.find(m => MaintenanceStore.toHalfWidthLower(m.name).trim() === MaintenanceStore.toHalfWidthLower(mName).trim() && MaintenanceStore.toHalfWidthLower(m.model).trim() === MaintenanceStore.toHalfWidthLower(mModel).trim() && m.lineNo === lineNo);
@@ -816,9 +787,7 @@
                     if (categoryName.includes(k)) { category = v; break; }
                 }
 
-                const workers = workersStr
-                    ? workersStr.split(/\s*(?:,|，|、|\/)\s*/).map(w => normalizeImportedWorkerName(w)).filter(Boolean)
-                    : [];
+                const workers = this.splitWorkerText(this.splitWorkerText(workersStr).map(normalizeImportedWorkerName));
                 const replacedParts = this.parseHistoryImportParts(partsStr, partNameStr, partCountStr, partUnitStr, partPriceStr);
                 const record = {
                     id: store.generateId(),
@@ -850,14 +819,7 @@
                 entries.push({ record, candidates, provisional, lineNo, machineName: mName, sourceRow: cols.sourceRow || i + 1, decision: null });
             }
 
-            if (invalidDates.length) {
-                alert(`日付に不正な値が${invalidDates.length}件あります。年・月・日と実在する日付を確認してください。まだ取り込んでいません。\n\n${invalidDates.slice(0, 50).join('\n')}${invalidDates.length > 50 ? `\nほか${invalidDates.length - 50}件` : ''}`);
-                return;
-            }
-            if (invalidTimes.length) {
-                alert(`作業時間に不正な値が${invalidTimes.length}件あります。0以上の数値（小数可）に修正してください。まだ取り込んでいません。\n\n${invalidTimes.slice(0, 50).join('\n')}${invalidTimes.length > 50 ? `\nほか${invalidTimes.length - 50}件` : ''}`);
-                return;
-            }
+            if (errors.length) { this.openHistoryImportErrors(errors); return; }
             if (!entries.length) return alert('取り込めるデータがありませんでした。');
             const plan = { entries, newMachines, fileName: file.name || 'CSV取り込み', totalRows: candidateRowCount,
                 skipped: skippedInvalidRows, department: store.data?.currentDepartmentId, snapshot: this.getHistoryImportSnapshot() };

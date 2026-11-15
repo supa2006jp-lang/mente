@@ -34,7 +34,7 @@ function makeApp(tasks, history = []) {
         querySelector() { return { value: 'first' }; }
     };
     const context = vm.createContext({ MaintenanceApp, store, document, alert: value => alerts.push(value), console, Date });
-    for (const name of ['app-worktime.js', 'app-calendar-support.js', 'app-machines.js', 'app-maintenance-forms.js']) {
+    for (const name of ['app-worktime.js', 'app-calendar-support.js', 'app-machines.js', 'app-maintenance-forms.js', 'app-history.js']) {
         vm.runInContext(read(name), context, { filename: name });
     }
     const app = new MaintenanceApp();

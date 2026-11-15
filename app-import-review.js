@@ -25,7 +25,19 @@
         entry.record.machineId = machine?.id || '';
         entry.record.lineNo = entry.lineNo || machine?.lineNo || '';
         entry.record.machineCategory = machine?.category || '';
-        entry.decision = null;
+    };
+    P.applyHistoryImportTargetToMatching = function (plan, entry) {
+        if (!entry.record.machineId) return 0;
+        const key = e => JSON.stringify([text(e.machineName), text(e.provisional.model), String(e.lineNo || '')]);
+        let count = 0;
+        for (const other of plan.entries) {
+            if (other === entry || key(other) !== key(entry)) continue;
+            if (![...other.candidates, other.provisional].some(m => m.id === entry.record.machineId)) continue;
+            const decision = other.decision;
+            this.setHistoryImportTarget(other, entry.record.machineId);
+            other.decision = decision; count++;
+        }
+        return count;
     };
     P.getHistoryImportKey = function (record) {
         return JSON.stringify([this.normalizeHistoryImportDate(record.date) || text(record.date), String(record.machineId || ''),
@@ -36,7 +48,7 @@
         return {
             '作業内容': record.taskContent || record.errorContent || record.notes || '',
             '作業時間': record.workTime == null || String(record.workTime).trim() === '' ? '未入力' : `${record.workTime}分`,
-            '作業者': [...new Set((Array.isArray(record.workers) ? record.workers : String(record.workers || '').split(/[,、]/)).map(w => String(w).trim()).filter(Boolean))].sort().join('、'),
+            '作業者': this.splitWorkerText(record.workers).sort().join('、'),
             '部品': parts.join(' / '), '原因': record.cause || '', '処置': record.notes || '', 'エラー': record.errorNo || '',
             '作業区分': record.category || '', 'ライン': String(record.lineNo || ''), '装置区分': record.machineCategory || '',
             '対応種別': record.isDokatei ? 'ドカ停' : record.isNonProductionStop ? '非生産停止' : record.isSudden ? '突発' : '定期',
@@ -119,10 +131,16 @@
         node('p', '取り込む行を選んでください。重複候補は最初は除外しています。選ぶと別の記録として追加され、既存の履歴は保持されます。', dialog);
         const summary = node('p', null, dialog); summary.setAttribute('role', 'status');
         const error = node('p', null, dialog); error.setAttribute('role', 'alert'); error.className = 'history-import-review-error';
+        const filterLabel = node('label', '表示する行', dialog); filterLabel.className = 'history-import-review-filter';
+        const filter = node('select', null, filterLabel); filter.setAttribute('aria-label', '確認する行の絞り込み');
+        for (const [value, title] of [['all','すべて'],['unresolved','取り込み先未選択'],['duplicates','重複候補'],['selected','取込対象']]) filter.add(new Option(title, value));
+        const notice = node('p', '', dialog); notice.setAttribute('role', 'status'); notice.className = 'history-import-bulk-status';
         const list = node('div', null, dialog); list.className = 'history-import-review-list';
         const footer = node('div', null, dialog); footer.className = 'history-import-review-actions';
         const button = (label, action) => { const b = node('button', label, footer); b.type = 'button'; b.className = 'secondary-btn'; b.onclick = action; return b; };
         let page = 0;
+        const expanded = new Map();
+        filter.onchange = () => { page = 0; render(); list.scrollTop = 0; };
         const previous = button('前へ', () => { page--; render(); list.scrollTop = 0; });
         const next = button('次へ', () => { page++; render(); list.scrollTop = 0; });
         button('キャンセル', () => { if (!plan.saving) dialog.close(); });
@@ -133,29 +151,38 @@
             if (!success && dialog.isConnected) { controls.forEach(c => c.disabled = false); render(); }
         }); save.className = 'primary-btn'; save.id = 'history-import-review-save';
         const render = () => {
+            const scrollTop = list.scrollTop;
+            const focused = list.contains(document.activeElement) ? document.activeElement : null;
+            const focusRow = focused?.closest('[data-import-row]')?.dataset.importRow, focusKind = focused?.dataset.importControl;
+            for (const detail of list.querySelectorAll('details')) expanded.set(detail.closest('[data-import-row]').dataset.importRow, detail.open);
             this.assessHistoryImportPlan(plan);
             error.textContent = plan.error || ''; error.hidden = !plan.error;
             const selected = plan.entries.filter(e => e.selected), unresolved = selected.filter(e => !e.record.machineId);
-            const pages = Math.max(1, Math.ceil(plan.entries.length / 50));
+            const visible = plan.entries.filter(e => filter.value === 'unresolved' ? !e.record.machineId : filter.value === 'duplicates' ? e.duplicates.length : filter.value === 'selected' ? e.selected : true);
+            const pages = Math.max(1, Math.ceil(visible.length / 50));
             page = Math.min(page, pages - 1);
-            summary.textContent = `取込 ${selected.length} / ${plan.entries.length} 件・取り込み先未選択 ${unresolved.length} 件（${page + 1}/${pages}ページ）`;
+            summary.textContent = `取込 ${selected.length} / ${plan.entries.length} 件・取り込み先未選択 ${unresolved.length} 件・表示 ${visible.length} 件（${page + 1}/${pages}ページ）`;
             previous.disabled = page === 0; next.disabled = page >= pages - 1; save.disabled = !selected.length || !!unresolved.length;
             list.replaceChildren();
-            for (const [index, entry] of plan.entries.entries()) {
+            for (const [index, entry] of visible.entries()) {
                 if (index < page * 50 || index >= (page + 1) * 50) continue;
                 const row = node('section', null, list); row.dataset.importRow = String(entry.sourceRow);
                 const label = node('label', null, row); const check = node('input', null, label); check.type = 'checkbox'; check.checked = entry.selected;
+                check.dataset.importControl = 'include';
                 node('strong', `${entry.sourceRow}行目を取り込む：${entry.record.date} / ${entry.machineName} / ${entry.record.workTime}分`, label);
                 check.onchange = () => { entry.decision = check.checked; render(); };
                 node('p', entry.record.taskContent || entry.record.errorContent || '', row);
                 const targetLabel = node('label', '取り込み先', row); const select = node('select', null, targetLabel); select.setAttribute('aria-label', `${entry.sourceRow}行目の取り込み先`);
+                select.dataset.importControl = 'target';
                 select.add(new Option('機械を選択してください', ''));
                 for (const [i, machine] of entry.candidates.entries()) select.add(new Option(`${entry.candidates.length > 1 ? `候補${i + 1}：` : ''}${machine.name} [${machine.model || '型式未登録'}] / ${machine.lineNo ? machine.lineNo + 'ライン' : 'ライン未設定'}${machine.category ? ' / ' + machine.category : ''}${machine.remarks ? ' / ' + machine.remarks.slice(0, 40) : ''}`, machine.id));
                 select.add(new Option(`新規登録：${entry.provisional.name} [${entry.provisional.model || '型式未登録'}] / ${entry.lineNo || 'ライン未設定'}`, entry.provisional.id));
                 select.value = entry.record.machineId;
                 select.onchange = () => { this.setHistoryImportTarget(entry, select.value); render(); };
+                const bulk = node('button', '同じ機械名・型式・ラインの行にも適用', row); bulk.type = 'button'; bulk.className = 'secondary-btn history-import-bulk-target'; bulk.dataset.importControl = 'bulk'; bulk.disabled = !entry.record.machineId;
+                bulk.onclick = () => { const count = this.applyHistoryImportTargetToMatching(plan, entry); notice.textContent = `同じ入力の${count}行に取り込み先を適用しました。重複候補も再判定しました。`; render(); };
                 if (entry.duplicates.length) {
-                    const details = node('details', null, row); details.open = true;
+                    const details = node('details', null, row); details.open = expanded.get(String(entry.sourceRow)) ?? true;
                     node('summary', `重複候補 ${entry.duplicates.length} 件の差分`, details);
                     const incoming = this.getHistoryImportDetails(entry.record);
                     for (const duplicate of entry.duplicates) {
@@ -167,6 +194,13 @@
                     }
                 }
             }
+            if (!visible.length) node('p', '該当する行はありません。', list);
+            if (focusRow && focusKind) {
+                const row = [...list.querySelectorAll('[data-import-row]')].find(r => r.dataset.importRow === focusRow);
+                const control = [...(row?.querySelectorAll('[data-import-control]') || [])].find(c => c.dataset.importControl === focusKind);
+                (control || filter).focus({ preventScroll: true });
+            }
+            list.scrollTop = scrollTop;
         };
         dialog.addEventListener('cancel', event => { if (plan.saving) event.preventDefault(); });
         dialog.addEventListener('close', () => dialog.remove(), { once: true });

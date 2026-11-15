@@ -196,7 +196,7 @@
                     <div id="e-history-assist-panel"></div>
 
                     <div class="form-group">
-                        <label>作業者 (カンマ区切り)</label>
+                        <label>作業者 (カンマ・読点区切り)</label>
                         <input type="text" id="e-workers" value="${h.workers?.join(', ') || ''}" list="list-workers">
                         <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
                             ${store.getWorkers().filter(w => !(store.activeData.archivedSuggestions?.workers || []).includes(w)).map(w => `
@@ -1044,7 +1044,8 @@
     }
 
     splitWorkerText(text) {
-        return String(text || '').split(/\s*(?:,|，|、|\/)\s*/).map(w => w.trim()).filter(Boolean);
+        const values = Array.isArray(text) ? text : [text];
+        return [...new Set(values.filter(w => typeof w === 'string').flatMap(w => w.split(/[,，、/／;；\r\n]+/)).map(w => w.trim()).filter(Boolean))];
     }
 
     async applyHistoryBulkEdit() {
@@ -2256,9 +2257,7 @@
 
     calculateHistoryCost(history) {
         const workMinutes = this.getRecordWorkMinutes(history);
-        const names = Array.isArray(history?.workers) ? history.workers
-            : (typeof history?.workers === 'string' ? history.workers.split(/[,，、]/) : []);
-        const workers = [...new Set(names.filter(w => typeof w === 'string').map(w => w.trim()).filter(Boolean))];
+        const workers = this.splitWorkerText(history?.workers);
         // Preserve the existing one-person estimate when no worker has been recorded.
         const workerCount = Math.max(workers.length, 1);
         const laborMinutes = workMinutes * workerCount;
