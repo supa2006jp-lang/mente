@@ -1,3 +1,9 @@
+export function bodyOutputIds(feature){
+ const result=feature.cadResult||(feature.kind==='cadop'?feature:null);
+ return result?result.outputs.map(output=>output.id):
+  feature.operation==='new'&&(!feature.kind||feature.kind==='extrusion')?[feature.id]:[];
+}
+
 export function liveCadOutputs(features,{nativeOnly=true}={}){
  const live=new Map();
  for(const [featureIndex,feature] of features.entries()){

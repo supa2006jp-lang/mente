@@ -1,12 +1,7 @@
 import {currentBodyMeshRecords} from './mesh-quality.js';
 import {CLEAR_OPACITY,colorChoiceRgb,isClearColor,isColorChoice} from './color-choice.js';
 import {bodyPaint,remapFacePaint,samePaintedFace,updateBodyPaint} from './body-face-paint.js';
-
-function bodyOutputs(feature){
- const result=feature.cadResult||(feature.kind==='cadop'?feature:null);
- return result?result.outputs.map(output=>output.id):
-  feature.operation==='new'&&(!feature.kind||feature.kind==='extrusion')?[feature.id]:[];
-}
+import {bodyOutputIds as bodyOutputs} from './project-display-data.js';
 
 function readAppearance(value){
  if(typeof value?.color!=='string'||!/^#[0-9a-f]{6}$/i.test(value.color))return;

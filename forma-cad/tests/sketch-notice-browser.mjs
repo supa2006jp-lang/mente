@@ -1,9 +1,17 @@
 import {chromium} from 'playwright';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import {defaults} from '../src/geometry.js';
 const browser=await chromium.launch({channel:'msedge',headless:true});try{
- const page=await browser.newPage({viewport:{width:1700,height:1100},acceptDownloads:true}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));await page.goto('http://127.0.0.1:5188');const notice=page.locator('#sketch-notice');
- async function entered(n){assert.equal(await notice.textContent(),'スケッチ'+n+'の編集に入りました。');assert.equal(await notice.isVisible(),true);}
- async function ended(n){assert.equal(await notice.textContent(),'スケッチ'+n+'を終了しました。');assert.equal(await notice.isVisible(),true);}
- async function rect(){const r=await page.locator('canvas').boundingBox();await page.mouse.click(r.x+r.width*.4,r.y+r.height*.48);await page.mouse.move(r.x+r.width*.51,r.y+r.height*.58);await page.mouse.click(r.x+r.width*.51,r.y+r.height*.58);}
+ const page=await browser.newPage({viewport:{width:1700,height:1100},acceptDownloads:true}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));await page.addInitScript(()=>window.showSaveFilePicker=undefined);await page.goto('http://127.0.0.1:5188');const notice=page.locator('#sketch-notice');
+ async function positioned(){
+  await page.waitForFunction(()=>{
+   const notice=document.getElementById('sketch-notice').getBoundingClientRect(),view=document.getElementById('canvas-host').getBoundingClientRect();
+   const controls=document.querySelectorAll('#snap-controls,#sketch-number-tabs,#sketch-banner,.view-cube');
+   return Math.abs((notice.left+notice.right-view.left-view.right)/2)<1&&notice.top>=view.top&&notice.bottom<view.top+view.height*.45&&
+    [...controls].every(node=>{const rect=node.getBoundingClientRect();return !rect.width||notice.bottom<=rect.top||notice.top>=rect.bottom||notice.right<=rect.left||notice.left>=rect.right;});
+  });
+ }
+ async function entered(n){assert.equal(await notice.textContent(),'スケッチ'+n+'の編集に入りました。');assert.equal(await notice.isVisible(),true);await positioned();}
+ async function ended(n){assert.equal(await notice.textContent(),'スケッチ'+n+'を終了しました。');assert.equal(await notice.isVisible(),true);await positioned();}
+ async function rect(){const r=await page.locator('#canvas-host canvas').boundingBox();await page.mouse.click(r.x+r.width*.4,r.y+r.height*.48);await page.mouse.move(r.x+r.width*.51,r.y+r.height*.58);await page.mouse.click(r.x+r.width*.51,r.y+r.height*.58);}
  async function save(){const d=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await d).path(),'utf8'));}
  await page.locator('#start-sketch').click();await entered(1);assert.equal(await page.locator('#feature-count').textContent(),'0','entry creates no phantom feature');await page.locator('#new-rect').click();await entered(1);await rect();await page.locator('#finish-sketch-tool').click();await ended(1);
  await page.locator('#start-sketch').click();await entered(2);assert.equal(await page.locator('#feature-count').textContent(),'1','sketch2 notification before first point');await page.screenshot({path:'.sites-runtime/sketch2-entry-notice.png'});await page.locator('#new-center-rect').click();await entered(2);await rect();await page.locator('#finish-sketch-tool').click();await ended(2);let data=await save();assert.deepEqual(data.features.map(f=>f.groupNumber),[1,2]);

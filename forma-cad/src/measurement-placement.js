@@ -27,7 +27,10 @@ export function createMeasurementPlacement({panel,host,camera,getTargets,canMove
   }
   const cameraState=host.dataset.cameraState;
   if(!dirty&&!changed&&cameraState===lastCamera)return;
-  if(!changed&&panel.matches(':hover,:has(:focus-visible)'))return;
+  if(!changed&&panel.matches(':hover,:has(:focus-visible)')){
+   const current=panel.getBoundingClientRect(),screen=viewport.getBoundingClientRect();
+   if(current.left>=screen.left-1&&current.top>=screen.top-1&&current.right<=screen.right+1&&current.bottom<=screen.bottom+1)return;
+  }
   dirty=false;lastCamera=cameraState;lastTargets=[...targets];
   if(changed)previous=null;
 

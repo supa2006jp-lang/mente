@@ -257,7 +257,14 @@
 
 #sketch-dimensions svg [hidden]{display:none}
 
-#sketch-notice{position:fixed;right:18px;bottom:36px;z-index:1005;max-width:calc(100vw - 36px);padding:14px 22px;border:2px solid #efad20;border-left:7px solid #e78b00;border-radius:8px;background:#fff1ad;color:#4a3100;box-shadow:0 6px 24px #00000045;font-size:16px;font-weight:700;line-height:1.5;pointer-events:none}#sketch-notice[hidden]{display:none}@media(max-width:700px){#sketch-notice{right:12px;bottom:32px;max-width:calc(100vw - 24px)}}
+#sketch-notice {
+ position:absolute; top:var(--sketch-notice-top,8px); left:50%; translate:-50% 0; z-index:40;
+ box-sizing:border-box; max-width:calc(100% - 16px); padding:7px 12px;
+ border:1px solid #ceab4e; border-radius:7px; background:#fff1ad; color:#4a3100;
+ box-shadow:0 3px 10px #0003; font-size:13px; font-weight:700; text-align:center;
+ overflow-wrap:anywhere; pointer-events:none;
+}
+#sketch-notice[hidden] { display:none; }
 
 .extrude-operation-wheel{position:absolute;z-index:10;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:3px;width:144px;height:144px;padding:3px;background:white;border:1px solid #8bacbd;border-radius:50%;box-shadow:0 4px 14px #15364735;box-sizing:border-box}.extrude-operation-wheel button{padding:0;border:0;background:#edf3f7;color:#325365;font-size:12px;font-weight:700;white-space:nowrap;transition:background .12s,color .12s}.extrude-operation-wheel button:nth-child(1){border-radius:100% 0 0 0}.extrude-operation-wheel button:nth-child(2){border-radius:0 100% 0 0}.extrude-operation-wheel button:nth-child(3){border-radius:0 0 0 100%}.extrude-operation-wheel button:nth-child(4){border-radius:0 0 100% 0}.extrude-operation-wheel button:not(:disabled):not([aria-pressed=true]):hover{background:#cce9f3}.extrude-operation-wheel button:focus-visible{outline:3px solid #174f83;outline-offset:-5px}.extrude-operation-wheel button:disabled{color:#7d8b92;background:#eef0f2;opacity:.55;cursor:not-allowed}.extrude-operation-wheel button[aria-pressed=true]{background:#087fa5;color:white}.extrude-operation-wheel button[data-extrude-operation=newHoles][aria-pressed=true]{background:#ab6816}.extrude-operation-wheel button[data-extrude-operation=join][aria-pressed=true]{background:#346db5}.extrude-operation-wheel button[data-extrude-operation=cut][aria-pressed=true]{background:#ba4341}.extrude-wheel-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;width:42px;height:42px;border:3px solid white;border-radius:50%;background:#f7fbfd;color:#547185;font-size:11px;font-weight:700;pointer-events:none;box-sizing:border-box}#extrude-distance{overflow-y:auto;overscroll-behavior:contain}.extrude-operation-wheel[hidden]{display:none!important}
 
@@ -466,7 +473,7 @@ header .filename #dirty{flex-shrink:0}
 .command-toolbar .history-tools button svg{width:24px;height:24px;flex-basis:24px}
 .toolbar:has(.sketch-tools){height:42px;min-height:42px;max-height:42px}
 .timeline{height:56px;padding:5px 12px;gap:10px}
-.body-color-button {
+:is(.body-color-button,.body-rename-button) {
  flex-shrink:0;
  display:inline-flex;
  align-items:center;
@@ -486,6 +493,8 @@ header .filename #dirty{flex-shrink:0}
  background:var(--body-color);
 }
 #body-color-dialog form { display:grid; gap:12px; }
+#body-rename-dialog { width:min(420px,calc(100vw - 24px)); }
+#body-rename-dialog form { display:grid; gap:12px; }
 #body-color-dialog p { margin:0; overflow-wrap:anywhere; }
 #body-color-dialog input[type=color] { width:64px; height:34px; padding:2px; cursor:pointer; }
 .clear-color-option { display:flex; align-items:center; gap:8px; }
@@ -630,7 +639,7 @@ button.form-control-point.invalid { background:#bc2634; }
 .selection-more-controls { display:grid; gap:3px; margin-top:3px; }
 .selection-more-controls:empty { display:none; }
 #interior-edge-adjustment {
- position:sticky; top:28px; z-index:1; order:-1;
+ position:sticky; top:var(--measurement-header-height,28px); z-index:1; order:-1;
  background:#fffef6; border:1px solid #9abfc9; border-radius:5px;
  padding:5px; box-shadow:0 2px 5px #263f5220;
 }
@@ -641,8 +650,13 @@ button.form-control-point.invalid { background:#bc2634; }
 #interior-edge-adjustment #select-interior-edges { background:#087fa1 !important; color:white !important; }
 #measurement-header {
  position:sticky; top:0; order:-2; z-index:2;
- display:flex; align-items:center; gap:3px; min-height:25px; background:#fffef6;
+ display:flex; flex-wrap:wrap; align-items:center; gap:3px; min-height:25px; background:#fffef6;
 }
+#measurement-face-body {
+ flex:1 0 100%; min-width:0; padding:1px 4px 4px; box-sizing:border-box;
+ color:#214b61; font-weight:600; overflow-wrap:anywhere;
+}
+#measurement-face-body[hidden] { display:none; }
 #measurement-header .panel-drag-handle {
  display:flex; align-items:center; gap:4px; flex:1; min-height:25px;
  padding:2px 4px; margin:0; border:0; color:#385468; white-space:nowrap;

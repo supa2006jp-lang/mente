@@ -91,6 +91,9 @@ try{
  await pick(left);
  await action('extrude').waitFor();
  const selectedPoint=await screenPoint(left),measurement=page.locator('#measurement');
+ const faceBody=measurement.locator('#measurement-face-body');
+ await faceBody.filter({hasText:'所属ボディ　左の箱（1）'}).waitFor();
+ await measurement.locator('#measurement-length').filter({hasText:'20 mm × 20 mm'}).waitFor();
  await page.locator('#face-extrude-shortcut').waitFor();
  const menuBounds=await measurement.boundingBox();
  assert.ok(selectedPoint.x<menuBounds.x||selectedPoint.x>menuBounds.x+menuBounds.width||
@@ -116,6 +119,11 @@ try{
  assert.ok(Math.abs(afterFit.x-manualBounds.x)<1&&Math.abs(afterFit.y-manualBounds.y)<1);
  await page.locator('#measurement-reset-position').click();
  assert.equal(await measurement.getAttribute('data-panel-position'),null);
+ const menuToggle=measurement.locator('#measurement-toggle');
+ await menuToggle.click();
+ assert.ok(await faceBody.isVisible());
+ await action('extrude').waitFor({state:'hidden'});
+ await menuToggle.click();
  assert.ok(await commands.getByRole('button',{name:'この面にスケッチ'}).isVisible());
  assert.ok(await action('hole').isVisible());
  await more.locator('summary').click();
@@ -147,9 +155,12 @@ try{
  await commands.waitFor({state:'hidden'});
  await field('cancel').click();
 
+ await pick(right);
+ await faceBody.filter({hasText:'所属ボディ　右の箱（2）'}).waitFor();
  await pick(left);await pick(right,{add:true});
  await openMore();
  await commands.getByText('最初に選んだ面のボディを動かします。').waitFor();
+ await faceBody.waitFor({state:'hidden'});
  await action('hole').waitFor({state:'hidden'});
  await action('align').click();
  await page.waitForFunction(()=>!!document.querySelector('#canvas-host').dataset.assemblyPreview);
@@ -160,6 +171,7 @@ try{
  await page.locator('#selection-mode').selectOption('edge');
  await pick([-24,10,10]);
  await action('fillet').waitFor();
+ await faceBody.waitFor({state:'hidden'});
  assert.ok(await action('chamfer').isVisible());
  await action('fillet').click();
  await page.locator('#tools-dialog').waitFor();
@@ -167,6 +179,8 @@ try{
  await page.locator('#cad-cancel').click();
  await page.keyboard.press('Escape');
  await commands.waitFor({state:'hidden'});
+ await page.locator('#bodies [data-body-id="a"] .row-label').click();
+ await faceBody.waitFor({state:'hidden'});
 
  setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
  const box=boxes[0];
@@ -184,8 +198,33 @@ try{
  await page.locator('#cad-apply').click();
  await page.locator('#features').getByText('シェル · 壁 1 mm · クリックで再編集',{exact:true}).waitFor();
  assert.equal(await page.locator('#body-count').textContent(),'1');
+ await load([{...defaults,id:'round-cap',kind:'extrusion',name:'円柱',profile:'circle',diameter:45,depth:10}]);
+ await page.locator('#selection-mode').selectOption('face');
+ await pick([0,0,10]);
+ await measurement.locator('#measurement-length').filter({hasText:'直径 45 mm'}).waitFor();
+ await faceBody.filter({hasText:'所属ボディ　円柱（1）'}).waitFor();
+ const renameButton=page.locator('#bodies [data-body-id="round-cap"] .body-rename-button');
+ await renameButton.click();
+ const rename=page.locator('#body-rename-dialog');
+ await rename.locator('input').fill('支柱 A');
+ await rename.getByRole('button',{name:'変更する'}).click();
+ const bodyLabel=page.locator('#bodies [data-body-id="round-cap"] .row-label');
+ await bodyLabel.filter({hasText:'支柱 A'}).waitFor();
+ await faceBody.filter({hasText:'所属ボディ　支柱 A'}).waitFor();
+ await page.locator('#undo').click();
+ await bodyLabel.filter({hasText:'円柱（1）'}).waitFor();
+ await page.locator('#redo').click();
+ await bodyLabel.filter({hasText:'支柱 A'}).waitFor();
+ await page.evaluate(()=>Object.defineProperty(window,'showSaveFilePicker',{value:undefined,configurable:true}));
+ const download=page.waitForEvent('download');
+ page.once('dialog',dialog=>dialog.accept(dialog.defaultValue()));
+ await page.locator('#save').click();
+ const saved=JSON.parse(await fs.readFile(await (await download).path(),'utf8'));
+ assert.equal(saved.features[0].bodyNames['round-cap'],'支柱 A');
+ await load(saved.features);
+ await bodyLabel.filter({hasText:'支柱 A'}).waitFor();
  assert.deepEqual(errors,[]);
- console.log('PASS face and edge shortcuts, one- and two-face alignment, and one-face shell on a rounded box');
+ console.log('PASS face owner, face size and diameter, edge shortcuts, alignment, and shell');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));
