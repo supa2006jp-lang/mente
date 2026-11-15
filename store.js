@@ -28,6 +28,8 @@ class MaintenanceStore {
         this._savePersistedRevision = 0;
         this._saveQueue = [];
         this._saveQueueRunning = false;
+        this._saveConcurrencyReady = false;
+        this._saveBases = { indexeddb: 'null', localStorage: null };
         this._saveIdleWaiters = [];
         this._atomicSaveBatch = null;
         this._rejectedSaveDataRefs = new WeakSet();
@@ -114,6 +116,7 @@ class MaintenanceStore {
             let raw;
             try {
                 raw = localStorage.getItem(key);
+                if (!this._saveConcurrencyReady && key === this.STORAGE_KEY) this._saveBases.localStorage = raw;
                 if (!raw) continue;
                 const data = JSON.parse(raw);
                 const issues = this.getStoredDataShapeIssues(data);
@@ -246,6 +249,7 @@ class MaintenanceStore {
             const finish = () => {
                 if (finished) return;
                 finished = true;
+                this._saveConcurrencyReady = true;
                 resolve();
             };
             const useLocalStorage = error => {
@@ -332,6 +336,7 @@ class MaintenanceStore {
                 request.onsuccess = async () => {
                     if (finished) return;
                     try {
+                        this._saveBases.indexeddb = JSON.stringify(request.result ?? null);
                         const indexedIssues = request.result == null ? [] : this.getStoredDataShapeIssues(request.result);
                         const indexedCandidate = request.result != null && !indexedIssues.length
                             ? { data: request.result, summary: this.getStoredDataSummary(request.result, 'indexeddb') }
@@ -889,8 +894,38 @@ class MaintenanceStore {
         return original.backupKey;
     }
 
+    createSaveConflictError() {
+        const error = new Error('別のタブで保存内容が更新されました。このタブからの上書きを止めました。入力を下書きに残してから最新版を開いてください。');
+        error.code = 'SAVE_CONFLICT';
+        return error;
+    }
+
+    acquireLocalWriter() {
+        if (this._localWriterLease) return this._localWriterLease;
+        this._localWriterLease = new Promise((resolve, reject) => {
+            navigator.locks.request(this.DB_NAME + ':local-writer', { ifAvailable: true }, lock => {
+                if (!lock) {
+                    const error = this.createSaveConflictError();
+                    error.message = '別のタブが代替保存先を編集しています。そのタブを閉じてください。入力を下書きに残し、最新版を開いてから保存してください。';
+                    reject(error); return;
+                }
+                return new Promise(release => {
+                    this._releaseLocalWriter = release;
+                    resolve();
+                    // The browser releases this lease automatically when the tab closes.
+                });
+            }).catch(reject);
+        });
+        this._localWriterLease.catch(() => { this._localWriterLease = null; });
+        return this._localWriterLease;
+    }
+
     writeSaveSnapshot(snapshot, backend) {
         if (backend === 'localStorage') {
+            const write = () => {
+            if (this._saveConcurrencyReady && localStorage.getItem(this.STORAGE_KEY) !== this._saveBases.localStorage) {
+                throw this.createSaveConflictError();
+            }
             const original = this._malformedPrimary.localStorage;
             const backupKey = this.getMalformedBackupKey('localStorage');
             if (backupKey) {
@@ -904,8 +939,18 @@ class MaintenanceStore {
                     console.warn('Could not preserve malformed localStorage data', error);
                 }
             }
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(snapshot));
+            const serialized = JSON.stringify(snapshot);
+            localStorage.setItem(this.STORAGE_KEY, serialized);
+            this._saveBases.localStorage = serialized;
             return Promise.resolve();
+            };
+            if (this._saveConcurrencyReady && typeof navigator !== 'undefined') {
+                if (!navigator.locks?.request) {
+                    return Promise.reject(new Error('この環境では同時保存を保護できません。HTTPSまたはlocalhostで開き直してください。入力内容は保持しています。'));
+                }
+                return this.acquireLocalWriter().then(write);
+            }
+            return write();
         }
         const sources = this.collectImageDataUrls(snapshot);
         if (!sources.size) {
@@ -931,6 +976,7 @@ class MaintenanceStore {
                 }
             } catch (error) {
                 if (!prepared.newMedia.size) throw error;
+                if (error.code === 'SAVE_CONFLICT') throw error;
                 // A Blob quota failure must not turn an otherwise writable form
                 // into a failed edit. Keep previously committed references,
                 // while leaving only new images inline in the retry snapshot.
@@ -952,6 +998,7 @@ class MaintenanceStore {
                 const tx = this.db.transaction(stores, 'readwrite');
                 const os = tx.objectStore(this.STORE_NAME);
                 let requestError = null;
+                const commit = () => {
                 if (newMedia.size) {
                     const media = tx.objectStore(this.MEDIA_STORE_NAME);
                     for (const [key, entry] of newMedia) {
@@ -976,11 +1023,23 @@ class MaintenanceStore {
                 // A request can fail before its transaction aborts. Keep the queue
                 // blocked until the whole transaction reaches a terminal event.
                 req.onerror = () => { requestError = req.error || new Error('保存に失敗しました。'); };
+                };
+                if (this._saveConcurrencyReady) {
+                    const current = os.get(this.STORAGE_KEY);
+                    current.onsuccess = () => {
+                        if (JSON.stringify(current.result ?? null) !== this._saveBases.indexeddb) {
+                            requestError = this.createSaveConflictError();
+                            tx.abort();
+                        } else commit();
+                    };
+                    current.onerror = () => { requestError = current.error || new Error('保存前の照合に失敗しました。'); tx.abort(); };
+                } else commit();
                 tx.onerror = () => { requestError ||= tx.error || new Error('保存に失敗しました。'); };
                 tx.onabort = () => reject(requestError || tx.error || new Error('保存が中断されました。'));
                 tx.oncomplete = () => {
                     if (requestError) reject(requestError);
                     else {
+                        this._saveBases.indexeddb = JSON.stringify(snapshot);
                         if (includeBackup && backupKey) {
                             original.preserved = true;
                             this._malformedBackupWarning = false;
@@ -994,6 +1053,7 @@ class MaintenanceStore {
         });
         if (!backupKey) return write(false);
         return write(true).catch(async error => {
+            if (error.code === 'SAVE_CONFLICT') throw error;
             // A full storage quota can reject the extra backup copy. Keep the
             // app writable while surfacing that the original is not protected.
             this._malformedBackupWarning = true;

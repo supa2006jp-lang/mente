@@ -153,6 +153,17 @@ async function launchHarness() {
         await reloadApp(page, 'authorized app startup');
         return {
             page, origin,
+            async newPage() {
+                const response = await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(origin)}`, { method: 'PUT' });
+                const target = await response.json();
+                const socket = new WebSocket(target.webSocketDebuggerUrl);
+                await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once: true }); socket.addEventListener('error', reject, { once: true }); });
+                const other = new DevToolsPage(socket);
+                await other.send('Runtime.enable'); await other.send('Page.enable');
+                await other.waitFor('Boolean(window.app && window.store?._saveConcurrencyReady)', 'second tab startup');
+                other.close = async () => { await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`); socket.close(); };
+                return other;
+            },
             async close() {
                 socket.close();
                 chrome.kill();
@@ -180,6 +191,18 @@ test('real Chrome regression: persistence, restore, offline photos, and save fai
     const harness = await launchHarness();
     t.after(() => harness.close());
     const { page } = harness;
+    await t.test('calendar memo failure keeps the editor open until a successful retry', async () => {
+        const result = await page.evaluate(`(async () => {
+            app.openCalendarMemoEditor('2026-11-15');
+            document.querySelector('.calendar-memo-editor-text').value = '保持するメモ';
+            const write = store.writeSaveSnapshot; store.writeSaveSnapshot = async () => { throw Error('memo quota'); };
+            await app.saveCalendarMemoEditor('2026-11-15');
+            const retained=!!app._calendarMemoEditor && document.querySelector('.calendar-memo-editor-text').value === '保持するメモ';
+            store.writeSaveSnapshot=write; await app.saveCalendarMemoEditor('2026-11-15');
+            return {retained,closed:!app._calendarMemoEditor,saved:store.activeData.memos['2026-11-15']};
+        })()`);
+        assert.deepEqual(result,{retained:true,closed:true,saved:'保持するメモ'});
+    });
 
     await t.test('a saved record survives reload and a JSON backup restores it', async () => {
         const marker = `chrome-smoke-${Date.now()}`;
@@ -283,5 +306,79 @@ test('real Chrome regression: persistence, restore, offline photos, and save fai
             return { previewed: preview.eligibleImages >= 1, reclaimed: completed.reclaimedImages >= 1, stillPresent };
         })()`);
         assert.deepEqual(result, { previewed: true, reclaimed: true, stillPresent: false });
+    });
+});
+
+test('edit safety: failed save, drafts, structural repair, and concurrent tabs', { timeout: 180000 }, async t => {
+    const harness = await launchHarness(); t.after(() => harness.close());
+    const { page } = harness;
+    await t.test('ToDo failure retains input and retry creates exactly one record', async () => {
+        const result = await page.evaluate(`(async () => {
+            await maintenanceLazyFeatures.loadNotebook(); await maintenanceLazyFeatures.loadPhotos();
+            app.openKanbanTodoModal();
+            const title = document.getElementById('kt-task-title'); title.value = 'retry-todo'; title.dispatchEvent(new Event('input', { bubbles: true }));
+            const write = store.writeSaveSnapshot; store.writeSaveSnapshot = async () => { throw Error('simulated quota'); };
+            const before = store.activeData.localTodos.length;
+            await app.saveKanbanTodoFromModal();
+            const failed = { open: !!document.getElementById('kt-todo-modal-overlay'), title: title.value, count: store.activeData.localTodos.length, message: document.querySelector('.edit-save-error').textContent };
+            store.writeSaveSnapshot = write;
+            await app.saveKanbanTodoFromModal();
+            return { before, failed, after: store.activeData.localTodos.length, closed: !document.getElementById('kt-todo-modal-overlay'), drafts: Object.keys(localStorage).filter(k => k.startsWith('maintenance-edit-draft-v1:')).length };
+        })()`);
+        assert.equal(result.failed.open, true); assert.equal(result.failed.title, 'retry-todo'); assert.equal(result.failed.count, result.before);
+        assert.match(result.failed.message, /simulated quota/); assert.equal(result.after, result.before + 1); assert.equal(result.closed, true); assert.equal(result.drafts, 0);
+    });
+    await t.test('history fields, parts and photos restore after reload', async () => {
+        await page.evaluate(`(async () => {
+            await store.runAtomicSaveBatch(() => { store.activeData.machines.push({ id:'draft-machine', name:'下書き機械', model:'A', lineNo:'1' }); store.activeData.history.push({ id:'draft-history', machineId:'draft-machine', date:'2026-11-15', errorContent:'元の記録', photos:[], replacedParts:[], workers:[], isSudden:true, lineNo:'1' }); });
+            await app.openHistoryEditForm('draft-history'); await Promise.resolve();
+            document.getElementById('e-notes').value = '復元する作業内容';
+            app.addPartRow({name:'部品', model:'P1', count:2, unit:'個'}, true);
+            app._tempPhotos = ['data:image/png;base64,AQID'];
+            document.getElementById('e-notes').dispatchEvent(new Event('input', {bubbles:true}));
+        })()`);
+        await reloadApp(page, 'draft reload');
+        const restored = await page.evaluate(`(async () => {
+            await app.openHistoryEditForm('draft-history'); await Promise.resolve();
+            const before = document.getElementById('e-notes').value;
+            [...document.querySelectorAll('.edit-safety-note button')].find(b => b.textContent === '下書きを復元').click();
+            return {before, notes:document.getElementById('e-notes').value, part:document.querySelector('#s-parts-container .p-name').value, count:document.querySelector('#s-parts-container .p-count').value, photos:app._tempPhotos};
+        })()`);
+        assert.notEqual(restored.before, restored.notes); assert.equal(restored.notes, '復元する作業内容'); assert.equal(restored.part, '部品'); assert.equal(restored.count, '2'); assert.deepEqual(restored.photos, ['data:image/png;base64,AQID']);
+        await page.evaluate('app.closeModal()');
+    });
+    await t.test('structural errors identify department and record and allow reviewed correction', async () => {
+        const result = await page.evaluate(`(async () => {
+            store.activeData.history.find(h => h.id === 'draft-history').photos = {};
+            let error; try { await store.save(); } catch(e) { error=e; }
+            app.openSaveStructureIssues(error);
+            const d=document.querySelector('.edit-safety-dialog'); const label=d.querySelector('summary').textContent;
+            const click=text=>[...d.querySelectorAll('button')].find(b=>b.textContent===text).click();
+            click('修正前のデータをファイルに退避');
+            d.querySelector('textarea').value='[]'; click('この修正を仮適用'); click('修正内容を保存');
+            await new Promise(r=>setTimeout(r,300));
+            const answer={label, valid:Array.isArray(store.activeData.history.find(h=>h.id==='draft-history').photos), text:d.textContent}; d.close(); return answer;
+        })()`);
+        assert.match(result.label, /初期部署.*メンテナンス履歴.*元の記録.*添付写真/); assert.equal(result.valid, true); assert.match(result.text, /修正を保存しました/);
+    });
+    await t.test('a stale second tab cannot overwrite an IndexedDB commit', async () => {
+        const other = await harness.newPage();
+        try {
+            await page.evaluate("(async()=>{store.activeData.memos['concurrency']='new-value';await store.save()})()");
+            const result = await other.evaluate("(async()=>{store.activeData.memos['stale']='old-tab';try{await store.save();return 'unexpected success'}catch(e){return e.code}})()");
+            assert.equal(result, 'SAVE_CONFLICT');
+            await reloadApp(page,'verify winning state');
+            assert.deepEqual(await page.evaluate("({newValue:store.activeData.memos['concurrency'],hasStale:'stale' in store.activeData.memos})"), {newValue:'new-value',hasStale:false});
+        } finally { await other.close(); }
+    });
+    await t.test('simultaneous localStorage fallback saves have one winner', async () => {
+        const other = await harness.newPage();
+        try {
+            const setup="store.saveTarget='localStorage';store._saveBases.localStorage=localStorage.getItem(store.STORAGE_KEY);";
+            await page.evaluate(setup); await other.evaluate(setup);
+            const save=marker=>`(async()=>{store.activeData.memos['race']='${marker}';try{await store.save();return 'ok'}catch(e){return e.code}})()`;
+            const results=await Promise.all([page.evaluate(save('one')),other.evaluate(save('two'))]);
+            assert.deepEqual(results.sort(), ['SAVE_CONFLICT','ok']);
+        } finally { await other.close(); }
     });
 });

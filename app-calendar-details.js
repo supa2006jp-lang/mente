@@ -223,43 +223,47 @@
         };
     }
 
-    moveCalendarMemoEditorDate(dateStr, direction) {
+    async moveCalendarMemoEditorDate(dateStr, direction) {
         const [year, month, day] = String(dateStr || '').split('-').map(Number);
         if (!year || !month || !day) return;
         const popover = this._calendarMemoEditor;
         const textarea = popover?.querySelector('.calendar-memo-editor-text');
         const nextValue = (textarea?.value || '').trim();
+        return this.commitFormEdit(popover, () => {
         if (!store.activeData.memos) store.activeData.memos = {};
         if (nextValue) {
             store.activeData.memos[dateStr] = nextValue;
         } else {
             delete store.activeData.memos[dateStr];
         }
-        store.save();
+        }, () => {
         const target = new Date(year, month - 1, day);
         target.setDate(target.getDate() + direction);
         const nextDateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
         this.syncCalendarMemoEditorMonth(target);
         this._calendarMemoEditorMoved = true;
         this.openCalendarMemoEditor(nextDateStr, null, { returnToDayMenu: this._calendarMemoEditorReturnToDayMenu });
+        });
     }
 
-    openTodayCalendarMemoEditor(dateStr) {
+    async openTodayCalendarMemoEditor(dateStr) {
         const popover = this._calendarMemoEditor;
         const textarea = popover?.querySelector('.calendar-memo-editor-text');
         const nextValue = (textarea?.value || '').trim();
+        return this.commitFormEdit(popover, () => {
         if (!store.activeData.memos) store.activeData.memos = {};
         if (nextValue) {
             store.activeData.memos[dateStr] = nextValue;
         } else {
             delete store.activeData.memos[dateStr];
         }
-        store.save();
+        }, () => {
         const today = new Date();
         const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         this.syncCalendarMemoEditorMonth(today);
         this._calendarMemoEditorMoved = true;
         this.openCalendarMemoEditor(todayStr, null, { returnToDayMenu: this._calendarMemoEditorReturnToDayMenu });
+        });
     }
 
     syncCalendarMemoEditorMonth(targetDate) {
@@ -277,61 +281,67 @@
         popover.style.transform = 'translate(-50%, -50%)';
     }
 
-    saveCalendarMemoEditor(dateStr, forcedValue = null) {
+    async saveCalendarMemoEditor(dateStr, forcedValue = null) {
         const popover = this._calendarMemoEditor;
         const textarea = popover?.querySelector('.calendar-memo-editor-text');
         const nextValue = forcedValue === null ? (textarea?.value || '').trim() : String(forcedValue || '').trim();
 
+        return this.commitFormEdit(popover, () => {
         if (!store.activeData.memos) store.activeData.memos = {};
         if (nextValue) {
             store.activeData.memos[dateStr] = nextValue;
         } else {
             delete store.activeData.memos[dateStr];
         }
-        store.save();
+        }, () => {
         this.showCalendarMemoEditorStatus(nextValue ? '保存済み' : '未入力に戻しました');
         this.closeCalendarMemoEditor();
         this.renderCalendar();
         if (typeof this.renderDashboard === 'function' && document.getElementById('dashboard-widgets')) {
             this.renderDashboard();
         }
+        });
     }
 
-    saveCalendarMemoEditorInPlace(dateStr) {
+    async saveCalendarMemoEditorInPlace(dateStr) {
         const popover = this._calendarMemoEditor;
         const textarea = popover?.querySelector('.calendar-memo-editor-text');
         const nextValue = (textarea?.value || '').trim();
+        return this.commitFormEdit(popover, () => {
         if (!store.activeData.memos) store.activeData.memos = {};
         if (nextValue) {
             store.activeData.memos[dateStr] = nextValue;
         } else {
             delete store.activeData.memos[dateStr];
         }
-        store.save();
+        }, () => {
         this.showCalendarMemoEditorStatus(nextValue ? '保存済み' : '未入力に戻しました');
         this.renderCalendar();
         if (typeof this.renderDashboard === 'function' && document.getElementById('dashboard-widgets')) {
             this.renderDashboard();
         }
+        });
     }
 
-    saveCalendarMemoEditorAndReturnToDayMenu(dateStr) {
+    async saveCalendarMemoEditorAndReturnToDayMenu(dateStr) {
         const popover = this._calendarMemoEditor;
         const textarea = popover?.querySelector('.calendar-memo-editor-text');
         const nextValue = (textarea?.value || '').trim();
+        return this.commitFormEdit(popover, () => {
         if (!store.activeData.memos) store.activeData.memos = {};
         if (nextValue) {
             store.activeData.memos[dateStr] = nextValue;
         } else {
             delete store.activeData.memos[dateStr];
         }
-        store.save();
+        }, () => {
         this.closeCalendarMemoEditor();
         this.renderCalendar();
         if (typeof this.renderDashboard === 'function' && document.getElementById('dashboard-widgets')) {
             this.renderDashboard();
         }
         this.openDayQuickMenu(dateStr);
+        });
     }
 
     showCalendarMemoEditorStatus(text) {
@@ -346,6 +356,7 @@
     }
 
     closeCalendarMemoEditor() {
+        if (this._safeEditBusy && !this._safeEditCommitted) return;
         clearTimeout(this._calendarMemoEditorStatusTimer);
         if (this._calendarMemoEditorOutsideHandler) {
             document.removeEventListener('pointerdown', this._calendarMemoEditorOutsideHandler);

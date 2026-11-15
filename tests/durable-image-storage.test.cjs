@@ -27,6 +27,7 @@ function makePage({ state = null, local = null } = {}) {
             transactionStores.push(storeNames);
             const operations = [];
             const transaction = {
+                abort() { this.aborted = true; queueMicrotask(() => this.onabort?.()); },
                 objectStore(name) {
                     assert.ok(['state', 'media'].includes(name));
                     return {
@@ -50,17 +51,18 @@ function makePage({ state = null, local = null } = {}) {
                 if (scheduled) return;
                 scheduled = true;
                 queueMicrotask(() => {
+                    for (const operation of operations) {
+                        if (operation.type !== 'get') continue;
+                        operation.request.result = (operation.name === 'state' ? stateEntries : mediaEntries).get(operation.key);
+                        operation.request.onsuccess?.();
+                        if (transaction.aborted) return;
+                    }
                     const writes = operations.filter(operation => operation.type === 'put');
                     if (writes.length && failWrites > 0) {
                         failWrites--;
                         transaction.error = new Error('quota full');
                         transaction.onabort?.();
                         return;
-                    }
-                    for (const operation of operations) {
-                        if (operation.type !== 'get') continue;
-                        operation.request.result = (operation.name === 'state' ? stateEntries : mediaEntries).get(operation.key);
-                        operation.request.onsuccess?.();
                     }
                     for (const operation of writes) {
                         (operation.name === 'state' ? stateEntries : mediaEntries).set(operation.key, operation.value);
@@ -139,6 +141,23 @@ test('first IndexedDB save moves duplicate images to one Blob and keeps runtime 
     await store.save();
     assert.equal(store._durableImageRefBySource.size, 0);
     assert.equal(page.mediaEntries.size, 1); // Cleanup is deliberately deferred.
+});
+
+test('stale initialized store cannot replace committed data or leak pending image blobs', async () => {
+    const page = makePage();
+    const first = page.newStore(), stale = page.newStore();
+    await first.init(); await stale.init();
+    first.activeData.machines.push({ id: 'winner' });
+    await first.save();
+    const committed = JSON.stringify(page.stateEntries.get(key));
+    stale.activeData.photoManagerLibrary = [{ id: 'losing-photo', src: image }];
+    await assert.rejects(stale.save(), error => error.code === 'SAVE_CONFLICT');
+    assert.equal(JSON.stringify(page.stateEntries.get(key)), committed);
+    assert.equal(page.mediaEntries.size, 0);
+    assert.equal(stale._savePersistedRevision, 0);
+    const reopened = page.newStore(); await reopened.init();
+    reopened.activeData.machines.push({ id: 'after-reload' }); await reopened.save();
+    assert.deepEqual(Array.from(page.stateEntries.get(key).deptData.dept_default.machines, m => m.id), ['winner', 'after-reload']);
 });
 
 test('restart hydrates durable refs and exported data remains inline-compatible', async () => {

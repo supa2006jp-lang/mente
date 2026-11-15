@@ -178,8 +178,8 @@ test('activation keeps one earlier shell for already open pages', async () => {
         caches: {
             keys: async () => [
                 'maintenance-next-static-20261113-old',
-                'maintenance-next-static-20261115-five1',
-                'maintenance-next-static-20261115-save-shape1'
+                'maintenance-next-static-20261115-save-shape1',
+                'maintenance-next-static-20261115-edit-safety1'
             ],
             delete: async key => { deleted.push(key); }
         },

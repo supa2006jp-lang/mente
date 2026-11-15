@@ -1930,6 +1930,7 @@
         const overlay = document.getElementById('modal-overlay');
         const container = document.getElementById('modal-container');
         if (!overlay || !container) return;
+        this.endEditDraft?.(container, { keepSnapshot: true });
         if (overlay.classList.contains('hidden') || !this._modalReturnFocus) {
             this._modalReturnFocus = document.activeElement;
         }
@@ -2024,6 +2025,7 @@
         Promise.resolve().then(() => {
             if (this._modalSnapshotVersion !== snapshotVersion || overlay.classList.contains('hidden')) return;
             this._modalInitialState = this.captureModalEditableState(type, container);
+            this.startEditDraft?.(container, type);
         });
     }
 
@@ -3472,17 +3474,19 @@
     }
 
     requestCloseModal() {
-        if (this._modalSaveInProgress || this._historyBulkEditSaving || this._oneOffDeleteInProgress) {
+        if (this._modalSaveInProgress || this._safeEditBusy || this._historyBulkEditSaving || this._oneOffDeleteInProgress) {
             this.showToast?.('保存中です。完了までお待ちください。', 'info');
             return false;
         }
         if (this.hasModalUnsavedChanges()
+            && !this.hasDurableEditDraft?.(document.getElementById('modal-container'))
             && !confirm('未保存の変更があります。変更を破棄して閉じますか？')) return false;
         this.closeModal();
         return true;
     }
 
     closeModal() {
+        this.endEditDraft?.(document.getElementById('modal-container'), { saved: !!this._modalSaveInProgress });
         this._modalSnapshotVersion = (this._modalSnapshotVersion || 0) + 1;
         this._modalInitialState = null;
         const container = document.getElementById('modal-container');
@@ -3535,6 +3539,8 @@
         try {
             const form = document.getElementById(`${type}-form`);
             if (form && !form.reportValidity()) return;
+            this.assertEditDepartment?.(document.getElementById('modal-container'));
+            this.setEditSaving?.(document.getElementById('modal-container'), true);
         if (type === 'shift-notebook') {
             const editing = this._editingShiftNotebook;
             if (!editing) return;
@@ -4119,8 +4125,10 @@
         }
         } catch (err) {
             console.error('Save error:', err);
-            alert('保存中にエラーが発生しました: ' + err.message);
+            if (this.showEditSaveError) this.showEditSaveError(err, document.getElementById('modal-container'));
+            else alert('保存中にエラーが発生しました: ' + err.message);
         } finally {
+            this.setEditSaving?.(document.getElementById('modal-container'), false);
             this._modalSaveInProgress = false;
         }
     }

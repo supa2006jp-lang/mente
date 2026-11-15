@@ -947,7 +947,7 @@
         };
         const receivedRequest = current.isRequest && current.requestedBy && current.requestedBy !== this.kanbanTodoWorkerId;
         const fontScale = this.getKanbanTodoModalFontScale();
-        this.closeKanbanTodoModal();
+        if (this.closeKanbanTodoModal() === false) return;
         document.body.insertAdjacentHTML('beforeend', `
             <div id="kt-todo-modal-overlay" class="kt-modal-overlay active" onclick="if(event.target === this) app.closeKanbanTodoModal()">
                 <div class="kt-modal kt-todo-modal kt-font-${fontScale}">
@@ -1015,6 +1015,7 @@
                 </div>
             </div>
         `);
+        this.startEditDraft?.(document.getElementById('kt-todo-modal-overlay'), 'todo');
         document.getElementById('kt-task-title')?.focus();
     }
 
@@ -1046,14 +1047,17 @@
         `;
     }
 
-    saveKanbanTodoFromModal() {
-        const d = this.ensureKanbanTodoState();
+    async saveKanbanTodoFromModal() {
+        if (this._safeEditBusy) return;
+
         const id = document.getElementById('kt-task-id')?.value || '';
         const title = (document.getElementById('kt-task-title')?.value || '').trim();
         if (!title) {
             document.getElementById('kt-task-title')?.focus();
             return;
         }
+        return this.commitFormEdit(document.getElementById('kt-todo-modal-overlay'), () => {
+        const d = this.ensureKanbanTodoState();
         const assigned = Array.from(document.querySelectorAll('.kt-worker-check input:checked')).map(el => el.value);
         const now = new Date().toISOString();
         let todo = id ? d.localTodos.find(item => item.id === id) : null;
@@ -1111,13 +1115,18 @@
             this.appendShiftTodoFeedback(todo, 'done');
             todo.shiftRequestFeedbackDone = true;
         }
-        store.save();
+        }, () => {
+        this.finishEditDraft?.(document.getElementById('kt-todo-modal-overlay'));
         this.closeKanbanTodoModal();
         this.renderKanbanLocalTodos();
         if (document.getElementById('fiveS-list')) this.renderFiveSManagement();
+        });
     }
 
     closeKanbanTodoModal() {
+        if (this._safeEditBusy && !this._safeEditCommitted) return false;
+        if (this.canCloseEditDraft?.(document.getElementById('kt-todo-modal-overlay')) === false) return false;
+        this.endEditDraft?.(document.getElementById('kt-todo-modal-overlay'));
         document.getElementById('kt-todo-modal-overlay')?.remove();
         document.getElementById('kt-panel-overlay')?.remove();
     }
@@ -1432,7 +1441,8 @@
         `, 'kt-history-detail-panel');
     }
 
-    saveKanbanTodoHistoryDescription(id) {
+    async saveKanbanTodoHistoryDescription(id) {
+        return this.commitFormEdit(document.getElementById('kt-history-detail-desc-input')?.parentElement, () => {
         const d = this.ensureKanbanTodoState();
         const todo = d.localTodos.find(item => item.id === id);
         if (!todo) return;
@@ -1447,8 +1457,7 @@
         });
         todo.changeLog = todo.changeLog.slice(0, 50);
         this.addKanbanTodoLog(`履歴本文更新: 「${todo.title || '無題'}」`);
-        store.save();
-        this.showKanbanTodoJumpNotice(todo, '履歴本文を保存');
+        }, () => this.showToast?.('履歴本文を保存しました', 'success'));
     }
 
     restoreKanbanTodo(id, status = 'done') {

@@ -76,20 +76,22 @@
         }
     }
 
-    saveDayMemo(date) {
+    async saveDayMemo(date) {
         const txt = (document.getElementById('cal-day-memo')?.value || '').trim();
+        return this.commitFormEdit(document.getElementById('modal-container'), () => {
         if (!store.activeData.memos) store.activeData.memos = {};
         if (txt) {
             store.activeData.memos[date] = txt;
         } else {
             delete store.activeData.memos[date];
         }
-        store.save();
+        }, () => {
         this.closeModal();
         this.renderCalendar();
         if (typeof this.renderDashboard === 'function' && document.getElementById('dashboard-widgets')) {
             this.renderDashboard();
         }
+        });
     }
 
     openHistoryEditForm(historyId, focusTarget = null) {
