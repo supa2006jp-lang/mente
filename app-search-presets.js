@@ -90,11 +90,64 @@
             this.showToast(`「${preset.name}」の検索条件を復元しました。`, 'success');
         } catch (error) { console.warn('Search preset restore failed', error); this.showToast('検索条件を復元できませんでした。もう一度お試しください。', 'error'); }
     };
+    P.writeNamedSearches = function (saved, selected = '') {
+        try { localStorage.setItem(key(), JSON.stringify(saved)); }
+        catch (_) { this.showToast('検索条件を保存できませんでした。端末の空き容量を確認してください。', 'error'); return false; }
+        this.refreshNamedSearchOptions(selected);
+        return true;
+    };
+    P.updateNamedSearch = function (name) {
+        const saved = this.getNamedSearches(), index = saved.findIndex(p => p.name === name);
+        if (index < 0) { this.showToast('更新する検索条件を選択してください。', 'warning'); return false; }
+        saved[index] = this.captureNamedSearch(name);
+        if (!this.writeNamedSearches(saved, name)) return false;
+        this.showToast('今の検索条件で更新しました。', 'success'); return true;
+    };
+    P.renameNamedSearch = function (name, newName) {
+        const saved = this.getNamedSearches(), index = saved.findIndex(p => p.name === name);
+        const nextName = String(newName || '').trim().slice(0, 80);
+        if (index < 0 || !nextName) { this.showToast('検索条件を選び、新しい名前を入力してください。', 'warning'); return false; }
+        if (saved.some((p, i) => i !== index && p.name === nextName)) { this.showToast('同じ名前があるため変更していません。', 'warning'); return false; }
+        saved[index] = { ...saved[index], name: nextName };
+        if (!this.writeNamedSearches(saved, nextName)) return false;
+        this.showToast('検索条件の名前を変更しました。', 'success'); return true;
+    };
+    P.deleteNamedSearch = function (name) {
+        const saved = this.getNamedSearches(), index = saved.findIndex(p => p.name === name);
+        if (index < 0) return false;
+        const record = { preset: saved[index], index };
+        if (!this.writeNamedSearches(saved.filter((_, i) => i !== index))) return false;
+        this._deletedNamedSearches ||= Object.create(null);
+        this._deletedNamedSearches[key()] = record;
+        this.refreshNamedSearchActions();
+        this.showToast('検索条件を削除しました。「削除を取り消す」で戻せます。', 'success'); return true;
+    };
+    P.undoDeleteNamedSearch = function () {
+        const record = this._deletedNamedSearches?.[key()];
+        if (!record) return false;
+        const saved = this.getNamedSearches();
+        if (saved.some(p => p.name === record.preset.name)) { this.showToast('同じ名前の条件があります。名前を変更してから取り消してください。', 'warning'); return false; }
+        if (saved.length >= 30) { this.showToast('検索条件が30件あるため復元できません。', 'warning'); return false; }
+        saved.splice(Math.min(record.index, saved.length), 0, record.preset);
+        if (!this.writeNamedSearches(saved, record.preset.name)) return false;
+        delete this._deletedNamedSearches[key()];
+        this.refreshNamedSearchActions();
+        this.showToast('検索条件の削除を取り消しました。', 'success'); return true;
+    };
+    P.refreshNamedSearchActions = function () {
+        const selected = !!document.getElementById('saved-search-select')?.value;
+        for (const id of ['saved-search-apply','saved-search-update','saved-search-rename','saved-search-delete']) {
+            const control = document.getElementById(id); if (control) control.disabled = !selected;
+        }
+        const undo = document.getElementById('saved-search-undo');
+        if (undo) undo.hidden = !this._deletedNamedSearches?.[key()];
+    };
     P.refreshNamedSearchOptions = function (selected = '') {
         const select = document.getElementById('saved-search-select'); if (!select) return;
         select.replaceChildren(new Option('保存した検索条件', ''));
         for (const preset of this.getNamedSearches()) select.add(new Option(preset.name, preset.name));
         select.value = selected;
+        this.refreshNamedSearchActions();
     };
     P.updateSearchScope = function () {
         const scope = document.getElementById('search-scope')?.value || 'view';
@@ -176,11 +229,14 @@
         const name = document.createElement('input'); name.id = 'saved-search-name'; name.placeholder = '条件の名前'; name.setAttribute('aria-label', '検索条件の名前'); name.maxLength = 80;
         const select = document.createElement('select'); select.id = 'saved-search-select'; select.setAttribute('aria-label', '保存した検索条件');
         const btn = (text, action) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'secondary-btn'; b.textContent = text; b.onclick = action; return b; };
-        panel.append(name, btn('今の条件を保存', () => this.saveNamedSearch(name.value)), select, btn('呼び出す', () => this.applyNamedSearch(select.value)), btn('削除', () => {
-            if (!select.value) return;
-            try { localStorage.setItem(key(), JSON.stringify(this.getNamedSearches().filter(p => p.name !== select.value))); this.refreshNamedSearchOptions(); }
-            catch (_) { this.showToast('検索条件を削除できませんでした。', 'error'); }
-        }));
+        const action = (id, text, run) => { const b = btn(text, run); b.id = 'saved-search-' + id; return b; };
+        select.onchange = () => { name.value = select.value; this.refreshNamedSearchActions(); };
+        panel.append(name, btn('新しく保存', () => this.saveNamedSearch(name.value)), select,
+            action('apply', '呼び出す', () => this.applyNamedSearch(select.value)),
+            action('update', '今の条件で更新', () => this.updateNamedSearch(select.value)),
+            action('rename', '名前を変更', () => this.renameNamedSearch(select.value, name.value)),
+            action('delete', '削除', () => this.deleteNamedSearch(select.value)),
+            action('undo', '削除を取り消す', () => this.undoDeleteNamedSearch()));
         const note = document.createElement('small'); note.textContent = 'この端末・部署ごとに、検索語・期間・絞り込み条件を保存します。'; panel.append(note);
         details.append(panel); group.append(label);
         const bar = document.createElement('div'); bar.className = 'header-search-workspace';

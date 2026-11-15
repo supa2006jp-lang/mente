@@ -12,6 +12,11 @@
         let row = [];
         let current = '';
         let inQuotes = false;
+        let line = 1, rowLine = 1;
+        const appendRow = () => {
+            Object.defineProperty(row, 'sourceRow', { value: rowLine });
+            if (row.some(v => String(v).trim() !== '')) rows.push(row);
+        };
 
         for (let i = 0; i < text.length; i++) {
             const char = text[i];
@@ -28,16 +33,18 @@
             } else if ((char === '\n' || char === '\r') && !inQuotes) {
                 if (char === '\r' && next === '\n') i++;
                 row.push(current);
-                if (row.some(v => String(v).trim() !== '')) rows.push(row);
+                appendRow();
+                line++; rowLine = line;
                 row = [];
                 current = '';
             } else {
                 current += char;
+                if (char === '\n' || (char === '\r' && next !== '\n')) line++;
             }
         }
 
         row.push(current);
-        if (row.some(v => String(v).trim() !== '')) rows.push(row);
+        appendRow();
         return rows;
     }
 
@@ -644,6 +651,7 @@
             } else if (/^\d+(\.\d+)?$/.test(raw)) {
                 next[dateIndex] = this.excelSerialToDate(raw);
             }
+            if (row.sourceRow) Object.defineProperty(next, 'sourceRow', { value: row.sourceRow });
             return next;
         });
     }
@@ -672,7 +680,9 @@
                 else if (type === 'b') value = value === '1' ? 'TRUE' : 'FALSE';
                 row[col] = value;
             });
-            return row.map(value => value ?? '');
+            const normalized = row.map(value => value ?? '');
+            Object.defineProperty(normalized, 'sourceRow', { value: Number(rowEl.getAttribute('r')) || 0 });
+            return normalized;
         }).filter(row => row.some(col => String(col).trim() !== ''));
         return this.normalizeXlsxImportRows(rows);
     }
@@ -744,6 +754,7 @@
             let addedMachines = 0;
             let candidateRowCount = 0;
             let skippedInvalidRows = 0;
+            const invalidTimes = [];
             const importKey = (record) => [
                 record.date || '',
                 record.machineId || '',
@@ -775,6 +786,10 @@
                 const notes = getCol(cols, 'notes', hasOccurrenceColumn ? 7 : 6);
                 const errorNo = getCol(cols, 'errorNo', hasOccurrenceColumn ? 8 : 7);
                 const time = getCol(cols, 'time', hasOccurrenceColumn ? 9 : 8);
+                if (time && (!/^\d+(?:\.\d+)?$/.test(time) || !Number.isFinite(Number(time)))) {
+                    invalidTimes.push(`${cols.sourceRow || i + 1}行目: 「${time.slice(0, 60)}」`);
+                    continue;
+                }
                 const categoryName = getCol(cols, 'category', hasOccurrenceColumn ? 10 : 9);
                 const workersStr = getCol(cols, 'workers', hasOccurrenceColumn ? 11 : 10);
                 const partsStr = getCol(cols, 'parts', hasOccurrenceColumn ? 12 : 11);
@@ -821,7 +836,7 @@
                     id: store.generateId(),
                     machineId: targetMachine.id,
                     date,
-                    workTime: parseInt(time) || 0,
+                    workTime: time === '' ? 0 : Number(time),
                     isSudden,
                     isDokatei,
                     isNonProductionStop: !isDokatei && isNonProductionStop,
@@ -853,6 +868,10 @@
                 records.push(record);
             }
 
+            if (invalidTimes.length) {
+                alert(`作業時間に不正な値が${invalidTimes.length}件あります。0以上の数値（小数可）に修正してください。まだ取り込んでいません。\n\n${invalidTimes.slice(0, 50).join('\n')}${invalidTimes.length > 50 ? `\nほか${invalidTimes.length - 50}件` : ''}`);
+                return;
+            }
             const usedMachineIds = new Set(records.map(record => record.machineId));
             const machinesToAdd = newMachines.filter(machine => usedMachineIds.has(machine.id));
             addedMachines = machinesToAdd.length;

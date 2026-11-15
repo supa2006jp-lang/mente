@@ -33,15 +33,17 @@
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom: 24px;">
                     <div class="form-group">
                         <label style="font-weight:800; color:var(--text-light); text-align:center; display:block; margin-bottom:8px;">比較元 (期間A)</label>
-                        <select id="compare-period-a" style="border:2px solid #e2e8f0; font-weight:700;">
+                        <select id="compare-period-a" data-period-view="compare-a" aria-label="比較元の期間" style="border:2px solid #e2e8f0; font-weight:700;">
                             ${periodOptions.map(o => `<option value="${o.id}">${o.label}</option>`).join('')}
                         </select>
+                        <small id="compare-range-a" class="comparison-range"></small>
                     </div>
                     <div class="form-group">
                         <label style="font-weight:800; color:var(--text-light); text-align:center; display:block; margin-bottom:8px;">比較先 (期間B)</label>
-                        <select id="compare-period-b" style="border:2px solid var(--primary); font-weight:700;">
+                        <select id="compare-period-b" data-period-view="compare-b" aria-label="比較先の期間" style="border:2px solid var(--primary); font-weight:700;">
                             ${periodOptions.map((o, i) => `<option value="${o.id}" ${i === 1 ? 'selected' : ''}>${o.label}</option>`).join('')}
                         </select>
+                        <small id="compare-range-b" class="comparison-range"></small>
                     </div>
                 </div>
 
@@ -56,8 +58,16 @@
             // Attach onchange handlers to the comparison dropdowns
             const selA = document.getElementById('compare-period-a');
             const selB = document.getElementById('compare-period-b');
-            if (selA) selA.onchange = () => this.onPeriodChange(selA, () => {});
-            if (selB) selB.onchange = () => this.onPeriodChange(selB, () => {});
+            const refresh = () => {
+                for (const side of ['a', 'b']) {
+                    const range = this.getTroubleComparisonRange(document.getElementById('compare-period-' + side).value, 'compare-' + side);
+                    document.getElementById('compare-range-' + side).textContent = range ? `${range.start} 〜\n${range.end}（${range.days}日間）` : '期間を指定してください';
+                }
+                document.getElementById('compare-result-container').textContent = '「分析を実行」を押すと、この期間で比較します。';
+            };
+            if (selA) selA.onchange = () => this.onPeriodChange(selA, refresh);
+            if (selB) selB.onchange = () => this.onPeriodChange(selB, refresh);
+            refresh();
             
             const footer = document.querySelector('.modal-footer');
             if (footer) {
@@ -69,26 +79,59 @@
         });
     }
 
+    getTroubleComparisonRange(period, view) {
+        const today = this.getLocalDateString();
+        const [year, month, day] = today.split('-').map(Number);
+        const date = (y, m, d) => new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10);
+        const fy = month >= 4 ? year : year - 1;
+        const saved = this.getPeriodDateState(view);
+        const ranges = {
+            last_30_days: [date(year, month, day - 29), today],
+            prev_30_days: [date(year, month, day - 59), date(year, month, day - 30)],
+            this_month: [date(year, month, 1), today],
+            last_month: [date(year, month - 1, 1), date(year, month, 0)],
+            fiscal_year: [date(fy, 4, 1), today],
+            last_fiscal_year: [date(fy - 1, 4, 1), date(fy, 3, 31)],
+            custom: [saved.since, today],
+            custom_range: [saved.start, saved.end]
+        };
+        const [start, end] = ranges[period] || [];
+        if (!start || !end || start > end) return null;
+        return { start, end, days: Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1 };
+    }
+
+    getTroubleComparisonChange(before, after, totalAfter, unit) {
+        if (before === 0 && after > 0) return { percent: null, increased: true, label: `新規発生・＋${totalAfter.toLocaleString()}${unit}（合計）` };
+        const percent = before === 0 ? 0 : ((after - before) / before) * 100;
+        return { percent, increased: percent > 0, label: percent === 0 ? '変化なし（0.0%）' : `${percent > 0 ? '+' : ''}${percent.toFixed(1)}%` };
+    }
+
     runTroubleComparison() {
         const pA = document.getElementById('compare-period-a').value;
         const pB = document.getElementById('compare-period-b').value;
         const resultDiv = document.getElementById('compare-result-container');
         if (!resultDiv) return;
 
-        const getStats = (period) => {
-            const hist = this.filterHistoryByPeriod(store.activeData.history, period);
+        const rangeA = this.getTroubleComparisonRange(pA, 'compare-a');
+        const rangeB = this.getTroubleComparisonRange(pB, 'compare-b');
+        if (!rangeA || !rangeB) { resultDiv.textContent = '開始日・終了日を確認してください。指定日以降の開始日は今日以前を選んでください。'; return; }
+        for (const [side, range] of [['a', rangeA], ['b', rangeB]]) {
+            document.getElementById('compare-range-' + side).textContent = `${range.start} 〜\n${range.end}（${range.days}日間）`;
+        }
+        const getStats = (range) => {
+            const hist = store.activeData.history.filter(h => h.date >= range.start && h.date <= range.end);
             const troubles = hist.filter(h => !h.isManualGuide && !h.taskId);
             const time = troubles.reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
             const count = troubles.length;
             return { time, count };
         };
 
-        const statsA = getStats(pA);
-        const statsB = getStats(pB);
-        const daysA = this.getPeriodDays(pA);
-        const daysB = this.getPeriodDays(pB);
-        const labelA = this.getPeriodLabel(pA);
-        const labelB = this.getPeriodLabel(pB);
+        const statsA = getStats(rangeA);
+        const statsB = getStats(rangeB);
+        const daysA = rangeA.days;
+        const daysB = rangeB.days;
+        const labelA = `${rangeA.start} 〜 ${rangeA.end}`;
+        const labelB = `${rangeB.start} 〜 ${rangeB.end}`;
 
         // Calculate Daily Averages for Fair Comparison
         const avgTimeA = statsA.time / daysA;
@@ -96,27 +139,21 @@
         const avgCountA = statsA.count / daysA;
         const avgCountB = statsB.count / daysB;
 
-        const getDiff = (a, b) => {
-            if (a === 0) return b === 0 ? 0 : 100;
-            return ((b - a) / a) * 100;
-        };
+        const diffTime = this.getTroubleComparisonChange(avgTimeA, avgTimeB, statsB.time, '分');
+        const diffCount = this.getTroubleComparisonChange(avgCountA, avgCountB, statsB.count, '件');
 
-        const diffTime = getDiff(avgTimeA, avgTimeB);
-        const diffCount = getDiff(avgCountA, avgCountB);
-
-        const formatBadge = (val) => {
-            const isGood = val <= 0;
-            const color = isGood ? '#16a34a' : '#dc2626';
-            const icon = isGood ? 'fa-arrow-down' : 'fa-arrow-up';
-            const sign = val > 0 ? '+' : '';
-            return `<span style="color:${color}; font-weight:900; font-size:1.1rem; display:flex; align-items:center; gap:4px;">
-                <i class="fa-solid ${icon}"></i> ${sign}${val.toFixed(1)}%
+        const formatBadge = (change) => {
+            if (change.percent === null) return `<span style="color:#dc2626; font-weight:900; display:grid; gap:3px; font-size:.85rem;"><span>新規発生</span><span style="font-size:.75rem;">${change.label.split('・')[1]}</span></span>`;
+            const color = change.increased ? '#dc2626' : change.percent === 0 ? 'var(--text-light)' : '#16a34a';
+            const icon = change.increased ? 'fa-arrow-up' : change.percent === 0 ? 'fa-minus' : 'fa-arrow-down';
+            return `<span style="color:${color}; font-weight:900; font-size:.9rem; display:flex; align-items:center; gap:4px;">
+                <i class="fa-solid ${icon}"></i> ${change.label}
             </span>`;
         };
 
         resultDiv.innerHTML = `
             <div style="font-size:0.75rem; color:var(--text-light); text-align:center; margin-bottom:15px; padding:8px; background:#f8fafc; border-radius:8px; line-height:1.4;">
-                <i class="fa-solid fa-scale-balanced"></i> 期間の長さが異なるため、<b>1日の平均値（時間・回数）</b>に換算して比較しました。<br>
+                <i class="fa-solid fa-scale-balanced"></i> <b>1日の平均値（時間・回数）</b>に換算して比較しました。<br>
                 <span style="opacity:0.8;">(期間A: ${daysA}日間 / 期間B: ${daysB}日間)</span>
             </div>
 
@@ -158,9 +195,9 @@
                 <div style="font-weight:900; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
                     <i class="fa-solid fa-magnifying-glass-chart"></i> 分析結果の要約 (日平均での比較)
                 </div>
-                1日あたりの停止時間は <b>${diffTime.toFixed(1)}%</b> ${diffTime <= 0 ? '減少しました！素晴らしい改善傾向です。' : '増加しました。要因の分析が必要です。'}
-                1日あたりの平均発生件数は <b>${diffCount.toFixed(1)}%</b> ${diffCount <= 0 ? '減少しました。' : '増加しました。'}<br>
-                <span style="font-size:0.65rem; opacity:0.8; margin-top:4px; display:block;">※比較ロジック: それぞれの期間の長さで正規化した「日平均」の変化率を算出しています。</span>
+                作業時間: <b>${diffTime.label}</b><br>
+                発生件数: <b>${diffCount.label}</b><br>
+                <span style="font-size:0.65rem; opacity:0.8; margin-top:4px; display:block;">変化率は日平均で比較しています。比較元が0の場合は、比較先の合計を「新規発生」と表示します。</span>
             </div>
         `;
     }
@@ -274,6 +311,7 @@
         if (!container) return;
 
         const machines = store.getMachines(true);
+        const laborRate = this.getHistoryLaborRate();
         const costMap = {};
 
         const isDrilledDown = !!this.costDrillDownCategory;
@@ -297,6 +335,7 @@
                     laborCost: 0,
                     totalCost: 0,
                     time: 0,
+                    laborMinutes: 0,
                     partsUsed: {} // Store { 'name::model': { name, model, count, price } }
                 };
             }
@@ -309,8 +348,6 @@
                     const master = store.getPartMaster(p.name, p.model);
                     const price = parseFloat(p.price) || master?.price || 0;
                     const count = parseFloat(p.count) || 0;
-                    const cost = price * count;
-                    stats.partsCost += cost;
 
                     if (count > 0) {
                         const pName = p.name || '不明な部品';
@@ -324,15 +361,16 @@
                 });
             }
 
-            // Labor Cost
+            // Use the same per-record cost definition as the history list.
+            const recordCost = this.calculateHistoryCost(h);
+            stats.partsCost += recordCost.parts;
             const time = this.getRecordWorkMinutes(h);
             stats.time += time;
-            stats.laborCost += (time / 60) * this.laborRate;
+            stats.laborMinutes += recordCost.laborMinutes;
+            stats.laborCost += recordCost.labor;
         });
 
         Object.values(costMap).forEach(s => {
-            s.laborCost = Math.round(s.laborCost);
-            s.partsCost = Math.round(s.partsCost);
             s.totalCost = s.partsCost + s.laborCost;
         });
 
@@ -348,7 +386,8 @@
                         </h3>
                         <p style="font-size:0.8rem; color:var(--text-light);">
                             ${isDrilledDown ? '※棒をクリックすると区分一覧に戻ります' : '※棒をクリックすると個別の機械にドリルダウンします'} 
-                            / 人件費単価: ${this.laborRate.toLocaleString()}円/h
+                            / 人件費単価: ${laborRate.toLocaleString()}円/人時<br>
+                            人件費＝作業時間（時間換算）×作業人数（重複除外）×単価。作業者未入力は1人として算出。
                         </p>
                     </div>
                     <div style="display:flex; gap:8px; align-items:center;">
@@ -387,7 +426,7 @@
                             const partPct = total > 0 ? (pCost / total * 100).toFixed(1) : 0;
                             
                             // Tooltip Breakdown Text
-                            const laborLabel = `【作業費】 ${(s.time/60).toFixed(1)}h × ¥${this.laborRate.toLocaleString()} = ¥${Math.round(s.laborCost).toLocaleString()}`;
+                            const laborLabel = `【作業費】 ${(s.laborMinutes/60).toFixed(2)}人時 × ¥${laborRate.toLocaleString()} = ¥${Math.round(s.laborCost).toLocaleString()}`;
                             const pEntries = Object.values(s.partsUsed || {});
                             const partsDetails = pEntries.map(p => `・${p.name} [${p.model}]: ¥${Math.round(p.price).toLocaleString()} × ${p.count} = ¥${Math.round(p.price * p.count).toLocaleString()}`).join('\n');
                             const fullBreakdown = `【内訳】\n${partsDetails ? partsDetails + '\n' : ''}${laborLabel}`.replace(/"/g, '&quot;');
@@ -510,7 +549,7 @@
                                             return `\n【内訳】\n${partsDetails || '部品交換なし'}`;
                                         } else {
                                             // Labor Cost segment
-                                            const laborLabel = `・作業人件費: ${(s.time/60).toFixed(1)}h × ¥${this.laborRate.toLocaleString()} = ¥${Math.round(s.laborCost).toLocaleString()}`;
+                                            const laborLabel = `・作業人件費: ${(s.laborMinutes/60).toFixed(2)}人時 × ¥${laborRate.toLocaleString()} = ¥${Math.round(s.laborCost).toLocaleString()}`;
                                             return `\n【内訳】\n${laborLabel}`;
                                         }
                                     }

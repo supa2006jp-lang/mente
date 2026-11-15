@@ -318,6 +318,104 @@ test('real Chrome regression: persistence, restore, offline photos, and save fai
     });
 });
 
+test('accuracy refinements: cost, comparison, CSV, saved conditions and grouped overdue dates', {timeout:180000}, async t=>{
+    const h = await launchHarness(); t.after(()=>h.close()); const {page} = h;
+    await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadNotebook(); await maintenanceLazyFeatures.loadPhotos();
+        const today=app.getLocalDateString(), day=n=>new Date(app.parseTaskScheduleDate(today)+n*86400000).toISOString().slice(0,10);
+        await store.runAtomicSaveBatch(()=>{
+            store.activeData.machineCategories=['包装'];
+            store.activeData.machines=[{id:'ac-m',name:'確認ポンプ',model:'ACP-1',category:'包装',lineNo:'1'}];
+            store.activeData.tasks=[{id:'ac-t',machineId:'ac-m',content:'週次点検',startDate:day(-28),periodDays:7,workers:['田中']}];
+            store.activeData.history=[{id:'ac-h',machineId:'ac-m',date:'2026-02-15',workTime:12.5,workers:['田中',' 田中 ','鈴木'],isSudden:true,category:'parts',machineCategory:'包装',errorContent:'交換',photos:[],replacedParts:[{name:'シール',count:2,price:100}]}];
+        }); app.updateDataLists(); app.syncLaborRateInputs(3600);
+    })()`);
+    await t.test('history, cost table and cost chart use identical deduplicated labor costs', async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.switchView('history');app.clearCurrentViewSearchAndFilters();document.getElementById('hist-filter-period').value='all';app.renderHistory();
+            const history=document.querySelector('.history-metric-cell.cost').textContent;
+            app.switchView('analysis');app.costDrillDownCategory=null;app.renderMachineCostAnalysis(store.activeData.history);
+            await new Promise(r=>setTimeout(r,300));
+            const cells=[...document.querySelectorAll('#analysis-container tbody tr:first-child td')].map(n=>n.textContent.trim());
+            const chart=Chart.getChart(document.getElementById('cost-ranking-chart')).data.datasets.map(d=>d.data[0]);
+            return {history,cells,chart};
+        })()`);
+        assert.match(result.history,/1,700/); assert.equal(result.cells[1],'¥1,700'); assert.equal(result.cells[3],'¥1,500');
+        assert.equal(result.cells[4],'12.5 分'); assert.deepEqual(result.chart,[200,1500]);
+    });
+    await t.test('comparison prompts retain independent ranges, show the dates and filter each side', async()=>{
+        const result=await page.evaluate(`(()=>{
+            app.openTroubleComparisonModal();const prompt=window.prompt;
+            try {for(const [side,start,end] of [['a','2026-01-01','2026-01-31'],['b','2026-02-01','2026-02-28']]) {
+                const answers=[start,end];window.prompt=()=>answers.shift();const select=document.getElementById('compare-period-'+side);select.value='custom_range';select.dispatchEvent(new Event('change',{bubbles:true}));
+            }}finally{window.prompt=prompt;}
+            app.runTroubleComparison();return {a:document.getElementById('compare-range-a').textContent,b:document.getElementById('compare-range-b').textContent,result:document.getElementById('compare-result-container').textContent};
+        })()`);
+        assert.match(result.a,/2026-01-01 〜\s+2026-01-31（31日間）/); assert.match(result.b,/2026-02-01 〜\s+2026-02-28（28日間）/);
+        assert.match(result.result,/12.5/); assert.match(result.result,/新規発生・＋1件/);
+    });
+    await t.test('zero baseline shows new totals, zero-to-zero stays neutral and a changed period clears stale results', async()=>{
+        const text=await page.evaluate("document.getElementById('compare-result-container').textContent");
+        assert.match(text,/新規発生・＋12.5分（合計）/); assert.doesNotMatch(text,/100.0%/);
+        const changed=await page.evaluate(`(()=>{
+            app.setPeriodDateState({start:'2026-01-01',end:'2026-01-31'},'compare-b');app.runTroubleComparison();
+            const empty=document.getElementById('compare-result-container').textContent;
+            const select=document.getElementById('compare-period-b');select.value='this_month';select.dispatchEvent(new Event('change',{bubbles:true}));
+            return {empty,stale:document.getElementById('compare-result-container').textContent};
+        })()`);
+        assert.match(changed.empty,/変化なし/);assert.doesNotMatch(changed.empty,/新規発生・/);assert.match(changed.stale,/分析を実行/);
+        await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:false});
+        const layout=await page.evaluate("({width:document.getElementById('modal-content').clientWidth,scroll:document.getElementById('modal-content').scrollWidth})");
+        assert.ok(layout.scroll<=layout.width+2,JSON.stringify(layout));
+        await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await page.evaluate('app.closeModal()');
+    });
+    await t.test('CSV rejects invalid minutes before saving and imports fractional minutes exactly', async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.openHistoryImportModal();const alert=window.alert,confirm=window.confirm,messages=[];let confirmations=0;
+            const file=text=>{const transfer=new DataTransfer();transfer.items.add(new File([text],'accuracy.csv',{type:'text/csv'}));document.getElementById('hist-csv-upload').files=transfer.files;};
+            const header='日付,機械名,型式,区分,作業内容,作業時間\\n';
+            const before=store.activeData.history.length;
+            try {window.alert=m=>messages.push(m);window.confirm=()=>{confirmations++;return true;};
+                file(header+'2026-11-12,確認ポンプ,ACP-1,突発,CSV確認,30min');await app.processHistoryImportCSV();
+                const rejected=store.activeData.history.length===before && confirmations===0;
+                file(header+'2026-11-12,確認ポンプ,ACP-1,突発,CSV確認,12.5');await app.processHistoryImportCSV();
+                return {rejected,messages,time:store.activeData.history.find(r=>r.errorContent==='CSV確認').workTime};
+            } finally {window.alert=alert;window.confirm=confirm;}
+        })()`);
+        assert.equal(result.rejected,true);assert.match(result.messages[0],/2行目/);assert.equal(result.time,12.5);
+    });
+    await t.test('saved-condition controls update, rename, restore a deletion and fit on mobile', async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.closeModal();app.switchView('history');document.getElementById('search-scope').value='view';app.updateSearchScope();app.setSearchWorkspaceCollapsed(false);
+            document.getElementById('global-search').value='初期';app.saveNamedSearch('確認条件');
+            document.getElementById('global-search').value='CSV確認';document.getElementById('saved-search-update').click();
+            document.getElementById('saved-search-name').value='更新済み';document.getElementById('saved-search-rename').click();
+            document.getElementById('saved-search-delete').click();const undoVisible=!document.getElementById('saved-search-undo').hidden;
+            document.getElementById('saved-search-undo').click();document.getElementById('global-search').value='';await app.applyNamedSearch('更新済み');
+            document.querySelector('.saved-search-controls').open=true;
+            return {undoVisible,query:document.getElementById('global-search').value,undoHidden:document.getElementById('saved-search-undo').hidden};
+        })()`);
+        assert.equal(result.undoVisible,true);assert.equal(result.query,'CSV確認');assert.equal(result.undoHidden,true);
+        await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:false});await sleep(200);
+        const layout=await page.evaluate("({width:document.querySelector('.saved-search-panel').clientWidth,scroll:document.querySelector('.saved-search-panel').scrollWidth})");
+        assert.ok(layout.scroll<=layout.width+2,JSON.stringify(layout));
+        await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+        await reloadApp(page,'updated named condition persists');assert.equal(await page.evaluate("app.getNamedSearches().find(p=>p.name==='更新済み').query"),'CSV確認');
+    });
+    await t.test('overdue dates are folded into one task and completion applies only to the selected occurrence', async()=>{
+        const before=await page.evaluate(`(()=>{
+            app.openEquipmentWorkspace('ac-m');const groups=[...document.querySelectorAll('.equipment-overdue-group')];
+            const snapshot={groups:groups.length,open:groups[0].open,summary:groups[0].querySelector('summary').textContent,count:app.getEquipmentWorkspace('ac-m').overdue.length};
+            groups[0].open=true;const rows=groups[0].querySelectorAll('.workspace-row');snapshot.expected=app.getEquipmentWorkspace('ac-m').overdue[1].date;rows[1].querySelector('button').click();
+            snapshot.selected=document.getElementById('c-scheduled-date').value;document.getElementById('c-work-time').value='0';document.getElementById('c-category').value='clean';return snapshot;
+        })()`);
+        assert.equal(before.groups,1);assert.equal(before.open,false);assert.equal(before.count,4);assert.match(before.summary,/未完了 4 回/);assert.equal(before.selected,before.expected);
+        await page.evaluate("app.saveModalData('complete')");await page.waitFor("document.getElementById('modal-container').dataset.modalType==='equipment-workspace'",'grouped chart after completion');
+        const after=await page.evaluate("({count:app.getEquipmentWorkspace('ac-m').overdue.length,dates:app.getEquipmentWorkspace('ac-m').overdue.map(x=>x.date),summary:document.querySelector('.equipment-overdue-group > summary').textContent})");
+        assert.equal(after.count,3);assert.equal(after.dates.includes(before.selected),false);assert.match(after.summary,/未完了 3 回/);
+    });
+});
+
 test('consistency improvements: real date presets, cross-view totals, safe return, zero time, folding and undo', {timeout:180000}, async t=>{
     const h=await launchHarness();t.after(()=>h.close());const {page}=h;
     await page.evaluate(`(async()=>{

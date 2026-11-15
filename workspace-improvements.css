@@ -35,6 +35,13 @@
 .workspace-content .equipment-section h3 { display: inline; margin: 0; font-size: 1rem; }
 .equipment-section > details > div:empty { display: none; }
 .equipment-overdue-rows { max-height: 280px; overflow-y: auto; }
+.equipment-overdue-group { border-top: 1px solid var(--border); padding: 5px 0; }
+.equipment-overdue-group > summary { cursor: pointer; padding: 5px 0; font-size: .82rem; overflow-wrap: anywhere; }
+.equipment-overdue-group > summary > span { display: block; margin-left: 16px; font-size: .75rem; color: var(--text-light); }
+.equipment-overdue-group .workspace-row { padding: 5px 0; }
+.equipment-overdue-group button { flex-shrink: 0; }
+.comparison-range { display: block; font-size: .72rem; color: var(--text-light); margin-top: 6px; white-space: pre-line; }
+#saved-search-undo[hidden] { display: none; }
 .equipment-return-button { margin-right: auto; }
 .modal-footer:has(.equipment-return-button) { flex-wrap: wrap; }
 #search-condition-summary { min-width: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; font-size: .72rem; line-height: 1.5; color: var(--primary); background: var(--primary-light); border: 1px solid var(--border); border-radius: 10px; }

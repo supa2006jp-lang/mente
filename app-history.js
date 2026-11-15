@@ -2247,14 +2247,18 @@
 
     calculateHistoryCost(history) {
         const workMinutes = this.getRecordWorkMinutes(history);
-        const workers = Array.isArray(history?.workers)
-            ? history.workers.filter(Boolean)
-            : (typeof history?.workers === 'string' ? history.workers.split(',').map(w => w.trim()).filter(Boolean) : []);
+        const names = Array.isArray(history?.workers) ? history.workers
+            : (typeof history?.workers === 'string' ? history.workers.split(/[,，、]/) : []);
+        const workers = [...new Set(names.filter(w => typeof w === 'string').map(w => w.trim()).filter(Boolean))];
+        // Preserve the existing one-person estimate when no worker has been recorded.
         const workerCount = Math.max(workers.length, 1);
-        const labor = (workMinutes / 60) * this.getHistoryLaborRate() * workerCount;
+        const laborMinutes = workMinutes * workerCount;
+        const labor = (laborMinutes / 60) * this.getHistoryLaborRate();
         const parts = this.calculateHistoryPartCost(history);
         return {
             labor,
+            laborMinutes,
+            workerCount,
             parts,
             total: labor + parts
         };
@@ -2820,7 +2824,7 @@
     }
 
     getPeriodView(control) {
-        return control?.closest?.('[id^="view-"]')?.id.slice(5)
+        return control?.dataset?.periodView || control?.closest?.('[id^="view-"]')?.id.slice(5)
             || ({ hist: 'history', worktime: 'worktime', analysis: 'analysis', ranking: 'ranking', dashboard: 'dashboard' })[control?.id?.split('-')[0]]
             || this.currentView || 'history';
     }
@@ -2835,7 +2839,7 @@
                 legacy = { since: localStorage.getItem('customStartDate') || '', start: localStorage.getItem('customRangeStart') || '', end: localStorage.getItem('customRangeEnd') || '' };
             } catch (_) {}
             const state = Object.create(null);
-            for (const name of ['history','worktime','analysis','ranking','dashboard','fiveS','calendar','machines','guides','all']) {
+            for (const name of ['history','worktime','analysis','ranking','dashboard','fiveS','calendar','machines','guides','all','compare-a','compare-b']) {
                 const value = saved && typeof saved === 'object' ? saved[name] || {} : legacy;
                 state[name] = Object.fromEntries(['since','start','end'].map(key => [key, this.normalizePeriodDateInput(value[key]) || '']));
                 if (state[name].start > state[name].end) { state[name].start = ''; state[name].end = ''; }

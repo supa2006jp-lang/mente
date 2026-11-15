@@ -76,6 +76,17 @@
         return node('div', null, details);
     };
 
+    P.groupEquipmentOverdue = function (overdue) {
+        const groups = new Map();
+        for (const { task, date } of overdue) {
+            const key = String(task.id);
+            if (!groups.has(key)) groups.set(key, { task, dates: [] });
+            groups.get(key).dates.push(date);
+        }
+        for (const group of groups.values()) group.dates.sort();
+        return [...groups.values()].sort((a, b) => a.dates[0].localeCompare(b.dates[0]));
+    };
+
     P.openEquipmentWorkspace = function (machineId, scrollTop = 0) {
         const data = this.getEquipmentWorkspace(machineId);
         if (!data) return this.showToast('対象の機械が見つかりません。', 'warning');
@@ -90,17 +101,33 @@
             node('p', `作業時間は1記録を1回加算した経過時間です。時間未入力・不正値 ${data.unknownTime} 件。`, root);
             const overdue = this.createEquipmentSection(root, 'overdue', '期限を過ぎた未完了予定', data.overdue.length, true);
             const overdueRows = node('div', null, overdue); overdueRows.className = 'equipment-overdue-rows';
+            const overdueGroups = this.groupEquipmentOverdue(data.overdue);
             let shown = 0;
             const more = button(overdue, '続きを表示', () => appendOverdue());
             const appendOverdue = () => {
-                for (const { task, date } of data.overdue.slice(shown, shown + 50)) {
-                    const row = node('div', null, overdueRows); row.className = 'workspace-row';
-                    const days = Math.round((this.parseTaskScheduleDate(todayForDisplay) - this.parseTaskScheduleDate(date)) / 86400000);
-                    node('span', `${date}（${days}日超過） ${task.content || 'メンテナンス'}`, row);
-                    button(row, '完了を記録', () => this.openEquipmentChild(() => this.openCompletionForm(task.id, date)));
+                for (const { task, dates } of overdueGroups.slice(shown, shown + 50)) {
+                    const group = node('details', null, overdueRows); group.className = 'equipment-overdue-group';
+                    const summary = node('summary', null, group);
+                    node('strong', task.content || 'メンテナンス', summary);
+                    node('span', `未完了 ${dates.length} 回・最も古い期限 ${dates[0]}`, summary);
+                    const rows = node('div', null, group);
+                    let dateCount = 0;
+                    const moreDates = button(group, '続きを表示', () => appendDates());
+                    const appendDates = () => {
+                        for (const date of dates.slice(dateCount, dateCount + 50)) {
+                            const row = node('div', null, rows); row.className = 'workspace-row';
+                            const days = Math.round((this.parseTaskScheduleDate(todayForDisplay) - this.parseTaskScheduleDate(date)) / 86400000);
+                            node('span', `${date}（${days}日超過）`, row);
+                            button(row, '完了を記録', () => this.openEquipmentChild(() => this.openCompletionForm(task.id, date)));
+                        }
+                        dateCount = Math.min(dateCount + 50, dates.length);
+                        moreDates.hidden = dateCount >= dates.length;
+                        moreDates.textContent = `続きを表示（残り ${dates.length - dateCount} 回）`;
+                    };
+                    appendDates();
                 }
-                shown = Math.min(shown + 50, data.overdue.length); more.hidden = shown >= data.overdue.length;
-                more.textContent = `続きを表示（残り ${data.overdue.length - shown} 件）`;
+                shown = Math.min(shown + 50, overdueGroups.length); more.hidden = shown >= overdueGroups.length;
+                more.textContent = `続きを表示（残り ${overdueGroups.length - shown} 項目）`;
             };
             const todayForDisplay = this.getLocalDateString(); appendOverdue();
             const next = this.createEquipmentSection(root, 'upcoming', '次回のメンテ予定', data.upcoming.length, true);
