@@ -187,7 +187,7 @@ import {qrCodeDialog} from './qr-code-dialog.js';
 import {qrBodyDisplays,colorQrGeometry} from './qr-code-display.js';
 import {qrCodeBodyName,qrCodeSummary} from './qr-code-name.js';
 let qrCodeController=null;
-import {decoratedShellHistory} from './shell-decoration.js';
+import {decoratedShellHistory,shellExtrusionIndex} from './shell-decoration.js';
 import {MachiningPreviewCache} from './machining-preview-cache.js';
 import {ExtrusionPreviewCache} from './extrusion-preview-cache.js';
 import {createBarrierPreviewControls} from './barrier-preview-controls.js';
@@ -2072,6 +2072,8 @@ function openShellEdit(id){
  $('cad-target').replaceChildren(new Option(bodyDisplayName(feature.spec.target),feature.spec.target));$('cad-target').disabled=true;
  $('cad-thickness').value=feature.spec.thickness;restoreDimensionBinding('thickness',feature.dimensionLinks?.thickness);$('cad-direction').value=feature.spec.direction;
  $('cad-shell-opening-recess').checked=feature.spec.includeOpeningRecess===true;
+ $('cad-shell-extrusion-only').checked=feature.spec.extrusionOnly===true;
+ syncShellExtrusionScope();
  $('cad-help').textContent='壁厚と方向を変更できます。元の開口面を保持し、後続工程も更新します。';
  if(decoratedShellHistory(features.slice(0,features.indexOf(feature)),feature.spec.target)){$('cad-direction').querySelector('option[value="外側"]').disabled=true;$('cad-help').textContent='SVG模様を保つ内側シェルの壁厚を変更できます。元の開口面を保持し、後続工程も更新します。';}
  openToolsDialog();scheduleMachiningPreview();
@@ -2284,6 +2286,14 @@ function shellCommandFaces(target){
 function readShellOpening(spec){
  spec.faces=shellCommandFaces(spec.target);
  if(spec.direction==='内側'&&$('cad-shell-opening-recess').checked)spec.includeOpeningRecess=true;
+ const scope=$('cad-shell-extrusion-only');
+ if(!scope.disabled&&scope.checked)spec.extrusionOnly=true;
+}
+function syncShellExtrusionScope(){
+ const scope=$('cad-shell-extrusion-only'),target=$('cad-target').value;
+ const end=editingShellId?features.findIndex(f=>f.id===editingShellId):features.length;
+ scope.disabled=shellExtrusionIndex(features,target,end)<0||$('cad-direction').value!=='内側';
+ scope.closest('label').hidden=scope.disabled;
 }
 function renderShellOpening(){
  const label=document.createElement('label'),input=document.createElement('input');
@@ -2292,7 +2302,16 @@ function renderShellOpening(){
  input.type='checkbox';
  input.id='cad-shell-opening-recess';
  label.append(input,'開口側のくぼみも取り除く');
- $('cad-fields').append(label);
+ const scopeLabel=document.createElement('label'),scope=document.createElement('input');
+ scopeLabel.style.cssText='flex-direction:row;align-items:center';
+ scopeLabel.title='直前に結合した押し出しの先端面を選びます。押し出し部分だけに壁と底を作り、結合前の形状を保ちます。';
+ scope.type='checkbox';
+ scope.id='cad-shell-extrusion-only';
+ scopeLabel.append(scope,'直前の押し出し部分だけを中空にする');
+ $('cad-fields').append(label,scopeLabel);
+ $('cad-target').addEventListener('input',syncShellExtrusionScope);
+ $('cad-direction').addEventListener('input',syncShellExtrusionScope);
+ syncShellExtrusionScope();
 }
 function currentEdgeTreatmentSpec(spec){
  const reduced=filletRadiusTool?.applySelection(spec);if(reduced&&reduced!==spec)return reduced;
@@ -4881,7 +4900,11 @@ function restoreMachiningCommand(record){
   revolvePicking='axis';
  }else{
   for(const key of Object.keys(schemas[spec.type]))if(spec[key]!==undefined)$('cad-'+key).value=spec[key];
-   if(spec.type==='shell')$('cad-shell-opening-recess').checked=spec.includeOpeningRecess===true;
+   if(spec.type==='shell'){
+    $('cad-shell-opening-recess').checked=spec.includeOpeningRecess===true;
+    $('cad-shell-extrusion-only').checked=spec.extrusionOnly===true;
+    syncShellExtrusionScope();
+   }
  }
  const selection=spec.type==='shell'?spec.faces.length+'面の開口面':spec.type==='revolve'?'回転軸と対象':spec.edges?.length?spec.edges.length+'本の辺':spec.face?'選択した面':'加工対象';
  $('cad-help').textContent=selection+'と入力条件を復元しました。値を変更するか「実行」を押してください。';

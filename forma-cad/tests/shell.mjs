@@ -20,3 +20,21 @@ assert.deepEqual(output.shapeMetrics.bounds,original.bounds);
 assert.equal(output.shapeMetrics.solids,1);
 assert.ok(inspectCadStl(output).report.ok);
 console.log('PASS shell with wall thickness equal to the corner radius');
+
+const joinedBase=[...features,{kind:'cadop',id:'side-shell',name:'Side shell',spec:shell,outputs:[output],remove:[]}];
+const extension={...defaults,kind:'extrusion',id:'extension',operation:'join',target:box.id,
+ width:32,height:16,z:30,depth:12,taperAngle:25};
+const joinResult=runOperation(joinedBase,{type:'extrusion',target:box.id,feature:extension});
+const history=[...joinedBase,{...extension,cadResult:joinResult}];
+const topShell={type:'shell',target:box.id,thickness:2,direction:'内側',extrusionOnly:true,
+ faces:[{bodyId:box.id,point:[0,0,42],normal:[0,0,1]}]};
+const preview=runOperation(history,{type:'preview',operation:topShell});
+const scoped=runOperation(history,topShell).outputs[0];
+assert.equal(preview.removed.length,1);
+assert.ok(Math.min(...preview.removed[0].vertices.filter((_,index)=>index%3===2))>=32-1e-5);
+assert.deepEqual(scoped.shapeMetrics.bounds,joinResult.outputs[0].shapeMetrics.bounds);
+assert.equal(scoped.shapeMetrics.solids,1);
+assert.ok(inspectCadStl(scoped).report.ok);
+assert.throws(()=>runOperation(history,{...topShell,thickness:12}),/深さより小さく/);
+assert.throws(()=>runOperation(history,{...topShell,faces:[{point:[0,15,10],normal:[0,1,0]}]}),/先端面/);
+console.log('PASS shell scoped to a joined extrusion preserves the previous body');

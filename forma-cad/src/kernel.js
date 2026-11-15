@@ -111,7 +111,8 @@ import {threadSource,threadPullSpec,offsetThreadProfile,allThreadPullSpec} from 
 import {shellBody,shellDecoratedBody} from './shell.js';
 import {nativeSketchFeature,nativeRingSegments} from './native-sketch-arcs.js';
 import {legacyArcBody} from './legacy-arc-body.js';
-import {decoratedShellHistory} from './shell-decoration.js';
+import {decoratedShellHistory,shellExtrusionIndex} from './shell-decoration.js';
+import {shellJoinedExtrusion} from './shell-extrusion.js';
 import {coaxialCircularLoftInfo,makeCoaxialCircularLoft} from './circular-loft.js';
 import {makeFormSolid} from './form-solid.js';
 import {makeFormWall,searchFormWalls} from './form-wall.js';
@@ -681,7 +682,23 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='shell'){
   const sourceHistory=p.direction!=='外側'?decoratedShellHistory(features,p.target):null;
   let shape;
-  if(sourceHistory){
+  if(p.extrusionOnly===true){
+   const index=shellExtrusionIndex(features,p.target);
+   if(index<0)throw Error('対象ボディの直前の工程が結合の押し出しではありません');
+   const feature=features[index],history=features.slice(0,index),before=kernelBodies(history);
+   let extrusion;
+   try{
+    extrusion=faceBatchTool(history,feature,before,onProgress);
+    const previous=[p.target,...feature.cadResult.remove].map(id=>before.get(id)).filter(Boolean);
+    const depth=feature.endPlane?depthToFacePlane(feature,feature.endPlane):feature.depth;
+    const direction=basisFor(feature.region||feature).n.multiplyScalar(Math.sign(depth)).toArray();
+    const captureRemoved=context.shellPreview?cavity=>{
+     removedPreview=[{id:p.target,...cavity.mesh({tolerance:.08,angularTolerance:.15})}];
+    }:null;
+    if(p.thickness>=Math.abs(depth)*(feature.symmetric?2:1)-1e-7)throw Error('壁厚は押し出し部分の深さより小さくしてください');
+    shape=shellJoinedExtrusion(base,extrusion,previous,direction,p,captureRemoved);
+   }finally{extrusion?.delete();before.forEach(body=>body.delete());}
+  }else if(sourceHistory){
    const sourceBodies=kernelBodies(sourceHistory);
    try{
     const source=sourceBodies.get(p.target),info=svgCylinderInfo(source,features[sourceHistory.length].spec.surfacePoint);

@@ -1,3 +1,5 @@
+import {lastBodyWriter} from './body-revolution-history.js';
+
 // Only a trailing sequence of SVG operations can use the undecorated body.
 // Other body edits invalidate this shortcut so their geometry is never lost.
 export function decoratedShellHistory(features,target){
@@ -11,4 +13,11 @@ export function decoratedShellHistory(features,target){
   start=i;
  }
  return start===null?null:features.slice(0,start);
+}
+export function shellExtrusionIndex(features,target,end=features.length){
+ const writer=lastBodyWriter(features,target,end);
+ if(!writer)return -1;
+ const f=features[writer.index];
+ return f.kind==='extrusion'&&f.mode==='solid'&&f.operation==='join'&&f.cadResult?.outputs?.length===1&&!f.untilSolid&&!f.barrier
+  ?writer.index:-1;
 }
