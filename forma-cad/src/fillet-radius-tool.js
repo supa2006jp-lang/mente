@@ -2,12 +2,29 @@ import {KernelClient} from './kernel-client.js';
 
 export function createFilletRadiusTool({getFeatures,getSpec,cancelPreview,showResult,showLimit=()=>{},bodyName=id=>id,formatError=error=>error.message}){
  const worker=new KernelClient(),$=id=>document.getElementById(id);let revision=0,busy=false,button,status,verifiedStatus,useButton,expandInput,limitStatus,limitToggle,verified=null,limiting=null;
- let selection=[],remaining=null,excludedCount=0,selectionStatus,restoreButton,limitActions;
+ let selection=[],remaining=null,excluded=[],selectionStatus,restoreButton,limitActions,excludedList;
  function updateSelection(){
   if(!selectionStatus)return;
-  selectionStatus.textContent=remaining?remaining.length+' 辺を対象 ／ '+excludedCount+' 辺を除外中':'';
+  selectionStatus.textContent=remaining?remaining.length+' 辺を対象 ／ '+excluded.length+' 辺を除外中':'';
   restoreButton.hidden=!remaining;
   restoreButton.disabled=busy;
+  excludedList.replaceChildren(...excluded.map(edge=>{
+   const restore=document.createElement('button');
+   restore.type='button';restore.dataset.restoreFilletEdge=String(edge.number);
+   restore.textContent=bodyName(edge.bodyId)+' · 除外 '+edge.number+' を戻して再調査';
+   restore.disabled=busy;
+   const highlight=()=>showLimit({diagnostics:{certainty:'excluded-edge',bodyIds:[edge.bodyId],edges:[edge]}});
+   restore.onpointerenter=restore.onfocus=highlight;
+   restore.onpointerleave=restore.onblur=updateLimit;
+   restore.onclick=()=>{
+    if(busy)return;
+    remaining=[...remaining,edge.reference];
+    excluded=excluded.filter(item=>item!==edge);
+    if(!excluded.length)remaining=null;
+    restart();
+   };
+   return restore;
+  }));
  }
  function updateLimit(){
   if(!limitStatus)return;
@@ -61,15 +78,20 @@ export function createFilletRadiusTool({getFeatures,getSpec,cancelPreview,showRe
   }catch(error){if(isActive())status.textContent=formatError(error);}
   finally{if(current===revision){busy=false;$('cad-apply').disabled=false;useButton.hidden=useButton.disabled=true;button.textContent='全ての辺に掛けられる半径を調べる';updateSelection();updateLimit();}}
  }
+ function restart(){
+  if(verified&&!expandInput.checked)$('cad-radius').value=verified.upperRadius;
+  start();
+ }
  function exclude({bodyId,selectionIndex}){
   if(busy)return;
+  const edge=limiting?.diagnostics?.edges.find(edge=>edge.bodyId===bodyId&&edge.selectionIndex===selectionIndex);
+  const reference=selection.find(row=>row.bodyId===bodyId)?.references[selectionIndex];
+  if(!edge||!reference)return;
   const next=selection.flatMap(row=>row.references.flatMap((reference,index)=>row.bodyId===bodyId&&index===selectionIndex?[]:[{bodyId:row.bodyId,...reference}]));
   if(!next.length||next.length===selection.reduce((sum,row)=>sum+row.references.length,0))return;
   remaining=next;
-  excludedCount++;
-  // A bounded search must probe the same upper radius to find an improvement.
-  if(verified&&!expandInput.checked)$('cad-radius').value=verified.upperRadius;
-  start();
+  excluded.push({...edge,number:(excluded.at(-1)?.number??0)+1,reference:{bodyId,...reference}});
+  restart();
  }
  return {
   cancel,start,exclude,
@@ -77,9 +99,9 @@ export function createFilletRadiusTool({getFeatures,getSpec,cancelPreview,showRe
    if(spec.type!=='fillet'||!remaining)return spec;
    return {...spec,target:remaining[0].bodyId,edges:structuredClone(remaining)};
   },
-  resetSelection(){remaining=null;excludedCount=0;updateSelection();},
+  resetSelection(){remaining=null;excluded=[];updateSelection();},
   render(){
-   this.resetSelection();cancel();$('fillet-radius-tools')?.remove();button=status=verifiedStatus=useButton=expandInput=limitStatus=limitToggle=selectionStatus=restoreButton=limitActions=null;
+   this.resetSelection();cancel();$('fillet-radius-tools')?.remove();button=status=verifiedStatus=useButton=expandInput=limitStatus=limitToggle=selectionStatus=restoreButton=limitActions=excludedList=null;
    if($('cad-command').value!=='fillet'||!$('cad-radius'))return;
    $('cad-radius').min='.01';
    const section=document.createElement('section');section.id='fillet-radius-tools';section.style.cssText='display:grid;gap:8px';
@@ -92,10 +114,11 @@ export function createFilletRadiusTool({getFeatures,getSpec,cancelPreview,showRe
    useButton=document.createElement('button');useButton.id='fillet-radius-use';useButton.type='button';useButton.hidden=useButton.disabled=true;useButton.textContent='確認済みのこの値を使う';useButton.onclick=()=>{if(busy&&verified)worker.acceptFilletRadius();};
    const help=document.createElement('small');help.textContent='小さい半径から全対象の辺を省かず、同じ半径で検査します。確認済みの値で途中終了できます。';help.style.cssText='font-size:13px;line-height:1.6';
    selectionStatus=text('fillet-radius-selection');
+   excludedList=document.createElement('div');excludedList.id='fillet-radius-excluded-edges';excludedList.style.cssText='display:grid;gap:4px';
    limitActions=document.createElement('div');
    restoreButton=document.createElement('button');restoreButton.type='button';restoreButton.id='fillet-radius-restore-edges';restoreButton.hidden=true;restoreButton.textContent='除外した辺をすべて戻す';
    restoreButton.onclick=()=>{this.resetSelection();$('cad-fields').dispatchEvent(new Event('input',{bubbles:true}));};
-   section.append(expand.label,button,help,verifiedStatus,useButton,status,toggle.label,limitStatus,limitActions,selectionStatus,restoreButton);$('cad-radius').closest('label').after(section);
+   section.append(expand.label,button,help,verifiedStatus,useButton,status,toggle.label,limitStatus,limitActions,selectionStatus,excludedList,restoreButton);$('cad-radius').closest('label').after(section);
   }
  };
 }

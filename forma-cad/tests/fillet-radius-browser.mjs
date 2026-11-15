@@ -48,6 +48,14 @@ try{for(const mode of modes.length?modes:['normal','expand','bounded','use','sta
    await page.locator('.fillet-radius-exclude-edge').first().click({timeout:40000});
    await page.waitForFunction(()=>document.getElementById('fillet-radius-verified').textContent.includes('23辺')&&!document.getElementById('cad-apply').disabled);
    assert.match(await page.locator('#fillet-radius-selection').textContent(),/23 辺を対象 ／ 1 辺を除外中/);
+   const restore=page.locator('[data-restore-fillet-edge="1"]');
+   await restore.hover();
+   assert.equal(JSON.parse(await page.locator('#canvas-host').getAttribute('data-fillet-radius-limit')).certainty,'excluded-edge');
+   await restore.click();
+   await page.waitForFunction(()=>document.getElementById('fillet-radius-verified').textContent.includes('24辺')&&!document.getElementById('cad-apply').disabled);
+   assert.equal(await restore.count(),0);
+   await page.locator('.fillet-radius-exclude-edge').first().click();
+   await page.waitForFunction(()=>document.getElementById('fillet-radius-verified').textContent.includes('23辺')&&!document.getElementById('cad-apply').disabled);
    await page.locator('#cad-apply').click();await page.waitForFunction(()=>!document.getElementById('tools-dialog').open);
    assert.equal((await save()).features.at(-1).spec.edges.length,23);
   }

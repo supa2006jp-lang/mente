@@ -1,7 +1,7 @@
 import {findMachiningValues,trialDimension} from './machining-value-trials.js';
 import * as THREE from 'three';
 import {moveMatrix} from './fillet-grid-reference.js';
-export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,onChoose,onFeature,onTrace,getTrialContext}){
+export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,onChoose,onFeature,onTrace,getTrialContext,getRetryContext,fitModelToolBox}){
  const panel=document.createElement('section');panel.id='cad-failure-panel';panel.className='workspace-panel';panel.hidden=true;panel.innerHTML='<strong>加工できなかった箇所</strong><p id="cad-failure-message" role="status"></p><div id="cad-failure-evidence"></div><p id="cad-failure-suggestion"></p><p id="cad-failure-location" class="hint"></p><div id="cad-failure-actions" class="workspace-actions"></div><button type="button" id="cad-failure-clear">表示を消す</button>';
  host.parentElement.append(panel);let overlay=null,original=null,trial=null;
  const q=name=>panel.querySelector('#cad-failure-'+name);
@@ -26,8 +26,28 @@ export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,
   }
   q('suggestion').textContent=diagnostics?.suggestion||'';q('suggestion').hidden=!diagnostics?.suggestion;
   if(issues.some(issue=>issue.bounds))q('location').textContent=(diagnostics.kind==='preview-mismatch'?'赤枠：照合で不一致が確認された形状の範囲。':diagnostics.certainty==='inspection'?'赤枠：整合性検査に通らなかった形状の範囲。':'赤枠：今回の加工対象の範囲。')+'原因となる辺を特定した表示ではありません。';
+  if(operation?.type==='shell'&&!diagnostics?.edges?.length&&!issues.some(issue=>issue.bounds)){
+   const opening=operation.faces?.map(face=>face.point).filter(p=>p?.length===3&&p.every(Number.isFinite))??[];
+   if(opening.length){
+    const geometry=new THREE.BufferGeometry().setFromPoints(opening.map(p=>new THREE.Vector3(...p)));
+    const points=new THREE.Points(geometry,new THREE.PointsMaterial({color:0xff9a38,size:9,sizeAttenuation:false,depthTest:false}));
+    points.renderOrder=46;overlay.add(points);
+    q('location').textContent+=' 橙の点は指定した開口面です。';
+   }
+  }
   scene.add(overlay);host.dataset.failedBodies=JSON.stringify(ids);q('message').textContent=error.message;q('actions').replaceChildren();
   const type=error.failedOperation||operation?.type,input=document.querySelector(type==='fillet'?'#fillet-history-dialog[open] #fillet-history-radius, #tools-dialog[open] #cad-radius':type==='shell'?'#tools-dialog[open] #cad-thickness':type==='chamfer'?'#tools-dialog[open] #cad-distance':'#extrude-distance:not([hidden]) #viewport-depth');
+  const retry=spec?.type!=='replay'&&getRetryContext?.(type);
+  if(retry){
+   action('入力条件のまま調整',()=>{if(retry.current())retry.focus();});
+   action('現在の設定で再プレビュー',()=>{if(retry.current())retry.preview();});
+  }
+  const located=overlay.children.filter(item=>item.isLine||item.renderOrder===46);
+  if(located.length&&fitModelToolBox)action('問題箇所を拡大',()=>{
+   const box=new THREE.Box3();
+   for(const item of located)box.union(item.box??new THREE.Box3().setFromObject(item));
+   if(!box.isEmpty())fitModelToolBox(box.expandByScalar(2));
+  });
   const sameFeature=!error.featureId||spec?.type!=='replay'||error.featureId===document.querySelector('#fillet-history-dialog[open]')?.dataset.featureId;
   if(!issues.length&&sameFeature&&input&&Number.isFinite(Number(input.value))&&Number(input.value)!==0)action(['fillet','shell','chamfer'].includes(type)?'寸法を半分にしてプレビュー':'押し出しを1 mm延長してプレビュー',()=>{const value=Number(input.value);input.value=String(['fillet','shell','chamfer'].includes(type)?value/2:value+Math.sign(value));input.dispatchEvent(new Event('input',{bubbles:true}));});
 

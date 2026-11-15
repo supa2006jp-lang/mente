@@ -1,6 +1,7 @@
 import {slideLidBodyIds,setSlideLidTransparency} from './slide-lid-transparency.js';
 import * as THREE from 'three';
 import {isSectionSplit} from './section-split.js';
+import {acceleratedRaycast} from 'three-mesh-bvh';
 export function splitDisplayOffsets(features,gap=20){
  const offsets=new Map();
  for(const f of features){const result=f.cadResult||(f.kind==='cadop'?f:null);if(!result)continue;const hasInherited=offsets.has(f.spec?.target),inherited=offsets.get(f.spec?.target)?.clone()||new THREE.Vector3();for(const id of result.remove||[])offsets.delete(id);
@@ -29,7 +30,7 @@ export function createBodyDisplay({meshes,scene,host,hiddenBodies,getFeatures,ge
  function attach(mesh){
   if(mesh.userData.displayRaycast)return;
   const original=mesh.raycast;
-  mesh.userData.displayRaycast=function(raycaster,hits){const offset=exploded&&!transformed?offsets.get(mesh.userData.bodyId):null;if(!offset)return original.call(this,raycaster,hits);const previous=raycaster.ray;raycaster.ray=previous.clone();raycaster.ray.origin.sub(offset);try{return original.call(this,raycaster,hits);}finally{raycaster.ray=previous;}};mesh.raycast=mesh.userData.displayRaycast;
+  mesh.userData.displayRaycast=function(raycaster,hits){const pick=this.geometry.boundsTree?acceleratedRaycast:original;const offset=exploded&&!transformed?offsets.get(mesh.userData.bodyId):null;if(!offset)return pick.call(this,raycaster,hits);const previous=raycaster.ray;raycaster.ray=previous.clone();raycaster.ray.origin.sub(offset);try{return pick.call(this,raycaster,hits);}finally{raycaster.ray=previous;}};mesh.raycast=mesh.userData.displayRaycast;
  }
  function rebuild(){exploded=false;offsets=splitDisplayOffsets(getFeatures(),gap);applyVisibility();for(const mesh of meshes.values())attach(mesh);update();}
  function isolate(ids){if(!canChange())return;const selected=ids.filter(id=>meshes.has(id));if(!selected.length)return;isolation=new Set(selected);applyVisibility();update();onChange();}

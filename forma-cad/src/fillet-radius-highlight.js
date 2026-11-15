@@ -5,7 +5,8 @@ export function createFilletRadiusHighlight({scene,host,meshes,camera}){
  function clear(){group?.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});group?.removeFromParent();group=null;delete host.dataset.filletRadiusLimit;}
  function show(limiting){
   clear();const diagnostics=limiting?.diagnostics;if(!diagnostics)return;
-  const exact=diagnostics.certainty==='faulty-contour',color=exact?0xef4438:0xe7a43b,ids=(diagnostics.bodyIds||[]).filter(id=>meshes.get(id)?.visible);if(!ids.length)return;
+  const exact=diagnostics.certainty==='faulty-contour',excluded=diagnostics.certainty==='excluded-edge';
+  const color=excluded?0x2ce5b2:exact?0xef4438:0xe7a43b,ids=(diagnostics.bodyIds||[]).filter(id=>meshes.get(id)?.visible);if(!ids.length)return;
   group=new THREE.Group();
   for(const edge of diagnostics.edges||[]){
    if(edge.bodyId&&!ids.includes(edge.bodyId))continue;
@@ -13,7 +14,7 @@ export function createFilletRadiusHighlight({scene,host,meshes,camera}){
    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineBasicMaterial({color,depthTest:false,depthWrite:false}));line.renderOrder=45;group.add(line);
    if(exact&&edge.removable)line.userData.filletEdge={bodyId:edge.bodyId,selectionIndex:edge.selectionIndex};
   }
-  for(const id of ids){const helper=new THREE.Box3Helper(new THREE.Box3().setFromObject(meshes.get(id)),color);helper.material.depthTest=false;helper.material.depthWrite=false;helper.renderOrder=44;group.add(helper);}
+  if(!excluded)for(const id of ids){const helper=new THREE.Box3Helper(new THREE.Box3().setFromObject(meshes.get(id)),color);helper.material.depthTest=false;helper.material.depthWrite=false;helper.renderOrder=44;group.add(helper);}
   scene.add(group);host.dataset.filletRadiusLimit=JSON.stringify({radius:limiting.radius,bodyIds:ids,certainty:diagnostics.certainty,edges:group.children.filter(o=>o.type==='Line').length});
  }
  function pick(event){

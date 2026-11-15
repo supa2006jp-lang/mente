@@ -3,12 +3,16 @@ import {MeshBVH} from 'three-mesh-bvh';
 import {printDimensions} from './print-dimensions.js';
 const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
 const cancelled=check=>{if(check?.())throw Object.assign(new Error('確認をキャンセルしました'),{name:'AbortError'});};
-export async function analyzePrintPreflight(outputs,{capacity=[180,180,180],shouldCancel,onProgress,floatingOnly=false}={}){
+export async function analyzePrintPreflight(outputs,{capacity=[180,180,180],shouldCancel,onProgress,floatingOnly=false,focusBody}={}){
  const items=[],issues=[],models=[],parts=[];let count=0;
  try{
   for(const [bodyIndex,output] of outputs.entries()){
    cancelled(shouldCancel);onProgress?.({stage:(bodyIndex+1)+' / '+outputs.length+' ボディの面と接続を確認中'});
    const {id,vertices,triangles}=output,min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],points=[],weld=new Map(),edges=new Map(),parents=Array.from({length:triangles.length/3},(_,i)=>i),partBounds=new Map();let degenerate=0;
+   if(focusBody&&id!==focusBody){
+    const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.setIndex(triangles);
+    models.push({id,geometry,bvh:new MeshBVH(geometry,{indirect:true})});await pause();continue;
+   }
    const root=x=>{while(parents[x]!==x){parents[x]=parents[parents[x]];x=parents[x];}return x;},connect=(a,b)=>{parents[root(a)]=root(b);};
    for(let i=0;i<vertices.length;i+=3){const point=vertices.slice(i,i+3);if(point.some(v=>!Number.isFinite(v)))throw Error('メッシュ座標が不正です');point.forEach((v,j)=>{min[j]=Math.min(min[j],v);max[j]=Math.max(max[j],v);});const key=point.map(v=>Math.round(v/1e-5)).join(',');if(!weld.has(key))weld.set(key,weld.size);points.push(weld.get(key));}
    items.push({id,min,max});

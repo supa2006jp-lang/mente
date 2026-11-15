@@ -156,10 +156,39 @@ try{
  const zoomBefore=JSON.parse(await host.getAttribute('data-camera-state'))[7];
  await page.locator('[data-print-plate-index="0"]').click();
  await page.waitForFunction(before=>JSON.parse(document.querySelector('#canvas-host').dataset.cameraState)[7]>before,zoomBefore);
- await page.locator('[data-print-compare=cantilever]').click();
+ await page.locator('#print-layout-warning-parts [data-body-id=cantilever]').first().click();
+ await page.locator('#print-layout-warning-recheck').click();
+ await page.waitForFunction(()=>document.querySelector('#print-layout-warning-result').textContent.includes('辺の不整合'));
+ await page.locator('#print-layout-warning-orient').click();
  await page.waitForFunction(()=>document.querySelector('#print-layout-orientation-candidates [data-orientation="z-"]')?.textContent.includes('おすすめ'));
- await page.locator('#print-layout-orientation-close').click();
+ await page.locator('#print-layout-orientation-candidates [data-orientation="z-"]').click();
+ await page.locator('#print-layout-orientation-apply').click();
+ await page.waitForFunction(()=>document.querySelector('#print-layout-warning-result').textContent.includes('向き変更後'));
  await page.locator('#print-layout-cancel').click();
+ await page.locator('#print-layout-tool').click();
+ await page.locator('#print-layout-apply-model').click();
+ await page.waitForFunction(()=>!document.querySelector('#print-layout-dialog').open);
+ await page.locator('#print-layout-tool').click();
+ await page.locator('#print-layout-warning-parts [data-body-id=cantilever]').first().click();
+ await page.locator('#print-layout-warning-support').click();
+ await page.locator('#print-support-dialog').waitFor();
+ await page.locator('#print-support-dialog [data-id=cancel]').click();
+ const many=Array.from({length:32},(_,i)=>{
+  const geometry=new THREE.BoxGeometry(4,4,4).translate(i%8*7,Math.floor(i/8)*7,2);
+  try{return {id:'many-'+i,vertices:[...geometry.attributes.position.array],triangles:[...geometry.index.array]};}
+  finally{geometry.dispose();}
+ });
+ await page.evaluate(()=>{
+  const target=document.getElementById('canvas-host');
+  window.progressiveFrames=[];
+  new MutationObserver(()=>{if(target.dataset.projectDetail)window.progressiveFrames.push(target.dataset.projectDetail);}).observe(target,{attributes:true,attributeFilter:['data-project-detail']});
+ });
+ await load([{kind:'cadop',id:'large',name:'複数部品',outputs:many,remove:[]}]);
+ await page.waitForFunction(()=>document.getElementById('body-count').textContent==='32');
+ assert.ok((await page.evaluate(()=>window.progressiveFrames)).includes('0/32'));
+ await page.waitForFunction(()=>!document.getElementById('canvas-host').dataset.projectDetail);
+ await page.locator('#bodies [data-body-id=many-0] .row-label').click();
+ assert.equal(await host.getAttribute('data-selected-body-count'),'1');
  assert.deepEqual(errors,[]);
  console.log('PASS reference suggestions and repair, orientation comparison and recommendation, warning focus, ZIP with four 3MFs, placement lock and save/reopen');
 }catch(error){

@@ -3,10 +3,10 @@ import * as THREE from 'three';
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 import {currentBodyMeshRecords} from './mesh-quality.js';
 
-export function stlMeshSnapshot(features,meshes){
+export function stlMeshSnapshot(features,meshes,ids){
  const records=currentBodyMeshRecords(features),bodies=[];
  for(const [id,mesh] of meshes){
-  if(!mesh.visible)continue;const output=records.get(id)?.output;
+  if(ids?!ids.has(id):!mesh.visible)continue;const output=records.get(id)?.output;
   if(output?.brep){bodies.push({id,brep:output.brep});continue;}
   const p=cadPosition(mesh.geometry),v=new THREE.Vector3(),vertices=[];mesh.updateMatrixWorld(true);
   for(let i=0;i<p.count;i++)vertices.push(...v.fromBufferAttribute(p,i).applyMatrix4(mesh.matrixWorld).toArray());

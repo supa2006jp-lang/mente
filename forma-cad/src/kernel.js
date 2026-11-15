@@ -16,7 +16,7 @@ import {makeSupportContactTrials} from './print-support-contact-trials.js';
 import {enclosureHistoryBody} from './enclosure-history-body.js';
 import {assemblyLinks,assemblyTargets,copiedAssemblyLinks} from './assembly-state.js';
 import {assemblyReference,assemblyPlan} from './assembly-mate.js';
-import {inspectAssemblyContact} from './assembly-contact.js';
+import {inspectAssemblyClearances,inspectAssemblyContact} from './assembly-contact.js';
 import {makePrintSupport} from './print-support.js';
 import {gapRepairSpec} from './geometry-gap-repair.js';
 import {healthBudget,inspectShapeHealth,inspectOperationHealth,inspectGeometryHealth,diagnoseOutputHealth} from './geometry-health.js';
@@ -402,6 +402,43 @@ function inspectHistorySnapshot(features,node,mode,threshold){
  }finally{for(const shape of bodies.values())shape.delete();}
 }
 
+function auditAssembly(features,spec,onProgress){
+ const {targets,against=[],gapLimit=2}=spec,preview=spec.type==='assemblyAuditPair';
+ if(!Array.isArray(targets)||targets.length<2||targets.length>250||new Set(targets).size!==targets.length||
+  targets.some(id=>typeof id!=='string'||!id)||!Array.isArray(against)||against.length>=targets.length||
+  against.some(id=>!targets.includes(id))||!Number.isFinite(gapLimit)||gapLimit<0||gapLimit>1000||
+  (preview&&targets.length!==2))throw Error('表示中のボディを2〜250個選び、隙間の上限を0〜1000 mmで指定してください');
+ const records=currentBodyMeshRecords(features),shapes=new Map();let rebuilt;
+ try{
+  onProgress?.({stage:'検査対象のCAD形状を読み込んでいます'});
+  const needsRebuild=targets.some(id=>{
+   const record=records.get(id),p=record?.feature.spec;
+   return record&&(!record.output||p?.type==='enclose'&&!p.boxMode&&!p.hinge);
+  });
+  if(needsRebuild){
+   // Imported meshes lack a native solid. Retain them in the report as
+   // unavailable and reconstruct the remaining legacy extrusion history.
+   const nativeHistory=features.map(feature=>{
+    if(feature.cadResult)return {...feature,cadResult:{...feature.cadResult,outputs:feature.cadResult.outputs.filter(o=>o.brep)}};
+    return feature.kind==='cadop'?{...feature,outputs:feature.outputs.filter(o=>o.brep)}:feature;
+   });
+   try{rebuilt=kernelBodies(nativeHistory);}catch(error){if(error instanceof WebAssembly.RuntimeError)throw error;}
+  }
+  for(const id of targets){
+   const record=records.get(id),output=record?.output;
+   if(!record||output&&!output.brep)continue;
+   try{
+    const shape=rebuilt?.get(id)?.clone()??(output?.brep?R.deserializeShape(output.brep).asShape3D():null);
+    if(shape)shapes.set(id,shape);
+   }catch(error){if(error instanceof WebAssembly.RuntimeError)throw error;}
+  }
+  return inspectAssemblyClearances(targets,shapes,{against,gapLimit,preview,onProgress});
+ }finally{
+  for(const shape of shapes.values())shape.delete();
+  for(const shape of rebuilt?.values()??[])shape.delete();
+ }
+}
+
 export function runOperation(features,spec,onProgress,context={}){
  if(spec.type==='formOutlineComparison')return compareFormSilhouette(formSilhouette(spec.mesh,spec.view),spec.outline,spec.tolerance);
  if(spec.type==='formClearance'){
@@ -445,6 +482,7 @@ export function runOperation(features,spec,onProgress,context={}){
  try{return computeOperation(features,spec,onProgress,context);}catch(error){throw withFailureDiagnostics(error,spec);}
 }
 function computeOperation(features,spec,onProgress,context={}){
+ if(['assemblyAudit','assemblyAuditPair'].includes(spec.type))return auditAssembly(features,spec,onProgress);
  if(spec.type==='machiningValueTrial'){
   const operation=spec.operation;
   if(!['shell','fillet','chamfer'].includes(operation?.type))throw Error('この加工は寸法候補を検査できません');
@@ -631,7 +669,8 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='extrusion'){
   if(p.feature.targetBodies&&(!p.feature.targetBodies.length||p.feature.targetBodies.some(id=>!bodies.has(id))))throw Error('加工する対象ボディを1個以上選択してください');
   if(p.feature.operation!=='new'&&!base&&!(multipleExtrusionTargets(p.feature)&&extrusionTargetEntries(p.feature,bodies).length))throw Error('切り取り・結合する対象ボディを選択してください');
-  const tool=faceBatchTool(features,p.feature,bodies,onProgress,context.extrusionPreview),fuseOptions={verifyMesh:p.feature.region?.id?.startsWith('grid-cell-')===true};let shape;
+  onProgress?.({stage:'押し出す輪郭と立体を準備しています'});
+  const tool=faceBatchTool(features,p.feature,bodies,onProgress,context.extrusionPreview),fuseOptions={onProgress,verifyMesh:p.feature.region?.id?.startsWith('grid-cell-')===true};let shape;
   const finishExtrusion=()=>{
    const info=context.extrusionPreview;
    if(info){
@@ -644,6 +683,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
   try{if(p.feature.operation==='new'){emit(p.feature.id,tool);const source=copiedThreadSource(features,p.feature);if(source)outputs.at(-1).threadSource=source;return finishExtrusion();}
    if(p.feature.operation==='cut'&&multipleExtrusionTargets(p.feature)){for(const [id,body] of extrusionTargetEntries(p.feature,bodies)){let cut;try{cut=body.cut(tool);const originalVolume=R.measureVolume(body),remainingVolume=R.measureVolume(cut);if(originalVolume-remainingVolume<=Math.max(1e-7,originalVolume*1e-9))continue;if(Math.abs(remainingVolume)<1e-9){remove.push(id);continue;}const check=new (R.getOC().BRepCheck_Analyzer)(cut.wrapped,true,false);try{if(!check.IsValid())throw Error('加工後の形状が不正です。距離や輪郭を変更してください');}finally{check.delete();}emit(id,cut);}finally{cut?.delete();}}if(!outputs.length&&!remove.length)throw Error('切り取り形状がボディと重なっていません。方向・距離・対象を確認してください');return finishExtrusion();}
    if(p.feature.operation==='join'&&multipleExtrusionTargets(p.feature)){
+    onProgress?.({stage:'押し出しと各ボディの接触を判定しています'});
     const {bodyIds:contact,sourceContactIds}=extrusionJoinContacts(p.feature,tool,bodies);
     assertExtrusionJoinContacts(p.feature,contact);
     if(!contact.length)throw Error('押し出し形状が結合対象のボディと接していません。方向・距離を確認してください');
@@ -680,6 +720,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  const shape=R.makeSphere(p.radius).translate([p.x,p.y,p.z]);try{emit(p.id,shape);}finally{shape.delete();}
  }
  else if(p.type==='shell'){
+  onProgress?.({stage:'開口面を確認し、壁厚に合わせて内外の面を作成しています'});
   const sourceHistory=p.direction!=='外側'?decoratedShellHistory(features,p.target):null;
   let shape;
   if(p.extrusionOnly===true){
@@ -713,7 +754,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    }
    finally{for(const body of sourceBodies.values())body.delete();}
   }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target));
-  try{emit(p.target,shape);}finally{shape.delete();}
+  try{onProgress?.({stage:'シェルの面の接続と表示を確認しています'});emit(p.target,shape);}finally{shape.delete();}
  }
  else if(p.type==='filletRadiusSearch'){
   const operation=p.operation;if(operation?.type!=='fillet')throw Error('フィレットの対象を選択してください');

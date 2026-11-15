@@ -15,7 +15,7 @@ export function createMeasurementPlacement({panel,host,camera,getTargets,canMove
   point.y+height+gap>rect.top&&point.y-gap<rect.bottom;
 
  return {update(){
-  if(panel.hidden||!canMove()){
+  if(panel.hidden||panel.dataset.panelPosition==='manual'||!canMove()){
    move();previous=null;lastTargets=[];dirty=true;
    return;
   }

@@ -1,11 +1,11 @@
-export function liveCadOutputs(features){
+export function liveCadOutputs(features,{nativeOnly=true}={}){
  const live=new Map();
  for(const [featureIndex,feature] of features.entries()){
   const result=feature.cadResult||(feature.kind==='cadop'?feature:null);
   if(result){for(const id of result.remove||[])live.delete(id);for(const [outputIndex,output]of result.outputs.entries())live.set(output.id,{featureIndex,outputIndex,output,feature});}
   else if(feature.kind==='extrusion')live.delete(feature.operation==='new'?feature.id:feature.target);
  }
- return [...live.values()].filter(r=>r.output.brep);
+ return [...live.values()].filter(r=>!nativeOnly||r.output.brep);
 }
 export function applyProjectDisplayRepairs(features,records){
  if(!records.length)return features;
@@ -16,4 +16,9 @@ export function applyProjectDisplayRepairs(features,records){
   next[record.featureIndex]=source.cadResult?{...source,cadResult:{...result,outputs}}:{...source,outputs};
  }
  return next;
+}
+
+export function needsProgressiveProjectDisplay(features){
+ const live=liveCadOutputs(features,{nativeOnly:false});
+ return live.length>=30||live.reduce((sum,{output})=>sum+output.triangles.length/3,0)>=100000;
 }

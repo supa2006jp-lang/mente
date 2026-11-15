@@ -5,6 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import {unzipSync,strFromU8} from 'three/addons/libs/fflate.module.js';
 
 const prefix='/mente/forma-cad/',root=path.resolve('.');
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -51,6 +52,16 @@ try{
  const lock=copyPage.locator('[data-print-lock=part0]'),center=copyPage.locator('#print-layout-center');
  await lock.click();assert.ok(await center.isDisabled());await lock.click();await center.click();
  await copyPage.locator('[data-print-orientation=part0]').selectOption('x+');
+ const otherLock=copyPage.locator('[data-print-lock=part1]');
+ const prioritize=copyPage.locator('[data-print-center=part0]');
+ await prioritize.click();
+ await otherLock.click();
+ const readPlan=()=>copyPage.locator('#canvas-host').evaluate(el=>JSON.parse(el.dataset.printLayout));
+ const fixed=(await readPlan()).placements.find(p=>p.id==='part1');
+ await prioritize.click();
+ const priority=await readPlan(),anchored=priority.placements.find(p=>p.id==='part0');
+ assert.ok(anchored.min.slice(0,2).every((v,i)=>Math.abs(v+anchored.max[i])<1e-5));
+ assert.deepEqual(priority.placements.find(p=>p.id==='part1').min,fixed.min);
  await copyPage.locator('#print-layout-copy-model').click();
  await copyPage.waitForFunction(()=>!document.getElementById('print-layout-dialog').open);
  assert.equal(await copyPage.locator('#body-count').textContent(),'4');
@@ -60,6 +71,18 @@ try{
  const copyFeature=copiedProject.features.at(-1);
  assert.equal(copyFeature.spec.copy,true);assert.equal(copyFeature.spec.orientations.part0,'x+');
  assert.equal(copyFeature.outputs.length,2);assert.deepEqual(copyFeature.remove,[]);
+ await copyPage.locator('#print-copy-actions summary').click();
+ await copyPage.locator('#print-copy-select').click();assert.equal(await copyPage.locator('#canvas-host').getAttribute('data-selected-body-count'),'2');
+ assert.equal(await copyPage.locator('#bodies [data-body-id=part0] .eye').getAttribute('aria-pressed'),'true');
+ const stlEvent=copyPage.waitForEvent('download');await copyPage.locator('#print-copy-stl').click();
+ const copyStl=await fs.readFile(await(await stlEvent).path());
+ for(let i=0;i<copyStl.readUInt32LE(80);i++)for(let j=0;j<3;j++){
+  const off=84+i*50+12+j*12;
+  assert.ok(Math.abs(copyStl.readFloatLE(off))<90&&Math.abs(copyStl.readFloatLE(off+4))<90);
+ }
+ const mfEvent=copyPage.waitForEvent('download');await copyPage.locator('#print-copy-3mf').click();
+ const model=strFromU8(unzipSync(await fs.readFile(await(await mfEvent).path()))['3D/3dmodel.model']);
+ assert.equal((model.match(/<item\s/g)||[]).length,2);assert.match(model,/印刷用コピー/);
  await copyPage.locator('#undo').click();assert.equal(await copyPage.locator('#body-count').textContent(),'2');
  await copyPage.locator('#redo').click();assert.equal(await copyPage.locator('#body-count').textContent(),'4');
  await copyContext.close();

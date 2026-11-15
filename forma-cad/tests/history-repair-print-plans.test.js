@@ -119,6 +119,13 @@ test('plate inspection respects print orientation and reports detached floating 
   assert.equal(report.floating.length,1);
   assert.equal(report.floating[0].bounds.min[2],10);
   assert.equal(report.overhang.length,1);
+  assert.deepEqual(report.topology,[]);
+  const open=combined.clone();open.setDrawRange(0,open.attributes.position.count-3);
+  open.setAttribute('position',new THREE.Float32BufferAttribute(positions.slice(0,-9),3));
+  try{
+   const scoped=await inspectPrintLayoutPlate(plate,new Map([['part',open]]),{bodyId:'part'});
+   assert.match(scoped.topology[0].message,/開いた辺 3/);
+  }finally{open.dispose();}
   const [rotated]=planPrintPlates(items,{orientations:{part:'x+'}}).plates;
   const sideways=await inspectPrintLayoutPlate(rotated,new Map([['part',combined]]));
   assert.equal(sideways.floating[0].bounds.min[2],4);

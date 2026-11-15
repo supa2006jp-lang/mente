@@ -81,7 +81,7 @@ let textEditingScene=null;
 import {createJoinPreviewView} from './join-preview-view.js';
 import {mirrorConnectedSketch,connectedSketchSources} from './connected-sketch-mirror.js';
 import {createSolidMirrorPreview} from './solid-mirror-preview.js';
-import {applyProjectDisplayRepairs} from './project-display-data.js';
+import {applyProjectDisplayRepairs,needsProgressiveProjectDisplay} from './project-display-data.js';
 import {extrusionJoinPlan,restrictExtrusionJoins} from './extrusion-join-plan.js';
 import {canInspectExtrusionJoins,selectExtrusionJoins,completeExtrusionJoinSelection} from './extrusion-join-selection.js';
 import {inspectExtrusionJoin} from './extrusion-join-view.js';
@@ -512,6 +512,17 @@ const extrusionBoundaryFeedback=createExtrusionBoundaryFeedback(scene,host);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
 const measurementNavigation=host.parentElement.querySelector('.navigation');
 const measurementPanel=$('measurement');
+const measurementHeader=document.createElement('div');
+measurementHeader.id='measurement-header';
+const measurementHandle=document.createElement('div');
+measurementHandle.id='measurement-drag-handle';
+const measurementLabel=document.createElement('span');
+measurementLabel.textContent='選択メニュー';
+measurementHandle.append(measurementLabel);
+const measurementReset=document.createElement('button');
+measurementReset.id='measurement-reset-position';
+measurementReset.type='button';
+measurementReset.textContent='自動配置に戻す';
 const measurementToggle=document.createElement('button');
 measurementToggle.id='measurement-toggle';
 measurementToggle.type='button';
@@ -526,8 +537,23 @@ measurementToggle.onclick=()=>{
  measurementToggle.textContent=collapsed?'▸ 選択メニューを開く':'▾ メニューを畳む';
  if(!collapsed)measurementPanel.scrollTop=measurementScroll;
 };
-measurementPanel.prepend(measurementToggle);
+measurementHeader.append(measurementHandle,measurementReset,measurementToggle);
+measurementPanel.prepend(measurementHeader);
 if(measurementNavigation){
+ const navigationToggle=document.createElement('button');
+ navigationToggle.id='viewport-navigation-toggle';
+ navigationToggle.type='button';
+ function setNavigationCollapsed(collapsed){
+  measurementNavigation.toggleAttribute('data-collapsed',collapsed);
+  const label=collapsed?'下部ツールバーを開く':'下部ツールバーを畳む';
+  navigationToggle.setAttribute('aria-expanded',String(!collapsed));
+  navigationToggle.setAttribute('aria-label',label);
+  navigationToggle.title=label;
+  navigationToggle.textContent=collapsed?'▴ 表示ツールを開く':'▾';
+ }
+ setNavigationCollapsed(false);
+ navigationToggle.onclick=()=>setNavigationCollapsed(!measurementNavigation.hasAttribute('data-collapsed'));
+ measurementNavigation.prepend(navigationToggle);
  const measurementLayout=new ResizeObserver(()=>{
   const bottom=parseFloat(getComputedStyle(measurementNavigation).bottom)||0;
   measurementPanel.style.setProperty('--measurement-nav-clearance',measurementNavigation.offsetHeight+bottom+8+'px');
@@ -728,7 +754,9 @@ function refreshDrawingCoordinates(revision){
  }).catch(error=>{if(features===revision)notify('作図用の精密な座標を取得できませんでした。'+error.message);});
  for(const [,mesh] of meshes)mesh.userData.drawingCoordinatesReady=ready;
 }
-function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();extrusionBoundaryFeedback.clear();extrusionResultCache.clear();fastExtrusionPreview.clear();sectionControl?.beforeModelChange();workspaceImprovements?.beforeModelChange();selectionPicker?.close();printQuality?.invalidate();bodyDisplay?.stopExploded(true);const materialVolumes=volumeColorRecords(colorFeatures),splitStyles=sectionBodyStyles(colorFeatures),appearance=bodyAppearances(colorFeatures),faceColors=faceColorsByBody(colorFeatures),qrDisplays=qrBodyDisplays(colorFeatures);fragmentSelection=null;clearBodySelection();clearFaceSelection();
+let projectDetailRevision=0;
+function renderBodies(next,{colorFeatures=features,progressive=false}={}){clearSketchSnapChoice();extrusionBoundaryFeedback.clear();extrusionResultCache.clear();fastExtrusionPreview.clear();sectionControl?.beforeModelChange();workspaceImprovements?.beforeModelChange();selectionPicker?.close();printQuality?.invalidate();bodyDisplay?.stopExploded(true);const materialVolumes=volumeColorRecords(colorFeatures),splitStyles=sectionBodyStyles(colorFeatures),appearance=bodyAppearances(colorFeatures),faceColors=faceColorsByBody(colorFeatures),qrDisplays=qrBodyDisplays(colorFeatures);fragmentSelection=null;clearBodySelection();clearFaceSelection();
+ const detailRevision=++projectDetailRevision,detailQueue=[];delete host.dataset.projectDetail;
  for(const child of [...modelGroup.children])disposeObject(child);meshes.clear();let triangles=0;
  for(const [id,brush] of next){
   const style=appearance.get(id),splitColor=splitStyles.get(id)?.color,baseColor=bodyMaterialOptions(style,{splitColor}).color;
@@ -736,15 +764,28 @@ function renderBodies(next,{colorFeatures=features}={}){clearSketchSnapChoice();
   const geometry=prepareBodyPaint(qrGeometry,faceColors.get(id)),qrColors=!!geometry.userData.qrColors;
   if(geometry!==brush.geometry)brush.geometry.dispose();
   if(qrGeometry!==geometry&&qrGeometry!==brush.geometry)qrGeometry.dispose();
-  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial(applyBodyMeshPaint(geometry,style,splitColor)));mesh.userData.bodyAppearance=style;mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;accelerateMeshPicking(mesh);mesh.visible=!hiddenBodies.has(id);
-  const edges=new THREE.LineSegments(bodyEdges(mesh.geometry,28),new THREE.LineBasicMaterial({color:0x33332f,transparent:true,opacity:.85}));edges.geometry.userData.circularEdges=featureCircularEdges(features,id,edges.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges.geometry);edges.visible=showEdges;mesh.add(edges);setVolumeDisplay(mesh,materialVolumes.get(id));syncBodyPaintRender(mesh);modelGroup.add(mesh);meshes.set(id,mesh);triangles+=(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3;
+  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial(applyBodyMeshPaint(geometry,style,splitColor)));mesh.userData.bodyAppearance=style;mesh.userData.qrColors=qrColors;mesh.userData.qrText=[...new Set((qrDisplays.get(id)||[]).map(d=>d.text))].join(' / ');mesh.userData.bodyId=id;mesh.visible=!hiddenBodies.has(id);
+  const addDetail=()=>{accelerateMeshPicking(mesh);const edges=new THREE.LineSegments(bodyEdges(mesh.geometry,28),new THREE.LineBasicMaterial({color:0x33332f,transparent:true,opacity:.85}));edges.geometry.userData.circularEdges=featureCircularEdges(features,id,edges.geometry);mesh.userData.references=solidReferencePoints(mesh.geometry,edges.geometry);edges.visible=showEdges;mesh.add(edges);setVolumeDisplay(mesh,materialVolumes.get(id));syncBodyPaintRender(mesh);};
+  if(progressive)detailQueue.push(addDetail);else addDetail();
+  modelGroup.add(mesh);meshes.set(id,mesh);triangles+=(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3;
  }
- refreshDrawingCoordinates(colorFeatures);
+ if(detailQueue.length){
+  let added=0;
+  const advance=()=>{
+   if(detailRevision!==projectDetailRevision)return;
+   const start=performance.now();
+   do{detailQueue[added++]();}while(added<detailQueue.length&&performance.now()-start<8);
+   if(added<detailQueue.length){host.dataset.projectDetail=added+'/'+detailQueue.length;requestAnimationFrame(advance);}
+   else{delete host.dataset.projectDetail;refreshDrawingCoordinates(colorFeatures);sectionControl?.refresh();}
+  };
+  host.dataset.projectDetail='0/'+detailQueue.length;
+  requestAnimationFrame(()=>requestAnimationFrame(advance));
+ }else refreshDrawingCoordinates(colorFeatures);
  host.dataset.qrColoredBodies=JSON.stringify([...meshes].filter(([,mesh])=>mesh.userData.qrColors).map(([id,mesh])=>({id,...mesh.geometry.userData.qrColors})));bodyDisplay?.rebuild();sectionControl?.refresh();imageReferences?.refresh();$('triangles').textContent=`${Math.round(triangles).toLocaleString()} 面`;
 }
 const showBodyColorDialog=createBodyColorDialog();
 const showAutoColorDialog=createAutoColorDialog();
-let color3mfBusy=false;
+let color3mfBusy=false,stlExportBusy=false;
 function displayBodyColor(mesh,appearance,splitColor){
  const {geometry,material}=mesh;
  const lid=mesh.userData.slideLidTransparent;
@@ -904,6 +945,7 @@ function facePaintReviewButton(id,count){
 }
 
 function renderTree(){const splitStyles=sectionBodyStyles(editingSectionSplitId?features.slice(0,features.findIndex(f=>f.id===editingSectionSplitId)):features);
+ updatePrintCopyActions();
  const facePaintEntries=faceColorsByBody(features);
  $('bodies').replaceChildren();$('features').replaceChildren();$('sketches').replaceChildren();renderSketchGroups();
  for(const child of [...sketchGroup.children])disposeObject(child);
@@ -951,7 +993,7 @@ function filletInspectionOpen(){return !!extrusionJoinInspection||!!document.que
 // stay blocked so inspecting the back of a model cannot change its history.
 document.addEventListener('click',e=>{if(!filletInspectionOpen()||e.target.closest('#body-fillet-dialog,#fillet-history-dialog,#extrusion-join-confirm,.view-cube,#canvas-host,#fit,#fit-selection,#redraw-view,#grid-toggle,#edges-toggle'))return;e.preventDefault();e.stopImmediatePropagation();},{capture:true});
 function selectFeature(id,edgeIndex=0,filletBodyId=null){formTool?.close();++legacyUIRevision;if(editingCircularId){$('tools-dialog').close();clearCircularEdit();}if(editingRevolve){$('tools-dialog').close();clearRevolveEdit();}patternCenter=null;editingShellId=editingPipeId=editingEncloseId=editingCoilJointId=null;printQuality?.close();bodyDisplay?.stopExploded();if(editingSectionSplitId)sectionControl.cancel();hideExtrusionNotice();$('center-pattern').hidden=true;clearEdgeSelection();selectedSurface=null;selectedFace=null;chosenRegion=null;pendingExtrude=false;finishSketch(false);selected=id;const f=features.find(f=>f.id===id);if(!f)return;const enteringSketch=f.kind==='sketch'&&(stage!=='sketch'||enteredSketchNumber!==f.groupNumber||editingSketchGroup!==f.groupId);workspaceImprovements?.history.open(id);if(f.kind==='referenceImage'){selected=null;stage='model';syncFields();imageReferences.open(f.id);return;}if(f.kind==='plane'){chooseConstructionPlane(f);return;}if(f.kind==='cadop'){stage='model';selected=null;syncFields();if(f.spec?.type==='form'){openFormTool(f);return;}if(isSectionSplit(f)){openSectionSplitEdit(f.id);return;}if(['storageTray','dovetail','motionSetup'].includes(f.spec?.type)){partWorkshop.open(f.spec.type,[],f);return;}if(f.spec?.type==='assemblyMate'){assemblyController.open(f);return;}if(f.spec?.type==='assemblyRelease'){assemblyController.open();return;}if(f.spec?.type==='printSupport'){printSupportController.open(f.spec.target,f);return;}if(['printLayout','printLayoutPlan'].includes(f.spec?.type)){printLayoutController.open(f);return;}if(f.spec?.type==='snapLid'){snapLidController.open(f);return;}if(f.spec?.type==='slideLid'){slideLidController.open(f);return;}if(f.spec?.type==='cylinderHinge'){cylinderHingeController.open(f);return;}if(f.spec?.type==='threadMate'){threadMateController.open(f.spec.target,f);return;}if(f.spec?.type==='ballJoint'){ballJointController.open(f);return;}if(f.spec?.type==='qrCode'){qrCodeController.open(f.spec,f);return;}if(f.spec?.type==='simpleBoss'){simpleBossController.open(f.spec,f);return;}if(f.spec?.type==='bossJoint'){bossJointController.open(f);return;}if(f.spec?.type==='honeycomb'){honeycombController.open(f.spec.target,f);return;}if(f.spec?.type==='svgWrap'){svgWrapController.open(null,f);return;}if(f.spec?.type==='fillet'){filletHistory.open(f.id,filletBodyId);return;}if(f.spec?.type==='shell'){openShellEdit(f.id);return;}if(f.spec?.type==='circular'){backgroundUI(()=>openCircularEdit(f.id));return;}if(f.spec?.type==='revolve'){backgroundUI(()=>openRevolveEdit(f.id));return;}if(f.spec?.type==='pipe'){backgroundUI(()=>openPipeEdit(f.id));return;}if(f.spec?.type==='enclose'){backgroundUI(()=>openEncloseEdit(f.id));return;}if(f.spec?.type==='coilJoint'){backgroundUI(()=>openCoilJointEdit(f.id));return;}notify(f.name+'：元に戻す、またはボディを選んで次の操作を行えます');return;}stage=f.kind==='sketch'?'sketch':'extrusion';if(f.kind==='sketch'){activeSketchGroup=f.groupId;editingSketchGroup=f.groupId;notifySketchEntered(f.groupNumber);}else enteredSketchNumber=null;fillForm(f);if(enteringSketch)viewSketchGroup(f);renderTree();showMeasurement(f,edgeIndex);}
-function setProject(next,{record=true,extruded=[],inheritConstraints=true,keepTextEditor=false,dimensions=namedDimensions}={}){validateSolidBoundaryLinks(next);guardSolidBoundaryEdits(next,features);partWorkshop?.close();if(inheritConstraints){next=inheritSketchConstraintSwitch(next,features);next=inheritBodyColors(next,features);}next=reconcileSketchConstraints(next,features);const constrained=solveSketchConstraints(next,{before:features}),constraintStart=earliestSketchChange(next,constrained);if(constraintStart<next.length&&next.slice(constraintStart+1).some(f=>['cadop','extrusion'].includes(f.kind)))throw Error('拘束により他の線も変わります。スケッチ拘束の画面から変更するか、スケッチを再編集してください');next=constrained;for(const f of next)if(f.kind==='sketch')validateFeature(f);if(!keepTextEditor)textSketchController?.close();sketchMoveTool?.cancel();closeSolidFaceMenu();next=hideExtrudedSketches(inheritSketchHistoryGroups(assignSketchGroups(next)),extruded);selectedRegions=[];patternCenter=null;if(next.length>150)throw Error('工程数は150までです');selectedFace=null;selectedBody=null;selectedSurface=null;clearEdgeSelection();if(!needsBackgroundSketchAnalysis(next))findRegions(next);const generated=rebuild(next);const added=next.at(-1);if(record&&next.length>features.length&&added?.operation==='cut'&&!added.cadResult){const before=meshes.get(added.target),after=generated.get(added.target);if(before&&after&&volume(before.geometry)-volume(after.geometry)<=Math.max(1e-6,volume(before.geometry)*1e-8))throw Error('切り取り形状がボディと重なっていません。対象ボディ・方向・深さを確認してください');}hideExtrusionNotice();if(record){past.push(historySnapshot());if(past.length>40)past.shift();future=[];}$('center-pattern').hidden=true;$('measurement').hidden=true;filletGridReference.clear();next=remapBodyFaceColors(next,generated,inheritConstraints?meshes:null);features=clone(next);namedDimensions=dimensions;renderBodies(generated);modified=true;renderTree();}
+function setProject(next,{record=true,extruded=[],inheritConstraints=true,keepTextEditor=false,dimensions=namedDimensions,progressive=false}={}){validateSolidBoundaryLinks(next);guardSolidBoundaryEdits(next,features);partWorkshop?.close();if(inheritConstraints){next=inheritSketchConstraintSwitch(next,features);next=inheritBodyColors(next,features);}next=reconcileSketchConstraints(next,features);const constrained=solveSketchConstraints(next,{before:features}),constraintStart=earliestSketchChange(next,constrained);if(constraintStart<next.length&&next.slice(constraintStart+1).some(f=>['cadop','extrusion'].includes(f.kind)))throw Error('拘束により他の線も変わります。スケッチ拘束の画面から変更するか、スケッチを再編集してください');next=constrained;for(const f of next)if(f.kind==='sketch')validateFeature(f);if(!keepTextEditor)textSketchController?.close();sketchMoveTool?.cancel();closeSolidFaceMenu();next=hideExtrudedSketches(inheritSketchHistoryGroups(assignSketchGroups(next)),extruded);selectedRegions=[];patternCenter=null;if(next.length>150)throw Error('工程数は150までです');selectedFace=null;selectedBody=null;selectedSurface=null;clearEdgeSelection();if(!needsBackgroundSketchAnalysis(next))findRegions(next);const generated=rebuild(next);const added=next.at(-1);if(record&&next.length>features.length&&added?.operation==='cut'&&!added.cadResult){const before=meshes.get(added.target),after=generated.get(added.target);if(before&&after&&volume(before.geometry)-volume(after.geometry)<=Math.max(1e-6,volume(before.geometry)*1e-8))throw Error('切り取り形状がボディと重なっていません。対象ボディ・方向・深さを確認してください');}hideExtrusionNotice();if(record){past.push(historySnapshot());if(past.length>40)past.shift();future=[];}$('center-pattern').hidden=true;$('measurement').hidden=true;filletGridReference.clear();next=remapBodyFaceColors(next,generated,inheritConstraints?meshes:null);features=clone(next);namedDimensions=dimensions;renderBodies(generated,{progressive});modified=true;renderTree();}
 function applyFeature(){assertExtrusionReady();resolveAutoCut();assertExtrusionReady();if(stage==='extrusion'&&!selected)return applyCADExtrusion();if(stage==='extrusion'&&!selected&&selectedRegions.length>1){const batch=regionExtrusions(current(),selectedRegions,$('viewport-combine').value==='join');for(const f of batch)validateFeature(f);setProject([...features,...batch],{extruded:batch});selectedRegions=[];chosenRegion=null;regionPayload=null;selected=null;stage='model';draftTouched=false;finishSketch(false);dropPreview();syncFields();renderTree();notifyExtrusion(batch[0],{count:batch.length});return {ids:batch.map(f=>f.id),bodies:meshes.size};}if(selected&&features.slice(features.findIndex(f=>f.id===selected)+1).some(f=>f.kind==='cadop'))throw Error('後続のCAD操作があります。元に戻してから寸法を変更してください');if(stage==='model'||pendingExtrude)throw Error('閉じた領域を選択してください');const f=current();validateFeature(f);if(features.length>=150&&!selected)throw Error('工程数は150までです。');const next=clone(features);let boundaryFill=null;if(selected)next[next.findIndex(x=>x.id===selected)]=f;else{next.push(f);if(f.kind==='sketch'){boundaryFill=solidBoundaryFill?.complete(f);if(boundaryFill)next.push(...boundaryFill.added);}}setProject(next,{extruded:f.kind==='extrusion'?[f]:[]});finishSketch(false);selected=f.id;draftTouched=false;renderTree();$('editor-title').textContent='工程を編集';$('apply').textContent='変更を適用';$('delete').hidden=false;dropPreview();syncFields();dropPreview();$('status').textContent=stage==='sketch'?'スケッチを確定しました。押し出しを選ぶと立体化できます。':'形状を更新しました';if(f.kind==='extrusion'){finishExtrusionCommand();notifyExtrusion(f);}else notify($('status').textContent);return {id:f.id,bodies:meshes.size,boundaryFill};}
 $('editor').addEventListener('submit',async e=>{e.preventDefault();try{if(selected)await applyHistoryEdit();else if(stage==='sketch')await completeSketch();else await applyFeature();}catch(err){$('error').textContent=appErrorMessage(err);}});
 async function applyHistoryEdit({isCurrent=()=>true}={}){
@@ -1550,12 +1592,30 @@ function attachProjectFile({name='design.forma.json',handle=null,libraryId=null,
  projectSavedAt=null;projectLoaded=loaded;projectSaveError=null;projectDownloaded=false;renderProjectSaveStatus();
 }
 function projectFileControls(busy){projectSaving=busy;for(const id of ['save','save-compressed','save-overwrite','load','load-images','clear'])$(id).disabled=busy;renderProjectSaveStatus();}
-const projectLoadPreview=createProjectLoadPreview({onChoose:()=>chooseProjectFile(),onOpen:async item=>{const current=()=>item.request===toolCancelRevision&&!projectFileTarget.busy&&(item.read===undefined||item.read===projectReadRevision);if(!current())return;notify('モデルを表示しています…');await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0)));if(!current())return;try{projectDrafts?.leave();cancelAllTools();activeSketchGroup=null;editingSketchGroup=null;sectionControl?.reset();setProject(item.next,{inheritConstraints:false,dimensions:item.dimensions});drawingController?.loadState(item.drawingData);dimensionMeasure?.loadState(item.measurementData);selected=null;chosenRegion=null;regionPayload=null;stage='model';pendingExtrude=false;hiddenBodies.clear();for(const m of meshes.values())m.visible=true;dropPreview();finishSketch(false);updateTargets();modified=!!item.displayRepair?.count;host.dataset.projectDisplayRepair=JSON.stringify(item.displayRepair||{count:0,warnings:[]});attachProjectFile({name:item.file.name,handle:item.handle,libraryId:item.libraryId,loaded:true,compressed:item.compressed});renderTree();$('delete').hidden=true;$('apply').textContent='作成';$('editor-title').textContent='新しい工程';fit();if(item.restoreSupport&&item.supportFailure){printSupportController.restoreFailure(item.supportFailure,{fromFile:true});notify('モデルと失敗時のサポート設定を読み込みました。計算は自動実行しません');}else notify(item.displayRepair?.count?'作業データを読み込み、'+item.displayRepair.count+'ボディの面の表示を修復しました（寸法・履歴は保持）':item.displayRepair?.warnings?.length?'作業データを読み込みました。一部の表示確認を完了できませんでした':'作業データを読み込みました');}catch(e){notify('読み込みできません: '+e.message);}}});
+const projectLoadPreview=createProjectLoadPreview({onChoose:()=>chooseProjectFile(),onOpen:async item=>{const current=()=>item.request===toolCancelRevision&&!projectFileTarget.busy&&(item.read===undefined||item.read===projectReadRevision);if(!current())return;notify('モデルを表示しています…');await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0)));if(!current())return;try{projectDrafts?.leave();cancelAllTools();activeSketchGroup=null;editingSketchGroup=null;sectionControl?.reset();setProject(item.next,{inheritConstraints:false,dimensions:item.dimensions,progressive:item.progressive});drawingController?.loadState(item.drawingData);dimensionMeasure?.loadState(item.measurementData);selected=null;chosenRegion=null;regionPayload=null;stage='model';pendingExtrude=false;hiddenBodies.clear();for(const m of meshes.values())m.visible=true;dropPreview();finishSketch(false);updateTargets();modified=!!item.displayRepair?.count;host.dataset.projectDisplayRepair=JSON.stringify(item.displayRepair||{count:0,warnings:[]});attachProjectFile({name:item.file.name,handle:item.handle,libraryId:item.libraryId,loaded:true,compressed:item.compressed});renderTree();$('delete').hidden=true;$('apply').textContent='作成';$('editor-title').textContent='新しい工程';fit();if(item.progressive)verifyLoadedProjectDisplay(features);if(item.restoreSupport&&item.supportFailure){printSupportController.restoreFailure(item.supportFailure,{fromFile:true});notify('モデルと失敗時のサポート設定を読み込みました。計算は自動実行しません');}else notify(item.displayRepair?.count?'作業データを読み込み、'+item.displayRepair.count+'ボディの面の表示を修復しました（寸法・履歴は保持）':item.displayRepair?.warnings?.length?'作業データを読み込みました。一部の表示確認を完了できませんでした':'作業データを読み込みました');}catch(e){notify('読み込みできません: '+e.message);}}});
+const projectDisplayVerifier=new KernelClient();
+async function verifyLoadedProjectDisplay(original){
+ projectDisplayVerifier.reset();
+ const documentRevision=projectDocumentRevision;
+ try{
+  const repair=await projectDisplayVerifier.run(original,{type:'repairProjectDisplay'},{foreground:true});
+  if(documentRevision!==projectDocumentRevision||features!==original)return;
+  host.dataset.projectDisplayRepair=JSON.stringify({count:repair.records.length,warnings:repair.warnings});
+  if(!repair.records.length)return;
+  // Wait for active editing and selection to finish before replacing display meshes.
+  while(features===original&&documentRevision===projectDocumentRevision&&(stage!=='model'||selectionBodyIds().length||document.querySelector('dialog[open]')||moveTool?.active||projectSaving||$('section-panel')?.hidden===false))await new Promise(resolve=>setTimeout(resolve,250));
+  if(documentRevision!==projectDocumentRevision||features!==original)return;
+  const next=applyProjectDisplayRepairs(original,repair.records),generated=rebuild(next);
+  features=next;modified=true;renderBodies(generated,{progressive:true});renderTree();
+  notify(repair.records.length+' ボディの面の表示を修復しました');
+ }catch(error){if(error.code!=='cancelled'&&features===original&&documentRevision===projectDocumentRevision)notify('保存された面の表示確認を完了できませんでした。');}
+}
 async function readProjectDocument(text){
  const {document:documentData,compressed}=await decodeProjectDocument(text),validated=validateProject(documentData);let supportFailure=null,supportFailureWarning='';
  try{supportFailure=printSupportFailureFromDocument(documentData);}catch(error){supportFailureWarning=error.message;}
- const repair=validated.some(f=>(f.cadResult?.outputs||f.outputs||[]).some(o=>o.brep))?await kernelClient.run(validated,{type:'repairProjectDisplay'}):{records:[],warnings:[]};
- const next=importBodyAppearance(applyProjectDisplayRepairs(validated,repair.records),documentData.modelInfo);await legacyRebuild.prepare(next);return {next,dimensions:readNamedDimensions(documentData.namedDimensions),drawingData:readDrawingState(documentData.drawing),measurementData:readMeasurementState(documentData.measurements),preview:repair.records.length?null:documentData.preview,compressed,displayRepair:{count:repair.records.length,warnings:repair.warnings},supportFailure,supportFailureWarning};
+ const progressive=needsProgressiveProjectDisplay(validated);
+ const repair=!progressive&&validated.some(f=>(f.cadResult?.outputs||f.outputs||[]).some(o=>o.brep))?await kernelClient.run(validated,{type:'repairProjectDisplay'}):{records:[],warnings:[]};
+ const next=importBodyAppearance(applyProjectDisplayRepairs(validated,repair.records),documentData.modelInfo);await legacyRebuild.prepare(next);return {next,dimensions:readNamedDimensions(documentData.namedDimensions),drawingData:readDrawingState(documentData.drawing),measurementData:readMeasurementState(documentData.measurements),preview:repair.records.length?null:documentData.preview,compressed,progressive,displayRepair:{count:repair.records.length,warnings:repair.warnings},supportFailure,supportFailureWarning};
 }
 const projectLibrary=createProjectLibrary({parse:readProjectDocument,onChoose:item=>projectLoadPreview.show(item),getRevision:()=>toolCancelRevision,getModified:()=>modified});
 $('load-images').onclick=()=>{projectLoadPreview.cancel();projectLibrary.open();};
@@ -1624,14 +1684,14 @@ $('load').onclick=chooseProjectFile;
 $('file').onchange=async()=>{legacyRebuild.cancel();const file=$('file').files[0];if(!file||projectFileTarget.busy)return;const request=toolCancelRevision,read=++projectReadRevision;projectLoadPreview.cancel();try{await previewProjectFile(file,null,request,read);}finally{if(read===projectReadRevision)$('file').value='';}};
 stlInspection=createStlInspectionView({scene,host,meshes,getFeatures:()=>features,getBodyName:bodyDisplayName,onTrace:options=>workspaceImprovements?.historyTrace.open(options)});
 supportExportChoice=createPrintSupportExportChoice({getFeatures:()=>features,getBodyIds:()=>[...meshes].filter(([,mesh])=>mesh.visible).map(([id])=>id),bodyName:bodyDisplayName});
-$('export-color-3mf').onclick=async()=>{
+async function exportColor3mf(ids){
  if(color3mfBusy||!canSwitchSketchNumber()||stage!=='model')return;
  const original=features,records=currentBodyMeshRecords(original),button=$('export-color-3mf');
  const fileName=projectFileName.replace(/(?:\.forma)?\.json$|\.forma$/i,'');
  color3mfBusy=true;button.disabled=true;
  try{
   const parts=[];
-  for(const [id,mesh] of meshes)if(mesh.visible){const record=records.get(id),volumes=volumeParts(record,id),name=bodyDisplayName(id);
+  for(const [id,mesh] of meshes)if(ids?ids.has(id):mesh.visible){const record=records.get(id),volumes=volumeParts(record,id),name=bodyDisplayName(id);
    if(volumes?.length)for(const [i,part] of volumes.entries())parts.push({...part,id:id+'-material-'+i,name:name+' · '+colorChoiceLabel(part.color),group:{id,name}});
    else parts.push({...colorMeshSnapshot(mesh,name),id,brep:record?.output?.brep});
   }
@@ -1643,12 +1703,26 @@ $('export-color-3mf').onclick=async()=>{
   };
   const {data,colorCount}=await createColor3mf(parts,{isCurrent,remesh});
   if(!isCurrent())return;
-  download(data,fileName+'.3mf','model/3mf');
+  download(data,fileName+(ids?'-print-copies':'')+'.3mf','model/3mf');
   notify('色付き3MFを出力しました。'+colorCount+'色を含みます。'+(parts.some(part=>part.group)?' 色ごとの立体は別パーツです。':''));
  }catch(error){notify(error.message);}
  finally{color3mfBusy=false;button.disabled=![...meshes.values()].some(mesh=>mesh.visible);}
-};
-$('export').onclick=async()=>{if(!meshes.size||$('export').disabled)return;partWorkshop?.close();$('export').disabled=true;const original=features;let token=null;try{const choice=await supportExportChoice.choose();if(choice.kind==='cancel'||features!==original)return;if(choice.kind==='support'){printSupportController.openForExport(choice.feature);return;}
+}
+$('export-color-3mf').onclick=()=>exportColor3mf();
+async function exportCheckedStl(original,ids){
+ let token=null;
+ const current=()=>features===original&&(token===null||stlInspection.current(token));
+ try{
+  const bodies=stlMeshSnapshot(original,meshes,ids);
+  const message=await saveStl(()=>{
+   if(!current())throw Error('モデルが変更されたためSTL出力を中止しました');
+   token=stlInspection.begin(original);
+   return createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:current,onProgress:p=>stlInspection.progress(token,p),onInspection:report=>stlInspection.result(token,report)});
+  },download,{isCurrent:current,...(ids?{suggestedName:projectFileName.replace(/(?:\.forma)?\.json$|\.forma$/i,'')+'-print-copies.stl'}:{})});
+  if(message)notify(message+'（出力メッシュ検査済み）');
+ }catch(error){if(token!==null)stlInspection.error(token,error);throw error;}
+}
+$('export').onclick=async()=>{if(!meshes.size||$('export').disabled||stlExportBusy)return;stlExportBusy=true;partWorkshop?.close();$('export').disabled=true;const original=features;try{const choice=await supportExportChoice.choose();if(choice.kind==='cancel'||features!==original)return;if(choice.kind==='support'){printSupportController.openForExport(choice.feature);return;}
  if(choice.kind==='saved-support'){
   try{
    const current=()=>features===original;
@@ -1657,7 +1731,45 @@ $('export').onclick=async()=>{if(!meshes.size||$('export').disabled)return;partW
   }catch(error){if(error.code!=='cancelled')notify('一括3MFを保存できませんでした。'+error.message);}
   return;
  }
- const bodies=stlMeshSnapshot(original,meshes),message=await saveStl(()=>{if(features!==original)throw Error('モデルが変更されたためSTL出力を中止しました');token=stlInspection.begin(original);return createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>stlInspection.current(token),onProgress:p=>stlInspection.progress(token,p),onInspection:report=>stlInspection.result(token,report)});},download,{isCurrent:()=>features===original&&(token===null||stlInspection.current(token))});if(message)notify(message+'（出力メッシュ検査済み）');}catch(error){if(token!==null)stlInspection.error(token,error);if(error.code!=='cancelled')notify('STL保存に失敗しました：'+error.message);}finally{$('export').disabled=false;}};
+ await exportCheckedStl(original);}catch(error){if(error.code!=='cancelled')notify('STL保存に失敗しました：'+error.message);}finally{stlExportBusy=false;$('export').disabled=!meshes.size;}};
+const printCopyActions=document.createElement('details');
+printCopyActions.id='print-copy-actions';printCopyActions.hidden=true;
+printCopyActions.innerHTML='<summary>印刷用コピー</summary><select id="print-copy-group" aria-label="印刷用コピーの作成工程"></select><div class="body-display-tools"><button type="button" id="print-copy-select">まとめて選択</button><button type="button" id="print-copy-stl">コピーをSTL出力</button><button type="button" id="print-copy-3mf">コピーを3MF出力</button></div>';
+$('bodies').before(printCopyActions);
+let printCopyGroups=new Map(),printCopyExportBusy=false;
+function updatePrintCopyActions(){
+ printCopyGroups=new Map(features.flatMap((feature,index)=>{
+  if(feature.spec?.type!=='printLayout'||feature.spec.copy!==true)return [];
+  const ids=feature.outputs.filter(o=>meshes.has(o.id)).map(o=>o.id);
+  return ids.length?[[feature.id,{ids,label:(index+1)+'工程目（'+ids.length+'部品）'}]]:[];
+ }));
+ const select=$('print-copy-group'),prior=select.value;
+ select.replaceChildren(...[...printCopyGroups].reverse().map(([id,group])=>new Option(group.label,id)));
+ if(printCopyGroups.has(prior))select.value=prior;
+ select.hidden=printCopyGroups.size<2;
+ printCopyActions.hidden=!printCopyGroups.size;
+}
+function printCopyTargets(){
+ if(printCopyExportBusy||stage!=='model'||!canSwitchSketchNumber()||document.querySelector('dialog[open]'))return null;
+ return printCopyGroups.get($('print-copy-group').value)?.ids;
+}
+$('print-copy-select').onclick=()=>{
+ const ids=printCopyTargets();if(!ids)return;
+ bodyDisplay?.restoreIsolation(true);
+ for(const id of ids){hiddenBodies.delete(id);meshes.get(id).visible=true;}
+ commitBodySelection(new Set(ids));sectionControl?.refresh();renderTree();
+};
+for(const format of ['stl','3mf'])$('print-copy-'+format).onclick=async()=>{
+ const ids=printCopyTargets();if(!ids||stlExportBusy||color3mfBusy)return;
+ printCopyExportBusy=true;
+ if(format==='stl')stlExportBusy=true;
+ $('print-copy-stl').disabled=$('print-copy-3mf').disabled=true;
+ try{
+  if(format==='stl')await exportCheckedStl(features,new Set(ids));
+  else await exportColor3mf(new Set(ids));
+ }catch(error){if(error.code!=='cancelled')notify('印刷用コピーを保存できませんでした。'+error.message);}
+ finally{if(format==='stl')stlExportBusy=false;printCopyExportBusy=false;$('print-copy-stl').disabled=$('print-copy-3mf').disabled=false;}
+};
 async function checkedGeneratedStl(outputs,{isCurrent=()=>true,onProgress}={}){
  if(!isCurrent())throw Error('設定が変更されたためSTL出力を中止しました');const original=features,token=stlInspection.begin(original),bodies=outputs.map(({id,brep,vertices,triangles})=>({id,brep,vertices,triangles}));
  try{return await createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:()=>isCurrent()&&stlInspection.current(token),onProgress:p=>{if(!isCurrent())stlInspection.close();else{stlInspection.progress(token,p);onProgress?.(p);}},onInspection:report=>stlInspection.result(token,report)});}catch(error){stlInspection.error(token,error);throw error;}
@@ -3113,6 +3225,8 @@ $('viewport-combine').onchange=()=>{updatePreview();updateExtrusionOverlay();};
 $('shell-tool').onclick=()=>openDirectCommand('shell');
 
 import {draggablePanel,cancelPanelDrags} from './draggable-panel.js';
+const measurementDrag=draggablePanel(measurementPanel,'選択メニュー',{handle:measurementHandle,resizeTarget:host.parentElement});
+measurementReset.onclick=()=>measurementDrag.reset();
 for(const [id,title] of [['extrude-distance','押し出し'],['hole-panel','穴あけ'],['line-dimensions','線分'],['circle-dimensions','円'],['move-panel','移動／回転']])draggablePanel($(id),title,{topMargin:()=>id==='extrude-distance'?extrusionWheel.element.offsetHeight+16:0,resetOnHide:id==='extrude-distance'});
 
 import {installCombinePreview} from './combine-preview.js';
@@ -4103,12 +4217,12 @@ function scheduleMachiningPreview(event){
  if(recoveredMachining?.paused){machiningPhase.textContent='入力条件を復元しました。変更するとプレビューします。';return;}
  if(coilSplitDrag||coilStopFaceDrag)return; machiningTimer=setTimeout(computeMachiningPreview,350);
 }
-async function computeMachiningPreview(){
+async function computeMachiningPreview({manual=false}={}){
  if(coilSplitDrag||coilStopFaceDrag)return;
  if(!$('tools-dialog').open||$('cad-apply').disabled)return;
  const revision=machiningRevision,original=features;machiningBusy=true;
  try{
-  const spec=machiningSpec();$('cad-error').textContent=spec.type==='coilJoint'?'コイル接合の形状を計算中… 開閉の干渉検査は実行時に行います':'加工後のプレビューを計算中…';const editingId=editingCircularId||editingShellId||editingPipeId||editingEncloseId||editingCoilJointId,input=editingId?features.slice(0,features.findIndex(f=>f.id===editingId)):features;host.dataset.machiningPreviewPhase='calculating';machiningPhase.textContent='簡易表示を維持して精密形状を計算中…';const result=await machiningPreviewClient.run(input,{type:'preview',operation:spec},{document:original,onProgress:progress=>{if(spec.type==='coilJoint'&&revision===machiningRevision&&features===original&&!$('cad-apply').disabled)coilJointProgress(progress);}});
+  const spec=machiningSpec();$('cad-error').textContent=spec.type==='coilJoint'?'コイル接合の形状を計算中… 開閉の干渉検査は実行時に行います':'加工後のプレビューを計算中…';const editingId=editingCircularId||editingShellId||editingPipeId||editingEncloseId||editingCoilJointId,input=editingId?features.slice(0,features.findIndex(f=>f.id===editingId)):features;host.dataset.machiningPreviewPhase='calculating';machiningPhase.textContent='簡易表示を維持して精密形状を計算中…';const result=await machiningPreviewClient.run(input,{type:'preview',operation:spec},{document:original,retry:manual,foreground:manual,onProgress:progress=>{if(spec.type==='coilJoint'&&revision===machiningRevision&&features===original&&!$('cad-apply').disabled)coilJointProgress(progress);}});
   if(revision!==machiningRevision||features!==original||!$('tools-dialog').open||$('cad-apply').disabled)return;
   displayMachiningPreview(result,spec,original,editingId);
  }catch(e){if(revision===machiningRevision){host.dataset.machiningPreviewPhase=e.code==='preview-manual'?'draft':['timeout','preview-timeout-cached'].includes(e.code)?'paused':'error';machiningPhase.textContent=e.code==='preview-manual'?e.message:e.code==='preview-timeout-cached'?'同じ設定の自動再計算を停止しています。':'精密プレビューを中断しました。';$('cad-error').textContent=e.code==='preview-manual'?'':appErrorMessage(e);if($('cad-command').value==='circular'&&$('pattern-preview-status'))$('pattern-preview-status').textContent='プレビューを作成できません。下のメッセージを確認してください。';if($('cad-command').value==='coilJoint'){updateCoilLatchEffective(false);updateCoilFilletEffectiveUI(null,'プレビューを計算できません');}}}
@@ -4391,7 +4505,7 @@ $('move-tool').addEventListener('click',()=>{bodyDisplay?.stopExploded();if(edit
 
 // Cancel transient tools in one place so capture listeners cannot leave another selection active.
 function cancelAllTools(){formTool?.close();perpendicularSketchTool?.close(false);solidBoundaryFill?.close();sketchConnectionsView?.closeRepair();partWorkshop?.close();honeycombController?.close();dimensionMeasure?.close();supportExportChoice?.cancel();printSupportController?.close();assemblyController?.close();stlInspection?.close();stlImport?.close();selectionLibrary?.cancel();textSketchController?.close();sketchMoveTool?.cancel();cancelExtrusionJoinConfirmation();faceExtrudeShortcut?.cancel();historyOrganizer?.close();workspaceImprovements?.beforeModelChange();qrCodeController?.close();simpleBossController?.close();printDimensionsView?.close();selectionPicker?.close();pointDistance.reset();bodyDisplay?.reset();
- ++toolCancelRevision;middleConfirm.cancel();projectLoadPreview.cancel();projectLibrary.cancel();kernelClient.reset();
+ ++toolCancelRevision;middleConfirm.cancel();projectLoadPreview.cancel();projectLibrary.cancel();kernelClient.reset();projectDisplayVerifier.reset();
  boxSelection?.cancel();cancelPanelDrags();cancelDialogDrags();moveTool?.cancel(true);imageReferences?.cancel();sectionControl?.cancel();drawingController?.cancel();
  if(extrusionDrag)endExtrusionDrag({pointerId:extrusionDrag.id});if(taperDrag)endTaperDrag({pointerId:taperDrag.id});
  if(shiftOrbit){const id=shiftOrbit.id;shiftOrbit=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}
@@ -4710,7 +4824,18 @@ historyReferenceRepair=installHistoryReferenceRepair({
  onStart(){cancelAllTools();finishSketch(false);selected=null;stage='model';dropPreview();syncFields();},
  onApply(next,original,dimensions){if(features!==original)throw Error('モデルが変更されました');setProject(next,{dimensions:dimensions??namedDimensions});selected=null;stage='model';syncFields();}
 });
-const printLayoutController=printLayoutDialog({scene,host,canvas:renderer.domElement,camera,meshes,kernel:kernelClient,getFeatures:()=>features,bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,exportPlates:exportLayoutPlates,apply:async(spec,result,editing,original,isCurrent)=>{
+const printLayoutController=printLayoutDialog({scene,host,canvas:renderer.domElement,camera,meshes,kernel:kernelClient,getFeatures:()=>features,bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,exportPlates:exportLayoutPlates,
+ openSupport(bodyId){
+  $('print-layout-dialog').addEventListener('close',()=>{
+   const before=features,dialog=$('print-support-dialog');
+   printSupportController.open(bodyId);
+   if(!dialog.open)return;
+   dialog.addEventListener('close',()=>{
+    const added=features!==before&&features.at(-1)?.spec?.type==='printSupport';
+    if(added)workspaceImprovements.preflight.open({bodyId});
+   },{once:true});
+  },{once:true});
+ },apply:async(spec,result,editing,original,isCurrent)=>{
  if(features!==original||!isCurrent())throw Error('モデルが変更されました');
  if(spec.type==='printLayoutPlan'){
   const entry={kind:'cadop',id:spec.id,name:'印刷配置プラン',spec,...result};
@@ -4925,6 +5050,18 @@ failureRecovery=installFailureRecovery({getFeatures:()=>features,getNamedDimensi
 faceSelectionFeedback=createFaceSelectionFeedback({scene,host,getMeshes:()=>meshes,getFeatures:()=>features,getSelection:()=>selectedFaces,canUse:()=>stage==='model'&&!sketch&&!pendingExtrude&&!bodyDisplay?.exploded&&!document.querySelector('dialog[open]'),measurement:$('measurement')});
 workspaceImprovements=installWorkspaceImprovements({
  getTrialContext:machiningTrialContext,
+ getRetryContext(type){
+  const model=features;
+  if(type==='extrusion'&&stage==='extrusion'&&!pendingExtrude){
+   const input=$('viewport-depth');
+   return {current:()=>features===model&&stage==='extrusion'&&!pendingExtrude&&!extrusionBusy,
+    focus:()=>{(input.disabled?$('viewport-combine'):input).focus();},preview:()=>{updatePreview(true);updateExtrusionOverlay();}};
+  }
+  if(!['shell','join'].includes(type)||!$('tools-dialog').open||$('cad-command').value!==type)return null;
+  return {current:()=>features===model&&$('tools-dialog').open&&$('cad-command').value===type&&!$('cad-apply').disabled,
+   focus:()=>$(type==='shell'?'cad-thickness':'cad-other')?.focus(),
+   preview:()=>{if(recoveredMachining)recoveredMachining.paused=false;clearTimeout(machiningTimer);computeMachiningPreview({manual:true});}};
+ },
  scene,host,meshes,canvas:renderer.domElement,getFeatures:()=>features,getBodyName:bodyDisplayName,
  applyHealthOperation:(original,spec,result,name)=>{if(features!==original)throw Error('モデルが変更されました。修正候補を作り直してください');setProject([...features,{kind:'cadop',id:spec.id,name,spec,...result}]);stage='model';selected=null;selectedFace=null;clearBodySelection();syncFields();},
  applyModelOperation:(original,spec,result)=>{if(features!==original)throw Error('モデルが変更されました。プレビューを作り直してください');setProject([...features,{kind:'cadop',id:spec.id,name:'サイズ変更 '+fmt(spec.factor*100)+'%'+(spec.keepWall?'・壁厚 '+fmt(spec.wall)+' mm':''),spec,...result}]);stage='model';selected=null;syncFields();$('fit').click();},

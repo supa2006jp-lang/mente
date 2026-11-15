@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {analyzePrintPreflight} from './print-preflight.js';
 import {analyzePrintQuality} from './print-quality.js';
+import {analyzeCoilPrint} from './coil-print-check.js';
 import {cadPosition} from './cad-coordinates.js';
 import {draggablePanel} from './draggable-panel.js';
 export function createPrintPreflightView({scene,host,meshes,getFeatures,getBodyName,canOpen,onOpen,onChoose,openDimensions,openThin,inspectComponents,openComponents,notify}){
@@ -9,7 +10,7 @@ export function createPrintPreflightView({scene,host,meshes,getFeatures,getBodyN
  host.parentElement.append(panel);draggablePanel(panel,'印刷前チェック');
  if(openComponents){const connected=document.createElement('button');connected.type='button';connected.id='preflight-components';connected.textContent='離れた部品を色分け';connected.onclick=()=>{close();openComponents();};panel.querySelector('.workspace-actions').append(connected);}
  const button=document.createElement('button');button.type='button';button.id='print-preflight-tool';button.textContent='✓ 印刷前チェック';button.setAttribute('aria-pressed','false');document.querySelector('.navigation').append(button);
- const q=name=>panel.querySelector('#preflight-'+name);let revision=0,original=null,overlay=null,busy=false,visibility='';
+ const q=name=>panel.querySelector('#preflight-'+name);let revision=0,original=null,overlay=null,busy=false,visibility='',focusBody=null;
  function clear(){if(overlay){overlay.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});overlay.removeFromParent();overlay=null;}delete host.dataset.printPreflight;}
  function stop(){revision++;busy=false;q('cancel').hidden=true;q('check').disabled=false;}
  function close(){stop();clear();panel.hidden=true;button.setAttribute('aria-pressed','false');}
@@ -26,21 +27,26 @@ export function createPrintPreflightView({scene,host,meshes,getFeatures,getBodyN
   try{
    const outputs=[];for(const [id,mesh] of meshes){if(!mesh.visible)continue;mesh.updateMatrixWorld(true);const p=cadPosition(mesh.geometry),vertices=[],point=new THREE.Vector3();for(let i=0;i<p.count;i++)vertices.push(...point.fromBufferAttribute(p,i).applyMatrix4(mesh.matrixWorld).toArray());outputs.push({id,vertices,triangles:mesh.geometry.index?Array.from(mesh.geometry.index.array):Array.from({length:p.count},(_,i)=>i)});}
    if(!outputs.length)throw Error('表示中のボディがありません');
-   const capacity=['X','Y','Z'].map(axis=>q('limit-'+axis).value.trim()?Number(q('limit-'+axis).value):NaN),result=await analyzePrintPreflight(outputs,{capacity,shouldCancel:()=>!current(),onProgress:p=>{if(current())q('status').textContent=p.stage;}});
+   const scope=focusBody&&outputs.some(o=>o.id===focusBody)?focusBody:null,targets=scope?outputs.filter(o=>o.id===scope):outputs;
+   const capacity=['X','Y','Z'].map(axis=>q('limit-'+axis).value.trim()?Number(q('limit-'+axis).value):NaN),result=await analyzePrintPreflight(outputs,{capacity,focusBody:scope,shouldCancel:()=>!current(),onProgress:p=>{if(current())q('status').textContent=p.stage;}});
    if(inspectComponents){
-    try{const native=await inspectComponents(original,outputs.map(o=>o.id));if(!current())return;const checked=new Set(native.rows.map(r=>r.id));result.issues=result.issues.filter(issue=>issue.type!=='components'||!checked.has(issue.bodyId));for(const row of native.rows)if(row.count>1)result.issues.push({bodyId:row.id,type:'components',native:true,severity:'warning',message:'CAD形状内に '+row.count+' 個の離れたソリッドがあります'});}
+    try{const native=await inspectComponents(original,targets.map(o=>o.id));if(!current())return;const checked=new Set(native.rows.map(r=>r.id));result.issues=result.issues.filter(issue=>issue.type!=='components'||!checked.has(issue.bodyId));for(const row of native.rows)if(row.count>1)result.issues.push({bodyId:row.id,type:'components',native:true,severity:'warning',message:'CAD形状内に '+row.count+' 個の離れたソリッドがあります'});}
     catch(error){if(!current())return;/* Mesh-only imports retain their existing surface checks. */}
    }
-   if(q('thin').checked){q('status').textContent='薄い壁と模様を確認しています…';const quality=await analyzePrintQuality(outputs,{nozzle:Number(q('nozzle').value),shouldCancel:()=>!current()});for(const body of quality.outputs){if(body.red.length||body.yellow.length)result.issues.push({bodyId:body.id,type:'thin',severity:body.red.length?'error':'warning',message:'ノズル径未満 '+body.red.length/9+' 面 / ノズル径の2倍未満 '+body.yellow.length/9+' 面',surface:body.red.length?body.red:body.yellow});}}
+   if(q('thin').checked){q('status').textContent='薄い壁と模様を確認しています…';const quality=await analyzePrintQuality(targets,{nozzle:Number(q('nozzle').value),shouldCancel:()=>!current()});for(const body of quality.outputs){if(body.red.length||body.yellow.length)result.issues.push({bodyId:body.id,type:'thin',severity:body.red.length?'error':'warning',message:'ノズル径未満 '+body.red.length/9+' 面 / ノズル径の2倍未満 '+body.yellow.length/9+' 面',surface:body.red.length?body.red:body.yellow});}}
+   if(scope){
+    const overhang=await analyzeCoilPrint(outputs,{checkThickness:false,overhangAngle:45,focusBody:scope,shouldCancel:()=>!current()});
+    for(const {id,unsupported} of overhang.outputs)if(unsupported.length)result.issues.push({bodyId:id,type:'overhang',severity:'warning',message:'45°を超える下向きの面 '+unsupported.length/9+' 面',surface:unsupported});
+   }
    if(!current())return;
-   q('size').textContent='全体 '+result.dimensions.size.map(v=>Number(v.toFixed(2))).join(' × ')+' mm ／ '+(result.dimensions.fits?'造形範囲内':'全体配置が造形範囲を超えます');
+   q('size').textContent=(scope?getBodyName(scope):'全体')+' '+result.dimensions.size.map(v=>Number(v.toFixed(2))).join(' × ')+' mm ／ '+(result.dimensions.fits?'造形範囲内':'造形範囲を超えます');
    q('status').textContent=result.bodies+' ボディを確認：'+result.issues.length+' 件の確認箇所';
    if(!result.issues.length)q('issues').textContent='今回のチェック項目で問題は見つかりませんでした。';
    for(const issue of result.issues){const row=document.createElement('button');row.type='button';row.dataset.bodyId=issue.bodyId;row.dataset.issueType=issue.type;row.style.cssText='display:block;width:100%;white-space:normal;text-align:left;margin:7px 0;padding:9px;border-color:'+(issue.severity==='error'?'#d84336':'#b88520');row.textContent=getBodyName(issue.bodyId)+'：'+issue.message+(issue.native?'（選択して色分け）':'（選択して拡大）');row.onclick=()=>{if(issue.native&&openComponents){close();openComponents();}else mark(issue);};q('issues').append(row);}
   }catch(error){if(current()&&error.name!=='AbortError')q('status').textContent=error.message;}
   finally{if(request===revision){busy=false;q('check').disabled=false;q('cancel').hidden=true;}}
  }
- function open(){if(!canOpen()){notify('編集中の操作を終了してから印刷前チェックを開いてください');return;}onOpen?.();panel.hidden=false;button.setAttribute('aria-pressed','true');check();}
+ function open({bodyId=null}={}){if(!canOpen()){notify('編集中の操作を終了してから印刷前チェックを開いてください');return;}focusBody=bodyId;onOpen?.();panel.hidden=false;button.setAttribute('aria-pressed','true');check();}
  button.onclick=()=>panel.hidden?open():close();q('check').onclick=check;q('close').onclick=close;q('cancel').onclick=()=>{stop();q('status').textContent='確認を中止しました。モデルは変更していません。';};q('dimensions').onclick=()=>{close();openDimensions();};q('thickness').onclick=()=>{close();openThin();};
  for(const input of panel.querySelectorAll('input'))input.addEventListener('input',()=>{stop();clear();q('issues').replaceChildren();q('size').textContent='';q('status').textContent='設定が変わりました。「チェックする」で再確認してください。';});
  return {open,close,sync(){if(!panel.hidden&&(original!==getFeatures()||visibility!==[...meshes].filter(([,mesh])=>mesh.visible).map(([id])=>id).join('|')||!canOpen()))close();}};

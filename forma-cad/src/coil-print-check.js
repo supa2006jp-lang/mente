@@ -15,12 +15,13 @@ function triangleVertices(mesh,t,target){const {vertices,triangles}=mesh.output;
 // World-space mesh warnings in the supplied print orientation. Overhang angle
 // is measured from vertical; horizontal undersides are 90 degrees. This local
 // surface check is not a slicer or proof of physically disconnected components.
-export async function analyzeCoilPrint(outputs,{minThickness=.8,overhangAngle=50,checkOverhang=true,checkThickness=true,shouldCancel}={}){
+export async function analyzeCoilPrint(outputs,{minThickness=.8,overhangAngle=50,checkOverhang=true,checkThickness=true,shouldCancel,focusBody}={}){
  if(!Array.isArray(outputs)||!Number.isFinite(minThickness)||minThickness<=offset*2||!Number.isFinite(overhangAngle)||overhangAngle<0||overhangAngle>=90)throw Error('印刷チェックの設定が不正です');
  const meshes=[],result={kind:'mesh-print-warning',outputs:[],stats:stats(),settings:{minThickness,overhangAngle,supportDistance},cancelled:false},centroid=new THREE.Vector3(),normal=new THREE.Vector3(),hitNormal=new THREE.Vector3(),ray=new THREE.Ray(),down=new THREE.Vector3(0,0,-1),bedTolerance=.03,overhangLimit=-Math.sin(overhangAngle*Math.PI/180);let lastYield=performance.now();
  try{
   for(const output of outputs){cancelled(shouldCancel);meshes.push(meshData(output));await pause();}
   for(const mesh of meshes){
+   if(focusBody&&mesh.output.id!==focusBody)continue;
    const entry={id:mesh.output.id,thin:[],unsupported:[],stats:{...stats(),triangles:mesh.count,degenerate:mesh.degenerate}};result.outputs.push(entry);
    for(let t=0;t<mesh.count;t++){
     if(t%512===0||performance.now()-lastYield>12){cancelled(shouldCancel);await pause();lastYield=performance.now();cancelled(shouldCancel);}

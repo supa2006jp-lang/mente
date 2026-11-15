@@ -2,11 +2,12 @@ import {Vector3} from 'three';
 import {cadPosition} from './cad-coordinates.js';
 import {analyzeCoilPrint} from './coil-print-check.js';
 import {analyzePrintPreflight} from './print-preflight.js';
+import {analyzePrintQuality} from './print-quality.js';
 import {printPlacementMatrix} from './print-layout.js';
 
 const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
 const triangleLimit=300000;
-export async function inspectPrintLayoutPlate(plate,geometries,{shouldCancel}={}){
+export async function inspectPrintLayoutPlate(plate,geometries,{shouldCancel,bodyId,nozzle=.6,full=true}={}){
  const sources=plate.placements.map(placement=>({placement,geometry:geometries.get(placement.id)}));
  if(sources.some(({geometry})=>!geometry))throw Error('印刷チェック用の形状を取得できません');
  const triangleCount=sources.reduce((count,{geometry})=>count+(geometry.index?.count??cadPosition(geometry).count)/3,0);
@@ -23,15 +24,20 @@ export async function inspectPrintLayoutPlate(plate,geometries,{shouldCancel}={}
   for(let i=0;i<count;i++)triangles.push(geometry.index?.getX(i)??i);
   outputs.push({id:placement.id,vertices,triangles});
  }
- const preflight=await analyzePrintPreflight(outputs,{floatingOnly:true,shouldCancel});
- const overhang=await analyzeCoilPrint(outputs,{checkThickness:false,overhangAngle:45,shouldCancel});
- return {floating:preflight.issues.filter(issue=>issue.type==='floating'),overhang:overhang.outputs.filter(output=>output.unsupported.length)};
+ const scope=bodyId?outputs.filter(output=>output.id===bodyId):outputs;
+ const preflight=await analyzePrintPreflight(outputs,{floatingOnly:!full,focusBody:bodyId,shouldCancel});
+ const overhang=await analyzeCoilPrint(outputs,{checkThickness:false,overhangAngle:45,focusBody:bodyId,shouldCancel});
+ const quality=full?await analyzePrintQuality(scope,{nozzle,shouldCancel}):null;
+ return {floating:preflight.issues.filter(issue=>issue.type==='floating'),
+  topology:preflight.issues.filter(issue=>issue.type==='topology'),
+  thin:quality?.outputs.filter(row=>row.red.length||row.yellow.length)??[],
+  overhang:overhang.outputs.filter(output=>output.unsupported.length)};
 }
 
 export function printWarningSummary(report){
  if(report.incomplete)return '未実施（三角形30万枚超）';
  if(report.error)return '確認できませんでした';
- return '浮き '+report.floating.length+' 箇所 ／ オーバーハング '+report.overhang.length+' ボディ';
+ return '浮き '+report.floating.length+' 箇所 ／ オーバーハングの候補 '+report.overhang.length+' ボディ ／ 薄壁 '+report.thin.length+' ボディ ／ 辺の不整合 '+report.topology.length+' ボディ';
 }
 
 export async function comparePrintOrientations(candidates,geometry,current,{shouldCancel,onProgress}={}){
@@ -41,7 +47,7 @@ export async function comparePrintOrientations(candidates,geometry,current,{shou
   onProgress?.(i+1,candidates.length);
   if(!candidate.placement){rows.push(candidate);continue;}
   const {placement}=candidate;
-  const report=await inspectPrintLayoutPlate({placements:[placement]},new Map([[placement.id,geometry]]),{shouldCancel});
+  const report=await inspectPrintLayoutPlate({placements:[placement]},new Map([[placement.id,geometry]]),{shouldCancel,full:false});
   if(!report||shouldCancel?.())return null;
   let area=0;
   for(const {unsupported} of report.overhang??[])for(let j=0;j<unsupported.length;j+=9){

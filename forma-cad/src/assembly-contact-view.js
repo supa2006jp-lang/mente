@@ -1,9 +1,46 @@
 import * as THREE from 'three';
 const number=value=>Number(value.toFixed(6)).toString();
+const colors={interference:0xd83c2e,contact:0x078658,gap:0x187ac1,unknown:0x727c83};
+export function createAssemblyPairHighlight({scene,getObject}){
+ let group=null;
+ function clear(){
+  if(!group)return;
+  group.removeFromParent();group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});group=null;
+ }
+ function show(row,highlights=[]){
+  clear();group=new THREE.Group();scene.add(group);const color=colors[row.status]||colors.unknown;
+  const viewBounds=new THREE.Box3();
+  for(const id of [row.source,row.target]){
+   const object=getObject(id);if(!object)continue;
+   object.updateWorldMatrix(true,true);const outline=new THREE.BoxHelper(object,color);
+   outline.material.depthTest=false;outline.renderOrder=80;group.add(outline);
+   viewBounds.expandByObject(object);
+  }
+  let local=null;
+  if(row.bounds){
+   local=new THREE.Box3(new THREE.Vector3(...row.bounds[0]),new THREE.Vector3(...row.bounds[1]));
+   if(!highlights.length){const frame=new THREE.Box3Helper(local,color);frame.material.depthTest=false;frame.renderOrder=81;group.add(frame);}
+  }
+  for(const mesh of highlights.filter(h=>h.source===row.source&&h.target===row.target)){
+   const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(mesh.vertices,3)).setIndex(mesh.triangles);
+   const object=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color,transparent:true,opacity:.85,side:THREE.DoubleSide,depthTest:false,depthWrite:false}));
+   object.renderOrder=82;group.add(object);
+  }
+  if(row.points&&(!row.bounds||row.status!=='interference')){
+   const points=row.points.map(p=>new THREE.Vector3(...p)),geometry=new THREE.BufferGeometry().setFromPoints(points);
+   const line=new THREE.Line(geometry,new THREE.LineBasicMaterial({color,depthTest:false}));line.renderOrder=83;group.add(line);
+   const dots=new THREE.Points(geometry.clone(),new THREE.PointsMaterial({color,size:9,sizeAttenuation:false,depthTest:false,depthWrite:false}));dots.renderOrder=84;group.add(dots);
+   local??=new THREE.Box3().setFromPoints(points);
+  }
+  if(local&&!local.isEmpty())return local.clone().expandByScalar(Math.max(.4,viewBounds.getSize(new THREE.Vector3()).length()*.05));
+  return viewBounds;
+ }
+ return {clear,show};
+}
+
 export function createAssemblyContactView({container,scene,bodyName,getObject}){
  const panel=document.createElement('section');panel.dataset.id='contact';panel.hidden=true;panel.innerHTML='<strong data-contact-status role="status"></strong><p data-contact-detail></p><div data-contact-rows></div><small>赤：めり込み部分 ／ 青い線：最短の隙間 ／ 緑：接触箇所</small>';container.append(panel);
- let group=null;const colors={interference:0xd83c2e,contact:0x078658,gap:0x187ac1,unknown:0x727c83};
- function clearGraphics(){if(!group)return;scene.remove(group);group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});group=null;}
+ const graphics=createAssemblyPairHighlight({scene,getObject}),clearGraphics=graphics.clear;
  function clear(){clearGraphics();panel.hidden=true;panel.querySelector('[data-contact-rows]').replaceChildren();}
  function pending(){clearGraphics();panel.hidden=false;panel.querySelector('[data-contact-status]').textContent='隙間・めり込みを再検査中…';panel.querySelector('[data-contact-detail]').textContent='';panel.querySelector('[data-contact-rows]').replaceChildren();panel.dataset.status='pending';}
  function show(report,highlights=[]){
@@ -12,10 +49,7 @@ export function createAssemblyContactView({container,scene,bodyName,getObject}){
   if(!report.complete)detail.append(document.createTextNode(' 未検査の組合せを含みます。'));
   const ranked=[...report.rows].sort((a,b)=>(a.status==='interference'?0:a.status==='unknown'?2:1)-(b.status==='interference'?0:b.status==='unknown'?2:1)||(a.distance??Infinity)-(b.distance??Infinity));
   function focus(row){
-   clearGraphics();group=new THREE.Group();scene.add(group);const color=colors[row.status]||colors.unknown;
-   for(const id of [row.source,row.target]){const object=getObject(id);if(object){object.updateWorldMatrix(true,true);const outline=new THREE.BoxHelper(object,color);outline.material.depthTest=false;outline.renderOrder=80;group.add(outline);}}
-   for(const mesh of highlights.filter(h=>h.source===row.source&&h.target===row.target)){const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(mesh.vertices,3)).setIndex(mesh.triangles);geometry.computeVertexNormals();const object=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color,transparent:true,opacity:.85,side:THREE.DoubleSide,depthTest:false}));object.renderOrder=82;group.add(object);}
-   if(row.points){const geometry=new THREE.BufferGeometry().setFromPoints(row.points.map(p=>new THREE.Vector3(...p)));const line=new THREE.Line(geometry,new THREE.LineBasicMaterial({color,depthTest:false}));line.renderOrder=83;group.add(line);const dots=new THREE.Points(geometry.clone(),new THREE.PointsMaterial({color,size:9,sizeAttenuation:false,depthTest:false}));dots.renderOrder=84;group.add(dots);}
+   graphics.show(row,highlights.filter(h=>h.source===row.source&&h.target===row.target));
    panel.dataset.pair=row.source+'|'+row.target;
   }
   for(const row of ranked.slice(0,12)){const button=document.createElement('button');button.type='button';button.dataset.contactPair=row.source+'|'+row.target;button.style.cssText='display:block;text-align:left;width:100%;margin:5px 0;white-space:normal';button.textContent=bodyName(row.source)+' ↔ '+bodyName(row.target)+'：'+(labels[row.status]||row.status)+(row.status==='gap'?' '+number(row.distance)+' mm':row.status==='interference'?' '+number(row.volume)+' mm³':'');button.onclick=()=>focus(row);panel.querySelector('[data-contact-rows]').append(button);}

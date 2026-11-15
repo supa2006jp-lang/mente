@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import {rebuild} from './geometry.js';
-import {centerPrintPlacements,movePrintPlacement,planPrintLayout,planPrintPlates,printOrientations,printPlacementMatrix} from './print-layout.js';
+import {centerPrintPlacements,movePrintPlacement,planPrintLayout,planPrintPlates,printOrientations,printPlacementMatrix,prioritizePrintPlacement} from './print-layout.js';
 import {comparePrintOrientations,inspectPrintLayoutPlate,printWarningSummary} from './print-layout-inspection.js';
 import {copyCadCoordinates} from './cad-coordinates.js';
 import {draggableDialog} from './draggable-dialog.js';
-export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFeatures,bodyName,fitPreview,apply,exportPlates,notify}){
+export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFeatures,bodyName,fitPreview,apply,exportPlates,openSupport,notify}){
  const plate=new THREE.Group();plate.name='print-plate-180';plate.visible=false;
  const surface=new THREE.Mesh(new THREE.PlaneGeometry(180,180),new THREE.MeshBasicMaterial({color:0x64cada,transparent:true,opacity:.13,side:THREE.DoubleSide,depthWrite:false}));surface.position.z=-.04;plate.add(surface);
  const corners=m=>[[-90+m,-90+m,.025],[90-m,-90+m,.025],[90-m,90-m,.025],[-90+m,90-m,.025],[-90+m,-90+m,.025]].map(p=>new THREE.Vector3(...p));
@@ -24,6 +24,8 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  $('repack').after(Object.assign(document.createElement('button'),{type:'button',id:'print-layout-center',textContent:'このプレートの部品を中央に寄せる',disabled:true}));
  $('apply-model').after(Object.assign(document.createElement('button'),{type:'button',id:'print-layout-copy-model',textContent:'表示中のプレートを印刷用に複製',disabled:true}));
  $('export').before(Object.assign(document.createElement('div'),{id:'print-layout-inspection',innerHTML:'<label class="plate-check"><input type="checkbox" id="print-layout-warnings" checked>印刷チェックを色で表示</label><p id="print-layout-warning-status" role="status"></p><ul id="print-layout-warning-parts"></ul>'}));
+ $('warning-parts').after(Object.assign(document.createElement('div'),{id:'print-layout-warning-actions',hidden:true,innerHTML:'<div class="editor-actions"><button type="button" id="print-layout-warning-orient">向きを比較</button><button type="button" id="print-layout-warning-support">リブサポート</button><button type="button" id="print-layout-warning-recheck">この部品を再確認</button></div><p id="print-layout-warning-result" role="status"></p>'}));
+ $('warning-status').before(Object.assign(document.createElement('label'),{innerHTML:'チェックのノズル径 (mm)<input type="number" min="0.1" max="2" step="any" value="0.6" id="print-layout-nozzle">'}));
  $('export').after(Object.assign(document.createElement('button'),{type:'button',id:'print-layout-export-all',textContent:'全プレートを3MF出力（ZIP）',disabled:true}));
  $('plate-row').after(Object.assign(document.createElement('details'),{id:'print-layout-overview',innerHTML:'<summary>全プレートの確認</summary><button type="button" id="print-layout-check-all">全プレートを検査</button><ol id="print-layout-overview-rows"></ol>'}));
  $('orientations').after(Object.assign(document.createElement('div'),{id:'print-layout-orientation-review',hidden:true,innerHTML:'<strong id="print-layout-orientation-title"></strong><p id="print-layout-orientation-status" role="status"></p><div id="print-layout-orientation-candidates"></div><div class="editor-actions"><button type="button" id="print-layout-orientation-close">比較を閉じる</button><button type="button" id="print-layout-orientation-apply" class="accent" disabled>この向きに変更</button></div>'}));
@@ -31,6 +33,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  let original,history,editing,id,relocationId,targets=[],items=null,orientations={},plates=[],plan=null,preview=null,hidden=[],version=0,busy=false,loading=false,wasVisible=false,wasMargin=2,applied=false,fitted=false;
  let overrides=[],inspection=null,inspectionRun=null,checking=false,warningGroup=null,drag=null;
  let layoutRevision=0,inspectionRevision=0,focusNext=false,comparison=null;
+ let warningBody=null,recheckRevision=0,recheckAfterOrientation=null;
  const summaries=new WeakMap(),runningChecks=new WeakMap();
  const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
  const plateEntries=()=>plates.flatMap((plate,index)=>plate.placements.length?[{plate,index}]:[]);
@@ -65,13 +68,13 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
   if(runningChecks.has(checked))return runningChecks.get(checked);
   const revision=layoutRevision,features=original;
   const shouldCancel=()=>revision!==layoutRevision||!dialog.open||getFeatures()!==features;
-  const request=inspectPrintLayoutPlate(checked,geometries(),{shouldCancel})
+  const request=inspectPrintLayoutPlate(checked,geometries(),{shouldCancel,nozzle:Number($('nozzle').value)})
    .catch(error=>shouldCancel()?null:{error:error.message})
    .then(result=>{
     if(!result||shouldCancel())return null;
-    summaries.set(checked,{label:printWarningSummary(result),warnings:(result.floating?.length??0)+(result.overhang?.length??0)});
+    summaries.set(checked,{label:printWarningSummary(result),warnings:(result.floating?.length??0)+(result.overhang?.length??0)+(result.thin?.length??0)+(result.topology?.length??0)});
     renderOverview();return result;
-   }).finally(()=>runningChecks.delete(checked));
+  }).finally(()=>{if(runningChecks.get(checked)===request)runningChecks.delete(checked);});
   runningChecks.set(checked,request);
   return request;
  }
@@ -83,40 +86,63 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  }
  function clearWarnings(){
   ++inspectionRevision;inspection=null;inspectionRun=null;checking=false;
+  ++recheckRevision;warningBody=null;$('warning-actions').hidden=true;$('warning-result').textContent='';
   if(warningGroup){warningGroup.removeFromParent();warningGroup.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});warningGroup=null;}
   $('warning-status').textContent='';$('warning-parts').replaceChildren();
  }
  function inspectCurrent(){
   if(legacy()||!plan?.placements.length)return Promise.resolve();
+  if(!$('nozzle').value||!$('nozzle').checkValidity()){
+   clearWarnings();$('warning-status').textContent='ノズル径を0.1〜2 mmで指定してください。';return Promise.resolve();
+  }
   if(inspection===plan){
    if(focusNext&&warningGroup?.children.length){focusNext=false;focusWarning(warningGroup.children[0]);}
    return inspectionRun;
   }
   clearWarnings();const checked=inspection=plan,revision=inspectionRevision;
   checking=true;syncExport();
-  $('warning-status').textContent='浮きとオーバーハングを確認中…';
-  inspectionRun=checkPlate(checked)
+  $('warning-status').textContent='浮き・薄壁・張り出し・辺のつながりを確認中…';
+  const changedBody=recheckAfterOrientation;
+  const focused=changedBody&&checked.placements.some(p=>p.id===changedBody);
+  const current=()=>revision===inspectionRevision&&dialog.open&&getFeatures()===original;
+  const targeted=focused?inspectPrintLayoutPlate(checked,geometries(),{bodyId:changedBody,nozzle:Number($('nozzle').value),shouldCancel:()=>!current()}).then(result=>{
+   if(current()&&result){
+    recheckAfterOrientation=null;
+    selectWarningBody(changedBody);
+    $('warning-result').textContent='向き変更後：'+printWarningSummary(result);
+   }
+  }).catch(error=>{if(current())$('warning-result').textContent=error.message;}):Promise.resolve();
+  inspectionRun=targeted.then(()=>current()?checkPlate(checked):null)
    .then(result=>{
     if(revision!==inspectionRevision||!result)return;
     if(result.incomplete){$('warning-status').textContent='三角形が30万枚を超えるため、印刷チェックは未実施です。';return;}
     if(result.error){$('warning-status').textContent='印刷チェックを完了できませんでした。'+result.error;return;}
-    const {floating,overhang}=result;
-    $('warning-status').textContent=floating.length||overhang.length?
-     '紫：浮いている部分 '+floating.length+' 箇所 ／ 橙：オーバーハングの候補 '+overhang.length+' ボディ':
-     '浮いている部分とオーバーハングの候補は見つかりませんでした。';
+    const {floating,overhang,thin,topology}=result;
+    $('warning-status').textContent=floating.length||overhang.length||thin.length||topology.length?
+     printWarningSummary(result):'今回のチェック項目で問題は見つかりませんでした。';
     const names=new Map(checked.placements.map(p=>[p.id,p.name||p.id]));
-    const details=[...floating.map(row=>names.get(row.bodyId)+' ／ '+row.message),...overhang.map(row=>names.get(row.id)+' ／ 45°を超える下向きの面')];
+    const details=[];
     warningGroup=new THREE.Group();warningGroup.visible=$('warnings').checked&&!comparison?.selected;scene.add(warningGroup);
-    for(const {bounds} of floating)warningGroup.add(new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...bounds.min),new THREE.Vector3(...bounds.max)),0xbd58fa));
-    for(const {unsupported} of overhang){
-     const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(unsupported,3));
-     const material=new THREE.MeshBasicMaterial({color:0xf68a19,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
-     warningGroup.add(new THREE.Mesh(geometry,material));
+    const add=(id,message,color,object)=>{
+     details.push({id,message:names.get(id)+' ／ '+message,color,object});
+     warningGroup.add(object);
+    };
+    for(const {bodyId,bounds,message} of floating)add(bodyId,message,0xbd58fa,new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...bounds.min),new THREE.Vector3(...bounds.max)),0xbd58fa));
+    for(const [rows,property,color,label] of [[overhang,'unsupported',0xf68a19,'45°を超える下向きの面'],[thin,'red',0xf8df58,'ノズル径未満の薄壁'],[thin,'yellow',0xd8c368,'ノズル径の2倍未満の薄壁']]){
+     for(const row of rows)if(row[property].length){
+      const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(row[property],3));
+      const material=new THREE.MeshBasicMaterial({color,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
+      add(row.id,label,color,new THREE.Mesh(geometry,material));
+     }
     }
-    $('warning-parts').replaceChildren(...details.map((message,i)=>{
-     const row=document.createElement('li'),button=document.createElement('button'),object=warningGroup.children[i];
-     button.type='button';button.textContent=message;button.style.color=i<floating.length?'#dfafff':'#ffc081';
-     button.onclick=()=>{if(!comparison&&!drag)focusWarning(object);};row.append(button);return row;
+    for(const {bodyId,message,segments} of topology){
+     const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(segments,3));
+     add(bodyId,message,0xff8376,new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color:0xff8376})));
+    }
+    $('warning-parts').replaceChildren(...details.map(({id,message,color,object})=>{
+     const row=document.createElement('li'),button=document.createElement('button');
+     button.type='button';button.textContent=message;button.style.color='#'+color.toString(16);button.dataset.bodyId=id;
+     button.onclick=()=>{if(!comparison&&!drag&&!busy){focusWarning(object);selectWarningBody(id);}};row.append(button);return row;
     }));
     if(focusNext&&warningGroup.children.length){focusNext=false;focusWarning(warningGroup.children[0]);}
    })
@@ -124,9 +150,31 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
    .finally(()=>{if(revision===inspectionRevision){checking=false;syncExport();}});
   return inspectionRun;
  }
+ function selectWarningBody(id){
+  if(!id)return;
+  ++recheckRevision;warningBody=id;$('warning-actions').hidden=false;$('warning-result').textContent='';
+  const placement=plan.placements.find(p=>p.id===id);
+  $('warning-orient').disabled=!!placement?.locked;
+  const atModelPosition=placement&&printPlacementMatrix(placement).elements.every((v,i)=>Math.abs(v-(i%5===0?1:0))<1e-5);
+  $('warning-support').disabled=!atModelPosition||!openSupport||editsModel();
+  $('warning-support').title=atModelPosition?'現在のボディをリブサポートで支える':'先に表示中のプレートをモデルに適用すると、印刷時の向きでサポートを追加できます';
+  $('warning-recheck').disabled=false;
+ }
+ $('warning-orient').onclick=()=>{const item=items.find(row=>row.id===warningBody);if(item)reviewOrientation(item);};
+ $('warning-support').onclick=()=>{if(!$('warning-support').disabled&&warningBody&&!busy&&!drag&&!comparison){openSupport(warningBody);dialog.close();}};
+ $('warning-recheck').onclick=async()=>{
+  if(!warningBody||!plan||busy||drag||comparison)return;
+  const id=warningBody,plate=plan,revision=++recheckRevision;
+  const model=original;
+  const current=()=>dialog.open&&revision===recheckRevision&&getFeatures()===model;
+  const status=$('warning-result');status.textContent='この部品を再確認中…';$('warning-recheck').disabled=true;
+  try{const result=await inspectPrintLayoutPlate(plate,geometries(),{bodyId:id,nozzle:Number($('nozzle').value),shouldCancel:()=>!current()});if(current()&&result)status.textContent=printWarningSummary(result);}
+  catch(error){if(current())status.textContent=error.message;}
+  finally{if(current())$('warning-recheck').disabled=false;}
+ };
  $('warnings').onchange=()=>{if(warningGroup)warningGroup.visible=$('warnings').checked&&!comparison?.selected;};
  function clearPreview(){if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}for(const [m,v]of hidden)m.visible=v;hidden=[];}
- function close(){++version;++layoutRevision;if(loading||busy)kernel.reset();loading=busy=false;drag=null;comparison=null;focusNext=false;$('orientation-review').hidden=true;clearWarnings();clearPreview();items=null;plates=[];plan=null;delete host.dataset.printLayout;if(!applied){setMargin(wasMargin);showPlate(wasVisible);}}
+ function close(){++version;++layoutRevision;if(loading||busy)kernel.reset();loading=busy=false;drag=null;comparison=null;focusNext=false;recheckAfterOrientation=null;$('orientation-review').hidden=true;clearWarnings();clearPreview();items=null;plates=[];plan=null;delete host.dataset.printLayout;if(!applied){setMargin(wasMargin);showPlate(wasVisible);}}
  dialog.addEventListener('close',close);dialog.addEventListener('cancel',e=>{e.preventDefault();dialog.close();});$('close').onclick=$('cancel').onclick=()=>dialog.close();
  function options(){return {margin:Number($('margin').value),gap:Number($('gap').value),allowRotation:$('rotation').checked};}
  function spec(){
@@ -136,7 +184,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  }
  function update(){
   if(busy||drag||!items)return;++layoutRevision;focusNext=false;const previous=Number($('plate').value)||0;plan=null;plates=[];clearWarnings();renderOverview();syncExport();$('apply').disabled=true;$('error').textContent='';$('info').textContent='';
-  if(![...dialog.querySelectorAll('input[type=number]')].every(el=>el.value.trim()&&el.checkValidity())){clearPreview();delete host.dataset.printLayout;$('error').textContent='余白・間隔を正しい数値で指定してください';return;}
+  if(![$('margin'),$('gap')].every(el=>el.value.trim()&&el.checkValidity())){clearPreview();delete host.dataset.printLayout;$('error').textContent='余白・間隔を正しい数値で指定してください';return;}
   try{
    const selected=items.filter(item=>targets.includes(item.id));
    if(!selected.length)throw Error('印刷する部品を選択してください');
@@ -287,17 +335,18 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  $('orientation-apply').onclick=()=>{
   if(!comparison?.selected||comparison.selected.orientation===comparison.current)return;
   const {id,selected}=comparison;
+  recheckAfterOrientation=id;
   comparison=null;$('orientation-review').hidden=true;setBusy(false);
   orientations[id]=selected.orientation;overrides=overrides.filter(row=>row.id!==id);
   update();$('plate').value=String(selected.plateIndex);showCurrentPlate();
  };
  function renderOrientations(){
   $('orientations').replaceChildren(...items.map(item=>{
-   const row=document.createElement('div'),label=document.createElement('label'),select=document.createElement('select'),check=document.createElement('input'),lock=document.createElement('button'),compare=document.createElement('button');
+   const row=document.createElement('div'),label=document.createElement('label'),select=document.createElement('select'),check=document.createElement('input'),lock=document.createElement('button'),compare=document.createElement('button'),center=document.createElement('button');
    const locked=!!overrides.find(saved=>saved.id===item.id)?.locked;
    const inactive=busy||!!comparison;
    label.className='plate-check';check.type='checkbox';check.checked=targets.includes(item.id);check.disabled=inactive||editing?.spec.copy===true;
-   label.append(check,item.name);row.append(label,select,lock,compare);
+   label.append(check,item.name);row.append(label,select,lock,compare,center);
    check.onchange=()=>{targets=items.filter(entry=>entry.id===item.id?check.checked:targets.includes(entry.id)).map(entry=>entry.id);if(!check.checked)overrides=overrides.filter(saved=>saved.id!==item.id);renderOrientations();update();};
    select.setAttribute('aria-label',item.name+' の印刷向き');
    select.dataset.printOrientation=item.id;
@@ -309,6 +358,20 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
    lock.disabled=inactive||!check.checked||(!locked&&!plates.some(plate=>plate.placements.some(p=>p.id===item.id)));
    compare.type='button';compare.textContent='印刷向きを比較';compare.dataset.printCompare=item.id;
    compare.disabled=inactive||!check.checked||locked||!plan;compare.onclick=()=>reviewOrientation(item);
+   center.type='button';center.textContent='この部品を中央へ';center.dataset.printCenter=item.id;
+   center.setAttribute('aria-label',item.name+' をプレート中央へ');
+   center.disabled=inactive||locked||!plan?.placements.some(p=>p.id===item.id);
+   center.onclick=()=>{
+    if(busy||drag||comparison)return;
+    try{
+     const centered=prioritizePrintPlacement(items,options(),plan,item.id);
+     plates[Number($('plate').value)]=centered;
+     snapshotPlacements();
+     $('error').textContent='';
+     showCurrentPlate();
+     notify(item.name+' をプレート中央に配置しました');
+    }catch(error){$('error').textContent=error.message;}
+   };
    lock.onclick=()=>{
     if(busy||drag)return;
     if(plates.length){
@@ -346,6 +409,9 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  }
  async function checkOrExport({all=false,exportFiles=false}={}){
   if(busy||drag||comparison||!plan?.placements.length||legacy())return;
+  if(!$('nozzle').value||!$('nozzle').checkValidity()){
+   $('error').textContent='ノズル径を0.1〜2 mmで指定してください。';return;
+  }
   const current=version,features=original,entries=all?plateEntries():[{plate:plan,index:Number($('plate').value)}];
   setBusy(true);if(all)$('overview').open=true;
   const isCurrent=()=>current===version&&dialog.open&&getFeatures()===features;
@@ -365,7 +431,12 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  $('export').onclick=()=>checkOrExport({exportFiles:true});
  $('export-all').onclick=()=>checkOrExport({all:true,exportFiles:true});
  $('check-all').onclick=()=>checkOrExport({all:true});
- $('form').addEventListener('input',event=>{if(event.target.matches('input[type=number],#print-layout-rotation'))update();});
+ $('form').addEventListener('input',event=>{if(event.target===$('nozzle')){
+  ++layoutRevision;for(const plate of plates){summaries.delete(plate);runningChecks.delete(plate);}
+  clearWarnings();renderOverview();
+  if($('nozzle').value&&$('nozzle').checkValidity())inspectCurrent();
+  else $('warning-status').textContent='ノズル径を0.1〜2 mmで指定してください。';
+ }else if(event.target.matches('input[type=number],#print-layout-rotation'))update();});
  $('form').onsubmit=event=>{event.preventDefault();if(!$('apply').disabled)saveLayout(editsModel());};
  $('apply-model').onclick=()=>saveLayout(true);
  $('copy-model').onclick=()=>saveLayout(true,true);
@@ -376,9 +447,11 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
    input.type='printLayout';
    input.id=editsModel()?id:relocationId;
    if(copy||editing?.spec.copy===true)input.copy=true;
-   input.targets=plan.placements.map(p=>p.id);
-   input.orientations=Object.fromEntries(plan.placements.map(p=>[p.id,p.orientation]));
-   input.placementOverrides=plan.placements.map(p=>({
+   const byId=new Map(plan.placements.map(p=>[p.id,p]));
+   const placements=editing?.spec.copy?editing.spec.targets.map(id=>byId.get(id)):plan.placements;
+   input.targets=placements.map(p=>p.id);
+   input.orientations=Object.fromEntries(placements.map(p=>[p.id,p.orientation]));
+   input.placementOverrides=placements.map(p=>({
     id:p.id,plate:0,x:(p.min[0]+p.max[0])/2,y:(p.min[1]+p.max[1])/2,rotation:p.rotation,locked:!!p.locked,
    }));
   }

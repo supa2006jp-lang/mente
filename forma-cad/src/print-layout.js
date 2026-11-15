@@ -162,3 +162,15 @@ export function planPrintPlates(items,spec){
   return {plates:plates.map(plate=>plate.plan?place(plate.plan):empty)};
  }
 }
+
+export function prioritizePrintPlacement(items,spec,plate,id){
+ const selected=plate.placements.find(p=>p.id===id);
+ if(!selected||selected.locked)throw Error('中央に置く部品の位置固定を解除してください');
+ const row=(p,x,y)=>({id:p.id,plate:0,x,y,rotation:p.rotation,locked:!!p.locked});
+ const fixed=plate.placements.filter(p=>p.locked).map(p=>row(p,(p.min[0]+p.max[0])/2,(p.min[1]+p.max[1])/2));
+ const ids=new Set(plate.placements.map(p=>p.id)),members=items.filter(item=>ids.has(item.id));
+ const orientations=Object.fromEntries(plate.placements.map(p=>[p.id,p.orientation??'z+']));
+ const {plates}=planPrintPlates(members,{...spec,orientations,placementOverrides:[...fixed,row(selected,0,0)]});
+ if(plates.length!==1)throw Error('この部品を中央にすると全ての部品が収まりません。余白・間隔・固定位置を調整してください');
+ return plates[0];
+}

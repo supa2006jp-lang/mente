@@ -64,6 +64,18 @@ try{
  }
  await load(boxes);
  await commands.waitFor({state:'hidden'});
+ const navigation=page.locator('.navigation'),navigationToggle=page.locator('#viewport-navigation-toggle');
+ const gridToggle=page.locator('#grid-toggle'),gridState=await gridToggle.getAttribute('aria-pressed');
+ const navigationBounds=await navigation.boundingBox();
+ await navigationToggle.click();
+ assert.equal(await navigationToggle.getAttribute('aria-expanded'),'false');
+ assert.equal(await gridToggle.isVisible(),false);
+ assert.equal(await page.locator('#fit').isVisible(),false);
+ assert.ok((await navigation.boundingBox()).width<navigationBounds.width/2);
+ await navigationToggle.click();
+ assert.equal(await navigationToggle.getAttribute('aria-expanded'),'true');
+ assert.ok(await gridToggle.isVisible());
+ assert.equal(await gridToggle.getAttribute('aria-pressed'),gridState);
  await page.locator('#selection-mode').selectOption('face');
  const left=[-22,2,10],right=[26,2,10];
  const view=await canvas.boundingBox(),beforePan=await screenPoint(left);
@@ -84,7 +96,22 @@ try{
   arrow.x>=menuBounds.x+menuBounds.width||arrow.x+arrow.width<=menuBounds.x||
   arrow.y>=menuBounds.y+menuBounds.height||arrow.y+arrow.height<=menuBounds.y
  ));
+ const handle=await page.locator('#measurement-drag-handle').boundingBox();
+ await page.mouse.move(handle.x+12,handle.y+handle.height/2);
+ await page.mouse.down();
+ await page.mouse.move(view.x+view.width-30,view.y-12,{steps:10});
+ await page.mouse.up();
+ const manualBounds=await measurement.boundingBox();
+ assert.equal(await measurement.getAttribute('data-panel-position'),'manual');
+ assert.ok(Math.hypot(manualBounds.x-menuBounds.x,manualBounds.y-menuBounds.y)>30);
+ assert.ok(manualBounds.x>=view.x-.5&&manualBounds.y>=view.y-.5);
+ assert.ok(manualBounds.x+manualBounds.width<=view.x+view.width+.5&&manualBounds.y+manualBounds.height<=view.y+view.height+.5);
+ assert.equal(await host.getAttribute('data-selected-face-count'),'1');
  await page.locator('#fit').click();
+ const afterFit=await measurement.boundingBox();
+ assert.ok(Math.abs(afterFit.x-manualBounds.x)<1&&Math.abs(afterFit.y-manualBounds.y)<1);
+ await page.locator('#measurement-reset-position').click();
+ assert.equal(await measurement.getAttribute('data-panel-position'),null);
  assert.ok(await commands.getByRole('button',{name:'この面にスケッチ'}).isVisible());
  assert.equal(await action('hole').isVisible(),false);
  assert.equal(await page.locator('#sketch-on-face-grid').count(),1);
