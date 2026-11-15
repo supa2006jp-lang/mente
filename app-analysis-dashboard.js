@@ -347,17 +347,16 @@
         const today = new Date();
         const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         const todos = store.activeData.localTodos || [];
-        const pendingRequests = todos.filter(todo => todo.isRequest && !todo.archived && (todo.status || 'todo') !== 'done');
+        const pendingRequests = todos.filter(todo => todo.isRequest && !todo.archived && (todo.status || 'todo') !== 'done' && (!this.matchesTodayWorkspaceFilter || this.matchesTodayWorkspaceFilter(todo)));
         const overdueTodos = pendingRequests.filter(todo => todo.deadlineDate && todo.deadlineDate < todayStr);
         const todayTodos = pendingRequests.filter(todo => !todo.deadlineDate || todo.deadlineDate <= todayStr);
-        const tasks = (store.activeData.tasks || []).filter(task => !task.deleted && !store.isMaintenanceTaskArchived(task.id));
-        const todayTasks = tasks.filter(task => !task.startDate || task.startDate <= todayStr).slice(0, 20);
+        const todayTasks = this.getScheduledTasksForDate(todayStr).filter(task => !this.matchesTodayWorkspaceFilter || this.matchesTodayWorkspaceFilter(task));
         const importantRows = [];
         Object.entries(store.activeData.shiftNotebooks?.[todayStr] || {}).forEach(([shift, shiftData]) => {
             const label = this.getShiftNotebookLabel(shift);
             const rows = Array.isArray(shiftData) ? shiftData : (shiftData?.rows || []);
             rows.forEach((row, index) => {
-                if (row.important) importantRows.push({ shift, label, row, index });
+                if (row.important && (!this.matchesTodayWorkspaceFilter || this.matchesTodayWorkspaceFilter(row, shiftData?.members || []))) importantRows.push({ shift, label, row, index });
             });
         });
         return { todayStr, pendingRequests, overdueTodos, todayTodos, todayTasks, importantRows };
@@ -734,12 +733,14 @@
                         <button type="button" onclick="app.openKanbanRequestDashboard()">依頼一覧</button>
                     </div>
                 </div>
+                ${this.getTodayWorkspaceFilterHtml?.() || ''}
                 <div class="today-action-stats">
                     <button type="button" onclick="app.switchView('todos'); app.changeKanbanTodoWorker('__all__')"><span>未完了依頼</span><b>${summary.pendingRequests.length}</b></button>
                     <button type="button" onclick="app.switchView('todos'); app.toggleKanbanOverdueOnly(true)"><span>期限切れ</span><b>${summary.overdueTodos.length}</b></button>
-                    <button type="button" onclick="app.switchView('calendar')"><span>定期メンテ候補</span><b>${summary.todayTasks.length}</b></button>
+                    <button type="button" onclick="app.switchView('calendar')"><span>今日のメンテ予定</span><b>${summary.todayTasks.length}</b></button>
                     <button type="button" onclick="app.switchView('calendar')"><span>重要連絡</span><b>${summary.importantRows.length}</b></button>
                 </div>
+                ${this.getTodayScheduledItemsHtml?.(summary) || ''}
                 <div class="today-action-list">
                     ${itemHtml || '<div class="today-action-empty">今日の優先確認項目はありません</div>'}
                 </div>

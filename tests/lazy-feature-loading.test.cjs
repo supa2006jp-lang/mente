@@ -9,11 +9,13 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
 function createRuntime() {
     const injected = [];
+    const children = [];
     const invoked = [];
     const delayed = [];
     const documentListeners = new Map();
     let failNotebook = false;
     let failReveal = false;
+    let failChild = false;
     let onReady;
     class MaintenanceApp {
         constructor() { this.menuParts = this.loadShiftNotebookRowMenuHiddenParts(); }
@@ -31,6 +33,12 @@ function createRuntime() {
     const document = {
         head: {
             appendChild(script) {
+                if (/app-(five-s-management|unified-search|photo-export)\.js/.test(script.src)) {
+                    children.push(script.src);
+                    if (failChild && script.src.startsWith('app-unified-search.js')) { failChild = false; script.onerror(); }
+                    else script.onload();
+                    return;
+                }
                 injected.push(script.src);
                 if (script.src.startsWith('app-shift-notebook-core.js')) {
                     if (failNotebook) {
@@ -82,8 +90,8 @@ function createRuntime() {
     const store = { async init() {} };
     const context = vm.createContext({ MaintenanceApp, document, window, store, localStorage: { getItem() { return null; } }, URL, console: { error() {}, warn() {} }, alert() {} });
     vm.runInContext(boot, context, { filename: 'app-boot.js' });
-    return { window, injected, invoked, delayed, documentListeners, onReady: () => onReady(),
-        failOnce() { failNotebook = true; }, failRevealOnce() { failReveal = true; } };
+    return { window, injected, children, invoked, delayed, documentListeners, onReady: () => onReady(),
+        failOnce() { failNotebook = true; }, failRevealOnce() { failReveal = true; }, failChildOnce() { failChild = true; } };
 }
 
 test('heavy scripts are absent from initial HTML and load in dependency order when used', async () => {
@@ -100,6 +108,7 @@ test('heavy scripts are absent from initial HTML and load in dependency order wh
     await runtime.window.app.openPhotoManagerVideos();
     assert.deepEqual(runtime.injected.map(src => src.split('?')[0]), ['app-shift-notebook-core.js', 'app-photo-manager.js']);
     assert.deepEqual(runtime.invoked, [['image-listener'], ['videos']]);
+    assert.deepEqual(runtime.children.map(s => s.split('?')[0]), ['app-five-s-management.js', 'app-unified-search.js', 'app-photo-export.js']);
     assert.equal(runtime.documentListeners.has('click'), false);
     assert.equal(runtime.delayed.length, 1);
     runtime.delayed[0].callback();
@@ -119,6 +128,16 @@ test('failed feature load can retry on the next action', async () => {
     await runtime.window.app.openShiftMemberTypeManageModal();
     assert.equal(runtime.injected.length, 2);
     assert.deepEqual(runtime.invoked.at(-1), ['member-types']);
+});
+
+test('a failed split dependency never exposes a partially loaded search and retries', async () => {
+    const runtime = createRuntime(); await runtime.onReady(); runtime.failChildOnce();
+    await runtime.window.app.openShiftNotebookSearchResults('first');
+    assert.equal(runtime.invoked.some(item => item[0] === 'search'), false);
+    assert.equal(runtime.invoked.at(-1)[0], 'toast');
+    await runtime.window.app.openShiftNotebookSearchResults('retry');
+    assert.deepEqual(runtime.invoked.at(-1), ['search', 'retry']);
+    assert.equal(runtime.children.filter(src => src.startsWith('app-unified-search.js')).length, 2);
 });
 
 test('photo comparison loads the media module after the notebook module', async () => {

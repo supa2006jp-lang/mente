@@ -196,7 +196,7 @@ test('activation keeps one earlier shell for already open pages', async () => {
             keys: async () => [
                 'maintenance-next-static-20261113-old',
                 'maintenance-next-static-20261115-edit-safety1',
-                'maintenance-next-static-20261115-update-sync1'
+                'maintenance-next-static-' + html.match(/name="maintenance-build" content="([^"]+)"/)[1]
             ],
             delete: async key => { deleted.push(key); }
         },

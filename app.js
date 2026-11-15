@@ -886,6 +886,7 @@ class MaintenanceApp {
 
         document.getElementById('view-filter-clear')?.addEventListener('click', () => this.clearCurrentViewSearchAndFilters());
         this.updateGlobalSearchForView(this.currentView);
+        this.initializeSearchPresets?.();
 
         const notebookSearch = document.getElementById('notebook-search');
         const notebookSearchBtn = document.getElementById('notebook-search-btn');
@@ -966,6 +967,7 @@ class MaintenanceApp {
     }
 
     updateGlobalSearchForView(viewName) {
+        this.refreshNamedSearchOptions?.();
         const input = document.getElementById('global-search');
         if (!input) return;
         const placeholders = {

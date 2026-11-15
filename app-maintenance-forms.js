@@ -234,6 +234,9 @@
                 </div>
             </div>
             ${partsInfoHTML}
+            <label class="task-assignee-field">予定の担当者（任意・カンマ区切り）
+                <input type="text" class="t-workers" list="list-workers" value="${this.escapeHtml((task?.workers || []).join(', '))}" placeholder="例: 田中, 鈴木">
+            </label>
             <div class="task-cycle-tools">
                 <span>周期候補</span>
                 ${[0, 7, 14, 30, 60, 90, 180].map(days => `<button type="button" onclick="app.setTaskPeriod(this, ${days})">${days === 0 ? '単発' : `${days}日`}</button>`).join('')}
@@ -1857,7 +1860,7 @@
 
                     <div class="form-group">
                         <label for="c-workers">作業者 (カンマ区切り) <span style="color:var(--danger)">*</span></label>
-                        <input type="text" id="c-workers" placeholder="例: 田中, 鈴木" list="list-workers" style="border:2px solid var(--primary);" required>
+                        <input type="text" id="c-workers" value="${this.escapeHtml((task.workers || []).join(', '))}" placeholder="例: 田中, 鈴木" list="list-workers" style="border:2px solid var(--primary);" required>
                     </div>
 
                     <div class="form-group">
@@ -1955,6 +1958,7 @@
         container.querySelector('#modal-title').textContent = String(title || '');
         
         if (renderFn) renderFn();
+        this.organizeMaintenanceForm?.(type);
         this.injectUnifiedSearchReturnButton?.();
 
         const saveBtn = document.getElementById('modal-save-btn');
@@ -3587,17 +3591,20 @@
                     const content = row.querySelector('.t-content').value;
                     const period = row.querySelector('.t-period').value;
                     const start = row.querySelector('.t-start').value;
+                    const workers = [...new Set((row.querySelector('.t-workers')?.value || '').split(/[,、]/).map(value => value.trim()).filter(Boolean))];
 
                     if (content) {
                         if (tId) {
                             const taskToUpdate = store.activeData.tasks.find(x => x.id === tId);
                             if (taskToUpdate) {
                                 taskToUpdate.content = content;
+                                taskToUpdate.workers = workers;
                                 this.updateTaskScheduleFromEditor(taskToUpdate, start, parseInt(period) || 0);
                             }
                             currentTaskIds.push(tId);
                         } else {
                             const newT = store.addTask(machineId, content, period, start);
+                            newT.workers = workers;
                             currentTaskIds.push(newT.id);
                         }
                     }

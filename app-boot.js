@@ -1,11 +1,15 @@
 (function () {
     const featureSources = {
-        notebook: 'app-shift-notebook-core.js?v=20261115-all5',
-        photos: 'app-photo-manager.js?v=20261115-six1',
+        fiveS: 'app-five-s-management.js?v=20261115-workspace6',
+        search: 'app-unified-search.js?v=20261115-workspace6',
+        photoExport: 'app-photo-export.js?v=20261115-workspace6',
+        notebook: 'app-shift-notebook-core.js?v=20261115-workspace6',
+        photos: 'app-photo-manager.js?v=20261115-workspace6',
         camera: 'app-shift-photo-camera.js?v=20260906-avatar-stage72',
         reveal: 'app-shift-photo-reveal.js?v=20260906-avatar-stage72',
         avatar: 'app-shift-avatar-conversation.js?v=20260906-avatar-stage72'
     };
+    const dependencies = { notebook: ['fiveS', 'search'], photos: ['photoExport'] };
     const pending = {};
     const loaded = { notebook: false, photos: false, camera: false, reveal: false, avatar: false };
     let photoFeaturesReady = false;
@@ -18,8 +22,10 @@
             script.src = featureSources[feature];
             script.async = true;
             script.onload = () => {
-                loaded[feature] = true;
-                resolve();
+                Promise.all((dependencies[feature] || []).map(loadScript)).then(() => {
+                    loaded[feature] = true;
+                    resolve();
+                }, reject);
             };
             script.onerror = () => {
                 script.remove();
@@ -73,6 +79,10 @@
     const loadNotebookAndPhotos = () => loadNotebook().then(loadPhotos);
     const loadPhotoEffects = () => loadNotebookAndPhotos().then(() => loadScript('camera'))
         .then(() => loadScript('reveal')).then(() => loadScript('avatar'));
+    loadNotebook.ready = () => loaded.notebook;
+    loadPhotos.ready = () => photoFeaturesReady;
+    loadNotebookAndPhotos.ready = () => loaded.notebook && photoFeaturesReady;
+    loadPhotoEffects.ready = () => loaded.notebook && photoFeaturesReady && loaded.camera && loaded.reveal && loaded.avatar;
     window.maintenanceLazyFeatures = { loadNotebook, loadPhotos, loadPhotoEffects };
 
     let photoManagerNotebookEntrypointsWrapped = false;
@@ -86,7 +96,8 @@
             'downloadPhotoManagerItem', 'openImageSourceChoiceTransparencyPreview',
             'reopenPhotoManagerTransparentImageForCutout'
         ]) {
-            const original = MaintenanceApp.prototype[name];
+            const entrypoint = MaintenanceApp.prototype[name];
+            const original = entrypoint?.getLoadedImplementation?.() || entrypoint;
             if (typeof original !== 'function') continue;
             MaintenanceApp.prototype[name] = function (...args) {
                 if (loaded.notebook) return original.apply(this, args);
@@ -239,14 +250,16 @@
     }
 
     function lazyMethod(name, loader, viewId) {
+        let implementation = null;
         const placeholder = function (...args) {
+            if (implementation && loader.ready?.()) return implementation.apply(this, args);
             if (viewId) {
                 setViewBusy(viewId, true);
                 showFeatureStatus(viewId, '読み込み中…');
             }
             return loader().then(() => {
-                const method = this[name];
-                if (method === placeholder || typeof method !== 'function') throw new Error(`${name} を読み込めませんでした`);
+                const method = implementation;
+                if (typeof method !== 'function') throw new Error(`${name} を読み込めませんでした`);
                 if (viewId) {
                     setViewBusy(viewId, false);
                     document.getElementById(viewId)?.querySelector('.lazy-feature-status')?.remove();
@@ -259,7 +272,14 @@
                 return null;
             });
         };
-        MaintenanceApp.prototype[name] = placeholder;
+        placeholder.getLoadedImplementation = () => implementation;
+        // Keep the loading gate even when one split file has already installed its
+        // methods. A failed sibling must remain retryable on the next click.
+        Object.defineProperty(MaintenanceApp.prototype, name, {
+            configurable: true,
+            get: () => placeholder,
+            set: method => { if (method !== placeholder) implementation = method; }
+        });
     }
 
     function lazyExistingMethod(name, loader, isReady, viewId) {

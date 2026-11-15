@@ -428,3 +428,114 @@ test('service worker update banner clears after update or a normal reload into t
         assert.equal(await page.evaluate("Boolean(document.getElementById('maintenance-update-banner'))"), false);
     } finally { if (other) await other.close(); await harness.close(); }
 });
+
+test('workspace improvements: equipment, today actions, saved searches, forms, evidence and responsive layout', { timeout: 180000 }, async t => {
+    const harness = await launchHarness(); t.after(() => harness.close());
+    const { page } = harness;
+    await page.evaluate(`(async () => {
+        await maintenanceLazyFeatures.loadNotebook(); await maintenanceLazyFeatures.loadPhotos();
+        const today = app.getLocalDateString();
+        await store.runAtomicSaveBatch(() => {
+            store.activeData.machineCategories = ['包装機'];
+            store.activeData.machines = [{id:'ws-machine',name:'テスト包装機',model:'PK-1',lineNo:'1',category:'包装機'}];
+            store.activeData.tasks = [{id:'ws-task',machineId:'ws-machine',content:'定期点検',periodDays:7,startDate:today,workers:['田中']}];
+            store.activeData.history = [{id:'ws-history',machineId:'ws-machine',date:today,lineNo:'1',machineCategory:'包装機',errorContent:'ベルト交換',cause:'摩耗',notes:'交換して動作確認',workTime:30,workers:['田中','鈴木'],category:'parts',isSudden:true,photos:[],replacedParts:[]}];
+        });
+        app.updateDataLists();
+    })()`);
+    await t.test('machine chart exposes history, next occurrence and its completion form', async () => {
+        const result = await page.evaluate(`(() => {
+            app.openEquipmentWorkspace('ws-machine');
+            const text = document.getElementById('modal-content').textContent;
+            [...document.querySelectorAll('#modal-content button')].find(b=>b.textContent==='完了を記録').click();
+            return {text,type:document.getElementById('modal-container').dataset.modalType,workers:document.getElementById('c-workers').value};
+        })()`);
+        assert.match(result.text,/ベルト交換/); assert.match(result.text,/次回のメンテ予定/); assert.equal(result.type,'complete'); assert.equal(result.workers,'田中');
+        await page.evaluate('app.closeModal()');
+    });
+    await t.test('today filters show the real scheduled occurrence and saving removes it', async () => {
+        const before = await page.evaluate(`(() => {
+            app.switchView('dashboard'); app.setTodayWorkspaceFilter('line','1'); app.setTodayWorkspaceFilter('worker','田中');
+            const count=app.getTodayActionSummary().todayTasks.length;
+            document.querySelector('.today-scheduled-list [data-task-id="ws-task"]').click();
+            document.getElementById('c-work-time').value='10'; document.getElementById('c-category').value='clean';
+            return {count,valid:document.getElementById('complete-form').checkValidity(),invalid:[...document.querySelectorAll('#complete-form :invalid')].map(n=>({id:n.id,value:n.value,options:[...(n.options||[])].map(o=>o.value)}))};
+        })()`);
+        assert.equal(before.count,1); assert.equal(before.valid,true,JSON.stringify(before));
+        await page.evaluate("app.saveModalData('complete')");
+        assert.equal(await page.evaluate('app.getTodayActionSummary().todayTasks.length'),0);
+        assert.equal(await page.evaluate("store.activeData.history.filter(h=>h.taskId==='ws-task').length"),1);
+        await page.evaluate("app.setTodayWorkspaceFilter('line','all'); app.setTodayWorkspaceFilter('worker','all')");
+    });
+    await t.test('named searches restore query, line, period and scope after reload', async () => {
+        await page.evaluate(`(() => {
+            app.switchView('history');
+            document.getElementById('global-search').value='ベルト'; document.getElementById('global-search').dispatchEvent(new Event('input',{bubbles:true}));
+            document.getElementById('hist-filter-period').value='all'; document.getElementById('hist-filter-line').value='1';
+            app.saveNamedSearch('包装機のベルト');
+        })()`);
+        await reloadApp(page,'saved search persists');
+        await page.evaluate("app.applyNamedSearch('包装機のベルト')");
+        assert.deepEqual(await page.evaluate("({view:app.currentView,q:document.getElementById('global-search').value,line:document.getElementById('hist-filter-line').value,period:document.getElementById('hist-filter-period').value,scope:document.getElementById('search-scope').value})"),{view:'history',q:'ベルト',line:'1',period:'all',scope:'view'});
+        await page.evaluate(`(() => { document.getElementById('search-scope').value='all'; app.updateSearchScope(); document.getElementById('notebook-search').value='ベルト'; document.getElementById('notebook-search-period').value='this_month'; app.saveNamedSearch('全体のベルト'); })()`);
+        await page.evaluate("app.applyNamedSearch('全体のベルト')");
+        assert.equal(await page.evaluate("document.getElementById('modal-container').dataset.modalType"),'shift-notebook-search');
+        assert.equal(await page.evaluate("document.getElementById('notebook-search-period').value"),'this_month');
+        await page.evaluate('app.closeModal()');
+    });
+    await t.test('organized forms keep required fields visible and reuse only blank values', async () => {
+        const result = await page.evaluate(`(() => {
+            app.openSuddenRecordModal(); document.getElementById('s-machine-id').value='ws-machine'; app.onSuddenMachineChange('ws-machine');
+            document.getElementById('s-machine-id').dispatchEvent(new Event('change',{bubbles:true}));
+            document.getElementById('s-notes').value='今回の処置'; document.getElementById('record-reuse-select').value='ws-history';
+            document.querySelector('.record-reuse button').click();
+            return {cause:document.getElementById('s-cause').value,notes:document.getElementById('s-notes').value,required:[...document.querySelectorAll('#sudden-form [required]')].every(f=>!f.closest('details')||f.closest('details').open),open:document.querySelector('.maintenance-form-details').open};
+        })()`);
+        assert.equal(result.cause,'摩耗'); assert.equal(result.notes,'今回の処置'); assert.equal(result.required,true); assert.equal(result.open,true);
+        await page.evaluate('app.closeModal()');
+    });
+    await t.test('worktime numbers drill into the exact records including multiperson contribution', async () => {
+        const result = await page.evaluate(`(() => {
+            app.switchView('worktime'); document.getElementById('worktime-filter-period').value='all'; app.saveWorkTimePeriodSelection(); app.setWorkTimeGroup('worker');
+            const data=app._workTimeEvidenceContext;
+            const sum=app.getWorkTimeEvidence(data.history,data.results,data.groupBy,data.machines).total;
+            document.querySelector('.worktime-evidence-number').click();
+            return {sum,text:document.getElementById('modal-content').textContent,type:document.getElementById('modal-container').dataset.modalType};
+        })()`);
+        assert.equal(result.sum,70); assert.equal(result.type,'evidence-records'); assert.match(result.text,/集計への加算/);
+        await page.evaluate('app.closeModal()');
+    });
+    await t.test('mobile and 200 percent equivalent viewport keep the new controls and forms usable', async () => {
+        for (const width of [390,640]) {
+            await page.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:width===640?2:1,mobile:false});
+            await page.evaluate("app.switchView('history'); document.getElementById('search-scope').value='view'; app.updateSearchScope(); app.openSuddenRecordModal()");
+            const layout = await page.evaluate(`(() => {
+                const dialog=document.getElementById('modal-container'), form=document.getElementById('sudden-form'), bar=document.querySelector('.header-search-workspace');
+                return {viewport:innerWidth,dialogRight:dialog.getBoundingClientRect().right,dialogLeft:dialog.getBoundingClientRect().left,formWidth:form.clientWidth,formScroll:form.scrollWidth,barLeft:bar.getBoundingClientRect().left,barRight:bar.getBoundingClientRect().right,scopeWidth:document.getElementById('search-scope').getBoundingClientRect().width};
+            })()`);
+            assert.ok(layout.dialogLeft>=-1 && layout.dialogRight<=width+1,JSON.stringify(layout));
+            assert.ok(layout.formScroll<=layout.formWidth+2,JSON.stringify(layout));
+            assert.ok(layout.barLeft<20 && layout.barRight<=width+1 && layout.scopeWidth>30,JSON.stringify(layout));
+            await page.evaluate('app.closeModal()');
+        }
+    });
+    await t.test('ten thousand real records render a bounded evidence page and reconcile the worktime table', async () => {
+        await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+        const result = await page.evaluate(`(() => {
+            const saved = store.activeData.history;
+            const records = Array.from({length:10000},(_,i)=>({...saved[0],id:'bulk-'+i,workers:['田中','鈴木'],workTime:30}));
+            try {
+                store.activeData.history=records;
+                const start=performance.now(); app.switchView('worktime'); app.renderWorkTime('');
+                const c=app._workTimeEvidenceContext, evidence=app.getWorkTimeEvidence(c.history,c.results,c.groupBy,c.machines);
+                app.openWorkTimeEvidence();
+                const rendered=document.querySelectorAll('#modal-content .workspace-row').length;
+                const text=document.querySelector('#modal-content .workspace-toolbar').textContent;
+                return {total:evidence.total,rendered,text,ms:performance.now()-start};
+            } finally { store.activeData.history=saved; app.closeModal(); }
+        })()`);
+        assert.equal(result.total,600000); assert.equal(result.rendered,50); assert.match(result.text,/200 ページ・全 10000 件/);
+        assert.ok(result.ms<8000,JSON.stringify(result));
+        t.diagnostic(`10,000 records: ${Math.round(result.ms)} ms, 50 visible evidence rows`);
+    });
+});

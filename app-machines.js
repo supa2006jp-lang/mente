@@ -328,6 +328,7 @@
                             </div>
                     </div>
                     <div class="actions machine-card-actions">
+                        <button type="button" class="secondary-btn" data-machine-id="${this.escapeHtml(m.id)}" onclick="app.openEquipmentWorkspace(this.dataset.machineId)">機械カルテ</button>
                         <button class="icon-btn edit-btn" title="編集"><i class="fa-solid fa-pen"></i></button>
                         <button class="icon-btn delete-btn" style="color:var(--danger)" title="削除"><i class="fa-solid fa-trash"></i></button>
                     </div>
@@ -666,6 +667,7 @@
                     <td>${this.escapeHtml((listFilters.status === 'calendarCompleted' ? row.monthLatest?.date : row.latest?.date) || '-')}</td>
                     <td style="text-align:center;">${row.doneCount}</td>
                     <td class="maintenance-list-actions">
+                        <button type="button" class="secondary-btn" data-machine-id="${this.escapeHtml(task.machineId)}" onclick="app.openEquipmentWorkspace(this.dataset.machineId)">機械カルテ</button>
                         <button type="button" class="primary-btn" ${completionDisabled ? 'disabled' : ''} onclick="app.openCompletionForm('${this.escapeJs(task.id)}', '${this.escapeJs(completionDate)}')">
                             <i class="fa-solid fa-circle-check"></i> 完了
                         </button>

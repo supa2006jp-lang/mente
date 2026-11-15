@@ -193,8 +193,9 @@
 
     filterWorkTimeRecordsByLine(records, lineVal, machines) {
         if (lineVal === 'all') return records;
+        const workTimeMachinesById = new Map(machines.map(m => [m.id, m]));
         return records.filter(h => {
-            const m = machines.find(x => x.id === h.machineId);
+            const m = workTimeMachinesById.get(h.machineId);
             const l = h.lineNo || m?.lineNo;
             return String(l) === String(lineVal);
         });
@@ -578,12 +579,13 @@
         const period = document.getElementById('worktime-filter-period')?.value || 'this_month';
         const lineVal = document.getElementById('worktime-filter-line')?.value || 'all';
         const machines = store.getMachines(true);
+        const workTimeMachinesById = new Map(machines.map(m => [m.id, m]));
         let records = this.filterHistoryByPeriod(store.getHistory({}), period);
         records = this.filterWorkTimeRecordsByLine(records, lineVal, machines);
         records = records.filter(h => this.getWorkTimeHistoryTypeKey(h) === typeKey);
         return records.filter(h => {
             if (groupBy === 'category') {
-                const m = machines.find(x => x.id === h.machineId);
+                const m = workTimeMachinesById.get(h.machineId);
                 const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
                 return cat === groupName;
             }
@@ -836,6 +838,7 @@
         let history = this.filterHistoryByPeriod(allHistory, period);
         const periodHistory = history.slice();
         const machines = store.getMachines(true);
+        const workTimeMachinesById = new Map(machines.map(m => [m.id, m]));
 
         history = this.filterWorkTimeRecordsByLine(history, lineVal, machines);
         const lineHistory = history.slice();
@@ -853,7 +856,7 @@
         history.forEach(h => {
             const time = parseInt(h.workTime) || 0;
             const isPeriodic = !!h.taskId;
-            const m = machines.find(x => x.id === h.machineId);
+            const m = workTimeMachinesById.get(h.machineId);
             
             // Get group key
             let groupKeys = [];
@@ -990,26 +993,26 @@
                         <tr style="${r.isArchived ? 'background: #f8fafc; font-style: italic; opacity: 0.8;' : ''}">
                             <td style="font-weight:700; color:var(--text-main);">${nameCellHtml}</td>
                             <td style="text-align:right; font-weight:900; color:var(--primary); font-size:1rem;">
-                                ${r.totalTime.toLocaleString()} <span style="font-size:0.75rem; color:var(--text-light); font-weight:400; margin-left:4px;">(${r.pct}%)</span>
+                                ${this.getWorkTimeEvidenceButton ? this.getWorkTimeEvidenceButton(r, '', r.totalTime.toLocaleString()) : r.totalTime.toLocaleString()} <span style="font-size:0.75rem; color:var(--text-light); font-weight:400; margin-left:4px;">(${r.pct}%)</span>
                             </td>
-                            <td style="text-align:right; font-weight:800; color:#1e40af; background:#f0f9ff; font-size:1rem;">${r.pt.toLocaleString()}</td>
+                            <td style="text-align:right; font-weight:800; color:#1e40af; background:#f0f9ff; font-size:1rem;">${this.getWorkTimeEvidenceButton ? this.getWorkTimeEvidenceButton(r, 'periodic', r.pt.toLocaleString()) : r.pt.toLocaleString()}</td>
                             <td style="text-align:center; background:#f0f9ff;">
                                 ${this.getWorkTimeCountBadgeHtml(r.name, countGroupBy, 'periodic', r.pc, '#1e40af', '#dbeafe', r.isArchived)}
                             </td>
-                            <td style="text-align:right; font-weight:800; color:#166534; background:#f0fdf4; font-size:1rem;">${r.st.toLocaleString()}</td>
+                            <td style="text-align:right; font-weight:800; color:#166534; background:#f0fdf4; font-size:1rem;">${this.getWorkTimeEvidenceButton ? this.getWorkTimeEvidenceButton(r, 'sudden', r.st.toLocaleString()) : r.st.toLocaleString()}</td>
                             <td style="text-align:center; background:#f0fdf4;">
                                 ${this.getWorkTimeCountBadgeHtml(r.name, countGroupBy, 'sudden', r.sc, '#166534', '#dcfce7', r.isArchived)}
                             </td>
-                            <td style="text-align:right; font-weight:800; color:#92400e; background:#fffbeb; font-size:1rem;">${(r.np || 0).toLocaleString()}</td>
+                            <td style="text-align:right; font-weight:800; color:#92400e; background:#fffbeb; font-size:1rem;">${this.getWorkTimeEvidenceButton ? this.getWorkTimeEvidenceButton(r, 'nonProductionStop', (r.np || 0).toLocaleString()) : (r.np || 0).toLocaleString()}</td>
                             <td style="text-align:center; background:#fffbeb;">
                                 ${this.getWorkTimeCountBadgeHtml(r.name, countGroupBy, 'nonProductionStop', r.npc || 0, '#92400e', '#fde68a', r.isArchived)}
                             </td>
-                            <td style="text-align:right; font-weight:800; color:#b91c1c; background:#fef2f2; font-size:1rem;">${r.dt.toLocaleString()}</td>
+                            <td style="text-align:right; font-weight:800; color:#b91c1c; background:#fef2f2; font-size:1rem;">${this.getWorkTimeEvidenceButton ? this.getWorkTimeEvidenceButton(r, 'dokatei', r.dt.toLocaleString()) : r.dt.toLocaleString()}</td>
                             <td style="text-align:center; background:#fef2f2;">
                                 ${this.getWorkTimeCountBadgeHtml(r.name, countGroupBy, 'dokatei', r.dc, '#b91c1c', '#fecaca', r.isArchived)}
                             </td>
-                            <td style="text-align:right; font-weight:800; color:var(--text-main); font-size:0.85rem;">${r.avgSudden}</td>
-                            <td style="text-align:right; font-weight:800; color:var(--danger); font-size:0.85rem;">${r.avgDokatei}</td>
+                            <td style="text-align:right; font-weight:800; color:var(--text-main); font-size:0.85rem;">${this.getWorkTimeEvidenceButton ? this.getWorkTimeEvidenceButton(r, 'sudden', r.avgSudden, 'average') : r.avgSudden}</td>
+                            <td style="text-align:right; font-weight:800; color:var(--danger); font-size:0.85rem;">${this.getWorkTimeEvidenceButton ? this.getWorkTimeEvidenceButton(r, 'dokatei', r.avgDokatei, 'average') : r.avgDokatei}</td>
                             <td style="font-size:0.7rem; color:var(--text-light); line-height:1.4; padding:8px 4px; min-width:180px;">${currentGroupBy === 'worker' ? (r.topMachines || '-') : (r.topTroubles || '-')}</td>
                             <td style="text-align:center;">
                                 ${currentGroupBy === 'category' || isDrilledDown ? '-' : (r.isArchived ? '-' : `<button class="secondary-btn" style="padding:2px 8px; font-size:0.7rem;" onclick="app.archiveWorkerFromWorktime('${r.name}')">アーカイブ</button>`)}
@@ -1020,6 +1023,7 @@
                 </tbody>
         `;
         container.appendChild(table);
+        this.renderWorkTimeEvidence?.(container, history, results, currentGroupBy, machines);
     }
 
     renderWorkTimeTrend() {
@@ -1030,6 +1034,7 @@
         card.style.display = 'block';
         const ctx = canvas.getContext('2d');
         const machines = store.getMachines(true);
+        const workTimeMachinesById = new Map(machines.map(m => [m.id, m]));
 
         // Register plugin for labels (required for trend chart as well)
         if (typeof ChartDataLabels !== 'undefined') Chart.register(ChartDataLabels);
@@ -1051,7 +1056,7 @@
         const lineVal = document.getElementById('worktime-filter-line')?.value || 'all';
         if (lineVal !== 'all') {
             history = history.filter(h => {
-                const m = machines.find(x => x.id === h.machineId);
+                const m = workTimeMachinesById.get(h.machineId);
                 const l = h.lineNo || m?.lineNo;
                 return String(l) === String(lineVal);
             });
@@ -1060,7 +1065,7 @@
             const q = MaintenanceStore.toHalfWidthLower(this.workTimeSearchQuery);
             if (this.workTimeGroupBy === 'category') {
                 history = history.filter(h => {
-                    const m = machines.find(x => x.id === h.machineId);
+                    const m = workTimeMachinesById.get(h.machineId);
                     const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
                     return MaintenanceStore.toHalfWidthLower(cat).includes(q);
                 });
@@ -1166,7 +1171,7 @@
             const labelMap = {};
             const machineIdMap = {};
             history.forEach(h => {
-                const m = machines.find(x => x.id === h.machineId);
+                const m = workTimeMachinesById.get(h.machineId);
                 const cat = (m && m.category) ? m.category : (h.machineCategory || 'その他');
                 
                 let key = '';
@@ -1379,13 +1384,14 @@
         if (total === 0) return alert('この期間のデータがありません');
 
         const machines = store.getMachines(true);
+        const workTimeMachinesById = new Map(machines.map(m => [m.id, m]));
         const isCatMode = this.workTimeGroupBy === 'category';
         const isDrilledDown = !!this.workTimeDrillDownCategory;
 
         const getBreakdown = (list) => {
             const map = {};
             list.forEach(h => {
-                const m = machines.find(x => x.id === h.machineId);
+                const m = workTimeMachinesById.get(h.machineId);
                 const mCat = h.machineCategory || m?.category || 'その他';
                 
                 // Filter if drilled down
