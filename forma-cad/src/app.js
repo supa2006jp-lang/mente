@@ -1462,6 +1462,7 @@ renderer.domElement.addEventListener('pointerup',e=>{
  if(printSupportController?.active){if(e.button===0&&down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)<=5)printSupportController.pick(e);return;}
  if(assemblyController?.active){if(e.button===0&&down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)<=5)assemblyController.pick(e);return;}
  if(arcDrag){const dragged=arcDrag.moved;if(dragged){commitArcDrag(e);return;}clearArcDrag();}if(deletingSketch){if(e.button===0)eraseSketchAt(e);return;}if(moveTool?.active||sketchMoveTool?.active||sketchVertexRotation?.active)return;if(e.button!==0||!down||Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)return;fragmentSelection=null;
+ if(interiorEdgeTool?.pickAdjustment(camera,renderer.domElement.getBoundingClientRect(),e.clientX,e.clientY))return;
  if(threadMateController?.active){threadMateController.pick(e);return;}if($('tools-dialog').open){if(!offsetPlanePreview?.interacting)pickCommandReference(e).catch(error=>{if($('tools-dialog').open)$('cad-error').textContent=appErrorMessage(error);});return;}if(holeActive){pickHolePoint(e);return;}if(!sketch&&['model','sketch'].includes(stage)&&!pendingExtrude&&!extrusionBusy&&sketchConstraintsController?.pickPoint(e))return;if(!sketch&&['model','sketch'].includes(stage)&&!pendingExtrude&&!extrusionBusy&&!e.ctrlKey&&!e.metaKey&&(stage==='sketch'||selectionMode==='auto')&&pickSketchVertex(e))return;if(!sketch&&stage==='sketch'&&pickSketchEdge(e))return;if(sketch){const hit=planePoint(e);if(!hit)return;if($('profile').value==='point'){placeSketchPoint(hit);return;}if($('profile').value==='spline'){if(closeConnectedSpline(hit))return;if(splineEditor?.nearStart(e)){closeSpline();return;}if(splinePoints.length>=200){notify('フィット点は200点までです');return;}const next=[hit.dot(sketchBasis.u),hit.dot(sketchBasis.v)];if(splinePoints.some(p=>Math.hypot(p[0]-next[0],p[1]-next[1])<1e-7)){notify('同じ位置には点を追加できません');return;}splinePoints.push(next);if(connectedSketch&&!connectedSketch.root)connectedSketch.root=hit.clone();updateSplinePreview();draftTouched=false;$('status').textContent=splinePoints.length+' 点を配置 · 右クリックで曲線・直線切替 / Enterで確定 / Escで中止';return;}if(!firstPoint){firstPoint=hit;if(connectedSketch&&!connectedSketch.root)connectedSketch.root=hit.clone();chainStart=hit.clone();chainCount=0;lastDrawPoint=null;sketchMarker=new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]),roundPointMaterial({color:0x087ba0,size:8,sizeAttenuation:false,depthTest:false}));sketchMarker.position.copy(hit);sketchMarker.renderOrder=10;scene.add(sketchMarker);$('place-line').disabled=false;$('line-dimensions-hint').textContent='終点をクリック、または長さ・角度を入力';showSnap(hit);}else placeEndpoint(hit);return;}
  const r=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);
  raycaster.params.Line.threshold=viewHeight()/r.height*7;
@@ -1797,24 +1798,33 @@ function selectionBodyIds(){return [...new Set([...selectedBodies,...selectedFac
 function setSelectionMode(value){const bodyIds=value==='body'&&stage==='model'&&!sketch&&!pendingExtrude?selectionBodyIds():[];patternCenter=null;selectionPicker?.close();if(value==='edge')bodyDisplay?.stopExploded();selectionMode=value;clearEdgeSelection();clearFaceSelection();selectedFace=null;selectedSurface=null;selectedBody=null;chosenRegion=null;fragmentSelection=null;hoverEdge=null;edgeSelectionMode=value==='edge';$('measurement').hidden=true;host.dataset.selectionMode=value;updateCenterMarkers();if(bodyIds.length)commitBodySelection(new Set(bodyIds));}
 $('selection-mode').onchange=e=>setSelectionMode(e.target.value);
 let edgeSelectionPreview=null;
-interiorEdgeTool=createInteriorEdgeTool({onPreview:showEdgeSelectionPreview,container:$('measurement'),getFeatures:()=>features,getSelectionKey:()=>JSON.stringify([[...selectedBodies],selectedFaces.map(f=>f.id||f.faceId||f.geometry?.uuid),selectedFace?.id,selectedSurface?.faceId,selectedEdges.map(e=>[e.bodyId,e.point])]),notify,onSelect:(edges,analysis,mode)=>{
+interiorEdgeTool=createInteriorEdgeTool({onPreview:showEdgeSelectionPreview,container:$('measurement'),getFeatures:()=>features,getSelectedEdge:()=>selectedEdges.length===1?selectedEdges[0]:null,getSelectedFaces:()=>selectedFaces.map(({bodyId,point,normal})=>({bodyId,point,normal})),isBodyVisible:id=>meshes.get(id)?.visible,getSelectionKey:()=>JSON.stringify([[...selectedBodies],selectedFaces.map(f=>[f.bodyId,f.key,f.geometry?.uuid,f.point]),selectedFace?.id,selectedSurface?.faceId,selectedEdges.map(e=>[e.bodyId,e.point])]),notify,onSelect:(edges,analysis,mode)=>{
  bodyDisplay?.stopExploded();selectionPicker?.close();$('selection-mode').value='edge';setSelectionMode('edge');clearEdgeSelection();clearFaceSelection();
  for(const [i,e]of edges.entries()){const mesh=meshes.get(e.bodyId);chooseEdgeHit({mesh,a:new THREE.Vector3(...e.a),b:new THREE.Vector3(...e.b),point:new THREE.Vector3(...e.point),...(e.curved?{curve:{key:e.key,points:e.points,length:e.length}}:{}),nativeReference:e.reference},true,false,i<edges.length-1);}
  const exterior=mode==='exteriorVerticalEdges';
  host.dataset[exterior?'exteriorVerticalEdgeSelection':'interiorEdgeSelection']=JSON.stringify(analysis);
  $('measurement-title').textContent=(exterior?'外側の辺（'+analysis.axis+'）':'内側の辺')+'を '+edges.length+' 本選択';
 }});
-function showEdgeSelectionPreview(edges){
+function showEdgeSelectionPreview(edges,mode,omitted=[]){
  if(edgeSelectionPreview){disposeObject(edgeSelectionPreview);edgeSelectionPreview=null;}
- delete host.dataset.exteriorEdgePreviewCount;
- if(!edges.length)return;
- const positions=edges.flatMap(({a,b})=>[...a,...b]);
- const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
- const material=new THREE.LineBasicMaterial({color:0x00c6ba,depthTest:false,depthWrite:false});
- edgeSelectionPreview=new THREE.LineSegments(geometry,material);
- edgeSelectionPreview.renderOrder=21;
+ delete host.dataset.exteriorEdgePreviewCount;delete host.dataset.interiorEdgePreviewCount;delete host.dataset.interiorEdgeExcludedCount;
+ if(!edges.length&&!omitted.length)return;
+ edgeSelectionPreview=new THREE.Group();
+ for(const [items,color] of [[edges,0x00c6ba],[omitted,0xe36166]]){
+  if(!items.length)continue;
+  const positions=[];
+  for(const edge of items){
+   const points=edge.points||[edge.a,edge.b];
+   for(let i=1;i<points.length;i++)positions.push(...points[i-1],...points[i]);
+  }
+  const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  const line=new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color,depthTest:false,depthWrite:false}));
+  line.renderOrder=21;
+  edgeSelectionPreview.add(line);
+ }
  scene.add(edgeSelectionPreview);
- host.dataset.exteriorEdgePreviewCount=String(edges.length);
+ host.dataset[mode==='interiorEdges'?'interiorEdgePreviewCount':'exteriorEdgePreviewCount']=String(edges.length);
+ if(omitted.length)host.dataset.interiorEdgeExcludedCount=String(omitted.length);
 }
 const wholeBodyButton=document.createElement('button');wholeBodyButton.id='select-whole-body';wholeBodyButton.type='button';wholeBodyButton.hidden=true;wholeBodyButton.textContent='このソリッド全体を選択';wholeBodyButton.title='選択した面・辺が属するソリッドを、裏側の面も含めて選択';wholeBodyButton.onclick=()=>{if(wholeBodyButton.hidden)return;$('selection-mode').value='body';setSelectionMode('body');};$('measurement').append(wholeBodyButton);
 bodySelectionActions=createBodySelectionActions({container:$('measurement'),onMove:()=>startBodyQuickMove(false),onCopy:()=>startBodyQuickMove(true),onCut:openBodyQuickCut,onMirror:()=>openDirectCommand('mirror'),onDimensions:()=>printDimensionsView?.open(),onFillet:()=>{if(!selectedBodies.size||stage!=='model'||sketch||pendingExtrude||moveTool?.active||document.querySelector('dialog[open]'))return;selectionPicker?.close();bodyDisplay?.stopExploded();bodyFilletList.open([...selectedBodies],selectedBody);}});

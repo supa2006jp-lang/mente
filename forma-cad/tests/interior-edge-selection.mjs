@@ -43,7 +43,22 @@ try{assert.equal(interiorEdges(sideThrough).length,0,'a sideways through-hole ha
 finally{sideThrough.delete();}
 const cup=R.makeCylinder(20,25).cut(R.makeCylinder(17,30,[0,0,3])),cupEdges=interiorEdges(cup,{bodyId:'cup'});assert.equal(cupEdges.length,1);assert(cupEdges[0].curved);assert(Math.abs(cupEdges[0].point[2]-3)<1e-6);
 const native=cupEdges[0],ui={bodyId:'cup',nativeReference:native.reference,curve:{points:native.points}};assert.equal(edgeFilletReferences([ui]).length,1);const rim=filletSolid(cup,.5,{references:edgeFilletReferences([ui])});assert.equal(rim.edgeCount,1);rim.shape.delete();assert(matchesInteriorEdge(ui,{bodyId:'cup',point:[0,17,3]}));assert(!matchesInteriorEdge(ui,{bodyId:'cup',point:[0,20,25]}));
-const cells=R.makeBox([0,0,0],[64,34,24]).cut(R.makeBox([3,3,3],[30,31,30])).cut(R.makeBox([34,3,3],[61,31,30]));assert.equal(interiorEdges(cells).length,16);
+const cells=R.makeBox([0,0,0],[64,34,24]).cut(R.makeBox([3,3,3],[30,31,30])).cut(R.makeBox([34,3,3],[61,31,30]));
+const sideCells=cells.clone().rotate(90,[0,0,0],[0,1,0]);
+try{
+ for(const [shape,axis,partition] of [[cells,0,32],[sideCells,2,-32]]){
+  const edges=interiorEdges(shape);
+  const compartments=[...new Set(edges.map(edge=>edge.compartment))];
+  assert.equal(compartments.length,2);
+  for(const id of compartments){
+   const group=edges.filter(edge=>edge.compartment===id);
+   assert.equal(group.filter(edge=>edge.corner==='back').length,4);
+   assert.equal(group.filter(edge=>edge.corner==='side').length,4);
+   const firstSide=group[0].point[axis]<partition;
+   assert.ok(group.every(edge=>(edge.point[axis]<partition)===firstSide));
+  }
+ }
+}finally{sideCells.delete();}
 const through=R.makeBox([0,0,0],[40,32,24]).cut(R.makeBox([3,3,-1],[37,29,30]));assert.equal(interiorEdges(through).length,0);
 const rotated=tray.clone().rotate(31,[0,0,0],[0,0,1]);assert.equal(interiorEdges(rotated).length,8);
 const beveled=tray.clone().chamfer(.7,f=>f.inPlane('XY',24)),beveledEdges=interiorEdges(beveled);assert.equal(beveledEdges.length,8,'entry chamfer and its short corner continuations belong to the opening rim');assert(beveledEdges.every(e=>e.point[2]<24-1e-6));
@@ -53,6 +68,19 @@ const taperedTool=R.drawRectangle(28,20).sketchOnPlane('XY',[0,0,3]).loftWith(R.
 const boss=tray.clone().fuse(R.makeBox([15,12,2],[25,20,9]));assert(interiorEdges(boss).some(e=>Math.abs(e.point[2]-9)<1e-6),'internal ledge top edges remain selectable');
 let angled=R.makeBox([-68,-42,0],[68,42,38]);for(let r=0;r<2;r++)for(let c=0;c<4;c++){const p=[(c-1.5)*31,-19+r*33,7],t=R.drawRectangle(25.6,25.6).sketchOnPlane('XY',p).extrude(70).rotate(-12,p,[1,0,0]);angled=angled.cut(t);}assert.equal(interiorEdges(angled).length,64);
 const features=[{kind:'cadop',id:'fixture',name:'入れ物',outputs:[{id:'a',brep:tray.serialize()},{id:'b',brep:cup.serialize()}],remove:[]}],unchanged=JSON.stringify(features),result=runOperation(features,{type:'interiorEdges',targets:['a','b']});assert.equal(result.edges.length,9);assert.deepEqual(result.analysis.interiorEdges.bodyIds,['a','b']);assert.equal(JSON.stringify(features),unchanged);
+const compartmentInspection=runOperation([{kind:'cadop',id:'cells',name:'区画付きの箱',outputs:[{id:'cells',brep:cells.serialize()}],remove:[]}],{
+ type:'interiorEdges',targets:['cells'],faceSeeds:[
+  {bodyId:'cells',point:[16,17,3],normal:[0,0,1]},
+  {bodyId:'cells',point:[3,17,10],normal:[1,0,0]},
+  {bodyId:'cells',point:[48,17,3],normal:[0,0,1]},
+  {bodyId:'cells',point:[32,17,24],normal:[0,0,1]},
+ ],
+});
+const [floor,wall,otherFloor,rimFace]=compartmentInspection.analysis.interiorEdges.faceSelections;
+assert.ok(floor.compartment&&otherFloor.compartment);
+assert.equal(floor.compartment,wall.compartment);
+assert.notEqual(floor.compartment,otherFloor.compartment);
+assert.deepEqual(rimFace,{bodyId:'cells',compartment:null,reason:'rim'});
 for(const shape of [box,tray,closed,cup,cells,through,rotated,lip,notch,angled,beveled,tapered,boss])shape.delete();
 await fs.mkdir('.sites-runtime',{recursive:true});await fs.writeFile('.sites-runtime/interior-edge-selection-native-proof.json',JSON.stringify({pass:true,syntheticFixturesOnly:true,rectangular:8,circular:1,multipleCavities:16,tiltedPockets:64,beveledOpening:8,taperedWalls:8,taperedBevel:8,interiorBoss:true,lip:true,closedVoidExcluded:true,throughVoidExcluded:true,exteriorNotchExcluded:true,nativeCurveReference:true,sourcePreserved:true},null,2));
 console.log('PASS internal corners, outer/rim exclusion, round/multiple/tilted cavities and lip, closed/through/exterior void exclusion, explicit native curve references, deselection, multi-body kernel operation and unchanged source');
