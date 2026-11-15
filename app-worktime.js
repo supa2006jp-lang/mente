@@ -2,7 +2,13 @@
     if (typeof MaintenanceApp === 'undefined') return;
 
     class MaintenanceAppWorkTimeMethods extends MaintenanceApp {
-    getWorkTimeRecordFacts(record) {
+    getRecordWorkMinutes(record = {}) {
+        const facts = this.getWorkTimeRecordFacts(record);
+        return facts.guideOnly ? 0 : facts.minutes;
+    }
+
+    getWorkTimeRecordFacts(record = {}) {
+        record ||= {};
         const raw = typeof record.workTime === 'number' || typeof record.workTime === 'string' ? String(record.workTime).trim() : '';
         const valid = /^\d+(?:\.\d+)?$/.test(raw) && Number.isFinite(Number(raw));
         const names = (Array.isArray(record.workers) ? record.workers : []).filter(w => typeof w === 'string').map(w => w.trim()).filter(Boolean);
@@ -144,12 +150,12 @@
         if (period === 'last_30_days') return '直近30日';
         if (period === 'prev_30_days') return '前の30日';
         if (period === 'custom') {
-            const start = localStorage.getItem('customStartDate') || '開始日未設定';
+            const start = this.getPeriodDateState('worktime').since || '開始日未設定';
             return `${start}以降（指定日以降）`;
         }
         if (period === 'custom_range') {
-            const start = localStorage.getItem('customRangeStart') || '開始日未設定';
-            const end = localStorage.getItem('customRangeEnd') || '終了日未設定';
+            const start = this.getPeriodDateState('worktime').start || '開始日未設定';
+            const end = this.getPeriodDateState('worktime').end || '終了日未設定';
             return `${start} - ${end}（指定範囲）`;
         }
         if (period === 'CUSTOM') {
@@ -600,7 +606,7 @@
         const lineVal = document.getElementById('worktime-filter-line')?.value || 'all';
         const machines = store.getMachines(true);
         const workTimeMachinesById = new Map(machines.map(m => [m.id, m]));
-        let records = this.filterHistoryByPeriod(store.getHistory({}).filter(h => !h.isManualGuide), period);
+        let records = this.filterHistoryByPeriod(store.getHistory({}).filter(h => !h.isManualGuide), period, 'worktime');
         records = this.filterWorkTimeRecordsByLine(records, lineVal, machines);
         records = records.filter(h => this.getWorkTimeHistoryTypeKey(h) === typeKey);
         return records.filter(h => {
@@ -773,7 +779,7 @@
             ? this.getFiscalYear(this.getLocalDateString())
             : (new Date().getMonth() < 3 ? new Date().getFullYear() - 1 : new Date().getFullYear());
         const periodOptions = Array.from(new Set([period, 'this_month', String(currentFiscalYear), String(currentFiscalYear - 1), 'all'])).map(pid => {
-            const records = this.filterHistoryByPeriod(allHistory, pid);
+            const records = this.filterHistoryByPeriod(allHistory, pid, 'worktime');
             const lineRecords = this.filterWorkTimeRecordsByLine(records, lineVal, machines);
             return {
                 id: pid,
@@ -855,7 +861,7 @@
         this.renderWorkTimeTrend();
 
         const allHistory = store.getHistory({}).filter(h => !h.isManualGuide);
-        let history = this.filterHistoryByPeriod(allHistory, period);
+        let history = this.filterHistoryByPeriod(allHistory, period, 'worktime');
         const periodHistory = history.slice();
         const machines = store.getMachines(true);
         const workTimeMachinesById = new Map(machines.map(m => [m.id, m]));
@@ -1043,7 +1049,7 @@
                 </tbody>
         `;
         container.appendChild(table);
-        this.renderWorkTimeEvidence?.(container, this.filterWorkTimeRecordsByLine(this.filterHistoryByPeriod(store.getHistory({}), period), lineVal, machines), results, currentGroupBy, machines);
+        this.renderWorkTimeEvidence?.(container, this.filterWorkTimeRecordsByLine(this.filterHistoryByPeriod(store.getHistory({}), period, 'worktime'), lineVal, machines), results, currentGroupBy, machines);
     }
 
     renderWorkTimeTrend() {
@@ -1374,7 +1380,7 @@
     openWorkTimeGraph() {
         const period = document.getElementById('worktime-filter-period')?.value || 'this_month';
         let history = store.getHistory({}).filter(h => !h.isManualGuide);
-        history = this.filterHistoryByPeriod(history, period);
+        history = this.filterHistoryByPeriod(history, period, 'worktime');
         
         history = this.filterWorkTimeRecordsByLine(history, document.getElementById('worktime-filter-line')?.value || 'all', store.getMachines(true));
         // 人名フィルタが行われている場合、その人を含む履歴のみに絞り込む
@@ -1466,7 +1472,7 @@
         const periodMap = { 'this_month': '今月', 'fiscal_year': '今年度', 'all': '累計', 'custom': '指定日以降' };
         let periodDisplay = periodMap[period] || period;
         if (period === 'custom') {
-            const customDate = localStorage.getItem('customStartDate');
+            const customDate = this.getPeriodDateState('worktime').since;
             if (customDate) periodDisplay = `${customDate}以降`;
         }
 

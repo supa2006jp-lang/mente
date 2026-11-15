@@ -1,7 +1,7 @@
 (function () {
     const featureSources = {
         fiveS: 'app-five-s-management.js?v=20261115-workspace6',
-        search: 'app-unified-search.js?v=20261115-workspace6',
+        search: 'app-unified-search.js?v=20261115-consistency6',
         photoExport: 'app-photo-export.js?v=20261115-workspace6',
         notebook: 'app-shift-notebook-core.js?v=20261115-workspace6',
         photos: 'app-photo-manager.js?v=20261115-workspace6',

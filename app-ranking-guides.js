@@ -101,8 +101,8 @@
 
         const period = document.getElementById('ranking-filter-period')?.value || 'this_month';
         const lineFilter = document.getElementById('ranking-filter-line')?.value || 'all';
-        let history = store.getHistory({});
-        history = this.filterHistoryByPeriod(history, period);
+        let history = store.getHistory({}).filter(h => !h.isManualGuide);
+        history = this.filterHistoryByPeriod(history, period, 'ranking');
         const machines = store.getMachines(true);
 
         // ラインフィルタの適用
@@ -125,10 +125,10 @@
             if (!m) return;
             const key = m.id;
             if (!machineMap[key]) machineMap[key] = { id: m.id, name: m.name, model: m.model, lineNo: m.lineNo, count: 0, dokatei: 0, time: 0, cost: 0 };
-            if (!h.taskId || h.isDokatei) {
+            if (!h.taskId) {
                 machineMap[key].count++;
                 if (h.isDokatei) machineMap[key].dokatei++;
-                machineMap[key].time += (parseInt(h.workTime) || 0);
+                machineMap[key].time += (this.getRecordWorkMinutes(h));
             }
             const partCost = (h.replacedParts || []).reduce((sum, p) => sum + ((parseFloat(p.count)||0) * (parseFloat(p.price)||0)), 0);
             machineMap[key].cost += partCost;
@@ -152,7 +152,7 @@
             <div style="margin-bottom:24px; display:flex; justify-content:space-between; align-items:center;">
                 <div style="background:linear-gradient(135deg, var(--primary), var(--primary-dark)); color:#fff; padding:8px 20px; border-radius:30px; font-size:0.85rem; font-weight:800; box-shadow:0 4px 15px rgba(37,99,235,0.2);">
                     <i class="fa-solid fa-calendar-check" style="margin-right:8px;"></i>
-                    集計期間: ${this.getPeriodLabel(period)} (${history.length}件の記録)
+                    集計期間: ${this.getPeriodLabel(period, 'ranking')} (${history.length}件の記録)
                 </div>
                 <button class="secondary-btn" style="padding:8px 16px; font-weight:800;" onclick="app.openTroubleComparisonModal()">
                     <i class="fa-solid fa-magnifying-glass-chart"></i> 前月との比較分析

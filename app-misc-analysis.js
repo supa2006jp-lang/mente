@@ -77,8 +77,8 @@
 
         const getStats = (period) => {
             const hist = this.filterHistoryByPeriod(store.activeData.history, period);
-            const troubles = hist.filter(h => !h.taskId || h.isDokatei);
-            const time = troubles.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
+            const troubles = hist.filter(h => !h.isManualGuide && !h.taskId);
+            const time = troubles.reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
             const count = troubles.length;
             return { time, count };
         };
@@ -269,6 +269,7 @@
     }
 
     renderMachineCostAnalysis(history) {
+        history = history.filter(h => !h.isManualGuide);
         const container = document.getElementById('analysis-container');
         if (!container) return;
 
@@ -324,7 +325,7 @@
             }
 
             // Labor Cost
-            const time = parseInt(h.workTime) || 0;
+            const time = this.getRecordWorkMinutes(h);
             stats.time += time;
             stats.laborCost += (time / 60) * this.laborRate;
         });

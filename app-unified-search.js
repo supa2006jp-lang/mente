@@ -207,8 +207,8 @@
     reopenUnifiedSearchReturn() {
         const state = this._unifiedSearchReturn;
         if (!state?.query) return;
+        if (!this.requestCloseModal()) return;
         this._restoreUnifiedSearchState = { ...state };
-        this.closeModal();
         this.openShiftNotebookSearchResults(state.query, state.period || 'all');
     }
 
@@ -433,7 +433,7 @@
             );
         };
         const getPriority = (history) => {
-            const workTime = parseInt(history.workTime, 10) || 0;
+            const workTime = this.getRecordWorkMinutes(history);
             let score = 0;
             const reasons = [];
             if (history.isDokatei) {

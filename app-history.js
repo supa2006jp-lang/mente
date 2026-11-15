@@ -185,7 +185,7 @@
                         </div>
                         <div class="form-group">
                             <label>作業時間 (分) <span style="color:var(--danger)">*</span></label>
-                            <input type="number" id="e-work-time" value="${h.workTime || ''}" placeholder="例: 30" required>
+                            <input type="number" id="e-work-time" value="${this.escapeHtml(h.workTime ?? '')}" placeholder="例: 30" required min="0" step="any">
                         </div>
                     </div>
 
@@ -432,7 +432,7 @@
     }
 
     formatHistoryWorkTime(history) {
-        const workTime = history?.workTime || 0;
+        const workTime = this.getRecordWorkMinutes(history);
         if (history?.startTime && history?.endTime) {
             return `${history.startTime}-${history.endTime} / ${workTime}分`;
         }
@@ -440,7 +440,7 @@
     }
 
     renderHistoryWorkTimeCell(history) {
-        const workTime = history?.workTime || 0;
+        const workTime = this.getRecordWorkMinutes(history);
         if (history?.startTime && history?.endTime) {
             return `
                 <b title="${this.escapeHtml(`${history.startTime}-${history.endTime}`)}">${this.escapeHtml(`${workTime}分`)}</b>
@@ -478,7 +478,7 @@
 
     getHistoryPrioritySignItems(history, recurrenceGroup, cost) {
         const signs = [];
-        const workMinutes = parseFloat(history?.workTime) || 0;
+        const workMinutes = this.getRecordWorkMinutes(history);
         if (recurrenceGroup?.count >= 3 || (recurrenceGroup?.count >= 2 && recurrenceGroup.avgIntervalDays && recurrenceGroup.avgIntervalDays <= 14)) {
             signs.push({ cls: 'recurrence', icon: 'fa-repeat', label: '高頻度' });
         }
@@ -587,7 +587,7 @@
     }
 
     getHistoryWorkMinutes(history) {
-        return parseFloat(history?.workTime) || 0;
+        return this.getRecordWorkMinutes(history);
     }
 
     initializeHistorySortState() {
@@ -1172,7 +1172,7 @@
             if (!content || content === '突発対応' || content === '定期メンテナンス') byKey.missingContent.items.push(item);
             if (isTrouble && !String(h.cause || '').trim()) byKey.missingCause.items.push(item);
             if (isTrouble && !String(h.notes || '').trim()) byKey.missingNotes.items.push(item);
-            if ((parseFloat(h.workTime) || 0) <= 0) byKey.zeroTime.items.push(item);
+            if ((this.getRecordWorkMinutes(h)) <= 0) byKey.zeroTime.items.push(item);
             if (!dateOk) byKey.invalidDate.items.push(item);
             const key = this.getHistoryImportLikeKey(h);
             if (!duplicateMap.has(key)) duplicateMap.set(key, []);
@@ -1566,7 +1566,7 @@
 
         let filtered = store.activeData.history ? store.activeData.history.filter(h => !h.isManualGuide) : [];
         const filterSteps = [{ label: '全履歴', count: filtered.length }];
-        filtered = this.filterHistoryByPeriod(filtered, period);
+        filtered = this.filterHistoryByPeriod(filtered, period, 'history');
         filterSteps.push({ label: period === 'all' ? '期間: 全期間' : `期間: ${document.getElementById('hist-filter-period')?.selectedOptions?.[0]?.textContent || period}`, count: filtered.length });
         this.updateViewSubtitle('view-history', period);
 
@@ -1664,7 +1664,7 @@
             const idSet = new Set(this.historyRecurrenceFrequencyFilter.ids.map(String));
             const groupRows = (store.activeData.history || []).filter(h => idSet.has(String(h.id)) && !h.isManualGuide);
             const dates = groupRows.map(h => h.date).filter(Boolean).sort();
-            const minutes = groupRows.reduce((sum, h) => sum + (parseFloat(h.workTime) || 0), 0);
+            const minutes = groupRows.reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
             const costTotal = groupRows.reduce((sum, h) => sum + this.calculateHistoryCost(h).total, 0);
             const isSingleHistoryFilter = this.historyRecurrenceFrequencyFilter.kind === 'single';
             const label = this.historyRecurrenceFrequencyFilter.label || (isSingleHistoryFilter ? '選択した履歴' : '同じグループ');
@@ -2028,7 +2028,7 @@
         if (filters.recurrenceFrequency?.ids?.length) chips.push(`再発グループ: ${filters.recurrenceFrequency.label || '同じグループ'}`);
         chips.push(this.getHistorySortLabel());
 
-        const totalMinutes = filtered.reduce((sum, h) => sum + (parseFloat(h.workTime) || 0), 0);
+        const totalMinutes = filtered.reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
         const averageMinutes = filtered.length ? Math.round((totalMinutes / filtered.length) * 10) / 10 : 0;
         const troubleHistories = filtered.filter(h => this.isTroubleHistoryForDetail(h));
         const causeFilled = troubleHistories.filter(h => String(h.cause || '').trim()).length;
@@ -2246,7 +2246,7 @@
     }
 
     calculateHistoryCost(history) {
-        const workMinutes = parseFloat(history?.workTime) || 0;
+        const workMinutes = this.getRecordWorkMinutes(history);
         const workers = Array.isArray(history?.workers)
             ? history.workers.filter(Boolean)
             : (typeof history?.workers === 'string' ? history.workers.split(',').map(w => w.trim()).filter(Boolean) : []);
@@ -2546,8 +2546,7 @@
         const endDate = new Date(year, monthIndex + 1, 0).getDate();
         const end = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(endDate).padStart(2, '0')}`;
 
-        localStorage.setItem('customRangeStart', start);
-        localStorage.setItem('customRangeEnd', end);
+        this.setPeriodDateState({ start, end }, 'history');
         this.updateHistoryPeriodOptions();
 
         const globalSearch = document.getElementById('global-search');
@@ -2659,7 +2658,7 @@
         return month >= 4 ? year : year - 1;
     }
 
-    filterHistoryByPeriod(history, period) {
+    filterHistoryByPeriod(history, period, view = this.currentView || 'history') {
         if (!period || period === 'all') return history;
 
         const todayVal = new Date();
@@ -2711,12 +2710,15 @@
             return history.filter(h => this.getFiscalYear(h.date) === lastFY);
         }
         if (period === 'custom') {
-            const startDate = localStorage.getItem('customStartDate');
+            const startDate = this.getPeriodDateState(view).since;
             return startDate ? history.filter(h => h.date >= startDate) : history;
         }
+        if (period === 'CUSTOM') {
+            return history.filter(h => (!this.customStartDate || h.date >= this.customStartDate) && (!this.customEndDate || h.date <= this.customEndDate));
+        }
         if (period === 'custom_range') {
-            const start = localStorage.getItem('customRangeStart');
-            const end = localStorage.getItem('customRangeEnd');
+            const start = this.getPeriodDateState(view).start;
+            const end = this.getPeriodDateState(view).end;
             return history.filter(h => {
                 if (!h.date) return false;
                 if (start && h.date < start) return false;
@@ -2753,13 +2755,14 @@
         const currentMonth = now.getMonth() + 1;
 
         filters.forEach(filter => {
+            const view = this.getPeriodView(filter);
             const savedWorkTimePeriod = filter === wtFilter ? localStorage.getItem(this.getWorkTimePeriodStorageKey?.() || 'worktime_filter_period') : null;
             const currentVal = savedWorkTimePeriod || filter.value;
-            const customDate = localStorage.getItem('customStartDate');
+            const customDate = this.getPeriodDateState(view).since;
             const customLabel = customDate ? `指定日以降 (${customDate})` : '指定日以降...';
             
-            const rangeStart = localStorage.getItem('customRangeStart');
-            const rangeEnd = localStorage.getItem('customRangeEnd');
+            const rangeStart = this.getPeriodDateState(view).start;
+            const rangeEnd = this.getPeriodDateState(view).end;
             const rangeLabel = (rangeStart && rangeEnd) ? `指定範囲 (${rangeStart}〜${rangeEnd})` : '指定範囲 (開始〜終了)...';
 
             filter.innerHTML = `
@@ -2779,7 +2782,7 @@
                 filter.appendChild(opt);
             });
             // デフォルトは「先月と今月」。作業時間集計は保存済み期間を優先して復元する。
-            if (!currentVal || (currentVal === 'today' && filter !== wtFilter)) {
+            if (!currentVal) {
                 filter.value = 'last_this_month';
             } else {
                 filter.value = currentVal;
@@ -2816,40 +2819,74 @@
         return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     }
 
+    getPeriodView(control) {
+        return control?.closest?.('[id^="view-"]')?.id.slice(5)
+            || ({ hist: 'history', worktime: 'worktime', analysis: 'analysis', ranking: 'ranking', dashboard: 'dashboard' })[control?.id?.split('-')[0]]
+            || this.currentView || 'history';
+    }
+
+    getPeriodDateState(view = this.currentView || 'history') {
+        const department = typeof store === 'undefined' ? 'default' : String(store.data?.currentDepartmentId || 'default');
+        this._periodDatesByDepartment ||= Object.create(null);
+        if (!this._periodDatesByDepartment[department]) {
+            let saved = null, legacy = {};
+            try {
+                saved = JSON.parse(localStorage.getItem('maintenance-period-dates-v1:' + department) || 'null');
+                legacy = { since: localStorage.getItem('customStartDate') || '', start: localStorage.getItem('customRangeStart') || '', end: localStorage.getItem('customRangeEnd') || '' };
+            } catch (_) {}
+            const state = Object.create(null);
+            for (const name of ['history','worktime','analysis','ranking','dashboard','fiveS','calendar','machines','guides','all']) {
+                const value = saved && typeof saved === 'object' ? saved[name] || {} : legacy;
+                state[name] = Object.fromEntries(['since','start','end'].map(key => [key, this.normalizePeriodDateInput(value[key]) || '']));
+                if (state[name].start > state[name].end) { state[name].start = ''; state[name].end = ''; }
+            }
+            this._periodDatesByDepartment[department] = state;
+        }
+        return { ...(this._periodDatesByDepartment[department][view] || { since:'', start:'', end:'' }) };
+    }
+
+    setPeriodDateState(value, view = this.currentView || 'history') {
+        const next = { ...this.getPeriodDateState(view) };
+        for (const key of ['since','start','end']) if (Object.prototype.hasOwnProperty.call(value, key)) {
+            const date = value[key] ? this.normalizePeriodDateInput(value[key]) : '';
+            if (value[key] && !date) throw new Error('日付を確認してください。');
+            next[key] = date;
+        }
+        if (next.start && next.end && next.start > next.end) throw new Error('終了日は開始日以降を指定してください。');
+        const department = typeof store === 'undefined' ? 'default' : String(store.data?.currentDepartmentId || 'default');
+        this._periodDatesByDepartment[department][view] = next;
+        try { localStorage.setItem('maintenance-period-dates-v1:' + department, JSON.stringify(this._periodDatesByDepartment[department])); }
+        catch (_) { this.showToast?.('期間は適用しましたが、端末に保存できませんでした。', 'warning'); }
+        return next;
+    }
+
     onPeriodChange(el, renderFn) {
+        const view = this.getPeriodView(el), dates = this.getPeriodDateState(view);
         if (el.value === 'custom') {
-            const current = localStorage.getItem('customStartDate') || this.getLocalDateString();
-            const input = prompt('指定日以降のデータを集計します。開始日を入力してください (YYYY-MM-DD / M/D):', current);
+            const input = prompt('指定日以降のデータを集計します。開始日を入力してください (YYYY-MM-DD / M/D):', dates.since || this.getLocalDateString());
             const date = this.normalizePeriodDateInput(input);
-            if (date) {
-                localStorage.setItem('customStartDate', date);
-                this.updateHistoryPeriodOptions();
-                el.value = 'custom';
-            } else if (!localStorage.getItem('customStartDate')) {
-                el.value = 'this_month';
-            }
-        } else if (el.value === 'custom_range') {
-            const curS = localStorage.getItem('customRangeStart') || this.getLocalDateString();
-            const curE = localStorage.getItem('customRangeEnd') || this.getLocalDateString();
-            const start = this.normalizePeriodDateInput(prompt('開始日を入力してください (YYYY-MM-DD / M/D):', curS));
-            if (start) {
-                const end = this.normalizePeriodDateInput(prompt('終了日を入力してください (YYYY-MM-DD / M/D):', curE));
-                if (end) {
-                    localStorage.setItem('customRangeStart', start);
-                    localStorage.setItem('customRangeEnd', end);
-                    this.updateHistoryPeriodOptions();
-                    el.value = 'custom_range';
-                }
-            }
-            if (!localStorage.getItem('customRangeStart') || !localStorage.getItem('customRangeEnd')) {
-                if (el.value === 'custom_range') el.value = 'this_month';
+            if (date) this.setPeriodDateState({ since: date }, view);
+            else if (!dates.since) el.value = 'this_month';
+        } else if (el.value === 'custom_range' || el.value === 'CUSTOM') {
+            const start = this.normalizePeriodDateInput(prompt('開始日を入力してください (YYYY-MM-DD / M/D):', dates.start || this.getLocalDateString()));
+            const end = start ? this.normalizePeriodDateInput(prompt('終了日を入力してください (YYYY-MM-DD / M/D):', dates.end || this.getLocalDateString())) : '';
+            if (start && end && start <= end) {
+                this.setPeriodDateState({ start, end }, view);
+                if (el.value === 'CUSTOM') { this.customStartDate = start; this.customEndDate = end; }
+            } else {
+                if (start && end && start > end) this.showToast?.('終了日は開始日以降を指定してください。', 'warning');
+                if (!dates.start || !dates.end) el.value = 'this_month';
             }
         }
+        const selectedPeriod = el.value;
+        this.updateHistoryPeriodOptions();
+        el.value = selectedPeriod;
+        if (view === 'dashboard') this.dashboardPeriod = selectedPeriod;
         this.rememberCommonTopFilter?.(el);
         renderFn();
     }
 
-    getPeriodDays(period) {
+    getPeriodDays(period, view = this.currentView || 'history') {
         const now = new Date();
         const todayStr = this.getLocalDateString(now);
         const dayMs = 24 * 60 * 60 * 1000;
@@ -2876,14 +2913,14 @@
             return Math.ceil((fyEnd - fyStart) / dayMs) + 1;
         }
         if (period === 'custom') {
-            const startStr = localStorage.getItem('customStartDate');
+            const startStr = this.getPeriodDateState(view).since;
             if (!startStr) return 1;
             const start = new Date(startStr);
             return Math.ceil((now - start) / dayMs) || 1;
         }
         if (period === 'custom_range') {
-            const sStr = localStorage.getItem('customRangeStart');
-            const eStr = localStorage.getItem('customRangeEnd');
+            const sStr = this.getPeriodDateState(view).start;
+            const eStr = this.getPeriodDateState(view).end;
             if (!sStr || !eStr) return 1;
             const start = new Date(sStr);
             const end = new Date(eStr);
@@ -2894,7 +2931,7 @@
         return 30;
     }
 
-    getPeriodLabel(period) {
+    getPeriodLabel(period, view = this.currentView || 'history') {
         const periodMap = { 
             'today': '今日',
             'yesterday': '昨日',
@@ -2913,11 +2950,11 @@
         let label = periodMap[period] || (isNaN(parseInt(period)) ? '不明' : `${period}年度`);
         
         if (period === 'custom') {
-            const date = localStorage.getItem('customStartDate');
+            const date = this.getPeriodDateState(view).since;
             if (date) label = `${date} 以降`;
         } else if (period === 'custom_range') {
-            const s = localStorage.getItem('customRangeStart');
-            const e = localStorage.getItem('customRangeEnd');
+            const s = this.getPeriodDateState(view).start;
+            const e = this.getPeriodDateState(view).end;
             if (s && e) label = `${s} 〜 ${e}`;
         }
         return label;
@@ -2931,7 +2968,7 @@
 
         // Extract base text by removing any previously appended period info
         const baseTxt = subtitle.textContent.split(' 集計期間:')[0].split(' [')[0].split('【')[0].trim(); 
-        const label = this.getPeriodLabel(period);
+        const label = this.getPeriodLabel(period, viewId.replace('view-', ''));
         subtitle.innerHTML = `${baseTxt} <span class="period-badge-header" style="background:var(--primary-light); color:var(--primary); padding:3px 10px; border-radius:99px; margin-left:10px; font-size:0.75rem; border:1px solid var(--primary); font-weight:800; white-space:nowrap;"><i class="fa-solid fa-calendar-day" style="margin-right:4px;"></i>集計期間: ${label}</span>`;
     }
     }

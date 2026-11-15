@@ -1252,7 +1252,7 @@
     }
 
     getFixCenterHistoryPriority(history) {
-        const workTime = parseFloat(history?.workTime) || 0;
+        const workTime = this.getRecordWorkMinutes(history);
         let score = 0;
         if (history?.isDokatei) score += 100;
         if (history?.isNonProductionStop) score += 55;
@@ -1280,7 +1280,7 @@
         else if (history?.isNonProductionStop) reasons.push('非生産停止');
         else if (history?.isSudden || !history?.taskId) reasons.push('突発');
         if (history?.isFirstTime === false) reasons.push('再発');
-        const workTime = parseFloat(history?.workTime) || 0;
+        const workTime = this.getRecordWorkMinutes(history);
         if (workTime > 0) reasons.push(`${workTime}分`);
         return reasons.join(' / ') || '通常';
     }

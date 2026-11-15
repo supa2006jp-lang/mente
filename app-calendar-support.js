@@ -281,14 +281,14 @@
 
         for (let d = 1; d <= lastDate; d++) {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            const history = indexedHistory ? (indexedHistory.get(dateStr) || []) : (store.activeData.history || []).filter(h => h.date === dateStr);
+            const history = (indexedHistory ? (indexedHistory.get(dateStr) || []) : (store.activeData.history || []).filter(h => h.date === dateStr)).filter(h => !h.isManualGuide);
             scheduledDoneCount += history.filter(h => !!h.taskId).length;
             suddenCount += history.filter(h => this.isCalendarSuddenResponseHistory(h)).length;
             const scheduled = this.getScheduledTasksForDate(dateStr);
             totalRemaining += scheduled.length;
-            const dokas = history.filter(h => h.isDokatei);
+            const dokas = history.filter(h => !h.taskId && h.isDokatei);
             dokateiCount += dokas.length;
-            dokateiTime += dokas.reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
+            dokateiTime += dokas.reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
         }
 
         document.getElementById('cal-stat-remaining').textContent = totalRemaining;

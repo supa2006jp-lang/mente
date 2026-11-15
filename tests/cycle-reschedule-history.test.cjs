@@ -25,7 +25,7 @@ function createApp(task, history = []) {
         confirm: () => true,
         Date
     });
-    for (const name of ['app-calendar-support.js', 'app-machines.js']) {
+    for (const name of ['app-worktime.js', 'app-calendar-support.js', 'app-machines.js']) {
         const source = fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
         vm.runInContext(source, context, { filename: name });
     }

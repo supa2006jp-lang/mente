@@ -110,8 +110,8 @@
         this.updateViewSubtitle('view-analysis', period);
         this.renderCommonFilterBadgeSlot?.('analysis');
 
-        let history = store.getHistory({});
-        history = this.filterHistoryByPeriod(history, period);
+        let history = store.getHistory({}).filter(h => !h.isManualGuide);
+        history = this.filterHistoryByPeriod(history, period, 'analysis');
         const machines = store.getMachines(true);
 
         // ラインフィルタの適用
@@ -757,30 +757,30 @@
         if (!this.dashboardPeriod) this.dashboardPeriod = period;
         this.updateViewSubtitle('view-dashboard', period);
 
-        let history = store.activeData.history || [];
-        history = this.filterHistoryByPeriod(history, period);
+        let history = (store.activeData.history || []).filter(h => !h.isManualGuide);
+        history = this.filterHistoryByPeriod(history, period, 'dashboard');
 
-        const periodicTime = history.filter(h => !!h.taskId).reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
-        const dokateiTime = history.filter(h => h.isDokatei).reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
-        const suddenTime = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop).reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
-        const nonProductionStopTime = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop).reduce((sum, h) => sum + (parseInt(h.workTime) || 0), 0);
+        const periodicTime = history.filter(h => !!h.taskId).reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
+        const dokateiTime = history.filter(h => !h.taskId && h.isDokatei).reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
+        const suddenTime = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop).reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
+        const nonProductionStopTime = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop).reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0);
         
         const totalTime = periodicTime + suddenTime + nonProductionStopTime + dokateiTime;
         const suddenCount = history.filter(h => !h.taskId && !h.isDokatei && !h.isNonProductionStop).length;
         const nonProductionStopCount = history.filter(h => !h.taskId && !h.isDokatei && h.isNonProductionStop).length;
-        const dokateiCount = history.filter(h => h.isDokatei).length;
+        const dokateiCount = history.filter(h => !h.taskId && h.isDokatei).length;
         const suddens = history.filter(h => !h.taskId && !h.isNonProductionStop && h.date);
-        const dokateis = history.filter(h => h.isDokatei).sort((a, b) => (parseInt(b.workTime) || 0) - (parseInt(a.workTime) || 0));
+        const dokateis = history.filter(h => !h.taskId && h.isDokatei).sort((a, b) => (this.getRecordWorkMinutes(b)) - (this.getRecordWorkMinutes(a)));
         
         // Past 3 months fixed filter for Worst History
         const date3M = new Date(); date3M.setMonth(date3M.getMonth() - 3);
         const date3MStr = this.getLocalDateString(date3M);
-        const dokateis3M = (store.activeData.history || []).filter(h => h.isDokatei && h.date >= date3MStr).sort((a, b) => (parseInt(b.workTime) || 0) - (parseInt(a.workTime) || 0));
+        const dokateis3M = (store.activeData.history || []).filter(h => !h.isManualGuide && !h.taskId && h.isDokatei && h.date >= date3MStr).sort((a, b) => (this.getRecordWorkMinutes(b)) - (this.getRecordWorkMinutes(a)));
 
         const totalTroubleTime = suddenTime + nonProductionStopTime + dokateiTime;
         const totalTroubleCount = suddenCount + nonProductionStopCount + dokateiCount;
         const avgMttr = totalTroubleCount > 0 ? (totalTroubleTime / totalTroubleCount).toFixed(1) : 0;
-        const periodLabel = this.getPeriodLabel(period);
+        const periodLabel = this.getPeriodLabel(period, 'dashboard');
 
         let mtbf = '-';
         if (suddens.length >= 2) {
@@ -926,22 +926,22 @@
                     </div>
                 </div>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--primary); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='periodic'; app.renderHistory();">
+                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--primary); cursor:pointer;" onclick="app.setPeriodDateState(app.getPeriodDateState('dashboard'),'history'); app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='periodic'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">定期保全 合計</div>
                         <div style="font-size:1.6rem; font-weight:900; color:var(--primary); line-height:1.2;">${periodicTime}<span style="font-size:0.8rem">分</span></div>
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${history.filter(h=>!!h.taskId).length}件の実施履歴</div>
                     </div>
-                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--success); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='sudden'; app.renderHistory();">
+                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--success); cursor:pointer;" onclick="app.setPeriodDateState(app.getPeriodDateState('dashboard'),'history'); app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='sudden'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">突発故障（生産停止）</div>
                         <div style="font-size:1.6rem; font-weight:900; color:var(--success); line-height:1.2;">${suddenTime}<span style="font-size:0.8rem">分</span></div>
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${suddenCount}件の停止トラブル</div>
                     </div>
-                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid #f59e0b; cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='nonProductionStop'; app.renderHistory();">
+                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid #f59e0b; cursor:pointer;" onclick="app.setPeriodDateState(app.getPeriodDateState('dashboard'),'history'); app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='nonProductionStop'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">非生産停止トラブル</div>
                         <div style="font-size:1.6rem; font-weight:900; color:#d97706; line-height:1.2;">${nonProductionStopTime}<span style="font-size:0.8rem">分</span></div>
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${nonProductionStopCount}件の非停止メンテ</div>
                     </div>
-                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--danger); cursor:pointer;" onclick="app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='dokatei'; app.renderHistory();">
+                    <div class="card dashboard-metric-card dashboard-clickable" style="padding:10px; border-top:4px solid var(--danger); cursor:pointer;" onclick="app.setPeriodDateState(app.getPeriodDateState('dashboard'),'history'); app.switchView('history'); document.getElementById('hist-filter-period').value='${period}'; document.getElementById('hist-filter-type').value='dokatei'; app.renderHistory();">
                         <div style="font-size:0.65rem; font-weight:800; color:var(--text-light); margin-bottom:4px;">ドカ停（重大）</div>
                         <div style="font-size:1.6rem; font-weight:900; color:var(--danger); line-height:1.2;">${dokateiTime}<span style="font-size:0.8rem">分</span></div>
                         <div style="font-size:0.65rem; margin-top:4px; opacity:0.8;">${dokateiCount}件の生産停止</div>

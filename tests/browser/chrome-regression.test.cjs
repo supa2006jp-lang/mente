@@ -318,6 +318,91 @@ test('real Chrome regression: persistence, restore, offline photos, and save fai
     });
 });
 
+test('consistency improvements: real date presets, cross-view totals, safe return, zero time, folding and undo', {timeout:180000}, async t=>{
+    const h=await launchHarness();t.after(()=>h.close());const {page}=h;
+    await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadNotebook();await maintenanceLazyFeatures.loadPhotos();
+        await store.runAtomicSaveBatch(()=>{
+            store.activeData.machineCategories=['包装'];store.activeData.machines=[{id:'cx-m',name:'確認ポンプ',model:'CP-1',lineNo:'1',category:'包装'}];
+            store.activeData.tasks=[{id:'cx-t',machineId:'cx-m',startDate:app.getLocalDateString(),periodDays:7,content:'定期点検',workers:['田中']}];
+            store.activeData.history=[{id:'cx-h',machineId:'cx-m',date:'2026-11-14',lineNo:'1',machineCategory:'包装',errorContent:'シール交換',cause:'摩耗',notes:'交換確認',workTime:0,workers:['田中'],category:'clean',isSudden:true,photos:[],replacedParts:[]}];
+        });app.updateDataLists();
+    })()`);
+    await t.test('actual custom_range dates restore and persist without changing another view',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            app.switchView('history');document.getElementById('search-scope').value='view';app.updateSearchScope();
+            const ask=window.prompt;try {const answers=['2026-11-01','2026-11-30'];window.prompt=()=>answers.shift();const el=document.getElementById('hist-filter-period');el.value='custom_range';app.onPeriodChange(el,()=>app.renderHistory());}finally{window.prompt=ask;}
+            app.saveNamedSearch('日付込み');app.switchView('worktime');
+            try {const answers=['2026-10-01','2026-10-31'];window.prompt=()=>answers.shift();const el=document.getElementById('worktime-filter-period');el.value='custom_range';el.dispatchEvent(new Event('change',{bubbles:true}));}finally{window.prompt=ask;}
+            if(document.getElementById('worktime-filter-period').value!=='custom_range')throw new Error('Worktime period selection reverted');
+            app.setPeriodDateState({start:'2026-09-01',end:'2026-09-30'},'history');
+            await app.applyNamedSearch('日付込み');return {history:app.getPeriodDateState('history'),worktime:app.getPeriodDateState('worktime'),period:document.getElementById('hist-filter-period').value,visible:document.querySelector('.history-worktime-summary').textContent};
+        })()`);
+        assert.equal(result.history.start,'2026-11-01');assert.equal(result.history.end,'2026-11-30');assert.equal(result.worktime.start,'2026-10-01');assert.equal(result.period,'custom_range');assert.match(result.visible,/1\s*件/);
+        await reloadApp(page,'date ranges persist');await page.evaluate("app.applyNamedSearch('日付込み')");
+        assert.equal(await page.evaluate("app.getPeriodDateState('history').end"),'2026-11-30');
+    });
+    await t.test('dashboard, history, equipment and worktime use the same valid elapsed time',async()=>{
+        const result=await page.evaluate(`(async()=>{
+            const saved=store.activeData.history;
+            try {
+                const base={...saved[0],date:app.getLocalDateString()};store.activeData.history=[{...base,workTime:30.5},{...base,id:'cx-neg',workTime:-5},{...base,id:'cx-invalid',workTime:'30x'},{...base,id:'cx-guide',isManualGuide:true,workTime:999},{...base,id:'cx-periodic',taskId:'cx-t',isDokatei:true,workTime:15}];
+                app.switchView('history');app.clearCurrentViewSearchAndFilters();document.getElementById('hist-filter-period').value='all';app.renderHistory();const history=document.querySelector('.history-worktime-summary').textContent;
+                app.dashboardPeriod='all';app.renderDashboard();const dashboard=Number(document.querySelector('.dashboard-chart-card').textContent.split('合計:')[1].split('分')[0].trim());
+                app.switchView('ranking');document.getElementById('ranking-filter-period').value='all';app.renderRanking();await new Promise(resolve=>setTimeout(resolve,250));const count=Chart.getChart(document.getElementById('ranking-freq-chart')).data.datasets[0].data.reduce((a,b)=>a+b,0);
+                app.switchView('worktime');document.getElementById('worktime-filter-period').value='all';app.saveWorkTimePeriodSelection();app.setWorkTimeGroup('category');const c=app._workTimeEvidenceContext;const total=app.getWorkTimeEvidence(c.history,c.results,c.groupBy,c.machines).total;
+                return {history,dashboard,count,total,equipment:app.getEquipmentWorkspace('cx-m').minutes};
+            }finally{store.activeData.history=saved;}
+        })()`);
+        assert.equal(result.dashboard,45.5);assert.equal(result.total,45.5);assert.equal(result.equipment,45.5);assert.equal(result.count,3);assert.match(result.history,/4\s*件/);assert.match(result.history,/45\.5分合計/);
+    });
+    await t.test('search return refuses to leave while saving or while discard is declined',async()=>{
+        await page.evaluate("app.openHistoryEditForm('cx-h')");
+        const result=await page.evaluate(`(()=>{
+            app._unifiedSearchReturn={query:'シール',period:'all'};document.getElementById('e-notes').value='未保存';
+            app._modalSaveInProgress=true;app.reopenUnifiedSearchReturn();const busy=document.getElementById('modal-container').dataset.modalType;app._modalSaveInProgress=false;
+            const durable=app.hasDurableEditDraft,ask=window.confirm;try{app.hasDurableEditDraft=()=>false;window.confirm=()=>false;app.reopenUnifiedSearchReturn();return {busy,type:document.getElementById('modal-container').dataset.modalType,value:document.getElementById('e-notes').value};}finally{app.hasDurableEditDraft=durable;window.confirm=ask;}
+        })()`);
+        assert.equal(result.busy,'edit-history');assert.equal(result.type,'edit-history');assert.equal(result.value,'未保存');
+        await page.evaluate('app.reopenUnifiedSearchReturn()');await page.waitFor("document.getElementById('modal-container').dataset.modalType==='shift-notebook-search'",'search return');
+        await page.evaluate('app.closeModal();app._unifiedSearchReturn=null');
+    });
+    await t.test('zero stays editable, negative time is rejected in all three forms and decimals persist',async()=>{
+        await page.evaluate("app.openHistoryEditForm('cx-h')");
+        assert.equal(await page.evaluate("document.getElementById('e-work-time').value"),'0');
+        for(const [type,prefix,open] of [['edit-history','e',"app.openHistoryEditForm('cx-h')"],['complete','c',"app.openCompletionForm('cx-t',app.getLocalDateString())"],['sudden','s','app.openSuddenRecordModal()']]) {
+            await page.evaluate(open);
+            const result=await page.evaluate(`(async()=>{document.getElementById('${prefix}-work-time').value='-1';const before=JSON.stringify(store.activeData.history);await app.saveModalData('${type}');return {type:document.getElementById('modal-container').dataset.modalType,unchanged:before===JSON.stringify(store.activeData.history),message:document.getElementById('toast-container').textContent};})()`);
+            assert.equal(result.type,type);assert.equal(result.unchanged,true);assert.match(result.message,/0以上/);
+        }
+        await page.evaluate("app.closeModal();app.openHistoryEditForm('cx-h');document.getElementById('e-notes').value='0分の確認';app.saveModalData('edit-history')");
+        assert.equal(await page.evaluate("Number(store.activeData.history.find(r=>r.id==='cx-h').workTime)"),0);
+        const decimal=await page.evaluate(`(async()=>{let record;await store.runAtomicSaveBatch(()=>{record=store.addHistoryRecord({...store.activeData.history[0],workTime:12.5});});return record.workTime;})()`);assert.equal(decimal,12.5);
+    });
+    await t.test('equipment sections remain compact and remember their open state after reload',async()=>{
+        await page.evaluate("app.openEquipmentWorkspace('cx-m');document.querySelector('[data-equipment-section=history]').open=true");await sleep(100);
+        const initial=await page.evaluate("({count:document.querySelectorAll('[data-equipment-section]').length,emptyOpen:document.querySelector('[data-equipment-section=guides]').open})");assert.equal(initial.count,5);assert.equal(initial.emptyOpen,false);
+        await reloadApp(page,'equipment fold state');await page.evaluate("app.openEquipmentWorkspace('cx-m')");
+        assert.equal(await page.evaluate("document.querySelector('[data-equipment-section=history]').open"),true);await page.evaluate('app.closeModal()');
+    });
+    await t.test('copy preview changes nothing, undo preserves later typing and removes untouched copied parts',async()=>{
+        await page.evaluate(`(()=>{app.openSuddenRecordModal();document.getElementById('s-machine-id').value='cx-m';app.onSuddenMachineChange('cx-m');document.getElementById('s-machine-id').dispatchEvent(new Event('change',{bubbles:true}));})()`);
+        const preview=await page.evaluate(`(()=>{
+            const source={...store.activeData.history.find(r=>r.id==='cx-h'),cause:'摩耗',notes:'交換確認',workTime:12.5,replacedParts:[{name:'シール',count:2,unit:'個',price:0}]};app.showRecordReuseChoice(source,'s-');
+            const check=document.querySelector('[data-reuse-field=parts]');check.checked=true;check.dispatchEvent(new Event('change',{bubbles:true}));
+            return {text:document.querySelector('.record-reuse-preview').textContent,cause:document.getElementById('s-cause').value};})()`);
+        assert.match(preview.text,/空欄 → 摩耗/);assert.equal(preview.cause,'');
+        const undone=await page.evaluate(`(()=>{
+            document.querySelector('.record-reuse > button').click();const copied=document.getElementById('s-cause').value;
+            const notes=document.getElementById('s-notes');notes.value='今回だけの処置';notes.dispatchEvent(new Event('input',{bubbles:true}));
+            document.querySelector('.record-reuse-undo').click();return {copied,cause:document.getElementById('s-cause').value,notes:notes.value,parts:document.querySelectorAll('#s-parts-container .part-row').length,feedback:document.querySelector('.record-reuse-feedback').textContent};})()`);
+        assert.equal(undone.copied,'摩耗');assert.equal(undone.cause,'');assert.equal(undone.notes,'今回だけの処置');assert.equal(undone.parts,0);assert.match(undone.feedback,/保持/);
+        await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:false});await page.evaluate('document.fonts.ready');await sleep(450);
+        const layout=await page.evaluate("({width:document.querySelector('.record-reuse').clientWidth,scroll:document.querySelector('.record-reuse').scrollWidth})");assert.ok(layout.scroll<=layout.width+2,JSON.stringify(layout));
+        await page.evaluate('app.closeModal()');
+    });
+});
+
 test('six refinements isolate filters, reconcile time and preserve equipment editing context', { timeout: 180000 }, async t => {
     const harness = await launchHarness(); t.after(() => harness.close());
     const { page } = harness;
@@ -448,6 +533,7 @@ test('six refinements isolate filters, reconcile time and preserve equipment edi
             const after={cause:document.getElementById('s-cause').value,notes:document.getElementById('s-notes').value,time:document.getElementById('s-work-time').value,workers:document.getElementById('s-workers').value,partsBefore:document.querySelectorAll('#s-parts-container .part-row').length,before};
             document.querySelector('[data-reuse-field="work-time"]').checked=true;document.querySelector('[data-reuse-field="workers"]').checked=true;
             document.querySelector('[data-reuse-field="parts"]').checked=true;
+            document.querySelector('[data-reuse-field="parts"]').dispatchEvent(new Event('change',{bubbles:true}));
             document.querySelector('.record-reuse button').click(); document.querySelector('.record-reuse button').click(); after.optedTime=document.getElementById('s-work-time').value;after.optedWorkers=document.getElementById('s-workers').value;after.partsAfter=document.querySelectorAll('#s-parts-container .part-row').length;return after;
         })()`);
         assert.equal(copied.before,'');assert.equal(copied.cause,'摩耗');assert.equal(copied.notes,'今回の処置');assert.equal(copied.time,'');assert.equal(copied.workers,'');assert.equal(copied.optedTime,'30');assert.equal(copied.optedWorkers,'田中, 鈴木');assert.equal(copied.partsBefore,0);assert.equal(copied.partsAfter,1);
@@ -628,6 +714,7 @@ test('workspace improvements: equipment, today actions, saved searches, forms, e
             app.openSuddenRecordModal(); document.getElementById('s-machine-id').value='ws-machine'; app.onSuddenMachineChange('ws-machine');
             document.getElementById('s-machine-id').dispatchEvent(new Event('change',{bubbles:true}));
             document.getElementById('s-notes').value='今回の処置'; document.getElementById('record-reuse-select').value='ws-history';
+            document.getElementById('record-reuse-select').dispatchEvent(new Event('change',{bubbles:true}));
             document.querySelector('.record-reuse button').click();
             return {cause:document.getElementById('s-cause').value,notes:document.getElementById('s-notes').value,required:[...document.querySelectorAll('#sudden-form [required]')].every(f=>!f.closest('details')||f.closest('details').open),open:document.querySelector('.maintenance-form-details').open};
         })()`);

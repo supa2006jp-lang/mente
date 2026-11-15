@@ -738,7 +738,7 @@
                     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px;">
                         <div class="form-group">
                             <label for="s-work-time">作業時間 (分) <span style="color:var(--danger)">*</span></label>
-                            <input type="number" id="s-work-time" placeholder="例: 30" min="0" required>
+                            <input type="number" id="s-work-time" placeholder="例: 30" required min="0" step="any">
                         </div>
                         <div class="form-group">
                             <label for="s-start-time">開始時間 <span style="font-size:0.7rem; color:var(--text-light); font-weight:400;">任意</span></label>
@@ -1106,7 +1106,7 @@
                     count: group.length,
                     latest: sorted[0],
                     first: sorted[sorted.length - 1],
-                    totalTime: group.reduce((sum, item) => sum + (parseInt(item.history.workTime, 10) || 0), 0),
+                    totalTime: group.reduce((sum, item) => sum + (this.getRecordWorkMinutes(item.history)), 0),
                     avgScore,
                     strength,
                     strengthLabel,
@@ -1203,7 +1203,7 @@
                                         return `
                                             <button type="button" onclick="app.openHistoryEditForm('${this.escapeJs(h.id)}')">
                                                 <b>${this.escapeHtml(h.date || '日付なし')} ${this.escapeHtml(this.getHistoryDisplayText(h) || '内容なし')}</b>
-                                                <small>${parseInt(h.workTime, 10) || 0}分 / ${item.score}点 / ${this.escapeHtml(h.notes || '処置未入力')}</small>
+                                                <small>${this.getRecordWorkMinutes(h)}分 / ${item.score}点 / ${this.escapeHtml(h.notes || '処置未入力')}</small>
                                             </button>
                                             <button type="button" class="exclude" onclick="app.excludeHistoryFromRecurrenceGroup('${this.escapeJs(h.id)}', '${this.escapeJs(prefix)}', '${this.escapeJs(currentId)}')">
                                                 <i class="fa-solid fa-ban"></i> これは違う
@@ -1244,7 +1244,7 @@
                                     <article class="history-assist-candidate">
                                         <div class="history-assist-candidate-main">
                                             <b>${this.escapeHtml(h.date || '日付なし')} ${this.escapeHtml(this.getHistoryDisplayText(h) || '内容なし')}</b>
-                                            <small>${this.escapeHtml(item.machine?.name || '機械不明')}${item.machine?.model ? ` [${this.escapeHtml(item.machine.model)}]` : ''} / ${parseInt(h.workTime, 10) || 0}分</small>
+                                            <small>${this.escapeHtml(item.machine?.name || '機械不明')}${item.machine?.model ? ` [${this.escapeHtml(item.machine.model)}]` : ''} / ${this.getRecordWorkMinutes(h)}分</small>
                                             <div><span>原因</span>${this.escapeHtml(h.cause || '未入力')}</div>
                                             <div><span>処置</span>${this.escapeHtml(h.notes || '未入力')}</div>
                                         </div>
@@ -1383,7 +1383,7 @@
                 frequencyLabel,
                 latestId: latest?.id || '',
                 latestTreatment: latest?.notes || '',
-                totalTime: histories.reduce((sum, h) => sum + (parseInt(h.workTime, 10) || 0), 0),
+                totalTime: histories.reduce((sum, h) => sum + (this.getRecordWorkMinutes(h)), 0),
                 hasGuide: histories.some(h => h.guide && !store.isGuideArchived?.(h.id)),
                 histories
             });
@@ -1683,7 +1683,7 @@
                         </div>
                         <div class="form-group">
                             <label for="c-work-time">作業時間 (分) <span style="color:var(--danger)">*</span></label>
-                            <input type="number" id="c-work-time" placeholder="例: 30" required>
+                            <input type="number" id="c-work-time" placeholder="例: 30" required min="0" step="any">
                         </div>
                     </div>
 
@@ -3402,6 +3402,14 @@
         this._modalSaveInProgress = true;
         try {
             const form = document.getElementById(`${type}-form`);
+            const prefix = { sudden: 's-', complete: 'c-', 'edit-history': 'e-' }[type];
+            const time = prefix && document.getElementById(prefix + 'work-time');
+            if (time && this.getWorkTimeRecordFacts({ workTime: time.value }).unknownTime) {
+                time.closest('details')?.setAttribute('open', '');
+                this.showToast?.('作業時間は0以上の数値で入力してください。', 'warning');
+                time.focus();
+                return;
+            }
             if (form && !form.reportValidity()) return;
             this.assertEditDepartment?.(document.getElementById('modal-container'));
             this.setEditSaving?.(document.getElementById('modal-container'), true);

@@ -36,6 +36,7 @@
             query: document.getElementById(scope === 'all' ? 'notebook-search' : 'global-search')?.value || '',
             period: document.getElementById('notebook-search-period')?.value || 'all',
             targets: this.getSavedUnifiedSearchTargetTypes?.() || [],
+            dates: this.getPeriodDateState(scope === 'all' ? 'all' : this.currentView),
             props: Object.fromEntries((scope === 'view' ? viewProps[this.currentView] || [] : []).map(p => [p, clone(this[p])])) };
     };
     P.saveNamedSearch = function (name) {
@@ -61,6 +62,10 @@
                 // Apply the same whitelist to older presets, which stored every view's state.
                 for (const p of viewProps[preset.view] || []) if (Object.prototype.hasOwnProperty.call(preset.props || {}, p)) this[p] = clone(preset.props[p]);
                 if (preset.view === 'dashboard') this._todayWorkspaceDepartment = department;
+            }
+            if (preset.dates) {
+                this.setPeriodDateState(preset.dates, scope === 'all' ? 'all' : preset.view);
+                this.updateHistoryPeriodOptions();
             }
             for (const field of scope === 'view' ? filterControls(preset.view) : []) {
                 if (!Object.prototype.hasOwnProperty.call(preset.fields || {}, field.id)) continue;

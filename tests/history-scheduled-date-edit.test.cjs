@@ -29,7 +29,7 @@ function makeApp(history, tasks = [periodic()]) {
         querySelectorAll() { return []; }
     };
     const context = vm.createContext({ MaintenanceApp, MaintenanceStore: {}, store, document, alert: value => alerts.push(value), console, Date });
-    for (const name of ['app-calendar-support.js', 'app-maintenance-forms.js', 'app-history.js']) {
+    for (const name of ['app-worktime.js', 'app-calendar-support.js', 'app-maintenance-forms.js', 'app-history.js']) {
         vm.runInContext(read(name), context, { filename: name });
     }
     const app = new MaintenanceApp();

@@ -57,6 +57,25 @@
         return { machine, history, guides, parts: [...parts.values()], minutes, unknownTime, upcoming, overdue };
     };
 
+    P.createEquipmentSection = function (root, key, title, count, initiallyOpen = false) {
+        const storageKey = 'maintenance-equipment-sections-v1:' + store.data.currentDepartmentId;
+        let states = {};
+        try { states = JSON.parse(localStorage.getItem(storageKey) || '{}') || {}; } catch (_) {}
+        const section = node('section', null, root);
+        section.className = 'equipment-section' + (key === 'overdue' ? ' equipment-overdue' : '');
+        const details = node('details', null, section); details.dataset.equipmentSection = key;
+        const summary = node('summary', null, details);
+        node('h3', `${title} ${count} 件`, summary);
+        details.open = count > 0 && (typeof states[key] === 'boolean' ? states[key] : initiallyOpen);
+        if (count > 0) details.addEventListener('toggle', () => {
+            try {
+                const saved = JSON.parse(localStorage.getItem(storageKey) || '{}') || {};
+                saved[key] = details.open; localStorage.setItem(storageKey, JSON.stringify(saved));
+            } catch (_) {}
+        });
+        return node('div', null, details);
+    };
+
     P.openEquipmentWorkspace = function (machineId, scrollTop = 0) {
         const data = this.getEquipmentWorkspace(machineId);
         if (!data) return this.showToast('対象の機械が見つかりません。', 'warning');
@@ -69,9 +88,7 @@
             button(stats, `対応履歴 ${data.history.length} 件`, () => this.openEquipmentChild(() => this.openEvidenceRecords(data.history, `${data.machine.name} の対応履歴`)));
             button(stats, `作業時間 ${data.minutes.toLocaleString()} 分`, () => this.openEquipmentChild(() => this.openEvidenceRecords(data.history, `${data.machine.name} の作業時間`)));
             node('p', `作業時間は1記録を1回加算した経過時間です。時間未入力・不正値 ${data.unknownTime} 件。`, root);
-            const overdue = node('section', null, root); overdue.className = 'equipment-overdue';
-            node('h3', `期限を過ぎた未完了予定 ${data.overdue.length} 件`, overdue);
-            if (!data.overdue.length) node('p', '期限を過ぎた未完了予定はありません。', overdue);
+            const overdue = this.createEquipmentSection(root, 'overdue', '期限を過ぎた未完了予定', data.overdue.length, true);
             const overdueRows = node('div', null, overdue); overdueRows.className = 'equipment-overdue-rows';
             let shown = 0;
             const more = button(overdue, '続きを表示', () => appendOverdue());
@@ -86,22 +103,19 @@
                 more.textContent = `続きを表示（残り ${data.overdue.length - shown} 件）`;
             };
             const todayForDisplay = this.getLocalDateString(); appendOverdue();
-            const next = node('section', null, root); node('h3', '次回のメンテ予定', next);
-            if (!data.upcoming.length) node('p', '今後の未完了予定はありません。', next);
+            const next = this.createEquipmentSection(root, 'upcoming', '次回のメンテ予定', data.upcoming.length, true);
             for (const { task, date } of data.upcoming) {
                 const row = node('div', null, next); row.className = 'workspace-row';
                 node('span', `${date}　${task.content || 'メンテナンス'}`, row);
                 button(row, '完了を記録', () => this.openEquipmentChild(() => this.openCompletionForm(task.id, date)));
             }
-            const history = node('section', null, root); node('h3', '最近の対応', history);
-            this.appendEvidenceRows(history, data.history.slice(0, 10), { equipment: true });
-            const guides = node('section', null, root); node('h3', `関連手順書 ${data.guides.length} 件（同じ型式を含む）`, guides);
+            const history = this.createEquipmentSection(root, 'history', '最近の対応', data.history.length);
+            if (data.history.length) this.appendEvidenceRows(history, data.history.slice(0, 10), { equipment: true });
+            const guides = this.createEquipmentSection(root, 'guides', '関連手順書（同じ型式を含む）', data.guides.length);
             for (const record of data.guides.slice(0, 10)) button(guides, `${record.date || ''} ${this.getHistoryDisplayText(record) || '手順書'}`, () => this.openEquipmentChild(() => this.openGuideModal(record.id)));
             if (data.guides.length > 10) button(guides, 'すべての関連手順書', () => this.openEquipmentChild(() => this.openEvidenceRecords(data.guides, '関連手順書', { guides: true })));
-            const parts = node('section', null, root); node('h3', '使用部品（対応履歴の累計）', parts);
-            const details = node('details', null, parts); node('summary', `${data.parts.length} 種類の部品を表示`, details);
-            for (const part of data.parts) node('p', `${part.name} ${part.model}　${part.count} ${part.unit}`, details);
-            if (!data.parts.length) node('p', '部品の記録はありません。', parts);
+            const parts = this.createEquipmentSection(root, 'parts', '使用部品（種類・対応履歴の累計）', data.parts.length);
+            for (const part of data.parts) node('p', `${part.name} ${part.model}　${part.count} ${part.unit}`, parts);
         });
         document.getElementById('modal-save-btn').hidden = true;
         document.querySelector('#modal-container .modal-footer [onclick="app.requestCloseModal()"]').textContent = '閉じる';

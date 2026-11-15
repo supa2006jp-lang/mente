@@ -1746,6 +1746,10 @@ class MaintenanceStore {
     }
 
     addHistoryRecord(record) {
+        const rawTime = record.workTime == null ? '' : String(record.workTime).trim();
+        if (rawTime && (!/^\d+(?:\.\d+)?$/.test(rawTime) || !Number.isFinite(Number(rawTime)))) {
+            throw new Error('作業時間は0以上の数値で入力してください。');
+        }
         const newRecord = {
             id: this.generateId(),
             taskId: record.taskId || null,
@@ -1761,7 +1765,7 @@ class MaintenanceStore {
             workers: record.workers || [],
             replacedParts: record.replacedParts || [],
             photos: record.photos || [],
-            workTime: parseInt(record.workTime) || 0,
+            workTime: rawTime ? Number(rawTime) : 0,
             startTime: record.startTime || '',
             endTime: record.endTime || '',
             isSingleMaintenance: !!record.isSingleMaintenance,

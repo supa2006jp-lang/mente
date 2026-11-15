@@ -39,7 +39,7 @@ test('history custom date defaults to Japan today just after midnight', () => {
     const { app, prompts, values } = makeApp('2026-11-13T15:30:00.000Z');
     app.onPeriodChange({ value: 'custom' }, () => {});
     assert.equal(prompts[0].value, '2026-11-14');
-    assert.equal(values.get('customStartDate'), '2026-11-14');
+    assert.equal(app.getPeriodDateState('history').since, '2026-11-14');
 });
 
 test('fiscal-year day count starts at one after April 1 midnight in Japan', () => {
