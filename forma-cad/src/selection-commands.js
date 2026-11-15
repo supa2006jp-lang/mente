@@ -14,7 +14,7 @@ export function selectionCommandOptions({available, planarFaces, faceCount, face
  let hint='';
  if(!available)return {actions,hint};
  if(faceCount===1&&planarFaces===1){
-  actions.push('hole','boss','sketch');
+  actions.push('hole','shell','boss','sketch');
   if(hasOtherBody){
    actions.push('align');
    hint='面合わせは、別のボディの平面をもう1つ指定します。';

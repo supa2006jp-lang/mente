@@ -4,7 +4,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
+import {setOC} from 'replicad';
 import {defaults} from '../src/geometry.js';
+import {runOperation} from '../src/kernel.js';
 
 const root=path.resolve('dist');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
@@ -100,8 +103,24 @@ try{
  await page.locator('#cad-cancel').click();
  await page.keyboard.press('Escape');
  await commands.waitFor({state:'hidden'});
+
+ setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+ const box=boxes[0];
+ const edges=[-34,-14].flatMap(x=>[-10,10].map(y=>({bodyId:box.id,point:[x,y,5]})));
+ const fillet={type:'fillet',id:'round',target:box.id,radius:2,edges};
+ await load([box,{kind:'cadop',id:fillet.id,name:'フィレット',spec:fillet,...runOperation([box],fillet)}]);
+ await page.locator('#selection-mode').selectOption('face');
+ await pick(left);
+ await action('shell').click();
+ await page.locator('#tools-dialog').waitFor();
+ assert.equal(await page.locator('#cad-command').inputValue(),'shell');
+ assert.equal(await page.locator('#cad-target').inputValue(),box.id);
+ await page.locator('#cad-thickness').fill('1');
+ await page.locator('#cad-apply').click();
+ await page.locator('#features').getByText('シェル · 壁 1 mm · クリックで再編集',{exact:true}).waitFor();
+ assert.equal(await page.locator('#body-count').textContent(),'1');
  assert.deepEqual(errors,[]);
- console.log('PASS face and edge shortcuts, existing command dispatch, and one- and two-face alignment');
+ console.log('PASS face and edge shortcuts, one- and two-face alignment, and one-face shell on a rounded box');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));
