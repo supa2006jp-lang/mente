@@ -509,9 +509,11 @@ test('workspace improvements: equipment, today actions, saved searches, forms, e
         for (const width of [390,640]) {
             await page.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:width===640?2:1,mobile:false});
             await page.evaluate("app.switchView('history'); document.getElementById('search-scope').value='view'; app.updateSearchScope(); app.openSuddenRecordModal()");
+            await page.evaluate('document.fonts.ready.then(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))');
             const layout = await page.evaluate(`(() => {
                 const dialog=document.getElementById('modal-container'), form=document.getElementById('sudden-form'), bar=document.querySelector('.header-search-workspace');
-                return {viewport:innerWidth,dialogRight:dialog.getBoundingClientRect().right,dialogLeft:dialog.getBoundingClientRect().left,formWidth:form.clientWidth,formScroll:form.scrollWidth,barLeft:bar.getBoundingClientRect().left,barRight:bar.getBoundingClientRect().right,scopeWidth:document.getElementById('search-scope').getBoundingClientRect().width};
+                const overflow=[...form.querySelectorAll('*')].filter(n=>n.getBoundingClientRect().width && n.getBoundingClientRect().right>form.getBoundingClientRect().right+2).slice(0,8).map(n=>({tag:n.tagName,id:n.id,width:n.getBoundingClientRect().width}));
+                return {viewport:innerWidth,dialogRight:dialog.getBoundingClientRect().right,dialogLeft:dialog.getBoundingClientRect().left,formWidth:form.clientWidth,formScroll:form.scrollWidth,barLeft:bar.getBoundingClientRect().left,barRight:bar.getBoundingClientRect().right,scopeWidth:document.getElementById('search-scope').getBoundingClientRect().width,overflow};
             })()`);
             assert.ok(layout.dialogLeft>=-1 && layout.dialogRight<=width+1,JSON.stringify(layout));
             assert.ok(layout.formScroll<=layout.formWidth+2,JSON.stringify(layout));

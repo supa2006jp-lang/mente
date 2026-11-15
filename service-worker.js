@@ -1,5 +1,5 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const APP_BUILD = '20261115-workspace6';
+const APP_BUILD = '20261115-workspace6b';
 const CACHE_NAME = 'maintenance-next-static-' + APP_BUILD;
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
@@ -10,7 +10,7 @@ const SHELL_FILES = [
     './app-five-s-management.js?v=20261115-workspace6',
     './app-unified-search.js?v=20261115-workspace6',
     './app-photo-export.js?v=20261115-workspace6',
-    './workspace-improvements.css?v=20261115-workspace6',
+    './workspace-improvements.css?v=20261115-workspace6b',
     './',
     './index.html',
     './assets/vendor/fontsource/inter/5.2.6/index.css',

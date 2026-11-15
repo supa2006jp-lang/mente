@@ -37,7 +37,9 @@
     .workspace-toolbar select, .workspace-toolbar input { min-width: 0; width: 100%; }
     .workspace-toolbar label { width: 100%; }
     .workspace-toolbar button { max-width: 100%; }
-    .organized-maintenance-form > div[style*="grid"], .organized-maintenance-form .maintenance-form-details > div[style*="grid"] { grid-template-columns: minmax(0, 1fr) !important; }
+    .organized-maintenance-form div[style*="grid"] { grid-template-columns: minmax(0, 1fr) !important; }
+    .organized-maintenance-form div[style*="display:flex"], .organized-maintenance-form div[style*="display: flex"] { flex-wrap: wrap; }
+    .organized-maintenance-form .form-group { min-width: 0; max-width: 100%; }
     .organized-maintenance-form input, .organized-maintenance-form select, .organized-maintenance-form textarea { min-width: 0; max-width: 100%; }
     .header-actions, .header-search-group { min-width: 0; max-width: 100%; flex-wrap: wrap; }
     .search-bar, .notebook-search-bar { min-width: 0 !important; max-width: 100%; flex-wrap: wrap; }
