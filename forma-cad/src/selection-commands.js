@@ -46,6 +46,7 @@ export function createSelectionCommands({container,sketchButton,edgeButtons,seco
  buttons.className='selection-command-buttons';
  const details=document.createElement('details');
  details.id='selection-more-actions';
+ details.open=true;
  const summary=document.createElement('summary');
  summary.textContent='その他の操作';
  const secondaryButtons=document.createElement('div');
@@ -94,6 +95,6 @@ export function createSelectionCommands({container,sketchButton,edgeButtons,seco
   hint.textContent=message;
   hint.hidden=!message;
   panel.hidden=!actions.length&&!message;
-  if(panel.hidden)details.open=false;
+  if(panel.hidden)details.open=true;
  }};
 }

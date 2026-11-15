@@ -91,7 +91,7 @@ try{
  await pick(left);
  await action('extrude').waitFor();
  const selectedPoint=await screenPoint(left),measurement=page.locator('#measurement');
- await page.waitForFunction(()=>!!document.getElementById('measurement').style.translate);
+ await page.locator('#face-extrude-shortcut').waitFor();
  const menuBounds=await measurement.boundingBox();
  assert.ok(selectedPoint.x<menuBounds.x||selectedPoint.x>menuBounds.x+menuBounds.width||
   selectedPoint.y<menuBounds.y||selectedPoint.y>menuBounds.y+menuBounds.height);
@@ -117,13 +117,16 @@ try{
  await page.locator('#measurement-reset-position').click();
  assert.equal(await measurement.getAttribute('data-panel-position'),null);
  assert.ok(await commands.getByRole('button',{name:'この面にスケッチ'}).isVisible());
+ assert.ok(await action('hole').isVisible());
+ await more.locator('summary').click();
  assert.equal(await action('hole').isVisible(),false);
  assert.equal(await page.locator('#sketch-on-face-grid').count(),1);
  await action('extrude').click();
  await page.locator('#extrude-distance').waitFor();
+ await commands.waitFor({state:'hidden'});
  await page.keyboard.press('Escape');
  await pick(left);
- await openMore();
+ await action('hole').waitFor();
  assert.match(await commands.textContent(),/別のボディの平面をもう1つ/);
  await action('hole').click();
  await page.locator('#hole-panel').waitFor();

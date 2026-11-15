@@ -1250,12 +1250,12 @@ function getBasis(){const f=current();if(f.frame)return basisFor(f);if(f.plane==
 let lastSketchPointer=null;
 let sketchBasis,sketchOrigin,lastDrawPoint=null,snapMarker=null,sketchGrid=null,sketchGridKey="",connectedSketch=null;
 const solidBoundaryFillLabel=document.createElement('label');solidBoundaryFillLabel.hidden=true;solidBoundaryFillLabel.className='line-angle-snap-option';solidBoundaryFillLabel.title='描いた線と同じ平面のソリッド境界を利用し、小さい閉領域の不足部分だけを通常のスケッチ線として取り込みます。取り込んだ線は元ソリッドの変更には追従しません';solidBoundaryFillLabel.innerHTML='<input id="solid-boundary-fill-toggle" type="checkbox" checked> ソリッド境界で自動的に囲む';$('sketch-banner').append(solidBoundaryFillLabel);solidBoundaryFillLabel.querySelector('input').onchange=()=>{solidBoundaryFill?.clear();if(sketch&&firstPoint&&lastDrawPoint)previewEndpoint(lastDrawPoint);};
-const lineAngleSnapLabel=document.createElement('label');lineAngleSnapLabel.className='line-angle-snap-option';lineAngleSnapLabel.hidden=true;lineAngleSnapLabel.innerHTML='<input id="line-angle-snap" type="checkbox" checked>角度吸着 <select id="line-angle-step" aria-label="線分の吸着刻み"><option value="5">5°</option><option value="15" selected>15°</option><option value="30">30°</option><option value="45">45°</option></select>（Altで一時解除）';$('sketch-banner').append(lineAngleSnapLabel);const lineAngleStyle=document.createElement('style');lineAngleStyle.textContent='#sketch-banner .line-angle-snap-option{display:flex;align-items:center;gap:6px;font-size:12px;margin:5px 0}#sketch-banner .line-angle-snap-option input{width:auto;margin:0}#sketch-banner .line-angle-snap-option select{width:auto;margin:0;padding:2px 5px;font-size:12px;background:#fff;color:#193a50}#sketch-banner .line-angle-snap-option[hidden]{display:none!important}';document.head.append(lineAngleStyle);
+const lineAngleSnapLabel=document.createElement('label');lineAngleSnapLabel.className='line-angle-snap-option';lineAngleSnapLabel.hidden=true;lineAngleSnapLabel.innerHTML='<input id="line-angle-snap" type="checkbox" checked>角度吸着 <select id="line-angle-step" aria-label="線分の吸着刻み"><option value="5">5°</option><option value="15" selected>15°</option><option value="30">30°</option><option value="45">45°</option></select>（Altで一時解除）';$('sketch-banner').append(lineAngleSnapLabel);
 function refreshLineAngleSnap(altKey=lastSketchPointer?.altKey||false){if(!sketch||!firstPoint||$('profile').value!=='line'||arcDrag||!lastSketchPointer)return;const hit=planePoint({...lastSketchPointer,altKey});if(hit)previewEndpoint(hit);}
 $('line-angle-snap').onchange=()=>refreshLineAngleSnap();$('line-angle-step').onchange=()=>refreshLineAngleSnap();for(const type of ['keydown','keyup'])window.addEventListener(type,e=>{if(e.key==='Alt')refreshLineAngleSnap(e.altKey);});
 const sketchSegmentToggle=document.createElement('button');sketchSegmentToggle.id='sketch-segment-toggle';sketchSegmentToggle.type='button';sketchSegmentToggle.hidden=true;sketchSegmentToggle.title='スプラインからの作図は右クリックで直線と曲線を切り替えます。通常の線分では右クリックで通常線／補助線を切り替えます';sketchSegmentToggle.onclick=()=>switchConnectedSketch();$('end-sketch').before(sketchSegmentToggle);
 const constructionToggle=document.createElement('button');constructionToggle.id='sketch-construction-toggle';constructionToggle.type='button';constructionToggle.hidden=true;constructionToggle.onclick=()=>toggleLineConstruction();$('end-sketch').before(constructionToggle);
-function updateLineConstructionUI(){const active=sketch&&$('profile').value==='line';constructionToggle.hidden=!active;constructionToggle.textContent=(lineConstruction?'補助線 ON':'通常線')+(connectedSketch?'（ボタンで切替）':lineConstruction?'（右クリックで切替）':'（右クリックで補助線）');constructionToggle.setAttribute('aria-pressed',String(lineConstruction));constructionToggle.style.cssText='border:1px dashed #8865af;background:'+(lineConstruction?'#eee4ff':'#f8f5ff')+';color:#674392;padding:5px 9px;border-radius:5px';if(active){host.dataset.drawingConstruction=String(lineConstruction);$('sketch-draw-instruction').textContent=(lineConstruction?'補助線：押し出し輪郭には含みません':'通常線：終点をクリック')+(connectedSketch?' · 右クリックで曲線へ切替':' · 右クリックで通常線／補助線')+' / Enterで確定 / Escで中止';}else delete host.dataset.drawingConstruction;}
+function updateLineConstructionUI(){const active=sketch&&$('profile').value==='line';constructionToggle.hidden=!active;constructionToggle.textContent=(lineConstruction?'補助線 ON':'通常線')+(connectedSketch?'（ボタンで切替）':lineConstruction?'（右クリックで切替）':'（右クリックで補助線）');constructionToggle.setAttribute('aria-pressed',String(lineConstruction));constructionToggle.style.cssText='border:1px dashed #8865af;background:'+(lineConstruction?'#eee4ff':'#f8f5ff')+';color:#674392;border-radius:5px';if(active){host.dataset.drawingConstruction=String(lineConstruction);$('sketch-draw-instruction').textContent=(lineConstruction?'補助線：押し出し輪郭には含みません':'通常線：終点をクリック')+(connectedSketch?' · 右クリックで曲線へ切替':' · 右クリックで通常線／補助線')+' / Enterで確定 / Escで中止';}else delete host.dataset.drawingConstruction;}
 function toggleLineConstruction(){if(!sketch||$('profile').value!=='line'||arcDrag||document.querySelector('dialog[open]'))return false;lineConstruction=!lineConstruction;updateLineConstructionUI();if(firstPoint)previewEndpoint(lastDrawPoint||firstPoint.clone().addScaledVector(sketchBasis.u,10));notify(lineConstruction?'補助線に切替：紫の破線で作図します。輪郭には含みません':'通常線に切り替えました');return true;}
 const autoTangentLabel=document.createElement('label');autoTangentLabel.hidden=true;autoTangentLabel.className='line-angle-snap-option';autoTangentLabel.innerHTML='<input id="spline-auto-tangent" type="checkbox" checked> 接線を自動で引き継ぐ';$('sketch-banner').append(autoTangentLabel);
  $('spline-auto-tangent').onchange=()=>{if(!sketch||!connectedSketch)return;const enabled=$('spline-auto-tangent').checked,angle=connectedSketch.lastDirection;if($('profile').value==='line'){if(connectedSketch.autoLineAngle!==undefined&&!enabled){$('lock-angle').checked=false;delete connectedSketch.autoLineAngle;}else if(enabled&&firstPoint&&Number.isFinite(angle)){connectedSketch.autoLineAngle=angle;$('lock-angle').checked=true;$('live-angle').value=angle;}if(firstPoint&&lastDrawPoint)previewEndpoint(lastDrawPoint);}else if($('profile').value==='spline'){if(!enabled&&connectedSketch.autoStartAngle!==undefined){if(splineTangents.start===connectedSketch.autoStartAngle)delete splineTangents.start;delete connectedSketch.autoStartAngle;}else if(enabled&&Number.isFinite(angle)){splineTangents.start=angle;connectedSketch.autoStartAngle=angle;}updateSplinePreview(lastDrawPoint);}updateConnectedSketchUI();};
@@ -5163,6 +5163,26 @@ textSketchButton.onclick=()=>{
 
 // Number shortcuts share the existing sketch group editing and drawing workflow.
 sketchNumberTabs=createSketchNumberTabs({anchor:document.querySelector('.viewport-title'),onSelect:switchSketchNumber});syncSketchNumberTabs();
+
+const sketchBanner=$('sketch-banner'),sketchViewport=host.parentElement;
+const sketchHeaderControls=[sketchViewport.querySelector('.viewport-title'),$('sketch-number-tabs'),$('snap-controls')];
+const sketchRightControls=[sketchViewport.querySelector('.view-cube'),$('reference-plane-control')];
+function placeSketchBanner(){
+ const viewport=sketchViewport.getBoundingClientRect();
+ const visibleBounds=controls=>controls.filter(control=>control.getClientRects().length).map(control=>control.getBoundingClientRect());
+ const rightBounds=visibleBounds(sketchRightControls);
+ const leftOfRightControls=Math.min(viewport.right,...rightBounds.map(box=>box.left));
+ const fullWidth=leftOfRightControls-viewport.left<500;
+ const headerBounds=visibleBounds(sketchHeaderControls);
+ if(fullWidth)headerBounds.push(...rightBounds);
+ const top=Math.max(viewport.top,...headerBounds.map(box=>box.bottom));
+ sketchBanner.style.setProperty('--sketch-banner-top',Math.ceil(top-viewport.top+8)+'px');
+ sketchBanner.style.setProperty('--sketch-banner-right',fullWidth?'12px':Math.ceil(viewport.right-leftOfRightControls+8)+'px');
+}
+const sketchBannerLayout=new ResizeObserver(placeSketchBanner);
+for(const control of [sketchViewport,...sketchHeaderControls,...sketchRightControls])sketchBannerLayout.observe(control);
+window.addEventListener('resize',placeSketchBanner);
+placeSketchBanner();
 
 
 const dimensionReplayClient=new KernelClient();
