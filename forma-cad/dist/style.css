@@ -592,7 +592,7 @@ button.form-control-point.invalid { background:#bc2634; }
 .selection-more-controls { display:grid; gap:4px; margin-top:4px; }
 .selection-more-controls:empty { display:none; }
 #interior-edge-adjustment {
- position:sticky; top:0; z-index:1; order:-1;
+ position:sticky; top:32px; z-index:1; order:-1;
  background:#fffef6; border:1px solid #9abfc9; border-radius:5px;
  padding:5px; box-shadow:0 2px 5px #263f5220;
 }
@@ -601,3 +601,9 @@ button.form-control-point.invalid { background:#bc2634; }
 .interior-edge-actions { display:flex; flex-wrap:wrap; gap:4px; width:100%; }
 .interior-edge-actions #select-interior-edges { flex:1 1 auto; }
 #interior-edge-adjustment #select-interior-edges { background:#087fa1 !important; color:white !important; }
+#measurement-toggle {
+ position:sticky; top:0; order:-2; z-index:2; align-self:flex-end;
+ height:28px; background:#fffef6; border-color:#b9a971; color:#385468;
+}
+#measurement[data-collapsed] > :not(#measurement-toggle) { display:none !important; }
+#interior-edge-adjustment #fillet-interior-candidates { background:#e1f3df !important; border-color:#78a987 !important; color:#185438 !important; }

@@ -196,7 +196,7 @@ function assignCompartments(edges,vertexKey){
  }
 }
 
-export function interiorEdges(shape,{bodyId,onProgress,faceSeeds=[],onFaceSelection}={}){
+export function interiorEdges(shape,{bodyId,onProgress,faceSeeds=[],onFaceSelection,onCompartmentFaces}={}){
  let edges;try{edges=resolveFilletEdges(shape);}catch(error){if(error.code==='fillet-selection')return [];throw error;}
  const faces=shape.faces,byHash=new Map(),meshData=cadMesh(shape,{tolerance:.001,angularTolerance:.05}),box=shape.boundingBox;
  let bounds;try{bounds=box.bounds;}finally{box.delete();}
@@ -205,7 +205,7 @@ export function interiorEdges(shape,{bodyId,onProgress,faceSeeds=[],onFaceSelect
  const material=new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),mesh=new THREE.Mesh(geometry,material);mesh.raycast=acceleratedRaycast;mesh.updateMatrixWorld();const ray=new THREE.Raycaster();ray.firstHitOnly=true;ray.near=epsilon*.05;
  const selected=[];
  const seedFaces=[];
- const faceEdges=new Map();
+ const incidentEdges=new Map();
  const rayHit=(p,direction)=>{ray.set(p,direction);return ray.intersectObject(mesh,false)[0];};
  try{
   for(const seed of faceSeeds){
@@ -215,7 +215,7 @@ export function interiorEdges(shape,{bodyId,onProgress,faceSeeds=[],onFaceSelect
     const face=faces.find(candidate=>candidate.isSame(resolved));
     if(!face)continue;
     seedFaces.push({seed,face});
-    if(!faceEdges.has(face))faceEdges.set(face,[]);
+    if(!incidentEdges.has(face))incidentEdges.set(face,[]);
    }catch(error){if(error instanceof WebAssembly.RuntimeError)throw error;}
    finally{resolved?.delete();}
   }
@@ -256,12 +256,16 @@ export function interiorEdges(shape,{bodyId,onProgress,faceSeeds=[],onFaceSelect
    const compartment=opening.mouth===null?null:'mouth-'+cavity.index+'-'+opening.mouth;
    const edge=record.edge,curved=edge.geomType!=='LINE',segments=curved?Math.min(2048,Math.max(96,Math.ceil(Math.PI*Math.sqrt(diagonal/.02)))):1,points=Array.from({length:segments+1},(_,i)=>sample(edge,i/segments)),length=points.slice(1).reduce((sum,p,i)=>sum+vec(p).distanceTo(vec(points[i])),0),point=sample(edge,.5),reference={point,a:points[0],b:points.at(-1),...(curved?{curved:true}:{})};
    selected.push({bodyId,point,a:points[0],b:points.at(-1),length,points,curved,reference,compartment,direction:cavity.index,corner:nearBack?'back':'side',key:'interior-'+bodyId+'-'+edge.hashCode});
-   for(const face of record.faces)faceEdges.get(face)?.push(selected.at(-1));
+   for(const face of record.faces){
+    if(onCompartmentFaces&&!incidentEdges.has(face))incidentEdges.set(face,[]);
+    incidentEdges.get(face)?.push(selected.at(-1));
+   }
   }
   assignCompartments(selected,vertexKey);
+  const compartmentsByFace=new Map([...incidentEdges].map(([face,items])=>[face,new Set(items.map(edge=>edge.compartment))]));
   for(const {seed,face} of seedFaces){
-   const adjacent=new Set(faceEdges.get(face).map(edge=>edge.compartment));
-   if(adjacent.size===1){onFaceSelection(seed,[...adjacent][0]);continue;}
+   const adjacent=compartmentsByFace.get(face);
+   if(adjacent.size===1){onFaceSelection?.(seed,[...adjacent][0]);continue;}
    const outward=normal(face,seed.point);
    const air=vec(seed.point).addScaledVector(outward,face.geomType==='PLANE'?epsilon:.1);
    let compartment=null;
@@ -270,7 +274,26 @@ export function interiorEdges(shape,{bodyId,onProgress,faceSeeds=[],onFaceSelect
     const id='mouth-'+cavity.index+'-'+mouth;
     if(mouth!=null&&selected.some(edge=>edge.compartment===id)){compartment=id;break;}
    }
-   onFaceSelection(seed,compartment,compartment?null:cavities.some(cavity=>cavity.rimFaces.has(face))?'rim':'unmatched');
+   if(compartment&&!adjacent.size)adjacent.add(compartment);
+   onFaceSelection?.(seed,compartment,compartment?null:cavities.some(cavity=>cavity.rimFaces.has(face))?'rim':'unmatched');
+  }
+  if(onCompartmentFaces){
+   const groups=new Map(meshData.faceGroups.map(group=>[group.faceId,group]));
+   const surfaces=[];
+   for(const [face,compartments] of compartmentsByFace){
+    if(compartments.size!==1)continue;
+    const group=groups.get(face.hashCode);
+    if(!group?.count)continue;
+    const positions=new Float32Array(group.count*3);
+    for(let i=0;i<group.count;i++){
+     const vertex=meshData.triangles[group.start+i]*3;
+     positions[i*3]=meshData.vertices[vertex];
+     positions[i*3+1]=meshData.vertices[vertex+1];
+     positions[i*3+2]=meshData.vertices[vertex+2];
+    }
+    surfaces.push({bodyId,compartment:compartments.values().next().value,positions});
+   }
+   onCompartmentFaces(surfaces);
   }
   return selected;
  }finally{edges.forEach(e=>e.delete());faces.forEach(f=>f.delete());geometry.boundsTree=null;geometry.dispose();material.dispose();}
@@ -284,11 +307,13 @@ export function inspectInteriorEdges(bodies,spec,onProgress){
  const axis=spec.axis??'Z';
  const faceSeeds=exterior?[]:(spec.faceSeeds??(spec.faceSeed?[spec.faceSeed]:[]));
  const faceResults=new Map(faceSeeds.map(seed=>[seed,{bodyId:seed.bodyId,compartment:null,reason:'unmatched'}]));
+ const compartmentFaces=[];
  const edges=ids.flatMap(bodyId=>findEdges(bodies.get(bodyId),{bodyId,onProgress,axis,
   faceSeeds:faceSeeds.filter(seed=>seed.bodyId===bodyId),
   onFaceSelection:(seed,compartment,reason=null)=>faceResults.set(seed,{bodyId,compartment,reason}),
+  onCompartmentFaces:!exterior&&spec.includeCompartmentFaces?surfaces=>{for(const face of surfaces)compartmentFaces.push(face);}:undefined,
  }));
  const selection={bodyIds:ids,edgeCount:edges.length};
  const faceSelections=[...faceResults.values()];
- return {edges,analysis:exterior?{exteriorVerticalEdges:{...selection,axis}}:{interiorEdges:{...selection,rimIncluded:false,faceSelections,...(spec.faceSeed?{faceCompartment:faceSelections[0]?.compartment??null}:{})}}};
+ return {edges,...(spec.includeCompartmentFaces&&!exterior?{compartmentFaces}:{}),analysis:exterior?{exteriorVerticalEdges:{...selection,axis}}:{interiorEdges:{...selection,rimIncluded:false,faceSelections,...(spec.faceSeed?{faceCompartment:faceSelections[0]?.compartment??null}:{})}}};
 }

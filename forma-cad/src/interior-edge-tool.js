@@ -2,7 +2,7 @@ import {KernelClient} from './kernel-client.js';
 import * as THREE from 'three';
 import {compactKernelData} from './kernel-transfer.js';
 
-export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,getSelectedEdge,getSelectedFaces,isBodyVisible,onSelect,onPreview,notify}){
+export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,getSelectedEdge,getSelectedFaces,isBodyVisible,onSelect,onPreview,onFillet,notify}){
  const kernel=new KernelClient();
  const inside={type:'interiorEdges',label:'内側の辺をまとめて選択',name:'内側の辺',
   progress:'入れ物の内側を調べています…',empty:'開口のある入れ物に、選択できる内側の辺が見つかりません。'};
@@ -30,6 +30,8 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
  adjustButton.title='プレビューを固定し、辺をクリックして除外・復元します。';
  const undoExclusion=makeButton('undo-interior-exclusion','最後の除外を戻す');
  const restoreExclusions=makeButton('restore-interior-exclusions','すべて戻す');
+ const candidateFillet=makeButton('fillet-interior-candidates','この候補でフィレット');
+ candidateFillet.title='残っている辺を選択してフィレットの半径入力を開きます。';
  const normalActions=document.createElement('div');
  normalActions.className='interior-edge-actions';
  normalActions.append(insideButton,adjustButton);
@@ -40,6 +42,7 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
  const adjustmentActions=document.createElement('div');
  adjustmentActions.className='interior-edge-actions';
  adjustmentBar.append(adjustmentActions);
+ adjustmentActions.append(candidateFillet);
  const outsideGroup=document.createElement('div'),axisLabel=document.createElement('label');
  axisLabel.textContent='方向 ';
  axisLabel.style.cssText='white-space:nowrap;pointer-events:auto';
@@ -63,10 +66,10 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
  const excluded=new Set();
  const hasSelectionSeed=()=>retainedEdges.length||getSelectedEdge()||getSelectedFaces().length;
  const previewMode=()=>adjusting?inside:hovered||focused||settingPreview;
- function setPreview(edges,mode,omitted=[]){
-  if(!edges.length&&!omitted.length&&!previewVisible)return;
-  previewVisible=edges.length+omitted.length>0;
-  onPreview(edges,mode?.type,omitted);
+ function setPreview(edges,mode,omitted=[],faces=[]){
+  if(!edges.length&&!omitted.length&&!faces.length&&!previewVisible)return;
+  previewVisible=edges.length+omitted.length+faces.length>0;
+  onPreview(edges,mode?.type,omitted,faces);
  }
  function setStatus(message,temporary=false){status.textContent=message;previewStatus=temporary;}
  function syncButtons(){
@@ -84,9 +87,10 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
   adjustButton.setAttribute('aria-pressed',String(adjusting));
   undoExclusion.hidden=restoreExclusions.hidden=!adjusting;
   undoExclusion.disabled=restoreExclusions.disabled=!excluded.size||!!(insideBusy||outsideBusy);
+  candidateFillet.disabled=!adjusting||!!active||!editableEdges.some(edge=>!excluded.has(edge.key));
   if(adjusting===adjustmentBar.hidden){
    adjustmentBar.hidden=!adjusting;
-   if(adjusting){adjustmentBar.prepend(status);adjustmentActions.append(insideButton,adjustButton,undoExclusion,restoreExclusions);container.scrollTop=0;}
+   if(adjusting){adjustmentBar.prepend(status);adjustmentActions.append(insideButton,candidateFillet,adjustButton,undoExclusion,restoreExclusions);container.scrollTop=0;}
    else{insideGroup.before(status);normalActions.append(insideButton,adjustButton);}
   }
  }
@@ -133,14 +137,15 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
    }
    edges=edges.filter(edge=>anchors.has(compartmentKey(edge)));
   }
+  const faces=anchors.size?result.compartmentFaces?.filter(face=>anchors.has(compartmentKey(face))):[];
   const corner=cornerInput.value;
   if(corner!=='all')edges=edges.filter(edge=>edge.corner===corner);
   const omitted=edges.filter(edge=>excluded.has(edge.key));
   const message=!edges.length?(corner==='back'?'奥の角':'側壁同士の角')+'が対象の区画に見つかりません。「すべての角」に切り替えられます。':
    omitted.length===edges.length?'候補の辺がすべて除外されています。「最後の除外を戻す」か「すべて戻す」で復元できます。':'';
-  return {edges:edges.filter(edge=>!excluded.has(edge.key)),omitted,anchors:[...anchors.values()],compartmentCount:anchors.size||compartments.size,message,note};
+  return {edges:edges.filter(edge=>!excluded.has(edge.key)),omitted,faces,anchors:[...anchors.values()],compartmentCount:anchors.size||compartments.size,message,note};
  }
- function apply(mode,result){
+ function apply(mode,result,openFillet=false){
   const {edges,anchors,message,note,compartmentCount}=candidates(mode,result);
   if(adjusting&&!edges.length){showPreview(mode,result);return;}
   setPreview([]);
@@ -155,12 +160,12 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
   finally{applyingInside=false;syncButtons();}
   features=getFeatures();key=getSelectionKey();
   setStatus([edges.length+' 辺を選択しました',note].filter(Boolean).join('。'));
-  notify(mode.name+'を '+edges.length+' 本選択しました。フィレット・面取りに使用できます');
+  if(!openFillet||!onFillet())notify(mode.name+'を '+edges.length+' 本選択しました。フィレット・面取りに使用できます');
  }
  function showPreview(mode,result){
-  const {edges,message,note,omitted=[],compartmentCount}=candidates(mode,result);
+  const {edges,message,note,omitted=[],faces=[],compartmentCount}=candidates(mode,result);
   editableEdges=adjusting?[...edges,...omitted]:[];
-  setPreview(edges,mode,omitted);
+  setPreview(edges,mode,omitted,faces);
   const count='選択候補 '+edges.length+' 本（青緑）'+(compartmentCount>1?' ／ '+compartmentCount+' 区画':'');
   const text=adjusting&&(edges.length||omitted.length)?count+' ／ 除外 '+omitted.length+' 本。'+(message||'辺をクリックで切り替え。'):
    edges.length?count:message||mode.empty;
@@ -190,7 +195,7 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
   syncButtons();
   setStatus(mode.progress,!commit);
   const faceSeeds=mode===inside&&!retainedEdges.length&&!getSelectedEdge()?getSelectedFaces():[];
-  const spec={type:mode.type,targets:[...ids],...(mode===outside?{axis}:{faceSeeds})};
+  const spec={type:mode.type,targets:[...ids],...(mode===outside?{axis}:{faceSeeds,includeCompartmentFaces:true})};
   const isCurrent=()=>active===request&&getFeatures()===model&&getSelectionKey()===selection;
   try{
    const result=await kernel.run(compactKernelData(model),spec,{onProgress:progress=>{
@@ -232,6 +237,10 @@ export function createInteriorEdgeTool({container,getFeatures,getSelectionKey,ge
  restoreExclusions.onclick=()=>{
   excluded.clear();
   showPreview(inside,cache.get(inside.type));
+ };
+ candidateFillet.onclick=()=>{
+  const result=cache.get(inside.type);
+  if(result&&adjusting&&getFeatures()===features&&getSelectionKey()===key)apply(inside,result,true);
  };
  for(const [button,mode] of [[insideButton,inside],[outsideButton,outside]]){
   button.onclick=()=>{hovered=focused=settingPreview=null;request(mode,true);};

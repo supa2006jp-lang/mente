@@ -69,7 +69,7 @@ const boss=tray.clone().fuse(R.makeBox([15,12,2],[25,20,9]));assert(interiorEdge
 let angled=R.makeBox([-68,-42,0],[68,42,38]);for(let r=0;r<2;r++)for(let c=0;c<4;c++){const p=[(c-1.5)*31,-19+r*33,7],t=R.drawRectangle(25.6,25.6).sketchOnPlane('XY',p).extrude(70).rotate(-12,p,[1,0,0]);angled=angled.cut(t);}assert.equal(interiorEdges(angled).length,64);
 const features=[{kind:'cadop',id:'fixture',name:'入れ物',outputs:[{id:'a',brep:tray.serialize()},{id:'b',brep:cup.serialize()}],remove:[]}],unchanged=JSON.stringify(features),result=runOperation(features,{type:'interiorEdges',targets:['a','b']});assert.equal(result.edges.length,9);assert.deepEqual(result.analysis.interiorEdges.bodyIds,['a','b']);assert.equal(JSON.stringify(features),unchanged);
 const compartmentInspection=runOperation([{kind:'cadop',id:'cells',name:'区画付きの箱',outputs:[{id:'cells',brep:cells.serialize()}],remove:[]}],{
- type:'interiorEdges',targets:['cells'],faceSeeds:[
+ type:'interiorEdges',targets:['cells'],includeCompartmentFaces:true,faceSeeds:[
   {bodyId:'cells',point:[16,17,3],normal:[0,0,1]},
   {bodyId:'cells',point:[3,17,10],normal:[1,0,0]},
   {bodyId:'cells',point:[48,17,3],normal:[0,0,1]},
@@ -81,6 +81,13 @@ assert.ok(floor.compartment&&otherFloor.compartment);
 assert.equal(floor.compartment,wall.compartment);
 assert.notEqual(floor.compartment,otherFloor.compartment);
 assert.deepEqual(rimFace,{bodyId:'cells',compartment:null,reason:'rim'});
+for(const [compartment,minX,maxX] of [[floor.compartment,3,30],[otherFloor.compartment,34,61]]){
+ const surfaces=compartmentInspection.compartmentFaces.filter(face=>face.compartment===compartment);
+ assert.equal(surfaces.length,5,'four inner walls and a floor');
+ assert.ok(surfaces.every(({positions})=>positions.every((value,i)=>i%3!==0||(value>=minX&&value<=maxX))));
+ assert.ok(surfaces.some(({positions})=>positions.every((value,i)=>i%3!==2||value===3)),'the floor is included');
+ assert.ok(surfaces.every(({positions})=>!positions.every((value,i)=>i%3!==2||value===24)),'the rim is excluded');
+}
 for(const shape of [box,tray,closed,cup,cells,through,rotated,lip,notch,angled,beveled,tapered,boss])shape.delete();
 await fs.mkdir('.sites-runtime',{recursive:true});await fs.writeFile('.sites-runtime/interior-edge-selection-native-proof.json',JSON.stringify({pass:true,syntheticFixturesOnly:true,rectangular:8,circular:1,multipleCavities:16,tiltedPockets:64,beveledOpening:8,taperedWalls:8,taperedBevel:8,interiorBoss:true,lip:true,closedVoidExcluded:true,throughVoidExcluded:true,exteriorNotchExcluded:true,nativeCurveReference:true,sourcePreserved:true},null,2));
 console.log('PASS internal corners, outer/rim exclusion, round/multiple/tilted cavities and lip, closed/through/exterior void exclusion, explicit native curve references, deselection, multi-body kernel operation and unchanged source');

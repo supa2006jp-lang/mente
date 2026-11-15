@@ -511,10 +511,26 @@ const modelGroup=new THREE.Group();scene.add(modelGroup);
 const extrusionBoundaryFeedback=createExtrusionBoundaryFeedback(scene,host);
 const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(w&&h){renderer.setSize(w,h);camera.left=-100*w/h;camera.right=100*w/h;camera.updateProjectionMatrix();}});observer.observe(host);
 const measurementNavigation=host.parentElement.querySelector('.navigation');
+const measurementPanel=$('measurement');
+const measurementToggle=document.createElement('button');
+measurementToggle.id='measurement-toggle';
+measurementToggle.type='button';
+measurementToggle.textContent='▾ メニューを畳む';
+measurementToggle.setAttribute('aria-expanded','true');
+let measurementScroll=0;
+measurementToggle.onclick=()=>{
+ const collapsed=!measurementPanel.hasAttribute('data-collapsed');
+ if(collapsed)measurementScroll=measurementPanel.scrollTop;
+ measurementPanel.toggleAttribute('data-collapsed',collapsed);
+ measurementToggle.setAttribute('aria-expanded',String(!collapsed));
+ measurementToggle.textContent=collapsed?'▸ 選択メニューを開く':'▾ メニューを畳む';
+ if(!collapsed)measurementPanel.scrollTop=measurementScroll;
+};
+measurementPanel.prepend(measurementToggle);
 if(measurementNavigation){
  const measurementLayout=new ResizeObserver(()=>{
   const bottom=parseFloat(getComputedStyle(measurementNavigation).bottom)||0;
-  $('measurement').style.setProperty('--measurement-nav-clearance',measurementNavigation.offsetHeight+bottom+8+'px');
+  measurementPanel.style.setProperty('--measurement-nav-clearance',measurementNavigation.offsetHeight+bottom+8+'px');
  });
  measurementLayout.observe(measurementNavigation);
 }
@@ -1806,15 +1822,35 @@ function commitBodySelection(previous){patternCenter=null;clearRegionHover();sel
 function selectionBodyIds(){return [...new Set([...selectedBodies,...selectedFaces.map(f=>f.bodyId),...selectedEdges.map(e=>e.bodyId),selectedFace?.bodyId,selectedSurface?.bodyId])].filter(id=>meshes.get(id)?.visible);}
 function setSelectionMode(value){const bodyIds=value==='body'&&stage==='model'&&!sketch&&!pendingExtrude?selectionBodyIds():[];patternCenter=null;selectionPicker?.close();if(value==='edge')bodyDisplay?.stopExploded();selectionMode=value;clearEdgeSelection();clearFaceSelection();selectedFace=null;selectedSurface=null;selectedBody=null;chosenRegion=null;fragmentSelection=null;hoverEdge=null;edgeSelectionMode=value==='edge';$('measurement').hidden=true;host.dataset.selectionMode=value;updateCenterMarkers();if(bodyIds.length)commitBodySelection(new Set(bodyIds));}
 $('selection-mode').onchange=e=>setSelectionMode(e.target.value);
-let edgeSelectionPreview=null;
-interiorEdgeTool=createInteriorEdgeTool({onPreview:showEdgeSelectionPreview,container:$('measurement'),getFeatures:()=>features,getSelectedEdge:()=>selectedEdges.length===1?selectedEdges[0]:null,getSelectedFaces:()=>selectedFaces.map(({bodyId,point,normal})=>({bodyId,point,normal})),isBodyVisible:id=>meshes.get(id)?.visible,getSelectionKey:()=>JSON.stringify([[...selectedBodies],selectedFaces.map(f=>[f.bodyId,f.key,f.geometry?.uuid,f.point]),selectedFace?.id,selectedSurface?.faceId,selectedEdges.map(e=>[e.bodyId,e.point])]),notify,onSelect:(edges,analysis,mode)=>{
+let edgeSelectionPreview=null,compartmentPreview=null,shownCompartmentFaces=[];
+interiorEdgeTool=createInteriorEdgeTool({onPreview:showEdgeSelectionPreview,onFillet:openSelectedEdgeFillet,container:$('measurement'),getFeatures:()=>features,getSelectedEdge:()=>selectedEdges.length===1?selectedEdges[0]:null,getSelectedFaces:()=>selectedFaces.map(({bodyId,point,normal})=>({bodyId,point,normal})),isBodyVisible:id=>meshes.get(id)?.visible,getSelectionKey:()=>JSON.stringify([[...selectedBodies],selectedFaces.map(f=>[f.bodyId,f.key,f.geometry?.uuid,f.point]),selectedFace?.id,selectedSurface?.faceId,selectedEdges.map(e=>[e.bodyId,e.point])]),notify,onSelect:(edges,analysis,mode)=>{
  bodyDisplay?.stopExploded();selectionPicker?.close();$('selection-mode').value='edge';setSelectionMode('edge');clearEdgeSelection();clearFaceSelection();
  for(const [i,e]of edges.entries()){const mesh=meshes.get(e.bodyId);chooseEdgeHit({mesh,a:new THREE.Vector3(...e.a),b:new THREE.Vector3(...e.b),point:new THREE.Vector3(...e.point),...(e.curved?{curve:{key:e.key,points:e.points,length:e.length}}:{}),nativeReference:e.reference},true,false,i<edges.length-1);}
  const exterior=mode==='exteriorVerticalEdges';
  host.dataset[exterior?'exteriorVerticalEdgeSelection':'interiorEdgeSelection']=JSON.stringify(analysis);
  $('measurement-title').textContent=(exterior?'外側の辺（'+analysis.axis+'）':'内側の辺')+'を '+edges.length+' 本選択';
 }});
-function showEdgeSelectionPreview(edges,mode,omitted=[]){
+function showCompartmentPreview(faces){
+ if(!faces.length&&!compartmentPreview)return;
+ if(faces.length===shownCompartmentFaces.length&&faces.every((face,i)=>face===shownCompartmentFaces[i]))return;
+ if(compartmentPreview)disposeObject(compartmentPreview);
+ compartmentPreview=null;
+ shownCompartmentFaces=faces;
+ delete host.dataset.interiorCompartmentFaceCount;
+ if(!faces.length)return;
+ const positions=new Float32Array(faces.reduce((count,face)=>count+face.positions.length,0));
+ let offset=0;
+ for(const face of faces){positions.set(face.positions,offset);offset+=face.positions.length;}
+ const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(positions,3));
+ const material=new THREE.MeshBasicMaterial({color:0x24b9a7,transparent:true,opacity:.34,side:THREE.DoubleSide,
+  depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3});
+ compartmentPreview=new THREE.Mesh(geometry,material);
+ compartmentPreview.renderOrder=20;
+ scene.add(compartmentPreview);
+ host.dataset.interiorCompartmentFaceCount=String(faces.length);
+}
+function showEdgeSelectionPreview(edges,mode,omitted=[],faces=[]){
+ showCompartmentPreview(faces);
  if(edgeSelectionPreview){disposeObject(edgeSelectionPreview);edgeSelectionPreview=null;}
  delete host.dataset.exteriorEdgePreviewCount;delete host.dataset.interiorEdgePreviewCount;delete host.dataset.interiorEdgeExcludedCount;
  if(!edges.length&&!omitted.length)return;
