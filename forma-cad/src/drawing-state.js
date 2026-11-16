@@ -3,6 +3,7 @@ import {drawingProjectionNames} from './drawing-view-preferences.js';
 import {autoDimensionKeys} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
 import {drawingReferenceCircleLimit} from './drawing-dimension-references.js';
+import {hasDrawingCommentFont} from './drawing-comments.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const point=p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
 export function drawingSignature(features){let a=2166136261,b=5381;for(const c of JSON.stringify(features)){a=Math.imul(a^c.charCodeAt(0),16777619);b=Math.imul(b,33)^c.charCodeAt(0);}return (a>>>0).toString(16)+(b>>>0).toString(16);}
@@ -13,6 +14,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   new Set(o.viewSelection).size!==o.viewSelection.length||o.viewSelection.some(view=>!drawingProjectionNames.includes(view))||
   !o.viewSelection.length&&o.isoMode==='hidden'))fail();
  if(o.commentSize!=null&&(!Number.isFinite(o.commentSize)||o.commentSize<1.5||o.commentSize>10))fail();
+ if(o.commentColor!==undefined&&!validDimensionColor(o.commentColor))fail();
+ if(o.commentFont!==undefined&&!hasDrawingCommentFont(o.commentFont))fail();
  if(o.dimensionFontSize!==undefined&&(!Number.isFinite(o.dimensionFontSize)||o.dimensionFontSize<1.5||o.dimensionFontSize>10))fail();
  if(o.dimensionColors!==undefined&&(!o.dimensionColors||typeof o.dimensionColors!=='object'||Array.isArray(o.dimensionColors)||
   Object.entries(o.dimensionColors).some(([key,value])=>!['lineColor','textColor'].includes(key)||!validDimensionColor(value))))fail();

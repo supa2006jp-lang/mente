@@ -1,6 +1,25 @@
-export function commentLines(text,width=60,size=3.5){
- const lines=[];for(const paragraph of String(text).replace(/\r\n?/g,'\n').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,'').split('\n')){let line='',used=0;for(const char of paragraph){const advance=(char.codePointAt(0)>255?1:.65)*size;if(used+advance>width&&line){lines.push(line);line='';used=0;}line+=char;used+=advance;}lines.push(line);}return lines;
+import {TEXT_FONTS} from './text-fonts.js';
+
+export function commentLines(text,width=60,size=3.5,font){
+ const lines=[];for(const paragraph of String(text).replace(/\r\n?/g,'\n').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,'').split('\n')){let line='',used=0;for(const char of paragraph){const advance=(char.codePointAt(0)>255||font&&/[MW@%]/.test(char)?1:.65)*size;if(used+advance>width&&line){lines.push(line);line='';used=0;}line+=char;used+=advance;}lines.push(line);}return lines;
 }
-// Keep the drawing vector-based; render only the comment with the browser's
-// Japanese font so PDF export does not depend on an external font download.
-export function prepareCommentPDF(svg,note){if(!note)return;const group=svg.querySelector('[data-comment]');if(!group)return;const canvas=document.createElement('canvas'),density=300/25.4;canvas.width=Math.ceil(note.width*density);canvas.height=Math.ceil(note.height*density);const ctx=canvas.getContext('2d');ctx.scale(density,density);ctx.fillStyle='#111';ctx.font='bold 3.5px sans-serif';ctx.fillText('コメント',0,3.5);ctx.font='3.5px sans-serif';note.lines.forEach((line,i)=>ctx.fillText(line,0,9+i*5));const image=document.createElementNS('http://www.w3.org/2000/svg','image');image.setAttribute('x',note.x);image.setAttribute('y',note.y);image.setAttribute('width',note.width);image.setAttribute('height',note.height);image.setAttribute('href',canvas.toDataURL('image/png'));group.replaceWith(image);}
+
+
+const fonts=new Map(TEXT_FONTS.map(font=>[font.id,font]));
+const loaded=new Map();
+export const defaultDrawingCommentColor='#111111';
+export const hasDrawingCommentFont=id=>fonts.has(id);
+export function drawingCommentFamily(id){
+ const font=fonts.get(id);
+ return font?'"Forma comment '+font.id+'", sans-serif':'sans-serif';
+}
+export function loadDrawingCommentFont(id){
+ const font=fonts.get(id);
+ if(!font)return Promise.resolve();
+ if(!loaded.has(id)){
+  const face=new FontFace('Forma comment '+id,'url("fonts/'+font.file+'")');
+  const pending=face.load().then(result=>{document.fonts.add(result);}).catch(error=>{loaded.delete(id);throw error;});
+  loaded.set(id,pending);
+ }
+ return loaded.get(id);
+}
