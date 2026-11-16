@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {autoDrawingDimensions,completeDrawingCircles} from '../src/drawing-auto-dimensions.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
-import {dimensionValue} from '../src/drawing-dimensions.js';
+import {dimensionLabel,dimensionValue} from '../src/drawing-dimensions.js';
+import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
 const circle='M 14 -8 A 4 4 0 0 1 6 -8 A 4 4 0 0 1 14 -8 Z';
 const data={bounds:[[0,0,0],[40,25,20]],bodyCount:1,views:{front:{visible:['M 0 -20 L 40 -20 L 40 0 L 0 0 Z'],hidden:[]},top:{visible:['M 0 -25 L 40 -25 L 40 0 L 0 0 Z',circle],hidden:[]},right:{visible:['M 0 -20 L 25 -20 L 25 0 L 0 0 Z'],hidden:[]},iso:{visible:[],hidden:[],viewBox:[0,0,40,30]}}};
 assert.equal(completeDrawingCircles({visible:[circle,circle]}).length,1);
@@ -14,6 +15,10 @@ assert.deepEqual(dimensions.filter(d=>d.kind==='diameter').map(dimensionValue),[
 assert.deepEqual(dimensions.filter(d=>d.view==='top'&&d.kind==='horizontal'&&!d.overall).map(dimensionValue),[10]);
 assert.deepEqual(dimensions.filter(d=>d.view==='top'&&d.kind==='vertical'&&!d.overall).map(dimensionValue),[17]);
 assert.equal(autoDrawingDimensions(data,1,dimensions,sheet).dimensions.length,0,'repeated auto dimension is idempotent');
+const configured=autoDrawingDimensions(data,1,[],sheet,{views:{front:['vertical'],top:['diameter'],right:[]},fontSize:5.2}).dimensions;
+assert.deepEqual(configured.map(d=>[d.view,d.kind,d.fontSize]),[['front','vertical',5.2],['top','diameter',5.2]]);
+const spacing=autoDrawingDimensions(data,1,[],sheet,{views:{front:[],top:['spacing'],right:[]}}).dimensions;
+assert.deepEqual(spacing.map(dimensionValue),[10,17]);
 const manual=structuredClone(dimensions);for(const d of manual){delete d.automatic;delete d.overall;}
 assert.equal(autoDrawingDimensions(data,1,manual,sheet).dimensions.length,0,'manual equivalents are preserved without duplicates');
 const legacy=dimensions.filter(d=>['fronthorizontal','frontvertical','topvertical'].includes(d.overall)),upgrade=autoDrawingDimensions(data,1,legacy,sheet);
@@ -30,4 +35,21 @@ assert.deepEqual(half.dimensions.map(dimensionValue),dimensions.map(dimensionVal
 const lots=structuredClone(data);lots.views.top.visible=Array.from({length:80},(_,i)=>circle.replaceAll('14',String(14+i*20)).replaceAll('6 -8',String(6+i*20)+' -8'));
 const capped=autoDrawingDimensions(lots,1,[],drawingSheet(lots,1));assert.equal(capped.dimensions.filter(d=>d.kind==='diameter').length,1);assert.equal(capped.dimensions.find(d=>d.kind==='diameter').count,80,'group all occurrences before applying the annotation limit');
 assert.equal(autoDrawingDimensions(data,1,Array.from({length:500},()=>dimensions[0]),sheet).dimensions.length,0);
+const tracked=dimensions.map(d=>d.kind==='diameter'?{...d,note:'貫通 <A&B>',tolerance:.1}:d);
+const refs=captureDrawingReferences(data,tracked);
+const edited=structuredClone(data);edited.bounds[1][0]=48;
+edited.views.top.visible[1]='M 18 -8 A 4 4 0 0 1 10 -8 A 4 4 0 0 1 18 -8 Z';
+const updated=reconcileDrawingDimensions(edited,tracked,refs);
+assert(!updated.some(d=>d.review));
+assert.equal(dimensionValue(updated.find(d=>d.overall==='fronthorizontal')),48);
+assert.deepEqual(updated.find(d=>d.kind==='diameter').center,[14,-8]);
+assert.equal(dimensionValue(updated.find(d=>d.view==='top'&&d.kind==='horizontal'&&!d.overall)),14);
+assert.equal(dimensionLabel(updated.find(d=>d.kind==='diameter')),'Ø8 ±0.1 貫通 <A&B>');
+const removed=reconcileDrawingDimensions(noCircles,tracked,refs);
+assert.equal(dimensionLabel(removed.find(d=>d.kind==='diameter')),'要確認');
+assert(removed.filter(d=>d.overall).every(d=>!d.review));
+assert(reconcileDrawingDimensions(data,tracked,refs,{targetsChanged:true}).every(d=>d.review));
+const mixed=drawingSheet(data,1,false,updated,'',{hiddenViews:{right:true}});
+assert.equal((mixed.svg.match(/data-hidden="true"/g)||[]).length,1);
+assert.match(mixed.svg,/Ø8 ±0\.1 貫通 &lt;A&amp;B&gt;/);
 console.log('PASS overall and circular feature measurements, full-circle recognition, manual/auto deduplication, scale independence, repeated-feature and document limits');

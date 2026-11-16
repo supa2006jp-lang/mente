@@ -1,12 +1,21 @@
 import {sectionProjection} from './drawing-section.js';
 import {defaultDrawingViewOrder,defaultDrawingViews,drawingProjections} from './drawing-view-preferences.js';
 import * as R from 'replicad';
+import {Quaternion} from 'three';
+import {validateFrame,frameMatrix} from './frames.js';
 // Project the complete assembly so bodies also hide edges of other bodies.
-export function orthographicProjection(bodies,ids,sections=[],requested=[...defaultDrawingViews,'iso']){
+export function orthographicProjection(bodies,ids,sections=[],requested=[...defaultDrawingViews,'iso'],frontFrame){
  if(!ids?.length)throw Error('図面にするボディがありません');
  if(ids.some(id=>!bodies.has(id)))throw Error('対象ボディが見つかりません');
- const compound=R.makeCompound(ids.map(id=>bodies.get(id).clone()));
- try{const box=compound.boundingBox;let bounds;try{bounds=box.bounds;}finally{box.delete();}
+ let compound=R.makeCompound(ids.map(id=>bodies.get(id).clone()));
+ try{
+ if(frontFrame){
+  validateFrame(frontFrame);
+  const {x,y,z,w}=new Quaternion().setFromRotationMatrix(frameMatrix({frame:frontFrame}).transpose());
+  const length=Math.hypot(x,y,z);
+  if(length>1e-12)compound=compound.rotate(360/Math.PI*Math.atan2(length,w),[0,0,0],[x/length,y/length,z/length]);
+ }
+ const box=compound.boundingBox;let bounds;try{bounds=box.bounds;}finally{box.delete();}
  const views={};for(const name of [...defaultDrawingViewOrder,'iso']){
  if(!requested.includes(name))continue;
  const {normal,horizontal}=name==='iso'?{normal:[1,-1,1],horizontal:[1,1,0]}:drawingProjections[name];

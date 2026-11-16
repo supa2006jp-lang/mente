@@ -20,5 +20,7 @@ export function drawingViewport({dialog,host,minus,plus,fit,percent,expand,canNa
  host.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault();});
  window.addEventListener('blur',()=>{space=false;end();suppress=false;});
  new ResizeObserver(markers).observe(host);
- return {markers,setSheet(next){if(!sheet||sheet.width!==next.width||sheet.height!==next.height){zoom=1;center=[next.width/2,next.height/2];}sheet=next;apply();},reset(){zoom=1;if(sheet)center=[sheet.width/2,sheet.height/2];apply();},cancel(){space=false;end();suppress=false;expanded(false);}};
+ return {markers,setSheet(next){if(!sheet||sheet.width!==next.width||sheet.height!==next.height){zoom=1;center=[next.width/2,next.height/2];}sheet=next;apply();},
+  focus(box){if(!sheet||!canNavigate())return;zoom=Math.max(1,Math.min(2.5,sheet.width/(box.width+20),sheet.height/(box.height+20)));center=[box.x+box.width/2,box.y+box.height/2];apply();},
+  reset(){zoom=1;if(sheet)center=[sheet.width/2,sheet.height/2];apply();},cancel(){space=false;end();suppress=false;expanded(false);}};
 }

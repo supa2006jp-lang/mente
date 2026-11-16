@@ -8,7 +8,7 @@ export function withDetails(data,details=[]){const views={...data.views};for(con
 export function snapDimension(d,at,others,scale,index=-1){
  if(!['horizontal','vertical','aligned'].includes(d.kind))return {at};
  const normal=q=>{if(q.kind==='horizontal')return [0,1];if(q.kind==='vertical')return [1,0];const dx=q.b[0]-q.a[0],dy=q.b[1]-q.a[1],l=Math.hypot(dx,dy)||1;return [-dy/l,dx/l];},n=normal(d),dot=p=>p[0]*n[0]+p[1]*n[1];let best=1.5/scale,result=at,match=null;
- others.forEach((q,i)=>{if(i===index||q.view!==d.view||!['horizontal','vertical','aligned'].includes(q.kind))return;const v=normal(q);if(Math.abs(n[0]*v[1]-n[1]*v[0])>1e-5)return;const delta=dot(q.at)-dot(at);if(Math.abs(delta)<best){best=Math.abs(delta);result=[at[0]+delta*n[0],at[1]+delta*n[1]];match=q;}});return {at:result,match};
+ others.forEach((q,i)=>{if(i===index||q.review||q.view!==d.view||!['horizontal','vertical','aligned'].includes(q.kind))return;const v=normal(q);if(Math.abs(n[0]*v[1]-n[1]*v[0])>1e-5)return;const delta=dot(q.at)-dot(at);if(Math.abs(delta)<best){best=Math.abs(delta);result=[at[0]+delta*n[0],at[1]+delta*n[1]];match=q;}});return {at:result,match};
 }
 const hatchCache=new WeakMap();
 export function hatchPaths(triangles,scale){if(!triangles?.length)return '';let cache=hatchCache.get(triangles);if(!cache){cache=new Map();hatchCache.set(triangles,cache);}if(cache.has(scale))return cache.get(scale);

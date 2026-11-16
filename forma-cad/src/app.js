@@ -4999,7 +4999,7 @@ renderer.domElement.addEventListener('dblclick',e=>{
  const r=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects([...meshes.values()].filter(mesh=>mesh.visible),false)[0],group=textGroupAtRay(features,raycaster.ray,hit);if(!group)return;e.preventDefault();e.stopImmediatePropagation();backgroundUI(()=>openTextEdit(group.id));
 },true);
 
-drawingController=installDrawing({onChange:()=>{modified=true;renderTree();},getFeatures:()=>features,getVisible:()=>[...meshes].filter(([id,m])=>m.visible).map(([id])=>id),getSelected:()=>[...new Set([...selectedBodies,...selectedFaces.map(f=>f.bodyId),...selectedEdges.map(e=>e.bodyId)])],download});
+drawingController=installDrawing({onChange:()=>{modified=true;renderTree();},getFeatures:()=>features,getVisible:()=>[...meshes].filter(([id,m])=>m.visible).map(([id])=>id),getSelected:()=>[...new Set([...selectedBodies,...selectedFaces.map(f=>f.bodyId),...selectedEdges.map(e=>e.bodyId)])],getFrontFace:()=>stage==='model'&&selectedFaces.length<=1&&selectedFace?.frame?.n&&meshes.get(selectedFace.bodyId)?.visible?selectedFace:null,download});
 
 // OS screen capture can interrupt pointer-up events without ending a CAD command.
 function cancelCaptureInteraction(){

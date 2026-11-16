@@ -138,6 +138,23 @@
 #drawing-preview [data-edit-selected] text { fill: #007eaa; text-decoration: underline; }
 #drawing-editor { padding: 10px; border: 1px solid #42849a; border-radius: 6px; }
 #drawing-font { width: 90px; }
+#drawing-dimension-font { width:70px; }
+#drawing-auto-dimension-views summary { cursor:pointer; }
+#drawing-auto-dimension-views[open] { flex:1 0 100%; max-height:170px; overflow:auto; }
+#drawing-auto-dimension-views fieldset { display:flex; flex-wrap:wrap; gap:4px 12px; margin:3px 0; padding:5px 8px; border:1px solid #496278; border-radius:5px; }
+#drawing-auto-dimension-views fieldset[hidden], #drawing-overflow-list[hidden], #drawing-front-reset[hidden] { display:none; }
+#drawing-overflow-list { flex:1 0 100%; gap:4px 6px; max-height:84px; overflow:auto; color:#ffc1bc; }
+#drawing-overflow-list button { padding:4px 8px; border-color:#e06962; color:#ffdbd7; }
+#drawing-preview [data-overflow-outline] { stroke:#cc2620; stroke-width:.65; stroke-dasharray:2 1; cursor:pointer; }
+#drawing-preview [data-drawing-overflow] text { fill:#b21f1a; }
+#drawing-hidden-views { margin:5px 0; }
+#drawing-hidden-views summary { cursor:pointer; }
+#drawing-hidden-views .drawing-controls { margin:5px 0 8px; gap:4px 12px; }
+#drawing-hidden-views select { padding:4px 6px; }
+#drawing-review-list { flex:1 0 100%; gap:4px 6px; max-height:84px; overflow:auto; color:#ffd2a6; }
+#drawing-review-list button { padding:4px 8px; border-color:#be793d; color:#ffddb8; }
+#drawing-review-list[hidden] { display:none; }
+#drawing-dimension-tolerance { width:86px; }
 
 #drawing-extra-editor[hidden], #drawing-extra-editor [hidden] { display:none; }
 #drawing-preview [data-section], #drawing-preview [data-detail], #drawing-preview [data-marker] { cursor:pointer; pointer-events:stroke; }
