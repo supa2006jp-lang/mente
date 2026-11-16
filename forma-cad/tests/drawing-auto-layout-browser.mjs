@@ -45,7 +45,20 @@ try{
  const viewCheck=name=>page.locator('.drawing-view-options input[value="'+name+'"]');
  const previewViews=()=>drawing('preview').locator('[data-view]').evaluateAll(views=>views.map(view=>view.dataset.view));
  assert.deepEqual(await previewViews(),['top','front','right','iso']);
- await drawing('iso-mode').selectOption('hidden');
+ assert(await viewCheck('iso').isChecked());
+ assert.equal(await drawing('iso-mode').inputValue(),'small');
+ await viewCheck('iso').uncheck();
+ assert.equal(await drawing('iso-mode').inputValue(),'hidden');
+ assert.deepEqual(await previewViews(),['top','front','right']);
+ assert.doesNotMatch((await download(drawing('svg'))).toString(),/data-view="iso"/);
+ await drawing('undo').click();
+ assert(await viewCheck('iso').isChecked());
+ await drawing('redo').click();
+ assert(!(await viewCheck('iso').isChecked()));
+ await viewCheck('iso').check();
+ assert.equal(await drawing('iso-mode').inputValue(),'small');
+ assert.deepEqual(await previewViews(),['top','front','right','iso']);
+ await viewCheck('iso').uncheck();
  for(const name of ['left','back','bottom']){
   await viewCheck(name).check();
   await drawing('preview').locator('[data-view="'+name+'"]').waitFor();
@@ -68,12 +81,14 @@ try{
  await drawing('close').click();
  const choice=await save();
  assert.deepEqual(readDrawingState(choice.drawing).options.viewSelection,['left','back','bottom']);
+ assert.equal(choice.drawing.options.isoMode,'hidden');
  assert.equal(choice.drawing.dimensions.length,12);
  await page.locator('#file').setInputFiles({name:'chosen-views.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(choice))});
  await page.locator('#project-preview-open').click();
  await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);
  await page.locator('#drawing-tool').click();await svg.waitFor();
  assert.deepEqual(await previewViews(),['left','back','bottom']);
+ assert(!(await viewCheck('iso').isChecked()));
  await viewCheck('top').check();
  await drawing('preview').locator('[data-view="top"]').waitFor();
  assert.equal(await drawing('preview').locator('[data-dimension]').count(),8);
