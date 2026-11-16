@@ -1,4 +1,4 @@
-import {dimensionValue} from './drawing-dimensions.js';
+import {dimensionValue,validDimensionColor} from './drawing-dimensions.js';
 import {drawingProjectionNames} from './drawing-view-preferences.js';
 import {autoDimensionKeys} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
@@ -14,6 +14,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   !o.viewSelection.length&&o.isoMode==='hidden'))fail();
  if(o.commentSize!=null&&(!Number.isFinite(o.commentSize)||o.commentSize<1.5||o.commentSize>10))fail();
  if(o.dimensionFontSize!==undefined&&(!Number.isFinite(o.dimensionFontSize)||o.dimensionFontSize<1.5||o.dimensionFontSize>10))fail();
+ if(o.dimensionColors!==undefined&&(!o.dimensionColors||typeof o.dimensionColors!=='object'||Array.isArray(o.dimensionColors)||
+  Object.entries(o.dimensionColors).some(([key,value])=>!['lineColor','textColor'].includes(key)||!validDimensionColor(value))))fail();
  if(o.frontFrame!==undefined){try{validateFrame(o.frontFrame);}catch{fail();}}
  if(o.autoDimensionViews!==undefined){
   if(!o.autoDimensionViews||typeof o.autoDimensionViews!=='object'||Array.isArray(o.autoDimensionViews))fail();
@@ -45,6 +47,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   if(d.review!==undefined&&typeof d.review!=='boolean')fail();
   if(d.tolerance!==undefined&&(!Number.isFinite(d.tolerance)||d.tolerance<0||d.tolerance>1e6))fail();
   if(d.note!==undefined&&(typeof d.note!=='string'||d.note.length>60||/[\u0000-\u001f]/.test(d.note)))fail();
+  if(['lineColor','textColor'].some(key=>d[key]!==undefined&&!validDimensionColor(d[key])))fail();
   if(d.count!=null||d.centers!=null){if(d.kind!=='diameter'||!Number.isInteger(d.count)||d.count<2||d.count>200||!Array.isArray(d.centers)||d.centers.length!==d.count||d.centers.some(p=>!point(p)))fail();const ids=new Set(d.centers.map(p=>p.map(n=>Number(n.toFixed(5))).join(',')));if(ids.size!==d.count||!d.centers.some(p=>Math.hypot(p[0]-d.center[0],p[1]-d.center[1])<1e-5))fail();}
   if(d.repeat!=null){const r=d.repeat;if(!['horizontal','vertical','aligned'].includes(d.kind)||!r||!Number.isInteger(r.count)||r.count<2||r.count>199||!Number.isFinite(r.pitch)||r.pitch<=0||Math.abs(dimensionValue(d)-r.count*r.pitch)>1e-5*Math.max(1,dimensionValue(d)))fail();}
  }

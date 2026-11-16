@@ -52,4 +52,13 @@ assert(reconcileDrawingDimensions(data,tracked,refs,{targetsChanged:true}).every
 const mixed=drawingSheet(data,1,false,updated,'',{hiddenViews:{right:true}});
 assert.equal((mixed.svg.match(/data-hidden="true"/g)||[]).length,1);
 assert.match(mixed.svg,/Ø8 ±0\.1 貫通 &lt;A&amp;B&gt;/);
+const coloredDimensions=[
+ {...updated[0],textColor:'#006600'},
+ {...updated.find(d=>d.kind==='diameter'),lineColor:'#000099'},
+ {...updated[1],review:true,textColor:'#006600',lineColor:'#000099'},
+];
+const colored=drawingSheet(data,1,false,coloredDimensions,'',{dimensionColors:{lineColor:'#cc0000',textColor:'#111111'}}).svg;
+assert.match(colored,/<g data-dimension="0" stroke="#cc0000"[^]*?<path [^>]*fill="#cc0000"[^]*?<text [^>]*fill="#006600"/);
+assert.match(colored,/<g data-dimension="1" stroke="#000099"[^]*?<path [^>]*fill="#000099"[^]*?<text [^>]*fill="#111111"/);
+assert.match(colored,/<g data-dimension="2" data-dimension-review="true"[^]*?<text [^>]*fill="#a85014"/);
 console.log('PASS overall and circular feature measurements, full-circle recognition, manual/auto deduplication, scale independence, repeated-feature and document limits');
