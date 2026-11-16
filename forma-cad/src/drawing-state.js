@@ -16,6 +16,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  if(o.commentSize!=null&&(!Number.isFinite(o.commentSize)||o.commentSize<1.5||o.commentSize>10))fail();
  if(o.commentColor!==undefined&&!validDimensionColor(o.commentColor))fail();
  if(o.commentFont!==undefined&&!hasDrawingCommentFont(o.commentFont))fail();
+ if(o.breakAxis!==undefined&&!['longest','x','y','z'].includes(o.breakAxis))fail();
+ if(o.breakPercent!==undefined&&(!Number.isInteger(o.breakPercent)||o.breakPercent<20||o.breakPercent>90))fail();
  if(o.dimensionFontSize!==undefined&&(!Number.isFinite(o.dimensionFontSize)||o.dimensionFontSize<1.5||o.dimensionFontSize>10))fail();
  if(o.dimensionColors!==undefined&&(!o.dimensionColors||typeof o.dimensionColors!=='object'||Array.isArray(o.dimensionColors)||
   Object.entries(o.dimensionColors).some(([key,value])=>!['lineColor','textColor'].includes(key)||!validDimensionColor(value))))fail();

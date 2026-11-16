@@ -4,6 +4,13 @@ export function commentLines(text,width=60,size=3.5,font){
  const lines=[];for(const paragraph of String(text).replace(/\r\n?/g,'\n').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,'').split('\n')){let line='',used=0;for(const char of paragraph){const advance=(char.codePointAt(0)>255||font&&/[MW@%]/.test(char)?1:.65)*size;if(used+advance>width&&line){lines.push(line);line='';used=0;}line+=char;used+=advance;}lines.push(line);}return lines;
 }
 
+export function drawingCommentLayout(text,fontSize,font){
+ if(!text.trim())return null;
+ fontSize??=3.5;
+ const width=60,lines=commentLines(text,width,fontSize,font);
+ const baseline=fontSize*1.2,lineHeight=fontSize*10/7;
+ return {width,lines,font,fontSize,baseline,lineHeight,height:fontSize*1.8+(lines.length-1)*lineHeight};
+}
 
 const fonts=new Map(TEXT_FONTS.map(font=>[font.id,font]));
 const loaded=new Map();

@@ -32,22 +32,25 @@ try{
  await page.waitForFunction(()=>[...document.fonts].some(face=>face.family.includes('Forma comment rounded')&&face.status==='loaded'));
  assert.equal(await svg.locator('[data-comment]').getAttribute('fill'),'#ab195f');
  assert.match(await svg.locator('[data-comment]').getAttribute('font-family'),/Forma comment rounded/);
- const commentSize=drawing('comment-size'),commentHeading=svg.locator('[data-comment] text').first();
+ const commentSize=drawing('comment-size'),commentText=svg.locator('[data-comment] text'),commentLine=commentText.first();
+ assert.deepEqual(await commentText.allTextContents(),['材質 SUS304','バリを除去']);
  assert.equal(await commentSize.inputValue(),'3.5');
  await commentSize.fill('4.2');await commentSize.press('Tab');
- assert.equal(await commentHeading.getAttribute('font-size'),'4.2');
+ assert.equal(await commentLine.getAttribute('font-size'),'4.2');
  await drawing('auto-layout').click();
- await commentHeading.click();
+ await commentLine.click();
  assert.equal(await drawing('font').inputValue(),'4.2');
  await drawing('font').fill('4.5');await drawing('font').press('Tab');
  assert.equal(await commentSize.inputValue(),'4.5');
- assert.equal(await commentHeading.getAttribute('font-size'),'4.5');
+ assert.equal(await commentLine.getAttribute('font-size'),'4.5');
  await drawing('auto-layout').click();assert(!(await drawing('svg').isDisabled()));boxes=await inside();assert(boxes.every(b=>b.inside),JSON.stringify(boxes));
  // New detail views participate in the compact layout, keeping their own factor.
  const screen=async(name,x,y)=>drawing('preview').locator('[data-view="'+name+'"] g[transform]').first().evaluate((el,uv)=>{const p=new DOMPoint(...uv).matrixTransform(el.getScreenCTM());return [p.x,p.y];},[x,y]);await drawing('detail-add').click();await page.mouse.click(...await screen('front',80,-10));await page.mouse.click(...await screen('front',85,-10));await page.waitForFunction(()=>document.querySelectorAll('#drawing-preview [data-view]').length===5);assert(!(await drawing('svg').isDisabled()));boxes=await inside();assert(boxes.every(b=>b.inside),JSON.stringify(boxes));
  const labelsBefore=await drawing('preview').locator('[data-dimension] text').allTextContents();await drawing('view-priority').selectOption('front');await chooseIso('small');assert.match(await drawing('preview').locator('[data-view=front]>text').textContent(),/SCALE/);assert.match(await drawing('preview').locator('[data-view=iso]>text').textContent(),/SCALE/);assert.deepEqual(await drawing('preview').locator('[data-dimension] text').allTextContents(),labelsBefore);boxes=await inside();assert(boxes.every(b=>b.inside),JSON.stringify(boxes));await page.screenshot({path:out+'/front-priority-small-iso.png'});await drawing('iso-mode').selectOption('hidden');assert.equal(await drawing('preview').locator('[data-view=iso]').count(),0);assert(!(await drawing('svg').isDisabled()));await drawing('undo').click();assert.equal(await drawing('iso-mode').inputValue(),'small');assert.equal(await drawing('preview').locator('[data-view=iso]').count(),1);await drawing('redo').click();assert.equal(await drawing('iso-mode').inputValue(),'hidden');assert.equal(await drawing('preview').locator('[data-view=iso]').count(),0);await page.screenshot({path:out+'/front-priority-hidden-iso.png'});
  const svgFile=await download(drawing('svg'));
- const commentImage=await page.evaluate(xml=>new DOMParser().parseFromString(xml,'image/svg+xml').querySelector('[data-comment] image').getAttribute('href'),svgFile.toString());
+ const images=await page.evaluate(xml=>[...new DOMParser().parseFromString(xml,'image/svg+xml').querySelectorAll('[data-comment] image')].map(node=>({label:node.getAttribute('aria-label'),href:node.getAttribute('href')})),svgFile.toString());
+ assert.deepEqual(images.map(image=>image.label),['材質 SUS304','バリを除去']);
+ const commentImage=images[0].href;
  assert.match(commentImage,/^data:image\/png;base64,/);
  assert(await page.evaluate(async uri=>{
   const img=new Image();img.src=uri;await img.decode();const canvas=document.createElement('canvas');
@@ -256,6 +259,55 @@ try{
  assert.equal(await number.getAttribute('fill'),'#006600');
  assert(!(await drawing('review-list').isVisible()));
  await drawing('expand').click();
+ await drawing('close').click();
+ await reopen({...annotated,drawing:{...annotated.drawing,scale:1,comment:'',dimensions:[
+  {view:'front',kind:'horizontal',a:[0,0],b:[60,0],at:[0,15]},
+  {view:'front',kind:'horizontal',a:[0,0],b:[52,0],at:[0,20],automatic:true},
+  {view:'front',kind:'horizontal',a:[10,0],b:[50,0],at:[0,42],automatic:true},
+ ],options:{...annotated.drawing.options,layout:'projection',positions:{front:[80,54]},viewSelection:['front'],isoMode:'hidden',dimensionFontSize:3.2}}});
+ const labels=drawing('preview').locator('[data-dimension] text');
+ const ys=()=>labels.evaluateAll(nodes=>nodes.map(node=>Number(node.getAttribute('y'))-Number(node.getAttribute('font-size'))*.31));
+ const yBefore=await ys();
+ assert.equal(await labels.and(drawing('preview').locator('[data-overlap]')).count(),0);
+ await drawing('dimension-font').fill('9');await drawing('dimension-font').press('Tab');
+ let yAfter=await ys();
+ near(yAfter[0],yBefore[0]);near(yAfter[2],yBefore[2]);assert.notEqual(yAfter[1],yBefore[1]);
+ assert.equal(await labels.and(drawing('preview').locator('[data-overlap]')).count(),0);
+ await drawing('undo').click();
+ assert.deepEqual(await ys(),yBefore);
+ await labels.first().click();
+ await drawing('font').fill('10');await drawing('font').press('Tab');
+ yAfter=await ys();
+ near(yAfter[0],yBefore[0]);near(yAfter[2],yBefore[2]);assert.notEqual(yAfter[1],yBefore[1]);
+ assert.equal(await labels.and(drawing('preview').locator('[data-overlap]')).count(),0);
+ await drawing('close').click();
+ await load(fixture.features);
+ await page.locator('#drawing-tool').click();await svg.waitFor();
+ await chooseIso('hidden');
+ await drawing('auto-layout').click();
+ const fullLengthScale=await scale();
+ await drawing('break-axis').selectOption('longest');
+ await drawing('break-percent').fill('75');await drawing('break-percent').press('Tab');
+ assert(await scale()>fullLengthScale*2);
+ assert.equal(await svg.locator('[data-view=front] [data-break-marks]').count(),1);
+ assert.equal(await svg.locator('[data-view=top] [data-break-marks]').count(),1);
+ assert.equal(await svg.locator('[data-view=right] [data-break-marks]').count(),0);
+ await drawing('dimension-auto').click();
+ assert.equal((await values()).filter(label=>label==='200').length,2);
+ const brokenSvg=(await download(drawing('svg'))).toString();
+ assert.match(brokenSvg,/data-break-marks="true"/);
+ assert.match(brokenSvg,/>200<\/text>/);
+ assert.equal((await download(drawing('pdf'))).subarray(0,5).toString(),'%PDF-');
+ await drawing('close').click();
+ const brokenProject=await save();
+ assert.equal(readDrawingState(brokenProject.drawing).options.breakAxis,'longest');
+ assert.equal(brokenProject.drawing.options.breakPercent,75);
+ await reopen(brokenProject);
+ assert.equal(await drawing('break-axis').inputValue(),'longest');
+ assert.equal(await drawing('break-percent').inputValue(),'75');
+ await drawing('break-axis').selectOption('');
+ assert.equal(await svg.locator('[data-break-marks]').count(),0);
+ assert.equal((await values()).filter(label=>label==='200').length,2);
  assert.deepEqual(errors,[]);
  console.log('PASS optional projections, visible dimensions, undo/redo, SVG/PDF, save and reload');
 }catch(error){console.error(await $('error').textContent({timeout:100}).catch(()=>''),await page.locator('#error').textContent(),errors);await page.screenshot({path:out+'/failure.png'});throw error;}finally{await browser.close();await new Promise(r=>server.close(r));}

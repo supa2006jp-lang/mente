@@ -3,6 +3,7 @@ import {dimensionValue} from './drawing-dimensions.js';
 import {circlePatternDimensions,dimensionAxisGraph} from './drawing-feature-dimensions.js';
 import {arrangeDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingProjectionNames,drawingProjections,defaultDrawingViewOrder,drawingProjectedFrame} from './drawing-view-preferences.js';
+import {drawingDimensionVisible,fullDrawingSpan} from './drawing-break.js';
 
 export const autoDimensionTypes={horizontal:'横寸法',vertical:'縦寸法',diameter:'円・穴径',spacing:'中心位置・間隔'};
 export const autoDimensionKeys=Object.keys(autoDimensionTypes);
@@ -40,13 +41,13 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},fon
  for(const d of overallDrawingDimensions(data,s,sheet))if(enabled(d.view,d.kind))push(d);
  let remaining=8,skipped=0;
  for(const view of drawingProjectionNames){const v=sheet.layout[view],s=v?.scale??scale,diameter=enabled(view,'diameter'),spacing=enabled(view,'spacing');if(!v||!data.views[view]||!diameter&&!spacing)continue;const all=completeDrawingCircles(data.views[view]).sort((a,b)=>b.radius-a.radius||a.center[0]-b.center[0]||a.center[1]-b.center[1]),groups=[];
-  for(const c of all){if(c.radius*s<.75){skipped++;continue;}const group=groups.find(g=>close(g.radius,c.radius));if(group)group.centers.push(c.center);else groups.push({radius:c.radius,centers:[c.center]});}
+  for(const c of all){if(c.radius*s<.75||!drawingDimensionVisible(c,v)){skipped++;continue;}const group=groups.find(g=>close(g.radius,c.radius));if(group)group.centers.push(c.center);else groups.push({radius:c.radius,centers:[c.center]});}
   const selected=groups.filter(g=>g.centers.length<=200).slice(0,Math.min(4,remaining));remaining-=selected.length;skipped+=groups.filter(g=>!selected.includes(g)).reduce((n,g)=>n+g.centers.length,0);
   const centers=[];for(const group of selected){if(diameter){const members=group.centers.filter(center=>!keys.has(key({view,kind:'diameter',center,radius:group.radius})));if(members.length){const d={view,kind:'diameter',center:members[0],radius:group.radius,at:[members[0][0]+group.radius+7/s,members[0][1]-3/s]};if(members.length>1){d.count=members.length;d.centers=members.map(p=>[...p]);}push(d);}}
    if(!spacing)continue;
    const pattern=circlePatternDimensions(group.centers,view,v);if(pattern){for(const d of pattern.dimensions)push(d);centers.push(pattern.anchor);}else centers.push(...group.centers);
   }
-  for(const axis of [0,1]){const coords=[...new Set(centers.map(p=>round(p[axis])))].sort((a,b)=>a-b),origin=axis===0?v.bx:v.by,graph=dimensionAxisGraph([...existing.filter(d=>!d.review),...added],view,axis);let previous=origin;for(const coordinate of coords){if(graph.connected(previous,coordinate)){previous=coordinate;continue;}if((coordinate-previous)*s<4)continue;const d=axis===0?{view,kind:'horizontal',a:[previous,v.by+v.height/s],b:[coordinate,v.by+v.height/s],at:[previous,v.by+(v.height+15)/s]}:{view,kind:'vertical',a:[v.bx,previous],b:[v.bx,coordinate],at:[v.bx+(v.width+7)/s,previous]};push(d);graph.join(previous,coordinate);previous=coordinate;}}
+  for(const axis of [0,1]){const coords=[...new Set(centers.map(p=>round(p[axis])))].sort((a,b)=>a-b),origin=axis===0?v.bx:v.by,graph=dimensionAxisGraph([...existing.filter(d=>!d.review),...added],view,axis);let previous=origin;for(const coordinate of coords){if(graph.connected(previous,coordinate)){previous=coordinate;continue;}if((coordinate-previous)*s<4)continue;const bottom=v.by+fullDrawingSpan(v,1),right=v.bx+fullDrawingSpan(v,0);const d=axis===0?{view,kind:'horizontal',a:[previous,bottom],b:[coordinate,bottom],at:[previous,bottom+15/s]}:{view,kind:'vertical',a:[v.bx,previous],b:[v.bx,coordinate],at:[right+7/s,previous]};push(d);graph.join(previous,coordinate);previous=coordinate;}}
  }
  const layout=arrangeDrawingDimensions(added,sheet,existing);return {dimensions:layout.dimensions,skipped,layoutWarnings:layout.unresolved.length};
 }
