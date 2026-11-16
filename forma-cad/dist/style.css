@@ -632,6 +632,27 @@ button.form-control-point.invalid { background:#bc2634; }
 .measurement-opening-controls small { flex-basis:100%; font-size:inherit; }
 .measurement-opening-controls small:empty { display:none; }
 #measurement .measurement-opening-controls button { background:#dff5ee; color:#0e5747; border-color:#8ebcaa; }
+.measurement-opening-override:not([hidden]) { display:flex; align-items:center; gap:5px; flex-basis:100%; }
+.measurement-opening-override input { width:66px; padding:2px 4px; font-size:inherit; }
+.opening-preview-result { display:block; flex-basis:100%; font-size:12px; color:#08745e; }
+.opening-preview-result:empty { display:none; }
+.opening-preview-result[data-issue] { color:#ad202b; }
+.opening-sketch-reedit { white-space:nowrap; padding:3px 6px; font-size:11px; }
+#opening-sketch-edit { margin:clamp(12px,10vh,80px) 18px auto auto; width:min(330px,calc(100vw - 36px)); max-height:80vh; padding:16px; background:#f4fafc; color:#203f50; border:1px solid #8eabbf; border-radius:8px; }
+#opening-sketch-edit::backdrop { background:#15293726; }
+#opening-sketch-edit h2 { margin:0 0 12px; font-size:16px; }
+.opening-sketch-edit-rows { display:grid; gap:8px; margin-bottom:10px; }
+.opening-sketch-edit-row { padding:6px; border-bottom:1px solid #d6e5ec; }
+.opening-sketch-edit-row label { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+.opening-sketch-edit-row input { width:76px; }
+.opening-sketch-edit-status { color:#974021; font-size:12px; margin-top:6px; }
+#opening-sketch-edit .editor-actions { position:static; background:transparent; }
+#drawing-dialog .drawing-view-options { gap:4px 8px; margin-block:8px; }
+.drawing-view-options strong { font-size:12px; }
+#drawing-dialog .drawing-view-options label { display:inline-flex; align-items:center; gap:4px; border:1px solid #496278; border-radius:5px; padding:3px 6px; white-space:nowrap; cursor:pointer; }
+.drawing-view-options label:has(input:checked) { background:#233f52; color:#dcf2ff; }
+.drawing-view-options label:has(input:disabled) { cursor:default; }
+.drawing-view-options label span { color:#b3c9d8; font-size:11px; }
 #measurement :is(button,select) {
  padding:3px 6px;
  min-height:25px;

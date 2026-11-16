@@ -2,18 +2,29 @@ import {drawingCurves} from './drawing-curves.js';
 import {dimensionValue} from './drawing-dimensions.js';
 import {circlePatternDimensions,dimensionAxisGraph} from './drawing-feature-dimensions.js';
 import {arrangeDrawingDimensions} from './drawing-dimension-layout.js';
+import {drawingProjectionNames,drawingProjections,defaultDrawingViewOrder,drawingProjectedFrame} from './drawing-view-preferences.js';
 
 const round=n=>Number(n.toFixed(5)),close=(a,b)=>Math.abs(a-b)<1e-5;
 function key(d){const values=['diameter','radius'].includes(d.kind)?[...d.center,d.radius]:d.kind==='horizontal'?[d.a[0],d.b[0]].sort((a,b)=>a-b):d.kind==='vertical'?[d.a[1],d.b[1]].sort((a,b)=>a-b):[...d.a,...d.b];return [d.view,d.kind,...values.map(round)].join(',');}
-export function overallDrawingDimensions(data,scale=1,sheet){
- const [[x0,y0,z0],[x1,y1,z1]]=data.bounds,dimensions=[];
+export function overallDrawingDimensions(data,scale=1,sheet,{uniqueAxes=false}={}){
+ const dimensions=[];
  // Each projection gets both of its own axes, even when that length also
  // appears in another view. Deduplication remains local to a view.
- for(const [view,u0,u1,v0,v1]of [['front',x0,x1,-z1,-z0],['top',x0,x1,-y1,-y0],['right',y0,y1,-z1,-z0]]){
-  if(!data.views[view])continue;const s=sheet?.layout[view]?.scale??scale;
+ for(const view of defaultDrawingViewOrder){
+  if(!data.views[view]||sheet&&!sheet.layout[view])continue;
+  const {bx:u0,by:v0,width,height}=drawingProjectedFrame(view,data.bounds),u1=u0+width,v1=v0+height;
+  const s=sheet?.layout[view]?.scale??scale;
   dimensions.push({view,kind:'horizontal',a:[u0,v1],b:[u1,v1],at:[u0,v1+8/s]},{view,kind:'vertical',a:[u0,v0],b:[u0,v1],at:[u0-8/s,v1]});
  }
- return dimensions.filter(d=>dimensionValue(d)>1e-7).map(d=>({...d,overall:d.view+d.kind}));
+ const seen=new Set();
+ return dimensions.filter(d=>{
+  if(dimensionValue(d)<=1e-7)return false;
+  if(!uniqueAxes)return true;
+  const axis=drawingProjections[d.view][d.kind].findIndex(n=>n!==0);
+  if(seen.has(axis))return false;
+  seen.add(axis);
+  return true;
+ }).map(d=>({...d,overall:d.view+d.kind}));
 }
 // Only complete visible circles get diameter dimensions. Partial fillets and
 // hidden arcs are deliberately excluded; they cannot identify a complete hole.
@@ -24,7 +35,7 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet){
  const push=d=>{const ids=covered(d);if(added.length>=limit||ids.every(id=>keys.has(id))||dimensionValue(d)<1e-6)return false;ids.forEach(id=>keys.add(id));added.push({...d,automatic:true});return true;};
  for(const d of overallDrawingDimensions(data,s,sheet))push(d);
  let remaining=8,skipped=0;
- for(const view of ['top','front','right']){const v=sheet.layout[view],s=v?.scale??scale;if(!v||!data.views[view])continue;const all=completeDrawingCircles(data.views[view]).sort((a,b)=>b.radius-a.radius||a.center[0]-b.center[0]||a.center[1]-b.center[1]),groups=[];
+ for(const view of drawingProjectionNames){const v=sheet.layout[view],s=v?.scale??scale;if(!v||!data.views[view])continue;const all=completeDrawingCircles(data.views[view]).sort((a,b)=>b.radius-a.radius||a.center[0]-b.center[0]||a.center[1]-b.center[1]),groups=[];
   for(const c of all){if(c.radius*s<.75){skipped++;continue;}const group=groups.find(g=>close(g.radius,c.radius));if(group)group.centers.push(c.center);else groups.push({radius:c.radius,centers:[c.center]});}
   const selected=groups.filter(g=>g.centers.length<=200).slice(0,Math.min(4,remaining));remaining-=selected.length;skipped+=groups.filter(g=>!selected.includes(g)).reduce((n,g)=>n+g.centers.length,0);
   const centers=[];for(const group of selected){const members=group.centers.filter(center=>!keys.has(key({view,kind:'diameter',center,radius:group.radius})));if(members.length){const d={view,kind:'diameter',center:members[0],radius:group.radius,at:[members[0][0]+group.radius+7/s,members[0][1]-3/s]};if(members.length>1){d.count=members.length;d.centers=members.map(p=>[...p]);}push(d);}

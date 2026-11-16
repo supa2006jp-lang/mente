@@ -30,6 +30,13 @@ export function validateFeature(f){
  validateConstraintData(f);validateSketchMirrorLinkData(f);validateCounterbore(f);validateSolidBoundaryLink(f);
  validateTaperOptions(f);
  if(!f || typeof f!=='object') throw Error('形状データが不正です。');
+ if(f.openingSketch!==undefined){
+  const source=f.openingSketch;
+  if(f.kind!=='sketch'||!source||typeof source.sketchId!=='string'||!source.sketchId||source.sketchId.length>100||!Number.isInteger(source.index)||source.index<0||
+   !Number.isFinite(source.clearance)||source.clearance<0||source.clearance>10000||(source.clearance>0&&source.clearance<.001)||
+   !Array.isArray(source.outline)||source.outline.length<3||source.outline.length>20000||
+   source.outline.some(p=>!Array.isArray(p)||p.length!==2||p.some(v=>!Number.isFinite(v)||Math.abs(v)>25000)))throw Error('開口スケッチの元の輪郭情報が不正です');
+ }
  if(f.sketchSection!==undefined&&(typeof f.sketchSection!=='boolean'||f.kind!=='sketch'))throw Error('スケッチの断面表示設定が不正です');
  if(f.construction!==undefined&&(typeof f.construction!=='boolean'||f.kind!=='sketch'))throw Error('補助線の設定が不正です');
  validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateExtrusionBarrier(f);

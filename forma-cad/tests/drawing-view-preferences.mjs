@@ -18,3 +18,17 @@ const options={...base,viewPriority:'front',isoMode:'small'},preferred=optimizeD
 const beforeFrames=drawingViewFrames(data),nextFrames=drawingViewFrames(data,options),dims=overallDrawingDimensions(data,1),updated=rescaleDrawingAnnotations(dims,nextFrames,1,1,beforeFrames);near(updated[0].at[1]*1.4,8);assert.deepEqual(updated.map(dimensionValue),dims.map(dimensionValue));
 for(const key of ['viewPriority','isoMode'])assert.throws(()=>readDrawingState({version:1,signature:'p',targets:[],targetMode:'visible',scale:1,hidden:true,comment:'',dimensions:[],options:{...base,[key]:'bad',name:'',material:'',date:'',positions:{}}}));assert.equal(JSON.stringify(data),original);
 console.log(JSON.stringify({pass:true,cases,frontGain:preferred.scale*1.4/baseline.scale,explicitScales:true,hideIso:true,realDimensionsPreserved:true,paperAnnotationGapPreserved:true,persistValidation:true}));
+
+const selectedOptions={...base,viewSelection:['left','bottom'],isoMode:'hidden',name:'',material:'',date:'',positions:{}};
+const selectable={...data,bounds:[[10,20,30],[110,80,80]],views:{...data.views,left:data.views.right,bottom:data.views.top}};
+const chosen=optimizeDrawingLayout(selectable,{options:selectedOptions});
+const filtered=drawingSheet(selectable,chosen.scale,true,dims,'',{...selectedOptions,positions:chosen.positions});
+assert.deepEqual(Object.keys(filtered.layout).sort(),['bottom','left']);
+assert.equal(filtered.layout.left.bx,-80);
+assert.equal(filtered.layout.bottom.by,20);
+assert.doesNotMatch(filtered.svg,/data-dimension|data-view="(?:front|top|right|iso)"/);
+assert.deepEqual(overallDrawingDimensions(selectable,chosen.scale,filtered).map(dimensionValue),[60,50,100,60]);
+const varied={version:1,signature:'p',targets:['a'],targetMode:'visible',scale:chosen.scale,hidden:true,comment:'',dimensions:[],options:selectedOptions};
+assert.deepEqual(readDrawingState(varied),varied);
+for(const viewSelection of [[],['left','left'],['bad']])assert.throws(()=>readDrawingState({...varied,options:{...varied.options,viewSelection}}));
+assert.deepEqual(Object.keys(drawingSheet(data,1,true,[],'',{viewSelection:[]}).layout),['iso']);

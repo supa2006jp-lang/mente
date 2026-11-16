@@ -14,7 +14,7 @@ export function installDrawingPresets(anchor,{read,apply,canUse,store=createDraw
  function reload(){try{rows=store.load();storageError=false;status('');}catch(error){rows=[];storageError=true;status('保存済み設定を読み込めません。標準プリセットは使えます。'+error.message,true);}q('name').value='';refresh();}
  q('select').onchange=()=>{q('name').value=chosen()?.name||'';status('');sync();};
  q('save').onclick=()=>{if(q('save').disabled)return;try{const name=q('name').value.trim();if(!name||name.length>60)throw Error('名前を1〜60文字で入力してください');const next=rows.filter(row=>row.name!==name);next.push({name,values:validateDrawingPreset(read())});rows=store.write(next);refresh('saved:'+name);status('「'+name+'」を保存しました');}catch(error){status('保存できませんでした。'+error.message,true);}};
- q('apply').onclick=()=>{if(q('apply').disabled)return;try{const row=chosen();if(!row)return;apply(validateDrawingPreset(row.values));status('「'+row.name+'」を呼び出しました。元に戻すで取り消せます。');}catch(error){status('呼び出せませんでした。'+error.message,true);}};
+ q('apply').onclick=async()=>{if(q('apply').disabled)return;try{const row=chosen();if(!row)return;await apply(validateDrawingPreset(row.values));status('「'+row.name+'」を呼び出しました。元に戻すで取り消せます。');}catch(error){status('呼び出せませんでした。'+error.message,true);}};
  q('delete').onclick=()=>{if(q('delete').disabled)return;try{const row=chosen();if(!row)return;rows=store.write(rows.filter(r=>r.name!==row.name));q('name').value='';refresh();status('「'+row.name+'」を削除しました');}catch(error){status('削除できませんでした。'+error.message,true);}};
  q('name').onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229){e.preventDefault();e.stopPropagation();q('save').click();}};
  reload();return {element,sync,reload};

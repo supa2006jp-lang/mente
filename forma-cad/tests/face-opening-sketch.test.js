@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {createFaceOpeningSketch,createFaceOpeningSketches} from '../src/face-opening-sketch.js';
-import {planeCoordinates,sketchPoints} from '../src/regions.js';
+import {createFaceOpeningSketch,createFaceOpeningSketches,openingSketchSource,planFaceOpeningSketch,planOpeningSketchEdit} from '../src/face-opening-sketch.js';
+import {validateProject} from '../src/geometry.js';
+import {findRegions,planeCoordinates,sketchPoints} from '../src/regions.js';
+import {refreshRegion} from '../src/history-replay.js';
+import {reverseExtrusionFrame} from '../src/extrusion-direction.js';
 
 const frame={u:[0,1,0],v:[0,0,1],n:[1,0,0]};
 const face={plane:'CUSTOM',frame,offset:12};
@@ -17,6 +20,40 @@ test('copies the second opening as a circle in the original face plane',()=>{
  near(sketch.x,12);
  near(sketch.y,8);
  near(sketch.z,-2);
+});
+
+test('highlights thin tips and bridges that disappear after an inward offset',()=>{
+ const tip=[[0,0],[10,0],[10,4],[14,4],[14,4.4],[10,4.4],[10,10],[0,10]];
+ const bridge=[[0,0],[6,0],[6,2.8],[10,2.8],[10,0],[16,0],[16,6],[10,6],[10,3.2],[6,3.2],[6,6],[0,6]];
+ const source={...face,holes:[tip,bridge]};
+ const plan=planFaceOpeningSketch(source,0,1,{clearance:.3});
+ assert.equal(plan.sketch.profile,'polyline');
+ assert.ok(plan.lost.some(ring=>ring.some(([x])=>x>13)));
+ assert.throws(()=>planFaceOpeningSketch(source,1,1,{clearance:.3}),error=>
+  /輪郭が分かれます/.test(error.message)&&error.openingContours.some(ring=>{
+   const xs=ring.map(([x])=>x);
+   return Math.min(...xs)===6&&Math.max(...xs)===10;
+  }));
+});
+
+test('edits saved clearance from the original contour without changing identity',()=>{
+ const outline=[[0,0],[12,0],[12,8],[0,8]],source={...face,holes:[outline]};
+ const feature=createFaceOpeningSketch(source,0,1,{clearance:.2});
+ const loaded=validateProject(JSON.parse(JSON.stringify({format:'forma-cad',version:1,features:[feature]})))[0];
+ const saved=openingSketchSource(loaded);
+ const plan=planFaceOpeningSketch(saved.face,saved.index,loaded.groupNumber,{contour:saved.outline,clearance:.45});
+ const edit=planOpeningSketchEdit([loaded],[{id:loaded.id,plan}]);
+ assert.equal(edit.start,0);
+ assert.equal(edit.features[0].id,loaded.id);
+ assert.equal(edit.features[0].groupId,loaded.groupId);
+ near(edit.features[0].width,11.1);
+ near(loaded.width,11.6);
+ assert.throws(()=>openingSketchSource({...loaded,width:20}),/編集済み/);
+ const region=findRegions([loaded])[0],reversed=reverseExtrusionFrame({...loaded,region}).region;
+ const refreshed=refreshRegion(reversed,[loaded],edit.features);
+ assert.deepEqual(refreshed.frame.n,[-1,0,0]);
+ near(refreshed.offset,-12);
+ near(refreshed.area,11.1*7.1);
 });
 
 test('creates one sketch group with inward clearance for distinct openings',()=>{

@@ -14,6 +14,11 @@ const copy=x=>JSON.parse(JSON.stringify(x));
 // body can alter that embedded copy without changing this operation's inputs.
 const cacheSignature=feature=>JSON.stringify(feature,(key,value)=>key==='threadSource'?undefined:value);
 const signature=r=>JSON.stringify([...(r.sourceIds||[])].sort())+':'+r.holes.length;
+function reverseRegionNormal(region){
+ const basis=basisFor(region),frame={u:basis.u.toArray(),v:basis.v.negate().toArray(),n:basis.n.negate().toArray()};
+ const ring=points=>points.map(([u,v])=>[u,-v]).reverse();
+ return {...region,plane:'CUSTOM',frame,offset:-region.offset,outer:ring(region.outer),holes:region.holes.map(ring)};
+}
 function remapFillet(before,after,spec,previous,remap){
  // Disabled edges retain the coordinates of their original input shape. When
  // restoring dependent fillets together, those coordinates become valid again;
@@ -39,10 +44,7 @@ export function refreshRegion(region,before,after){
  if(region?.overlapSource){
   let source=refreshRegion(region.overlapSource,before,after);if(source===region.overlapSource)return region;
   const old=region.overlapSource,oldBasis=basisFor(old),nextBasis=basisFor(source);
-  if(oldBasis.n.dot(nextBasis.n)<0){
-   const frame={u:nextBasis.u.toArray(),v:nextBasis.v.negate().toArray(),n:nextBasis.n.negate().toArray()},ring=points=>points.map(([u,v])=>[u,-v]).reverse();
-   source={...source,plane:'CUSTOM',frame,offset:-source.offset,outer:ring(source.outer),holes:source.holes.map(ring)};
-  }
+  if(oldBasis.n.dot(nextBasis.n)<0)source=reverseRegionNormal(source);
   const bounds=r=>[0,1].map(i=>[Math.min(...r.outer.map(p=>p[i])),Math.max(...r.outer.map(p=>p[i]))]),a=bounds(old),b=bounds(source),map=p=>p.map((v,i)=>b[i][0]+(v-a[i][0])*(b[i][1]-b[i][0])/Math.max(1e-9,a[i][1]-a[i][0]));
   const seed=region.overlapPoint,local=seed?[oldBasis.u.toArray().reduce((s,v,i)=>s+v*seed[i],0),oldBasis.v.toArray().reduce((s,v,i)=>s+v*seed[i],0)]:null;
   return {...region,plane:source.plane,frame:source.frame,offset:source.offset,outer:region.outer.map(map),holes:region.holes.map(h=>h.map(map)),sourceIds:source.sourceIds,overlapSource:source,overlapPoint:local?worldPoint(source,map(local)).toArray():undefined};
@@ -54,7 +56,8 @@ export function refreshRegion(region,before,after){
  if(!old)throw Error('元のスケッチ領域を特定できません。輪郭を選び直してください');
  const next=findRegions(newSketches),matches=next.filter(r=>signature(r)===signature(old));
  if(previous.filter(r=>signature(r)===signature(old)).length!==1||matches.length!==1)throw Error('輪郭の数や接続が変わりました。閉じた領域を選び直してください');
- return copy(matches[0]);
+ const match=matches[0];
+ return copy(basisFor(region).n.dot(basisFor(old).n)<0?reverseRegionNormal(match):match);
 }
 export function replayHistory(before,proposed,start,run,remap,resolvePartition,onStep,refreshStart=false,forceFull=false,repairs=[]){
  if(!Array.isArray(repairs)||repairs.length>32||repairs.some(entry=>!entry||!entry.spec))throw Error('選び直す参照の工程が不正です');

@@ -223,7 +223,7 @@ let sketchOverlapCache=null;
 import {gridCellOccluders} from './grid-cell-occlusion.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains,faceGridPatches} from './face-grid.js';
 import {planarFaceMeasurement} from './planar-face-measurement.js';
-import {createFaceOpeningSketches} from './face-opening-sketch.js';
+import {createFaceOpeningSketch,hasOpeningSketchSource,openingDimensionLabel,openingSketchSource,planFaceOpeningSketch,planOpeningSketchEdit} from './face-opening-sketch.js';
 import {createFilletGridReference,filletGridSource} from './fillet-grid-reference.js';
 const filletGridReference=createFilletGridReference();
 const referenceFaceGrid=face=>face?.kind==='plane'?offsetPlaneGridFace(face):filletGridReference.reference(face,features);
@@ -1022,6 +1022,14 @@ function renderTree(){const splitStyles=sectionBodyStyles(editingSectionSplitId?
  const hasSectionColor=[...meshes.keys()].some(id=>splitStyles.get(id)?.color!==undefined),colorToggle=$('reset-section-colors');colorToggle.hidden=![...meshes.keys()].some(id=>splitStyles.has(id));colorToggle.textContent=hasSectionColor?'色分け ON':'色分け OFF';colorToggle.setAttribute('aria-pressed',String(hasSectionColor));colorToggle.title=hasSectionColor?'断面分離の色分けを通常のボディ色に戻す':'断面分離の青・オレンジの色分けを表示する';$('reset-section-colors').disabled=stage!=='model'||pendingExtrude||extrusionBusy||!!editingSectionSplitId;$('body-count').textContent=meshes.size;$('feature-count').textContent=features.length;
  for(const [id,mesh] of meshes){const row=document.createElement('div');row.className='tree-row';const eye=document.createElement('button');eye.className='eye';eye.innerHTML=visibilityIcon(!mesh.visible);eye.title=mesh.visible?'ソリッドを非表示':'ソリッドを表示';eye.setAttribute('aria-label',eye.title);eye.setAttribute('aria-pressed',String(mesh.visible));eye.onclick=()=>{const visible=!mesh.visible;bodyDisplay?.restoreIsolation(true);mesh.visible=visible;mesh.visible?hiddenBodies.delete(id):hiddenBodies.add(id);bodyDisplay?.update();sectionControl?.refresh();if(!mesh.visible){clearEdgeSelection();selectedFace=null;selectedSurface=null;selectedBody=null;chosenRegion=null;hoverEdge=null;$('measurement').hidden=true;$('edge-overlay').hidden=true;}renderTree();};const label=document.createElement('button');label.className='row-label';const renamed=customBodyName(features,id);label.textContent=bodyDisplayName(id);if(mesh.userData.qrText){label.title=mesh.userData.qrText;const heading=document.createElement('span'),detail=document.createElement('small');heading.textContent=renamed||qrCodeBodyName('',[...meshes.keys()].indexOf(id)+1);detail.textContent=qrCodeSummary(mesh.userData.qrText);label.replaceChildren(heading,detail);}label.onclick=e=>chooseBody(id,e.ctrlKey||e.metaKey);row.dataset.bodyId=id;const bodyStyle=splitStyles.get(id);if(bodyStyle){label.textContent+=' · '+bodyStyle.label;if(bodyStyle.color!==undefined&&!mesh.userData.bodyAppearance?.customColor){row.dataset.bodyColor='#'+bodyStyle.color.toString(16);row.style.setProperty('--body-color',row.dataset.bodyColor);const swatch=document.createElement('span');swatch.className='body-color-swatch';swatch.setAttribute('aria-hidden','true');const title=document.createElement('span');title.textContent=label.textContent;title.prepend(swatch);label.replaceChildren(title);}}const slide=features.findLast(item=>item.kind==='cadop'&&item.spec?.type==='slideLid'&&item.outputs?.some(output=>output.id===id));if(slide&&!renamed)label.textContent=id===slide.spec.target?'スライド蓋 本体':'スライド蓋 蓋';const ball=features.findLast(item=>item.kind==='cadop'&&item.spec?.type==='ballJoint'&&item.outputs?.some(output=>output.id===id));if(ball&&!renamed)label.textContent=id===ball.spec.target?'ボールジョイント 球側':id===ball.id+'-socket'?'ボールジョイント 受け側':'ボールジョイント ナット';const boss=features.findLast(item=>item.kind==='cadop'&&item.spec?.type==='bossJoint'&&item.outputs?.some(output=>output.id===id));if(boss&&!renamed)label.textContent=id===boss.spec.target?'ボス接合 ボス側':'ボス接合 棒側';const snap=features.findLast(item=>item.kind==='cadop'&&item.spec?.type==='snapLid'&&item.outputs?.some(output=>output.id===id));if(snap&&!renamed)label.textContent=id===snap.spec.target?'被せ蓋 本体':'被せ蓋 蓋';const joint=features.findLast(item=>item.kind==='cadop'&&item.spec?.type==='coilJoint'&&item.outputs?.some(output=>output.id===id));if(ball){const edit=document.createElement('button');edit.type='button';edit.className='coil-body-edit';edit.dataset.ballJointId=ball.id;edit.textContent='再編集';edit.title='ボールジョイントの寸法を再編集';edit.onclick=()=>selectFeature(ball.id);row.append(label,edit,eye);}else if(joint){if(!renamed)label.textContent=id===joint.spec.target?'コイル接合 本体':'コイル接合 蓋';const edit=document.createElement('button');edit.type='button';edit.className='coil-body-edit';edit.dataset.coilJointId=joint.id;edit.textContent='再編集';edit.title='コイル接合の詳細を再編集';edit.setAttribute('aria-label',label.textContent+'を再編集');edit.onclick=()=>selectFeature(joint.id);row.append(label,edit,eye);}else if(boss){const edit=document.createElement('button');edit.type='button';edit.className='coil-body-edit';edit.dataset.bossJointId=boss.id;edit.textContent='再編集';edit.title='ボスと棒の寸法を再編集';edit.setAttribute('aria-label',label.textContent+'を再編集');edit.onclick=()=>selectFeature(boss.id);row.append(label,edit,eye);}else if(slide){const edit=document.createElement('button');edit.type='button';edit.className='coil-body-edit';edit.dataset.slideLidId=slide.id;edit.textContent='再編集';edit.title='本体とスライド蓋の寸法を再編集';edit.setAttribute('aria-label',label.textContent+'を再編集');edit.onclick=()=>selectFeature(slide.id);row.append(label,edit,eye);}else if(snap){const edit=document.createElement('button');edit.type='button';edit.className='coil-body-edit';edit.dataset.snapLidId=snap.id;edit.textContent='再編集';edit.title='本体と被せ蓋の寸法を再編集';edit.onclick=()=>selectFeature(snap.id);row.append(label,edit,eye);}else row.append(label,eye);const isolate=document.createElement('button');isolate.type='button';isolate.className='body-isolate';isolate.textContent='単独';isolate.disabled=stage!=='model'||pendingExtrude||extrusionBusy||!!editingSectionSplitId;isolate.title='このボディだけ表示';isolate.setAttribute('aria-label',(renamed||label.textContent)+'だけ表示');isolate.onclick=()=>{if(stage!=='model'||pendingExtrude||extrusionBusy||editingSectionSplitId||document.querySelector('dialog[open]')||moveTool?.active)return;chooseBody(id);bodyDisplay?.isolate([id]);};row.insertBefore(bodyColorButton(id,mesh,bodyStyle?.color),eye);const missed=facePaintEntries.get(id)?.filter(face=>face?.unresolved).length;if(missed)row.insertBefore(facePaintReviewButton(id,missed),eye);row.insertBefore(isolate,eye);const cylinderHinge=features.findLast(f=>f.kind==='cadop'&&f.spec?.type==='cylinderHinge'&&f.outputs?.some(o=>o.id===id));if(cylinderHinge){if(!renamed)label.textContent=bodyDisplayName(id);const edit=document.createElement('button');edit.type='button';edit.className='coil-body-edit';edit.textContent='再編集';edit.title='円柱ヒンジ蓋の寸法を再編集';edit.dataset.cylinderHingeId=cylinderHinge.id;edit.onclick=()=>selectFeature(cylinderHinge.id);row.append(edit);}row.insertBefore(bodyRenameButton(id),isolate);$('bodies').append(row);}
  const shownSketchGroups=new Set();features.forEach((f,i)=>{if(f.kind==='sketch'){if(shownSketchGroups.has(f.groupId))return;shownSketchGroups.add(f.groupId);}const row=document.createElement('div');row.dataset.historyFeature=f.id;row.className='tree-row'+(f.id===selected||f.id===editingSectionSplitId?' selected':'');const icon=document.createElement('span');icon.className='icon';icon.textContent=f.kind==='plane'?'▱':f.kind==='sketch'?'╱':f.operation==='cut'?'⊖':f.mode==='thin'?'▣':'▰';const btn=document.createElement('button');btn.className='row-label';const name=document.createElement('span');name.textContent=f.kind==='sketch'?'スケッチ'+f.groupNumber:`${i+1}. ${f.name}`;const sub=document.createElement('small');sub.textContent=f.kind==='referenceImage'?'下絵 · '+fmt(f.width)+' mm':f.kind==='plane'?'構築平面 · '+fmt(f.offset)+' mm':f.kind==='cadop'?(isSectionSplit(f)?'断面で分離 · クリックで再編集':f.spec?.type==='fillet'?'フィレット · R'+fmt(f.spec.radius)+' mm · '+(filletSuppressionState(f.spec)==='suppressed'?'解除中 · クリックで編集':filletSuppressionState(f.spec)==='partial'?'一部解除中 · クリックで編集':'クリックで編集'):f.spec?.type==='shell'?'シェル · 壁 '+fmt(f.spec.thickness)+' mm · クリックで再編集':f.spec?.type==='circular'?'円形状パターン · '+f.spec.count+'個 · クリックで再編集':f.spec?.type==='revolve'?'回転 · '+fmt(f.spec.angle)+'° · クリックで再編集':f.spec?.type==='pipe'?'パイプ · クリックで編集':f.spec?.type==='enclose'?'囲み・蓋 · クリックで編集':f.spec?.type==='coilJoint'?'コイル接合 · クリックで再編集':f.spec?.type==='slideLid'?'自動シェル・スライド蓋 · クリックで再編集':f.spec?.type==='cylinderHinge'?'円柱・一体ヒンジ蓋 · クリックで再編集':f.spec?.type==='ballJoint'?'球・受け・締め付けナット · クリックで再編集':f.spec?.type==='bossJoint'?'ボスと差し込み棒 · クリックで再編集':'CAD形状操作'):f.kind==='sketch'?`${profileNames[f.profile]} · スケッチ`:`${profileNames[f.profile]} · ${f.depth} mm${f.mode==='thin'?' / 壁 '+f.wall+' mm':''}`;btn.append(name,sub);btn.onclick=()=>f.kind==='sketch'?editSketchGroup(f.groupId):selectFeature(f.id);row.append(icon,btn);$('features').append(row);});
+ const openingGroups=new Set(features.filter(hasOpeningSketchSource).map(f=>f.groupId));
+ if(openingGroups.size){
+  const sketches=new Map(features.filter(f=>f.kind==='sketch').map(f=>[f.id,f]));
+  for(const row of $('features').children){
+   const groupId=sketches.get(row.dataset.historyFeature)?.groupId;
+   if(openingGroups.has(groupId))row.append(openingSketchEditButton(groupId));
+  }
+ }
  $('undo').disabled=!past.length;$('redo').disabled=!future.length;$('export').disabled=!meshes.size;$('export-color-3mf').disabled=color3mfBusy||![...meshes.values()].some(mesh=>mesh.visible);const printable=features.some(f=>f.kind==='cadop'&&f.spec?.type==='enclose'&&f.spec.hinge&&f.outputs?.slice(0,2).every(o=>meshes.has(o.id)));$('export-enclosure').hidden=!printable;$('dirty').textContent=modified?'•':'';renderProjectSaveStatus();renderRegions();historyOrganizer?.refresh();
 }
 $('reset-section-colors').onclick=()=>{
@@ -2242,7 +2250,7 @@ function updateOpeningHighlight(){
  if(openingHighlight&&(!available||!expanded||!openingHighlight.row.matches(':hover,:focus-within')))clearOpeningHighlight();
  if(!state)return;
  if(!available||!expanded)clearOpeningSketchPreview(state);
- else if(state.plan?.length&&!state.lines.length)renderOpeningSketchPreview(state);
+ else if(state.views?.length&&!state.lines.length)renderOpeningSketchPreview(state);
  if(selectedFace!==state.face||!state.controls.isConnected)openingSketchSelection=null;
 }
 function pickMeasuredFaceOpening(x,y){
@@ -2291,31 +2299,151 @@ function commitFaceOpeningSketches(face,sketches){
 }
 function nextOpeningSketchNumber(){return Math.max(0,...features.map(feature=>feature.groupNumber||0))+1;}
 function renderOpeningSketchPreview(state){
- for(const [i,sketch] of state.plan.entries()){
-  const original=state.rows[state.indices[i]].points;
-  state.lines.push(drawOpeningOutline(original,0xf29b14,24));
-  if(state.clearance>0)state.lines.push(drawOpeningOutline(sketchPoints(sketch).map(p=>worldPoint(state.face,p)),0x00b58f,26));
+ for(const {face,original,plan,error} of state.views){
+  const draw=(points,color,order)=>state.lines.push(drawOpeningOutline(points.map(p=>worldPoint(face,p)),color,order));
+  const closed=points=>[...points,points[0]];
+  draw(closed(original),0xf29b14,24);
+  if(plan?.sketch.openingSketch.clearance>0)draw(sketchPoints(plan.sketch),0x00b58f,26);
+  const issues=error?(error.openingContours||[original]):plan.lost;
+  for(const ring of issues)draw(closed(ring),0xe53948,27);
  }
+}
+function openingClearance(input){
+ if(input.value===''||!input.validity.valid)throw Error('すき間を0 mm以上で入力してください');
+ return input.valueAsNumber;
+}
+function updateOpeningPreviewRow(row,plan,error){
+ row.result.textContent=error?error.message:plan
+  ?openingDimensionLabel(plan.original)+' → '+openingDimensionLabel(plan.result)+(plan.lost.length?' ／ 細い部分が消えます':'')
+  :'';
+ row.result.toggleAttribute('data-issue',!!error||!!plan?.lost.length);
 }
 function refreshOpeningSketchPreview(state){
  clearOpeningSketchPreview(state);
  state.plan=null;
- state.indices=state.rows.flatMap(({check},index)=>check.checked?[index]:[]);
+ state.views=[];
  state.apply.disabled=true;
  state.status.textContent='';
- if(!state.indices.length)return;
- try{
-  if(!state.distance.value||!state.distance.validity.valid)throw Error('すき間を0 mm以上で入力してください');
-  state.clearance=state.distance.valueAsNumber;
-  state.plan=createFaceOpeningSketches(state.face,state.indices,nextOpeningSketchNumber(),state.clearance);
-  if(features.length+state.plan.length>150)throw Error('工程数は150までです。選ぶ開口を減らしてください');
-  renderOpeningSketchPreview(state);
-  state.apply.disabled=false;
-  state.status.textContent=state.indices.length+'箇所 ／ 橙は元の輪郭'+(state.clearance>0?'・緑は作成する輪郭':'');
- }catch(error){
-  state.plan=null;
-  state.status.textContent=appErrorMessage(error);
+ const groupNumber=nextOpeningSketchNumber(),groupId=crypto.randomUUID(),sketches=[],problems=[];
+ for(const [index,row] of state.rows.entries()){
+  row.overrideLabel.hidden=!row.check.checked;
+  let plan,error;
+  if(row.check.checked){
+   try{
+    const clearance=openingClearance(row.override.value===''&&!row.override.validity.badInput?state.distance:row.override);
+    plan=planFaceOpeningSketch(state.face,index,groupNumber,{groupId,clearance});
+    sketches.push(plan.sketch);
+   }catch(e){error=e;problems.push('開口 '+(index+1));}
+   state.views.push({face:state.face,original:state.face.holes[index],plan,error});
+  }
+  updateOpeningPreviewRow(row,plan,error);
  }
+ if(!state.views.length)return;
+ renderOpeningSketchPreview(state);
+ if(problems.length){state.status.textContent=problems.join('・')+' の設定を確認してください（赤）';return;}
+ if(features.length+sketches.length>150){state.status.textContent='工程数は150までです。選ぶ開口を減らしてください';return;}
+ state.plan=sketches;
+ state.apply.disabled=false;
+ state.status.textContent=sketches.length+'箇所 ／ 橙は元の輪郭'+(sketches.some(f=>f.openingSketch.clearance>0)?'・緑は作成する輪郭':'')+
+  (state.views.some(({plan})=>plan.lost.length)?'・赤は消える部分':'');
+}
+function openingSketchEditButton(groupId){
+ const button=document.createElement('button');
+ button.type='button';
+ button.className='opening-sketch-reedit';
+ button.textContent='すき間を再編集';
+ button.onclick=()=>openOpeningSketchEdit(groupId);
+ return button;
+}
+function openOpeningSketchEdit(groupId){
+ if(stage!=='model'||!canSwitchSketchNumber()){notify('操作を終了してから開口のすき間を変更してください');return;}
+ const before=features,members=before.filter(f=>f.groupId===groupId&&hasOpeningSketchSource(f));
+ if(!members.length)return;
+ const dialog=document.createElement('dialog');
+ dialog.id='opening-sketch-edit';
+ dialog.setAttribute('aria-labelledby','opening-sketch-edit-title');
+ dialog.innerHTML='<form><div class="dialog-heading"><h2 id="opening-sketch-edit-title"></h2></div><div class="opening-sketch-edit-rows"></div><small>橙は元の開口・緑は作成する輪郭・赤は消える部分</small><div class="opening-sketch-edit-status" role="status"></div><div class="editor-actions"><button type="button" data-cancel>キャンセル</button><button type="submit" class="accent">変更を確定</button></div></form>';
+ dialog.querySelector('h2').textContent='スケッチ'+members[0].groupNumber+'の開口のすき間';
+ const container=dialog.querySelector('.opening-sketch-edit-rows'),status=dialog.querySelector('[role=status]'),apply=dialog.querySelector('[type=submit]');
+ const state={lines:[],views:[]};
+ const rows=[];
+ let busy=false,editPlan=null,cancel;
+ for(const feature of members){
+  const row=document.createElement('div'),result=document.createElement('span');
+  row.className='opening-sketch-edit-row';
+  result.className='opening-preview-result';
+  try{
+   const source=openingSketchSource(feature),label=document.createElement('label'),input=document.createElement('input');
+   input.type='number';input.min='0';input.max='10000';input.step='any';input.value=source.clearance;
+   input.oninput=refresh;
+   label.append('開口 '+(source.index+1)+' のすき間 (mm)',input);
+   row.append(label);
+   rows.push({feature,source,input,result});
+  }catch(error){updateOpeningPreviewRow({result},null,error);}
+  row.append(result);
+  container.append(row);
+ }
+ function refresh(){
+  clearOpeningSketchPreview(state);
+  state.views=[];
+  const edits=[];
+  for(const row of rows){
+   const {feature,source,input}=row,{face,index,outline}=source;
+   let plan,error;
+   try{
+    plan=planFaceOpeningSketch(face,index,feature.groupNumber,{groupId,clearance:openingClearance(input),contour:outline});
+    edits.push({id:feature.id,plan});
+   }catch(e){error=e;}
+   updateOpeningPreviewRow(row,plan,error);
+   state.views.push({face,original:outline,plan,error});
+  }
+  renderOpeningSketchPreview(state);
+  editPlan=edits.length===rows.length?planOpeningSketchEdit(before,edits):null;
+  apply.disabled=!editPlan||editPlan.start===before.length;
+  status.textContent='';
+ }
+ function close(){
+  cancel?.();
+  clearOpeningSketchPreview(state);
+  dialog.remove();
+ }
+ dialog.addEventListener('close',close,{once:true});
+ dialog.querySelector('[data-cancel]').onclick=()=>dialog.close();
+ dialog.querySelector('form').onsubmit=async event=>{
+  event.preventDefault();
+  if(busy||!editPlan||apply.disabled)return;
+  const {features:next,start}=editPlan;
+  const activeCancel=()=>kernelClient.reset();
+  busy=apply.disabled=true;
+  rows.forEach(({input})=>input.disabled=true);
+  status.textContent='後続の工程を更新しています…';
+  try{
+   const native=next.slice(start+1).some(f=>f.kind==='cadop'&&f.spec||f.solidBoundaryLink?.enabled||
+    f.kind==='extrusion'&&(f.cadResult||f.operation!=='new'||f.taperAngle||f.untilSolid||f.overlapOnly||f.capHoles||f.holesOnly||f.barrier));
+   cancel=activeCancel;
+   pendingKernelCancel=cancel;
+   const result=native?await kernelClient.run(next,{type:'replay',before,start},{onProgress:info=>status.textContent=info.stage}):{features:replayHistory(before,next,start)};
+   if(!dialog.open)return;
+   if(features!==before)throw Error('モデルが変わりました。履歴を開き直してください');
+   setProject(result.features);
+   selected=null;chosenRegion=null;dropPreview();syncFields();
+   cancel=null;
+   dialog.close();
+   notify('開口スケッチのすき間を更新しました');
+  }catch(error){if(dialog.open)status.textContent=appErrorMessage(error);}
+  finally{
+   if(pendingKernelCancel===activeCancel)pendingKernelCancel=null;
+   cancel=null;
+   busy=false;
+   rows.forEach(({input})=>input.disabled=false);
+   apply.disabled=false;
+  }
+ };
+ document.body.append(dialog);
+ clearOpeningHighlight();
+ if(openingSketchSelection)clearOpeningSketchPreview(openingSketchSelection);
+ dialog.showModal();
+ refresh();
 }
 function showPlanarFaceMeasurement(face){
  clearOpeningHighlight();
@@ -2335,9 +2463,21 @@ function showPlanarFaceMeasurement(face){
   if(index===undefined)detail.textContent=text;
   else{
    const value=document.createElement('span'),copy=document.createElement('button'),check=document.createElement('input'),label=document.createElement('label');
+   const overrideLabel=document.createElement('label'),override=document.createElement('input'),result=document.createElement('span');
    check.type='checkbox';
    check.setAttribute('aria-label','開口 '+(index+1)+' をスケッチ化する対象に追加');
-   check.onchange=()=>refreshOpeningSketchPreview(openingSketchSelection);
+   check.onchange=override.oninput=()=>refreshOpeningSketchPreview(state);
+   override.type='number';
+   override.min='0';
+   override.max='10000';
+   override.step='any';
+   override.placeholder='共通';
+   override.setAttribute('aria-label','開口 '+(index+1)+' の個別すき間 (mm)');
+   overrideLabel.className='measurement-opening-override';
+   overrideLabel.hidden=true;
+   overrideLabel.append('個別のすき間 (mm)',override);
+   result.className='opening-preview-result';
+   result.setAttribute('aria-live','polite');
    label.className='measurement-opening-label';
    detail.classList.add('measurement-opening-row');
    value.className='measurement-opening-size';
@@ -2348,7 +2488,7 @@ function showPlanarFaceMeasurement(face){
    copy.title='この開口の輪郭を同じ平面にスケッチとして作成';
    copy.onclick=()=>{
     if(!canUseFaceOpening(face))return;
-    try{commitFaceOpeningSketches(face,createFaceOpeningSketches(face,[index],nextOpeningSketchNumber(),0));}
+    try{commitFaceOpeningSketches(face,[createFaceOpeningSketch(face,index,nextOpeningSketchNumber())]);}
     catch(error){notify(appErrorMessage(error));}
    };
    for(const event of ['pointerenter','focusin'])detail.addEventListener(event,()=>highlightFaceOpening(face,index,detail));
@@ -2356,9 +2496,9 @@ function showPlanarFaceMeasurement(face){
     if(!detail.matches(event==='pointerleave'?':focus-within':':hover'))clearOpeningHighlight(detail);
    });
    const ring=face.holes[index],points=[...ring,ring[0]].map(p=>worldPoint(face,p));
-   rows.push({row:detail,points,copy,check});
+   rows.push({row:detail,points,copy,check,override,overrideLabel,result});
    label.append(check,value);
-   detail.append(label,copy);
+   detail.append(label,copy,overrideLabel,result);
   }
   length.append(detail);
  }
@@ -2376,7 +2516,7 @@ function showPlanarFaceMeasurement(face){
  distance.max='10000';
  distance.step='any';
  distance.value='0';
- label.append('全周のすき間 (mm)',distance);
+ label.append('共通のすき間 (mm)',distance);
  apply.type='button';
  apply.textContent='選んだ開口をスケッチ化';
  apply.disabled=true;
@@ -2385,7 +2525,7 @@ function showPlanarFaceMeasurement(face){
  const state={face,rows,controls,distance,apply,status,lines:[],plan:null};
  openingSketchSelection=state;
  distance.oninput=()=>refreshOpeningSketchPreview(state);
- distance.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();apply.click();}};
+ for(const input of [distance,...rows.map(row=>row.override)])input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();apply.click();}};
  apply.onclick=()=>{if(state.plan)commitFaceOpeningSketches(face,state.plan);};
  length.append(controls);
 }
@@ -3856,6 +3996,7 @@ function renderSketchGroups(){
   eye.setAttribute('aria-pressed',String(!f.groupHidden));eye.title=f.groupHidden?'スケッチを表示':'スケッチを非表示';eye.setAttribute('aria-label',eye.title);
   eye.onclick=()=>{finishSketch(false);dropPreview();if(!f.groupHidden&&activeSketchGroup===id){activeSketchGroup=null;editingSketchGroup=null;selected=null;stage='model';draftTouched=false;syncFields();}setProject(features.map(x=>x.groupId===id?{...x,groupHidden:!f.groupHidden}:x));};
   row.append(label,eye);
+  if(members.some(hasOpeningSketchSource))row.insertBefore(openingSketchEditButton(id),eye);
   const textId=members.find(member=>member.textOutline)?.textOutline.id;if(textId){const edit=document.createElement('button');edit.type='button';edit.className='text-reedit';edit.dataset.textId=textId;edit.textContent='文字を再編集';edit.title='文字の内容・フォント・サイズ・配置を変更';edit.onclick=()=>backgroundUI(()=>openTextEdit(textId));row.insertBefore(edit,eye);}
   const channels=members.filter(member=>channelParameters(member));if(channels.length){let target=null;if(channels.length>1){target=document.createElement('select');target.className='channel-edit-target';target.setAttribute('aria-label','再編集するコの字');target.style.cssText='min-width:0;max-width:95px';for(const [i,member] of channels.entries())target.add(new Option('コの字'+(i+1),member.id));if(channels.some(member=>member.id===selected))target.value=selected;row.insertBefore(target,eye);}const edit=document.createElement('button');edit.type='button';edit.className='channel-reedit';edit.textContent='コの字を再編集';edit.title='幅・高さ・開口方向を変更';edit.onclick=()=>selectFeature(target?.value||channels[0].id);row.insertBefore(edit,eye);}
   const summary=progress.get(id);

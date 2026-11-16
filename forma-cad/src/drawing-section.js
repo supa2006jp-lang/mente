@@ -1,9 +1,10 @@
 import * as R from 'replicad';
-// SVG coordinates of the three standard orthographic views.
+import {drawingProjections} from './drawing-view-preferences.js';
 export function sectionPlane(s){
- const vertical=s.orientation==='vertical';
- const axis=s.view==='right'?(vertical?1:2):s.view==='front'?(vertical?0:2):(vertical?0:1);
- const coordinate=vertical?s.coordinate:-s.coordinate,keep=(vertical?1:-1)*(s.reverse?-1:1);
+ const projection=drawingProjections[s.view];
+ const normal=s.orientation==='vertical'?projection.horizontal:projection.vertical;
+ const axis=normal.findIndex(v=>v!==0);
+ const coordinate=s.coordinate*normal[axis],keep=normal[axis]*(s.reverse?-1:1);
  const direction=[0,0,0];direction[axis]=-keep;
  const x=axis===0?[0,-keep,0]:axis===1?[keep,0,0]:[1,0,0];
  return {axis,coordinate,keep,direction,x};
