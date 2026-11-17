@@ -12,6 +12,15 @@ export function drawingCommentLayout(text,fontSize,font){
  return {width,lines,font,fontSize,baseline,lineHeight,height:fontSize*1.8+(lines.length-1)*lineHeight};
 }
 
+export function drawingCommentPlacementIssue(box,{width,height,contentBottom,titleBlock}){
+ const bottom=titleBlock?height-5:contentBottom;
+ const right=box.x+box.width,lower=box.y+box.height;
+ if(box.x<4.99||box.y<16.99||right>width-4.99||lower>bottom+.01)return 'paper';
+ if(titleBlock&&box.x<titleBlock.x+titleBlock.width&&right>titleBlock.x&&
+  box.y<titleBlock.y+titleBlock.height&&lower>titleBlock.y)return 'titleBlock';
+ return null;
+}
+
 const fonts=new Map(TEXT_FONTS.map(font=>[font.id,font]));
 const loaded=new Map();
 export const defaultDrawingCommentColor='#111111';

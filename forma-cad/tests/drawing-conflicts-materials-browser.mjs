@@ -103,6 +103,27 @@ try{
  await page.keyboard.down('Shift');await dragLabel(44,20);await page.keyboard.up('Shift');
  const constrained=await textPoint();
  assert.equal(constrained[0],oblique[0]);assert(+constrained[1]>+oblique[1]);
+ await field('comment').fill('LOWER LEFT NOTE');await field('comment').press('Tab');
+ const preview=field('preview').locator('svg'),note=preview.locator('[data-comment]');
+ await preview.scrollIntoViewIfNeeded();
+ const [from,to]=await note.evaluate(node=>{
+  const box=node.getBBox(),svg=node.ownerSVGElement,matrix=svg.getScreenCTM();
+  return [[box.x+box.width/2,box.y+box.height/2],[30,198]].map(point=>{
+   const p=new DOMPoint(...point).matrixTransform(matrix);return [p.x,p.y];
+  });
+ });
+ await page.mouse.move(...from);await page.mouse.down();await page.mouse.move(...to,{steps:6});await page.mouse.up();
+ const noteBounds=()=>note.evaluate(node=>{
+  const {x,y,width,height}=node.getBBox();return {x,y,width,height};
+ });
+ const lowerLeft=await noteBounds();
+ assert(lowerLeft.y>178&&lowerLeft.y+lowerLeft.height<205&&lowerLeft.x+lowerLeft.width<132);
+ assert(!(await field('svg').isDisabled()));
+ assert(!(await field('pdf').isDisabled()));
+ const svgDownload=page.waitForEvent('download');await field('svg').click();
+ assert.match(await fs.readFile(await(await svgDownload).path(),'utf8'),/>LOWER LEFT NOTE<\/text>/);
+ const pdfDownload=page.waitForEvent('download');await field('pdf').click();
+ assert.equal((await fs.readFile(await(await pdfDownload).path())).subarray(0,5).toString(),'%PDF-');
  await field('close').click();
  const download=page.waitForEvent('download');
  await page.locator('#save').click();
@@ -113,6 +134,14 @@ try{
  assert.deepEqual(saved.drawing.dimensions[0].b,drawing.dimensions[0].b);
  await open('oblique.forma.json',saved);
  assert.deepEqual(await textPoint(),constrained);
+ const restoredNote=await noteBounds();
+ assert.deepEqual(restoredNote,lowerLeft);
+ await field('close').click();
+ const titleOverlap=structuredClone(saved);
+ titleOverlap.drawing.options.positions.comment=[145,190];
+ await open('title-overlap.forma.json',titleOverlap);
+ assert.match(await field('status').textContent(),/コメントが表題欄と重なっています/);
+ assert(await field('svg').isDisabled());
 
  const material='SUS304 2B（研磨）',select=field('material-preset'),input=field('material');
  await input.fill(material);
