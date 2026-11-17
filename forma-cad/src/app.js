@@ -1318,6 +1318,7 @@ function handleToolEscape(e){
  performToolEscape();
 }
 function performToolEscape(){
+ if(offsetExtrusionDialog?.escape())return;
  if(formTool?.active){formTool.close();return;}
  if(favoriteCommandsController?.escape())return;
  if(sketch&&$('profile').value==='point'&&boxSelection?.cancel()){down=null;return;}

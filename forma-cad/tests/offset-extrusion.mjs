@@ -43,6 +43,9 @@ for(const [operation,profileOffset] of [['new',-2],['join',-.25]]){
  if(operation==='new'){const next=saved.map((f,i)=>i?{...f,profileOffset:-1}:f),replay=runOperation(next,{type:'replay',before:saved,start:1}).features,bodies=kernelBodies(replay);try{close(R.measureVolume(bodies.get('outer-os')),38*18*3);close(R.measureVolume(bodies.get('hollow-body')),1160);}finally{for(const body of bodies.values())body.delete();}}
 }
 for(const profileOffset of [NaN,Infinity,'-2',10001])assert.throws(()=>validateFeature({...defaults,id:'invalid',kind:'extrusion',profileOffset}));
+const circleSketch={...defaults,id:'circle-source',name:'円スケッチ',kind:'sketch',profile:'circle',diameter:20};
+const circleOS={...defaults,id:'circle-os-sketch',name:'OS円',kind:'extrusion',profile:'region',region:{id:'circle-region',plane:'XY',offset:0,outer:ring(10),holes:[],sourceIds:['circle-source'],area:Math.PI*100},profileOffset:-.2,capHoles:true,depth:3};
+const circleResult=runOperation([circleSketch],{type:'extrusionBatch',features:[circleOS]}),circleShape=R.deserializeShape(circleResult.features[0].cadResult.outputs[0].brep).asShape3D();try{close(R.measureVolume(circleShape),Math.PI*9.8**2*3);assert.equal(circleResult.features[0].profileOffset,-.2);}finally{circleShape.delete();}
 const shrinking={...defaults,id:'collapsed',kind:'extrusion',profile:'region',region:{id:'r',plane:'XY',offset:0,outer:[[-20,-10],[20,-10],[20,10],[-20,10]],holes:[],sourceIds:[],area:800},profileOffset:-11,depth:3};
 assert.throws(()=>{const shape=featureSolid(shrinking,new Map());shape.delete();},/OS距離|輪郭|領域/,'an offset beyond collapse must not create an inverted contour');
 console.log('PASS OS inward/outward, signed/symmetric axes, native circle and hole offsets, selected CAD faces, new/join/cut, save/reload and history replay');

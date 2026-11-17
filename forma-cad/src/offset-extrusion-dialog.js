@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {findPanelSpace,projectedBounds} from './panel-placement.js';
 import {createOffsetExtrusionPreview} from './offset-extrusion-preview.js';
+import {createOffsetExtrusionGuideView} from './offset-extrusion-guide-view.js';
+import {createOffsetExtrusionPresetView} from './offset-extrusion-preset-view.js';
 
 const preferenceKey='forma-offset-extrusion-distance-v1';
 export function createOffsetExtrusionDialog({getFeatures,onApply,notify,getRegions,getObjects,scene,camera,canvas,host}){
@@ -12,7 +14,10 @@ export function createOffsetExtrusionDialog({getFeatures,onApply,notify,getRegio
  dialog.innerHTML='<form><label id="offset-extrusion-label" for="offset-extrusion-distance">OS押出 (mm)</label><div style="display:flex;align-items:center;gap:5px;margin-top:4px"><input id="offset-extrusion-distance" type="number" step="any" min="-10000" max="10000" title="外周が基準。−で狭く、＋で広く。空欄は前回値。Enterで押し出しへ。" style="width:100%;min-width:0;box-sizing:border-box"><button type="button" id="offset-extrusion-cancel" title="キャンセル（Esc）">キャンセル</button><button class="accent" type="submit" title="押し出しへ（Enter）">押出</button></div><p id="offset-extrusion-error" role="alert" hidden></p></form>';
  const style=document.createElement('style');style.textContent='#offset-extrusion-dialog::backdrop{background:#0000000a}#offset-extrusion-dialog form{padding:0;display:block}#offset-extrusion-dialog label{font-size:12px;margin:0}#offset-extrusion-dialog button{font-size:11px;padding:3px 6px;min-height:28px;white-space:nowrap}#offset-extrusion-dialog input{font-size:14px;padding:4px 6px;min-height:30px;margin:0}#offset-extrusion-error{font-size:11px;margin:5px 0 0}#offset-extrusion-error[hidden]{display:none}';document.head.append(style);
  document.body.append(dialog);const input=dialog.querySelector('input'),error=dialog.querySelector('#offset-extrusion-error'),submit=dialog.querySelector('button[type=submit]');
- function reset(){preview.clear();target=null;original=null;regions=[];previous=null;layoutKey='';}
+ const value=()=>input.value.trim()===''?last:Number(input.value);
+ const presets=createOffsetExtrusionPresetView({dialog,canvas,getValue:value,onSelect:value=>{input.value=String(value);refresh();input.focus({preventScroll:true});input.select();},notify});
+ const guides=createOffsetExtrusionGuideView({dialog,canvas,camera,host,getData:()=>preview.data,getValue:value,onChange:value=>{presets.close();input.value=String(value);refresh();}});
+ function reset(){guides.clear();presets.close();preview.clear();target=null;original=null;regions=[];previous=null;layoutKey='';}
  function close(){if(dialog.open)dialog.close();reset();}
  function layout(){
   const rect=canvas.getBoundingClientRect(),width=window.innerWidth,height=window.innerHeight,key=[rect.x,rect.y,rect.width,rect.height,width,height].join(',');
@@ -25,8 +30,8 @@ export function createOffsetExtrusionDialog({getFeatures,onApply,notify,getRegio
  }
  function refresh(){
   error.textContent='';error.hidden=true;const value=input.value.trim()===''?last:Number(input.value);
-  try{if(!Number.isFinite(value)||Math.abs(value)>10000)throw Error('−10000〜10000 mmで指定してください');preview.show(regions.map(region=>({...region,holes:[]})),value);submit.disabled=false;return value;}
-  catch(cause){preview.clear();error.textContent=cause.message;error.hidden=false;submit.disabled=true;return null;}
+  try{if(!Number.isFinite(value)||Math.abs(value)>10000)throw Error('−10000〜10000 mmで指定してください');preview.show(regions.map(region=>({...region,holes:[]})),value);submit.disabled=false;presets.setValid(true);guides.update();return value;}
+  catch(cause){preview.clear();guides.update();error.textContent=cause.message;error.hidden=false;submit.disabled=true;presets.setValid(false);return null;}
  }
  function remember(value){if(!Number.isFinite(value)||Math.abs(value)>10000)return;last=value;try{localStorage.setItem(preferenceKey,String(last));}catch{}}
  input.addEventListener('input',refresh);
@@ -40,5 +45,6 @@ export function createOffsetExtrusionDialog({getFeatures,onApply,notify,getRegio
   close();try{await onApply(selection,value,{hasHoles});}catch(cause){notify(cause.message||'OS押出を開始できませんでした');}
  };
  return {open(selection){target=selection;original=getFeatures();regions=structuredClone(getRegions(selection));input.value=String(last);error.textContent='';dialog.showModal();refresh();layout();input.focus({preventScroll:true});input.select();},close,remember,
-  update(){if(!dialog.open)return;if(original!==getFeatures()){close();return;}preview.update();layout();}};
+  escape(){if(!dialog.open)return false;if(presets.escape()||guides.cancelDrag())return true;close();return true;},
+  update(){if(!dialog.open)return;if(original!==getFeatures()){close();return;}preview.update();layout();guides.update();presets.update();}};
 }
