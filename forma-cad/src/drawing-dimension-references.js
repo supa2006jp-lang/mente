@@ -89,7 +89,8 @@ function followCircleDimension(d,follow){
  const at=translate(d.at,d.center,center);
  const ray=at.map((n,i)=>n-center[i]),length=Math.hypot(...ray);
  if(length)for(let i=0;i<2;i++)at[i]+=ray[i]/length*(radius-d.radius);
- return {...d,center,radius,at,...(d.centers?{centers:hits.map(c=>c.center)}:{})};
+ const arcPoint=d.arcPoint?.map((value,i)=>center[i]+(value-d.center[i])*radius/d.radius);
+ return {...d,center,radius,at,...(arcPoint?{arcPoint}:{}),...(d.centers?{centers:hits.map(c=>c.center)}:{})};
 }
 function followLocation(d,{round,follow},reference,box){
  const axis=d.kind==='horizontal'?0:1,side=1-axis;

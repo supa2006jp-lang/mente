@@ -161,6 +161,9 @@
 #drawing-dialog .drawing-comment-style { margin-top:7px; gap:6px 14px; }
 #drawing-dialog .drawing-comment-style select { padding:4px 7px; }
 #drawing-comment-size { width:70px; }
+#drawing-preview [data-break-edge] { cursor:ew-resize; }
+#drawing-preview [data-break-direction="1"] [data-break-edge] { cursor:ns-resize; }
+#drawing-preview [data-hole-table] { cursor:move; }
 
 #drawing-extra-editor[hidden], #drawing-extra-editor [hidden] { display:none; }
 #drawing-preview [data-section], #drawing-preview [data-detail], #drawing-preview [data-marker] { cursor:pointer; pointer-events:stroke; }

@@ -5,7 +5,7 @@ const lineBox=(a,b,p=.3)=>({x:Math.min(a[0],b[0])-p,y:Math.min(a[1],b[1])-p,widt
 export function dimensionPlacement(d,sheet){const v=sheet.layout[d.view];if(!v||!drawingDimensionVisible(d,v))return null;const at=map(v,d.at),font=d.fontSize??3.2,label=dimensionLabel(d);let c=at,main=[],extensions=[];
  if(['horizontal','vertical','aligned'].includes(d.kind)){const a=map(v,d.a),b=map(v,d.b);let u=d.kind==='horizontal'?[Math.sign(b[0]-a[0])||1,0]:d.kind==='vertical'?[0,Math.sign(b[1]-a[1])||1]:[b[0]-a[0],b[1]-a[1]];if(d.kind==='aligned'){const l=Math.hypot(...u)||1;u=u.map(n=>n/l);}const n=[-u[1],u[0]],offset=(at[0]-a[0])*n[0]+(at[1]-a[1])*n[1],q=[a[0]+n[0]*offset,a[1]+n[1]*offset],r=[b[0]+n[0]*offset,b[1]+n[1]*offset];c=[(q[0]+r[0])/2,(q[1]+r[1])/2];main=[lineBox(q,r)];extensions=[lineBox(a,q),lineBox(b,r)];
  }else if(d.kind==='angle'){const center=map(v,d.vertex),a=map(v,d.a),b=map(v,d.b),start=Math.atan2(a[1]-center[1],a[0]-center[0]);let delta=Math.atan2(b[1]-center[1],b[0]-center[0])-start;while(delta>Math.PI)delta-=2*Math.PI;while(delta<-Math.PI)delta+=2*Math.PI;const radius=Math.max(4,Math.hypot(at[0]-center[0],at[1]-center[1]));c=[center[0]+radius*Math.cos(start+delta/2),center[1]+radius*Math.sin(start+delta/2)];
- }else{const center=map(v,d.center),length=Math.hypot(at[0]-center[0],at[1]-center[1])||1,u=[(at[0]-center[0])/length,(at[1]-center[1])/length],tip=[center[0]+u[0]*d.radius*v.scale,center[1]+u[1]*d.radius*v.scale];extensions=[lineBox(tip,at)];}
+ }else{const center=map(v,d.center),length=Math.hypot(at[0]-center[0],at[1]-center[1])||1,u=[(at[0]-center[0])/length,(at[1]-center[1])/length],tip=d.arcPoint?map(v,d.arcPoint):[center[0]+u[0]*d.radius*v.scale,center[1]+u[1]*d.radius*v.scale];extensions=[lineBox(tip,at)];}
  const width=dimensionLabelWidth(label,font);
  return {box:{x:c[0]-width/2,y:c[1]-font*.75,width,height:font*1.45},main,extensions};
 }
@@ -28,9 +28,10 @@ const insidePaper=(box,sheet)=>box.x>=5&&box.y>=18&&box.x+box.width<=sheet.width
 
 // Move only requested dimensions; callers pass existing annotations as locked.
 // Geometry is in paper mm, independent of screen zoom and printed scale.
-export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false}={}){const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7})),labels=sheet.note?[sheet.note]:[],lines=[],extensions=[];for(const d of locked){const p=dimensionPlacement(d,sheet);if(p){labels.push(p.box);lines.push(...p.main);extensions.push(...p.extensions);}}
+export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false}={}){const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7})),labels=[sheet.note,sheet.holeBox].filter(Boolean),lines=[],extensions=[];for(const d of locked){const p=dimensionPlacement(d,sheet);if(p){labels.push(p.box);lines.push(...p.main);extensions.push(...p.extensions);}}
+ for(const d of dimensions)if(d.pinned){const p=dimensionPlacement(d,sheet);if(p){labels.push(p.box);lines.push(...p.main);extensions.push(...p.extensions);}}
  const placed=dimensions.map(d=>({...d,at:[...d.at]})),unresolved=[];const order=placed.map((d,i)=>i).sort((a,b)=>Number(!!placed[a].overall)-Number(!!placed[b].overall)||Number(['diameter','radius'].includes(placed[a].kind))-Number(['diameter','radius'].includes(placed[b].kind))||a-b);
- for(const i of order){const d=placed[i],v=sheet.layout[d.view];if(!v||!drawingDimensionVisible(d,v))continue;let best=d,bestScore=Infinity,bestGeometry=dimensionPlacement(d,sheet);
+ for(const i of order){const d=placed[i],v=sheet.layout[d.view];if(d.pinned||!v||!drawingDimensionVisible(d,v))continue;let best=d,bestScore=Infinity,bestGeometry=dimensionPlacement(d,sheet);
   const choices=d.kind==='angle'?[d]:candidates(d,v);
   if(preferNearby)choices.unshift(...nearbyCandidates(d,v));
   for(const candidate of choices){
@@ -52,10 +53,10 @@ export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearb
  return {dimensions:placed,unresolved};
 }
 export function reflowResizedDrawingDimensions(dimensions,sheet){
- const automatic=d=>!d.review&&(d.automatic||d.overall);
+ const automatic=d=>!d.pinned&&!d.review&&(d.automatic||d.overall);
  const fixed=dimensions.filter(d=>!automatic(d));
  const boxes=fixed.map(d=>dimensionPlacement(d,sheet)?.box).filter(Boolean);
- if(sheet.note)boxes.push(sheet.note);
+ for(const block of [sheet.note,sheet.holeBox])if(block)boxes.push(block);
  const move=[],indices=[];
  dimensions.forEach((d,index)=>{
   if(!automatic(d))return;

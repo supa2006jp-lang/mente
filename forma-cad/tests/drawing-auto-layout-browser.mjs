@@ -142,7 +142,7 @@ try{
  await drawing('auto-dimension-views').locator('summary').click();
  for(const view of ['top','front','right']){
   const types=drawing('auto-dimension-views').locator('[data-auto-dimension-view="'+view+'"]');
-  for(const type of ['horizontal','vertical','diameter','spacing']){
+  for(const type of ['horizontal','vertical','diameter','spacing','radius']){
    if(view!=='front'||type!=='vertical')await types.locator('input[value="'+type+'"]').uncheck();
   }
  }
@@ -280,6 +280,11 @@ try{
  yAfter=await ys();
  near(yAfter[0],yBefore[0]);near(yAfter[2],yBefore[2]);assert.notEqual(yAfter[1],yBefore[1]);
  assert.equal(await labels.and(drawing('preview').locator('[data-overlap]')).count(),0);
+ await labels.nth(1).click();
+ await drawing('dimension-pin').check();
+ const fixedY=(await ys())[1];
+ await drawing('dimension-font').fill('10');await drawing('dimension-font').press('Tab');
+ near((await ys())[1],fixedY);
  await drawing('close').click();
  await load(fixture.features);
  await page.locator('#drawing-tool').click();await svg.waitFor();
@@ -292,6 +297,15 @@ try{
  assert.equal(await svg.locator('[data-view=front] [data-break-marks]').count(),1);
  assert.equal(await svg.locator('[data-view=top] [data-break-marks]').count(),1);
  assert.equal(await svg.locator('[data-view=right] [data-break-marks]').count(),0);
+ const edge=svg.locator('[data-view=front] [data-break-edge="0"]').last();
+ await edge.scrollIntoViewIfNeeded();
+ const [startX,startY,dx]=await edge.evaluate(path=>{
+  const point=path.getPointAtLength(path.getTotalLength()*.25),m=path.getScreenCTM(),start=new DOMPoint(point.x,point.y).matrixTransform(m);
+  return [start.x,start.y,8*m.a];
+ });
+ await page.mouse.move(startX,startY);await page.mouse.down();
+ await page.mouse.move(startX+dx,startY,{steps:5});await page.mouse.up();
+ assert.match(await drawing('break-help').textContent(),/省略範囲/);
  await drawing('dimension-auto').click();
  assert.equal((await values()).filter(label=>label==='200').length,2);
  const brokenSvg=(await download(drawing('svg'))).toString();
@@ -302,12 +316,44 @@ try{
  const brokenProject=await save();
  assert.equal(readDrawingState(brokenProject.drawing).options.breakAxis,'longest');
  assert.equal(brokenProject.drawing.options.breakPercent,75);
+ assert(brokenProject.drawing.options.breakRange[0]>.125);
  await reopen(brokenProject);
  assert.equal(await drawing('break-axis').inputValue(),'longest');
  assert.equal(await drawing('break-percent').inputValue(),'75');
  await drawing('break-axis').selectOption('');
  assert.equal(await svg.locator('[data-break-marks]').count(),0);
  assert.equal((await values()).filter(label=>label==='200').length,2);
+ await drawing('close').click();
+ let plate=R.drawRoundedRectangle(60,42,5).sketchOnPlane('XY').extrude(8);
+ for(const [x,y] of [[12,8],[-12,-8]]){
+  const tool=R.makeCylinder(3,10).translate([x,y,-1]),next=plate.cut(tool);
+  tool.delete();plate.delete();plate=next;
+ }
+ const plateFeatures=[{kind:'cadop',id:'plate',name:'穴付きプレート',remove:[],outputs:[{id:'plate',brep:plate.serialize(),...plate.mesh({tolerance:.1,angularTolerance:.2})}]}];
+ plate.delete();
+ await load(plateFeatures);await page.locator('#drawing-tool').click();await svg.waitFor();
+ await chooseIso('hidden');
+ await viewCheck('right').uncheck();await viewCheck('front').uncheck();
+ await drawing('auto-layout').click();
+ await drawing('dimension-auto').click();
+ assert((await values()).includes('R5'));
+ await drawing('dimension-clear').click();
+ await drawing('hole-start').click();
+ await drawing('expand').click();
+ await page.mouse.click(...await screen('top',25,-21));
+ await drawing('hole-all').click();
+ await drawing('hole-add').click();
+ const holeRows=()=>drawing('preview').locator('[data-hole-table] text').allTextContents();
+ assert.deepEqual((await holeRows()).slice(1),['ID','X','Y','Ø','H1','-13','-13','6','H2','-37','-29','6']);
+ assert.match(await svg.locator('[data-hole-labels=top]').textContent(),/H1.*H2/);
+ await drawing('expand').click();
+ assert.match((await download(drawing('svg'))).toString(),/data-hole-table="true"/);
+ assert.equal((await download(drawing('pdf'))).subarray(0,5).toString(),'%PDF-');
+ await drawing('close').click();
+ const tableProject=await save();
+ assert.deepEqual(readDrawingState(tableProject.drawing).options.holeTable.origin,[25,-21]);
+ await reopen(tableProject);
+ assert.equal((await holeRows()).filter(value=>value==='6').length,2);
  assert.deepEqual(errors,[]);
  console.log('PASS optional projections, visible dimensions, undo/redo, SVG/PDF, save and reload');
 }catch(error){console.error(await $('error').textContent({timeout:100}).catch(()=>''),await page.locator('#error').textContent(),errors);await page.screenshot({path:out+'/failure.png'});throw error;}finally{await browser.close();await new Promise(r=>server.close(r));}

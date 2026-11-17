@@ -8,7 +8,7 @@ export function drawingBreakAxis(bounds,mode){
  return ['x','y','z'].indexOf(mode);
 }
 
-export function drawingViewBreak(view,frame,axis,percent=70){
+export function drawingViewBreak(view,frame,axis,percent=70,range){
  if(axis<0)return;
  const {horizontal,vertical}=drawingProjections[view];
  const direction=horizontal[axis]?0:vertical[axis]?1:-1;
@@ -16,9 +16,18 @@ export function drawingViewBreak(view,frame,axis,percent=70){
  const length=direction?frame.height:frame.width;
  if(length<=1e-6)return;
  const origin=direction?frame.by:frame.bx;
- const retained=length*(1-percent/100)/2,gap=length*.025;
- const start=origin+retained,end=origin+length-retained;
- return {direction,start,end,gap,removed:end-start-gap};
+ const retained=(1-percent/100)/2,gap=length*.025;
+ const fractions=range??[retained,1-retained];
+ const reversed=(direction?vertical:horizontal)[axis]<0;
+ const [low,high]=reversed?[1-fractions[1],1-fractions[0]]:fractions;
+ const start=origin+length*low,end=origin+length*high;
+ return {direction,start,end,gap,removed:end-start-gap,length,fractions,reversed};
+}
+export function moveDrawingBreakEdge(cut,edge,delta){
+ const next=cut.fractions.slice(),index=cut.reversed?1-edge:edge;
+ const min=index===0?.005:next[0]+.03,max=index===0?next[1]-.03:.995;
+ next[index]=Math.max(min,Math.min(max,next[index]+delta/cut.length*(cut.reversed?-1:1)));
+ return next;
 }
 
 export function displayedDrawingSpan(frame,axis){

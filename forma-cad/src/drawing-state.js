@@ -4,6 +4,7 @@ import {autoDimensionKeys} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
 import {drawingReferenceCircleLimit} from './drawing-dimension-references.js';
 import {hasDrawingCommentFont} from './drawing-comments.js';
+import {maxDrawingTableHoles} from './drawing-hole-table.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const point=p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
 export function drawingSignature(features){let a=2166136261,b=5381;for(const c of JSON.stringify(features)){a=Math.imul(a^c.charCodeAt(0),16777619);b=Math.imul(b,33)^c.charCodeAt(0);}return (a>>>0).toString(16)+(b>>>0).toString(16);}
@@ -18,6 +19,14 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  if(o.commentFont!==undefined&&!hasDrawingCommentFont(o.commentFont))fail();
  if(o.breakAxis!==undefined&&!['longest','x','y','z'].includes(o.breakAxis))fail();
  if(o.breakPercent!==undefined&&(!Number.isInteger(o.breakPercent)||o.breakPercent<20||o.breakPercent>90))fail();
+ if(o.breakRange!==undefined&&(!point(o.breakRange)||o.breakRange[0]<.005||o.breakRange[1]>.995||o.breakRange[1]-o.breakRange[0]<.03-1e-10))fail();
+ if(o.holeTable!==undefined){
+  const table=o.holeTable;
+  if(!table||!drawingProjectionNames.includes(table.view)||!point(table.origin)||
+   !Array.isArray(table.holes)||!table.holes.length||table.holes.length>maxDrawingTableHoles||
+   table.holes.some(hole=>!point(hole?.center)||!Number.isFinite(hole.radius)||hole.radius<=0||hole.radius>1e6)||
+   table.review!==undefined&&typeof table.review!=='boolean')fail();
+ }
  if(o.dimensionFontSize!==undefined&&(!Number.isFinite(o.dimensionFontSize)||o.dimensionFontSize<1.5||o.dimensionFontSize>10))fail();
  if(o.dimensionColors!==undefined&&(!o.dimensionColors||typeof o.dimensionColors!=='object'||Array.isArray(o.dimensionColors)||
   Object.entries(o.dimensionColors).some(([key,value])=>!['lineColor','textColor'].includes(key)||!validDimensionColor(value))))fail();
@@ -46,10 +55,12 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   }
  }
  for(const m of markers){if(typeof m.id!=='string'||!/^marker-[a-zA-Z0-9-]{1,60}$/.test(m.id)||!viewNames.has(m.view)||!['line','center'].includes(m.kind))fail();if(m.kind==='line'){if(!point(m.a)||!point(m.b))fail();}else if(!point(m.center)||!Number.isFinite(m.radius)||m.radius<=0||m.radius>1e6)fail();}
- if(!o.positions||typeof o.positions!=='object'||Array.isArray(o.positions))fail();for(const [key,p] of Object.entries(o.positions))if(![...drawingProjectionNames,'iso','comment',...ids].includes(key)||!point(p))fail();
+ if(!o.positions||typeof o.positions!=='object'||Array.isArray(o.positions))fail();for(const [key,p] of Object.entries(o.positions))if(![...drawingProjectionNames,'iso','comment','holeTable',...ids].includes(key)||!point(p))fail();
  for(const d of s.dimensions){if(d.precision!=null&&(!Number.isInteger(d.precision)||d.precision<0||d.precision>6))fail();if(d.fontSize!=null&&(!Number.isFinite(d.fontSize)||d.fontSize<1.5||d.fontSize>10))fail();if(!viewNames.has(d.view)||!['horizontal','vertical','aligned','diameter','radius','angle'].includes(d.kind)||!point(d.at))fail();if(['diameter','radius'].includes(d.kind)){if(!point(d.center)||!Number.isFinite(d.radius)||d.radius<=0||d.radius>1e6)fail();}else if(!point(d.a)||!point(d.b))fail();if(d.kind==='angle'&&!point(d.vertex))fail();}
  for(const d of s.dimensions){
   if(d.review!==undefined&&typeof d.review!=='boolean')fail();
+  if(d.pinned!==undefined&&typeof d.pinned!=='boolean')fail();
+  if(d.arcPoint!==undefined&&(d.kind!=='radius'||!point(d.arcPoint)))fail();
   if(d.tolerance!==undefined&&(!Number.isFinite(d.tolerance)||d.tolerance<0||d.tolerance>1e6))fail();
   if(d.note!==undefined&&(typeof d.note!=='string'||d.note.length>60||/[\u0000-\u001f]/.test(d.note)))fail();
   if(['lineColor','textColor'].some(key=>d[key]!==undefined&&!validDimensionColor(d[key])))fail();

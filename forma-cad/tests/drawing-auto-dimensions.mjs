@@ -3,6 +3,7 @@ import {autoDrawingDimensions,completeDrawingCircles} from '../src/drawing-auto-
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {dimensionLabel,dimensionValue} from '../src/drawing-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
+import {arrangeDrawingDimensions,reflowResizedDrawingDimensions} from '../src/drawing-dimension-layout.js';
 const circle='M 14 -8 A 4 4 0 0 1 6 -8 A 4 4 0 0 1 14 -8 Z';
 const data={bounds:[[0,0,0],[40,25,20]],bodyCount:1,views:{front:{visible:['M 0 -20 L 40 -20 L 40 0 L 0 0 Z'],hidden:[]},top:{visible:['M 0 -25 L 40 -25 L 40 0 L 0 0 Z',circle],hidden:[]},right:{visible:['M 0 -20 L 25 -20 L 25 0 L 0 0 Z'],hidden:[]},iso:{visible:[],hidden:[],viewBox:[0,0,40,30]}}};
 assert.equal(completeDrawingCircles({visible:[circle,circle]}).length,1);
@@ -61,4 +62,18 @@ const colored=drawingSheet(data,1,false,coloredDimensions,'',{dimensionColors:{l
 assert.match(colored,/<g data-dimension="0" stroke="#cc0000"[^]*?<path [^>]*fill="#cc0000"[^]*?<text [^>]*fill="#006600"/);
 assert.match(colored,/<g data-dimension="1" stroke="#000099"[^]*?<path [^>]*fill="#000099"[^]*?<text [^>]*fill="#111111"/);
 assert.match(colored,/<g data-dimension="2" data-dimension-review="true"[^]*?<text [^>]*fill="#a85014"/);
+const rounded=structuredClone(data);
+rounded.views.top.visible=['M 0 -20 L 0 -5 A 5 5 0 0 0 5 0 L 35 0 A 5 5 0 0 0 40 -5 L 40 -25 L 0 -25 Z',circle];
+const roundedSheet=drawingSheet(rounded,2,true,[],'',{viewSelection:['top'],isoMode:'hidden'});
+const radii=autoDrawingDimensions(rounded,2,[],roundedSheet,{views:{top:['radius','diameter']}}).dimensions;
+assert.equal(radii.filter(d=>d.kind==='radius').length,2);
+assert.equal(radii.filter(d=>d.kind==='diameter').length,1);
+assert(radii.filter(d=>d.kind==='radius').every(d=>d.radius===5&&d.arcPoint));
+assert.equal(autoDrawingDimensions(rounded,2,[],roundedSheet,{views:{top:['diameter']}}).dimensions.filter(d=>d.kind==='radius').length,0);
+const w1={view:'top',kind:'horizontal',a:[0,0],b:[40,0],at:[0,12],fontSize:9,automatic:true,pinned:true};
+const w2={...w1,pinned:false,a:[2,0],b:[38,0],at:[0,15]};
+assert.deepEqual(arrangeDrawingDimensions([w1,w2],roundedSheet).dimensions[0].at,w1.at);
+const reflow=reflowResizedDrawingDimensions([w1,w2],roundedSheet);
+assert.deepEqual(reflow.dimensions[0].at,w1.at);
+assert.notDeepEqual(reflow.dimensions[1].at,w2.at);
 console.log('PASS overall and circular feature measurements, full-circle recognition, manual/auto deduplication, scale independence, repeated-feature and document limits');
