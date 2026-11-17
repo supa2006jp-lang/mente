@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {autoDrawingDimensions,completeDrawingCircles} from '../src/drawing-auto-dimensions.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
-import {dimensionLabel,dimensionValue} from '../src/drawing-dimensions.js';
+import {drawingDimensionGeometry,dimensionLabel,dimensionValue} from '../src/drawing-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,reflowResizedDrawingDimensions} from '../src/drawing-dimension-layout.js';
 const circle='M 14 -8 A 4 4 0 0 1 6 -8 A 4 4 0 0 1 14 -8 Z';
@@ -97,6 +97,17 @@ const blocked={...cornerSheet,viewTitles:{top:{x:5,y:18,width:150,height:116}}};
 const unchanged=arrangeDrawingDimensions([cornerRadius],blocked,[edgeLength],{preferNearby:true,requireClear:true});
 assert.deepEqual(unchanged.unresolved,[0]);
 assert.deepEqual(unchanged.dimensions[0],cornerRadius);
+for(const [kind,b,direction] of [['horizontal',[50,0],[1,0]],['vertical',[0,-40],[0,-1]],['aligned',[30,40],[.6,.8]]]){
+ const view=cornerSheet.layout.top,original={kind,a:[0,0],b,at:[10,12]},skewed={...original,alongOffset:7};
+ const a=drawingDimensionGeometry(original,view),bent=drawingDimensionGeometry(skewed,view);
+ assert.equal(dimensionValue(skewed),dimensionValue(original));
+ for(let i=0;i<2;i++){
+  assert(Math.abs(bent.at[i]-a.at[i]-7*direction[i])<1e-8);
+  assert.deepEqual(bent.extensions[i][0],a.extensions[i][0]);
+ }
+ const [[x,y],[u,v]]=bent.main[0];
+ assert(Math.abs(Math.hypot(u-x,v-y)-dimensionValue(original))<1e-8);
+}
 for(const result of [
  arrangeDrawingDimensions([cornerRadius,edgeLength],cornerSheet),
  reflowResizedDrawingDimensions([cornerRadius,edgeLength],cornerSheet,{radiiOnly:true}),

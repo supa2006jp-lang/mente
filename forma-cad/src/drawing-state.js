@@ -76,6 +76,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  for(const d of s.dimensions){
   if(d.review!==undefined&&typeof d.review!=='boolean')fail();
   if(d.pinned!==undefined&&typeof d.pinned!=='boolean')fail();
+  if(d.alongOffset!==undefined&&(!['horizontal','vertical','aligned'].includes(d.kind)||
+   !Number.isFinite(d.alongOffset)||Math.abs(d.alongOffset)>1e6))fail();
   if(d.arcPoint!==undefined&&(d.kind!=='radius'||!point(d.arcPoint)))fail();
   if(d.tolerance!==undefined&&(!Number.isFinite(d.tolerance)||d.tolerance<0||d.tolerance>1e6))fail();
   if(d.note!==undefined&&(typeof d.note!=='string'||d.note.length>60||/[\u0000-\u001f]/.test(d.note)))fail();

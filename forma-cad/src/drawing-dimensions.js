@@ -68,10 +68,16 @@ export function drawingDimensionGeometry(d,view,scale=view.scale){
   u=[(b[0]-a[0])/length,(b[1]-a[1])/length];
  }
  const n=[-u[1],u[0]],offset=(at[0]-a[0])*n[0]+(at[1]-a[1])*n[1];
- const q=add(a,n,offset),r=add(q,u,(b[0]-a[0])*u[0]+(b[1]-a[1])*u[1]);
+ const along=(d.alongOffset??0)*scale;
+ const q=add(add(a,n,offset),u,along),r=add(q,u,(b[0]-a[0])*u[0]+(b[1]-a[1])*u[1]);
  const overrun=Math.sign(offset)*1.5;
- return {at:[(q[0]+r[0])/2,(q[1]+r[1])/2],main:[[q,r]],
-  extensions:[[a,add(q,n,overrun)],[b,add(r,n,overrun)]],
+ const extensionEnd=(origin,tip)=>{
+  if(!along)return add(tip,n,overrun);
+  const dx=tip[0]-origin[0],dy=tip[1]-origin[1],length=Math.hypot(dx,dy)||1;
+  return add(tip,[dx/length,dy/length],1.5);
+ };
+ return {at:[(q[0]+r[0])/2,(q[1]+r[1])/2],direction:u,main:[[q,r]],
+  extensions:[[a,extensionEnd(a,q)],[b,extensionEnd(b,r)]],
   arrows:[arrowPoints(q,u),arrowPoints(r,[-u[0],-u[1]])]};
 }
 export function dimensionSVG(d,view,scale,index,defaults){

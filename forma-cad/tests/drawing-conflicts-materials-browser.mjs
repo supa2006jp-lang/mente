@@ -7,6 +7,7 @@ import * as R from 'replicad';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {drawingSignature} from '../src/drawing-state.js';
 import {drawingMaterialsKey} from '../src/drawing-materials.js';
+import {decodeProjectDocument} from '../src/project-codec.js';
 
 R.setOC(await init({wasmBinary:await fs.readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const block=R.makeBox([0,0,0],[50,50,20]),shape=block.fillet(2,f=>f.inDirection('Z'));
@@ -38,9 +39,10 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
 try{
  browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
- const page=await browser.newPage({viewport:{width:1600,height:1200}}),errors=[];
+ const page=await browser.newPage({viewport:{width:1600,height:1200},acceptDownloads:true}),errors=[];
  page.setDefaultTimeout(20000);
  page.on('pageerror',error=>errors.push(error.message));
+ page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
  const field=id=>page.locator('#drawing-'+id);
  await page.goto('http://127.0.0.1:'+server.address().port+'/');
  await page.locator('#canvas-host canvas').waitFor();
@@ -48,8 +50,12 @@ try{
   await page.locator('#file').setInputFiles({name,mimeType:'application/json',buffer:Buffer.from(JSON.stringify(document))});
   await page.locator('#project-preview-open').click();
   await page.waitForFunction(()=>!window.document.getElementById('project-load-preview').open);
-  await field('tool').evaluate(button=>button.click());
-  await field('preview').locator('svg').waitFor();
+  await field('tool').click();
+  await field('preview').locator('svg').waitFor().catch(async error=>{
+   const status=await field('status').textContent();
+   const appStatus=await page.locator('#status').textContent();
+   throw new Error(name+' — '+status+' / '+appStatus,{cause:error});
+  });
  }
  await open('r2-collision.forma.json',{...project,drawing});
  const section=field('conflicts'),row=index=>section.locator('[data-dimension-conflict="'+index+'"]');
@@ -70,6 +76,43 @@ try{
  assert(await section.isVisible());
  await field('redo').click();
  assert(await section.isHidden());
+ await field('zoom-fit').click();
+ await label(0).click();
+ await field('dimension-pin').uncheck();
+ await field('layout-mode').check();
+ const textPoint=async()=>Promise.all(['x','y'].map(key=>label(0).getAttribute(key)));
+ const original=await textPoint();
+ async function dragLabel(dx,dy){
+  await label(0).scrollIntoViewIfNeeded();
+  const box=await label(0).boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;
+  await page.mouse.move(x,y);await page.mouse.down();
+  await page.mouse.move(x+dx,y+dy,{steps:6});await page.mouse.up();
+ }
+ await dragLabel(44,32);
+ const oblique=await textPoint();
+ assert(+oblique[0]>+original[0]&&+oblique[1]>+original[1]);
+ assert.equal(await label(0).textContent(),'50');
+ const path=field('preview').locator('[data-dimension="0"] path').first();
+ const [ax,ay,bx,by]=(await path.getAttribute('d')).match(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/gi).map(Number);
+ assert.equal(ax,40);assert.equal(ay,80);
+ assert(bx>ax&&by>ay,'the extension leaves the original measurement point diagonally');
+ await field('undo').click();
+ assert.deepEqual(await textPoint(),original);
+ await field('redo').click();
+ assert.deepEqual(await textPoint(),oblique);
+ await page.keyboard.down('Shift');await dragLabel(44,20);await page.keyboard.up('Shift');
+ const constrained=await textPoint();
+ assert.equal(constrained[0],oblique[0]);assert(+constrained[1]>+oblique[1]);
+ await field('close').click();
+ const download=page.waitForEvent('download');
+ await page.locator('#save').click();
+ const file=await fs.readFile(await(await download).path(),'utf8');
+ const saved=(await decodeProjectDocument(file)).document;
+ assert(saved.drawing.dimensions[0].alongOffset>0);
+ assert.deepEqual(saved.drawing.dimensions[0].a,drawing.dimensions[0].a);
+ assert.deepEqual(saved.drawing.dimensions[0].b,drawing.dimensions[0].b);
+ await open('oblique.forma.json',saved);
+ assert.deepEqual(await textPoint(),constrained);
 
  const material='SUS304 2B（研磨）',select=field('material-preset'),input=field('material');
  await input.fill(material);
@@ -89,5 +132,5 @@ try{
  await select.selectOption('SUS304');
  assert.equal(await input.inputValue(),'SUS304');
  assert.deepEqual(errors,[]);
- console.log('PASS collision detection, zoom, single-dimension placement/undo, and material library across drawings');
+ console.log('PASS collision repair, oblique dimension drag and save/reload, and material library across drawings');
 }finally{await browser?.close();server.close();}

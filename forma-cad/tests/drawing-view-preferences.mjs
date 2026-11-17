@@ -16,6 +16,8 @@ let cases=0;for(const viewPriority of ['balanced','front'])for(const isoMode of 
 }
 const options={...base,viewPriority:'front',isoMode:'small'},preferred=optimizeDrawingLayout(data,{options});assert(preferred.scale*1.4>baseline.scale*1.2,'front gains paper area when the large isometric view is reduced');
 const beforeFrames=drawingViewFrames(data),nextFrames=drawingViewFrames(data,options),dims=overallDrawingDimensions(data,1),updated=rescaleDrawingAnnotations(dims,nextFrames,1,1,beforeFrames);near(updated[0].at[1]*1.4,8);assert.deepEqual(updated.map(dimensionValue),dims.map(dimensionValue));
+const oblique=rescaleDrawingAnnotations([{...dims[0],alongOffset:9}],nextFrames,1,1,beforeFrames)[0];
+near(oblique.alongOffset*nextFrames.front.factor,9);
 for(const key of ['viewPriority','isoMode'])assert.throws(()=>readDrawingState({version:1,signature:'p',targets:[],targetMode:'visible',scale:1,hidden:true,comment:'',dimensions:[],options:{...base,[key]:'bad',name:'',material:'',date:'',positions:{}}}));assert.equal(JSON.stringify(data),original);
 console.log(JSON.stringify({pass:true,cases,frontGain:preferred.scale*1.4/baseline.scale,explicitScales:true,hideIso:true,realDimensionsPreserved:true,paperAnnotationGapPreserved:true,persistValidation:true}));
 

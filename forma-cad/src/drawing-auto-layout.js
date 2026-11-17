@@ -28,7 +28,7 @@ export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale,pr
  else if(['radius','diameter'].includes(d.kind)){const delta=at.map((v,i)=>v-d.center[i]),length=Math.hypot(...delta)||1,gap=Math.max(5,length*old-d.radius*old),distance=d.radius+gap/next;for(let i=0;i<2;i++)at[i]=d.center[i]+delta[i]/length*distance;}
  else if(d.kind==='angle'){for(let i=0;i<2;i++)at[i]=d.vertex[i]+(at[i]-d.vertex[i])*old/next;}
  else{const u=d.b.map((v,i)=>v-d.a[i]),length=Math.hypot(...u)||1,n=[-u[1]/length,u[0]/length],offset=(at[0]-d.a[0])*n[0]+(at[1]-d.a[1])*n[1];for(let i=0;i<2;i++)at[i]+=n[i]*offset*(old/next-1);}
- return {...structuredClone(d),at};});}
+ return {...structuredClone(d),at,...(d.alongOffset===undefined?{}:{alongOffset:d.alongOffset*old/next})};});}
 function decoratedViews(frames,scale,dimensions,options){const boxes={},layout={};
  for(const [key,f] of Object.entries(frames)){
   const s=scale*f.factor,width=displayedDrawingSpan(f,0)*s,height=displayedDrawingSpan(f,1)*s;
