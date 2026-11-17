@@ -12,6 +12,13 @@ export function drawingCommentLayout(text,fontSize,font){
  return {width,lines,font,fontSize,baseline,lineHeight,height:fontSize*1.8+(lines.length-1)*lineHeight};
 }
 
+export function drawingCommentEntries(text,options={}){
+ return [
+  {id:'comment',text,size:options.commentSize,font:options.commentFont,color:options.commentColor},
+  ...(options.pageComments===false?[]:options.comments||[]),
+ ].filter(note=>note.text.trim()).map(note=>({...note,...drawingCommentLayout(note.text,note.size,note.font)}));
+}
+
 export function drawingCommentPlacementIssue(box,{width,height,contentBottom,titleBlock}){
  const bottom=titleBlock?height-5:contentBottom;
  const right=box.x+box.width,lower=box.y+box.height;

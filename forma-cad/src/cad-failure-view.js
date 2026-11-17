@@ -8,6 +8,7 @@ export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,
  function clear(){trial?.abort();trial=null;if(overlay){overlay.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});overlay.removeFromParent();overlay=null;}panel.hidden=true;delete host.dataset.failedBodies;}
  function action(text,handler){const button=document.createElement('button');button.type='button';button.textContent=text;button.onclick=handler;q('actions').append(button);}
  function show(error,spec,features){
+  if(error.code==='no-unextruded-area'){clear();return;}
   if(error.code==='cancelled')return;clear();original=getFeatures();let operation=spec?.type==='preview'?spec.operation:spec;
   if(operation?.type==='extrusionBatch')operation={type:'extrusion',feature:operation.features?.[0],target:operation.features?.[0]?.target};
   if(operation?.type==='replay'&&error.featureId)operation=features.find(feature=>feature.id===error.featureId)?.spec||operation;

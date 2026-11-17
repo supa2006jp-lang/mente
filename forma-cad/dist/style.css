@@ -165,6 +165,14 @@
 .drawing-material-actions { display:inline-flex; gap:4px; }
 .drawing-material-actions > button { padding:4px 8px; }
 #drawing-material-status:empty { display:none; }
+#drawing-pdf-preview { width:min(1200px,96vw); max-width:96vw; height:94vh; max-height:94vh; }
+#drawing-pdf-preview[open] { display:flex; flex-direction:column; gap:10px; }
+#drawing-pdf-preview-host { flex:1; min-height:160px; overflow:hidden; background:#d8e0e5; touch-action:none; }
+#drawing-pdf-preview-host svg { width:100%; height:100%; display:block; }
+#drawing-pdf-preview .drawing-actions { margin-top:0; }
+#drawing-pdf-preview.drawing-expanded { width:98vw; max-width:98vw; height:96vh; max-height:96vh; }
+#drawing-pdf-preview-host.drawing-panning { cursor:grabbing; }
+#drawing-view-scales .drawing-controls { gap:6px 14px; margin:8px 0; }
 #drawing-dimension-tolerance { width:86px; }
 #drawing-dialog .drawing-comment-style { margin-top:7px; gap:6px 14px; }
 #drawing-dialog .drawing-comment-style select { padding:4px 7px; }
@@ -749,3 +757,11 @@ button.form-control-point.invalid { background:#bc2634; }
 .navigation[data-collapsed] > :not(#viewport-navigation-toggle),
 .navigation[data-collapsed] ~ .view-help { display:none !important; }
 #interior-edge-adjustment #fillet-interior-candidates { background:#e1f3df !important; border-color:#78a987 !important; color:#185438 !important; }
+
+#drawing-alignment,#drawing-page-assignments{padding:7px 10px;border:1px solid #486072;border-radius:6px;margin:6px 0}
+#drawing-alignment summary,#drawing-page-assignments summary{cursor:pointer}
+#drawing-alignment .drawing-controls,#drawing-page-assignments .drawing-controls{margin-top:7px;gap:8px}
+#drawing-alignment-items,#drawing-page-items{max-height:180px;overflow:auto}
+#drawing-alignment-items label{white-space:nowrap}
+#drawing-page-items label{display:inline-flex;align-items:center;gap:6px}
+#drawing-page-count{width:65px}

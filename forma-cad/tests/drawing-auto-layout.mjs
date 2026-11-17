@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';import {optimizeDrawingLayout,drawingViewFrames} from '../src/drawing-auto-layout.js';import {drawingSheet} from '../src/drawing-sheet.js';import {dimensionValue} from '../src/drawing-dimensions.js';import {readDrawingState} from '../src/drawing-state.js';
 import {drawingPDFPages} from '../src/drawing-pdf-pages.js';
+import {alignDrawingItems} from '../src/drawing-alignment.js';
 import {autoDrawingDimensions} from '../src/drawing-auto-dimensions.js';
 import {drawingCommentPlacementIssue} from '../src/drawing-comments.js';
 import {snapDrawingPlacement} from '../src/drawing-placement-guides.js';
@@ -10,6 +11,12 @@ const overlaps=(a,b)=>a.x<b.x+b.width-1e-5&&a.x+a.width>b.x+1e-5&&a.y<b.y+b.heig
 const examples=[];for(const paper of ['A4','A3'])for(const orientation of ['landscape','portrait'])for(const [w,d,h]of [[40,25,20],[240,10,20],[10,240,15],[10,10,200],[120,120,120],[.1,.1,.1],[5000,30,100]]){const data=fixture(w,d,h),options={paper,orientation,frame:true},before=JSON.stringify(data),result=optimizeDrawingLayout(data,{options});check(result);assert.equal(JSON.stringify(data),before);const sheet=drawingSheet(data,result.scale,true,[],'',{...options,layout:result.layout,positions:result.positions});assert.equal(sheet.width,orientation==='landscape'?(paper==='A4'?297:420):(paper==='A4'?210:297));for(const name of ['front','top','right','iso'])assert.deepEqual([sheet.layout[name].x,sheet.layout[name].y],result.positions[name]);const frame=drawingViewFrames(data).front;assert.equal(sheet.layout.front.width,frame.width*result.scale);assert.match(sheet.svg,/AUTO LAYOUT/);assert(!sheet.svg.includes('THIRD ANGLE'));examples.push({paper,orientation,size:[w,d,h],scale:result.scale});}
 const data=fixture(200,20,20,[0,0,150,40]),options={paper:'A4',orientation:'landscape',frame:true},compact=optimizeDrawingLayout(data,{options});check(compact);const traditionalFits=scale=>{const s=drawingSheet(data,scale,true,[],'',options);return Object.values(s.layout).every(v=>v.x>=5&&v.y>=24&&v.x+v.width<=s.width-5&&v.y+v.height<=s.contentBottom);};let lo=0,hi=10;for(let i=0;i<40;i++){const mid=(lo+hi)/2;if(traditionalFits(mid))lo=mid;else hi=mid;}assert(compact.scale>lo*1.12,'free layout should enlarge a long model beyond the traditional projection arrangement');
 const framed=drawingSheet(data,.5,true,[],'',options),bottomLeft={x:15,y:193,width:40,height:6};
+const commentOptions={...options,comments:[{id:'comment-additional',text:'個別の注記',size:4,font:'',color:'#aa3344'}]};
+const withComments=optimizeDrawingLayout(data,{scale:.5,comment:'共通の注記',options:commentOptions});
+const noteSheet=drawingSheet(data,withComments.scale,true,[],'共通の注記',{...commentOptions,positions:withComments.positions});
+assert.equal(noteSheet.notes.length,2);
+assert.equal(noteSheet.notes[1].id,'comment-additional');
+assert.match(noteSheet.svg,/data-comment="comment-additional" fill="#aa3344"/);
 assert.equal(drawingCommentPlacementIssue(bottomLeft,framed),null);
 assert.equal(drawingCommentPlacementIssue({...bottomLeft,x:framed.titleBlock.x},framed),'titleBlock');
 assert.equal(drawingCommentPlacementIssue({...bottomLeft,y:201},framed),'paper');
@@ -93,4 +100,50 @@ assert.equal(tablePages.length,2);
 assert.match(tablePages[1].svg,/data-hole-table/);
 assert.doesNotMatch(tablePages[1].svg,/data-view=|SCALE/);
 assert.equal(readDrawingState({...state,options:{...state.options,...drawingOptions}}).options.leaders[0].id,'leader-a');
+const assignments={pageCount:3,views:{top:2,front:1,'section-a':1,'detail-a':2},comments:{comment:3,'comment-check':1},holeTable:3};
+const manualOptions={...drawingOptions,pdfLayout:'manual',pageAssignments:assignments,
+ comments:[{id:'comment-check',text:'第一ページの注記',size:4,font:'',color:'#111111'}]};
+const assigned=drawingPDFPages(profiled,1,true,auto,'注記だけのページ',manualOptions);
+assert.equal(assigned.length,3);
+assert.deepEqual(Object.keys(assigned[0].layout).sort(),['front','section-a']);
+assert.deepEqual(Object.keys(assigned[1].layout).sort(),['detail-a','top']);
+assert.deepEqual(Object.keys(assigned[2].layout),[]);
+assert.match(assigned[0].svg,/第一ページの注記/);
+assert.doesNotMatch(assigned[1].svg,/data-comment/);
+assert.match(assigned[2].svg,/注記だけのページ/);
+assert.match(assigned[2].svg,/data-hole-table/);
+assert.doesNotMatch(assigned[0].svg,/data-hole-table/);
+assert.deepEqual(readDrawingState({...state,options:{...state.options,...manualOptions}}).options.pageAssignments,assignments);
+for(const invalid of [{...assignments,pageCount:0},{...assignments,views:{top:4}},{...assignments,comments:{missing:1}}]){
+ assert.throws(()=>readDrawingState({...state,options:{...state.options,...manualOptions,pageAssignments:invalid}}));
+}
+const blank=drawingPDFPages(profiled,1,true,[],'',{...manualOptions,comments:[],holeTable:undefined,pageAssignments:{pageCount:4,views:assignments.views,comments:{}}});
+assert.equal(blank.length,4);
+assert.deepEqual(Object.keys(blank[3].layout),[]);
+assert.equal(blank[3].notes.length,0);
+assert.match(blank[3].svg,/data-page-number="true">4 \/ 4/);
+const onlyNotes=drawingPDFPages(profiled,1,true,[],'独立した注記',{...manualOptions,holeTable:undefined});
+assert.equal(onlyNotes[2].notes.length,1);
+const alignedItems=[{id:'top',box:{x:20,y:20,width:30,height:10}},
+ {id:'comment',box:{x:70,y:45,width:20,height:15}},
+ {id:'comment-check',box:{x:150,y:90,width:40,height:20}}];
+const itemsBefore=structuredClone(alignedItems);
+const moved=action=>alignDrawingItems(alignedItems,action).map(move=>{
+ const b=alignedItems.find(item=>item.id===move.id).box;return {...b,x:b.x+move.dx,y:b.y+move.dy};
+});
+assert(moved('left').every(box=>box.x===20));
+assert(moved('right').every(box=>box.x+box.width===190));
+assert(moved('center-x').every(box=>box.x+box.width/2===105));
+assert(moved('top').every(box=>box.y===20));
+assert(moved('bottom').every(box=>box.y+box.height===110));
+assert(moved('center-y').every(box=>box.y+box.height/2===65));
+for(const axis of ['x','y']){
+ const result=moved('space-'+axis),span=axis==='x'?'width':'height';
+ assert.equal(result[1][axis]-result[0][axis]-result[0][span],result[2][axis]-result[1][axis]-result[1][span]);
+ assert.equal(result[0][axis],alignedItems[0].box[axis]);
+ assert.equal(result[2][axis],alignedItems[2].box[axis]);
+}
+assert.deepEqual(alignedItems,itemsBefore);
+assert.deepEqual(alignDrawingItems(alignedItems.slice(0,2),'space-x'),[]);
+assert.throws(()=>alignDrawingItems(alignedItems.map(item=>({...item,box:{...item.box,x:0}})),'space-x'),/余地/);
 console.log(JSON.stringify({pass:true,examples:examples.length,traditionalScale:lo,compactScale:compact.scale,gain:compact.scale/lo,annotations:true,extras:true,defaultA4Landscape:true,continuousScaleSaved:true}));

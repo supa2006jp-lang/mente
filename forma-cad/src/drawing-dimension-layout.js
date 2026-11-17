@@ -84,7 +84,7 @@ function dimensionOverlap(a,b){
 function dimensionObstacles(sheet){
  return [
   ...Object.values(sheet.viewTitles||{}).map(box=>({box,reason:'見出し枠'})),
-  ...[[sheet.note,'コメント'],[sheet.holeBox,'穴位置表'],...(sheet.leaderLabels||[]).map(box=>[box,'矢印付き注記'])]
+  ...[...(sheet.notes??[sheet.note]).map(note=>[note,'コメント']),[sheet.holeBox,'穴位置表'],...(sheet.leaderLabels||[]).map(box=>[box,'矢印付き注記'])]
    .filter(([box])=>box).map(([box,reason])=>({box,reason})),
  ];
 }
@@ -153,7 +153,7 @@ const insidePaper=(box,sheet)=>box.x>=5&&box.y>=18&&box.x+box.width<=sheet.width
 // Geometry is in paper mm, independent of screen zoom and printed scale.
 export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false,requireClear=false}={}){
  const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7}));
- const labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
+ const labels=[...(sheet.notes??[sheet.note]),sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
  const obstacles=requireClear?dimensionObstacles(sheet):[];
  const placedGeometry=[...locked,...dimensions.filter(d=>d.pinned)].map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
  const placed=dimensions.map(d=>({...d,at:[...d.at]})),unresolved=[];
@@ -192,7 +192,7 @@ export function reflowResizedDrawingDimensions(dimensions,sheet,{radiiOnly=false
  const automatic=d=>!d.pinned&&!d.review&&(d.automatic||d.overall)&&(!radiiOnly||d.kind==='radius');
  const fixed=dimensions.filter(d=>!automatic(d));
  const taken=fixed.map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
- const labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
+ const labels=[...(sheet.notes??[sheet.note]),sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
  const move=[],indices=[];
  const order=dimensions.map((_,i)=>i).filter(i=>automatic(dimensions[i])).sort((a,b)=>Number(dimensions[a].kind==='radius')-Number(dimensions[b].kind==='radius'));
  for(const index of order){

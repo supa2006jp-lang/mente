@@ -1,6 +1,6 @@
-import {drawingViewVisible,drawingViewFactor,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections} from './drawing-view-preferences.js';
+import {drawingViewVisible,drawingViewScale,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
-import {drawingCommentLayout} from './drawing-comments.js';
+import {drawingCommentEntries} from './drawing-comments.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
 import {displayedDrawingSpan,drawingBreakAxis,drawingPaperPoint,drawingPointOmitted,drawingViewBreak} from './drawing-break.js';
 import {drawingHoleMarkers,drawingHoleTableSize} from './drawing-hole-table.js';
@@ -8,7 +8,7 @@ import {drawingLeaderLayout} from './drawing-leaders.js';
 import {drawingViewTitle} from './drawing-view-title.js';
 const GAP=3,MIN_SCALE=.0001,MAX_SCALE=1000;
 const overlap=(a,b)=>a.x<b.x+b.width-1e-8&&a.x+a.width>b.x+1e-8&&a.y<b.y+b.height-1e-8&&a.y+a.height>b.y+1e-8;
-export function drawingViewFrames(input,options={}){
+export function drawingViewFrames(input,options={},scale=1){
  const data=withDetails(input,options.details),frames={};
  const axis=drawingBreakAxis(data.bounds,options.breakAxis);
  for(const key of defaultDrawingViewOrder)if(data.views[key]&&drawingViewVisible(key,options)){
@@ -17,7 +17,7 @@ export function drawingViewFrames(input,options={}){
  }
  if(data.views.iso)frames.iso={bx:data.views.iso.viewBox[0],by:data.views.iso.viewBox[1],width:data.views.iso.viewBox[2],height:data.views.iso.viewBox[3],factor:1,label:'ISOMETRIC'};
  for(const [key,view]of Object.entries(data.views))if(key!=='iso'&&!Object.hasOwn(drawingProjections,key))frames[key]={bx:view.viewBox[0],by:view.viewBox[1],width:view.viewBox[2],height:view.viewBox[3],factor:view.factor||1,label:key.startsWith('section-')?'断面 A–A':'詳細 D1 / 1000:1'};
- for(const key of Object.keys(frames)){if(!drawingViewVisible(key,options))delete frames[key];else frames[key].factor*=drawingViewFactor(key,options);}
+ for(const key of Object.keys(frames)){if(!drawingViewVisible(key,options))delete frames[key];else frames[key].factor=drawingViewScale(key,scale,options,frames[key].factor)/scale;}
  for(const frame of Object.values(frames))if(![frame.bx,frame.by,frame.width,frame.height,frame.factor].every(Number.isFinite)||frame.width<0||frame.height<0||frame.factor<=0)throw Error('図の大きさを取得できません');return frames;
 }
 // Keep annotation offsets in paper mm when the common model scale changes.
@@ -58,17 +58,20 @@ function slicingPack(items,width,height){const limitW=width+GAP,limitH=height+GA
  const result=variants((1<<n)-1);return result.sort((a,b)=>a.w*a.h-b.w*b.h)[0]||null;}
 function freeRectPack(items,width,height){let best=null;const sorts=[(a,b)=>b.height-a.height,(a,b)=>b.width-a.width,(a,b)=>b.width*b.height-a.width*a.height,(a,b)=>Math.max(b.width,b.height)-Math.max(a.width,a.height),(a,b)=>b.width/b.height-a.width/a.height,(a,b)=>a.width/a.height-b.width/b.height];for(const sort of sorts){let free=[{x:0,y:0,width:width+GAP,height:height+GAP}],at={},w=0,h=0,failed=false;for(const item of [...items].sort(sort)){const iw=item.width+GAP,ih=item.height+GAP,candidates=free.filter(r=>r.width>=iw-1e-8&&r.height>=ih-1e-8).sort((a,b)=>Math.min(a.width-iw,a.height-ih)-Math.min(b.width-iw,b.height-ih)||a.y-b.y||a.x-b.x);if(!candidates.length){failed=true;break;}const rect={x:candidates[0].x,y:candidates[0].y,width:iw,height:ih};at[item.key]=[rect.x,rect.y];w=Math.max(w,rect.x+iw);h=Math.max(h,rect.y+ih);const split=[];for(const f of free){if(!overlap(f,rect)){split.push(f);continue;}if(rect.x>f.x)split.push({...f,width:rect.x-f.x});if(rect.x+iw<f.x+f.width)split.push({...f,x:rect.x+iw,width:f.x+f.width-rect.x-iw});if(rect.y>f.y)split.push({...f,height:rect.y-f.y});if(rect.y+ih<f.y+f.height)split.push({...f,y:rect.y+ih,height:f.y+f.height-rect.y-ih});}free=split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&(q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));}if(!failed&&(!best||w*h<best.w*best.h))best={w,h,at};}return best;}
 export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',options={}}={}){
- if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.orientation==='portrait'?[size[1],size[0]]:size,area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options),note=drawingCommentLayout(comment,options.commentSize,options.commentFont);
+ if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.orientation==='portrait'?[size[1],size[0]]:size,area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options),notes=drawingCommentEntries(comment,options);
  const table=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:frames);
- if(!Object.keys(frames).length&&!table)throw Error('図面に載せるビューを1つ以上選択してください');
+ if(!Object.keys(frames).length&&!table&&!notes.length)throw Error('図面に載せるビューを1つ以上選択してください');
+ const previousFrames=drawingViewFrames(data,options,scale);
  const attempt=s=>{
-  const resized=rescaleDrawingAnnotations(dimensions,frames,scale,s),items=decoratedViews(frames,s,resized,options);
-  for(const [key,block] of [['comment',note],['holeTable',table]])if(block){const width=block.width+2,height=block.height+2;items.push({key,box:{x:-1,y:-1,width,height},width,height});}
+  const nextFrames=drawingViewFrames(data,options,s);
+  const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames),items=decoratedViews(nextFrames,s,resized,options);
+  for(const [key,block] of [...notes.map(note=>[note.id,note]),['holeTable',table]])if(block){const width=block.width+2,height=block.height+2;items.push({key,box:{x:-1,y:-1,width,height},width,height});}
   if(items.length>24)throw Error('自動配置する図が多すぎます');
   const packed=items.length<=6?slicingPack(items,area.width,area.height):freeRectPack(items,area.width,area.height);
   return packed?{items,packed,dimensions:resized}:null;
  };
- let lo=MIN_SCALE,hi=MAX_SCALE;if(!attempt(lo))throw Error('文字・寸法・コメントを用紙に収められません。コメントを短くするか用紙を大きくしてください');if(attempt(hi))lo=hi;else for(let i=0;i<36;i++){const mid=(lo+hi)/2;if(attempt(mid))lo=mid;else hi=mid;}
+ const variable=Object.keys(frames).some(name=>options.viewScales?.[name]===undefined);
+ let lo=variable?MIN_SCALE:scale,hi=MAX_SCALE;if(!attempt(lo))throw Error('文字・寸法・コメントを用紙に収められません。コメントを短くするか用紙を大きくしてください');if(variable){if(attempt(hi))lo=hi;else for(let i=0;i<36;i++){const mid=(lo+hi)/2;if(attempt(mid))lo=mid;else hi=mid;}}
  const nextScale=Math.max(MIN_SCALE,Math.floor(lo*1e6)/1e6),result=attempt(nextScale),positions={},offset=[area.x+(area.width-(result.packed.w-GAP))/2,area.y+(area.height-(result.packed.h-GAP))/2];for(const item of result.items){const p=result.packed.at[item.key];positions[item.key]=[offset[0]+p[0]-item.box.x,offset[1]+p[1]-item.box.y];}
  return {scale:nextScale,positions,dimensions:result.dimensions,paper,layout:'compact',area,boxes:result.items.map(item=>({key:item.key,x:positions[item.key][0]+item.box.x,y:positions[item.key][1]+item.box.y,width:item.width,height:item.height}))};
 }

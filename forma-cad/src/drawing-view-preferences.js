@@ -27,4 +27,5 @@ export function drawingProjectedFrame(name,bounds){
  return {bx,by,width:x1-bx,height:y1-by,label,factor:1};
 }
 export const drawingViewFactor=(name,options={})=>name==='front'&&options.viewPriority==='front'?1.4:name==='iso'&&options.isoMode==='small'?.5:1;
+export const drawingViewScale=(name,scale,options={},factor=1)=>options.viewScales?.[name]??scale*drawingViewFactor(name,options)*factor;
 export function drawingScaleLabel(scale){return scale>=1?Number(scale.toFixed(4))+':1':'1:'+Number((1/scale).toFixed(4));}

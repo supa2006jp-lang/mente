@@ -4,6 +4,8 @@ import {basisFor} from './frames.js';
 import {validateRegion} from './regions.js';
 
 export function validateExtrusionOverlap(f){
+ if(f.unextrudedOnly!==undefined&&typeof f.unextrudedOnly!=='boolean')throw Error('未押し出し部分だけの設定が不正です');
+ if(f.unextrudedOnly&&(!f.overlapOnly||!['new','join'].includes(f.operation)||f.region?.overlapSource))throw Error('未押し出し部分だけの設定はスケッチ全体の新規・結合で使用してください');
  if(f.overlapOnly!==undefined&&typeof f.overlapOnly!=='boolean')throw Error('重なる部分だけの押し出し設定が不正です');
  if(!f.overlapOnly)return;
  if(f.region?.overlapSource){validateRegion(f.region.overlapSource);if(f.region.overlapSource.overlapSource)throw Error('重なりの元領域が不正です');}
@@ -27,8 +29,14 @@ export function commonSection(face,body,operation='common'){
 // Boolean operations stay on the sketch plane, including native circular edges.
 export function partitionSection(face,bodies,outside=false){
  let result=outside?face.clone():null;
+ const faceBox=face.boundingBox;let bounds;
+ try{bounds=faceBox.bounds.map(point=>[...point]);}finally{faceBox.delete();}
  try{
   for(const body of bodies){
+   const bodyBox=body.boundingBox;let separate;
+   try{separate=bodyBox.bounds[0].some((value,axis)=>value>bounds[1][axis]+1e-6||bodyBox.bounds[1][axis]<bounds[0][axis]-1e-6);}
+   finally{bodyBox.delete();}
+   if(separate)continue;
    if(outside){if(!result)break;const next=commonSection(result,body,'cut');result.delete();result=next;}
    else {const part=commonSection(face,body);if(!part)continue;try{const next=result?commonSection(result,part,'fuse'):part.clone();result?.delete();result=next;}finally{part.delete();}}
   }
@@ -44,7 +52,7 @@ export function overlappingProfileSolid(f,bodies,makeUnclipped){
  const targets=f.overlapTargets.map(id=>bodies?.get(id));
  if(targets.some(body=>!body))throw Error('重なりを判定するボディが見つかりません。対象を選び直してください');
  const normal=basisFor(f.region||f).n,offset=f.region?.offset??normal.x*f.x+normal.y*f.y+normal.z*f.z;
- const probe=makeUnclipped({...f,region:f.region?.overlapSource||f.region,overlapOnly:false,throughAll:false,depth:1}),faces=probe.faces;
+ const probe=makeUnclipped({...f,region:f.region?.overlapSource||f.region,overlapOnly:false,unextrudedOnly:false,throughAll:false,depth:1}),faces=probe.faces;
  const selection=f.region?.overlapPoint?R.makeVertex(f.region.overlapPoint):null;
  const vector=new R.Vector(normal.clone().multiplyScalar(f.depth).toArray());let combined;
  try{
@@ -56,7 +64,7 @@ export function overlappingProfileSolid(f,bodies,makeUnclipped){
    finally{center.delete();n.delete();}
    if(!start)continue;
    {
-    const section=partitionSection(face,targets,f.region?.partitionSide==='outside');if(!section)continue;
+    const section=partitionSection(face,targets,f.unextrudedOnly||f.region?.partitionSide==='outside');if(!section)continue;
     const sections=section.faces;
     try{
      for(const patch of sections){
@@ -72,7 +80,10 @@ export function overlappingProfileSolid(f,bodies,makeUnclipped){
     }finally{sections.forEach(patch=>patch.delete());section.delete();}
    }
   }
-  if(!combined)throw Error('スケッチ平面上でソリッドと重なる部分がありません。平面位置と対象を確認してください');
+  if(!combined){
+   if(f.unextrudedOnly)throw Object.assign(Error('未押し出しの部分がありません。スケッチ面の全体が既存ソリッドで埋まっています。'),{code:'no-unextruded-area'});
+   throw Error('スケッチ平面上でソリッドと重なる部分がありません。平面位置と対象を確認してください');
+  }
   const result=combined;combined=null;return result;
  }finally{selection?.delete();combined?.delete();vector.delete();faces.forEach(face=>face.delete());probe.delete();}
 }

@@ -14,7 +14,7 @@ export function drawingViewTitle(name,view,scale,options){
   label='詳細 D'+(detail+1)+' / '+drawingScaleLabel(view.scale);
  }
  if(view.break)label+=' / 省略表示';
- if(detail<0&&Math.abs(view.scale-scale)>1e-10)label+=' / SCALE '+drawingScaleLabel(view.scale);
+ if(detail<0&&(options.viewScales?.[name]!==undefined||Math.abs(view.scale-scale)>1e-10))label+=' / SCALE '+drawingScaleLabel(view.scale);
  const x=view.x+1.3,y=view.y-8.1;
  const textWidth=[...label].reduce((width,char)=>width+(/\s/.test(char)?.35:char.codePointAt(0)>255?1:/[MW]/.test(char)?.95:.72)*fontSize,0);
  const width=accentOffset+textWidth+1.7;

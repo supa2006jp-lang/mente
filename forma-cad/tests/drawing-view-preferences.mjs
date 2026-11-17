@@ -6,6 +6,15 @@ import {dimensionValue} from '../src/drawing-dimensions.js';
 import {readDrawingState} from '../src/drawing-state.js';
 const data={bounds:[[0,0,0],[100,60,50]],bodyCount:1,views:{front:{visible:['M0 0 H100 V-50 H0 Z'],hidden:[]},top:{visible:['M0 0 H100 V-60 H0 Z'],hidden:[]},right:{visible:['M0 0 H60 V-50 H0 Z'],hidden:[]},iso:{viewBox:[0,0,250,200],visible:['M0 0 L250 200'],hidden:[]}}},base={paper:'A4',orientation:'landscape',frame:true},near=(a,b)=>assert(Math.abs(a-b)<1e-5,`${a} != ${b}`),original=JSON.stringify(data);
 const baseline=optimizeDrawingLayout(data,{options:base});
+const independent={...base,viewScales:{top:2,front:.5,right:1},isoMode:'hidden'};
+const fixedLayout=optimizeDrawingLayout(data,{scale:.5,options:independent});
+const independentSheet=drawingSheet(data,fixedLayout.scale,true,[],'',{...independent,positions:fixedLayout.positions});
+assert.equal(fixedLayout.scale,.5);
+assert.equal(independentSheet.layout.top.scale,2);
+assert.equal(independentSheet.layout.front.scale,.5);
+assert.equal(independentSheet.layout.right.scale,1);
+assert(independentSheet.svg.includes('TOP / SCALE 2:1'));
+assert.deepEqual(overallDrawingDimensions(data,.5,independentSheet).map(dimensionValue),[100,50,100,60,60,50]);
 let cases=0;for(const viewPriority of ['balanced','front'])for(const isoMode of ['full','small','hidden'])for(const orientation of ['landscape','portrait']){
  const options={...base,viewPriority,isoMode,orientation},frames=drawingViewFrames(data,options),result=optimizeDrawingLayout(data,{options}),sheet=drawingSheet(data,result.scale,true,[],'',{...options,positions:result.positions,layout:'compact'});
  near(sheet.layout.front.scale,result.scale*(viewPriority==='front'?1.4:1));near(sheet.layout.top.scale,result.scale);near(frames.front.factor,viewPriority==='front'?1.4:1);
