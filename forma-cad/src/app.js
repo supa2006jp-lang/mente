@@ -420,7 +420,7 @@ for(const prefix of ['', 'viewport-']){
  const label=document.createElement('label');label.id=prefix+'profile-offset-label';label.hidden=true;
  const input=document.createElement('input');input.type='number';input.step='any';input.min=-10000;input.max=10000;input.id=prefix+'profile-offset';
  label.append('OS距離 (mm) ',input);$(prefix+'unextruded-only').closest('label').before(label);
- input.addEventListener('input',()=>{profileOffsetDistance=input.value.trim()===''?NaN:Number(input.value);syncFields();});
+ input.addEventListener('input',()=>{profileOffsetDistance=input.value.trim()===''?NaN:Number(input.value);draftTouched=true;scheduleAutoCut();syncFields();});
 }
 function syncProfileOffsetControls(){for(const prefix of ['', 'viewport-']){const input=$(prefix+'profile-offset');$(prefix+'profile-offset-label').hidden=stage!=='extrusion'||mode!=='solid'||!profileOffsetActive;input.disabled=stage!=='extrusion'||extrusionBusy||mode!=='solid';if(document.activeElement!==input)input.value=Number.isFinite(profileOffsetDistance)?String(profileOffsetDistance):'';}}
 let unextrudedTargetMode='all',unextrudedTargetIds=[],unextrudedDimensionRows=null;
@@ -4902,9 +4902,9 @@ for(const prefix of ['', 'viewport-'])$(prefix+'contact-reset').addEventListener
 });
 for(const prefix of ['', 'viewport-'])$(prefix+'extrusion-direction').addEventListener('change',()=>{
  extrusionEndPlane=null;
- $('extrusion-direction').value=$(prefix+'extrusion-direction').value;extrusionManualOperation=true;
+ $('extrusion-direction').value=$(prefix+'extrusion-direction').value;if(!profileOffsetActive)extrusionManualOperation=true;
  if($('extrusion-direction').value==='symmetric'){displayDepth(Math.abs(depthValue()));$('grid-extent').checked=false;$('until-solid').checked=false;$('contact-only').checked=false;contactAutoDepth=false;contactDistanceLimit=null;}
- syncFields();
+ if(profileOffsetActive)scheduleAutoCut();syncFields();
 });
 for(const prefix of ['', 'viewport-'])for(const field of ['through-all','cut-all-bodies','cap-holes','skip-hole-walls','through-direction','grid-extent','until-solid','contact-only','overlap-only','unextruded-only'])$(prefix+field).addEventListener('change',()=>{
  if(field==='unextruded-only'||field==='overlap-only'){
@@ -4932,7 +4932,7 @@ for(const prefix of ['', 'viewport-'])for(const field of ['through-all','cut-all
   }
  }
  else{if(field==='cut-all-bodies'){extrusionManualOperation=true;$('target').value=$(prefix+field).checked?ALL_BODIES_TARGET:availableTargets()[0]?.id||ALL_BODIES_TARGET;}$(field).checked=$(prefix+field).checked;if(field==='through-all'&&$('through-all').checked){$('grid-extent').checked=false;$('until-solid').checked=false;}if(field==='cut-all-bodies'&&$('cut-all-bodies').checked)$('until-solid').checked=false;}
- syncFields();if(field==='until-solid'&&!$('until-solid').checked)scheduleAutoCut();
+ syncFields();if(field==='until-solid'&&!$('until-solid').checked||field==='cap-holes'&&profileOffsetActive)scheduleAutoCut();
 });
 async function openSectionSplitEdit(id){
  const index=features.findIndex(f=>f.id===id&&isSectionSplit(f));if(index<0)return;
@@ -5634,8 +5634,8 @@ offsetExtrusionDialog=createOffsetExtrusionDialog({getFeatures:()=>features,noti
  if(shortcut.sketchRegion)await chooseRegion(shortcut.sketchRegion,false,new THREE.Vector3(...shortcut.point));
  selectionPicker?.close({force:true});closeSolidFaceMenu();pendingOperation='new';await beginExtrusion('solid',{preserveView:true});
  if(features!==original||stage!=='extrusion'||pendingExtrude)return false;
- profileOffsetActive=true;profileOffsetDistance=distance;$('name').value='OS押出';$('cap-holes').checked=true;if(hasHoles)$('operation').value='new';extrusionManualOperation=true;
- syncFields();$('status').textContent='OS距離 '+fmt(distance)+' mm の輪郭で押し出します。距離と操作を指定してください';return true;
+ profileOffsetActive=true;profileOffsetDistance=distance;$('name').value='OS押出';$('cap-holes').checked=true;if(hasHoles)$('operation').value='new';extrusionDefaultOperation=$('operation').value;extrusionManualOperation=false;
+ scheduleAutoCut();syncFields();$('status').textContent='OS距離 '+fmt(distance)+' mm の輪郭で押し出します。重なるソリッドがあれば自動で切り取ります';return true;
 }});
 faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelections:selectedExtrudeShortcuts,onExtrude:openFaceExtrusionShortcut,onOffset:shortcut=>offsetExtrusionDialog.open(shortcut),onUnextruded:shortcut=>backgroundUI(()=>openUnextrudedShortcut(shortcut)),
  onDragStart:(event,owner,start,selection)=>openFaceExtrusionShortcut(selection)&&startExtrusionDrag(event,{owner,start,depth:0,dragged:true}),

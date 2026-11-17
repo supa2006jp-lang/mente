@@ -7,7 +7,7 @@ function intersectionVolume(a,b){
 }
 export function nativeExtrusionProbe(history,spec,{bodies:makeBodies,solid,onProgress}){
  const bodies=makeBodies(history);const matches=(feature,source)=>{
-  const sourceFace=!feature.symmetric&&source&&feature.region?.outer&&bodies.has(source);if(sourceFace&&feature.depth<0&&!feature.region.gridSourceBodyId)return [{id:source,volume:Infinity}];
+  const sourceFace=feature.profileOffset===undefined&&!feature.symmetric&&source&&feature.region?.outer&&bodies.has(source);if(sourceFace&&feature.depth<0&&!feature.region.gridSourceBodyId)return [{id:source,volume:Infinity}];
   const f=nativeSketchFeature({...feature,operation:'new',holesOnly:false,throughAll:false},history),tool=solid(f,bodies),found=[];
   try{for(const [id,body]of bodies){if(sourceFace&&feature.depth>=0&&id===source)continue;const volume=intersectionVolume(body,tool);if(volume>1e-5)found.push({id,volume});}return found.sort((a,b)=>b.volume-a.volume);}finally{tool.delete();}
  };

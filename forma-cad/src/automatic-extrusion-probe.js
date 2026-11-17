@@ -1,5 +1,5 @@
 import {extrusionProbePlan} from './extrusion-probe-plan.js';
-const keyFor=(feature,source)=>{const {id,name,operation,target,targetAllBodies,cutAllBodies,throughAll,...shape}=feature;return JSON.stringify([shape,source]);};
+const keyFor=(feature,source)=>{const {id,name,operation,target,targetAllBodies,cutAllBodies,throughAll,joinSourceContacts,joinSelectionExact,...shape}=feature;return JSON.stringify([shape,source]);};
 const meshKey=meshes=>JSON.stringify([...meshes].map(([id,m])=>{m.updateWorldMatrix(true,false);return [id,m.visible,m.geometry.uuid,m.matrixWorld.elements];}));
 export function createAutomaticExtrusionProbe(client){
  let ready=null,pending=null,revision=0;
