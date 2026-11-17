@@ -21,6 +21,7 @@ try{
  page.setDefaultTimeout(25000);
  page.on('pageerror',e=>{errors.push(e.message);console.error(e.stack);});page.on('dialog',d=>d.accept(d.defaultValue()));
  await page.addInitScript(()=>Object.defineProperty(window,'showSaveFilePicker',{value:undefined,configurable:true}));
+ await page.addInitScript(()=>{window.shortcutJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec)window.shortcutJobs.push(payload.spec.type);return post.call(this,payload,...args);};});
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  const host=page.locator('#canvas-host'),panel=page.locator('#extrude-distance'),option=page.locator('#viewport-unextruded-only');
  const sketch={...defaults,id:'sketch',name:'全体のスケッチ',kind:'sketch',width:60,height:40,groupId:'g',groupNumber:1,groupHidden:false};
@@ -85,6 +86,32 @@ try{
  assert(await page.locator('#extrude-distance button[type=submit]').isDisabled());
  assert(await page.locator('#cad-failure-panel').isHidden());
  await page.locator('#cancel').click();assert.equal((await save()).features.length,2);
+ // A sketch click offers both actions together; the remainder action starts
+ // from the original contour even when the click selected an outside patch.
+ await load([sketch,base]);await page.mouse.click(...await screen([-18,5,0]));
+ const normalShortcut=page.locator('#face-extrude-shortcut'),remainingShortcut=page.locator('#face-extrude-shortcut-unextruded');
+ await normalShortcut.waitFor();await remainingShortcut.waitFor();
+ const normalBox=await normalShortcut.boundingBox(),remainingBox=await remainingShortcut.boundingBox();
+ assert(Math.abs(normalBox.y-remainingBox.y)<1);assert(remainingBox.x>=normalBox.x+normalBox.width+4);
+ const selectionJobs=await page.evaluate(()=>window.shortcutJobs.filter(type=>/extrusion/i.test(type)).length);
+ await remainingShortcut.hover();await page.waitForTimeout(150);
+ assert.deepEqual(await remainingShortcut.boundingBox(),remainingBox,'the companion stays in place on hover');
+ assert.equal(await page.evaluate(()=>window.shortcutJobs.filter(type=>/extrusion/i.test(type)).length),selectionJobs);
+ await page.screenshot({path:'.sites-runtime/unextruded-extrusion/shortcuts.png'});
+ await remainingShortcut.click();await panel.waitFor();assert(await option.isChecked());assert(await option.isEnabled());
+ assert(await remainingShortcut.isHidden());assert(await normalShortcut.isHidden());
+ await page.locator('#viewport-depth').fill('4');await ready();
+ await page.locator('#extrude-distance button[type=submit]').click();await panel.waitFor({state:'hidden',timeout:60000});
+ const direct=await save();assert.equal(direct.features.at(-1).unextrudedOnly,true);
+ assert(!direct.features.at(-1).region.overlapSource);checkVolume(direct,direct.features.at(-1).id,4800);checkVolume(direct,'base',12000);
+ await load([sketch,base]);await page.mouse.click(...await screen([-18,5,0]));await remainingShortcut.waitFor();
+ await remainingShortcut.focus();await page.keyboard.press('Enter');await panel.waitFor();assert(await option.isChecked());
+ await page.locator('#cancel').click();
+ await load([sketch]);await page.mouse.click(...await screen([-18,5,0]));await remainingShortcut.waitFor();await remainingShortcut.click();
+ await panel.waitFor();await page.locator('#viewport-depth').fill('2');await ready();assert(await option.isDisabled());
+ await page.locator('#cancel').click();assert.equal((await save()).features.length,1);
+ await load([base]);await page.locator('#selection-mode').selectOption('face');await page.mouse.click(...await screen([15,0,10]));
+ await normalShortcut.waitFor();assert(await remainingShortcut.isHidden(),'solid faces keep their original extrusion action');
  assert.deepEqual(errors,[]);
- console.log('PASS remaining-only controls, preview/cancel/edit, unchanged original, exact output, source completion, undo/redo, reload, partial-history shortcut and empty-area rejection');
+ console.log('PASS paired sketch shortcuts, stable hover, no selection CAD jobs, mouse/keyboard entry, whole-source remainder, solid-face exclusion, preview/cancel/edit, exact output, undo/redo, reload and empty-area rejection');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

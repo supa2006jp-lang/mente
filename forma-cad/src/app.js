@@ -5524,7 +5524,8 @@ function selectedExtrudeShortcut(){
    if(!point){
     point=regionShortcutPoint(chosenRegion);
    }
-   if(point)selection={point,count:selectedRegions.length||1,bodyIds:chosenRegion.bodyId?[chosenRegion.bodyId]:[]};
+   if(point)selection={point,count:selectedRegions.length||1,bodyIds:chosenRegion.bodyId?[chosenRegion.bodyId]:[],
+    ...(!chosenRegion.bodyId&&!chosenRegion.cadFace?{sketchRegions:selectedRegions.length?selectedRegions:[chosenRegion]}:{})};
   }
   extrudeShortcutCache={faces:selectedFaces,region:chosenRegion,features,anchor:regionExtrudeAnchor,selection};
  }
@@ -5536,6 +5537,21 @@ function openFaceExtrusionShortcut(shortcut=selectedExtrudeShortcut()){
  if(shortcut.sketchRegion)chooseRegion(shortcut.sketchRegion,false,new THREE.Vector3(...shortcut.point));
  selectionPicker?.close({force:true});closeSolidFaceMenu();pendingOperation='new';beginExtrusion('solid',{preserveView:true});
  return stage==='extrusion'&&!pendingExtrude;
+}
+async function openUnextrudedShortcut(shortcut){
+ const regions=[...new Map((shortcut.sketchRegion?[shortcut.sketchRegion]:shortcut.sketchRegions||[])
+  .map(region=>region.overlapSource||region).map(region=>[region.id,region])).values()];
+ if(!regions.length)return false;
+ const original=features;
+ selectionPicker?.close({force:true});closeSolidFaceMenu();
+ for(const [index,region] of regions.entries())await chooseRegion(region,index>0,new THREE.Vector3(...shortcut.point));
+ if(features!==original||chosenRegion?.id!==regions.at(-1).id)return false;
+ pendingOperation='new';await beginExtrusion('solid',{preserveView:true});
+ if(features!==original||stage!=='extrusion'||pendingExtrude)return false;
+ $('overlap-only').checked=false;$('unextruded-only').checked=availableTargets().length>0;
+ extrusionManualOperation=true;syncFields();
+ $('status').textContent=availableTargets().length?'未押し出しの部分だけを選択しました。距離と操作を指定してください':'既存ソリッドがないため、スケッチ領域全体を押し出します。距離を指定してください';
+ return true;
 }
 function selectedBoundaryFillSource(){const ids=selectedSketchSegments.size?[...selectedSketchSegments.keys()]:[selected],items=features.filter(f=>ids.includes(f.id)&&f.kind==='sketch'&&!f.groupHidden&&!f.construction&&!f.textOutline&&!f.closed&&['line','polyline','spline'].includes(f.profile));if(!items.length||items.some(f=>f.groupId!==items[0].groupId))return null;return items[0];}
 const boundaryInfoKernel=new KernelClient();let boundaryInfoRevision=null,boundaryInfoData=new Map(),boundaryInfoPending=null;
@@ -5551,7 +5567,7 @@ sketchConnectionsView=createSketchConnectionsView({scene,host,camera,canvas:rend
  onRepairCancelWork:()=>sketchGapKernel.reset(),
  onRepairApply:async(original,next,isCurrent)=>{const start=earliestSketchChange(original,next);if(start<next.length&&next.slice(start+1).some(f=>['cadop','extrusion'].includes(f.kind))){const result=await sketchGapKernel.run(next,{type:'replay',before:original,start});if(!isCurrent())throw Error('モデルが変更されました。隙間を調べ直してください');next=result.features;}if(!isCurrent())throw Error('隙間の修正を中止しました');setProject(next);selected=null;stage='model';draftTouched=false;clearSketchSelection();syncFields();notify('端点の隙間を修正しました。元に戻すで取り消せます');}
 });
-faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelections:selectedExtrudeShortcuts,onExtrude:openFaceExtrusionShortcut,
+faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelections:selectedExtrudeShortcuts,onExtrude:openFaceExtrusionShortcut,onUnextruded:shortcut=>backgroundUI(()=>openUnextrudedShortcut(shortcut)),
  onDragStart:(event,owner,start,selection)=>openFaceExtrusionShortcut(selection)&&startExtrusionDrag(event,{owner,start,depth:0,dragged:true}),
  onDragMove:moveExtrusionDrag,onDragEnd:endExtrusionDrag
 });
