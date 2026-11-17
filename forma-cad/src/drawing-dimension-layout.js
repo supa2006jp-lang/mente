@@ -10,6 +10,7 @@ function segmentHitsBox([a,b],box,pad){
  let lo=0,hi=1;
  for(let i=0;i<2;i++){
   const min=(i?box.y:box.x)-pad,max=min+(i?box.height:box.width)+2*pad,delta=b[i]-a[i];
+  if(max<min)return false;
   if(Math.abs(delta)<1e-10){if(a[i]<min||a[i]>max)return false;continue;}
   const u=(min-a[i])/delta,v=(max-a[i])/delta;
   lo=Math.max(lo,Math.min(u,v));hi=Math.min(hi,Math.max(u,v));
@@ -32,8 +33,10 @@ export function dimensionPlacement(d,sheet){
  const [x,y]=g.at,font=d.fontSize??3.2,width=dimensionLabelWidth(dimensionLabel(d),font);
  const main=g.arc?arcSegments(g.arc):g.main;
  const arrowBoxes=g.arrows.map(arrow=>bounds(arrow,.1));
- return {box:{x:x-width/2,y:y-font*.75,width,height:font*1.45},main:main.map(line=>bounds(line,.1)),
-  extensions:g.extensions.map(line=>bounds(line,.1)),arrowBoxes,strokes:[...main,...g.extensions],radius:d.kind==='radius'};
+ const box={x:x-width/2,y:y-font*.75,width,height:font*1.45};
+ return {box,main:main.map(line=>bounds(line,.1)),
+  extensions:g.extensions.map(line=>bounds(line,.1)),arrowBoxes,strokes:[...main,...g.extensions],
+  primary:d.center?[g.extensions[0]]:main,radius:d.kind==='radius'};
 }
 const labelHitsInk=(box,placement)=>placement.arrowBoxes.some(arrow=>overlaps(box,arrow,.6))||
  placement.strokes.some(stroke=>segmentHitsBox(stroke,box,.7));
@@ -41,6 +44,77 @@ const labelConflict=(a,b)=>overlaps(a.box,b.box,1)||labelHitsInk(a.box,b)||label
 const arrowConflict=(a,b)=>(a.radius||b.radius)&&(
  a.arrowBoxes.some(box=>b.arrowBoxes.some(other=>overlaps(box,other,.3))||b.strokes.some(stroke=>segmentHitsBox(stroke,box,.3)))||
  b.arrowBoxes.some(box=>a.strokes.some(stroke=>segmentHitsBox(stroke,box,.3))));
+
+const hitArea=(a,b)=>({
+ x:Math.max(a.x,b.x),y:Math.max(a.y,b.y),
+ width:Math.max(.4,Math.min(a.x+a.width,b.x+b.width)-Math.max(a.x,b.x)),
+ height:Math.max(.4,Math.min(a.y+a.height,b.y+b.height)-Math.max(a.y,b.y)),
+});
+function collinearOverlap([a,b],[c,d]){
+ const dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);
+ if(length<1)return null;
+ const distance=p=>Math.abs(dx*(p[1]-a[1])-dy*(p[0]-a[0]))/length;
+ if(distance(c)>.18||distance(d)>.18)return null;
+ const at=p=>(dx*(p[0]-a[0])+dy*(p[1]-a[1]))/length;
+ const lo=Math.max(0,Math.min(at(c),at(d))),hi=Math.min(length,Math.max(at(c),at(d)));
+ if(hi-lo<1)return null;
+ return bounds([lo,hi].map(t=>[a[0]+dx*t/length,a[1]+dy*t/length]),.15);
+}
+function collisionEnvelope(p){
+ return p.envelope??=bounds([p.box,...p.main,...p.extensions,...p.arrowBoxes].flatMap(b=>[[b.x,b.y],[b.x+b.width,b.y+b.height]]),.2);
+}
+function dimensionOverlap(a,b){
+ if(!overlaps(collisionEnvelope(a),collisionEnvelope(b)))return null;
+ if(overlaps(a.box,b.box))return {reason:'文字同士',box:hitArea(a.box,b.box)};
+ for(const [p,q] of [[a,b],[b,a]]){
+  const arrow=q.arrowBoxes.find(box=>overlaps(p.box,box));
+  if(arrow)return {reason:'文字と矢印',box:hitArea(p.box,arrow)};
+  if(q.strokes.some(line=>segmentHitsBox(line,p.box,.1)))return {reason:'文字と寸法線',box:p.box};
+ }
+ for(const [p,q] of [[a,b],[b,a]])for(const arrow of p.arrowBoxes){
+  if(q.arrowBoxes.some(box=>overlaps(arrow,box,-.3))||
+   q.primary.some(line=>segmentHitsBox(line,arrow,-.3)))return {reason:'矢印の重なり',box:arrow};
+ }
+ for(const first of a.primary)for(const second of b.primary){
+  const box=collinearOverlap(first,second);
+  if(box)return {reason:'寸法線同士',box};
+ }
+ return null;
+}
+function dimensionObstacles(sheet){
+ return [
+  ...Object.values(sheet.viewTitles||{}).map(box=>({box,reason:'見出し枠'})),
+  ...[[sheet.note,'コメント'],[sheet.holeBox,'穴位置表'],...(sheet.leaderLabels||[]).map(box=>[box,'矢印付き注記'])]
+   .filter(([box])=>box).map(([box,reason])=>({box,reason})),
+ ];
+}
+function obstacleOverlap(placement,obstacles){
+ for(const {box,reason} of obstacles){
+  if(overlaps(box,placement.box))return {box:hitArea(box,placement.box),reason};
+  if(placement.arrowBoxes.some(arrow=>overlaps(arrow,box))||placement.strokes.some(line=>segmentHitsBox(line,box,.1)))return {box,reason};
+ }
+ return null;
+}
+export function drawingDimensionConflicts(dimensions,sheet){
+ const obstacles=dimensionObstacles(sheet),issues=new Map();
+ const entries=dimensions.flatMap((d,index)=>{
+  const placement=dimensionPlacement(d,sheet);
+  return placement?[{index,placement}]:[];
+ });
+ for(const {index,placement} of entries){
+  const issue=obstacleOverlap(placement,obstacles);
+  if(issue)issues.set(index,{index,...issue});
+ }
+ for(let j=0;j<entries.length;j++)for(let i=0;i<j;i++){
+  const a=entries[i],b=entries[j];
+  if(issues.has(a.index)&&issues.has(b.index))continue;
+  const issue=dimensionOverlap(a.placement,b.placement);
+  if(!issue)continue;
+  if(!issues.has(a.index))issues.set(a.index,{index:a.index,...issue});
+  if(!issues.has(b.index))issues.set(b.index,{index:b.index,...issue});
+ }
+ return [...issues.values()].sort((a,b)=>a.index-b.index);
+}
 function candidates(d,v){const result=[],push=p=>result.push({...d,at:local(v,p)}),at=map(v,d.at),a=d.a&&map(v,d.a),b=d.b&&map(v,d.b),sides=d.kind==='horizontal'?['bottom','top']:d.kind==='vertical'?['left','right']:['right','left','bottom','top'];
  for(let lane=0;lane<16;lane++){const gap=8+lane*(d.kind==='vertical'?4:6);for(const side of sides){if(d.kind==='horizontal')push([at[0],side==='bottom'?v.y+v.height+gap:v.y-gap-3]);else if(d.kind==='vertical')push([side==='left'?v.x-gap:v.x+v.width+gap,at[1]]);else if(d.kind==='aligned'){const u=[b[0]-a[0],b[1]-a[1]],l=Math.hypot(...u)||1,n=[-u[1]/l,u[0]/l],sign=side==='right'||side==='top'?1:-1,offset=Math.hypot(v.width,v.height)/2+gap;push([(a[0]+b[0])/2+n[0]*offset*sign,(a[1]+b[1])/2+n[1]*offset*sign]);}else{const c=map(v,d.center);if(side==='right'||side==='left'){const x=side==='right'?v.x+v.width+gap:v.x-gap;for(const dy of [0,-6,6,-12,12])push([x,c[1]+dy]);}else{const y=side==='bottom'?v.y+v.height+gap:v.y-gap-3;for(const dx of [0,-10,10])push([c[0]+dx,y]);}}}}
  return result;
@@ -77,9 +151,10 @@ const insidePaper=(box,sheet)=>box.x>=5&&box.y>=18&&box.x+box.width<=sheet.width
 
 // Move only requested dimensions; callers pass existing annotations as locked.
 // Geometry is in paper mm, independent of screen zoom and printed scale.
-export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false}={}){
+export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false,requireClear=false}={}){
  const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7}));
  const labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
+ const obstacles=requireClear?dimensionObstacles(sheet):[];
  const placedGeometry=[...locked,...dimensions.filter(d=>d.pinned)].map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
  const placed=dimensions.map(d=>({...d,at:[...d.at]})),unresolved=[];
  const order=placed.map((_,i)=>i).sort((a,b)=>Number(placed[a].kind==='radius')-Number(placed[b].kind==='radius')||
@@ -94,6 +169,8 @@ export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearb
   for(const candidate of choices){
    const p=dimensionPlacement(candidate,sheet),box=p.box;
    if(!insidePaper(box,sheet))continue;
+   if(requireClear&&(obstacleOverlap(p,obstacles)||placedGeometry.some(other=>dimensionOverlap(p,other))||
+    [...p.main,...p.extensions,...p.arrowBoxes].some(b=>b.x<4.99||b.y<16.99||b.x+b.width>sheet.width-4.99||b.y+b.height>sheet.contentBottom+.01)))continue;
    const conflicts=labels.filter(label=>overlaps(box,label,1)||labelHitsInk(label,p)).length+
     placedGeometry.filter(other=>labelConflict(p,other)).length;
    if(conflicts>bestConflicts)continue;
@@ -105,9 +182,9 @@ export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearb
    if(conflicts<bestConflicts||score<bestScore){bestConflicts=conflicts;bestScore=score;best=candidate;bestGeometry=p;}
    if(!conflicts&&!score)break;
   }
-  placed[i]=best;
-  if(bestConflicts||bestScore>=10)unresolved.push(i);
-  placedGeometry.push(bestGeometry);
+  if(!requireClear||Number.isFinite(bestScore))placed[i]=best;
+  if(requireClear?!Number.isFinite(bestScore):bestConflicts||bestScore>=10)unresolved.push(i);
+  placedGeometry.push(requireClear&&!Number.isFinite(bestScore)?dimensionPlacement(d,sheet):bestGeometry);
  }
  return {dimensions:placed,unresolved};
 }

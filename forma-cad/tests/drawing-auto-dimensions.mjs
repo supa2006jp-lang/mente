@@ -3,7 +3,7 @@ import {autoDrawingDimensions,completeDrawingCircles} from '../src/drawing-auto-
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {dimensionLabel,dimensionValue} from '../src/drawing-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
-import {arrangeDrawingDimensions,dimensionPlacement,reflowResizedDrawingDimensions} from '../src/drawing-dimension-layout.js';
+import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,reflowResizedDrawingDimensions} from '../src/drawing-dimension-layout.js';
 const circle='M 14 -8 A 4 4 0 0 1 6 -8 A 4 4 0 0 1 14 -8 Z';
 const data={bounds:[[0,0,0],[40,25,20]],bodyCount:1,views:{front:{visible:['M 0 -20 L 40 -20 L 40 0 L 0 0 Z'],hidden:[]},top:{visible:['M 0 -25 L 40 -25 L 40 0 L 0 0 Z',circle],hidden:[]},right:{visible:['M 0 -20 L 25 -20 L 25 0 L 0 0 Z'],hidden:[]},iso:{visible:[],hidden:[],viewBox:[0,0,40,30]}}};
 assert.equal(completeDrawingCircles({visible:[circle,circle]}).length,1);
@@ -88,6 +88,15 @@ const intersects=(a,b)=>a.x<b.x+b.width&&b.x<a.x+a.width&&a.y<b.y+b.height&&b.y<
 const oldBox=dimensionPlacement(cornerRadius,cornerSheet).box;
 assert(!intersects(oldBox,placedEdge.box));
 assert(intersects(oldBox,placedEdge.arrowBoxes[1]),'R2 covers the end arrow of the 50 mm dimension');
+const issues=drawingDimensionConflicts([cornerRadius,edgeLength],cornerSheet);
+assert.deepEqual(issues.map(({index,reason})=>[index,reason]),[[0,'文字と矢印'],[1,'文字と矢印']]);
+const single=arrangeDrawingDimensions([cornerRadius],cornerSheet,[edgeLength],{preferNearby:true,requireClear:true});
+assert.deepEqual(single.unresolved,[]);
+assert.deepEqual(drawingDimensionConflicts([single.dimensions[0],edgeLength],cornerSheet),[]);
+const blocked={...cornerSheet,viewTitles:{top:{x:5,y:18,width:150,height:116}}};
+const unchanged=arrangeDrawingDimensions([cornerRadius],blocked,[edgeLength],{preferNearby:true,requireClear:true});
+assert.deepEqual(unchanged.unresolved,[0]);
+assert.deepEqual(unchanged.dimensions[0],cornerRadius);
 for(const result of [
  arrangeDrawingDimensions([cornerRadius,edgeLength],cornerSheet),
  reflowResizedDrawingDimensions([cornerRadius,edgeLength],cornerSheet,{radiiOnly:true}),

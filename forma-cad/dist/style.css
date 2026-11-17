@@ -157,6 +157,14 @@
 #drawing-review-list { flex:1 0 100%; gap:4px 6px; max-height:84px; overflow:auto; color:#ffd2a6; }
 #drawing-review-list button { padding:4px 8px; border-color:#be793d; color:#ffddb8; }
 #drawing-review-list[hidden] { display:none; }
+#drawing-conflicts { flex:1 0 100%; font-size:.88rem; color:#ffd5af; }
+#drawing-conflicts summary { cursor:pointer; width:max-content; }
+#drawing-conflict-rows { display:grid; gap:4px; max-height:120px; overflow:auto; margin-top:5px; }
+#drawing-conflict-rows > div { display:flex; flex-wrap:wrap; gap:4px 8px; }
+#drawing-conflict-rows button { padding:4px 8px; }
+.drawing-material-actions { display:inline-flex; gap:4px; }
+.drawing-material-actions > button { padding:4px 8px; }
+#drawing-material-status:empty { display:none; }
 #drawing-dimension-tolerance { width:86px; }
 #drawing-dialog .drawing-comment-style { margin-top:7px; gap:6px 14px; }
 #drawing-dialog .drawing-comment-style select { padding:4px 7px; }

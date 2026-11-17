@@ -4,7 +4,8 @@ import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {prepareDrawingComment,prepareJapanesePDF} from './drawing-pdf-text.js';
 import {defaultDrawingCommentColor,drawingCommentFamily,hasDrawingCommentFont,loadDrawingCommentFont} from './drawing-comments.js';
 import {TEXT_FONTS} from './text-fonts.js';
-import {defaultDrawingDimensionColor,drawingDimensionColor,dimensionValue,pathEndpoints,validDimensionColor} from './drawing-dimensions.js';
+import {defaultDrawingDimensionColor,drawingDimensionColor,dimensionLabel,dimensionValue,pathEndpoints,validDimensionColor} from './drawing-dimensions.js';
+import {canSaveDrawingMaterial,createDrawingMaterialsStore,drawingMaterialKey,standardDrawingMaterials} from './drawing-materials.js';
 import {drawingCurves,angleDimension} from './drawing-curves.js';
 import {drawingSignature,readDrawingState} from './drawing-state.js';
 import {KernelClient} from './kernel-client.js';
@@ -16,18 +17,11 @@ import {drawingViewport} from './drawing-viewport.js';
 import {drawingDimensionVisible,drawingModelPoint,drawingPaperPoint,drawingPointOmitted,moveDrawingBreakEdge} from './drawing-break.js';
 import {drawingTableHoles,drawingHoleTableMatches,maxDrawingTableHoles} from './drawing-hole-table.js';
 import {autoDimensionKeys,autoDimensionTypes,autoDrawingDimensions,overallDrawingDimensions} from './drawing-auto-dimensions.js';
-import {arrangeDrawingDimensions,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
+import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from './drawing-dimension-references.js';
 const scales=[2,1,.5,.2,.1,.05,.02,.01];
 const standardDimensionFont=3.2;
-const materialOptions=[
- ['ステンレス鋼',['SUS304','SUS316','SUS430']],
- ['鋼',['SS400','SPCC','S45C']],
- ['アルミニウム',['A5052','A6061','A7075']],
- ['銅・黄銅',['C1100','C3604']],
- ['樹脂',['ABS','PLA','PETG','PA','PC','POM','TPU']],
-];
 const colorFields=[['lineColor','line','寸法線の色'],['textColor','text','数字・注記の色']];
 const colorInputs=(scope)=>colorFields.map(([,id,label])=>'<label>'+label+
  '<input type="color" id="drawing-'+scope+'-'+id+'-color"></label>').join('');
@@ -37,7 +31,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  <div class="drawing-controls drawing-paper-controls"><label>用紙<select id="drawing-paper-size"><option value="auto">自動サイズ</option><option value="A4" selected>A4</option><option value="A3">A3</option></select></label><label>向き<select id="drawing-orientation"><option value="landscape">横</option><option value="portrait">縦</option></select></label><label><input id="drawing-frame" type="checkbox" checked>図枠</label><button id="drawing-fit">用紙に収める</button><button id="drawing-auto-layout" title="各図の上下・左右の位置関係を自由に組み替え、寸法や図枠を含めて大きく配置します">大きく自動配置</button><button id="drawing-arrange">配置をリセット</button><label><input id="drawing-layout-mode" type="checkbox">配置をドラッグ</label></div>
  <div class="drawing-controls drawing-view-options" role="group" aria-label="図面に載せるビュー"><strong>載せるビュー</strong>${drawingProjectionNames.map(view=>{const {label,title}=drawingProjections[view];return '<label><input type="checkbox" value="'+view+'">'+label+' <span>'+title+'</span></label>';}).join('')}<label><input id="drawing-view-iso" type="checkbox" value="iso" checked>ISO <span>俯瞰図</span></label></div>
  <div class="drawing-controls"><label>図の優先<select id="drawing-view-priority"><option value="balanced">共通縮尺</option><option value="front">正面図を優先（1.4倍）</option></select></label><label>俯瞰図<select id="drawing-iso-mode"><option value="full">通常</option><option value="small">小さく（半分）</option><option value="hidden">非表示</option></select></label><small>異なる縮尺は各図に表示します。</small></div>
- <div class="drawing-controls"><label>部品名<input id="drawing-name" maxlength="80"></label><label>材質<input id="drawing-material" maxlength="80" placeholder="手入力"></label><select id="drawing-material-preset" aria-label="材質の候補"><option value="" disabled>候補から選択</option>${materialOptions.map(([group,items])=>'<optgroup label="'+group+'">'+items.map(item=>'<option>'+item+'</option>').join('')+'</optgroup>').join('')}</select><label>作成日<input id="drawing-date" type="date"></label></div>
+ <div class="drawing-controls"><label>部品名<input id="drawing-name" maxlength="80"></label><label>材質<input id="drawing-material" maxlength="80" placeholder="手入力"></label><select id="drawing-material-preset" aria-label="材質の候補"><option value="" disabled>候補から選択</option>${standardDrawingMaterials.map(([group,items])=>'<optgroup label="'+group+'">'+items.map(item=>'<option>'+item+'</option>').join('')+'</optgroup>').join('')}<optgroup id="drawing-material-saved" label="登録した材質" hidden></optgroup></select><span class="drawing-material-actions"><button type="button" id="drawing-material-save" aria-label="入力した材質を候補に登録">登録</button><button type="button" id="drawing-material-remove" aria-label="登録した材質を候補から削除" hidden>削除</button></span><label>作成日<input id="drawing-date" type="date"></label><small id="drawing-material-status" role="status"></small></div>
  <p id="drawing-layout-help">通常配置は第三角法です。「大きく自動配置」は図の位置関係を自由に組み替え、共通縮尺で用紙を広く使います。寸法・コメント・配置は保存されます。</p>
  <div class="drawing-controls"><label>寸法<select id="drawing-dimension-kind"><option value="horizontal">水平</option><option value="vertical">垂直</option><option value="aligned">２点間</option><option value="diameter">直径 Ø</option><option value="radius">半径 R</option><option value="angle">角度</option></select></label><button id="drawing-dimension-add">寸法線を追加</button><button id="drawing-dimension-overall">全体寸法を追加</button><button id="drawing-dimension-undo">最後の寸法を削除</button><button id="drawing-dimension-clear">寸法を全削除</button><button id="drawing-dimension-cancel" hidden>寸法追加を中止</button></div>
  <div class="drawing-controls"><button id="drawing-center-add">中心マーク</button><button id="drawing-center-line">中心線（２点）</button><button id="drawing-centers-all">円の中心を一括表示</button><label>切断線<select id="drawing-section-orientation"><option value="vertical">縦</option><option value="horizontal">横</option></select></label><button id="drawing-section-add">断面図を追加</button><label>詳細倍率<select id="drawing-detail-factor"><option value="2">２倍</option><option value="4">４倍</option><option value="10">10倍</option></select></label><button id="drawing-detail-add">拡大詳細図を追加</button><label><input id="drawing-snap" type="checkbox" checked>寸法線の吸着（Altで解除）</label></div>
@@ -82,6 +76,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  reviewList.className='drawing-controls';reviewList.hidden=true;
  reviewList.setAttribute('role','group');reviewList.setAttribute('aria-label','参照先を確認する寸法');
  viewportBar.append(reviewList);
+ const conflictList=document.createElement('details');
+ conflictList.id='drawing-conflicts';conflictList.hidden=true;
+ conflictList.innerHTML='<summary></summary><div id="drawing-conflict-rows"></div>';
+ viewportBar.append(conflictList);
  $('drawing-undo').closest('.drawing-controls').classList.add('drawing-history-controls');
  $('drawing-dimension-add').closest('.drawing-controls').classList.add('drawing-dimension-controls');$('drawing-dimension-overall').insertAdjacentHTML('afterend','<button id="drawing-dimension-auto" title="外形・円形部の直径・中心位置をまとめて追加します">寸法を自動入力</button>');
  $('drawing-dimension-auto').insertAdjacentHTML('afterend','<button id="drawing-dimension-arrange" title="既存の寸法を重なりにくい位置へ移動します">寸法を自動配置</button>');
@@ -111,6 +109,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  let leaders=[],pdfLayout='',pdfExporting=false;
  const backgroundControls={paperBackground:'drawing-preview-background',viewBackground:'drawing-view-background'};
  let backgrounds={paperBackground:'#ffffff',viewBackground:'#ffffff'};
+ const materialStore=createDrawingMaterialsStore();
+ let materialRows=[],materialLoadError=false;
  const hiddenRows=$('drawing-hidden-views').querySelector('.drawing-controls');
  const dimensionViewRows=[...$('drawing-auto-dimension-views').querySelectorAll('fieldset')];
  for(const row of dimensionViewRows)row.onchange=()=>{
@@ -387,9 +387,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function controls(){
   const ready=!!sheet&&!busy,editable=ready&&names().length>0;
   syncPreviewBackground();
-  const materialPreset=$('drawing-material-preset'),material=$('drawing-material').value.trim().toUpperCase();
-  materialPreset.value=[...materialPreset.options].some(option=>option.value===material)?material:'';
-  materialPreset.disabled=busy;
+  syncDrawingMaterials();
+  for(const button of conflictList.querySelectorAll('button')){
+   button.disabled=busy||button.hasAttribute('data-conflict-locked');
+  }
   $('drawing-leader-start').disabled=!editable||leaders.length>=maxDrawingLeaders;
   $('drawing-leader-input-label').hidden=action?.kind!=='leader';
   $('drawing-pdf-layout').disabled=!ready;
@@ -597,6 +598,54 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    const label=document.createElement('strong');label.textContent='参照先を要確認 '+reviewList.childElementCount+' 件';reviewList.prepend(label);
   }
  }
+ function focusDrawingConflict(index,box){
+  if(busy||drag||!sheet)return;
+  picking=null;action=null;selection={type:'dimension',index};editor();
+  const svg=viewportHost.querySelector('svg');
+  svg.querySelector('[data-focused-conflict]')?.remove();
+  const outline=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  for(const [key,value] of Object.entries({x:box.x-1,y:box.y-1,width:box.width+2,height:box.height+2,
+   'data-focused-conflict':'true',fill:'none',stroke:'#b45116','stroke-width':'.55','pointer-events':'none'}))outline.setAttribute(key,value);
+  svg.append(outline);
+  viewport.focus(box);viewportHost.scrollIntoView({block:'nearest'});viewportHost.focus({preventScroll:true});
+ }
+ function repositionConflictingDimension(index){
+  const d=dimensions[index];
+  if(!sheet||busy||drag||!d||d.pinned||d.review)return;
+  const result=arrangeDrawingDimensions([d],sheet,dimensions.filter((_,i)=>i!==index),{preferNearby:true,requireClear:true});
+  if(result.unresolved.length){status('この寸法を重なりなく置ける場所が見つかりませんでした');return;}
+  dimensions[index]=result.dimensions[0];
+  picking=null;action=null;selection={type:'dimension',index};
+  render();if(!sheet)return;
+  focusDrawingConflict(index,dimensionPlacement(dimensions[index],sheet).box);
+  status('寸法 '+(index+1)+' だけを再配置しました。元に戻すで取り消せます');
+ }
+ function renderDimensionConflicts(){
+  if(drag||!sheet)return;
+  const issues=drawingDimensionConflicts(dimensions,sheet);
+  const rows=$('drawing-conflict-rows');
+  rows.replaceChildren();
+  conflictList.hidden=!issues.length;
+  conflictList.firstElementChild.textContent='寸法の重なり '+issues.length+' 件';
+  const svg=viewportHost.querySelector('svg');
+  for(const node of svg.querySelectorAll('[data-overlap]'))node.removeAttribute('data-overlap');
+  for(const {index,reason,box} of issues){
+   const d=dimensions[index],row=document.createElement('div'),focus=document.createElement('button'),fix=document.createElement('button');
+   row.dataset.dimensionConflict=index;
+   focus.textContent=viewLabel(d.view)+' · 寸法 '+(index+1)+' ('+dimensionLabel(d)+') · '+reason;
+   focus.onclick=()=>focusDrawingConflict(index,box);
+   fix.textContent='この寸法だけ再配置';
+   fix.onclick=()=>repositionConflictingDimension(index);
+   if(d.pinned||d.review){
+    fix.setAttribute('data-conflict-locked','');
+    fix.title=d.pinned?'寸法の位置の固定を解除してください':'参照先を確認してください';
+   }
+   focus.type=fix.type='button';
+   focus.disabled=busy;fix.disabled=busy||d.pinned||d.review;
+   row.append(focus,fix);rows.append(row);
+   svg.querySelector('[data-dimension="'+index+'"] text')?.setAttribute('data-overlap','true');
+  }
+ }
  function renderOverflow(){
   const svg=viewportHost.querySelector('svg');
   const nodes=svg.querySelectorAll('[data-view],[data-dimension],[data-comment],[data-marker],[data-section],[data-detail],[data-hole-table],[data-hole-labels],[data-leader]');
@@ -658,10 +707,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  renderOverflow();renderReviewList();drawHoleSelection();
  $('drawing-svg').disabled=overflow||Object.keys(data.sectionErrors||{}).length>0;$('drawing-pdf').disabled=blockPDFExport();$('drawing-paper').textContent='用紙 '+sheet.width.toFixed(1)+' × '+sheet.height.toFixed(1)+' mm';status(overflow?'用紙の外にはみ出しています。縮尺を小さくするか、配置・用紙サイズを変更してください':data.bodyCount+' ボディ · 寸法 '+dimensions.filter(d=>sheet.layout[d.view]&&drawingDimensionVisible(d,sheet.layout[d.view])).length+' 個 · 作業ファイルを保存すると再編集できます');controls();
  if($('drawing-layout-mode').checked){for(const g of $('drawing-preview').querySelectorAll('[data-view]')){const v=sheet.layout[g.dataset.view],b={x:v.x,y:v.y-7,width:v.width,height:v.height+7},rect=document.createElementNS('http://www.w3.org/2000/svg','rect');for(const [k,v] of Object.entries({x:b.x,y:b.y,width:b.width,height:b.height,fill:'transparent','pointer-events':'all'}))rect.setAttribute(k,v);g.prepend(rect);} $('drawing-preview').style.cursor='move';}else $('drawing-preview').style.cursor=picking?'crosshair':'';
- collisionWarning();for(const path of viewportHost.querySelectorAll('[data-break-edge]')){const hit=path.cloneNode();hit.setAttribute('stroke','transparent');hit.setAttribute('stroke-width','4');hit.setAttribute('pointer-events',picking||action?'none':'stroke');path.before(hit);}if(Object.keys(data.sectionErrors||{}).length)status('断面図：'+Object.values(data.sectionErrors).join(' / ')+'（位置を直すか、この断面図を削除してください）');for(const g of $('drawing-preview').querySelectorAll('[data-section],[data-marker]')){const path=g.querySelector('path');if(!path)continue;const hit=path.cloneNode();hit.setAttribute('stroke','transparent');hit.setAttribute('stroke-width','3');hit.removeAttribute('stroke-dasharray');g.prepend(hit);}if(commit)persist();}catch(e){sheet=null;$('drawing-preview').replaceChildren();$('drawing-svg').disabled=$('drawing-pdf').disabled=true;overflowList.hidden=reviewList.hidden=true;status(e.message);}}
+ renderDimensionConflicts();for(const path of viewportHost.querySelectorAll('[data-break-edge]')){const hit=path.cloneNode();hit.setAttribute('stroke','transparent');hit.setAttribute('stroke-width','4');hit.setAttribute('pointer-events',picking||action?'none':'stroke');path.before(hit);}if(Object.keys(data.sectionErrors||{}).length)status('断面図：'+Object.values(data.sectionErrors).join(' / ')+'（位置を直すか、この断面図を削除してください）');for(const g of $('drawing-preview').querySelectorAll('[data-section],[data-marker]')){const path=g.querySelector('path');if(!path)continue;const hit=path.cloneNode();hit.setAttribute('stroke','transparent');hit.setAttribute('stroke-width','3');hit.removeAttribute('stroke-dasharray');g.prepend(hit);}if(commit)persist();}catch(e){sheet=null;$('drawing-preview').replaceChildren();$('drawing-svg').disabled=$('drawing-pdf').disabled=true;overflowList.hidden=reviewList.hidden=conflictList.hidden=true;status(e.message);}}
  async function generate({refresh=false,targetsChanged=false}={}){
   busy=true;const token=++revision;worker.reset();data=null;sheet=null;picking=null;selection=null;
-  $('drawing-preview').replaceChildren();overflowList.hidden=reviewList.hidden=true;$('drawing-svg').disabled=$('drawing-pdf').disabled=true;controls();
+  $('drawing-preview').replaceChildren();overflowList.hidden=reviewList.hidden=conflictList.hidden=true;$('drawing-svg').disabled=$('drawing-pdf').disabled=true;controls();
   targets=($('drawing-target').value==='selected'?selected:visible).slice();
   if(!targets.length){busy=false;controls();status('対象ボディがありません。閉じてボディを選択してください');return;}
   $('drawing-generate').disabled=true;status('輪郭と隠れ線を計算しています…');
@@ -767,10 +816,44 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   picking=null;action=null;renderResizedDimensions();
  };
  const cancelPick=()=>{picking=null;action=null;render();controls();};
+ function syncDrawingMaterials(){
+  const preset=$('drawing-material-preset'),value=$('drawing-material').value;
+  const key=drawingMaterialKey(value),custom=materialRows.find(item=>drawingMaterialKey(item)===key);
+  preset.value=[...preset.options].find(option=>drawingMaterialKey(option.value)===key)?.value??'';
+  preset.disabled=busy;
+  $('drawing-material-save').disabled=busy||materialLoadError||!!custom||!canSaveDrawingMaterial(value);
+  $('drawing-material-remove').hidden=!custom;
+  $('drawing-material-remove').disabled=busy||materialLoadError;
+ }
+ function updateDrawingMaterialOptions(){
+  const group=$('drawing-material-saved');
+  group.replaceChildren(...materialRows.map(item=>new Option(item,item)));
+  group.hidden=!materialRows.length;
+  syncDrawingMaterials();
+ }
+ function reloadDrawingMaterials(){
+  const status=$('drawing-material-status');
+  try{materialRows=materialStore.load();materialLoadError=false;status.textContent='';}
+  catch(error){materialRows=[];materialLoadError=true;status.textContent=error.message;}
+  updateDrawingMaterialOptions();
+ }
+ function writeDrawingMaterial(remove){
+  const button=$(remove?'drawing-material-remove':'drawing-material-save');
+  if(button.disabled)return;
+  const value=$('drawing-material').value,status=$('drawing-material-status');
+  try{
+   materialRows=remove?materialStore.remove(value):materialStore.save(value);
+   updateDrawingMaterialOptions();
+   status.textContent=remove?'候補から削除しました':'「'+value.trim()+'」をこのブラウザーに登録しました';
+  }catch(error){status.textContent=error.message||'材質の候補を保存できませんでした';}
+ }
+ $('drawing-material-save').onclick=()=>writeDrawingMaterial(false);
+ $('drawing-material-remove').onclick=()=>writeDrawingMaterial(true);
  $('drawing-material-preset').onchange=()=>{
   const material=$('drawing-material-preset').value;
   if(!material||busy)return;
   $('drawing-material').value=material;
+  $('drawing-material-status').textContent='';
   picking=null;render();
  };
  $('drawing-generate').onclick=()=>generate();$('drawing-target').onchange=()=>{dimensions=[];positions={};sections=[];details=[];markers=[];leaders=[];holeTable=undefined;pruneHiddenViews();generate();};$('drawing-close').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{viewport.cancel();clearTransient();persist();revision++;busy=false;worker.reset();$('drawing-generate').disabled=false;});
@@ -862,7 +945,6 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  if(state.kind==='detail'){if(details.length>=8)throw Error('詳細図は８個までです');if(!state.center){const view=hitView(e);if(!view)throw Error('拡大元の図の内側をクリックしてください');state.center=local(view,paperPoint(e));if(drawingPointOmitted(sheet.layout[view],state.center)){state.center=null;throw Error('省略範囲の外で中心を選んでください');}state.view=view;status('範囲の外周をクリックしてください');return;}const p=local(state.view,paperPoint(e)),radius=Math.hypot(p[0]-state.center[0],p[1]-state.center[1]);if(radius*sheet.layout[state.view].scale<1)throw Error('範囲を少し大きくしてください');const id='detail-'+crypto.randomUUID();details.push({id,view:state.view,center:state.center,radius,factor:Number($('drawing-detail-factor').value)});extraTarget=id;cancelPick();}}
  catch(err){status(err.message);}}
  function actionPreview(e){const svg=$('drawing-preview').querySelector('svg');svg.querySelector('[data-action-preview]')?.remove();if(!action)return;let attrs;if(action.kind==='leader'&&action.anchor){const a=map(action.view,action.anchor),p=paperPoint(e);attrs={x1:a[0],y1:a[1],x2:p[0],y2:p[1]};}else if(action.kind==='detail'&&action.center){const c=map(action.view,action.center),p=paperPoint(e);attrs={cx:c[0],cy:c[1],r:Math.hypot(p[0]-c[0],p[1]-c[1])};}else if(action.kind==='section'){const name=hitView(e,true);if(!name)return;const v=sheet.layout[name],axis=$('drawing-section-orientation').value==='vertical'?0:1,p=local(name,paperPoint(e)),coord=snapCut(name,axis,p[axis],e.altKey),q=map(name,axis===0?[coord,v.by]:[v.bx,coord]);attrs=axis===0?{x1:q[0],x2:q[0],y1:v.y,y2:v.y+v.height}:{x1:v.x,x2:v.x+v.width,y1:q[1],y2:q[1]};}else return;const node=document.createElementNS('http://www.w3.org/2000/svg',attrs.r!==undefined?'circle':'line');for(const [key,val] of Object.entries({...attrs,'data-action-preview':'true',fill:'none',stroke:'#0095b6','stroke-width':.4,'stroke-dasharray':'2 1','pointer-events':'none'}))node.setAttribute(key,val);svg.append(node);}
- function collisionWarning(){const nodes=[...$('drawing-preview').querySelectorAll('[data-dimension] text,[data-comment] text,[data-leader] text')];let count=0;for(let i=0;i<nodes.length;i++){const a=nodes[i].getBBox();for(let j=i+1;j<nodes.length;j++){const b=nodes[j].getBBox();if(a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y){nodes[i].setAttribute('data-overlap','true');nodes[j].setAttribute('data-overlap','true');count++;}}}if(count&&!overflow)status($('drawing-status').textContent+' · 文字の重なり '+count+' 箇所（赤色）');}
 
  function map(name,p){return drawingPaperPoint(sheet.layout[name],p);}
  function local(name,p){return drawingModelPoint(sheet.layout[name],p);}
@@ -883,7 +965,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  status('寸法 '+Number(dimensionValue(picking).toFixed(3))+(picking.kind==='angle'?'°':' mm')+'：配置位置をクリックしてください');}catch(err){status(err.message);}};
  const host=$('drawing-preview');host.addEventListener('pointerdown',e=>{if(picking||action||busy||e.button!==0||!sheet)return;const edge=e.target.closest('[data-break-edge]');if(edge){beginBreakDrag(e,edge);return;}const cut=e.target.closest('[data-section]');if(cut){e.preventDefault();extraTarget=cut.dataset.section;const section=sections.find(s=>s.id===extraTarget);drag={type:'section',id:extraTarget,origin:section.coordinate,start:paperPoint(e)};drag.pointerId=e.pointerId;drag.cancelPositions=structuredClone(positions);host.setPointerCapture(e.pointerId);extraControls();return;}if(!$('drawing-layout-mode').checked)return;const dimension=e.target.closest('[data-dimension]'),comment=e.target.closest('[data-comment]'),table=e.target.closest('[data-hole-table]'),leader=e.target.closest('[data-leader]'),view=e.target.closest('[data-view]');if(!dimension&&!comment&&!table&&!leader&&!view)return;if(dimension&&dimensions[Number(dimension.dataset.dimension)]?.pinned){status('この寸法は固定されています。寸法をクリックして解除できます');return;}e.preventDefault();const start=paperPoint(e),note=leader&&leaders.find(item=>item.id===leader.dataset.leader);drag=note?{type:'leader',id:note.id,origin:[...note.at],start}:dimension?{type:'dimension',index:Number(dimension.dataset.dimension),origin:[...dimensions[Number(dimension.dataset.dimension)].at],start}:comment?{type:'comment',origin:[sheet.note.x,sheet.note.y],start}:table?{type:'holeTable',name:'holeTable',origin:[sheet.holeBox.x,sheet.holeBox.y],start}:{type:'view',name:view.dataset.view,origin:[sheet.layout[view.dataset.view].x,sheet.layout[view.dataset.view].y],start};drag.pointerId=e.pointerId;drag.cancelPositions=structuredClone(positions);host.setPointerCapture(e.pointerId);});
  host.addEventListener('pointermove',e=>{if(!sheet)return;if(!drag){if(action)actionPreview(e);return;}const p=paperPoint(e),dx=p[0]-drag.start[0],dy=p[1]-drag.start[1];if(drag.type==='break'){previewBreakDrag(p,dx,dy);return;}if(Math.hypot(dx,dy)>.3)drag.moved=true;if(!drag.moved)return;if(drag.type==='section'){const section=sections.find(s=>s.id===drag.id),pos=local(section.view,p),coord=section.orientation==='vertical'?0:1;section.coordinate=snapCut(section.view,coord,pos[coord],e.altKey);render(false);return;}if(drag.type==='leader'){const note=leaders.find(item=>item.id===drag.id),start=map(note.view,drag.origin);note.at=local(note.view,[start[0]+dx,start[1]+dy]);render(false);return;}if(drag.type==='dimension'){const d=dimensions[drag.index],s=sheet.layout[d.view].scale,start=map(d.view,drag.origin),at=local(d.view,[start[0]+dx,start[1]+dy]),snap=$('drawing-snap').checked&&!e.altKey?snapDimension(d,at,dimensions,s,drag.index):{at};d.at=snap.at;render(false);if(snap.match)status('寸法線の位置に吸着中（Altで解除）');return;}else positions[drag.type==='comment'?'comment':drag.name]=[drag.origin[0]+dx,drag.origin[1]+dy];render(false);});
- for(const event of ['pointerup','pointercancel'])host.addEventListener(event,e=>{if(!drag)return;const finished=drag;suppressClick=!!drag.moved;setTimeout(()=>{suppressClick=false;},0);drag=null;if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(finished.type==='break'){if(e.type==='pointerup'&&finished.moved){breakRange=finished.next;if(!applyAutomaticLayout())render();}else render(false);return;}if(finished.type==='section'&&finished.moved){clearViewAnnotations(finished.id);generate();}else persist();});
+ for(const event of ['pointerup','pointercancel'])host.addEventListener(event,e=>{if(!drag)return;const finished=drag;suppressClick=!!drag.moved;setTimeout(()=>{suppressClick=false;},0);drag=null;if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(finished.type==='break'){if(e.type==='pointerup'&&finished.moved){breakRange=finished.next;if(!applyAutomaticLayout())render();}else render(false);return;}if(finished.type==='section'&&finished.moved){clearViewAnnotations(finished.id);generate();}else{renderDimensionConflicts();persist();}});
  function restore(s){backgrounds=Object.fromEntries(Object.keys(backgroundControls).map(key=>[key,s?.options[key]?.toLowerCase()??'#ffffff']));leaders=structuredClone(s?.options.leaders||[]);pdfLayout=s?.options.pdfLayout??'';holeTable=s?.options.holeTable?structuredClone(s.options.holeTable):undefined;breakRange=s?.options.breakRange?.slice();breakAxis=s?.options.breakAxis??'';breakPercent=s?.options.breakPercent??defaultBreakPercent;commentColor=s?.options.commentColor??defaultDrawingCommentColor;commentFont=s?.options.commentFont??'';dimensionColors=structuredClone(s?.options.dimensionColors||{});hiddenViews=structuredClone(s?.options.hiddenViews||{});dimensionReferences=structuredClone(s?.options.dimensionReferences||{});frontFrame=s?.options.frontFrame;autoDimensionViews=structuredClone(s?.options.autoDimensionViews||{});dimensionFontSize=s?.options.dimensionFontSize??standardDimensionFont;setViewSelection(s?.options.viewSelection??defaultDrawingViews);$('drawing-view-priority').value=s?.options.viewPriority??'balanced';setIsoMode(s?.options.isoMode??'full');sections=structuredClone(s?.options.sections||[]);details=structuredClone(s?.options.details||[]);markers=structuredClone(s?.options.markers||[]);action=null;commentSize=s?.options.commentSize??3.5;dimensions=structuredClone(s?.dimensions||[]);positions=structuredClone(s?.options.positions||{});layoutKind=s?.options.layout??'projection';setScale(s?.scale||1);$('drawing-hidden').checked=s?.hidden??true;$('drawing-comment').value=s?.comment||'';for(const key of ['paper','orientation','name','material','date']){const id={paper:'paper-size'}[key]||key;$('drawing-'+id).value=s?.options[key]??({paper:'A4',orientation:'landscape',date:new Date().toLocaleDateString('sv-SE')}[key]||'');}$('drawing-frame').checked=s?.options.frame??true;}
  document.getElementById('drawing-tool').onclick=()=>{
   presets.reload();selection=null;frontFace=getFrontFace();
@@ -896,7 +978,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const targetsChanged=!!saved&&JSON.stringify([...saved.targets].sort())!==JSON.stringify([...nextTargets].sort());
   const refresh=!!saved&&(saved.signature!==source||targetsChanged);
   if(refresh){undo=[];redo=[];markers=[];if(targetsChanged)leaders=[];}
-  $('drawing-layout-mode').checked=false;dialog.showModal();viewport.reset();
+  $('drawing-layout-mode').checked=false;dialog.showModal();reloadDrawingMaterials();viewport.reset();
   generate({refresh,targetsChanged});
  };
  function clearTransient(){
