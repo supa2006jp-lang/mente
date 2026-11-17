@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';import {optimizeDrawingLayout,drawingVie
 import {drawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {autoDrawingDimensions} from '../src/drawing-auto-dimensions.js';
 import {drawingCommentPlacementIssue} from '../src/drawing-comments.js';
+import {snapDrawingPlacement} from '../src/drawing-placement-guides.js';
+import {drawingPrintSVG} from '../src/drawing-print-palette.js';
+import {drawingBuiltInPresets,validateDrawingPreset} from '../src/drawing-presets.js';
 const fixture=(w,d,h,iso=[0,0,w*.75,h*.65+d*.5])=>({bounds:[[0,0,0],[w,d,h]],bodyCount:1,views:{front:{visible:['M 0 0 L '+w+' 0 L '+w+' '+(-h)+' Z'],hidden:[]},top:{visible:['M 0 0 L '+w+' 0 L '+w+' '+(-d)+' Z'],hidden:[]},right:{visible:['M 0 0 L '+d+' 0 L '+d+' '+(-h)+' Z'],hidden:[]},iso:{visible:['M 0 0 L '+iso[2]+' '+iso[3]],hidden:[],viewBox:iso}}});
 const overlaps=(a,b)=>a.x<b.x+b.width-1e-5&&a.x+a.width>b.x+1e-5&&a.y<b.y+b.height-1e-5&&a.y+a.height>b.y+1e-5,check=result=>{assert(result.scale>=.0001&&result.scale<=1000);for(const [i,b]of result.boxes.entries()){assert(b.x>=result.area.x-1e-5);assert(b.y>=result.area.y-1e-5);assert(b.x+b.width<=result.area.x+result.area.width+1e-5);assert(b.y+b.height<=result.area.y+result.area.height+1e-5);for(const a of result.boxes.slice(0,i))assert(!overlaps(a,b),a.key+' overlaps '+b.key);}};
 const examples=[];for(const paper of ['A4','A3'])for(const orientation of ['landscape','portrait'])for(const [w,d,h]of [[40,25,20],[240,10,20],[10,240,15],[10,10,200],[120,120,120],[.1,.1,.1],[5000,30,100]]){const data=fixture(w,d,h),options={paper,orientation,frame:true},before=JSON.stringify(data),result=optimizeDrawingLayout(data,{options});check(result);assert.equal(JSON.stringify(data),before);const sheet=drawingSheet(data,result.scale,true,[],'',{...options,layout:result.layout,positions:result.positions});assert.equal(sheet.width,orientation==='landscape'?(paper==='A4'?297:420):(paper==='A4'?210:297));for(const name of ['front','top','right','iso'])assert.deepEqual([sheet.layout[name].x,sheet.layout[name].y],result.positions[name]);const frame=drawingViewFrames(data).front;assert.equal(sheet.layout.front.width,frame.width*result.scale);assert.match(sheet.svg,/AUTO LAYOUT/);assert(!sheet.svg.includes('THIRD ANGLE'));examples.push({paper,orientation,size:[w,d,h],scale:result.scale});}
@@ -11,6 +14,20 @@ assert.equal(drawingCommentPlacementIssue(bottomLeft,framed),null);
 assert.equal(drawingCommentPlacementIssue({...bottomLeft,x:framed.titleBlock.x},framed),'titleBlock');
 assert.equal(drawingCommentPlacementIssue({...bottomLeft,y:201},framed),'paper');
 assert.equal(drawingCommentPlacementIssue(bottomLeft,drawingSheet(data,.5,true,[],'',{...options,frame:false})),'paper');
+const snap=snapDrawingPlacement([-9.4,5.5],bottomLeft,framed,{comment:true});
+assert.deepEqual(snap,{delta:[-10,6],guides:[{axis:0,position:5},{axis:1,position:205}]});
+const tinted=drawingSheet(data,.5,true,[],'色の確認',{...options,paperBackground:'#4488cc',commentColor:'#ad1234'}).svg;
+assert.match(drawingPrintSVG(tinted,'light'),/fill="#d0e1f2"/i);
+assert.match(drawingPrintSVG(tinted,'light'),/fill="#ad1234"/);
+assert.match(drawingPrintSVG(tinted,'mono'),/data-paper-background="true"[^>]+fill="white"/);
+assert.doesNotMatch(drawingPrintSVG(tinted,'mono'),/#4488cc|#ad1234/);
+assert.equal(drawingPrintSVG(tinted,'screen'),tinted);
+const legacyPreset=drawingBuiltInPresets[0].values;
+assert.deepEqual(validateDrawingPreset(legacyPreset),legacyPreset);
+const formatted={...legacyPreset,commentFont:'rounded',commentSize:5,dimensionFontSize:4.5,commentColor:'#ad1234',
+ paperBackground:'#4488cc',viewBackground:'#bde2f0',dimensionColors:{textColor:'#112233'},printPalette:'light'};
+assert.deepEqual(validateDrawingPreset(formatted),formatted);
+assert.throws(()=>validateDrawingPreset({...formatted,commentSize:30}));
 const dims=[{view:'front',kind:'horizontal',a:[0,0],b:[200,0],at:[0,8]},{view:'top',kind:'vertical',a:[0,-20],b:[0,0],at:[-8,0]},{view:'top',kind:'diameter',center:[20,-10],radius:3,at:[30,-2]}],before=JSON.stringify(dims),withNotes=optimizeDrawingLayout(data,{scale:1,dimensions:dims,comment:'材質 SUS304\n寸法は mm です',options:{...options,markers:[{id:'marker-c',kind:'center',view:'top',center:[20,-10],radius:3}]}});check(withNotes);assert.equal(JSON.stringify(dims),before);assert.deepEqual(withNotes.dimensions.map(dimensionValue),dims.map(dimensionValue));assert(withNotes.positions.comment);
 const extras=fixture(60,40,20);extras.views['section-a']={visible:['M 0 0 L 30 0'],hidden:[],viewBox:[0,0,30,20]};const extraOptions={...options,sections:[{id:'section-a',view:'front',orientation:'vertical',coordinate:30,reverse:false}],details:[{id:'detail-a',view:'top',center:[20,-20],radius:5,factor:4},{id:'detail-b',view:'front',center:[20,-10],radius:4,factor:2}],markers:[]},extraResult=optimizeDrawingLayout(extras,{options:extraOptions,comment:'断面・詳細の倍率を保持'});check(extraResult);assert(extraResult.positions['section-a']);assert(extraResult.positions['detail-a']);const sheet=drawingSheet(extras,extraResult.scale,true,[],'',{...extraOptions,positions:extraResult.positions,layout:'compact'});assert.equal(sheet.layout['detail-a'].scale,extraResult.scale*4);
 const state={version:1,signature:'test',targets:['part'],targetMode:'visible',scale:compact.scale,hidden:true,comment:'',dimensions:[],options:{...options,layout:'compact',name:'',material:'',date:'',positions:compact.positions}};assert.deepEqual(readDrawingState(state),state);for(const scale of [0,NaN,Infinity,'1',1001,.00001])assert.throws(()=>readDrawingState({...state,scale}));assert.throws(()=>readDrawingState({...state,options:{...state.options,layout:'bad'}}));const legacy={...state,scale:1,options:{...state.options,paper:'auto'}};delete legacy.options.layout;readDrawingState(legacy);

@@ -60,6 +60,19 @@ try{
  await open('r2-collision.forma.json',{...project,drawing});
  const section=field('conflicts'),row=index=>section.locator('[data-dimension-conflict="'+index+'"]');
  const label=index=>field('preview').locator('[data-dimension="'+index+'"] text');
+ assert(await field('layout-mode').isChecked());
+ await label(1).click();
+ assert(await field('editor').isVisible());
+ await field('dimension-add').click();
+ assert.equal(await field('preview').locator('[data-view=top]>rect').count(),0);
+ await field('dimension-cancel').click();
+ assert(await field('layout-mode').isChecked());
+ assert.equal(await field('preview').locator('[data-view=top]>rect').count(),1);
+ await field('layout-mode').uncheck();
+ await field('center-add').click();
+ await field('dimension-cancel').click();
+ assert(!(await field('layout-mode').isChecked()));
+ await field('layout-mode').check();
  const initially=await label(1).getAttribute('x'),fixed=await label(0).getAttribute('y');
  await section.locator('summary').click();
  assert.match(await row(1).textContent(),/R2.*文字と矢印/);
@@ -108,16 +121,19 @@ try{
  await preview.scrollIntoViewIfNeeded();
  const [from,to]=await note.evaluate(node=>{
   const box=node.getBBox(),svg=node.ownerSVGElement,matrix=svg.getScreenCTM();
-  return [[box.x+box.width/2,box.y+box.height/2],[30,198]].map(point=>{
+  return [[box.x+box.width/2,box.y+box.height/2],[30,204.5-box.height/2]].map(point=>{
    const p=new DOMPoint(...point).matrixTransform(matrix);return [p.x,p.y];
   });
  });
- await page.mouse.move(...from);await page.mouse.down();await page.mouse.move(...to,{steps:6});await page.mouse.up();
+ await page.mouse.move(...from);await page.mouse.down();await page.mouse.move(...to,{steps:6});
+ assert.equal(await preview.locator('[data-placement-guide="1"]').getAttribute('y1'),'205');
+ await page.mouse.up();
+ assert.equal(await preview.locator('[data-placement-guide]').count(),0);
  const noteBounds=()=>note.evaluate(node=>{
   const {x,y,width,height}=node.getBBox();return {x,y,width,height};
  });
  const lowerLeft=await noteBounds();
- assert(lowerLeft.y>178&&lowerLeft.y+lowerLeft.height<205&&lowerLeft.x+lowerLeft.width<132);
+ assert(lowerLeft.y>178&&Math.abs(lowerLeft.y+lowerLeft.height-205)<.01&&lowerLeft.x+lowerLeft.width<132);
  assert(!(await field('svg').isDisabled()));
  assert(!(await field('pdf').isDisabled()));
  const svgDownload=page.waitForEvent('download');await field('svg').click();
@@ -133,6 +149,7 @@ try{
  assert.deepEqual(saved.drawing.dimensions[0].a,drawing.dimensions[0].a);
  assert.deepEqual(saved.drawing.dimensions[0].b,drawing.dimensions[0].b);
  await open('oblique.forma.json',saved);
+ assert(await field('layout-mode').isChecked());
  assert.deepEqual(await textPoint(),constrained);
  const restoredNote=await noteBounds();
  assert.deepEqual(restoredNote,lowerLeft);
@@ -160,6 +177,36 @@ try{
  assert.equal(await input.inputValue(),material);
  await select.selectOption('SUS304');
  assert.equal(await input.inputValue(),'SUS304');
+ await field('comment').fill('印刷配色');
+ await field('comment-font').selectOption('rounded');
+ await page.waitForFunction(()=>[...document.fonts].some(font=>font.family.includes('Forma comment rounded')&&font.status==='loaded'));
+ await field('comment-size').fill('5');await field('comment-size').press('Tab');
+ await field('dimension-font').fill('4.2');await field('dimension-font').press('Tab');
+ assert.equal(await field('dimension-font').inputValue(),'4.2');
+ await field('preview-background').fill('#4488cc');
+ await page.waitForFunction(()=>document.querySelector('#drawing-preview [data-paper-background]')?.getAttribute('fill')==='#4488cc');
+ const palette=field('print-palette'),paper=preview.locator('[data-paper-background]');
+ await palette.selectOption('light');
+ assert.equal(await paper.getAttribute('fill'),'#d0e1f2');
+ await field('presets').locator('summary').click();
+ await field('preset-name').fill('印刷書式');
+ await field('preset-save').click();
+ await palette.selectOption('mono');
+ assert.equal(await paper.getAttribute('fill'),'white');
+ await field('comment-font').selectOption('');
+ await field('preview-background-reset').click();
+ await field('preset-apply').click();
+ await page.waitForFunction(()=>document.querySelector('#drawing-preset-status').textContent.includes('呼び出しました'));
+ assert.equal(await paper.getAttribute('fill'),'#d0e1f2');
+ assert.equal(await palette.inputValue(),'light');
+ assert.equal(await field('comment-font').inputValue(),'rounded');
+ assert.equal(await field('comment-size').inputValue(),'5');
+ assert.equal(await field('dimension-font').inputValue(),'4.2');
+ assert.equal(await input.inputValue(),'SUS304');
+ const printDownload=page.waitForEvent('download');await field('pdf').click();
+ const printPDF=await fs.readFile(await(await printDownload).path(),'latin1');
+ assert([...printPDF.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) rg/g)].some(([,r,g,b])=>
+  Math.abs(+r-208/255)<.01&&Math.abs(+g-225/255)<.01&&Math.abs(+b-242/255)<.01));
  assert.deepEqual(errors,[]);
  console.log('PASS collision repair, oblique dimension drag and save/reload, and material library across drawings');
 }finally{await browser?.close();server.close();}

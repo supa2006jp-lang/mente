@@ -4,6 +4,7 @@ import {autoDimensionKeys} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
 import {drawingReferenceCircleLimit} from './drawing-dimension-references.js';
 import {hasDrawingCommentFont} from './drawing-comments.js';
+import {validDrawingPrintPalette} from './drawing-print-palette.js';
 import {maxDrawingTableHoles} from './drawing-hole-table.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
@@ -25,6 +26,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  if(o.breakAxis!==undefined&&!['longest','x','y','z'].includes(o.breakAxis))fail();
  if(o.breakPercent!==undefined&&(!Number.isInteger(o.breakPercent)||o.breakPercent<20||o.breakPercent>90))fail();
  if(o.pdfLayout!==undefined&&o.pdfLayout!=='multi')fail();
+ if(o.printPalette!==undefined&&!validDrawingPrintPalette(o.printPalette))fail();
  if(o.breakRange!==undefined&&(!point(o.breakRange)||o.breakRange[0]<.005||o.breakRange[1]>.995||o.breakRange[1]-o.breakRange[0]<.03-1e-10))fail();
  if(o.holeTable!==undefined){
   const table=o.holeTable;
