@@ -95,7 +95,7 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition,o
    }
    if(i>=start&&f.kind==='extrusion'&&f.gridExtentPlane)f={...f,depth:depthToGridPlane(f,f.gridExtentPlane)};
    if(i>=start&&f.kind==='extrusion'&&f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
-   if(i>=start&&f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.barrier||f.untilSolid||f.overlapOnly||f.region?.overlapSource||f.taperAngle||f.cadResult)&&run){const {cadResult,...input}=f;f={...input,cadResult:run(prefix,{type:'extrusion',target:f.target,feature:input})};}
+   if(i>=start&&f.kind==='extrusion'&&(f.operation!=='new'||f.capHoles||f.holesOnly||f.barrier||f.untilSolid||f.overlapOnly||f.profileOffset||f.region?.overlapSource||f.taperAngle||f.cadResult)&&run){const {cadResult,...input}=f;f={...input,cadResult:run(prefix,{type:'extrusion',target:f.target,feature:input})};}
    prefix.push(f);
    if(!same||i>=start){changed.add(f.id);for(const id of featureWrites(f))changed.add(id);if(old)for(const id of featureWrites(old))changed.add(id);}
   }catch(e){throw Object.assign(Error((i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」: '+(e.message||'形状を再計算できません。寸法を小さくしてください')+'。変更前の形状を保持しています'),{code:e.code,diagnostics:e.diagnostics,featureId:f.id,featureIndex:i,failedOperation:f.spec?.type||f.kind,...(referenceFailed&&['fillet','chamfer','shell'].includes(f.spec?.type)?{referenceRepair:{prefix:copy(prefix),spec:copy(f.spec),retained:e.retainedReferences}}:{})});}

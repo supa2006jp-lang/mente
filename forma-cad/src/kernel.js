@@ -83,6 +83,8 @@ import {meshBrep,savedBodyMeshes} from './cad-output-mesh.js';
 import {currentBodyMeshRecords,threadDisplayForOperation} from './mesh-quality.js';
 import {serializeCadShape,compactBrep} from './cad-serialization.js';
 import {overlappingProfileSolid,validateExtrusionOverlap} from './extrusion-overlap.js';
+import {validateProfileOffset} from './offset-extrusion.js';
+import {offsetExtrusionSolid} from './offset-extrusion-kernel.js';
 import {selectedProfileFaces} from './sketch-solid-profile.js';
 import {refreshPartitionRegion} from './partition-history.js';
 import {snapGridCellProfile} from './grid-cell-profile.js';
@@ -231,7 +233,7 @@ function extrudeCadFaceThin(face,region,depth,wall,side,skipHoleWalls=false){
 export function featureSolid(f,bodies){
  if(f.counterbore){validateCounterbore(f);let main,recess;try{main=featureSolid({...f,counterbore:false},bodies);recess=featureSolid({...f,counterbore:false,diameter:f.counterboreDiameter,depth:Math.sign(f.depth)*f.counterboreDepth},bodies);return fuseSolids([main,recess]);}finally{main?.delete();recess?.delete();}}
 
- validateTaperOptions(f);validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateExtrusionBarrier(f);
+ validateTaperOptions(f);validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateProfileOffset(f);validateExtrusionBarrier(f);
  if(!f.symmetric)return draftExtrusion(untaperedFeatureSolid({...f,taperAngle:0},bodies),f);
  let depth=Math.abs(f.depth);
  if(f.operation==='cut'&&f.throughAll&&bodies){
@@ -254,6 +256,7 @@ function untaperedFeatureSolid(f,bodies){
   f={...f,depth:throughDepth(f,[min,max])};
  }
  if(f.overlapOnly)return overlappingProfileSolid(f,bodies,input=>untaperedFeatureSolid(input,bodies));
+ if(f.profileOffset)return offsetExtrusionSolid(f,bodies,input=>untaperedFeatureSolid(input,bodies));
  if(f.mode==='thin'&&f.region?.overlapSource){
   const faces=commandProfileFaces(f.region,bodies);let shape;
   try{for(const face of faces){const part=extrudeCadFaceThin(face,f.region,f.depth,f.wall,f.side,f.skipHoleWalls);try{const next=shape?fuseSolid(shape,part):part.clone();shape?.delete();shape=next;}finally{part.delete();}}const result=shape;shape=null;return result;}

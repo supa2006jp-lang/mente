@@ -4,6 +4,7 @@ import {basisFor} from './frames.js';
 import {validateRegion} from './regions.js';
 
 export function validateExtrusionOverlap(f){
+ if(f.unextrudedTargetMode!==undefined&&!['all','selected'].includes(f.unextrudedTargetMode))throw Error('未押し出し部分の判定対象の設定が不正です');
  if(f.unextrudedOnly!==undefined&&typeof f.unextrudedOnly!=='boolean')throw Error('未押し出し部分だけの設定が不正です');
  if(f.unextrudedOnly&&(!f.overlapOnly||!['new','join'].includes(f.operation)||f.region?.overlapSource))throw Error('未押し出し部分だけの設定はスケッチ全体の新規・結合で使用してください');
  if(f.overlapOnly!==undefined&&typeof f.overlapOnly!=='boolean')throw Error('重なる部分だけの押し出し設定が不正です');
@@ -12,7 +13,7 @@ export function validateExtrusionOverlap(f){
  if(f.region?.partitionSide!==undefined&&!['inside','outside'].includes(f.region.partitionSide))throw Error('区切られた領域の内外設定が不正です');
  if(f.region?.overlapPoint&&(!Array.isArray(f.region.overlapPoint)||f.region.overlapPoint.length!==3||f.region.overlapPoint.some(v=>!Number.isFinite(v)||Math.abs(v)>25000)))throw Error('重なる領域の選択位置が不正です');
  if(f.mode!=='solid'||f.holesOnly)throw Error('重なる部分だけの押し出しは通常の押し出しで使用してください');
- if(!Array.isArray(f.overlapTargets)||!f.overlapTargets.length||f.overlapTargets.length>100||new Set(f.overlapTargets).size!==f.overlapTargets.length||f.overlapTargets.some(id=>typeof id!=='string'||!id||id.length>100))throw Error('重なりを判定する対象ボディを選択してください');
+ if(!Array.isArray(f.overlapTargets)||!f.overlapTargets.length||f.overlapTargets.length>100||new Set(f.overlapTargets).size!==f.overlapTargets.length||f.overlapTargets.some(id=>typeof id!=='string'||!id||id.length>100))throw Error('重なりを判定する対象ボディを1つ以上選択してください');
 }
 
 export function commonSection(face,body,operation='common'){

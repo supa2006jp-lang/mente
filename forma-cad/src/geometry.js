@@ -6,6 +6,7 @@ import {preciseExtrusionGeometry,renderPreciseGeometry} from './precise-extrusio
 import {validateConstraintData,assertSketchConstraints} from './sketch-constraints.js';
 import {historyGroupName} from './history-organizer.js';
 import {validateExtrusionOverlap} from './extrusion-overlap.js';
+import {validateProfileOffset,offsetExtrusionRegions} from './offset-extrusion.js';
 import {depthToFacePlane} from './extrusion-face-target.js';
 import {validateVolumeParts} from './volume-colors.js';
 import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
@@ -39,7 +40,7 @@ export function validateFeature(f){
  }
  if(f.sketchSection!==undefined&&(typeof f.sketchSection!=='boolean'||f.kind!=='sketch'))throw Error('スケッチの断面表示設定が不正です');
  if(f.construction!==undefined&&(typeof f.construction!=='boolean'||f.kind!=='sketch'))throw Error('補助線の設定が不正です');
- validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateExtrusionBarrier(f);
+ validateExtrusionSymmetry(f);validateExtrusionOverlap(f);validateProfileOffset(f);validateExtrusionBarrier(f);
  if(f.endPlane!==undefined){if(f.kind!=='extrusion'||f.gridExtentPlane||f.throughAll||f.untilSolid)throw Error('到達先の面とグリッド・貫通・ソリッド接触は同時に使えません');depthToFacePlane(f,f.endPlane);}
  if(f.offsetLink!==undefined){
   const link=f.offsetLink;if(f.kind!=='sketch'||!link||typeof link!=='object'||!Number.isFinite(link.distance)||Math.abs(link.distance)<.001||Math.abs(link.distance)>10000||typeof link.allAround!=='boolean'||!Number.isInteger(link.index)||!Number.isInteger(link.count)||link.count<1||link.count>150||link.index<0||link.index>=link.count)throw Error('オフセットの追従情報が不正です');
@@ -74,7 +75,9 @@ function preciseFeatureGeometry(input){
 }
 function preciseRegionGeometry(...args){const g=extrudeRegion(...args);try{return preciseGeometry(g);}finally{g.dispose();}}
 function directionalGeometry(input){
- let f=input;if(f.holesOnly){const parts=f.region.holes.map(outer=>preciseRegionGeometry({...f.region,outer,holes:[]},f.depth,'solid',2,'inside',false,f.taperAngle??0,f));const result=mergeGeometries(parts);for(const part of parts)part.dispose();return result;}if(f.capHoles&&f.mode==='solid'&&f.region)f={...f,region:{...f.region,holes:[]}};if(f.profile==='region')return preciseRegionGeometry(f.region,f.depth,f.mode,f.wall,f.side,f.skipHoleWalls===true,f.taperAngle??0,f); let shape=new THREE.Shape();
+ let f=input;
+ if(f.profileOffset){const regions=offsetExtrusionRegions(f.capHoles?{...f.region,holes:[]}:f.region,f.profileOffset),parts=regions.map(region=>directionalGeometry({...f,profileOffset:0,region}));if(parts.length===1)return parts[0];try{return mergeGeometries(parts);}finally{parts.forEach(part=>part.dispose());}}
+if(f.holesOnly){const parts=f.region.holes.map(outer=>preciseRegionGeometry({...f.region,outer,holes:[]},f.depth,'solid',2,'inside',false,f.taperAngle??0,f));const result=mergeGeometries(parts);for(const part of parts)part.dispose();return result;}if(f.capHoles&&f.mode==='solid'&&f.region)f={...f,region:{...f.region,holes:[]}};if(f.profile==='region')return preciseRegionGeometry(f.region,f.depth,f.mode,f.wall,f.side,f.skipHoleWalls===true,f.taperAngle??0,f); let shape=new THREE.Shape();
  const outer=f.mode==='thin'?(f.side==='outside'?f.wall:f.side==='center'?f.wall/2:0):0;
  const inner=f.side==='inside'?f.wall:f.side==='center'?f.wall/2:0;
  if(f.profile==='rect'){

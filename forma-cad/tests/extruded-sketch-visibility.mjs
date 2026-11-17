@@ -5,6 +5,10 @@ import {hideExtrudedSketches,sketchExtrusionProgress} from '../src/extruded-sket
 import {reverseExtrusionFrame} from '../src/extrusion-direction.js';
 const rect={...defaults,id:'r',name:'長方形',kind:'sketch',groupId:'one',groupNumber:1,width:20,height:10,groupHidden:false};
 const extrusion=sketches=>({kind:'extrusion',id:'ex',region:findRegions(sketches)[0]});
+const inset={...extrusion([rect]),profileOffset:-2};
+assert.equal(hideExtrudedSketches([rect],[inset])[0].groupHidden,false,'inset OS extrusion leaves the original border available');
+assert.equal(sketchExtrusionProgress([rect,inset]).get('one').done,0);
+assert.equal(hideExtrudedSketches([rect],[{...inset,profileOffset:2}])[0].groupHidden,true,'expanded OS covers the original contour');
 const single=[rect,{...rect,id:'unrelated',groupId:'other',groupNumber:2,x:70}],snapshot=structuredClone(single),result=hideExtrudedSketches(single,[extrusion([rect])]);assert.equal(result[0].groupHidden,true);assert.equal(result[1].groupHidden,false);assert.deepEqual(single,snapshot);
 const overlap={...extrusion([rect]),overlapOnly:true,region:{...findRegions([rect])[0],id:'partial',overlapSource:findRegions([rect])[0]}};
 assert.equal(hideExtrudedSketches([rect],[overlap])[0].groupHidden,false,'partial overlap leaves outside profile available');

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {basisFor} from './frames.js';
+import {measureUnextrudedDimensions} from './unextruded-dimensions.js';
 
 // A straight extrusion has a fixed section. Reuse its native tool mesh while
 // distance changes; only the exact preview may enable committing the feature.
@@ -7,7 +8,7 @@ export const reusableUnextrudedPreview=batch=>batch.length>0&&batch.every(f=>
  f.unextrudedOnly&&f.mode==='solid'&&f.profile==='region'&&f.region?.outer?.length>=3&&!f.taperAngle&&!f.barrier&&!f.untilSolid&&
  !f.holesOnly&&!f.gridExtentPlane&&!f.endPlane&&!f.throughAll&&['new','join'].includes(f.operation)&&Number.isFinite(f.depth)&&Math.abs(f.depth)>1e-6);
 
-const fields=['profile','mode','plane','frame','region','capHoles','symmetric','overlapTargets'];
+const fields=['profileOffset','profile','mode','plane','frame','region','capHoles','symmetric','overlapTargets'];
 const key=(feature,editingId)=>JSON.stringify([editingId,fields.map(field=>feature[field])]);
 const dispose=entry=>{for(const part of entry.parts){part.geometry.dispose();part.edges.dispose();}};
 
@@ -23,7 +24,7 @@ export function createUnextrudedPreview({maxEntries=16,maxBytes=16*1024*1024}={}
    if(entries.has(id))continue;
    const outputs=results[index]?.outputs;
    if(!outputs?.length||outputs.some(output=>!output.vertices?.length||!output.triangles?.length))continue;
-   const entry={depth:feature.depth,parts:[],bytes:id.length*2};
+   const entry={depth:feature.depth,dimensions:measureUnextrudedDimensions(feature,outputs),parts:[],bytes:id.length*2};
    try{
     for(const output of outputs){
      const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(output.vertices,3));
@@ -64,5 +65,10 @@ export function createUnextrudedPreview({maxEntries=16,maxBytes=16*1024*1024}={}
    return group;
   }catch(error){group.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});throw error;}
  }
- return {create,store,storeExact,clear,get size(){return entries.size;},get bytes(){return bytes;}};
+ function dimensions(model,batch,editingId=null){
+  scope(model);if(!reusableUnextrudedPreview(batch))return null;
+  const rows=batch.map(feature=>{const entry=entries.get(key(feature,editingId));return entry?.dimensions?{...entry.dimensions,height:entry.dimensions.height*Math.abs(feature.depth/entry.depth)}:null;});
+  return rows.every(Boolean)?rows:null;
+ }
+ return {create,store,storeExact,dimensions,clear,get size(){return entries.size;},get bytes(){return bytes;}};
 }

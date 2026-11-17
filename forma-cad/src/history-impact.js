@@ -15,7 +15,7 @@ export function featureReads(feature){
 // Unknown operations and neighbourhood/contact searches deliberately fall back.
 export function localHistoryFeature(feature){
  if(feature.kind==='sketch')return !feature.offsetLink&&!feature.textSurface;
- if(feature.kind==='extrusion')return feature.operation==='new'&&!feature.barrier&&!feature.untilSolid&&!feature.overlapOnly&&!feature.region?.overlapSource&&!feature.faceBatch;
+ if(feature.kind==='extrusion')return feature.operation==='new'&&!feature.barrier&&!feature.untilSolid&&!feature.overlapOnly&&!feature.profileOffset&&!feature.region?.overlapSource&&!feature.faceBatch;
  if(feature.kind!=='cadop'||!feature.spec)return false;
  if(feature.spec.type==='loft')return !!feature.spec.sections?.length&&feature.spec.sections.every(r=>r.sourceIds?.length||r.bodyId||r.cadFace?.bodyId);
  if(['fillet','chamfer','shell','pull','simpleBoss','split'].includes(feature.spec.type)&&!featureReads(feature).size)return false;

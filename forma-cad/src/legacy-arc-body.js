@@ -23,7 +23,7 @@ export function legacyArcBody(features,id,current,{makeSolid,run,onProgress}={})
  const index=features.findIndex(f=>f.id===id&&f.kind!=='sketch'&&f.operation==='new'&&f.profile==='region');
  if(index<0)return null;
  const source=features[index];
- if(source.mode!=='solid'||source.taperAngle||source.symmetric||source.overlapOnly||source.untilSolid||source.barrier||source.holesOnly||source.region?.bodyId||source.region?.cadFace)return null;
+ if(source.mode!=='solid'||source.taperAngle||source.symmetric||source.overlapOnly||source.profileOffset||source.untilSolid||source.barrier||source.holesOnly||source.region?.bodyId||source.region?.cadFace)return null;
  const recovered=nativeSketchFeature(source,features.slice(0,index));
  if(recovered===source)return null;
  const stages=[];let moved=false;

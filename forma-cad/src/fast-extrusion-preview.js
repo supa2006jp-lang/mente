@@ -7,7 +7,7 @@ import {depthToGridPlane} from './extrusion-extent.js';
 // This is an immediate tool/range preview, never a validated commit result.
 export function createFastExtrusionPreview({maxEntries=32,maxBytes=16*1024*1024}={}){
  const cache=new Map();let size=0;
- const fields=['profile','mode','side','plane','frame','width','height','diameter','wall','x','y','z','angle','points','closed','symmetric','holesOnly','capHoles','skipHoleWalls','taperAngle','taperMode','taperSide','taperReference'];
+ const fields=['profileOffset','profile','mode','side','plane','frame','width','height','diameter','wall','x','y','z','angle','points','closed','symmetric','holesOnly','capHoles','skipHoleWalls','taperAngle','taperMode','taperSide','taperReference'];
  function clear(){for(const entry of cache.values()){entry.geometry.dispose();entry.edges.dispose();}cache.clear();size=0;}
  function create(batch){const group=new THREE.Group();group.userData.fastExtrusion=true;
   try{for(let feature of batch){
