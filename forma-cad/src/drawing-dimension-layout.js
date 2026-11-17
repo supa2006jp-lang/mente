@@ -24,6 +24,23 @@ function nearbyCandidates(d,v){
  }
  return result;
 }
+function radiusLeaderLength(d,v){
+ const label=map(v,d.at),center=map(v,d.center);
+ return d.arcPoint?Math.hypot(...map(v,d.arcPoint).map((n,i)=>n-label[i])):
+  Math.abs(Math.hypot(...center.map((n,i)=>n-label[i]))-d.radius*v.scale);
+}
+function radiusCandidates(d,v){
+ const center=map(v,d.center),anchor=map(v,d.arcPoint??d.at);
+ const angle=Math.atan2(anchor[1]-center[1],anchor[0]-center[0]);
+ const tip=d.arcPoint?anchor:null,minimum=Math.max(8,dimensionLabelWidth(dimensionLabel(d),d.fontSize??3.2)/2+4),result=[];
+ for(const extra of [0,4,8,12])for(const turn of [0,-30,30,-60,60,-90,90]){
+  const t=angle+turn*Math.PI/180,u=[Math.cos(t),Math.sin(t)];
+  const start=tip??center.map((n,i)=>n+u[i]*d.radius*v.scale);
+  result.push({...d,at:local(v,start.map((n,i)=>n+u[i]*(minimum+extra)))});
+ }
+ return result;
+}
+const longRadiusLeader=(d,v)=>d.kind==='radius'&&radiusLeaderLength(d,v)>Math.max(8,dimensionLabelWidth(dimensionLabel(d),d.fontSize??3.2)/2+4)+12.001;
 const insidePaper=(box,sheet)=>box.x>=5&&box.y>=18&&box.x+box.width<=sheet.width-5&&box.y+box.height<=sheet.contentBottom-1;
 
 // Move only requested dimensions; callers pass existing annotations as locked.
@@ -32,8 +49,11 @@ export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearb
  for(const d of dimensions)if(d.pinned){const p=dimensionPlacement(d,sheet);if(p){labels.push(p.box);lines.push(...p.main);extensions.push(...p.extensions);}}
  const placed=dimensions.map(d=>({...d,at:[...d.at]})),unresolved=[];const order=placed.map((d,i)=>i).sort((a,b)=>Number(!!placed[a].overall)-Number(!!placed[b].overall)||Number(['diameter','radius'].includes(placed[a].kind))-Number(['diameter','radius'].includes(placed[b].kind))||a-b);
  for(const i of order){const d=placed[i],v=sheet.layout[d.view];if(d.pinned||!v||!drawingDimensionVisible(d,v))continue;let best=d,bestScore=Infinity,bestGeometry=dimensionPlacement(d,sheet);
-  const choices=d.kind==='angle'?[d]:candidates(d,v);
-  if(preferNearby)choices.unshift(...nearbyCandidates(d,v));
+  const radius=d.kind==='radius',choices=radius?radiusCandidates(d,v):d.kind==='angle'?[d]:candidates(d,v);
+  if(preferNearby&&!radius)choices.unshift(...nearbyCandidates(d,v));
+  if(radius){
+   best=choices[0];bestGeometry=dimensionPlacement(best,sheet);
+  }
   for(const candidate of choices){
    const p=dimensionPlacement(candidate,sheet),box=p.box;
    if(!insidePaper(box,sheet))continue;
@@ -43,7 +63,7 @@ export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearb
    let score=base;
    if(preferNearby){
     const labelConflicts=labels.filter(b=>overlaps(box,b,1)).length;
-    score+=1_000_000*labelConflicts+Math.min(9,Math.hypot(candidate.at[0]-d.at[0],candidate.at[1]-d.at[1])*v.scale/100);
+    score+=1_000_000*labelConflicts+(radius?0:Math.min(9,Math.hypot(candidate.at[0]-d.at[0],candidate.at[1]-d.at[1])*v.scale/100));
    }
    if(score<bestScore){bestScore=score;best=candidate;bestGeometry=p;}
    if(!score)break;
@@ -62,7 +82,7 @@ export function reflowResizedDrawingDimensions(dimensions,sheet){
   if(!automatic(d))return;
   const box=dimensionPlacement(d,sheet)?.box;
   if(!box)return;
-  if(!insidePaper(box,sheet)||boxes.some(other=>overlaps(box,other,1))){
+  if(longRadiusLeader(d,sheet.layout[d.view])||!insidePaper(box,sheet)||boxes.some(other=>overlaps(box,other,1))){
    move.push(d);indices.push(index);
   }else{boxes.push(box);fixed.push(d);}
  });

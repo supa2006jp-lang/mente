@@ -1,19 +1,11 @@
 // Screen navigation only. The drawingSheet SVG used for export stays unchanged.
-export const defaultDrawingPreviewBackground='#d8e0e5';
 export function drawingViewport({dialog,host,minus,plus,fit,percent,expand,canNavigate=()=>true}){
  let sheet=null,zoom=1,center=[0,0],space=false,pan=null,suppress=false;
- let background=defaultDrawingPreviewBackground;
  const svg=()=>host.querySelector('svg');
  function markers(){const node=svg(),m=node?.getScreenCTM();if(!m)return;const radius=3.5/Math.hypot(m.a,m.b);for(const p of node.querySelectorAll('[data-snap-point]'))p.setAttribute('r',radius);}
  function apply(){const node=svg();if(node&&sheet){
-  const gutter=background===defaultDrawingPreviewBackground?0:Math.min(sheet.width,sheet.height)*.045;
-  const w=(sheet.width+2*gutter)/zoom,h=(sheet.height+2*gutter)/zoom;
+  const w=sheet.width/zoom,h=sheet.height/zoom;
   node.setAttribute('viewBox',`${center[0]-w/2} ${center[1]-h/2} ${w} ${h}`);
-  const paper=node.firstElementChild;
-  if(paper?.tagName==='rect'){
-   paper.setAttribute('width',sheet.width);paper.setAttribute('height',sheet.height);
-   paper.toggleAttribute('data-preview-paper',gutter>0);
-  }
   markers();
  }percent.textContent=Math.round(zoom*100)+'%';minus.disabled=!sheet||zoom<=1;plus.disabled=!sheet||zoom>=16;fit.disabled=!sheet;}
  function point(e){const m=svg()?.getScreenCTM();return m?new DOMPoint(e.clientX,e.clientY).matrixTransform(m.inverse()):null;}
@@ -33,7 +25,6 @@ export function drawingViewport({dialog,host,minus,plus,fit,percent,expand,canNa
  window.addEventListener('blur',()=>{space=false;end();suppress=false;});
  new ResizeObserver(markers).observe(host);
  return {markers,setSheet(next){if(!sheet||sheet.width!==next.width||sheet.height!==next.height){zoom=1;center=[next.width/2,next.height/2];}sheet=next;apply();},
-  setBackground(value){if(value===background)return;background=value;host.style.setProperty('--drawing-preview-background',value);apply();},
   focus(box){if(!sheet||!canNavigate())return;zoom=Math.max(1,Math.min(2.5,sheet.width/(box.width+20),sheet.height/(box.height+20)));center=[box.x+box.width/2,box.y+box.height/2];apply();},
   reset(){zoom=1;if(sheet)center=[sheet.width/2,sheet.height/2];apply();},cancel(){space=false;end();suppress=false;expanded(false);}};
 }

@@ -70,6 +70,16 @@ assert.equal(radii.filter(d=>d.kind==='radius').length,2);
 assert.equal(radii.filter(d=>d.kind==='diameter').length,1);
 assert(radii.filter(d=>d.kind==='radius').every(d=>d.radius===5&&d.arcPoint));
 assert.equal(autoDrawingDimensions(rounded,2,[],roundedSheet,{views:{top:['diameter']}}).dimensions.filter(d=>d.kind==='radius').length,0);
+const crowdedSheet={width:297,contentBottom:175,layout:{top:{x:204,y:32,bx:0,by:0,scale:1.49,width:74.5,height:74.5}},
+ note:{x:186,y:40,width:17,height:48}};
+const fillet={view:'top',kind:'radius',center:[2,48],arcPoint:[2-Math.SQRT2,48+Math.SQRT2],radius:2,
+ at:[2,104],automatic:true};
+const overall={view:'top',kind:'horizontal',a:[0,50],b:[50,50],at:[0,55.4],automatic:true,pinned:true,overall:'tophorizontal'};
+const arrangedFillet=arrangeDrawingDimensions([fillet],crowdedSheet,[overall]).dimensions[0];
+assert.deepEqual(arrangedFillet.arcPoint,fillet.arcPoint);
+assert(Math.hypot(...arrangedFillet.at.map((n,i)=>n-fillet.arcPoint[i]))*1.49<=20.001);
+assert.notDeepEqual(reflowResizedDrawingDimensions([overall,fillet],crowdedSheet).dimensions[1].at,fillet.at);
+assert.deepEqual(arrangeDrawingDimensions([{...fillet,pinned:true}],crowdedSheet).dimensions[0].at,fillet.at);
 const w1={view:'top',kind:'horizontal',a:[0,0],b:[40,0],at:[0,12],fontSize:9,automatic:true,pinned:true};
 const w2={...w1,pinned:false,a:[2,0],b:[38,0],at:[0,15]};
 assert.deepEqual(arrangeDrawingDimensions([w1,w2],roundedSheet).dimensions[0].at,w1.at);

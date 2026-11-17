@@ -32,3 +32,23 @@ try{
  try{assert.deepEqual(worldBox.bounds.map(p=>p.map(Math.round)),[[10,20,30],[70,60,55]]);}
  finally{worldBox.delete();}
 }finally{shifted.delete();}
+const blank=R.makeBox([-15,-10,0],[15,10,5]),drill=R.makeCylinder(4,8).translate([0,0,-1]);
+const plate=blank.cut(drill),separate=R.makeBox([20,-5,0],[25,5,5]);
+try{
+ const bodyMap=new Map([['plate',plate],['separate',separate]]);
+ const section={id:'section-color',view:'top',orientation:'vertical',coordinate:0,reverse:false};
+ const projections=orthographicProjection(bodyMap,['plate','separate'],[section],['top','iso'],undefined,true);
+ assert.deepEqual(projections.sectionErrors,{});
+ const svg=drawingSheet(projections,1,true,[],'',{viewSelection:['top'],sections:[section],paperBackground:'#ffff81'}).svg;
+ assert.match(svg,/<svg[^>]*><rect[^>]*fill="#ffff81"/);
+ assert.equal((svg.match(/data-drawing-silhouette/g)||[]).length,3);
+ const rings=projections.views.top.silhouette.split(' Z').filter(Boolean).map(path=>path.trim().slice(2).split(' L ').map(pair=>pair.split(' ').map(Number)));
+ const covered=(x,y)=>rings.reduce((odd,ring)=>ring.reduce((inside,[a,b],i)=>{
+  const [c,d]=ring.at(i-1);
+  return (b>y)!==(d>y)&&x<(c-a)*(y-b)/(d-b)+a?!inside:inside;
+ },odd),false);
+ assert(covered(10,0));
+ assert(covered(22,0));
+ assert(!covered(0,0),'the through hole shows the paper background');
+ assert(!covered(17,0),'the space between parts shows the paper background');
+}finally{blank.delete();drill.delete();plate.delete();separate.delete();}

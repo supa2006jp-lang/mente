@@ -165,8 +165,6 @@
 #drawing-preview [data-break-direction="1"] [data-break-edge] { cursor:ns-resize; }
 #drawing-preview [data-hole-table] { cursor:move; }
 #drawing-preview [data-leader] { cursor:pointer; }
-#drawing-dialog #drawing-preview { background:var(--drawing-preview-background,#d8e0e5); }
-#drawing-preview [data-preview-paper] { stroke:#273d4f; stroke-width:1; vector-effect:non-scaling-stroke; }
 #drawing-dialog #drawing-leader-input-label[hidden] { display:none; }
 #drawing-dialog :is(#drawing-leader-input, #drawing-leader-edit) { min-width:150px; max-width:100%; }
 #drawing-dialog .drawing-pdf-layout { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
