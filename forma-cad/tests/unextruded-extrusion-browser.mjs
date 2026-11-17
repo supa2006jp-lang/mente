@@ -21,7 +21,18 @@ try{
  page.setDefaultTimeout(25000);
  page.on('pageerror',e=>{errors.push(e.message);console.error(e.stack);});page.on('dialog',d=>d.accept(d.defaultValue()));
  await page.addInitScript(()=>Object.defineProperty(window,'showSaveFilePicker',{value:undefined,configurable:true}));
- await page.addInitScript(()=>{window.shortcutJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec)window.shortcutJobs.push(payload.spec.type);return post.call(this,payload,...args);};});
+ await page.addInitScript(()=>{
+  window.shortcutJobs=[];window.previewJobs=[];window.heldPreviewJobs=[];window.holdExactPreview=false;
+  const post=Worker.prototype.postMessage;
+  window.releaseExactPreview=()=>{window.holdExactPreview=false;for(const job of window.heldPreviewJobs.splice(0))post.call(job.worker,job.payload,...job.args);};
+  Worker.prototype.postMessage=function(payload,...args){
+   if(payload.spec){window.shortcutJobs.push(payload.spec.type);const feature=payload.spec.features?.[0]||payload.spec.feature;
+    window.previewJobs.push({type:payload.spec.type,depth:feature?.depth,unextrudedOnly:feature?.unextrudedOnly});
+    if(window.holdExactPreview&&payload.spec.type==='exactExtrusionPreview'){window.heldPreviewJobs.push({worker:this,payload,args});return;}
+   }
+   return post.call(this,payload,...args);
+  };
+ });
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  const host=page.locator('#canvas-host'),panel=page.locator('#extrude-distance'),option=page.locator('#viewport-unextruded-only');
  const sketch={...defaults,id:'sketch',name:'全体のスケッチ',kind:'sketch',width:60,height:40,groupId:'g',groupNumber:1,groupHidden:false};
@@ -53,6 +64,22 @@ try{
  await fs.mkdir('.sites-runtime/unextruded-extrusion',{recursive:true});
  await page.screenshot({path:'.sites-runtime/unextruded-extrusion/initial.png'});
  await start();assert(!(await option.isChecked()));await option.check();await ready();
+ assert.equal(await page.evaluate(()=>window.previewJobs.filter(job=>job.unextrudedOnly&&job.type==='extrusionToolPreview').length),0,'a new remaining-only preview needs no separate tool calculation');
+ await page.evaluate(()=>{window.holdExactPreview=true;});
+ const fast=await page.evaluate(async()=>{
+  const start=performance.now(),input=document.getElementById('viewport-depth');input.value='8';input.dispatchEvent(new Event('input',{bubbles:true}));
+  const immediate=JSON.parse(document.getElementById('canvas-host').dataset.extrusionFastPreview||'null');
+  await new Promise(requestAnimationFrame);return {immediate,frameMs:performance.now()-start};
+ });
+ assert.equal(fast.immediate.source,'native-tool');assert.deepEqual(fast.immediate.depths,[8]);
+ assert(await page.locator('#extrude-distance button[type=submit]').isDisabled(),'a cached tool mesh cannot enable confirmation');
+ await page.waitForFunction(()=>window.heldPreviewJobs.length>0);await page.evaluate(()=>window.releaseExactPreview());await ready();
+ assert.deepEqual(JSON.parse(await host.getAttribute('data-extrusion-exact-depths')),[8]);
+ const rapid=await page.evaluate(()=>[9,12,-4].map(depth=>{const input=document.getElementById('viewport-depth');input.value=String(depth);input.dispatchEvent(new Event('input',{bubbles:true}));return JSON.parse(document.getElementById('canvas-host').dataset.extrusionFastPreview||'null');}));
+ assert.deepEqual(rapid.map(item=>item.depths[0]),[9,12,-4]);assert(rapid.every(item=>item.source==='native-tool'));
+ await ready();assert.deepEqual(JSON.parse(await host.getAttribute('data-extrusion-exact-depths')),[-4]);
+ await page.locator('#viewport-depth').fill('6');await ready();
+ console.log(JSON.stringify({nativePreviewFirstFrameMs:Math.round(fast.frameMs),immediateDistanceFeedback:true,noDuplicateToolCalculation:true,commitWaitsForExact:true,latestDistanceWins:true}));
  assert(await page.locator('#unextruded-only').isChecked());assert(await page.locator('#viewport-overlap-only').isDisabled());
  await option.uncheck();assert(!(await page.locator('#unextruded-only').isChecked()));await ready();
  await option.check();await ready();await page.locator('#cancel').click();assert.deepEqual((await save()).features,initial.features);
