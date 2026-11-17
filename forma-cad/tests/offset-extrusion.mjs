@@ -32,6 +32,16 @@ for(const operation of ['new','join','cut']){
  const edited=saved.map((feature,i)=>i?{...feature,profileOffset:-1}:feature),replay=runOperation(edited,{type:'replay',before:saved,start:1}).features,bodies=kernelBodies(replay);
  try{close(R.measureVolume(bodies.get(operation==='new'?f.id:'base')),operation==='new'?Math.PI*81*3:Math.PI*100*10+(operation==='join'?1:-1)*Math.PI*81*3);}finally{for(const body of bodies.values())body.delete();}
 }
+const hollowRegion={id:'hollow',plane:'XY',offset:0,outer:[[-20,-10],[20,-10],[20,10],[-20,10]],holes:[[[-19,-9],[-19,9],[19,9],[19,-9]]],sourceIds:[],area:116};
+const hollowBody={...defaults,id:'hollow-body',name:'薄い中空の壁',kind:'extrusion',profile:'region',region:hollowRegion,depth:10};
+const hollowFace={...hollowRegion,id:'hollow-face',offset:10,bodyId:'hollow-body',cadFace:{bodyId:'hollow-body',point:[19.5,0,10],normal:[0,0,1]}};
+for(const [operation,profileOffset] of [['new',-2],['join',-.25]]){
+ const feature={...defaults,id:'outer-os',name:'外周基準OS',kind:'extrusion',profile:'region',region:hollowFace,z:10,capHoles:true,profileOffset,depth:3,operation,target:'hollow-body'};
+ const result=runOperation([hollowBody],{type:'extrusionBatch',features:[feature]}),shape=R.deserializeShape(result.features[0].cadResult.outputs[0].brep).asShape3D();
+ try{close(R.measureVolume(shape),(operation==='join'?1160:0)+(40+profileOffset*2)*(20+profileOffset*2)*3);}finally{shape.delete();}
+ const saved=validateProject(JSON.parse(JSON.stringify({format:'forma-cad',version:1,features:[hollowBody,...result.features]})));assert.equal(saved.at(-1).capHoles,true);
+ if(operation==='new'){const next=saved.map((f,i)=>i?{...f,profileOffset:-1}:f),replay=runOperation(next,{type:'replay',before:saved,start:1}).features,bodies=kernelBodies(replay);try{close(R.measureVolume(bodies.get('outer-os')),38*18*3);close(R.measureVolume(bodies.get('hollow-body')),1160);}finally{for(const body of bodies.values())body.delete();}}
+}
 for(const profileOffset of [NaN,Infinity,'-2',10001])assert.throws(()=>validateFeature({...defaults,id:'invalid',kind:'extrusion',profileOffset}));
 const shrinking={...defaults,id:'collapsed',kind:'extrusion',profile:'region',region:{id:'r',plane:'XY',offset:0,outer:[[-20,-10],[20,-10],[20,10],[-20,10]],holes:[],sourceIds:[],area:800},profileOffset:-11,depth:3};
 assert.throws(()=>{const shape=featureSolid(shrinking,new Map());shape.delete();},/OS距離|輪郭|領域/,'an offset beyond collapse must not create an inverted contour');

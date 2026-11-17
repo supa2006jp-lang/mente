@@ -77,10 +77,22 @@ try{
  // OS has its own button and numeric modal, without mutating the original sketch.
  await load([simple]);await select([0,0,0]);await page.locator('#face-extrude-shortcut-offset').waitFor();
  assert(await page.locator('#face-extrude-shortcut').isVisible());await page.screenshot({path:'.sites-runtime/extrusion-options/markers.png'});
- await page.locator('#face-extrude-shortcut-offset').click();await page.keyboard.press('Escape');assert.equal((await save()).features.length,1);
+ await page.locator('#face-extrude-shortcut-offset').click();await page.keyboard.press('Escape');assert.equal((await save()).features.length,1);assert.equal(await host.getAttribute('data-offset-extrusion-preview'),null);
  await select([0,0,0]);
  await page.locator('#face-extrude-shortcut-offset').click();await page.locator('#offset-extrusion-distance').fill('-2');
+ const dialog=page.locator('#offset-extrusion-dialog'),position=await dialog.boundingBox(),sourceCorners=[await screen([-20,-10,0]),await screen([20,10,0])],sourceBox={left:Math.min(...sourceCorners.map(p=>p[0])),right:Math.max(...sourceCorners.map(p=>p[0])),top:Math.min(...sourceCorners.map(p=>p[1])),bottom:Math.max(...sourceCorners.map(p=>p[1]))};
+ assert(position.x+position.width<=sourceBox.left||position.x>=sourceBox.right||position.y+position.height<=sourceBox.top||position.y>=sourceBox.bottom,'OS input must avoid the selected sketch');
+ let guide=JSON.parse(await host.getAttribute('data-offset-extrusion-preview'));assert.equal(guide.distance,-2);assert.equal(guide.offsetRings,1);assert.deepEqual(guide.bounds,[[-18,-8,0],[18,8,0]]);
+ await page.locator('#offset-extrusion-distance').fill('2');guide=JSON.parse(await host.getAttribute('data-offset-extrusion-preview'));assert.deepEqual(guide.bounds,[[-22,-12,0],[22,12,0]]);assert.deepEqual(await dialog.boundingBox(),position,'input must stay put while typing');
+ await page.locator('#offset-extrusion-distance').fill('-11');assert(await dialog.locator('button[type=submit]').isDisabled());assert.equal(await host.getAttribute('data-offset-extrusion-preview'),null);
+ await page.locator('#offset-extrusion-distance').fill('-2');assert(!(await dialog.locator('button[type=submit]').isDisabled()));
+ await page.setViewportSize({width:1100,height:800});
+ await page.waitForFunction(()=>{const r=document.getElementById('offset-extrusion-dialog').getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;});
+ assert.equal(Number(await page.locator('#offset-extrusion-distance').inputValue()),-2);
+ await page.setViewportSize({width:1700,height:1150});
+ await page.waitForFunction(()=>document.getElementById('offset-extrusion-dialog').getBoundingClientRect().x>1300);
  await page.screenshot({path:'.sites-runtime/extrusion-options/os-dialog.png'});await page.locator('#offset-extrusion-distance').press('Enter');await panel.waitFor();
+ assert.equal(await host.getAttribute('data-offset-extrusion-preview'),null,'temporary guide is removed before normal extrusion preview');
  assert.equal(Number(await page.locator('#viewport-profile-offset').inputValue()),-2);await depth.fill('3');
  const osSaved=await commit(),os=osSaved.features.at(-1);assert.equal(os.profileOffset,-2);checkVolume(osSaved,os.id,1728);assert.equal(osSaved.features[0].groupHidden,false);assert.equal(osSaved.features[0].width,40);
  await load(osSaved.features);await page.locator('[data-history-feature="'+os.id+'"] button').first().click();await panel.waitFor();
@@ -92,7 +104,13 @@ try{
  await select([0,0,0]);await page.locator('#face-extrude-shortcut-offset').click();await page.locator('#offset-extrusion-distance').fill('2');await page.locator('#offset-extrusion-distance').press('Enter');await panel.waitFor();await depth.fill('3');
  const expanded=await commit();checkVolume(expanded,expanded.features.at(-1).id,3168);
  await load([{...right,width:40,height:20,x:0}]);await select([0,0,10]);await page.locator('#face-extrude-shortcut-offset').click();
+ assert.equal(JSON.parse(await host.getAttribute('data-offset-extrusion-preview')).bounds[0][2],10,'solid face guide stays on its selected plane');
  await page.locator('#offset-extrusion-distance').fill('-2');await page.locator('#offset-extrusion-distance').press('Enter');await panel.waitFor();await depth.fill('3');assert.equal(await page.locator('#viewport-operation').inputValue(),'join');
  const joined=await commit();assert.equal(joined.features.at(-1).profileOffset,-2);checkVolume(joined,'R',9728);
+ const hollowRegion={id:'hollow',plane:'XY',offset:0,outer:[[-20,-10],[20,-10],[20,10],[-20,10]],holes:[[[-19,-9],[-19,9],[19,9],[19,-9]]],sourceIds:[],area:116};
+ await load([{...right,id:'hollow',name:'中空ボディ',x:0,profile:'region',region:hollowRegion}]);await page.locator('#selection-mode').selectOption('face');await select([19.5,0,10]);await page.locator('#face-extrude-shortcut-offset').click();
+ await page.locator('#offset-extrusion-distance').fill('-2');const hollowGuide=JSON.parse(await host.getAttribute('data-offset-extrusion-preview'));assert.equal(hollowGuide.sourceRings,1);assert.equal(hollowGuide.offsetRings,1);assert.deepEqual(hollowGuide.bounds,[[-18,-8,10],[18,8,10]]);
+ await page.screenshot({path:'.sites-runtime/extrusion-options/hollow-os-dialog.png'});await page.locator('#offset-extrusion-distance').press('Enter');await panel.waitFor();
+ assert(await page.locator('#viewport-cap-holes').isChecked());assert.equal(await page.locator('#viewport-operation').inputValue(),'new');await depth.fill('3');const hollowSaved=await commit(),hollowAdded=hollowSaved.features.at(-1);assert.equal(hollowAdded.capHoles,true);checkVolume(hollowSaved,hollowAdded.id,1728);checkVolume(hollowSaved,'hollow',1160);
  assert.deepEqual(errors,[]);console.log('PASS OS sketch/face buttons, negative/positive footprint, blank previous value, cancel, native volumes, save/reedit and face join');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
