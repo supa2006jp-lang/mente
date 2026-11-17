@@ -5,6 +5,7 @@ import {validateFrame} from './frames.js';
 import {drawingReferenceCircleLimit} from './drawing-dimension-references.js';
 import {hasDrawingCommentFont} from './drawing-comments.js';
 import {maxDrawingTableHoles} from './drawing-hole-table.js';
+import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const point=p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
 export function drawingSignature(features){let a=2166136261,b=5381;for(const c of JSON.stringify(features)){a=Math.imul(a^c.charCodeAt(0),16777619);b=Math.imul(b,33)^c.charCodeAt(0);}return (a>>>0).toString(16)+(b>>>0).toString(16);}
@@ -16,9 +17,11 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   !o.viewSelection.length&&o.isoMode==='hidden'))fail();
  if(o.commentSize!=null&&(!Number.isFinite(o.commentSize)||o.commentSize<1.5||o.commentSize>10))fail();
  if(o.commentColor!==undefined&&!validDimensionColor(o.commentColor))fail();
+ if(o.previewBackground!==undefined&&!validDimensionColor(o.previewBackground))fail();
  if(o.commentFont!==undefined&&!hasDrawingCommentFont(o.commentFont))fail();
  if(o.breakAxis!==undefined&&!['longest','x','y','z'].includes(o.breakAxis))fail();
  if(o.breakPercent!==undefined&&(!Number.isInteger(o.breakPercent)||o.breakPercent<20||o.breakPercent>90))fail();
+ if(o.pdfLayout!==undefined&&o.pdfLayout!=='multi')fail();
  if(o.breakRange!==undefined&&(!point(o.breakRange)||o.breakRange[0]<.005||o.breakRange[1]>.995||o.breakRange[1]-o.breakRange[0]<.03-1e-10))fail();
  if(o.holeTable!==undefined){
   const table=o.holeTable;
@@ -41,6 +44,16 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  const sections=o.sections||[],details=o.details||[],markers=o.markers||[];if(!Array.isArray(sections)||sections.length>8||!Array.isArray(details)||details.length>8||!Array.isArray(markers)||markers.length>200)fail();
  const viewNames=new Set(drawingProjectionNames),ids=new Set();for(const section of sections){if(!extraId(section.id)||!section.id.startsWith('section-')||ids.has(section.id)||!viewNames.has(section.view)||!['vertical','horizontal'].includes(section.orientation)||!Number.isFinite(section.coordinate)||Math.abs(section.coordinate)>1e6||typeof section.reverse!=='boolean')fail();ids.add(section.id);}
  for(const id of ids)viewNames.add(id);for(const detail of details){if(!extraId(detail.id)||!detail.id.startsWith('detail-')||ids.has(detail.id)||!viewNames.has(detail.view)||!point(detail.center)||!Number.isFinite(detail.radius)||detail.radius<=0||detail.radius>1e6||![2,4,10].includes(detail.factor))fail();ids.add(detail.id);}for(const id of ids)viewNames.add(id);
+ if(o.leaders!==undefined){
+  if(!Array.isArray(o.leaders)||o.leaders.length>maxDrawingLeaders)fail();
+  const leaderIds=new Set();
+  for(const note of o.leaders){
+   if(!note||typeof note.id!=='string'||!/^leader-[a-zA-Z0-9-]{1,60}$/.test(note.id)||leaderIds.has(note.id)||
+    !viewNames.has(note.view)||!point(note.anchor)||!point(note.at)||typeof note.text!=='string'||!note.text.trim()||
+    note.text.length>maxDrawingLeaderText)fail();
+   leaderIds.add(note.id);
+  }
+ }
  if(o.hiddenViews!==undefined){
   if(!o.hiddenViews||typeof o.hiddenViews!=='object'||Array.isArray(o.hiddenViews))fail();
   for(const [view,visible] of Object.entries(o.hiddenViews))if(view!=='iso'&&!viewNames.has(view)||typeof visible!=='boolean')fail();

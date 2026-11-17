@@ -28,7 +28,7 @@ const insidePaper=(box,sheet)=>box.x>=5&&box.y>=18&&box.x+box.width<=sheet.width
 
 // Move only requested dimensions; callers pass existing annotations as locked.
 // Geometry is in paper mm, independent of screen zoom and printed scale.
-export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false}={}){const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7})),labels=[sheet.note,sheet.holeBox].filter(Boolean),lines=[],extensions=[];for(const d of locked){const p=dimensionPlacement(d,sheet);if(p){labels.push(p.box);lines.push(...p.main);extensions.push(...p.extensions);}}
+export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false}={}){const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7})),labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[])].filter(Boolean),lines=[],extensions=[];for(const d of locked){const p=dimensionPlacement(d,sheet);if(p){labels.push(p.box);lines.push(...p.main);extensions.push(...p.extensions);}}
  for(const d of dimensions)if(d.pinned){const p=dimensionPlacement(d,sheet);if(p){labels.push(p.box);lines.push(...p.main);extensions.push(...p.extensions);}}
  const placed=dimensions.map(d=>({...d,at:[...d.at]})),unresolved=[];const order=placed.map((d,i)=>i).sort((a,b)=>Number(!!placed[a].overall)-Number(!!placed[b].overall)||Number(['diameter','radius'].includes(placed[a].kind))-Number(['diameter','radius'].includes(placed[b].kind))||a-b);
  for(const i of order){const d=placed[i],v=sheet.layout[d.view];if(d.pinned||!v||!drawingDimensionVisible(d,v))continue;let best=d,bestScore=Infinity,bestGeometry=dimensionPlacement(d,sheet);
@@ -56,7 +56,7 @@ export function reflowResizedDrawingDimensions(dimensions,sheet){
  const automatic=d=>!d.pinned&&!d.review&&(d.automatic||d.overall);
  const fixed=dimensions.filter(d=>!automatic(d));
  const boxes=fixed.map(d=>dimensionPlacement(d,sheet)?.box).filter(Boolean);
- for(const block of [sheet.note,sheet.holeBox])if(block)boxes.push(block);
+ for(const block of [sheet.note,sheet.holeBox,...(sheet.leaderLabels||[])])if(block)boxes.push(block);
  const move=[],indices=[];
  dimensions.forEach((d,index)=>{
   if(!automatic(d))return;

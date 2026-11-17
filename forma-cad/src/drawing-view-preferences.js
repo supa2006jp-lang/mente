@@ -12,6 +12,7 @@ export const drawingProjections={
 export const drawingProjectionNames=Object.keys(drawingProjections);
 export const defaultDrawingViewOrder=['front','top','right','left','back','bottom'];
 export function drawingViewVisible(name,options={}){
+ if(options.pageViews&&!options.pageViews.includes(name))return false;
  if(name==='iso')return options.isoMode!=='hidden';
  if(!Object.hasOwn(drawingProjections,name))return true;
  return (options.viewSelection??defaultDrawingViews).includes(name);

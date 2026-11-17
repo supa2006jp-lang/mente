@@ -1,10 +1,11 @@
-import {drawingProjectionNames,drawingViewFactor,drawingProjections,drawingScaleLabel} from './drawing-view-preferences.js';
+import {drawingProjectionNames,drawingViewFactor,drawingProjections,drawingScaleLabel,drawingViewVisible} from './drawing-view-preferences.js';
 import {withDetails,hatchPaths,annotationSVG} from './drawing-annotations.js';
 import {drawingViewFrames} from './drawing-auto-layout.js';
 import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingCommentLayout} from './drawing-comments.js';
 import {dimensionSVG,escapeDrawingText as esc,validDimensionColor} from './drawing-dimensions.js';
 import {displayedDrawingSpan,drawingPaperPoint,fullDrawingSpan} from './drawing-break.js';
 import {drawingHoleMarkersSVG,drawingHoleTableSize,drawingHoleTableSVG} from './drawing-hole-table.js';
+import {drawingLeaderLayout,drawingLeadersSVG} from './drawing-leaders.js';
 
 function splitViewGeometry(name,view,content){
  const cut=view.break,axis=cut.direction,bounds=[view.bx,view.by],pad=1/view.scale;
@@ -59,11 +60,11 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  let width=note?Math.max(baseWidth,note.x+75):baseWidth,height=Math.max(210,bottomEdge+36,note?note.y+note.height+20:0)+(options.frame?24:0);
  if(options.paper==='A4'||options.paper==='A3'){const size=options.paper==='A3'?[420,297]:[297,210];[width,height]=options.orientation==='portrait'?[size[1],size[0]]:size;}
  if(Math.max(width,height)>5000)throw Error('図面が大きすぎます。縮尺を小さくしてください');
- let extraX=20,extraY=bottomEdge+30,rowHeight=0;const extraNames=Object.keys(data.views).filter(k=>k!=='iso'&&!drawingProjectionNames.includes(k));
+ let extraX=20,extraY=bottomEdge+30,rowHeight=0;const extraNames=Object.keys(data.views).filter(k=>k!=='iso'&&!drawingProjectionNames.includes(k)&&drawingViewVisible(k,options));
  for(const key of extraNames){const view=data.views[key],b=view.viewBox,s=scale*(view.factor||1),vw=b[2]*s,vh=b[3]*s;if(extraX>20&&extraX+vw>width-15){extraX=20;extraY+=rowHeight+25;rowHeight=0;}layout[key]={x:extraX,y:extraY,bx:b[0],by:b[1],width:vw,height:vh,scale:s};extraX+=vw+25;rowHeight=Math.max(rowHeight,vh);}
  if(options.paper==='auto'||!options.paper){height=Math.max(height,extraNames.length?extraY+rowHeight+(options.frame?42:20):0);width=Math.max(width,...extraNames.map(k=>layout[k].x+layout[k].width+20));}
  for(const [key,p] of Object.entries(positions))if(layout[key]){layout[key].x=p[0];layout[key].y=p[1];}
- const tableSize=drawingHoleTableSize(options.holeTable,layout);
+ const tableSize=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:layout);
  const holeBox=tableSize?{...tableSize,x:positions.holeTable?.[0]??Math.max(rightEdge+12,width-tableSize.width-12),y:positions.holeTable?.[1]??24}:null;
  if(holeBox&&options.paper==='auto'){
   width=Math.max(width,holeBox.x+holeBox.width+8);
@@ -88,8 +89,9 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const commentColor=validDimensionColor(options.commentColor)?options.commentColor:defaultDrawingCommentColor;
  const commentSVG=note?'<g data-comment="true" fill="'+commentColor+'" font-family="'+esc(drawingCommentFamily(note.font))+'">'+
   note.lines.map((line,i)=>text(note.x,note.y+note.baseline+i*note.lineHeight,line,note.fontSize,'xml:space="preserve"')).join('')+'</g>':'';
+ const leaders=options.leaders||[],leaderLabels=leaders.map(note=>drawingLeaderLayout(note,layout[note.view])?.label).filter(Boolean);
  let frame='';if(options.frame){const fx=Math.max(10,width-165),fy=height-32;frame='<g data-titleblock="true" font-family="sans-serif"><rect x="5" y="5" width="'+(width-10)+'" height="'+(height-10)+'" fill="none" stroke="#111" stroke-width=".3"/><rect x="'+fx+'" y="'+fy+'" width="160" height="27" fill="white" stroke="#111" stroke-width=".25"/>';for(const [i,key,label] of [[0,'name','部品名'],[1,'material','材質'],[2,'date','作成日']]){const y=fy+i*9;frame+='<path d="M '+fx+' '+y+' H '+(fx+160)+' M '+(fx+25)+' '+y+' V '+(y+9)+'" fill="none" stroke="#111" stroke-width=".18"/>'+text(fx+3,y+5.5,label,3);const rows=commentLines(options[key]||'',128,2.8).slice(0,2);rows.forEach((r,j)=>frame+=text(fx+28,y+3.5+j*3.5,r,2.8));}frame+='</g>';}
  const baseViews=[...drawingProjectionNames,'iso'].filter(key=>layout[key]).map(key=>view(key,drawingProjections[key]?.label??'ISOMETRIC')).join('');
- const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect width="100%" height="100%" fill="white"/><g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,options.layout==='compact'?'FORMA CAD / AUTO LAYOUT':layout.front&&drawingViewFactor('front',options)!==1?'FORMA CAD / VIEW LAYOUT':'FORMA CAD / THIRD ANGLE',4.5)+text(width-15,12,'SCALE '+ratio+' / mm',3.5,'text-anchor="end"')+baseViews+extraNames.map(key=>{const si=(options.sections||[]).findIndex(s=>s.id===key),di=(options.details||[]).findIndex(d=>d.id===key),s=layout[key].scale,ratio=s>=1?s+':1':'1:'+Number((1/s).toFixed(3));return view(key,si>=0?'断面 '+String.fromCharCode(65+si)+'–'+String.fromCharCode(65+si):'詳細 D'+(di+1)+' / '+ratio);}).join('')+annotationSVG(options,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensions.map((d,i)=>layout[d.view]?dimensionSVG(d,layout[d.view],layout[d.view].scale,i,options.dimensionColors):'').join('')+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+'</g></svg>';
- return {svg,width,height,layout,note,holeBox,contentBottom:height-(options.frame?35:12)};
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect width="100%" height="100%" fill="white"/><g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,options.layout==='compact'?'FORMA CAD / AUTO LAYOUT':layout.front&&drawingViewFactor('front',options)!==1?'FORMA CAD / VIEW LAYOUT':'FORMA CAD / THIRD ANGLE',4.5)+text(width-15,12,options.pageViews?.length===0?'mm':'SCALE '+ratio+' / mm',3.5,'text-anchor="end"')+baseViews+extraNames.map(key=>{const si=(options.sections||[]).findIndex(s=>s.id===key),di=(options.details||[]).findIndex(d=>d.id===key),s=layout[key].scale,ratio=s>=1?s+':1':'1:'+Number((1/s).toFixed(3));return view(key,si>=0?'断面 '+String.fromCharCode(65+si)+'–'+String.fromCharCode(65+si):'詳細 D'+(di+1)+' / '+ratio);}).join('')+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensions.map((d,i)=>layout[d.view]?dimensionSVG(d,layout[d.view],layout[d.view].scale,i,options.dimensionColors):'').join('')+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
+ return {svg,width,height,layout,note,holeBox,leaderLabels,contentBottom:height-(options.frame?35:12)};
 }

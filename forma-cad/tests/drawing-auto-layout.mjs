@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';import {optimizeDrawingLayout,drawingViewFrames} from '../src/drawing-auto-layout.js';import {drawingSheet} from '../src/drawing-sheet.js';import {dimensionValue} from '../src/drawing-dimensions.js';import {readDrawingState} from '../src/drawing-state.js';
+import {drawingPDFPages} from '../src/drawing-pdf-pages.js';
+import {autoDrawingDimensions} from '../src/drawing-auto-dimensions.js';
 const fixture=(w,d,h,iso=[0,0,w*.75,h*.65+d*.5])=>({bounds:[[0,0,0],[w,d,h]],bodyCount:1,views:{front:{visible:['M 0 0 L '+w+' 0 L '+w+' '+(-h)+' Z'],hidden:[]},top:{visible:['M 0 0 L '+w+' 0 L '+w+' '+(-d)+' Z'],hidden:[]},right:{visible:['M 0 0 L '+d+' 0 L '+d+' '+(-h)+' Z'],hidden:[]},iso:{visible:['M 0 0 L '+iso[2]+' '+iso[3]],hidden:[],viewBox:iso}}});
 const overlaps=(a,b)=>a.x<b.x+b.width-1e-5&&a.x+a.width>b.x+1e-5&&a.y<b.y+b.height-1e-5&&a.y+a.height>b.y+1e-5,check=result=>{assert(result.scale>=.0001&&result.scale<=1000);for(const [i,b]of result.boxes.entries()){assert(b.x>=result.area.x-1e-5);assert(b.y>=result.area.y-1e-5);assert(b.x+b.width<=result.area.x+result.area.width+1e-5);assert(b.y+b.height<=result.area.y+result.area.height+1e-5);for(const a of result.boxes.slice(0,i))assert(!overlaps(a,b),a.key+' overlaps '+b.key);}};
 const examples=[];for(const paper of ['A4','A3'])for(const orientation of ['landscape','portrait'])for(const [w,d,h]of [[40,25,20],[240,10,20],[10,240,15],[10,10,200],[120,120,120],[.1,.1,.1],[5000,30,100]]){const data=fixture(w,d,h),options={paper,orientation,frame:true},before=JSON.stringify(data),result=optimizeDrawingLayout(data,{options});check(result);assert.equal(JSON.stringify(data),before);const sheet=drawingSheet(data,result.scale,true,[],'',{...options,layout:result.layout,positions:result.positions});assert.equal(sheet.width,orientation==='landscape'?(paper==='A4'?297:420):(paper==='A4'?210:297));for(const name of ['front','top','right','iso'])assert.deepEqual([sheet.layout[name].x,sheet.layout[name].y],result.positions[name]);const frame=drawingViewFrames(data).front;assert.equal(sheet.layout.front.width,frame.width*result.scale);assert.match(sheet.svg,/AUTO LAYOUT/);assert(!sheet.svg.includes('THIRD ANGLE'));examples.push({paper,orientation,size:[w,d,h],scale:result.scale});}
@@ -42,4 +44,30 @@ assert.match(tableSheet.svg,/>15<\/text>/);
 assert.match(tableSheet.svg,/>3\.5<\/text>/);
 assert.match(tableSheet.svg,/data-hole-labels="top"/);
 assert.doesNotMatch(drawingSheet(data,1,true,[],'',{...tableOptions,holeTable:{...holeTable,review:true}}).svg,/data-hole-table/);
+const profiled=fixture(60,40,20);
+profiled.views['section-a']={visible:['M 0 0 L 5 0 L 5 -12 L 20 -12 L 20 -20'],hidden:[],viewBox:[0,-20,20,20]};
+profiled.views.top.visible=['M 5 -10 L 12 -10 L 12 -16','M 35 -25 L 50 -25'];
+const drawingOptions={...options,viewSelection:['top','front'],isoMode:'hidden',holeTable,
+ sections:[{id:'section-a',view:'front',orientation:'vertical',coordinate:15,reverse:false}],
+ details:[{id:'detail-a',view:'top',center:[9,-13],radius:9,factor:2}],
+ leaders:[{id:'leader-a',view:'detail-a',anchor:[12,-10],at:[29,-7],text:'この面を確認 <A>'}],pdfLayout:'multi'};
+const profileSheet=drawingSheet(profiled,1,true,[],'',drawingOptions);
+const auto=autoDrawingDimensions(profiled,1,[],profileSheet,{details:drawingOptions.details}).dimensions;
+const measured=name=>auto.filter(d=>d.view===name).map(dimensionValue);
+assert(measured('section-a').includes(5));assert(measured('section-a').includes(12));
+assert.deepEqual(measured('detail-a').sort((a,b)=>a-b),[6,7]);
+const pages=drawingPDFPages(profiled,1,true,auto,'加工図',drawingOptions);
+assert.equal(pages.length,2);
+assert.match(pages[0].svg,/data-page-number="true">1 \/ 2/);
+assert.doesNotMatch(pages[0].svg,/data-view="section-a"|data-hole-table|data-leader/);
+assert.match(pages[1].svg,/data-view="section-a"/);
+assert.match(pages[1].svg,/data-view="detail-a"/);
+assert.match(pages[1].svg,/data-hole-table/);
+assert.match(pages[1].svg,/この面を確認 &lt;A&gt;/);
+assert.match(pages[1].svg,/data-page-number="true">2 \/ 2/);
+const tablePages=drawingPDFPages(data,1,true,[],'',tableOptions);
+assert.equal(tablePages.length,2);
+assert.match(tablePages[1].svg,/data-hole-table/);
+assert.doesNotMatch(tablePages[1].svg,/data-view=|SCALE/);
+assert.equal(readDrawingState({...state,options:{...state.options,...drawingOptions}}).options.leaders[0].id,'leader-a');
 console.log(JSON.stringify({pass:true,examples:examples.length,traditionalScale:lo,compactScale:compact.scale,gain:compact.scale/lo,annotations:true,extras:true,defaultA4Landscape:true,continuousScaleSaved:true}));

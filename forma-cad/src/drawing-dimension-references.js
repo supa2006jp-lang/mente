@@ -149,7 +149,7 @@ export function reconcileDrawingDimensions(data,dimensions,references,{targetsCh
    else if(['diameter','radius'].includes(d.kind))updated=followCircleDimension(d,context(d.view,view,reference).follow);
    else if(d.kind==='angle')updated=unchangedAngle(d,view)?d:null;
    else if(d.feature==='pitch')updated=followPitch(d,context(d.view,view,reference),reference);
-   else if(d.automatic)updated=followLocation(d,context(d.view,view,reference),reference,box);
+   else if(d.automatic&&d.feature!=='profile-edge')updated=followLocation(d,context(d.view,view,reference),reference,box);
    else{
     const shape=context(d.view,view,reference),a=followPoint(d.a,shape,reference,box),b=followPoint(d.b,shape,reference,box);
     if(a&&b)updated={...d,a,b,at:translate(d.at,midpoint(d.a,d.b),midpoint(a,b))};
