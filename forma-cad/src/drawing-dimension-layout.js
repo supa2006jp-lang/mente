@@ -79,7 +79,7 @@ const insidePaper=(box,sheet)=>box.x>=5&&box.y>=18&&box.x+box.width<=sheet.width
 // Geometry is in paper mm, independent of screen zoom and printed scale.
 export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false}={}){
  const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7}));
- const labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[])].filter(Boolean);
+ const labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
  const placedGeometry=[...locked,...dimensions.filter(d=>d.pinned)].map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
  const placed=dimensions.map(d=>({...d,at:[...d.at]})),unresolved=[];
  const order=placed.map((_,i)=>i).sort((a,b)=>Number(placed[a].kind==='radius')-Number(placed[b].kind==='radius')||
@@ -115,14 +115,14 @@ export function reflowResizedDrawingDimensions(dimensions,sheet,{radiiOnly=false
  const automatic=d=>!d.pinned&&!d.review&&(d.automatic||d.overall)&&(!radiiOnly||d.kind==='radius');
  const fixed=dimensions.filter(d=>!automatic(d));
  const taken=fixed.map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
- const labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[])].filter(Boolean);
+ const labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
  const move=[],indices=[];
  const order=dimensions.map((_,i)=>i).filter(i=>automatic(dimensions[i])).sort((a,b)=>Number(dimensions[a].kind==='radius')-Number(dimensions[b].kind==='radius'));
  for(const index of order){
   const d=dimensions[index],placement=dimensionPlacement(d,sheet);
   if(!placement)continue;
   const {box}=placement;
-  if(longRadiusLeader(d,sheet.layout[d.view])||!insidePaper(box,sheet)||labels.some(label=>overlaps(box,label,1))||
+  if(longRadiusLeader(d,sheet.layout[d.view])||!insidePaper(box,sheet)||labels.some(label=>overlaps(box,label,1)||labelHitsInk(label,placement))||
    taken.some(other=>overlaps(box,other.box,1)||(placement.radius||other.radius)&&(labelConflict(placement,other)||arrowConflict(placement,other)))){
    move.push(d);indices.push(index);
   }else{taken.push(placement);fixed.push(d);}
