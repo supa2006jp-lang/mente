@@ -3,7 +3,7 @@ import {autoDrawingDimensions,completeDrawingCircles} from '../src/drawing-auto-
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {dimensionLabel,dimensionValue} from '../src/drawing-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
-import {arrangeDrawingDimensions,reflowResizedDrawingDimensions} from '../src/drawing-dimension-layout.js';
+import {arrangeDrawingDimensions,dimensionPlacement,reflowResizedDrawingDimensions} from '../src/drawing-dimension-layout.js';
 const circle='M 14 -8 A 4 4 0 0 1 6 -8 A 4 4 0 0 1 14 -8 Z';
 const data={bounds:[[0,0,0],[40,25,20]],bodyCount:1,views:{front:{visible:['M 0 -20 L 40 -20 L 40 0 L 0 0 Z'],hidden:[]},top:{visible:['M 0 -25 L 40 -25 L 40 0 L 0 0 Z',circle],hidden:[]},right:{visible:['M 0 -20 L 25 -20 L 25 0 L 0 0 Z'],hidden:[]},iso:{visible:[],hidden:[],viewBox:[0,0,40,30]}}};
 assert.equal(completeDrawingCircles({visible:[circle,circle]}).length,1);
@@ -80,6 +80,24 @@ assert.deepEqual(arrangedFillet.arcPoint,fillet.arcPoint);
 assert(Math.hypot(...arrangedFillet.at.map((n,i)=>n-fillet.arcPoint[i]))*1.49<=20.001);
 assert.notDeepEqual(reflowResizedDrawingDimensions([overall,fillet],crowdedSheet).dimensions[1].at,fillet.at);
 assert.deepEqual(arrangeDrawingDimensions([{...fillet,pinned:true}],crowdedSheet).dimensions[0].at,fillet.at);
+const cornerSheet={width:160,contentBottom:135,layout:{top:{x:40,y:30,bx:0,by:0,scale:1,width:50,height:50}}};
+const edgeLength={view:'top',kind:'horizontal',a:[0,50],b:[50,50],at:[25,58],overall:'tophorizontal',automatic:true,pinned:true};
+const cornerRadius={view:'top',kind:'radius',center:[48,48],radius:2,arcPoint:[48+Math.SQRT2,48+Math.SQRT2],at:[50.5,57.6],automatic:true};
+const placedEdge=dimensionPlacement(edgeLength,cornerSheet);
+const intersects=(a,b)=>a.x<b.x+b.width&&b.x<a.x+a.width&&a.y<b.y+b.height&&b.y<a.y+a.height;
+const oldBox=dimensionPlacement(cornerRadius,cornerSheet).box;
+assert(!intersects(oldBox,placedEdge.box));
+assert(intersects(oldBox,placedEdge.arrowBoxes[1]),'R2 covers the end arrow of the 50 mm dimension');
+for(const result of [
+ arrangeDrawingDimensions([cornerRadius,edgeLength],cornerSheet),
+ reflowResizedDrawingDimensions([cornerRadius,edgeLength],cornerSheet,{radiiOnly:true}),
+]){
+ const [radius,edge]=result.dimensions;
+ assert.deepEqual(edge.at,edgeLength.at);
+ assert.deepEqual(radius.arcPoint,cornerRadius.arcPoint);
+ assert(!intersects(dimensionPlacement(radius,cornerSheet).box,placedEdge.arrowBoxes[1]));
+ assert(Math.hypot(...radius.at.map((n,i)=>n-radius.arcPoint[i]))<=20.001);
+}
 const w1={view:'top',kind:'horizontal',a:[0,0],b:[40,0],at:[0,12],fontSize:9,automatic:true,pinned:true};
 const w2={...w1,pinned:false,a:[2,0],b:[38,0],at:[0,15]};
 assert.deepEqual(arrangeDrawingDimensions([w1,w2],roundedSheet).dimensions[0].at,w1.at);

@@ -18,7 +18,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  if(o.commentSize!=null&&(!Number.isFinite(o.commentSize)||o.commentSize<1.5||o.commentSize>10))fail();
  if(o.commentColor!==undefined&&!validDimensionColor(o.commentColor))fail();
  if(o.previewBackground!==undefined&&!validDimensionColor(o.previewBackground))fail();
- if(o.paperBackground!==undefined&&!validDimensionColor(o.paperBackground))fail();
+ for(const key of ['paperBackground','viewBackground'])if(o[key]!==undefined&&!validDimensionColor(o[key]))fail();
  if(o.paperBackground===undefined&&o.previewBackground!==undefined&&o.previewBackground.toLowerCase()!=='#d8e0e5')o.paperBackground=o.previewBackground;
  delete o.previewBackground;
  if(o.commentFont!==undefined&&!hasDrawingCommentFont(o.commentFont))fail();

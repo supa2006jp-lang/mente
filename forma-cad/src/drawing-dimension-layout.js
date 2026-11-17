@@ -1,14 +1,46 @@
-import {dimensionLabel,dimensionLabelWidth} from './drawing-dimensions.js';
+import {dimensionLabel,dimensionLabelWidth,drawingDimensionGeometry} from './drawing-dimensions.js';
 import {drawingDimensionVisible,drawingModelPoint as local,drawingPaperPoint as map} from './drawing-break.js';
 const overlaps=(a,b,p=0)=>a.x<b.x+b.width+p&&a.x+a.width+p>b.x&&a.y<b.y+b.height+p&&a.y+a.height+p>b.y;
-const lineBox=(a,b,p=.3)=>({x:Math.min(a[0],b[0])-p,y:Math.min(a[1],b[1])-p,width:Math.abs(b[0]-a[0])+2*p,height:Math.abs(b[1]-a[1])+2*p});
-export function dimensionPlacement(d,sheet){const v=sheet.layout[d.view];if(!v||!drawingDimensionVisible(d,v))return null;const at=map(v,d.at),font=d.fontSize??3.2,label=dimensionLabel(d);let c=at,main=[],extensions=[];
- if(['horizontal','vertical','aligned'].includes(d.kind)){const a=map(v,d.a),b=map(v,d.b);let u=d.kind==='horizontal'?[Math.sign(b[0]-a[0])||1,0]:d.kind==='vertical'?[0,Math.sign(b[1]-a[1])||1]:[b[0]-a[0],b[1]-a[1]];if(d.kind==='aligned'){const l=Math.hypot(...u)||1;u=u.map(n=>n/l);}const n=[-u[1],u[0]],offset=(at[0]-a[0])*n[0]+(at[1]-a[1])*n[1],q=[a[0]+n[0]*offset,a[1]+n[1]*offset],r=[b[0]+n[0]*offset,b[1]+n[1]*offset];c=[(q[0]+r[0])/2,(q[1]+r[1])/2];main=[lineBox(q,r)];extensions=[lineBox(a,q),lineBox(b,r)];
- }else if(d.kind==='angle'){const center=map(v,d.vertex),a=map(v,d.a),b=map(v,d.b),start=Math.atan2(a[1]-center[1],a[0]-center[0]);let delta=Math.atan2(b[1]-center[1],b[0]-center[0])-start;while(delta>Math.PI)delta-=2*Math.PI;while(delta<-Math.PI)delta+=2*Math.PI;const radius=Math.max(4,Math.hypot(at[0]-center[0],at[1]-center[1]));c=[center[0]+radius*Math.cos(start+delta/2),center[1]+radius*Math.sin(start+delta/2)];
- }else{const center=map(v,d.center),length=Math.hypot(at[0]-center[0],at[1]-center[1])||1,u=[(at[0]-center[0])/length,(at[1]-center[1])/length],tip=d.arcPoint?map(v,d.arcPoint):[center[0]+u[0]*d.radius*v.scale,center[1]+u[1]*d.radius*v.scale];extensions=[lineBox(tip,at)];}
- const width=dimensionLabelWidth(label,font);
- return {box:{x:c[0]-width/2,y:c[1]-font*.75,width,height:font*1.45},main,extensions};
+const bounds=(points,pad=0)=>{
+ const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
+ const x=Math.min(...xs)-pad,y=Math.min(...ys)-pad;
+ return {x,y,width:Math.max(...xs)+pad-x,height:Math.max(...ys)+pad-y};
+};
+function segmentHitsBox([a,b],box,pad){
+ let lo=0,hi=1;
+ for(let i=0;i<2;i++){
+  const min=(i?box.y:box.x)-pad,max=min+(i?box.height:box.width)+2*pad,delta=b[i]-a[i];
+  if(Math.abs(delta)<1e-10){if(a[i]<min||a[i]>max)return false;continue;}
+  const u=(min-a[i])/delta,v=(max-a[i])/delta;
+  lo=Math.max(lo,Math.min(u,v));hi=Math.min(hi,Math.max(u,v));
+  if(lo>hi)return false;
+ }
+ return true;
 }
+function arcSegments({center,start,sweep,radius,first,last}){
+ const steps=Math.min(64,Math.max(1,Math.ceil(Math.abs(sweep)*Math.sqrt(radius/.8))));
+ const lines=[];let a=first;
+ for(let i=1;i<=steps;i++){
+  const t=start+sweep*i/steps,b=i===steps?last:[center[0]+radius*Math.cos(t),center[1]+radius*Math.sin(t)];
+  lines.push([a,b]);a=b;
+ }
+ return lines;
+}
+export function dimensionPlacement(d,sheet){
+ const view=sheet.layout[d.view],g=view&&drawingDimensionGeometry(d,view);
+ if(!g)return null;
+ const [x,y]=g.at,font=d.fontSize??3.2,width=dimensionLabelWidth(dimensionLabel(d),font);
+ const main=g.arc?arcSegments(g.arc):g.main;
+ const arrowBoxes=g.arrows.map(arrow=>bounds(arrow,.1));
+ return {box:{x:x-width/2,y:y-font*.75,width,height:font*1.45},main:main.map(line=>bounds(line,.1)),
+  extensions:g.extensions.map(line=>bounds(line,.1)),arrowBoxes,strokes:[...main,...g.extensions],radius:d.kind==='radius'};
+}
+const labelHitsInk=(box,placement)=>placement.arrowBoxes.some(arrow=>overlaps(box,arrow,.6))||
+ placement.strokes.some(stroke=>segmentHitsBox(stroke,box,.7));
+const labelConflict=(a,b)=>overlaps(a.box,b.box,1)||labelHitsInk(a.box,b)||labelHitsInk(b.box,a);
+const arrowConflict=(a,b)=>(a.radius||b.radius)&&(
+ a.arrowBoxes.some(box=>b.arrowBoxes.some(other=>overlaps(box,other,.3))||b.strokes.some(stroke=>segmentHitsBox(stroke,box,.3)))||
+ b.arrowBoxes.some(box=>a.strokes.some(stroke=>segmentHitsBox(stroke,box,.3))));
 function candidates(d,v){const result=[],push=p=>result.push({...d,at:local(v,p)}),at=map(v,d.at),a=d.a&&map(v,d.a),b=d.b&&map(v,d.b),sides=d.kind==='horizontal'?['bottom','top']:d.kind==='vertical'?['left','right']:['right','left','bottom','top'];
  for(let lane=0;lane<16;lane++){const gap=8+lane*(d.kind==='vertical'?4:6);for(const side of sides){if(d.kind==='horizontal')push([at[0],side==='bottom'?v.y+v.height+gap:v.y-gap-3]);else if(d.kind==='vertical')push([side==='left'?v.x-gap:v.x+v.width+gap,at[1]]);else if(d.kind==='aligned'){const u=[b[0]-a[0],b[1]-a[1]],l=Math.hypot(...u)||1,n=[-u[1]/l,u[0]/l],sign=side==='right'||side==='top'?1:-1,offset=Math.hypot(v.width,v.height)/2+gap;push([(a[0]+b[0])/2+n[0]*offset*sign,(a[1]+b[1])/2+n[1]*offset*sign]);}else{const c=map(v,d.center);if(side==='right'||side==='left'){const x=side==='right'?v.x+v.width+gap:v.x-gap;for(const dy of [0,-6,6,-12,12])push([x,c[1]+dy]);}else{const y=side==='bottom'?v.y+v.height+gap:v.y-gap-3;for(const dx of [0,-10,10])push([c[0]+dx,y]);}}}}
  return result;
@@ -45,47 +77,56 @@ const insidePaper=(box,sheet)=>box.x>=5&&box.y>=18&&box.x+box.width<=sheet.width
 
 // Move only requested dimensions; callers pass existing annotations as locked.
 // Geometry is in paper mm, independent of screen zoom and printed scale.
-export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false}={}){const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7})),labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[])].filter(Boolean),lines=[],extensions=[];for(const d of locked){const p=dimensionPlacement(d,sheet);if(p){labels.push(p.box);lines.push(...p.main);extensions.push(...p.extensions);}}
- for(const d of dimensions)if(d.pinned){const p=dimensionPlacement(d,sheet);if(p){labels.push(p.box);lines.push(...p.main);extensions.push(...p.extensions);}}
- const placed=dimensions.map(d=>({...d,at:[...d.at]})),unresolved=[];const order=placed.map((d,i)=>i).sort((a,b)=>Number(!!placed[a].overall)-Number(!!placed[b].overall)||Number(['diameter','radius'].includes(placed[a].kind))-Number(['diameter','radius'].includes(placed[b].kind))||a-b);
- for(const i of order){const d=placed[i],v=sheet.layout[d.view];if(d.pinned||!v||!drawingDimensionVisible(d,v))continue;let best=d,bestScore=Infinity,bestGeometry=dimensionPlacement(d,sheet);
+export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false}={}){
+ const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7}));
+ const labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[])].filter(Boolean);
+ const placedGeometry=[...locked,...dimensions.filter(d=>d.pinned)].map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
+ const placed=dimensions.map(d=>({...d,at:[...d.at]})),unresolved=[];
+ const order=placed.map((_,i)=>i).sort((a,b)=>Number(placed[a].kind==='radius')-Number(placed[b].kind==='radius')||
+  Number(!!placed[a].overall)-Number(!!placed[b].overall)||Number(placed[a].kind==='diameter')-Number(placed[b].kind==='diameter'));
+ for(const i of order){
+  const d=placed[i],v=sheet.layout[d.view];
+  if(d.pinned||!v||!drawingDimensionVisible(d,v))continue;
   const radius=d.kind==='radius',choices=radius?radiusCandidates(d,v):d.kind==='angle'?[d]:candidates(d,v);
   if(preferNearby&&!radius)choices.unshift(...nearbyCandidates(d,v));
-  if(radius){
-   best=choices[0];bestGeometry=dimensionPlacement(best,sheet);
-  }
+  let best=radius?choices[0]:d,bestGeometry=dimensionPlacement(best,sheet),bestConflicts=Infinity,bestScore=Infinity;
+  if(!bestGeometry)continue;
   for(const candidate of choices){
    const p=dimensionPlacement(candidate,sheet),box=p.box;
    if(!insidePaper(box,sheet))continue;
-   const base=100*bodies.filter(b=>overlaps(box,b,1)||p.main.some(l=>overlaps(l,b,.5))).length+
-    100*labels.filter(b=>overlaps(box,b,1)||p.main.some(l=>overlaps(l,b,.5))||p.extensions.some(l=>overlaps(l,b,.5))).length+
-    10*[...lines,...extensions].filter(l=>overlaps(box,l,.5)).length+10*lines.filter(l=>p.main.some(n=>overlaps(l,n,.5))).length;
-   let score=base;
-   if(preferNearby){
-    const labelConflicts=labels.filter(b=>overlaps(box,b,1)).length;
-    score+=1_000_000*labelConflicts+(radius?0:Math.min(9,Math.hypot(candidate.at[0]-d.at[0],candidate.at[1]-d.at[1])*v.scale/100));
-   }
-   if(score<bestScore){bestScore=score;best=candidate;bestGeometry=p;}
-   if(!score)break;
+   const conflicts=labels.filter(label=>overlaps(box,label,1)||labelHitsInk(label,p)).length+
+    placedGeometry.filter(other=>labelConflict(p,other)).length;
+   if(conflicts>bestConflicts)continue;
+   const bodyConflicts=bodies.filter(body=>overlaps(box,body,1)||p.main.some(line=>overlaps(line,body,.5))).length;
+   const lineConflicts=placedGeometry.filter(other=>arrowConflict(p,other)||
+    p.main.some(line=>other.main.some(otherLine=>overlaps(line,otherLine,.5)))).length;
+   const distance=preferNearby&&!radius?Math.min(9,Math.hypot(candidate.at[0]-d.at[0],candidate.at[1]-d.at[1])*v.scale/100):0;
+   const score=100*bodyConflicts+10*lineConflicts+distance;
+   if(conflicts<bestConflicts||score<bestScore){bestConflicts=conflicts;bestScore=score;best=candidate;bestGeometry=p;}
+   if(!conflicts&&!score)break;
   }
-  placed[i]=best;if(bestScore>0)unresolved.push(i);if(bestGeometry){labels.push(bestGeometry.box);lines.push(...bestGeometry.main);extensions.push(...bestGeometry.extensions);}
+  placed[i]=best;
+  if(bestConflicts||bestScore>=10)unresolved.push(i);
+  placedGeometry.push(bestGeometry);
  }
  return {dimensions:placed,unresolved};
 }
-export function reflowResizedDrawingDimensions(dimensions,sheet){
- const automatic=d=>!d.pinned&&!d.review&&(d.automatic||d.overall);
+export function reflowResizedDrawingDimensions(dimensions,sheet,{radiiOnly=false}={}){
+ const automatic=d=>!d.pinned&&!d.review&&(d.automatic||d.overall)&&(!radiiOnly||d.kind==='radius');
  const fixed=dimensions.filter(d=>!automatic(d));
- const boxes=fixed.map(d=>dimensionPlacement(d,sheet)?.box).filter(Boolean);
- for(const block of [sheet.note,sheet.holeBox,...(sheet.leaderLabels||[])])if(block)boxes.push(block);
+ const taken=fixed.map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
+ const labels=[sheet.note,sheet.holeBox,...(sheet.leaderLabels||[])].filter(Boolean);
  const move=[],indices=[];
- dimensions.forEach((d,index)=>{
-  if(!automatic(d))return;
-  const box=dimensionPlacement(d,sheet)?.box;
-  if(!box)return;
-  if(longRadiusLeader(d,sheet.layout[d.view])||!insidePaper(box,sheet)||boxes.some(other=>overlaps(box,other,1))){
+ const order=dimensions.map((_,i)=>i).filter(i=>automatic(dimensions[i])).sort((a,b)=>Number(dimensions[a].kind==='radius')-Number(dimensions[b].kind==='radius'));
+ for(const index of order){
+  const d=dimensions[index],placement=dimensionPlacement(d,sheet);
+  if(!placement)continue;
+  const {box}=placement;
+  if(longRadiusLeader(d,sheet.layout[d.view])||!insidePaper(box,sheet)||labels.some(label=>overlaps(box,label,1))||
+   taken.some(other=>overlaps(box,other.box,1)||(placement.radius||other.radius)&&(labelConflict(placement,other)||arrowConflict(placement,other)))){
    move.push(d);indices.push(index);
-  }else{boxes.push(box);fixed.push(d);}
- });
+  }else{taken.push(placement);fixed.push(d);}
+ }
  if(!move.length)return {dimensions,moved:0};
  const next=dimensions.slice(),arranged=arrangeDrawingDimensions(move,sheet,fixed,{preferNearby:true});
  let moved=0;

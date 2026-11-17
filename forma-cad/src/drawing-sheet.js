@@ -2,10 +2,20 @@ import {drawingProjectionNames,drawingViewFactor,drawingProjections,drawingScale
 import {withDetails,hatchPaths,annotationSVG} from './drawing-annotations.js';
 import {drawingViewFrames} from './drawing-auto-layout.js';
 import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingCommentLayout} from './drawing-comments.js';
-import {dimensionSVG,escapeDrawingText as esc,validDimensionColor} from './drawing-dimensions.js';
+import {dimensionSVG,dimensionLabelWidth,escapeDrawingText as esc,validDimensionColor} from './drawing-dimensions.js';
+import {dimensionPlacement} from './drawing-dimension-layout.js';
 import {displayedDrawingSpan,drawingPaperPoint,fullDrawingSpan} from './drawing-break.js';
 import {drawingHoleMarkersSVG,drawingHoleTableSize,drawingHoleTableSVG} from './drawing-hole-table.js';
 import {drawingLeaderLayout,drawingLeadersSVG} from './drawing-leaders.js';
+
+const backgroundColor=value=>validDimensionColor(value)&&value.toLowerCase()!=='#ffffff'?value.toLowerCase():null;
+export const drawingBackgroundColor=options=>backgroundColor(options.viewBackground)??backgroundColor(options.paperBackground);
+
+function viewBackgroundSVG(name,boxes,fill){
+ const margin=2,x=Math.min(...boxes.map(b=>b.x))-margin,y=Math.min(...boxes.map(b=>b.y))-margin;
+ const width=Math.max(...boxes.map(b=>b.x+b.width))+margin-x,height=Math.max(...boxes.map(b=>b.y+b.height))+margin-y;
+ return '<rect data-view-background="'+name+'" x="'+x+'" y="'+y+'" width="'+width+'" height="'+height+'" fill="'+fill+'" pointer-events="none"/>';
+}
 
 function splitViewGeometry(name,view,content){
  const cut=view.break,axis=cut.direction,bounds=[view.bx,view.by],pad=1/view.scale;
@@ -71,12 +81,23 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
   height=Math.max(height,holeBox.y+holeBox.height+(options.frame?40:18));
  }
  if(Math.max(width,height)>5000)throw Error('図面が大きすぎます。縮尺を小さくしてください');
- const paperColor=validDimensionColor(options.paperBackground)?options.paperBackground.toLowerCase():'white';
+ const viewColor=backgroundColor(options.viewBackground),color=drawingBackgroundColor(options),paperColor=viewColor?'white':color??'white';
+ const leaders=options.leaders||[],leaderGeometry=leaders.map(note=>[note.view,drawingLeaderLayout(note,layout[note.view])]);
+ const leaderLabels=leaderGeometry.map(([,geometry])=>geometry?.label).filter(Boolean);
+ const viewBoxes={};
+ if(viewColor){
+  for(const [name,{x,y,width,height}] of Object.entries(layout))viewBoxes[name]=[{x,y,width,height}];
+  for(const [name,geometry] of leaderGeometry)if(geometry)viewBoxes[name].push(geometry.bounds);
+  for(const d of dimensions){
+   const p=dimensionPlacement(d,{layout});
+   if(p)viewBoxes[d.view].push(p.box,...p.main,...p.extensions,...p.arrowBoxes);
+  }
+ }
  const showsHidden=name=>options.hiddenViews?.[name]??hidden;
  const view=(name,label)=>{
   const layoutView=layout[name],{x,y,bx,by,scale:s}=layoutView,v=data.views[name],clip=v.clip,clipId='clip-'+name;
   const paths=kind=>v[kind].map((p,i)=>'<path data-curve="'+i+'" d="'+esc(p)+'"/>').join('');
-  const silhouette=paperColor!=='white'&&paperColor!=='#ffffff'&&v.silhouette?
+  const silhouette=color&&v.silhouette?
    '<path data-drawing-silhouette="true" d="'+esc(v.silhouette)+'" fill="white" fill-rule="evenodd" pointer-events="none"/>':'';
   const geometry=silhouette+(v.triangles?'<path data-hatch="true" d="'+hatchPaths(v.triangles,s)+'" stroke="#777" stroke-width="'+(.15/s)+'"/>':'')+
    (showsHidden(name)?'<g data-hidden="true" stroke="#666666" stroke-width="'+(.18/s)+'" stroke-dasharray="'+(2/s)+' '+(1/s)+'">'+paths('hidden')+'</g>':'')+
@@ -85,6 +106,7 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
    clip?'<defs><clipPath id="'+clipId+'"><circle cx="'+clip.center[0]+'" cy="'+clip.center[1]+'" r="'+clip.radius+'"/></clipPath></defs><g clip-path="url(#'+clipId+')">'+geometry+
     '</g><circle cx="'+clip.center[0]+'" cy="'+clip.center[1]+'" r="'+clip.radius+'" stroke="#777" stroke-width="'+(.15/s)+'"/>':'<g>'+geometry+'</g>';
   const title=(layoutView.break?frames[name].label:label)+(Math.abs(s-scale)>1e-10&&!name.startsWith('detail-')?' / SCALE '+drawingScaleLabel(s):'');
+  if(viewColor)viewBoxes[name].push({x,y:y-8,width:dimensionLabelWidth(title,3.5),height:4.5});
   return '<g data-view="'+name+'"><text x="'+x+'" y="'+(y-4)+'" font-size="3.5">'+title+'</text><g transform="translate('+x+' '+y+') scale('+s+') translate('+(-bx)+' '+(-by)+')" fill="none" stroke-linejoin="round" stroke-linecap="round">'+body+'</g>'+
    (layoutView.break?viewBreakMarks(layoutView):'')+'</g>';
  };
@@ -92,9 +114,10 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const commentColor=validDimensionColor(options.commentColor)?options.commentColor:defaultDrawingCommentColor;
  const commentSVG=note?'<g data-comment="true" fill="'+commentColor+'" font-family="'+esc(drawingCommentFamily(note.font))+'">'+
   note.lines.map((line,i)=>text(note.x,note.y+note.baseline+i*note.lineHeight,line,note.fontSize,'xml:space="preserve"')).join('')+'</g>':'';
- const leaders=options.leaders||[],leaderLabels=leaders.map(note=>drawingLeaderLayout(note,layout[note.view])?.label).filter(Boolean);
  let frame='';if(options.frame){const fx=Math.max(10,width-165),fy=height-32;frame='<g data-titleblock="true" font-family="sans-serif"><rect x="5" y="5" width="'+(width-10)+'" height="'+(height-10)+'" fill="none" stroke="#111" stroke-width=".3"/><rect x="'+fx+'" y="'+fy+'" width="160" height="27" fill="white" stroke="#111" stroke-width=".25"/>';for(const [i,key,label] of [[0,'name','部品名'],[1,'material','材質'],[2,'date','作成日']]){const y=fy+i*9;frame+='<path d="M '+fx+' '+y+' H '+(fx+160)+' M '+(fx+25)+' '+y+' V '+(y+9)+'" fill="none" stroke="#111" stroke-width=".18"/>'+text(fx+3,y+5.5,label,3);const rows=commentLines(options[key]||'',128,2.8).slice(0,2);rows.forEach((r,j)=>frame+=text(fx+28,y+3.5+j*3.5,r,2.8));}frame+='</g>';}
  const baseViews=[...drawingProjectionNames,'iso'].filter(key=>layout[key]).map(key=>view(key,drawingProjections[key]?.label??'ISOMETRIC')).join('');
- const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect width="'+width+'" height="'+height+'" fill="'+paperColor+'"/><g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,options.layout==='compact'?'FORMA CAD / AUTO LAYOUT':layout.front&&drawingViewFactor('front',options)!==1?'FORMA CAD / VIEW LAYOUT':'FORMA CAD / THIRD ANGLE',4.5)+text(width-15,12,options.pageViews?.length===0?'mm':'SCALE '+ratio+' / mm',3.5,'text-anchor="end"')+baseViews+extraNames.map(key=>{const si=(options.sections||[]).findIndex(s=>s.id===key),di=(options.details||[]).findIndex(d=>d.id===key),s=layout[key].scale,ratio=s>=1?s+':1':'1:'+Number((1/s).toFixed(3));return view(key,si>=0?'断面 '+String.fromCharCode(65+si)+'–'+String.fromCharCode(65+si):'詳細 D'+(di+1)+' / '+ratio);}).join('')+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensions.map((d,i)=>layout[d.view]?dimensionSVG(d,layout[d.view],layout[d.view].scale,i,options.dimensionColors):'').join('')+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
+ const extraViews=extraNames.map(key=>{const si=(options.sections||[]).findIndex(s=>s.id===key),di=(options.details||[]).findIndex(d=>d.id===key),s=layout[key].scale,ratio=s>=1?s+':1':'1:'+Number((1/s).toFixed(3));return view(key,si>=0?'断面 '+String.fromCharCode(65+si)+'–'+String.fromCharCode(65+si):'詳細 D'+(di+1)+' / '+ratio);}).join('');
+ const backgrounds=viewColor?Object.entries(viewBoxes).map(([name,boxes])=>viewBackgroundSVG(name,boxes,viewColor)).join(''):'';
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,options.layout==='compact'?'FORMA CAD / AUTO LAYOUT':layout.front&&drawingViewFactor('front',options)!==1?'FORMA CAD / VIEW LAYOUT':'FORMA CAD / THIRD ANGLE',4.5)+text(width-15,12,options.pageViews?.length===0?'mm':'SCALE '+ratio+' / mm',3.5,'text-anchor="end"')+baseViews+extraViews+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensions.map((d,i)=>layout[d.view]?dimensionSVG(d,layout[d.view],layout[d.view].scale,i,options.dimensionColors):'').join('')+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
  return {svg,width,height,layout,note,holeBox,leaderLabels,contentBottom:height-(options.frame?35:12)};
 }
