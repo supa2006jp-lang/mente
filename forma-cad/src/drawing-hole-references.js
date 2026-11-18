@@ -9,6 +9,11 @@ const sameRim=(old,hole)=>distance(old,hole)<epsilon&&(sameRadius(old.radius,hol
  hole.machining?.counterbore&&sameRadius(old.radius,hole.machining.counterbore.radius));
 const dot=(p,axis)=>p.reduce((value,n,i)=>value+n*axis[i],0);
 export const holeAnchor=({center,radius,sourceId})=>({center:[...center],radius,...(sourceId?{sourceId}:{})});
+export const lastHoleNumber=table=>Math.max(table?.lastNumber??0,...(table?.holes??[]).map((h,i)=>h.number??i+1));
+export function unlistedDrawingHoles(table,candidates){
+ return candidates.filter(hole=>!table.holes.some(row=>
+  row.sourceId&&row.sourceId===hole.sourceId||!row.review&&sameRim(row,hole)));
+}
 
 export function drawingHoleCandidates(view,name,features,targets,frontFrame){
  if(!view)return [];

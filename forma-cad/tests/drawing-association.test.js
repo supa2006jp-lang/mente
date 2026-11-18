@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {holeReferenceInventory,reconcileHoleTable} from '../src/drawing-hole-references.js';
+import {holeReferenceInventory,lastHoleNumber,reconcileHoleTable,unlistedDrawingHoles} from '../src/drawing-hole-references.js';
+import {readDrawingState} from '../src/drawing-state.js';
 import {drawingHoleMarkers,resolveDrawingHoleTable,drawingHoleTableSVG,drawingHoleTableSize} from '../src/drawing-hole-table.js';
 import {followSectionEdit} from '../src/drawing-section-references.js';
 import {alignThirdAngleViews,isThirdAngleLayout} from '../src/drawing-view-preferences.js';
@@ -8,6 +9,19 @@ import {alignThirdAngleViews,isThirdAngleLayout} from '../src/drawing-view-prefe
 const hole=(x,sourceId,radius=2.5)=>({center:[x,0],radius,...(sourceId?{sourceId}:{})});
 const table=(holes,all=holes)=>({view:'top',origin:[0,0],holes,references:holeReferenceInventory(all)});
 const box=[0,0,60,24];
+test('appending retains issued numbers, excludes listed rims and keeps unresolved rows available for relinking',()=>{
+ const legacy=table([hole(1),hole(3)]);
+ assert.equal(lastHoleNumber(legacy),2);
+ const old={...legacy,lastNumber:49,holes:[{...hole(1,'cut'),number:1},{...hole(3),number:48,review:true}]};
+ const candidates=[hole(2,'cut'),{...hole(1,undefined,1.5),machining:{counterbore:{radius:2.5}}},hole(4)];
+ assert.deepEqual(unlistedDrawingHoles(old,candidates),[hole(4)]);
+ const next={...old,holes:[...old.holes,{...hole(4),number:lastHoleNumber(old)+1}],lastNumber:50};
+ const state={version:1,signature:'test',targets:['part'],targetMode:'visible',scale:1,hidden:true,comment:'',dimensions:[],
+  options:{paper:'A4',orientation:'landscape',frame:true,name:'',material:'',date:'',positions:{},holeTable:next}};
+ assert.deepEqual(readDrawingState(state).options.holeTable,next);
+ next.lastNumber=48;
+ assert.throws(()=>readDrawingState(state));
+});
 test('hole numbers follow source identities across swaps and diameter edits; a replacement requires review',()=>{
  const old=table([hole(1,'a'),hole(2,'b'),hole(3,'c')]);
  const next=reconcileHoleTable(old,[hole(2,'a',4),hole(1,'b'),hole(3,'new')],box);

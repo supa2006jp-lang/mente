@@ -53,7 +53,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
    table.review!==undefined&&typeof table.review!=='boolean')fail();
   const validSource=h=>h.sourceId===undefined||typeof h.sourceId==='string'&&h.sourceId.length>0&&h.sourceId.length<=200;
   const numbers=table.holes.map((h,i)=>h.number??i+1);
-  if(new Set(numbers).size!==numbers.length||numbers.some(n=>!Number.isInteger(n)||n<1||n>maxDrawingTableHoles)||
+  if(new Set(numbers).size!==numbers.length||numbers.some(n=>!Number.isSafeInteger(n)||n<1)||
+   table.lastNumber!==undefined&&(!Number.isSafeInteger(table.lastNumber)||table.lastNumber<Math.max(...numbers))||
    table.holes.some(h=>!validSource(h)||h.review!==undefined&&typeof h.review!=='boolean'))fail();
   if(table.references!==undefined&&(!Array.isArray(table.references)||table.references.length>holeReferenceLimit||
    table.references.some(h=>!point(h?.center)||!Number.isFinite(h.radius)||h.radius<=0||h.radius>1e6||!validSource(h))))fail();
