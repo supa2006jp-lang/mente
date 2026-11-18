@@ -1,13 +1,14 @@
-export function snapDrawingPlacement(delta,box,sheet,{view,comment=false}={}){
+export function snapDrawingPlacement(delta,box,sheet,{view,comment=false,movingViews=[]}={}){
  const bottom=comment&&sheet.titleBlock?sheet.height-5:sheet.contentBottom;
  const targets=[[5,sheet.width-5],[17,bottom]];
- const neighbors=Object.entries(sheet.layout).filter(([name])=>name!==view).map(([,other])=>other);
+ const stationary=name=>name!==view&&!movingViews.includes(name);
+ const neighbors=Object.entries(sheet.layout).filter(([name])=>stationary(name)).map(([,other])=>other);
  if(comment&&sheet.titleBlock)neighbors.push(sheet.titleBlock);
  for(const {x,y,width,height} of neighbors){
   targets[0].push(x,x+width);
   targets[1].push(y,y+height);
  }
- for(const [name,title] of Object.entries(sheet.viewTitles||{}))if(name!==view)targets[1].push(title.y);
+ for(const [name,title] of Object.entries(sheet.viewTitles||{}))if(stationary(name))targets[1].push(title.y);
  const guides=[];
  const moved=delta.map((offset,axis)=>{
   const start=axis?box.y:box.x,span=axis?box.height:box.width;

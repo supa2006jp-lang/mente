@@ -3,7 +3,7 @@ import {drawingProjectionNames} from './drawing-view-preferences.js';
 import {autoDimensionKeys} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
 import {drawingReferenceCircleLimit} from './drawing-dimension-references.js';
-import {hasDrawingCommentFont} from './drawing-comments.js';
+import {hasDrawingCommentFont,validCommentWidth} from './drawing-comments.js';
 import {validDrawingPrintPalette} from './drawing-print-palette.js';
 import {maxDrawingTableHoles} from './drawing-hole-table.js';
 import {holeReferenceLimit} from './drawing-hole-references.js';
@@ -38,6 +38,11 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
    typeof note.text!=='string'||note.text.length>2000||!Number.isFinite(note.size)||note.size<1.5||note.size>10||
    typeof note.font!=='string'||note.font!==''&&!hasDrawingCommentFont(note.font)||!validDimensionColor(note.color))fail();
   commentIds.add(note.id);
+ }
+ if(o.commentWidths!==undefined){
+  const widths=o.commentWidths;
+  if(!widths||typeof widths!=='object'||Array.isArray(widths)||
+   Object.entries(widths).some(([id,width])=>(id!=='comment'&&!commentIds.has(id))||!validCommentWidth(width)))fail();
  }
  if(o.breakRange!==undefined&&(!point(o.breakRange)||o.breakRange[0]<.005||o.breakRange[1]>.995||o.breakRange[1]-o.breakRange[0]<.03-1e-10))fail();
  if(o.holeTable!==undefined){

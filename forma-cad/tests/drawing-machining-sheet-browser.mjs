@@ -45,6 +45,23 @@ try{
  await drawing('expand').click();
  const expected=['H1','11','14','5','貫通','—','—','H2','30','14','5','8','—','—','H3','46','14','5','貫通','9','3'];
  assert.deepEqual((await cells()).slice(8),expected);
+ const previewRoot=drawing('preview'),row=id=>previewRoot.locator('[data-hole-row="'+id+'"]');
+ const selectedIds=kind=>previewRoot.locator('[data-hole-'+kind+'][data-hole-selected]').evaluateAll((els,kind)=>els.map(el=>el.getAttribute('data-hole-'+kind)),kind);
+ await row('H2').locator('text').nth(4).click();
+ assert.deepEqual(await selectedIds('marker'),['H2']);assert.deepEqual(await selectedIds('row'),['H2']);
+ const hit=previewRoot.locator('[data-hole-hit="H3"]');await hit.scrollIntoViewIfNeeded();
+ const spot=await hit.evaluate(el=>{
+  const p=new DOMPoint(+el.getAttribute('cx')-.65*el.getAttribute('r'),+el.getAttribute('cy')).matrixTransform(el.getScreenCTM());
+  return [p.x,p.y];
+ });
+ await page.mouse.click(...spot);
+ assert.deepEqual(await selectedIds('row'),['H3']);assert.deepEqual(await selectedIds('hit'),['H3']);
+ await row('H1').focus();await page.keyboard.press('Enter');
+ assert.deepEqual(await selectedIds('marker'),['H1']);
+ assert.doesNotMatch((await download(drawing('svg'))).bytes.toString(),/data-hole-selected|data-hole-hit|aria-pressed/);
+ await drawing('pdf-preview-open').click();
+ assert.equal(await drawing('pdf-preview-host').locator('[data-hole-selected],[data-hole-hit]').count(),0);
+ await drawing('pdf-preview-close').click();
  const fits=drawing('preview').locator('[data-hole-table]');
  assert.ok(await fits.evaluate(table=>{
   const lines=[...table.querySelectorAll('path')],limits=lines.map(line=>line.getBBox()).filter(b=>b.width===0).map(b=>b.x);
@@ -95,12 +112,15 @@ try{
  replacement.id='different-hole';replacement.x=5;replacement.depth=-6;
  await openProject(moved,'different-hole.forma.json');
  assert.deepEqual((await cells()).slice(15,22),['H2','—','—','—','要確認','—','—']);
+ await row('H2').locator('text').first().click();
+ assert.deepEqual(await selectedIds('row'),['H2']);assert.deepEqual(await selectedIds('marker'),[]);
  assert.match((await download(drawing('svg'))).bytes.toString(),/要確認/);
  await drawing('pdf-preview-open').click();await drawing('pdf-preview-next').click();
  assert.match(await drawing('pdf-preview-host').locator('[data-hole-table]').textContent(),/H2.*要確認/);
  await drawing('pdf-preview-close').click();
  await drawing('hole-remove-row').click();
  assert.deepEqual((await cells()).filter(v=>/^H\d+$/.test(v)),['H1','H3']);
+ await row('H3').locator('text').first().click();assert.deepEqual(await selectedIds('marker'),['H3']);
  await drawing('undo').click();
  await drawing('hole-relink').click();await drawing('expand').click();
  const newPoint=await view.evaluate(el=>{const p=new DOMPoint(5,0).matrixTransform(el.getScreenCTM());return [p.x,p.y];});
@@ -153,6 +173,24 @@ try{
   await page.keyboard.down('Alt');await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx*scale,y+dy*scale,{steps:8});await page.mouse.up();await page.keyboard.up('Alt');
  }
  const nearly=(a,b)=>assert.ok(Math.abs(a-b)<.1,a+' versus '+b);
+ async function checkHorizontalReturn(){
+  const label=svgRoot.locator('[data-view="front"] > text');await label.scrollIntoViewIfNeeded();
+  const matrix=()=>svgRoot.evaluate(svg=>{const m=svg.getScreenCTM();return [m.a,m.e,m.f];});
+  const before=await matrix(),box=await label.boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;
+  const start=await place('front'),startTop=await place('top');
+  await page.mouse.move(x,y);await page.mouse.down();
+  for(const dx of [-8,-18,-27]){
+   await page.mouse.move(x+dx*before[0],y,{steps:3});
+   const now=await matrix();now.forEach((v,i)=>nearly(v,before[i]));
+   nearly((await place('front'))[1],start[1]);nearly((await place('top'))[1],startTop[1]);
+  }
+  assert.ok(await svgRoot.locator('[data-overflow-outline]').count()>0);
+  await page.mouse.move(x,y,{steps:8});await page.mouse.up();
+  for(const [name,from] of [['front',start],['top',startTop]])(await place(name)).forEach((v,i)=>nearly(v,from[i]));
+  assert.equal(await svgRoot.locator('[data-overflow-outline]').count(),0);
+ }
+ await checkHorizontalReturn();
+ await drawing('expand').click();await checkHorizontalReturn();await drawing('expand').click();
  let top=await place('top'),front=await place('front'),right=await place('right');
  await drag('top',18,3);nearly((await place('top'))[0],front[0]);nearly((await place('top'))[1],top[1]+3);
  await drag('right',5,10);nearly((await place('right'))[1],front[1]);nearly((await place('right'))[0],right[0]+5);

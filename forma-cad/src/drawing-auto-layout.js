@@ -64,7 +64,7 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
  const notes=drawingCommentEntries(comment,options,maxNoteWidth),noteColumns=[notes];
  // Keep longer lines when they fit. Fixed-scale views may leave only a narrow column.
  for(const limit of [maxNoteWidth/2,60]){
-  if(noteColumns.at(-1).some(note=>note.width>limit))noteColumns.push(drawingCommentEntries(comment,options,limit));
+  if(noteColumns.at(-1).some(note=>note.wrapWidth===undefined&&note.width>limit))noteColumns.push(drawingCommentEntries(comment,options,limit));
  }
  const table=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:frames);
  if(!Object.keys(frames).length&&!table&&!notes.length)throw Error('図面に載せるビューを1つ以上選択してください');
@@ -74,7 +74,10 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
   const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames),views=decoratedDrawingViews(nextFrames,s,resized,options);
   for(const column of noteColumns){
    const items=[...views];
-   for(const [key,block] of [...column.map(note=>[note.id,note]),['holeTable',table]])if(block){const width=block.width+2,height=block.height+2;items.push({key,box:{x:-1,y:-1,width,height},width,height});}
+   for(const [key,block] of [...column.map(note=>[note.id,note]),['holeTable',table]])if(block){
+    const width=Math.max(block.width,Math.min(block.wrapWidth??0,maxNoteWidth))+2,height=block.height+2;
+    items.push({key,box:{x:-1,y:-1,width,height},width,height});
+   }
    if(items.length>24)throw Error('自動配置する図が多すぎます');
    const packed=items.length<=6?slicingPack(items,area.width,area.height):freeRectPack(items,area.width,area.height);
    if(packed)return {items,packed,dimensions:resized};

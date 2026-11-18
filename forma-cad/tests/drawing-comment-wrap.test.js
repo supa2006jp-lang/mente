@@ -4,6 +4,7 @@ import {drawingSheet} from '../src/drawing-sheet.js';
 import {optimizeDrawingLayout} from '../src/drawing-auto-layout.js';
 import {drawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingCommentPlacementIssue} from '../src/drawing-comments.js';
+import {readDrawingState} from '../src/drawing-state.js';
 
 const view={visible:[],hidden:[]};
 const part={bodyCount:1,bounds:[[0,0,0],[60,25,12]],views:{top:view,front:view,right:view}};
@@ -13,6 +14,26 @@ const text=first+'\n\n'+second;
 const options={paper:'A4',orientation:'landscape',frame:true};
 const at=(x,y,extra={})=>({...options,positions:{comment:[x,y]},...extra});
 const sheet=(options,textValue=text)=>drawingSheet(part,1,true,[],textValue,options);
+
+test('fixed widths follow individual comments through packing, PDF page assignment and project validation',()=>{
+ const added={id:'comment-extra',text:first,size:3.5,font:'',color:'#111111'};
+ const settings={...at(32,80),name:'',material:'',date:'',comments:[added],commentWidths:{comment:42,[added.id]:24}};
+ const doc={version:1,signature:'test',scale:1,hidden:true,dimensions:[],comment:text,targets:[],targetMode:'visible',options:settings};
+ assert.deepEqual(readDrawingState(doc).options.commentWidths,settings.commentWidths);
+ for(const widths of [{comment:0},{comment:Infinity},{unknown:22},[],null]){
+  assert.throws(()=>readDrawingState({...doc,options:{...settings,commentWidths:widths}}));
+ }
+ const s=sheet(settings),p=drawingPDFPages(part,1,true,[],text,{...settings,pdfLayout:'manual',
+  pageAssignments:{pageCount:2,views:{},comments:{comment:2,[added.id]:1}}});
+ assert.equal(s.note.x,32);
+ assert.deepEqual(p[0].notes[0].lines,s.notes[1].lines);
+ assert.deepEqual(p[1].note.lines,s.note.lines);
+ assert.deepEqual(s.note.lines.filter(l=>l===''),['']);
+ assert.ok(s.note.width<=42&&s.notes[1].width<=24);
+ const auto=sheet({...settings,commentWidths:{[added.id]:24}});
+ assert.ok(auto.note.lines.length<s.note.lines.length);
+ assert.deepEqual(auto.notes[1].lines,s.notes[1].lines);
+});
 
 test('moving notes uses the remaining paper width and preserves hard breaks and blank lines',()=>{
  const wide=sheet(at(18,80)).note,narrow=sheet(at(240,80)).note;

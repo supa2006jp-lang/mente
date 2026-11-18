@@ -30,6 +30,7 @@ try{
  }
  async function checkExport(expected){
   const xml=(await download(field('svg'))).toString();
+  assert.doesNotMatch(xml,/data-comment-resize/);
   const savedLines=await page.evaluate(({xml,selector})=>[...new DOMParser().parseFromString(xml,'image/svg+xml').querySelectorAll(selector)].map(el=>el.textContent),{xml,selector});
   assert.deepEqual(savedLines,expected);
   await field('pdf-preview-open').click();
@@ -65,23 +66,57 @@ try{
  await checkExport(narrow);
  await field('undo').click();
  assert.deepEqual(await lines(),paragraphs);
+ const note=preview.locator('[data-comment="true"]');
+ const origin=()=>note.locator('text').first().evaluate(el=>[el.getAttribute('x'),el.getAttribute('y')]);
+ const before=await origin();
+ async function resizeTo(width,cancel=false){
+  await note.locator('text').first().click();
+  const grip=preview.locator('[data-comment-resize="comment"] rect').first();await grip.scrollIntoViewIfNeeded();
+  const [x,y,target]=await grip.evaluate((el,width)=>{
+   const box=el.getBBox(),m=el.getScreenCTM(),left=Number(el.ownerSVGElement.querySelector('[data-comment="true"] text').getAttribute('x'));
+   const center=new DOMPoint(box.x+box.width/2,box.y+box.height/2).matrixTransform(m);
+   return [center.x,center.y,new DOMPoint(left+width,0).matrixTransform(m).x];
+  },width);
+  if(cancel)await preview.evaluate(el=>el.addEventListener('pointerdown',e=>{el.dataset.testPointer=String(e.pointerId);},{capture:true,once:true}));
+  await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(target,y,{steps:6});
+  if(cancel){
+   const pointer=await preview.getAttribute('data-test-pointer');assert.ok(pointer);
+   await preview.dispatchEvent('pointercancel',{pointerId:Number(pointer),pointerType:'mouse'});
+  }
+  await page.mouse.up();
+ }
+ await resizeTo(48);
+ const fixed=await lines();assert.ok(fixed.length>paragraphs.length);
+ assert.equal(fixed.join(''),paragraphs.join(''));assert.deepEqual(await origin(),before);
+ assert.ok(Math.abs(Number(await field('comment-width').inputValue())-48)<.35);
+ await checkExport(fixed);
+ await field('undo').click();assert.deepEqual(await lines(),paragraphs);
+ await field('redo').click();assert.deepEqual(await lines(),fixed);
+ await resizeTo(30,true);assert.deepEqual(await lines(),fixed);
+ await field('comment-width-auto').click();assert.deepEqual(await lines(),paragraphs);
+ await field('undo').click();assert.deepEqual(await lines(),fixed);
  await field('comment-add').click();
  const otherId=await field('comment-target').inputValue(),otherText='仕上げ <確認> & 組立前の検査項目をすべて記録する。';
  await field('comment').fill(otherText);await field('comment').press('Tab');
  assert.deepEqual(await preview.locator('[data-comment="'+otherId+'"] text').allTextContents(),[otherText]);
  assert.equal(await preview.locator('[data-comment] script').count(),0);
- await checkExport(paragraphs);
+ await checkExport(fixed);
+ const other=preview.locator('[data-comment="'+otherId+'"] text');
+ await other.first().click();await field('comment-width').fill('28');await field('comment-width').press('Tab');
+ const otherLines=await other.allTextContents();assert.ok(otherLines.length>1);assert.deepEqual(await lines(),fixed);
  await field('comment-font').selectOption('rounded');
  const waitForFont=()=>page.waitForFunction(()=>[...document.fonts].some(face=>face.family.includes('Forma comment rounded')&&face.status==='loaded'));
  await waitForFont();
  await field('close').click();
  const saved=JSON.parse((await download(page.locator('#save'))).toString());
  assert.equal(saved.drawing.comment,paragraphs.join('\n'));
+ assert.ok(Math.abs(saved.drawing.options.commentWidths.comment-48)<.35);
+ assert.equal(saved.drawing.options.commentWidths[otherId],28);
  await page.reload();await page.locator('#canvas-host canvas').waitFor();
  await open(saved,'saved-wrap.forma.json');
  await waitForFont();
- assert.deepEqual(await lines(),paragraphs);
- assert.deepEqual(await preview.locator('[data-comment="'+otherId+'"] text').allTextContents(),[otherText]);
+ assert.deepEqual(await lines(),fixed);
+ assert.equal((await other.allTextContents()).join(''),otherLines.join(''));
  await field('comment').fill('');
  assert.deepEqual(await lines(),[]);
  assert.deepEqual(errors,[]);

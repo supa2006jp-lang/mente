@@ -3,6 +3,8 @@ import {TEXT_FONTS} from './text-fonts.js';
 const graphemes=typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'grapheme'}):null;
 let measureContext;
 export const drawingCommentMargin=7;
+export const minCommentWidth=5,maxCommentWidth=5000;
+export const validCommentWidth=width=>Number.isFinite(width)&&width>=minCommentWidth&&width<=maxCommentWidth;
 
 function wrapText(text,limit,advance){
  const lines=[];
@@ -49,7 +51,10 @@ export function drawingCommentEntries(text,options={},maxWidth){
  return [
   {id:'comment',text,size:options.commentSize,font:options.commentFont,color:options.commentColor},
   ...(options.pageComments===false?[]:options.comments||[]),
- ].filter(note=>note.text.trim()).map(note=>({...note,...drawingCommentLayout(note.text,note.size,note.font,maxWidth)}));
+ ].filter(note=>note.text.trim()).map(note=>{
+  const wrapWidth=options.commentWidths?.[note.id];
+  return {...note,wrapWidth,...drawingCommentLayout(note.text,note.size,note.font,wrapWidth??maxWidth)};
+ });
 }
 
 export function drawingCommentPlacementIssue(box,{width,height,contentBottom,titleBlock}){

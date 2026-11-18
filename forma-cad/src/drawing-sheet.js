@@ -60,6 +60,7 @@ function viewBreakMarks(view){
 const sheetTitleBlock=(width,height)=>({x:Math.max(10,width-165),y:height-32,width:160,height:27});
 
 function fitSheetComment(note,x,y,limit,obstacles){
+ if(note.wrapWidth!==undefined)return {...note,x,y};
  let fitted=note;
  // A narrower line can add rows that reach another object farther down.
  for(;;){
@@ -80,7 +81,7 @@ function placeSheetComments(text,options,{layout,holeBox,width,height,fixedPaper
  const right=width-drawingCommentMargin,title=fixedPaper&&options.frame?sheetTitleBlock(width,height):null;
  const blocks=Object.values(layout);
  if(holeBox)blocks.push(holeBox);
- const desired=Math.max(60,...unplaced.map(note=>note.width));
+ const desired=Math.max(60,...unplaced.map(note=>note.wrapWidth??note.width));
  const beside=Math.max(20,...blocks.map(box=>box.x+box.width))+18;
  let defaultX=Math.max(beside,width-15-desired),nextY=23.5;
  if(fixedPaper&&unplaced.length&&defaultX+desired>right){
@@ -151,7 +152,7 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const notes=placeSheetComments(comment,options,{layout,holeBox,width,height,fixedPaper:!!paperSize,frames,scale,dimensions});
  const note=notes.find(note=>note.id==='comment')??null;
  if(!paperSize){
-  width=Math.max(width,...notes.map(note=>note.x+note.width+15));
+  width=Math.max(width,...notes.map(note=>note.x+Math.max(note.width,note.wrapWidth??0)+15));
   height=Math.max(height,...notes.map(note=>note.y+note.height+(options.frame?44:20)));
  }
  if(Math.max(width,height)>5000)throw Error('図面が大きすぎます。縮尺を小さくしてください');
@@ -203,5 +204,5 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const extraViews=extraNames.map(view).join('');
  const backgrounds=viewColor?Object.entries(viewBoxes).map(([name,boxes])=>viewBackgroundSVG(name,boxes,viewColor)).join(''):'';
  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,options.layout==='compact'?'FORMA CAD / AUTO LAYOUT':(!isThirdAngleLayout(layout)||layout.front&&drawingViewFactor('front',options)!==1)?'FORMA CAD / VIEW LAYOUT':'FORMA CAD / THIRD ANGLE',4.5)+text(width-15,12,options.pageViews?.length===0?'mm':'SCALE '+ratio+' / mm',3.5,'text-anchor="end"')+baseViews+extraViews+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensions.map((d,i)=>layout[d.view]?dimensionSVG(d,layout[d.view],layout[d.view].scale,i,options.dimensionColors):'').join('')+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
- return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,viewTitles,note,notes,holeBox,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12)};
+ return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12)};
 }

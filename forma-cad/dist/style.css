@@ -135,6 +135,13 @@
 
 #drawing-editor[hidden], #drawing-editor [hidden] { display: none; }
 #drawing-preview [data-comment] { cursor: pointer; }
+#drawing-preview [data-comment-resize] { cursor: ew-resize; }
+#drawing-preview[data-hole-inspection] :is([data-hole-row],[data-hole-marker],[data-hole-hit]) { cursor: pointer; }
+#drawing-preview[data-hole-inspection] :is([data-hole-row] > rect,[data-hole-hit]) { pointer-events: all; }
+#drawing-preview [data-hole-row][data-hole-selected] > rect,
+#drawing-preview [data-hole-hit][data-hole-selected] { fill: #ffbc45; fill-opacity: .35; stroke: #ad5200; stroke-width: .5; }
+#drawing-preview [data-hole-marker][data-hole-selected] text { fill: #813600; font-weight: bold; }
+#drawing-preview [data-hole-marker][data-hole-selected] path { stroke: #ad5200; stroke-width: .55; }
 #drawing-preview [data-edit-selected] text { text-decoration: underline; }
 #drawing-preview [data-edit-selected]:not([data-dimension],[data-comment]) text { fill:#007eaa; }
 #drawing-editor { padding: 10px; border: 1px solid #42849a; border-radius: 6px; }

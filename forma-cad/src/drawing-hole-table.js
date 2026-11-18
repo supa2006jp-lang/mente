@@ -33,10 +33,12 @@ export function drawingHoleTableSVG(table,box){
   for(let index=start;index<end;index++){
    const {center,radius,machining,number,review}=table.holes[index],recess=machining?.counterbore;
    const id='H'+(number??index+1);
-   if(review){labels+=print([id,'—','—','—','要確認','—','—'],index-start+1);continue;}
    const depth=machining?.through?'貫通':machining?rounded(machining.depth):'—';
-   labels+=print([id,rounded(center[0]-table.origin[0]),rounded(table.origin[1]-center[1]),
-    rounded(radius*2),depth,recess?rounded(recess.radius*2):'—',recess?rounded(recess.depth):'—'],index-start+1);
+   const values=review?[id,'—','—','—','要確認','—','—']:
+    [id,rounded(center[0]-table.origin[0]),rounded(table.origin[1]-center[1]),
+     rounded(radius*2),depth,recess?rounded(recess.radius*2):'—',recess?rounded(recess.depth):'—'];
+   const row=index-start+1;
+   labels+='<g data-hole-row="'+id+'">'+print(values,row)+'</g>';
   }
  }
  return '<g data-hole-table="true"><g stroke="#24455b" stroke-width=".2" fill="none">'+grid+'</g>'+labels+'</g>';
@@ -46,7 +48,11 @@ export function drawingHoleMarkers(table,view){
  const marks=[];
  if(!drawingPointOmitted(view,table.origin))marks.push({label:'O',point:drawingPaperPoint(view,table.origin),origin:true});
  table.holes.forEach((hole,index)=>{
-  if(!hole.review&&drawingDimensionVisible(hole,view))marks.push({label:'H'+(hole.number??index+1),point:drawingPaperPoint(view,hole.center)});
+  if(!hole.review&&drawingDimensionVisible(hole,view)){
+   const outer=hole.machining?.counterbore?.radius;
+   const radius=(outer&&drawingDimensionVisible({center:hole.center,radius:outer},view)?outer:hole.radius)*view.scale;
+   marks.push({label:'H'+(hole.number??index+1),point:drawingPaperPoint(view,hole.center),radius});
+  }
  });
  return marks;
 }
@@ -56,9 +62,29 @@ export function drawingHoleMarkersSVG(table,view){
  const ids=markers.map(({label,point:[x,y],origin})=>{
   const cross='<g fill="none" stroke="#24455b" stroke-width=".24">'+line(x-1.4,y,x+1.4,y)+line(x,y-1.4,x,y+1.4)+
    (origin?line(x,y,x+6,y)+line(x,y,x,y-6):'')+'</g>';
-  return cross+text(label,x+1.6,y-1.5)+(origin?text('X',x+6.4,y+.8)+text('Y',x-1,y-6.6):'');
+  const symbol=cross+text(label,x+1.6,y-1.5);
+  return origin?symbol+text('X',x+6.4,y+.8)+text('Y',x-1,y-6.6):'<g data-hole-marker="'+label+'">'+symbol+'</g>';
  }).join('');
  return '<g data-hole-labels="'+table.view+'" fill="#24455b">'+ids+'</g>';
+}
+// Hit areas belong to the editing viewport. They never enter an exported drawing.
+export function addDrawingHoleHitAreas(svg,{holeTable,holeBox,layout}){
+ if(!holeTable)return;
+ function shape(tag,attrs){
+  const el=document.createElementNS('http://www.w3.org/2000/svg',tag);
+  for(const [key,value] of Object.entries({...attrs,fill:'none',stroke:'none','aria-hidden':'true'}))el.setAttribute(key,value);
+  return el;
+ }
+ if(holeBox)svg.querySelectorAll('[data-hole-row]').forEach((row,i)=>{
+  row.prepend(shape('rect',{x:holeBox.x+Math.floor(i/rowsPerBlock)*blockWidth,
+   y:holeBox.y+6+(i%rowsPerBlock+1)*rowHeight,width:blockWidth,height:rowHeight}));
+ });
+ const group=svg.querySelector('[data-hole-labels]');
+ if(!group)return;
+ const marks=drawingHoleMarkers(holeTable,layout[holeTable.view]).filter(mark=>!mark.origin);
+ // Keep smaller concentric holes reachable. The crosses and labels sit above the hit areas.
+ group.prepend(...marks.sort((a,b)=>b.radius-a.radius).map(({label,point:[cx,cy],radius})=>
+  shape('circle',{'data-hole-hit':label,cx,cy,r:radius})));
 }
 function sameCircle(a,b,radius=b.radius){
  return Math.hypot(a.center[0]-b.center[0],a.center[1]-b.center[1])<1e-4&&Math.abs(a.radius-radius)<1e-4;

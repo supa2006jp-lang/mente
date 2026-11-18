@@ -14,7 +14,7 @@ export function drawingViewport({dialog,host,minus,plus,fit,percent,expand,canNa
  host.addEventListener('wheel',e=>{if(!sheet||!canNavigate())return;e.preventDefault();const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?host.clientHeight:1);change(zoom*Math.exp(-Math.max(-200,Math.min(200,delta))*.0025),point(e));},{passive:false});
  const expanded=value=>{dialog.classList.toggle('drawing-expanded',value);expand.textContent=value?'通常の表示に戻す':'作業領域を最大化';expand.setAttribute('aria-pressed',String(value));requestAnimationFrame(markers);};
  expand.onclick=()=>expanded(!dialog.classList.contains('drawing-expanded'));
- dialog.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.matches('input,textarea,select,button,[contenteditable=true]')){space=true;e.preventDefault();}},true);
+ dialog.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.matches('input,textarea,select,button,[role=button],[contenteditable=true]')){space=true;e.preventDefault();}},true);
  dialog.addEventListener('keyup',e=>{if(e.code==='Space')space=false;});
  function end(e){if(!pan||e&&e.pointerId!==pan.id)return;const id=pan.id;pan=null;host.classList.remove('drawing-panning');if(host.hasPointerCapture(id))host.releasePointerCapture(id);}
  host.addEventListener('pointerdown',e=>{if(!pan)suppress=false;if(!sheet||!canNavigate()||!(e.button===1||e.button===0&&space))return;e.preventDefault();e.stopImmediatePropagation();const matrix=svg()?.getScreenCTM();if(!matrix)return;pan={id:e.pointerId,x:e.clientX,y:e.clientY,center:[...center],inverse:matrix.inverse()};suppress=e.button===0;host.setPointerCapture(e.pointerId);host.classList.add('drawing-panning');},true);
