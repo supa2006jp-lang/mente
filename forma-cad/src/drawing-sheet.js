@@ -1,7 +1,7 @@
 import {alignThirdAngleViews,isThirdAngleLayout,drawingProjectionNames,drawingViewFactor,drawingViewVisible} from './drawing-view-preferences.js';
 import {withDetails,hatchPaths,annotationSVG} from './drawing-annotations.js';
-import {drawingViewFrames} from './drawing-auto-layout.js';
-import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingCommentEntries} from './drawing-comments.js';
+import {decoratedDrawingViews,drawingViewFrames} from './drawing-auto-layout.js';
+import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingCommentEntries,drawingCommentLayout,drawingCommentMargin} from './drawing-comments.js';
 import {dimensionSVG,escapeDrawingText as esc,validDimensionColor} from './drawing-dimensions.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
 import {drawingViewTitle,drawingViewTitleSVG} from './drawing-view-title.js';
@@ -57,6 +57,59 @@ function viewBreakMarks(view){
  });
  return '<g data-break-marks="true" data-break-direction="'+axis+'" fill="none" stroke="#111" stroke-width=".35">'+paths.join('')+'</g>';
 }
+const sheetTitleBlock=(width,height)=>({x:Math.max(10,width-165),y:height-32,width:160,height:27});
+
+function fitSheetComment(note,x,y,limit,obstacles){
+ let fitted=note;
+ // A narrower line can add rows that reach another object farther down.
+ for(;;){
+  if(fitted.width>limit+1e-7)fitted={...note,...drawingCommentLayout(note.text,note.size,note.font,limit)};
+  let next=limit;
+  for(const box of obstacles){
+   if(x<box.x-2&&y<box.y+box.height&&y+fitted.height>box.y)next=Math.min(next,box.x-2-x);
+  }
+  if(next>=limit-1e-7||fitted.width<=next+1e-7)return {...fitted,x,y};
+  limit=next;
+ }
+}
+
+function placeSheetComments(text,options,{layout,holeBox,width,height,fixedPaper,frames,scale,dimensions}){
+ const rows=drawingCommentEntries(text,options,width-2*drawingCommentMargin);
+ if(!rows.length)return [];
+ const positions=options.positions??{},unplaced=rows.filter(note=>!positions[note.id]);
+ const right=width-drawingCommentMargin,title=fixedPaper&&options.frame?sheetTitleBlock(width,height):null;
+ const blocks=Object.values(layout);
+ if(holeBox)blocks.push(holeBox);
+ const desired=Math.max(60,...unplaced.map(note=>note.width));
+ const beside=Math.max(20,...blocks.map(box=>box.x+box.width))+18;
+ let defaultX=Math.max(beside,width-15-desired),nextY=23.5;
+ if(fixedPaper&&unplaced.length&&defaultX+desired>right){
+  const below=Math.max(23.5,...blocks.map(box=>box.y+box.height+5));
+  const stackHeight=unplaced.reduce((sum,note)=>sum+note.height+5,-5);
+  if(below+stackHeight<=(title?.y??height-12)-1||right-defaultX<Math.min(desired,60)){
+   defaultX=15;nextY=below;
+  }
+ }
+ const compact=options.layout==='compact',obstacles=title?[title]:[];
+ if(compact){
+  for(const {key,box} of decoratedDrawingViews(frames,scale,dimensions,options)){
+   obstacles.push({...box,x:layout[key].x+box.x,y:layout[key].y+box.y});
+  }
+  if(holeBox)obstacles.push(holeBox);
+ }
+ // Resolve the notes on the right first so their final bounds can also limit a line.
+ const xOf=note=>positions[note.id]?.[0]??defaultX;
+ const ordered=compact?[...rows].sort((a,b)=>xOf(b)-xOf(a)):rows,placed=new Map();
+ for(const note of ordered){
+  const [x,y]=positions[note.id]??[defaultX,nextY];
+  const fitted=fitSheetComment(note,x,y,fixedPaper?right-x:Infinity,obstacles);
+  placed.set(note.id,fitted);
+  if(compact)obstacles.push(fitted);
+  if(!positions[note.id])nextY=y+fitted.height+5;
+ }
+ return rows.map(note=>placed.get(note.id));
+}
+
 export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',options={}){
  options={paper:'A4',orientation:'landscape',...options};data=withDetails(data,options.details);
  options.holeTable=resolveDrawingHoleTable(options.holeTable,data.views);
@@ -80,17 +133,9 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  }
  const rightEdge=Math.max(left,...Object.values(layout).map(v=>v.x+v.width));
  const bottomEdge=Math.max(top,...Object.values(layout).map(v=>v.y+v.height));
- const paperSize=options.paper==='A4'?[297,210]:options.paper==='A3'?[420,297]:null,paperWidth=paperSize?(options.orientation==='portrait'?paperSize[1]:paperSize[0]):null;
- const baseWidth=Math.max(297,rightEdge+10),commentX=Math.max((paperWidth||baseWidth)-75,rightEdge+18);
- let commentY=23.5;
- const notes=drawingCommentEntries(comment,options).map(note=>{
-  const placed={...note,x:positions[note.id]?.[0]??commentX,y:positions[note.id]?.[1]??commentY};
-  commentY+=note.height+5;
-  return placed;
- });
- const note=notes.find(note=>note.id==='comment')??null;
- let width=Math.max(baseWidth,...notes.map(note=>note.x+75)),height=Math.max(210,bottomEdge+36,...notes.map(note=>note.y+note.height+20))+(options.frame?24:0);
- if(options.paper==='A4'||options.paper==='A3'){const size=options.paper==='A3'?[420,297]:[297,210];[width,height]=options.orientation==='portrait'?[size[1],size[0]]:size;}
+ const paperSize=options.paper==='A4'?[297,210]:options.paper==='A3'?[420,297]:null;
+ let width=Math.max(297,rightEdge+10),height=Math.max(210,bottomEdge+36)+(options.frame?24:0);
+ if(paperSize)[width,height]=options.orientation==='portrait'?[paperSize[1],paperSize[0]]:paperSize;
  if(Math.max(width,height)>5000)throw Error('図面が大きすぎます。縮尺を小さくしてください');
  let extraX=20,extraY=bottomEdge+30,rowHeight=0;const extraNames=Object.keys(data.views).filter(k=>k!=='iso'&&!drawingProjectionNames.includes(k)&&drawingViewVisible(k,options));
  for(const key of extraNames){const view=data.views[key],b=view.viewBox,s=scale*frames[key].factor,vw=b[2]*s,vh=b[3]*s;if(extraX>20&&extraX+vw>width-15){extraX=20;extraY+=rowHeight+25;rowHeight=0;}layout[key]={x:extraX,y:extraY,bx:b[0],by:b[1],width:vw,height:vh,scale:s};extraX+=vw+25;rowHeight=Math.max(rowHeight,vh);}
@@ -102,6 +147,12 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  if(holeBox&&options.paper==='auto'){
   width=Math.max(width,holeBox.x+holeBox.width+8);
   height=Math.max(height,holeBox.y+holeBox.height+(options.frame?40:18));
+ }
+ const notes=placeSheetComments(comment,options,{layout,holeBox,width,height,fixedPaper:!!paperSize,frames,scale,dimensions});
+ const note=notes.find(note=>note.id==='comment')??null;
+ if(!paperSize){
+  width=Math.max(width,...notes.map(note=>note.x+note.width+15));
+  height=Math.max(height,...notes.map(note=>note.y+note.height+(options.frame?44:20)));
  }
  if(Math.max(width,height)>5000)throw Error('図面が大きすぎます。縮尺を小さくしてください');
  const viewColor=backgroundColor(options.viewBackground),color=drawingBackgroundColor(options),paperColor=viewColor?'white':color??'white';
@@ -139,7 +190,7 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
   return '<g data-comment="'+(note.id==='comment'?'true':note.id)+'" fill="'+color+'" font-family="'+esc(drawingCommentFamily(note.font))+'">'+
    note.lines.map((line,i)=>text(note.x,note.y+note.baseline+i*note.lineHeight,line,note.fontSize,'xml:space="preserve"')).join('')+'</g>';
  }).join('');
- const titleBlock=options.frame?{x:Math.max(10,width-165),y:height-32,width:160,height:27}:null;
+ const titleBlock=options.frame?sheetTitleBlock(width,height):null;
  let frame='';if(titleBlock){const {x:fx,y:fy,width:fw,height:fh}=titleBlock;frame='<g data-titleblock="true" font-family="sans-serif"><rect x="5" y="5" width="'+(width-10)+'" height="'+(height-10)+'" fill="none" stroke="#111" stroke-width=".3"/><rect x="'+fx+'" y="'+fy+'" width="'+fw+'" height="'+fh+'" fill="white" stroke="#111" stroke-width=".25"/>';for(const [i,key,label] of [[0,'name','部品名'],[1,'material','材質'],[2,'date','作成日']]){const y=fy+i*9;frame+='<path d="M '+fx+' '+y+' H '+(fx+fw)+' M '+(fx+25)+' '+y+' V '+(y+9)+'" fill="none" stroke="#111" stroke-width=".18"/>'+text(fx+3,y+5.5,label,3);const rows=commentLines(options[key]||'',128,2.8).slice(0,2);rows.forEach((r,j)=>frame+=text(fx+28,y+3.5+j*3.5,r,2.8));}
   if(options.revision?.trim()){
    const x=fx+77,y=fy+18;

@@ -1,6 +1,6 @@
 import {drawingViewVisible,drawingViewScale,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
-import {drawingCommentEntries} from './drawing-comments.js';
+import {drawingCommentEntries,drawingCommentMargin} from './drawing-comments.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
 import {displayedDrawingSpan,drawingBreakAxis,drawingPaperPoint,drawingPointOmitted,drawingViewBreak} from './drawing-break.js';
 import {drawingHoleMarkers,drawingHoleTableSize,resolveDrawingHoleTable} from './drawing-hole-table.js';
@@ -29,7 +29,7 @@ export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale,pr
  else if(d.kind==='angle'){for(let i=0;i<2;i++)at[i]=d.vertex[i]+(at[i]-d.vertex[i])*old/next;}
  else{const u=d.b.map((v,i)=>v-d.a[i]),length=Math.hypot(...u)||1,n=[-u[1]/length,u[0]/length],offset=(at[0]-d.a[0])*n[0]+(at[1]-d.a[1])*n[1];for(let i=0;i<2;i++)at[i]+=n[i]*offset*(old/next-1);}
  return {...structuredClone(d),at,...(d.alongOffset===undefined?{}:{alongOffset:d.alongOffset*old/next})};});}
-function decoratedViews(frames,scale,dimensions,options){const boxes={},layout={};
+export function decoratedDrawingViews(frames,scale,dimensions,options){const boxes={},layout={};
  for(const [key,f] of Object.entries(frames)){
   const s=scale*f.factor,width=displayedDrawingSpan(f,0)*s,height=displayedDrawingSpan(f,1)*s;
   const view={x:0,y:0,bx:f.bx,by:f.by,width,height,scale:s,break:f.break};
@@ -59,17 +59,27 @@ function slicingPack(items,width,height){const limitW=width+GAP,limitH=height+GA
 function freeRectPack(items,width,height){let best=null;const sorts=[(a,b)=>b.height-a.height,(a,b)=>b.width-a.width,(a,b)=>b.width*b.height-a.width*a.height,(a,b)=>Math.max(b.width,b.height)-Math.max(a.width,a.height),(a,b)=>b.width/b.height-a.width/a.height,(a,b)=>a.width/a.height-b.width/b.height];for(const sort of sorts){let free=[{x:0,y:0,width:width+GAP,height:height+GAP}],at={},w=0,h=0,failed=false;for(const item of [...items].sort(sort)){const iw=item.width+GAP,ih=item.height+GAP,candidates=free.filter(r=>r.width>=iw-1e-8&&r.height>=ih-1e-8).sort((a,b)=>Math.min(a.width-iw,a.height-ih)-Math.min(b.width-iw,b.height-ih)||a.y-b.y||a.x-b.x);if(!candidates.length){failed=true;break;}const rect={x:candidates[0].x,y:candidates[0].y,width:iw,height:ih};at[item.key]=[rect.x,rect.y];w=Math.max(w,rect.x+iw);h=Math.max(h,rect.y+ih);const split=[];for(const f of free){if(!overlap(f,rect)){split.push(f);continue;}if(rect.x>f.x)split.push({...f,width:rect.x-f.x});if(rect.x+iw<f.x+f.width)split.push({...f,x:rect.x+iw,width:f.x+f.width-rect.x-iw});if(rect.y>f.y)split.push({...f,height:rect.y-f.y});if(rect.y+ih<f.y+f.height)split.push({...f,y:rect.y+ih,height:f.y+f.height-rect.y-ih});}free=split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&(q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));}if(!failed&&(!best||w*h<best.w*best.h))best={w,h,at};}return best;}
 export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',options={}}={}){
  if(options.holeTable)options={...options,holeTable:resolveDrawingHoleTable(options.holeTable,data.views)};
- if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.orientation==='portrait'?[size[1],size[0]]:size,area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options),notes=drawingCommentEntries(comment,options);
+ if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.orientation==='portrait'?[size[1],size[0]]:size,area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options);
+ const maxNoteWidth=width-2*drawingCommentMargin;
+ const notes=drawingCommentEntries(comment,options,maxNoteWidth),noteColumns=[notes];
+ // Keep longer lines when they fit. Fixed-scale views may leave only a narrow column.
+ for(const limit of [maxNoteWidth/2,60]){
+  if(noteColumns.at(-1).some(note=>note.width>limit))noteColumns.push(drawingCommentEntries(comment,options,limit));
+ }
  const table=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:frames);
  if(!Object.keys(frames).length&&!table&&!notes.length)throw Error('図面に載せるビューを1つ以上選択してください');
  const previousFrames=drawingViewFrames(data,options,scale);
  const attempt=s=>{
   const nextFrames=drawingViewFrames(data,options,s);
-  const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames),items=decoratedViews(nextFrames,s,resized,options);
-  for(const [key,block] of [...notes.map(note=>[note.id,note]),['holeTable',table]])if(block){const width=block.width+2,height=block.height+2;items.push({key,box:{x:-1,y:-1,width,height},width,height});}
-  if(items.length>24)throw Error('自動配置する図が多すぎます');
-  const packed=items.length<=6?slicingPack(items,area.width,area.height):freeRectPack(items,area.width,area.height);
-  return packed?{items,packed,dimensions:resized}:null;
+  const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames),views=decoratedDrawingViews(nextFrames,s,resized,options);
+  for(const column of noteColumns){
+   const items=[...views];
+   for(const [key,block] of [...column.map(note=>[note.id,note]),['holeTable',table]])if(block){const width=block.width+2,height=block.height+2;items.push({key,box:{x:-1,y:-1,width,height},width,height});}
+   if(items.length>24)throw Error('自動配置する図が多すぎます');
+   const packed=items.length<=6?slicingPack(items,area.width,area.height):freeRectPack(items,area.width,area.height);
+   if(packed)return {items,packed,dimensions:resized};
+  }
+  return null;
  };
  const variable=Object.keys(frames).some(name=>options.viewScales?.[name]===undefined);
  let lo=variable?MIN_SCALE:scale,hi=MAX_SCALE;if(!attempt(lo))throw Error('文字・寸法・コメントを用紙に収められません。コメントを短くするか用紙を大きくしてください');if(variable){if(attempt(hi))lo=hi;else for(let i=0;i<36;i++){const mid=(lo+hi)/2;if(attempt(mid))lo=mid;else hi=mid;}}

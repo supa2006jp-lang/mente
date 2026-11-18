@@ -125,7 +125,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  let viewSelection=[...defaultDrawingViews],lastVisibleIsoMode='full';
  let frontFace=null,frontFrame,autoDimensionViews={},dimensionFontSize=standardDimensionFont;
  let hiddenViews={},dimensionReferences={},dimensionColors={};
- let commentColor=defaultDrawingCommentColor,commentFont='',requestedCommentFont='';
+ let commentColor=defaultDrawingCommentColor,commentFont='',requestedCommentFonts='';
  const defaultBreakPercent=70;
  let breakAxis='',breakPercent=defaultBreakPercent,breakRange,holeTable;
  let projectionLocked=true;
@@ -789,17 +789,18 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(document.activeElement!==$('drawing-comment-size'))$('drawing-comment-size').value=current.size;
   $('drawing-comment-color').disabled=$('drawing-comment-font').disabled=$('drawing-comment-size').disabled=!ready;
   $('drawing-comment').style.fontFamily=drawingCommentFamily(current.font);
-  if(current.font===requestedCommentFont)return;
-  const font=current.font,label=$('drawing-comment-font-status');
-  requestedCommentFont=font;
-  label.textContent=font?'フォントを読み込んでいます…':'';
-  if(!font)return;
-  loadDrawingCommentFont(font).then(()=>{
-   if(currentCommentStyle().font!==font)return;
+  const fonts=[...new Set([current.font,commentFont,...comments.filter(note=>note.text.trim()).map(note=>note.font)].filter(Boolean))].sort();
+  const request=fonts.join(','),label=$('drawing-comment-font-status');
+  if(request===requestedCommentFonts)return;
+  requestedCommentFonts=request;
+  label.textContent=fonts.length?'フォントを読み込んでいます…':'';
+  if(!fonts.length)return;
+  Promise.all(fonts.map(loadDrawingCommentFont)).then(()=>{
+   if(request!==requestedCommentFonts)return;
    label.textContent='';
    if(dialog.open&&sheet)render(false);
   }).catch(()=>{
-   if(currentCommentStyle().font===font)label.textContent='フォントを読み込めませんでした。選び直して再試行してください。';
+   if(request===requestedCommentFonts)label.textContent='フォントを読み込めませんでした。選び直して再試行してください。';
   });
  }
  function viewLabel(name){
