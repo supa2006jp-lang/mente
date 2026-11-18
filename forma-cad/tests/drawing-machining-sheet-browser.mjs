@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {chromium} from 'playwright';
 import {defaults} from '../src/geometry.js';
-import {readDrawingState} from '../src/drawing-state.js';
+import {drawingSignature,readDrawingState} from '../src/drawing-state.js';
 
 // Use the normal project-open and download paths against a running build.
 const url=process.argv[2]??'http://127.0.0.1:5188/';
@@ -79,6 +79,98 @@ try{
  saved.features.find(f=>f.id==='hole-1').depth=-6;
  await openProject(saved,'updated-plate.forma.json');
  assert.equal((await cells())[19],'6');
+ await drawing('close').click();
+ await page.locator('#features [data-history-feature="hole-1"] .row-label').click();
+ const xInput=page.locator('#x');await xInput.evaluate(el=>{for(let p=el.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;});
+ await xInput.fill('1');await page.locator('#apply').click();await drawing('tool').click();
+ await page.waitForFunction(()=>document.querySelector('#drawing-preview svg')&&!document.querySelector('#drawing-generate').disabled);
+ assert.deepEqual((await cells()).slice(8),expected.map((value,i)=>i===8?'31':i===11?'6':value));
+ assert.equal(await drawing('hole-review').isVisible(),false);
+ await drawing('close').click();
+ const moved=JSON.parse((await download(page.locator('#save'))).bytes);
+ // Supply the replacement's input features, so a cached solid from the prior machining
+ // operation cannot be reused for a different feature ID.
+ moved.features=structuredClone(doc.features);
+ const replacement=moved.features.find(f=>f.id==='hole-1');
+ replacement.id='different-hole';replacement.x=5;replacement.depth=-6;
+ await openProject(moved,'different-hole.forma.json');
+ assert.deepEqual((await cells()).slice(15,22),['H2','—','—','—','要確認','—','—']);
+ assert.match((await download(drawing('svg'))).bytes.toString(),/要確認/);
+ await drawing('pdf-preview-open').click();await drawing('pdf-preview-next').click();
+ assert.match(await drawing('pdf-preview-host').locator('[data-hole-table]').textContent(),/H2.*要確認/);
+ await drawing('pdf-preview-close').click();
+ await drawing('hole-remove-row').click();
+ assert.deepEqual((await cells()).filter(v=>/^H\d+$/.test(v)),['H1','H3']);
+ await drawing('undo').click();
+ await drawing('hole-relink').click();await drawing('expand').click();
+ const newPoint=await view.evaluate(el=>{const p=new DOMPoint(5,0).matrixTransform(el.getScreenCTM());return [p.x,p.y];});
+ await page.mouse.click(...newPoint);await drawing('expand').click();
+ assert.deepEqual((await cells()).slice(15,22),['H2','35','14','5','6','—','—']);
+ await drawing('close').click();
+
+ const base={...plate,width:40,height:25,depth:20,x:20,y:12.5},cut={...holes[0],x:10,y:8,z:20,diameter:8,depth:-20.01};
+ const sample={...doc,features:[base,cut]},section={id:'section-a',view:'top',orientation:'vertical',coordinate:10,reverse:false};
+ sample.drawing={version:1,signature:drawingSignature(sample.features),targets:['plate'],targetMode:'visible',dimensions:[],hidden:true,scale:1,comment:'',
+  options:{paper:'A4',orientation:'landscape',frame:true,name:'断面試験',material:'',date:'',positions:{},sections:[section]}};
+ await openProject(sample,'section-edit.forma.json');
+ const svgRoot=drawing('preview').locator('svg'),values=()=>svgRoot.locator('[data-dimension] text').allTextContents();
+ const generated=()=>page.waitForFunction(()=>!document.querySelector('#drawing-generate').disabled&&document.querySelector('#drawing-preview svg'));
+ await drawing('dimension-auto').click();
+ const before=await values();assert.ok(before.includes('4')&&before.includes('13'));
+ const pos=drawing('section-position');
+ await pos.evaluate(el=>{for(let p=el.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;});
+ async function moveSection(value){await pos.fill(String(value));await pos.press('Tab');await generated();}
+ await moveSection(11);
+ const followed=await values();assert.equal(followed.length,before.length);assert.ok(followed.includes('4.127')&&followed.includes('13.127'));
+ await moveSection(18);
+ assert.equal((await values()).length,before.length);assert.equal((await values()).filter(v=>v==='要確認').length,2);
+ assert.match((await download(drawing('svg'))).bytes.toString(),/要確認/);
+ await drawing('undo').click();await generated();assert.equal(await pos.inputValue(),'11');assert.deepEqual(await values(),followed);
+ await drawing('expand').click();
+ const sectionView=svgRoot.locator('[data-view="top"] g[transform]').first();
+ const sectionPoint=x=>sectionView.evaluate((el,x)=>{const p=new DOMPoint(x,-16).matrixTransform(el.getScreenCTM());return [p.x,p.y];},x);
+ const from=await sectionPoint(11),to=await sectionPoint(12.5);
+ await page.keyboard.down('Alt');await page.mouse.move(...from);await page.mouse.down();await page.mouse.move(...to,{steps:7});await page.mouse.up();await page.keyboard.up('Alt');await generated();
+ assert.ok(Math.abs(Number(await pos.inputValue())-12.5)<.1);assert.equal((await values()).length,before.length);
+ await drawing('expand').click();await drawing('undo').click();await generated();assert.equal(await pos.inputValue(),'11');
+ await moveSection(1000);assert.equal(await pos.inputValue(),'11');assert.deepEqual(await values(),followed);
+ await drawing('section-reverse').click();await generated();assert.equal((await values()).length,before.length);
+ await drawing('close').click();
+ const savedSection=JSON.parse((await download(page.locator('#save'))).bytes);
+ await openProject(savedSection,'section-reload.forma.json');
+ assert.equal((await values()).length,before.length);assert.equal(await pos.inputValue(),'11');
+ await drawing('close').click();
+
+ await openProject(doc,'third-angle.forma.json');
+ const lock=drawing('projection-lock');await lock.check();assert.equal(await svgRoot.getAttribute('data-layout'),'projection');
+ await drawing('scale').selectOption('1');await drawing('layout-mode').check();await drawing('expand').click();
+ const place=name=>svgRoot.locator('[data-view="'+name+'"] g[transform]').first().evaluate(el=>{
+  const m=el.transform.baseVal.getItem(0).matrix;return [m.e,m.f];
+ });
+ async function drag(name,dx,dy){
+  const label=svgRoot.locator('[data-view="'+name+'"] > text').first();await label.scrollIntoViewIfNeeded();
+  const box=await label.boundingBox(),scale=await svgRoot.evaluate(el=>el.getScreenCTM().a),x=box.x+box.width/2,y=box.y+box.height/2;
+  await page.keyboard.down('Alt');await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx*scale,y+dy*scale,{steps:8});await page.mouse.up();await page.keyboard.up('Alt');
+ }
+ const nearly=(a,b)=>assert.ok(Math.abs(a-b)<.1,a+' versus '+b);
+ let top=await place('top'),front=await place('front'),right=await place('right');
+ await drag('top',18,3);nearly((await place('top'))[0],front[0]);nearly((await place('top'))[1],top[1]+3);
+ await drag('right',5,10);nearly((await place('right'))[1],front[1]);nearly((await place('right'))[0],right[0]+5);
+ top=await place('top');right=await place('right');
+ await drag('front',4,2);front=await place('front');
+ nearly((await place('top'))[0],front[0]);nearly((await place('top'))[1],top[1]+2);
+ nearly((await place('right'))[1],front[1]);nearly((await place('right'))[0],right[0]+4);
+ await drawing('expand').click();await lock.uncheck();await drawing('expand').click();
+ await drag('top',13,0);nearly((await place('top'))[0],front[0]+13);
+ assert.match(await svgRoot.locator('text').first().textContent(),/VIEW LAYOUT/);
+ await drawing('expand').click();await lock.check();nearly((await place('top'))[0],front[0]);
+ assert.match((await download(drawing('svg'))).bytes.toString(),/THIRD ANGLE/);
+ await drawing('undo').click();assert.equal(await lock.isChecked(),false);
+ await drawing('redo').click();assert.equal(await lock.isChecked(),true);
+ await drawing('close').click();
+ const locked=JSON.parse((await download(page.locator('#save'))).bytes);
+ assert.equal(readDrawingState(locked.drawing).options.projectionLocked,true);
+ await openProject(locked,'locked.forma.json');assert.equal(await lock.isChecked(),true);nearly((await place('top'))[0],(await place('front'))[0]);
  assert.deepEqual(errors,[]);
- console.log('PASS three hole specifications, revision undo/redo, SVG/PDF names, two-page preview, project reload and refreshed depth');
+ console.log('PASS hole specs, stable numbers, reviewed rows in exports and manual relink, section dimensions and undo, third-angle drag lock, names and reload');
 }finally{await browser.close();}

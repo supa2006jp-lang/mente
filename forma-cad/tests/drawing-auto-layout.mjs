@@ -73,7 +73,7 @@ assert.match(tableSheet.svg,/data-hole-table="true"/);
 assert.match(tableSheet.svg,/>15<\/text>/);
 assert.match(tableSheet.svg,/>3\.5<\/text>/);
 assert.match(tableSheet.svg,/data-hole-labels="top"/);
-assert.doesNotMatch(drawingSheet(data,1,true,[],'',{...tableOptions,holeTable:{...holeTable,review:true}}).svg,/data-hole-table/);
+assert.match(drawingSheet(data,1,true,[],'',{...tableOptions,holeTable:{...holeTable,review:true}}).svg,/要確認/);
 const profiled=fixture(60,40,20);
 profiled.views['section-a']={visible:['M 0 0 L 5 0 L 5 -12 L 20 -12 L 20 -20'],hidden:[],viewBox:[0,-20,20,20]};
 profiled.views.top.visible=['M 5 -10 L 12 -10 L 12 -16','M 35 -25 L 50 -25'];

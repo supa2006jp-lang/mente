@@ -104,15 +104,15 @@ export function projectDrawingHoles(rims,projection){
   else if(Math.abs(level-previous.level)<=tolerance)previous.machining=undefined;
  }
  const found=new Map();
- for(const {center,machining} of nearest.values()){
+ for(const {center,level,machining} of nearest.values()){
   if(!machining)continue;
   const record=found.get(machining);
-  if(record)record.rims++;
-  else found.set(machining,{center,rims:1});
+  if(record){record.rims++;record.level=Math.max(record.level,level);}
+  else found.set(machining,{center,level,rims:1});
  }
  const holes=[];
- for(const [machining,{center,rims}] of found){
-  if(!machining.counterbore||rims===2)holes.push({center,...machining});
+ for(const [machining,{center,level,rims}] of found){
+  if(!machining.counterbore||rims===2)holes.push({center,entryLevel:level,...machining});
  }
  return holes;
 }

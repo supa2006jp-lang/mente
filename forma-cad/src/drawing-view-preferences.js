@@ -10,6 +10,42 @@ export const drawingProjections={
  bottom:{label:'BOTTOM',title:'底面',normal:[0,0,-1],horizontal:[1,0,0],vertical:[0,1,0]},
 };
 export const drawingProjectionNames=Object.keys(drawingProjections);
+export const projectionDragAxis=name=>['top','bottom'].includes(name)?1:['left','right','back'].includes(name)?0:null;
+
+export function alignThirdAngleViews(layout,frontPosition){
+ const front=layout.front??{x:frontPosition[0],y:frontPosition[1],
+  width:layout.top?.width??layout.bottom?.width??0,height:layout.right?.height??layout.left?.height??0};
+ for(const name of ['top','bottom']){
+  const view=layout[name];if(!view)continue;
+  view.x=front.x+(front.width-view.width)/2;
+  view.y=name==='top'?Math.min(view.y,front.y-view.height-9):Math.max(view.y,front.y+front.height+9);
+ }
+ for(const name of ['left','right','back']){
+  const view=layout[name];if(!view)continue;
+  view.y=front.y+(front.height-view.height)/2;
+  if(name==='left')view.x=Math.min(view.x,front.x-view.width-2);
+  else{
+   const previous=name==='back'&&layout.right?layout.right:front;
+   view.x=Math.max(view.x,previous.x+previous.width+2);
+  }
+ }
+}
+
+export function isThirdAngleLayout(layout){
+ const front=layout.front;
+ if(!front)return true;
+ for(const name of drawingProjectionNames){
+  const view=layout[name];if(!view||name==='front')continue;
+  if(Math.abs(view.scale-front.scale)>1e-6)return false;
+  if(projectionDragAxis(name)===1){
+   if(Math.abs(view.x-front.x)>1e-4||(name==='top'?view.y+view.height>front.y+.001:view.y<front.y+front.height-.001))return false;
+  }else{
+   const previous=name==='back'&&layout.right?layout.right:front;
+   if(Math.abs(view.y-front.y)>1e-4||(name==='left'?view.x+view.width>front.x+.001:view.x<previous.x+previous.width-.001))return false;
+  }
+ }
+ return true;
+}
 export const defaultDrawingViewOrder=['front','top','right','left','back','bottom'];
 export function drawingViewVisible(name,options={}){
  if(options.pageViews&&!options.pageViews.includes(name))return false;

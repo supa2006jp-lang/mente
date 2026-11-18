@@ -32,7 +32,7 @@ export function drawingPDFPages(data,scale,hidden,dimensions,comment,options){
  const names=Object.keys(withDetails(data,options.details).views).filter(name=>drawingViewVisible(name,options));
  const overview=names.filter(name=>!name.startsWith('section-')&&!name.startsWith('detail-'));
  const auxiliary=names.filter(name=>!overview.includes(name));
- const hasTable=!!options.holeTable&&!options.holeTable.review&&overview.includes(options.holeTable.view);
+ const hasTable=!!options.holeTable&&overview.includes(options.holeTable.view);
  const pages=[];
  function fit(views,table,notes,pageComments=false){
   const pageOptions={...options,pageViews:views,pageHoleTable:table,pageComments,layout:'compact'};

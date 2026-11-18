@@ -1,13 +1,14 @@
 import {drawingDimensionVisible,drawingPaperPoint,drawingPointOmitted} from './drawing-break.js';
 import {drawingProjections} from './drawing-view-preferences.js';
 import {completeDrawingCircles} from './drawing-auto-dimensions.js';
+import {escapeDrawingText} from './drawing-dimensions.js';
 
 export const maxDrawingTableHoles=48;
 // Keep the original 74 mm block width so saved sheet placements still fit.
 const rowsPerBlock=24,columnWidths=[7,11.5,11.5,9,10,11.5,13.5],rowHeight=4.6;
 const blockWidth=columnWidths.reduce((a,b)=>a+b,0);
 const rounded=n=>Number(n.toFixed(3));
-const text=(s,x,y,anchor='start',size=2.8)=>'<text x="'+x+'" y="'+y+'" text-anchor="'+anchor+'" font-size="'+size+'">'+s+'</text>';
+const text=(s,x,y,anchor='start',size=2.8)=>'<text x="'+x+'" y="'+y+'" text-anchor="'+anchor+'" font-size="'+size+'">'+escapeDrawingText(s)+'</text>';
 const line=(x,y,endX,endY)=>'<path d="M '+x+' '+y+' L '+endX+' '+endY+'"/>';
 export function drawingHoleTableSize(table,views){
  if(!table||table.review||!views[table.view])return null;
@@ -30,9 +31,11 @@ export function drawingHoleTableSVG(table,box){
   }).join('');
   labels+=print(['ID','X','Y','穴径 Ø','穴深さ','座ぐり径','座ぐり深さ'],0);
   for(let index=start;index<end;index++){
-   const {center,radius,machining}=table.holes[index],recess=machining?.counterbore;
+   const {center,radius,machining,number,review}=table.holes[index],recess=machining?.counterbore;
+   const id='H'+(number??index+1);
+   if(review){labels+=print([id,'—','—','—','要確認','—','—'],index-start+1);continue;}
    const depth=machining?.through?'貫通':machining?rounded(machining.depth):'—';
-   labels+=print(['H'+(index+1),rounded(center[0]-table.origin[0]),rounded(table.origin[1]-center[1]),
+   labels+=print([id,rounded(center[0]-table.origin[0]),rounded(table.origin[1]-center[1]),
     rounded(radius*2),depth,recess?rounded(recess.radius*2):'—',recess?rounded(recess.depth):'—'],index-start+1);
   }
  }
@@ -43,7 +46,7 @@ export function drawingHoleMarkers(table,view){
  const marks=[];
  if(!drawingPointOmitted(view,table.origin))marks.push({label:'O',point:drawingPaperPoint(view,table.origin),origin:true});
  table.holes.forEach((hole,index)=>{
-  if(drawingDimensionVisible(hole,view))marks.push({label:'H'+(index+1),point:drawingPaperPoint(view,hole.center)});
+  if(!hole.review&&drawingDimensionVisible(hole,view))marks.push({label:'H'+(hole.number??index+1),point:drawingPaperPoint(view,hole.center)});
  });
  return marks;
 }
@@ -62,25 +65,24 @@ function sameCircle(a,b,radius=b.radius){
 }
 function resolveHoles(circles,view){
  const seen=new Set(),holes=[];
- for(const {center,radius} of circles){
-  const circle={center,radius};
+ for(const {center,radius,number,review} of circles){
+  const circle={center,radius,...(number?{number}:{})};
+  if(review){holes.push({...circle,review:true});continue;}
   const machining=view?.holeMachining?.find(bore=>sameCircle(circle,bore)||bore.counterbore&&sameCircle(circle,bore,bore.counterbore.radius));
   if(!machining){holes.push(circle);continue;}
   if(seen.has(machining))continue;
   seen.add(machining);
-  holes.push({center,radius:machining.radius,machining});
+  holes.push({...circle,radius:machining.radius,machining});
  }
  return holes;
 }
 export function resolveDrawingHoleTable(table,views){
- return table&&!table.review?{...table,holes:resolveHoles(table.holes,views[table.view])}:table;
+ if(!table)return table;
+ const {review,...rest}=table;
+ const holes=review?table.holes.map(h=>({...h,review:true})):table.holes;
+ return {...rest,holes:resolveHoles(holes,views[table.view])};
 }
 export function drawingTableHoles(view){
  const circles=completeDrawingCircles(view).sort((a,b)=>a.center[1]-b.center[1]||a.center[0]-b.center[0]||b.radius-a.radius);
  return resolveHoles(circles,view);
-}
-export function drawingHoleTableMatches(table,view){
- if(!view)return false;
- const current=completeDrawingCircles(view);
- return table.holes.every(hole=>current.some(c=>sameCircle(hole,c)));
 }
